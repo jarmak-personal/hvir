@@ -18,7 +18,7 @@ function newTerminalButton(disabled: boolean): HTMLButtonElement {
   return button
 }
 
-function appendPendingDialog(onOpen: () => void): void {
+function appendPendingDialog(onOpen: () => void, onAddShell?: () => void): void {
   onOpen()
   const dialog = document.createElement('div')
   dialog.className = 'add-harness-dialog'
@@ -31,7 +31,14 @@ function appendPendingDialog(onOpen: () => void): void {
   cancel.type = 'button'
   cancel.textContent = 'Cancel'
   cancel.addEventListener('click', () => dialog.remove())
-  dialog.append(cancel)
+  const addShell = document.createElement('button')
+  addShell.type = 'button'
+  addShell.textContent = 'Add a shell'
+  addShell.addEventListener('click', () => {
+    dialog.remove()
+    onAddShell?.()
+  })
+  dialog.append(addShell, cancel)
   document.body.append(dialog)
 }
 
@@ -57,6 +64,7 @@ function installCompleteHarnessFlow(
   openSettings.addEventListener('click', () => {
     const settings = document.createElement('div')
     settings.className = 'settings-dialog'
+    let shellDraft = false
 
     const index = document.createElement('div')
     index.className = 'settings-section-index'
@@ -69,7 +77,19 @@ function installCompleteHarnessFlow(
       const addHarness = document.createElement('button')
       addHarness.type = 'button'
       addHarness.textContent = 'Add a harness…'
-      addHarness.addEventListener('click', () => appendPendingDialog(onSettingsDialog))
+      addHarness.addEventListener('click', () =>
+        appendPendingDialog(onSettingsDialog, () => {
+          shellDraft = true
+          const grid = document.createElement('div')
+          grid.className = 'settings-profile-grid'
+          const label = document.createElement('label')
+          const name = document.createElement('input')
+          name.value = 'Additional shell'
+          label.append(name)
+          grid.append(label)
+          settings.append(grid)
+        }),
+      )
       actions.append(addHarness)
       settings.append(actions)
     })
@@ -78,7 +98,23 @@ function installCompleteHarnessFlow(
     const close = document.createElement('button')
     close.type = 'button'
     close.textContent = 'Close settings'
-    close.addEventListener('click', () => settings.remove())
+    close.addEventListener('click', () => {
+      if (!shellDraft) {
+        settings.remove()
+        return
+      }
+      const unsaved = document.createElement('div')
+      unsaved.className = 'unsaved-harness-dialog'
+      const discard = document.createElement('button')
+      discard.type = 'button'
+      discard.textContent = 'Discard changes'
+      discard.addEventListener('click', () => {
+        unsaved.remove()
+        settings.remove()
+      })
+      unsaved.append(discard)
+      document.body.append(unsaved)
+    })
     settings.append(index, close)
     document.body.append(settings)
   })
@@ -129,7 +165,7 @@ describe('installed harness dialog exercise', () => {
     await vi.advanceTimersByTimeAsync(25)
 
     await expect(exercise).resolves.toBe(
-      'both add-harness entries painted and closed while Claude probe was pending',
+      'both add-harness entries painted while Claude probe was pending; direct shell draft retained the dirty guard',
     )
     expect(terminalClicks).toHaveBeenCalledTimes(1)
     expect(directDialogs).toHaveBeenCalledTimes(1)

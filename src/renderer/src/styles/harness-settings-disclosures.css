@@ -1,0 +1,119 @@
+.settings-harness-empty {
+  align-self: start;
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  padding: 24px;
+}
+
+.settings-harness-empty strong {
+  color: var(--text-strong);
+  font-size: calc(11px * var(--hvir-interface-scale));
+}
+
+.settings-harness-empty p {
+  max-width: 430px;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.settings-harness-empty > div,
+.add-harness-shell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-profile-disclosure {
+  min-width: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--surface-1);
+}
+
+.settings-profile-disclosure > summary {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 9px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: calc(10px * var(--hvir-interface-scale));
+}
+
+.settings-profile-disclosure > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.settings-profile-disclosure > summary small {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: calc(9px * var(--hvir-interface-scale));
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-profile-disclosure-body {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.settings-profile-actions button[aria-label^='Move profile'] {
+  width: 28px;
+  padding-inline: 0;
+}
+
+.project-dialog.settings-dialog .settings-profile-actions .primary {
+  border-color: color-mix(in srgb, var(--accent) 72%, var(--border-strong));
+  background: var(--accent-soft);
+  color: var(--text-strong);
+  font-weight: 600;
+}
+
+.add-harness-shell {
+  justify-content: space-between;
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--surface-2);
+}
+
+.add-harness-shell > span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.add-harness-shell small {
+  color: var(--text-muted);
+  font-size: calc(9px * var(--hvir-interface-scale));
+}
+
+@media (max-width: 640px) {
+  .settings-harness-actions {
+    flex-flow: row wrap;
+  }
+
+  .settings-harness-actions button {
+    flex: 1 1 145px;
+  }
+
+  .settings-profile-disclosure > summary {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-profile-disclosure > summary small {
+    text-align: left;
+  }
+
+  .add-harness-shell {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

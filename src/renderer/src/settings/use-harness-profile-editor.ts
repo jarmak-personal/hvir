@@ -134,20 +134,17 @@ export function useHarnessProfileEditor({
         return
       }
       if (!policy.current.isCurrent(token)) return
+      const manageableProfiles = launchProfiles.filter((profile) => !profile.builtIn)
       setProviders(catalog)
-      setProfiles(launchProfiles)
+      setProfiles(manageableProfiles)
       setProfileProbes(cachedProbes)
       if (selectionGuard && !policy.current.isCurrent(selectionGuard, true)) return
       const selected =
-        launchProfiles.find((profile) => profile.id === selectId) ??
-        launchProfiles.find((profile) => profile.id === stateRef.current.draft?.id) ??
-        launchProfiles[0]
+        manageableProfiles.find((profile) => profile.id === selectId) ??
+        manageableProfiles.find((profile) => profile.id === stateRef.current.draft?.id) ??
+        manageableProfiles[0]
       policy.current.switchProfile()
-      setDraft(
-        selected
-          ? harnessProfileDraft(selected)
-          : newHarnessProfileDraft(catalog, launchProfiles),
-      )
+      setDraft(selected ? harnessProfileDraft(selected) : undefined)
     },
     [],
   )
@@ -214,24 +211,20 @@ export function useHarnessProfileEditor({
         cwd: workspaceRoot,
         harnessSessionId: '00000000-0000-4000-8000-000000000000',
       } as const
-      const requests = draft.builtIn
-        ? (['fresh', 'resume'] as const).map((mode) =>
-            window.hvir.invoke('harness:preview', {
-              ...common,
-              mode,
-              profileId: draft.id!,
-              launchRevision:
-                profiles.find((profile) => profile.id === draft.id)?.launchRevision ?? 1,
-            }),
-          )
-        : (['fresh', 'resume'] as const).map((mode) =>
-            window.hvir.invoke('harness:preview', {
-              ...common,
-              mode,
-              profileId: draft.id,
-              input: previewInput,
-            }),
-          )
+      const previewProvider = providers.find(
+        (candidate) => candidate.id === draft.input.providerId,
+      )
+      const modes = previewProvider?.capabilities.exactResume
+        ? (['fresh', 'resume'] as const)
+        : (['fresh'] as const)
+      const requests = modes.map((mode) =>
+        window.hvir.invoke('harness:preview', {
+          ...common,
+          mode,
+          profileId: draft.id,
+          input: previewInput,
+        }),
+      )
       void Promise.all(requests).then(
         (values) => {
           if (!policyOwner.isCurrent(token, true)) return
@@ -249,7 +242,7 @@ export function useHarnessProfileEditor({
       window.clearTimeout(timer)
       policyOwner.invalidate('preview')
     }
-  }, [draft, profiles, serializedInput, workspaceRoot])
+  }, [draft, providers, serializedInput, workspaceRoot])
 
   const selectedProfile = profiles.find((profile) => profile.id === draft?.id)
   const dirty = draft

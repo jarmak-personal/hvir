@@ -82,6 +82,7 @@ export function AddHarnessDialog({
 }): ReactElement {
   const dialogRef = useRef<HTMLElement>(null)
   useDialogFocusTrap(dialogRef, onCancel, busy)
+  const shellProvider = providers.find((provider) => provider.default)
   return (
     <div className="modal-backdrop nested">
       <section
@@ -132,6 +133,21 @@ export function AddHarnessDialog({
           {detected.length === 0 && pending.size === 0 ? (
             <p>No bundled harnesses were detected on this host.</p>
           ) : null}
+        </div>
+        <div className="add-harness-shell">
+          <span>
+            <strong>Shell</strong>
+            <small>Create an editable shell profile using the host default.</small>
+          </span>
+          <button
+            type="button"
+            disabled={busy || !shellProvider}
+            onClick={() => {
+              if (shellProvider) onManual(shellProvider.id)
+            }}
+          >
+            Add a shell
+          </button>
         </div>
         <div className="add-harness-manual">
           <label>

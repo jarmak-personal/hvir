@@ -65,6 +65,13 @@ describe('HarnessProfileEditor binding names', () => {
     const onPickBinding = vi.fn()
     renderEditor({ onInput, onAuthorize, onPickBinding })
 
+    const disclosures = document.querySelectorAll<HTMLDetailsElement>(
+      '.settings-profile-disclosure',
+    )
+    expect(disclosures).toHaveLength(2)
+    expect([...disclosures].map((details) => details.open)).toEqual([false, false])
+    act(() => disclosures[0]?.setAttribute('open', ''))
+
     const name = labelledInput('Name')
     typeWithoutRefocusing(name, ' renamed')
     expect(name.value).toBe('Test profile renamed')
@@ -152,7 +159,7 @@ describe('HarnessProfileEditor binding names', () => {
     })
     expect(onPickBinding).toHaveBeenCalledWith(1)
 
-    act(() => button('Move later').click())
+    act(() => buttonByLabel('Move profile later').click())
     expect(onInput).toHaveBeenLastCalledWith(expect.objectContaining({ order: 2 }))
   })
 })
@@ -284,6 +291,14 @@ function labelledSelect(label: string): HTMLSelectElement {
 function button(label: string): HTMLButtonElement {
   const match = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
     (candidate) => candidate.textContent?.trim() === label,
+  )
+  if (!match) throw new Error(`Missing button '${label}'`)
+  return match
+}
+
+function buttonByLabel(label: string): HTMLButtonElement {
+  const match = document.querySelector<HTMLButtonElement>(
+    `button[aria-label="${label}"]`,
   )
   if (!match) throw new Error(`Missing button '${label}'`)
   return match
