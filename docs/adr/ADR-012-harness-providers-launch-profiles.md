@@ -6,6 +6,10 @@
 > [ADR-024](ADR-024-demand-driven-terminal-workspace-lifecycle.md) supersedes only the
 > interpretation that Bare Shell being the default choice for an empty workspace or split starts
 > a session automatically. Bare Shell remains the default for an explicit launch.
+>
+> [ADR-035](ADR-035-retire-static-harness-risk-classification.md) supersedes only launch-risk
+> rules in the trusted provider registry, derived risk as part of profile launch revision, and
+> launch-risk classification and acknowledgment. The remaining decisions still apply.
 
 ## Context
 
