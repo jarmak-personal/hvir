@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactElement, type RefObject } from 'react'
+import { useLayoutEffect, useRef, type ReactElement, type RefObject } from 'react'
 
 import {
   hostPath,
@@ -276,8 +276,8 @@ function useDialogFocusTrap(
   const busyRef = useRef(busy)
   onCancelRef.current = onCancel
   busyRef.current = busy
-  useEffect(() => {
-    const frame = window.requestAnimationFrame(() => dialogRef.current?.focus())
+  useLayoutEffect(() => {
+    dialogRef.current?.focus()
     const keydown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
         event.preventDefault()
@@ -305,7 +305,6 @@ function useDialogFocusTrap(
     }
     window.addEventListener('keydown', keydown)
     return () => {
-      window.cancelAnimationFrame(frame)
       window.removeEventListener('keydown', keydown)
     }
   }, [dialogRef])

@@ -389,6 +389,15 @@ describe('SettingsDialog section workflow', () => {
         ?.getAttribute('data-initial-add-open'),
     ).toBe('false')
   })
+
+  it('leaves initial add-harness focus to the nested dialog owner', () => {
+    renderDialog({ section: 'harnesses', intent: 'add-harness' })
+
+    expect(frameCallbacks.size).toBe(0)
+    expect(document.activeElement).not.toBe(
+      document.querySelector('#settings-harnesses-title'),
+    )
+  })
 })
 
 function renderDialog(

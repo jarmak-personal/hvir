@@ -364,6 +364,74 @@ describe('HarnessProfilesSettings', () => {
     expect(labelledSelect('Provider').value).toBe(shellProvider.id)
   })
 
+  it('opens one focused manual draft on first activation and previews once executable-ready', async () => {
+    vi.useFakeTimers()
+    const customProvider = testCustomProvider()
+    const shellProvider = testShellProvider()
+    const invoke = vi.fn((channel: string, request?: unknown) => {
+      if (channel === 'harness:catalog') {
+        return Promise.resolve([shellProvider, customProvider])
+      }
+      if (channel === 'harness:profiles') return Promise.resolve([])
+      if (channel === 'harness:preview') {
+        return Promise.resolve({
+          mode: (request as { readonly mode: 'fresh' }).mode,
+          command: "'codex'",
+        })
+      }
+      return Promise.resolve([])
+    })
+    vi.stubGlobal('hvir', { invoke })
+    renderHarnesses()
+    await settleEffects()
+
+    const addDialog = document.querySelector<HTMLElement>('.add-harness-dialog')
+    const configure = nestedButton('Configure manually…')
+    expect(addDialog).toBeTruthy()
+    expect(document.activeElement).toBe(addDialog)
+    expect(configure.disabled).toBe(false)
+
+    act(() => configure.click())
+    await settleEffects()
+
+    expect(document.querySelector('.add-harness-dialog')).toBeNull()
+    expect(document.querySelectorAll('.settings-profile-list button')).toHaveLength(1)
+    expect(profileButton('Custom command').textContent).toContain('Unsaved')
+    expect(labelledSelect('Provider').value).toBe(customProvider.id)
+    expect(
+      document.querySelector('.settings-profile-preview-disclosure summary')?.textContent,
+    ).toContain('Enter an executable command to preview this profile.')
+
+    await act(async () => {
+      vi.advanceTimersByTime(500)
+      await Promise.resolve()
+    })
+    expect(
+      invoke.mock.calls.filter(([channel]) => channel === 'harness:preview'),
+    ).toEqual([])
+
+    changeValue(
+      document.querySelector<HTMLInputElement>('[aria-label="Executable command"]')!,
+      'codex',
+    )
+    await act(async () => {
+      vi.advanceTimersByTime(180)
+      await Promise.resolve()
+    })
+
+    const previewCalls = invoke.mock.calls.filter(
+      ([channel]) => channel === 'harness:preview',
+    )
+    expect(previewCalls).toHaveLength(1)
+    expect(previewCalls[0]?.[1]).toMatchObject({
+      mode: 'fresh',
+      input: { executable: { kind: 'command', command: 'codex' } },
+    })
+    expect(
+      document.querySelector('.settings-profile-preview-disclosure summary')?.textContent,
+    ).toContain('Fresh launch')
+  })
+
   it('requests exact resume preview only for providers that support it', async () => {
     vi.useFakeTimers()
     const provider: HarnessProviderDescriptor = {
@@ -869,6 +937,18 @@ function testShellProvider(): HarnessProviderDescriptor {
       displayName: 'Shell',
       description: 'Interactive shell',
     },
+  }
+}
+
+function testCustomProvider(): HarnessProviderDescriptor {
+  const provider = testProvider()
+  return {
+    id: asHarnessProviderId('custom'),
+    displayName: 'Custom',
+    default: false,
+    capabilities: provider.capabilities,
+    terminalInput: provider.terminalInput,
+    profileGuidance: provider.profileGuidance,
   }
 }
 

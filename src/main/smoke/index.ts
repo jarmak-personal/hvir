@@ -31,7 +31,10 @@ import { verifyDiagnosticRestart } from './diagnostic-report-restart'
 import { verifyDevelopmentPerformanceMode } from './development-performance'
 import { verifyDocumentReviewWorkflow } from './document-review'
 import { verifyGitWorkflow } from './git-workflow'
-import { verifyCompactHarnessSettings } from './harness-settings-layout'
+import {
+  verifyCompactHarnessSettings,
+  verifyHarnessManualProfilePointerActivation,
+} from './harness-settings-layout'
 import { captureHarnessSettingsVisuals } from './harness-settings-visual'
 import { verifyPlatformContracts } from './platform-contracts'
 import {
@@ -1615,6 +1618,9 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     )) as string
     console.log(`[smoke] minimal settings OK (${settingsStatus})`)
 
+    const manualProfileStatus = await verifyHarnessManualProfilePointerActivation(win)
+    console.log(`[smoke] manual harness profile OK (${manualProfileStatus})`)
+
     const harnessRenameStatus = (await withTimeout(
       win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
@@ -1824,7 +1830,9 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         : undefined,
     )
     if (harnessSettingsCaptures.length > 0) {
-      console.log(`[smoke] harness settings captures OK (${harnessSettingsCaptures.length})`)
+      console.log(
+        `[smoke] harness settings captures OK (${harnessSettingsCaptures.length})`,
+      )
     }
 
     const compactHarnessStatus = await verifyCompactHarnessSettings(win)

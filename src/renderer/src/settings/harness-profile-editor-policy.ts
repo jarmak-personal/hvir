@@ -80,6 +80,15 @@ export function harnessProfileBindingError(
   return undefined
 }
 
+export function harnessProfilePreviewReadinessError(
+  input: Pick<HarnessProfileInput, 'executable'>,
+): string | undefined {
+  if (input.executable.kind === 'command' && input.executable.command.trim() === '') {
+    return 'Enter an executable command to preview this profile.'
+  }
+  return undefined
+}
+
 export function findProfileProbe(
   probes: readonly HarnessProfileProbe[],
   profile: HarnessProfile,
