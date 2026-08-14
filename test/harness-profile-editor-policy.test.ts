@@ -1,10 +1,17 @@
 import { describe, expect, it } from 'vitest'
 
-import { asHarnessProviderId, localPath, type HarnessProfileInput } from '../src/shared'
+import {
+  asHarnessProfileId,
+  asHarnessProviderId,
+  localPath,
+  type HarnessProfileInput,
+} from '../src/shared'
 import {
   applyExecutableGrant,
   applyPathBindingGrant,
   harnessProfileBindingError,
+  harnessProfilePreviewReadiness,
+  shouldPreserveUnsavedHarnessDraftAfterRefresh,
 } from '../src/renderer/src/settings/harness-profile-editor-policy'
 import { HarnessProfileRequestPolicy } from '../src/renderer/src/settings/harness-profile-request-policy'
 
@@ -154,5 +161,22 @@ describe('harness profile editor policy', () => {
         ],
       }),
     ).toBe("Unknown path binding 'missing'")
+  })
+
+  it('distinguishes preview readiness and preserves no-ID drafts across ordinary refreshes', () => {
+    expect(
+      harnessProfilePreviewReadiness({ executable: { kind: 'command', command: '  ' } }),
+    ).toBe('Enter an executable command to preview this profile.')
+    expect(
+      harnessProfilePreviewReadiness({
+        executable: { kind: 'command', command: 'codex' },
+      }),
+    ).toBeUndefined()
+
+    const unsaved = { id: undefined }
+    const savedId = asHarnessProfileId('saved-profile')
+    expect(shouldPreserveUnsavedHarnessDraftAfterRefresh(unsaved)).toBe(true)
+    expect(shouldPreserveUnsavedHarnessDraftAfterRefresh({ id: savedId })).toBe(false)
+    expect(shouldPreserveUnsavedHarnessDraftAfterRefresh(unsaved, savedId)).toBe(false)
   })
 })

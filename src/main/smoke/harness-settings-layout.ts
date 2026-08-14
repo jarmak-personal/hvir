@@ -67,9 +67,15 @@ export async function verifyHarnessManualProfilePointerActivation(
           const detail = active?.querySelector('small')?.textContent || '';
           const preview = document.querySelector(
             '.settings-profile-preview-disclosure summary'
-          )?.textContent || '';
+          );
+          const previewText = preview?.textContent || '';
+          const previewDetail = preview?.querySelector('small');
+          if (previewDetail?.classList.contains('settings-profile-disclosure-error') ||
+              previewText.includes('Needs attention')) {
+            return reject(new Error('incomplete preview guidance used error presentation'));
+          }
           if (!addDialog && name === 'Custom command' && detail.includes('Unsaved') &&
-              preview.includes('Enter an executable command to preview this profile.')) {
+              previewText.includes('Enter an executable command to preview this profile.')) {
             return resolve('nested focus + one physical activation + local preview guidance');
           }
           if (Date.now() > deadline) {
