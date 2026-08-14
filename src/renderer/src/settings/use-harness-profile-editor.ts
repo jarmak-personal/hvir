@@ -16,6 +16,7 @@ import {
   editorErrorMessage,
   findProfileProbe,
   harnessProfileBindingError,
+  harnessProfilePreviewReadinessError,
   mergeProfileProbe,
 } from './harness-profile-editor-policy'
 import {
@@ -181,7 +182,6 @@ export function useHarnessProfileEditor({
       policyOwner.switchWorkspace()
     }
   }, [projectRoot, reload, resetCatalogLoad, workspaceRoot])
-
   const serializedInput = useMemo(
     () => (draft ? JSON.stringify([draft.input, draft.argvText]) : ''),
     [draft],
@@ -190,6 +190,12 @@ export function useHarnessProfileEditor({
     if (!draft || !workspaceRoot) return
     const policyOwner = policy.current
     const token = policyOwner.start('preview')
+    const readinessError = harnessProfilePreviewReadinessError(draft.input)
+    if (readinessError) {
+      setPreviews([])
+      setPreviewError(readinessError)
+      return () => policyOwner.invalidate('preview')
+    }
     const timer = window.setTimeout(() => {
       let previewInput: HarnessProfileInput
       try {
@@ -244,7 +250,6 @@ export function useHarnessProfileEditor({
       policyOwner.invalidate('preview')
     }
   }, [draft, providers, serializedInput, workspaceRoot])
-
   const selectedProfile = profiles.find((profile) => profile.id === draft?.id)
   const dirty = draft
     ? isHarnessProfileDraftDirty(selectedProfile, draft.input, draft.argvText)
