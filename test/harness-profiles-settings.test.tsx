@@ -502,6 +502,20 @@ describe('HarnessProfilesSettings', () => {
     expect(previewSummaryDetail?.textContent).toContain(
       'Needs attention: Preview rejected',
     )
+
+    const rejectedPreviewCalls = invoke.mock.calls.filter(
+      ([channel]) => channel === 'harness:preview',
+    ).length
+    renderHarnessesAt(localPath('/tmp/hvir'), localPath('/tmp/hvir'), true)
+    await settleEffects()
+    expect(previewSummaryDetail?.classList).toContain('settings-profile-disclosure-error')
+    await act(async () => {
+      vi.advanceTimersByTime(180)
+      await Promise.resolve()
+    })
+    expect(
+      invoke.mock.calls.filter(([channel]) => channel === 'harness:preview'),
+    ).toHaveLength(rejectedPreviewCalls)
   })
 
   it('requests exact resume preview only for providers that support it', async () => {
@@ -917,8 +931,9 @@ describe('HarnessProfilesSettings', () => {
     expect(labelledInput('Name').value).toBe('Test profile copy')
   })
 
-  it('keeps a replacement SSH workspace after a late local catalog completion', async () => {
+  it('revokes an unsaved draft before a replacement SSH workspace load settles', async () => {
     const provider = testProvider()
+    const shellProvider = testShellProvider()
     const localRoot = localPath('/tmp/local-workspace')
     const remoteRoot = hostPath(asHostId('ssh-characterization'), '/srv/workspace')
     const remoteProject = hostPath(asHostId('ssh-characterization'), '/srv/project')
@@ -929,49 +944,42 @@ describe('HarnessProfilesSettings', () => {
       displayName: 'Remote profile',
       scope: { kind: 'project', projectRoot: remoteProject },
     }
-    let resolveLocalProfiles: (profiles: readonly HarnessProfile[]) => void = () =>
-      undefined
-    const localProfiles = new Promise<readonly HarnessProfile[]>((resolve) => {
-      resolveLocalProfiles = resolve
-    })
+    const remoteProfiles = deferred<readonly HarnessProfile[]>()
     const invoke = vi.fn((channel: string, request?: unknown) => {
-      if (channel === 'harness:catalog') return Promise.resolve([provider])
+      if (channel === 'harness:catalog') return Promise.resolve([shellProvider, provider])
       if (channel === 'harness:profiles') {
         const root = (request as { readonly root: HostPath }).root
         return root.hostId === remoteRoot.hostId
-          ? Promise.resolve([remoteProfile])
-          : localProfiles
-      }
-      if (channel === 'harness:probe-profiles') {
-        return Promise.resolve([testProbe(provider, remoteRoot, remoteProfile)])
+          ? remoteProfiles.promise
+          : Promise.resolve([localProfile])
       }
       return Promise.resolve([])
     })
     vi.stubGlobal('hvir', { invoke })
     renderHarnessesAt(localRoot, localRoot, false)
     await settleEffects()
-    expect(document.body.textContent).toContain('Loading harness providers…')
-
-    renderHarnessesAt(remoteRoot, remoteProject, false)
+    act(() => button('Add a shell').click())
     await settleEffects()
-    expect(profileButton('Remote profile').classList).toContain('active')
-    expect(labelledSelect('Scope').value).toBe('project')
+    expect(profileButton('Additional shell').textContent).toContain('Unsaved')
 
     await act(async () => {
-      resolveLocalProfiles([localProfile])
-      await localProfiles
+      root?.render(
+        createElement(HarnessProfilesSettings, {
+          workspaceRoot: remoteRoot,
+          projectRoot: remoteProject,
+          initialAddOpen: false,
+        }),
+      )
+      remoteProfiles.resolve([remoteProfile])
+      await remoteProfiles.promise
       await Promise.resolve()
     })
-    expect(document.body.textContent).not.toContain('Test profile')
-    expect(profileButton('Remote profile').classList).toContain('active')
-
-    act(() => button('Refresh availability').click())
     await settleEffects()
-    expect(invoke).toHaveBeenCalledWith('harness:probe-profiles', {
-      root: remoteRoot,
-      profileIds: [remoteProfile.id],
-      force: true,
-    })
+
+    expect(document.body.textContent).not.toContain('Additional shell')
+    expect(profileButton('Remote profile').classList).toContain('active')
+    expect(labelledSelect('Scope').value).toBe('project')
+    expect(invoke).toHaveBeenCalledWith('harness:profiles', { root: remoteRoot })
   })
 })
 

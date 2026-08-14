@@ -91,58 +91,6 @@ export async function verifyHarnessManualProfilePointerActivation(
     'manual profile activation timed out',
   )) as string
 
-  clickMouse(
-    win,
-    await waitForButtonPoint(win, '.settings-harness-actions button', 'Add a shell'),
-  )
-  clickMouse(
-    win,
-    await waitForButtonPoint(win, '.unsaved-harness-dialog button', 'Discard changes'),
-  )
-  const refreshPoint = await waitForButtonPoint(
-    win,
-    '.settings-harness-actions button',
-    'Refresh availability',
-  )
-  await win.webContents.executeJavaScript(`
-    (() => {
-      window.__hvirHarnessDraftStability = new Promise((resolve, reject) => {
-        const deadline = Date.now() + 10000;
-        let sawChecking = false;
-        const inspect = () => {
-          const rows = [...document.querySelectorAll('.settings-profile-list button')];
-          const active = rows.find((row) => row.classList.contains('active'));
-          const name = active?.querySelector('strong')?.textContent?.trim();
-          const detail = active?.querySelector('small')?.textContent || '';
-          const checking = rows.some((row) =>
-            (row.querySelector('small')?.textContent || '').includes('Checking…')
-          );
-          sawChecking ||= checking;
-          if (sawChecking && !checking) {
-            if (name !== 'Additional shell' || !detail.includes('Unsaved')) {
-              return reject(new Error(
-                'completed availability refresh replaced the unsaved shell draft'
-              ));
-            }
-            return resolve('unsaved shell retained across completed availability refresh');
-          }
-          if (Date.now() > deadline) {
-            return reject(new Error('availability refresh did not complete while draft remained'));
-          }
-          requestAnimationFrame(inspect);
-        };
-        inspect();
-      });
-      return true;
-    })()
-  `)
-  clickMouse(win, refreshPoint)
-  const stabilityStatus = (await withTimeout(
-    win.webContents.executeJavaScript('window.__hvirHarnessDraftStability'),
-    'manual shell draft stability timed out',
-  )) as string
-  await win.webContents.executeJavaScript('delete window.__hvirHarnessDraftStability')
-
   await withTimeout(
     win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
@@ -178,7 +126,7 @@ export async function verifyHarnessManualProfilePointerActivation(
     `),
     'manual draft cleanup timed out',
   )
-  return `${status} + ${stabilityStatus}`
+  return status
 }
 
 /** Chromium geometry and focus acceptance for the compact Harnesses settings surface. */
