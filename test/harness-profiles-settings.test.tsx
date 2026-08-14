@@ -315,6 +315,52 @@ describe('HarnessProfilesSettings', () => {
     expect(labelledInput('Name').value).toBe('Additional shell')
   })
 
+  it('keeps a shell draft through equivalent roots and a completed availability refresh', async () => {
+    const provider = testProvider()
+    const shellProvider = testShellProvider()
+    const profile = testProfile(provider)
+    const refreshedProbe = {
+      ...testProbe(provider, localPath('/tmp/hvir'), profile),
+      version: '3.0.0',
+    }
+    const probeRefresh = deferred<readonly HarnessProfileProbe[]>()
+    const invoke = vi.fn((channel: string) => {
+      if (channel === 'harness:catalog') return Promise.resolve([shellProvider, provider])
+      if (channel === 'harness:profiles') return Promise.resolve([profile])
+      if (channel === 'harness:probe-snapshot') return Promise.resolve([])
+      if (channel === 'harness:probe-profiles') return probeRefresh.promise
+      return Promise.resolve([])
+    })
+    vi.stubGlobal('hvir', { invoke })
+    renderHarnesses(false)
+    await settleEffects()
+
+    act(() => button('Add a shell').click())
+    await settleEffects()
+    const initialLoads = invoke.mock.calls.filter(
+      ([channel]) => channel === 'harness:profiles',
+    ).length
+
+    renderHarnessesAt(localPath('/tmp/hvir'), localPath('/tmp/hvir'), false)
+    await settleEffects()
+    expect(
+      invoke.mock.calls.filter(([channel]) => channel === 'harness:profiles'),
+    ).toHaveLength(initialLoads)
+    expect(profileButton('Additional shell').textContent).toContain('Unsaved')
+
+    act(() => button('Refresh availability').click())
+    expect(profileButton('Test profile').textContent).toContain('Checking…')
+    await act(async () => {
+      probeRefresh.resolve([refreshedProbe])
+      await probeRefresh.promise
+    })
+    await settleEffects()
+
+    expect(profileButton('Test profile').textContent).toContain('3.0.0')
+    expect(profileButton('Additional shell').classList).toContain('active')
+    expect(labelledInput('Name').value).toBe('Additional shell')
+  })
+
   it('shows provider, scope, and cached advisory availability in configured rows', async () => {
     const provider = testProvider()
     const projectRoot = localPath('/tmp/hvir')
@@ -374,6 +420,11 @@ describe('HarnessProfilesSettings', () => {
       }
       if (channel === 'harness:profiles') return Promise.resolve([])
       if (channel === 'harness:preview') {
+        const executable = (request as { readonly input: HarnessProfileInput }).input
+          .executable
+        if (executable.kind === 'command' && executable.command === 'broken') {
+          return Promise.reject(new Error('Preview rejected'))
+        }
         return Promise.resolve({
           mode: (request as { readonly mode: 'fresh' }).mode,
           command: "'codex'",
@@ -401,6 +452,13 @@ describe('HarnessProfilesSettings', () => {
     expect(
       document.querySelector('.settings-profile-preview-disclosure summary')?.textContent,
     ).toContain('Enter an executable command to preview this profile.')
+    const previewSummaryDetail = document.querySelector(
+      '.settings-profile-preview-disclosure summary small',
+    )
+    expect(previewSummaryDetail?.classList).not.toContain(
+      'settings-profile-disclosure-error',
+    )
+    expect(document.body.textContent).not.toContain('Needs attention')
 
     await act(async () => {
       vi.advanceTimersByTime(500)
@@ -430,6 +488,20 @@ describe('HarnessProfilesSettings', () => {
     expect(
       document.querySelector('.settings-profile-preview-disclosure summary')?.textContent,
     ).toContain('Fresh launch')
+
+    changeValue(
+      document.querySelector<HTMLInputElement>('[aria-label="Executable command"]')!,
+      'broken',
+    )
+    await act(async () => {
+      vi.advanceTimersByTime(180)
+      await Promise.resolve()
+    })
+    await settleEffects()
+    expect(previewSummaryDetail?.classList).toContain('settings-profile-disclosure-error')
+    expect(previewSummaryDetail?.textContent).toContain(
+      'Needs attention: Preview rejected',
+    )
   })
 
   it('requests exact resume preview only for providers that support it', async () => {

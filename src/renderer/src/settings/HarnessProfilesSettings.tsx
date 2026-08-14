@@ -142,6 +142,7 @@ export const HarnessProfilesSettings = forwardRef<
                 provider={editor.provider}
                 providerProbe={editor.providerProbe}
                 previews={editor.previews}
+                previewReadiness={editor.previewReadiness}
                 previewError={editor.previewError}
                 error={editor.error}
                 busy={editor.busy}

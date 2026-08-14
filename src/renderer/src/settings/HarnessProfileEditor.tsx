@@ -22,6 +22,7 @@ interface HarnessProfileEditorProps {
   readonly provider?: HarnessProviderDescriptor
   readonly providerProbe?: HarnessProfileProbe
   readonly previews: readonly HarnessCommandPreview[]
+  readonly previewReadiness?: string
   readonly previewError?: string
   readonly error?: string
   readonly busy: boolean
@@ -46,6 +47,7 @@ export function HarnessProfileEditor({
   provider,
   providerProbe,
   previews,
+  previewReadiness,
   previewError,
   error,
   busy,
@@ -112,11 +114,16 @@ export function HarnessProfileEditor({
             >
               {previewError
                 ? `Needs attention: ${previewError}`
-                : `Fresh launch${provider?.capabilities.exactResume ? ' and resume' : ''}`}
+                : (previewReadiness ??
+                  `Fresh launch${provider?.capabilities.exactResume ? ' and resume' : ''}`)}
             </small>
           </summary>
           <div className="settings-profile-disclosure-body">
-            <ProfilePreviews previews={previews} previewError={previewError} />
+            <ProfilePreviews
+              previews={previews}
+              previewReadiness={previewReadiness}
+              previewError={previewError}
+            />
           </div>
         </details>
         {error ? <p className="dialog-error">{error}</p> : null}
@@ -203,9 +210,11 @@ function ProfileIdentityFields({
 
 function ProfilePreviews({
   previews,
+  previewReadiness,
   previewError,
 }: {
   readonly previews: readonly HarnessCommandPreview[]
+  readonly previewReadiness?: string
   readonly previewError?: string
 }): ReactElement {
   return (
@@ -216,6 +225,7 @@ function ProfilePreviews({
           <code>{preview.command}</code>
         </div>
       ))}
+      {previewReadiness ? <p>{previewReadiness}</p> : null}
       {previewError ? <p className="dialog-error">{previewError}</p> : null}
       <small>{HARNESS_ENVIRONMENT_STORAGE_GUIDANCE}</small>
     </div>

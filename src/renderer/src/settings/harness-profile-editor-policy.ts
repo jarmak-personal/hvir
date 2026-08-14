@@ -80,13 +80,20 @@ export function harnessProfileBindingError(
   return undefined
 }
 
-export function harnessProfilePreviewReadinessError(
+export function harnessProfilePreviewReadiness(
   input: Pick<HarnessProfileInput, 'executable'>,
 ): string | undefined {
   if (input.executable.kind === 'command' && input.executable.command.trim() === '') {
     return 'Enter an executable command to preview this profile.'
   }
   return undefined
+}
+
+export function shouldPreserveUnsavedHarnessDraftAfterRefresh(
+  draft: { readonly id?: HarnessProfile['id'] } | undefined,
+  selectedProfileId?: HarnessProfile['id'],
+): boolean {
+  return draft !== undefined && draft.id === undefined && selectedProfileId === undefined
 }
 
 export function findProfileProbe(

@@ -16,8 +16,9 @@ import {
   editorErrorMessage,
   findProfileProbe,
   harnessProfileBindingError,
-  harnessProfilePreviewReadinessError,
+  harnessProfilePreviewReadiness,
   mergeProfileProbe,
+  shouldPreserveUnsavedHarnessDraftAfterRefresh,
 } from './harness-profile-editor-policy'
 import {
   harnessProfileDraft,
@@ -32,7 +33,6 @@ import {
 } from './harness-profile-request-policy'
 import { useHarnessBindingAuthorization } from './use-harness-binding-authorization'
 import { useHarnessProfileLoad } from './use-harness-profile-load'
-
 export function useHarnessProfileEditor({
   workspaceRoot,
   projectRoot,
@@ -46,6 +46,7 @@ export function useHarnessProfileEditor({
   const [profiles, setProfiles] = useState<readonly HarnessProfile[]>([])
   const [draft, setDraft] = useState<HarnessProfileDraft>()
   const [previews, setPreviews] = useState<readonly HarnessCommandPreview[]>([])
+  const [previewReadiness, setPreviewReadiness] = useState<string>()
   const [previewError, setPreviewError] = useState<string>()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
@@ -62,6 +63,7 @@ export function useHarnessProfileEditor({
   const policy = useRef(new HarnessProfileRequestPolicy())
   const stateRef = useRef({ workspaceRoot, projectRoot, providers, profiles, draft })
   const dirtyRef = useRef(false)
+  const rootIdentity = JSON.stringify([workspaceRoot, projectRoot])
   stateRef.current = { workspaceRoot, projectRoot, providers, profiles, draft }
   const updateInput = useCallback(
     (update: (input: HarnessProfileInput) => HarnessProfileInput): void => {
@@ -74,7 +76,6 @@ export function useHarnessProfileEditor({
   )
   const { picker, authorizeBinding, openPicker, closePicker } =
     useHarnessBindingAuthorization(policy.current, stateRef, updateInput, setError)
-
   const probeAvailability = useCallback(
     (launchProfiles: readonly HarnessProfile[], force = false): void => {
       const root = stateRef.current.workspaceRoot
@@ -107,7 +108,6 @@ export function useHarnessProfileEditor({
     },
     [],
   )
-
   const refresh = useCallback(
     async (
       selectId?: HarnessProfile['id'],
@@ -141,6 +141,8 @@ export function useHarnessProfileEditor({
       setProfileProbes(cachedProbes)
       if (!policy.current.isCurrent(token, true)) return
       if (selectionGuard && !policy.current.isCurrent(selectionGuard, true)) return
+      if (shouldPreserveUnsavedHarnessDraftAfterRefresh(stateRef.current.draft, selectId))
+        return
       const selected =
         manageableProfiles.find((profile) => profile.id === selectId) ??
         manageableProfiles.find((profile) => profile.id === stateRef.current.draft?.id) ??
@@ -150,7 +152,6 @@ export function useHarnessProfileEditor({
     },
     [],
   )
-
   const {
     loadState,
     reset: resetCatalogLoad,
@@ -159,7 +160,6 @@ export function useHarnessProfileEditor({
   const reload = useCallback((): void => {
     reloadCatalog(refresh)
   }, [refresh, reloadCatalog])
-
   useEffect(() => {
     const policyOwner = policy.current
     policyOwner.switchWorkspace()
@@ -167,13 +167,14 @@ export function useHarnessProfileEditor({
     setProfiles([])
     setDraft(undefined)
     setPreviews([])
+    setPreviewReadiness(undefined)
     setPreviewError(undefined)
     setProfileProbes([])
     setPendingProbeIds(new Set())
     setBusy(false)
     setDeleteArmed(false)
     setError(undefined)
-    if (!workspaceRoot) {
+    if (!stateRef.current.workspaceRoot) {
       resetCatalogLoad()
       return
     }
@@ -181,7 +182,7 @@ export function useHarnessProfileEditor({
     return () => {
       policyOwner.switchWorkspace()
     }
-  }, [projectRoot, reload, resetCatalogLoad, workspaceRoot])
+  }, [reload, resetCatalogLoad, rootIdentity])
   const serializedInput = useMemo(
     () => (draft ? JSON.stringify([draft.input, draft.argvText]) : ''),
     [draft],
@@ -190,10 +191,11 @@ export function useHarnessProfileEditor({
     if (!draft || !workspaceRoot) return
     const policyOwner = policy.current
     const token = policyOwner.start('preview')
-    const readinessError = harnessProfilePreviewReadinessError(draft.input)
-    if (readinessError) {
+    const readiness = harnessProfilePreviewReadiness(draft.input)
+    setPreviewReadiness(readiness)
+    setPreviewError(undefined)
+    if (readiness) {
       setPreviews([])
-      setPreviewError(readinessError)
       return () => policyOwner.invalidate('preview')
     }
     const timer = window.setTimeout(() => {
@@ -255,7 +257,6 @@ export function useHarnessProfileEditor({
     ? isHarnessProfileDraftDirty(selectedProfile, draft.input, draft.argvText)
     : false
   dirtyRef.current = dirty
-
   const confirmSafeToLeave = useCallback((): Promise<boolean> => {
     if (!dirtyRef.current) return Promise.resolve(true)
     pendingLeaveResolution.current?.(false)
@@ -271,7 +272,6 @@ export function useHarnessProfileEditor({
     setUnsavedPromptOpen(false)
     resolve?.(confirmed)
   }, [])
-
   useEffect(
     () => () => {
       pendingLeaveResolution.current?.(false)
@@ -460,6 +460,7 @@ export function useHarnessProfileEditor({
     profiles,
     draft,
     previews,
+    previewReadiness,
     previewError,
     busy,
     error,
