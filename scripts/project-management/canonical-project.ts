@@ -1,4 +1,19 @@
 import { GitHubClient } from './github-client.ts'
+import {
+  requireCanonicalSingleSelectField,
+  setCanonicalSingleSelect,
+  type CanonicalProjectField,
+  type CanonicalProjectSchema,
+} from './canonical-project-fields.ts'
+import {
+  type AgentWorkProjectFieldName,
+  type AgentWorkProjectValue,
+  type AgentWorkProjectValues,
+} from './agent-work-project-fields.ts'
+import {
+  readAgentWorkProjectValues,
+  setAgentWorkProjectValue,
+} from './github-agent-work-project.ts'
 import { nextPageCursor, type PageInfo } from './github-pagination.ts'
 import { KIND_DEFINITIONS, type KindOption } from './kind-policy.ts'
 import { PROJECT_STATUS_OPTIONS, type ProjectStatus } from './planning-fields.ts'
@@ -20,19 +35,7 @@ export interface GitHubCanonicalProjectOptions {
   client: GitHubClient
 }
 
-interface ProjectField {
-  typename: string
-  id?: string
-  name?: string
-  options?: Array<{ id: string; name: string }>
-}
-
-interface ProjectSchemaContext {
-  id: string
-  fields: ProjectField[]
-}
-
-interface ProjectContext extends ProjectSchemaContext {
+interface ProjectContext extends CanonicalProjectSchema {
   items: Map<string, CanonicalProjectItem>
 }
 
@@ -70,7 +73,7 @@ export class GitHubCanonicalProject {
   readonly #repositoryOwner: string
   readonly #repositoryName: string
   readonly #client: GitHubClient
-  #schemaContext?: Promise<ProjectSchemaContext>
+  #schemaContext?: Promise<CanonicalProjectSchema>
   #items?: Promise<Map<string, CanonicalProjectItem>>
 
   constructor(options: GitHubCanonicalProjectOptions) {
@@ -135,6 +138,36 @@ export class GitHubCanonicalProject {
 
   async validateKindSchema(): Promise<void> {
     this.#requireKindField(await this.#getSchemaContext())
+  }
+
+  async readAgentWorkProjection(issueNumber: number): Promise<AgentWorkProjectValues> {
+    const context = await this.#getContext()
+    return readAgentWorkProjectValues({
+      client: this.#client,
+      schema: context,
+      item: context.items.get(
+        projectItemKey(this.#repositoryOwner, this.#repositoryName, issueNumber),
+      ),
+      issueNumber,
+    })
+  }
+
+  async setAgentWorkProjectionField(
+    issueNumber: number,
+    name: AgentWorkProjectFieldName,
+    value: AgentWorkProjectValue | undefined,
+  ): Promise<void> {
+    const context = await this.#getContext()
+    await setAgentWorkProjectValue({
+      client: this.#client,
+      schema: context,
+      item: context.items.get(
+        projectItemKey(this.#repositoryOwner, this.#repositoryName, issueNumber),
+      ),
+      issueNumber,
+      name,
+      value,
+    })
   }
 
   async addIssue(issue: {
@@ -215,7 +248,7 @@ export class GitHubCanonicalProject {
     const context = await this.#getContext()
     const field = this.#requireKindField(context)
     if (item.kind === option) return false
-    await this.#setSingleSelect(context.id, item.id, field.id, field.options, option)
+    await setCanonicalSingleSelect(this.#client, context.id, item.id, field, option)
     item.kind = option
     return true
   }
@@ -224,7 +257,7 @@ export class GitHubCanonicalProject {
     const context = await this.#getContext()
     const field = this.#requireField(context, 'Status', PROJECT_STATUS_OPTIONS)
     if (item.status === status) return
-    await this.#setSingleSelect(context.id, item.id, field.id, field.options, status)
+    await setCanonicalSingleSelect(this.#client, context.id, item.id, field, status)
     item.status = status
   }
 
@@ -236,11 +269,11 @@ export class GitHubCanonicalProject {
     }
   }
 
-  async #getSchemaContext(): Promise<ProjectSchemaContext> {
+  async #getSchemaContext(): Promise<CanonicalProjectSchema> {
     return (this.#schemaContext ??= this.#loadSchemaContext())
   }
 
-  async #loadSchemaContext(): Promise<ProjectSchemaContext> {
+  async #loadSchemaContext(): Promise<CanonicalProjectSchema> {
     const projectData: {
       user: { projectV2: { id: string } | null } | null
     } = await this.#client.graphql(
@@ -258,9 +291,9 @@ export class GitHubCanonicalProject {
     return { id: project.id, fields: await this.#loadFields(project.id) }
   }
 
-  async #loadFields(projectId: string): Promise<ProjectField[]> {
+  async #loadFields(projectId: string): Promise<CanonicalProjectField[]> {
     let cursor: string | null = null
-    const fields: ProjectField[] = []
+    const fields: CanonicalProjectField[] = []
     do {
       const data: {
         node: {
@@ -269,6 +302,7 @@ export class GitHubCanonicalProject {
               __typename: string
               id?: string
               name?: string
+              dataType?: string
               options?: Array<{ id: string; name: string }>
             }>
             pageInfo: PageInfo
@@ -281,7 +315,7 @@ export class GitHubCanonicalProject {
               fields(first: 100, after: $after) {
                 nodes {
                   __typename
-                  ... on ProjectV2Field { id name }
+                  ... on ProjectV2Field { id name dataType }
                   ... on ProjectV2SingleSelectField { id name options { id name } }
                 }
                 pageInfo { endCursor hasNextPage }
@@ -300,6 +334,7 @@ export class GitHubCanonicalProject {
           typename: field.__typename,
           ...(field.id === undefined ? {} : { id: field.id }),
           ...(field.name === undefined ? {} : { name: field.name }),
+          ...(field.dataType === undefined ? {} : { dataType: field.dataType }),
           ...(field.options === undefined ? {} : { options: field.options }),
         })),
       )
@@ -355,39 +390,19 @@ export class GitHubCanonicalProject {
   }
 
   #requireField(
-    context: ProjectSchemaContext,
+    context: CanonicalProjectSchema,
     name: string,
     expectedOptions: readonly string[],
   ): { id: string; options: Array<{ id: string; name: string }> } {
-    const matches = context.fields.filter((field) => field.name === name)
-    if (matches.length === 0) {
-      throw new Error(
-        `Project field "${name}" is missing. Reconcile the documented single-select schema before retrying.`,
-      )
-    }
-    if (matches.length > 1) {
-      throw new Error(`The canonical Project has more than one field named "${name}".`)
-    }
-    const field = matches[0]!
-    if (
-      field.typename !== 'ProjectV2SingleSelectField' ||
-      field.id === undefined ||
-      field.options === undefined
-    ) {
-      throw new Error(`Project field "${name}" exists but is not a single-select field.`)
-    }
-    const available = new Set(field.options.map((option) => option.name))
-    for (const option of expectedOptions) {
-      if (!available.has(option)) {
-        throw new Error(
-          `Project field "${name}" is missing the expected "${option}" option. Reconcile the documented schema before retrying.`,
-        )
-      }
-    }
-    return { id: field.id, options: field.options }
+    return requireCanonicalSingleSelectField(
+      context,
+      name,
+      expectedOptions,
+      'single-select',
+    )
   }
 
-  #requireKindField(context: ProjectSchemaContext): {
+  #requireKindField(context: CanonicalProjectSchema): {
     id: string
     options: Array<{ id: string; name: string }>
   } {
@@ -395,30 +410,6 @@ export class GitHubCanonicalProject {
       context,
       'Kind',
       KIND_DEFINITIONS.map((definition) => definition.option),
-    )
-  }
-
-  async #setSingleSelect(
-    projectId: string,
-    itemId: string,
-    fieldId: string,
-    options: Array<{ id: string; name: string }>,
-    value: string,
-  ): Promise<void> {
-    const optionId = options.find((option) => option.name === value)?.id
-    if (optionId === undefined) {
-      throw new Error(`Unexpected Project option after schema validation: "${value}".`)
-    }
-    await this.#client.graphql(
-      `mutation SetProjectSingleSelect($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
-        updateProjectV2ItemFieldValue(input: {
-          projectId: $projectId
-          itemId: $itemId
-          fieldId: $fieldId
-          value: {singleSelectOptionId: $optionId}
-        }) { projectV2Item { id } }
-      }`,
-      { projectId, itemId, fieldId, optionId },
     )
   }
 }

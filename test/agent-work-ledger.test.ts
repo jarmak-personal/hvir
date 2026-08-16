@@ -514,7 +514,15 @@ describe('agent-work append operation', () => {
     ).toMatchObject({ issueNumber: ISSUE, append: true, apply: false })
     expect(() =>
       parseAgentWorkCliOptions(['--issue', `${ISSUE}`, '--apply'], {}),
-    ).toThrow('--apply requires --append')
+    ).toThrow('--apply requires --append or --project')
+    expect(
+      parseAgentWorkCliOptions(['--issue', `${ISSUE}`, '--project'], {}),
+    ).toMatchObject({ issueNumber: ISSUE, project: true, apply: false })
+    expect(() =>
+      parseAgentWorkCliOptions(['--issue', `${ISSUE}`, '--append', '--project'], {
+        HVIR_AGENT_WORK_RECORD: record,
+      }),
+    ).toThrow('separate operations')
     expect(() =>
       parseAgentWorkCliOptions(['--issue', `${ISSUE}`, '--append'], {}),
     ).toThrow('requires HVIR_AGENT_WORK_RECORD')
