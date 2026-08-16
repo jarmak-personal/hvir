@@ -18,8 +18,10 @@ import {
 const ISSUE = 574
 const RUN_A = 'a'.repeat(64)
 const RUN_B = 'b'.repeat(64)
+const RUN_C = 'c'.repeat(64)
 const KEY_A = '1'.repeat(64)
 const KEY_B = '2'.repeat(64)
+const KEY_C = '3'.repeat(64)
 
 describe('agent-work Project derivation', () => {
   it('projects the validated forecast and every ledger-owned field type', () => {
@@ -57,9 +59,18 @@ describe('agent-work Project derivation', () => {
       },
       outcome: { firstPass: 'accepted', candidateRef: 'abcdef1' },
     })
+    const review = completeRecord({
+      phase: 'implementation-review',
+      runKey: RUN_C,
+      idempotencyKey: KEY_C,
+      usage: usage(2, 3, 4, 5),
+      timing: { activeWallMilliseconds: 25 },
+      outcome: undefined,
+    })
     const ledger = normalizeAgentWorkComments(ISSUE, [
       serializeAgentWorkComment(planning),
       serializeAgentWorkComment(implementation),
+      serializeAgentWorkComment(review),
     ])
 
     expect(deriveAgentWorkProjection(forecastBody(), ledger)).toEqual({
@@ -76,7 +87,8 @@ describe('agent-work Project derivation', () => {
           'codex:gpt-5.6-sol@xhigh | codex:gpt-5.6-sol@xhigh -> escalated:gpt-6@xhigh',
         'Planning tokens': 100,
         'Implementation tokens': 10,
-        'Own lifecycle tokens': 110,
+        'Review tokens': 14,
+        'Own lifecycle tokens': 124,
         'Time to first candidate (ms)': 90,
         'First-pass outcome': 'Accepted',
       },
@@ -126,6 +138,58 @@ describe('agent-work Project derivation', () => {
     ).values
 
     expect(values['First-pass outcome']).toBe('Rework required')
+  })
+
+  it('keeps unavailable independent review telemetry distinct without inventing a total', () => {
+    const review = parseAgentWorkRecord({
+      schema: 1,
+      issueNumber: ISSUE,
+      phase: 'implementation-review',
+      runKey: RUN_B,
+      idempotencyKey: KEY_B,
+      availability: 'unavailable',
+      unavailableReason: 'artifact-unavailable',
+    })
+    const ledger = normalizeAgentWorkComments(ISSUE, [
+      serializeAgentWorkComment(completeRecord()),
+      serializeAgentWorkComment(review),
+    ])
+    const values = deriveAgentWorkProjection('', ledger).values
+
+    expect(values['Implementation tokens']).toBe(10)
+    expect(values).not.toHaveProperty('Review tokens')
+    expect(values).not.toHaveProperty('Own lifecycle tokens')
+  })
+
+  it('keeps a partial isolated-review route only in the ledger', () => {
+    const review = parseAgentWorkRecord({
+      ...completeRecord(),
+      phase: 'implementation-review',
+      availability: 'partial',
+      usage: undefined,
+      timing: { activeWallMilliseconds: 25 },
+      missingFacts: [
+        'start-snapshot',
+        'end-snapshot',
+        'fresh-input-tokens',
+        'cache-read-input-tokens',
+        'cache-write-input-tokens',
+        'output-tokens',
+        'reasoning-tokens',
+        'model-or-api-time',
+      ],
+      outcome: undefined,
+    })
+    const values = deriveAgentWorkProjection(
+      '',
+      normalizeAgentWorkComments(ISSUE, [serializeAgentWorkComment(review)]),
+    ).values
+
+    expect(values).not.toHaveProperty('Initial model')
+    expect(values).not.toHaveProperty('Reasoning effort')
+    expect(values).not.toHaveProperty('Model route')
+    expect(values).not.toHaveProperty('Review tokens')
+    expect(values).not.toHaveProperty('Own lifecycle tokens')
   })
 
   it('projects the latest valid pre-implementation revision without erasing the initial section', () => {

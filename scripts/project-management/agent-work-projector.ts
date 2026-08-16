@@ -28,6 +28,7 @@ const LEDGER_FIELDS: readonly AgentWorkProjectFieldName[] = [
   'Model route',
   'Planning tokens',
   'Implementation tokens',
+  'Review tokens',
   'Own lifecycle tokens',
   'Time to first candidate (ms)',
   'First-pass outcome',
@@ -159,7 +160,12 @@ export function deriveAgentWorkProjection(
         }
       : {}
   const activeRecords = ledger.records.filter((record) => record.activity === 'active')
-  const firstRoute = activeRecords.find((record) => record.route !== undefined)?.route
+  const deliveryRouteRecords = activeRecords.filter(
+    (record) => record.phase !== 'implementation-review',
+  )
+  const firstRoute = deliveryRouteRecords.find(
+    (record) => record.route !== undefined,
+  )?.route
   if (firstRoute?.initial.modelId !== undefined) {
     values['Initial model'] = firstRoute.initial.modelId
   }
@@ -167,7 +173,7 @@ export function deriveAgentWorkProjection(
     firstRoute?.initial.effectiveReasoningEffort ??
     firstRoute?.initial.requestedReasoningEffort
   if (effort !== undefined) values['Reasoning effort'] = effort
-  const modelRoute = projectModelRoute(activeRecords)
+  const modelRoute = projectModelRoute(deliveryRouteRecords)
   if (modelRoute.length > MAX_MODEL_ROUTE_LENGTH) {
     diagnostics.push('model-route-too-large')
     preservedFields.add('Model route')
@@ -177,6 +183,7 @@ export function deriveAgentWorkProjection(
 
   setExactTotal(values, 'Planning tokens', ledger, 'issue-planning')
   setExactTotal(values, 'Implementation tokens', ledger, 'implementation')
+  setExactTotal(values, 'Review tokens', ledger, 'implementation-review')
   if (
     ledger.ownTotal.activeRuns > 0 &&
     ledger.ownTotal.normalizedTokenTotal !== undefined

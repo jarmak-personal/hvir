@@ -16,6 +16,12 @@ and acceptance criteria. If no governing issue exists, stop and use `hvir-create
 before implementation. Run a large epic through `hvir-implement-epic`, which coordinates
 independently deliverable child issues instead of producing one giant implementation pull request.
 
+Read [`references/agent-work-recording.md`](references/agent-work-recording.md) completely. Open
+one `implementation` measurement run at this skill's start observation, before delivery setup or
+reconnaissance. Capture a provider start snapshot when the exact current supported session can be
+qualified; otherwise retain the truthful fixed unavailable reason. Measurement failure never
+blocks the implementation workflow.
+
 Read `AGENTS.md`, `CONTRIBUTING.md`, `docs/design.md`, the relevant ADRs, and the governing
 issue. Resolve these questions before changing files:
 
@@ -123,6 +129,13 @@ Use the capacity, real-host, packaged, or full gauntlet checks when the issue's 
 criteria require those environments. Report exact results and any unverified environment
 honestly.
 
+A successful normal push after final verification, commit, and the pre-push gate establishes the
+candidate identity and observable outcome. It does not stop implementation measurement. Keep the
+active-wall accumulator—and, for the earliest candidate, time to first candidate—running through
+the complete diff audit, architecture and acceptance rechecks, pull-request creation or update,
+and handoff preparation below. Apply the canonical first-pass and correction rules from the
+measurement contract; review-driven changes always belong to a new `implementation` run.
+
 ## Publish and hand off
 
 Use the user's authority to open or update an ordinary pull request. For an epic child, follow
@@ -145,14 +158,24 @@ Before handing off:
 Open or update a pull request when the user requests it or an authorized epic coordinator launches
 the child. Report unresolved architecture or validation concerns as blockers.
 
+Only after every preceding audit and the complete implementation handoff are stable, take the
+final provider snapshot and stop the active-wall and applicable time-to-first-candidate
+accumulators. Use the pushed commit SHA as the bounded candidate reference. Then append the record
+and reconcile its named Project projection using `references/agent-work-recording.md`. Partial,
+unavailable, or failed measurement is reported but does not suppress the handoff.
+
 Return a compact implementation handoff for both ordinary and epic-child work. Include:
 
 - issue number and native parent, if any;
-- completing model family;
+- completing model family for review selection, plus the exact observed initial model and
+  requested/effective reasoning effort when available;
 - exact start base and candidate commit SHAs;
 - pull-request number, base, head branch, and recorded head SHA;
 - changed product owners, authoritative seams, and actual write set;
 - final `npm run verify` and pre-push evidence;
+- implementation measurement availability, route changes/escalation, append/idempotency state,
+  projected Implementation/Own state, unavailable counters, active time, first-candidate time,
+  and first-pass outcome without private provider identity;
 - CI and external-review state;
 - deviations from the issue or expected architecture; and
 - blockers or unresolved concerns.

@@ -263,11 +263,12 @@ The measurement Project schema is fixed and domain-named:
 | `Agent difficulty` | Number | Latest pre-implementation forecast difficulty from 1 through 5 after validating its four rubric factors. |
 | `Risk` | Single select | `Low`, `Moderate`, `High`, or `Critical` from that forecast. |
 | `Estimate confidence` | Single select | `Low`, `Medium`, or `High` from that forecast. |
-| `Initial model` | Text | Earliest active run's exact available initial model identifier. |
-| `Reasoning effort` | Text | Effective effort when available, otherwise requested effort, from that initial route. |
-| `Model route` | Text | Bounded content-free active route sequence, including explicit change or escalation labels. |
+| `Initial model` | Text | Earliest active non-review run's exact available initial model identifier. |
+| `Reasoning effort` | Text | Effective effort when available, otherwise requested effort, from that non-review initial route. |
+| `Model route` | Text | Bounded content-free active non-review route sequence, including explicit change or escalation labels; independent review routes remain in the ledger. |
 | `Planning tokens` | Number | Exact normalized `issue-planning` total; absent when no run exists or coverage is incomplete. |
-| `Implementation tokens` | Number | Exact normalized `implementation` total; review tokens remain in their distinct ledger phase. |
+| `Implementation tokens` | Number | Exact normalized `implementation` total; review-driven corrections are new implementation runs. |
+| `Review tokens` | Number | Exact normalized `implementation-review` total; absent when no run exists or coverage is incomplete. |
 | `Own lifecycle tokens` | Number | Exact normalized total for all active runs owned by this issue, never child work. |
 | `Time to first candidate (ms)` | Number | First active implementation record's explicit candidate duration in milliseconds. |
 | `First-pass outcome` | Single select | `Pending`, `Accepted`, `Rework required`, or `No candidate`; explicit rework is sticky. |
@@ -479,6 +480,7 @@ gh project field-create 1 --owner jarmak-personal --name 'Reasoning effort' --da
 gh project field-create 1 --owner jarmak-personal --name 'Model route' --data-type TEXT
 gh project field-create 1 --owner jarmak-personal --name 'Planning tokens' --data-type NUMBER
 gh project field-create 1 --owner jarmak-personal --name 'Implementation tokens' --data-type NUMBER
+gh project field-create 1 --owner jarmak-personal --name 'Review tokens' --data-type NUMBER
 gh project field-create 1 --owner jarmak-personal --name 'Own lifecycle tokens' --data-type NUMBER
 gh project field-create 1 --owner jarmak-personal --name 'Time to first candidate (ms)' --data-type NUMBER
 gh project field-create 1 --owner jarmak-personal --name 'First-pass outcome' \
