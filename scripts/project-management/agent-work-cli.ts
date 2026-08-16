@@ -84,10 +84,8 @@ export function parseAgentWorkCliOptions(
 
 export const parseAgentWorkRepository = parseProjectRepository
 
-export function agentWorkExitCode(report: { append: { outcome: string } }): 0 | 2 {
-  return report.append.outcome === 'rejected' || report.append.outcome === 'uncertain'
-    ? 2
-    : 0
+export function agentWorkExitCode(report: { diagnostics: readonly string[] }): 0 | 2 {
+  return report.diagnostics.length > 0 ? 2 : 0
 }
 
 function parsePositiveInteger(value: string): number {

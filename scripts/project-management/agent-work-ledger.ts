@@ -1,3 +1,11 @@
+import {
+  AGENT_WORK_ADDITIVE_TOKEN_COUNTER_NAMES,
+  AGENT_WORK_TOKEN_COUNTER_NAMES,
+  AGENT_WORK_UNAVAILABLE_REASONS,
+  type AgentWorkTokenCounterName,
+  type AgentWorkUnavailableReason,
+} from '../../src/shared/agent-work-measurement.ts'
+
 export const AGENT_WORK_COMMENT_MARKER = '<!-- hvir-agent-work-measurement:v1 -->'
 export const AGENT_WORK_SCHEMA = 1
 
@@ -22,16 +30,8 @@ export type AgentWorkAvailability = (typeof AGENT_WORK_AVAILABILITY)[number]
 const HARNESSES = ['claude-code', 'codex'] as const
 export type AgentWorkHarness = (typeof HARNESSES)[number]
 
-export const AGENT_WORK_COUNTERS = [
-  'freshInputTokens',
-  'cacheReadInputTokens',
-  'cacheWriteInputTokens',
-  'outputTokens',
-  'reasoningTokens',
-] as const
-export type AgentWorkCounter = (typeof AGENT_WORK_COUNTERS)[number]
-
-const ADDITIVE_COUNTERS = AGENT_WORK_COUNTERS.slice(0, 4)
+export const AGENT_WORK_COUNTERS = AGENT_WORK_TOKEN_COUNTER_NAMES
+export type AgentWorkCounter = AgentWorkTokenCounterName
 
 export const AGENT_WORK_MISSING_FACTS = [
   'start-snapshot',
@@ -48,19 +48,8 @@ export const AGENT_WORK_MISSING_FACTS = [
 ] as const
 export type AgentWorkMissingFact = (typeof AGENT_WORK_MISSING_FACTS)[number]
 
-export const AGENT_WORK_UNAVAILABLE_REASONS = [
-  'unsupported-telemetry',
-  'run-identity-unproven',
-  'snapshot-unavailable',
-  'provider-mismatch',
-  'observation-order-invalid',
-  'counter-reset',
-  'counters-unavailable',
-  'artifact-unavailable',
-  'artifact-too-large',
-  'usage-unavailable',
-] as const
-export type AgentWorkUnavailableReason = (typeof AGENT_WORK_UNAVAILABLE_REASONS)[number]
+export { AGENT_WORK_UNAVAILABLE_REASONS }
+export type { AgentWorkUnavailableReason }
 
 export const FIRST_PASS_OUTCOMES = [
   'pending',
@@ -158,9 +147,7 @@ export interface AgentWorkAggregate {
   timing: {
     activeWallMilliseconds?: AggregateValue
     modelOrApiMilliseconds?: AggregateValue
-    timeToFirstCandidateMilliseconds?: number
   }
-  firstPassOutcome?: FirstPassOutcome
 }
 
 export interface NormalizedAgentWorkLedger {
@@ -193,7 +180,12 @@ export interface ReconcileAgentWorkLedgerReport {
   }
   ledger: NormalizedAgentWorkLedger
   plannedLedger?: NormalizedAgentWorkLedger
-  diagnostics: Array<'append-rejected' | 'append-outcome-uncertain'>
+  diagnostics: Array<
+    | 'append-rejected'
+    | 'append-outcome-uncertain'
+    | 'append-readback-failed'
+    | 'append-confirmed-not-observed'
+  >
 }
 
 export class AgentWorkAppendRejectedError extends Error {
@@ -489,19 +481,9 @@ export async function reconcileAgentWorkLedger(
     }
   }
 
+  let uncertainAppend = false
   try {
     await port.appendComment(issueNumber, comment)
-    return {
-      issueNumber,
-      apply: true,
-      append: {
-        outcome: 'appended',
-        appended: true,
-        idempotencyKey: record.idempotencyKey,
-      },
-      ledger: plannedLedger,
-      diagnostics: [],
-    }
   } catch (error) {
     if (!(error instanceof AgentWorkAppendUncertainError)) {
       if (error instanceof AgentWorkAppendRejectedError) {
@@ -519,9 +501,28 @@ export async function reconcileAgentWorkLedger(
       }
       throw error
     }
+    uncertainAppend = true
   }
 
-  const resolvedBodies = await port.listCommentBodies(issueNumber)
+  let resolvedBodies: string[]
+  try {
+    resolvedBodies = await port.listCommentBodies(issueNumber)
+  } catch {
+    return {
+      issueNumber,
+      apply: true,
+      append: {
+        outcome: uncertainAppend ? 'uncertain' : 'appended',
+        appended: uncertainAppend ? null : true,
+        idempotencyKey: record.idempotencyKey,
+      },
+      ledger,
+      plannedLedger,
+      diagnostics: [
+        uncertainAppend ? 'append-outcome-uncertain' : 'append-readback-failed',
+      ],
+    }
+  }
   const resolvedLedger = normalizeAgentWorkComments(issueNumber, resolvedBodies)
   const resolved = resolvedLedger.records.find(
     (candidate) => candidate.idempotencyKey === record.idempotencyKey,
@@ -539,6 +540,20 @@ export async function reconcileAgentWorkLedger(
       diagnostics: [],
     }
   }
+  if (!uncertainAppend) {
+    return {
+      issueNumber,
+      apply: true,
+      append: {
+        outcome: 'appended',
+        appended: true,
+        idempotencyKey: record.idempotencyKey,
+      },
+      ledger: resolvedLedger,
+      plannedLedger,
+      diagnostics: ['append-confirmed-not-observed'],
+    }
+  }
   return {
     issueNumber,
     apply: true,
@@ -548,6 +563,7 @@ export async function reconcileAgentWorkLedger(
       idempotencyKey: record.idempotencyKey,
     },
     ledger: resolvedLedger,
+    plannedLedger,
     diagnostics: ['append-outcome-uncertain'],
   }
 }
@@ -715,7 +731,9 @@ function validateAvailability(input: {
   missingFacts?: AgentWorkMissingFact[]
   unavailableReason?: AgentWorkUnavailableReason
 }): void {
-  const additive = ADDITIVE_COUNTERS.map((name) => input.usage?.[name])
+  const additive = AGENT_WORK_ADDITIVE_TOKEN_COUNTER_NAMES.map(
+    (name) => input.usage?.[name],
+  )
   if (input.availability === 'complete') {
     if (input.route === undefined) {
       throw new Error('Complete measurements require an initial route.')
@@ -792,7 +810,7 @@ function aggregateRecords(
     }
   }
   const knownParts = records.flatMap((record) =>
-    ADDITIVE_COUNTERS.flatMap((counter) => {
+    AGENT_WORK_ADDITIVE_TOKEN_COUNTER_NAMES.flatMap((counter) => {
       const value = record.usage?.[counter]
       return value === undefined ? [] : [value]
     }),
@@ -811,13 +829,6 @@ function aggregateRecords(
   }
   const activeWall = aggregateTiming(records, 'activeWallMilliseconds', diagnostics)
   const modelOrApi = aggregateTiming(records, 'modelOrApiMilliseconds', diagnostics)
-  const timeToFirstCandidateMilliseconds = records.find(
-    (record) => record.timing?.timeToFirstCandidateMilliseconds !== undefined,
-  )?.timing?.timeToFirstCandidateMilliseconds
-  const outcomes = records.flatMap((record) =>
-    record.outcome === undefined ? [] : [record.outcome.firstPass],
-  )
-  const firstPassOutcome = deriveFirstPassOutcome(outcomes)
   return {
     availability:
       records.length === 0 || unavailableRuns === records.length
@@ -841,11 +852,7 @@ function aggregateRecords(
     timing: {
       ...(activeWall === undefined ? {} : { activeWallMilliseconds: activeWall }),
       ...(modelOrApi === undefined ? {} : { modelOrApiMilliseconds: modelOrApi }),
-      ...(timeToFirstCandidateMilliseconds === undefined
-        ? {}
-        : { timeToFirstCandidateMilliseconds }),
     },
-    ...(firstPassOutcome === undefined ? {} : { firstPassOutcome }),
   }
 }
 
@@ -866,20 +873,6 @@ function aggregateTiming(
   return value === undefined || values.length === 0
     ? undefined
     : { value, observedRuns: values.length }
-}
-
-function deriveFirstPassOutcome(
-  outcomes: readonly FirstPassOutcome[],
-): FirstPassOutcome | undefined {
-  for (const candidate of [
-    'rework-required',
-    'accepted',
-    'pending',
-    'no-candidate',
-  ] as const) {
-    if (outcomes.includes(candidate)) return candidate
-  }
-  return undefined
 }
 
 function canonicalRecord(record: AgentWorkRecord): string {

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import {
+  AGENT_WORK_COUNTERS,
   AgentWorkAppendRejectedError,
   AgentWorkAppendUncertainError,
   normalizeAgentWorkComments,
@@ -15,6 +16,11 @@ import {
   agentWorkExitCode,
   parseAgentWorkCliOptions,
 } from '../scripts/project-management/agent-work-cli.ts'
+import {
+  AGENT_WORK_TOKEN_COUNTER_NAMES,
+  HARNESS_USAGE_UNAVAILABLE_REASONS,
+  type AgentWorkUnavailableReason,
+} from '../src/shared/agent-work-measurement.ts'
 
 const ISSUE = 573
 const RUN_A = 'a'.repeat(64)
@@ -70,6 +76,23 @@ describe('agent-work record schema', () => {
         timing: { activeWallMilliseconds: 1 },
       }),
     ).toThrow('cannot contain usage, timing')
+  })
+
+  it('shares provider counter and unavailable-reason vocabulary without drift', () => {
+    const providerReasons: readonly AgentWorkUnavailableReason[] =
+      HARNESS_USAGE_UNAVAILABLE_REASONS
+
+    expect(AGENT_WORK_COUNTERS).toBe(AGENT_WORK_TOKEN_COUNTER_NAMES)
+    expect(providerReasons).toContain('invalid-session-identity')
+    expect(
+      parseAgentWorkRecord({
+        ...unavailableRecord(),
+        unavailableReason: 'invalid-session-identity',
+      }),
+    ).toMatchObject({
+      availability: 'unavailable',
+      unavailableReason: 'invalid-session-identity',
+    })
   })
 
   it('requires ordered, truthful route changes and implementation-only outcome facts', () => {
@@ -146,12 +169,45 @@ describe('agent-work ledger normalization', () => {
       },
       timing: {
         activeWallMilliseconds: { value: 600, observedRuns: 2 },
-        timeToFirstCandidateMilliseconds: 500,
       },
     })
+    expect(ledger.ownTotal.timing).not.toHaveProperty('timeToFirstCandidateMilliseconds')
     expect(
       ledger.phaseTotals.find(({ phase }) => phase === 'issue-planning')?.total,
     ).toMatchObject({ normalizedTokenTotal: 100 })
+  })
+
+  it('retains multi-run candidate facts on records without inventing aggregate policy', () => {
+    const first = completeRecord({
+      timing: {
+        activeWallMilliseconds: 100,
+        timeToFirstCandidateMilliseconds: 100,
+      },
+      outcome: { firstPass: 'pending', candidateRef: 'abcdef1' },
+    })
+    const reopened = completeRecord({
+      idempotencyKey: KEY_B,
+      runKey: RUN_B,
+      timing: {
+        activeWallMilliseconds: 200,
+        timeToFirstCandidateMilliseconds: 999,
+      },
+      outcome: { firstPass: 'rework-required', candidateRef: 'abcdef2' },
+    })
+    const ledger = normalizeAgentWorkComments(ISSUE, [
+      serializeAgentWorkComment(first),
+      serializeAgentWorkComment(reopened),
+    ])
+
+    expect(ledger.records.map((record) => record.outcome?.firstPass)).toEqual([
+      'pending',
+      'rework-required',
+    ])
+    expect(
+      ledger.records.map((record) => record.timing?.timeToFirstCandidateMilliseconds),
+    ).toEqual([100, 999])
+    expect(ledger.ownTotal).not.toHaveProperty('firstPassOutcome')
+    expect(ledger.ownTotal.timing).not.toHaveProperty('timeToFirstCandidateMilliseconds')
   })
 
   it('deduplicates identical retries and rejects conflicting key reuse', () => {
@@ -303,6 +359,76 @@ describe('agent-work append operation', () => {
     expect(fixture.appendComment).toHaveBeenCalledTimes(1)
   })
 
+  it('re-reads a confirmed append and reports concurrent history as observed', async () => {
+    const bodies: string[] = []
+    const concurrent = completeRecord({ idempotencyKey: KEY_B, runKey: RUN_B })
+    const listCommentBodies = vi.fn<AgentWorkLedgerPort['listCommentBodies']>(() =>
+      Promise.resolve([...bodies]),
+    )
+    const appendComment = vi.fn<AgentWorkLedgerPort['appendComment']>((_issue, body) => {
+      bodies.push(body, serializeAgentWorkComment(concurrent))
+      return Promise.resolve()
+    })
+
+    const report = await reconcileAgentWorkLedger(
+      { listCommentBodies, appendComment },
+      { issueNumber: ISSUE, apply: true, record: completeRecord() },
+    )
+
+    expect(report.append).toMatchObject({ outcome: 'appended', appended: true })
+    expect(report.ledger.records.map(({ idempotencyKey }) => idempotencyKey)).toEqual([
+      KEY_A,
+      KEY_B,
+    ])
+    expect(report).not.toHaveProperty('plannedLedger')
+    expect(agentWorkExitCode(report)).toBe(0)
+    expect(listCommentBodies).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps planned and observed state distinct when confirmed read-back fails', async () => {
+    const privateFailure = 'SECRET read failure detail'
+    const listCommentBodies = vi
+      .fn<AgentWorkLedgerPort['listCommentBodies']>()
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce(new Error(privateFailure))
+    const appendComment = vi
+      .fn<AgentWorkLedgerPort['appendComment']>()
+      .mockResolvedValue(undefined)
+
+    const report = await reconcileAgentWorkLedger(
+      { listCommentBodies, appendComment },
+      { issueNumber: ISSUE, apply: true, record: completeRecord() },
+    )
+
+    expect(report).toMatchObject({
+      append: { outcome: 'appended', appended: true },
+      ledger: { records: [] },
+      plannedLedger: { records: [expect.objectContaining({ idempotencyKey: KEY_A })] },
+      diagnostics: ['append-readback-failed'],
+    })
+    expect(agentWorkExitCode(report)).toBe(2)
+    expect(JSON.stringify(report)).not.toContain(privateFailure)
+  })
+
+  it('does not promote a confirmed append projection that read-back has not observed', async () => {
+    const fixture = fakePort([])
+    fixture.appendComment.mockResolvedValueOnce(undefined)
+
+    const report = await reconcileAgentWorkLedger(fixture.port, {
+      issueNumber: ISSUE,
+      apply: true,
+      record: completeRecord(),
+    })
+
+    expect(report).toMatchObject({
+      append: { outcome: 'appended', appended: true },
+      ledger: { records: [] },
+      plannedLedger: { records: [expect.objectContaining({ idempotencyKey: KEY_A })] },
+      diagnostics: ['append-confirmed-not-observed'],
+    })
+    expect(agentWorkExitCode(report)).toBe(2)
+  })
+
   it('resolves an uncertain response by re-reading current state before returning', async () => {
     const bodies: string[] = []
     const record = completeRecord()
@@ -352,6 +478,31 @@ describe('agent-work append operation', () => {
       diagnostics: ['append-outcome-uncertain'],
     })
     expect(agentWorkExitCode(uncertainReport)).toBe(2)
+  })
+
+  it('reports an uncertain append when its resolution read also fails', async () => {
+    const privateFailure = 'SECRET resolution failure detail'
+    const listCommentBodies = vi
+      .fn<AgentWorkLedgerPort['listCommentBodies']>()
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce(new Error(privateFailure))
+    const appendComment = vi
+      .fn<AgentWorkLedgerPort['appendComment']>()
+      .mockRejectedValue(new AgentWorkAppendUncertainError())
+
+    const report = await reconcileAgentWorkLedger(
+      { listCommentBodies, appendComment },
+      { issueNumber: ISSUE, apply: true, record: completeRecord() },
+    )
+
+    expect(report).toMatchObject({
+      append: { outcome: 'uncertain', appended: null },
+      ledger: { records: [] },
+      plannedLedger: { records: [expect.objectContaining({ idempotencyKey: KEY_A })] },
+      diagnostics: ['append-outcome-uncertain'],
+    })
+    expect(agentWorkExitCode(report)).toBe(2)
+    expect(JSON.stringify(report)).not.toContain(privateFailure)
   })
 
   it('parses the named CLI input without accepting implicit mutation', () => {

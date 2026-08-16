@@ -193,7 +193,9 @@ Schema version 1 has these rules:
   additive counters and their exact safe-integer sum. Partial records require an initial route,
   at least one observed usage or timing value, a nonempty fixed `missingFacts` list, and no exact
   normalized total. Unavailable records require one fixed `unavailableReason` and contain no
-  usage, timing, or missing-fact claims.
+  usage, timing, or missing-fact claims. Provider and ledger code consume one shared closed
+  counter and unavailable-reason vocabulary; provider reasons, including
+  `invalid-session-identity`, are valid wire values without an independent translation table.
 - A complete or partial `route` starts with harness `claude-code` or `codex`, optionally records
   bounded model and requested/effective reasoning-effort identifiers, and keeps ordered route
   changes with an explicit `escalation` boolean. Consumers never infer escalation from model
@@ -215,16 +217,21 @@ Reads paginate the complete comment history. Repeating the same valid key and re
 `duplicate` without appending; even if two external requests produced identical comments, the
 normalized usage counts the key once. Reusing a key for different facts is a fixed conflict. A
 retry always reads current history before attempting a write. The append uses one non-retrying
-POST so an ambiguous mutation is not replayed inside the transport; after an uncertain response,
-the operation re-reads the ledger. It reports `appended: true`, `appended: false`, or
-`appended: null` when GitHub still cannot establish the outcome, and the latter exits nonzero so
-a later retry resolves current state again.
+POST so an ambiguous mutation is not replayed inside the transport, then re-reads the ledger
+after both confirmed and uncertain responses. `ledger` always means the last successfully
+observed history; a dry run or failed read-back keeps the intended projection separately as
+`plannedLedger`. The operation reports `appended: true`, `appended: false`, or `appended: null`
+when GitHub still cannot establish the outcome. An uncertain outcome or failed/incomplete
+read-back emits only a fixed diagnostic and exits nonzero so a later retry resolves current state
+again.
 
 Phase and Own totals include active records only. Exact normalized totals appear only when every
 active contributing run is complete; otherwise reports retain counter coverage and a labeled
 known subtotal without substituting zero for missing evidence. The comment ledger is
-authoritative before any later Project measurement projection. This command does not mutate
-Project fields or expose a generic issue-comment operation.
+authoritative before any later Project measurement projection. First-pass outcome and time to
+first candidate remain per-record facts: phase and Own totals do not choose a priority or first
+value for them. This command does not mutate Project fields or expose a generic issue-comment
+operation.
 
 ### Delivery context
 
