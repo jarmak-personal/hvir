@@ -112,7 +112,11 @@ export async function reconcileAgentWorkRollup(
         apply: input.apply,
         source: { eligibility, directChildren: [], participants: [] },
         rollup: { availability: 'unavailable', contributingIssues: 0 },
-        projection: projectionPlan(currentValue, undefined, eligibility === 'invalid'),
+        projection: projectionPlan(
+          currentValue,
+          undefined,
+          eligibility === 'invalid' || eligibility === 'nested-epic',
+        ),
         diagnostics,
       },
       undefined,
@@ -299,12 +303,6 @@ function validateDirectChildren(
   const diagnostics: AgentWorkRollupDiagnostic[] = []
   for (const [index, child] of children.entries()) {
     const reference = references[index]!
-    if (
-      reference.repository !== target.repository ||
-      child.repository !== target.repository
-    ) {
-      diagnostics.push('cross-repository-child')
-    }
     if (
       child.number !== reference.number ||
       child.parent?.number !== target.number ||

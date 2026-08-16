@@ -1,6 +1,7 @@
 import { GitHubClient } from './github-client.ts'
 import { nextPageCursor, type PageInfo } from './github-pagination.ts'
 import type {
+  IssueHierarchySnapshot,
   IssueReference,
   IssueSnapshot,
   PlanningIssueSnapshot,
@@ -8,6 +9,7 @@ import type {
 } from './issue-planning.ts'
 
 export type {
+  IssueHierarchySnapshot,
   IssueReference,
   PlanningIssueSnapshot,
   PullRequestReference,
@@ -183,6 +185,20 @@ export class GitHubIssueRepository {
             : ('closing' as const),
         }))
         .sort(compareReferences),
+    }
+  }
+
+  async getIssueHierarchy(issueNumber: number): Promise<IssueHierarchySnapshot> {
+    const [issue, parent, subIssues] = await Promise.all([
+      this.getIssue(issueNumber),
+      this.#getParent(issueNumber),
+      this.#getSubIssues(issueNumber),
+    ])
+    return {
+      ...issue,
+      repository: this.repository,
+      parent,
+      subIssues: sortIssueReferences(subIssues),
     }
   }
 

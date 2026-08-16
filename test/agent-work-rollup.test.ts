@@ -176,6 +176,23 @@ describe('agent-work epic Rollup reconciliation', () => {
     }
   })
 
+  it('preserves Rollup on a nested-epic target without writing the Project', async () => {
+    const fixture = rollupFixture({
+      currentRollup: 42,
+      issues: [childIssue(CHILD_A, { kind: 'epic' })],
+    })
+
+    const report = await reconcileAgentWorkRollup(fixture.source, fixture.project, {
+      issueNumber: CHILD_A,
+      apply: true,
+    })
+
+    expect(report.source.eligibility).toBe('nested-epic')
+    expect(report.diagnostics).toEqual(['nested-epic'])
+    expect(report.projection).toEqual({ outcome: 'unchanged', operation: 'preserve' })
+    expect(fixture.setField).not.toHaveBeenCalled()
+  })
+
   it('rejects nested descendants instead of recursively aggregating them', async () => {
     const nested = childIssue(CHILD_A, {
       kind: 'epic',

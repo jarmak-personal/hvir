@@ -26,3 +26,9 @@ export interface PlanningIssueSnapshot extends IssueSnapshot {
   subIssues: IssueReference[]
   linkedPullRequests: PullRequestReference[]
 }
+
+export interface IssueHierarchySnapshot extends IssueSnapshot {
+  repository: string
+  parent: IssueReference | null
+  subIssues: IssueReference[]
+}
