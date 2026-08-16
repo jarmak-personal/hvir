@@ -213,8 +213,8 @@ active time, append exactly one `implementation-review` record, then reconcile t
 projection as described in the shared recording procedure. A qualified exact review total
 projects to `Review tokens` and Own; partial or unavailable telemetry stays explicit and does not
 block returning findings. Include the available review route, measurement availability,
-unavailable counters/reason, and append/projection state in the result to the caller, without
-private provider identity.
+unavailable counters/reason, and append/projection/applicable parent Rollup state in the result
+to the caller, without private provider identity.
 
 Return every finding to the caller. Evaluate its evidence and state a recommendation, but leave
 the decision to integrate or reject each finding to the caller. Do not assign a final disposition

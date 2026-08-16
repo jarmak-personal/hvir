@@ -38,6 +38,76 @@ describe('GitHub agent-work projection source', () => {
       'Issue #574 was not found in the configured repository jarmak-personal/hvir',
     )
   })
+
+  it('paginates content-free native issue structure for direct-child Rollups', async () => {
+    const fetchImplementation = vi.fn(
+      (_url: string | URL | Request, init?: RequestInit) => {
+        if (typeof init?.body !== 'string') throw new Error('Expected GraphQL body.')
+        const request = JSON.parse(init.body) as {
+          query: string
+          variables: Record<string, unknown>
+        }
+        const second = request.variables.after !== null
+        if (request.query.includes('IssueAgentWorkRollupIdentity')) {
+          expect(request.query).not.toContain('body')
+          return Promise.resolve(
+            graphqlData({
+              repository: {
+                issue: {
+                  number: 570,
+                  state: 'OPEN',
+                  repository: { nameWithOwner: 'jarmak-personal/hvir' },
+                  parent: null,
+                  labels: {
+                    nodes: [{ name: second ? 'kind:epic' : 'area:docs' }],
+                    pageInfo: {
+                      endCursor: second ? null : 'labels-next',
+                      hasNextPage: !second,
+                    },
+                  },
+                },
+              },
+            }),
+          )
+        }
+        if (request.query.includes('IssueAgentWorkRollupChildren')) {
+          return Promise.resolve(
+            graphqlData({
+              repository: {
+                issue: {
+                  subIssues: {
+                    nodes: [
+                      {
+                        number: second ? 572 : 571,
+                        repository: { nameWithOwner: 'jarmak-personal/hvir' },
+                      },
+                    ],
+                    pageInfo: {
+                      endCursor: second ? null : 'children-next',
+                      hasNextPage: !second,
+                    },
+                  },
+                },
+              },
+            }),
+          )
+        }
+        throw new Error(`Unexpected query: ${request.query}`)
+      },
+    )
+
+    await expect(source(fetchImplementation).readRollupIssue(570)).resolves.toEqual({
+      number: 570,
+      repository: 'jarmak-personal/hvir',
+      state: 'OPEN',
+      kind: 'epic',
+      parent: null,
+      directChildren: [
+        { number: 571, repository: 'jarmak-personal/hvir' },
+        { number: 572, repository: 'jarmak-personal/hvir' },
+      ],
+    })
+  })
 })
 
 function source(fetchImplementation: typeof fetch): GitHubAgentWorkSource {

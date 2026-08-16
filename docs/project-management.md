@@ -272,7 +272,7 @@ The measurement Project schema is fixed and domain-named:
 | `Own lifecycle tokens` | Number | Exact normalized total for all active runs owned by this issue, never child work. |
 | `Time to first candidate (ms)` | Number | First active implementation record's explicit candidate duration in milliseconds. |
 | `First-pass outcome` | Single select | `Pending`, `Accepted`, `Rework required`, or `No candidate`; explicit rework is sticky. |
-| `Epic rollup tokens` | Number | Reserved named field for direct-child epic reconciliation; ordinary issue projection does not calculate or overwrite it. |
+| `Epic rollup tokens` | Number | Exact root-epic Own plus native direct-child Own total from the separate non-recursive Rollup reconciliation. |
 
 Unknown evidence is absent, never zero. If an authoritative correction makes a previously exact
 value partial or unavailable, the projection clears that stale field. The operation updates only
@@ -294,6 +294,43 @@ schema/validation, transport, and otherwise unclassified write failures without 
 failure content. The ledger remains authoritative. These
 measurement-only failures do not change the `issue:context` or `issue:start` readiness schema,
 which continues to require only membership, `Kind`, and `Status`.
+
+### Agent-work epic Rollups
+
+Rollup reconciliation is separate from both ledger append and one-issue projection. It reads the
+target issue's native relationships and the active ledger for the target and each direct child,
+then plans only the named `Epic rollup tokens` field:
+
+```sh
+HVIR_REPO_TOKEN="$(gh auth token)" \
+HVIR_PROJECT_TOKEN="$(gh auth token)" \
+npm run project:measure -- --issue 570 --rollup
+
+# After reviewing the relationship, coverage, and named Project operation:
+HVIR_REPO_TOKEN="$(gh auth token)" \
+HVIR_PROJECT_TOKEN="$(gh auth token)" \
+npm run project:measure -- --issue 570 --rollup --apply
+```
+
+A root `kind:epic` Rollup is its current Own lifecycle total plus each native direct child's
+current Own lifecycle total exactly once. Direct-child open or closed state does not change
+ownership. Ledger normalization removes superseded records and deduplicates identical retries
+before aggregation. The operation never reads a child's Project Rollup or traverses a grandchild.
+It rejects cross-repository relationships, mismatched native parents, nested epics, and nested
+descendants without overwriting a previously safe value. An active parent-only
+`epic-coordination` record on a child is also invalid Rollup evidence.
+
+An exact field value is present only when the parent and every direct child have complete exact
+Own totals and their safe-integer sum is available. Otherwise the report exposes `partial` or
+`unavailable` coverage and an available known subtotal without presenting it as exact, and clears
+a stale exact field. Unsafe relationship, ledger, or overflow diagnostics preserve the current
+field and exit nonzero. Identical reconciliation is a no-op. Applying `--rollup` to an ordinary
+issue or epic child clears a stale Rollup instead of inventing one.
+
+Lifecycle skills run the operation after the owning issue's append and projection. When that
+issue is a native direct child, they then reconcile the one exact parent. Parent reconciliation
+writes no child comment or Project field. Append, issue projection, and Rollup retry independently
+from current authoritative state.
 
 ### Delivery context
 
