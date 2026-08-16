@@ -33,7 +33,30 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe('HarnessProfileEditor binding names', () => {
+describe('HarnessProfileEditor', () => {
+  it('toggles both disclosure indicators through native summary activation', () => {
+    renderEditor()
+
+    const disclosures = [
+      ...document.querySelectorAll<HTMLDetailsElement>(
+        '.settings-profile-disclosure',
+      ),
+    ]
+    const summaries = disclosures.map((details) => details.querySelector('summary'))
+    expect(summaries.map((summary) => summary?.textContent)).toEqual([
+      'AdvancedExecutable, environment, paths, and capabilities',
+      'Exact command previewFresh launch',
+    ])
+
+    disclosures.forEach((details, index) => {
+      expect(details.open).toBe(false)
+      act(() => summaries[index]?.click())
+      expect(details.open).toBe(true)
+      act(() => summaries[index]?.click())
+      expect(details.open).toBe(false)
+    })
+  })
+
   it('keeps new and existing rows focused during continuous input', () => {
     renderEditor()
     addRow('Environment')
