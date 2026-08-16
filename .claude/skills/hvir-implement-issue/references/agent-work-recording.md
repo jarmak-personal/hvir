@@ -32,9 +32,29 @@ At the phase's start observation:
    ```sh
    export HVIR_USAGE_SESSION_ID='<private exact current session identity>'
    export HVIR_USAGE_CWD='<private exact harness launch directory>'
-   npm run proof:harness-usage -- snapshot codex > "$private_start_snapshot"
-   # Finalization, using the same private inputs:
-   npm run proof:harness-usage -- delta codex < "$private_start_snapshot"
+   hvir_agent_work_start_snapshot="$(mktemp "${TMPDIR:-/tmp}/hvir-agent-work-start.XXXXXX")" ||
+     hvir_agent_work_start_snapshot=
+
+   cleanup_hvir_agent_work_snapshot() {
+     if [[ -n "${hvir_agent_work_start_snapshot:-}" ]]; then
+       rm -f -- "$hvir_agent_work_start_snapshot"
+     fi
+     unset hvir_agent_work_start_snapshot HVIR_USAGE_SESSION_ID HVIR_USAGE_CWD
+   }
+   trap 'cleanup_hvir_agent_work_snapshot' EXIT
+   trap 'cleanup_hvir_agent_work_snapshot; exit 130' HUP INT TERM
+
+   if [[ -z "${HVIR_USAGE_SESSION_ID:-}" || -z "${HVIR_USAGE_CWD:-}" ||
+     -z "${hvir_agent_work_start_snapshot:-}" ||
+     ! -f "$hvir_agent_work_start_snapshot" ]]; then
+     cleanup_hvir_agent_work_snapshot
+     trap - EXIT HUP INT TERM
+     # Retain the applicable fixed unavailable reason and continue the workflow.
+   elif ! npm run proof:harness-usage -- snapshot codex > "$hvir_agent_work_start_snapshot"; then
+     cleanup_hvir_agent_work_snapshot
+     trap - EXIT HUP INT TERM
+     # Retain the applicable fixed unavailable reason and continue the workflow.
+   fi
    ```
 
    Substitute `claude-code` for `codex` only for an exact Claude Code session.
@@ -54,13 +74,33 @@ handoff facts are stable but before ledger bookkeeping:
    `npm run proof:harness-usage -- delta <codex|claude-code> < <start-snapshot>`. Never combine
    nearby or cross-provider sessions. For implementation, a push establishes candidate identity;
    it does not finalize the run before diff audit, architecture and acceptance rechecks,
-   pull-request update, and handoff preparation finish.
+   pull-request update, and handoff preparation finish. Capture the command's stdout privately for
+   the record, then remove the snapshot and unset its private inputs before ledger bookkeeping:
+
+   ```sh
+   if [[ -n "${hvir_agent_work_start_snapshot:-}" &&
+     -f "$hvir_agent_work_start_snapshot" ]]; then
+     if ! hvir_agent_work_delta="$(
+       npm run proof:harness-usage -- delta codex < "$hvir_agent_work_start_snapshot"
+     )"; then
+       unset hvir_agent_work_delta
+       # Retain the applicable fixed unavailable reason and continue the workflow.
+     fi
+   fi
+   cleanup_hvir_agent_work_snapshot
+   trap - EXIT HUP INT TERM
+   ```
+
+   Use the same cleanup plus `trap - EXIT HUP INT TERM` on every abandonment path before
+   finalization. Substitute `claude-code` for `codex` only when it was also used for the start
+   snapshot.
 2. Build one closed schema-v1 record from observed facts only. A complete record includes every
    additive counter and its exact safe-integer normalized total. A partial record includes an
    initial route, at least one usage or timing fact, fixed `missingFacts`, and no normalized total.
    An unavailable record includes one fixed `unavailableReason` and no route, usage, timing, or
    missing-fact claims. The issue, phase, run, and idempotency keys and an allowed implementation
-   outcome may still be present.
+   outcome may still be present. Build the record from `hvir_agent_work_delta` without printing
+   that private copy, then run `unset hvir_agent_work_delta` before ledger bookkeeping.
 3. Dry-run the append, inspect the normalized plan, then apply the freshly supplied same record:
 
    ```sh
