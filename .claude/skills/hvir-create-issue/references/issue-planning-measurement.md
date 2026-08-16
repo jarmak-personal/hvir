@@ -1,201 +1,169 @@
 # Issue-planning measurement workflow
 
-This reference defines the `hvir-create-issue` measurement state machine. Follow it only after
-the maintainer authorizes issue work. The canonical vocabulary and exclusions remain in
-[`docs/agent-work-measurements.md`](../../../../docs/agent-work-measurements.md); repository
-commands and wire schemas remain in
-[`docs/project-management.md`](../../../../docs/project-management.md). This workflow does not
-create a second ledger, Project writer, provider parser, or publication path.
+This reference owns `hvir-create-issue` measurement sequencing. Use these canonical authorities
+instead of restating their policy:
 
-Measurement is optional evidence. A missing snapshot, missing reviewer counter, or failed
-measurement operation never cancels an approved issue publication. It does change the reported
-coverage and the recovery step.
+- [`docs/agent-work-measurements.md`](../../../../docs/agent-work-measurements.md) defines phases,
+  forecast factors, availability, attribution, timing, routes, and content exclusions.
+- [`docs/agent-work-usage-proof.md`](../../../../docs/agent-work-usage-proof.md) defines the exact
+  supported-provider snapshot and delta procedure.
+- [Agent-work measurement ledger](../../../../docs/project-management.md#agent-work-measurement-ledger)
+  and [Agent-work Project projections](../../../../docs/project-management.md#agent-work-project-projections)
+  define record construction, credentials, dry-run/apply operations, reports, and recovery.
 
-## Keep one private run record
+Measurement is optional evidence. Missing or incomplete evidence does not cancel approved issue
+planning or publication.
 
-Keep these facts in the agent run, not in the issue draft, repository, logs, or Project:
+## Start the authorized planning run
 
-- whether issue work and publication have each received explicit approval;
-- one content-free random run key and its derived idempotency key;
-- the exact supported harness, qualified session identity, and launch working directory used only
-  as private provider inputs;
-- the exact temporary start-snapshot path;
-- the provider-neutral final delta or fixed unavailable reason;
-- the approved title, body, and labels;
-- the created issue number and URL, once known;
-- each append outcome and the Project projection outcome; and
-- any separately authorized reviewer run, with its own keys and measurement state.
+The first maintainer approval is the initial planning run's start boundary. Before product
+research, create fresh run and idempotency keys under the canonical ledger rules and retain them
+in task-specific private variables. Do not reuse keys from prior brainstorming or another run.
 
-Generate the run key once from a fresh random 32-byte operation nonce. Derive the idempotency key
-from a fixed namespace, the phase, the run key, and the append operation. Use only lowercase
-SHA-256 hex. Do not derive either key from issue prose, prompts, responses, code, paths, provider
-session identifiers, or other excluded content. Reuse the same keys on every retry of that run.
-
-The issue number is unknown at the start and is not part of the run key. Add it to the record only
-after publication succeeds.
-
-## Follow the fixed boundaries
-
-Use this order:
-
-1. Receive explicit authorization for issue work.
-2. Initialize the private run keys and attempt the start snapshot.
-3. Perform product-fit research, brainstorming, drafting, any separately authorized issue review,
-   and revision.
-4. Add the initial forecast to the exact issue body.
-5. Preview the exact title, body, labels, and intended Project values.
-6. Pause and request publication approval. Approval wait is not active agent time.
-7. After approval, finalize every planning measurement immediately before publication.
-8. Create the issue once.
-9. Save the returned issue number and URL as the publication checkpoint.
-10. Append every intended planning record. A dry run precedes each apply.
-11. After all records are active or confirmed duplicates, derive the Project projection. A dry
-    run precedes apply.
-12. Report the issue and every complete, partial, unavailable, failed, or uncertain operation.
-
-Do not take the final snapshot before publication approval. Do not put research, drafting,
-revision, or review between the final snapshot and issue creation. If the maintainer changes the
-approved title, body, or labels, return to preview and obtain a new publication approval before
-finalization.
-
-## Capture provider-neutral evidence
-
-Run provider collection from the repository root on the same local host as the harness. Use the
-exact current Codex thread identity or an explicitly preassigned Claude Code session identity.
-Never scan for a nearby or likely session. If the harness, exact identity, or supported artifact
-is unavailable, retain the applicable fixed unavailable reason and continue planning.
-
-Keep the start snapshot in one exact file created with `mktemp`. Supply the session identity and
-working directory through `HVIR_USAGE_SESSION_ID` and `HVIR_USAGE_CWD` without printing them:
+Create the snapshot target from a checked task-specific temporary path:
 
 ```sh
-npm run proof:harness-usage -- snapshot <codex|claude-code> > "$planning_snapshot_file"
+planning_snapshot_file="$(mktemp -t hvir-issue-planning.XXXXXX)"
+test -n "$planning_snapshot_file" && test -f "$planning_snapshot_file"
 ```
 
-After publication approval, calculate the final delta from that same file:
+Source every provider input as the usage-proof document requires:
+
+- `planning_provider` is the active bundled provider's exact `codex` or `claude-code` identifier.
+- `HVIR_USAGE_SESSION_ID` is the current `CODEX_THREAD_ID` for Codex or the explicitly preassigned
+  Claude Code session ID retained by its launcher. Do not discover a nearby session.
+- `HVIR_USAGE_CWD` is the exact launch working directory retained for this harness run.
+- `planning_snapshot_file` is the checked path created above, not a user-supplied path.
+
+Run the canonical start-snapshot operation and direct only its provider-neutral output to
+`planning_snapshot_file`. If any required source is absent or qualification fails, retain the
+canonical unavailable reason and continue issue planning.
+
+## Draft, review, and preview
+
+Product-fit research, brainstorming, drafting, revision, and any authorized issue review belong
+inside the planning phase. Add exactly one `## Initial forecast` section to the issue body. Use
+the canonical four-factor rubric, its derived difficulty, Risk, Estimate confidence, and a
+concise rationale. Keep the seven projected rubric lines in the exact field spelling documented
+by the Project projection contract.
+
+Handle reviewer attribution before final preview:
+
+- Append a distinct reviewer planning record only when the review ran under a separately
+  qualified session identity and its provider observation interval is proven disjoint from the
+  drafting interval. Give that run fresh keys and its own start and final observations.
+- If review ran inline, used the drafting session, overlapped the drafting interval, or has no
+  proof of disjoint usage, do not create a second counter-bearing record. Keep the drafting delta
+  truthful for its whole session and report reviewer attribution coverage as partial or
+  unavailable.
+- If a separately qualified, disjoint reviewer run yields partial or unavailable telemetry,
+  preserve that status in its own record under the canonical contract.
+
+This classification only observes review behavior that the existing workflow authorized. It
+does not invoke, repeat, or change `hvir-review-issue` policy.
+
+Preview all of these facts together:
+
+- the exact issue title, body, and labels;
+- the exact forecast-derived `Agent difficulty`, `Risk`, and `Estimate confidence` values;
+- the intended `Initial model`, `Reasoning effort`, `Model route`, `Planning tokens`, and
+  `Own lifecycle tokens`, marked pending, partial, or unavailable until the final records exist;
+  and
+- the assumptions, open questions, and reviewer attribution coverage.
+
+Pause for the separate publication approval. If any title, body, or label changes, preview the
+new exact draft and obtain approval again.
+
+## Finalize, publish once, append, and project
+
+After publication approval, run the canonical delta operation against
+`planning_snapshot_file`. This is the drafting run's finalization observation. Perform no more
+research, drafting, revision, or review before the fixed issue-creation operation.
+Retain its provider-neutral output as the task-specific `planning_delta`; if collection is
+unavailable, retain the canonical reason as `planning_unavailable_reason` instead.
+
+Create the issue once. Save the returned issue number and URL immediately as
+`planning_issue_number` and `planning_issue_url`. They are the post-publication recovery
+checkpoint for every later operation. An ambiguous create result stops for read-only resolution;
+it never authorizes another create request.
+
+Construct each `planning_record` with a JSON serializer from only these sources:
+
+- `planning_issue_number` and the fixed `issue-planning` phase;
+- that run's private keys;
+- the provider-neutral delta or canonical unavailable reason; and
+- any truthful timing or route facts admitted by the canonical schema.
+
+Do not interpolate issue text, shell-source the JSON, use `eval`, or print credentials. Serialize
+the record once into the task-specific `planning_record` variable and pass it only through the
+documented `HVIR_AGENT_WORK_RECORD` environment input.
+
+Immediately before repository and Project operations, source scoped credentials without printing
+them:
 
 ```sh
-npm run proof:harness-usage -- delta <codex|claude-code> < "$planning_snapshot_file"
+planning_repo_token="$(gh auth token)"
+planning_project_token="$planning_repo_token"
+test -n "$planning_repo_token" && test -n "$planning_project_token"
 ```
 
-Use only the provider-neutral JSON output. Never retain or expose the private session identity,
-artifact identity, artifact path, launch path, environment, prompts, responses, transcript, or
-raw provider records. Delete only the exact temporary file after finalization or abandonment.
+Use those variables as `HVIR_REPO_TOKEN` and `HVIR_PROJECT_TOKEN` for the canonical operations.
+Dry-run and apply each intended drafting or qualified-disjoint reviewer append. Continue only
+after each intended record is confirmed active under the canonical report.
 
-Translate a complete delta to a complete ledger record. Preserve all additive counters,
-reasoning detail, exact normalized total, available model/API timing, initial route, and observed
-route changes. Treat the provider's observed effort as effective effort unless the harness also
-truthfully exposes a distinct requested value. Mark a route change as an escalation only when
-that intent was explicitly declared; never infer it from model names or effort labels.
+Read canonical Project membership before projection. If the issue does not yet have one active
+canonical Project item, keep the issue and ledger checkpoint, report projection as incomplete,
+and retry projection after membership exists. When membership is active, dry-run and apply the
+canonical projection from the current issue and active ledger.
 
-Translate a partial delta to a partial record. Preserve observed counters and timing, list the
-fixed missing facts, and omit `normalizedTokenTotal`. Translate an unavailable snapshot or delta
-to an unavailable record with its fixed reason and no usage or timing claims. If exact run
-identity was never available, use `run-identity-unproven`. Do not replace missing values with
-zero. Omit active-wall or model/API time unless a truthful source supplies it with the contract's
-semantics.
+Output only the commands' normalized reports and the final handoff. The handoff names
+`planning_issue_url` plus the start/final observation, creation, each intended append, Project
+membership, projection, and reviewer-coverage outcome.
 
-## Keep reviewer attribution separate
-
-A separately authorized `hvir-review-issue` execution is another `issue-planning` run. Give it a
-different random run key, derived idempotency key, start observation, finalization observation,
-and ledger record. The drafting run does not absorb reviewer usage.
-
-When the reviewer command exposes a qualified supported-provider identity, capture its truthful
-delta. When it does not, prepare an unavailable reviewer record with the applicable fixed reason.
-The overall planning measurement is partial because reviewer coverage is unavailable, even when
-the drafting run is complete. Append the unavailable record after the issue exists so ledger and
-Project consumers retain that missing coverage instead of presenting the drafting subtotal as an
-exact planning total.
-
-Do not invoke, repeat, or change issue-review policy for measurement. Collection observes a
-review that the existing workflow already authorized.
-
-## Append, then project
-
-After issue creation, construct one schema-v1 record per intended run with the created issue
-number and phase `issue-planning`. Pass the exact JSON only through `HVIR_AGENT_WORK_RECORD`.
-Use the repository token environment documented for the command:
+After the workflow finishes its handoff or is abandoned, clean only the retained task-specific
+state:
 
 ```sh
-HVIR_REPO_TOKEN="$planning_repo_token" \
-HVIR_AGENT_WORK_RECORD="$planning_record" \
-npm run project:measure -- --issue <number> --append
-
-HVIR_REPO_TOKEN="$planning_repo_token" \
-HVIR_AGENT_WORK_RECORD="$planning_record" \
-npm run project:measure -- --issue <number> --append --apply
+test -n "$planning_snapshot_file" && test -f "$planning_snapshot_file" && \
+  rm -f -- "$planning_snapshot_file"
+unset planning_record planning_delta planning_unavailable_reason
+unset planning_repo_token planning_project_token planning_snapshot_file
 ```
 
-Inspect the `would-append` dry-run report before apply. After apply, accept only `appended` or
-`duplicate` as proof that the intended record is active. An uncertain append remains unresolved
-even if the HTTP request may have succeeded. Retry the same operation with the same record and
-key; the command re-reads the ledger and resolves a prior success as `duplicate`.
+## Measure a pre-implementation forecast revision
 
-Do not project until every intended drafting and reviewer record is active or a confirmed
-duplicate. Then use the separate projection operation with both repository and Project tokens:
+A material forecast revision is a new planning run. Its start boundary is the maintainer's
+explicit authorization to revise the existing issue. Create fresh keys and a fresh task-specific
+snapshot file at that boundary. Never reuse the original drafting baseline, final delta, or keys.
 
-```sh
-HVIR_REPO_TOKEN="$planning_repo_token" \
-HVIR_PROJECT_TOKEN="$planning_project_token" \
-npm run project:measure -- --issue <number> --project
+Confirm that implementation has not started. Preserve the original `## Initial forecast` and
+append one `## Pre-implementation forecast revision` that references it and uses the same
+canonical factor fields, headlines, and rationale. Preview the exact updated body and intended
+Project values. Obtain separate approval for the issue-body edit.
 
-HVIR_REPO_TOKEN="$planning_repo_token" \
-HVIR_PROJECT_TOKEN="$planning_project_token" \
-npm run project:measure -- --issue <number> --project --apply
-```
+The revision run's finalization observation occurs immediately before that approved issue-body
+edit. Perform no additional revision work between the final observation and the edit. Once the
+edit succeeds, treat the updated issue body as the recovery checkpoint, construct the revision's
+record from its fresh observations, append it, and re-project. A later failure resumes after the
+proven body edit; it does not repeat the edit or reuse the original run.
 
-Inspect the named dry-run operations before apply. The command derives forecast, route, and usage
-fields from the issue and active ledger. This planning workflow supplies no implementation,
-first-pass, time-to-candidate, or epic-rollup facts. If Project automation has not yet created an
-active canonical item, retain the issue and report projection as incomplete. Retry the projection
-after membership exists; do not create another issue or append another record.
+If implementation has started, return the scope change for issue alignment without adding or
+replacing a forecast.
 
-## Recover from partial writes
+## Recover at workflow checkpoints
 
-The created issue is the irreversible checkpoint. Recovery always resumes after the last proven
-operation:
+Use the canonical command reports for append and projection retries. These workflow checkpoints
+decide which external effect is safe to attempt:
 
-| Last proven state | Next action |
+| Proven checkpoint | Safe continuation |
 | --- | --- |
-| No explicit issue-work approval | Do not capture, research, draft, review, or publish. |
-| Draft previewed, publication not approved | Do not finalize, create, append, or project. Retain no claim that an issue exists. |
-| Publication approved, creation conclusively failed | Retry creation only for the unchanged approved draft, or preview changes again. |
-| Creation result ambiguous | Stop. Resolve the outcome with read-only evidence. Do not retry creation. |
-| Issue URL returned | Store the number and URL. Never call issue creation again for this run. |
-| Issue exists, append rejected or uncertain | Retry the same append against that issue with the same record and idempotency key. |
-| Intended append is active or duplicate | Do not append it again under a new key. Continue with the next intended record or projection. |
-| All intended records are active, projection failed or partly applied | Retry only `--project --apply`; it re-reads the active ledger and current fields. |
-| Projection confirmed | Report the final issue URL and all operation outcomes. |
-
-Never edit or delete an existing measurement comment. A factual correction uses a new key and
-explicit supersession under the canonical ledger contract.
-
-## Preserve forecast history
-
-Before implementation starts, a material scope change may require one updated forecast. Confirm
-the exact existing issue, native relationships, planning state, and absence of implementation
-activity. Keep the original `Initial forecast` section byte-for-byte. Append one section in this
-shape to the issue body:
-
-```markdown
-## Pre-implementation forecast revision
-
-- Revises: Initial forecast
-- Agent difficulty: <1-5>/5
-- Reasoning novelty: <0-2>/2
-- Ownership breadth: <0-2>/2
-- Lifecycle/integration burden: <0-2>/2
-- Validation burden: <0-2>/2
-- Risk: <Low|Moderate|High|Critical>
-- Estimate confidence: <Low|Medium|High>
-- Rationale: <material scope change and resulting forecast>
-```
-
-Preview the exact updated body and intended Project values, then obtain explicit approval for the
-issue edit. The revision is a new authorized planning run with new measurement keys. After the
-edit, append that run's measurement and re-project. If implementation has started, do not append
-a forecast revision or overwrite the initial forecast.
+| Publication approval is absent | Do not finalize, create, append, or project. |
+| Creation conclusively failed | Retry only the unchanged approved create request, or preview a changed draft again. |
+| Creation is ambiguous | Stop for read-only resolution. Do not issue another create request. |
+| `planning_issue_url` exists | Never recreate the issue. Resume the pending append or projection against that issue. |
+| All intended records are active but Project membership is absent | Retain the ledger and retry projection only after membership becomes active. |
+| Projection partly applied or failed | Retain the ledger and retry only the canonical projection operation. |
+| Approved forecast body edit succeeded | Never repeat that edit for the run. Resume its append or projection. |
 
 ## Deterministic fixtures
 
@@ -203,20 +171,21 @@ Use these fixtures to check the workflow without external writes:
 
 | Fixture | Inputs | Required state and effects |
 | --- | --- | --- |
-| Authorization boundary | A finding exists, but the maintainer has not authorized this skill. | No baseline, research, draft, reviewer, issue, ledger, or Project operation. |
-| Draft approval only | Issue work is authorized and previewed; publication approval is absent. | A baseline may exist. No final snapshot, issue creation, ledger append, or Project write occurs. |
-| Changed preview | The maintainer changes title, body, or labels after preview. | Re-preview the exact changed draft. Prior approval does not authorize publication. |
-| Successful publication | Qualified start and end snapshots are complete; creation, append, and projection confirm success. | One issue URL, one active drafting record, forecast-derived fields, exact planning total, and a complete handoff. |
-| Telemetry unavailable | Exact run identity or a supported snapshot is unavailable. | Publication continues after approval. One unavailable record is appended. No guessed counters or exact planning total appears. Handoff says unavailable. |
-| Reviewer unavailable | Drafting delta is complete; a separately authorized reviewer has no attributable counters. | Append the complete drafting record and an unavailable reviewer record. Project coverage and handoff remain partial. |
-| Creation rejected | The fixed create request conclusively fails. | No issue checkpoint, append, or projection exists. A retry uses only the unchanged approved draft. |
-| Creation uncertain | The create request has no conclusive result. | No second create request. Stop for read-only resolution and report uncertainty. |
-| Append rejected | Creation returned an issue URL; the append did not succeed. | Retain the issue. Retry the same append with the same key. Never recreate the issue or invent a new record. |
-| Append uncertain then observed | Creation returned an issue URL; the first append was uncertain; retry reports duplicate. | Treat the original record as active exactly once and continue to projection. |
-| Project partial write | Every intended record is active; one named Project write fails after earlier writes. | Retain the ledger and preceding writes. Retry only projection from current Project state. |
-| Material scope revision | An existing aligned issue changes materially before implementation. | Preserve `Initial forecast`, append one approved revision section, append a new planning run, and re-project. |
-| Late scope revision | Implementation has started. | Do not append or replace a forecast. Return the scope change for issue alignment. |
+| Authorization boundary | A finding exists without issue-work authorization. | No baseline, research, draft, review, publication, append, or projection. |
+| Draft approval only | Issue work is authorized and previewed; publication approval is absent. | The start observation may exist. No final observation or external write. |
+| Changed preview | Title, body, or labels change after preview. | Re-preview the exact changed draft; prior publication approval is insufficient. |
+| Complete drafting run | Qualified drafting observations yield a complete delta and all external operations confirm. | One issue checkpoint, one active drafting record, exact planning projection, complete handoff. |
+| Partial drafting delta | Qualified drafting observations yield only a canonical partial delta. | Publish after approval, append one partial drafting record, omit an exact planning total, and report partial coverage. |
+| Drafting telemetry unavailable | Exact drafting identity or a supported observation is unavailable. | Publish after approval, append one unavailable drafting record, and report unavailable coverage without guessed usage. |
+| Disjoint reviewer session | Review has a separately qualified identity and a provider interval disjoint from drafting. | Append its own record once; drafting and reviewer counters contribute without overlap. |
+| Inline or overlapping reviewer | Review shares or may overlap the drafting session. | Append no second counter-bearing reviewer record; retain truthful drafting usage and report reviewer attribution partial or unavailable. |
+| Creation rejected | The fixed create request conclusively fails. | No issue checkpoint, append, or projection; retry only the unchanged approved draft. |
+| Creation uncertain | The create request has no conclusive result. | Stop for read-only resolution; no second create request. |
+| Append incomplete | Creation returned an issue URL but an intended append is not confirmed active. | Retain the issue and resume through the canonical append recovery for the same record. |
+| Projection before membership | The ledger is active but no active canonical Project item exists. | Preserve issue and ledger, report projection incomplete, and wait to retry projection after membership exists. |
+| Project partial write | An active item exists and one named Project write fails after earlier writes. | Retain the ledger and retry only canonical projection from current state. |
+| Material scope revision | The maintainer authorizes revision before implementation, then separately approves the edit. | Use fresh start/final observations around revision work and the body edit; preserve the initial forecast and re-project. |
+| Late scope revision | Implementation has started. | Do not append or replace a forecast; return for issue alignment. |
 
-These fixtures prove contributor-workflow policy only. Provider parsing, ledger idempotency,
-append uncertainty, pagination, Project writes, and partial Project failure remain covered at
-their existing owning seams.
+These fixtures prove contributor-workflow sequencing only. Provider, ledger, and Project behavior
+remain covered at their canonical owning seams.
