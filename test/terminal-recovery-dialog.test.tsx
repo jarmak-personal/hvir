@@ -97,11 +97,11 @@ describe('TerminalRecoveryDialog', () => {
       'select[aria-label="Rebind Retained Claude profile"]',
     )
     expect(select?.value).toBe(currentClaudeProfile.id)
-    expect(container.textContent).toContain('Current profile: Elevated Claude')
+    expect(container.textContent).toContain('Current profile: Current Claude')
     expect(container.textContent).toContain('Launch revision changed (4 → 5)')
-    expect(select?.selectedOptions[0]?.textContent).toContain('Elevated')
+    expect(select?.selectedOptions[0]?.textContent).toBe('Current Claude')
 
-    await clickButton('Rebind and acknowledge Elevated')
+    await clickButton('Review and rebind')
     expect(onRebind).toHaveBeenCalledWith(driftedRecord, currentClaudeProfile)
 
     await clickButton('Restore selected')
@@ -140,7 +140,7 @@ describe('TerminalRecoveryDialog', () => {
       onRebind,
     })
 
-    await clickButton('Rebind and acknowledge Elevated')
+    await clickButton('Review and rebind')
 
     expect(container.textContent).toContain('disk unavailable')
     expect(
@@ -172,7 +172,6 @@ const provider: HarnessProviderDescriptor = {
   },
   profileGuidance: {
     reservedArguments: [],
-    riskClassification: 'best-effort',
   },
 }
 const recoveryRoot = hostPath(asHostId('recovery-dialog'), '/repo')
@@ -194,15 +193,13 @@ const currentClaudeProfile: HarnessProfile = {
   ...providerTemplateProfiles().find(
     (candidate) => candidate.providerId === 'claude-code',
   )!,
-  displayName: 'Elevated Claude',
+  displayName: 'Current Claude',
   launchRevision: 5,
-  risk: 'elevated',
 }
 const alternateClaudeProfile: HarnessProfile = {
   ...currentClaudeProfile,
   id: asHarnessProfileId('claude-code-alternative'),
   displayName: 'Alternative Claude',
-  risk: 'standard',
 }
 const claudeProvider: HarnessProviderDescriptor = {
   id: currentClaudeProfile.providerId,
@@ -219,7 +216,6 @@ const claudeProvider: HarnessProviderDescriptor = {
   },
   profileGuidance: {
     reservedArguments: [],
-    riskClassification: 'best-effort',
   },
 }
 const driftedRecord: TerminalRecoverySession = {

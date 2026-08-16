@@ -58,7 +58,6 @@ describe('harness launch-menu policy', () => {
         },
         profileGuidance: {
           reservedArguments: [],
-          riskClassification: 'best-effort',
         },
       },
       {
@@ -72,7 +71,6 @@ describe('harness launch-menu policy', () => {
         },
         profileGuidance: {
           reservedArguments: [],
-          riskClassification: 'best-effort',
         },
       },
     ]

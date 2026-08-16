@@ -10,7 +10,6 @@ import {
   type TerminalIdentityStatus,
 } from '../../../shared'
 import type { TerminalAttention } from './terminal-attention'
-import { profileRiskAcknowledged } from './terminal-profile-recovery'
 
 export type TerminalSplitPane = 'primary' | 'secondary'
 export type TerminalStartMode = 'interactive' | 'bulk'
@@ -20,7 +19,6 @@ export interface TerminalSession {
   readonly providerId: HarnessProviderId
   readonly profileId: HarnessProfileId
   readonly launchRevision: number
-  readonly riskAcknowledged: boolean
   readonly capabilities: HarnessProviderCapabilities
   readonly fallbackTitle: string
   readonly title: string
@@ -53,9 +51,7 @@ export type TerminalWorkspaceAction =
       readonly type: 'sessions-replaced'
       readonly sessions: readonly TerminalSession[]
       readonly activeId?: string
-      readonly activeByPane?: Readonly<
-        Record<TerminalSplitPane, string | undefined>
-      >
+      readonly activeByPane?: Readonly<Record<TerminalSplitPane, string | undefined>>
     }
   | { readonly type: 'session-added'; readonly session: TerminalSession }
   | {
@@ -83,12 +79,7 @@ export function terminalWorkspaceReducer(
     case 'reset':
       return { ...initialTerminalWorkspaceModel, primaryWidth: action.primaryWidth }
     case 'sessions-replaced':
-      return replaceSessions(
-        model,
-        action.sessions,
-        action.activeId,
-        action.activeByPane,
-      )
+      return replaceSessions(model, action.sessions, action.activeId, action.activeByPane)
     case 'session-added':
       return {
         ...model,
@@ -141,7 +132,6 @@ export function createTerminalSession(
   provider: HarnessProviderDescriptor,
   cwd: HostPath,
   pane: TerminalSplitPane,
-  riskAcknowledged = false,
   capabilities: HarnessProviderCapabilities = provider.capabilities,
 ): TerminalSession {
   const fallbackTitle = `${provider.displayName} · ${basenameHostPath(cwd)}`
@@ -150,7 +140,6 @@ export function createTerminalSession(
     providerId: provider.id,
     profileId: profile.id,
     launchRevision: profile.launchRevision,
-    riskAcknowledged: profileRiskAcknowledged(profile) || riskAcknowledged,
     capabilities,
     fallbackTitle,
     title: fallbackTitle,
@@ -187,9 +176,7 @@ function replaceSessions(
   model: TerminalWorkspaceModel,
   sessions: readonly TerminalSession[],
   requestedActiveId?: string,
-  requestedActiveByPane?: Readonly<
-    Record<TerminalSplitPane, string | undefined>
-  >,
+  requestedActiveByPane?: Readonly<Record<TerminalSplitPane, string | undefined>>,
 ): TerminalWorkspaceModel {
   const active =
     sessions.find((session) => session.id === requestedActiveId) ?? sessions[0]
@@ -198,8 +185,7 @@ function replaceSessions(
       sessions.find(
         (session) =>
           session.pane === 'primary' &&
-          session.id ===
-            (requestedActiveByPane?.primary ?? model.activeByPane.primary),
+          session.id === (requestedActiveByPane?.primary ?? model.activeByPane.primary),
       )?.id ?? sessions.find((session) => session.pane === 'primary')?.id,
     secondary:
       sessions.find(
@@ -236,9 +222,7 @@ function closeSession(model: TerminalWorkspaceModel, id: string): TerminalWorksp
   }
   if (active?.dormant) {
     sessions = sessions.map((session) =>
-      session.id === active?.id
-        ? requestTerminalStart(session, 'interactive')
-        : session,
+      session.id === active?.id ? requestTerminalStart(session, 'interactive') : session,
     )
   }
   return {

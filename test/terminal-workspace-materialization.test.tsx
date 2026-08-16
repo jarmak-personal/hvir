@@ -153,7 +153,6 @@ function shellProvider(id: HarnessProviderDescriptor['id']): HarnessProviderDesc
     },
     profileGuidance: {
       reservedArguments: [],
-      riskClassification: 'best-effort',
     },
   }
 }

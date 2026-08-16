@@ -10,8 +10,8 @@ import {
   applyExecutableGrant,
   applyPathBindingGrant,
   harnessProfileBindingError,
-  harnessRiskLabel,
-  previewRiskLabel,
+  harnessProfilePreviewReadiness,
+  shouldPreserveUnsavedHarnessDraftAfterRefresh,
 } from '../src/renderer/src/settings/harness-profile-editor-policy'
 import { HarnessProfileRequestPolicy } from '../src/renderer/src/settings/harness-profile-request-policy'
 
@@ -46,6 +46,22 @@ describe('harness profile editor policy', () => {
     const retry = policy.start('mutation')
     expect(policy.isCurrent(failedSave)).toBe(false)
     expect(policy.isCurrent(retry)).toBe(true)
+  })
+
+  it('rejects late folder and executable authorization after selection or workspace changes', () => {
+    const policy = new HarnessProfileRequestPolicy()
+    policy.switchWorkspace()
+    const executableGrant = policy.start('grant:executable')
+    const folderListing = policy.start('browse:/outside')
+    const bindingGrant = policy.start('grant:binding')
+
+    policy.switchProfile()
+    expect(policy.isCurrent(executableGrant, true)).toBe(false)
+    expect(policy.isCurrent(bindingGrant, true)).toBe(false)
+    expect(policy.isCurrent(folderListing)).toBe(true)
+
+    policy.switchWorkspace()
+    expect(policy.isCurrent(folderListing)).toBe(false)
   })
 
   it('applies main-issued grants without changing unrelated permission fields', () => {
@@ -147,24 +163,20 @@ describe('harness profile editor policy', () => {
     ).toBe("Unknown path binding 'missing'")
   })
 
-  it('keeps risk labels policy-only and preview-derived', () => {
-    expect(harnessRiskLabel('elevated')).toBe('Elevated')
-    expect(previewRiskLabel([])).toBe('Pending validation')
+  it('distinguishes preview readiness and preserves no-ID drafts across ordinary refreshes', () => {
     expect(
-      previewRiskLabel([
-        {
-          profileId: asHarnessProfileId('profile'),
-          launchRevision: 1,
-          providerId: asHarnessProviderId('opaque'),
-          mode: 'fresh',
-          executable: 'agent',
-          args: [],
-          environment: [],
-          command: 'agent',
-          risk: 'unclassified',
-          artifactIdentity: 'artifact',
-        },
-      ]),
-    ).toBe('Unclassified')
+      harnessProfilePreviewReadiness({ executable: { kind: 'command', command: '  ' } }),
+    ).toBe('Enter an executable command to preview this profile.')
+    expect(
+      harnessProfilePreviewReadiness({
+        executable: { kind: 'command', command: 'codex' },
+      }),
+    ).toBeUndefined()
+
+    const unsaved = { id: undefined }
+    const savedId = asHarnessProfileId('saved-profile')
+    expect(shouldPreserveUnsavedHarnessDraftAfterRefresh(unsaved)).toBe(true)
+    expect(shouldPreserveUnsavedHarnessDraftAfterRefresh({ id: savedId })).toBe(false)
+    expect(shouldPreserveUnsavedHarnessDraftAfterRefresh(unsaved, savedId)).toBe(false)
   })
 })

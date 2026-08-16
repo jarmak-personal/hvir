@@ -147,7 +147,6 @@ export function commandPreview(
     args: resolved.spec.args,
     environment,
     command: prefix ? `${prefix} ${invocation}` : invocation,
-    risk: resolved.profile.risk,
     artifactIdentity: resolved.artifactIdentity,
   }
 }

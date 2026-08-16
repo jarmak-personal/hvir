@@ -90,7 +90,6 @@ export function TerminalSessionRuntimes({
             sessionId={session.id}
             profileId={session.profileId}
             launchRevision={session.launchRevision}
-            riskAcknowledged={session.riskAcknowledged}
             supportsResume={session.capabilities.exactResume}
             fallbackTitle={session.fallbackTitle}
             harnessSessionId={session.harnessSessionId}

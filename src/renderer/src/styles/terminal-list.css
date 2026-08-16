@@ -114,14 +114,6 @@
   font-size: calc(9px * var(--hvir-interface-scale));
 }
 
-.terminal-list-profile.elevated {
-  color: #d8b36f;
-}
-
-.terminal-list-profile.unclassified {
-  color: #bf91ce;
-}
-
 .terminal-context {
   width: 100%;
   display: grid;

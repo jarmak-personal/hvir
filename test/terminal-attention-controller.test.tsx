@@ -127,7 +127,6 @@ function terminalSession(): TerminalSession {
     providerId: asHarnessProviderId('codex'),
     profileId: asHarnessProfileId('codex-default'),
     launchRevision: 1,
-    riskAcknowledged: false,
     capabilities: {
       sessionIdentity: 'discovered',
       exactResume: true,

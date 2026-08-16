@@ -23,6 +23,31 @@
   gap: 10px;
 }
 
+.settings-harness-empty {
+  align-self: start;
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  padding: 24px;
+}
+
+.settings-harness-empty strong {
+  color: var(--text-strong);
+  font-size: calc(11px * var(--hvir-interface-scale));
+}
+
+.settings-harness-empty p {
+  max-width: 430px;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.settings-harness-empty > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .settings-dialog .settings-harness-state p,
 .settings-harness-empty {
   margin: 0;
@@ -83,7 +108,6 @@
 
 .settings-profile-list small,
 .settings-profile-note,
-.settings-profile-risk small,
 .settings-profile-previews small {
   color: var(--text-muted);
   font-size: calc(9px * var(--hvir-interface-scale));
@@ -105,6 +129,67 @@
   gap: 8px;
   padding: 10px;
   overflow: auto;
+}
+
+.settings-profile-disclosure {
+  min-width: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--surface-1);
+}
+
+.settings-profile-disclosure > summary {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 9px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: calc(10px * var(--hvir-interface-scale));
+}
+
+.settings-profile-disclosure > summary::before {
+  align-self: center;
+  width: 10px;
+  color: var(--text-muted);
+  content: '›';
+  font-size: calc(14px * var(--hvir-interface-scale));
+  line-height: 1;
+  text-align: center;
+  transform: rotate(0deg);
+  transform-origin: center;
+}
+
+.settings-profile-disclosure[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.settings-profile-disclosure > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.settings-profile-disclosure > summary small {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: calc(9px * var(--hvir-interface-scale));
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-profile-disclosure > summary .settings-profile-disclosure-error {
+  color: var(--danger-text);
+  font-weight: 600;
+}
+
+.settings-profile-disclosure-body {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border-top: 1px solid var(--border-subtle);
 }
 
 .settings-profile-grid {
@@ -174,8 +259,7 @@
   line-height: 1.5;
 }
 
-.settings-profile-argv span,
-.settings-profile-risk {
+.settings-profile-argv span {
   display: flex;
   justify-content: space-between;
   gap: 8px;
@@ -214,6 +298,12 @@
   font-size: calc(10px * var(--hvir-interface-scale));
 }
 
+.settings-profile-environment-guidance {
+  color: var(--text-muted);
+  font-size: calc(9px * var(--hvir-interface-scale));
+  line-height: 1.4;
+}
+
 .settings-profile-row {
   display: grid;
   grid-template-columns:
@@ -228,16 +318,6 @@
 
 .settings-profile-row > button:last-child {
   padding: 0;
-}
-
-.settings-profile-risk {
-  align-items: baseline;
-  padding: 8px 9px;
-  border: 1px solid var(--warning-border);
-  border-radius: 4px;
-  background: var(--warning-surface);
-  color: var(--warning-text);
-  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .settings-profile-previews {
@@ -281,6 +361,18 @@
   font-size: calc(10px * var(--hvir-interface-scale));
 }
 
+.settings-profile-actions button[aria-label^='Move profile'] {
+  width: 28px;
+  padding-inline: 0;
+}
+
+.project-dialog.settings-dialog .settings-profile-actions .primary {
+  border-color: color-mix(in srgb, var(--accent) 72%, var(--border-strong));
+  background: var(--accent-soft);
+  color: var(--text-strong);
+  font-weight: 600;
+}
+
 .settings-profile-unsaved,
 .settings-profile-actions .settings-profile-note {
   margin-right: auto;
@@ -289,129 +381,6 @@
 .settings-profile-unsaved {
   color: var(--warning-text);
   font-size: calc(10px * var(--hvir-interface-scale));
-}
-
-.unsaved-harness-dialog h3,
-.unsaved-harness-dialog p {
-  margin: 0;
-}
-
-.unsaved-harness-dialog strong {
-  color: var(--text-strong);
-}
-
-.project-dialog.add-harness-dialog {
-  width: min(620px, calc(100vw - 48px));
-  max-height: min(680px, calc(100vh - 48px));
-}
-
-.add-harness-heading,
-.add-harness-manual {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.add-harness-heading h3,
-.add-harness-dialog .add-harness-heading p,
-.add-harness-dialog .add-harness-candidates p {
-  margin: 0;
-}
-
-.add-harness-dialog .add-harness-heading p,
-.add-harness-dialog .add-harness-candidates p {
-  margin-top: 4px;
-  color: var(--text-muted);
-  font-size: calc(10px * var(--hvir-interface-scale));
-}
-
-.add-harness-candidates {
-  min-height: 190px;
-  max-height: min(330px, 42vh);
-  overflow: auto;
-  border: 1px solid var(--border-subtle);
-  border-radius: 4px;
-  background: var(--surface-1);
-}
-
-.add-harness-dialog .add-harness-candidates label {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
-  align-items: center;
-  gap: 9px;
-  padding: 10px 11px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.add-harness-dialog .add-harness-candidates label:last-child {
-  border-bottom: 0;
-}
-
-.add-harness-dialog .add-harness-candidates label.configured {
-  color: var(--text-muted);
-}
-
-.add-harness-dialog .add-harness-candidates label > span,
-.add-harness-dialog .add-harness-manual label {
-  display: grid;
-  gap: 3px;
-}
-
-.add-harness-dialog .add-harness-candidates small,
-.add-harness-dialog .add-harness-manual label > span {
-  color: var(--text-muted);
-  font-size: calc(9px * var(--hvir-interface-scale));
-}
-
-.add-harness-dialog .add-harness-candidates p {
-  padding: 12px;
-}
-
-.add-harness-manual {
-  padding: 10px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 4px;
-  background: var(--surface-2);
-}
-
-.add-harness-dialog .add-harness-manual label {
-  flex: 1;
-}
-
-.add-harness-manual select {
-  min-width: 250px;
-}
-
-.project-dialog.harness-folder-picker {
-  width: min(560px, calc(100vw - 48px));
-  max-height: min(620px, calc(100vh - 48px));
-}
-
-.harness-folder-picker > code {
-  overflow-wrap: anywhere;
-  color: var(--text);
-  font-size: calc(10px * var(--hvir-interface-scale));
-}
-
-.harness-folder-list {
-  min-height: 220px;
-  display: grid;
-  align-content: start;
-  overflow: auto;
-  border: 1px solid var(--border-subtle);
-  border-radius: 4px;
-  background: var(--surface-1);
-}
-
-.harness-folder-list button {
-  padding: 7px 9px;
-  border: 0;
-  border-bottom: 1px solid var(--border-subtle);
-  border-radius: 0;
-  background: transparent;
-  color: var(--text);
-  text-align: left;
 }
 
 @media (max-width: 1000px) {
@@ -445,12 +414,18 @@
 }
 
 @media (max-width: 640px) {
-  .settings-section-heading,
-  .settings-harness-actions,
-  .add-harness-heading,
-  .add-harness-manual {
+  .settings-section-heading {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .settings-harness-actions {
+    align-items: stretch;
+    flex-flow: row wrap;
+  }
+
+  .settings-harness-actions button {
+    flex: 1 1 145px;
   }
 
   .settings-harness-layout {
@@ -463,8 +438,12 @@
     border-bottom: 1px solid var(--border-subtle);
   }
 
-  .add-harness-manual select {
-    min-width: 0;
-    width: 100%;
+  .settings-profile-disclosure > summary {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .settings-profile-disclosure > summary small {
+    grid-column: 2;
+    text-align: left;
   }
 }

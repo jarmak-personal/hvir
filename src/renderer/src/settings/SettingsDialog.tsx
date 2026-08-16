@@ -50,6 +50,7 @@ export function SettingsDialog({
   const requestClose = controller.requestClose
 
   useEffect(() => {
+    if (initialDestination.intent === 'add-harness') return
     const frame = window.requestAnimationFrame(() => {
       if (initialDestination.section === 'appearance') dialog.current?.focus()
       else

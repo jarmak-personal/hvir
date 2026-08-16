@@ -64,7 +64,6 @@ export interface HarnessProfileStoreContract {
   materializeTemplates(
     providerIds: readonly HarnessProfile['providerId'][],
   ): Promise<readonly HarnessProfile[]>
-  acknowledgeRisk(id: HarnessProfileId, launchRevision: number): Promise<HarnessProfile>
   duplicate(id: HarnessProfileId): Promise<HarnessProfile>
   delete(id: HarnessProfileId): Promise<void>
   authorizePath(path: HostPath): Promise<HarnessPathGrant>
@@ -176,7 +175,6 @@ export class HarnessProfileStore implements HarnessProfileStoreContract {
         metadataRevision: 1,
         providerContractVersion: provider.profile.version,
         builtIn: false,
-        risk: classifyProfileRisk(provider, input),
       })
     }
     if (imported.length === 0) return imported
@@ -320,7 +318,6 @@ export class HarnessProfileStore implements HarnessProfileStoreContract {
         launchIdentity({
           ...input,
           providerContractVersion: provider.profile.version,
-          risk: classifyProfileRisk(provider, input),
         })
     const metadataChanged =
       current === undefined || metadataIdentity(current) !== metadataIdentity(input)
@@ -329,42 +326,12 @@ export class HarnessProfileStore implements HarnessProfileStoreContract {
       id,
       builtIn: false,
       providerContractVersion: provider.profile.version,
-      risk: classifyProfileRisk(provider, input),
       launchRevision:
         current === undefined ? 1 : current.launchRevision + (launchChanged ? 1 : 0),
       metadataRevision:
         current === undefined ? 1 : current.metadataRevision + (metadataChanged ? 1 : 0),
-      riskAcknowledgedRevision: launchChanged
-        ? undefined
-        : current?.riskAcknowledgedRevision,
     }
     return profile
-  }
-
-  acknowledgeRisk(id: HarnessProfileId, launchRevision: number): Promise<HarnessProfile> {
-    const current = this.get(id)
-    if (!current) throw new Error(`Unknown harness profile '${id}'`)
-    if (current.launchRevision !== launchRevision) {
-      throw new Error('Harness profile launch configuration changed')
-    }
-    if (
-      current.risk === 'standard' ||
-      current.riskAcknowledgedRevision === launchRevision
-    ) {
-      return Promise.resolve(current)
-    }
-    if (current.builtIn) {
-      throw new Error('Built-in harness profile risk cannot be acknowledged')
-    }
-    const acknowledged = { ...current, riskAcknowledgedRevision: launchRevision }
-    this.userProfiles.set(id, acknowledged)
-    return this.persist().then(
-      () => acknowledged,
-      (reason) => {
-        if (this.userProfiles.get(id) === acknowledged) this.userProfiles.set(id, current)
-        throw reason
-      },
-    )
   }
 
   duplicate(id: HarnessProfileId): Promise<HarnessProfile> {
@@ -454,7 +421,6 @@ export function builtInProfiles(): readonly HarnessProfile[] {
       metadataRevision: 1,
       providerContractVersion: provider.profile.version,
       builtIn: true,
-      risk: classifyProfileRisk(provider, input),
     },
   ]
 }
@@ -473,7 +439,6 @@ export function providerTemplateProfiles(): readonly HarnessProfile[] {
         metadataRevision: 1,
         providerContractVersion: provider.profile.version,
         builtIn: true,
-        risk: classifyProfileRisk(provider, input),
       },
     ]
   })
@@ -585,7 +550,7 @@ function validateProviderProfile(
   if (provider.manifest.id === 'custom' && input.executable.kind === 'provider-default') {
     throw new Error('Custom profiles require an executable')
   }
-  const tokens = profileRiskTokens(input.args)
+  const tokens = profileArgumentTokens(input.args)
   for (const reserved of provider.profile.reservedArguments) {
     if (tokens.some((token) => token === reserved || token.startsWith(`${reserved}=`))) {
       throw new Error(`Argument '${reserved}' is owned by the harness provider`)
@@ -593,18 +558,9 @@ function validateProviderProfile(
   }
 }
 
-function classifyProfileRisk(
-  provider: HarnessProvider,
-  input: HarnessProfileInput,
-): HarnessProfile['risk'] {
-  return provider.profile.classifyRisk({
-    args: profileRiskTokens(input.args),
-    environment: input.environment,
-    executableOverridden: input.executable.kind !== 'provider-default',
-  })
-}
-
-function profileRiskTokens(args: readonly HarnessProfileArgument[]): readonly string[] {
+function profileArgumentTokens(
+  args: readonly HarnessProfileArgument[],
+): readonly string[] {
   return args.map((argument) =>
     argument.parts
       .map((part) => (part.kind === 'literal' ? part.value : '<host-path>'))
@@ -619,19 +575,13 @@ function refreshProviderContract(profile: HarnessProfile): HarnessProfile {
   } catch {
     return profile
   }
-  const risk = classifyProfileRisk(provider, profile)
-  if (
-    profile.providerContractVersion === provider.profile.version &&
-    profile.risk === risk
-  ) {
+  if (profile.providerContractVersion === provider.profile.version) {
     return profile
   }
   return {
     ...profile,
     providerContractVersion: provider.profile.version,
-    risk,
     launchRevision: profile.launchRevision + 1,
-    riskAcknowledgedRevision: undefined,
   }
 }
 
@@ -645,7 +595,6 @@ function launchIdentity(
     | 'environment'
     | 'pathBindings'
     | 'providerContractVersion'
-    | 'risk'
   >,
 ): string {
   return JSON.stringify({
@@ -656,7 +605,6 @@ function launchIdentity(
     args: value.args,
     environment: value.environment,
     pathBindings: value.pathBindings,
-    risk: value.risk,
   })
 }
 
@@ -677,15 +625,10 @@ function parseStoredProfile(value: unknown): HarnessProfile | undefined {
     const launchRevision = positiveInteger(value['launchRevision'])
     const metadataRevision = positiveInteger(value['metadataRevision'])
     const providerContractVersion = positiveInteger(value['providerContractVersion'])
-    const risk = value['risk']
-    const riskAcknowledgedRevision = positiveInteger(value['riskAcknowledgedRevision'])
     if (
       launchRevision === undefined ||
       metadataRevision === undefined ||
-      providerContractVersion === undefined ||
-      (value['riskAcknowledgedRevision'] !== undefined &&
-        riskAcknowledgedRevision === undefined) ||
-      (risk !== 'standard' && risk !== 'elevated' && risk !== 'unclassified')
+      providerContractVersion === undefined
     ) {
       return undefined
     }
@@ -696,8 +639,6 @@ function parseStoredProfile(value: unknown): HarnessProfile | undefined {
       metadataRevision,
       providerContractVersion,
       builtIn: false,
-      risk,
-      riskAcknowledgedRevision,
     }
   } catch {
     return undefined

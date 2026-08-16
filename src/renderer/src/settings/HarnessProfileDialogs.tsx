@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactElement, type RefObject } from 'react'
+import { useLayoutEffect, useRef, type ReactElement, type RefObject } from 'react'
 
 import {
   hostPath,
@@ -56,12 +56,14 @@ export function AddHarnessDialog({
   selected,
   detected,
   manualProviderId,
+  shellAvailable,
   busy,
   error,
   onCancel,
   onRefresh,
   onToggle,
   onManualProvider,
+  onShell,
   onManual,
   onMaterialize,
 }: {
@@ -71,12 +73,14 @@ export function AddHarnessDialog({
   readonly selected: ReadonlySet<HarnessProviderId>
   readonly detected: readonly HarnessProviderDescriptor[]
   readonly manualProviderId?: HarnessProviderId
+  readonly shellAvailable: boolean
   readonly busy: boolean
   readonly error?: string
   readonly onCancel: () => void
   readonly onRefresh: () => void
   readonly onToggle: (providerId: HarnessProviderId, checked: boolean) => void
   readonly onManualProvider: (providerId: HarnessProviderId) => void
+  readonly onShell: () => void
   readonly onManual: (providerId: HarnessProviderId) => void
   readonly onMaterialize: () => Promise<void>
 }): ReactElement {
@@ -132,6 +136,15 @@ export function AddHarnessDialog({
           {detected.length === 0 && pending.size === 0 ? (
             <p>No bundled harnesses were detected on this host.</p>
           ) : null}
+        </div>
+        <div className="add-harness-shell">
+          <span>
+            <strong>Shell</strong>
+            <small>Create an editable shell profile using the host default.</small>
+          </span>
+          <button type="button" disabled={busy || !shellAvailable} onClick={onShell}>
+            Add a shell
+          </button>
         </div>
         <div className="add-harness-manual">
           <label>
@@ -263,8 +276,8 @@ function useDialogFocusTrap(
   const busyRef = useRef(busy)
   onCancelRef.current = onCancel
   busyRef.current = busy
-  useEffect(() => {
-    const frame = window.requestAnimationFrame(() => dialogRef.current?.focus())
+  useLayoutEffect(() => {
+    dialogRef.current?.focus()
     const keydown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
         event.preventDefault()
@@ -292,7 +305,6 @@ function useDialogFocusTrap(
     }
     window.addEventListener('keydown', keydown)
     return () => {
-      window.cancelAnimationFrame(frame)
       window.removeEventListener('keydown', keydown)
     }
   }, [dialogRef])

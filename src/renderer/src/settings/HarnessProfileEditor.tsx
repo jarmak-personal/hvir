@@ -2,21 +2,18 @@ import type { ReactElement } from 'react'
 
 import {
   asHarnessProviderId,
-  hostPath,
   type HarnessCommandPreview,
-  type HarnessEnvironmentBinding,
-  type HarnessPathBinding,
   type HarnessProfileInput,
   type HarnessProfileProbe,
   type HarnessProviderDescriptor,
   type HostPath,
 } from '../../../shared'
-import {
-  harnessCapabilityLabel,
-  previewRiskLabel,
-  replaceHarnessValue,
-} from './harness-profile-editor-policy'
+import { harnessCapabilityLabel } from './harness-profile-editor-policy'
 import type { HarnessProfileDraft } from './harness-profile-draft'
+import {
+  HARNESS_ENVIRONMENT_STORAGE_GUIDANCE,
+  HarnessProfileAdvancedFields,
+} from './HarnessProfileAdvancedFields'
 import { HarnessProfileCommandFields } from './HarnessProfileCommandFields'
 
 interface HarnessProfileEditorProps {
@@ -25,6 +22,7 @@ interface HarnessProfileEditorProps {
   readonly provider?: HarnessProviderDescriptor
   readonly providerProbe?: HarnessProfileProbe
   readonly previews: readonly HarnessCommandPreview[]
+  readonly previewReadiness?: string
   readonly previewError?: string
   readonly error?: string
   readonly busy: boolean
@@ -49,6 +47,7 @@ export function HarnessProfileEditor({
   provider,
   providerProbe,
   previews,
+  previewReadiness,
   previewError,
   error,
   busy,
@@ -86,33 +85,47 @@ export function HarnessProfileEditor({
         <HarnessProfileCommandFields
           draft={draft}
           provider={provider}
-          hostId={workspaceRoot.hostId}
-          onUpdateInput={onUpdateInput}
           onArguments={onArguments}
-          onAuthorizeExecutable={onAuthorizeExecutable}
         />
-        <EnvironmentEditor
-          bindings={draft.input.environment}
-          disabled={draft.builtIn}
-          onChange={(environment) =>
-            onUpdateInput((input) => ({ ...input, environment }))
-          }
-        />
-        <PathBindingsEditor
-          bindings={draft.input.pathBindings}
-          disabled={draft.builtIn}
-          hostId={workspaceRoot.hostId}
-          onChange={(pathBindings) =>
-            onUpdateInput((input) => ({ ...input, pathBindings }))
-          }
-          onPick={onPickBinding}
-        />
-        <ProfileStatus
-          provider={provider}
-          probe={providerProbe}
-          previews={previews}
-          previewError={previewError}
-        />
+        <details className="settings-profile-disclosure">
+          <summary>
+            <span>Advanced</span>
+            <small>Executable, environment, paths, and capabilities</small>
+          </summary>
+          <div className="settings-profile-disclosure-body">
+            <HarnessProfileAdvancedFields
+              input={draft.input}
+              hostId={workspaceRoot.hostId}
+              onUpdateInput={onUpdateInput}
+              onAuthorizeExecutable={onAuthorizeExecutable}
+              onPickBinding={onPickBinding}
+            />
+            <div className="settings-profile-capabilities">
+              <strong>Host capabilities</strong>
+              <small>{harnessCapabilityLabel(provider, providerProbe)}</small>
+            </div>
+          </div>
+        </details>
+        <details className="settings-profile-disclosure settings-profile-preview-disclosure">
+          <summary>
+            <span>Exact command preview</span>
+            <small
+              className={previewError ? 'settings-profile-disclosure-error' : undefined}
+            >
+              {previewError
+                ? `Needs attention: ${previewError}`
+                : (previewReadiness ??
+                  `Fresh launch${provider?.capabilities.exactResume ? ' and resume' : ''}`)}
+            </small>
+          </summary>
+          <div className="settings-profile-disclosure-body">
+            <ProfilePreviews
+              previews={previews}
+              previewReadiness={previewReadiness}
+              previewError={previewError}
+            />
+          </div>
+        </details>
         {error ? <p className="dialog-error">{error}</p> : null}
       </div>
     </div>
@@ -134,7 +147,6 @@ function ProfileIdentityFields({
         <span>Name</span>
         <input
           value={draft.input.displayName}
-          disabled={draft.builtIn}
           onChange={(event) => {
             const displayName = event.currentTarget.value
             onUpdateInput((input) => ({ ...input, displayName }))
@@ -145,7 +157,6 @@ function ProfileIdentityFields({
         <span>Provider</span>
         <select
           value={draft.input.providerId}
-          disabled={draft.builtIn}
           onChange={(event) => {
             const providerId = asHarnessProviderId(event.currentTarget.value)
             const selectedProvider = providers.find(
@@ -171,7 +182,6 @@ function ProfileIdentityFields({
         <span>Scope</span>
         <select
           value={draft.input.scope.kind}
-          disabled={draft.builtIn}
           onChange={(event) => {
             const scope =
               event.currentTarget.value === 'project'
@@ -188,7 +198,6 @@ function ProfileIdentityFields({
         <span>Description</span>
         <input
           value={draft.input.description ?? ''}
-          disabled={draft.builtIn}
           onChange={(event) => {
             const description = event.currentTarget.value || undefined
             onUpdateInput((input) => ({ ...input, description }))
@@ -199,231 +208,27 @@ function ProfileIdentityFields({
   )
 }
 
-function EnvironmentEditor({
-  bindings,
-  disabled,
-  onChange,
-}: {
-  readonly bindings: readonly HarnessEnvironmentBinding[]
-  readonly disabled: boolean
-  readonly onChange: (value: readonly HarnessEnvironmentBinding[]) => void
-}): ReactElement {
-  return (
-    <div className="settings-profile-rows">
-      <header>
-        <strong>Environment</strong>
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => onChange([...bindings, { kind: 'literal', name: '', value: '' }])}
-        >
-          Add
-        </button>
-      </header>
-      {bindings.map((binding, index) => (
-        <div className="settings-profile-row" key={index}>
-          <input
-            aria-label="Environment name"
-            disabled={disabled}
-            value={binding.name}
-            placeholder="NAME"
-            onChange={(event) =>
-              onChange(
-                replaceHarnessValue(bindings, index, {
-                  ...binding,
-                  name: event.currentTarget.value,
-                }),
-              )
-            }
-          />
-          <select
-            value={binding.kind}
-            disabled={disabled}
-            aria-label="Environment operation"
-            onChange={(event) => {
-              const kind = event.currentTarget.value
-              const next: HarnessEnvironmentBinding =
-                kind === 'unset'
-                  ? { kind: 'unset', name: binding.name }
-                  : kind === 'literal'
-                    ? { kind: 'literal', name: binding.name, value: '' }
-                    : {
-                        kind: 'reference',
-                        name: binding.name,
-                        source: 'host',
-                        sourceName: binding.name,
-                      }
-              onChange(replaceHarnessValue(bindings, index, next))
-            }}
-          >
-            <option value="literal">Plaintext value</option>
-            <option value="reference">Secret reference</option>
-            <option value="unset">Unset</option>
-          </select>
-          {binding.kind === 'literal' ? (
-            <input
-              aria-label="Environment value"
-              disabled={disabled}
-              value={binding.value}
-              onChange={(event) =>
-                onChange(
-                  replaceHarnessValue(bindings, index, {
-                    ...binding,
-                    value: event.currentTarget.value,
-                  }),
-                )
-              }
-            />
-          ) : binding.kind === 'reference' ? (
-            <>
-              <select
-                aria-label="Reference source"
-                disabled={disabled}
-                value={binding.source}
-                onChange={(event) =>
-                  onChange(
-                    replaceHarnessValue(bindings, index, {
-                      ...binding,
-                      source: event.currentTarget.value as 'host' | 'local-forward',
-                    }),
-                  )
-                }
-              >
-                <option value="host">Target host</option>
-                <option value="local-forward">Forward local</option>
-              </select>
-              <input
-                aria-label="Reference name"
-                disabled={disabled}
-                value={binding.sourceName}
-                onChange={(event) =>
-                  onChange(
-                    replaceHarnessValue(bindings, index, {
-                      ...binding,
-                      sourceName: event.currentTarget.value,
-                    }),
-                  )
-                }
-              />
-            </>
-          ) : (
-            <span />
-          )}
-          <button
-            type="button"
-            disabled={disabled}
-            aria-label={`Remove ${binding.name || 'environment row'}`}
-            onClick={() =>
-              onChange(bindings.filter((_, candidate) => candidate !== index))
-            }
-          >
-            ×
-          </button>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function PathBindingsEditor({
-  bindings,
-  disabled,
-  hostId,
-  onChange,
-  onPick,
-}: {
-  readonly bindings: readonly HarnessPathBinding[]
-  readonly disabled: boolean
-  readonly hostId: HostPath['hostId']
-  readonly onChange: (value: readonly HarnessPathBinding[]) => void
-  readonly onPick: (index: number) => void
-}): ReactElement {
-  return (
-    <div className="settings-profile-rows">
-      <header>
-        <strong>Host path bindings</strong>
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => onChange([...bindings, { name: '', path: hostPath(hostId, '/') }])}
-        >
-          Add
-        </button>
-      </header>
-      {bindings.map((binding, index) => (
-        <div className="settings-profile-row path" key={index}>
-          <input
-            aria-label="Path binding name"
-            disabled={disabled}
-            value={binding.name}
-            placeholder="monorepo"
-            onChange={(event) =>
-              onChange(
-                replaceHarnessValue(bindings, index, {
-                  ...binding,
-                  name: event.currentTarget.value,
-                }),
-              )
-            }
-          />
-          <code>{binding.path.path}</code>
-          <button type="button" disabled={disabled} onClick={() => onPick(index)}>
-            Choose on host…
-          </button>
-          <button
-            type="button"
-            disabled={disabled}
-            aria-label={`Remove ${binding.name || 'path row'}`}
-            onClick={() =>
-              onChange(bindings.filter((_, candidate) => candidate !== index))
-            }
-          >
-            ×
-          </button>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function ProfileStatus({
-  provider,
-  probe,
+function ProfilePreviews({
   previews,
+  previewReadiness,
   previewError,
 }: {
-  readonly provider?: HarnessProviderDescriptor
-  readonly probe?: HarnessProfileProbe
   readonly previews: readonly HarnessCommandPreview[]
+  readonly previewReadiness?: string
   readonly previewError?: string
 }): ReactElement {
   return (
-    <>
-      <div className="settings-profile-capabilities">
-        <strong>Host capabilities</strong>
-        <small>{harnessCapabilityLabel(provider, probe)}</small>
-      </div>
-      <div className="settings-profile-risk">
-        <strong>Risk: {previewRiskLabel(previews)}</strong>
-        <small>
-          Best-effort provider classification; it is a warning and restore policy, not a
-          security boundary.
-        </small>
-      </div>
-      <div className="settings-profile-previews">
-        {previews.map((preview) => (
-          <div key={preview.mode}>
-            <strong>{preview.mode === 'fresh' ? 'Fresh launch' : 'Exact resume'}</strong>
-            <code>{preview.command}</code>
-          </div>
-        ))}
-        {previewError ? <p className="dialog-error">{previewError}</p> : null}
-        <small>
-          Literal values are stored and shown as plaintext. Reference-sourced values
-          alone are redacted.
-        </small>
-      </div>
-    </>
+    <div className="settings-profile-previews">
+      {previews.map((preview) => (
+        <div key={preview.mode}>
+          <strong>{preview.mode === 'fresh' ? 'Fresh launch' : 'Exact resume'}</strong>
+          <code>{preview.command}</code>
+        </div>
+      ))}
+      {previewReadiness ? <p>{previewReadiness}</p> : null}
+      {previewError ? <p className="dialog-error">{previewError}</p> : null}
+      <small>{HARNESS_ENVIRONMENT_STORAGE_GUIDANCE}</small>
+    </div>
   )
 }
 
@@ -449,42 +254,39 @@ function ProfileActions({
 >): ReactElement {
   return (
     <div className="settings-profile-actions">
-      {draft.builtIn ? (
-        <span className="settings-profile-note">
-          Permanent built-in · duplicate to customize.
-        </span>
-      ) : dirty ? (
+      {dirty ? (
         <span className="settings-profile-unsaved" role="status">
           Unsaved changes
         </span>
       ) : null}
       <button
         type="button"
-        disabled={busy || draft.builtIn || draft.input.order === 0}
+        disabled={busy || draft.input.order === 0}
+        aria-label="Move profile earlier"
+        title="Move earlier"
         onClick={() => onUpdateInput((input) => ({ ...input, order: input.order - 1 }))}
       >
-        Move earlier
+        ↑
       </button>
       <button
         type="button"
-        disabled={busy || draft.builtIn || draft.input.order >= 199}
+        disabled={busy || draft.input.order >= 199}
+        aria-label="Move profile later"
+        title="Move later"
         onClick={() => onUpdateInput((input) => ({ ...input, order: input.order + 1 }))}
       >
-        Move later
+        ↓
       </button>
       <button type="button" disabled={busy || !draft.id} onClick={onDuplicate}>
         Duplicate
       </button>
-      <button
-        type="button"
-        disabled={busy || draft.builtIn || !draft.id}
-        onClick={onRemove}
-      >
+      <button type="button" disabled={busy || !draft.id} onClick={onRemove}>
         {deleteArmed ? 'Confirm delete' : 'Delete'}
       </button>
       <button
         type="button"
-        disabled={busy || draft.builtIn || !dirty}
+        className="primary"
+        disabled={busy || !dirty}
         onClick={onSave}
       >
         Save harness profile

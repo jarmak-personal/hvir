@@ -54,7 +54,6 @@ export interface HarnessProviderDescriptor {
   }
   readonly profileGuidance: {
     readonly reservedArguments: readonly string[]
-    readonly riskClassification: 'best-effort'
   }
 }
 

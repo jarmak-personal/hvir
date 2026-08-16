@@ -285,7 +285,6 @@ export class TerminalRuntime {
         admission: this.options.startMode,
         resume,
         harnessSessionId: resume ? this.options.harnessSessionId : undefined,
-        acknowledgeRisk: this.options.riskAcknowledged,
       })
       if (!this.isCurrent(generation)) {
         if (result.outcome === 'started') {

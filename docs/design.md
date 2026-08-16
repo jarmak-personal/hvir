@@ -266,6 +266,11 @@ A live terminal may place bounded, decoded OSC 52 text on the application-host c
 receiving any read access; valid text remains exact and main independently validates IPC authority
 and UTF-8 byte size.
 
+### [ADR-036 — Retire static harness risk classification](adr/ADR-036-retire-static-harness-risk-classification.md)
+
+Launch syntax is not current runtime permission state; hvir removes profile-derived risk and
+acknowledgment while preserving exact provider, host, artifact, and recovery authority.
+
 ## 5. Architecture
 
 ### Process model

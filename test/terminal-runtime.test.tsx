@@ -20,7 +20,6 @@ function options(
     sessionId: 'terminal-1',
     profileId: asHarnessProfileId('codex-default'),
     launchRevision: 1,
-    riskAcknowledged: false,
     supportsResume: true,
     fallbackTitle: 'Codex · repo',
     harnessSessionId: '019ab123-4567-7890-abcd-ef0123456789',

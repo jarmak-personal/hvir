@@ -1,7 +1,6 @@
 import {
   isHarnessBindingName,
   isHarnessEnvironmentName,
-  type HarnessCommandPreview,
   type HarnessPathGrant,
   type HarnessProfile,
   type HarnessProfileExecutable,
@@ -38,9 +37,7 @@ export function applyPathBindingGrant(
   return {
     ...input,
     pathBindings: input.pathBindings.map((binding, candidate) =>
-      candidate === index
-        ? { ...binding, path: grant.path, grantId: grant.id }
-        : binding,
+      candidate === index ? { ...binding, path: grant.path, grantId: grant.id } : binding,
     ),
   }
 }
@@ -51,10 +48,7 @@ export function harnessProfileBindingError(
   const environmentNames = new Set<string>()
   for (const binding of input.environment) {
     if (!isHarnessEnvironmentName(binding.name)) return 'Invalid environment binding'
-    if (
-      binding.kind === 'reference' &&
-      !isHarnessEnvironmentName(binding.sourceName)
-    ) {
+    if (binding.kind === 'reference' && !isHarnessEnvironmentName(binding.sourceName)) {
       return `Invalid environment binding for '${binding.name}'`
     }
     if (environmentNames.has(binding.name)) {
@@ -86,18 +80,20 @@ export function harnessProfileBindingError(
   return undefined
 }
 
-export function harnessRiskLabel(value: HarnessProfile['risk']): string {
-  return value === 'standard'
-    ? 'Standard'
-    : value === 'elevated'
-      ? 'Elevated'
-      : 'Unclassified'
+export function harnessProfilePreviewReadiness(
+  input: Pick<HarnessProfileInput, 'executable'>,
+): string | undefined {
+  if (input.executable.kind === 'command' && input.executable.command.trim() === '') {
+    return 'Enter an executable command to preview this profile.'
+  }
+  return undefined
 }
 
-export function previewRiskLabel(
-  previews: readonly HarnessCommandPreview[],
-): string {
-  return previews[0] ? harnessRiskLabel(previews[0].risk) : 'Pending validation'
+export function shouldPreserveUnsavedHarnessDraftAfterRefresh(
+  draft: { readonly id?: HarnessProfile['id'] } | undefined,
+  selectedProfileId?: HarnessProfile['id'],
+): boolean {
+  return draft !== undefined && draft.id === undefined && selectedProfileId === undefined
 }
 
 export function findProfileProbe(

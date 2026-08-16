@@ -28,6 +28,7 @@ export function parseDevToolsActivePort(value: string): number {
 interface InstalledBrowserElement {
   readonly textContent: string | null
   readonly disabled?: boolean
+  readonly value?: string
   click(): void
   querySelector(selector: string): InstalledBrowserElement | null
   querySelectorAll(selector: string): Iterable<InstalledBrowserElement>
@@ -160,7 +161,21 @@ export async function runInstalledHarnessDialogExercise(): Promise<string> {
     pendingDialog,
     'Settings add-harness entry did not paint while the real provider probe was pending',
   )
-  await closeAddDialog(settingsDialog)
+  const addShell = [...settingsDialog.querySelectorAll('button')].find(
+    (button) => button.textContent?.trim() === 'Add a shell',
+  )
+  if (addShell === undefined || !isElement(addShell, HTMLButtonElement)) {
+    throw new Error('Direct add-shell action missing')
+  }
+  addShell.click()
+  await waitFor(
+    () => {
+      if (document.querySelector('.add-harness-dialog')) return undefined
+      const name = document.querySelector('.settings-profile-grid label:first-child input')
+      return name?.value === 'Additional shell' ? true : undefined
+    },
+    'Direct add-shell action did not open the existing manual shell draft',
+  )
 
   const closeSettings = [...document.querySelectorAll('.settings-dialog button')].find(
     (button) => button.textContent?.trim() === 'Close settings',
@@ -169,11 +184,22 @@ export async function runInstalledHarnessDialogExercise(): Promise<string> {
     throw new Error('Close-settings action missing after harness probe')
   }
   closeSettings.click()
+  const unsaved = await waitFor(
+    () => document.querySelector('.unsaved-harness-dialog') ?? undefined,
+    'Direct shell draft did not retain the settings dirty guard',
+  )
+  const discard = [...unsaved.querySelectorAll('button')].find(
+    (button) => button.textContent?.trim() === 'Discard changes',
+  )
+  if (discard === undefined || !isElement(discard, HTMLButtonElement)) {
+    throw new Error('Direct shell draft discard action missing')
+  }
+  discard.click()
   await waitFor(
     () => (document.querySelector('.settings-dialog') ? undefined : true),
     'Workbench did not remain interactive after harness probes',
   )
-  return 'both add-harness entries painted and closed while Claude probe was pending'
+  return 'both add-harness entries painted while Claude probe was pending; direct shell draft retained the dirty guard'
 }
 
 export async function exerciseInstalledHarnessDialogs(

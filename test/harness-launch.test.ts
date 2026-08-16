@@ -55,7 +55,6 @@ describe('harness launch composition', () => {
         args: [literal('--dangerously-skip-permissions')],
       }),
     })
-    expect(profile.risk).toBe('elevated')
     const resolved = await resolve(profile, 'fresh')
     expect(resolved.spec).toEqual({
       file: 'claude',

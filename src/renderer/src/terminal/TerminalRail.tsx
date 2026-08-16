@@ -231,11 +231,6 @@ export function TerminalRail({
                     >
                       <span>
                         <strong>{profile.displayName}</strong>
-                        {profile.risk === 'standard' ? null : (
-                          <em className={`harness-risk ${profile.risk}`}>
-                            {riskLabel(profile.risk)}
-                          </em>
-                        )}
                       </span>
                       {details.length > 0 ? <small>{details.join(' · ')}</small> : null}
                     </button>
@@ -277,11 +272,7 @@ export function TerminalRail({
                 <span className="terminal-list-copy">
                   <span className="terminal-list-title">{session.title}</span>
                   <span className="terminal-list-meta">
-                    <span
-                      className={`terminal-list-profile${profileRiskClass(profiles, session.profileId)}`}
-                      title={profileRiskTitle(profiles, session.profileId)}
-                      aria-label={profileRiskAriaLabel(profiles, session.profileId)}
-                    >
+                    <span className="terminal-list-profile">
                       {profileDisplayName(profiles, session.profileId)}
                     </span>{' '}
                     · {session.status}
@@ -355,49 +346,12 @@ function profileDisplayName(
   return profiles.find((profile) => profile.id === id)?.displayName ?? `Missing (${id})`
 }
 
-function profileRiskClass(
-  profiles: readonly HarnessProfile[],
-  id: TerminalSession['profileId'],
-): string {
-  const risk = profiles.find((profile) => profile.id === id)?.risk
-  return risk && risk !== 'standard' ? ` ${risk}` : ''
-}
-
-function profileRiskTitle(
-  profiles: readonly HarnessProfile[],
-  id: TerminalSession['profileId'],
-): string | undefined {
-  const risk = profiles.find((profile) => profile.id === id)?.risk
-  return risk === 'elevated'
-    ? 'Elevated permissions'
-    : risk === 'unclassified'
-      ? 'Unclassified permissions'
-      : undefined
-}
-
-function profileRiskAriaLabel(
-  profiles: readonly HarnessProfile[],
-  id: TerminalSession['profileId'],
-): string {
-  const name = profileDisplayName(profiles, id)
-  const risk = profileRiskTitle(profiles, id)
-  return risk ? `${name}, ${risk.toLowerCase()}` : name
-}
-
 function identityLabel(status: TerminalSession['identityStatus']): string {
   if (status === 'discovering') return ' · resume pending'
   if (status === 'ambiguous' || status === 'unavailable') {
     return ' · resume unavailable'
   }
   return ''
-}
-
-function riskLabel(risk: HarnessProfile['risk']): string {
-  return risk === 'elevated'
-    ? 'Elevated'
-    : risk === 'unclassified'
-      ? 'Unclassified'
-      : 'Standard'
 }
 
 function probeLabel(probe: HarnessProfileProbe | undefined): string {

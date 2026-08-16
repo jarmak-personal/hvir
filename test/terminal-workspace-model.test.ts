@@ -167,7 +167,6 @@ function session(id: string, pane: 'primary' | 'secondary'): TerminalSession {
     providerId: asHarnessProviderId('shell'),
     profileId: asHarnessProfileId('shell-default'),
     launchRevision: 1,
-    riskAcknowledged: true,
     capabilities: {
       sessionIdentity: 'none',
       exactResume: false,

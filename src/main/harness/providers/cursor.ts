@@ -1,9 +1,5 @@
-import {
-  asHarnessProfileId,
-  asHarnessProviderId,
-  type HarnessLaunchRisk,
-} from '../../../shared'
-import type { HarnessProvider, HarnessRiskInput } from '../harness-provider'
+import { asHarnessProfileId, asHarnessProviderId } from '../../../shared'
+import type { HarnessProvider } from '../harness-provider'
 
 export const cursorProvider: HarnessProvider = {
   manifest: {
@@ -25,7 +21,6 @@ export const cursorProvider: HarnessProvider = {
     artifactExecutable: false,
     artifactPathBindings: [],
     applyArgs: (_mode, providerArgs, profileArgs) => [...providerArgs, ...profileArgs],
-    classifyRisk: classifyCursorRisk,
   },
   supportsResume: false,
   sessionIdentity: 'none',
@@ -34,14 +29,6 @@ export const cursorProvider: HarnessProvider = {
   resume(ctx) {
     return this.launch(ctx)
   },
-}
-
-function classifyCursorRisk(input: HarnessRiskInput): HarnessLaunchRisk {
-  if (input.executableOverridden || input.environment.length > 0) return 'unclassified'
-  if (input.args.some((token) => token === '--force' || token === '-f')) {
-    return 'elevated'
-  }
-  return input.args.length > 0 ? 'unclassified' : 'standard'
 }
 
 function versionProbe(): HarnessProvider['probe'] {

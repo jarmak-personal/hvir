@@ -16,7 +16,9 @@ import {
   editorErrorMessage,
   findProfileProbe,
   harnessProfileBindingError,
+  harnessProfilePreviewReadiness,
   mergeProfileProbe,
+  shouldPreserveUnsavedHarnessDraftAfterRefresh,
 } from './harness-profile-editor-policy'
 import {
   harnessProfileDraft,
@@ -25,10 +27,12 @@ import {
   newHarnessProfileDraft,
   type HarnessProfileDraft,
 } from './harness-profile-draft'
-import { HarnessProfileRequestPolicy } from './harness-profile-request-policy'
+import {
+  HarnessProfileRequestPolicy,
+  type HarnessProfileRequestToken,
+} from './harness-profile-request-policy'
 import { useHarnessBindingAuthorization } from './use-harness-binding-authorization'
 import { useHarnessProfileLoad } from './use-harness-profile-load'
-
 export function useHarnessProfileEditor({
   workspaceRoot,
   projectRoot,
@@ -58,6 +62,8 @@ export function useHarnessProfileEditor({
   const policy = useRef(new HarnessProfileRequestPolicy())
   const stateRef = useRef({ workspaceRoot, projectRoot, providers, profiles, draft })
   const dirtyRef = useRef(false)
+  const rootIdentity = JSON.stringify([workspaceRoot, projectRoot])
+  const previewReadiness = draft ? harnessProfilePreviewReadiness(draft.input) : undefined
   stateRef.current = { workspaceRoot, projectRoot, providers, profiles, draft }
   const updateInput = useCallback(
     (update: (input: HarnessProfileInput) => HarnessProfileInput): void => {
@@ -70,7 +76,6 @@ export function useHarnessProfileEditor({
   )
   const { picker, authorizeBinding, openPicker, closePicker } =
     useHarnessBindingAuthorization(policy.current, stateRef, updateInput, setError)
-
   const probeAvailability = useCallback(
     (launchProfiles: readonly HarnessProfile[], force = false): void => {
       const root = stateRef.current.workspaceRoot
@@ -103,45 +108,50 @@ export function useHarnessProfileEditor({
     },
     [],
   )
-
-  const refresh = useCallback(async (selectId?: HarnessProfile['id']): Promise<void> => {
-    const current = stateRef.current
-    if (!current.workspaceRoot) return
-    const token = policy.current.start('load')
-    let catalog: readonly HarnessProviderDescriptor[]
-    let launchProfiles: readonly HarnessProfile[]
-    let cachedProbes: readonly HarnessProfileProbe[]
-    try {
-      const loaded = await Promise.all([
-        window.hvir.invoke('harness:catalog', undefined),
-        window.hvir.invoke('harness:profiles', { root: current.workspaceRoot }),
-        window.hvir.invoke('harness:probe-snapshot', {
-          root: current.workspaceRoot,
-        }),
-      ])
-      catalog = loaded[0]
-      launchProfiles = loaded[1]
-      cachedProbes = loaded[2]
-    } catch (reason) {
-      if (policy.current.isCurrent(token)) throw reason
-      return
-    }
-    if (!policy.current.isCurrent(token)) return
-    setProviders(catalog)
-    setProfiles(launchProfiles)
-    setProfileProbes(cachedProbes)
-    const selected =
-      launchProfiles.find((profile) => profile.id === selectId) ??
-      launchProfiles.find((profile) => profile.id === stateRef.current.draft?.id) ??
-      launchProfiles[0]
-    policy.current.switchProfile()
-    setDraft(
-      selected
-        ? harnessProfileDraft(selected)
-        : newHarnessProfileDraft(catalog, launchProfiles),
-    )
-  }, [])
-
+  const refresh = useCallback(
+    async (
+      selectId?: HarnessProfile['id'],
+      selectionGuard?: HarnessProfileRequestToken,
+    ): Promise<void> => {
+      const current = stateRef.current
+      if (!current.workspaceRoot) return
+      const token = policy.current.start('load')
+      let catalog: readonly HarnessProviderDescriptor[]
+      let launchProfiles: readonly HarnessProfile[]
+      let cachedProbes: readonly HarnessProfileProbe[]
+      try {
+        const loaded = await Promise.all([
+          window.hvir.invoke('harness:catalog', undefined),
+          window.hvir.invoke('harness:profiles', { root: current.workspaceRoot }),
+          window.hvir.invoke('harness:probe-snapshot', {
+            root: current.workspaceRoot,
+          }),
+        ])
+        catalog = loaded[0]
+        launchProfiles = loaded[1]
+        cachedProbes = loaded[2]
+      } catch (reason) {
+        if (policy.current.isCurrent(token)) throw reason
+        return
+      }
+      if (!policy.current.isCurrent(token)) return
+      const manageableProfiles = launchProfiles.filter((profile) => !profile.builtIn)
+      setProviders(catalog)
+      setProfiles(manageableProfiles)
+      setProfileProbes(cachedProbes)
+      if (!policy.current.isCurrent(token, true)) return
+      if (selectionGuard && !policy.current.isCurrent(selectionGuard, true)) return
+      if (shouldPreserveUnsavedHarnessDraftAfterRefresh(stateRef.current.draft, selectId))
+        return
+      const selected =
+        manageableProfiles.find((profile) => profile.id === selectId) ??
+        manageableProfiles.find((profile) => profile.id === stateRef.current.draft?.id) ??
+        manageableProfiles[0]
+      policy.current.switchProfile()
+      setDraft(selected ? harnessProfileDraft(selected) : undefined)
+    },
+    [],
+  )
   const {
     loadState,
     reset: resetCatalogLoad,
@@ -150,10 +160,10 @@ export function useHarnessProfileEditor({
   const reload = useCallback((): void => {
     reloadCatalog(refresh)
   }, [refresh, reloadCatalog])
-
   useEffect(() => {
     const policyOwner = policy.current
     policyOwner.switchWorkspace()
+    stateRef.current = { ...stateRef.current, draft: undefined }
     setProviders([])
     setProfiles([])
     setDraft(undefined)
@@ -164,7 +174,7 @@ export function useHarnessProfileEditor({
     setBusy(false)
     setDeleteArmed(false)
     setError(undefined)
-    if (!workspaceRoot) {
+    if (!stateRef.current.workspaceRoot) {
       resetCatalogLoad()
       return
     }
@@ -172,16 +182,21 @@ export function useHarnessProfileEditor({
     return () => {
       policyOwner.switchWorkspace()
     }
-  }, [projectRoot, reload, resetCatalogLoad, workspaceRoot])
-
+  }, [reload, resetCatalogLoad, rootIdentity])
   const serializedInput = useMemo(
     () => (draft ? JSON.stringify([draft.input, draft.argvText]) : ''),
     [draft],
   )
   useEffect(() => {
-    if (!draft || !workspaceRoot) return
+    const currentWorkspaceRoot = stateRef.current.workspaceRoot
+    if (!draft || !currentWorkspaceRoot) return
     const policyOwner = policy.current
     const token = policyOwner.start('preview')
+    setPreviewError(undefined)
+    if (previewReadiness) {
+      setPreviews([])
+      return () => policyOwner.invalidate('preview')
+    }
     const timer = window.setTimeout(() => {
       let previewInput: HarnessProfileInput
       try {
@@ -200,28 +215,24 @@ export function useHarnessProfileEditor({
         return
       }
       const common = {
-        root: workspaceRoot,
-        cwd: workspaceRoot,
+        root: currentWorkspaceRoot,
+        cwd: currentWorkspaceRoot,
         harnessSessionId: '00000000-0000-4000-8000-000000000000',
       } as const
-      const requests = draft.builtIn
-        ? (['fresh', 'resume'] as const).map((mode) =>
-            window.hvir.invoke('harness:preview', {
-              ...common,
-              mode,
-              profileId: draft.id!,
-              launchRevision:
-                profiles.find((profile) => profile.id === draft.id)?.launchRevision ?? 1,
-            }),
-          )
-        : (['fresh', 'resume'] as const).map((mode) =>
-            window.hvir.invoke('harness:preview', {
-              ...common,
-              mode,
-              profileId: draft.id,
-              input: previewInput,
-            }),
-          )
+      const previewProvider = providers.find(
+        (candidate) => candidate.id === draft.input.providerId,
+      )
+      const modes = previewProvider?.capabilities.exactResume
+        ? (['fresh', 'resume'] as const)
+        : (['fresh'] as const)
+      const requests = modes.map((mode) =>
+        window.hvir.invoke('harness:preview', {
+          ...common,
+          mode,
+          profileId: draft.id,
+          input: previewInput,
+        }),
+      )
       void Promise.all(requests).then(
         (values) => {
           if (!policyOwner.isCurrent(token, true)) return
@@ -239,14 +250,12 @@ export function useHarnessProfileEditor({
       window.clearTimeout(timer)
       policyOwner.invalidate('preview')
     }
-  }, [draft, profiles, serializedInput, workspaceRoot])
-
+  }, [draft, previewReadiness, providers, rootIdentity, serializedInput])
   const selectedProfile = profiles.find((profile) => profile.id === draft?.id)
   const dirty = draft
     ? isHarnessProfileDraftDirty(selectedProfile, draft.input, draft.argvText)
     : false
   dirtyRef.current = dirty
-
   const confirmSafeToLeave = useCallback((): Promise<boolean> => {
     if (!dirtyRef.current) return Promise.resolve(true)
     pendingLeaveResolution.current?.(false)
@@ -262,7 +271,6 @@ export function useHarnessProfileEditor({
     setUnsavedPromptOpen(false)
     resolve?.(confirmed)
   }, [])
-
   useEffect(
     () => () => {
       pendingLeaveResolution.current?.(false)
@@ -301,7 +309,7 @@ export function useHarnessProfileEditor({
           : { root: current.workspaceRoot, input: revision.input },
       )
       if (!policy.current.isCurrent(token)) return false
-      await refresh(profile.id)
+      await refresh(profile.id, token)
       if (!policy.current.isCurrent(token)) return false
       window.dispatchEvent(new Event('hvir:harness-profiles-changed'))
       return true
@@ -322,7 +330,7 @@ export function useHarnessProfileEditor({
     try {
       const profile = await window.hvir.invoke('harness:profile-duplicate', { id })
       if (!policy.current.isCurrent(token)) return
-      await refresh(profile.id)
+      await refresh(profile.id, token)
       if (policy.current.isCurrent(token)) {
         window.dispatchEvent(new Event('hvir:harness-profiles-changed'))
       }
@@ -424,6 +432,11 @@ export function useHarnessProfileEditor({
     setAddOpen(false)
   }, [])
 
+  const shellProvider = providers.find((candidate) => candidate.default)
+  const startShellProfile = useCallback((): void => {
+    if (shellProvider) manualProfile(shellProvider.id)
+  }, [manualProfile, shellProvider])
+
   const materialized = useCallback(
     async (created: readonly HarnessProfile[]): Promise<void> => {
       setAddOpen(false)
@@ -446,7 +459,8 @@ export function useHarnessProfileEditor({
     profiles,
     draft,
     previews,
-    previewError,
+    previewReadiness,
+    previewError: previewReadiness ? undefined : previewError,
     busy,
     error,
     loadState,
@@ -459,6 +473,7 @@ export function useHarnessProfileEditor({
     selectedProfile,
     provider,
     providerProbe,
+    shellProvider,
     dirty,
     confirmSafeToLeave,
     resolveUnsavedPrompt,
@@ -475,6 +490,7 @@ export function useHarnessProfileEditor({
     authorizeBinding,
     discardDraft,
     manualProfile,
+    startShellProfile,
     materialized,
     openPicker,
     closePicker,

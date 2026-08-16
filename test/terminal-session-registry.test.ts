@@ -784,7 +784,6 @@ describe('TerminalSessionRegistry', () => {
       providerId: CLAUDE_PROVIDER_ID,
       profileId: CLAUDE_PROFILE_ID,
       launchRevision: 1,
-      riskAcknowledgedRevision: 1,
       artifactIdentity: 'old-artifact-identity',
       harnessSessionId: HARNESS_ID,
       workspaceRoot: root,
@@ -796,7 +795,7 @@ describe('TerminalSessionRegistry', () => {
     await registry.updateLayout(root, [
       {
         id: SESSION_ID,
-        title: 'Retained elevated Claude',
+        title: 'Retained Claude',
         position: 3,
         active: false,
         attention: 'bell',
@@ -808,17 +807,15 @@ describe('TerminalSessionRegistry', () => {
       providerId: CLAUDE_PROVIDER_ID,
       profileId: alternate,
       launchRevision: 4,
-      riskAcknowledgedRevision: 4,
       workspaceRoot: root,
     })
     expect(rebound).toMatchObject({
       profileId: alternate,
       launchRevision: 4,
-      riskAcknowledgedRevision: 4,
       harnessSessionId: HARNESS_ID,
       artifactIdentity: undefined,
       cwd,
-      title: 'Retained elevated Claude',
+      title: 'Retained Claude',
       position: 3,
       active: false,
       attention: 'bell',
@@ -869,7 +866,6 @@ describe('TerminalSessionRegistry', () => {
         providerId: CLAUDE_PROVIDER_ID,
         profileId: asHarnessProfileId('claude-current'),
         launchRevision: 5,
-        riskAcknowledgedRevision: 5,
         workspaceRoot: root,
       }),
     ).rejects.toThrow('disk unavailable')
@@ -997,44 +993,44 @@ describe('TerminalSessionRegistry', () => {
       stored: { attention: 'output' },
       expected: { recoverySkipCount: 0, attention: 'working' },
     },
-  ])('migrates v5 $label into the combined registry schema', async ({
-    stored,
-    expected,
-  }) => {
-    const root = localPath('/tmp/project')
-    await host.writeFile(
-      file,
-      JSON.stringify({
-        version: 5,
-        sessions: [
-          {
-            id: SESSION_ID,
-            providerId: 'codex',
-            profileId: 'codex-default',
-            launchRevision: 1,
-            harnessSessionId: HARNESS_ID,
-            hostId: root.hostId,
-            workspaceRoot: root,
-            cwd: root,
-            title: 'Codex · project',
-            position: 0,
-            active: true,
-            updatedAt: 42,
-            ...stored,
-          },
-        ],
-      }),
-    )
+  ])(
+    'migrates v5 $label into the combined registry schema',
+    async ({ stored, expected }) => {
+      const root = localPath('/tmp/project')
+      await host.writeFile(
+        file,
+        JSON.stringify({
+          version: 5,
+          sessions: [
+            {
+              id: SESSION_ID,
+              providerId: 'codex',
+              profileId: 'codex-default',
+              launchRevision: 1,
+              harnessSessionId: HARNESS_ID,
+              hostId: root.hostId,
+              workspaceRoot: root,
+              cwd: root,
+              title: 'Codex · project',
+              position: 0,
+              active: true,
+              updatedAt: 42,
+              ...stored,
+            },
+          ],
+        }),
+      )
 
-    const migrated = await TerminalSessionRegistry.load(host, file)
-    expect(migrated.list(root)[0]).toEqual(expect.objectContaining(expected))
-    expect(JSON.parse(await host.readTextFile(file))).toEqual(
-      expect.objectContaining({
-        version: 6,
-        sessions: [expect.objectContaining(expected)],
-      }),
-    )
-  })
+      const migrated = await TerminalSessionRegistry.load(host, file)
+      expect(migrated.list(root)[0]).toEqual(expect.objectContaining(expected))
+      expect(JSON.parse(await host.readTextFile(file))).toEqual(
+        expect.objectContaining({
+          version: 6,
+          sessions: [expect.objectContaining(expected)],
+        }),
+      )
+    },
+  )
 
   it('preserves a syntactically valid provider record unknown to this build', async () => {
     const root = localPath('/tmp/project')
@@ -1150,10 +1146,7 @@ describe('TerminalSessionRegistry', () => {
         active: true,
       }),
     ).rejects.toThrow('TOKEN=hvir-private')
-    expect(events).toEqual([
-      { kind: 'persist-failed' },
-      { kind: 'persist-failed' },
-    ])
+    expect(events).toEqual([{ kind: 'persist-failed' }, { kind: 'persist-failed' }])
   })
 
   it('rolls back a discovered identity when its durable write fails', async () => {

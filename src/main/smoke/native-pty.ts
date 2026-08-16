@@ -118,20 +118,13 @@ export async function runNativePtySmoke(
         order: 1,
       },
     })
-    const acknowledgedProfile = await profiles.acknowledgeRisk(
-      profile.id,
-      profile.launchRevision,
-    )
-    if (
-      acknowledgedProfile.risk !== 'unclassified' ||
-      acknowledgedProfile.riskAcknowledgedRevision !== profile.launchRevision
-    ) {
-      throw new Error('Custom profile risk acknowledgment was not retained')
+    if ('risk' in profile || 'riskAcknowledgedRevision' in profile) {
+      throw new Error('Custom profile retained obsolete risk state')
     }
     const effectiveCapabilities = harnessProviderCapabilities(provider)
     const resolved = await resolveHarnessLaunch({
-      profile: acknowledgedProfile,
-      expectedLaunchRevision: acknowledgedProfile.launchRevision,
+      profile,
+      expectedLaunchRevision: profile.launchRevision,
       projectRoot,
       workspaceRoot: projectRoot,
       host,
@@ -194,7 +187,7 @@ export async function runNativePtySmoke(
         `Custom profile PTY remained supervised after exit (pid=${terminal.pid})`,
       )
     }
-    await profiles.delete(acknowledgedProfile.id)
+    await profiles.delete(profile.id)
     await profiles.flush()
     const loginShellPid =
       process.platform === 'darwin'
