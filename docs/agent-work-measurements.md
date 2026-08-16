@@ -241,6 +241,13 @@ Project-wide sum of Own + Rollup:    12,000  (invalid: child work counted twice)
 If child `#702` instead has a known subtotal of 2,500 and one unavailable run, the epic Rollup is
 partial with a known subtotal of 5,500; it is not an exact 5,500-token Rollup.
 
+The repository's separate Rollup reconciliation reads native relationships and active ledgers,
+then writes only the root epic's named Rollup field. Every lifecycle ledger change reconciles the
+owning issue and, when present, its one exact native parent. Reconciliation never edits child
+history or child Project values. Applying it to an ordinary issue or epic child clears a stale
+Rollup; nested epics, nested descendants, and relationship ambiguity never trigger recursive
+aggregation.
+
 ## Record examples
 
 These examples describe semantics, not the eventual wire format or schema marker:

@@ -6,20 +6,22 @@ export interface AgentWorkCliOptions {
   issueNumber?: number
   append: boolean
   project: boolean
+  rollup: boolean
   apply: boolean
   record?: AgentWorkRecord
 }
 
 export const AGENT_WORK_HELP = `Usage: npm run project:measure -- --issue <number> [options]
 
-Read one normalized append-only agent-work ledger. Appends and Project projections are explicit
-and dry-run by default.
+Read one normalized append-only agent-work ledger. Appends, Project projections, and epic
+Rollups are explicit and dry-run by default.
 
 Options:
   --issue <number>              Issue in the configured repository (required)
   --append                      Plan an append from HVIR_AGENT_WORK_RECORD
   --project                     Plan named Project fields from issue and active ledger facts
-  --apply                       Apply the selected append or Project projection
+  --rollup                      Reconcile the issue's non-recursive epic Rollup field
+  --apply                       Apply the selected append, projection, or Rollup
   --help                        Show this help
 
 Environment:
@@ -38,10 +40,11 @@ export function parseAgentWorkCliOptions(
   let issueNumber: number | undefined
   let append = false
   let project = false
+  let rollup = false
   let apply = false
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index]
-    if (argument === '--help') return { help: true, append, project, apply }
+    if (argument === '--help') return { help: true, append, project, rollup, apply }
     if (argument === '--append') {
       append = true
       continue
@@ -54,6 +57,10 @@ export function parseAgentWorkCliOptions(
       project = true
       continue
     }
+    if (argument === '--rollup') {
+      rollup = true
+      continue
+    }
     if (argument === '--issue') {
       issueNumber = parsePositiveInteger(requireValue(args, ++index, '--issue'))
       continue
@@ -61,10 +68,11 @@ export function parseAgentWorkCliOptions(
     throw new Error(`Unknown argument: ${argument}`)
   }
   if (issueNumber === undefined) throw new Error('--issue is required.')
-  if (append && project)
-    throw new Error('--append and --project are separate operations.')
-  if (apply && !append && !project) {
-    throw new Error('--apply requires --append or --project.')
+  if ([append, project, rollup].filter(Boolean).length > 1) {
+    throw new Error('--append, --project, and --rollup are separate operations.')
+  }
+  if (apply && !append && !project && !rollup) {
+    throw new Error('--apply requires --append, --project, or --rollup.')
   }
   const serialized = environment.HVIR_AGENT_WORK_RECORD
   if (!append && serialized !== undefined && serialized !== '') {
@@ -93,6 +101,7 @@ export function parseAgentWorkCliOptions(
     issueNumber,
     append,
     project,
+    rollup,
     apply,
     ...(record === undefined ? {} : { record }),
   }

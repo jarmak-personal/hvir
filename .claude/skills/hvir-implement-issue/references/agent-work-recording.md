@@ -117,11 +117,30 @@ handoff facts are stable but before ledger bookkeeping:
 4. Only after the append is confirmed or reported as the identical duplicate, dry-run and apply
    the separate Project projection. If projection fails after append, retry projection only; do
    not append again.
-5. Report `complete`, `partial`, `unavailable`, `duplicate`, or failed/uncertain append and
-   projection state in the lifecycle handoff. Never include the private snapshot or provider
-   identity inputs.
+5. After the issue's named projection has a reportable outcome, dry-run and apply its separate
+   Rollup reconciliation. This clears a stale Rollup from an ordinary issue or epic child, and
+   calculates a root epic from its Own ledger plus every native direct child's current Own ledger:
+
+   ```sh
+   HVIR_REPO_TOKEN="$(gh auth token)" \
+   HVIR_PROJECT_TOKEN="$(gh auth token)" \
+   npm run project:measure -- --issue <number> --rollup
+
+   HVIR_REPO_TOKEN="$(gh auth token)" \
+   HVIR_PROJECT_TOKEN="$(gh auth token)" \
+   npm run project:measure -- --issue <number> --rollup --apply
+   ```
+
+   When the issue has an exact native direct parent, repeat only this Rollup operation for that
+   parent after the child operation. This reconciles the parent after child planning,
+   implementation, review, correction, or reopened work without editing the child's comments or
+   Project values. Do not guess a parent or recurse beyond the one native relationship.
+6. Report `complete`, `partial`, `unavailable`, `duplicate`, or failed/uncertain append,
+   projection, and applicable Rollup state in the lifecycle handoff. Never include the private
+   snapshot or provider identity inputs.
 
 The measurement contract owns run, correction, route-change, first-pass, supersession, and retry
-policy. This procedure adds only two workflow expectations: review-driven code changes start a new
-`implementation` run, and an isolated supported reviewer with truthful route plus active-wall
-facts emits a partial review record rather than discarding those facts.
+policy. This procedure adds three workflow expectations: review-driven code changes start a new
+`implementation` run; an isolated supported reviewer with truthful route plus active-wall facts
+emits a partial review record rather than discarding those facts; and every ledger change
+reconciles the owning issue plus its one exact native parent when present.

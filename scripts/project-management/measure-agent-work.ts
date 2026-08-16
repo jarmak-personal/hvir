@@ -6,6 +6,7 @@ import {
 } from './agent-work-cli.ts'
 import { reconcileAgentWorkLedger } from './agent-work-ledger.ts'
 import { reconcileAgentWorkProjection } from './agent-work-projector.ts'
+import { reconcileAgentWorkRollup } from './agent-work-rollup.ts'
 import { GitHubCanonicalProject } from './canonical-project.ts'
 import { GitHubAgentWorkLedger } from './github-agent-work-ledger.ts'
 import { GitHubAgentWorkSource } from './github-agent-work-source.ts'
@@ -33,7 +34,7 @@ async function main(): Promise<void> {
     name,
     client: repositoryClient,
   })
-  if (options.project) {
+  if (options.project || options.rollup) {
     const issueSource = new GitHubAgentWorkSource({
       owner,
       name,
@@ -49,14 +50,23 @@ async function main(): Promise<void> {
         purpose: 'Project',
       }),
     })
-    const report = await reconcileAgentWorkProjection(
-      {
-        readIssueBody: (issueNumber) => issueSource.readIssueBody(issueNumber),
-        listCommentBodies: (issueNumber) => ledger.listCommentBodies(issueNumber),
-      },
-      project,
-      { issueNumber: options.issueNumber, apply: options.apply },
-    )
+    const report = options.rollup
+      ? await reconcileAgentWorkRollup(
+          {
+            readRollupIssue: (issueNumber) => issueSource.readRollupIssue(issueNumber),
+            listCommentBodies: (issueNumber) => ledger.listCommentBodies(issueNumber),
+          },
+          project,
+          { issueNumber: options.issueNumber, apply: options.apply },
+        )
+      : await reconcileAgentWorkProjection(
+          {
+            readIssueBody: (issueNumber) => issueSource.readIssueBody(issueNumber),
+            listCommentBodies: (issueNumber) => ledger.listCommentBodies(issueNumber),
+          },
+          project,
+          { issueNumber: options.issueNumber, apply: options.apply },
+        )
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
     process.exitCode = agentWorkExitCode(report)
     return

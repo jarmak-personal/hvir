@@ -174,8 +174,8 @@ Return a compact implementation handoff for both ordinary and epic-child work. I
 - changed product owners, authoritative seams, and actual write set;
 - final `npm run verify` and pre-push evidence;
 - implementation measurement availability, route changes/escalation, append/idempotency state,
-  projected Implementation/Own state, unavailable counters, active time, first-candidate time,
-  and first-pass outcome without private provider identity;
+  projected Implementation/Own and applicable parent Rollup state, unavailable counters, active
+  time, first-candidate time, and first-pass outcome without private provider identity;
 - CI and external-review state;
 - deviations from the issue or expected architecture; and
 - blockers or unresolved concerns.

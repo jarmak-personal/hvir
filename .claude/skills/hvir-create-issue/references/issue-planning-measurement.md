@@ -116,9 +116,15 @@ canonical Project item, keep the issue and ledger checkpoint, report projection 
 and retry projection after membership exists. When membership is active, dry-run and apply the
 canonical projection from the current issue and active ledger.
 
+After projection has a reportable outcome, dry-run and apply the issue's separate Rollup
+reconciliation. This clears a stale Rollup from an ordinary issue or epic child. If publication
+has established one exact native direct parent, repeat only the Rollup operation for that parent
+so the child's planning usage enters the parent's current direct-child Rollup. Do not guess a
+parent, traverse descendants, or mutate a child while reconciling its parent.
+
 Output only the commands' normalized reports and the final handoff. The handoff names
 `planning_issue_url` plus the start/final observation, creation, each intended append, Project
-membership, projection, and reviewer-coverage outcome.
+membership, projection, applicable Rollup, and reviewer-coverage outcome.
 
 After the workflow finishes its handoff or is abandoned, clean only the retained task-specific
 state:
