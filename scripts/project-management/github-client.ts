@@ -71,9 +71,17 @@ export class GitHubClient {
     return this.request(`${REST_URL}${path}`, init)
   }
 
+  requestRestOnce(path: string, init: RequestInit): Promise<Response> {
+    return this.#request(`${REST_URL}${path}`, init, 1)
+  }
+
   async request(url: string, init: RequestInit): Promise<Response> {
+    return this.#request(url, init, MAX_ATTEMPTS)
+  }
+
+  async #request(url: string, init: RequestInit, attempts: number): Promise<Response> {
     let lastError: unknown
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
       const controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
       try {
@@ -88,13 +96,13 @@ export class GitHubClient {
             ...init.headers,
           },
         })
-        if (!shouldRetry(response) || attempt === MAX_ATTEMPTS) {
+        if (!shouldRetry(response) || attempt === attempts) {
           return response
         }
         lastError = new Error(`GitHub temporarily returned HTTP ${response.status}.`)
       } catch (error) {
         lastError = error
-        if (attempt === MAX_ATTEMPTS) break
+        if (attempt === attempts) break
       } finally {
         clearTimeout(timeout)
       }
@@ -105,7 +113,9 @@ export class GitHubClient {
       lastError instanceof Error && lastError.name === 'AbortError'
         ? 'timed out'
         : 'failed'
-    throw new Error(`GitHub request ${reason} after ${MAX_ATTEMPTS} bounded attempts.`)
+    throw new Error(
+      `GitHub request ${reason} after ${attempts} bounded attempt${attempts === 1 ? '' : 's'}.`,
+    )
   }
 }
 

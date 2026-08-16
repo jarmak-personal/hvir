@@ -143,6 +143,96 @@ Both commands use `HVIR_REPO_TOKEN`, `HVIR_PROJECT_TOKEN`, `HVIR_REPOSITORY`,
 `HVIR_PROJECT_OWNER`, and `HVIR_PROJECT_NUMBER` as documented above. Credentials are read only
 from the environment and are never accepted as command-line values.
 
+### Agent-work measurement ledger
+
+The repository-owned measurement command reads one issue's complete append-only agent-work
+history and returns normalized active records, per-phase totals, and the issue's Own lifecycle
+total:
+
+```sh
+HVIR_REPO_TOKEN="$(gh auth token)" \
+npm run project:measure -- --issue 573
+```
+
+An append takes its closed JSON record from `HVIR_AGENT_WORK_RECORD`. It is a dry run unless
+`--apply` is present:
+
+```sh
+agent_work_record='{"schema":1,"issueNumber":573,"phase":"implementation","runKey":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","idempotencyKey":"1111111111111111111111111111111111111111111111111111111111111111","availability":"complete","route":{"initial":{"harness":"codex","modelId":"gpt-5.6-sol","requestedReasoningEffort":"xhigh","effectiveReasoningEffort":"xhigh"},"changes":[]},"usage":{"freshInputTokens":100,"cacheReadInputTokens":50,"cacheWriteInputTokens":10,"outputTokens":20,"reasoningTokens":5,"normalizedTokenTotal":180},"timing":{"activeWallMilliseconds":120000}}'
+
+HVIR_REPO_TOKEN="$(gh auth token)" \
+HVIR_AGENT_WORK_RECORD="$agent_work_record" \
+npm run project:measure -- --issue 573 --append
+
+# After reviewing the returned would-append operation:
+HVIR_REPO_TOKEN="$(gh auth token)" \
+HVIR_AGENT_WORK_RECORD="$agent_work_record" \
+npm run project:measure -- --issue 573 --append --apply
+```
+
+The command emits one canonical comment with this exact first-line marker:
+
+```text
+<!-- hvir-agent-work-measurement:v1 -->
+```
+
+The marker is followed by one `json` fence containing the canonical pretty-printed record. A
+reader admits only that exact generated layout and schema; all ordinary comments are ignored.
+Marker-bearing comments with malformed JSON, unexpected fields, invalid values, or a mismatched
+issue number are reported only through fixed diagnostics. Neither raw comment bodies nor GitHub
+internal IDs appear in a report.
+
+Schema version 1 has these rules:
+
+- `issueNumber` is the positive repository issue number. `phase` is `issue-planning`,
+  `implementation`, `implementation-review`, or `epic-coordination`.
+- `runKey` and `idempotencyKey` are lowercase 64-character hexadecimal SHA-256 values derived
+  only from bounded operation identity. They must never be derived from prompts, responses,
+  code, issue prose, paths, provider session identifiers, or other excluded content.
+- `availability` is `complete`, `partial`, or `unavailable`. Complete records require the four
+  additive counters and their exact safe-integer sum. Partial records require an initial route,
+  at least one observed usage or timing value, a nonempty fixed `missingFacts` list, and no exact
+  normalized total. Unavailable records require one fixed `unavailableReason` and contain no
+  usage, timing, or missing-fact claims. Provider and ledger code consume one shared closed
+  counter and unavailable-reason vocabulary; provider reasons, including
+  `invalid-session-identity`, are valid wire values without an independent translation table.
+- A complete or partial `route` starts with harness `claude-code` or `codex`, optionally records
+  bounded model and requested/effective reasoning-effort identifiers, and keeps ordered route
+  changes with an explicit `escalation` boolean. Consumers never infer escalation from model
+  names.
+- `usage` may contain `freshInputTokens`, `cacheReadInputTokens`,
+  `cacheWriteInputTokens`, `outputTokens`, `reasoningTokens`, and, only when exact,
+  `normalizedTokenTotal`. Every counter is a non-negative safe integer. Reasoning tokens remain
+  non-additive.
+- `timing` may contain non-negative safe-integer `activeWallMilliseconds` and
+  `modelOrApiMilliseconds`. `timeToFirstCandidateMilliseconds` belongs only to implementation.
+  An implementation record may also carry `outcome.firstPass` as `pending`, `accepted`,
+  `rework-required`, or `no-candidate`; candidate-producing outcomes use only a bounded
+  content-free candidate reference.
+- `supersedes`, when present, is a new record's reference to the currently active earlier
+  idempotency key for the same issue, phase, and run. Corrections append; comments are never
+  edited or deleted. A supersession fork or cross-run reference is invalid.
+
+Reads paginate the complete comment history. Repeating the same valid key and record returns
+`duplicate` without appending; even if two external requests produced identical comments, the
+normalized usage counts the key once. Reusing a key for different facts is a fixed conflict. A
+retry always reads current history before attempting a write. The append uses one non-retrying
+POST so an ambiguous mutation is not replayed inside the transport, then re-reads the ledger
+after both confirmed and uncertain responses. `ledger` always means the last successfully
+observed history; a dry run or failed read-back keeps the intended projection separately as
+`plannedLedger`. The operation reports `appended: true`, `appended: false`, or `appended: null`
+when GitHub still cannot establish the outcome. An uncertain outcome or failed/incomplete
+read-back emits only a fixed diagnostic and exits nonzero so a later retry resolves current state
+again.
+
+Phase and Own totals include active records only. Exact normalized totals appear only when every
+active contributing run is complete; otherwise reports retain counter coverage and a labeled
+known subtotal without substituting zero for missing evidence. The comment ledger is
+authoritative before any later Project measurement projection. First-pass outcome and time to
+first candidate remain per-record facts: phase and Own totals do not choose a priority or first
+value for them. This command does not mutate Project fields or expose a generic issue-comment
+operation.
+
 ### Delivery context
 
 Read the complete implementation context for one issue before selecting a base or worktree:

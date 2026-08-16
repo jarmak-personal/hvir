@@ -1,6 +1,14 @@
 /** Content-free usage snapshots shared by bundled harness providers and phase policy. */
 
-import type { HarnessProviderId, HostPath } from '../../shared'
+import {
+  AGENT_WORK_ADDITIVE_TOKEN_COUNTER_NAMES,
+  AGENT_WORK_TOKEN_COUNTER_NAMES,
+  type AgentWorkTokenCounterName,
+  type HarnessProviderId,
+  type HarnessUsageDeltaUnavailableReason,
+  type HarnessUsageUnavailableReason,
+  type HostPath,
+} from '../../shared'
 import type { ProjectHost } from '../project-host'
 import type { HarnessArtifactContext } from './harness-provider'
 
@@ -12,14 +20,9 @@ export interface HarnessUsageSnapshotContext {
   readonly signal: AbortSignal
 }
 
-export interface HarnessUsageCounters {
-  readonly freshInputTokens?: number
-  readonly cacheReadInputTokens?: number
-  readonly cacheWriteInputTokens?: number
-  readonly outputTokens?: number
-  /** Provider-reported detail already contained in output tokens. */
-  readonly reasoningTokens?: number
-}
+export type HarnessUsageCounters = Readonly<
+  Partial<Record<AgentWorkTokenCounterName, number>>
+>
 
 export interface HarnessUsageRoute {
   readonly modelId?: string
@@ -30,11 +33,7 @@ export interface HarnessUsageTiming {
   readonly modelOrApiMilliseconds?: number
 }
 
-export type HarnessUsageUnavailableReason =
-  | 'invalid-session-identity'
-  | 'artifact-unavailable'
-  | 'artifact-too-large'
-  | 'usage-unavailable'
+export type { HarnessUsageUnavailableReason } from '../../shared'
 
 export type HarnessUsageSnapshot =
   | {
@@ -61,7 +60,7 @@ export interface HarnessUsageSnapshotProvider {
   ): Promise<HarnessUsageSnapshot>
 }
 
-export type HarnessUsageCounterName = keyof HarnessUsageCounters
+export type HarnessUsageCounterName = AgentWorkTokenCounterName
 
 export type HarnessUsageDelta =
   | {
@@ -78,23 +77,8 @@ export type HarnessUsageDelta =
     }
   | {
       readonly status: 'unavailable'
-      readonly reason:
-        | 'snapshot-unavailable'
-        | 'provider-mismatch'
-        | 'observation-order-invalid'
-        | 'counter-reset'
-        | 'counters-unavailable'
+      readonly reason: HarnessUsageDeltaUnavailableReason
     }
-
-const COUNTER_NAMES = [
-  'freshInputTokens',
-  'cacheReadInputTokens',
-  'cacheWriteInputTokens',
-  'outputTokens',
-  'reasoningTokens',
-] as const satisfies readonly HarnessUsageCounterName[]
-
-const ADDITIVE_COUNTER_NAMES = COUNTER_NAMES.slice(0, 4)
 
 /** Compare two snapshots from one provider-qualified run without parsing provider records. */
 export function calculateHarnessUsageDelta(
@@ -113,7 +97,7 @@ export function calculateHarnessUsageDelta(
 
   const counters: Record<string, number> = {}
   const missingCounters: HarnessUsageCounterName[] = []
-  for (const name of COUNTER_NAMES) {
+  for (const name of AGENT_WORK_TOKEN_COUNTER_NAMES) {
     const startValue = start.counters[name]
     const endValue = end.counters[name]
     if (startValue === undefined || endValue === undefined) {
@@ -135,12 +119,12 @@ export function calculateHarnessUsageDelta(
     return { status: 'unavailable', reason: 'counters-unavailable' }
   }
 
-  const hasEveryAdditiveCounter = ADDITIVE_COUNTER_NAMES.every(
+  const hasEveryAdditiveCounter = AGENT_WORK_ADDITIVE_TOKEN_COUNTER_NAMES.every(
     (name) => counters[name] !== undefined,
   )
   const normalizedTokenTotal = hasEveryAdditiveCounter
     ? sumNonNegativeUsageCounters(
-        ADDITIVE_COUNTER_NAMES.map((name) => counters[name] ?? 0),
+        AGENT_WORK_ADDITIVE_TOKEN_COUNTER_NAMES.map((name) => counters[name] ?? 0),
       )
     : undefined
   const startModelTime = start.timing.modelOrApiMilliseconds
