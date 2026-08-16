@@ -84,7 +84,7 @@ describe('agent-work Project derivation', () => {
         'Initial model': 'gpt-5.6-sol',
         'Reasoning effort': 'xhigh',
         'Model route':
-          'codex:gpt-5.6-sol@xhigh | codex:gpt-5.6-sol@xhigh -> escalated:gpt-6@xhigh | codex:gpt-5.6-sol@xhigh',
+          'codex:gpt-5.6-sol@xhigh | codex:gpt-5.6-sol@xhigh -> escalated:gpt-6@xhigh',
         'Planning tokens': 100,
         'Implementation tokens': 10,
         'Review tokens': 14,
@@ -157,6 +157,37 @@ describe('agent-work Project derivation', () => {
     const values = deriveAgentWorkProjection('', ledger).values
 
     expect(values['Implementation tokens']).toBe(10)
+    expect(values).not.toHaveProperty('Review tokens')
+    expect(values).not.toHaveProperty('Own lifecycle tokens')
+  })
+
+  it('keeps a partial isolated-review route only in the ledger', () => {
+    const review = parseAgentWorkRecord({
+      ...completeRecord(),
+      phase: 'implementation-review',
+      availability: 'partial',
+      usage: undefined,
+      timing: { activeWallMilliseconds: 25 },
+      missingFacts: [
+        'start-snapshot',
+        'end-snapshot',
+        'fresh-input-tokens',
+        'cache-read-input-tokens',
+        'cache-write-input-tokens',
+        'output-tokens',
+        'reasoning-tokens',
+        'model-or-api-time',
+      ],
+      outcome: undefined,
+    })
+    const values = deriveAgentWorkProjection(
+      '',
+      normalizeAgentWorkComments(ISSUE, [serializeAgentWorkComment(review)]),
+    ).values
+
+    expect(values).not.toHaveProperty('Initial model')
+    expect(values).not.toHaveProperty('Reasoning effort')
+    expect(values).not.toHaveProperty('Model route')
     expect(values).not.toHaveProperty('Review tokens')
     expect(values).not.toHaveProperty('Own lifecycle tokens')
   })

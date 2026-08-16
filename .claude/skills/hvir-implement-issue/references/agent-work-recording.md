@@ -4,6 +4,8 @@ Use this procedure only for work authorized through a repository lifecycle skill
 vocabulary, schema, exclusions, and phase boundaries remain in
 [`docs/agent-work-measurements.md`](../../../../docs/agent-work-measurements.md); the repository
 commands remain documented in [`docs/project-management.md`](../../../../docs/project-management.md).
+The provider-owned snapshot procedure and private inputs are documented in
+[`docs/agent-work-usage-proof.md`](../../../../docs/agent-work-usage-proof.md).
 
 Measurement is optional evidence. A missing snapshot, unavailable Project field, failed append,
 or failed projection never relaxes or blocks the lifecycle's normal delivery gates. Report the
@@ -13,22 +15,29 @@ measurement failure and continue the authorized work.
 
 At the phase's start observation:
 
-1. Create a new content-free 64-character lowercase hexadecimal `runKey`. A correction, resumed
-   execution, or reopened issue is a new run and gets a new key.
-2. Derive or create one content-free 64-character hexadecimal `idempotencyKey` for finalizing
-   that run. Retain both keys privately until finalization finishes. Repeated finalization of the
-   same run reuses the same key; never derive either key from prompts, responses, repository
-   content, paths, candidate content, or a provider session identifier.
-3. Start a monotonic active-wall accumulator. Exclude only explicit suspension while awaiting
+1. Establish and privately retain the canonical content-free run and idempotency keys described
+   in the measurement contract. Reuse the same idempotency key for any finalization retry.
+2. Start a monotonic active-wall accumulator. Exclude only explicit suspension while awaiting
    maintainer input or acceptance; include tools, checks, pushes, and external model/API work.
-4. Record the exact initial harness, model identifier, and requested/effective reasoning effort
+3. Record the exact initial harness, model identifier, and requested/effective reasoning effort
    exposed by the selected runtime. Omit an unavailable fact rather than replacing it with a
    family name or inferred value.
-5. When an exact current Codex or Claude Code session identity and launch directory are privately
-   available, capture the provider-owned start snapshot with `proof:harness-usage`. Keep the
-   snapshot in a private temporary file and remove it on every exit. Do not print, publish, or put
-   the session identity, artifact location, or snapshot path in a record. If exact identity cannot
-   be proven, retain the applicable fixed unavailable reason and continue.
+4. When an exact current Codex or Claude Code session identity and launch directory are privately
+   available, set `HVIR_USAGE_SESSION_ID` and `HVIR_USAGE_CWD` without printing them. Capture the
+   start snapshot with `npm run proof:harness-usage -- snapshot <codex|claude-code>` in a private
+   temporary file. Keep it private and remove it on every exit. Do not print, publish, or put the
+   session identity, launch directory, artifact location, or snapshot path in a record. If exact
+   identity cannot be proven, retain the applicable fixed unavailable reason and continue.
+
+   ```sh
+   export HVIR_USAGE_SESSION_ID='<private exact current session identity>'
+   export HVIR_USAGE_CWD='<private exact harness launch directory>'
+   npm run proof:harness-usage -- snapshot codex > "$private_start_snapshot"
+   # Finalization, using the same private inputs:
+   npm run proof:harness-usage -- delta codex < "$private_start_snapshot"
+   ```
+
+   Substitute `claude-code` for `codex` only for an exact Claude Code session.
 
 Record every explicitly observed route change in order. Preserve the initial route, number
 changes contiguously from one, and set `escalation` only when the caller or coordinator explicitly
@@ -37,11 +46,15 @@ or resumed lifecycle execution is a new run, not a route change.
 
 ## Finalize once
 
-At the phase's finalization observation:
+At the phase's finalization observation selected by the owning lifecycle skill, after its complete
+handoff facts are stable but before ledger bookkeeping:
 
 1. Stop the active-wall accumulator and, when the qualified start snapshot exists, take the end
-   snapshot for the same provider session and calculate the delta with
-   `proof:harness-usage`. Never combine nearby or cross-provider sessions.
+   snapshot for the same private inputs and calculate the delta with
+   `npm run proof:harness-usage -- delta <codex|claude-code> < <start-snapshot>`. Never combine
+   nearby or cross-provider sessions. For implementation, a push establishes candidate identity;
+   it does not finalize the run before diff audit, architecture and acceptance rechecks,
+   pull-request update, and handoff preparation finish.
 2. Build one closed schema-v1 record from observed facts only. A complete record includes every
    additive counter and its exact safe-integer normalized total. A partial record includes an
    initial route, at least one usage or timing fact, fixed `missingFacts`, and no normalized total.
@@ -67,23 +80,7 @@ At the phase's finalization observation:
    projection state in the lifecycle handoff. Never include the private snapshot or provider
    identity inputs.
 
-An uncertain append is not permission to generate a new key. A later retry re-reads the ledger
-and presents the same record and idempotency key so the append operation can establish whether
-the original write landed.
-
-## Deterministic lifecycle fixtures
-
-Use these fixtures when classifying records; they supplement the executable ledger and projector
-tests without changing the wire schema.
-
-| Scenario | Records and projection consequence |
-| --- | --- |
-| One implementation run | One `implementation` record has one run key, the exact initial route, the start/end delta, active time, first candidate commit, and `pending`; its exact total projects to `Implementation tokens` and Own. |
-| Escalation | The same run retains its initial route and adds contiguous route changes with only the explicitly escalated step marked `true`; all counters still come from that run's qualified start/end snapshots. |
-| Multiple corrections | Each correction is a new `implementation` run and append. The first corrective run records `rework-required`; that outcome remains sticky. Later runs omit time to first candidate because the original candidate already established it. |
-| Separate review | A qualified independent review appends one `implementation-review` record. Its exact total projects to `Review tokens` and Own, never `Implementation tokens`. |
-| No-persistence review | A reviewer whose exact attributable artifact is unavailable appends an unavailable `implementation-review` record, normally with `artifact-unavailable` or `unsupported-telemetry`; no counter or exact Project total is guessed. |
-| Partial failure and retry | A confirmed append followed by a failed Project write keeps the ledger authoritative. Retry `--project --apply` only. An uncertain append retries the identical record/key; a duplicate is counted once. |
-
-Review-driven code changes use a new `implementation` run. They never extend the already-finalized
-`implementation-review` record.
+The measurement contract owns run, correction, route-change, first-pass, supersession, and retry
+policy. This procedure adds only two workflow expectations: review-driven code changes start a new
+`implementation` run, and an isolated supported reviewer with truthful route plus active-wall
+facts emits a partial review record rather than discarding those facts.

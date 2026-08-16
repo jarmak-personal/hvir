@@ -129,17 +129,12 @@ Use the capacity, real-host, packaged, or full gauntlet checks when the issue's 
 criteria require those environments. Report exact results and any unverified environment
 honestly.
 
-The first candidate boundary is not reached until final local verification, commit, the pre-push
-gate, and a successful normal push all apply to the same candidate. At that point, immediately
-take the run's final provider snapshot and stop its active-wall and time-to-first-candidate
-accumulators. Use the pushed commit SHA as the bounded candidate reference. A first handoff is
-`pending` unless acceptance is already explicit; do not infer `accepted` from passing checks or
-review sentiment. A run that ends without a candidate records `no-candidate`.
-
-Every later in-scope correction, including review-driven correction, starts a new invocation and
-a new `implementation` run. Record `rework-required` with its new pushed candidate, preserve that
-sticky fact, and omit time to first candidate because the earliest candidate already established
-it. Do not attribute correction usage to `implementation-review`.
+A successful normal push after final verification, commit, and the pre-push gate establishes the
+candidate identity and observable outcome. It does not stop implementation measurement. Keep the
+active-wall accumulator—and, for the earliest candidate, time to first candidate—running through
+the complete diff audit, architecture and acceptance rechecks, pull-request creation or update,
+and handoff preparation below. Apply the canonical first-pass and correction rules from the
+measurement contract; review-driven changes always belong to a new `implementation` run.
 
 ## Publish and hand off
 
@@ -163,11 +158,11 @@ Before handing off:
 Open or update a pull request when the user requests it or an authorized epic coordinator launches
 the child. Report unresolved architecture or validation concerns as blockers.
 
-Finalize the implementation measurement only after the candidate handoff facts above are stable,
-then append the record and reconcile its named Project projection using
-`references/agent-work-recording.md`. Append before projection. Retry an uncertain append with the
-same record and key; retry a post-append projection without appending. Partial, unavailable, or
-failed measurement is reported but does not suppress the implementation handoff.
+Only after every preceding audit and the complete implementation handoff are stable, take the
+final provider snapshot and stop the active-wall and applicable time-to-first-candidate
+accumulators. Use the pushed commit SHA as the bounded candidate reference. Then append the record
+and reconcile its named Project projection using `references/agent-work-recording.md`. Partial,
+unavailable, or failed measurement is reported but does not suppress the handoff.
 
 Return a compact implementation handoff for both ordinary and epic-child work. Include:
 
