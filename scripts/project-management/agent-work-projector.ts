@@ -28,6 +28,7 @@ const LEDGER_FIELDS: readonly AgentWorkProjectFieldName[] = [
   'Model route',
   'Planning tokens',
   'Implementation tokens',
+  'Review tokens',
   'Own lifecycle tokens',
   'Time to first candidate (ms)',
   'First-pass outcome',
@@ -177,6 +178,7 @@ export function deriveAgentWorkProjection(
 
   setExactTotal(values, 'Planning tokens', ledger, 'issue-planning')
   setExactTotal(values, 'Implementation tokens', ledger, 'implementation')
+  setExactTotal(values, 'Review tokens', ledger, 'implementation-review')
   if (
     ledger.ownTotal.activeRuns > 0 &&
     ledger.ownTotal.normalizedTokenTotal !== undefined

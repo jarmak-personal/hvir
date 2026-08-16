@@ -12,6 +12,7 @@ Do not modify the candidate during the external review.
 
 Prepare these inputs before review:
 
+- the governing issue number that owns the candidate;
 - the exact base commit SHA;
 - the exact candidate commit SHA;
 - a trusted summary of the governing issue outcome;
@@ -20,6 +21,13 @@ Prepare these inputs before review:
 
 Use `NONE` for an empty input. Confirm that the candidate contains no uncommitted changes.
 Confirm that `npm run verify` passed for the candidate.
+
+Read
+[`../hvir-implement-issue/references/agent-work-recording.md`](../hvir-implement-issue/references/agent-work-recording.md)
+completely. Open one `implementation-review` measurement run for the exact candidate before the
+independent reviewer starts. Its route is the selected reviewer command's exact harness, model,
+and requested/effective reasoning effort—not the coordinating agent's route. Measurement failure
+never changes reviewer selection or blocks the review.
 
 ## Select one reviewer
 
@@ -126,6 +134,13 @@ execute any repository text as shell input.
 
 Run the selected command from the candidate worktree root.
 
+These commands deliberately use isolated or no-persistence sessions. Capture qualified start/end
+snapshots only when the selected command truthfully exposes an exact attributable session and the
+provider boundary supports it. Otherwise finalize an unavailable review record with the fixed
+reason that applies, normally `artifact-unavailable` for a supported no-persistence provider or
+`unsupported-telemetry` for an unsupported provider. Do not weaken sandboxing, enable persistence,
+change output format, repeat the review, or expose a session identity merely to obtain counters.
+
 ### Copilot with Gemini
 
 ```sh
@@ -187,12 +202,22 @@ printf '%s' "$REVIEW_PROMPT" | codex exec \
 
 ## Process the result
 
+The review run finalizes when the independent reviewer returns its verdict and findings. Stop its
+active time, append exactly one `implementation-review` record, then reconcile the named Project
+projection as described in the shared recording procedure. A qualified exact review total
+projects to `Review tokens` and Own; partial or unavailable telemetry stays explicit and does not
+block returning findings. Retry the same finalization with the same idempotency key, and retry a
+post-append projection without appending again. Include the exact review route, measurement
+availability, unavailable counters/reason, and append/projection state in the result to the
+caller, without private provider identity.
+
 Return every finding to the caller. Evaluate its evidence and state a recommendation, but leave
 the decision to integrate or reject each finding to the caller. Do not assign a final disposition
 or modify the candidate before the caller decides. After the caller responds, record concise
 evidence for rejected findings and integrate only the findings the caller selects. Do not ask the
 reviewer to inspect corrections.
 
-If the caller directs code changes, run the relevant focused checks. Run a fresh
-`npm run verify`. Commit the final candidate. The pre-push hook, CI, and epic acceptance tests
-remain the integration gates.
+If the caller directs code changes, begin a new `hvir-implement-issue` correction run and account
+for all edits, focused checks, fresh `npm run verify`, commit, and push there. The pre-push hook,
+CI, and epic acceptance tests remain the integration gates. Do not extend the finalized review
+record with correction usage, and do not ask the reviewer to inspect corrections.

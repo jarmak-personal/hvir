@@ -26,6 +26,7 @@ export const AGENT_WORK_PROJECT_FIELDS = [
   { name: 'Model route', type: 'text' },
   { name: 'Planning tokens', type: 'number' },
   { name: 'Implementation tokens', type: 'number' },
+  { name: 'Review tokens', type: 'number' },
   { name: 'Own lifecycle tokens', type: 'number' },
   { name: 'Time to first candidate (ms)', type: 'number' },
   {
