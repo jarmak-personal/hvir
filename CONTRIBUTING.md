@@ -112,6 +112,10 @@ The review skills normally run only when a maintainer invokes them. Explicit inv
 candidate. `hvir-create-issue` and `hvir-implement-issue` do not independently invoke or suggest
 review.
 
+The canonical [agent-work measurement contract](docs/agent-work-measurements.md) defines the
+forecast rubric, phase boundaries, provider-neutral usage vocabulary, append-only correction
+rules, and Own/Rollup semantics shared by those lifecycle skills and repository tooling.
+
 ## Isolate issue implementation
 
 `hvir-implement-issue` starts ordinary and epic-child work through one repository command:
