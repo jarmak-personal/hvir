@@ -1,0 +1,62 @@
+# Live harness usage proof
+
+This procedure verifies that a live supported Codex or Claude Code session can produce two
+content-free cumulative snapshots and a truthful phase delta through the bundled harness
+provider boundary. It is contributor acceptance evidence, not an application feature or a
+generic transcript reader.
+
+The provider owns exact artifact location, session qualification, record selection, duplicate
+handling, model and effort interpretation, and native counter normalization. The proof command
+supplies the provider with an exact session identity and launch working directory, but neither
+value appears in its output. Central delta policy receives only the normalized snapshot.
+
+## Procedure
+
+Run the proof from the same local host as the live harness. Set these values without printing
+them:
+
+```sh
+export HVIR_USAGE_SESSION_ID='<exact current session id>'
+export HVIR_USAGE_CWD='<exact launch working directory>'
+```
+
+For Codex, `CODEX_THREAD_ID` supplies the current exact identity. For a Claude Code proof, launch
+or resume a session with an explicitly preassigned `--session-id` and retain that value privately.
+When a non-default artifact root is active, retain `CODEX_HOME` or `CLAUDE_CONFIG_DIR` in the
+environment; the provider interprets it.
+
+Capture the bounded start snapshot, allow at least one real model turn in that exact session, and
+calculate the end delta:
+
+```sh
+private_start_snapshot="$(mktemp)"
+trap 'rm -f -- "$private_start_snapshot"' EXIT
+npm run proof:harness-usage -- snapshot codex > "$private_start_snapshot"
+# Perform one real turn in the exact session.
+npm run proof:harness-usage -- delta codex < "$private_start_snapshot"
+```
+
+Use `claude-code` instead of `codex` for Claude Code. The temporary start file contains only the
+whitelisted snapshot schema, but it should still be removed after the proof. The command exits 2
+for an unavailable snapshot or delta and emits only fixed reason codes. Artifacts larger than the
+8 MiB read bound are explicitly unavailable rather than partially parsed.
+
+## Observed result
+
+The procedure was exercised on 2026-08-16 with Codex CLI 0.147.0 and Claude Code 2.1.228 through
+`LocalHost`:
+
+| Provider | Result | Preserved route | Non-negative observed delta |
+| --- | --- | --- | --- |
+| Codex | Complete | `gpt-5.6-sol`, effort `high` | fresh input 2,756; cache read 396,544; cache write 0; output 678; reasoning 64; normalized total 399,978 |
+| Claude Code | Complete | `claude-opus-5`, effort `high` | fresh input 2; cache read 14,315; cache write 105; output 4; normalized total 14,426; reasoning absent |
+
+Both results increased from the provider-qualified start snapshot without a reset. Their JSON
+contained no session identifier, artifact path, launch directory, request/message identifier,
+prompt, response, transcript, terminal, code, environment, credential, rate-limit, or account
+content. Claude Code's missing reasoning counter remained absent and was not replaced by zero.
+Neither artifact exposed cumulative model/API time, so that timing value also remained absent.
+
+Deterministic adapter tests retain the same `ProjectHost` contract for local and SSH transports
+and cover malformed records, exact identity, missing artifacts, duplicate Claude records,
+counter movement, missing counters, and reset rejection without requiring ambient provider data.

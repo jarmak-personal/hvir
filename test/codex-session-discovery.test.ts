@@ -22,7 +22,7 @@ interface DiscoveryFixture {
   ) => ReturnType<ReturnType<typeof createCodexSessionDiscovery>['identify']>
 }
 
-function fixture(useDefaultTiming = false): DiscoveryFixture {
+function fixture(useDefaultTiming = false, canonicalCwd = CWD): DiscoveryFixture {
   let paths: readonly string[] = []
   let scheduledPaths:
     { readonly visibleAt: number; readonly paths: readonly string[] } | undefined
@@ -30,6 +30,7 @@ function fixture(useDefaultTiming = false): DiscoveryFixture {
   const records = new Map<string, string>()
   const host = {
     hostId: CWD.hostId,
+    realpath: () => Promise.resolve(canonicalCwd),
     exec: (command: string, args: readonly string[]) => {
       if (command === 'sh') {
         const visiblePaths =
@@ -138,6 +139,20 @@ describe('Codex session discovery', () => {
       status: 'identified',
       sessionId: FIRST_ID,
       sessionData: { rolloutPath: localPath(created) },
+    })
+  })
+
+  it('matches persisted identity against the canonical form of a symlinked cwd', async () => {
+    const canonicalCwd = localPath('/private/tmp/canonical-project')
+    const f = fixture(false, canonicalCwd)
+    const snapshot = await f.discovery.snapshot(f.host)
+    const created = rolloutPath(FIRST_ID)
+    f.setPaths([created])
+    f.setRecord(created, sessionMeta(FIRST_ID, { cwd: canonicalCwd.path }))
+
+    await expect(f.identify(snapshot)).resolves.toMatchObject({
+      status: 'identified',
+      sessionId: FIRST_ID,
     })
   })
 

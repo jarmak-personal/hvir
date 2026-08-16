@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import { mkdtemp, mkdir, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -13,11 +13,7 @@ import {
   type HarnessProvider,
 } from '../src/main/harness/harness-provider'
 import { LocalHost } from '../src/main/project-host/local-host'
-import type {
-  PtyExit,
-  PtyProcess,
-  SpawnPtyOptions,
-} from '../src/main/project-host'
+import type { PtyExit, PtyProcess, SpawnPtyOptions } from '../src/main/project-host'
 import { PtySupervisor, type ManagedPty } from '../src/main/pty/pty-supervisor'
 import { TerminalSessionRegistry } from '../src/main/terminal/session-registry'
 import { asHarnessProfileId, hostPath, localPath } from '../src/shared'
@@ -96,6 +92,7 @@ describe('Codex session recovery lifecycle', () => {
     const sessionsDirectory = join(codexHome, 'sessions', '2026', '07', '28')
     await mkdir(workspace, { recursive: true })
     await mkdir(sessionsDirectory, { recursive: true })
+    const canonicalWorkspace = await realpath(workspace)
 
     const host = new LifecycleLocalHost()
     const registryFile = localPath(join(root, 'terminal-sessions.json'))
@@ -163,7 +160,7 @@ describe('Codex session recovery lifecycle', () => {
         payload: {
           id: SESSION_ID,
           timestamp: new Date().toISOString(),
-          cwd: cwd.path,
+          cwd: canonicalWorkspace,
           originator: 'codex-tui',
         },
       })}\n`,
@@ -283,6 +280,7 @@ describe('Codex session recovery lifecycle', () => {
     internals.state = 'connected'
     internals.client = primaryClient as unknown as Client
     const cwd = hostPath(sshHost.hostId, '/srv/project')
+    vi.spyOn(sshHost, 'realpath').mockResolvedValue(cwd)
     const artifact: HarnessArtifactContext = {
       identity: 'b'.repeat(24),
       environment: { CODEX_HOME: '/srv/codex-home' },
@@ -342,9 +340,7 @@ describe('Codex session recovery lifecycle', () => {
     )
     expect(remoteCommands.filter((command) => command.includes("'sh'"))).toHaveLength(2)
     expect(
-      remoteCommands.some((command) =>
-        command.includes("CODEX_HOME='/srv/codex-home'"),
-      ),
+      remoteCommands.some((command) => command.includes("CODEX_HOME='/srv/codex-home'")),
     ).toBe(true)
     expect(
       remoteCommands.some(

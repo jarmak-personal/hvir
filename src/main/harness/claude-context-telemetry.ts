@@ -7,6 +7,19 @@ import {
   type HarnessTelemetry,
 } from '../../shared'
 import type { Disposer, ProjectHost } from '../project-host'
+import {
+  nonNegativeUsageCounter,
+  sumNonNegativeUsageCounters,
+  unavailableHarnessUsageSnapshot,
+  type HarnessUsageCounters,
+  type HarnessUsageRoute,
+  type HarnessUsageSnapshot,
+  type HarnessUsageSnapshotContext,
+} from './agent-work-usage'
+import {
+  boundedHarnessUsageString,
+  readHarnessUsageArtifact,
+} from './harness-usage-artifact'
 import { resolveClaudeSessionArtifact } from './claude-session-artifact'
 import type { HarnessTelemetryContext } from './harness-provider'
 import {
@@ -39,15 +52,104 @@ const FOLLOW_USAGE_SCRIPT = buildTelemetryHubScript({
 interface ClaudeUsageEnvelope {
   readonly type?: unknown
   readonly isSidechain?: unknown
+  readonly sessionId?: unknown
+  readonly session_id?: unknown
+  readonly requestId?: unknown
+  readonly effort?: unknown
   readonly message?: {
+    readonly id?: unknown
     readonly role?: unknown
     readonly model?: unknown
-    readonly usage?: {
-      readonly input_tokens?: unknown
-      readonly cache_creation_input_tokens?: unknown
-      readonly cache_read_input_tokens?: unknown
-      readonly output_tokens?: unknown
+    readonly usage?: ClaudeUsageCounters
+  }
+}
+
+interface ClaudeUsageCounters {
+  readonly input_tokens?: unknown
+  readonly cache_creation_input_tokens?: unknown
+  readonly cache_read_input_tokens?: unknown
+  readonly output_tokens?: unknown
+}
+
+export async function snapshotClaudeUsage(
+  host: ProjectHost,
+  context: HarnessUsageSnapshotContext,
+): Promise<HarnessUsageSnapshot> {
+  const providerId = asHarnessProviderId('claude-code')
+  if (!SESSION_ID.test(context.sessionId) || context.signal.aborted) {
+    return unavailableHarnessUsageSnapshot(providerId, 'invalid-session-identity')
+  }
+  const location = await resolveClaudeSessionArtifact(host, context, context.signal)
+  if (!location || context.signal.aborted) {
+    return unavailableHarnessUsageSnapshot(providerId, 'artifact-unavailable')
+  }
+  const artifact = await readHarnessUsageArtifact(
+    host,
+    location.transcript,
+    context.signal,
+  )
+  if (context.signal.aborted) {
+    return unavailableHarnessUsageSnapshot(providerId, 'artifact-unavailable')
+  }
+  if (artifact.status === 'unavailable') {
+    return unavailableHarnessUsageSnapshot(providerId, artifact.reason)
+  }
+
+  let identityMismatch = false
+  let route: HarnessUsageRoute = {}
+  const records = new Map<string, HarnessUsageCounters>()
+  for (const line of artifact.content.split('\n')) {
+    const envelope = parseClaudeUsageEnvelope(line)
+    if (!envelope || !isClaudeAssistantUsage(envelope)) continue
+    const sessionIds = [envelope.sessionId, envelope.session_id].filter(
+      (value): value is string => typeof value === 'string',
+    )
+    if (
+      sessionIds.length === 0 ||
+      sessionIds.some((sessionId) => sessionId !== context.sessionId)
+    ) {
+      identityMismatch = true
+      continue
     }
+    const requestId = boundedHarnessUsageString(envelope.requestId)
+    const messageId = boundedHarnessUsageString(envelope.message?.id)
+    if (!requestId || !messageId) continue
+    const counters = normalizeClaudeUsageCounters(envelope.message?.usage)
+    if (!counters) continue
+    const modelId = boundedHarnessUsageString(envelope.message?.model)
+    const reasoningEffort = boundedHarnessUsageString(envelope.effort, 64)
+    route = {
+      ...(modelId ? { modelId } : route.modelId ? { modelId: route.modelId } : {}),
+      ...(reasoningEffort
+        ? { reasoningEffort }
+        : route.reasoningEffort
+          ? { reasoningEffort: route.reasoningEffort }
+          : {}),
+    }
+    records.set(`${requestId}\0${messageId}`, counters)
+  }
+
+  if (identityMismatch) {
+    return unavailableHarnessUsageSnapshot(providerId, 'invalid-session-identity')
+  }
+  if (records.size === 0) {
+    return unavailableHarnessUsageSnapshot(providerId, 'usage-unavailable')
+  }
+  const counters = sumClaudeUsageCounters([...records.values()])
+  if (Object.keys(counters).length === 0) {
+    return unavailableHarnessUsageSnapshot(providerId, 'usage-unavailable')
+  }
+  return {
+    version: 1,
+    status: 'available',
+    providerId,
+    observedAt: Date.now(),
+    route: {
+      ...(route.modelId ? { modelId: route.modelId } : {}),
+      ...(route.reasoningEffort ? { reasoningEffort: route.reasoningEffort } : {}),
+    },
+    counters,
+    timing: {},
   }
 }
 
@@ -93,44 +195,94 @@ export async function observeClaudeContext(
 }
 
 export function parseClaudeUsage(value: string): HarnessTelemetry | null {
-  try {
-    const envelope = JSON.parse(value) as ClaudeUsageEnvelope
-    const usage = envelope.message?.usage
-    if (
-      envelope.type !== 'assistant' ||
-      envelope.message?.role !== 'assistant' ||
-      envelope.message.model === '<synthetic>' ||
-      envelope.isSidechain === true ||
-      !usage
-    ) {
-      return null
-    }
-    const counts = [
-      usage.input_tokens,
-      usage.cache_creation_input_tokens,
-      usage.cache_read_input_tokens,
-      usage.output_tokens,
-    ]
-    if (!counts.every(isNonNegativeFiniteNumber)) return null
-    const model =
-      typeof envelope.message.model === 'string' &&
-      envelope.message.model.length > 0 &&
-      envelope.message.model.length <= 160
-        ? envelope.message.model
-        : undefined
-    return contextHarnessSnapshot({
-      providerId: asHarnessProviderId('claude-code'),
-      provenance: 'Claude Code transcript assistant usage',
-      context: { usedTokens: counts.reduce((total, count) => total + count, 0) },
-      modelId: model,
-    })
-  } catch {
+  const envelope = parseClaudeUsageEnvelope(value)
+  if (!envelope || !isClaudeAssistantUsage(envelope)) return null
+  const counts = normalizeClaudeUsageCounters(envelope.message?.usage)
+  if (
+    !counts ||
+    counts.freshInputTokens === undefined ||
+    counts.cacheWriteInputTokens === undefined ||
+    counts.cacheReadInputTokens === undefined ||
+    counts.outputTokens === undefined
+  ) {
     return null
+  }
+  return contextHarnessSnapshot({
+    providerId: asHarnessProviderId('claude-code'),
+    provenance: 'Claude Code transcript assistant usage',
+    context: {
+      usedTokens:
+        counts.freshInputTokens +
+        counts.cacheWriteInputTokens +
+        counts.cacheReadInputTokens +
+        counts.outputTokens,
+    },
+    modelId: boundedHarnessUsageString(envelope.message?.model),
+  })
+}
+
+function parseClaudeUsageEnvelope(value: string): ClaudeUsageEnvelope | undefined {
+  try {
+    const parsed = JSON.parse(value) as unknown
+    return parsed && typeof parsed === 'object' ? parsed : undefined
+  } catch {
+    return undefined
   }
 }
 
-function isNonNegativeFiniteNumber(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+function isClaudeAssistantUsage(envelope: ClaudeUsageEnvelope): boolean {
+  return (
+    envelope.type === 'assistant' &&
+    envelope.message?.role === 'assistant' &&
+    envelope.message.model !== '<synthetic>' &&
+    envelope.isSidechain !== true &&
+    !!envelope.message.usage
+  )
+}
+
+function normalizeClaudeUsageCounters(
+  usage: ClaudeUsageCounters | undefined,
+): HarnessUsageCounters | undefined {
+  if (!usage || typeof usage !== 'object') return undefined
+  const freshInputTokens = nonNegativeUsageCounter(usage.input_tokens)
+  const cacheWriteInputTokens = nonNegativeUsageCounter(usage.cache_creation_input_tokens)
+  const cacheReadInputTokens = nonNegativeUsageCounter(usage.cache_read_input_tokens)
+  const outputTokens = nonNegativeUsageCounter(usage.output_tokens)
+  const counters = {
+    ...(freshInputTokens === undefined ? {} : { freshInputTokens }),
+    ...(cacheReadInputTokens === undefined ? {} : { cacheReadInputTokens }),
+    ...(cacheWriteInputTokens === undefined ? {} : { cacheWriteInputTokens }),
+    ...(outputTokens === undefined ? {} : { outputTokens }),
+  }
+  return Object.keys(counters).length > 0 ? counters : undefined
+}
+
+function sumClaudeUsageCounters(
+  records: readonly HarnessUsageCounters[],
+): HarnessUsageCounters {
+  const freshInputTokens = sumKnownCounter(records, 'freshInputTokens')
+  const cacheReadInputTokens = sumKnownCounter(records, 'cacheReadInputTokens')
+  const cacheWriteInputTokens = sumKnownCounter(records, 'cacheWriteInputTokens')
+  const outputTokens = sumKnownCounter(records, 'outputTokens')
+  return {
+    ...(freshInputTokens === undefined ? {} : { freshInputTokens }),
+    ...(cacheReadInputTokens === undefined ? {} : { cacheReadInputTokens }),
+    ...(cacheWriteInputTokens === undefined ? {} : { cacheWriteInputTokens }),
+    ...(outputTokens === undefined ? {} : { outputTokens }),
+  }
+}
+
+function sumKnownCounter(
+  records: readonly HarnessUsageCounters[],
+  name: keyof HarnessUsageCounters,
+): number | undefined {
+  const values: number[] = []
+  for (const record of records) {
+    const value = record[name]
+    if (value === undefined) return undefined
+    values.push(value)
+  }
+  return sumNonNegativeUsageCounters(values)
 }
 
 const claudeHubs = new HarnessTelemetryHubRegistry({

@@ -1,4 +1,12 @@
-import { appendFile, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import {
+  appendFile,
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -7,7 +15,9 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   observeCodexContext,
   parseCodexTokenCount,
+  snapshotCodexUsage,
 } from '../src/main/harness/codex-context-telemetry'
+import { calculateHarnessUsageDelta } from '../src/main/harness/agent-work-usage'
 import { BoundedLineReader } from '../src/main/harness/bounded-line-reader'
 import type { ExecStreamHandle, ProjectHost } from '../src/main/project-host'
 import { LocalHost } from '../src/main/project-host/local-host'
@@ -16,6 +26,268 @@ import { localPath, type HarnessTelemetry } from '../src/shared'
 const SESSION_ID = '019ab123-4567-7890-abcd-ef0123456789'
 
 describe('Codex context telemetry', () => {
+  it('takes exact-session cumulative snapshots and calculates a real counter delta', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'hvir-codex-usage-'))
+    const canonicalDirectory = await realpath(directory)
+    const path = localPath(join(directory, `rollout-session-${SESSION_ID}.jsonl`))
+    const host = new LocalHost()
+    const context = {
+      sessionId: SESSION_ID,
+      cwd: localPath(directory),
+      sessionData: { rolloutPath: path },
+      artifact: { identity: 'test', environment: {}, unsetEnvironment: [] },
+      signal: new AbortController().signal,
+    }
+    await writeFile(
+      path.path,
+      [
+        JSON.stringify({
+          type: 'session_meta',
+          payload: {
+            id: SESSION_ID,
+            cwd: canonicalDirectory,
+            originator: 'codex-tui',
+          },
+        }),
+        JSON.stringify({
+          type: 'turn_context',
+          payload: { model: 'gpt-test', effort: 'high' },
+        }),
+        'malformed',
+        cumulativeCodexUsage(130, 100, 10, 30, 5),
+      ].join('\n') + '\n',
+    )
+    await host.connect()
+    try {
+      const start = await snapshotCodexUsage(host, context)
+      expect(start).toMatchObject({
+        status: 'available',
+        providerId: 'codex',
+        route: { modelId: 'gpt-test', reasoningEffort: 'high' },
+        counters: {
+          freshInputTokens: 20,
+          cacheReadInputTokens: 100,
+          cacheWriteInputTokens: 10,
+          outputTokens: 30,
+          reasoningTokens: 5,
+        },
+      })
+      expect(JSON.stringify(start)).not.toContain(SESSION_ID)
+      expect(JSON.stringify(start)).not.toContain(directory)
+
+      await appendFile(path.path, `${cumulativeCodexUsage(170, 120, 15, 40, 8)}\n`)
+      const end = await snapshotCodexUsage(host, context)
+      expect(calculateHarnessUsageDelta(start, end)).toMatchObject({
+        status: 'complete',
+        counters: {
+          freshInputTokens: 15,
+          cacheReadInputTokens: 20,
+          cacheWriteInputTokens: 5,
+          outputTokens: 10,
+          reasoningTokens: 3,
+        },
+        normalizedTokenTotal: 50,
+      })
+    } finally {
+      await host.dispose()
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects a rollout whose qualified record does not match the exact session', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'hvir-codex-identity-'))
+    const path = localPath(join(directory, `rollout-session-${SESSION_ID}.jsonl`))
+    const host = new LocalHost()
+    await writeFile(
+      path.path,
+      `${JSON.stringify({
+        type: 'session_meta',
+        payload: {
+          id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+          cwd: directory,
+          originator: 'codex-tui',
+        },
+      })}\n${cumulativeCodexUsage(1, 0, 0, 1, 0)}\n`,
+    )
+    await host.connect()
+    try {
+      await expect(
+        snapshotCodexUsage(host, {
+          sessionId: SESSION_ID,
+          cwd: localPath(directory),
+          sessionData: { rolloutPath: path },
+          artifact: { identity: 'test', environment: {}, unsetEnvironment: [] },
+          signal: new AbortController().signal,
+        }),
+      ).resolves.toMatchObject({
+        status: 'unavailable',
+        reason: 'invalid-session-identity',
+      })
+    } finally {
+      await host.dispose()
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('qualifies exact session identity through a canonical symlinked cwd', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'hvir-codex-canonical-cwd-'))
+    const canonicalCwd = join(directory, 'workspace')
+    const linkedCwd = join(directory, 'workspace-link')
+    await mkdir(canonicalCwd)
+    await symlink(canonicalCwd, linkedCwd)
+    const path = localPath(join(directory, `rollout-session-${SESSION_ID}.jsonl`))
+    await writeFile(
+      path.path,
+      `${JSON.stringify({
+        type: 'session_meta',
+        payload: {
+          id: SESSION_ID,
+          cwd: await realpath(canonicalCwd),
+          originator: 'codex-tui',
+        },
+      })}\n${cumulativeCodexUsage(5, 2, 1, 3, 1)}\n`,
+    )
+    const host = new LocalHost()
+    await host.connect()
+    try {
+      await expect(
+        snapshotCodexUsage(host, {
+          sessionId: SESSION_ID,
+          cwd: localPath(linkedCwd),
+          sessionData: { rolloutPath: path },
+          artifact: { identity: 'test', environment: {}, unsetEnvironment: [] },
+          signal: new AbortController().signal,
+        }),
+      ).resolves.toMatchObject({
+        status: 'available',
+        counters: { freshInputTokens: 2 },
+      })
+    } finally {
+      await host.dispose()
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('reports an unavailable snapshot when the exact rollout artifact is absent', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'hvir-codex-missing-'))
+    const host = new LocalHost()
+    await host.connect()
+    try {
+      await expect(
+        snapshotCodexUsage(host, {
+          sessionId: SESSION_ID,
+          cwd: localPath(directory),
+          artifact: {
+            identity: 'test',
+            environment: { CODEX_HOME: directory },
+            unsetEnvironment: [],
+          },
+          signal: new AbortController().signal,
+        }),
+      ).resolves.toMatchObject({
+        status: 'unavailable',
+        reason: 'artifact-unavailable',
+      })
+    } finally {
+      await host.dispose()
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('reports an unavailable snapshot when exact-session discovery throws', async () => {
+    const cwd = localPath('/tmp/project')
+    const readTextFilePrefix = vi.fn()
+    const host = {
+      hostId: cwd.hostId,
+      realpath: vi.fn(() => Promise.resolve(cwd)),
+      exec: vi.fn<ProjectHost['exec']>(() =>
+        Promise.reject(new Error('session discovery failed')),
+      ),
+      readTextFilePrefix,
+    } as unknown as ProjectHost
+
+    await expect(
+      snapshotCodexUsage(host, {
+        sessionId: SESSION_ID,
+        cwd,
+        artifact: { identity: 'test', environment: {}, unsetEnvironment: [] },
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toMatchObject({
+      status: 'unavailable',
+      reason: 'artifact-unavailable',
+    })
+    expect(readTextFilePrefix).not.toHaveBeenCalled()
+  })
+
+  it('rejects a possibly ambiguous path from truncated session discovery', async () => {
+    const cwd = localPath('/tmp/project')
+    const readTextFilePrefix = vi.fn()
+    const host = {
+      hostId: cwd.hostId,
+      realpath: vi.fn(() => Promise.resolve(cwd)),
+      exec: vi.fn<ProjectHost['exec']>(() =>
+        Promise.resolve({
+          code: 0,
+          signal: null,
+          stdout: `/tmp/rollout-session-${SESSION_ID}.jsonl\0`,
+          stderr: '',
+          outputTruncated: true,
+        }),
+      ),
+      readTextFilePrefix,
+    } as unknown as ProjectHost
+
+    await expect(
+      snapshotCodexUsage(host, {
+        sessionId: SESSION_ID,
+        cwd,
+        artifact: { identity: 'test', environment: {}, unsetEnvironment: [] },
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toMatchObject({
+      status: 'unavailable',
+      reason: 'artifact-unavailable',
+    })
+    expect(readTextFilePrefix).not.toHaveBeenCalled()
+  })
+
+  it('rejects an artifact read that completes after snapshot revocation', async () => {
+    const controller = new AbortController()
+    const path = localPath(`/tmp/rollout-session-${SESSION_ID}.jsonl`)
+    const content = `${JSON.stringify({
+      type: 'session_meta',
+      payload: { id: SESSION_ID, cwd: '/tmp/project', originator: 'codex-tui' },
+    })}\n${cumulativeCodexUsage(5, 2, 1, 3, 1)}\n`
+    const host = {
+      hostId: path.hostId,
+      realpath: vi.fn((value) => Promise.resolve(value)),
+      readTextFilePrefix: vi.fn(() => {
+        controller.abort()
+        return Promise.resolve({
+          content,
+          byteLength: content.length,
+          lineCount: 2,
+          complete: true,
+          validUtf8: true,
+        })
+      }),
+    } as unknown as ProjectHost
+
+    await expect(
+      snapshotCodexUsage(host, {
+        sessionId: SESSION_ID,
+        cwd: localPath('/tmp/project'),
+        sessionData: { rolloutPath: path },
+        artifact: { identity: 'test', environment: {}, unsetEnvironment: [] },
+        signal: controller.signal,
+      }),
+    ).resolves.toMatchObject({
+      status: 'unavailable',
+      reason: 'artifact-unavailable',
+    })
+  })
+
   it('uses current input usage rather than cumulative token totals', () => {
     expectContextSnapshot(
       parseCodexTokenCount(
@@ -223,6 +495,30 @@ describe('Codex context telemetry', () => {
     }
   })
 })
+
+function cumulativeCodexUsage(
+  input: number,
+  cached: number,
+  cacheWrite: number,
+  output: number,
+  reasoning: number,
+): string {
+  return JSON.stringify({
+    type: 'event_msg',
+    payload: {
+      type: 'token_count',
+      info: {
+        total_token_usage: {
+          input_tokens: input,
+          cached_input_tokens: cached,
+          cache_write_input_tokens: cacheWrite,
+          output_tokens: output,
+          reasoning_output_tokens: reasoning,
+        },
+      },
+    },
+  })
+}
 
 function contextPercent(telemetry: HarnessTelemetry | undefined): number | undefined {
   const context = telemetry?.facets.context

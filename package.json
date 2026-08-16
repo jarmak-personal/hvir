@@ -58,6 +58,7 @@
     "check-seams": "bash scripts/check-seams.sh",
     "check-adrs": "node scripts/check-adrs.mjs",
     "architecture:report": "node scripts/architecture-hotspots.mjs",
+    "proof:harness-usage": "node scripts/prove-harness-usage.mjs",
     "architecture:check": "node scripts/architecture-hotspots.mjs --enforce",
     "generate:terminal-themes": "node scripts/generate-terminal-theme-catalog.mts",
     "update:ghostty-web": "node scripts/ghostty-web-update/cli.mts",
