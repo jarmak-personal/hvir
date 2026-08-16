@@ -44,6 +44,19 @@ export type AgentWorkProjectValues = Partial<
   Record<AgentWorkProjectFieldName, AgentWorkProjectValue>
 >
 
+export type AgentWorkProjectWriteFailure =
+  'permission' | 'schema' | 'transport' | 'generic'
+
+export class AgentWorkProjectWriteError extends Error {
+  readonly failure: AgentWorkProjectWriteFailure
+
+  constructor(failure: AgentWorkProjectWriteFailure) {
+    super('The named agent-work Project field write failed.')
+    this.name = 'AgentWorkProjectWriteError'
+    this.failure = failure
+  }
+}
+
 export function agentWorkProjectField(
   name: AgentWorkProjectFieldName,
 ): AgentWorkProjectField {

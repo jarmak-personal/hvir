@@ -1,5 +1,6 @@
 import {
   AGENT_WORK_PROJECT_FIELDS,
+  AgentWorkProjectWriteError,
   type AgentWorkProjectFieldName,
   type AgentWorkProjectFieldType,
   type AgentWorkProjectValue,
@@ -7,6 +8,7 @@ import {
 } from './agent-work-project-fields.ts'
 import {
   normalizeAgentWorkComments,
+  type AgentWorkLedgerDiagnostic,
   type AgentWorkPhase,
   type AgentWorkRecord,
   type NormalizedAgentWorkLedger,
@@ -15,6 +17,34 @@ import {
 const INITIAL_FORECAST_HEADING = '## Initial forecast'
 const FORECAST_REVISION_HEADING = '## Pre-implementation forecast revision'
 const MAX_MODEL_ROUTE_LENGTH = 1_024
+const FORECAST_FIELDS: readonly AgentWorkProjectFieldName[] = [
+  'Agent difficulty',
+  'Risk',
+  'Estimate confidence',
+]
+const LEDGER_FIELDS: readonly AgentWorkProjectFieldName[] = [
+  'Initial model',
+  'Reasoning effort',
+  'Model route',
+  'Planning tokens',
+  'Implementation tokens',
+  'Own lifecycle tokens',
+  'Time to first candidate (ms)',
+  'First-pass outcome',
+]
+
+export type AgentWorkProjectionDiagnostic =
+  | 'invalid-forecast'
+  | 'model-route-too-large'
+  | 'ledger-invalid-record'
+  | 'ledger-duplicate-record'
+  | 'ledger-idempotency-conflict'
+  | 'ledger-invalid-supersession'
+  | 'ledger-aggregate-overflow'
+  | 'project-write-permission-denied'
+  | 'project-write-schema-invalid'
+  | 'project-write-transport-failed'
+  | 'project-write-failed'
 
 export interface AgentWorkProjectionSourcePort {
   readIssueBody(issueNumber: number): Promise<string>
@@ -49,10 +79,9 @@ export interface AgentWorkProjectionReport {
     outcome: 'unchanged' | 'would-update' | 'updated' | 'partial'
     changes: AgentWorkProjectionChange[]
     values: AgentWorkProjectValues
+    preservedFields: AgentWorkProjectFieldName[]
   }
-  diagnostics: Array<
-    'invalid-forecast' | 'model-route-too-large' | 'project-write-failed'
-  >
+  diagnostics: AgentWorkProjectionDiagnostic[]
 }
 
 export async function reconcileAgentWorkProjection(
@@ -68,7 +97,7 @@ export async function reconcileAgentWorkProjection(
   ])
   const ledger = normalizeAgentWorkComments(issueNumber, commentBodies)
   const derived = deriveAgentWorkProjection(body, ledger)
-  const changes = projectionChanges(current, derived.values)
+  const changes = projectionChanges(current, derived.values, derived.preservedFields)
   const report: AgentWorkProjectionReport = {
     issueNumber,
     apply: input.apply,
@@ -81,6 +110,7 @@ export async function reconcileAgentWorkProjection(
       outcome: changes.length === 0 ? 'unchanged' : 'would-update',
       changes,
       values: derived.values,
+      preservedFields: derived.preservedFields,
     },
     diagnostics: derived.diagnostics,
   }
@@ -90,13 +120,13 @@ export async function reconcileAgentWorkProjection(
     try {
       await project.setAgentWorkProjectionField(issueNumber, change.field, change.value)
       change.outcome = 'updated'
-    } catch {
+    } catch (error) {
       change.outcome = 'failed'
       for (const remaining of changes.slice(index + 1)) {
         remaining.outcome = 'not-attempted'
       }
       report.projection.outcome = 'partial'
-      report.diagnostics.push('project-write-failed')
+      report.diagnostics.push(projectWriteDiagnostic(error))
       return report
     }
   }
@@ -111,10 +141,15 @@ export function deriveAgentWorkProjection(
   forecast: AgentWorkProjectionReport['source']['forecast']
   values: AgentWorkProjectValues
   diagnostics: AgentWorkProjectionReport['diagnostics']
+  preservedFields: AgentWorkProjectFieldName[]
 } {
   const forecast = parseInitialForecast(issueBody)
   const diagnostics: AgentWorkProjectionReport['diagnostics'] = []
-  if (forecast.kind === 'invalid') diagnostics.push('invalid-forecast')
+  const preservedFields = new Set<AgentWorkProjectFieldName>()
+  if (forecast.kind === 'invalid') {
+    diagnostics.push('invalid-forecast')
+    for (const field of FORECAST_FIELDS) preservedFields.add(field)
+  }
   const values: AgentWorkProjectValues =
     forecast.kind === 'available'
       ? {
@@ -135,6 +170,7 @@ export function deriveAgentWorkProjection(
   const modelRoute = projectModelRoute(activeRecords)
   if (modelRoute.length > MAX_MODEL_ROUTE_LENGTH) {
     diagnostics.push('model-route-too-large')
+    preservedFields.add('Model route')
   } else if (modelRoute !== '') {
     values['Model route'] = modelRoute
   }
@@ -159,6 +195,14 @@ export function deriveAgentWorkProjection(
   const firstPass = projectFirstPass(activeRecords)
   if (firstPass !== undefined) values['First-pass outcome'] = firstPass
 
+  diagnostics.push(...ledgerProjectionDiagnostics(ledger.diagnostics))
+  if (ledgerHasUnsafeProjectionEvidence(ledger.diagnostics)) {
+    for (const field of LEDGER_FIELDS) {
+      delete values[field]
+      preservedFields.add(field)
+    }
+  }
+
   return {
     forecast:
       forecast.kind === 'available'
@@ -168,6 +212,7 @@ export function deriveAgentWorkProjection(
           : 'unavailable',
     values,
     diagnostics,
+    preservedFields: [...preservedFields],
   }
 }
 
@@ -304,9 +349,11 @@ function projectFirstPass(
 function projectionChanges(
   current: AgentWorkProjectValues,
   desired: AgentWorkProjectValues,
+  preservedFields: readonly AgentWorkProjectFieldName[],
 ): AgentWorkProjectionChange[] {
+  const preserved = new Set(preservedFields)
   return AGENT_WORK_PROJECT_FIELDS.flatMap((field) => {
-    if (field.name === 'Epic rollup tokens') return []
+    if (field.name === 'Epic rollup tokens' || preserved.has(field.name)) return []
     const before = current[field.name]
     const after = desired[field.name]
     if (before === after) return []
@@ -320,6 +367,46 @@ function projectionChanges(
       },
     ]
   })
+}
+
+function ledgerProjectionDiagnostics(
+  diagnostics: readonly AgentWorkLedgerDiagnostic[],
+): AgentWorkProjectionDiagnostic[] {
+  const projected = diagnostics.map((diagnostic): AgentWorkProjectionDiagnostic => {
+    switch (diagnostic.code) {
+      case 'invalid-record':
+        return 'ledger-invalid-record'
+      case 'duplicate-record':
+        return 'ledger-duplicate-record'
+      case 'idempotency-conflict':
+        return 'ledger-idempotency-conflict'
+      case 'invalid-supersession':
+        return 'ledger-invalid-supersession'
+      case 'aggregate-overflow':
+        return 'ledger-aggregate-overflow'
+    }
+  })
+  return [...new Set(projected)]
+}
+
+function ledgerHasUnsafeProjectionEvidence(
+  diagnostics: readonly AgentWorkLedgerDiagnostic[],
+): boolean {
+  return diagnostics.some((diagnostic) => diagnostic.code !== 'duplicate-record')
+}
+
+function projectWriteDiagnostic(error: unknown): AgentWorkProjectionDiagnostic {
+  if (!(error instanceof AgentWorkProjectWriteError)) return 'project-write-failed'
+  switch (error.failure) {
+    case 'permission':
+      return 'project-write-permission-denied'
+    case 'schema':
+      return 'project-write-schema-invalid'
+    case 'transport':
+      return 'project-write-transport-failed'
+    case 'generic':
+      return 'project-write-failed'
+  }
 }
 
 function requirePositiveInteger(value: number): number {

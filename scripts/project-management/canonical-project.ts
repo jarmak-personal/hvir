@@ -1,5 +1,11 @@
 import { GitHubClient } from './github-client.ts'
 import {
+  requireCanonicalSingleSelectField,
+  setCanonicalSingleSelect,
+  type CanonicalProjectField,
+  type CanonicalProjectSchema,
+} from './canonical-project-fields.ts'
+import {
   type AgentWorkProjectFieldName,
   type AgentWorkProjectValue,
   type AgentWorkProjectValues,
@@ -27,19 +33,6 @@ export interface GitHubCanonicalProjectOptions {
   repositoryOwner: string
   repositoryName: string
   client: GitHubClient
-}
-
-export interface CanonicalProjectField {
-  typename: string
-  id?: string
-  name?: string
-  dataType?: string
-  options?: Array<{ id: string; name: string }>
-}
-
-export interface CanonicalProjectSchema {
-  id: string
-  fields: CanonicalProjectField[]
 }
 
 interface ProjectContext extends CanonicalProjectSchema {
@@ -255,7 +248,7 @@ export class GitHubCanonicalProject {
     const context = await this.#getContext()
     const field = this.#requireKindField(context)
     if (item.kind === option) return false
-    await this.#setSingleSelect(context.id, item.id, field.id, field.options, option)
+    await setCanonicalSingleSelect(this.#client, context.id, item.id, field, option)
     item.kind = option
     return true
   }
@@ -264,7 +257,7 @@ export class GitHubCanonicalProject {
     const context = await this.#getContext()
     const field = this.#requireField(context, 'Status', PROJECT_STATUS_OPTIONS)
     if (item.status === status) return
-    await this.#setSingleSelect(context.id, item.id, field.id, field.options, status)
+    await setCanonicalSingleSelect(this.#client, context.id, item.id, field, status)
     item.status = status
   }
 
@@ -401,32 +394,12 @@ export class GitHubCanonicalProject {
     name: string,
     expectedOptions: readonly string[],
   ): { id: string; options: Array<{ id: string; name: string }> } {
-    const matches = context.fields.filter((field) => field.name === name)
-    if (matches.length === 0) {
-      throw new Error(
-        `Project field "${name}" is missing. Reconcile the documented single-select schema before retrying.`,
-      )
-    }
-    if (matches.length > 1) {
-      throw new Error(`The canonical Project has more than one field named "${name}".`)
-    }
-    const field = matches[0]!
-    if (
-      field.typename !== 'ProjectV2SingleSelectField' ||
-      field.id === undefined ||
-      field.options === undefined
-    ) {
-      throw new Error(`Project field "${name}" exists but is not a single-select field.`)
-    }
-    const available = new Set(field.options.map((option) => option.name))
-    for (const option of expectedOptions) {
-      if (!available.has(option)) {
-        throw new Error(
-          `Project field "${name}" is missing the expected "${option}" option. Reconcile the documented schema before retrying.`,
-        )
-      }
-    }
-    return { id: field.id, options: field.options }
+    return requireCanonicalSingleSelectField(
+      context,
+      name,
+      expectedOptions,
+      'single-select',
+    )
   }
 
   #requireKindField(context: CanonicalProjectSchema): {
@@ -437,30 +410,6 @@ export class GitHubCanonicalProject {
       context,
       'Kind',
       KIND_DEFINITIONS.map((definition) => definition.option),
-    )
-  }
-
-  async #setSingleSelect(
-    projectId: string,
-    itemId: string,
-    fieldId: string,
-    options: Array<{ id: string; name: string }>,
-    value: string,
-  ): Promise<void> {
-    const optionId = options.find((option) => option.name === value)?.id
-    if (optionId === undefined) {
-      throw new Error(`Unexpected Project option after schema validation: "${value}".`)
-    }
-    await this.#client.graphql(
-      `mutation SetProjectSingleSelect($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
-        updateProjectV2ItemFieldValue(input: {
-          projectId: $projectId
-          itemId: $itemId
-          fieldId: $fieldId
-          value: {singleSelectOptionId: $optionId}
-        }) { projectV2Item { id } }
-      }`,
-      { projectId, itemId, fieldId, optionId },
     )
   }
 }

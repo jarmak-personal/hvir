@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { agentWorkExitCode } from '../scripts/project-management/agent-work-cli.ts'
+import { AgentWorkProjectWriteError } from '../scripts/project-management/agent-work-project-fields.ts'
 import {
   deriveAgentWorkProjection,
   reconcileAgentWorkProjection,
@@ -63,6 +65,7 @@ describe('agent-work Project derivation', () => {
     expect(deriveAgentWorkProjection(forecastBody(), ledger)).toEqual({
       forecast: 'available',
       diagnostics: [],
+      preservedFields: [],
       values: {
         'Agent difficulty': 3,
         Risk: 'Moderate',
@@ -213,12 +216,173 @@ describe('agent-work Project reconciliation', () => {
     expect(retry.projection.outcome).toBe('updated')
     expect(noop.projection).toMatchObject({ outcome: 'unchanged', changes: [] })
   })
+
+  it('classifies redacted write failures separately from generic failure', async () => {
+    for (const [failure, diagnostic] of [
+      ['permission', 'project-write-permission-denied'],
+      ['schema', 'project-write-schema-invalid'],
+      ['transport', 'project-write-transport-failed'],
+    ] as const) {
+      const classified = projectorFixture({})
+      classified.setField.mockRejectedValue(new AgentWorkProjectWriteError(failure))
+
+      const report = await reconcileAgentWorkProjection(
+        classified.source,
+        classified.project,
+        { issueNumber: ISSUE, apply: true },
+      )
+
+      expect(report.diagnostics).toContain(diagnostic)
+      expect(report.diagnostics).not.toContain('project-write-failed')
+    }
+
+    const generic = projectorFixture({})
+    generic.setField.mockRejectedValue(new Error('private generic response'))
+    const genericReport = await reconcileAgentWorkProjection(
+      generic.source,
+      generic.project,
+      { issueNumber: ISSUE, apply: true },
+    )
+
+    expect(genericReport.diagnostics).toContain('project-write-failed')
+    expect(JSON.stringify(genericReport)).not.toContain('private generic response')
+  })
+
+  it('preserves current forecast fields when a revision is malformed', async () => {
+    const fixture = projectorFixture({
+      'Agent difficulty': 3,
+      Risk: 'Moderate',
+      'Estimate confidence': 'High',
+      'Planning tokens': 999,
+    })
+    fixture.readIssueBody.mockResolvedValue(
+      `${forecastBody()}\n\n## Pre-implementation forecast revision\n\n- Agent difficulty: 5/5`,
+    )
+
+    const report = await reconcileAgentWorkProjection(fixture.source, fixture.project, {
+      issueNumber: ISSUE,
+      apply: false,
+    })
+
+    expect(report.diagnostics).toContain('invalid-forecast')
+    expect(report.projection.preservedFields).toEqual(
+      expect.arrayContaining(['Agent difficulty', 'Risk', 'Estimate confidence']),
+    )
+    expect(report.projection.changes).toEqual([
+      expect.objectContaining({ field: 'Planning tokens', operation: 'clear' }),
+    ])
+  })
+
+  it('preserves the current route when the derived route is too large', async () => {
+    const routeChanges = Array.from({ length: 10 }, (_, index) => ({
+      sequence: index + 1,
+      escalation: index % 2 === 0,
+      modelId: `model-${index}-${'x'.repeat(110)}`,
+    }))
+    const record = completeRecord({
+      route: {
+        initial: { harness: 'codex', modelId: 'initial-model' },
+        changes: routeChanges,
+      },
+    })
+    const fixture = projectorFixture({ 'Model route': 'known-good-route' })
+    fixture.listCommentBodies.mockResolvedValue([serializeAgentWorkComment(record)])
+
+    const report = await reconcileAgentWorkProjection(fixture.source, fixture.project, {
+      issueNumber: ISSUE,
+      apply: false,
+    })
+
+    expect(report.diagnostics).toContain('model-route-too-large')
+    expect(report.projection.preservedFields).toContain('Model route')
+    expect(report.projection.values).not.toHaveProperty('Model route')
+    expect(report.projection.changes).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ field: 'Model route' })]),
+    )
+  })
+
+  it('reports aggregate overflow and does not present ledger values as exact', async () => {
+    const maximum = completeRecord({
+      usage: usage(Number.MAX_SAFE_INTEGER, 0, 0, 0),
+    })
+    const one = completeRecord({
+      runKey: RUN_B,
+      idempotencyKey: KEY_B,
+      usage: usage(1, 0, 0, 0),
+    })
+    const fixture = projectorFixture({
+      'Implementation tokens': 42,
+      'Own lifecycle tokens': 42,
+    })
+    fixture.listCommentBodies.mockResolvedValue([
+      serializeAgentWorkComment(maximum),
+      serializeAgentWorkComment(one),
+    ])
+
+    const report = await reconcileAgentWorkProjection(fixture.source, fixture.project, {
+      issueNumber: ISSUE,
+      apply: false,
+    })
+
+    expect(report.diagnostics).toContain('ledger-aggregate-overflow')
+    expect(agentWorkExitCode(report)).toBe(2)
+    expect(report.projection.values).not.toHaveProperty('Implementation tokens')
+    expect(report.projection.values).not.toHaveProperty('Own lifecycle tokens')
+    expect(report.projection.preservedFields).toEqual(
+      expect.arrayContaining(['Implementation tokens', 'Own lifecycle tokens']),
+    )
+    expect(report.projection.changes).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ field: 'Implementation tokens' }),
+        expect.objectContaining({ field: 'Own lifecycle tokens' }),
+      ]),
+    )
+  })
+
+  it('reports malformed and conflicting records without leaking or clearing ledger fields', async () => {
+    const original = completeRecord()
+    const conflict = completeRecord({
+      outcome: { firstPass: 'accepted', candidateRef: 'abcdef2' },
+    })
+    const fixture = projectorFixture({
+      'Initial model': 'known-model',
+      'Implementation tokens': 10,
+    })
+    fixture.listCommentBodies.mockResolvedValue([
+      '<!-- hvir-agent-work-measurement:v1 -->\nprivate malformed body',
+      serializeAgentWorkComment(original),
+      serializeAgentWorkComment(conflict),
+    ])
+
+    const report = await reconcileAgentWorkProjection(fixture.source, fixture.project, {
+      issueNumber: ISSUE,
+      apply: false,
+    })
+
+    expect(report.diagnostics).toEqual(
+      expect.arrayContaining(['ledger-invalid-record', 'ledger-idempotency-conflict']),
+    )
+    expect(agentWorkExitCode(report)).toBe(2)
+    expect(report.projection.values).not.toHaveProperty('Initial model')
+    expect(report.projection.values).not.toHaveProperty('Implementation tokens')
+    expect(report.projection.changes).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ field: 'Initial model' }),
+        expect.objectContaining({ field: 'Implementation tokens' }),
+      ]),
+    )
+    expect(JSON.stringify(report)).not.toContain('private malformed body')
+  })
 })
 
 function projectorFixture(current: Record<string, string | number>): {
   source: AgentWorkProjectionSourcePort
   project: AgentWorkProjectPort
   setField: ReturnType<typeof vi.fn<AgentWorkProjectPort['setAgentWorkProjectionField']>>
+  readIssueBody: ReturnType<typeof vi.fn<AgentWorkProjectionSourcePort['readIssueBody']>>
+  listCommentBodies: ReturnType<
+    typeof vi.fn<AgentWorkProjectionSourcePort['listCommentBodies']>
+  >
 } {
   const setField = vi.fn<AgentWorkProjectPort['setAgentWorkProjectionField']>(
     (_issue, field, value) => {
@@ -227,16 +391,20 @@ function projectorFixture(current: Record<string, string | number>): {
       return Promise.resolve()
     },
   )
+  const readIssueBody = vi.fn(() => Promise.resolve(forecastBody()))
+  const listCommentBodies = vi.fn(() => Promise.resolve<string[]>([]))
   return {
     source: {
-      readIssueBody: vi.fn(() => Promise.resolve(forecastBody())),
-      listCommentBodies: vi.fn(() => Promise.resolve([])),
+      readIssueBody,
+      listCommentBodies,
     },
     project: {
       readAgentWorkProjection: vi.fn(() => Promise.resolve({ ...current })),
       setAgentWorkProjectionField: setField,
     },
     setField,
+    readIssueBody,
+    listCommentBodies,
   }
 }
 

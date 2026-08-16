@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { AGENT_WORK_PROJECT_FIELDS } from '../scripts/project-management/agent-work-project-fields.ts'
+import {
+  AGENT_WORK_PROJECT_FIELDS,
+  AgentWorkProjectWriteError,
+} from '../scripts/project-management/agent-work-project-fields.ts'
 import { GitHubCanonicalProject } from '../scripts/project-management/canonical-project.ts'
 import { GitHubClient } from '../scripts/project-management/github-client.ts'
 
@@ -156,11 +159,36 @@ describe('GitHub agent-work Project adapter', () => {
       ).readAgentWorkProjection(574),
     ).rejects.toThrow('archived in the canonical Project')
   })
+
+  it('redacts and classifies Project permission failures at the GitHub boundary', async () => {
+    const project = canonicalProject(
+      schemaFetch(measurementFields(), [projectItem(false)], {
+        type: 'FORBIDDEN',
+        message: 'private response containing project-token',
+      }),
+    )
+
+    let failure: unknown
+    try {
+      await project.setAgentWorkProjectionField(574, 'Risk', 'High')
+    } catch (error) {
+      failure = error
+    }
+
+    expect(failure).toBeInstanceOf(AgentWorkProjectWriteError)
+    expect(failure).toMatchObject({
+      failure: 'permission',
+      message: 'The named agent-work Project field write failed.',
+    })
+    expect(JSON.stringify(failure)).not.toContain('private response')
+    expect(JSON.stringify(failure)).not.toContain('project-token')
+  })
 })
 
 function schemaFetch(
   fields: object[],
   items: object[] = [projectItem(false)],
+  mutationError?: { type: string; message: string },
 ): typeof fetch {
   return vi.fn((_url: string | URL | Request, init?: RequestInit) => {
     const body = requestBody(init)
@@ -188,6 +216,20 @@ function schemaFetch(
               pageInfo: { endCursor: null, hasNextPage: false },
             },
           },
+        }),
+      )
+    }
+    if (
+      mutationError !== undefined &&
+      (body.query.includes('SetProjectNumber') ||
+        body.query.includes('SetProjectText') ||
+        body.query.includes('SetProjectSingleSelect') ||
+        body.query.includes('ClearProjectField'))
+    ) {
+      return Promise.resolve(
+        new Response(JSON.stringify({ errors: [mutationError] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
         }),
       )
     }

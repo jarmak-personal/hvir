@@ -279,9 +279,18 @@ the names above and exposes no arbitrary field setter. Its report contains norma
 fixed diagnostics, and named operations only—never issue prose, comments, internal IDs,
 credentials, or raw API responses.
 
+A malformed forecast or overlong derived route is not authoritative absence: reconciliation
+reports the fixed failure and leaves the affected current fields untouched. Likewise, invalid or
+conflicting ledger records and aggregate overflow make ledger-derived values unsafe, so the
+report omits those values, preserves their current Project fields, and exits nonzero. Identical
+duplicate records remain safe to project once but still produce a fixed nonzero diagnostic so
+the redundant history is visible without exposing comment content.
+
 Missing or duplicate fields, wrong types, incomplete single-select options, missing or archived
 items, and permission failures fail visibly. A write sequence stops on its first failure and
-reports preceding updates plus unattempted fields; the ledger remains authoritative. These
+reports preceding updates plus unattempted fields; fixed diagnostics distinguish permission,
+schema/validation, transport, and otherwise unclassified write failures without including raw
+failure content. The ledger remains authoritative. These
 measurement-only failures do not change the `issue:context` or `issue:start` readiness schema,
 which continues to require only membership, `Kind`, and `Status`.
 

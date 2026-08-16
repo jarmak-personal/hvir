@@ -4,6 +4,17 @@ const MAX_ATTEMPTS = 3
 const REQUEST_TIMEOUT_MS = 15_000
 
 export type FetchImplementation = typeof fetch
+export type GitHubRequestFailure = 'permission' | 'transport' | 'validation'
+
+export class GitHubRequestError extends Error {
+  readonly failure: GitHubRequestFailure
+
+  constructor(failure: GitHubRequestFailure, message: string) {
+    super(message)
+    this.name = 'GitHubRequestError'
+    this.failure = failure
+  }
+}
 
 export interface GitHubClientOptions {
   token: string
@@ -37,7 +48,10 @@ export class GitHubClient {
         body: JSON.stringify({ query, variables }),
       })
       if (!response.ok) {
-        throw new Error(`GitHub GraphQL request failed with HTTP ${response.status}.`)
+        throw new GitHubRequestError(
+          httpFailure(response),
+          `GitHub GraphQL request failed with HTTP ${response.status}.`,
+        )
       }
       const envelope = (await response.json()) as GraphqlEnvelope<T>
       if (envelope.errors !== undefined && envelope.errors.length > 0) {
@@ -48,20 +62,29 @@ export class GitHubClient {
         const messages = envelope.errors.map((error) =>
           redactToken(error.message ?? error.type ?? 'unknown error', this.#token),
         )
-        throw new Error(`GitHub GraphQL request failed: ${messages.join('; ')}`)
+        throw new GitHubRequestError(
+          graphqlFailure(envelope.errors),
+          `GitHub GraphQL request failed: ${messages.join('; ')}`,
+        )
       }
       if (envelope.data === undefined) {
-        throw new Error('GitHub GraphQL returned no data.')
+        throw new GitHubRequestError('validation', 'GitHub GraphQL returned no data.')
       }
       return envelope.data
     }
-    throw new Error(`GitHub GraphQL rate limit persisted after ${MAX_ATTEMPTS} attempts.`)
+    throw new GitHubRequestError(
+      'transport',
+      `GitHub GraphQL rate limit persisted after ${MAX_ATTEMPTS} attempts.`,
+    )
   }
 
   async rest(path: string, init: RequestInit): Promise<unknown> {
     const response = await this.requestRest(path, init)
     if (!response.ok) {
-      throw new Error(`GitHub REST request failed with HTTP ${response.status}.`)
+      throw new GitHubRequestError(
+        httpFailure(response),
+        `GitHub REST request failed with HTTP ${response.status}.`,
+      )
     }
     if (response.status === 204) return undefined
     return response.json()
@@ -113,7 +136,8 @@ export class GitHubClient {
       lastError instanceof Error && lastError.name === 'AbortError'
         ? 'timed out'
         : 'failed'
-    throw new Error(
+    throw new GitHubRequestError(
+      'transport',
       `GitHub request ${reason} after ${attempts} bounded attempt${attempts === 1 ? '' : 's'}.`,
     )
   }
@@ -125,6 +149,29 @@ function hasRateLimitError(errors: Array<{ message?: string; type?: string }>): 
       error.type === 'RATE_LIMITED' ||
       error.message?.toLowerCase().includes('rate limit') === true,
   )
+}
+
+function graphqlFailure(
+  errors: Array<{ message?: string; type?: string }>,
+): GitHubRequestFailure {
+  if (
+    errors.some((error) => error.type === 'FORBIDDEN' || error.type === 'UNAUTHORIZED')
+  ) {
+    return 'permission'
+  }
+  return hasRateLimitError(errors) ? 'transport' : 'validation'
+}
+
+function httpFailure(response: Response): GitHubRequestFailure {
+  if (
+    response.status === 408 ||
+    response.status === 429 ||
+    response.status >= 500 ||
+    (response.status === 403 && response.headers.get('x-ratelimit-remaining') === '0')
+  ) {
+    return 'transport'
+  }
+  return response.status === 401 || response.status === 403 ? 'permission' : 'validation'
 }
 
 function shouldRetry(response: Response): boolean {
