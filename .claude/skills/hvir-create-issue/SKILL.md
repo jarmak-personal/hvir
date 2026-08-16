@@ -25,6 +25,12 @@ Treat drafting and publishing as separate approvals:
 Do not infer either approval from silence, the usefulness of the finding, a general preference
 for issue-first development, or permission granted for a different issue.
 
+After the first approval, read
+[`references/issue-planning-measurement.md`](references/issue-planning-measurement.md) completely
+and start its private planning-run record before product research. Attempt the provider-qualified
+baseline at that boundary. Missing measurement evidence never blocks issue work. Do not capture
+or reconstruct usage for brainstorming that happened before authorization.
+
 ## Establish context
 
 1. Read `AGENTS.md`, `CONTRIBUTING.md`, `docs/design.md`, and the ADR index.
@@ -120,15 +126,73 @@ Acceptance criteria must test the outcome. They must not require a file-by-file 
 local and SSH parity, responsiveness, resource cleanup, and security behavior when the affected
 capability creates those risks. Do not add criteria that are unrelated to the identified risks.
 
+Every draft that this skill prepares for publication also contains exactly one
+`Initial forecast` section. Apply the rubric in
+[`docs/agent-work-measurements.md`](../../../docs/agent-work-measurements.md) without
+overriding its derived difficulty. Keep the four factors, three headline values, and one concise
+rationale in this exact parseable shape:
+
+```markdown
+## Initial forecast
+
+- Agent difficulty: <1-5>/5
+- Reasoning novelty: <0-2>/2
+- Ownership breadth: <0-2>/2
+- Lifecycle/integration burden: <0-2>/2
+- Validation burden: <0-2>/2
+- Risk: <Low|Moderate|High|Critical>
+- Estimate confidence: <Low|Medium|High>
+- Rationale: <specific reason for the factors, risk, and uncertainty>
+```
+
+File count, line count, commit count, and test count are not forecast inputs. An epic carries its
+own coordination forecast; its direct children carry their own implementation forecasts.
+
+When a separately authorized `hvir-review-issue` run participates in planning, keep its findings
+policy and approval behavior unchanged. Treat it as a separate `issue-planning` run for
+measurement. Record truthful counters when the reviewer exposes a qualified supported-provider
+run. Otherwise prepare an unavailable reviewer record and report overall planning coverage as
+partial; never attribute the drafting harness's counters to the reviewer.
+
 ## Preview and create
 
 Present the exact title, body, and applicable repository labels. List assumptions and open
-questions separately.
+questions separately. In the same preview, show the intended canonical Project values:
+
+- the exact `Agent difficulty`, `Risk`, and `Estimate confidence` values from the forecast;
+- `Initial model`, `Reasoning effort`, `Model route`, `Planning tokens`, and
+  `Own lifecycle tokens`, which the active ledger will derive after publication and which remain
+  explicitly pending, partial, or unavailable when they are not yet known; and
+- that implementation, first-pass, time-to-candidate, and epic-rollup fields are not written by
+  this planning operation.
 
 Stop after the preview and request explicit publication approval. Once the user approves the
 exact draft, create it in `jarmak-personal/hvir` when GitHub issue tooling is available;
 otherwise return the approved, copy-ready draft. Never publish a materially changed title,
 body, or label set without previewing it again.
+
+After publication approval, take the final planning snapshot immediately before the fixed issue
+creation operation. Do not do more research, drafting, revision, or review between that snapshot
+and creation. If telemetry is partial or unavailable, continue publication and preserve only the
+truthful state.
+
+Treat a returned issue number and URL as the irreversible publication checkpoint. Store them in
+the private run state before any measurement append or Project operation. Append every intended
+planning run with the existing idempotent repository measurement operation, then derive Project
+values from the active ledger. Review each dry run before applying it. If a post-creation step
+fails, retain and report the created issue and resume that exact step against the same issue and
+idempotency key. Never run issue creation again for that planning run. If creation has an
+ambiguous result, stop and resolve it with read-only evidence; do not risk a duplicate.
+
+Report the issue URL plus the outcome of the final snapshot, issue creation, each ledger append,
+and Project projection. Use complete, partial, or unavailable exactly as the measurement contract
+defines them. Remove the exact temporary snapshot artifact after finalization or abandonment.
+
+If material scope changes after publication but before implementation, preserve the first
+forecast. Preview an updated body that appends one `Pre-implementation forecast revision` section
+in the same parseable shape, obtain explicit approval for that edit, record the revision planning
+as a new run, and re-project from the active ledger. Do not add a forecast revision after
+implementation starts.
 
 Never start implementation as part of this skill; the issue discussion is where alignment
 happens.
