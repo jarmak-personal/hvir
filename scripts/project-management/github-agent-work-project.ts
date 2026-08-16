@@ -204,12 +204,12 @@ function parseAgentWorkProjectValue(
     throw new Error(`Project field "${name}" returned an invalid value.`)
   }
   const record = value as Record<string, unknown>
+  // Reads retain finite manual drift so the stricter write path can replace or clear it.
   if (
     type === 'number' &&
     record.__typename === 'ProjectV2ItemFieldNumberValue' &&
     typeof record.number === 'number' &&
-    Number.isSafeInteger(record.number) &&
-    record.number >= 0
+    Number.isFinite(record.number)
   ) {
     return record.number
   }

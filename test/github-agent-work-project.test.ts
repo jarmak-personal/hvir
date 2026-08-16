@@ -119,6 +119,31 @@ describe('GitHub agent-work Project adapter', () => {
     expect(mutations[2]?.variables.optionId).toBe('risk-High')
   })
 
+  it('reads finite manual NUMBER drift so projection policy can converge it', async () => {
+    const project = canonicalProject(
+      projectValuesFetch({
+        measurement0: {
+          __typename: 'ProjectV2ItemFieldNumberValue',
+          number: -1,
+        },
+        measurement6: {
+          __typename: 'ProjectV2ItemFieldNumberValue',
+          number: 1.5,
+        },
+        measurement12: {
+          __typename: 'ProjectV2ItemFieldNumberValue',
+          number: Number.MAX_SAFE_INTEGER + 1,
+        },
+      }),
+    )
+
+    await expect(project.readAgentWorkProjection(574)).resolves.toEqual({
+      'Agent difficulty': -1,
+      'Planning tokens': 1.5,
+      'Epic rollup tokens': Number.MAX_SAFE_INTEGER + 1,
+    })
+  })
+
   it('fails closed on missing, duplicate, wrong-type, and invalid-option schema', async () => {
     for (const [fields, message] of [
       [
@@ -230,6 +255,58 @@ function schemaFetch(
         new Response(JSON.stringify({ errors: [mutationError] }), {
           status: 200,
           headers: { 'content-type': 'application/json' },
+        }),
+      )
+    }
+    throw new Error(`Unexpected query: ${body.query}`)
+  })
+}
+
+function projectValuesFetch(
+  values: Record<string, unknown>,
+): typeof fetch {
+  return vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+    const body = requestBody(init)
+    if (body.query.includes('ProjectIdentity')) {
+      return Promise.resolve(graphqlData({ user: { projectV2: { id: 'project-id' } } }))
+    }
+    if (body.query.includes('ProjectFields')) {
+      return Promise.resolve(
+        graphqlData({
+          node: {
+            fields: {
+              nodes: measurementFields(),
+              pageInfo: { endCursor: null, hasNextPage: false },
+            },
+          },
+        }),
+      )
+    }
+    if (body.query.includes('ProjectItems')) {
+      return Promise.resolve(
+        graphqlData({
+          node: {
+            items: {
+              nodes: [projectItem(false)],
+              pageInfo: { endCursor: null, hasNextPage: false },
+            },
+          },
+        }),
+      )
+    }
+    if (body.query.includes('AgentWorkProjectValues')) {
+      return Promise.resolve(
+        graphqlData({
+          node: {
+            __typename: 'ProjectV2Item',
+            ...Object.fromEntries(
+              AGENT_WORK_PROJECT_FIELDS.map((_field, index) => [
+                `measurement${index}`,
+                null,
+              ]),
+            ),
+            ...values,
+          },
         }),
       )
     }
