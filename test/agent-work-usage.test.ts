@@ -103,6 +103,27 @@ describe('agent-work usage delta policy', () => {
     ).toEqual({ status: 'unavailable', reason: 'counter-reset' })
   })
 
+  it('calculates an available model or API timing delta', () => {
+    expect(
+      calculateHarnessUsageDelta(
+        snapshot(10, { outputTokens: 1 }, 100),
+        snapshot(20, { outputTokens: 2 }, 275),
+      ),
+    ).toMatchObject({
+      status: 'partial',
+      timing: { modelOrApiMilliseconds: 175 },
+    })
+  })
+
+  it('fails the whole delta closed when the timing counter resets', () => {
+    expect(
+      calculateHarnessUsageDelta(
+        snapshot(10, { outputTokens: 1 }, 275),
+        snapshot(20, { outputTokens: 2 }, 100),
+      ),
+    ).toEqual({ status: 'unavailable', reason: 'counter-reset' })
+  })
+
   it('does not combine unavailable or cross-provider snapshots', () => {
     expect(
       calculateHarnessUsageDelta(
@@ -128,6 +149,7 @@ describe('agent-work usage delta policy', () => {
 function snapshot(
   observedAt: number,
   counters: Extract<HarnessUsageSnapshot, { status: 'available' }>['counters'],
+  modelOrApiMilliseconds?: number,
 ): HarnessUsageSnapshot {
   return {
     version: 1,
@@ -136,6 +158,7 @@ function snapshot(
     observedAt,
     route: { modelId: 'gpt-test', reasoningEffort: 'high' },
     counters,
-    timing: {},
+    timing:
+      modelOrApiMilliseconds === undefined ? {} : { modelOrApiMilliseconds },
   }
 }
