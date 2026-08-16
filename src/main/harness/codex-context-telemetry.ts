@@ -214,19 +214,23 @@ async function findSessionPath(
   artifact: HarnessTelemetryContext['artifact'],
 ): Promise<HostPath | undefined> {
   if (!SESSION_ID.test(sessionId)) return undefined
-  const result = await host.exec(
-    'sh',
-    ['-c', FIND_SESSION_SCRIPT, 'hvir-codex-session', sessionId],
-    {
-      signal,
-      maxBuffer: FIND_MAX_BUFFER,
-      env: artifact.environment,
-      unsetEnv: artifact.unsetEnvironment,
-    },
-  )
-  if (result.code !== 0) return undefined
-  const paths = result.stdout.split('\0').filter(Boolean)
-  return paths.length === 1 ? hostPath(host.hostId, paths[0] ?? '') : undefined
+  try {
+    const result = await host.exec(
+      'sh',
+      ['-c', FIND_SESSION_SCRIPT, 'hvir-codex-session', sessionId],
+      {
+        signal,
+        maxBuffer: FIND_MAX_BUFFER,
+        env: artifact.environment,
+        unsetEnv: artifact.unsetEnvironment,
+      },
+    )
+    if (result.code !== 0 || result.outputTruncated || signal.aborted) return undefined
+    const paths = result.stdout.split('\0').filter(Boolean)
+    return paths.length === 1 ? hostPath(host.hostId, paths[0] ?? '') : undefined
+  } catch {
+    return undefined
+  }
 }
 
 function sessionDataPath(

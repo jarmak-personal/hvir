@@ -62,6 +62,38 @@ describe('agent-work usage delta policy', () => {
     expect(result).not.toHaveProperty('normalizedTokenTotal')
   })
 
+  it('omits an unsafe normalized total while retaining exact category deltas', () => {
+    const result = calculateHarnessUsageDelta(
+      snapshot(10, {
+        freshInputTokens: 0,
+        cacheReadInputTokens: 0,
+        cacheWriteInputTokens: 0,
+        outputTokens: 0,
+        reasoningTokens: 0,
+      }),
+      snapshot(20, {
+        freshInputTokens: Number.MAX_SAFE_INTEGER,
+        cacheReadInputTokens: 1,
+        cacheWriteInputTokens: 1,
+        outputTokens: 1,
+        reasoningTokens: 0,
+      }),
+    )
+
+    expect(result).toMatchObject({
+      status: 'partial',
+      counters: {
+        freshInputTokens: Number.MAX_SAFE_INTEGER,
+        cacheReadInputTokens: 1,
+        cacheWriteInputTokens: 1,
+        outputTokens: 1,
+        reasoningTokens: 0,
+      },
+      missingCounters: [],
+    })
+    expect(result).not.toHaveProperty('normalizedTokenTotal')
+  })
+
   it('fails the whole delta closed when a provider counter resets', () => {
     expect(
       calculateHarnessUsageDelta(

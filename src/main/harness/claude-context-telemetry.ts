@@ -9,6 +9,7 @@ import {
 import type { Disposer, ProjectHost } from '../project-host'
 import {
   nonNegativeUsageCounter,
+  sumNonNegativeUsageCounters,
   unavailableHarnessUsageSnapshot,
   type HarnessUsageCounters,
   type HarnessUsageRoute,
@@ -135,6 +136,9 @@ export async function snapshotClaudeUsage(
     return unavailableHarnessUsageSnapshot(providerId, 'usage-unavailable')
   }
   const counters = sumClaudeUsageCounters([...records.values()])
+  if (Object.keys(counters).length === 0) {
+    return unavailableHarnessUsageSnapshot(providerId, 'usage-unavailable')
+  }
   return {
     version: 1,
     status: 'available',
@@ -272,13 +276,13 @@ function sumKnownCounter(
   records: readonly HarnessUsageCounters[],
   name: keyof HarnessUsageCounters,
 ): number | undefined {
-  let total = 0
+  const values: number[] = []
   for (const record of records) {
     const value = record[name]
     if (value === undefined) return undefined
-    total += value
+    values.push(value)
   }
-  return total
+  return sumNonNegativeUsageCounters(values)
 }
 
 const claudeHubs = new HarnessTelemetryHubRegistry({

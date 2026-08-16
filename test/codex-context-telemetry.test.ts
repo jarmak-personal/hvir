@@ -194,6 +194,64 @@ describe('Codex context telemetry', () => {
     }
   })
 
+  it('reports an unavailable snapshot when exact-session discovery throws', async () => {
+    const cwd = localPath('/tmp/project')
+    const readTextFilePrefix = vi.fn()
+    const host = {
+      hostId: cwd.hostId,
+      realpath: vi.fn(() => Promise.resolve(cwd)),
+      exec: vi.fn<ProjectHost['exec']>(() =>
+        Promise.reject(new Error('session discovery failed')),
+      ),
+      readTextFilePrefix,
+    } as unknown as ProjectHost
+
+    await expect(
+      snapshotCodexUsage(host, {
+        sessionId: SESSION_ID,
+        cwd,
+        artifact: { identity: 'test', environment: {}, unsetEnvironment: [] },
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toMatchObject({
+      status: 'unavailable',
+      reason: 'artifact-unavailable',
+    })
+    expect(readTextFilePrefix).not.toHaveBeenCalled()
+  })
+
+  it('rejects a possibly ambiguous path from truncated session discovery', async () => {
+    const cwd = localPath('/tmp/project')
+    const readTextFilePrefix = vi.fn()
+    const host = {
+      hostId: cwd.hostId,
+      realpath: vi.fn(() => Promise.resolve(cwd)),
+      exec: vi.fn<ProjectHost['exec']>(() =>
+        Promise.resolve({
+          code: 0,
+          signal: null,
+          stdout: `/tmp/rollout-session-${SESSION_ID}.jsonl\0`,
+          stderr: '',
+          outputTruncated: true,
+        }),
+      ),
+      readTextFilePrefix,
+    } as unknown as ProjectHost
+
+    await expect(
+      snapshotCodexUsage(host, {
+        sessionId: SESSION_ID,
+        cwd,
+        artifact: { identity: 'test', environment: {}, unsetEnvironment: [] },
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toMatchObject({
+      status: 'unavailable',
+      reason: 'artifact-unavailable',
+    })
+    expect(readTextFilePrefix).not.toHaveBeenCalled()
+  })
+
   it('rejects an artifact read that completes after snapshot revocation', async () => {
     const controller = new AbortController()
     const path = localPath(`/tmp/rollout-session-${SESSION_ID}.jsonl`)

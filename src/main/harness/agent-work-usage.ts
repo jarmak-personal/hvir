@@ -123,7 +123,12 @@ export function calculateHarnessUsageDelta(
     if (endValue < startValue) {
       return { status: 'unavailable', reason: 'counter-reset' }
     }
-    counters[name] = endValue - startValue
+    const delta = nonNegativeUsageCounter(endValue - startValue)
+    if (delta === undefined) {
+      missingCounters.push(name)
+      continue
+    }
+    counters[name] = delta
   }
 
   if (Object.keys(counters).length === 0) {
@@ -134,7 +139,9 @@ export function calculateHarnessUsageDelta(
     (name) => counters[name] !== undefined,
   )
   const normalizedTokenTotal = hasEveryAdditiveCounter
-    ? ADDITIVE_COUNTER_NAMES.reduce((total, name) => total + (counters[name] ?? 0), 0)
+    ? sumNonNegativeUsageCounters(
+        ADDITIVE_COUNTER_NAMES.map((name) => counters[name] ?? 0),
+      )
     : undefined
   const startModelTime = start.timing.modelOrApiMilliseconds
   const endModelTime = end.timing.modelOrApiMilliseconds
@@ -148,10 +155,15 @@ export function calculateHarnessUsageDelta(
   const timing =
     startModelTime === undefined || endModelTime === undefined
       ? undefined
-      : { modelOrApiMilliseconds: endModelTime - startModelTime }
+      : nonNegativeUsageCounter(endModelTime - startModelTime) === undefined
+        ? undefined
+        : { modelOrApiMilliseconds: endModelTime - startModelTime }
 
   return {
-    status: hasEveryAdditiveCounter ? 'complete' : 'partial',
+    status:
+      hasEveryAdditiveCounter && normalizedTokenTotal !== undefined
+        ? 'complete'
+        : 'partial',
     providerId: start.providerId,
     route: { start: start.route, end: end.route },
     counters,
@@ -172,4 +184,18 @@ export function nonNegativeUsageCounter(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
     ? value
     : undefined
+}
+
+export function sumNonNegativeUsageCounters(
+  values: readonly number[],
+): number | undefined {
+  let total = 0
+  for (const value of values) {
+    const admitted = nonNegativeUsageCounter(value)
+    if (admitted === undefined) return undefined
+    const next = total + admitted
+    if (nonNegativeUsageCounter(next) === undefined) return undefined
+    total = next
+  }
+  return total
 }

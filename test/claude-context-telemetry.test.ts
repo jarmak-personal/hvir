@@ -106,6 +106,65 @@ describe('Claude Code context telemetry', () => {
     }
   })
 
+  it('omits a cumulative category whose individually safe records overflow', async () => {
+    const configDirectory = await mkdtemp(join(tmpdir(), 'hvir-claude-overflow-'))
+    const cwd = join(configDirectory, 'workspace')
+    await mkdir(cwd)
+    const projectDirectory = join(
+      configDirectory,
+      'projects',
+      claudeProjectDirectoryName(await realpath(cwd)),
+    )
+    const transcript = join(projectDirectory, `${SESSION_ID}.jsonl`)
+    await mkdir(projectDirectory, { recursive: true })
+    await writeFile(
+      transcript,
+      [
+        claudeUsageRecord('request-1', 'message-1', {
+          input: Number.MAX_SAFE_INTEGER,
+          cacheWrite: 1,
+          cacheRead: 1,
+          output: 1,
+        }),
+        claudeUsageRecord('request-2', 'message-2', {
+          input: 1,
+          cacheWrite: 1,
+          cacheRead: 1,
+          output: 1,
+        }),
+      ].join('\n') + '\n',
+    )
+    const host = new LocalHost()
+    await host.connect()
+    try {
+      const snapshot = await snapshotClaudeUsage(host, {
+        sessionId: SESSION_ID,
+        cwd: localPath(cwd),
+        artifact: {
+          identity: 'test',
+          environment: { CLAUDE_CONFIG_DIR: configDirectory },
+          unsetEnvironment: [],
+        },
+        signal: new AbortController().signal,
+      })
+
+      expect(snapshot).toMatchObject({
+        status: 'available',
+        counters: {
+          cacheReadInputTokens: 2,
+          cacheWriteInputTokens: 2,
+          outputTokens: 2,
+        },
+      })
+      expect(snapshot.status === 'available' ? snapshot.counters : {}).not.toHaveProperty(
+        'freshInputTokens',
+      )
+    } finally {
+      await host.dispose()
+      await rm(configDirectory, { recursive: true, force: true })
+    }
+  })
+
   it('fails closed when a usage record names another session', async () => {
     const configDirectory = await mkdtemp(join(tmpdir(), 'hvir-claude-identity-'))
     const cwd = join(configDirectory, 'workspace')
