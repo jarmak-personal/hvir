@@ -1,4 +1,13 @@
 import { GitHubClient } from './github-client.ts'
+import {
+  type AgentWorkProjectFieldName,
+  type AgentWorkProjectValue,
+  type AgentWorkProjectValues,
+} from './agent-work-project-fields.ts'
+import {
+  readAgentWorkProjectValues,
+  setAgentWorkProjectValue,
+} from './github-agent-work-project.ts'
 import { nextPageCursor, type PageInfo } from './github-pagination.ts'
 import { KIND_DEFINITIONS, type KindOption } from './kind-policy.ts'
 import { PROJECT_STATUS_OPTIONS, type ProjectStatus } from './planning-fields.ts'
@@ -20,19 +29,20 @@ export interface GitHubCanonicalProjectOptions {
   client: GitHubClient
 }
 
-interface ProjectField {
+export interface CanonicalProjectField {
   typename: string
   id?: string
   name?: string
+  dataType?: string
   options?: Array<{ id: string; name: string }>
 }
 
-interface ProjectSchemaContext {
+export interface CanonicalProjectSchema {
   id: string
-  fields: ProjectField[]
+  fields: CanonicalProjectField[]
 }
 
-interface ProjectContext extends ProjectSchemaContext {
+interface ProjectContext extends CanonicalProjectSchema {
   items: Map<string, CanonicalProjectItem>
 }
 
@@ -70,7 +80,7 @@ export class GitHubCanonicalProject {
   readonly #repositoryOwner: string
   readonly #repositoryName: string
   readonly #client: GitHubClient
-  #schemaContext?: Promise<ProjectSchemaContext>
+  #schemaContext?: Promise<CanonicalProjectSchema>
   #items?: Promise<Map<string, CanonicalProjectItem>>
 
   constructor(options: GitHubCanonicalProjectOptions) {
@@ -135,6 +145,36 @@ export class GitHubCanonicalProject {
 
   async validateKindSchema(): Promise<void> {
     this.#requireKindField(await this.#getSchemaContext())
+  }
+
+  async readAgentWorkProjection(issueNumber: number): Promise<AgentWorkProjectValues> {
+    const context = await this.#getContext()
+    return readAgentWorkProjectValues({
+      client: this.#client,
+      schema: context,
+      item: context.items.get(
+        projectItemKey(this.#repositoryOwner, this.#repositoryName, issueNumber),
+      ),
+      issueNumber,
+    })
+  }
+
+  async setAgentWorkProjectionField(
+    issueNumber: number,
+    name: AgentWorkProjectFieldName,
+    value: AgentWorkProjectValue | undefined,
+  ): Promise<void> {
+    const context = await this.#getContext()
+    await setAgentWorkProjectValue({
+      client: this.#client,
+      schema: context,
+      item: context.items.get(
+        projectItemKey(this.#repositoryOwner, this.#repositoryName, issueNumber),
+      ),
+      issueNumber,
+      name,
+      value,
+    })
   }
 
   async addIssue(issue: {
@@ -236,11 +276,11 @@ export class GitHubCanonicalProject {
     }
   }
 
-  async #getSchemaContext(): Promise<ProjectSchemaContext> {
+  async #getSchemaContext(): Promise<CanonicalProjectSchema> {
     return (this.#schemaContext ??= this.#loadSchemaContext())
   }
 
-  async #loadSchemaContext(): Promise<ProjectSchemaContext> {
+  async #loadSchemaContext(): Promise<CanonicalProjectSchema> {
     const projectData: {
       user: { projectV2: { id: string } | null } | null
     } = await this.#client.graphql(
@@ -258,9 +298,9 @@ export class GitHubCanonicalProject {
     return { id: project.id, fields: await this.#loadFields(project.id) }
   }
 
-  async #loadFields(projectId: string): Promise<ProjectField[]> {
+  async #loadFields(projectId: string): Promise<CanonicalProjectField[]> {
     let cursor: string | null = null
-    const fields: ProjectField[] = []
+    const fields: CanonicalProjectField[] = []
     do {
       const data: {
         node: {
@@ -269,6 +309,7 @@ export class GitHubCanonicalProject {
               __typename: string
               id?: string
               name?: string
+              dataType?: string
               options?: Array<{ id: string; name: string }>
             }>
             pageInfo: PageInfo
@@ -281,7 +322,7 @@ export class GitHubCanonicalProject {
               fields(first: 100, after: $after) {
                 nodes {
                   __typename
-                  ... on ProjectV2Field { id name }
+                  ... on ProjectV2Field { id name dataType }
                   ... on ProjectV2SingleSelectField { id name options { id name } }
                 }
                 pageInfo { endCursor hasNextPage }
@@ -300,6 +341,7 @@ export class GitHubCanonicalProject {
           typename: field.__typename,
           ...(field.id === undefined ? {} : { id: field.id }),
           ...(field.name === undefined ? {} : { name: field.name }),
+          ...(field.dataType === undefined ? {} : { dataType: field.dataType }),
           ...(field.options === undefined ? {} : { options: field.options }),
         })),
       )
@@ -355,7 +397,7 @@ export class GitHubCanonicalProject {
   }
 
   #requireField(
-    context: ProjectSchemaContext,
+    context: CanonicalProjectSchema,
     name: string,
     expectedOptions: readonly string[],
   ): { id: string; options: Array<{ id: string; name: string }> } {
@@ -387,7 +429,7 @@ export class GitHubCanonicalProject {
     return { id: field.id, options: field.options }
   }
 
-  #requireKindField(context: ProjectSchemaContext): {
+  #requireKindField(context: CanonicalProjectSchema): {
     id: string
     options: Array<{ id: string; name: string }>
   } {

@@ -5,22 +5,28 @@ export interface AgentWorkCliOptions {
   help: boolean
   issueNumber?: number
   append: boolean
+  project: boolean
   apply: boolean
   record?: AgentWorkRecord
 }
 
 export const AGENT_WORK_HELP = `Usage: npm run project:measure -- --issue <number> [options]
 
-Read one normalized append-only agent-work ledger. Appends are explicit and dry-run by default.
+Read one normalized append-only agent-work ledger. Appends and Project projections are explicit
+and dry-run by default.
 
 Options:
   --issue <number>              Issue in the configured repository (required)
   --append                      Plan an append from HVIR_AGENT_WORK_RECORD
-  --apply                       Apply the planned append
+  --project                     Plan named Project fields from issue and active ledger facts
+  --apply                       Apply the selected append or Project projection
   --help                        Show this help
 
 Environment:
   HVIR_REPO_TOKEN               Token used for repository comment reads/writes
+  HVIR_PROJECT_TOKEN            Token used only for Project projection reads/writes
+  HVIR_PROJECT_OWNER            Project owner (default: jarmak-personal)
+  HVIR_PROJECT_NUMBER           Project number (default: 1)
   HVIR_REPOSITORY               owner/name (default: jarmak-personal/hvir)
   HVIR_AGENT_WORK_RECORD        Exact JSON record used only with --append
 `
@@ -31,16 +37,21 @@ export function parseAgentWorkCliOptions(
 ): AgentWorkCliOptions {
   let issueNumber: number | undefined
   let append = false
+  let project = false
   let apply = false
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index]
-    if (argument === '--help') return { help: true, append, apply }
+    if (argument === '--help') return { help: true, append, project, apply }
     if (argument === '--append') {
       append = true
       continue
     }
     if (argument === '--apply') {
       apply = true
+      continue
+    }
+    if (argument === '--project') {
+      project = true
       continue
     }
     if (argument === '--issue') {
@@ -50,7 +61,11 @@ export function parseAgentWorkCliOptions(
     throw new Error(`Unknown argument: ${argument}`)
   }
   if (issueNumber === undefined) throw new Error('--issue is required.')
-  if (apply && !append) throw new Error('--apply requires --append.')
+  if (append && project)
+    throw new Error('--append and --project are separate operations.')
+  if (apply && !append && !project) {
+    throw new Error('--apply requires --append or --project.')
+  }
   const serialized = environment.HVIR_AGENT_WORK_RECORD
   if (!append && serialized !== undefined && serialized !== '') {
     throw new Error('HVIR_AGENT_WORK_RECORD requires --append.')
@@ -77,6 +92,7 @@ export function parseAgentWorkCliOptions(
     help: false,
     issueNumber,
     append,
+    project,
     apply,
     ...(record === undefined ? {} : { record }),
   }

@@ -5,8 +5,12 @@ import {
   parseAgentWorkRepository,
 } from './agent-work-cli.ts'
 import { reconcileAgentWorkLedger } from './agent-work-ledger.ts'
+import { reconcileAgentWorkProjection } from './agent-work-projector.ts'
+import { GitHubCanonicalProject } from './canonical-project.ts'
 import { GitHubAgentWorkLedger } from './github-agent-work-ledger.ts'
+import { GitHubAgentWorkSource } from './github-agent-work-source.ts'
 import { GitHubClient } from './github-client.ts'
+import { parseProjectNumber } from './project-config.ts'
 
 async function main(): Promise<void> {
   const options = parseAgentWorkCliOptions(process.argv.slice(2), process.env)
@@ -20,14 +24,43 @@ async function main(): Promise<void> {
   const [owner, name] = parseAgentWorkRepository(
     process.env.HVIR_REPOSITORY ?? 'jarmak-personal/hvir',
   )
+  const repositoryClient = new GitHubClient({
+    token: process.env.HVIR_REPO_TOKEN ?? '',
+    purpose: 'repository',
+  })
   const ledger = new GitHubAgentWorkLedger({
     owner,
     name,
-    client: new GitHubClient({
-      token: process.env.HVIR_REPO_TOKEN ?? '',
-      purpose: 'repository',
-    }),
+    client: repositoryClient,
   })
+  if (options.project) {
+    const issueSource = new GitHubAgentWorkSource({
+      owner,
+      name,
+      client: repositoryClient,
+    })
+    const project = new GitHubCanonicalProject({
+      owner: process.env.HVIR_PROJECT_OWNER ?? 'jarmak-personal',
+      number: parseProjectNumber(process.env.HVIR_PROJECT_NUMBER ?? '1'),
+      repositoryOwner: owner,
+      repositoryName: name,
+      client: new GitHubClient({
+        token: process.env.HVIR_PROJECT_TOKEN ?? '',
+        purpose: 'Project',
+      }),
+    })
+    const report = await reconcileAgentWorkProjection(
+      {
+        readIssueBody: (issueNumber) => issueSource.readIssueBody(issueNumber),
+        listCommentBodies: (issueNumber) => ledger.listCommentBodies(issueNumber),
+      },
+      project,
+      { issueNumber: options.issueNumber, apply: options.apply },
+    )
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
+    process.exitCode = agentWorkExitCode(report)
+    return
+  }
   const report = await reconcileAgentWorkLedger(ledger, {
     issueNumber: options.issueNumber,
     apply: options.apply,

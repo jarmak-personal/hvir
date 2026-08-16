@@ -233,6 +233,58 @@ first candidate remain per-record facts: phase and Own totals do not choose a pr
 value for them. This command does not mutate Project fields or expose a generic issue-comment
 operation.
 
+### Agent-work Project projections
+
+The same repository-owned command has one separate projection operation. It reads the exact
+`Initial forecast` rubric and any later `Pre-implementation forecast revision` sections from the
+issue plus the valid active measurement ledger, validates only the documented measurement fields,
+and plans changes without mutating by default:
+
+```sh
+HVIR_REPO_TOKEN="$(gh auth token)" \
+HVIR_PROJECT_TOKEN="$(gh auth token)" \
+npm run project:measure -- --issue 574 --project
+
+# After reviewing the named set and clear operations:
+HVIR_REPO_TOKEN="$(gh auth token)" \
+HVIR_PROJECT_TOKEN="$(gh auth token)" \
+npm run project:measure -- --issue 574 --project --apply
+```
+
+Append and projection are deliberately separate operations. A lifecycle writes the authoritative
+ledger record first, then projects it. If projection partially fails, retry `--project --apply`;
+the retry re-reads current issue, ledger, schema, item, and values and never appends another
+measurement.
+
+The measurement Project schema is fixed and domain-named:
+
+| Project field | Type | Projected semantics |
+| --- | --- | --- |
+| `Agent difficulty` | Number | Latest pre-implementation forecast difficulty from 1 through 5 after validating its four rubric factors. |
+| `Risk` | Single select | `Low`, `Moderate`, `High`, or `Critical` from that forecast. |
+| `Estimate confidence` | Single select | `Low`, `Medium`, or `High` from that forecast. |
+| `Initial model` | Text | Earliest active run's exact available initial model identifier. |
+| `Reasoning effort` | Text | Effective effort when available, otherwise requested effort, from that initial route. |
+| `Model route` | Text | Bounded content-free active route sequence, including explicit change or escalation labels. |
+| `Planning tokens` | Number | Exact normalized `issue-planning` total; absent when no run exists or coverage is incomplete. |
+| `Implementation tokens` | Number | Exact normalized `implementation` total; review tokens remain in their distinct ledger phase. |
+| `Own lifecycle tokens` | Number | Exact normalized total for all active runs owned by this issue, never child work. |
+| `Time to first candidate (ms)` | Number | First active implementation record's explicit candidate duration in milliseconds. |
+| `First-pass outcome` | Single select | `Pending`, `Accepted`, `Rework required`, or `No candidate`; explicit rework is sticky. |
+| `Epic rollup tokens` | Number | Reserved named field for direct-child epic reconciliation; ordinary issue projection does not calculate or overwrite it. |
+
+Unknown evidence is absent, never zero. If an authoritative correction makes a previously exact
+value partial or unavailable, the projection clears that stale field. The operation updates only
+the names above and exposes no arbitrary field setter. Its report contains normalized values,
+fixed diagnostics, and named operations only—never issue prose, comments, internal IDs,
+credentials, or raw API responses.
+
+Missing or duplicate fields, wrong types, incomplete single-select options, missing or archived
+items, and permission failures fail visibly. A write sequence stops on its first failure and
+reports preceding updates plus unattempted fields; the ledger remains authoritative. These
+measurement-only failures do not change the `issue:context` or `issue:start` readiness schema,
+which continues to require only membership, `Kind`, and `Status`.
+
 ### Delivery context
 
 Read the complete implementation context for one issue before selecting a base or worktree:
@@ -403,6 +455,31 @@ The planning-record command also expects the canonical Project's `Status` single
 contain `Todo`, `In Progress`, and `Done`; it does not create or rename those options.
 Duplicate items for one repository issue fail both planning-record and kind commands visibly
 rather than allowing an arbitrary item to win.
+
+Provision the measurement fields explicitly with the same maintainer authority. Each command is
+idempotent only by maintainer inspection: do not rerun it when the named field already exists.
+
+```sh
+gh project field-create 1 --owner jarmak-personal --name 'Agent difficulty' --data-type NUMBER
+gh project field-create 1 --owner jarmak-personal --name Risk --data-type SINGLE_SELECT \
+  --single-select-options 'Low,Moderate,High,Critical'
+gh project field-create 1 --owner jarmak-personal --name 'Estimate confidence' \
+  --data-type SINGLE_SELECT --single-select-options 'Low,Medium,High'
+gh project field-create 1 --owner jarmak-personal --name 'Initial model' --data-type TEXT
+gh project field-create 1 --owner jarmak-personal --name 'Reasoning effort' --data-type TEXT
+gh project field-create 1 --owner jarmak-personal --name 'Model route' --data-type TEXT
+gh project field-create 1 --owner jarmak-personal --name 'Planning tokens' --data-type NUMBER
+gh project field-create 1 --owner jarmak-personal --name 'Implementation tokens' --data-type NUMBER
+gh project field-create 1 --owner jarmak-personal --name 'Own lifecycle tokens' --data-type NUMBER
+gh project field-create 1 --owner jarmak-personal --name 'Time to first candidate (ms)' --data-type NUMBER
+gh project field-create 1 --owner jarmak-personal --name 'First-pass outcome' \
+  --data-type SINGLE_SELECT \
+  --single-select-options 'Pending,Accepted,Rework required,No candidate'
+gh project field-create 1 --owner jarmak-personal --name 'Epic rollup tokens' --data-type NUMBER
+```
+
+The projection command validates this schema independently. Existing Project planning commands do
+not load it, so an experimental measurement field cannot block ordinary issue delivery.
 
 ## Actions authentication and usage
 
