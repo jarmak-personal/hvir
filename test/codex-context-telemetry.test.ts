@@ -1,4 +1,12 @@
-import { appendFile, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import {
+  appendFile,
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -20,6 +28,7 @@ const SESSION_ID = '019ab123-4567-7890-abcd-ef0123456789'
 describe('Codex context telemetry', () => {
   it('takes exact-session cumulative snapshots and calculates a real counter delta', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'hvir-codex-usage-'))
+    const canonicalDirectory = await realpath(directory)
     const path = localPath(join(directory, `rollout-session-${SESSION_ID}.jsonl`))
     const host = new LocalHost()
     const context = {
@@ -34,7 +43,11 @@ describe('Codex context telemetry', () => {
       [
         JSON.stringify({
           type: 'session_meta',
-          payload: { id: SESSION_ID, cwd: directory, originator: 'codex-tui' },
+          payload: {
+            id: SESSION_ID,
+            cwd: canonicalDirectory,
+            originator: 'codex-tui',
+          },
         }),
         JSON.stringify({
           type: 'turn_context',
@@ -116,6 +129,45 @@ describe('Codex context telemetry', () => {
     }
   })
 
+  it('qualifies exact session identity through a canonical symlinked cwd', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'hvir-codex-canonical-cwd-'))
+    const canonicalCwd = join(directory, 'workspace')
+    const linkedCwd = join(directory, 'workspace-link')
+    await mkdir(canonicalCwd)
+    await symlink(canonicalCwd, linkedCwd)
+    const path = localPath(join(directory, `rollout-session-${SESSION_ID}.jsonl`))
+    await writeFile(
+      path.path,
+      `${JSON.stringify({
+        type: 'session_meta',
+        payload: {
+          id: SESSION_ID,
+          cwd: await realpath(canonicalCwd),
+          originator: 'codex-tui',
+        },
+      })}\n${cumulativeCodexUsage(5, 2, 1, 3, 1)}\n`,
+    )
+    const host = new LocalHost()
+    await host.connect()
+    try {
+      await expect(
+        snapshotCodexUsage(host, {
+          sessionId: SESSION_ID,
+          cwd: localPath(linkedCwd),
+          sessionData: { rolloutPath: path },
+          artifact: { identity: 'test', environment: {}, unsetEnvironment: [] },
+          signal: new AbortController().signal,
+        }),
+      ).resolves.toMatchObject({
+        status: 'available',
+        counters: { freshInputTokens: 2 },
+      })
+    } finally {
+      await host.dispose()
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
   it('reports an unavailable snapshot when the exact rollout artifact is absent', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'hvir-codex-missing-'))
     const host = new LocalHost()
@@ -140,6 +192,42 @@ describe('Codex context telemetry', () => {
       await host.dispose()
       await rm(directory, { recursive: true, force: true })
     }
+  })
+
+  it('rejects an artifact read that completes after snapshot revocation', async () => {
+    const controller = new AbortController()
+    const path = localPath(`/tmp/rollout-session-${SESSION_ID}.jsonl`)
+    const content = `${JSON.stringify({
+      type: 'session_meta',
+      payload: { id: SESSION_ID, cwd: '/tmp/project', originator: 'codex-tui' },
+    })}\n${cumulativeCodexUsage(5, 2, 1, 3, 1)}\n`
+    const host = {
+      hostId: path.hostId,
+      realpath: vi.fn((value) => Promise.resolve(value)),
+      readTextFilePrefix: vi.fn(() => {
+        controller.abort()
+        return Promise.resolve({
+          content,
+          byteLength: content.length,
+          lineCount: 2,
+          complete: true,
+          validUtf8: true,
+        })
+      }),
+    } as unknown as ProjectHost
+
+    await expect(
+      snapshotCodexUsage(host, {
+        sessionId: SESSION_ID,
+        cwd: localPath('/tmp/project'),
+        sessionData: { rolloutPath: path },
+        artifact: { identity: 'test', environment: {}, unsetEnvironment: [] },
+        signal: controller.signal,
+      }),
+    ).resolves.toMatchObject({
+      status: 'unavailable',
+      reason: 'artifact-unavailable',
+    })
   })
 
   it('uses current input usage rather than cumulative token totals', () => {

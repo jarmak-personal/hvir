@@ -4,6 +4,7 @@ import type { HarnessTelemetry, HostPath } from '../../shared'
 import { asHarnessProviderId, contextHarnessSnapshot, hostPath } from '../../shared'
 import type { Disposer, ProjectHost } from '../project-host'
 import {
+  nonNegativeUsageCounter,
   unavailableHarnessUsageSnapshot,
   type HarnessUsageCounters,
   type HarnessUsageSnapshot,
@@ -11,10 +12,10 @@ import {
 } from './agent-work-usage'
 import {
   boundedHarnessUsageString,
-  nonNegativeUsageCounter,
   readHarnessUsageArtifact,
 } from './harness-usage-artifact'
 import type { HarnessTelemetryContext } from './harness-provider'
+import { canonicalCodexCwd } from './codex-session-discovery'
 import {
   buildTelemetryHubScript,
   HarnessTelemetryHubRegistry,
@@ -92,6 +93,10 @@ export async function snapshotCodexUsage(
   if (!SESSION_ID.test(context.sessionId) || context.signal.aborted) {
     return unavailableHarnessUsageSnapshot(providerId, 'invalid-session-identity')
   }
+  const canonicalCwd = await canonicalCodexCwd(host, context.cwd, context.signal)
+  if (!canonicalCwd) {
+    return unavailableHarnessUsageSnapshot(providerId, 'invalid-session-identity')
+  }
   const rolloutPath =
     sessionDataPath(context.sessionData, host, context.sessionId) ??
     (await findSessionPath(host, context.sessionId, context.signal, context.artifact))
@@ -99,6 +104,9 @@ export async function snapshotCodexUsage(
     return unavailableHarnessUsageSnapshot(providerId, 'artifact-unavailable')
   }
   const artifact = await readHarnessUsageArtifact(host, rolloutPath, context.signal)
+  if (context.signal.aborted) {
+    return unavailableHarnessUsageSnapshot(providerId, 'artifact-unavailable')
+  }
   if (artifact.status === 'unavailable') {
     return unavailableHarnessUsageSnapshot(providerId, artifact.reason)
   }
@@ -113,7 +121,7 @@ export async function snapshotCodexUsage(
     if (envelope.type === 'session_meta') {
       identityQualified ||=
         envelope.payload?.id === context.sessionId &&
-        envelope.payload.cwd === context.cwd.path &&
+        envelope.payload.cwd === canonicalCwd.path &&
         envelope.payload.originator === 'codex-tui'
       continue
     }

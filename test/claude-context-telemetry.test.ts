@@ -72,14 +72,24 @@ describe('Claude Code context telemetry', () => {
 
       await appendFile(
         transcript,
-        `${claudeUsageRecord('request-2', 'message-2', {
-          input: 2,
-          cacheWrite: 3,
-          cacheRead: 40,
-          output: 5,
-        })}\n`,
+        `${claudeUsageRecord(
+          'request-2',
+          'message-2',
+          {
+            input: 2,
+            cacheWrite: 3,
+            cacheRead: 40,
+            output: 5,
+          },
+          SESSION_ID,
+          {},
+        )}\n`,
       )
       const end = await snapshotClaudeUsage(host, context)
+      expect(end).toMatchObject({
+        status: 'available',
+        route: { modelId: 'claude-test', reasoningEffort: 'high' },
+      })
       expect(calculateHarnessUsageDelta(start, end)).toMatchObject({
         status: 'complete',
         counters: {
@@ -170,6 +180,49 @@ describe('Claude Code context telemetry', () => {
       await host.dispose()
       await rm(configDirectory, { recursive: true, force: true })
     }
+  })
+
+  it('rejects an artifact read that completes after snapshot revocation', async () => {
+    const controller = new AbortController()
+    const record = claudeUsageRecord('request-1', 'message-1', {
+      input: 1,
+      cacheWrite: 2,
+      cacheRead: 3,
+      output: 4,
+    })
+    const host = {
+      hostId: LOCAL_HOST_ID,
+      exec: vi.fn(() =>
+        Promise.resolve({
+          code: 0,
+          signal: null,
+          stdout: '/tmp/project\n\0/tmp/claude-config',
+          stderr: '',
+        }),
+      ),
+      readTextFilePrefix: vi.fn(() => {
+        controller.abort()
+        return Promise.resolve({
+          content: `${record}\n`,
+          byteLength: record.length + 1,
+          lineCount: 1,
+          complete: true,
+          validUtf8: true,
+        })
+      }),
+    } as unknown as ProjectHost
+
+    await expect(
+      snapshotClaudeUsage(host, {
+        sessionId: SESSION_ID,
+        cwd: localPath('/tmp/project'),
+        artifact: { identity: 'test', environment: {}, unsetEnvironment: [] },
+        signal: controller.signal,
+      }),
+    ).resolves.toMatchObject({
+      status: 'unavailable',
+      reason: 'artifact-unavailable',
+    })
   })
 
   it('reports the current input, cache, and latest output tokens without a guessed limit', () => {
@@ -391,18 +444,22 @@ function claudeUsageRecord(
     readonly output: number
   },
   sessionId = SESSION_ID,
+  route: { readonly model?: string; readonly effort?: string } = {
+    model: 'claude-test',
+    effort: 'high',
+  },
 ): string {
   return JSON.stringify({
     type: 'assistant',
     sessionId,
     session_id: sessionId,
     requestId,
-    effort: 'high',
+    effort: route.effort,
     isSidechain: false,
     message: {
       id: messageId,
       role: 'assistant',
-      model: 'claude-test',
+      model: route.model,
       usage: {
         input_tokens: counters.input,
         cache_creation_input_tokens: counters.cacheWrite,

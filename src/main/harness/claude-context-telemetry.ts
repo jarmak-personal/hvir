@@ -8,14 +8,15 @@ import {
 } from '../../shared'
 import type { Disposer, ProjectHost } from '../project-host'
 import {
+  nonNegativeUsageCounter,
   unavailableHarnessUsageSnapshot,
   type HarnessUsageCounters,
+  type HarnessUsageRoute,
   type HarnessUsageSnapshot,
   type HarnessUsageSnapshotContext,
 } from './agent-work-usage'
 import {
   boundedHarnessUsageString,
-  nonNegativeUsageCounter,
   readHarnessUsageArtifact,
 } from './harness-usage-artifact'
 import { resolveClaudeSessionArtifact } from './claude-session-artifact'
@@ -69,12 +70,6 @@ interface ClaudeUsageCounters {
   readonly output_tokens?: unknown
 }
 
-interface QualifiedClaudeUsage {
-  readonly counters: HarnessUsageCounters
-  readonly modelId?: string
-  readonly reasoningEffort?: string
-}
-
 export async function snapshotClaudeUsage(
   host: ProjectHost,
   context: HarnessUsageSnapshotContext,
@@ -92,13 +87,16 @@ export async function snapshotClaudeUsage(
     location.transcript,
     context.signal,
   )
+  if (context.signal.aborted) {
+    return unavailableHarnessUsageSnapshot(providerId, 'artifact-unavailable')
+  }
   if (artifact.status === 'unavailable') {
     return unavailableHarnessUsageSnapshot(providerId, artifact.reason)
   }
 
   let identityMismatch = false
-  let route: Pick<QualifiedClaudeUsage, 'modelId' | 'reasoningEffort'> = {}
-  const records = new Map<string, QualifiedClaudeUsage>()
+  let route: HarnessUsageRoute = {}
+  const records = new Map<string, HarnessUsageCounters>()
   for (const line of artifact.content.split('\n')) {
     const envelope = parseClaudeUsageEnvelope(line)
     if (!envelope || !isClaudeAssistantUsage(envelope)) continue
@@ -117,14 +115,17 @@ export async function snapshotClaudeUsage(
     if (!requestId || !messageId) continue
     const counters = normalizeClaudeUsageCounters(envelope.message?.usage)
     if (!counters) continue
+    const modelId = boundedHarnessUsageString(envelope.message?.model)
+    const reasoningEffort = boundedHarnessUsageString(envelope.effort, 64)
     route = {
-      modelId: boundedHarnessUsageString(envelope.message?.model),
-      reasoningEffort: boundedHarnessUsageString(envelope.effort, 64),
+      ...(modelId ? { modelId } : route.modelId ? { modelId: route.modelId } : {}),
+      ...(reasoningEffort
+        ? { reasoningEffort }
+        : route.reasoningEffort
+          ? { reasoningEffort: route.reasoningEffort }
+          : {}),
     }
-    records.set(`${requestId}\0${messageId}`, {
-      counters,
-      ...route,
-    })
+    records.set(`${requestId}\0${messageId}`, counters)
   }
 
   if (identityMismatch) {
@@ -133,8 +134,7 @@ export async function snapshotClaudeUsage(
   if (records.size === 0) {
     return unavailableHarnessUsageSnapshot(providerId, 'usage-unavailable')
   }
-  const selected = [...records.values()]
-  const counters = sumClaudeUsageCounters(selected.map((record) => record.counters))
+  const counters = sumClaudeUsageCounters([...records.values()])
   return {
     version: 1,
     status: 'available',

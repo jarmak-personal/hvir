@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 
 import {
   calculateHarnessUsageDelta,
-  isHarnessUsageSnapshot,
   type HarnessUsageSnapshot,
 } from '../src/main/harness/agent-work-usage'
 import { asHarnessProviderId } from '../src/shared'
@@ -91,22 +90,6 @@ describe('agent-work usage delta policy', () => {
         providerId: asHarnessProviderId('claude-code'),
       }),
     ).toEqual({ status: 'unavailable', reason: 'provider-mismatch' })
-  })
-
-  it('rejects unrecognized snapshot fields before proof output can reuse them', () => {
-    expect(isHarnessUsageSnapshot(snapshot(10, { outputTokens: 1 }))).toBe(true)
-    expect(
-      isHarnessUsageSnapshot({
-        ...snapshot(10, { outputTokens: 1 }),
-        sessionId: 'private-session',
-      }),
-    ).toBe(false)
-    expect(
-      isHarnessUsageSnapshot({
-        ...snapshot(10, { outputTokens: 1 }),
-        counters: { outputTokens: -1 },
-      }),
-    ).toBe(false)
   })
 })
 

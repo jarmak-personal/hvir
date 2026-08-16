@@ -42,9 +42,3 @@ export function boundedHarnessUsageString(
     ? value
     : undefined
 }
-
-export function nonNegativeUsageCounter(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
-    ? value
-    : undefined
-}

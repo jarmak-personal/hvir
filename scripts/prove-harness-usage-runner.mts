@@ -1,6 +1,6 @@
 import {
   calculateHarnessUsageDelta,
-  isHarnessUsageSnapshot,
+  nonNegativeUsageCounter,
   type HarnessUsageSnapshot,
 } from '../src/main/harness/agent-work-usage'
 import { harnessProvider } from '../src/main/harness/harness-provider'
@@ -92,8 +92,108 @@ function parseSnapshot(value: string): HarnessUsageSnapshot {
   } catch {
     throw new Error('The start snapshot is not valid JSON.')
   }
-  if (!isHarnessUsageSnapshot(parsed)) {
+  if (!isProofHarnessUsageSnapshot(parsed)) {
     throw new Error('The start snapshot does not use the supported schema.')
   }
   return parsed
+}
+
+const PROOF_COUNTER_NAMES = [
+  'freshInputTokens',
+  'cacheReadInputTokens',
+  'cacheWriteInputTokens',
+  'outputTokens',
+  'reasoningTokens',
+] as const
+
+export function isProofHarnessUsageSnapshot(
+  value: unknown,
+): value is HarnessUsageSnapshot {
+  if (!isRecord(value) || value.version !== 1) return false
+  if (
+    typeof value.providerId !== 'string' ||
+    value.providerId.length < 1 ||
+    value.providerId.length > 64 ||
+    nonNegativeUsageCounter(value.observedAt) === undefined
+  ) {
+    return false
+  }
+  if (value.status === 'unavailable') {
+    return (
+      exactKeys(value, ['version', 'status', 'providerId', 'observedAt', 'reason']) &&
+      [
+        'invalid-session-identity',
+        'artifact-unavailable',
+        'artifact-too-large',
+        'usage-unavailable',
+      ].includes(String(value.reason))
+    )
+  }
+  if (
+    value.status !== 'available' ||
+    !isRecord(value.route) ||
+    !isRecord(value.counters) ||
+    !isRecord(value.timing)
+  ) {
+    return false
+  }
+  const route = value.route
+  const counters = value.counters
+  const timing = value.timing
+  if (
+    !exactKeys(value, [
+      'version',
+      'status',
+      'providerId',
+      'observedAt',
+      'route',
+      'counters',
+      'timing',
+    ])
+  ) {
+    return false
+  }
+  if (
+    !exactKeys(route, ['modelId', 'reasoningEffort'], true) ||
+    !optionalBoundedString(route.modelId, 160) ||
+    !optionalBoundedString(route.reasoningEffort, 64)
+  ) {
+    return false
+  }
+  if (!exactKeys(counters, PROOF_COUNTER_NAMES, true)) return false
+  if (
+    !exactKeys(timing, ['modelOrApiMilliseconds'], true) ||
+    (timing.modelOrApiMilliseconds !== undefined &&
+      nonNegativeUsageCounter(timing.modelOrApiMilliseconds) === undefined)
+  ) {
+    return false
+  }
+  return PROOF_COUNTER_NAMES.every(
+    (name) =>
+      counters[name] === undefined ||
+      nonNegativeUsageCounter(counters[name]) !== undefined,
+  )
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function exactKeys(
+  value: Record<string, unknown>,
+  allowed: readonly string[],
+  allowMissing = false,
+): boolean {
+  const keys = Object.keys(value)
+  return (
+    keys.every((key) => allowed.includes(key)) &&
+    (allowMissing || allowed.every((key) => keys.includes(key)))
+  )
+}
+
+function optionalBoundedString(value: unknown, maxLength: number): boolean {
+  return (
+    value === undefined ||
+    (typeof value === 'string' && value.length > 0 && value.length <= maxLength)
+  )
 }
