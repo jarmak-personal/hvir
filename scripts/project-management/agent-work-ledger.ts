@@ -117,6 +117,17 @@ export type AgentWorkLedgerDiagnostic =
     }
   | { code: 'aggregate-overflow'; field: AgentWorkAggregateField }
 
+const LEDGER_PROJECTION_DIAGNOSTIC_BY_CODE = {
+  'invalid-record': 'ledger-invalid-record',
+  'duplicate-record': 'ledger-duplicate-record',
+  'idempotency-conflict': 'ledger-idempotency-conflict',
+  'invalid-supersession': 'ledger-invalid-supersession',
+  'aggregate-overflow': 'ledger-aggregate-overflow',
+} as const satisfies Record<AgentWorkLedgerDiagnostic['code'], string>
+
+export type AgentWorkLedgerProjectionDiagnostic =
+  (typeof LEDGER_PROJECTION_DIAGNOSTIC_BY_CODE)[AgentWorkLedgerDiagnostic['code']]
+
 export type AgentWorkAggregateField =
   | AgentWorkCounter
   | 'knownTokenSubtotal'
@@ -221,7 +232,7 @@ export function parseAgentWorkRecord(value: unknown): AgentWorkRecord {
   if (record.schema !== AGENT_WORK_SCHEMA) {
     throw new Error(`Agent-work schema must be ${AGENT_WORK_SCHEMA}.`)
   }
-  const issueNumber = requirePositiveInteger(record.issueNumber, 'issueNumber')
+  const issueNumber = requireAgentWorkIssueNumber(record.issueNumber)
   const phase = requireEnum(record.phase, AGENT_WORK_PHASES, 'phase')
   const runKey = requireKey(record.runKey, 'runKey')
   const idempotencyKey = requireKey(record.idempotencyKey, 'idempotencyKey')
@@ -331,7 +342,7 @@ export function normalizeAgentWorkComments(
   issueNumber: number,
   bodies: readonly string[],
 ): NormalizedAgentWorkLedger {
-  requirePositiveInteger(issueNumber, 'issueNumber')
+  requireAgentWorkIssueNumber(issueNumber)
   const diagnostics: AgentWorkLedgerDiagnostic[] = []
   const records: Array<AgentWorkRecord & { commentOrdinal: number }> = []
   const recordsByKey = new Map<string, AgentWorkRecord & { commentOrdinal: number }>()
@@ -421,7 +432,7 @@ export async function reconcileAgentWorkLedger(
   port: AgentWorkLedgerPort,
   input: ReconcileAgentWorkLedgerInput,
 ): Promise<ReconcileAgentWorkLedgerReport> {
-  const issueNumber = requirePositiveInteger(input.issueNumber, 'issueNumber')
+  const issueNumber = requireAgentWorkIssueNumber(input.issueNumber)
   const bodies = await port.listCommentBodies(issueNumber)
   const ledger = normalizeAgentWorkComments(issueNumber, bodies)
   if (input.record === undefined) {
@@ -741,7 +752,7 @@ function validateAvailability(input: {
     if (additive.some((value) => value === undefined)) {
       throw new Error('Complete measurements require every additive token counter.')
     }
-    const total = sumSafe(additive as number[])
+    const total = sumAgentWorkSafeIntegers(additive as number[])
     if (total === undefined || input.usage?.normalizedTokenTotal !== total) {
       throw new Error('Complete measurements require the exact normalized token total.')
     }
@@ -802,7 +813,7 @@ function aggregateRecords(
       const value = record.usage?.[counter]
       return value === undefined ? [] : [value]
     })
-    const value = sumSafe(values)
+    const value = sumAgentWorkSafeIntegers(values)
     if (value === undefined && values.length > 0) {
       diagnostics.push({ code: 'aggregate-overflow', field: counter })
     } else if (value !== undefined && values.length > 0) {
@@ -815,7 +826,7 @@ function aggregateRecords(
       return value === undefined ? [] : [value]
     }),
   )
-  const knownTokenSubtotal = sumSafe(knownParts)
+  const knownTokenSubtotal = sumAgentWorkSafeIntegers(knownParts)
   if (knownTokenSubtotal === undefined && knownParts.length > 0) {
     diagnostics.push({ code: 'aggregate-overflow', field: 'knownTokenSubtotal' })
   }
@@ -823,7 +834,7 @@ function aggregateRecords(
     const value = record.usage?.normalizedTokenTotal
     return value === undefined ? [] : [value]
   })
-  const normalizedTokenTotal = sumSafe(normalizedValues)
+  const normalizedTokenTotal = sumAgentWorkSafeIntegers(normalizedValues)
   if (normalizedTokenTotal === undefined && normalizedValues.length > 0) {
     diagnostics.push({ code: 'aggregate-overflow', field: 'normalizedTokenTotal' })
   }
@@ -865,7 +876,7 @@ function aggregateTiming(
     const value = record.timing?.[name]
     return value === undefined ? [] : [value]
   })
-  const value = sumSafe(values)
+  const value = sumAgentWorkSafeIntegers(values)
   if (value === undefined && values.length > 0) {
     diagnostics.push({ code: 'aggregate-overflow', field: name })
     return undefined
@@ -915,9 +926,9 @@ function requireExactKeys(
   if (missing !== undefined) throw new Error(`${name} is missing a required field.`)
 }
 
-function requirePositiveInteger(value: unknown, name: string): number {
+export function requireAgentWorkIssueNumber(value: unknown): number {
   if (!Number.isSafeInteger(value) || typeof value !== 'number' || value <= 0) {
-    throw new Error(`${name} must be a positive integer.`)
+    throw new Error('Agent-work issue number must be a positive integer.')
   }
   return value
 }
@@ -964,7 +975,7 @@ function requireUniqueEnumArray<const T extends readonly string[]>(
   return result.sort((left, right) => left.localeCompare(right))
 }
 
-function sumSafe(values: readonly number[]): number | undefined {
+export function sumAgentWorkSafeIntegers(values: readonly number[]): number | undefined {
   let total = 0
   for (const value of values) {
     const next = total + value
@@ -972,6 +983,12 @@ function sumSafe(values: readonly number[]): number | undefined {
     total = next
   }
   return total
+}
+
+export function agentWorkLedgerProjectionDiagnostic(
+  diagnostic: AgentWorkLedgerDiagnostic,
+): AgentWorkLedgerProjectionDiagnostic {
+  return LEDGER_PROJECTION_DIAGNOSTIC_BY_CODE[diagnostic.code]
 }
 
 function byteLength(value: string): number {

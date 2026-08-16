@@ -11,6 +11,7 @@ import {
   serializeAgentWorkComment,
   type AgentWorkRecord,
 } from '../scripts/project-management/agent-work-ledger.ts'
+import { AgentWorkProjectWriteError } from '../scripts/project-management/agent-work-project-fields.ts'
 
 const REPOSITORY = 'jarmak-personal/hvir'
 const EPIC = 570
@@ -159,6 +160,28 @@ describe('agent-work epic Rollup reconciliation', () => {
     })
     expect(retry.projection).toEqual({ outcome: 'unchanged', operation: 'none' })
     expect(fixture.setField).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses the shared content-free Project write classification', async () => {
+    const fixture = rollupFixture({
+      issues: [epicIssue()],
+      comments: new Map([
+        [
+          EPIC,
+          [comment(completeRecord(EPIC, 100, 'a', '1', { phase: 'epic-coordination' }))],
+        ],
+      ]),
+    })
+    fixture.setField.mockRejectedValue(new AgentWorkProjectWriteError('schema'))
+
+    const report = await reconcileAgentWorkRollup(fixture.source, fixture.project, {
+      issueNumber: EPIC,
+      apply: true,
+    })
+
+    expect(report.projection.outcome).toBe('failed')
+    expect(report.diagnostics).toContain('project-write-schema-invalid')
+    expect(report.diagnostics).not.toContain('project-write-failed')
   })
 
   it('clears Rollup from ordinary issues and epic children', async () => {
