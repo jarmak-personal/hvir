@@ -141,13 +141,29 @@
 .settings-profile-disclosure > summary {
   min-width: 0;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto auto minmax(0, 1fr);
   align-items: baseline;
   gap: 8px;
   padding: 8px 9px;
   color: var(--text);
   cursor: pointer;
   font-size: calc(10px * var(--hvir-interface-scale));
+}
+
+.settings-profile-disclosure > summary::before {
+  align-self: center;
+  width: 10px;
+  color: var(--text-muted);
+  content: '›';
+  font-size: calc(14px * var(--hvir-interface-scale));
+  line-height: 1;
+  text-align: center;
+  transform: rotate(0deg);
+  transform-origin: center;
+}
+
+.settings-profile-disclosure[open] > summary::before {
+  transform: rotate(90deg);
 }
 
 .settings-profile-disclosure > summary:focus-visible {
@@ -423,10 +439,11 @@
   }
 
   .settings-profile-disclosure > summary {
-    grid-template-columns: 1fr;
+    grid-template-columns: auto minmax(0, 1fr);
   }
 
   .settings-profile-disclosure > summary small {
+    grid-column: 2;
     text-align: left;
   }
 }

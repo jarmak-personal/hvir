@@ -196,7 +196,34 @@ export async function verifyCompactHarnessSettings(win: BrowserWindow): Promise<
                 if (disclosures.length !== 2) {
                   throw new Error('compact common/advanced/preview hierarchy is incomplete');
                 }
-                disclosures.forEach((details) => { details.open = true; });
+                const summaries = disclosures.map((details) =>
+                  details.querySelector('summary')
+                );
+                if (summaries.some((summary) => !(summary instanceof HTMLElement))) {
+                  throw new Error('compact harness disclosure summary is missing');
+                }
+                const collapsedCarets = summaries.map((summary) =>
+                  getComputedStyle(summary, '::before')
+                );
+                if (collapsedCarets.some((style) =>
+                  style.content === 'none' || style.content === 'normal' ||
+                  parseFloat(style.width) < 1
+                )) {
+                  throw new Error('compact harness disclosure collapsed caret is not visible');
+                }
+                const collapsedTransforms = collapsedCarets.map((style) => style.transform);
+                summaries.forEach((summary) => summary.click());
+                if (disclosures.some((details) => !details.open)) {
+                  throw new Error('compact harness disclosures did not expand natively');
+                }
+                const expandedTransforms = summaries.map((summary) =>
+                  getComputedStyle(summary, '::before').transform
+                );
+                if (expandedTransforms.some((transform, index) =>
+                  transform === collapsedTransforms[index]
+                )) {
+                  throw new Error('compact harness disclosure caret did not show expanded state');
+                }
                 const actions = [...shell.querySelectorAll(
                   '.settings-profile-actions button'
                 )];
@@ -241,7 +268,8 @@ export async function verifyCompactHarnessSettings(win: BrowserWindow): Promise<
                   }
                   resolve(
                     window.innerWidth + 'px · zero horizontal page/layout overflow · ' +
-                    actions.length + ' actions and ' + controls.length + ' fields reachable'
+                    actions.length + ' actions and ' + controls.length + ' fields reachable · ' +
+                    disclosures.length + ' disclosure carets collapsed/expanded'
                   );
                 });
               } catch (error) {
