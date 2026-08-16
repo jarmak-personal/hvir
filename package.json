@@ -65,6 +65,7 @@
     "project:kind": "node scripts/project-management/sync-kind.ts",
     "project:record": "node scripts/project-management/read-planning-record.ts",
     "project:pr": "node scripts/project-management/sync-pull-request-planning.ts",
+    "project:measure": "node scripts/project-management/measure-agent-work.ts",
     "issue:context": "node scripts/project-management/read-issue-context.ts",
     "issue:start": "node scripts/project-management/start-issue.ts",
     "verify": "npm run check-seams && npm run check-adrs && npm run architecture:check && npm run lint && npm run typecheck && npm test",

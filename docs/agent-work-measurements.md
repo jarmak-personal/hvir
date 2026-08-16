@@ -201,6 +201,9 @@ The issue ledger is append-only:
 5. Ledger-derived Project values are updated only after the ledger append succeeds. A projection
    retry reads the active ledger and does not append another measurement.
 
+The exact versioned comment marker, record schema, named dry-run/apply command, and normalized
+report are documented under [Agent-work measurement ledger](project-management.md#agent-work-measurement-ledger).
+
 Only records emitted by the named repository measurement operation with the exact recognized
 schema marker participate. Malformed records and all other issue comments are ignored with fixed,
 content-free diagnostics. Reading paginates the complete comment history and exposes normalized
