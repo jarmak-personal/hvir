@@ -5,7 +5,11 @@ import {
 } from '../src/main/harness/agent-work-usage'
 import { harnessProvider } from '../src/main/harness/harness-provider'
 import { LocalHost } from '../src/main/project-host/local-host'
-import { localPath } from '../src/shared'
+import {
+  AGENT_WORK_TOKEN_COUNTER_NAMES,
+  HARNESS_USAGE_UNAVAILABLE_REASONS,
+  localPath,
+} from '../src/shared'
 
 const STDIN_BYTE_LIMIT = 64 * 1024
 
@@ -98,14 +102,6 @@ function parseSnapshot(value: string): HarnessUsageSnapshot {
   return parsed
 }
 
-const PROOF_COUNTER_NAMES = [
-  'freshInputTokens',
-  'cacheReadInputTokens',
-  'cacheWriteInputTokens',
-  'outputTokens',
-  'reasoningTokens',
-] as const
-
 export function isProofHarnessUsageSnapshot(
   value: unknown,
 ): value is HarnessUsageSnapshot {
@@ -121,12 +117,7 @@ export function isProofHarnessUsageSnapshot(
   if (value.status === 'unavailable') {
     return (
       exactKeys(value, ['version', 'status', 'providerId', 'observedAt', 'reason']) &&
-      [
-        'invalid-session-identity',
-        'artifact-unavailable',
-        'artifact-too-large',
-        'usage-unavailable',
-      ].includes(String(value.reason))
+      HARNESS_USAGE_UNAVAILABLE_REASONS.some((reason) => reason === value.reason)
     )
   }
   if (
@@ -160,7 +151,7 @@ export function isProofHarnessUsageSnapshot(
   ) {
     return false
   }
-  if (!exactKeys(counters, PROOF_COUNTER_NAMES, true)) return false
+  if (!exactKeys(counters, AGENT_WORK_TOKEN_COUNTER_NAMES, true)) return false
   if (
     !exactKeys(timing, ['modelOrApiMilliseconds'], true) ||
     (timing.modelOrApiMilliseconds !== undefined &&
@@ -168,7 +159,7 @@ export function isProofHarnessUsageSnapshot(
   ) {
     return false
   }
-  return PROOF_COUNTER_NAMES.every(
+  return AGENT_WORK_TOKEN_COUNTER_NAMES.every(
     (name) =>
       counters[name] === undefined ||
       nonNegativeUsageCounter(counters[name]) !== undefined,
