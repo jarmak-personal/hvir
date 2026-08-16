@@ -99,6 +99,9 @@ record another forecast and do not create a subjective actual-difficulty score.
 
 ## Usage vocabulary
 
+The bounded provider procedure and observed supported-provider result are documented in
+[`agent-work-usage-proof.md`](agent-work-usage-proof.md).
+
 ### Token categories
 
 Token counters are non-negative integers. Omission means unknown or unsupported; an explicit zero

@@ -22,10 +22,11 @@ import {
   type HostPath,
 } from '../../shared'
 import type { Disposer, ProjectHost } from '../project-host'
+import type { HarnessUsageSnapshotProvider } from './agent-work-usage'
 import { configureClaudeComposerSubmit } from './claude-keybindings'
-import { observeClaudeContext } from './claude-context-telemetry'
+import { observeClaudeContext, snapshotClaudeUsage } from './claude-context-telemetry'
 import { claudeResumeAvailability } from './claude-session-recovery'
-import { observeCodexContext } from './codex-context-telemetry'
+import { observeCodexContext, snapshotCodexUsage } from './codex-context-telemetry'
 import { codexSessionDiscovery } from './codex-session-discovery'
 import { piProvider } from './providers/pi'
 import { geminiProvider } from './providers/gemini'
@@ -234,6 +235,8 @@ export interface HarnessProvider {
   readonly sessionDiscovery?: HarnessSessionDiscovery
   /** Optional structured, read-only operational state for this harness. */
   readonly telemetry?: HarnessTelemetryObserver
+  /** Content-free cumulative counters for bounded lifecycle phase snapshots. */
+  readonly usageSnapshots?: HarnessUsageSnapshotProvider
   /** Fail-closed check that the exact provider artifact can actually resume. */
   readonly resumeValidation?: HarnessResumeValidation
   readonly probe: HarnessProbeContract
@@ -325,6 +328,7 @@ export const claudeCodeProvider: HarnessProvider = {
   supportsResume: true,
   sessionIdentity: 'preassigned',
   telemetry: { observe: observeClaudeContext },
+  usageSnapshots: { snapshot: snapshotClaudeUsage },
   resumeValidation: { availability: claudeResumeAvailability },
   probe: versionProbe('preassigned', true, 'pressure', {
     contextPressure: CLAUDE_CONTEXT_PRESSURE,
@@ -393,6 +397,7 @@ export const codexProvider: HarnessProvider = {
   sessionIdentity: 'discovered',
   sessionDiscovery: codexSessionDiscovery,
   telemetry: { observe: observeCodexContext },
+  usageSnapshots: { snapshot: snapshotCodexUsage },
   probe: versionProbe('discovered', true, 'pressure', {
     reviewInsert: codexReviewInsert,
     reviewSendNow: codexReviewSendNow,

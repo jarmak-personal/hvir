@@ -3,6 +3,17 @@
 import type { HarnessTelemetry, HostPath } from '../../shared'
 import { asHarnessProviderId, contextHarnessSnapshot, hostPath } from '../../shared'
 import type { Disposer, ProjectHost } from '../project-host'
+import {
+  unavailableHarnessUsageSnapshot,
+  type HarnessUsageCounters,
+  type HarnessUsageSnapshot,
+  type HarnessUsageSnapshotContext,
+} from './agent-work-usage'
+import {
+  boundedHarnessUsageString,
+  nonNegativeUsageCounter,
+  readHarnessUsageArtifact,
+} from './harness-usage-artifact'
 import type { HarnessTelemetryContext } from './harness-provider'
 import {
   buildTelemetryHubScript,
@@ -47,6 +58,96 @@ interface TokenCountEnvelope {
       }
       readonly model_context_window?: unknown
     } | null
+  }
+}
+
+interface CodexUsageEnvelope {
+  readonly type?: unknown
+  readonly payload?: {
+    readonly id?: unknown
+    readonly cwd?: unknown
+    readonly originator?: unknown
+    readonly model?: unknown
+    readonly effort?: unknown
+    readonly type?: unknown
+    readonly info?: {
+      readonly total_token_usage?: CodexTokenUsage
+    } | null
+  }
+}
+
+interface CodexTokenUsage {
+  readonly input_tokens?: unknown
+  readonly cached_input_tokens?: unknown
+  readonly cache_write_input_tokens?: unknown
+  readonly output_tokens?: unknown
+  readonly reasoning_output_tokens?: unknown
+}
+
+export async function snapshotCodexUsage(
+  host: ProjectHost,
+  context: HarnessUsageSnapshotContext,
+): Promise<HarnessUsageSnapshot> {
+  const providerId = asHarnessProviderId('codex')
+  if (!SESSION_ID.test(context.sessionId) || context.signal.aborted) {
+    return unavailableHarnessUsageSnapshot(providerId, 'invalid-session-identity')
+  }
+  const rolloutPath =
+    sessionDataPath(context.sessionData, host, context.sessionId) ??
+    (await findSessionPath(host, context.sessionId, context.signal, context.artifact))
+  if (!rolloutPath || context.signal.aborted) {
+    return unavailableHarnessUsageSnapshot(providerId, 'artifact-unavailable')
+  }
+  const artifact = await readHarnessUsageArtifact(host, rolloutPath, context.signal)
+  if (artifact.status === 'unavailable') {
+    return unavailableHarnessUsageSnapshot(providerId, artifact.reason)
+  }
+
+  let identityQualified = false
+  let modelId: string | undefined
+  let reasoningEffort: string | undefined
+  let counters: HarnessUsageCounters | undefined
+  for (const line of artifact.content.split('\n')) {
+    const envelope = parseCodexUsageEnvelope(line)
+    if (!envelope) continue
+    if (envelope.type === 'session_meta') {
+      identityQualified ||=
+        envelope.payload?.id === context.sessionId &&
+        envelope.payload.cwd === context.cwd.path &&
+        envelope.payload.originator === 'codex-tui'
+      continue
+    }
+    if (envelope.type === 'turn_context') {
+      modelId = boundedHarnessUsageString(envelope.payload?.model) ?? modelId
+      reasoningEffort =
+        boundedHarnessUsageString(envelope.payload?.effort, 64) ?? reasoningEffort
+      continue
+    }
+    const usage = envelope.payload?.info?.total_token_usage
+    if (envelope.type !== 'event_msg' || envelope.payload?.type !== 'token_count') {
+      continue
+    }
+    const normalized = normalizeCodexUsageCounters(usage)
+    if (normalized) counters = normalized
+  }
+
+  if (!identityQualified) {
+    return unavailableHarnessUsageSnapshot(providerId, 'invalid-session-identity')
+  }
+  if (!counters) {
+    return unavailableHarnessUsageSnapshot(providerId, 'usage-unavailable')
+  }
+  return {
+    version: 1,
+    status: 'available',
+    providerId,
+    observedAt: Date.now(),
+    route: {
+      ...(modelId ? { modelId } : {}),
+      ...(reasoningEffort ? { reasoningEffort } : {}),
+    },
+    counters,
+    timing: {},
   }
 }
 
@@ -120,12 +221,53 @@ async function findSessionPath(
   return paths.length === 1 ? hostPath(host.hostId, paths[0] ?? '') : undefined
 }
 
-function sessionDataPath(value: unknown, host: ProjectHost): HostPath | undefined {
+function sessionDataPath(
+  value: unknown,
+  host: ProjectHost,
+  sessionId?: string,
+): HostPath | undefined {
   if (!value || typeof value !== 'object') return undefined
   const rolloutPath = (value as Partial<CodexSessionData>).rolloutPath
-  return rolloutPath?.hostId === host.hostId && typeof rolloutPath.path === 'string'
+  return rolloutPath?.hostId === host.hostId &&
+    typeof rolloutPath.path === 'string' &&
+    (!sessionId || rolloutPath.path.endsWith(`-${sessionId}.jsonl`))
     ? rolloutPath
     : undefined
+}
+
+function parseCodexUsageEnvelope(value: string): CodexUsageEnvelope | undefined {
+  try {
+    const parsed = JSON.parse(value) as unknown
+    return parsed && typeof parsed === 'object' ? parsed : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function normalizeCodexUsageCounters(
+  value: CodexTokenUsage | undefined,
+): HarnessUsageCounters | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const inputTokens = nonNegativeUsageCounter(value.input_tokens)
+  const cacheReadInputTokens = nonNegativeUsageCounter(value.cached_input_tokens)
+  const cacheWriteInputTokens = nonNegativeUsageCounter(value.cache_write_input_tokens)
+  const outputTokens = nonNegativeUsageCounter(value.output_tokens)
+  const freshInputTokens =
+    inputTokens !== undefined &&
+    cacheReadInputTokens !== undefined &&
+    cacheWriteInputTokens !== undefined
+      ? inputTokens - cacheReadInputTokens - cacheWriteInputTokens
+      : undefined
+  if (freshInputTokens !== undefined && freshInputTokens < 0) return undefined
+  const reasoningTokens = nonNegativeUsageCounter(value.reasoning_output_tokens)
+  const counters = {
+    ...(freshInputTokens === undefined ? {} : { freshInputTokens }),
+    ...(cacheReadInputTokens === undefined ? {} : { cacheReadInputTokens }),
+    ...(cacheWriteInputTokens === undefined ? {} : { cacheWriteInputTokens }),
+    ...(outputTokens === undefined ? {} : { outputTokens }),
+    ...(reasoningTokens === undefined ? {} : { reasoningTokens }),
+  }
+  return Object.keys(counters).length > 0 ? counters : undefined
 }
 
 const codexHubs = new HarnessTelemetryHubRegistry({
