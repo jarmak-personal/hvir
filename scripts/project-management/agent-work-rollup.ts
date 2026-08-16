@@ -1,11 +1,15 @@
 import {
+  agentWorkLedgerProjectionDiagnostic,
   normalizeAgentWorkComments,
-  type AgentWorkLedgerDiagnostic,
+  requireAgentWorkIssueNumber,
+  sumAgentWorkSafeIntegers,
+  type AgentWorkLedgerProjectionDiagnostic,
   type NormalizedAgentWorkLedger,
 } from './agent-work-ledger.ts'
 import {
-  AgentWorkProjectWriteError,
+  agentWorkProjectWriteDiagnostic,
   type AgentWorkProjectValues,
+  type AgentWorkProjectWriteDiagnostic,
 } from './agent-work-project-fields.ts'
 
 export interface AgentWorkRollupIssueReference {
@@ -42,16 +46,9 @@ export type AgentWorkRollupDiagnostic =
   | 'child-relationship-invalid'
   | 'nested-descendants'
   | 'child-coordination-record'
-  | 'ledger-invalid-record'
-  | 'ledger-duplicate-record'
-  | 'ledger-idempotency-conflict'
-  | 'ledger-invalid-supersession'
-  | 'ledger-aggregate-overflow'
+  | AgentWorkLedgerProjectionDiagnostic
   | 'rollup-aggregate-overflow'
-  | 'project-write-permission-denied'
-  | 'project-write-schema-invalid'
-  | 'project-write-transport-failed'
-  | 'project-write-failed'
+  | AgentWorkProjectWriteDiagnostic
 
 export interface AgentWorkRollupParticipant {
   issueNumber: number
@@ -95,7 +92,7 @@ export async function reconcileAgentWorkRollup(
   project: AgentWorkRollupProjectPort,
   input: { issueNumber: number; apply: boolean },
 ): Promise<AgentWorkRollupReport> {
-  const issueNumber = requirePositiveInteger(input.issueNumber)
+  const issueNumber = requireAgentWorkIssueNumber(input.issueNumber)
   const target = await source.readRollupIssue(issueNumber)
   const current = await project.readAgentWorkProjection(issueNumber)
   const currentValue = current['Epic rollup tokens']
@@ -207,8 +204,8 @@ function deriveAgentWorkRollup(participants: readonly LoadedParticipant[]): {
       diagnostics: [],
     }
   }
-  const diagnostics = participants.flatMap(({ ledger }) =>
-    ledger.diagnostics.map(rollupLedgerDiagnostic),
+  const diagnostics: AgentWorkRollupDiagnostic[] = participants.flatMap(({ ledger }) =>
+    ledger.diagnostics.map(agentWorkLedgerProjectionDiagnostic),
   )
   if (
     participants
@@ -230,8 +227,8 @@ function deriveAgentWorkRollup(participants: readonly LoadedParticipant[]): {
     const value = ledger.ownTotal.knownTokenSubtotal
     return value === undefined ? [] : [value]
   })
-  const normalizedTokenTotal = sumSafe(normalized)
-  const knownTokenSubtotal = sumSafe(known)
+  const normalizedTokenTotal = sumAgentWorkSafeIntegers(normalized)
+  const knownTokenSubtotal = sumAgentWorkSafeIntegers(known)
   if (normalizedTokenTotal === undefined && normalized.length > 0) {
     diagnostics.push('rollup-aggregate-overflow')
   }
@@ -350,58 +347,11 @@ async function applyRollupProjection(
     report.projection.outcome = 'updated'
   } catch (error) {
     report.projection.outcome = 'failed'
-    report.diagnostics.push(projectWriteDiagnostic(error))
+    report.diagnostics.push(agentWorkProjectWriteDiagnostic(error))
   }
   return report
 }
 
-function rollupLedgerDiagnostic(
-  diagnostic: AgentWorkLedgerDiagnostic,
-): AgentWorkRollupDiagnostic {
-  switch (diagnostic.code) {
-    case 'invalid-record':
-      return 'ledger-invalid-record'
-    case 'duplicate-record':
-      return 'ledger-duplicate-record'
-    case 'idempotency-conflict':
-      return 'ledger-idempotency-conflict'
-    case 'invalid-supersession':
-      return 'ledger-invalid-supersession'
-    case 'aggregate-overflow':
-      return 'ledger-aggregate-overflow'
-  }
-}
-
 function isUnsafeDiagnostic(diagnostic: AgentWorkRollupDiagnostic): boolean {
   return diagnostic !== 'ledger-duplicate-record'
-}
-
-function projectWriteDiagnostic(error: unknown): AgentWorkRollupDiagnostic {
-  if (!(error instanceof AgentWorkProjectWriteError)) return 'project-write-failed'
-  switch (error.failure) {
-    case 'permission':
-      return 'project-write-permission-denied'
-    case 'schema':
-      return 'project-write-schema-invalid'
-    case 'transport':
-      return 'project-write-transport-failed'
-    case 'generic':
-      return 'project-write-failed'
-  }
-}
-
-function sumSafe(values: readonly number[]): number | undefined {
-  let total = 0
-  for (const value of values) {
-    total += value
-    if (!Number.isSafeInteger(total)) return undefined
-  }
-  return total
-}
-
-function requirePositiveInteger(value: number): number {
-  if (!Number.isSafeInteger(value) || value <= 0) {
-    throw new Error('Agent-work issue number must be a positive integer.')
-  }
-  return value
 }

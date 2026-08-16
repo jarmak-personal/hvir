@@ -1,14 +1,18 @@
 import {
   AGENT_WORK_PROJECT_FIELDS,
-  AgentWorkProjectWriteError,
+  agentWorkProjectWriteDiagnostic,
   type AgentWorkProjectFieldName,
   type AgentWorkProjectFieldType,
   type AgentWorkProjectValue,
   type AgentWorkProjectValues,
+  type AgentWorkProjectWriteDiagnostic,
 } from './agent-work-project-fields.ts'
 import {
+  agentWorkLedgerProjectionDiagnostic,
   normalizeAgentWorkComments,
+  requireAgentWorkIssueNumber,
   type AgentWorkLedgerDiagnostic,
+  type AgentWorkLedgerProjectionDiagnostic,
   type AgentWorkPhase,
   type AgentWorkRecord,
   type NormalizedAgentWorkLedger,
@@ -37,15 +41,8 @@ const LEDGER_FIELDS: readonly AgentWorkProjectFieldName[] = [
 export type AgentWorkProjectionDiagnostic =
   | 'invalid-forecast'
   | 'model-route-too-large'
-  | 'ledger-invalid-record'
-  | 'ledger-duplicate-record'
-  | 'ledger-idempotency-conflict'
-  | 'ledger-invalid-supersession'
-  | 'ledger-aggregate-overflow'
-  | 'project-write-permission-denied'
-  | 'project-write-schema-invalid'
-  | 'project-write-transport-failed'
-  | 'project-write-failed'
+  | AgentWorkLedgerProjectionDiagnostic
+  | AgentWorkProjectWriteDiagnostic
 
 export interface AgentWorkProjectionSourcePort {
   readIssueBody(issueNumber: number): Promise<string>
@@ -90,7 +87,7 @@ export async function reconcileAgentWorkProjection(
   project: AgentWorkProjectPort,
   input: { issueNumber: number; apply: boolean },
 ): Promise<AgentWorkProjectionReport> {
-  const issueNumber = requirePositiveInteger(input.issueNumber)
+  const issueNumber = requireAgentWorkIssueNumber(input.issueNumber)
   const [body, commentBodies, current] = await Promise.all([
     source.readIssueBody(issueNumber),
     source.listCommentBodies(issueNumber),
@@ -127,7 +124,7 @@ export async function reconcileAgentWorkProjection(
         remaining.outcome = 'not-attempted'
       }
       report.projection.outcome = 'partial'
-      report.diagnostics.push(projectWriteDiagnostic(error))
+      report.diagnostics.push(agentWorkProjectWriteDiagnostic(error))
       return report
     }
   }
@@ -379,20 +376,7 @@ function projectionChanges(
 function ledgerProjectionDiagnostics(
   diagnostics: readonly AgentWorkLedgerDiagnostic[],
 ): AgentWorkProjectionDiagnostic[] {
-  const projected = diagnostics.map((diagnostic): AgentWorkProjectionDiagnostic => {
-    switch (diagnostic.code) {
-      case 'invalid-record':
-        return 'ledger-invalid-record'
-      case 'duplicate-record':
-        return 'ledger-duplicate-record'
-      case 'idempotency-conflict':
-        return 'ledger-idempotency-conflict'
-      case 'invalid-supersession':
-        return 'ledger-invalid-supersession'
-      case 'aggregate-overflow':
-        return 'ledger-aggregate-overflow'
-    }
-  })
+  const projected = diagnostics.map(agentWorkLedgerProjectionDiagnostic)
   return [...new Set(projected)]
 }
 
@@ -400,25 +384,4 @@ function ledgerHasUnsafeProjectionEvidence(
   diagnostics: readonly AgentWorkLedgerDiagnostic[],
 ): boolean {
   return diagnostics.some((diagnostic) => diagnostic.code !== 'duplicate-record')
-}
-
-function projectWriteDiagnostic(error: unknown): AgentWorkProjectionDiagnostic {
-  if (!(error instanceof AgentWorkProjectWriteError)) return 'project-write-failed'
-  switch (error.failure) {
-    case 'permission':
-      return 'project-write-permission-denied'
-    case 'schema':
-      return 'project-write-schema-invalid'
-    case 'transport':
-      return 'project-write-transport-failed'
-    case 'generic':
-      return 'project-write-failed'
-  }
-}
-
-function requirePositiveInteger(value: number): number {
-  if (!Number.isSafeInteger(value) || value <= 0) {
-    throw new Error('Agent-work issue number must be a positive integer.')
-  }
-  return value
 }

@@ -48,6 +48,16 @@ export type AgentWorkProjectValues = Partial<
 export type AgentWorkProjectWriteFailure =
   'permission' | 'schema' | 'transport' | 'generic'
 
+const PROJECT_WRITE_DIAGNOSTIC_BY_FAILURE = {
+  permission: 'project-write-permission-denied',
+  schema: 'project-write-schema-invalid',
+  transport: 'project-write-transport-failed',
+  generic: 'project-write-failed',
+} as const satisfies Record<AgentWorkProjectWriteFailure, string>
+
+export type AgentWorkProjectWriteDiagnostic =
+  (typeof PROJECT_WRITE_DIAGNOSTIC_BY_FAILURE)[AgentWorkProjectWriteFailure]
+
 export class AgentWorkProjectWriteError extends Error {
   readonly failure: AgentWorkProjectWriteFailure
 
@@ -56,6 +66,14 @@ export class AgentWorkProjectWriteError extends Error {
     this.name = 'AgentWorkProjectWriteError'
     this.failure = failure
   }
+}
+
+export function agentWorkProjectWriteDiagnostic(
+  error: unknown,
+): AgentWorkProjectWriteDiagnostic {
+  return error instanceof AgentWorkProjectWriteError
+    ? PROJECT_WRITE_DIAGNOSTIC_BY_FAILURE[error.failure]
+    : PROJECT_WRITE_DIAGNOSTIC_BY_FAILURE.generic
 }
 
 export function agentWorkProjectField(

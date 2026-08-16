@@ -4,11 +4,15 @@ import {
   AGENT_WORK_COUNTERS,
   AgentWorkAppendRejectedError,
   AgentWorkAppendUncertainError,
+  agentWorkLedgerProjectionDiagnostic,
   normalizeAgentWorkComments,
   parseAgentWorkComment,
   parseAgentWorkRecord,
   reconcileAgentWorkLedger,
+  requireAgentWorkIssueNumber,
   serializeAgentWorkComment,
+  sumAgentWorkSafeIntegers,
+  type AgentWorkLedgerDiagnostic,
   type AgentWorkLedgerPort,
   type AgentWorkRecord,
 } from '../scripts/project-management/agent-work-ledger.ts'
@@ -28,6 +32,37 @@ const RUN_B = 'b'.repeat(64)
 const KEY_A = '1'.repeat(64)
 const KEY_B = '2'.repeat(64)
 const KEY_C = '3'.repeat(64)
+
+describe('agent-work ledger shared policy', () => {
+  it('owns issue-number validation and overflow-safe aggregation', () => {
+    expect(requireAgentWorkIssueNumber(ISSUE)).toBe(ISSUE)
+    expect(() => requireAgentWorkIssueNumber(0)).toThrow(
+      'Agent-work issue number must be a positive integer.',
+    )
+    expect(sumAgentWorkSafeIntegers([Number.MAX_SAFE_INTEGER, 0])).toBe(
+      Number.MAX_SAFE_INTEGER,
+    )
+    expect(sumAgentWorkSafeIntegers([Number.MAX_SAFE_INTEGER, 1])).toBeUndefined()
+  })
+
+  it('owns the content-free projection diagnostic mapping', () => {
+    const diagnostics: AgentWorkLedgerDiagnostic[] = [
+      { code: 'invalid-record', commentOrdinal: 1 },
+      { code: 'duplicate-record', commentOrdinal: 2 },
+      { code: 'idempotency-conflict', commentOrdinal: 3 },
+      { code: 'invalid-supersession', commentOrdinal: 4 },
+      { code: 'aggregate-overflow', field: 'normalizedTokenTotal' },
+    ]
+
+    expect(diagnostics.map(agentWorkLedgerProjectionDiagnostic)).toEqual([
+      'ledger-invalid-record',
+      'ledger-duplicate-record',
+      'ledger-idempotency-conflict',
+      'ledger-invalid-supersession',
+      'ledger-aggregate-overflow',
+    ])
+  })
+})
 
 describe('agent-work record schema', () => {
   it('round-trips only the exact marked, bounded complete schema', () => {
