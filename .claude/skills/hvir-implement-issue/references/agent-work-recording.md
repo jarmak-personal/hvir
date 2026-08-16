@@ -24,10 +24,11 @@ At the phase's start observation:
    family name or inferred value.
 4. When an exact current Codex or Claude Code session identity and launch directory are privately
    available, set `HVIR_USAGE_SESSION_ID` and `HVIR_USAGE_CWD` without printing them. Capture the
-   start snapshot with `npm run proof:harness-usage -- snapshot <codex|claude-code>` in a private
-   temporary file. Keep it private and remove it on every exit. Do not print, publish, or put the
-   session identity, launch directory, artifact location, or snapshot path in a record. If exact
-   identity cannot be proven, retain the applicable fixed unavailable reason and continue.
+   start snapshot with
+   `npm run --silent proof:harness-usage -- snapshot <codex|claude-code>` in a private temporary
+   file. Keep it private and remove it on every exit. Do not print, publish, or put the session
+   identity, launch directory, artifact location, or snapshot path in a record. If exact identity
+   cannot be proven, retain the applicable fixed unavailable reason and continue.
 
    ```sh
    export HVIR_USAGE_SESSION_ID='<private exact current session identity>'
@@ -50,7 +51,7 @@ At the phase's start observation:
      cleanup_hvir_agent_work_snapshot
      trap - EXIT HUP INT TERM
      # Retain the applicable fixed unavailable reason and continue the workflow.
-   elif ! npm run proof:harness-usage -- snapshot codex > "$hvir_agent_work_start_snapshot"; then
+   elif ! npm run --silent proof:harness-usage -- snapshot codex > "$hvir_agent_work_start_snapshot"; then
      cleanup_hvir_agent_work_snapshot
      trap - EXIT HUP INT TERM
      # Retain the applicable fixed unavailable reason and continue the workflow.
@@ -71,7 +72,7 @@ handoff facts are stable but before ledger bookkeeping:
 
 1. Stop the active-wall accumulator and, when the qualified start snapshot exists, take the end
    snapshot for the same private inputs and calculate the delta with
-   `npm run proof:harness-usage -- delta <codex|claude-code> < <start-snapshot>`. Never combine
+   `npm run --silent proof:harness-usage -- delta <codex|claude-code> < <start-snapshot>`. Never combine
    nearby or cross-provider sessions. For implementation, a push establishes candidate identity;
    it does not finalize the run before diff audit, architecture and acceptance rechecks,
    pull-request update, and handoff preparation finish. Capture the command's stdout privately for
@@ -81,7 +82,7 @@ handoff facts are stable but before ledger bookkeeping:
    if [[ -n "${hvir_agent_work_start_snapshot:-}" &&
      -f "$hvir_agent_work_start_snapshot" ]]; then
      if ! hvir_agent_work_delta="$(
-       npm run proof:harness-usage -- delta codex < "$hvir_agent_work_start_snapshot"
+       npm run --silent proof:harness-usage -- delta codex < "$hvir_agent_work_start_snapshot"
      )"; then
        unset hvir_agent_work_delta
        # Retain the applicable fixed unavailable reason and continue the workflow.
