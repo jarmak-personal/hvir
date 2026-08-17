@@ -68,12 +68,18 @@ survives stateless tool shells and conversation compaction:
 
 ```sh
 npm run --silent agent-work:checkpoint -- start \
-  --issue <number> --phase <phase> --provider <codex|claude-code> \
+  --issue <positive-number|pending> --phase <phase> --provider <codex|claude-code> \
   --run-key <canonical-64-hex-run-key>
 npm run --silent agent-work:checkpoint -- finish \
-  --issue <number> --phase <phase> --provider <codex|claude-code> \
+  --issue <positive-number|pending> --phase <phase> --provider <codex|claude-code> \
   --run-key <canonical-64-hex-run-key>
 ```
+
+Use `--issue pending` only for an authorized `issue-planning` run before GitHub assigns the new
+issue number. The same pending discriminator must qualify that run's start, pause, resume, finish,
+abandon, and release operations. Every other phase requires the real positive issue number. The
+pending discriminator is private checkpoint identity; it never replaces the real issue number in
+a ledger record or Project operation and never appears in command output.
 
 Codex resolves the exact current `CODEX_THREAD_ID` directly. Claude Code requires its explicitly
 preassigned current identity in `HVIR_USAGE_SESSION_ID`. Start defaults the qualified launch

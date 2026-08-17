@@ -145,6 +145,82 @@ describe('agent-work private checkpoint lifecycle', () => {
     await store.release(second)
   })
 
+  it('keeps an unpublished planning lifecycle isolated and content-free until append release', async () => {
+    const root = await privateRoot()
+    const clock = fakeClock()
+    const store = new AgentWorkCheckpointStore(root, clock)
+    const pending = pendingPlanningLocator('planning-session')
+    const published = { ...pending, issueNumber: 575 }
+
+    await expect(
+      store.start({
+        ...pending,
+        cwd: '/private/planning-launch',
+        artifactEnvironment: {},
+        snapshot: snapshot(10, 10),
+      }),
+    ).resolves.toMatchObject({ status: 'started' })
+    await expect(
+      store.start({
+        ...published,
+        cwd: '/private/planning-launch',
+        artifactEnvironment: {},
+        snapshot: snapshot(10, 100),
+      }),
+    ).resolves.toMatchObject({ status: 'started' })
+    await expect(readdir(root)).resolves.toHaveLength(2)
+
+    clock.advance(7)
+    await expect(store.pause(pending)).resolves.toMatchObject({ status: 'paused' })
+    clock.advance(50)
+    await expect(store.resume(pending)).resolves.toMatchObject({ status: 'resumed' })
+    clock.advance(3)
+    let captures = 0
+    const observation = await store.finish(pending, () => {
+      captures += 1
+      return Promise.resolve(snapshot(20, 25))
+    })
+
+    expect(observation).toMatchObject({
+      status: 'closed',
+      activeWallMilliseconds: 10,
+      usage: { counters: { freshInputTokens: 15 } },
+    })
+    expect(JSON.stringify(observation)).not.toContain('pending')
+    expect(JSON.stringify(observation)).not.toContain('/private/')
+    await expect(
+      store.finish(pending, () => {
+        captures += 1
+        return Promise.resolve(snapshot(30, 999))
+      }),
+    ).resolves.toEqual(observation)
+    expect(captures).toBe(1)
+    await expect(store.abandon(pending)).rejects.toThrow(
+      'A finalized agent-work checkpoint must be released after append.',
+    )
+    await expect(store.release(pending)).resolves.toMatchObject({ status: 'released' })
+    await expect(store.abandon(published)).resolves.toMatchObject({ status: 'abandoned' })
+    await expect(readdir(root)).resolves.toEqual([])
+  })
+
+  it('rejects a pending locator outside issue planning before persisting state', async () => {
+    const root = await privateRoot()
+    const store = new AgentWorkCheckpointStore(root, fakeClock())
+
+    await expect(
+      store.start({
+        ...pendingPlanningLocator('invalid-pending-session'),
+        phase: 'implementation',
+        cwd: '/launch',
+        artifactEnvironment: {},
+        snapshot: snapshot(10, 1),
+      }),
+    ).rejects.toThrow(
+      'A pending agent-work checkpoint locator is supported only for issue-planning.',
+    )
+    await expect(readdir(root)).resolves.toEqual([])
+  })
+
   it('does not discover or consume a different delegated identity', async () => {
     const root = await privateRoot()
     const store = new AgentWorkCheckpointStore(root, fakeClock())
@@ -283,6 +359,49 @@ describe('agent-work checkpoint command identity boundary', () => {
       expect.stringContaining('"reason": "run-identity-unproven"'),
     )
   })
+
+  it('accepts a content-free pending locator only for unpublished issue planning', async () => {
+    const output = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    const runKey = 'b'.repeat(64)
+
+    await expect(
+      runAgentWorkCheckpoint(
+        [
+          'start',
+          '--issue',
+          'pending',
+          '--phase',
+          'issue-planning',
+          '--provider',
+          'codex',
+          '--run-key',
+          runKey,
+        ],
+        {},
+      ),
+    ).resolves.toBe(2)
+
+    const report = String(output.mock.calls.at(-1)?.[0])
+    expect(report).toContain('"reason": "run-identity-unproven"')
+    expect(report).not.toContain('pending')
+    expect(report).not.toContain(runKey)
+    await expect(
+      runAgentWorkCheckpoint(
+        [
+          'start',
+          '--issue',
+          'pending',
+          '--phase',
+          'implementation',
+          '--provider',
+          'codex',
+          '--run-key',
+          runKey,
+        ],
+        {},
+      ),
+    ).rejects.toThrow('--issue pending is supported only for issue-planning.')
+  })
 })
 
 async function privateRoot(): Promise<string> {
@@ -295,6 +414,16 @@ function codexLocator(sessionId: string, runKey = 'a'.repeat(64)) {
   return {
     issueNumber: 576,
     phase: 'implementation' as const,
+    providerId: 'codex' as const,
+    sessionId,
+    runKey,
+  }
+}
+
+function pendingPlanningLocator(sessionId: string, runKey = 'c'.repeat(64)) {
+  return {
+    issueNumber: 'pending' as const,
+    phase: 'issue-planning' as const,
     providerId: 'codex' as const,
     sessionId,
     runKey,
