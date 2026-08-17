@@ -5,47 +5,19 @@ import {
   AgentWorkProjectWriteError,
 } from '../scripts/project-management/agent-work-project-fields.ts'
 import { GitHubCanonicalProject } from '../scripts/project-management/canonical-project.ts'
+import type { CanonicalProjectConfiguration } from '../scripts/project-management/canonical-project-config.ts'
 import { GitHubClient } from '../scripts/project-management/github-client.ts'
 
 describe('GitHub agent-work Project adapter', () => {
-  it('paginates the typed schema, reads named values, and writes every field type', async () => {
+  it('uses stored schema and one issue-scoped item read before reading and writing every field type', async () => {
     const mutations: Array<{ query: string; variables: Record<string, unknown> }> = []
+    const queries: string[] = []
     const fetchImplementation = vi.fn(
       (_url: string | URL | Request, init?: RequestInit): Promise<Response> => {
         const body = requestBody(init)
-        if (body.query.includes('ProjectIdentity')) {
-          return Promise.resolve(
-            graphqlData({ user: { projectV2: { id: 'project-id' } } }),
-          )
-        }
-        if (body.query.includes('ProjectFields')) {
-          const second = body.variables.after === 'fields-next'
-          const fields = measurementFields()
-          return Promise.resolve(
-            graphqlData({
-              node: {
-                fields: {
-                  nodes: second ? fields.slice(6) : fields.slice(0, 6),
-                  pageInfo: {
-                    endCursor: second ? null : 'fields-next',
-                    hasNextPage: !second,
-                  },
-                },
-              },
-            }),
-          )
-        }
-        if (body.query.includes('ProjectItems')) {
-          return Promise.resolve(
-            graphqlData({
-              node: {
-                items: {
-                  nodes: [projectItem(false)],
-                  pageInfo: { endCursor: null, hasNextPage: false },
-                },
-              },
-            }),
-          )
+        queries.push(body.query)
+        if (body.query.includes('IssueProjectItems')) {
+          return Promise.resolve(issueProjectItems([projectItem(false)]))
         }
         if (body.query.includes('AgentWorkProjectValues')) {
           return Promise.resolve(
@@ -117,6 +89,15 @@ describe('GitHub agent-work Project adapter', () => {
       value: 4,
     })
     expect(mutations[2]?.variables.optionId).toBe('risk-High')
+    expect(queries.filter((query) => query.includes('IssueProjectItems'))).toHaveLength(1)
+    expect(
+      queries.filter((query) => query.includes('AgentWorkProjectValues')),
+    ).toHaveLength(1)
+    expect(queries.filter((query) => query.includes('ProjectIdentity'))).toHaveLength(0)
+    expect(queries.filter((query) => query.includes('ProjectFields'))).toHaveLength(0)
+    expect(queries.filter((query) => query.includes('query ProjectItems'))).toHaveLength(
+      0,
+    )
   })
 
   it('reads finite manual NUMBER drift so projection policy can converge it', async () => {
@@ -169,7 +150,7 @@ describe('GitHub agent-work Project adapter', () => {
         'Project field "Risk" is missing the expected "Critical" option',
       ],
     ] as const) {
-      const project = canonicalProject(schemaFetch([...fields]))
+      const project = canonicalProject(schemaFetch([...fields]), [...fields])
       await expect(project.readAgentWorkProjection(574)).rejects.toThrow(message)
     }
   })
@@ -211,38 +192,14 @@ describe('GitHub agent-work Project adapter', () => {
 })
 
 function schemaFetch(
-  fields: object[],
+  _fields: object[],
   items: object[] = [projectItem(false)],
   mutationError?: { type: string; message: string },
 ): typeof fetch {
   return vi.fn((_url: string | URL | Request, init?: RequestInit) => {
     const body = requestBody(init)
-    if (body.query.includes('ProjectIdentity')) {
-      return Promise.resolve(graphqlData({ user: { projectV2: { id: 'project-id' } } }))
-    }
-    if (body.query.includes('ProjectFields')) {
-      return Promise.resolve(
-        graphqlData({
-          node: {
-            fields: {
-              nodes: fields,
-              pageInfo: { endCursor: null, hasNextPage: false },
-            },
-          },
-        }),
-      )
-    }
-    if (body.query.includes('ProjectItems')) {
-      return Promise.resolve(
-        graphqlData({
-          node: {
-            items: {
-              nodes: items,
-              pageInfo: { endCursor: null, hasNextPage: false },
-            },
-          },
-        }),
-      )
+    if (body.query.includes('IssueProjectItems')) {
+      return Promise.resolve(issueProjectItems(items))
     }
     if (
       mutationError !== undefined &&
@@ -262,37 +219,11 @@ function schemaFetch(
   })
 }
 
-function projectValuesFetch(
-  values: Record<string, unknown>,
-): typeof fetch {
+function projectValuesFetch(values: Record<string, unknown>): typeof fetch {
   return vi.fn((_url: string | URL | Request, init?: RequestInit) => {
     const body = requestBody(init)
-    if (body.query.includes('ProjectIdentity')) {
-      return Promise.resolve(graphqlData({ user: { projectV2: { id: 'project-id' } } }))
-    }
-    if (body.query.includes('ProjectFields')) {
-      return Promise.resolve(
-        graphqlData({
-          node: {
-            fields: {
-              nodes: measurementFields(),
-              pageInfo: { endCursor: null, hasNextPage: false },
-            },
-          },
-        }),
-      )
-    }
-    if (body.query.includes('ProjectItems')) {
-      return Promise.resolve(
-        graphqlData({
-          node: {
-            items: {
-              nodes: [projectItem(false)],
-              pageInfo: { endCursor: null, hasNextPage: false },
-            },
-          },
-        }),
-      )
+    if (body.query.includes('IssueProjectItems')) {
+      return Promise.resolve(issueProjectItems([projectItem(false)]))
     }
     if (body.query.includes('AgentWorkProjectValues')) {
       return Promise.resolve(
@@ -351,6 +282,7 @@ function singleSelectField(name: string, options: string[]): Record<string, unkn
 
 function projectItem(archived: boolean): object {
   return {
+    project: { id: 'project-id' },
     id: 'item-id',
     isArchived: archived,
     content: {
@@ -370,7 +302,10 @@ function slug(value: string): string {
     .replace(/-$/, '')
 }
 
-function canonicalProject(fetchImplementation: typeof fetch): GitHubCanonicalProject {
+function canonicalProject(
+  fetchImplementation: typeof fetch,
+  fields: object[] = measurementFields(),
+): GitHubCanonicalProject {
   return new GitHubCanonicalProject({
     owner: 'jarmak-personal',
     number: 1,
@@ -382,6 +317,33 @@ function canonicalProject(fetchImplementation: typeof fetch): GitHubCanonicalPro
       fetchImplementation,
       wait: vi.fn().mockResolvedValue(undefined),
     }),
+    configuration: configuration(fields),
+  })
+}
+
+function configuration(fields: object[]): CanonicalProjectConfiguration {
+  return {
+    repository: 'jarmak-personal/hvir',
+    owner: 'jarmak-personal',
+    number: 1,
+    id: 'project-id',
+    fields: fields.map((field) => {
+      const { __typename, ...rest } = field as Record<string, unknown>
+      return { typename: String(__typename), ...rest }
+    }),
+  }
+}
+
+function issueProjectItems(items: object[]): Response {
+  return graphqlData({
+    repository: {
+      issue: {
+        projectItems: {
+          nodes: items,
+          pageInfo: { endCursor: null, hasNextPage: false },
+        },
+      },
+    },
   })
 }
 
