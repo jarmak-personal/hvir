@@ -2,10 +2,10 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   reconcileAgentWorkRollup,
-  type AgentWorkRollupIssue,
   type AgentWorkRollupProjectPort,
   type AgentWorkRollupReport,
   type AgentWorkRollupSourcePort,
+  type AgentWorkRollupTargetIssue,
 } from '../scripts/project-management/agent-work-rollup.ts'
 import {
   parseAgentWorkRecord,
@@ -144,6 +144,10 @@ describe('agent-work epic Rollup reconciliation', () => {
       'Lifecycle tokens',
       'Measurement coverage',
     ])
+    expect(fixture.readRollupTarget).toHaveBeenCalledOnce()
+    expect(fixture.readRollupParticipant).toHaveBeenCalledTimes(2)
+    expect(fixture.readRollupParticipant).toHaveBeenCalledWith(CHILD_A)
+    expect(fixture.readRollupParticipant).toHaveBeenCalledWith(CHILD_B)
   })
 
   it('reports missing and partial child Own totals without substituting zero', async () => {
@@ -429,7 +433,8 @@ describe('agent-work epic Rollup reconciliation', () => {
 
     expect(report.diagnostics).toEqual(['cross-repository-child'])
     expectPreservedProjection(report.projection, 42)
-    expect(fixture.readRollupIssue).toHaveBeenCalledTimes(1)
+    expect(fixture.readRollupTarget).toHaveBeenCalledTimes(1)
+    expect(fixture.readRollupParticipant).not.toHaveBeenCalled()
   })
 
   it('preserves a Rollup when kind authority is ambiguous', async () => {
@@ -511,7 +516,7 @@ describe('agent-work epic Rollup reconciliation', () => {
 
 function rollupFixture(input: {
   currentProjection?: AgentWorkProjectValues
-  issues: AgentWorkRollupIssue[]
+  issues: AgentWorkRollupTargetIssue[]
   comments?: Map<number, string[]>
 }): {
   source: AgentWorkRollupSourcePort
@@ -519,7 +524,12 @@ function rollupFixture(input: {
   setField: ReturnType<
     typeof vi.fn<AgentWorkRollupProjectPort['setAgentWorkProjectionField']>
   >
-  readRollupIssue: ReturnType<typeof vi.fn<AgentWorkRollupSourcePort['readRollupIssue']>>
+  readRollupTarget: ReturnType<
+    typeof vi.fn<AgentWorkRollupSourcePort['readRollupTarget']>
+  >
+  readRollupParticipant: ReturnType<
+    typeof vi.fn<AgentWorkRollupSourcePort['readRollupParticipant']>
+  >
 } {
   const issues = new Map(input.issues.map((issue) => [issue.number, issue]))
   const values: AgentWorkProjectValues = { ...input.currentProjection }
@@ -530,7 +540,14 @@ function rollupFixture(input: {
       return Promise.resolve()
     },
   )
-  const readRollupIssue = vi.fn<AgentWorkRollupSourcePort['readRollupIssue']>(
+  const readRollupTarget = vi.fn<AgentWorkRollupSourcePort['readRollupTarget']>(
+    (issueNumber) => {
+      const issue = issues.get(issueNumber)
+      if (issue === undefined) throw new Error('missing fixture issue')
+      return Promise.resolve(issue)
+    },
+  )
+  const readRollupParticipant = vi.fn<AgentWorkRollupSourcePort['readRollupParticipant']>(
     (issueNumber) => {
       const issue = issues.get(issueNumber)
       if (issue === undefined) throw new Error('missing fixture issue')
@@ -543,7 +560,8 @@ function rollupFixture(input: {
   )
   return {
     source: {
-      readRollupIssue,
+      readRollupTarget,
+      readRollupParticipant,
       readCommentHistory,
     },
     project: {
@@ -551,7 +569,8 @@ function rollupFixture(input: {
       setAgentWorkProjectionField: setField,
     },
     setField,
-    readRollupIssue,
+    readRollupTarget,
+    readRollupParticipant,
   }
 }
 
@@ -595,8 +614,10 @@ function expectPreservedProjection(
   })
 }
 
-function epicIssue(overrides: Partial<AgentWorkRollupIssue> = {}): AgentWorkRollupIssue {
-  return {
+function epicIssue(
+  overrides: Partial<AgentWorkRollupTargetIssue> = {},
+): AgentWorkRollupTargetIssue {
+  return rollupIssue({
     number: EPIC,
     repository: REPOSITORY,
     state: 'OPEN',
@@ -604,14 +625,14 @@ function epicIssue(overrides: Partial<AgentWorkRollupIssue> = {}): AgentWorkRoll
     parent: null,
     directChildren: [],
     ...overrides,
-  }
+  })
 }
 
 function ordinaryIssue(
   number: number,
-  overrides: Partial<AgentWorkRollupIssue> = {},
-): AgentWorkRollupIssue {
-  return {
+  overrides: Partial<AgentWorkRollupTargetIssue> = {},
+): AgentWorkRollupTargetIssue {
+  return rollupIssue({
     number,
     repository: REPOSITORY,
     state: 'OPEN',
@@ -619,14 +640,14 @@ function ordinaryIssue(
     parent: null,
     directChildren: [],
     ...overrides,
-  }
+  })
 }
 
 function childIssue(
   number: number,
-  overrides: Partial<AgentWorkRollupIssue> = {},
-): AgentWorkRollupIssue {
-  return {
+  overrides: Partial<AgentWorkRollupTargetIssue> = {},
+): AgentWorkRollupTargetIssue {
+  return rollupIssue({
     number,
     repository: REPOSITORY,
     state: 'OPEN',
@@ -634,6 +655,17 @@ function childIssue(
     parent: reference(EPIC),
     directChildren: [],
     ...overrides,
+  })
+}
+
+function rollupIssue(
+  issue: Omit<AgentWorkRollupTargetIssue, 'hasDirectChildren'> & {
+    hasDirectChildren?: boolean
+  },
+): AgentWorkRollupTargetIssue {
+  return {
+    ...issue,
+    hasDirectChildren: issue.hasDirectChildren ?? issue.directChildren.length > 0,
   }
 }
 

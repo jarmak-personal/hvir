@@ -347,10 +347,11 @@ for root epics. One-issue projection reserves all five fields on those rows, so 
 cannot race or overwrite each other. Project-wide issue-owned analysis excludes root-epic rows;
 including both child Own values and the parent Rollup would count the same child work twice.
 
-Lifecycle skills run the operation after the owning issue's append and projection. When that
-issue is a native direct child, they then reconcile the one exact parent. Parent reconciliation
-writes no child comment or Project field. Append, issue projection, and Rollup retry independently
-from current authoritative state.
+Lifecycle skills run Rollup only for an applicable root epic after append and issue projection:
+the changed issue itself when it is a root epic, or the one exact native parent after a direct
+child changes. Ordinary issues run no Rollup, and an epic child does not run Rollup against itself.
+Parent reconciliation writes no child comment or Project field. Append, issue projection, and
+Rollup retry independently from current authoritative state.
 
 ### Delivery context
 
