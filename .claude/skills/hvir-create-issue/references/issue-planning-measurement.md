@@ -36,9 +36,10 @@ provide the explicitly preassigned current session identity through `HVIR_USAGE_
 without printing it. Set `HVIR_USAGE_CWD` only when the command does not run from the exact harness
 launch directory. The checkpoint privately retains those inputs, its provider artifact context,
 the content-free baseline, and a monotonic active clock across stateless tool shells and
-compaction. Epoch and monotonic anchors must agree across those processes; otherwise the final
-observation omits active time. Its output contains none of the private locator, run key, session,
-path, or artifact facts.
+compaction. Each epoch sample is bracketed by bounded monotonic readings and retried when
+scheduling makes that bracket too wide. The bounded anchors must agree across processes;
+otherwise the final observation omits active time. Its output contains none of the private
+locator, run key, session, path, or artifact facts.
 
 A repeated start with the same pending locator, provider, identity, and run key is `unchanged` and
 preserves the first baseline. A missing exact identity or unavailable start snapshot retains the

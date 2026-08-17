@@ -124,6 +124,30 @@ describe('agent-work private checkpoint lifecycle', () => {
     expect(result).toMatchObject({ activeWallMilliseconds: 20 })
   })
 
+  it('retries a clock anchor delayed between its monotonic and epoch samples', async () => {
+    const root = await privateRoot()
+    const locator = codexLocator('delayed-clock-sample-session')
+    await new AgentWorkCheckpointStore(
+      root,
+      scriptedClock(
+        [0n, 20_000_000n, 20_000_000n, 20_000_000n],
+        [1_020, 1_020, 1_020],
+      ),
+    ).start({
+      ...locator,
+      cwd: '/launch',
+      artifactEnvironment: {},
+      snapshot: snapshot(10, 10),
+    })
+
+    const result = await new AgentWorkCheckpointStore(
+      root,
+      fakeClock(1_040, 40_000_000n),
+    ).finish(locator, () => Promise.resolve(snapshot(20, 20)))
+
+    expect(result).toMatchObject({ activeWallMilliseconds: 20 })
+  })
+
   it('omits active time when persisted epoch and monotonic clock deltas disagree', async () => {
     const root = await privateRoot()
     const locator = codexLocator('disagreeing-clock-session')
@@ -161,9 +185,11 @@ describe('agent-work private checkpoint lifecycle', () => {
       string,
       unknown
     >
-    const anchor = state.activeSegmentStartedAt as { monotonicNanoseconds: string }
+    const anchor = state.activeSegmentStartedAt as {
+      monotonicBeforeNanoseconds: string
+    }
     delete state.clockVersion
-    state.activeSegmentStartedAt = anchor.monotonicNanoseconds
+    state.activeSegmentStartedAt = anchor.monotonicBeforeNanoseconds
     await writeFile(checkpointPath, `${JSON.stringify(state)}\n`, { mode: 0o600 })
 
     const result = await new AgentWorkCheckpointStore(
@@ -171,6 +197,41 @@ describe('agent-work private checkpoint lifecycle', () => {
       fakeClock(1_020, 30_000_000n),
     ).finish(locator, () => Promise.resolve(snapshot(20, 20)))
 
+    expect(result).not.toHaveProperty('activeWallMilliseconds')
+  })
+
+  it('omits unverifiable active time from the previous unbracketed clock schema', async () => {
+    const root = await privateRoot()
+    const locator = codexLocator('previous-clock-session')
+    await new AgentWorkCheckpointStore(root, fakeClock(1_000, 10_000_000n)).start({
+      ...locator,
+      cwd: '/launch',
+      artifactEnvironment: {},
+      snapshot: snapshot(10, 10),
+    })
+    const [checkpointName] = await readdir(root)
+    const checkpointPath = join(root, checkpointName!)
+    const state = JSON.parse(await readFile(checkpointPath, 'utf8')) as Record<
+      string,
+      unknown
+    >
+    const anchor = state.activeSegmentStartedAt as {
+      monotonicBeforeNanoseconds: string
+      epochMilliseconds: number
+    }
+    state.clockVersion = 1
+    state.activeSegmentStartedAt = {
+      monotonicNanoseconds: anchor.monotonicBeforeNanoseconds,
+      epochMilliseconds: anchor.epochMilliseconds,
+    }
+    await writeFile(checkpointPath, `${JSON.stringify(state)}\n`, { mode: 0o600 })
+
+    const result = await new AgentWorkCheckpointStore(
+      root,
+      fakeClock(1_020, 30_000_000n),
+    ).finish(locator, () => Promise.resolve(snapshot(20, 20)))
+
+    expect(result).toMatchObject({ usage: { status: 'complete' } })
     expect(result).not.toHaveProperty('activeWallMilliseconds')
   })
 
@@ -590,6 +651,26 @@ function fakeClock(
     advance: (milliseconds) => {
       nanoseconds += BigInt(milliseconds) * 1_000_000n
       epochMilliseconds += milliseconds
+    },
+  }
+}
+
+function scriptedClock(
+  monotonicNanoseconds: readonly bigint[],
+  epochMilliseconds: readonly number[],
+): AgentWorkCheckpointClock {
+  const monotonic = [...monotonicNanoseconds]
+  const epoch = [...epochMilliseconds]
+  return {
+    monotonicNanoseconds: () => {
+      const value = monotonic.shift()
+      if (value === undefined) throw new Error('Unexpected monotonic clock sample.')
+      return value
+    },
+    epochMilliseconds: () => {
+      const value = epoch.shift()
+      if (value === undefined) throw new Error('Unexpected epoch clock sample.')
+      return value
     },
   }
 }

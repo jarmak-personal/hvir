@@ -28,8 +28,9 @@ At the phase's start observation:
    `HVIR_USAGE_SESSION_ID` without printing it. Set `HVIR_USAGE_CWD` only when the command's current
    directory is not the exact harness launch directory. The command retains the private identity,
    launch context, provider artifact environment, content-free start snapshot, and monotonic active
-   clock across stateless tool shells and compaction. Persisted epoch and monotonic anchors must
-   agree across those processes; otherwise the final observation omits active time:
+   clock across stateless tool shells and compaction. Each persisted epoch sample is bracketed by
+   bounded monotonic readings and retried when scheduling makes that bracket too wide. The bounded
+   anchors must agree across processes; otherwise the final observation omits active time:
 
    ```sh
    npm run --silent agent-work:checkpoint -- start \

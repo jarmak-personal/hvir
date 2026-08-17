@@ -33,6 +33,9 @@ import {
 const CHECKPOINT_VERSION = 1
 const MAX_CHECKPOINT_BYTES = 128 * 1024
 const CLOCK_DELTA_TOLERANCE_NANOSECONDS = 5_000_000n
+const CLOCK_SAMPLE_MAX_SPAN_NANOSECONDS = 5_000_000n
+const CLOCK_SAMPLE_ATTEMPTS = 3
+const EPOCH_QUANTIZATION_NANOSECONDS = 1_000_000n
 export const AGENT_WORK_CHECKPOINT_RETENTION_MILLISECONDS = 30 * 24 * 60 * 60 * 1_000
 
 export type AgentWorkCheckpointIssueLocator = number | 'pending'
@@ -70,13 +73,14 @@ interface AgentWorkCheckpointIdentity extends AgentWorkCheckpointLocator {
 }
 
 interface AgentWorkCheckpointClockAnchor {
-  readonly monotonicNanoseconds: string
+  readonly monotonicBeforeNanoseconds: string
+  readonly monotonicAfterNanoseconds: string
   readonly epochMilliseconds: number
 }
 
 interface OpenAgentWorkCheckpointState extends AgentWorkCheckpointIdentity {
   readonly lifecycle: 'open'
-  readonly clockVersion: 1
+  readonly clockVersion: 2
   readonly cwd: string
   readonly artifactEnvironment: Readonly<Record<string, string>>
   readonly snapshot: HarnessUsageSnapshot
@@ -173,7 +177,7 @@ export class AgentWorkCheckpointStore {
     const state: OpenAgentWorkCheckpointState = {
       version: CHECKPOINT_VERSION,
       lifecycle: 'open',
-      clockVersion: 1,
+      clockVersion: 2,
       issueNumber: input.issueNumber,
       phase: input.phase,
       providerId: input.providerId,
@@ -513,12 +517,16 @@ function parseState(serialized: string): AgentWorkCheckpointState {
       value.snapshot.providerId !== value.providerId ||
       !validArtifactEnvironment(String(value.providerId), value.artifactEnvironment) ||
       (currentSchema &&
-        (value.clockVersion !== 1 ||
-          !(
-            value.accumulatedNanoseconds === null ||
-            nonNegativeBigIntegerString(value.accumulatedNanoseconds)
-          ) ||
-          !isPersistedClockAnchor(value.activeSegmentStartedAt))) ||
+        !(
+          (value.clockVersion === 2 &&
+            (value.accumulatedNanoseconds === null ||
+              nonNegativeBigIntegerString(value.accumulatedNanoseconds)) &&
+            isPersistedClockAnchor(value.activeSegmentStartedAt)) ||
+          (value.clockVersion === 1 &&
+            (value.accumulatedNanoseconds === null ||
+              nonNegativeBigIntegerString(value.accumulatedNanoseconds)) &&
+            isPreviousClockAnchor(value.activeSegmentStartedAt))
+        )) ||
       (legacySchema &&
         (!nonNegativeBigIntegerString(value.accumulatedNanoseconds) ||
           !(
@@ -528,10 +536,10 @@ function parseState(serialized: string): AgentWorkCheckpointState {
     ) {
       return invalidCheckpoint()
     }
-    if (legacySchema) {
+    if (legacySchema || value.clockVersion === 1) {
       return {
         ...(value as unknown as OpenAgentWorkCheckpointState),
-        clockVersion: 1,
+        clockVersion: 2,
         accumulatedNanoseconds: null,
         activeSegmentStartedAt:
           value.activeSegmentStartedAt === null ? null : 'unavailable',
@@ -704,33 +712,53 @@ function activeMilliseconds(
 function clockAnchor(
   clock: AgentWorkCheckpointClock,
 ): AgentWorkCheckpointClockAnchor | 'unavailable' {
-  const monotonicNanoseconds = clock.monotonicNanoseconds()
-  const epochMilliseconds = clock.epochMilliseconds()
-  if (
-    monotonicNanoseconds < 0n ||
-    nonNegativeUsageCounter(epochMilliseconds) === undefined
-  ) {
-    return 'unavailable'
+  for (let attempt = 0; attempt < CLOCK_SAMPLE_ATTEMPTS; attempt += 1) {
+    const monotonicBeforeNanoseconds = clock.monotonicNanoseconds()
+    const epochMilliseconds = clock.epochMilliseconds()
+    const monotonicAfterNanoseconds = clock.monotonicNanoseconds()
+    if (
+      monotonicBeforeNanoseconds < 0n ||
+      monotonicAfterNanoseconds < monotonicBeforeNanoseconds ||
+      monotonicAfterNanoseconds - monotonicBeforeNanoseconds >
+        CLOCK_SAMPLE_MAX_SPAN_NANOSECONDS ||
+      nonNegativeUsageCounter(epochMilliseconds) === undefined
+    ) {
+      continue
+    }
+    return {
+      monotonicBeforeNanoseconds: monotonicBeforeNanoseconds.toString(),
+      monotonicAfterNanoseconds: monotonicAfterNanoseconds.toString(),
+      epochMilliseconds,
+    }
   }
-  return {
-    monotonicNanoseconds: monotonicNanoseconds.toString(),
-    epochMilliseconds,
-  }
+  return 'unavailable'
 }
 
 function validatedElapsedNanoseconds(
   start: AgentWorkCheckpointClockAnchor,
   end: AgentWorkCheckpointClockAnchor,
 ): bigint | undefined {
-  const monotonicElapsed =
-    BigInt(end.monotonicNanoseconds) - BigInt(start.monotonicNanoseconds)
+  const startBefore = BigInt(start.monotonicBeforeNanoseconds)
+  const startAfter = BigInt(start.monotonicAfterNanoseconds)
+  const endBefore = BigInt(end.monotonicBeforeNanoseconds)
+  const endAfter = BigInt(end.monotonicAfterNanoseconds)
   const epochElapsed =
     BigInt(end.epochMilliseconds - start.epochMilliseconds) * 1_000_000n
-  if (monotonicElapsed < 0n || epochElapsed < 0n) return undefined
+  if (endAfter < startBefore || epochElapsed < 0n) return undefined
+  const monotonicElapsedLower =
+    endBefore > startAfter ? endBefore - startAfter : 0n
+  const monotonicElapsedUpper = endAfter - startBefore
+  const epochElapsedLower =
+    epochElapsed > EPOCH_QUANTIZATION_NANOSECONDS
+      ? epochElapsed - EPOCH_QUANTIZATION_NANOSECONDS
+      : 0n
+  const epochElapsedUpper = epochElapsed + EPOCH_QUANTIZATION_NANOSECONDS
   const difference =
-    monotonicElapsed > epochElapsed
-      ? monotonicElapsed - epochElapsed
-      : epochElapsed - monotonicElapsed
+    monotonicElapsedUpper < epochElapsedLower
+      ? epochElapsedLower - monotonicElapsedUpper
+      : epochElapsedUpper < monotonicElapsedLower
+        ? monotonicElapsedLower - epochElapsedUpper
+        : 0n
   return difference <= CLOCK_DELTA_TOLERANCE_NANOSECONDS
     ? epochElapsed
     : undefined
@@ -819,6 +847,27 @@ function nonNegativeBigIntegerString(value: unknown): value is string {
 function isPersistedClockAnchor(
   value: unknown,
 ): value is AgentWorkCheckpointClockAnchor | 'unavailable' | null {
+  return (
+    value === null ||
+    value === 'unavailable' ||
+    (isRecord(value) &&
+      exactKeys(value, [
+        'monotonicBeforeNanoseconds',
+        'monotonicAfterNanoseconds',
+        'epochMilliseconds',
+      ]) &&
+      nonNegativeBigIntegerString(value.monotonicBeforeNanoseconds) &&
+      nonNegativeBigIntegerString(value.monotonicAfterNanoseconds) &&
+      BigInt(value.monotonicAfterNanoseconds) >=
+        BigInt(value.monotonicBeforeNanoseconds) &&
+      BigInt(value.monotonicAfterNanoseconds) -
+        BigInt(value.monotonicBeforeNanoseconds) <=
+        CLOCK_SAMPLE_MAX_SPAN_NANOSECONDS &&
+      nonNegativeUsageCounter(value.epochMilliseconds) !== undefined)
+  )
+}
+
+function isPreviousClockAnchor(value: unknown): boolean {
   return (
     value === null ||
     value === 'unavailable' ||
