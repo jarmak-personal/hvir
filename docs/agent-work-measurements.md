@@ -216,11 +216,12 @@ combines that issue's Own totals for `issue-planning`, `implementation`,
 `implementation-review`, and, for an epic, `epic-coordination`. It never includes work attributed
 to a child. An ordinary issue and an epic child have no Rollup.
 
-An epic's **Rollup** is its Own lifecycle total plus the current Own lifecycle total of each
-native direct child exactly once. Rollups are not recursive: nested epics are unsupported, and a
-grandchild is never traversed. Reopened or additional work updates the owning issue first, then a
-later reconciliation updates its direct parent. Superseded and duplicate records contribute
-nothing.
+An epic's **Rollup** combines its Own per-phase and lifecycle totals with the current Own totals of
+each native direct child exactly once. Planning, implementation, and review remain distinct phase
+subtotals; the lifecycle subtotal additionally includes the root epic's coordination work.
+Rollups are not recursive: nested epics are unsupported, and a grandchild is never traversed.
+Reopened or additional work updates the owning issue first, then a later reconciliation updates
+its direct parent. Superseded and duplicate records contribute nothing.
 
 If every contributing run has an exact normalized total, the aggregate is complete. Otherwise,
 the aggregate remains partial or unavailable, reports coverage and any known subtotal, and is not
