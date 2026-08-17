@@ -60,3 +60,34 @@ Neither artifact exposed cumulative model/API time, so that timing value also re
 Deterministic adapter tests retain the same `ProjectHost` contract for local and SSH transports
 and cover malformed records, exact identity, missing artifacts, duplicate Claude records,
 counter movement, missing counters, and reset rejection without requiring ambient provider data.
+
+## Lifecycle checkpoint contract
+
+Repository lifecycle skills use the same provider boundary through a private checkpoint that
+survives stateless tool shells and conversation compaction:
+
+```sh
+npm run --silent agent-work:checkpoint -- start \
+  --issue <number> --phase <phase> --provider <codex|claude-code> \
+  --run-key <canonical-64-hex-run-key>
+npm run --silent agent-work:checkpoint -- finish \
+  --issue <number> --phase <phase> --provider <codex|claude-code> \
+  --run-key <canonical-64-hex-run-key>
+```
+
+Codex resolves the exact current `CODEX_THREAD_ID` directly. Claude Code requires its explicitly
+preassigned current identity in `HVIR_USAGE_SESSION_ID`. Start defaults the qualified launch
+directory to its current working directory; `HVIR_USAGE_CWD` is the private override when those
+are different. The checkpoint retains the launch context, provider artifact environment,
+content-free baseline, and monotonic active-time accumulator in a mode-`0700` private temporary
+root with mode-`0600` files. Its location and private contents never appear in command output.
+
+The canonical 64-hex run key isolates sequential or overlapping runs inside one supported session
+and never appears in checkpoint output. `pause` and `resume` exclude an explicit maintainer wait
+from active time. `abandon` removes an unfinished checkpoint. Start is idempotent and preserves the
+first baseline. Finish atomically retains a content-free observation and returns it unchanged on a
+retry without another provider read. `release` removes that finalized observation only after the
+ledger append is confirmed or reported as an identical duplicate. Another delegated or resumed
+identity, or another run key, cannot locate the checkpoint and receives the fixed
+`run-identity-unproven` result. Operational failures remain retryable. The owner prunes only its
+recognized open or finalized files after 30 days.

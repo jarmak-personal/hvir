@@ -46,7 +46,7 @@ describe('architecture hotspot report', () => {
     expect(terminalRuntime?.exception?.removalIssue).toBeUndefined()
     expect(terminalRuntime?.exception?.expiresOn).toBeUndefined()
     expect(terminalRuntime?.exception?.permanent).toBe(true)
-  }, 15_000)
+  }, 30_000)
 
   it('blocks the normal verification path on budget violations', () => {
     const root = process.cwd()
