@@ -10,6 +10,7 @@ import {
 import {
   parseAgentWorkRecord,
   serializeAgentWorkComment,
+  type AgentWorkCommentHistory,
   type AgentWorkRecord,
 } from '../scripts/project-management/agent-work-ledger.ts'
 import {
@@ -21,6 +22,7 @@ const REPOSITORY = 'jarmak-personal/hvir'
 const EPIC = 570
 const CHILD_A = 571
 const CHILD_B = 572
+const COMMENT_TIME = '2026-08-17T12:00:00Z'
 
 describe('agent-work epic Rollup reconciliation', () => {
   it('adds parent Own and each native direct child Own exactly once across closed state and supersession', async () => {
@@ -535,13 +537,14 @@ function rollupFixture(input: {
       return Promise.resolve(issue)
     },
   )
-  const listCommentBodies = vi.fn<AgentWorkRollupSourcePort['listCommentBodies']>(
-    (issueNumber) => Promise.resolve(input.comments?.get(issueNumber) ?? []),
+  const readCommentHistory = vi.fn<AgentWorkRollupSourcePort['readCommentHistory']>(
+    (issueNumber) =>
+      Promise.resolve(commentHistory(input.comments?.get(issueNumber) ?? [])),
   )
   return {
     source: {
       readRollupIssue,
-      listCommentBodies,
+      readCommentHistory,
     },
     project: {
       readAgentWorkProjection: vi.fn(() => Promise.resolve({ ...values })),
@@ -549,6 +552,18 @@ function rollupFixture(input: {
     },
     setField,
     readRollupIssue,
+  }
+}
+
+function commentHistory(bodies: readonly string[]): AgentWorkCommentHistory {
+  return {
+    trustedActor: 'jarmak-personal',
+    comments: bodies.map((body) => ({
+      body,
+      authorLogin: 'jarmak-personal',
+      createdAt: COMMENT_TIME,
+      updatedAt: COMMENT_TIME,
+    })),
   }
 }
 

@@ -12,6 +12,7 @@ import {
   normalizeAgentWorkComments,
   parseAgentWorkRecord,
   serializeAgentWorkComment,
+  type AgentWorkCommentHistory,
   type AgentWorkRecord,
 } from '../scripts/project-management/agent-work-ledger.ts'
 
@@ -22,6 +23,8 @@ const RUN_C = 'c'.repeat(64)
 const KEY_A = '1'.repeat(64)
 const KEY_B = '2'.repeat(64)
 const KEY_C = '3'.repeat(64)
+const TRUSTED_ACTOR = 'jarmak-personal'
+const COMMENT_TIME = '2026-08-17T12:00:00Z'
 
 describe('agent-work Project derivation', () => {
   it('projects the validated forecast and every ledger-owned field type', () => {
@@ -67,7 +70,7 @@ describe('agent-work Project derivation', () => {
       timing: { activeWallMilliseconds: 25 },
       outcome: undefined,
     })
-    const ledger = normalizeAgentWorkComments(ISSUE, [
+    const ledger = normalize([
       serializeAgentWorkComment(planning),
       serializeAgentWorkComment(implementation),
       serializeAgentWorkComment(review),
@@ -107,7 +110,7 @@ describe('agent-work Project derivation', () => {
         'output-tokens',
       ],
     })
-    const ledger = normalizeAgentWorkComments(ISSUE, [serializeAgentWorkComment(partial)])
+    const ledger = normalize([serializeAgentWorkComment(partial)])
     const result = deriveAgentWorkProjection(
       forecastBody().replace('Agent difficulty: 3/5', 'Agent difficulty: 5/5'),
       ledger,
@@ -133,7 +136,7 @@ describe('agent-work Project derivation', () => {
     })
     const values = deriveAgentWorkProjection(
       '',
-      normalizeAgentWorkComments(ISSUE, [
+      normalize([
         serializeAgentWorkComment(first),
         serializeAgentWorkComment(correction),
       ]),
@@ -152,7 +155,7 @@ describe('agent-work Project derivation', () => {
       availability: 'unavailable',
       unavailableReason: 'artifact-unavailable',
     })
-    const ledger = normalizeAgentWorkComments(ISSUE, [
+    const ledger = normalize([
       serializeAgentWorkComment(completeRecord()),
       serializeAgentWorkComment(review),
     ])
@@ -185,7 +188,7 @@ describe('agent-work Project derivation', () => {
     })
     const values = deriveAgentWorkProjection(
       '',
-      normalizeAgentWorkComments(ISSUE, [serializeAgentWorkComment(review)]),
+      normalize([serializeAgentWorkComment(review)]),
     ).values
 
     expect(values).not.toHaveProperty('Initial model')
@@ -197,10 +200,7 @@ describe('agent-work Project derivation', () => {
   })
 
   it('reports unavailable coverage while leaving token columns blank without evidence', () => {
-    const values = deriveAgentWorkProjection(
-      '',
-      normalizeAgentWorkComments(ISSUE, []),
-    ).values
+    const values = deriveAgentWorkProjection('', normalize([])).values
 
     expect(values['Measurement coverage']).toBe('Unavailable')
     expect(values).not.toHaveProperty('Planning tokens')
@@ -211,10 +211,7 @@ describe('agent-work Project derivation', () => {
 
   it('projects the latest valid pre-implementation revision without erasing the initial section', () => {
     const revised = `${forecastBody()}\n\n## Pre-implementation forecast revision\n\n- Agent difficulty: 4/5\n- Reasoning novelty: 2/2\n- Ownership breadth: 2/2\n- Lifecycle/integration burden: 1/2\n- Validation burden: 1/2\n- Risk: High\n- Estimate confidence: Medium`
-    const values = deriveAgentWorkProjection(
-      revised,
-      normalizeAgentWorkComments(ISSUE, []),
-    ).values
+    const values = deriveAgentWorkProjection(revised, normalize([])).values
 
     expect(values).toMatchObject({
       'Agent difficulty': 4,
@@ -238,9 +235,9 @@ describe('agent-work Project reconciliation', () => {
       kind: 'epic',
       parent: null,
     })
-    fixture.listCommentBodies.mockResolvedValue([
-      serializeAgentWorkComment(completeRecord()),
-    ])
+    fixture.readCommentHistory.mockResolvedValue(
+      history([serializeAgentWorkComment(completeRecord())]),
+    )
 
     const report = await reconcileAgentWorkProjection(fixture.source, fixture.project, {
       issueNumber: ISSUE,
@@ -416,7 +413,9 @@ describe('agent-work Project reconciliation', () => {
       },
     })
     const fixture = projectorFixture({ 'Model route': 'known-good-route' })
-    fixture.listCommentBodies.mockResolvedValue([serializeAgentWorkComment(record)])
+    fixture.readCommentHistory.mockResolvedValue(
+      history([serializeAgentWorkComment(record)]),
+    )
 
     const report = await reconcileAgentWorkProjection(fixture.source, fixture.project, {
       issueNumber: ISSUE,
@@ -445,10 +444,9 @@ describe('agent-work Project reconciliation', () => {
       'Lifecycle tokens': 42,
       'Measurement coverage': 'Complete',
     })
-    fixture.listCommentBodies.mockResolvedValue([
-      serializeAgentWorkComment(maximum),
-      serializeAgentWorkComment(one),
-    ])
+    fixture.readCommentHistory.mockResolvedValue(
+      history([serializeAgentWorkComment(maximum), serializeAgentWorkComment(one)]),
+    )
 
     const report = await reconcileAgentWorkProjection(fixture.source, fixture.project, {
       issueNumber: ISSUE,
@@ -483,11 +481,13 @@ describe('agent-work Project reconciliation', () => {
       'Initial model': 'known-model',
       'Implementation tokens': 10,
     })
-    fixture.listCommentBodies.mockResolvedValue([
-      '<!-- hvir-agent-work-measurement:v1 -->\nprivate malformed body',
-      serializeAgentWorkComment(original),
-      serializeAgentWorkComment(conflict),
-    ])
+    fixture.readCommentHistory.mockResolvedValue(
+      history([
+        '<!-- hvir-agent-work-measurement:v1 -->\nprivate malformed body',
+        serializeAgentWorkComment(original),
+        serializeAgentWorkComment(conflict),
+      ]),
+    )
 
     const report = await reconcileAgentWorkProjection(fixture.source, fixture.project, {
       issueNumber: ISSUE,
@@ -517,8 +517,8 @@ function projectorFixture(current: Record<string, string | number>): {
   readProjectionIssue: ReturnType<
     typeof vi.fn<AgentWorkProjectionSourcePort['readProjectionIssue']>
   >
-  listCommentBodies: ReturnType<
-    typeof vi.fn<AgentWorkProjectionSourcePort['listCommentBodies']>
+  readCommentHistory: ReturnType<
+    typeof vi.fn<AgentWorkProjectionSourcePort['readCommentHistory']>
   >
 } {
   const setField = vi.fn<AgentWorkProjectPort['setAgentWorkProjectionField']>(
@@ -531,11 +531,11 @@ function projectorFixture(current: Record<string, string | number>): {
   const readProjectionIssue = vi.fn(() =>
     Promise.resolve({ body: forecastBody(), kind: 'other' as const, parent: null }),
   )
-  const listCommentBodies = vi.fn(() => Promise.resolve<string[]>([]))
+  const readCommentHistory = vi.fn(() => Promise.resolve(history([])))
   return {
     source: {
       readProjectionIssue,
-      listCommentBodies,
+      readCommentHistory,
     },
     project: {
       readAgentWorkProjection: vi.fn(() => Promise.resolve({ ...current })),
@@ -543,7 +543,23 @@ function projectorFixture(current: Record<string, string | number>): {
     },
     setField,
     readProjectionIssue,
-    listCommentBodies,
+    readCommentHistory,
+  }
+}
+
+function normalize(bodies: readonly string[]) {
+  return normalizeAgentWorkComments(ISSUE, history(bodies))
+}
+
+function history(bodies: readonly string[]): AgentWorkCommentHistory {
+  return {
+    trustedActor: TRUSTED_ACTOR,
+    comments: bodies.map((body) => ({
+      body,
+      authorLogin: TRUSTED_ACTOR,
+      createdAt: COMMENT_TIME,
+      updatedAt: COMMENT_TIME,
+    })),
   }
 }
 
