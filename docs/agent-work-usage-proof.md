@@ -89,7 +89,10 @@ preassigned current identity in `HVIR_USAGE_SESSION_ID`. Start defaults the qual
 directory to its current working directory; `HVIR_USAGE_CWD` is the private override when those
 are different. The checkpoint retains the launch context, provider artifact environment,
 content-free baseline, and monotonic active-time accumulator in a mode-`0700` private temporary
-root with mode-`0600` files. Its location and private contents never appear in command output.
+root with mode-`0600` files. Each active segment retains an epoch and monotonic anchor so another
+CLI process accepts the duration only when both clock deltas agree. Legacy state or clock
+disagreement omits active time instead of guessing. Its location and private contents never
+appear in command output.
 
 The canonical 64-hex run key isolates sequential or overlapping runs inside one supported session
 and never appears in checkpoint output. `pause` and `resume` exclude an explicit maintainer wait
@@ -99,4 +102,5 @@ retry without another provider read. `release` removes that finalized observatio
 ledger append is confirmed or reported as an identical duplicate. Another delegated or resumed
 identity, or another run key, cannot locate the checkpoint and receives the fixed
 `run-identity-unproven` result. Operational failures remain retryable. The owner prunes only its
-recognized open or finalized files after 30 days.
+recognized open or finalized files after 30 days; per-entry cleanup races are best-effort and
+never replace the requested checkpoint operation's own validation.

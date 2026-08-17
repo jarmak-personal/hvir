@@ -32,6 +32,7 @@ import {
 
 const CHECKPOINT_VERSION = 1
 const MAX_CHECKPOINT_BYTES = 128 * 1024
+const CLOCK_DELTA_TOLERANCE_NANOSECONDS = 5_000_000n
 export const AGENT_WORK_CHECKPOINT_RETENTION_MILLISECONDS = 30 * 24 * 60 * 60 * 1_000
 
 export type AgentWorkCheckpointIssueLocator = number | 'pending'
@@ -68,13 +69,19 @@ interface AgentWorkCheckpointIdentity extends AgentWorkCheckpointLocator {
   readonly version: 1
 }
 
+interface AgentWorkCheckpointClockAnchor {
+  readonly monotonicNanoseconds: string
+  readonly epochMilliseconds: number
+}
+
 interface OpenAgentWorkCheckpointState extends AgentWorkCheckpointIdentity {
   readonly lifecycle: 'open'
+  readonly clockVersion: 1
   readonly cwd: string
   readonly artifactEnvironment: Readonly<Record<string, string>>
   readonly snapshot: HarnessUsageSnapshot
-  readonly accumulatedNanoseconds: string
-  readonly activeSegmentStartedAt: string | null
+  readonly accumulatedNanoseconds: string | null
+  readonly activeSegmentStartedAt: AgentWorkCheckpointClockAnchor | 'unavailable' | null
 }
 
 interface FinalizedAgentWorkCheckpointState extends AgentWorkCheckpointIdentity {
@@ -166,6 +173,7 @@ export class AgentWorkCheckpointStore {
     const state: OpenAgentWorkCheckpointState = {
       version: CHECKPOINT_VERSION,
       lifecycle: 'open',
+      clockVersion: 1,
       issueNumber: input.issueNumber,
       phase: input.phase,
       providerId: input.providerId,
@@ -175,7 +183,7 @@ export class AgentWorkCheckpointStore {
       artifactEnvironment: input.artifactEnvironment,
       snapshot: input.snapshot,
       accumulatedNanoseconds: '0',
-      activeSegmentStartedAt: this.clock.monotonicNanoseconds().toString(),
+      activeSegmentStartedAt: clockAnchor(this.clock),
     }
     try {
       await writeFile(path, serializeState(state), {
@@ -248,10 +256,7 @@ export class AgentWorkCheckpointStore {
       cwd: state.cwd,
       artifactEnvironment: state.artifactEnvironment,
     })
-    const activeWallMilliseconds = activeMilliseconds(
-      state,
-      this.clock.monotonicNanoseconds(),
-    )
+    const activeWallMilliseconds = activeMilliseconds(state, clockAnchor(this.clock))
     const result: AgentWorkCheckpointFinishResult = {
       version: CHECKPOINT_VERSION,
       operation: 'finish',
@@ -293,7 +298,12 @@ export class AgentWorkCheckpointStore {
 
   async pruneStale(exceptPath?: string): Promise<number> {
     await this.ensureRoot()
-    const entries = await readdir(this.root, { withFileTypes: true })
+    let entries
+    try {
+      entries = await readdir(this.root, { withFileTypes: true })
+    } catch {
+      return 0
+    }
     const cutoff =
       this.clock.epochMilliseconds() - AGENT_WORK_CHECKPOINT_RETENTION_MILLISECONDS
     let removed = 0
@@ -301,11 +311,20 @@ export class AgentWorkCheckpointStore {
       if (!entry.isFile() || !isOwnedCheckpointName(entry.name)) continue
       const path = join(this.root, entry.name)
       if (path === exceptPath) continue
-      const metadata = await lstat(path)
+      let metadata
+      try {
+        metadata = await lstat(path)
+      } catch {
+        continue
+      }
       if (!metadata.isFile() || metadata.isSymbolicLink()) continue
       if (metadata.mtimeMs > cutoff) continue
-      await unlink(path)
-      removed += 1
+      try {
+        await unlink(path)
+        removed += 1
+      } catch {
+        // Cleanup is best-effort; the requested checkpoint operation owns its own path.
+      }
     }
     return removed
   }
@@ -324,7 +343,7 @@ export class AgentWorkCheckpointStore {
     if (state.lifecycle !== 'open') {
       throw new Error('A finalized agent-work checkpoint has no active clock.')
     }
-    const now = this.clock.monotonicNanoseconds()
+    const now = clockAnchor(this.clock)
     const isActive = state.activeSegmentStartedAt !== null
     if (active === isActive) {
       return { version: CHECKPOINT_VERSION, operation, status: 'unchanged' }
@@ -332,11 +351,11 @@ export class AgentWorkCheckpointStore {
     const next: OpenAgentWorkCheckpointState = active
       ? {
           ...state,
-          activeSegmentStartedAt: now.toString(),
+          activeSegmentStartedAt: now,
         }
       : {
           ...state,
-          accumulatedNanoseconds: accumulatedNanoseconds(state, now).toString(),
+          accumulatedNanoseconds: accumulatedNanoseconds(state, now)?.toString() ?? null,
           activeSegmentStartedAt: null,
         }
     await this.replace(path, next)
@@ -456,34 +475,67 @@ function parseState(serialized: string): AgentWorkCheckpointState {
   }
   if (!isCheckpointIdentity(value)) return invalidCheckpoint()
   if (value.lifecycle === 'open') {
+    const currentSchema = exactKeys(value, [
+      'version',
+      'lifecycle',
+      'clockVersion',
+      'issueNumber',
+      'phase',
+      'providerId',
+      'sessionId',
+      'runKey',
+      'cwd',
+      'artifactEnvironment',
+      'snapshot',
+      'accumulatedNanoseconds',
+      'activeSegmentStartedAt',
+    ])
+    const legacySchema = exactKeys(value, [
+      'version',
+      'lifecycle',
+      'issueNumber',
+      'phase',
+      'providerId',
+      'sessionId',
+      'runKey',
+      'cwd',
+      'artifactEnvironment',
+      'snapshot',
+      'accumulatedNanoseconds',
+      'activeSegmentStartedAt',
+    ])
     if (
-      !exactKeys(value, [
-        'version',
-        'lifecycle',
-        'issueNumber',
-        'phase',
-        'providerId',
-        'sessionId',
-        'runKey',
-        'cwd',
-        'artifactEnvironment',
-        'snapshot',
-        'accumulatedNanoseconds',
-        'activeSegmentStartedAt',
-      ]) ||
+      (!currentSchema && !legacySchema) ||
       !boundedString(value.cwd, 4_096) ||
       !isStringRecord(value.artifactEnvironment) ||
       !isProofHarnessUsageSnapshot(value.snapshot) ||
       value.snapshot.status !== 'available' ||
       value.snapshot.providerId !== value.providerId ||
       !validArtifactEnvironment(String(value.providerId), value.artifactEnvironment) ||
-      !nonNegativeBigIntegerString(value.accumulatedNanoseconds) ||
-      !(
-        value.activeSegmentStartedAt === null ||
-        nonNegativeBigIntegerString(value.activeSegmentStartedAt)
-      )
+      (currentSchema &&
+        (value.clockVersion !== 1 ||
+          !(
+            value.accumulatedNanoseconds === null ||
+            nonNegativeBigIntegerString(value.accumulatedNanoseconds)
+          ) ||
+          !isPersistedClockAnchor(value.activeSegmentStartedAt))) ||
+      (legacySchema &&
+        (!nonNegativeBigIntegerString(value.accumulatedNanoseconds) ||
+          !(
+            value.activeSegmentStartedAt === null ||
+            nonNegativeBigIntegerString(value.activeSegmentStartedAt)
+          )))
     ) {
       return invalidCheckpoint()
+    }
+    if (legacySchema) {
+      return {
+        ...(value as unknown as OpenAgentWorkCheckpointState),
+        clockVersion: 1,
+        accumulatedNanoseconds: null,
+        activeSegmentStartedAt:
+          value.activeSegmentStartedAt === null ? null : 'unavailable',
+      }
     }
     return value as unknown as OpenAgentWorkCheckpointState
   }
@@ -625,21 +677,62 @@ function serializeState(state: AgentWorkCheckpointState): string {
 
 function accumulatedNanoseconds(
   state: OpenAgentWorkCheckpointState,
-  now: bigint,
-): bigint {
+  now: AgentWorkCheckpointClockAnchor | 'unavailable',
+): bigint | undefined {
+  if (state.accumulatedNanoseconds === null) return undefined
   const accumulated = BigInt(state.accumulatedNanoseconds)
   if (state.activeSegmentStartedAt === null) return accumulated
-  const startedAt = BigInt(state.activeSegmentStartedAt)
-  return now < startedAt ? accumulated : accumulated + (now - startedAt)
+  if (state.activeSegmentStartedAt === 'unavailable' || now === 'unavailable') {
+    return undefined
+  }
+  const elapsed = validatedElapsedNanoseconds(state.activeSegmentStartedAt, now)
+  return elapsed === undefined ? undefined : accumulated + elapsed
 }
 
 function activeMilliseconds(
   state: OpenAgentWorkCheckpointState,
-  now: bigint,
+  now: AgentWorkCheckpointClockAnchor | 'unavailable',
 ): number | undefined {
-  const milliseconds = accumulatedNanoseconds(state, now) / 1_000_000n
+  const accumulated = accumulatedNanoseconds(state, now)
+  if (accumulated === undefined) return undefined
+  const milliseconds = accumulated / 1_000_000n
   return milliseconds <= BigInt(Number.MAX_SAFE_INTEGER)
     ? Number(milliseconds)
+    : undefined
+}
+
+function clockAnchor(
+  clock: AgentWorkCheckpointClock,
+): AgentWorkCheckpointClockAnchor | 'unavailable' {
+  const monotonicNanoseconds = clock.monotonicNanoseconds()
+  const epochMilliseconds = clock.epochMilliseconds()
+  if (
+    monotonicNanoseconds < 0n ||
+    nonNegativeUsageCounter(epochMilliseconds) === undefined
+  ) {
+    return 'unavailable'
+  }
+  return {
+    monotonicNanoseconds: monotonicNanoseconds.toString(),
+    epochMilliseconds,
+  }
+}
+
+function validatedElapsedNanoseconds(
+  start: AgentWorkCheckpointClockAnchor,
+  end: AgentWorkCheckpointClockAnchor,
+): bigint | undefined {
+  const monotonicElapsed =
+    BigInt(end.monotonicNanoseconds) - BigInt(start.monotonicNanoseconds)
+  const epochElapsed =
+    BigInt(end.epochMilliseconds - start.epochMilliseconds) * 1_000_000n
+  if (monotonicElapsed < 0n || epochElapsed < 0n) return undefined
+  const difference =
+    monotonicElapsed > epochElapsed
+      ? monotonicElapsed - epochElapsed
+      : epochElapsed - monotonicElapsed
+  return difference <= CLOCK_DELTA_TOLERANCE_NANOSECONDS
+    ? epochElapsed
     : undefined
 }
 
@@ -721,6 +814,19 @@ function validArtifactEnvironment(
 
 function nonNegativeBigIntegerString(value: unknown): value is string {
   return typeof value === 'string' && /^(0|[1-9][0-9]*)$/.test(value)
+}
+
+function isPersistedClockAnchor(
+  value: unknown,
+): value is AgentWorkCheckpointClockAnchor | 'unavailable' | null {
+  return (
+    value === null ||
+    value === 'unavailable' ||
+    (isRecord(value) &&
+      exactKeys(value, ['monotonicNanoseconds', 'epochMilliseconds']) &&
+      nonNegativeBigIntegerString(value.monotonicNanoseconds) &&
+      nonNegativeUsageCounter(value.epochMilliseconds) !== undefined)
+  )
 }
 
 function isNodeError(error: unknown, code: string): boolean {

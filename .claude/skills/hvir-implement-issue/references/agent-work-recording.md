@@ -28,7 +28,8 @@ At the phase's start observation:
    `HVIR_USAGE_SESSION_ID` without printing it. Set `HVIR_USAGE_CWD` only when the command's current
    directory is not the exact harness launch directory. The command retains the private identity,
    launch context, provider artifact environment, content-free start snapshot, and monotonic active
-   clock across stateless tool shells and compaction:
+   clock across stateless tool shells and compaction. Persisted epoch and monotonic anchors must
+   agree across those processes; otherwise the final observation omits active time:
 
    ```sh
    npm run --silent agent-work:checkpoint -- start \
@@ -88,7 +89,9 @@ handoff facts are stable but before ledger bookkeeping:
    open checkpoint for an exact retry. If the workflow is abandoned before finalization, invoke
    `abandon` with the same arguments; repeating it is safely unavailable. A finalized observation
    is not abandonable. The owner also prunes only its own open or finalized checkpoint files after
-   the bounded 30-day retention interval. No lifecycle relies on an `EXIT` trap.
+   the bounded 30-day retention interval. Per-entry cleanup races are best-effort and cannot replace
+   the requested operation's own identity and security validation. No lifecycle relies on an
+   `EXIT` trap.
 2. Build one closed schema-v1 record from observed facts only. A complete record includes every
    additive counter and its exact safe-integer normalized total. A partial record includes an
    initial route, at least one usage or timing fact, fixed `missingFacts`, and no normalized total.
