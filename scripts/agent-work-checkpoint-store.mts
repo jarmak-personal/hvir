@@ -34,8 +34,19 @@ const CHECKPOINT_VERSION = 1
 const MAX_CHECKPOINT_BYTES = 128 * 1024
 export const AGENT_WORK_CHECKPOINT_RETENTION_MILLISECONDS = 30 * 24 * 60 * 60 * 1_000
 
+export type AgentWorkCheckpointIssueLocator = number | 'pending'
+
+export function isAgentWorkCheckpointIssueLocator(
+  issueNumber: unknown,
+  phase: unknown,
+): issueNumber is AgentWorkCheckpointIssueLocator {
+  return issueNumber === 'pending'
+    ? phase === 'issue-planning'
+    : Number.isSafeInteger(issueNumber) && Number(issueNumber) > 0
+}
+
 export interface AgentWorkCheckpointLocator {
-  readonly issueNumber: number
+  readonly issueNumber: AgentWorkCheckpointIssueLocator
   readonly phase: AgentWorkPhase
   readonly providerId: SupportedUsageProvider
   readonly sessionId: string
@@ -351,6 +362,11 @@ export class AgentWorkCheckpointStore {
   }
 
   private checkpointPath(locator: AgentWorkCheckpointLocator): string {
+    if (!isAgentWorkCheckpointIssueLocator(locator.issueNumber, locator.phase)) {
+      throw new Error(
+        'A pending agent-work checkpoint locator is supported only for issue-planning.',
+      )
+    }
     const digest = createHash('sha256')
       .update(
         [
@@ -494,8 +510,7 @@ function isCheckpointIdentity(value: unknown): value is Record<string, unknown> 
   return (
     isRecord(value) &&
     value.version === CHECKPOINT_VERSION &&
-    Number.isSafeInteger(value.issueNumber) &&
-    Number(value.issueNumber) > 0 &&
+    isAgentWorkCheckpointIssueLocator(value.issueNumber, value.phase) &&
     AGENT_WORK_PHASES.some((phase) => phase === value.phase) &&
     ['codex', 'claude-code'].includes(String(value.providerId)) &&
     boundedString(value.sessionId, 1_024) &&

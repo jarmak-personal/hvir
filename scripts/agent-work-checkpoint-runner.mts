@@ -7,6 +7,8 @@ import {
 } from './project-management/agent-work-ledger.ts'
 import {
   AgentWorkCheckpointStore,
+  isAgentWorkCheckpointIssueLocator,
+  type AgentWorkCheckpointIssueLocator,
   type AgentWorkCheckpointLocator,
 } from './agent-work-checkpoint-store.mts'
 import {
@@ -20,7 +22,7 @@ type CheckpointOperation = (typeof OPERATIONS)[number]
 
 interface CheckpointCommand {
   readonly operation: CheckpointOperation
-  readonly issueNumber: number
+  readonly issueNumber: AgentWorkCheckpointIssueLocator
   readonly phase: AgentWorkPhase
   readonly providerId: SupportedUsageProvider
   readonly runKey: string
@@ -119,7 +121,7 @@ function parseCommand(args: readonly string[]): CheckpointCommand {
   const [operation, ...options] = args
   if (!operation || !OPERATIONS.some((candidate) => candidate === operation)) {
     throw new Error(
-      'Usage: agent-work:checkpoint <start|pause|resume|finish|abandon|release> --issue <number> --phase <phase> --provider <codex|claude-code> --run-key <64-hex-key>',
+      'Usage: agent-work:checkpoint <start|pause|resume|finish|abandon|release> --issue <positive-number|pending> --phase <phase> --provider <codex|claude-code> --run-key <64-hex-key>',
     )
   }
   const values = new Map<string, string>()
@@ -136,15 +138,19 @@ function parseCommand(args: readonly string[]): CheckpointCommand {
     if (values.has(name)) throw new Error(`Duplicate ${name} option.`)
     values.set(name, value)
   }
-  const issueNumber = Number(values.get('--issue'))
   const phase = values.get('--phase')
   const providerId = values.get('--provider')
   const runKey = values.get('--run-key')
-  if (!Number.isSafeInteger(issueNumber) || issueNumber < 1) {
-    throw new Error('--issue must be a positive safe integer.')
-  }
   if (!phase || !AGENT_WORK_PHASES.some((candidate) => candidate === phase)) {
     throw new Error('--phase is not supported.')
+  }
+  const issueValue = values.get('--issue')
+  const issueNumber = issueValue === 'pending' ? 'pending' : Number(issueValue)
+  if (!isAgentWorkCheckpointIssueLocator(issueNumber, phase)) {
+    if (issueNumber === 'pending') {
+      throw new Error('--issue pending is supported only for issue-planning.')
+    }
+    throw new Error('--issue must be a positive safe integer or pending.')
   }
   if (!providerId || !isSupportedUsageProvider(providerId)) {
     throw new Error('--provider is not supported.')
