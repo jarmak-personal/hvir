@@ -269,19 +269,23 @@ The measurement Project schema is fixed and domain-named:
 | `Initial model` | Text | Earliest active non-review run's exact available initial model identifier. |
 | `Reasoning effort` | Text | Effective effort when available, otherwise requested effort, from that non-review initial route. |
 | `Model route` | Text | Bounded content-free active non-review route sequence, including explicit change or escalation labels; independent review routes remain in the ledger. |
-| `Planning tokens` | Number | Exact normalized `issue-planning` total; absent when no run exists or coverage is incomplete. |
-| `Implementation tokens` | Number | Exact normalized `implementation` total; review-driven corrections are new implementation runs. |
-| `Review tokens` | Number | Exact normalized `implementation-review` total; absent when no run exists or coverage is incomplete. |
-| `Own lifecycle tokens` | Number | Exact normalized total for all active runs owned by this issue, never child work. |
+| `Planning tokens` | Number | Safe known `issue-planning` subtotal; absent only when no safe observed subtotal exists. |
+| `Implementation tokens` | Number | Safe known `implementation` subtotal; review-driven corrections are new implementation runs. |
+| `Review tokens` | Number | Safe known `implementation-review` subtotal; absent only when no safe observed subtotal exists. |
+| `Lifecycle tokens` | Number | Safe known lifecycle subtotal. Ordinary issues and epic children project their own work; root epics reserve this field for Rollup reconciliation. |
+| `Measurement coverage` | Single select | `Complete`, `Partial`, or `Unavailable` for the projected token evidence. Root epics reserve this field for Rollup reconciliation. |
 | `Time to first candidate (ms)` | Number | First active implementation record's explicit candidate duration in milliseconds. |
 | `First-pass outcome` | Single select | `Pending`, `Accepted`, `Rework required`, or `No candidate`; explicit rework is sticky. |
-| `Epic rollup tokens` | Number | Exact root-epic Own plus native direct-child Own total from the separate non-recursive Rollup reconciliation. |
 
-Unknown evidence is absent, never zero. If an authoritative correction makes a previously exact
-value partial or unavailable, the projection clears that stale field. The operation updates only
-the names above and exposes no arbitrary field setter. Its report contains normalized values,
-fixed diagnostics, and named operations only—never issue prose, comments, internal IDs,
+Unknown evidence is absent, never zero. Partial evidence retains every safe observed subtotal;
+an unavailable total clears a stale token value only when no safe subtotal remains. The operation
+updates only the names above and exposes no arbitrary field setter. Its report contains normalized
+values, fixed diagnostics, and named operations only—never issue prose, comments, internal IDs,
 credentials, or raw API responses.
+
+One-issue projection never writes a root epic's Planning, Implementation, Review, Lifecycle, or
+Measurement coverage fields. Those columns are reserved for the separate Rollup owner, so
+reprojecting the epic cannot erase or replace a reconciled aggregate.
 
 A malformed forecast or overlong derived route is not authoritative absence: reconciliation
 reports the fixed failure and leaves the affected current fields untouched. Likewise, invalid or
@@ -302,7 +306,7 @@ which continues to require only membership, `Kind`, and `Status`.
 
 Rollup reconciliation is separate from both ledger append and one-issue projection. It reads the
 target issue's native relationships and the active ledger for the target and each direct child,
-then plans only the named `Epic rollup tokens` field:
+then plans the root epic's Rollup-owned standard token fields:
 
 ```sh
 HVIR_REPO_TOKEN="$(gh auth token)" \
@@ -323,12 +327,16 @@ It rejects cross-repository relationships, mismatched native parents, nested epi
 descendants without overwriting a previously safe value. An active parent-only
 `epic-coordination` record on a child is also invalid Rollup evidence.
 
-An exact field value is present only when the parent and every direct child have complete exact
-Own totals and their safe-integer sum is available. Otherwise the report exposes `partial` or
-`unavailable` coverage and an available known subtotal without presenting it as exact, and clears
-a stale exact field. Unsafe relationship, ledger, or overflow diagnostics preserve the current
-field and exit nonzero. Identical reconciliation is a no-op. Applying `--rollup` to an ordinary
-issue or epic child clears a stale Rollup instead of inventing one.
+Complete evidence records `Complete`; incomplete evidence retains available safe known subtotals
+and records `Partial`, or records `Unavailable` when no safe subtotal exists. Unsafe relationship,
+ledger, or overflow diagnostics preserve the current fields and exit nonzero. Identical
+reconciliation is a no-op. Applying `--rollup` to an ordinary issue or epic child does not invent
+root-epic aggregates.
+
+The field-contract change first moves the existing scalar Rollup compatibility write to
+`Lifecycle tokens`. The separate Rollup-owner correction expands that calculation to the phase
+columns and `Measurement coverage`; one-issue projection already reserves all five fields so the
+two owners cannot race or overwrite each other.
 
 Lifecycle skills run the operation after the owning issue's append and projection. When that
 issue is a native direct child, they then reconcile the one exact parent. Parent reconciliation
@@ -534,12 +542,13 @@ gh project field-create 1 --owner jarmak-personal --name 'Model route' --data-ty
 gh project field-create 1 --owner jarmak-personal --name 'Planning tokens' --data-type NUMBER
 gh project field-create 1 --owner jarmak-personal --name 'Implementation tokens' --data-type NUMBER
 gh project field-create 1 --owner jarmak-personal --name 'Review tokens' --data-type NUMBER
-gh project field-create 1 --owner jarmak-personal --name 'Own lifecycle tokens' --data-type NUMBER
+gh project field-create 1 --owner jarmak-personal --name 'Lifecycle tokens' --data-type NUMBER
+gh project field-create 1 --owner jarmak-personal --name 'Measurement coverage' \
+  --data-type SINGLE_SELECT --single-select-options 'Complete,Partial,Unavailable'
 gh project field-create 1 --owner jarmak-personal --name 'Time to first candidate (ms)' --data-type NUMBER
 gh project field-create 1 --owner jarmak-personal --name 'First-pass outcome' \
   --data-type SINGLE_SELECT \
   --single-select-options 'Pending,Accepted,Rework required,No candidate'
-gh project field-create 1 --owner jarmak-personal --name 'Epic rollup tokens' --data-type NUMBER
 ```
 
 After provisioning, record every new field and option ID in the canonical configuration and run

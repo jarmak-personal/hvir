@@ -1,4 +1,5 @@
 import { GitHubClient } from './github-client.ts'
+import type { AgentWorkProjectionIssue } from './agent-work-projector.ts'
 import type { AgentWorkRollupIssue } from './agent-work-rollup.ts'
 import { GitHubIssueRepository } from './github-issues.ts'
 import { planKindLabels } from './kind-policy.ts'
@@ -34,6 +35,14 @@ export class GitHubAgentWorkSource {
       )
     }
     return issue.body
+  }
+
+  async readProjectionIssue(issueNumber: number): Promise<AgentWorkProjectionIssue> {
+    const [body, issue] = await Promise.all([
+      this.readIssueBody(issueNumber),
+      this.readRollupIssue(issueNumber),
+    ])
+    return { body, kind: issue.kind, parent: issue.parent }
   }
 
   async readRollupIssue(issueNumber: number): Promise<AgentWorkRollupIssue> {

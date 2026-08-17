@@ -184,7 +184,7 @@ describe('agent-work epic Rollup reconciliation', () => {
     expect(report.diagnostics).not.toContain('project-write-failed')
   })
 
-  it('clears Rollup from ordinary issues and epic children', async () => {
+  it('preserves issue-owned Lifecycle values on ordinary issues and epic children', async () => {
     for (const issue of [ordinaryIssue(600), childIssue(CHILD_A)]) {
       const fixture = rollupFixture({ currentRollup: 42, issues: [issue] })
       const report = await reconcileAgentWorkRollup(fixture.source, fixture.project, {
@@ -195,7 +195,11 @@ describe('agent-work epic Rollup reconciliation', () => {
       expect(report.source.eligibility).toBe(
         issue.parent === null ? 'ordinary' : 'epic-child',
       )
-      expect(report.projection).toEqual({ outcome: 'updated', operation: 'clear' })
+      expect(report.projection).toEqual({
+        outcome: 'unchanged',
+        operation: 'preserve',
+      })
+      expect(fixture.setField).not.toHaveBeenCalled()
     }
   })
 
@@ -348,15 +352,15 @@ function rollupFixture(input: {
   readRollupIssue: ReturnType<typeof vi.fn<AgentWorkRollupSourcePort['readRollupIssue']>>
 } {
   const issues = new Map(input.issues.map((issue) => [issue.number, issue]))
-  const values: { 'Epic rollup tokens'?: number } = {
+  const values: { 'Lifecycle tokens'?: number } = {
     ...(input.currentRollup === undefined
       ? {}
-      : { 'Epic rollup tokens': input.currentRollup }),
+      : { 'Lifecycle tokens': input.currentRollup }),
   }
   const setField = vi.fn<AgentWorkRollupProjectPort['setAgentWorkProjectionField']>(
     (_issue, _field, value) => {
-      if (value === undefined) delete values['Epic rollup tokens']
-      else values['Epic rollup tokens'] = value
+      if (value === undefined) delete values['Lifecycle tokens']
+      else values['Lifecycle tokens'] = value
       return Promise.resolve()
     },
   )
