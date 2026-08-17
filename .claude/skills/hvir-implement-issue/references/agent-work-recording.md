@@ -30,7 +30,8 @@ At the phase's start observation:
    launch context, provider artifact environment, content-free start snapshot, and monotonic active
    clock across stateless tool shells and compaction. Each persisted epoch sample is bracketed by
    bounded monotonic readings and retried when scheduling makes that bracket too wide. The bounded
-   anchors must agree across processes; otherwise the final observation omits active time:
+   anchors must agree across processes within the canonical conservative clock-rate bound;
+   backwards clocks, excessive rate divergence, or wall-clock jumps omit active time:
 
    ```sh
    npm run --silent agent-work:checkpoint -- start \

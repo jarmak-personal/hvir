@@ -148,6 +148,68 @@ describe('agent-work private checkpoint lifecycle', () => {
     expect(result).toMatchObject({ activeWallMilliseconds: 20 })
   })
 
+  it('accepts conservative clock-rate drift across a long process boundary', async () => {
+    const root = await privateRoot()
+    const locator = codexLocator('long-clock-drift-session')
+    await new AgentWorkCheckpointStore(root, fakeClock(1_000, 5_000_000_000n)).start({
+      ...locator,
+      cwd: '/launch',
+      artifactEnvironment: {},
+      snapshot: snapshot(10, 10),
+    })
+
+    const result = await new AgentWorkCheckpointStore(
+      root,
+      fakeClock(601_000, 605_300_000_000n),
+    ).finish(locator, () => Promise.resolve(snapshot(20, 20)))
+
+    expect(result).toMatchObject({ activeWallMilliseconds: 600_000 })
+  })
+
+  it('rejects excessive clock-rate divergence across a long process boundary', async () => {
+    const root = await privateRoot()
+    const locator = codexLocator('excessive-clock-drift-session')
+    await new AgentWorkCheckpointStore(root, fakeClock(1_000, 5_000_000_000n)).start({
+      ...locator,
+      cwd: '/launch',
+      artifactEnvironment: {},
+      snapshot: snapshot(10, 10),
+    })
+
+    const result = await new AgentWorkCheckpointStore(
+      root,
+      fakeClock(601_000, 606_000_000_000n),
+    ).finish(locator, () => Promise.resolve(snapshot(20, 20)))
+
+    expect(result).not.toHaveProperty('activeWallMilliseconds')
+  })
+
+  it('rejects forward and backward wall-clock jumps', async () => {
+    for (const [sessionId, endEpochMilliseconds] of [
+      ['forward-wall-jump-session', 606_000],
+      ['backward-wall-jump-session', 900],
+    ] as const) {
+      const root = await privateRoot()
+      const locator = codexLocator(sessionId)
+      await new AgentWorkCheckpointStore(
+        root,
+        fakeClock(1_000, 5_000_000_000n),
+      ).start({
+        ...locator,
+        cwd: '/launch',
+        artifactEnvironment: {},
+        snapshot: snapshot(10, 10),
+      })
+
+      const result = await new AgentWorkCheckpointStore(
+        root,
+        fakeClock(endEpochMilliseconds, 605_000_000_000n),
+      ).finish(locator, () => Promise.resolve(snapshot(20, 20)))
+
+      expect(result).not.toHaveProperty('activeWallMilliseconds')
+    }
+  })
+
   it('omits active time when persisted epoch and monotonic clock deltas disagree', async () => {
     const root = await privateRoot()
     const locator = codexLocator('disagreeing-clock-session')

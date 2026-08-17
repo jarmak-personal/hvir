@@ -91,9 +91,12 @@ are different. The checkpoint retains the launch context, provider artifact envi
 content-free baseline, and monotonic active-time accumulator in a mode-`0700` private temporary
 root with mode-`0600` files. Each active segment retains a bounded epoch sample bracketed by
 monotonic readings. A delayed sample is retried, and another CLI process accepts the duration only
-when the bounded monotonic interval and epoch delta agree. Legacy state, an unbounded sample, or
-clock disagreement omits active time instead of guessing. Its location and private contents never
-appear in command output.
+when the bounded monotonic interval and epoch delta agree within a 1,000-parts-per-million relative
+rate bound. That conservative bound is twice [NTPv4's 500-ppm maximum clock-discipline frequency
+tolerance](https://www.rfc-editor.org/rfc/rfc5905.html#appendix-A.5.5.6); sample uncertainty and
+epoch millisecond quantization are accounted for separately.
+Legacy state, an unbounded sample, a backwards clock, or a rate/jump disagreement omits active time
+instead of guessing. Its location and private contents never appear in command output.
 
 The canonical 64-hex run key isolates sequential or overlapping runs inside one supported session
 and never appears in checkpoint output. `pause` and `resume` exclude an explicit maintainer wait

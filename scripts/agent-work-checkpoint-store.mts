@@ -32,10 +32,13 @@ import {
 
 const CHECKPOINT_VERSION = 1
 const MAX_CHECKPOINT_BYTES = 128 * 1024
-const CLOCK_DELTA_TOLERANCE_NANOSECONDS = 5_000_000n
 const CLOCK_SAMPLE_MAX_SPAN_NANOSECONDS = 5_000_000n
 const CLOCK_SAMPLE_ATTEMPTS = 3
 const EPOCH_QUANTIZATION_NANOSECONDS = 1_000_000n
+// RFC 5905's clock discipline uses a 500 ppm maximum frequency tolerance.
+// Twice that bound covers relative wall/monotonic divergence without admitting jumps.
+const CLOCK_RATE_TOLERANCE_PARTS_PER_MILLION = 1_000n
+const PARTS_PER_MILLION = 1_000_000n
 export const AGENT_WORK_CHECKPOINT_RETENTION_MILLISECONDS = 30 * 24 * 60 * 60 * 1_000
 
 export type AgentWorkCheckpointIssueLocator = number | 'pending'
@@ -759,7 +762,16 @@ function validatedElapsedNanoseconds(
       : epochElapsedUpper < monotonicElapsedLower
         ? monotonicElapsedLower - epochElapsedUpper
         : 0n
-  return difference <= CLOCK_DELTA_TOLERANCE_NANOSECONDS
+  const comparisonDuration =
+    monotonicElapsedUpper > epochElapsedUpper
+      ? monotonicElapsedUpper
+      : epochElapsedUpper
+  const rateTolerance =
+    (comparisonDuration * CLOCK_RATE_TOLERANCE_PARTS_PER_MILLION +
+      PARTS_PER_MILLION -
+      1n) /
+    PARTS_PER_MILLION
+  return difference <= rateTolerance
     ? epochElapsed
     : undefined
 }
