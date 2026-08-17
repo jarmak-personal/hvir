@@ -13,19 +13,24 @@ import {
 
 const STDIN_BYTE_LIMIT = 64 * 1024
 
+export const SUPPORTED_USAGE_PROVIDERS = ['codex', 'claude-code'] as const
+export type SupportedUsageProvider = (typeof SUPPORTED_USAGE_PROVIDERS)[number]
+
+export interface HarnessUsagePrivateContext {
+  readonly sessionId: string
+  readonly cwd: string
+  readonly artifactEnvironment: Readonly<Record<string, string>>
+}
+
 export async function runHarnessUsageProof(args: readonly string[]): Promise<number> {
   const [mode, providerId] = args
   if (
     !mode ||
     !['snapshot', 'delta'].includes(mode) ||
     !providerId ||
-    !['codex', 'claude-code'].includes(providerId)
+    !isSupportedUsageProvider(providerId)
   ) {
     throw new Error('Usage: prove-harness-usage <snapshot|delta> <provider>')
-  }
-  const provider = harnessProvider(providerId)
-  if (!provider.usageSnapshots) {
-    throw new Error('The selected provider does not expose usage snapshots.')
   }
   const sessionId = requiredEnvironment('HVIR_USAGE_SESSION_ID')
   const cwd = requiredEnvironment('HVIR_USAGE_CWD')
@@ -35,30 +40,49 @@ export async function runHarnessUsageProof(args: readonly string[]): Promise<num
       : providerId === 'claude-code'
         ? selectedEnvironment('CLAUDE_CONFIG_DIR')
         : {}
+  const end = await captureHarnessUsageSnapshot(providerId, {
+    sessionId,
+    cwd,
+    artifactEnvironment,
+  })
+  if (mode === 'snapshot') {
+    process.stdout.write(`${JSON.stringify(end, null, 2)}\n`)
+    return end.status === 'available' ? 0 : 2
+  }
+  const start = parseSnapshot(await readBoundedStdin())
+  const delta = calculateHarnessUsageDelta(start, end)
+  process.stdout.write(`${JSON.stringify(delta, null, 2)}\n`)
+  return delta.status === 'unavailable' ? 2 : 0
+}
+
+export async function captureHarnessUsageSnapshot(
+  providerId: SupportedUsageProvider,
+  context: HarnessUsagePrivateContext,
+): Promise<HarnessUsageSnapshot> {
+  const provider = harnessProvider(providerId)
+  if (!provider.usageSnapshots) {
+    throw new Error('The selected provider does not expose usage snapshots.')
+  }
   const host = new LocalHost()
   await host.connect()
   try {
-    const end = await provider.usageSnapshots.snapshot(host, {
-      sessionId,
-      cwd: localPath(cwd),
+    return await provider.usageSnapshots.snapshot(host, {
+      sessionId: context.sessionId,
+      cwd: localPath(context.cwd),
       artifact: {
         identity: 'agent-work-live-proof',
-        environment: artifactEnvironment,
+        environment: context.artifactEnvironment,
         unsetEnvironment: [],
       },
       signal: new AbortController().signal,
     })
-    if (mode === 'snapshot') {
-      process.stdout.write(`${JSON.stringify(end, null, 2)}\n`)
-      return end.status === 'available' ? 0 : 2
-    }
-    const start = parseSnapshot(await readBoundedStdin())
-    const delta = calculateHarnessUsageDelta(start, end)
-    process.stdout.write(`${JSON.stringify(delta, null, 2)}\n`)
-    return delta.status === 'unavailable' ? 2 : 0
   } finally {
     await host.dispose()
   }
+}
+
+export function isSupportedUsageProvider(value: string): value is SupportedUsageProvider {
+  return SUPPORTED_USAGE_PROVIDERS.some((provider) => provider === value)
 }
 
 function requiredEnvironment(name: string): string {
