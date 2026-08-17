@@ -1,4 +1,12 @@
-import { mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import {
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  utimes,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -86,6 +94,207 @@ describe('agent-work private checkpoint lifecycle', () => {
       status: 'released',
     })
     await expect(readdir(root)).resolves.toEqual([])
+  })
+
+  it('reconstructs active time across distinct process clock instances only when their origins agree', async () => {
+    const root = await privateRoot()
+    const locator = codexLocator('cross-process-clock-session')
+    await new AgentWorkCheckpointStore(root, fakeClock(1_000, 5_000_000_000n)).start({
+      ...locator,
+      cwd: '/launch',
+      artifactEnvironment: {},
+      snapshot: snapshot(10, 10),
+    })
+    await expect(
+      new AgentWorkCheckpointStore(root, fakeClock(1_012, 5_012_000_000n)).pause(
+        locator,
+      ),
+    ).resolves.toMatchObject({ status: 'paused' })
+    await expect(
+      new AgentWorkCheckpointStore(root, fakeClock(1_052, 5_052_000_000n)).resume(
+        locator,
+      ),
+    ).resolves.toMatchObject({ status: 'resumed' })
+
+    const result = await new AgentWorkCheckpointStore(
+      root,
+      fakeClock(1_060, 5_060_000_000n),
+    ).finish(locator, () => Promise.resolve(snapshot(20, 20)))
+
+    expect(result).toMatchObject({ activeWallMilliseconds: 20 })
+  })
+
+  it('retries a clock anchor delayed between its monotonic and epoch samples', async () => {
+    const root = await privateRoot()
+    const locator = codexLocator('delayed-clock-sample-session')
+    await new AgentWorkCheckpointStore(
+      root,
+      scriptedClock(
+        [0n, 20_000_000n, 20_000_000n, 20_000_000n],
+        [1_020, 1_020, 1_020],
+      ),
+    ).start({
+      ...locator,
+      cwd: '/launch',
+      artifactEnvironment: {},
+      snapshot: snapshot(10, 10),
+    })
+
+    const result = await new AgentWorkCheckpointStore(
+      root,
+      fakeClock(1_040, 40_000_000n),
+    ).finish(locator, () => Promise.resolve(snapshot(20, 20)))
+
+    expect(result).toMatchObject({ activeWallMilliseconds: 20 })
+  })
+
+  it('accepts conservative clock-rate drift across a long process boundary', async () => {
+    const root = await privateRoot()
+    const locator = codexLocator('long-clock-drift-session')
+    await new AgentWorkCheckpointStore(root, fakeClock(1_000, 5_000_000_000n)).start({
+      ...locator,
+      cwd: '/launch',
+      artifactEnvironment: {},
+      snapshot: snapshot(10, 10),
+    })
+
+    const result = await new AgentWorkCheckpointStore(
+      root,
+      fakeClock(601_000, 605_300_000_000n),
+    ).finish(locator, () => Promise.resolve(snapshot(20, 20)))
+
+    expect(result).toMatchObject({ activeWallMilliseconds: 600_000 })
+  })
+
+  it('rejects excessive clock-rate divergence across a long process boundary', async () => {
+    const root = await privateRoot()
+    const locator = codexLocator('excessive-clock-drift-session')
+    await new AgentWorkCheckpointStore(root, fakeClock(1_000, 5_000_000_000n)).start({
+      ...locator,
+      cwd: '/launch',
+      artifactEnvironment: {},
+      snapshot: snapshot(10, 10),
+    })
+
+    const result = await new AgentWorkCheckpointStore(
+      root,
+      fakeClock(601_000, 606_000_000_000n),
+    ).finish(locator, () => Promise.resolve(snapshot(20, 20)))
+
+    expect(result).not.toHaveProperty('activeWallMilliseconds')
+  })
+
+  it('rejects forward and backward wall-clock jumps', async () => {
+    for (const [sessionId, endEpochMilliseconds] of [
+      ['forward-wall-jump-session', 606_000],
+      ['backward-wall-jump-session', 900],
+    ] as const) {
+      const root = await privateRoot()
+      const locator = codexLocator(sessionId)
+      await new AgentWorkCheckpointStore(
+        root,
+        fakeClock(1_000, 5_000_000_000n),
+      ).start({
+        ...locator,
+        cwd: '/launch',
+        artifactEnvironment: {},
+        snapshot: snapshot(10, 10),
+      })
+
+      const result = await new AgentWorkCheckpointStore(
+        root,
+        fakeClock(endEpochMilliseconds, 605_000_000_000n),
+      ).finish(locator, () => Promise.resolve(snapshot(20, 20)))
+
+      expect(result).not.toHaveProperty('activeWallMilliseconds')
+    }
+  })
+
+  it('omits active time when persisted epoch and monotonic clock deltas disagree', async () => {
+    const root = await privateRoot()
+    const locator = codexLocator('disagreeing-clock-session')
+    await new AgentWorkCheckpointStore(root, fakeClock(1_000, 10_000_000n)).start({
+      ...locator,
+      cwd: '/launch',
+      artifactEnvironment: {},
+      snapshot: snapshot(10, 10),
+    })
+
+    const result = await new AgentWorkCheckpointStore(
+      root,
+      fakeClock(1_025, 4_010_000_000n),
+    ).finish(locator, () => Promise.resolve(snapshot(20, 20)))
+
+    expect(result).toMatchObject({
+      status: 'closed',
+      usage: { status: 'complete', normalizedTokenTotal: 10 },
+    })
+    expect(result).not.toHaveProperty('activeWallMilliseconds')
+  })
+
+  it('omits unverifiable active time from a legacy monotonic-only checkpoint', async () => {
+    const root = await privateRoot()
+    const locator = codexLocator('legacy-clock-session')
+    await new AgentWorkCheckpointStore(root, fakeClock(1_000, 10_000_000n)).start({
+      ...locator,
+      cwd: '/launch',
+      artifactEnvironment: {},
+      snapshot: snapshot(10, 10),
+    })
+    const [checkpointName] = await readdir(root)
+    const checkpointPath = join(root, checkpointName!)
+    const state = JSON.parse(await readFile(checkpointPath, 'utf8')) as Record<
+      string,
+      unknown
+    >
+    const anchor = state.activeSegmentStartedAt as {
+      monotonicBeforeNanoseconds: string
+    }
+    delete state.clockVersion
+    state.activeSegmentStartedAt = anchor.monotonicBeforeNanoseconds
+    await writeFile(checkpointPath, `${JSON.stringify(state)}\n`, { mode: 0o600 })
+
+    const result = await new AgentWorkCheckpointStore(
+      root,
+      fakeClock(1_020, 30_000_000n),
+    ).finish(locator, () => Promise.resolve(snapshot(20, 20)))
+
+    expect(result).not.toHaveProperty('activeWallMilliseconds')
+  })
+
+  it('omits unverifiable active time from the previous unbracketed clock schema', async () => {
+    const root = await privateRoot()
+    const locator = codexLocator('previous-clock-session')
+    await new AgentWorkCheckpointStore(root, fakeClock(1_000, 10_000_000n)).start({
+      ...locator,
+      cwd: '/launch',
+      artifactEnvironment: {},
+      snapshot: snapshot(10, 10),
+    })
+    const [checkpointName] = await readdir(root)
+    const checkpointPath = join(root, checkpointName!)
+    const state = JSON.parse(await readFile(checkpointPath, 'utf8')) as Record<
+      string,
+      unknown
+    >
+    const anchor = state.activeSegmentStartedAt as {
+      monotonicBeforeNanoseconds: string
+      epochMilliseconds: number
+    }
+    state.clockVersion = 1
+    state.activeSegmentStartedAt = {
+      monotonicNanoseconds: anchor.monotonicBeforeNanoseconds,
+      epochMilliseconds: anchor.epochMilliseconds,
+    }
+    await writeFile(checkpointPath, `${JSON.stringify(state)}\n`, { mode: 0o600 })
+
+    const result = await new AgentWorkCheckpointStore(
+      root,
+      fakeClock(1_020, 30_000_000n),
+    ).finish(locator, () => Promise.resolve(snapshot(20, 20)))
+
+    expect(result).toMatchObject({ usage: { status: 'complete' } })
+    expect(result).not.toHaveProperty('activeWallMilliseconds')
   })
 
   it('keeps the first baseline when start is retried', async () => {
@@ -313,6 +522,48 @@ describe('agent-work private checkpoint lifecycle', () => {
     ).resolves.toBeUndefined()
     await expect(readdir(root)).resolves.toEqual(['unrelated-owner-state'])
   })
+
+  it('tolerates concurrent stale-prune disappearance races', async () => {
+    const root = await privateRoot()
+    const clock = fakeClock(Date.now())
+    const owner = new AgentWorkCheckpointStore(root, clock)
+    for (let index = 1; index <= 24; index += 1) {
+      await owner.start({
+        ...codexLocator('concurrent-prune-session', index.toString(16).padStart(64, '0')),
+        cwd: '/launch',
+        artifactEnvironment: {},
+        snapshot: snapshot(10, index),
+      })
+    }
+    const staleTime = new Date(
+      Date.now() - AGENT_WORK_CHECKPOINT_RETENTION_MILLISECONDS - 1_000,
+    )
+    await Promise.all(
+      (await readdir(root)).map((name) =>
+        utimes(join(root, name), staleTime, staleTime),
+      ),
+    )
+    const fresh = codexLocator('concurrent-prune-session', 'f'.repeat(64))
+
+    const [removed, started] = await Promise.all([
+      Promise.all(
+        Array.from({ length: 8 }, () =>
+          new AgentWorkCheckpointStore(root, clock).pruneStale(),
+        ),
+      ),
+      new AgentWorkCheckpointStore(root, clock).start({
+        ...fresh,
+        cwd: '/launch',
+        artifactEnvironment: {},
+        snapshot: snapshot(20, 100),
+      }),
+    ])
+
+    expect(removed.some((count) => count > 0)).toBe(true)
+    expect(started).toMatchObject({ status: 'started' })
+    await expect(readdir(root)).resolves.toHaveLength(1)
+    await owner.abandon(fresh)
+  })
 })
 
 describe('agent-work checkpoint command identity boundary', () => {
@@ -448,10 +699,13 @@ function snapshot(observedAt: number, value: number): HarnessUsageSnapshot {
   }
 }
 
-function fakeClock(initialEpochMilliseconds = 1_000): AgentWorkCheckpointClock & {
+function fakeClock(
+  initialEpochMilliseconds = 1_000,
+  initialMonotonicNanoseconds = 0n,
+): AgentWorkCheckpointClock & {
   advance(milliseconds: number): void
 } {
-  let nanoseconds = 0n
+  let nanoseconds = initialMonotonicNanoseconds
   let epochMilliseconds = initialEpochMilliseconds
   return {
     monotonicNanoseconds: () => nanoseconds,
@@ -459,6 +713,26 @@ function fakeClock(initialEpochMilliseconds = 1_000): AgentWorkCheckpointClock &
     advance: (milliseconds) => {
       nanoseconds += BigInt(milliseconds) * 1_000_000n
       epochMilliseconds += milliseconds
+    },
+  }
+}
+
+function scriptedClock(
+  monotonicNanoseconds: readonly bigint[],
+  epochMilliseconds: readonly number[],
+): AgentWorkCheckpointClock {
+  const monotonic = [...monotonicNanoseconds]
+  const epoch = [...epochMilliseconds]
+  return {
+    monotonicNanoseconds: () => {
+      const value = monotonic.shift()
+      if (value === undefined) throw new Error('Unexpected monotonic clock sample.')
+      return value
+    },
+    epochMilliseconds: () => {
+      const value = epoch.shift()
+      if (value === undefined) throw new Error('Unexpected epoch clock sample.')
+      return value
     },
   }
 }
