@@ -1,9 +1,11 @@
 import {
   calculateHarnessUsageDelta,
   nonNegativeUsageCounter,
+  unavailableHarnessUsageSnapshot,
   type HarnessUsageSnapshot,
 } from '../src/main/harness/agent-work-usage'
 import { harnessProvider } from '../src/main/harness/harness-provider'
+import type { ProjectHost } from '../src/main/project-host'
 import { LocalHost } from '../src/main/project-host/local-host'
 import {
   AGENT_WORK_TOKEN_COUNTER_NAMES,
@@ -12,6 +14,7 @@ import {
 } from '../src/shared'
 
 const STDIN_BYTE_LIMIT = 64 * 1024
+const HARNESS_USAGE_CAPTURE_TIMEOUT_MS = 30_000
 
 export const SUPPORTED_USAGE_PROVIDERS = ['codex', 'claude-code'] as const
 export type SupportedUsageProvider = (typeof SUPPORTED_USAGE_PROVIDERS)[number]
@@ -58,24 +61,39 @@ export async function runHarnessUsageProof(args: readonly string[]): Promise<num
 export async function captureHarnessUsageSnapshot(
   providerId: SupportedUsageProvider,
   context: HarnessUsagePrivateContext,
+  options: { readonly createHost?: () => ProjectHost } = {},
 ): Promise<HarnessUsageSnapshot> {
   const provider = harnessProvider(providerId)
   if (!provider.usageSnapshots) {
     throw new Error('The selected provider does not expose usage snapshots.')
   }
-  const host = new LocalHost()
+  const host = options.createHost?.() ?? new LocalHost()
   await host.connect()
   try {
-    return await provider.usageSnapshots.snapshot(host, {
-      sessionId: context.sessionId,
-      cwd: localPath(context.cwd),
-      artifact: {
-        identity: 'agent-work-live-proof',
-        environment: context.artifactEnvironment,
-        unsetEnvironment: [],
-      },
-      signal: new AbortController().signal,
-    })
+    const signal = AbortSignal.timeout(HARNESS_USAGE_CAPTURE_TIMEOUT_MS)
+    try {
+      const snapshot = await provider.usageSnapshots.snapshot(host, {
+        sessionId: context.sessionId,
+        cwd: localPath(context.cwd),
+        artifact: {
+          identity: 'agent-work-live-proof',
+          environment: context.artifactEnvironment,
+          unsetEnvironment: [],
+        },
+        signal,
+      })
+      return signal.aborted
+        ? unavailableHarnessUsageSnapshot(provider.manifest.id, 'artifact-unavailable')
+        : snapshot
+    } catch (error) {
+      if (signal.aborted) {
+        return unavailableHarnessUsageSnapshot(
+          provider.manifest.id,
+          'artifact-unavailable',
+        )
+      }
+      throw error
+    }
   } finally {
     await host.dispose()
   }
