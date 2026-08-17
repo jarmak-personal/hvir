@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { GitHubCanonicalProject } from '../scripts/project-management/canonical-project.ts'
+import type { CanonicalProjectConfiguration } from '../scripts/project-management/canonical-project-config.ts'
 import { GitHubClient } from '../scripts/project-management/github-client.ts'
 import { GitHubIssueRepository } from '../scripts/project-management/github-issues.ts'
 
@@ -55,14 +56,39 @@ function field(name: string, options: string[]): object {
   }
 }
 
-function canonicalProject(fetchImplementation: typeof fetch): GitHubCanonicalProject {
+function canonicalProject(
+  fetchImplementation: typeof fetch,
+  options: {
+    fields?: object[]
+    itemLookup?: 'direct' | 'enumerated'
+  } = {},
+): GitHubCanonicalProject {
   return new GitHubCanonicalProject({
     owner: 'jarmak-personal',
     number: 1,
     repositoryOwner: 'jarmak-personal',
     repositoryName: 'hvir',
     client: client('project-token', fetchImplementation),
+    configuration: configuration(options.fields ?? planningFields()),
+    ...(options.itemLookup === undefined ? {} : { itemLookup: options.itemLookup }),
   })
+}
+
+function planningFields(): object[] {
+  return [field('Kind', kindOptions), field('Status', ['Todo', 'In Progress', 'Done'])]
+}
+
+function configuration(fields: object[]): CanonicalProjectConfiguration {
+  return {
+    repository: 'jarmak-personal/hvir',
+    owner: 'jarmak-personal',
+    number: 1,
+    id: 'project-id',
+    fields: fields.map((candidate) => {
+      const { __typename, ...rest } = candidate as Record<string, unknown>
+      return { typename: String(__typename), ...rest }
+    }),
+  }
 }
 
 describe('GitHub issue planning adapter', () => {
@@ -227,7 +253,7 @@ describe('GitHub issue planning adapter', () => {
 })
 
 describe('canonical Project adapter', () => {
-  it('paginates fields and items while matching repository-qualified issues', async () => {
+  it('paginates issue-scoped items while matching Project and repository identity', async () => {
     const fetchImplementation = vi.fn(
       (_url: string | URL | Request, init?: RequestInit): Promise<Response> => {
         const body = requestBody(init)
@@ -281,38 +307,59 @@ describe('canonical Project adapter', () => {
             }),
           )
         }
-        if (body.query.includes('ProjectItems')) {
+        if (body.query.includes('IssueProjectItems')) {
           const second = body.variables.after === 'items-next'
           return Promise.resolve(
             graphqlData({
-              node: {
-                items: {
-                  nodes: [
-                    {
-                      id: second ? 'target-item' : 'other-repository-item',
-                      isArchived: second,
-                      content: {
-                        __typename: 'Issue',
-                        number: 85,
-                        repository: {
-                          nameWithOwner: second
-                            ? 'jarmak-personal/hvir'
-                            : 'another/repository',
+              repository: {
+                issue: {
+                  projectItems: {
+                    nodes: [
+                      {
+                        project: { id: 'project-id' },
+                        id: second ? 'target-item' : 'other-repository-item',
+                        isArchived: second,
+                        content: {
+                          __typename: 'Issue',
+                          number: 85,
+                          repository: {
+                            nameWithOwner: second
+                              ? 'jarmak-personal/hvir'
+                              : 'another/repository',
+                          },
+                        },
+                        kind: {
+                          __typename: 'ProjectV2ItemFieldSingleSelectValue',
+                          name: 'Feature',
+                        },
+                        status: {
+                          __typename: 'ProjectV2ItemFieldSingleSelectValue',
+                          name: 'Todo',
                         },
                       },
-                      kind: {
-                        __typename: 'ProjectV2ItemFieldSingleSelectValue',
-                        name: 'Feature',
-                      },
-                      status: {
-                        __typename: 'ProjectV2ItemFieldSingleSelectValue',
-                        name: 'Todo',
-                      },
+                      ...(second
+                        ? []
+                        : [
+                            {
+                              project: { id: 'another-project-id' },
+                              id: 'other-project-item',
+                              isArchived: false,
+                              content: {
+                                __typename: 'Issue',
+                                number: 85,
+                                repository: {
+                                  nameWithOwner: 'jarmak-personal/hvir',
+                                },
+                              },
+                              kind: null,
+                              status: null,
+                            },
+                          ]),
+                    ],
+                    pageInfo: {
+                      endCursor: second ? null : 'items-next',
+                      hasNextPage: !second,
                     },
-                  ],
-                  pageInfo: {
-                    endCursor: second ? null : 'items-next',
-                    hasNextPage: !second,
                   },
                 },
               },
@@ -340,11 +387,66 @@ describe('canonical Project adapter', () => {
     const queries = vi
       .mocked(fetchImplementation)
       .mock.calls.map((call) => requestBody(call[1]).query)
-    expect(queries.filter((query) => query.includes('ProjectItems'))).toHaveLength(2)
+    expect(queries.filter((query) => query.includes('IssueProjectItems'))).toHaveLength(2)
+    expect(queries.filter((query) => query.includes('query ProjectItems'))).toHaveLength(
+      0,
+    )
+    expect(queries.filter((query) => query.includes('ProjectIdentity'))).toHaveLength(0)
+    expect(queries.filter((query) => query.includes('ProjectFields'))).toHaveLength(0)
     expect(queries.filter((query) => query.includes('ProjectItemById'))).toHaveLength(1)
   })
 
-  it('reports missing Status schema before scanning Project items', async () => {
+  it('retains global Project item enumeration only for an explicit bulk consumer', async () => {
+    const queries: string[] = []
+    const fetchImplementation = vi.fn(
+      (_url: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        const body = requestBody(init)
+        queries.push(body.query)
+        if (!body.query.includes('query ProjectItems')) {
+          throw new Error(`Unexpected query: ${body.query}`)
+        }
+        const second = body.variables.after === 'items-next'
+        return Promise.resolve(
+          graphqlData({
+            node: {
+              items: {
+                nodes: [
+                  {
+                    id: second ? 'target-item' : 'other-item',
+                    isArchived: false,
+                    content: {
+                      __typename: 'Issue',
+                      number: second ? 85 : 84,
+                      repository: { nameWithOwner: 'jarmak-personal/hvir' },
+                    },
+                    kind: null,
+                    status: null,
+                  },
+                ],
+                pageInfo: {
+                  endCursor: second ? null : 'items-next',
+                  hasNextPage: !second,
+                },
+              },
+            },
+          }),
+        )
+      },
+    )
+    const project = canonicalProject(fetchImplementation, {
+      itemLookup: 'enumerated',
+    })
+
+    await expect(project.getIssueItem(85)).resolves.toMatchObject({
+      id: 'target-item',
+    })
+    expect(queries.filter((query) => query.includes('query ProjectItems'))).toHaveLength(
+      2,
+    )
+    expect(queries.some((query) => query.includes('IssueProjectItems'))).toBe(false)
+  })
+
+  it('reports an invalid stored planning schema before reading an issue item', async () => {
     const fetchImplementation = vi.fn(
       (_url: string | URL | Request, init?: RequestInit): Promise<Response> => {
         const body = requestBody(init)
@@ -370,9 +472,11 @@ describe('canonical Project adapter', () => {
     )
 
     await expect(
-      canonicalProject(fetchImplementation).validatePlanningSchema(),
+      canonicalProject(fetchImplementation, {
+        fields: [field('Kind', kindOptions)],
+      }).validatePlanningSchema(),
     ).rejects.toThrow('Project field "Status" is missing')
-    expect(fetchImplementation).toHaveBeenCalledTimes(2)
+    expect(fetchImplementation).not.toHaveBeenCalled()
   })
 
   it('rejects duplicate Project items for one repository issue', async () => {
@@ -396,8 +500,9 @@ describe('canonical Project adapter', () => {
             }),
           )
         }
-        if (body.query.includes('ProjectItems')) {
+        if (body.query.includes('IssueProjectItems')) {
           const duplicate = (id: string): object => ({
+            project: { id: 'project-id' },
             id,
             isArchived: false,
             content: {
@@ -410,10 +515,12 @@ describe('canonical Project adapter', () => {
           })
           return Promise.resolve(
             graphqlData({
-              node: {
-                items: {
-                  nodes: [duplicate('first-item'), duplicate('second-item')],
-                  pageInfo: { endCursor: null, hasNextPage: false },
+              repository: {
+                issue: {
+                  projectItems: {
+                    nodes: [duplicate('first-item'), duplicate('second-item')],
+                    pageInfo: { endCursor: null, hasNextPage: false },
+                  },
                 },
               },
             }),
@@ -454,13 +561,15 @@ describe('canonical Project adapter', () => {
             }),
           )
         }
-        if (body.query.includes('ProjectItems')) {
+        if (body.query.includes('IssueProjectItems')) {
           return Promise.resolve(
             graphqlData({
-              node: {
-                items: {
-                  nodes: [],
-                  pageInfo: { endCursor: null, hasNextPage: false },
+              repository: {
+                issue: {
+                  projectItems: {
+                    nodes: [],
+                    pageInfo: { endCursor: null, hasNextPage: false },
+                  },
                 },
               },
             }),
@@ -526,7 +635,7 @@ describe('canonical Project adapter', () => {
     )
 
     await expect(
-      canonicalProject(fetchImplementation).validatePlanningSchema(),
+      canonicalProject(fetchImplementation).auditConfiguration(),
     ).rejects.toThrow('User Project jarmak-personal#1 was not found')
   })
 
@@ -555,9 +664,11 @@ describe('canonical Project adapter', () => {
       },
     )
 
-    await expect(
-      canonicalProject(fetchImplementation).validatePlanningSchema(),
-    ).rejects.toThrow('Project field "Status" is missing the expected "Done" option')
+    const report = await canonicalProject(fetchImplementation).auditConfiguration()
+    expect(report.outcome).toBe('drift')
+    expect(report.diagnostics).toEqual(
+      expect.arrayContaining([expect.stringContaining('Project option "Status / Done"')]),
+    )
   })
 
   it('redacts a token from GraphQL failure diagnostics', async () => {
@@ -576,7 +687,7 @@ describe('canonical Project adapter', () => {
 
     let message = ''
     try {
-      await canonicalProject(fetchImplementation).validatePlanningSchema()
+      await canonicalProject(fetchImplementation).auditConfiguration()
     } catch (error) {
       message = error instanceof Error ? error.message : String(error)
     }
