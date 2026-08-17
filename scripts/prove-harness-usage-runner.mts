@@ -5,7 +5,6 @@ import {
   type HarnessUsageSnapshot,
 } from '../src/main/harness/agent-work-usage'
 import { harnessProvider } from '../src/main/harness/harness-provider'
-import type { ProjectHost } from '../src/main/project-host'
 import { LocalHost } from '../src/main/project-host/local-host'
 import {
   AGENT_WORK_TOKEN_COUNTER_NAMES,
@@ -61,13 +60,12 @@ export async function runHarnessUsageProof(args: readonly string[]): Promise<num
 export async function captureHarnessUsageSnapshot(
   providerId: SupportedUsageProvider,
   context: HarnessUsagePrivateContext,
-  options: { readonly createHost?: () => ProjectHost } = {},
 ): Promise<HarnessUsageSnapshot> {
   const provider = harnessProvider(providerId)
   if (!provider.usageSnapshots) {
     throw new Error('The selected provider does not expose usage snapshots.')
   }
-  const host = options.createHost?.() ?? new LocalHost()
+  const host = new LocalHost()
   await host.connect()
   try {
     const signal = AbortSignal.timeout(HARNESS_USAGE_CAPTURE_TIMEOUT_MS)

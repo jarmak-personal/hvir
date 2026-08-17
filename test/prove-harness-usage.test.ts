@@ -11,6 +11,14 @@ import {
   localPath,
 } from '../src/shared'
 
+const localHostMock = vi.hoisted<{ current: unknown }>(() => ({ current: undefined }))
+
+vi.mock('../src/main/project-host/local-host', () => ({
+  LocalHost: function LocalHost() {
+    return localHostMock.current
+  },
+}))
+
 const SESSION_ID = '12345678-1234-4234-8234-123456789abc'
 
 describe('harness usage proof input', () => {
@@ -111,17 +119,14 @@ describe('harness usage proof capture', () => {
       ),
       fileTransfer: { readFileChunks },
     } as unknown as ProjectHost
+    localHostMock.current = host
 
     try {
-      const capture = captureHarnessUsageSnapshot(
-        'codex',
-        {
-          sessionId: SESSION_ID,
-          cwd: cwd.path,
-          artifactEnvironment: {},
-        },
-        { createHost: () => host },
-      )
+      const capture = captureHarnessUsageSnapshot('codex', {
+        sessionId: SESSION_ID,
+        cwd: cwd.path,
+        artifactEnvironment: {},
+      })
       await vi.waitFor(() => expect(readFileChunks).toHaveBeenCalledOnce())
       expect(timeoutSpy).toHaveBeenCalledWith(30_000)
 
