@@ -15,7 +15,7 @@ import {
   type SupportedUsageProvider,
 } from './prove-harness-usage-runner.mts'
 
-const OPERATIONS = ['start', 'pause', 'resume', 'finish', 'abandon'] as const
+const OPERATIONS = ['start', 'pause', 'resume', 'finish', 'abandon', 'release'] as const
 type CheckpointOperation = (typeof OPERATIONS)[number]
 
 interface CheckpointCommand {
@@ -23,6 +23,7 @@ interface CheckpointCommand {
   readonly issueNumber: number
   readonly phase: AgentWorkPhase
   readonly providerId: SupportedUsageProvider
+  readonly runKey: string
 }
 
 export async function runAgentWorkCheckpoint(
@@ -45,6 +46,7 @@ export async function runAgentWorkCheckpoint(
     phase: command.phase,
     providerId: command.providerId,
     sessionId,
+    runKey: command.runKey,
   }
   const store = new AgentWorkCheckpointStore(checkpointRoot(environment))
 
@@ -91,6 +93,11 @@ export async function runAgentWorkCheckpoint(
     writeResult(result)
     return result.status === 'unavailable' ? 2 : 0
   }
+  if (command.operation === 'release') {
+    const result = await store.release(locator)
+    writeResult(result)
+    return result.status === 'unavailable' ? 2 : 0
+  }
 
   const result = await store.finish(locator, (context) =>
     captureHarnessUsageSnapshot(command.providerId, context),
@@ -112,14 +119,18 @@ function parseCommand(args: readonly string[]): CheckpointCommand {
   const [operation, ...options] = args
   if (!operation || !OPERATIONS.some((candidate) => candidate === operation)) {
     throw new Error(
-      'Usage: agent-work:checkpoint <start|pause|resume|finish|abandon> --issue <number> --phase <phase> --provider <codex|claude-code>',
+      'Usage: agent-work:checkpoint <start|pause|resume|finish|abandon|release> --issue <number> --phase <phase> --provider <codex|claude-code> --run-key <64-hex-key>',
     )
   }
   const values = new Map<string, string>()
   for (let index = 0; index < options.length; index += 2) {
     const name = options[index]
     const value = options[index + 1]
-    if (!name || !value || !['--issue', '--phase', '--provider'].includes(name)) {
+    if (
+      !name ||
+      !value ||
+      !['--issue', '--phase', '--provider', '--run-key'].includes(name)
+    ) {
       throw new Error('Agent-work checkpoint options are invalid.')
     }
     if (values.has(name)) throw new Error(`Duplicate ${name} option.`)
@@ -128,6 +139,7 @@ function parseCommand(args: readonly string[]): CheckpointCommand {
   const issueNumber = Number(values.get('--issue'))
   const phase = values.get('--phase')
   const providerId = values.get('--provider')
+  const runKey = values.get('--run-key')
   if (!Number.isSafeInteger(issueNumber) || issueNumber < 1) {
     throw new Error('--issue must be a positive safe integer.')
   }
@@ -137,11 +149,15 @@ function parseCommand(args: readonly string[]): CheckpointCommand {
   if (!providerId || !isSupportedUsageProvider(providerId)) {
     throw new Error('--provider is not supported.')
   }
+  if (!runKey || !/^[a-f0-9]{64}$/.test(runKey)) {
+    throw new Error('--run-key must be exactly 64 lowercase hexadecimal characters.')
+  }
   return {
     operation: operation as CheckpointOperation,
     issueNumber,
     phase: phase as AgentWorkPhase,
     providerId,
+    runKey,
   }
 }
 

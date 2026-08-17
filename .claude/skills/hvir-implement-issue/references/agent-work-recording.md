@@ -32,23 +32,29 @@ At the phase's start observation:
 
    ```sh
    npm run --silent agent-work:checkpoint -- start \
-     --issue <number> --phase <phase> --provider <codex|claude-code>
+     --issue <number> --phase <phase> --provider <codex|claude-code> \
+     --run-key <canonical-64-hex-run-key>
    ```
 
-   A repeated start for the same exact issue, phase, provider, and session is `unchanged`; it never
-   replaces the first baseline. An absent or different delegated identity fails closed with
-   `run-identity-unproven` and cannot discover another session's checkpoint. Do not print, publish,
-   or put the session identity, launch directory, artifact location, checkpoint location, or
-   checkpoint state in a record. If start is unavailable, retain its fixed reason and continue.
+   Supply the same canonical run key established in step 1. A repeated start for the same exact
+   issue, phase, provider, session, and run key is `unchanged`; it never replaces the first
+   baseline. A distinct run key creates isolated state even inside the same harness session. An
+   absent or different delegated identity fails closed with `run-identity-unproven` and cannot
+   discover another session's checkpoint. The key may identify the bounded repository run, but it
+   still stays out of checkpoint output. Do not print, publish, or put the session identity, launch
+   directory, artifact location, checkpoint location, or checkpoint state in a record. If start is
+   unavailable, retain its fixed reason and continue.
 5. Immediately before an explicit suspension for maintainer input or acceptance, pause the active
    clock. Resume it when the authorized workflow continues. These operations are idempotent and use
    the same arguments as start:
 
    ```sh
    npm run --silent agent-work:checkpoint -- pause \
-     --issue <number> --phase <phase> --provider <codex|claude-code>
+     --issue <number> --phase <phase> --provider <codex|claude-code> \
+     --run-key <canonical-64-hex-run-key>
    npm run --silent agent-work:checkpoint -- resume \
-     --issue <number> --phase <phase> --provider <codex|claude-code>
+     --issue <number> --phase <phase> --provider <codex|claude-code> \
+     --run-key <canonical-64-hex-run-key>
    ```
 
 Record every explicitly observed route change in order. Preserve the initial route, number
@@ -63,23 +69,26 @@ handoff facts are stable but before ledger bookkeeping:
 
 1. Finish the checkpoint with the same issue, phase, provider, and exact current identity. The
    command loads only that identity's qualified start state, takes the provider-owned end snapshot,
-   calculates the delta, stops the monotonic active clock, and removes the checkpoint after a
-   successful finalization. It never searches for or combines a nearby, delegated, resumed, or
-   cross-provider session. For implementation, a push establishes candidate identity; it does not
-   finalize the run before diff audit, architecture and acceptance rechecks, pull-request update,
-   and handoff preparation finish. Capture the content-free result privately for record
-   construction:
+   calculates the delta, stops the monotonic active clock, and atomically replaces the private
+   baseline with that content-free finished observation. A repeated finish returns the identical
+   observation without reading the provider again. It never searches for or combines a nearby,
+   delegated, resumed, differently keyed, or cross-provider session. For implementation, a push
+   establishes candidate identity; it does not finalize the run before diff audit, architecture
+   and acceptance rechecks, pull-request update, and handoff preparation finish. Capture the
+   content-free result privately for record construction:
 
    ```sh
    hvir_agent_work_observation="$(npm run --silent agent-work:checkpoint -- finish \
-     --issue <number> --phase <phase> --provider <codex|claude-code>)"
+     --issue <number> --phase <phase> --provider <codex|claude-code> \
+     --run-key <canonical-64-hex-run-key>)"
    ```
 
-   A fixed unavailable result means no matching current-identity checkpoint exists; do not recover
-   another checkpoint by scanning private state. An operational failure retains the checkpoint for
-   an exact retry. If the workflow is abandoned before finalization, invoke `abandon` with the same
-   arguments; repeating it is safely unavailable. The owner also prunes only its own checkpoint
-   files after the bounded 30-day retention interval. No lifecycle relies on an `EXIT` trap.
+   A fixed unavailable result means no matching current-identity and run-key checkpoint exists; do
+   not recover another checkpoint by scanning private state. An operational failure retains the
+   open checkpoint for an exact retry. If the workflow is abandoned before finalization, invoke
+   `abandon` with the same arguments; repeating it is safely unavailable. A finalized observation
+   is not abandonable. The owner also prunes only its own open or finalized checkpoint files after
+   the bounded 30-day retention interval. No lifecycle relies on an `EXIT` trap.
 2. Build one closed schema-v1 record from observed facts only. A complete record includes every
    additive counter and its exact safe-integer normalized total. A partial record includes an
    initial route, at least one usage or timing fact, fixed `missingFacts`, and no normalized total.
@@ -100,10 +109,20 @@ handoff facts are stable but before ledger bookkeeping:
    npm run project:measure -- --issue <number> --append --apply
    ```
 
-4. Only after the append is confirmed or reported as the identical duplicate, dry-run and apply
-   the separate Project projection. If projection fails after append, retry projection only; do
-   not append again.
-5. After the issue's named projection has a reportable outcome, dry-run and apply its separate
+4. Only after the append is confirmed or reported as the identical duplicate, release the
+   finalized private checkpoint with the same arguments. Never release it after only a dry run,
+   failed append, or uncertain append result. A lost finish result remains recoverable until this
+   boundary:
+
+   ```sh
+   npm run --silent agent-work:checkpoint -- release \
+     --issue <number> --phase <phase> --provider <codex|claude-code> \
+     --run-key <canonical-64-hex-run-key>
+   ```
+
+5. After release, dry-run and apply the separate Project projection. If projection fails after
+   append, retry projection only; do not append again.
+6. After the issue's named projection has a reportable outcome, dry-run and apply its separate
    Rollup reconciliation. This clears a stale Rollup from an ordinary issue or epic child, and
    calculates a root epic from its Own ledger plus every native direct child's current Own ledger:
 
@@ -121,7 +140,7 @@ handoff facts are stable but before ledger bookkeeping:
    parent after the child operation. This reconciles the parent after child planning,
    implementation, review, correction, or reopened work without editing the child's comments or
    Project values. Do not guess a parent or recurse beyond the one native relationship.
-6. Report `complete`, `partial`, `unavailable`, `duplicate`, or failed/uncertain append,
+7. Report `complete`, `partial`, `unavailable`, `duplicate`, or failed/uncertain append,
    projection, and applicable Rollup state in the lifecycle handoff. Never include the private
    snapshot or provider identity inputs.
 

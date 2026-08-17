@@ -17,6 +17,10 @@ import {
   type HarnessUsageSnapshot,
 } from '../src/main/harness/agent-work-usage'
 import {
+  AGENT_WORK_TOKEN_COUNTER_NAMES,
+  HARNESS_USAGE_DELTA_UNAVAILABLE_REASONS,
+} from '../src/shared'
+import {
   AGENT_WORK_PHASES,
   type AgentWorkPhase,
 } from './project-management/agent-work-ledger.ts'
@@ -35,6 +39,7 @@ export interface AgentWorkCheckpointLocator {
   readonly phase: AgentWorkPhase
   readonly providerId: SupportedUsageProvider
   readonly sessionId: string
+  readonly runKey: string
 }
 
 export interface AgentWorkCheckpointStartInput extends AgentWorkCheckpointLocator {
@@ -48,19 +53,26 @@ export interface AgentWorkCheckpointClock {
   epochMilliseconds(): number
 }
 
-interface AgentWorkCheckpointState {
+interface AgentWorkCheckpointIdentity extends AgentWorkCheckpointLocator {
   readonly version: 1
-  readonly issueNumber: number
-  readonly phase: AgentWorkPhase
-  readonly providerId: SupportedUsageProvider
-  readonly sessionId: string
+}
+
+interface OpenAgentWorkCheckpointState extends AgentWorkCheckpointIdentity {
+  readonly lifecycle: 'open'
   readonly cwd: string
   readonly artifactEnvironment: Readonly<Record<string, string>>
   readonly snapshot: HarnessUsageSnapshot
   readonly accumulatedNanoseconds: string
   readonly activeSegmentStartedAt: string | null
-  readonly updatedAtEpochMilliseconds: number
 }
+
+interface FinalizedAgentWorkCheckpointState extends AgentWorkCheckpointIdentity {
+  readonly lifecycle: 'finalized'
+  readonly observation: AgentWorkCheckpointFinishResult
+}
+
+type AgentWorkCheckpointState =
+  OpenAgentWorkCheckpointState | FinalizedAgentWorkCheckpointState
 
 export type AgentWorkCheckpointStartResult = {
   readonly version: 1
@@ -72,8 +84,9 @@ export type AgentWorkCheckpointStartResult = {
 
 export type AgentWorkCheckpointControlResult = {
   readonly version: 1
-  readonly operation: 'pause' | 'resume' | 'abandon'
-  readonly status: 'paused' | 'resumed' | 'abandoned' | 'unchanged' | 'unavailable'
+  readonly operation: 'pause' | 'resume' | 'abandon' | 'release'
+  readonly status:
+    'paused' | 'resumed' | 'abandoned' | 'released' | 'unchanged' | 'unavailable'
   readonly reason?: 'run-identity-unproven'
 }
 
@@ -112,7 +125,7 @@ export class AgentWorkCheckpointStore {
       operation: 'start',
       status: 'unchanged',
       providerId: state.providerId,
-      route: availableRoute(state.snapshot),
+      route: stateRoute(state),
     }
   }
 
@@ -136,21 +149,22 @@ export class AgentWorkCheckpointStore {
         operation: 'start',
         status: 'unchanged',
         providerId: existing.providerId,
-        route: availableRoute(existing.snapshot),
+        route: stateRoute(existing),
       }
     }
-    const state: AgentWorkCheckpointState = {
+    const state: OpenAgentWorkCheckpointState = {
       version: CHECKPOINT_VERSION,
+      lifecycle: 'open',
       issueNumber: input.issueNumber,
       phase: input.phase,
       providerId: input.providerId,
       sessionId: input.sessionId,
+      runKey: input.runKey,
       cwd: input.cwd,
       artifactEnvironment: input.artifactEnvironment,
       snapshot: input.snapshot,
       accumulatedNanoseconds: '0',
       activeSegmentStartedAt: this.clock.monotonicNanoseconds().toString(),
-      updatedAtEpochMilliseconds: this.clock.epochMilliseconds(),
     }
     try {
       await writeFile(path, serializeState(state), {
@@ -167,7 +181,7 @@ export class AgentWorkCheckpointStore {
         operation: 'start',
         status: 'unchanged',
         providerId: raced.providerId,
-        route: availableRoute(raced.snapshot),
+        route: stateRoute(raced),
       }
     }
     return {
@@ -200,6 +214,9 @@ export class AgentWorkCheckpointStore {
     const state = await this.readOptional(path)
     if (!state) return unavailableControl('abandon')
     this.assertLocator(state, locator)
+    if (state.lifecycle !== 'open') {
+      throw new Error('A finalized agent-work checkpoint must be released after append.')
+    }
     await unlink(path)
     return { version: CHECKPOINT_VERSION, operation: 'abandon', status: 'abandoned' }
   }
@@ -214,6 +231,7 @@ export class AgentWorkCheckpointStore {
     const state = await this.readOptional(path)
     if (!state) return undefined
     this.assertLocator(state, locator)
+    if (state.lifecycle === 'finalized') return state.observation
     const end = await captureEnd({
       sessionId: state.sessionId,
       cwd: state.cwd,
@@ -232,8 +250,34 @@ export class AgentWorkCheckpointStore {
       usage: calculateHarnessUsageDelta(state.snapshot, end),
       ...(activeWallMilliseconds === undefined ? {} : { activeWallMilliseconds }),
     }
-    await unlink(path)
+    const finalized: FinalizedAgentWorkCheckpointState = {
+      version: CHECKPOINT_VERSION,
+      lifecycle: 'finalized',
+      issueNumber: state.issueNumber,
+      phase: state.phase,
+      providerId: state.providerId,
+      sessionId: state.sessionId,
+      runKey: state.runKey,
+      observation: result,
+    }
+    await this.replace(path, finalized)
     return result
+  }
+
+  async release(
+    locator: AgentWorkCheckpointLocator,
+  ): Promise<AgentWorkCheckpointControlResult> {
+    await this.ensureRoot()
+    const path = this.checkpointPath(locator)
+    await this.pruneStale(path)
+    const state = await this.readOptional(path)
+    if (!state) return unavailableControl('release')
+    this.assertLocator(state, locator)
+    if (state.lifecycle !== 'finalized') {
+      throw new Error('An unfinished agent-work checkpoint cannot be released.')
+    }
+    await unlink(path)
+    return { version: CHECKPOINT_VERSION, operation: 'release', status: 'released' }
   }
 
   async pruneStale(exceptPath?: string): Promise<number> {
@@ -266,22 +310,23 @@ export class AgentWorkCheckpointStore {
     const operation = active ? 'resume' : 'pause'
     if (!state) return unavailableControl(operation)
     this.assertLocator(state, locator)
+    if (state.lifecycle !== 'open') {
+      throw new Error('A finalized agent-work checkpoint has no active clock.')
+    }
     const now = this.clock.monotonicNanoseconds()
     const isActive = state.activeSegmentStartedAt !== null
     if (active === isActive) {
       return { version: CHECKPOINT_VERSION, operation, status: 'unchanged' }
     }
-    const next: AgentWorkCheckpointState = active
+    const next: OpenAgentWorkCheckpointState = active
       ? {
           ...state,
           activeSegmentStartedAt: now.toString(),
-          updatedAtEpochMilliseconds: this.clock.epochMilliseconds(),
         }
       : {
           ...state,
           accumulatedNanoseconds: accumulatedNanoseconds(state, now).toString(),
           activeSegmentStartedAt: null,
-          updatedAtEpochMilliseconds: this.clock.epochMilliseconds(),
         }
     await this.replace(path, next)
     return {
@@ -314,6 +359,7 @@ export class AgentWorkCheckpointStore {
           locator.phase,
           locator.providerId,
           locator.sessionId,
+          locator.runKey,
         ].join('\0'),
       )
       .digest('hex')
@@ -358,7 +404,8 @@ export class AgentWorkCheckpointStore {
       state.issueNumber !== locator.issueNumber ||
       state.phase !== locator.phase ||
       state.providerId !== locator.providerId ||
-      state.sessionId !== locator.sessionId
+      state.sessionId !== locator.sessionId ||
+      state.runKey !== locator.runKey
     ) {
       throw new Error('The private agent-work checkpoint identity does not match.')
     }
@@ -391,58 +438,180 @@ function parseState(serialized: string): AgentWorkCheckpointState {
   } catch {
     throw new Error('The private agent-work checkpoint is not valid JSON.')
   }
+  if (!isCheckpointIdentity(value)) return invalidCheckpoint()
+  if (value.lifecycle === 'open') {
+    if (
+      !exactKeys(value, [
+        'version',
+        'lifecycle',
+        'issueNumber',
+        'phase',
+        'providerId',
+        'sessionId',
+        'runKey',
+        'cwd',
+        'artifactEnvironment',
+        'snapshot',
+        'accumulatedNanoseconds',
+        'activeSegmentStartedAt',
+      ]) ||
+      !boundedString(value.cwd, 4_096) ||
+      !isStringRecord(value.artifactEnvironment) ||
+      !isProofHarnessUsageSnapshot(value.snapshot) ||
+      value.snapshot.status !== 'available' ||
+      value.snapshot.providerId !== value.providerId ||
+      !validArtifactEnvironment(String(value.providerId), value.artifactEnvironment) ||
+      !nonNegativeBigIntegerString(value.accumulatedNanoseconds) ||
+      !(
+        value.activeSegmentStartedAt === null ||
+        nonNegativeBigIntegerString(value.activeSegmentStartedAt)
+      )
+    ) {
+      return invalidCheckpoint()
+    }
+    return value as unknown as OpenAgentWorkCheckpointState
+  }
   if (
-    !isRecord(value) ||
+    value.lifecycle !== 'finalized' ||
     !exactKeys(value, [
       'version',
+      'lifecycle',
       'issueNumber',
       'phase',
       'providerId',
       'sessionId',
-      'cwd',
-      'artifactEnvironment',
-      'snapshot',
-      'accumulatedNanoseconds',
-      'activeSegmentStartedAt',
-      'updatedAtEpochMilliseconds',
-    ])
+      'runKey',
+      'observation',
+    ]) ||
+    !isFinishObservation(value.observation, String(value.providerId))
   ) {
-    throw new Error(
-      'The private agent-work checkpoint does not use the supported schema.',
+    return invalidCheckpoint()
+  }
+  return value as unknown as FinalizedAgentWorkCheckpointState
+}
+
+function isCheckpointIdentity(value: unknown): value is Record<string, unknown> {
+  return (
+    isRecord(value) &&
+    value.version === CHECKPOINT_VERSION &&
+    Number.isSafeInteger(value.issueNumber) &&
+    Number(value.issueNumber) > 0 &&
+    AGENT_WORK_PHASES.some((phase) => phase === value.phase) &&
+    ['codex', 'claude-code'].includes(String(value.providerId)) &&
+    boundedString(value.sessionId, 1_024) &&
+    typeof value.runKey === 'string' &&
+    /^[a-f0-9]{64}$/.test(value.runKey)
+  )
+}
+
+function invalidCheckpoint(): never {
+  throw new Error('The private agent-work checkpoint does not use the supported schema.')
+}
+
+function isFinishObservation(value: unknown, providerId: string): boolean {
+  if (
+    !isRecord(value) ||
+    !exactOptionalKeys(
+      value,
+      ['version', 'operation', 'status', 'providerId', 'startRoute', 'usage'],
+      ['activeWallMilliseconds'],
+    ) ||
+    value.version !== CHECKPOINT_VERSION ||
+    value.operation !== 'finish' ||
+    value.status !== 'closed' ||
+    value.providerId !== providerId ||
+    !isUsageRoute(value.startRoute) ||
+    !isUsageDelta(value.usage, providerId) ||
+    (value.activeWallMilliseconds !== undefined &&
+      nonNegativeUsageCounter(value.activeWallMilliseconds) === undefined)
+  ) {
+    return false
+  }
+  return true
+}
+
+function isUsageDelta(value: unknown, providerId: string): boolean {
+  if (!isRecord(value)) return false
+  if (value.status === 'unavailable') {
+    return (
+      exactKeys(value, ['status', 'reason']) &&
+      HARNESS_USAGE_DELTA_UNAVAILABLE_REASONS.some((reason) => reason === value.reason)
     )
   }
   if (
-    value.version !== CHECKPOINT_VERSION ||
-    !Number.isSafeInteger(value.issueNumber) ||
-    Number(value.issueNumber) < 1 ||
-    !AGENT_WORK_PHASES.some((phase) => phase === value.phase) ||
-    !['codex', 'claude-code'].includes(String(value.providerId)) ||
-    !boundedString(value.sessionId, 1_024) ||
-    !boundedString(value.cwd, 4_096) ||
-    !isStringRecord(value.artifactEnvironment) ||
-    !isProofHarnessUsageSnapshot(value.snapshot) ||
-    value.snapshot.status !== 'available' ||
-    value.snapshot.providerId !== value.providerId ||
-    !validArtifactEnvironment(String(value.providerId), value.artifactEnvironment) ||
-    !nonNegativeBigIntegerString(value.accumulatedNanoseconds) ||
-    !(
-      value.activeSegmentStartedAt === null ||
-      nonNegativeBigIntegerString(value.activeSegmentStartedAt)
+    !['complete', 'partial'].includes(String(value.status)) ||
+    !exactOptionalKeys(
+      value,
+      ['status', 'providerId', 'route', 'counters', 'missingCounters'],
+      ['timing', 'normalizedTokenTotal'],
     ) ||
-    nonNegativeUsageCounter(value.updatedAtEpochMilliseconds) === undefined
+    value.providerId !== providerId ||
+    !isRecord(value.route) ||
+    !exactKeys(value.route, ['start', 'end']) ||
+    !isUsageRoute(value.route.start) ||
+    !isUsageRoute(value.route.end) ||
+    !isUsageCounters(value.counters) ||
+    !isMissingCounters(value.missingCounters) ||
+    (value.timing !== undefined && !isUsageTiming(value.timing)) ||
+    (value.normalizedTokenTotal !== undefined &&
+      nonNegativeUsageCounter(value.normalizedTokenTotal) === undefined)
   ) {
-    throw new Error(
-      'The private agent-work checkpoint does not use the supported schema.',
-    )
+    return false
   }
-  return value as unknown as AgentWorkCheckpointState
+  return value.status === 'complete'
+    ? value.normalizedTokenTotal !== undefined
+    : value.normalizedTokenTotal === undefined
+}
+
+function isUsageRoute(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    exactOptionalKeys(value, [], ['modelId', 'reasoningEffort']) &&
+    optionalBoundedString(value.modelId, 160) &&
+    optionalBoundedString(value.reasoningEffort, 64)
+  )
+}
+
+function isUsageCounters(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    Object.keys(value).every((key) =>
+      AGENT_WORK_TOKEN_COUNTER_NAMES.some((name) => name === key),
+    ) &&
+    Object.values(value).every(
+      (counter) => nonNegativeUsageCounter(counter) !== undefined,
+    )
+  )
+}
+
+function isMissingCounters(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    new Set(value).size === value.length &&
+    value.every(
+      (counter) =>
+        typeof counter === 'string' &&
+        AGENT_WORK_TOKEN_COUNTER_NAMES.some((name) => name === counter),
+    )
+  )
+}
+
+function isUsageTiming(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    exactKeys(value, ['modelOrApiMilliseconds']) &&
+    nonNegativeUsageCounter(value.modelOrApiMilliseconds) !== undefined
+  )
 }
 
 function serializeState(state: AgentWorkCheckpointState): string {
   return `${JSON.stringify(state)}\n`
 }
 
-function accumulatedNanoseconds(state: AgentWorkCheckpointState, now: bigint): bigint {
+function accumulatedNanoseconds(
+  state: OpenAgentWorkCheckpointState,
+  now: bigint,
+): bigint {
   const accumulated = BigInt(state.accumulatedNanoseconds)
   if (state.activeSegmentStartedAt === null) return accumulated
   const startedAt = BigInt(state.activeSegmentStartedAt)
@@ -450,7 +619,7 @@ function accumulatedNanoseconds(state: AgentWorkCheckpointState, now: bigint): b
 }
 
 function activeMilliseconds(
-  state: AgentWorkCheckpointState,
+  state: OpenAgentWorkCheckpointState,
   now: bigint,
 ): number | undefined {
   const milliseconds = accumulatedNanoseconds(state, now) / 1_000_000n
@@ -468,8 +637,16 @@ function availableRoute(
   return snapshot.route
 }
 
+function stateRoute(
+  state: AgentWorkCheckpointState,
+): Extract<HarnessUsageSnapshot, { status: 'available' }>['route'] {
+  return state.lifecycle === 'open'
+    ? availableRoute(state.snapshot)
+    : state.observation.startRoute
+}
+
 function unavailableControl(
-  operation: 'pause' | 'resume' | 'abandon',
+  operation: 'pause' | 'resume' | 'abandon' | 'release',
 ): AgentWorkCheckpointControlResult {
   return {
     version: CHECKPOINT_VERSION,
@@ -492,8 +669,24 @@ function exactKeys(value: Record<string, unknown>, expected: readonly string[]):
   return keys.length === expected.length && keys.every((key) => expected.includes(key))
 }
 
+function exactOptionalKeys(
+  value: Record<string, unknown>,
+  required: readonly string[],
+  optional: readonly string[],
+): boolean {
+  const keys = Object.keys(value)
+  return (
+    required.every((key) => keys.includes(key)) &&
+    keys.every((key) => required.includes(key) || optional.includes(key))
+  )
+}
+
 function boundedString(value: unknown, maximum: number): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= maximum
+}
+
+function optionalBoundedString(value: unknown, maximum: number): boolean {
+  return value === undefined || boundedString(value, maximum)
 }
 
 function isStringRecord(value: unknown): value is Record<string, string> {
