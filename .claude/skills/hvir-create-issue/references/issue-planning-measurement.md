@@ -149,7 +149,7 @@ Never release after only a dry run, a failed or uncertain append, or before a re
 result has been converted into its record. Release is not cleanup for an open checkpoint.
 
 Read canonical Project membership before projection. If the issue does not yet have one active
-canonical Project item, keep the issue and ledger checkpoint, report projection as incomplete,
+canonical Project item, keep the issue and active ledger record, report projection as incomplete,
 and retry projection after membership exists. When membership is active, dry-run and apply the
 canonical projection from the current issue and active ledger.
 
