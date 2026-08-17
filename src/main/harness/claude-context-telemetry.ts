@@ -18,7 +18,7 @@ import {
 } from './agent-work-usage'
 import {
   boundedHarnessUsageString,
-  readHarnessUsageArtifact,
+  scanHarnessUsageArtifactLines,
 } from './harness-usage-artifact'
 import { resolveClaudeSessionArtifact } from './claude-session-artifact'
 import type { HarnessTelemetryContext } from './harness-provider'
@@ -83,10 +83,50 @@ export async function snapshotClaudeUsage(
   if (!location || context.signal.aborted) {
     return unavailableHarnessUsageSnapshot(providerId, 'artifact-unavailable')
   }
-  const artifact = await readHarnessUsageArtifact(
+  let identityMismatch = false
+  let oversizedRecord = false
+  let route: HarnessUsageRoute = {}
+  const records = new Map<string, HarnessUsageCounters>()
+  const artifact = await scanHarnessUsageArtifactLines(
     host,
     location.transcript,
     context.signal,
+    {
+      visit: (line) => {
+        const envelope = parseClaudeUsageEnvelope(line)
+        if (!envelope || !isClaudeAssistantUsage(envelope)) return
+        const sessionIds = [envelope.sessionId, envelope.session_id].filter(
+          (value): value is string => typeof value === 'string',
+        )
+        if (
+          sessionIds.length === 0 ||
+          sessionIds.some((sessionId) => sessionId !== context.sessionId)
+        ) {
+          identityMismatch = true
+          return
+        }
+        const requestId = boundedHarnessUsageString(envelope.requestId)
+        const messageId = boundedHarnessUsageString(envelope.message?.id)
+        if (!requestId || !messageId) return
+        const counters = normalizeClaudeUsageCounters(envelope.message?.usage)
+        if (!counters) return
+        const modelId = boundedHarnessUsageString(envelope.message?.model)
+        const reasoningEffort = boundedHarnessUsageString(envelope.effort, 64)
+        route = {
+          ...(modelId ? { modelId } : route.modelId ? { modelId: route.modelId } : {}),
+          ...(reasoningEffort
+            ? { reasoningEffort }
+            : route.reasoningEffort
+              ? { reasoningEffort: route.reasoningEffort }
+              : {}),
+        }
+        records.set(`${requestId}\0${messageId}`, counters)
+      },
+      oversized: () => {
+        // Claude records are additive, so a skipped record makes the total unknowable.
+        oversizedRecord = true
+      },
+    },
   )
   if (context.signal.aborted) {
     return unavailableHarnessUsageSnapshot(providerId, 'artifact-unavailable')
@@ -95,42 +135,11 @@ export async function snapshotClaudeUsage(
     return unavailableHarnessUsageSnapshot(providerId, artifact.reason)
   }
 
-  let identityMismatch = false
-  let route: HarnessUsageRoute = {}
-  const records = new Map<string, HarnessUsageCounters>()
-  for (const line of artifact.content.split('\n')) {
-    const envelope = parseClaudeUsageEnvelope(line)
-    if (!envelope || !isClaudeAssistantUsage(envelope)) continue
-    const sessionIds = [envelope.sessionId, envelope.session_id].filter(
-      (value): value is string => typeof value === 'string',
-    )
-    if (
-      sessionIds.length === 0 ||
-      sessionIds.some((sessionId) => sessionId !== context.sessionId)
-    ) {
-      identityMismatch = true
-      continue
-    }
-    const requestId = boundedHarnessUsageString(envelope.requestId)
-    const messageId = boundedHarnessUsageString(envelope.message?.id)
-    if (!requestId || !messageId) continue
-    const counters = normalizeClaudeUsageCounters(envelope.message?.usage)
-    if (!counters) continue
-    const modelId = boundedHarnessUsageString(envelope.message?.model)
-    const reasoningEffort = boundedHarnessUsageString(envelope.effort, 64)
-    route = {
-      ...(modelId ? { modelId } : route.modelId ? { modelId: route.modelId } : {}),
-      ...(reasoningEffort
-        ? { reasoningEffort }
-        : route.reasoningEffort
-          ? { reasoningEffort: route.reasoningEffort }
-          : {}),
-    }
-    records.set(`${requestId}\0${messageId}`, counters)
-  }
-
   if (identityMismatch) {
     return unavailableHarnessUsageSnapshot(providerId, 'invalid-session-identity')
+  }
+  if (oversizedRecord) {
+    return unavailableHarnessUsageSnapshot(providerId, 'usage-unavailable')
   }
   if (records.size === 0) {
     return unavailableHarnessUsageSnapshot(providerId, 'usage-unavailable')
