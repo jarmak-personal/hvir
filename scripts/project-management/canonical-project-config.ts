@@ -55,7 +55,16 @@ export const CANONICAL_PROJECT_CONFIGURATION = {
     valueField('Planning tokens', 'PVTF_lAHOBkzMzc4BdudrzhfitOk', 'NUMBER'),
     valueField('Implementation tokens', 'PVTF_lAHOBkzMzc4BdudrzhfitOo', 'NUMBER'),
     valueField('Review tokens', 'PVTF_lAHOBkzMzc4BdudrzhfitPk', 'NUMBER'),
-    valueField('Own lifecycle tokens', 'PVTF_lAHOBkzMzc4BdudrzhfitPo', 'NUMBER'),
+    valueField('Lifecycle tokens', 'PVTF_lAHOBkzMzc4Bdudrzhfl99k', 'NUMBER'),
+    singleSelectField(
+      'Measurement coverage',
+      'PVTSSF_lAHOBkzMzc4Bdudrzhfl99o',
+      [
+        ['Complete', '10db1138'],
+        ['Partial', 'd4f616ac'],
+        ['Unavailable', '25860dbc'],
+      ],
+    ),
     valueField('Time to first candidate (ms)', 'PVTF_lAHOBkzMzc4BdudrzhfitPs', 'NUMBER'),
     singleSelectField('First-pass outcome', 'PVTSSF_lAHOBkzMzc4BdudrzhfitQo', [
       ['Pending', '26fea22a'],
@@ -63,7 +72,6 @@ export const CANONICAL_PROJECT_CONFIGURATION = {
       ['Rework required', '362fe7a6'],
       ['No candidate', '4e8e5271'],
     ]),
-    valueField('Epic rollup tokens', 'PVTF_lAHOBkzMzc4BdudrzhfitQ0', 'NUMBER'),
   ],
 } as const satisfies CanonicalProjectConfiguration
 

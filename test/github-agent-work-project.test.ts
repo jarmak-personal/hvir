@@ -74,11 +74,13 @@ describe('GitHub agent-work Project adapter', () => {
     await project.setAgentWorkProjectionField(574, 'Agent difficulty', 4)
     await project.setAgentWorkProjectionField(574, 'Initial model', 'claude-opus-4-1')
     await project.setAgentWorkProjectionField(574, 'Risk', 'High')
+    await project.setAgentWorkProjectionField(574, 'Measurement coverage', 'Partial')
     await project.setAgentWorkProjectionField(574, 'Planning tokens', undefined)
 
     expect(mutations.map(({ query }) => query)).toEqual([
       expect.stringContaining('SetProjectNumber'),
       expect.stringContaining('SetProjectText'),
+      expect.stringContaining('SetProjectSingleSelect'),
       expect.stringContaining('SetProjectSingleSelect'),
       expect.stringContaining('ClearProjectField'),
     ])
@@ -89,6 +91,7 @@ describe('GitHub agent-work Project adapter', () => {
       value: 4,
     })
     expect(mutations[2]?.variables.optionId).toBe('risk-High')
+    expect(mutations[3]?.variables.optionId).toBe('measurement-coverage-Partial')
     expect(queries.filter((query) => query.includes('IssueProjectItems'))).toHaveLength(1)
     expect(
       queries.filter((query) => query.includes('AgentWorkProjectValues')),
@@ -111,7 +114,7 @@ describe('GitHub agent-work Project adapter', () => {
           __typename: 'ProjectV2ItemFieldNumberValue',
           number: 1.5,
         },
-        measurement12: {
+        measurement9: {
           __typename: 'ProjectV2ItemFieldNumberValue',
           number: Number.MAX_SAFE_INTEGER + 1,
         },
@@ -121,7 +124,7 @@ describe('GitHub agent-work Project adapter', () => {
     await expect(project.readAgentWorkProjection(574)).resolves.toEqual({
       'Agent difficulty': -1,
       'Planning tokens': 1.5,
-      'Epic rollup tokens': Number.MAX_SAFE_INTEGER + 1,
+      'Lifecycle tokens': Number.MAX_SAFE_INTEGER + 1,
     })
   })
 
