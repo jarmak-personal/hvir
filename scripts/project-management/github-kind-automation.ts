@@ -1,4 +1,5 @@
 import { GitHubCanonicalProject } from './canonical-project.ts'
+import type { CanonicalProjectConfiguration } from './canonical-project-config.ts'
 import { GitHubClient, type FetchImplementation } from './github-client.ts'
 import { GitHubIssueRepository } from './github-issues.ts'
 import type {
@@ -16,6 +17,8 @@ export interface GitHubKindAutomationOptions {
   projectNumber: number
   repositoryToken: string
   projectToken: string
+  itemLookup?: 'direct' | 'enumerated'
+  configuration?: CanonicalProjectConfiguration
   fetchImplementation?: FetchImplementation
   wait?: (milliseconds: number) => Promise<void>
 }
@@ -52,6 +55,10 @@ export class GitHubKindAutomation implements KindAutomationPort {
       repositoryOwner: options.repositoryOwner,
       repositoryName: options.repositoryName,
       client: projectClient,
+      ...(options.itemLookup === undefined ? {} : { itemLookup: options.itemLookup }),
+      ...(options.configuration === undefined
+        ? {}
+        : { configuration: options.configuration }),
     })
   }
 

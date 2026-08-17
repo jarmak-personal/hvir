@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { GitHubKindAutomation } from '../scripts/project-management/github-kind-automation.ts'
+import type { CanonicalProjectConfiguration } from '../scripts/project-management/canonical-project-config.ts'
 
 function jsonResponse(
   data: unknown,
@@ -17,7 +18,10 @@ function graphqlData(data: unknown): Response {
   return jsonResponse({ data })
 }
 
-function automation(fetchImplementation: typeof fetch): GitHubKindAutomation {
+function automation(
+  fetchImplementation: typeof fetch,
+  configuration?: CanonicalProjectConfiguration,
+): GitHubKindAutomation {
   return new GitHubKindAutomation({
     repositoryOwner: 'jarmak-personal',
     repositoryName: 'hvir',
@@ -27,6 +31,7 @@ function automation(fetchImplementation: typeof fetch): GitHubKindAutomation {
     projectToken: 'project-token',
     fetchImplementation,
     wait: vi.fn().mockResolvedValue(undefined),
+    ...(configuration === undefined ? {} : { configuration }),
   })
 }
 
@@ -99,37 +104,40 @@ function projectFetch(
         }),
       )
     }
-    if (body.query.includes('ProjectItems')) {
+    if (body.query.includes('IssueProjectItems')) {
       return Promise.resolve(
         graphqlData({
-          node: {
-            items: {
-              nodes: options.itemMissing
-                ? []
-                : [
-                    {
-                      id: 'item-id',
-                      isArchived: false,
-                      content: {
-                        __typename: 'Issue',
-                        number: 10,
-                        repository: { nameWithOwner: 'jarmak-personal/hvir' },
+          repository: {
+            issue: {
+              projectItems: {
+                nodes: options.itemMissing
+                  ? []
+                  : [
+                      {
+                        project: { id: 'PVT_kwHOBkzMzc4Bdudr' },
+                        id: 'item-id',
+                        isArchived: false,
+                        content: {
+                          __typename: 'Issue',
+                          number: 10,
+                          repository: { nameWithOwner: 'jarmak-personal/hvir' },
+                        },
+                        kind:
+                          options.currentOption === undefined
+                            ? null
+                            : {
+                                __typename: 'ProjectV2ItemFieldSingleSelectValue',
+                                name: options.currentOption,
+                                optionId: `option-${options.currentOption}`,
+                              },
+                        status: {
+                          __typename: 'ProjectV2ItemFieldSingleSelectValue',
+                          name: 'Todo',
+                        },
                       },
-                      kind:
-                        options.currentOption === undefined
-                          ? null
-                          : {
-                              __typename: 'ProjectV2ItemFieldSingleSelectValue',
-                              name: options.currentOption,
-                              optionId: `option-${options.currentOption}`,
-                            },
-                      status: {
-                        __typename: 'ProjectV2ItemFieldSingleSelectValue',
-                        name: 'Todo',
-                      },
-                    },
-                  ],
-              pageInfo: { endCursor: null, hasNextPage: false },
+                    ],
+                pageInfo: { endCursor: null, hasNextPage: false },
+              },
             },
           },
         }),
@@ -247,7 +255,7 @@ describe('GitHub project kind adapter', () => {
     )
 
     expect(result).toEqual({ action: 'unchanged', issueAdded: false })
-    expect(vi.mocked(fetchImplementation)).toHaveBeenCalledTimes(3)
+    expect(vi.mocked(fetchImplementation)).toHaveBeenCalledTimes(1)
   })
 
   it('adds a missing item and sets its Kind in apply mode', async () => {
@@ -295,7 +303,13 @@ describe('GitHub project kind adapter', () => {
     )
 
     await expect(
-      automation(fetchImplementation).syncProjectKind(
+      automation(fetchImplementation, {
+        repository: 'jarmak-personal/hvir',
+        owner: 'jarmak-personal',
+        number: 1,
+        id: 'project-id',
+        fields: [],
+      }).syncProjectKind(
         {
           id: 'issue-id',
           number: 10,

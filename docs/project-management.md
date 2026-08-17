@@ -135,9 +135,12 @@ repository/Project access, schema drift, archived/missing mutation intent, Graph
 exhausted bounded retries exit 1 with an actionable diagnostic.
 
 The planning-record and kind commands share the same bounded GitHub request, pagination,
-canonical Project lookup, schema-validation, item-lookup, and token-redaction mechanics. Each
-command remains one process per consumer operation; lookup and mutation steps are not separate
-runner jobs.
+repository-owned canonical Project configuration, schema-validation, item-lookup, and
+token-redaction mechanics. Per-issue operations resolve membership through the issue's own
+Project-items connection and match the stored canonical Project ID. A bulk kind reconciliation
+still enumerates the complete canonical Project because the Project membership is its input.
+Each command remains one process per consumer operation; lookup and mutation steps are not
+separate runner jobs.
 
 Both commands use `HVIR_REPO_TOKEN`, `HVIR_PROJECT_TOKEN`, `HVIR_REPOSITORY`,
 `HVIR_PROJECT_OWNER`, and `HVIR_PROJECT_NUMBER` as documented above. Credentials are read only
@@ -253,8 +256,8 @@ npm run project:measure -- --issue 574 --project --apply
 
 Append and projection are deliberately separate operations. A lifecycle writes the authoritative
 ledger record first, then projects it. If projection partially fails, retry `--project --apply`;
-the retry re-reads current issue, ledger, schema, item, and values and never appends another
-measurement.
+the retry re-reads the current issue, ledger, issue-scoped Project item, and values and never
+appends another measurement.
 
 The measurement Project schema is fixed and domain-named:
 
@@ -496,9 +499,22 @@ gh project field-create 1 \
   --single-select-options 'Epic,Feature,Bug,Refactor,Docs,Maintenance,Enhancement'
 ```
 
-Runtime automation does not create or silently repair schema. A missing field, wrong field type,
-or renamed/missing option is an actionable failure so schema drift is reviewed deliberately.
-The planning-record command also expects the canonical Project's `Status` single-select field to
+Runtime automation does not create or silently repair schema. The canonical Project ID, field
+IDs, and single-select option IDs are stable, non-secret deployment identity stored in
+`scripts/project-management/canonical-project-config.ts`. Update that public contract deliberately
+after provisioning or an intentional schema change, then audit it against GitHub:
+
+```sh
+HVIR_PROJECT_TOKEN="$(gh auth token)" npm run project:audit
+```
+
+The named audit compares the configured owner and Project number, Project ID, field ID/name/type,
+and exact option ID/name sets. Drift produces an actionable, content-free diagnostic. Ordinary
+projection and reconciliation use the stored IDs instead of rediscovering the full schema on
+every invocation. Repository, owner, or Project-number environment overrides cannot silently
+reuse the canonical IDs for another target; a mismatch fails closed.
+
+The planning-record command expects the canonical Project's `Status` single-select field to
 contain `Todo`, `In Progress`, and `Done`; it does not create or rename those options.
 Duplicate items for one repository issue fail both planning-record and kind commands visibly
 rather than allowing an arbitrary item to win.
@@ -526,8 +542,10 @@ gh project field-create 1 --owner jarmak-personal --name 'First-pass outcome' \
 gh project field-create 1 --owner jarmak-personal --name 'Epic rollup tokens' --data-type NUMBER
 ```
 
-The projection command validates this schema independently. Existing Project planning commands do
-not load it, so an experimental measurement field cannot block ordinary issue delivery.
+After provisioning, record every new field and option ID in the canonical configuration and run
+`project:audit`. Existing Project planning commands locally validate only the stored fields they
+own, so an experimental measurement field cannot block ordinary issue delivery. GitHub still
+validates stored IDs during writes and reports stale configuration as an actionable failure.
 
 ## Actions authentication and usage
 
