@@ -242,11 +242,13 @@ If child `#702` instead has a known subtotal of 2,500 and one unavailable run, t
 partial with a known subtotal of 5,500; it is not an exact 5,500-token Rollup.
 
 The repository's separate Rollup reconciliation reads native relationships and active ledgers,
-then writes only the root epic's named Rollup field. Every lifecycle ledger change reconciles the
-owning issue and, when present, its one exact native parent. Reconciliation never edits child
-history or child Project values. Applying it to an ordinary issue or epic child clears a stale
-Rollup; nested epics, nested descendants, and relationship ambiguity never trigger recursive
-aggregation.
+then owns the root epic's standard phase, lifecycle, and coverage Project fields. One-issue
+projection owns those fields for ordinary issues and epic children and preserves them for root
+epics. Every lifecycle ledger change reconciles the owning issue and, when present, its one exact
+native parent. Reconciliation never edits child history or child Project values. Nested epics,
+nested descendants, and relationship ambiguity never trigger recursive aggregation. Project-wide
+analysis excludes root-epic aggregate rows when summing issue-owned work, preventing child work
+from being counted twice.
 
 ## Record examples
 

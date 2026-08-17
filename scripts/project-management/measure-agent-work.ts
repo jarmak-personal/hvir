@@ -61,7 +61,8 @@ async function main(): Promise<void> {
         )
       : await reconcileAgentWorkProjection(
           {
-            readIssueBody: (issueNumber) => issueSource.readIssueBody(issueNumber),
+            readProjectionIssue: (issueNumber) =>
+              issueSource.readProjectionIssue(issueNumber),
             listCommentBodies: (issueNumber) => ledger.listCommentBodies(issueNumber),
           },
           project,

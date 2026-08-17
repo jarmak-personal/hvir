@@ -88,14 +88,15 @@ describe('agent-work Project derivation', () => {
         'Planning tokens': 100,
         'Implementation tokens': 10,
         'Review tokens': 14,
-        'Own lifecycle tokens': 124,
+        'Lifecycle tokens': 124,
+        'Measurement coverage': 'Complete',
         'Time to first candidate (ms)': 90,
         'First-pass outcome': 'Accepted',
       },
     })
   })
 
-  it('omits exact totals for partial evidence and validates the anchored rubric', () => {
+  it('projects safe known subtotals with truthful partial coverage', () => {
     const partial = parseAgentWorkRecord({
       ...completeRecord(),
       availability: 'partial',
@@ -115,8 +116,9 @@ describe('agent-work Project derivation', () => {
     expect(result.forecast).toBe('invalid')
     expect(result.diagnostics).toEqual(['invalid-forecast'])
     expect(result.values).not.toHaveProperty('Agent difficulty')
-    expect(result.values).not.toHaveProperty('Implementation tokens')
-    expect(result.values).not.toHaveProperty('Own lifecycle tokens')
+    expect(result.values['Implementation tokens']).toBe(5)
+    expect(result.values['Lifecycle tokens']).toBe(5)
+    expect(result.values['Measurement coverage']).toBe('Partial')
     expect(result.values['Initial model']).toBe('gpt-5.6-sol')
   })
 
@@ -158,7 +160,8 @@ describe('agent-work Project derivation', () => {
 
     expect(values['Implementation tokens']).toBe(10)
     expect(values).not.toHaveProperty('Review tokens')
-    expect(values).not.toHaveProperty('Own lifecycle tokens')
+    expect(values['Lifecycle tokens']).toBe(10)
+    expect(values['Measurement coverage']).toBe('Partial')
   })
 
   it('keeps a partial isolated-review route only in the ledger', () => {
@@ -189,7 +192,21 @@ describe('agent-work Project derivation', () => {
     expect(values).not.toHaveProperty('Reasoning effort')
     expect(values).not.toHaveProperty('Model route')
     expect(values).not.toHaveProperty('Review tokens')
-    expect(values).not.toHaveProperty('Own lifecycle tokens')
+    expect(values).not.toHaveProperty('Lifecycle tokens')
+    expect(values['Measurement coverage']).toBe('Partial')
+  })
+
+  it('reports unavailable coverage while leaving token columns blank without evidence', () => {
+    const values = deriveAgentWorkProjection(
+      '',
+      normalizeAgentWorkComments(ISSUE, []),
+    ).values
+
+    expect(values['Measurement coverage']).toBe('Unavailable')
+    expect(values).not.toHaveProperty('Planning tokens')
+    expect(values).not.toHaveProperty('Implementation tokens')
+    expect(values).not.toHaveProperty('Review tokens')
+    expect(values).not.toHaveProperty('Lifecycle tokens')
   })
 
   it('projects the latest valid pre-implementation revision without erasing the initial section', () => {
@@ -208,11 +225,54 @@ describe('agent-work Project derivation', () => {
 })
 
 describe('agent-work Project reconciliation', () => {
+  it('preserves root-epic token and coverage fields owned by Rollup reconciliation', async () => {
+    const fixture = projectorFixture({
+      'Planning tokens': 100,
+      'Implementation tokens': 200,
+      'Review tokens': 300,
+      'Lifecycle tokens': 600,
+      'Measurement coverage': 'Partial',
+    })
+    fixture.readProjectionIssue.mockResolvedValue({
+      body: forecastBody(),
+      kind: 'epic',
+      parent: null,
+    })
+    fixture.listCommentBodies.mockResolvedValue([
+      serializeAgentWorkComment(completeRecord()),
+    ])
+
+    const report = await reconcileAgentWorkProjection(fixture.source, fixture.project, {
+      issueNumber: ISSUE,
+      apply: false,
+    })
+
+    expect(report.projection.preservedFields).toEqual(
+      expect.arrayContaining([
+        'Planning tokens',
+        'Implementation tokens',
+        'Review tokens',
+        'Lifecycle tokens',
+        'Measurement coverage',
+      ]),
+    )
+    expect(report.source.tokenOwner).toBe('rollup')
+    expect(report.projection.changes).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ field: 'Planning tokens' }),
+        expect.objectContaining({ field: 'Implementation tokens' }),
+        expect.objectContaining({ field: 'Review tokens' }),
+        expect.objectContaining({ field: 'Lifecycle tokens' }),
+        expect.objectContaining({ field: 'Measurement coverage' }),
+      ]),
+    )
+  })
+
   it('plans fixed set and clear operations without mutation', async () => {
     const fixture = projectorFixture({
       'Agent difficulty': 2,
       'Planning tokens': 999,
-      'Epic rollup tokens': 500,
+      'Lifecycle tokens': 500,
     })
     const report = await reconcileAgentWorkProjection(fixture.source, fixture.project, {
       issueNumber: ISSUE,
@@ -238,9 +298,6 @@ describe('agent-work Project reconciliation', () => {
           value: 'Moderate',
         }),
       ]),
-    )
-    expect(report.projection.changes).not.toEqual(
-      expect.arrayContaining([expect.objectContaining({ field: 'Epic rollup tokens' })]),
     )
     expect(fixture.setField).not.toHaveBeenCalled()
   })
@@ -319,9 +376,11 @@ describe('agent-work Project reconciliation', () => {
       'Estimate confidence': 'High',
       'Planning tokens': 999,
     })
-    fixture.readIssueBody.mockResolvedValue(
-      `${forecastBody()}\n\n## Pre-implementation forecast revision\n\n- Agent difficulty: 5/5`,
-    )
+    fixture.readProjectionIssue.mockResolvedValue({
+      body: `${forecastBody()}\n\n## Pre-implementation forecast revision\n\n- Agent difficulty: 5/5`,
+      kind: 'other',
+      parent: null,
+    })
 
     const report = await reconcileAgentWorkProjection(fixture.source, fixture.project, {
       issueNumber: ISSUE,
@@ -332,9 +391,16 @@ describe('agent-work Project reconciliation', () => {
     expect(report.projection.preservedFields).toEqual(
       expect.arrayContaining(['Agent difficulty', 'Risk', 'Estimate confidence']),
     )
-    expect(report.projection.changes).toEqual([
-      expect.objectContaining({ field: 'Planning tokens', operation: 'clear' }),
-    ])
+    expect(report.projection.changes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ field: 'Planning tokens', operation: 'clear' }),
+        expect.objectContaining({
+          field: 'Measurement coverage',
+          operation: 'set',
+          value: 'Unavailable',
+        }),
+      ]),
+    )
   })
 
   it('preserves the current route when the derived route is too large', async () => {
@@ -376,7 +442,8 @@ describe('agent-work Project reconciliation', () => {
     })
     const fixture = projectorFixture({
       'Implementation tokens': 42,
-      'Own lifecycle tokens': 42,
+      'Lifecycle tokens': 42,
+      'Measurement coverage': 'Complete',
     })
     fixture.listCommentBodies.mockResolvedValue([
       serializeAgentWorkComment(maximum),
@@ -391,14 +458,18 @@ describe('agent-work Project reconciliation', () => {
     expect(report.diagnostics).toContain('ledger-aggregate-overflow')
     expect(agentWorkExitCode(report)).toBe(2)
     expect(report.projection.values).not.toHaveProperty('Implementation tokens')
-    expect(report.projection.values).not.toHaveProperty('Own lifecycle tokens')
+    expect(report.projection.values).not.toHaveProperty('Lifecycle tokens')
     expect(report.projection.preservedFields).toEqual(
-      expect.arrayContaining(['Implementation tokens', 'Own lifecycle tokens']),
+      expect.arrayContaining([
+        'Implementation tokens',
+        'Lifecycle tokens',
+        'Measurement coverage',
+      ]),
     )
     expect(report.projection.changes).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({ field: 'Implementation tokens' }),
-        expect.objectContaining({ field: 'Own lifecycle tokens' }),
+        expect.objectContaining({ field: 'Lifecycle tokens' }),
       ]),
     )
   })
@@ -443,7 +514,9 @@ function projectorFixture(current: Record<string, string | number>): {
   source: AgentWorkProjectionSourcePort
   project: AgentWorkProjectPort
   setField: ReturnType<typeof vi.fn<AgentWorkProjectPort['setAgentWorkProjectionField']>>
-  readIssueBody: ReturnType<typeof vi.fn<AgentWorkProjectionSourcePort['readIssueBody']>>
+  readProjectionIssue: ReturnType<
+    typeof vi.fn<AgentWorkProjectionSourcePort['readProjectionIssue']>
+  >
   listCommentBodies: ReturnType<
     typeof vi.fn<AgentWorkProjectionSourcePort['listCommentBodies']>
   >
@@ -455,11 +528,13 @@ function projectorFixture(current: Record<string, string | number>): {
       return Promise.resolve()
     },
   )
-  const readIssueBody = vi.fn(() => Promise.resolve(forecastBody()))
+  const readProjectionIssue = vi.fn(() =>
+    Promise.resolve({ body: forecastBody(), kind: 'other' as const, parent: null }),
+  )
   const listCommentBodies = vi.fn(() => Promise.resolve<string[]>([]))
   return {
     source: {
-      readIssueBody,
+      readProjectionIssue,
       listCommentBodies,
     },
     project: {
@@ -467,7 +542,7 @@ function projectorFixture(current: Record<string, string | number>): {
       setAgentWorkProjectionField: setField,
     },
     setField,
-    readIssueBody,
+    readProjectionIssue,
     listCommentBodies,
   }
 }

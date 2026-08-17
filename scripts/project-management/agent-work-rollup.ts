@@ -33,7 +33,7 @@ export interface AgentWorkRollupProjectPort {
   readAgentWorkProjection(issueNumber: number): Promise<AgentWorkProjectValues>
   setAgentWorkProjectionField(
     issueNumber: number,
-    field: 'Epic rollup tokens',
+    field: 'Lifecycle tokens',
     value: number | undefined,
   ): Promise<void>
 }
@@ -95,7 +95,7 @@ export async function reconcileAgentWorkRollup(
   const issueNumber = requireAgentWorkIssueNumber(input.issueNumber)
   const target = await source.readRollupIssue(issueNumber)
   const current = await project.readAgentWorkProjection(issueNumber)
-  const currentValue = current['Epic rollup tokens']
+  const currentValue = current['Lifecycle tokens']
   const eligibility = rollupEligibility(target)
 
   if (eligibility !== 'epic') {
@@ -112,7 +112,7 @@ export async function reconcileAgentWorkRollup(
         projection: projectionPlan(
           currentValue,
           undefined,
-          eligibility === 'invalid' || eligibility === 'nested-epic',
+          true,
         ),
         diagnostics,
       },
@@ -341,7 +341,7 @@ async function applyRollupProjection(
   try {
     await project.setAgentWorkProjectionField(
       report.issueNumber,
-      'Epic rollup tokens',
+      'Lifecycle tokens',
       desired,
     )
     report.projection.outcome = 'updated'

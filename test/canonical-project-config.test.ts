@@ -23,7 +23,7 @@ describe('canonical Project public configuration', () => {
       CANONICAL_PROJECT_CONFIGURATION.fields.flatMap(
         (field) => field.options?.map((option) => option.id) ?? [],
       ),
-    ).toHaveLength(21)
+    ).toHaveLength(24)
   })
 
   it('audits the exact Project, fields, and options through the named live path', async () => {

@@ -9,6 +9,12 @@ export const AGENT_WORK_FIRST_PASS_OPTIONS = [
   'No candidate',
 ] as const
 
+export const AGENT_WORK_MEASUREMENT_COVERAGE_OPTIONS = [
+  'Complete',
+  'Partial',
+  'Unavailable',
+] as const
+
 export const AGENT_WORK_PROJECT_FIELDS = [
   { name: 'Agent difficulty', type: 'number' },
   {
@@ -27,14 +33,18 @@ export const AGENT_WORK_PROJECT_FIELDS = [
   { name: 'Planning tokens', type: 'number' },
   { name: 'Implementation tokens', type: 'number' },
   { name: 'Review tokens', type: 'number' },
-  { name: 'Own lifecycle tokens', type: 'number' },
+  { name: 'Lifecycle tokens', type: 'number' },
+  {
+    name: 'Measurement coverage',
+    type: 'single-select',
+    options: AGENT_WORK_MEASUREMENT_COVERAGE_OPTIONS,
+  },
   { name: 'Time to first candidate (ms)', type: 'number' },
   {
     name: 'First-pass outcome',
     type: 'single-select',
     options: AGENT_WORK_FIRST_PASS_OPTIONS,
   },
-  { name: 'Epic rollup tokens', type: 'number' },
 ] as const
 
 export type AgentWorkProjectField = (typeof AGENT_WORK_PROJECT_FIELDS)[number]

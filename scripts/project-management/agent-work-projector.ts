@@ -11,9 +11,9 @@ import {
   agentWorkLedgerProjectionDiagnostic,
   normalizeAgentWorkComments,
   requireAgentWorkIssueNumber,
+  type AgentWorkAvailability,
   type AgentWorkLedgerDiagnostic,
   type AgentWorkLedgerProjectionDiagnostic,
-  type AgentWorkPhase,
   type AgentWorkRecord,
   type NormalizedAgentWorkLedger,
 } from './agent-work-ledger.ts'
@@ -33,7 +33,8 @@ const LEDGER_FIELDS: readonly AgentWorkProjectFieldName[] = [
   'Planning tokens',
   'Implementation tokens',
   'Review tokens',
-  'Own lifecycle tokens',
+  'Lifecycle tokens',
+  'Measurement coverage',
   'Time to first candidate (ms)',
   'First-pass outcome',
 ]
@@ -45,8 +46,14 @@ export type AgentWorkProjectionDiagnostic =
   | AgentWorkProjectWriteDiagnostic
 
 export interface AgentWorkProjectionSourcePort {
-  readIssueBody(issueNumber: number): Promise<string>
+  readProjectionIssue(issueNumber: number): Promise<AgentWorkProjectionIssue>
   listCommentBodies(issueNumber: number): Promise<string[]>
+}
+
+export interface AgentWorkProjectionIssue {
+  body: string
+  kind: 'epic' | 'other' | 'invalid'
+  parent: { number: number; repository: string } | null
 }
 
 export interface AgentWorkProjectPort {
@@ -72,6 +79,7 @@ export interface AgentWorkProjectionReport {
   source: {
     forecast: 'available' | 'unavailable' | 'invalid'
     activeRecords: number
+    tokenOwner: 'issue' | 'rollup'
   }
   projection: {
     outcome: 'unchanged' | 'would-update' | 'updated' | 'partial'
@@ -88,13 +96,19 @@ export async function reconcileAgentWorkProjection(
   input: { issueNumber: number; apply: boolean },
 ): Promise<AgentWorkProjectionReport> {
   const issueNumber = requireAgentWorkIssueNumber(input.issueNumber)
-  const [body, commentBodies, current] = await Promise.all([
-    source.readIssueBody(issueNumber),
+  const [issue, commentBodies, current] = await Promise.all([
+    source.readProjectionIssue(issueNumber),
     source.listCommentBodies(issueNumber),
     project.readAgentWorkProjection(issueNumber),
   ])
   const ledger = normalizeAgentWorkComments(issueNumber, commentBodies)
-  const derived = deriveAgentWorkProjection(body, ledger)
+  const tokenOwner =
+    issue.kind === 'invalid' || (issue.kind === 'epic' && issue.parent === null)
+      ? 'rollup'
+      : 'issue'
+  const derived = deriveAgentWorkProjection(issue.body, ledger, {
+    tokenOwner,
+  })
   const changes = projectionChanges(current, derived.values, derived.preservedFields)
   const report: AgentWorkProjectionReport = {
     issueNumber,
@@ -103,6 +117,7 @@ export async function reconcileAgentWorkProjection(
       forecast: derived.forecast,
       activeRecords: ledger.records.filter((record) => record.activity === 'active')
         .length,
+      tokenOwner,
     },
     projection: {
       outcome: changes.length === 0 ? 'unchanged' : 'would-update',
@@ -135,6 +150,7 @@ export async function reconcileAgentWorkProjection(
 export function deriveAgentWorkProjection(
   issueBody: string,
   ledger: NormalizedAgentWorkLedger,
+  options: { tokenOwner?: 'issue' | 'rollup' } = {},
 ): {
   forecast: AgentWorkProjectionReport['source']['forecast']
   values: AgentWorkProjectValues
@@ -178,14 +194,26 @@ export function deriveAgentWorkProjection(
     values['Model route'] = modelRoute
   }
 
-  setExactTotal(values, 'Planning tokens', ledger, 'issue-planning')
-  setExactTotal(values, 'Implementation tokens', ledger, 'implementation')
-  setExactTotal(values, 'Review tokens', ledger, 'implementation-review')
-  if (
-    ledger.ownTotal.activeRuns > 0 &&
-    ledger.ownTotal.normalizedTokenTotal !== undefined
-  ) {
-    values['Own lifecycle tokens'] = ledger.ownTotal.normalizedTokenTotal
+  if (options.tokenOwner === 'rollup') {
+    for (const field of [
+      'Planning tokens',
+      'Implementation tokens',
+      'Review tokens',
+      'Lifecycle tokens',
+      'Measurement coverage',
+    ] as const) {
+      preservedFields.add(field)
+    }
+  } else {
+    setKnownSubtotal(values, 'Planning tokens', ledger, 'issue-planning')
+    setKnownSubtotal(values, 'Implementation tokens', ledger, 'implementation')
+    setKnownSubtotal(values, 'Review tokens', ledger, 'implementation-review')
+    if (ledger.ownTotal.knownTokenSubtotal !== undefined) {
+      values['Lifecycle tokens'] = ledger.ownTotal.knownTokenSubtotal
+    }
+    values['Measurement coverage'] = projectMeasurementCoverage(
+      ledger.ownTotal.availability,
+    )
   }
   const firstCandidate = activeRecords.find(
     (record) =>
@@ -321,20 +349,24 @@ function routeLabel(
   return effort === undefined ? identity : `${identity}@${effort}`
 }
 
-function setExactTotal(
+function setKnownSubtotal(
   values: AgentWorkProjectValues,
   field: AgentWorkProjectFieldName,
   ledger: NormalizedAgentWorkLedger,
-  phase: AgentWorkPhase,
+  phase: 'issue-planning' | 'implementation' | 'implementation-review',
 ): void {
   const total = ledger.phaseTotals.find((candidate) => candidate.phase === phase)?.total
-  if (
-    total !== undefined &&
-    total.activeRuns > 0 &&
-    total.normalizedTokenTotal !== undefined
-  ) {
-    values[field] = total.normalizedTokenTotal
+  if (total?.knownTokenSubtotal !== undefined) {
+    values[field] = total.knownTokenSubtotal
   }
+}
+
+function projectMeasurementCoverage(
+  availability: AgentWorkAvailability,
+): 'Complete' | 'Partial' | 'Unavailable' {
+  if (availability === 'complete') return 'Complete'
+  if (availability === 'partial') return 'Partial'
+  return 'Unavailable'
 }
 
 function projectFirstPass(
@@ -357,7 +389,7 @@ function projectionChanges(
 ): AgentWorkProjectionChange[] {
   const preserved = new Set(preservedFields)
   return AGENT_WORK_PROJECT_FIELDS.flatMap((field) => {
-    if (field.name === 'Epic rollup tokens' || preserved.has(field.name)) return []
+    if (preserved.has(field.name)) return []
     const before = current[field.name]
     const after = desired[field.name]
     if (before === after) return []
