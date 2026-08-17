@@ -20,7 +20,7 @@ Options:
   --issue <number>              Issue in the configured repository (required)
   --append                      Plan an append from HVIR_AGENT_WORK_RECORD
   --project                     Plan named Project fields from issue and active ledger facts
-  --rollup                      Reconcile the issue's non-recursive epic Rollup field
+  --rollup                      Reconcile the issue's non-recursive epic Rollup fields
   --apply                       Apply the selected append, projection, or Rollup
   --help                        Show this help
 

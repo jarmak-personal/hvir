@@ -43,7 +43,7 @@ function ledger(fetchImplementation: typeof fetch): GitHubAgentWorkLedger {
 }
 
 describe('GitHub agent-work ledger adapter', () => {
-  it('paginates the complete issue comment history without requesting IDs or prose fields', async () => {
+  it('paginates bounded comment provenance without requesting IDs or issue prose', async () => {
     const queries: string[] = []
     const fetchImplementation = vi.fn(
       (_url: string | URL | Request, init?: RequestInit): Promise<Response> => {
@@ -55,7 +55,14 @@ describe('GitHub agent-work ledger adapter', () => {
             repository: {
               issue: {
                 comments: {
-                  nodes: [{ body: second ? 'second body' : 'first body' }],
+                  nodes: [
+                    {
+                      body: second ? 'second body' : 'first body',
+                      author: second ? null : { login: 'jarmak-personal' },
+                      createdAt: '2026-08-17T12:00:00Z',
+                      updatedAt: '2026-08-17T12:00:00Z',
+                    },
+                  ],
                   pageInfo: {
                     endCursor: second ? null : 'comments-next',
                     hasNextPage: !second,
@@ -68,16 +75,32 @@ describe('GitHub agent-work ledger adapter', () => {
       },
     )
 
-    await expect(ledger(fetchImplementation).listCommentBodies(573)).resolves.toEqual([
-      'first body',
-      'second body',
-    ])
+    await expect(ledger(fetchImplementation).readCommentHistory(573)).resolves.toEqual({
+      trustedActor: 'jarmak-personal',
+      comments: [
+        {
+          body: 'first body',
+          authorLogin: 'jarmak-personal',
+          createdAt: '2026-08-17T12:00:00Z',
+          updatedAt: '2026-08-17T12:00:00Z',
+        },
+        {
+          body: 'second body',
+          authorLogin: null,
+          createdAt: '2026-08-17T12:00:00Z',
+          updatedAt: '2026-08-17T12:00:00Z',
+        },
+      ],
+    })
     expect(fetchImplementation).toHaveBeenCalledTimes(2)
     expect(
       queries.every(
         (query) =>
-          !/\b(?:title|author|databaseId|url|createdAt)\b/.test(query) &&
-          query.includes('comments(first: 100'),
+          !/\b(?:title|databaseId|url|id)\b/.test(query) &&
+          query.includes('comments(first: 100') &&
+          query.includes('author { login }') &&
+          query.includes('createdAt') &&
+          query.includes('updatedAt'),
       ),
     ).toBe(true)
   })
@@ -90,7 +113,17 @@ describe('GitHub agent-work ledger adapter', () => {
         expect(target).toContain('/issues/573/comments')
         expect(init?.method).toBe('POST')
         expect(init?.body).toBe(JSON.stringify({ body: 'exact comment' }))
-        return Promise.resolve(jsonResponse({ body: 'exact comment' }, 201))
+        return Promise.resolve(
+          jsonResponse(
+            {
+              body: 'exact comment',
+              user: { login: 'JARMAK-PERSONAL' },
+              created_at: '2026-08-17T12:00:00Z',
+              updated_at: '2026-08-17T12:00:00Z',
+            },
+            201,
+          ),
+        )
       },
     )
 
@@ -133,12 +166,37 @@ describe('GitHub agent-work ledger adapter', () => {
     ).rejects.toBeInstanceOf(AgentWorkAppendUncertainError)
   })
 
+  it('treats an unexpected append author or edited response as uncertain', async () => {
+    for (const response of [
+      {
+        body: 'exact comment',
+        user: { login: 'forged-author' },
+        created_at: '2026-08-17T12:00:00Z',
+        updated_at: '2026-08-17T12:00:00Z',
+      },
+      {
+        body: 'exact comment',
+        user: { login: 'jarmak-personal' },
+        created_at: '2026-08-17T12:00:00Z',
+        updated_at: '2026-08-17T12:01:00Z',
+      },
+    ]) {
+      const fetchImplementation = vi.fn(() =>
+        Promise.resolve(jsonResponse(response, 201)),
+      )
+      await expect(
+        ledger(fetchImplementation).appendComment(573, 'exact comment'),
+      ).rejects.toBeInstanceOf(AgentWorkAppendUncertainError)
+      expect(fetchImplementation).toHaveBeenCalledTimes(1)
+    }
+  })
+
   it('fails a missing issue without exposing raw response data', async () => {
     const fetchImplementation = vi.fn(() =>
       Promise.resolve(graphqlData({ repository: { issue: null } })),
     )
 
-    await expect(ledger(fetchImplementation).listCommentBodies(573)).rejects.toThrow(
+    await expect(ledger(fetchImplementation).readCommentHistory(573)).rejects.toThrow(
       '#573',
     )
   })

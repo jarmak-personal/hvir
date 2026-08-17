@@ -54,15 +54,16 @@ async function main(): Promise<void> {
       ? await reconcileAgentWorkRollup(
           {
             readRollupIssue: (issueNumber) => issueSource.readRollupIssue(issueNumber),
-            listCommentBodies: (issueNumber) => ledger.listCommentBodies(issueNumber),
+            readCommentHistory: (issueNumber) => ledger.readCommentHistory(issueNumber),
           },
           project,
           { issueNumber: options.issueNumber, apply: options.apply },
         )
       : await reconcileAgentWorkProjection(
           {
-            readIssueBody: (issueNumber) => issueSource.readIssueBody(issueNumber),
-            listCommentBodies: (issueNumber) => ledger.listCommentBodies(issueNumber),
+            readProjectionIssue: (issueNumber) =>
+              issueSource.readProjectionIssue(issueNumber),
+            readCommentHistory: (issueNumber) => ledger.readCommentHistory(issueNumber),
           },
           project,
           { issueNumber: options.issueNumber, apply: options.apply },

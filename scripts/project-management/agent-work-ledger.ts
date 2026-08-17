@@ -110,6 +110,7 @@ export type AgentWorkLedgerDiagnostic =
   | {
       code:
         | 'invalid-record'
+        | 'edited-record'
         | 'duplicate-record'
         | 'idempotency-conflict'
         | 'invalid-supersession'
@@ -119,6 +120,7 @@ export type AgentWorkLedgerDiagnostic =
 
 const LEDGER_PROJECTION_DIAGNOSTIC_BY_CODE = {
   'invalid-record': 'ledger-invalid-record',
+  'edited-record': 'ledger-edited-record',
   'duplicate-record': 'ledger-duplicate-record',
   'idempotency-conflict': 'ledger-idempotency-conflict',
   'invalid-supersession': 'ledger-invalid-supersession',
@@ -170,8 +172,20 @@ export interface NormalizedAgentWorkLedger {
   unrelatedComments: number
 }
 
+export interface AgentWorkComment {
+  body: string
+  authorLogin: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AgentWorkCommentHistory {
+  trustedActor: string
+  comments: AgentWorkComment[]
+}
+
 export interface AgentWorkLedgerPort {
-  listCommentBodies(issueNumber: number): Promise<string[]>
+  readCommentHistory(issueNumber: number): Promise<AgentWorkCommentHistory>
   appendComment(issueNumber: number, body: string): Promise<void>
 }
 
@@ -340,20 +354,32 @@ export function parseAgentWorkComment(
 
 export function normalizeAgentWorkComments(
   issueNumber: number,
-  bodies: readonly string[],
+  history: AgentWorkCommentHistory,
 ): NormalizedAgentWorkLedger {
   requireAgentWorkIssueNumber(issueNumber)
+  const trustedActor = requireTrustedActor(history.trustedActor)
   const diagnostics: AgentWorkLedgerDiagnostic[] = []
   const records: Array<AgentWorkRecord & { commentOrdinal: number }> = []
   const recordsByKey = new Map<string, AgentWorkRecord & { commentOrdinal: number }>()
   const activeKeyByRun = new Map<string, string>()
   let unrelatedComments = 0
 
-  for (const [index, body] of bodies.entries()) {
+  for (const [index, comment] of history.comments.entries()) {
     const commentOrdinal = index + 1
-    const parsed = parseAgentWorkComment(body)
+    if (
+      comment.authorLogin === null ||
+      comment.authorLogin.toLowerCase() !== trustedActor.toLowerCase()
+    ) {
+      unrelatedComments += 1
+      continue
+    }
+    const parsed = parseAgentWorkComment(comment.body)
     if (parsed.kind === 'unrelated') {
       unrelatedComments += 1
+      continue
+    }
+    if (comment.createdAt !== comment.updatedAt) {
+      diagnostics.push({ code: 'edited-record', commentOrdinal })
       continue
     }
     if (parsed.kind === 'invalid' || parsed.record.issueNumber !== issueNumber) {
@@ -433,8 +459,8 @@ export async function reconcileAgentWorkLedger(
   input: ReconcileAgentWorkLedgerInput,
 ): Promise<ReconcileAgentWorkLedgerReport> {
   const issueNumber = requireAgentWorkIssueNumber(input.issueNumber)
-  const bodies = await port.listCommentBodies(issueNumber)
-  const ledger = normalizeAgentWorkComments(issueNumber, bodies)
+  const history = await port.readCommentHistory(issueNumber)
+  const ledger = normalizeAgentWorkComments(issueNumber, history)
   if (input.record === undefined) {
     return {
       issueNumber,
@@ -470,7 +496,19 @@ export async function reconcileAgentWorkLedger(
   }
 
   const comment = serializeAgentWorkComment(record)
-  const plannedLedger = normalizeAgentWorkComments(issueNumber, [...bodies, comment])
+  const plannedTime = '1970-01-01T00:00:00.000Z'
+  const plannedLedger = normalizeAgentWorkComments(issueNumber, {
+    ...history,
+    comments: [
+      ...history.comments,
+      {
+        body: comment,
+        authorLogin: history.trustedActor,
+        createdAt: plannedTime,
+        updatedAt: plannedTime,
+      },
+    ],
+  })
   const planned = plannedLedger.records.find(
     (candidate) => candidate.idempotencyKey === record.idempotencyKey,
   )
@@ -515,9 +553,9 @@ export async function reconcileAgentWorkLedger(
     uncertainAppend = true
   }
 
-  let resolvedBodies: string[]
+  let resolvedHistory: AgentWorkCommentHistory
   try {
-    resolvedBodies = await port.listCommentBodies(issueNumber)
+    resolvedHistory = await port.readCommentHistory(issueNumber)
   } catch {
     return {
       issueNumber,
@@ -534,7 +572,7 @@ export async function reconcileAgentWorkLedger(
       ],
     }
   }
-  const resolvedLedger = normalizeAgentWorkComments(issueNumber, resolvedBodies)
+  const resolvedLedger = normalizeAgentWorkComments(issueNumber, resolvedHistory)
   const resolved = resolvedLedger.records.find(
     (candidate) => candidate.idempotencyKey === record.idempotencyKey,
   )
@@ -942,6 +980,13 @@ function requireNonNegativeInteger(value: unknown, name: string): number {
 
 function requireKey(value: unknown, name: string): string {
   return requirePattern(value, KEY_PATTERN, name)
+}
+
+function requireTrustedActor(value: string): string {
+  if (value.trim() === '') {
+    throw new Error('The trusted measurement actor must be configured.')
+  }
+  return value
 }
 
 function requirePattern(value: unknown, pattern: RegExp, name: string): string {

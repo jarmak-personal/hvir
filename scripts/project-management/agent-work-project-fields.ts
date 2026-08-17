@@ -9,6 +9,20 @@ export const AGENT_WORK_FIRST_PASS_OPTIONS = [
   'No candidate',
 ] as const
 
+export const AGENT_WORK_MEASUREMENT_COVERAGE_OPTIONS = [
+  'Complete',
+  'Partial',
+  'Unavailable',
+] as const
+
+export const AGENT_WORK_ROLLUP_PROJECT_FIELDS = [
+  'Planning tokens',
+  'Implementation tokens',
+  'Review tokens',
+  'Lifecycle tokens',
+  'Measurement coverage',
+] as const
+
 export const AGENT_WORK_PROJECT_FIELDS = [
   { name: 'Agent difficulty', type: 'number' },
   {
@@ -27,14 +41,18 @@ export const AGENT_WORK_PROJECT_FIELDS = [
   { name: 'Planning tokens', type: 'number' },
   { name: 'Implementation tokens', type: 'number' },
   { name: 'Review tokens', type: 'number' },
-  { name: 'Own lifecycle tokens', type: 'number' },
+  { name: 'Lifecycle tokens', type: 'number' },
+  {
+    name: 'Measurement coverage',
+    type: 'single-select',
+    options: AGENT_WORK_MEASUREMENT_COVERAGE_OPTIONS,
+  },
   { name: 'Time to first candidate (ms)', type: 'number' },
   {
     name: 'First-pass outcome',
     type: 'single-select',
     options: AGENT_WORK_FIRST_PASS_OPTIONS,
   },
-  { name: 'Epic rollup tokens', type: 'number' },
 ] as const
 
 export type AgentWorkProjectField = (typeof AGENT_WORK_PROJECT_FIELDS)[number]
@@ -44,6 +62,8 @@ export type AgentWorkProjectValue = string | number
 export type AgentWorkProjectValues = Partial<
   Record<AgentWorkProjectFieldName, AgentWorkProjectValue>
 >
+export type AgentWorkRollupProjectFieldName =
+  (typeof AGENT_WORK_ROLLUP_PROJECT_FIELDS)[number]
 
 export type AgentWorkProjectWriteFailure =
   'permission' | 'schema' | 'transport' | 'generic'
@@ -80,4 +100,12 @@ export function agentWorkProjectField(
   name: AgentWorkProjectFieldName,
 ): AgentWorkProjectField {
   return AGENT_WORK_PROJECT_FIELDS.find((field) => field.name === name)!
+}
+
+export function agentWorkMeasurementCoverageValue(
+  availability: 'complete' | 'partial' | 'unavailable',
+): (typeof AGENT_WORK_MEASUREMENT_COVERAGE_OPTIONS)[number] {
+  if (availability === 'complete') return 'Complete'
+  if (availability === 'partial') return 'Partial'
+  return 'Unavailable'
 }

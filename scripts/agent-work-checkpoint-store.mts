@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import {
+  chmod,
   lstat,
   mkdir,
   readFile,
@@ -8,6 +9,7 @@ import {
   unlink,
   writeFile,
 } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { join } from 'node:path'
 
 import {
@@ -32,7 +34,37 @@ import {
 
 const CHECKPOINT_VERSION = 1
 const MAX_CHECKPOINT_BYTES = 128 * 1024
+const CLOCK_SAMPLE_MAX_SPAN_NANOSECONDS = 5_000_000n
+const CLOCK_SAMPLE_ATTEMPTS = 3
+const EPOCH_QUANTIZATION_NANOSECONDS = 1_000_000n
+// RFC 5905's clock discipline uses a 500 ppm maximum frequency tolerance.
+// Twice that bound covers relative wall/monotonic divergence without admitting jumps.
+const CLOCK_RATE_TOLERANCE_PARTS_PER_MILLION = 1_000n
+const PARTS_PER_MILLION = 1_000_000n
+const IDENTITY_LOCK_STALE_MILLISECONDS = 30_000
 export const AGENT_WORK_CHECKPOINT_RETENTION_MILLISECONDS = 30 * 24 * 60 * 60 * 1_000
+
+interface ProperLockfile {
+  lock(
+    path: string,
+    options: {
+      readonly realpath: false
+      readonly stale: number
+      readonly update: number
+      readonly retries:
+        | number
+        | {
+            readonly retries: number
+            readonly factor: number
+            readonly minTimeout: number
+            readonly maxTimeout: number
+            readonly randomize: boolean
+          }
+    },
+  ): Promise<() => Promise<void>>
+}
+
+const properLockfile = createRequire(import.meta.url)('proper-lockfile') as ProperLockfile
 
 export type AgentWorkCheckpointIssueLocator = number | 'pending'
 
@@ -68,13 +100,20 @@ interface AgentWorkCheckpointIdentity extends AgentWorkCheckpointLocator {
   readonly version: 1
 }
 
+interface AgentWorkCheckpointClockAnchor {
+  readonly monotonicBeforeNanoseconds: string
+  readonly monotonicAfterNanoseconds: string
+  readonly epochMilliseconds: number
+}
+
 interface OpenAgentWorkCheckpointState extends AgentWorkCheckpointIdentity {
   readonly lifecycle: 'open'
+  readonly clockVersion: 2
   readonly cwd: string
   readonly artifactEnvironment: Readonly<Record<string, string>>
   readonly snapshot: HarnessUsageSnapshot
-  readonly accumulatedNanoseconds: string
-  readonly activeSegmentStartedAt: string | null
+  readonly accumulatedNanoseconds: string | null
+  readonly activeSegmentStartedAt: AgentWorkCheckpointClockAnchor | 'unavailable' | null
 }
 
 interface FinalizedAgentWorkCheckpointState extends AgentWorkCheckpointIdentity {
@@ -127,81 +166,74 @@ export class AgentWorkCheckpointStore {
   ): Promise<AgentWorkCheckpointStartResult | undefined> {
     await this.ensureRoot()
     const path = this.checkpointPath(locator)
-    await this.pruneStale()
-    const state = await this.readOptional(path)
-    if (!state) return undefined
-    this.assertLocator(state, locator)
-    return {
-      version: CHECKPOINT_VERSION,
-      operation: 'start',
-      status: 'unchanged',
-      providerId: state.providerId,
-      route: stateRoute(state),
-    }
+    await this.pruneStale(path)
+    return this.withIdentityLock(path, async () => {
+      const state = await this.readOptional(path)
+      if (!state) return undefined
+      this.assertLocator(state, locator)
+      return {
+        version: CHECKPOINT_VERSION,
+        operation: 'start',
+        status: 'unchanged',
+        providerId: state.providerId,
+        route: stateRoute(state),
+      }
+    })
   }
 
   async start(
     input: AgentWorkCheckpointStartInput,
   ): Promise<AgentWorkCheckpointStartResult> {
-    if (input.snapshot.status !== 'available') {
+    const snapshot = input.snapshot
+    if (snapshot.status !== 'available') {
       throw new Error('A checkpoint requires an available provider start snapshot.')
     }
-    if (input.snapshot.providerId !== input.providerId) {
+    if (snapshot.providerId !== input.providerId) {
       throw new Error('The checkpoint provider does not match its start snapshot.')
     }
     await this.ensureRoot()
     const path = this.checkpointPath(input)
-    await this.pruneStale()
-    const existing = await this.readOptional(path)
-    if (existing) {
-      this.assertLocator(existing, input)
-      return {
-        version: CHECKPOINT_VERSION,
-        operation: 'start',
-        status: 'unchanged',
-        providerId: existing.providerId,
-        route: stateRoute(existing),
+    await this.pruneStale(path)
+    return this.withIdentityLock(path, async () => {
+      const existing = await this.readOptional(path)
+      if (existing) {
+        this.assertLocator(existing, input)
+        return {
+          version: CHECKPOINT_VERSION,
+          operation: 'start',
+          status: 'unchanged',
+          providerId: existing.providerId,
+          route: stateRoute(existing),
+        }
       }
-    }
-    const state: OpenAgentWorkCheckpointState = {
-      version: CHECKPOINT_VERSION,
-      lifecycle: 'open',
-      issueNumber: input.issueNumber,
-      phase: input.phase,
-      providerId: input.providerId,
-      sessionId: input.sessionId,
-      runKey: input.runKey,
-      cwd: input.cwd,
-      artifactEnvironment: input.artifactEnvironment,
-      snapshot: input.snapshot,
-      accumulatedNanoseconds: '0',
-      activeSegmentStartedAt: this.clock.monotonicNanoseconds().toString(),
-    }
-    try {
+      const state: OpenAgentWorkCheckpointState = {
+        version: CHECKPOINT_VERSION,
+        lifecycle: 'open',
+        clockVersion: 2,
+        issueNumber: input.issueNumber,
+        phase: input.phase,
+        providerId: input.providerId,
+        sessionId: input.sessionId,
+        runKey: input.runKey,
+        cwd: input.cwd,
+        artifactEnvironment: input.artifactEnvironment,
+        snapshot,
+        accumulatedNanoseconds: '0',
+        activeSegmentStartedAt: clockAnchor(this.clock),
+      }
       await writeFile(path, serializeState(state), {
         encoding: 'utf8',
         flag: 'wx',
         mode: 0o600,
       })
-    } catch (error) {
-      if (!isNodeError(error, 'EEXIST')) throw error
-      const raced = await this.read(path)
-      this.assertLocator(raced, input)
       return {
         version: CHECKPOINT_VERSION,
         operation: 'start',
-        status: 'unchanged',
-        providerId: raced.providerId,
-        route: stateRoute(raced),
+        status: 'started',
+        providerId: input.providerId,
+        route: snapshot.route,
       }
-    }
-    return {
-      version: CHECKPOINT_VERSION,
-      operation: 'start',
-      status: 'started',
-      providerId: input.providerId,
-      route: input.snapshot.route,
-    }
+    })
   }
 
   async pause(
@@ -222,14 +254,22 @@ export class AgentWorkCheckpointStore {
     await this.ensureRoot()
     const path = this.checkpointPath(locator)
     await this.pruneStale(path)
-    const state = await this.readOptional(path)
-    if (!state) return unavailableControl('abandon')
-    this.assertLocator(state, locator)
-    if (state.lifecycle !== 'open') {
-      throw new Error('A finalized agent-work checkpoint must be released after append.')
-    }
-    await unlink(path)
-    return { version: CHECKPOINT_VERSION, operation: 'abandon', status: 'abandoned' }
+    return this.withIdentityLock(path, async () => {
+      const state = await this.readOptional(path)
+      if (!state) return unavailableControl('abandon')
+      this.assertLocator(state, locator)
+      if (state.lifecycle !== 'open') {
+        throw new Error(
+          'A finalized agent-work checkpoint must be released after append.',
+        )
+      }
+      await unlink(path)
+      return {
+        version: CHECKPOINT_VERSION,
+        operation: 'abandon',
+        status: 'abandoned',
+      }
+    })
   }
 
   async finish(
@@ -239,40 +279,39 @@ export class AgentWorkCheckpointStore {
     await this.ensureRoot()
     const path = this.checkpointPath(locator)
     await this.pruneStale(path)
-    const state = await this.readOptional(path)
-    if (!state) return undefined
-    this.assertLocator(state, locator)
-    if (state.lifecycle === 'finalized') return state.observation
-    const end = await captureEnd({
-      sessionId: state.sessionId,
-      cwd: state.cwd,
-      artifactEnvironment: state.artifactEnvironment,
+    return this.withIdentityLock(path, async () => {
+      const state = await this.readOptional(path)
+      if (!state) return undefined
+      this.assertLocator(state, locator)
+      if (state.lifecycle === 'finalized') return state.observation
+      const end = await captureEnd({
+        sessionId: state.sessionId,
+        cwd: state.cwd,
+        artifactEnvironment: state.artifactEnvironment,
+      })
+      const activeWallMilliseconds = activeMilliseconds(state, clockAnchor(this.clock))
+      const result: AgentWorkCheckpointFinishResult = {
+        version: CHECKPOINT_VERSION,
+        operation: 'finish',
+        status: 'closed',
+        providerId: state.providerId,
+        startRoute: availableRoute(state.snapshot),
+        usage: calculateHarnessUsageDelta(state.snapshot, end),
+        ...(activeWallMilliseconds === undefined ? {} : { activeWallMilliseconds }),
+      }
+      const finalized: FinalizedAgentWorkCheckpointState = {
+        version: CHECKPOINT_VERSION,
+        lifecycle: 'finalized',
+        issueNumber: state.issueNumber,
+        phase: state.phase,
+        providerId: state.providerId,
+        sessionId: state.sessionId,
+        runKey: state.runKey,
+        observation: result,
+      }
+      await this.replace(path, finalized)
+      return result
     })
-    const activeWallMilliseconds = activeMilliseconds(
-      state,
-      this.clock.monotonicNanoseconds(),
-    )
-    const result: AgentWorkCheckpointFinishResult = {
-      version: CHECKPOINT_VERSION,
-      operation: 'finish',
-      status: 'closed',
-      providerId: state.providerId,
-      startRoute: availableRoute(state.snapshot),
-      usage: calculateHarnessUsageDelta(state.snapshot, end),
-      ...(activeWallMilliseconds === undefined ? {} : { activeWallMilliseconds }),
-    }
-    const finalized: FinalizedAgentWorkCheckpointState = {
-      version: CHECKPOINT_VERSION,
-      lifecycle: 'finalized',
-      issueNumber: state.issueNumber,
-      phase: state.phase,
-      providerId: state.providerId,
-      sessionId: state.sessionId,
-      runKey: state.runKey,
-      observation: result,
-    }
-    await this.replace(path, finalized)
-    return result
   }
 
   async release(
@@ -281,19 +320,26 @@ export class AgentWorkCheckpointStore {
     await this.ensureRoot()
     const path = this.checkpointPath(locator)
     await this.pruneStale(path)
-    const state = await this.readOptional(path)
-    if (!state) return unavailableControl('release')
-    this.assertLocator(state, locator)
-    if (state.lifecycle !== 'finalized') {
-      throw new Error('An unfinished agent-work checkpoint cannot be released.')
-    }
-    await unlink(path)
-    return { version: CHECKPOINT_VERSION, operation: 'release', status: 'released' }
+    return this.withIdentityLock(path, async () => {
+      const state = await this.readOptional(path)
+      if (!state) return unavailableControl('release')
+      this.assertLocator(state, locator)
+      if (state.lifecycle !== 'finalized') {
+        throw new Error('An unfinished agent-work checkpoint cannot be released.')
+      }
+      await unlink(path)
+      return { version: CHECKPOINT_VERSION, operation: 'release', status: 'released' }
+    })
   }
 
   async pruneStale(exceptPath?: string): Promise<number> {
     await this.ensureRoot()
-    const entries = await readdir(this.root, { withFileTypes: true })
+    let entries
+    try {
+      entries = await readdir(this.root, { withFileTypes: true })
+    } catch {
+      return 0
+    }
     const cutoff =
       this.clock.epochMilliseconds() - AGENT_WORK_CHECKPOINT_RETENTION_MILLISECONDS
     let removed = 0
@@ -301,11 +347,41 @@ export class AgentWorkCheckpointStore {
       if (!entry.isFile() || !isOwnedCheckpointName(entry.name)) continue
       const path = join(this.root, entry.name)
       if (path === exceptPath) continue
-      const metadata = await lstat(path)
-      if (!metadata.isFile() || metadata.isSymbolicLink()) continue
-      if (metadata.mtimeMs > cutoff) continue
-      await unlink(path)
-      removed += 1
+      let selectedMetadata
+      try {
+        selectedMetadata = await lstat(path)
+      } catch {
+        continue
+      }
+      if (!selectedMetadata.isFile() || selectedMetadata.isSymbolicLink()) continue
+      if (selectedMetadata.mtimeMs > cutoff) continue
+      try {
+        const didRemove = await this.withIdentityLock(
+          path,
+          async () => {
+            let metadata
+            try {
+              metadata = await lstat(path)
+            } catch (error) {
+              if (isNodeError(error, 'ENOENT')) return false
+              throw error
+            }
+            if (!metadata.isFile() || metadata.isSymbolicLink()) return false
+            if (metadata.mtimeMs > cutoff) return false
+            try {
+              await unlink(path)
+              return true
+            } catch (error) {
+              if (isNodeError(error, 'ENOENT')) return false
+              throw error
+            }
+          },
+          false,
+        )
+        if (didRemove) removed += 1
+      } catch {
+        // Cleanup is best-effort; the requested checkpoint operation owns its own path.
+      }
     }
     return removed
   }
@@ -317,34 +393,37 @@ export class AgentWorkCheckpointStore {
     await this.ensureRoot()
     const path = this.checkpointPath(locator)
     await this.pruneStale(path)
-    const state = await this.readOptional(path)
     const operation = active ? 'resume' : 'pause'
-    if (!state) return unavailableControl(operation)
-    this.assertLocator(state, locator)
-    if (state.lifecycle !== 'open') {
-      throw new Error('A finalized agent-work checkpoint has no active clock.')
-    }
-    const now = this.clock.monotonicNanoseconds()
-    const isActive = state.activeSegmentStartedAt !== null
-    if (active === isActive) {
-      return { version: CHECKPOINT_VERSION, operation, status: 'unchanged' }
-    }
-    const next: OpenAgentWorkCheckpointState = active
-      ? {
-          ...state,
-          activeSegmentStartedAt: now.toString(),
-        }
-      : {
-          ...state,
-          accumulatedNanoseconds: accumulatedNanoseconds(state, now).toString(),
-          activeSegmentStartedAt: null,
-        }
-    await this.replace(path, next)
-    return {
-      version: CHECKPOINT_VERSION,
-      operation,
-      status: active ? 'resumed' : 'paused',
-    }
+    return this.withIdentityLock(path, async () => {
+      const state = await this.readOptional(path)
+      if (!state) return unavailableControl(operation)
+      this.assertLocator(state, locator)
+      if (state.lifecycle !== 'open') {
+        throw new Error('A finalized agent-work checkpoint has no active clock.')
+      }
+      const now = clockAnchor(this.clock)
+      const isActive = state.activeSegmentStartedAt !== null
+      if (active === isActive) {
+        return { version: CHECKPOINT_VERSION, operation, status: 'unchanged' }
+      }
+      const next: OpenAgentWorkCheckpointState = active
+        ? {
+            ...state,
+            activeSegmentStartedAt: now,
+          }
+        : {
+            ...state,
+            accumulatedNanoseconds:
+              accumulatedNanoseconds(state, now)?.toString() ?? null,
+            activeSegmentStartedAt: null,
+          }
+      await this.replace(path, next)
+      return {
+        version: CHECKPOINT_VERSION,
+        operation,
+        status: active ? 'resumed' : 'paused',
+      }
+    })
   }
 
   private async ensureRoot(): Promise<void> {
@@ -445,6 +524,33 @@ export class AgentWorkCheckpointStore {
       throw error
     }
   }
+
+  private async withIdentityLock<T>(
+    path: string,
+    operation: () => Promise<T>,
+    wait = true,
+  ): Promise<T> {
+    const release = await properLockfile.lock(path, {
+      realpath: false,
+      stale: IDENTITY_LOCK_STALE_MILLISECONDS,
+      update: IDENTITY_LOCK_STALE_MILLISECONDS / 3,
+      retries: wait
+        ? {
+            retries: 600,
+            factor: 1,
+            minTimeout: 10,
+            maxTimeout: 100,
+            randomize: true,
+          }
+        : 0,
+    })
+    try {
+      await chmod(`${path}.lock`, 0o700)
+      return await operation()
+    } finally {
+      await release()
+    }
+  }
 }
 
 function parseState(serialized: string): AgentWorkCheckpointState {
@@ -460,6 +566,7 @@ function parseState(serialized: string): AgentWorkCheckpointState {
       !exactKeys(value, [
         'version',
         'lifecycle',
+        'clockVersion',
         'issueNumber',
         'phase',
         'providerId',
@@ -471,17 +578,18 @@ function parseState(serialized: string): AgentWorkCheckpointState {
         'accumulatedNanoseconds',
         'activeSegmentStartedAt',
       ]) ||
+      value.clockVersion !== 2 ||
       !boundedString(value.cwd, 4_096) ||
       !isStringRecord(value.artifactEnvironment) ||
       !isProofHarnessUsageSnapshot(value.snapshot) ||
       value.snapshot.status !== 'available' ||
       value.snapshot.providerId !== value.providerId ||
       !validArtifactEnvironment(String(value.providerId), value.artifactEnvironment) ||
-      !nonNegativeBigIntegerString(value.accumulatedNanoseconds) ||
       !(
-        value.activeSegmentStartedAt === null ||
-        nonNegativeBigIntegerString(value.activeSegmentStartedAt)
-      )
+        value.accumulatedNanoseconds === null ||
+        nonNegativeBigIntegerString(value.accumulatedNanoseconds)
+      ) ||
+      !isPersistedClockAnchor(value.activeSegmentStartedAt)
     ) {
       return invalidCheckpoint()
     }
@@ -625,22 +733,87 @@ function serializeState(state: AgentWorkCheckpointState): string {
 
 function accumulatedNanoseconds(
   state: OpenAgentWorkCheckpointState,
-  now: bigint,
-): bigint {
+  now: AgentWorkCheckpointClockAnchor | 'unavailable',
+): bigint | undefined {
+  if (state.accumulatedNanoseconds === null) return undefined
   const accumulated = BigInt(state.accumulatedNanoseconds)
   if (state.activeSegmentStartedAt === null) return accumulated
-  const startedAt = BigInt(state.activeSegmentStartedAt)
-  return now < startedAt ? accumulated : accumulated + (now - startedAt)
+  if (state.activeSegmentStartedAt === 'unavailable' || now === 'unavailable') {
+    return undefined
+  }
+  const elapsed = validatedElapsedNanoseconds(state.activeSegmentStartedAt, now)
+  return elapsed === undefined ? undefined : accumulated + elapsed
 }
 
 function activeMilliseconds(
   state: OpenAgentWorkCheckpointState,
-  now: bigint,
+  now: AgentWorkCheckpointClockAnchor | 'unavailable',
 ): number | undefined {
-  const milliseconds = accumulatedNanoseconds(state, now) / 1_000_000n
+  const accumulated = accumulatedNanoseconds(state, now)
+  if (accumulated === undefined) return undefined
+  const milliseconds = accumulated / 1_000_000n
   return milliseconds <= BigInt(Number.MAX_SAFE_INTEGER)
     ? Number(milliseconds)
     : undefined
+}
+
+function clockAnchor(
+  clock: AgentWorkCheckpointClock,
+): AgentWorkCheckpointClockAnchor | 'unavailable' {
+  for (let attempt = 0; attempt < CLOCK_SAMPLE_ATTEMPTS; attempt += 1) {
+    const monotonicBeforeNanoseconds = clock.monotonicNanoseconds()
+    const epochMilliseconds = clock.epochMilliseconds()
+    const monotonicAfterNanoseconds = clock.monotonicNanoseconds()
+    if (
+      monotonicBeforeNanoseconds < 0n ||
+      monotonicAfterNanoseconds < monotonicBeforeNanoseconds ||
+      monotonicAfterNanoseconds - monotonicBeforeNanoseconds >
+        CLOCK_SAMPLE_MAX_SPAN_NANOSECONDS ||
+      nonNegativeUsageCounter(epochMilliseconds) === undefined
+    ) {
+      continue
+    }
+    return {
+      monotonicBeforeNanoseconds: monotonicBeforeNanoseconds.toString(),
+      monotonicAfterNanoseconds: monotonicAfterNanoseconds.toString(),
+      epochMilliseconds,
+    }
+  }
+  return 'unavailable'
+}
+
+function validatedElapsedNanoseconds(
+  start: AgentWorkCheckpointClockAnchor,
+  end: AgentWorkCheckpointClockAnchor,
+): bigint | undefined {
+  const startBefore = BigInt(start.monotonicBeforeNanoseconds)
+  const startAfter = BigInt(start.monotonicAfterNanoseconds)
+  const endBefore = BigInt(end.monotonicBeforeNanoseconds)
+  const endAfter = BigInt(end.monotonicAfterNanoseconds)
+  const epochElapsed =
+    BigInt(end.epochMilliseconds - start.epochMilliseconds) * 1_000_000n
+  if (endAfter < startBefore || epochElapsed < 0n) return undefined
+  const monotonicElapsedLower = endBefore > startAfter ? endBefore - startAfter : 0n
+  const monotonicElapsedUpper = endAfter - startBefore
+  const epochElapsedLower =
+    epochElapsed > EPOCH_QUANTIZATION_NANOSECONDS
+      ? epochElapsed - EPOCH_QUANTIZATION_NANOSECONDS
+      : 0n
+  const epochElapsedUpper = epochElapsed + EPOCH_QUANTIZATION_NANOSECONDS
+  const difference =
+    monotonicElapsedUpper < epochElapsedLower
+      ? epochElapsedLower - monotonicElapsedUpper
+      : epochElapsedUpper < monotonicElapsedLower
+        ? monotonicElapsedLower - epochElapsedUpper
+        : 0n
+  const comparisonDuration =
+    monotonicElapsedUpper > epochElapsedUpper ? monotonicElapsedUpper : epochElapsedUpper
+  const rateTolerance =
+    (comparisonDuration * CLOCK_RATE_TOLERANCE_PARTS_PER_MILLION +
+      PARTS_PER_MILLION -
+      1n) /
+    PARTS_PER_MILLION
+  return difference <= rateTolerance ? epochElapsed : undefined
 }
 
 function availableRoute(
@@ -721,6 +894,29 @@ function validArtifactEnvironment(
 
 function nonNegativeBigIntegerString(value: unknown): value is string {
   return typeof value === 'string' && /^(0|[1-9][0-9]*)$/.test(value)
+}
+
+function isPersistedClockAnchor(
+  value: unknown,
+): value is AgentWorkCheckpointClockAnchor | 'unavailable' | null {
+  return (
+    value === null ||
+    value === 'unavailable' ||
+    (isRecord(value) &&
+      exactKeys(value, [
+        'monotonicBeforeNanoseconds',
+        'monotonicAfterNanoseconds',
+        'epochMilliseconds',
+      ]) &&
+      nonNegativeBigIntegerString(value.monotonicBeforeNanoseconds) &&
+      nonNegativeBigIntegerString(value.monotonicAfterNanoseconds) &&
+      BigInt(value.monotonicAfterNanoseconds) >=
+        BigInt(value.monotonicBeforeNanoseconds) &&
+      BigInt(value.monotonicAfterNanoseconds) -
+        BigInt(value.monotonicBeforeNanoseconds) <=
+        CLOCK_SAMPLE_MAX_SPAN_NANOSECONDS &&
+      nonNegativeUsageCounter(value.epochMilliseconds) !== undefined)
+  )
 }
 
 function isNodeError(error: unknown, code: string): boolean {

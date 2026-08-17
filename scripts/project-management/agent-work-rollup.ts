@@ -1,15 +1,25 @@
 import {
+  AGENT_WORK_PHASES,
   agentWorkLedgerProjectionDiagnostic,
   normalizeAgentWorkComments,
   requireAgentWorkIssueNumber,
   sumAgentWorkSafeIntegers,
+  type AgentWorkAvailability,
+  type AgentWorkCommentHistory,
   type AgentWorkLedgerProjectionDiagnostic,
+  type AgentWorkPhase,
   type NormalizedAgentWorkLedger,
 } from './agent-work-ledger.ts'
 import {
+  AGENT_WORK_ROLLUP_PROJECT_FIELDS,
+  agentWorkMeasurementCoverageValue,
+  agentWorkProjectField,
   agentWorkProjectWriteDiagnostic,
+  type AgentWorkProjectFieldType,
+  type AgentWorkProjectValue,
   type AgentWorkProjectValues,
   type AgentWorkProjectWriteDiagnostic,
+  type AgentWorkRollupProjectFieldName,
 } from './agent-work-project-fields.ts'
 
 export interface AgentWorkRollupIssueReference {
@@ -26,15 +36,15 @@ export interface AgentWorkRollupIssue extends AgentWorkRollupIssueReference {
 
 export interface AgentWorkRollupSourcePort {
   readRollupIssue(issueNumber: number): Promise<AgentWorkRollupIssue>
-  listCommentBodies(issueNumber: number): Promise<string[]>
+  readCommentHistory(issueNumber: number): Promise<AgentWorkCommentHistory>
 }
 
 export interface AgentWorkRollupProjectPort {
   readAgentWorkProjection(issueNumber: number): Promise<AgentWorkProjectValues>
   setAgentWorkProjectionField(
     issueNumber: number,
-    field: 'Epic rollup tokens',
-    value: number | undefined,
+    field: AgentWorkRollupProjectFieldName,
+    value: AgentWorkProjectValue | undefined,
   ): Promise<void>
 }
 
@@ -54,10 +64,25 @@ export interface AgentWorkRollupParticipant {
   issueNumber: number
   role: 'epic' | 'direct-child'
   state: 'OPEN' | 'CLOSED'
-  availability: 'complete' | 'partial' | 'unavailable'
+  availability: AgentWorkAvailability
   activeRuns: number
   knownTokenSubtotal?: number
   normalizedTokenTotal?: number
+}
+
+export interface AgentWorkRollupTotal {
+  availability: AgentWorkAvailability
+  activeRuns: number
+  knownTokenSubtotal?: number
+  normalizedTokenTotal?: number
+}
+
+export interface AgentWorkRollupChange {
+  field: AgentWorkRollupProjectFieldName
+  type: AgentWorkProjectFieldType
+  operation: 'set' | 'clear'
+  value?: AgentWorkProjectValue
+  outcome: 'would-update' | 'updated' | 'failed' | 'not-attempted'
 }
 
 export interface AgentWorkRollupReport {
@@ -68,16 +93,15 @@ export interface AgentWorkRollupReport {
     directChildren: number[]
     participants: AgentWorkRollupParticipant[]
   }
-  rollup: {
-    availability: 'complete' | 'partial' | 'unavailable'
+  rollup: AgentWorkRollupTotal & {
     contributingIssues: number
-    knownTokenSubtotal?: number
-    normalizedTokenTotal?: number
+    phaseTotals: Array<{ phase: AgentWorkPhase; total: AgentWorkRollupTotal }>
   }
   projection: {
-    outcome: 'unchanged' | 'would-update' | 'updated' | 'failed'
-    operation: 'none' | 'set' | 'clear' | 'preserve'
-    value?: number
+    outcome: 'unchanged' | 'would-update' | 'updated' | 'partial'
+    changes: AgentWorkRollupChange[]
+    values: AgentWorkProjectValues
+    preservedFields: AgentWorkRollupProjectFieldName[]
   }
   diagnostics: AgentWorkRollupDiagnostic[]
 }
@@ -85,6 +109,13 @@ export interface AgentWorkRollupReport {
 interface LoadedParticipant {
   issue: AgentWorkRollupIssue
   ledger: NormalizedAgentWorkLedger
+}
+
+interface DerivedAgentWorkRollup {
+  participants: AgentWorkRollupParticipant[]
+  rollup: AgentWorkRollupReport['rollup']
+  values: AgentWorkProjectValues
+  diagnostics: AgentWorkRollupDiagnostic[]
 }
 
 export async function reconcileAgentWorkRollup(
@@ -95,49 +126,34 @@ export async function reconcileAgentWorkRollup(
   const issueNumber = requireAgentWorkIssueNumber(input.issueNumber)
   const target = await source.readRollupIssue(issueNumber)
   const current = await project.readAgentWorkProjection(issueNumber)
-  const currentValue = current['Epic rollup tokens']
   const eligibility = rollupEligibility(target)
 
   if (eligibility !== 'epic') {
     const diagnostics: AgentWorkRollupDiagnostic[] = []
     if (eligibility === 'invalid') diagnostics.push('target-kind-invalid')
     if (eligibility === 'nested-epic') diagnostics.push('nested-epic')
-    return applyRollupProjection(
-      project,
-      {
-        issueNumber,
-        apply: input.apply,
-        source: { eligibility, directChildren: [], participants: [] },
-        rollup: { availability: 'unavailable', contributingIssues: 0 },
-        projection: projectionPlan(
-          currentValue,
-          undefined,
-          eligibility === 'invalid' || eligibility === 'nested-epic',
-        ),
-        diagnostics,
-      },
-      undefined,
+    return preservedReport(
+      issueNumber,
+      input.apply,
+      eligibility,
+      [],
+      current,
+      diagnostics,
     )
   }
 
+  const childReferences = uniqueChildren(target.directChildren)
   if (target.directChildren.some((child) => child.repository !== target.repository)) {
-    return {
+    return preservedReport(
       issueNumber,
-      apply: input.apply,
-      source: {
-        eligibility,
-        directChildren: uniqueChildren(target.directChildren).map(
-          (child) => child.number,
-        ),
-        participants: [],
-      },
-      rollup: { availability: 'unavailable', contributingIssues: 0 },
-      projection: projectionPlan(currentValue, undefined, true),
-      diagnostics: ['cross-repository-child'],
-    }
+      input.apply,
+      eligibility,
+      childReferences.map((child) => child.number),
+      current,
+      ['cross-repository-child'],
+    )
   }
 
-  const childReferences = uniqueChildren(target.directChildren)
   const children = await Promise.all(
     childReferences.map((child) => source.readRollupIssue(child.number)),
   )
@@ -147,18 +163,14 @@ export async function reconcileAgentWorkRollup(
     children,
   )
   if (relationshipDiagnostics.length > 0) {
-    return {
+    return preservedReport(
       issueNumber,
-      apply: input.apply,
-      source: {
-        eligibility,
-        directChildren: childReferences.map((child) => child.number),
-        participants: [],
-      },
-      rollup: { availability: 'unavailable', contributingIssues: 0 },
-      projection: projectionPlan(currentValue, undefined, true),
-      diagnostics: relationshipDiagnostics,
-    }
+      input.apply,
+      eligibility,
+      childReferences.map((child) => child.number),
+      current,
+      relationshipDiagnostics,
+    )
   }
 
   const issues = [target, ...children]
@@ -166,7 +178,7 @@ export async function reconcileAgentWorkRollup(
     issues.map(async (issue) =>
       normalizeAgentWorkComments(
         issue.number,
-        await source.listCommentBodies(issue.number),
+        await source.readCommentHistory(issue.number),
       ),
     ),
   )
@@ -176,7 +188,8 @@ export async function reconcileAgentWorkRollup(
   }))
   const derived = deriveAgentWorkRollup(loaded)
   const preserve = derived.diagnostics.some(isUnsafeDiagnostic)
-  const desired = derived.rollup.normalizedTokenTotal
+  const preservedFields = preserve ? [...AGENT_WORK_ROLLUP_PROJECT_FIELDS] : []
+  const changes = projectionChanges(current, derived.values, preservedFields)
   const report: AgentWorkRollupReport = {
     issueNumber,
     apply: input.apply,
@@ -186,24 +199,20 @@ export async function reconcileAgentWorkRollup(
       participants: derived.participants,
     },
     rollup: derived.rollup,
-    projection: projectionPlan(currentValue, desired, preserve),
+    projection: {
+      outcome: changes.length === 0 ? 'unchanged' : 'would-update',
+      changes,
+      values: preserve ? rollupProjectValues(current) : derived.values,
+      preservedFields,
+    },
     diagnostics: derived.diagnostics,
   }
-  return applyRollupProjection(project, report, desired)
+  return applyRollupProjection(project, report)
 }
 
-function deriveAgentWorkRollup(participants: readonly LoadedParticipant[]): {
-  participants: AgentWorkRollupParticipant[]
-  rollup: AgentWorkRollupReport['rollup']
-  diagnostics: AgentWorkRollupDiagnostic[]
-} {
-  if (participants.length === 0) {
-    return {
-      participants: [],
-      rollup: { availability: 'unavailable', contributingIssues: 0 },
-      diagnostics: [],
-    }
-  }
+function deriveAgentWorkRollup(
+  participants: readonly LoadedParticipant[],
+): DerivedAgentWorkRollup {
   const diagnostics: AgentWorkRollupDiagnostic[] = participants.flatMap(({ ledger }) =>
     ledger.diagnostics.map(agentWorkLedgerProjectionDiagnostic),
   )
@@ -219,6 +228,11 @@ function deriveAgentWorkRollup(participants: readonly LoadedParticipant[]): {
   ) {
     diagnostics.push('child-coordination-record')
   }
+
+  const phaseTotals = AGENT_WORK_PHASES.map((phase) => ({
+    phase,
+    total: aggregatePhase(participants, phase, diagnostics),
+  }))
   const normalized = participants.flatMap(({ ledger }) => {
     const value = ledger.ownTotal.normalizedTokenTotal
     return value === undefined ? [] : [value]
@@ -227,26 +241,36 @@ function deriveAgentWorkRollup(participants: readonly LoadedParticipant[]): {
     const value = ledger.ownTotal.knownTokenSubtotal
     return value === undefined ? [] : [value]
   })
-  const normalizedTokenTotal = sumAgentWorkSafeIntegers(normalized)
-  const knownTokenSubtotal = sumAgentWorkSafeIntegers(known)
-  if (normalizedTokenTotal === undefined && normalized.length > 0) {
-    diagnostics.push('rollup-aggregate-overflow')
-  }
-  if (knownTokenSubtotal === undefined && known.length > 0) {
-    diagnostics.push('rollup-aggregate-overflow')
-  }
+  const normalizedTokenTotal = sumRollupValues(normalized, diagnostics)
+  const knownTokenSubtotal = sumRollupValues(known, diagnostics)
+  const activeRuns = sumParticipantRuns(participants, diagnostics)
   const everyComplete = participants.every(
     ({ ledger }) =>
       ledger.ownTotal.activeRuns > 0 &&
       ledger.ownTotal.availability === 'complete' &&
       ledger.ownTotal.normalizedTokenTotal !== undefined,
   )
-  const availability =
-    everyComplete && normalizedTokenTotal !== undefined
-      ? ('complete' as const)
-      : known.length === 0
-        ? ('unavailable' as const)
-        : ('partial' as const)
+  const availability = rollupAvailability(
+    everyComplete && normalizedTokenTotal !== undefined,
+    knownTokenSubtotal,
+  )
+  const rollup: AgentWorkRollupReport['rollup'] = {
+    availability,
+    activeRuns,
+    contributingIssues: participants.length,
+    phaseTotals,
+    ...(knownTokenSubtotal === undefined ? {} : { knownTokenSubtotal }),
+    ...(availability === 'complete' && normalizedTokenTotal !== undefined
+      ? { normalizedTokenTotal }
+      : {}),
+  }
+  const values: AgentWorkProjectValues = {
+    'Measurement coverage': agentWorkMeasurementCoverageValue(availability),
+  }
+  setPhaseValue(values, 'Planning tokens', phaseTotals, 'issue-planning')
+  setPhaseValue(values, 'Implementation tokens', phaseTotals, 'implementation')
+  setPhaseValue(values, 'Review tokens', phaseTotals, 'implementation-review')
+  if (knownTokenSubtotal !== undefined) values['Lifecycle tokens'] = knownTokenSubtotal
 
   return {
     participants: participants.map(({ issue, ledger }, index) => ({
@@ -262,18 +286,95 @@ function deriveAgentWorkRollup(participants: readonly LoadedParticipant[]): {
         ? {}
         : { normalizedTokenTotal: ledger.ownTotal.normalizedTokenTotal }),
     })),
-    rollup: {
-      availability,
-      contributingIssues: participants.length,
-      ...(knownTokenSubtotal === undefined || known.length === 0
-        ? {}
-        : { knownTokenSubtotal }),
-      ...(availability !== 'complete' || normalizedTokenTotal === undefined
-        ? {}
-        : { normalizedTokenTotal }),
-    },
+    rollup,
+    values,
     diagnostics: [...new Set(diagnostics)],
   }
+}
+
+function aggregatePhase(
+  participants: readonly LoadedParticipant[],
+  phase: AgentWorkPhase,
+  diagnostics: AgentWorkRollupDiagnostic[],
+): AgentWorkRollupTotal {
+  const totals = participants.map(({ ledger }) =>
+    ledger.phaseTotals.find((candidate) => candidate.phase === phase)!,
+  )
+  const activeRuns = sumRollupValues(
+    totals.map(({ total }) => total.activeRuns),
+    diagnostics,
+  )
+  const completeRuns = sumRollupValues(
+    totals.map(({ total }) => total.completeRuns),
+    diagnostics,
+  )
+  const knownTokenSubtotal = sumRollupValues(
+    totals.flatMap(({ total }) =>
+      total.knownTokenSubtotal === undefined ? [] : [total.knownTokenSubtotal],
+    ),
+    diagnostics,
+  )
+  const normalizedTokenTotal = sumRollupValues(
+    totals.flatMap(({ total }) =>
+      total.normalizedTokenTotal === undefined ? [] : [total.normalizedTokenTotal],
+    ),
+    diagnostics,
+  )
+  const complete =
+    activeRuns !== undefined &&
+    activeRuns > 0 &&
+    completeRuns === activeRuns &&
+    normalizedTokenTotal !== undefined
+  const availability = rollupAvailability(complete, knownTokenSubtotal)
+  return {
+    availability,
+    activeRuns: activeRuns ?? 0,
+    ...(knownTokenSubtotal === undefined ? {} : { knownTokenSubtotal }),
+    ...(availability === 'complete' && normalizedTokenTotal !== undefined
+      ? { normalizedTokenTotal }
+      : {}),
+  }
+}
+
+function sumParticipantRuns(
+  participants: readonly LoadedParticipant[],
+  diagnostics: AgentWorkRollupDiagnostic[],
+): number {
+  return (
+    sumRollupValues(
+      participants.map(({ ledger }) => ledger.ownTotal.activeRuns),
+      diagnostics,
+    ) ?? 0
+  )
+}
+
+function sumRollupValues(
+  values: readonly number[],
+  diagnostics: AgentWorkRollupDiagnostic[],
+): number | undefined {
+  if (values.length === 0) return undefined
+  const total = sumAgentWorkSafeIntegers(values)
+  if (total === undefined) diagnostics.push('rollup-aggregate-overflow')
+  return total
+}
+
+function rollupAvailability(
+  complete: boolean,
+  knownTokenSubtotal: number | undefined,
+): AgentWorkAvailability {
+  if (complete) return 'complete'
+  return knownTokenSubtotal === undefined ? 'unavailable' : 'partial'
+}
+
+function setPhaseValue(
+  values: AgentWorkProjectValues,
+  field: AgentWorkRollupProjectFieldName,
+  phaseTotals: AgentWorkRollupReport['rollup']['phaseTotals'],
+  phase: AgentWorkPhase,
+): void {
+  const subtotal = phaseTotals.find((candidate) => candidate.phase === phase)?.total
+    .knownTokenSubtotal
+  if (subtotal !== undefined) values[field] = subtotal
 }
 
 function rollupEligibility(
@@ -314,41 +415,97 @@ function validateDirectChildren(
   return [...new Set(diagnostics)]
 }
 
-function projectionPlan(
-  current: string | number | undefined,
-  desired: number | undefined,
-  preserve: boolean,
-): AgentWorkRollupReport['projection'] {
-  if (preserve) return { outcome: 'unchanged', operation: 'preserve' }
-  if (current === desired) return { outcome: 'unchanged', operation: 'none' }
-  return desired === undefined
-    ? { outcome: 'would-update', operation: 'clear' }
-    : { outcome: 'would-update', operation: 'set', value: desired }
+function preservedReport(
+  issueNumber: number,
+  apply: boolean,
+  eligibility: AgentWorkRollupReport['source']['eligibility'],
+  directChildren: number[],
+  current: AgentWorkProjectValues,
+  diagnostics: AgentWorkRollupDiagnostic[],
+): AgentWorkRollupReport {
+  const values = rollupProjectValues(current)
+  return {
+    issueNumber,
+    apply,
+    source: { eligibility, directChildren, participants: [] },
+    rollup: {
+      availability: 'unavailable',
+      activeRuns: 0,
+      contributingIssues: 0,
+      phaseTotals: emptyPhaseTotals(),
+    },
+    projection: {
+      outcome: 'unchanged',
+      changes: [],
+      values,
+      preservedFields: [...AGENT_WORK_ROLLUP_PROJECT_FIELDS],
+    },
+    diagnostics,
+  }
+}
+
+function emptyPhaseTotals(): AgentWorkRollupReport['rollup']['phaseTotals'] {
+  return AGENT_WORK_PHASES.map((phase) => ({
+    phase,
+    total: { availability: 'unavailable', activeRuns: 0 },
+  }))
+}
+
+function rollupProjectValues(current: AgentWorkProjectValues): AgentWorkProjectValues {
+  return Object.fromEntries(
+    AGENT_WORK_ROLLUP_PROJECT_FIELDS.flatMap((field) =>
+      current[field] === undefined ? [] : [[field, current[field]]],
+    ),
+  )
+}
+
+function projectionChanges(
+  current: AgentWorkProjectValues,
+  desired: AgentWorkProjectValues,
+  preservedFields: readonly AgentWorkRollupProjectFieldName[],
+): AgentWorkRollupChange[] {
+  const preserved = new Set(preservedFields)
+  return AGENT_WORK_ROLLUP_PROJECT_FIELDS.flatMap((field) => {
+    if (preserved.has(field)) return []
+    const before = current[field]
+    const after = desired[field]
+    if (before === after) return []
+    return [
+      {
+        field,
+        type: agentWorkProjectField(field).type,
+        operation: after === undefined ? ('clear' as const) : ('set' as const),
+        ...(after === undefined ? {} : { value: after }),
+        outcome: 'would-update' as const,
+      },
+    ]
+  })
 }
 
 async function applyRollupProjection(
   project: AgentWorkRollupProjectPort,
   report: AgentWorkRollupReport,
-  desired: number | undefined,
 ): Promise<AgentWorkRollupReport> {
-  if (
-    !report.apply ||
-    report.projection.outcome !== 'would-update' ||
-    report.projection.operation === 'preserve'
-  ) {
-    return report
+  if (!report.apply || report.projection.changes.length === 0) return report
+  for (const [index, change] of report.projection.changes.entries()) {
+    try {
+      await project.setAgentWorkProjectionField(
+        report.issueNumber,
+        change.field,
+        change.value,
+      )
+      change.outcome = 'updated'
+    } catch (error) {
+      change.outcome = 'failed'
+      for (const remaining of report.projection.changes.slice(index + 1)) {
+        remaining.outcome = 'not-attempted'
+      }
+      report.projection.outcome = 'partial'
+      report.diagnostics.push(agentWorkProjectWriteDiagnostic(error))
+      return report
+    }
   }
-  try {
-    await project.setAgentWorkProjectionField(
-      report.issueNumber,
-      'Epic rollup tokens',
-      desired,
-    )
-    report.projection.outcome = 'updated'
-  } catch (error) {
-    report.projection.outcome = 'failed'
-    report.diagnostics.push(agentWorkProjectWriteDiagnostic(error))
-  }
+  report.projection.outcome = 'updated'
   return report
 }
 

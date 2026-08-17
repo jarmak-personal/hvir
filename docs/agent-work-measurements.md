@@ -204,10 +204,13 @@ The issue ledger is append-only:
 The exact versioned comment marker, record schema, named dry-run/apply command, and normalized
 report are documented under [Agent-work measurement ledger](project-management.md#agent-work-measurement-ledger).
 
-Only records emitted by the named repository measurement operation with the exact recognized
-schema marker participate. Malformed records and all other issue comments are ignored with fixed,
-content-free diagnostics. Reading paginates the complete comment history and exposes normalized
-records, not raw comment bodies or GitHub internal identifiers.
+Only unedited records emitted by the named repository measurement operation, authored by the
+configured repository owner, and carrying the exact recognized schema marker participate. The
+repository token used for appends authenticates as that same narrow trusted actor. Marker-shaped
+comments from other authors are unrelated and never parsed; malformed or edited trusted records
+produce fixed, content-free diagnostics. Reading paginates the complete comment history and
+exposes normalized records, not raw comment bodies, provenance, timestamps, or GitHub internal
+identifiers.
 
 ## Own totals and epic Rollups
 
@@ -216,11 +219,12 @@ combines that issue's Own totals for `issue-planning`, `implementation`,
 `implementation-review`, and, for an epic, `epic-coordination`. It never includes work attributed
 to a child. An ordinary issue and an epic child have no Rollup.
 
-An epic's **Rollup** is its Own lifecycle total plus the current Own lifecycle total of each
-native direct child exactly once. Rollups are not recursive: nested epics are unsupported, and a
-grandchild is never traversed. Reopened or additional work updates the owning issue first, then a
-later reconciliation updates its direct parent. Superseded and duplicate records contribute
-nothing.
+An epic's **Rollup** combines its Own per-phase and lifecycle totals with the current Own totals of
+each native direct child exactly once. Planning, implementation, and review remain distinct phase
+subtotals; the lifecycle subtotal additionally includes the root epic's coordination work.
+Rollups are not recursive: nested epics are unsupported, and a grandchild is never traversed.
+Reopened or additional work updates the owning issue first, then a later reconciliation updates
+its direct parent. Superseded and duplicate records contribute nothing.
 
 If every contributing run has an exact normalized total, the aggregate is complete. Otherwise,
 the aggregate remains partial or unavailable, reports coverage and any known subtotal, and is not
@@ -242,11 +246,13 @@ If child `#702` instead has a known subtotal of 2,500 and one unavailable run, t
 partial with a known subtotal of 5,500; it is not an exact 5,500-token Rollup.
 
 The repository's separate Rollup reconciliation reads native relationships and active ledgers,
-then writes only the root epic's named Rollup field. Every lifecycle ledger change reconciles the
-owning issue and, when present, its one exact native parent. Reconciliation never edits child
-history or child Project values. Applying it to an ordinary issue or epic child clears a stale
-Rollup; nested epics, nested descendants, and relationship ambiguity never trigger recursive
-aggregation.
+then owns the root epic's standard phase, lifecycle, and coverage Project fields. One-issue
+projection owns those fields for ordinary issues and epic children and preserves them for root
+epics. Every lifecycle ledger change reconciles the owning issue and, when present, its one exact
+native parent. Reconciliation never edits child history or child Project values. Nested epics,
+nested descendants, and relationship ambiguity never trigger recursive aggregation. Project-wide
+analysis excludes root-epic aggregate rows when summing issue-owned work, preventing child work
+from being counted twice.
 
 ## Record examples
 

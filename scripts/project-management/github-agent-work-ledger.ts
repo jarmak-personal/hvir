@@ -1,6 +1,8 @@
 import {
   AgentWorkAppendRejectedError,
   AgentWorkAppendUncertainError,
+  type AgentWorkComment,
+  type AgentWorkCommentHistory,
   type AgentWorkLedgerPort,
 } from './agent-work-ledger.ts'
 import { GitHubClient } from './github-client.ts'
@@ -23,15 +25,20 @@ export class GitHubAgentWorkLedger implements AgentWorkLedgerPort {
     this.#client = options.client
   }
 
-  async listCommentBodies(issueNumber: number): Promise<string[]> {
+  async readCommentHistory(issueNumber: number): Promise<AgentWorkCommentHistory> {
     let cursor: string | null = null
-    const bodies: string[] = []
+    const comments: AgentWorkComment[] = []
     do {
       const data: {
         repository: {
           issue: {
             comments: {
-              nodes: Array<{ body: string }>
+              nodes: Array<{
+                body: string
+                author: { login: string } | null
+                createdAt: string
+                updatedAt: string
+              }>
               pageInfo: PageInfo
             }
           } | null
@@ -41,7 +48,12 @@ export class GitHubAgentWorkLedger implements AgentWorkLedgerPort {
           repository(owner: $owner, name: $name) {
             issue(number: $number) {
               comments(first: 100, after: $after) {
-                nodes { body }
+                nodes {
+                  body
+                  author { login }
+                  createdAt
+                  updatedAt
+                }
                 pageInfo { endCursor hasNextPage }
               }
             }
@@ -60,10 +72,17 @@ export class GitHubAgentWorkLedger implements AgentWorkLedgerPort {
           `Issue #${issueNumber} was not found in the configured repository ${this.repository}.`,
         )
       }
-      bodies.push(...issue.comments.nodes.map((comment) => comment.body))
+      comments.push(
+        ...issue.comments.nodes.map((comment) => ({
+          body: comment.body,
+          authorLogin: comment.author?.login ?? null,
+          createdAt: comment.createdAt,
+          updatedAt: comment.updatedAt,
+        })),
+      )
       cursor = nextPageCursor(issue.comments.pageInfo)
     } while (cursor !== null)
-    return bodies
+    return { trustedActor: this.#owner, comments }
   }
 
   async appendComment(issueNumber: number, body: string): Promise<void> {
@@ -88,7 +107,18 @@ export class GitHubAgentWorkLedger implements AgentWorkLedgerPort {
         typeof result !== 'object' ||
         result === null ||
         !('body' in result) ||
-        result.body !== body
+        result.body !== body ||
+        !('user' in result) ||
+        typeof result.user !== 'object' ||
+        result.user === null ||
+        !('login' in result.user) ||
+        typeof result.user.login !== 'string' ||
+        result.user.login.toLowerCase() !== this.#owner.toLowerCase() ||
+        !('created_at' in result) ||
+        typeof result.created_at !== 'string' ||
+        !('updated_at' in result) ||
+        typeof result.updated_at !== 'string' ||
+        result.created_at !== result.updated_at
       ) {
         throw new AgentWorkAppendUncertainError()
       }

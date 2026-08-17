@@ -12,6 +12,7 @@ import {
   normalizeAgentWorkComments,
   parseAgentWorkRecord,
   serializeAgentWorkComment,
+  type AgentWorkCommentHistory,
   type AgentWorkRecord,
 } from '../scripts/project-management/agent-work-ledger.ts'
 
@@ -22,6 +23,8 @@ const RUN_C = 'c'.repeat(64)
 const KEY_A = '1'.repeat(64)
 const KEY_B = '2'.repeat(64)
 const KEY_C = '3'.repeat(64)
+const TRUSTED_ACTOR = 'jarmak-personal'
+const COMMENT_TIME = '2026-08-17T12:00:00Z'
 
 describe('agent-work Project derivation', () => {
   it('projects the validated forecast and every ledger-owned field type', () => {
@@ -67,7 +70,7 @@ describe('agent-work Project derivation', () => {
       timing: { activeWallMilliseconds: 25 },
       outcome: undefined,
     })
-    const ledger = normalizeAgentWorkComments(ISSUE, [
+    const ledger = normalize([
       serializeAgentWorkComment(planning),
       serializeAgentWorkComment(implementation),
       serializeAgentWorkComment(review),
@@ -88,14 +91,15 @@ describe('agent-work Project derivation', () => {
         'Planning tokens': 100,
         'Implementation tokens': 10,
         'Review tokens': 14,
-        'Own lifecycle tokens': 124,
+        'Lifecycle tokens': 124,
+        'Measurement coverage': 'Complete',
         'Time to first candidate (ms)': 90,
         'First-pass outcome': 'Accepted',
       },
     })
   })
 
-  it('omits exact totals for partial evidence and validates the anchored rubric', () => {
+  it('projects safe known subtotals with truthful partial coverage', () => {
     const partial = parseAgentWorkRecord({
       ...completeRecord(),
       availability: 'partial',
@@ -106,7 +110,7 @@ describe('agent-work Project derivation', () => {
         'output-tokens',
       ],
     })
-    const ledger = normalizeAgentWorkComments(ISSUE, [serializeAgentWorkComment(partial)])
+    const ledger = normalize([serializeAgentWorkComment(partial)])
     const result = deriveAgentWorkProjection(
       forecastBody().replace('Agent difficulty: 3/5', 'Agent difficulty: 5/5'),
       ledger,
@@ -115,8 +119,9 @@ describe('agent-work Project derivation', () => {
     expect(result.forecast).toBe('invalid')
     expect(result.diagnostics).toEqual(['invalid-forecast'])
     expect(result.values).not.toHaveProperty('Agent difficulty')
-    expect(result.values).not.toHaveProperty('Implementation tokens')
-    expect(result.values).not.toHaveProperty('Own lifecycle tokens')
+    expect(result.values['Implementation tokens']).toBe(5)
+    expect(result.values['Lifecycle tokens']).toBe(5)
+    expect(result.values['Measurement coverage']).toBe('Partial')
     expect(result.values['Initial model']).toBe('gpt-5.6-sol')
   })
 
@@ -131,7 +136,7 @@ describe('agent-work Project derivation', () => {
     })
     const values = deriveAgentWorkProjection(
       '',
-      normalizeAgentWorkComments(ISSUE, [
+      normalize([
         serializeAgentWorkComment(first),
         serializeAgentWorkComment(correction),
       ]),
@@ -150,7 +155,7 @@ describe('agent-work Project derivation', () => {
       availability: 'unavailable',
       unavailableReason: 'artifact-unavailable',
     })
-    const ledger = normalizeAgentWorkComments(ISSUE, [
+    const ledger = normalize([
       serializeAgentWorkComment(completeRecord()),
       serializeAgentWorkComment(review),
     ])
@@ -158,7 +163,8 @@ describe('agent-work Project derivation', () => {
 
     expect(values['Implementation tokens']).toBe(10)
     expect(values).not.toHaveProperty('Review tokens')
-    expect(values).not.toHaveProperty('Own lifecycle tokens')
+    expect(values['Lifecycle tokens']).toBe(10)
+    expect(values['Measurement coverage']).toBe('Partial')
   })
 
   it('keeps a partial isolated-review route only in the ledger', () => {
@@ -182,22 +188,30 @@ describe('agent-work Project derivation', () => {
     })
     const values = deriveAgentWorkProjection(
       '',
-      normalizeAgentWorkComments(ISSUE, [serializeAgentWorkComment(review)]),
+      normalize([serializeAgentWorkComment(review)]),
     ).values
 
     expect(values).not.toHaveProperty('Initial model')
     expect(values).not.toHaveProperty('Reasoning effort')
     expect(values).not.toHaveProperty('Model route')
     expect(values).not.toHaveProperty('Review tokens')
-    expect(values).not.toHaveProperty('Own lifecycle tokens')
+    expect(values).not.toHaveProperty('Lifecycle tokens')
+    expect(values['Measurement coverage']).toBe('Partial')
+  })
+
+  it('reports unavailable coverage while leaving token columns blank without evidence', () => {
+    const values = deriveAgentWorkProjection('', normalize([])).values
+
+    expect(values['Measurement coverage']).toBe('Unavailable')
+    expect(values).not.toHaveProperty('Planning tokens')
+    expect(values).not.toHaveProperty('Implementation tokens')
+    expect(values).not.toHaveProperty('Review tokens')
+    expect(values).not.toHaveProperty('Lifecycle tokens')
   })
 
   it('projects the latest valid pre-implementation revision without erasing the initial section', () => {
     const revised = `${forecastBody()}\n\n## Pre-implementation forecast revision\n\n- Agent difficulty: 4/5\n- Reasoning novelty: 2/2\n- Ownership breadth: 2/2\n- Lifecycle/integration burden: 1/2\n- Validation burden: 1/2\n- Risk: High\n- Estimate confidence: Medium`
-    const values = deriveAgentWorkProjection(
-      revised,
-      normalizeAgentWorkComments(ISSUE, []),
-    ).values
+    const values = deriveAgentWorkProjection(revised, normalize([])).values
 
     expect(values).toMatchObject({
       'Agent difficulty': 4,
@@ -208,11 +222,54 @@ describe('agent-work Project derivation', () => {
 })
 
 describe('agent-work Project reconciliation', () => {
+  it('preserves root-epic token and coverage fields owned by Rollup reconciliation', async () => {
+    const fixture = projectorFixture({
+      'Planning tokens': 100,
+      'Implementation tokens': 200,
+      'Review tokens': 300,
+      'Lifecycle tokens': 600,
+      'Measurement coverage': 'Partial',
+    })
+    fixture.readProjectionIssue.mockResolvedValue({
+      body: forecastBody(),
+      kind: 'epic',
+      parent: null,
+    })
+    fixture.readCommentHistory.mockResolvedValue(
+      history([serializeAgentWorkComment(completeRecord())]),
+    )
+
+    const report = await reconcileAgentWorkProjection(fixture.source, fixture.project, {
+      issueNumber: ISSUE,
+      apply: false,
+    })
+
+    expect(report.projection.preservedFields).toEqual(
+      expect.arrayContaining([
+        'Planning tokens',
+        'Implementation tokens',
+        'Review tokens',
+        'Lifecycle tokens',
+        'Measurement coverage',
+      ]),
+    )
+    expect(report.source.tokenOwner).toBe('rollup')
+    expect(report.projection.changes).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ field: 'Planning tokens' }),
+        expect.objectContaining({ field: 'Implementation tokens' }),
+        expect.objectContaining({ field: 'Review tokens' }),
+        expect.objectContaining({ field: 'Lifecycle tokens' }),
+        expect.objectContaining({ field: 'Measurement coverage' }),
+      ]),
+    )
+  })
+
   it('plans fixed set and clear operations without mutation', async () => {
     const fixture = projectorFixture({
       'Agent difficulty': 2,
       'Planning tokens': 999,
-      'Epic rollup tokens': 500,
+      'Lifecycle tokens': 500,
     })
     const report = await reconcileAgentWorkProjection(fixture.source, fixture.project, {
       issueNumber: ISSUE,
@@ -238,9 +295,6 @@ describe('agent-work Project reconciliation', () => {
           value: 'Moderate',
         }),
       ]),
-    )
-    expect(report.projection.changes).not.toEqual(
-      expect.arrayContaining([expect.objectContaining({ field: 'Epic rollup tokens' })]),
     )
     expect(fixture.setField).not.toHaveBeenCalled()
   })
@@ -319,9 +373,11 @@ describe('agent-work Project reconciliation', () => {
       'Estimate confidence': 'High',
       'Planning tokens': 999,
     })
-    fixture.readIssueBody.mockResolvedValue(
-      `${forecastBody()}\n\n## Pre-implementation forecast revision\n\n- Agent difficulty: 5/5`,
-    )
+    fixture.readProjectionIssue.mockResolvedValue({
+      body: `${forecastBody()}\n\n## Pre-implementation forecast revision\n\n- Agent difficulty: 5/5`,
+      kind: 'other',
+      parent: null,
+    })
 
     const report = await reconcileAgentWorkProjection(fixture.source, fixture.project, {
       issueNumber: ISSUE,
@@ -332,9 +388,16 @@ describe('agent-work Project reconciliation', () => {
     expect(report.projection.preservedFields).toEqual(
       expect.arrayContaining(['Agent difficulty', 'Risk', 'Estimate confidence']),
     )
-    expect(report.projection.changes).toEqual([
-      expect.objectContaining({ field: 'Planning tokens', operation: 'clear' }),
-    ])
+    expect(report.projection.changes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ field: 'Planning tokens', operation: 'clear' }),
+        expect.objectContaining({
+          field: 'Measurement coverage',
+          operation: 'set',
+          value: 'Unavailable',
+        }),
+      ]),
+    )
   })
 
   it('preserves the current route when the derived route is too large', async () => {
@@ -350,7 +413,9 @@ describe('agent-work Project reconciliation', () => {
       },
     })
     const fixture = projectorFixture({ 'Model route': 'known-good-route' })
-    fixture.listCommentBodies.mockResolvedValue([serializeAgentWorkComment(record)])
+    fixture.readCommentHistory.mockResolvedValue(
+      history([serializeAgentWorkComment(record)]),
+    )
 
     const report = await reconcileAgentWorkProjection(fixture.source, fixture.project, {
       issueNumber: ISSUE,
@@ -376,12 +441,12 @@ describe('agent-work Project reconciliation', () => {
     })
     const fixture = projectorFixture({
       'Implementation tokens': 42,
-      'Own lifecycle tokens': 42,
+      'Lifecycle tokens': 42,
+      'Measurement coverage': 'Complete',
     })
-    fixture.listCommentBodies.mockResolvedValue([
-      serializeAgentWorkComment(maximum),
-      serializeAgentWorkComment(one),
-    ])
+    fixture.readCommentHistory.mockResolvedValue(
+      history([serializeAgentWorkComment(maximum), serializeAgentWorkComment(one)]),
+    )
 
     const report = await reconcileAgentWorkProjection(fixture.source, fixture.project, {
       issueNumber: ISSUE,
@@ -391,14 +456,18 @@ describe('agent-work Project reconciliation', () => {
     expect(report.diagnostics).toContain('ledger-aggregate-overflow')
     expect(agentWorkExitCode(report)).toBe(2)
     expect(report.projection.values).not.toHaveProperty('Implementation tokens')
-    expect(report.projection.values).not.toHaveProperty('Own lifecycle tokens')
+    expect(report.projection.values).not.toHaveProperty('Lifecycle tokens')
     expect(report.projection.preservedFields).toEqual(
-      expect.arrayContaining(['Implementation tokens', 'Own lifecycle tokens']),
+      expect.arrayContaining([
+        'Implementation tokens',
+        'Lifecycle tokens',
+        'Measurement coverage',
+      ]),
     )
     expect(report.projection.changes).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({ field: 'Implementation tokens' }),
-        expect.objectContaining({ field: 'Own lifecycle tokens' }),
+        expect.objectContaining({ field: 'Lifecycle tokens' }),
       ]),
     )
   })
@@ -412,11 +481,13 @@ describe('agent-work Project reconciliation', () => {
       'Initial model': 'known-model',
       'Implementation tokens': 10,
     })
-    fixture.listCommentBodies.mockResolvedValue([
-      '<!-- hvir-agent-work-measurement:v1 -->\nprivate malformed body',
-      serializeAgentWorkComment(original),
-      serializeAgentWorkComment(conflict),
-    ])
+    fixture.readCommentHistory.mockResolvedValue(
+      history([
+        '<!-- hvir-agent-work-measurement:v1 -->\nprivate malformed body',
+        serializeAgentWorkComment(original),
+        serializeAgentWorkComment(conflict),
+      ]),
+    )
 
     const report = await reconcileAgentWorkProjection(fixture.source, fixture.project, {
       issueNumber: ISSUE,
@@ -443,9 +514,11 @@ function projectorFixture(current: Record<string, string | number>): {
   source: AgentWorkProjectionSourcePort
   project: AgentWorkProjectPort
   setField: ReturnType<typeof vi.fn<AgentWorkProjectPort['setAgentWorkProjectionField']>>
-  readIssueBody: ReturnType<typeof vi.fn<AgentWorkProjectionSourcePort['readIssueBody']>>
-  listCommentBodies: ReturnType<
-    typeof vi.fn<AgentWorkProjectionSourcePort['listCommentBodies']>
+  readProjectionIssue: ReturnType<
+    typeof vi.fn<AgentWorkProjectionSourcePort['readProjectionIssue']>
+  >
+  readCommentHistory: ReturnType<
+    typeof vi.fn<AgentWorkProjectionSourcePort['readCommentHistory']>
   >
 } {
   const setField = vi.fn<AgentWorkProjectPort['setAgentWorkProjectionField']>(
@@ -455,20 +528,38 @@ function projectorFixture(current: Record<string, string | number>): {
       return Promise.resolve()
     },
   )
-  const readIssueBody = vi.fn(() => Promise.resolve(forecastBody()))
-  const listCommentBodies = vi.fn(() => Promise.resolve<string[]>([]))
+  const readProjectionIssue = vi.fn(() =>
+    Promise.resolve({ body: forecastBody(), kind: 'other' as const, parent: null }),
+  )
+  const readCommentHistory = vi.fn(() => Promise.resolve(history([])))
   return {
     source: {
-      readIssueBody,
-      listCommentBodies,
+      readProjectionIssue,
+      readCommentHistory,
     },
     project: {
       readAgentWorkProjection: vi.fn(() => Promise.resolve({ ...current })),
       setAgentWorkProjectionField: setField,
     },
     setField,
-    readIssueBody,
-    listCommentBodies,
+    readProjectionIssue,
+    readCommentHistory,
+  }
+}
+
+function normalize(bodies: readonly string[]) {
+  return normalizeAgentWorkComments(ISSUE, history(bodies))
+}
+
+function history(bodies: readonly string[]): AgentWorkCommentHistory {
+  return {
+    trustedActor: TRUSTED_ACTOR,
+    comments: bodies.map((body) => ({
+      body,
+      authorLogin: TRUSTED_ACTOR,
+      createdAt: COMMENT_TIME,
+      updatedAt: COMMENT_TIME,
+    })),
   }
 }
 
