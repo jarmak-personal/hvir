@@ -38,8 +38,11 @@ npm run proof:harness-usage -- delta codex < "$private_start_snapshot"
 
 Use `claude-code` instead of `codex` for Claude Code. The temporary start file contains only the
 whitelisted snapshot schema, but it should still be removed after the proof. The command exits 2
-for an unavailable snapshot or delta and emits only fixed reason codes. Artifacts larger than the
-8 MiB read bound are explicitly unavailable rather than partially parsed.
+for an unavailable snapshot or delta and emits only fixed reason codes. Codex rollout histories
+are scanned incrementally with a bounded individual-record size, so the history may grow without
+a whole-file memory limit. Oversized records invalidate older counters until a later valid
+cumulative record restores them. Claude artifacts larger than the 8 MiB read bound remain
+explicitly unavailable rather than partially parsed.
 
 ## Observed result
 

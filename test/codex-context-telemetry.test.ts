@@ -19,6 +19,7 @@ import {
 } from '../src/main/harness/codex-context-telemetry'
 import { calculateHarnessUsageDelta } from '../src/main/harness/agent-work-usage'
 import { BoundedLineReader } from '../src/main/harness/bounded-line-reader'
+import { HARNESS_USAGE_RECORD_BYTE_LIMIT } from '../src/main/harness/harness-usage-artifact'
 import type { ExecStreamHandle, ProjectHost } from '../src/main/project-host'
 import { LocalHost } from '../src/main/project-host/local-host'
 import { localPath, type HarnessTelemetry } from '../src/shared'
@@ -92,6 +93,171 @@ describe('Codex context telemetry', () => {
       await host.dispose()
       await rm(directory, { recursive: true, force: true })
     }
+  })
+
+  it('reads exact cumulative counters after a rollout grows beyond 8 MiB', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'hvir-codex-large-usage-'))
+    const canonicalDirectory = await realpath(directory)
+    const path = localPath(join(directory, `rollout-session-${SESSION_ID}.jsonl`))
+    const host = new LocalHost()
+    const ignoredRecord = `${JSON.stringify({
+      type: 'response_item',
+      payload: { opaque: 'x'.repeat(1024) },
+    })}\n`
+    const repetitions = Math.ceil((8 * 1024 * 1024 + 1) / ignoredRecord.length)
+    await writeFile(
+      path.path,
+      `${JSON.stringify({
+        type: 'session_meta',
+        payload: {
+          id: SESSION_ID,
+          cwd: canonicalDirectory,
+          originator: 'codex-tui',
+        },
+      })}\n`,
+    )
+    await appendFile(path.path, ignoredRecord.repeat(repetitions))
+    await appendFile(path.path, `${cumulativeCodexUsage(170, 120, 15, 40, 8)}\n`)
+    await host.connect()
+    try {
+      await expect(
+        snapshotCodexUsage(host, usageContext(directory, path)),
+      ).resolves.toMatchObject({
+        status: 'available',
+        counters: {
+          freshInputTokens: 35,
+          cacheReadInputTokens: 120,
+          cacheWriteInputTokens: 15,
+          outputTokens: 40,
+          reasoningTokens: 8,
+        },
+      })
+    } finally {
+      await host.dispose()
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('invalidates stale facts at an oversized record and restores later cumulative facts', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'hvir-codex-oversized-'))
+    const canonicalDirectory = await realpath(directory)
+    const path = localPath(join(directory, `rollout-session-${SESSION_ID}.jsonl`))
+    const host = new LocalHost()
+    const oversized = JSON.stringify({
+      type: 'response_item',
+      payload: { opaque: 'x'.repeat(HARNESS_USAGE_RECORD_BYTE_LIMIT) },
+    })
+    await writeFile(
+      path.path,
+      [
+        sessionMeta(canonicalDirectory),
+        JSON.stringify({
+          type: 'turn_context',
+          payload: { model: 'stale-model', effort: 'high' },
+        }),
+        cumulativeCodexUsage(5, 2, 1, 3, 1),
+        oversized,
+        cumulativeCodexUsage(9, 4, 1, 5, 2),
+      ].join('\n') + '\n',
+    )
+    await host.connect()
+    try {
+      await expect(
+        snapshotCodexUsage(host, usageContext(directory, path)),
+      ).resolves.toMatchObject({
+        status: 'available',
+        route: {},
+        counters: {
+          freshInputTokens: 4,
+          cacheReadInputTokens: 4,
+          cacheWriteInputTokens: 1,
+          outputTokens: 5,
+          reasoningTokens: 2,
+        },
+      })
+
+      await appendFile(
+        path.path,
+        `${JSON.stringify({
+          type: 'turn_context',
+          payload: { model: 'restored-model', effort: 'medium' },
+        })}\n${cumulativeCodexUsage(12, 5, 2, 6, 3)}\n`,
+      )
+      await expect(
+        snapshotCodexUsage(host, usageContext(directory, path)),
+      ).resolves.toMatchObject({
+        status: 'available',
+        route: { modelId: 'restored-model', reasoningEffort: 'medium' },
+        counters: { freshInputTokens: 5 },
+      })
+    } finally {
+      await host.dispose()
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('fails closed when no cumulative counter follows an oversized record', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'hvir-codex-stale-usage-'))
+    const canonicalDirectory = await realpath(directory)
+    const path = localPath(join(directory, `rollout-session-${SESSION_ID}.jsonl`))
+    const host = new LocalHost()
+    await writeFile(
+      path.path,
+      `${sessionMeta(canonicalDirectory)}\n${cumulativeCodexUsage(5, 2, 1, 3, 1)}\n${'x'.repeat(
+        HARNESS_USAGE_RECORD_BYTE_LIMIT + 1,
+      )}`,
+    )
+    await host.connect()
+    try {
+      await expect(
+        snapshotCodexUsage(host, usageContext(directory, path)),
+      ).resolves.toMatchObject({
+        status: 'unavailable',
+        reason: 'usage-unavailable',
+      })
+    } finally {
+      await host.dispose()
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('reassembles records across host chunks and ignores a truncated final record', async () => {
+    const cwd = localPath('/tmp/project')
+    const path = localPath(`/tmp/rollout-session-${SESSION_ID}.jsonl`)
+    const content = `${sessionMeta(cwd.path)}\nmalformed\n${cumulativeCodexUsage(
+      9,
+      4,
+      1,
+      5,
+      2,
+    )}\n{"type":"event_msg","payload":{"type":"token_count"`
+    const bytes = Buffer.from(content)
+    const readFileChunks = vi.fn(() =>
+      (async function* (): AsyncIterable<Uint8Array> {
+        await Promise.resolve()
+        for (const end of [1, 7, 63, 64, 65, bytes.length]) {
+          const start = end === 1 ? 0 : ([1, 7, 63, 64, 65].findLast((n) => n < end) ?? 0)
+          if (end > start) yield bytes.subarray(start, end)
+        }
+      })(),
+    )
+    const host = {
+      hostId: cwd.hostId,
+      realpath: vi.fn(() => Promise.resolve(cwd)),
+      fileTransfer: { readFileChunks },
+    } as unknown as ProjectHost
+    const signal = new AbortController().signal
+
+    await expect(
+      snapshotCodexUsage(host, {
+        ...usageContext(cwd.path, path),
+        signal,
+      }),
+    ).resolves.toMatchObject({
+      status: 'available',
+      counters: { freshInputTokens: 4, outputTokens: 5 },
+    })
+    expect(readFileChunks).toHaveBeenCalledWith(path, { signal })
   })
 
   it('rejects a rollout whose qualified record does not match the exact session', async () => {
@@ -196,14 +362,14 @@ describe('Codex context telemetry', () => {
 
   it('reports an unavailable snapshot when exact-session discovery throws', async () => {
     const cwd = localPath('/tmp/project')
-    const readTextFilePrefix = vi.fn()
+    const readFileChunks = vi.fn()
     const host = {
       hostId: cwd.hostId,
       realpath: vi.fn(() => Promise.resolve(cwd)),
       exec: vi.fn<ProjectHost['exec']>(() =>
         Promise.reject(new Error('session discovery failed')),
       ),
-      readTextFilePrefix,
+      fileTransfer: { readFileChunks },
     } as unknown as ProjectHost
 
     await expect(
@@ -217,12 +383,12 @@ describe('Codex context telemetry', () => {
       status: 'unavailable',
       reason: 'artifact-unavailable',
     })
-    expect(readTextFilePrefix).not.toHaveBeenCalled()
+    expect(readFileChunks).not.toHaveBeenCalled()
   })
 
   it('rejects a possibly ambiguous path from truncated session discovery', async () => {
     const cwd = localPath('/tmp/project')
-    const readTextFilePrefix = vi.fn()
+    const readFileChunks = vi.fn()
     const host = {
       hostId: cwd.hostId,
       realpath: vi.fn(() => Promise.resolve(cwd)),
@@ -235,7 +401,7 @@ describe('Codex context telemetry', () => {
           outputTruncated: true,
         }),
       ),
-      readTextFilePrefix,
+      fileTransfer: { readFileChunks },
     } as unknown as ProjectHost
 
     await expect(
@@ -249,7 +415,7 @@ describe('Codex context telemetry', () => {
       status: 'unavailable',
       reason: 'artifact-unavailable',
     })
-    expect(readTextFilePrefix).not.toHaveBeenCalled()
+    expect(readFileChunks).not.toHaveBeenCalled()
   })
 
   it('rejects an artifact read that completes after snapshot revocation', async () => {
@@ -262,16 +428,15 @@ describe('Codex context telemetry', () => {
     const host = {
       hostId: path.hostId,
       realpath: vi.fn((value) => Promise.resolve(value)),
-      readTextFilePrefix: vi.fn(() => {
-        controller.abort()
-        return Promise.resolve({
-          content,
-          byteLength: content.length,
-          lineCount: 2,
-          complete: true,
-          validUtf8: true,
-        })
-      }),
+      fileTransfer: {
+        readFileChunks: vi.fn(() =>
+          (async function* (): AsyncIterable<Uint8Array> {
+            await Promise.resolve()
+            yield Buffer.from(content)
+            controller.abort()
+          })(),
+        ),
+      },
     } as unknown as ProjectHost
 
     await expect(
@@ -495,6 +660,23 @@ describe('Codex context telemetry', () => {
     }
   })
 })
+
+function usageContext(cwd: string, rolloutPath: ReturnType<typeof localPath>) {
+  return {
+    sessionId: SESSION_ID,
+    cwd: localPath(cwd),
+    sessionData: { rolloutPath },
+    artifact: { identity: 'test', environment: {}, unsetEnvironment: [] },
+    signal: new AbortController().signal,
+  }
+}
+
+function sessionMeta(cwd: string): string {
+  return JSON.stringify({
+    type: 'session_meta',
+    payload: { id: SESSION_ID, cwd, originator: 'codex-tui' },
+  })
+}
 
 function cumulativeCodexUsage(
   input: number,

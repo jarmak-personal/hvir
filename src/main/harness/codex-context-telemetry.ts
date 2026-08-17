@@ -12,7 +12,7 @@ import {
 } from './agent-work-usage'
 import {
   boundedHarnessUsageString,
-  readHarnessUsageArtifact,
+  scanHarnessUsageArtifactLines,
 } from './harness-usage-artifact'
 import type { HarnessTelemetryContext } from './harness-provider'
 import { canonicalCodexCwd } from './codex-session-discovery'
@@ -103,40 +103,51 @@ export async function snapshotCodexUsage(
   if (!rolloutPath || context.signal.aborted) {
     return unavailableHarnessUsageSnapshot(providerId, 'artifact-unavailable')
   }
-  const artifact = await readHarnessUsageArtifact(host, rolloutPath, context.signal)
+  let identityQualified = false
+  let modelId: string | undefined
+  let reasoningEffort: string | undefined
+  let counters: HarnessUsageCounters | undefined
+  const artifact = await scanHarnessUsageArtifactLines(
+    host,
+    rolloutPath,
+    context.signal,
+    {
+      visit: (line) => {
+        const envelope = parseCodexUsageEnvelope(line)
+        if (!envelope) return
+        if (envelope.type === 'session_meta') {
+          identityQualified ||=
+            envelope.payload?.id === context.sessionId &&
+            envelope.payload.cwd === canonicalCwd.path &&
+            envelope.payload.originator === 'codex-tui'
+          return
+        }
+        if (envelope.type === 'turn_context') {
+          modelId = boundedHarnessUsageString(envelope.payload?.model) ?? modelId
+          reasoningEffort =
+            boundedHarnessUsageString(envelope.payload?.effort, 64) ?? reasoningEffort
+          return
+        }
+        if (envelope.type !== 'event_msg' || envelope.payload?.type !== 'token_count') {
+          return
+        }
+        const normalized = normalizeCodexUsageCounters(
+          envelope.payload?.info?.total_token_usage,
+        )
+        if (normalized) counters = normalized
+      },
+      oversized: () => {
+        modelId = undefined
+        reasoningEffort = undefined
+        counters = undefined
+      },
+    },
+  )
   if (context.signal.aborted) {
     return unavailableHarnessUsageSnapshot(providerId, 'artifact-unavailable')
   }
   if (artifact.status === 'unavailable') {
     return unavailableHarnessUsageSnapshot(providerId, artifact.reason)
-  }
-
-  let identityQualified = false
-  let modelId: string | undefined
-  let reasoningEffort: string | undefined
-  let counters: HarnessUsageCounters | undefined
-  for (const line of artifact.content.split('\n')) {
-    const envelope = parseCodexUsageEnvelope(line)
-    if (!envelope) continue
-    if (envelope.type === 'session_meta') {
-      identityQualified ||=
-        envelope.payload?.id === context.sessionId &&
-        envelope.payload.cwd === canonicalCwd.path &&
-        envelope.payload.originator === 'codex-tui'
-      continue
-    }
-    if (envelope.type === 'turn_context') {
-      modelId = boundedHarnessUsageString(envelope.payload?.model) ?? modelId
-      reasoningEffort =
-        boundedHarnessUsageString(envelope.payload?.effort, 64) ?? reasoningEffort
-      continue
-    }
-    const usage = envelope.payload?.info?.total_token_usage
-    if (envelope.type !== 'event_msg' || envelope.payload?.type !== 'token_count') {
-      continue
-    }
-    const normalized = normalizeCodexUsageCounters(usage)
-    if (normalized) counters = normalized
   }
 
   if (!identityQualified) {
