@@ -1,14 +1,7 @@
-import {
-  mkdtemp,
-  readFile,
-  readdir,
-  rm,
-  stat,
-  utimes,
-  writeFile,
-} from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -106,9 +99,7 @@ describe('agent-work private checkpoint lifecycle', () => {
       snapshot: snapshot(10, 10),
     })
     await expect(
-      new AgentWorkCheckpointStore(root, fakeClock(1_012, 5_012_000_000n)).pause(
-        locator,
-      ),
+      new AgentWorkCheckpointStore(root, fakeClock(1_012, 5_012_000_000n)).pause(locator),
     ).resolves.toMatchObject({ status: 'paused' })
     await expect(
       new AgentWorkCheckpointStore(root, fakeClock(1_052, 5_052_000_000n)).resume(
@@ -129,10 +120,7 @@ describe('agent-work private checkpoint lifecycle', () => {
     const locator = codexLocator('delayed-clock-sample-session')
     await new AgentWorkCheckpointStore(
       root,
-      scriptedClock(
-        [0n, 20_000_000n, 20_000_000n, 20_000_000n],
-        [1_020, 1_020, 1_020],
-      ),
+      scriptedClock([0n, 20_000_000n, 20_000_000n, 20_000_000n], [1_020, 1_020, 1_020]),
     ).start({
       ...locator,
       cwd: '/launch',
@@ -191,10 +179,7 @@ describe('agent-work private checkpoint lifecycle', () => {
     ] as const) {
       const root = await privateRoot()
       const locator = codexLocator(sessionId)
-      await new AgentWorkCheckpointStore(
-        root,
-        fakeClock(1_000, 5_000_000_000n),
-      ).start({
+      await new AgentWorkCheckpointStore(root, fakeClock(1_000, 5_000_000_000n)).start({
         ...locator,
         cwd: '/launch',
         artifactEnvironment: {},
@@ -232,69 +217,47 @@ describe('agent-work private checkpoint lifecycle', () => {
     expect(result).not.toHaveProperty('activeWallMilliseconds')
   })
 
-  it('omits unverifiable active time from a legacy monotonic-only checkpoint', async () => {
+  it.each([
+    [
+      'an unversioned clock state',
+      (state: Record<string, unknown>) => {
+        delete state.clockVersion
+      },
+    ],
+    [
+      'the intermediate clock v1 state',
+      (state: Record<string, unknown>) => {
+        state.clockVersion = 1
+      },
+    ],
+  ])('fails closed for %s', async (_description, mutate) => {
     const root = await privateRoot()
-    const locator = codexLocator('legacy-clock-session')
-    await new AgentWorkCheckpointStore(root, fakeClock(1_000, 10_000_000n)).start({
+    const locator = codexLocator(`unsupported-clock-${_description}`)
+    const store = new AgentWorkCheckpointStore(root, fakeClock(1_000, 10_000_000n))
+    await store.start({
       ...locator,
       cwd: '/launch',
       artifactEnvironment: {},
       snapshot: snapshot(10, 10),
     })
-    const [checkpointName] = await readdir(root)
-    const checkpointPath = join(root, checkpointName!)
+    const checkpointPath = await checkpointFile(root)
     const state = JSON.parse(await readFile(checkpointPath, 'utf8')) as Record<
       string,
       unknown
     >
-    const anchor = state.activeSegmentStartedAt as {
-      monotonicBeforeNanoseconds: string
-    }
-    delete state.clockVersion
-    state.activeSegmentStartedAt = anchor.monotonicBeforeNanoseconds
+    mutate(state)
     await writeFile(checkpointPath, `${JSON.stringify(state)}\n`, { mode: 0o600 })
+    let captured = false
 
-    const result = await new AgentWorkCheckpointStore(
-      root,
-      fakeClock(1_020, 30_000_000n),
-    ).finish(locator, () => Promise.resolve(snapshot(20, 20)))
-
-    expect(result).not.toHaveProperty('activeWallMilliseconds')
-  })
-
-  it('omits unverifiable active time from the previous unbracketed clock schema', async () => {
-    const root = await privateRoot()
-    const locator = codexLocator('previous-clock-session')
-    await new AgentWorkCheckpointStore(root, fakeClock(1_000, 10_000_000n)).start({
-      ...locator,
-      cwd: '/launch',
-      artifactEnvironment: {},
-      snapshot: snapshot(10, 10),
-    })
-    const [checkpointName] = await readdir(root)
-    const checkpointPath = join(root, checkpointName!)
-    const state = JSON.parse(await readFile(checkpointPath, 'utf8')) as Record<
-      string,
-      unknown
-    >
-    const anchor = state.activeSegmentStartedAt as {
-      monotonicBeforeNanoseconds: string
-      epochMilliseconds: number
-    }
-    state.clockVersion = 1
-    state.activeSegmentStartedAt = {
-      monotonicNanoseconds: anchor.monotonicBeforeNanoseconds,
-      epochMilliseconds: anchor.epochMilliseconds,
-    }
-    await writeFile(checkpointPath, `${JSON.stringify(state)}\n`, { mode: 0o600 })
-
-    const result = await new AgentWorkCheckpointStore(
-      root,
-      fakeClock(1_020, 30_000_000n),
-    ).finish(locator, () => Promise.resolve(snapshot(20, 20)))
-
-    expect(result).toMatchObject({ usage: { status: 'complete' } })
-    expect(result).not.toHaveProperty('activeWallMilliseconds')
+    await expect(
+      store.finish(locator, () => {
+        captured = true
+        return Promise.resolve(snapshot(20, 20))
+      }),
+    ).rejects.toThrow(
+      'The private agent-work checkpoint does not use the supported schema.',
+    )
+    expect(captured).toBe(false)
   })
 
   it('keeps the first baseline when start is retried', async () => {
@@ -494,6 +457,98 @@ describe('agent-work private checkpoint lifecycle', () => {
     await expect(readdir(root)).resolves.toEqual([])
   })
 
+  it('serializes finish against pause so stale open state cannot replace finalization', async () => {
+    const root = await privateRoot()
+    const locator = codexLocator('finish-pause-race')
+    const owner = new AgentWorkCheckpointStore(root, fakeClock())
+    await owner.start({
+      ...locator,
+      cwd: '/launch',
+      artifactEnvironment: {},
+      snapshot: snapshot(10, 10),
+    })
+    const captureStarted = deferred<void>()
+    const endSnapshot = deferred<HarnessUsageSnapshot>()
+    const finishing = owner.finish(locator, () => {
+      captureStarted.resolve()
+      return endSnapshot.promise
+    })
+    await captureStarted.promise
+
+    const pausing = new AgentWorkCheckpointStore(root, fakeClock()).pause(locator)
+    await expectPending(pausing)
+    endSnapshot.resolve(snapshot(20, 20))
+
+    const observation = await finishing
+    await expect(pausing).rejects.toThrow(
+      'A finalized agent-work checkpoint has no active clock.',
+    )
+    await expect(
+      owner.finish(locator, () => Promise.resolve(snapshot(30, 999))),
+    ).resolves.toEqual(observation)
+    await owner.release(locator)
+  })
+
+  it('serializes finish against abandon so finalized state cannot be deleted', async () => {
+    const root = await privateRoot()
+    const locator = codexLocator('finish-abandon-race')
+    const owner = new AgentWorkCheckpointStore(root, fakeClock())
+    await owner.start({
+      ...locator,
+      cwd: '/launch',
+      artifactEnvironment: {},
+      snapshot: snapshot(10, 10),
+    })
+    const captureStarted = deferred<void>()
+    const endSnapshot = deferred<HarnessUsageSnapshot>()
+    const finishing = owner.finish(locator, () => {
+      captureStarted.resolve()
+      return endSnapshot.promise
+    })
+    await captureStarted.promise
+
+    const abandoning = new AgentWorkCheckpointStore(root, fakeClock()).abandon(locator)
+    await expectPending(abandoning)
+    endSnapshot.resolve(snapshot(20, 20))
+
+    const observation = await finishing
+    await expect(abandoning).rejects.toThrow(
+      'A finalized agent-work checkpoint must be released after append.',
+    )
+    await expect(
+      owner.finish(locator, () => Promise.resolve(snapshot(30, 999))),
+    ).resolves.toEqual(observation)
+    await owner.release(locator)
+  })
+
+  it('serializes release after finish and never recreates the finalized checkpoint', async () => {
+    const root = await privateRoot()
+    const locator = codexLocator('finish-release-race')
+    const owner = new AgentWorkCheckpointStore(root, fakeClock())
+    await owner.start({
+      ...locator,
+      cwd: '/launch',
+      artifactEnvironment: {},
+      snapshot: snapshot(10, 10),
+    })
+    const captureStarted = deferred<void>()
+    const endSnapshot = deferred<HarnessUsageSnapshot>()
+    const finishing = owner.finish(locator, () => {
+      captureStarted.resolve()
+      return endSnapshot.promise
+    })
+    await captureStarted.promise
+
+    const releasing = new AgentWorkCheckpointStore(root, fakeClock()).release(locator)
+    await expectPending(releasing)
+    endSnapshot.resolve(snapshot(20, 20))
+
+    await expect(finishing).resolves.toMatchObject({ status: 'closed' })
+    await expect(releasing).resolves.toMatchObject({ status: 'released' })
+    await expect(owner.inspect(locator)).resolves.toBeUndefined()
+    await expect(readdir(root)).resolves.toEqual([])
+  })
+
   it('prunes only owned checkpoints after the bounded retention interval', async () => {
     const root = await privateRoot()
     const clock = fakeClock(Date.now())
@@ -539,9 +594,7 @@ describe('agent-work private checkpoint lifecycle', () => {
       Date.now() - AGENT_WORK_CHECKPOINT_RETENTION_MILLISECONDS - 1_000,
     )
     await Promise.all(
-      (await readdir(root)).map((name) =>
-        utimes(join(root, name), staleTime, staleTime),
-      ),
+      (await readdir(root)).map((name) => utimes(join(root, name), staleTime, staleTime)),
     )
     const fresh = codexLocator('concurrent-prune-session', 'f'.repeat(64))
 
@@ -563,6 +616,45 @@ describe('agent-work private checkpoint lifecycle', () => {
     expect(started).toMatchObject({ status: 'started' })
     await expect(readdir(root)).resolves.toHaveLength(1)
     await owner.abandon(fresh)
+  })
+
+  it('revalidates a stale prune selection after a same-identity refresh', async () => {
+    const root = await privateRoot()
+    const now = Date.now()
+    const locator = codexLocator('stale-selection-refresh-race')
+    const owner = new AgentWorkCheckpointStore(root, fakeClock(now))
+    await owner.start({
+      ...locator,
+      cwd: '/launch',
+      artifactEnvironment: {},
+      snapshot: snapshot(10, 10),
+    })
+    const checkpointPath = await checkpointFile(root)
+    const staleTime = new Date(now - AGENT_WORK_CHECKPOINT_RETENTION_MILLISECONDS - 1_000)
+    await utimes(checkpointPath, staleTime, staleTime)
+    const captureStarted = deferred<void>()
+    const endSnapshot = deferred<HarnessUsageSnapshot>()
+    const finishing = owner.finish(locator, () => {
+      captureStarted.resolve()
+      return endSnapshot.promise
+    })
+    await captureStarted.promise
+    const staleSelectionObserved = deferred<void>()
+    const pruning = new AgentWorkCheckpointStore(root, {
+      monotonicNanoseconds: () => 0n,
+      epochMilliseconds: () => {
+        staleSelectionObserved.resolve()
+        return now
+      },
+    }).pruneStale()
+    await staleSelectionObserved.promise
+    await expect(pruning).resolves.toBe(0)
+
+    endSnapshot.resolve(snapshot(20, 20))
+
+    await expect(finishing).resolves.toMatchObject({ status: 'closed' })
+    await expect(owner.inspect(locator)).resolves.toMatchObject({ status: 'unchanged' })
+    await owner.release(locator)
   })
 })
 
@@ -659,6 +751,37 @@ async function privateRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'hvir-agent-work-checkpoint-test-'))
   temporaryRoots.push(root)
   return root
+}
+
+async function checkpointFile(root: string): Promise<string> {
+  const checkpointName = (await readdir(root)).find((name) => name.endsWith('.json'))
+  if (!checkpointName) throw new Error('Expected a private checkpoint file.')
+  return join(root, checkpointName)
+}
+
+function deferred<T>(): {
+  readonly promise: Promise<T>
+  resolve(value: T): void
+} {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((settle) => {
+    resolve = settle
+  })
+  return { promise, resolve }
+}
+
+async function expectPending(promise: Promise<unknown>): Promise<void> {
+  let settled = false
+  void promise.then(
+    () => {
+      settled = true
+    },
+    () => {
+      settled = true
+    },
+  )
+  await delay(25)
+  expect(settled).toBe(false)
 }
 
 function codexLocator(sessionId: string, runKey = 'a'.repeat(64)) {
