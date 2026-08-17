@@ -53,7 +53,9 @@ async function main(): Promise<void> {
     const report = options.rollup
       ? await reconcileAgentWorkRollup(
           {
-            readRollupIssue: (issueNumber) => issueSource.readRollupIssue(issueNumber),
+            readRollupTarget: (issueNumber) => issueSource.readRollupTarget(issueNumber),
+            readRollupParticipant: (issueNumber) =>
+              issueSource.readRollupParticipant(issueNumber),
             readCommentHistory: (issueNumber) => ledger.readCommentHistory(issueNumber),
           },
           project,

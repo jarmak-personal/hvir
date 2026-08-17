@@ -31,11 +31,16 @@ export interface AgentWorkRollupIssue extends AgentWorkRollupIssueReference {
   state: 'OPEN' | 'CLOSED'
   kind: 'epic' | 'other' | 'invalid'
   parent: AgentWorkRollupIssueReference | null
+  hasDirectChildren: boolean
+}
+
+export interface AgentWorkRollupTargetIssue extends AgentWorkRollupIssue {
   directChildren: AgentWorkRollupIssueReference[]
 }
 
 export interface AgentWorkRollupSourcePort {
-  readRollupIssue(issueNumber: number): Promise<AgentWorkRollupIssue>
+  readRollupTarget(issueNumber: number): Promise<AgentWorkRollupTargetIssue>
+  readRollupParticipant(issueNumber: number): Promise<AgentWorkRollupIssue>
   readCommentHistory(issueNumber: number): Promise<AgentWorkCommentHistory>
 }
 
@@ -124,7 +129,7 @@ export async function reconcileAgentWorkRollup(
   input: { issueNumber: number; apply: boolean },
 ): Promise<AgentWorkRollupReport> {
   const issueNumber = requireAgentWorkIssueNumber(input.issueNumber)
-  const target = await source.readRollupIssue(issueNumber)
+  const target = await source.readRollupTarget(issueNumber)
   const current = await project.readAgentWorkProjection(issueNumber)
   const eligibility = rollupEligibility(target)
 
@@ -155,7 +160,7 @@ export async function reconcileAgentWorkRollup(
   }
 
   const children = await Promise.all(
-    childReferences.map((child) => source.readRollupIssue(child.number)),
+    childReferences.map((child) => source.readRollupParticipant(child.number)),
   )
   const relationshipDiagnostics = validateDirectChildren(
     target,
@@ -410,7 +415,7 @@ function validateDirectChildren(
     }
     if (child.kind === 'epic') diagnostics.push('nested-epic')
     if (child.kind === 'invalid') diagnostics.push('child-kind-invalid')
-    if (child.directChildren.length > 0) diagnostics.push('nested-descendants')
+    if (child.hasDirectChildren) diagnostics.push('nested-descendants')
   }
   return [...new Set(diagnostics)]
 }

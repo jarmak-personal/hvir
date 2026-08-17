@@ -127,9 +127,12 @@ handoff facts are stable but before ledger bookkeeping:
 
 5. After release, dry-run and apply the separate Project projection. If projection fails after
    append, retry projection only; do not append again.
-6. After the issue's named projection has a reportable outcome, dry-run and apply its separate
-   Rollup reconciliation. This clears a stale Rollup from an ordinary issue or epic child, and
-   calculates a root epic from its Own ledger plus every native direct child's current Own ledger:
+6. After the issue's named projection has a reportable outcome, reconcile only the applicable
+   root epic. When the issue is itself a root epic, dry-run and apply Rollup for that issue. When
+   the issue has an exact native direct parent, dry-run and apply Rollup for that parent instead.
+   An ordinary issue runs no Rollup operation, and an epic child never runs a guaranteed no-op
+   Rollup against itself. Root reconciliation calculates the epic's Own ledger plus every native
+   direct child's current Own ledger:
 
    ```sh
    HVIR_REPO_TOKEN="$(gh auth token)" \
@@ -141,10 +144,10 @@ handoff facts are stable but before ledger bookkeeping:
    npm run project:measure -- --issue <number> --rollup --apply
    ```
 
-   When the issue has an exact native direct parent, repeat only this Rollup operation for that
-   parent after the child operation. This reconciles the parent after child planning,
+   Use the root epic number selected above. Parent reconciliation follows child planning,
    implementation, review, correction, or reopened work without editing the child's comments or
-   Project values. Do not guess a parent or recurse beyond the one native relationship.
+   Project values. Do not guess a parent, invoke Rollup twice, or recurse beyond the one native
+   relationship.
 7. Report `complete`, `partial`, `unavailable`, `duplicate`, or failed/uncertain append,
    projection, and applicable Rollup state in the lifecycle handoff. Never include the private
    snapshot or provider identity inputs.
@@ -152,5 +155,5 @@ handoff facts are stable but before ledger bookkeeping:
 The measurement contract owns run, correction, route-change, first-pass, supersession, and retry
 policy. This procedure adds three workflow expectations: review-driven code changes start a new
 `implementation` run; an isolated supported reviewer with truthful route plus active-wall facts
-emits a partial review record rather than discarding those facts; and every ledger change
-reconciles the owning issue plus its one exact native parent when present.
+emits a partial review record rather than discarding those facts; and a ledger change reconciles
+Rollup only on the changed root epic or the changed issue's one exact native parent when present.
