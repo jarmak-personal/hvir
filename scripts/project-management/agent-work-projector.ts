@@ -1,5 +1,7 @@
 import {
   AGENT_WORK_PROJECT_FIELDS,
+  AGENT_WORK_ROLLUP_PROJECT_FIELDS,
+  agentWorkMeasurementCoverageValue,
   agentWorkProjectWriteDiagnostic,
   type AgentWorkProjectFieldName,
   type AgentWorkProjectFieldType,
@@ -11,7 +13,6 @@ import {
   agentWorkLedgerProjectionDiagnostic,
   normalizeAgentWorkComments,
   requireAgentWorkIssueNumber,
-  type AgentWorkAvailability,
   type AgentWorkLedgerDiagnostic,
   type AgentWorkLedgerProjectionDiagnostic,
   type AgentWorkRecord,
@@ -195,13 +196,7 @@ export function deriveAgentWorkProjection(
   }
 
   if (options.tokenOwner === 'rollup') {
-    for (const field of [
-      'Planning tokens',
-      'Implementation tokens',
-      'Review tokens',
-      'Lifecycle tokens',
-      'Measurement coverage',
-    ] as const) {
+    for (const field of AGENT_WORK_ROLLUP_PROJECT_FIELDS) {
       preservedFields.add(field)
     }
   } else {
@@ -211,7 +206,7 @@ export function deriveAgentWorkProjection(
     if (ledger.ownTotal.knownTokenSubtotal !== undefined) {
       values['Lifecycle tokens'] = ledger.ownTotal.knownTokenSubtotal
     }
-    values['Measurement coverage'] = projectMeasurementCoverage(
+    values['Measurement coverage'] = agentWorkMeasurementCoverageValue(
       ledger.ownTotal.availability,
     )
   }
@@ -359,14 +354,6 @@ function setKnownSubtotal(
   if (total?.knownTokenSubtotal !== undefined) {
     values[field] = total.knownTokenSubtotal
   }
-}
-
-function projectMeasurementCoverage(
-  availability: AgentWorkAvailability,
-): 'Complete' | 'Partial' | 'Unavailable' {
-  if (availability === 'complete') return 'Complete'
-  if (availability === 'partial') return 'Partial'
-  return 'Unavailable'
 }
 
 function projectFirstPass(

@@ -319,10 +319,12 @@ HVIR_PROJECT_TOKEN="$(gh auth token)" \
 npm run project:measure -- --issue 570 --rollup --apply
 ```
 
-A root `kind:epic` Rollup is its current Own lifecycle total plus each native direct child's
-current Own lifecycle total exactly once. Direct-child open or closed state does not change
-ownership. Ledger normalization removes superseded records and deduplicates identical retries
-before aggregation. The operation never reads a child's Project Rollup or traverses a grandchild.
+A root `kind:epic` Rollup is its current Own per-phase and lifecycle totals plus each native direct
+child's current Own totals exactly once. Direct-child open or closed state does not change
+ownership. The phase subtotals populate Planning, Implementation, and Review tokens; the
+lifecycle subtotal also includes the root epic's coordination work. Ledger normalization removes
+superseded records and deduplicates identical retries before aggregation. The operation never
+reads a child's Project Rollup or traverses a grandchild.
 It rejects cross-repository relationships, mismatched native parents, nested epics, and nested
 descendants without overwriting a previously safe value. An active parent-only
 `epic-coordination` record on a child is also invalid Rollup evidence.
@@ -333,10 +335,10 @@ ledger, or overflow diagnostics preserve the current fields and exit nonzero. Id
 reconciliation is a no-op. Applying `--rollup` to an ordinary issue or epic child does not invent
 root-epic aggregates.
 
-The field-contract change first moves the existing scalar Rollup compatibility write to
-`Lifecycle tokens`. The separate Rollup-owner correction expands that calculation to the phase
-columns and `Measurement coverage`; one-issue projection already reserves all five fields so the
-two owners cannot race or overwrite each other.
+Rollup reconciliation owns Planning, Implementation, Review, Lifecycle, and Measurement coverage
+for root epics. One-issue projection reserves all five fields on those rows, so the two owners
+cannot race or overwrite each other. Project-wide issue-owned analysis excludes root-epic rows;
+including both child Own values and the parent Rollup would count the same child work twice.
 
 Lifecycle skills run the operation after the owning issue's append and projection. When that
 issue is a native direct child, they then reconcile the one exact parent. Parent reconciliation
