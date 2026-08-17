@@ -5,6 +5,7 @@ import {
   requireAgentWorkIssueNumber,
   sumAgentWorkSafeIntegers,
   type AgentWorkAvailability,
+  type AgentWorkCommentHistory,
   type AgentWorkLedgerProjectionDiagnostic,
   type AgentWorkPhase,
   type NormalizedAgentWorkLedger,
@@ -35,7 +36,7 @@ export interface AgentWorkRollupIssue extends AgentWorkRollupIssueReference {
 
 export interface AgentWorkRollupSourcePort {
   readRollupIssue(issueNumber: number): Promise<AgentWorkRollupIssue>
-  listCommentBodies(issueNumber: number): Promise<string[]>
+  readCommentHistory(issueNumber: number): Promise<AgentWorkCommentHistory>
 }
 
 export interface AgentWorkRollupProjectPort {
@@ -177,7 +178,7 @@ export async function reconcileAgentWorkRollup(
     issues.map(async (issue) =>
       normalizeAgentWorkComments(
         issue.number,
-        await source.listCommentBodies(issue.number),
+        await source.readCommentHistory(issue.number),
       ),
     ),
   )

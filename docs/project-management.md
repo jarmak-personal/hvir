@@ -180,10 +180,16 @@ The command emits one canonical comment with this exact first-line marker:
 ```
 
 The marker is followed by one `json` fence containing the canonical pretty-printed record. A
-reader admits only that exact generated layout and schema; all ordinary comments are ignored.
-Marker-bearing comments with malformed JSON, unexpected fields, invalid values, or a mismatched
-issue number are reported only through fixed diagnostics. Neither raw comment bodies nor GitHub
-internal IDs appear in a report.
+reader admits only that exact generated layout and schema when the comment author is the
+configured repository owner. The repository token used to append measurements must authenticate
+as that same owner; this is the sole trusted measurement actor, not a general comment-trust
+registry. Marker-shaped comments from every other author are unrelated and are not parsed, so
+even malformed forgeries produce no ledger diagnostic. A trusted marker-bearing comment with
+malformed JSON, unexpected fields, invalid values, or a mismatched issue number is reported only
+through a fixed diagnostic. A trusted measurement comment whose GitHub `createdAt` and
+`updatedAt` differ is rejected with a fixed edited-record diagnostic because append-only history
+cannot admit edited evidence. Neither raw comment bodies, author provenance, timestamps, nor
+GitHub internal IDs appear in a report.
 
 Schema version 1 has these rules:
 
@@ -216,7 +222,8 @@ Schema version 1 has these rules:
   idempotency key for the same issue, phase, and run. Corrections append; comments are never
   edited or deleted. A supersession fork or cross-run reference is invalid.
 
-Reads paginate the complete comment history. Repeating the same valid key and record returns
+Reads paginate the complete comment history and carry only body, author login, and creation/update
+timestamps to the pure normalizer. Repeating the same valid key and record returns
 `duplicate` without appending; even if two external requests produced identical comments, the
 normalized usage counts the key once. Reusing a key for different facts is a fixed conflict. A
 retry always reads current history before attempting a write. The append uses one non-retrying

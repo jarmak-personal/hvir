@@ -12,6 +12,7 @@ import {
   requireAgentWorkIssueNumber,
   serializeAgentWorkComment,
   sumAgentWorkSafeIntegers,
+  type AgentWorkCommentHistory,
   type AgentWorkLedgerDiagnostic,
   type AgentWorkLedgerPort,
   type AgentWorkRecord,
@@ -32,6 +33,8 @@ const RUN_B = 'b'.repeat(64)
 const KEY_A = '1'.repeat(64)
 const KEY_B = '2'.repeat(64)
 const KEY_C = '3'.repeat(64)
+const TRUSTED_ACTOR = 'jarmak-personal'
+const COMMENT_TIME = '2026-08-17T12:00:00Z'
 
 describe('agent-work ledger shared policy', () => {
   it('owns issue-number validation and overflow-safe aggregation', () => {
@@ -48,14 +51,16 @@ describe('agent-work ledger shared policy', () => {
   it('owns the content-free projection diagnostic mapping', () => {
     const diagnostics: AgentWorkLedgerDiagnostic[] = [
       { code: 'invalid-record', commentOrdinal: 1 },
-      { code: 'duplicate-record', commentOrdinal: 2 },
-      { code: 'idempotency-conflict', commentOrdinal: 3 },
-      { code: 'invalid-supersession', commentOrdinal: 4 },
+      { code: 'edited-record', commentOrdinal: 2 },
+      { code: 'duplicate-record', commentOrdinal: 3 },
+      { code: 'idempotency-conflict', commentOrdinal: 4 },
+      { code: 'invalid-supersession', commentOrdinal: 5 },
       { code: 'aggregate-overflow', field: 'normalizedTokenTotal' },
     ]
 
     expect(diagnostics.map(agentWorkLedgerProjectionDiagnostic)).toEqual([
       'ledger-invalid-record',
+      'ledger-edited-record',
       'ledger-duplicate-record',
       'ledger-idempotency-conflict',
       'ledger-invalid-supersession',
@@ -158,7 +163,7 @@ describe('agent-work record schema', () => {
 
 describe('agent-work ledger normalization', () => {
   it('returns an empty, unavailable history without inventing zero usage', () => {
-    const ledger = normalizeAgentWorkComments(ISSUE, [])
+    const ledger = normalize([])
 
     expect(ledger.records).toEqual([])
     expect(ledger.ownTotal).toMatchObject({
@@ -188,7 +193,7 @@ describe('agent-work ledger normalization', () => {
         timeToFirstCandidateMilliseconds: 500,
       },
     })
-    const ledger = normalizeAgentWorkComments(ISSUE, [
+    const ledger = normalize([
       serializeAgentWorkComment(planning),
       serializeAgentWorkComment(implementation),
     ])
@@ -229,7 +234,7 @@ describe('agent-work ledger normalization', () => {
       },
       outcome: { firstPass: 'rework-required', candidateRef: 'abcdef2' },
     })
-    const ledger = normalizeAgentWorkComments(ISSUE, [
+    const ledger = normalize([
       serializeAgentWorkComment(first),
       serializeAgentWorkComment(reopened),
     ])
@@ -250,7 +255,7 @@ describe('agent-work ledger normalization', () => {
     const conflicting = serializeAgentWorkComment(
       completeRecord({ usage: usage(2, 2, 3, 4, 1) }),
     )
-    const ledger = normalizeAgentWorkComments(ISSUE, [original, original, conflicting])
+    const ledger = normalize([original, original, conflicting])
 
     expect(ledger.records).toHaveLength(1)
     expect(ledger.ownTotal.normalizedTokenTotal).toBe(10)
@@ -275,7 +280,7 @@ describe('agent-work ledger normalization', () => {
       idempotencyKey: '4'.repeat(64),
       supersedes: KEY_A,
     })
-    const ledger = normalizeAgentWorkComments(ISSUE, [
+    const ledger = normalize([
       serializeAgentWorkComment(original),
       serializeAgentWorkComment(correction),
       serializeAgentWorkComment(secondCorrection),
@@ -297,7 +302,7 @@ describe('agent-work ledger normalization', () => {
   it('keeps reopened work as a distinct run and reports partial coverage honestly', () => {
     const original = completeRecord()
     const reopened = partialRecord({ idempotencyKey: KEY_B, runKey: RUN_B })
-    const ledger = normalizeAgentWorkComments(ISSUE, [
+    const ledger = normalize([
       serializeAgentWorkComment(original),
       'ordinary maintainer discussion',
       serializeAgentWorkComment(reopened),
@@ -324,7 +329,7 @@ describe('agent-work ledger normalization', () => {
       runKey: RUN_B,
       usage: usage(1, 0, 0, 0, 0),
     })
-    const ledger = normalizeAgentWorkComments(ISSUE, [
+    const ledger = normalize([
       serializeAgentWorkComment(first),
       serializeAgentWorkComment(second),
     ])
@@ -349,7 +354,7 @@ describe('agent-work ledger normalization', () => {
     const invalidSupersession = serializeAgentWorkComment(
       completeRecord({ idempotencyKey: KEY_B, supersedes: KEY_C }),
     )
-    const ledger = normalizeAgentWorkComments(ISSUE, [
+    const ledger = normalize([
       hostile,
       '<!-- hvir-agent-work-measurement:v1 -->\ninvalid',
       wrongIssue,
@@ -363,6 +368,32 @@ describe('agent-work ledger normalization', () => {
       { code: 'invalid-supersession', commentOrdinal: 4 },
     ])
     expect(JSON.stringify(ledger)).not.toContain(hostile)
+  })
+
+  it('admits only unedited records from the trusted actor without exposing provenance', () => {
+    const valid = serializeAgentWorkComment(completeRecord())
+    const forged = serializeAgentWorkComment(
+      completeRecord({ idempotencyKey: KEY_B, runKey: RUN_B }),
+    )
+    const privateActor = 'untrusted-private-actor'
+    const ledger = normalizeAgentWorkComments(ISSUE, {
+      trustedActor: TRUSTED_ACTOR,
+      comments: [
+        comment(forged, { authorLogin: privateActor }),
+        comment('<!-- hvir-agent-work-measurement:v1 -->\nprivate malformed forgery', {
+          authorLogin: privateActor,
+        }),
+        comment(valid, { authorLogin: TRUSTED_ACTOR.toUpperCase() }),
+        comment(forged, { updatedAt: '2026-08-17T12:01:00Z' }),
+      ],
+    })
+
+    expect(ledger.records.map(({ idempotencyKey }) => idempotencyKey)).toEqual([KEY_A])
+    expect(ledger.unrelatedComments).toBe(2)
+    expect(ledger.diagnostics).toEqual([{ code: 'edited-record', commentOrdinal: 4 }])
+    expect(JSON.stringify(ledger)).not.toContain(privateActor)
+    expect(JSON.stringify(ledger)).not.toContain(COMMENT_TIME)
+    expect(JSON.stringify(ledger)).not.toContain('private malformed forgery')
   })
 })
 
@@ -397,8 +428,8 @@ describe('agent-work append operation', () => {
   it('re-reads a confirmed append and reports concurrent history as observed', async () => {
     const bodies: string[] = []
     const concurrent = completeRecord({ idempotencyKey: KEY_B, runKey: RUN_B })
-    const listCommentBodies = vi.fn<AgentWorkLedgerPort['listCommentBodies']>(() =>
-      Promise.resolve([...bodies]),
+    const readCommentHistory = vi.fn<AgentWorkLedgerPort['readCommentHistory']>(() =>
+      Promise.resolve(history(bodies)),
     )
     const appendComment = vi.fn<AgentWorkLedgerPort['appendComment']>((_issue, body) => {
       bodies.push(body, serializeAgentWorkComment(concurrent))
@@ -406,7 +437,7 @@ describe('agent-work append operation', () => {
     })
 
     const report = await reconcileAgentWorkLedger(
-      { listCommentBodies, appendComment },
+      { readCommentHistory, appendComment },
       { issueNumber: ISSUE, apply: true, record: completeRecord() },
     )
 
@@ -417,21 +448,21 @@ describe('agent-work append operation', () => {
     ])
     expect(report).not.toHaveProperty('plannedLedger')
     expect(agentWorkExitCode(report)).toBe(0)
-    expect(listCommentBodies).toHaveBeenCalledTimes(2)
+    expect(readCommentHistory).toHaveBeenCalledTimes(2)
   })
 
   it('keeps planned and observed state distinct when confirmed read-back fails', async () => {
     const privateFailure = 'SECRET read failure detail'
-    const listCommentBodies = vi
-      .fn<AgentWorkLedgerPort['listCommentBodies']>()
-      .mockResolvedValueOnce([])
+    const readCommentHistory = vi
+      .fn<AgentWorkLedgerPort['readCommentHistory']>()
+      .mockResolvedValueOnce(history([]))
       .mockRejectedValueOnce(new Error(privateFailure))
     const appendComment = vi
       .fn<AgentWorkLedgerPort['appendComment']>()
       .mockResolvedValue(undefined)
 
     const report = await reconcileAgentWorkLedger(
-      { listCommentBodies, appendComment },
+      { readCommentHistory, appendComment },
       { issueNumber: ISSUE, apply: true, record: completeRecord() },
     )
 
@@ -467,14 +498,14 @@ describe('agent-work append operation', () => {
   it('resolves an uncertain response by re-reading current state before returning', async () => {
     const bodies: string[] = []
     const record = completeRecord()
-    const listCommentBodies = vi.fn<AgentWorkLedgerPort['listCommentBodies']>(() =>
-      Promise.resolve([...bodies]),
+    const readCommentHistory = vi.fn<AgentWorkLedgerPort['readCommentHistory']>(() =>
+      Promise.resolve(history(bodies)),
     )
     const appendComment = vi.fn<AgentWorkLedgerPort['appendComment']>((_issue, body) => {
       bodies.push(body)
       return Promise.reject(new AgentWorkAppendUncertainError())
     })
-    const port: AgentWorkLedgerPort = { listCommentBodies, appendComment }
+    const port: AgentWorkLedgerPort = { readCommentHistory, appendComment }
 
     const report = await reconcileAgentWorkLedger(port, {
       issueNumber: ISSUE,
@@ -484,7 +515,7 @@ describe('agent-work append operation', () => {
 
     expect(report.append).toMatchObject({ outcome: 'appended', appended: true })
     expect(report.ledger.records).toHaveLength(1)
-    expect(listCommentBodies).toHaveBeenCalledTimes(2)
+    expect(readCommentHistory).toHaveBeenCalledTimes(2)
   })
 
   it('reports rejected and still-uncertain partial failures with explicit append state', async () => {
@@ -517,16 +548,16 @@ describe('agent-work append operation', () => {
 
   it('reports an uncertain append when its resolution read also fails', async () => {
     const privateFailure = 'SECRET resolution failure detail'
-    const listCommentBodies = vi
-      .fn<AgentWorkLedgerPort['listCommentBodies']>()
-      .mockResolvedValueOnce([])
+    const readCommentHistory = vi
+      .fn<AgentWorkLedgerPort['readCommentHistory']>()
+      .mockResolvedValueOnce(history([]))
       .mockRejectedValueOnce(new Error(privateFailure))
     const appendComment = vi
       .fn<AgentWorkLedgerPort['appendComment']>()
       .mockRejectedValue(new AgentWorkAppendUncertainError())
 
     const report = await reconcileAgentWorkLedger(
-      { listCommentBodies, appendComment },
+      { readCommentHistory, appendComment },
       { issueNumber: ISSUE, apply: true, record: completeRecord() },
     )
 
@@ -581,11 +612,11 @@ describe('agent-work append operation', () => {
 
 function fakePort(bodies: string[]): {
   port: AgentWorkLedgerPort
-  listCommentBodies: ReturnType<typeof vi.fn<AgentWorkLedgerPort['listCommentBodies']>>
+  readCommentHistory: ReturnType<typeof vi.fn<AgentWorkLedgerPort['readCommentHistory']>>
   appendComment: ReturnType<typeof vi.fn<AgentWorkLedgerPort['appendComment']>>
 } {
-  const listCommentBodies = vi.fn<AgentWorkLedgerPort['listCommentBodies']>(() =>
-    Promise.resolve([...bodies]),
+  const readCommentHistory = vi.fn<AgentWorkLedgerPort['readCommentHistory']>(() =>
+    Promise.resolve(history(bodies)),
   )
   const appendComment = vi.fn<AgentWorkLedgerPort['appendComment']>(
     (_issueNumber, body) => {
@@ -594,9 +625,30 @@ function fakePort(bodies: string[]): {
     },
   )
   return {
-    port: { listCommentBodies, appendComment },
-    listCommentBodies,
+    port: { readCommentHistory, appendComment },
+    readCommentHistory,
     appendComment,
+  }
+}
+
+function normalize(bodies: readonly string[]) {
+  return normalizeAgentWorkComments(ISSUE, history(bodies))
+}
+
+function history(bodies: readonly string[]): AgentWorkCommentHistory {
+  return { trustedActor: TRUSTED_ACTOR, comments: bodies.map((body) => comment(body)) }
+}
+
+function comment(
+  body: string,
+  overrides: Partial<AgentWorkCommentHistory['comments'][number]> = {},
+): AgentWorkCommentHistory['comments'][number] {
+  return {
+    body,
+    authorLogin: TRUSTED_ACTOR,
+    createdAt: COMMENT_TIME,
+    updatedAt: COMMENT_TIME,
+    ...overrides,
   }
 }
 

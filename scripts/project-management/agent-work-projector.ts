@@ -15,6 +15,7 @@ import {
   requireAgentWorkIssueNumber,
   type AgentWorkLedgerDiagnostic,
   type AgentWorkLedgerProjectionDiagnostic,
+  type AgentWorkCommentHistory,
   type AgentWorkRecord,
   type NormalizedAgentWorkLedger,
 } from './agent-work-ledger.ts'
@@ -48,7 +49,7 @@ export type AgentWorkProjectionDiagnostic =
 
 export interface AgentWorkProjectionSourcePort {
   readProjectionIssue(issueNumber: number): Promise<AgentWorkProjectionIssue>
-  listCommentBodies(issueNumber: number): Promise<string[]>
+  readCommentHistory(issueNumber: number): Promise<AgentWorkCommentHistory>
 }
 
 export interface AgentWorkProjectionIssue {
@@ -97,12 +98,12 @@ export async function reconcileAgentWorkProjection(
   input: { issueNumber: number; apply: boolean },
 ): Promise<AgentWorkProjectionReport> {
   const issueNumber = requireAgentWorkIssueNumber(input.issueNumber)
-  const [issue, commentBodies, current] = await Promise.all([
+  const [issue, commentHistory, current] = await Promise.all([
     source.readProjectionIssue(issueNumber),
-    source.listCommentBodies(issueNumber),
+    source.readCommentHistory(issueNumber),
     project.readAgentWorkProjection(issueNumber),
   ])
-  const ledger = normalizeAgentWorkComments(issueNumber, commentBodies)
+  const ledger = normalizeAgentWorkComments(issueNumber, commentHistory)
   const tokenOwner =
     issue.kind === 'invalid' || (issue.kind === 'epic' && issue.parent === null)
       ? 'rollup'

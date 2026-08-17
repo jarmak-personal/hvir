@@ -204,10 +204,13 @@ The issue ledger is append-only:
 The exact versioned comment marker, record schema, named dry-run/apply command, and normalized
 report are documented under [Agent-work measurement ledger](project-management.md#agent-work-measurement-ledger).
 
-Only records emitted by the named repository measurement operation with the exact recognized
-schema marker participate. Malformed records and all other issue comments are ignored with fixed,
-content-free diagnostics. Reading paginates the complete comment history and exposes normalized
-records, not raw comment bodies or GitHub internal identifiers.
+Only unedited records emitted by the named repository measurement operation, authored by the
+configured repository owner, and carrying the exact recognized schema marker participate. The
+repository token used for appends authenticates as that same narrow trusted actor. Marker-shaped
+comments from other authors are unrelated and never parsed; malformed or edited trusted records
+produce fixed, content-free diagnostics. Reading paginates the complete comment history and
+exposes normalized records, not raw comment bodies, provenance, timestamps, or GitHub internal
+identifiers.
 
 ## Own totals and epic Rollups
 
