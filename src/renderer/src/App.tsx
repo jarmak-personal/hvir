@@ -478,7 +478,7 @@ export function App(): ReactElement {
               selected={terminalPathActivation.revealRequest?.path ?? activeTab?.path}
               revealRequest={terminalPathActivation.revealRequest}
               onOpen={openFile}
-              onPointerOpen={focusVisibleActiveTerminalAfterLayout}
+              onPointerActivate={focusVisibleActiveTerminalAfterLayout}
               viewerPathRebind={viewer}
               onWorkspaceContentChanged={session.refreshWorkspaceContent}
               connected={connectionState === 'connected'}

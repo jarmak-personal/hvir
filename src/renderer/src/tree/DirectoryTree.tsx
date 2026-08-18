@@ -67,6 +67,7 @@ export interface DirectoryTreeProps {
     pinned: boolean,
     source: 'pointer' | 'keyboard',
   ) => void
+  readonly onPointerActivate?: () => void
   readonly onExpandedChange?: (path: HostPath, expanded: boolean) => void
 }
 
@@ -97,6 +98,7 @@ export function DirectoryTree({
   showFiles = true,
   onSelectDirectory,
   onOpenFile,
+  onPointerActivate,
   onExpandedChange,
 }: DirectoryTreeProps): ReactElement {
   const pathCopyMenu = usePathCopyMenu(pathCopyRoot)
@@ -136,6 +138,7 @@ export function DirectoryTree({
           entryActions={actions}
           onSelectDirectory={onSelectDirectory}
           onOpenFile={onOpenFile}
+          onPointerActivate={onPointerActivate}
           onExpandedChange={onExpandedChange}
         />
       </div>
@@ -182,6 +185,7 @@ function DirectoryNode({
   entryActions,
   onSelectDirectory,
   onOpenFile,
+  onPointerActivate,
   onExpandedChange,
 }: DirectoryNodeProps): ReactElement {
   const stablePath = useMemo(
@@ -298,13 +302,14 @@ function DirectoryNode({
             linked ? 'symlink' : 'dir',
           )
         }
-        onClick={() => {
+        onClick={(event) => {
           if (onSelectDirectory) {
             onSelectDirectory(stablePath)
             setOpen((value) => (isSelected ? !value : true))
           } else {
             setOpen((value) => !value)
           }
+          if (event.detail !== 0) onPointerActivate?.()
         }}
         onKeyDown={(event) => {
           if (
@@ -380,6 +385,7 @@ function DirectoryNode({
                   entryActions={entryActions}
                   onSelectDirectory={onSelectDirectory}
                   onOpenFile={onOpenFile}
+                  onPointerActivate={onPointerActivate}
                   onExpandedChange={onExpandedChange}
                 />,
               ]
@@ -405,6 +411,7 @@ function DirectoryNode({
                   entryActions={entryActions}
                   onSelectDirectory={onSelectDirectory}
                   onOpenFile={onOpenFile}
+                  onPointerActivate={onPointerActivate}
                   onExpandedChange={onExpandedChange}
                 />,
               ]
@@ -477,6 +484,7 @@ function SymlinkNode({
   entryActions,
   onSelectDirectory,
   onOpenFile,
+  onPointerActivate,
   onExpandedChange,
 }: DirectoryNodeProps): ReactElement | null {
   const stablePath = useMemo(
@@ -529,6 +537,7 @@ function SymlinkNode({
         entryActions={entryActions}
         onSelectDirectory={onSelectDirectory}
         onOpenFile={onOpenFile}
+        onPointerActivate={onPointerActivate}
         onExpandedChange={onExpandedChange}
       />
     )

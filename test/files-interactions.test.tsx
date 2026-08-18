@@ -77,8 +77,8 @@ afterEach(async () => {
   vi.unstubAllGlobals()
 })
 
-describe('Files rail reveal and open focus', () => {
-  it('returns only pointer-open focus to a visible active terminal', async () => {
+describe('Files rail reveal and activation focus', () => {
+  it('returns only pointer-activation focus to a visible active terminal', async () => {
     const terminalDeck = document.createElement('div')
     terminalDeck.className = 'terminal-deck'
     terminalDeck.innerHTML =
@@ -100,6 +100,7 @@ describe('Files rail reveal and open focus', () => {
     renderFileTree(localRoot, onOpen, focusVisibleActiveTerminalAfterLayout)
     await waitFor(() => treeRow('/repo/existing.md') !== undefined)
     const row = treeRow('/repo/existing.md')!
+    const directory = treeRow('/repo/src')!
 
     row.focus()
     act(() => {
@@ -114,14 +115,30 @@ describe('Files rail reveal and open focus', () => {
     await act(async () => Promise.resolve())
     expect(document.activeElement).toBe(row)
 
-    terminalDeck.style.visibility = 'hidden'
-    row.focus()
+    directory.focus()
     act(() => {
-      row.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
+      directory.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
+    })
+    await waitFor(() => document.activeElement === terminal)
+    expect(directory.getAttribute('aria-expanded')).toBe('true')
+
+    directory.focus()
+    act(() => {
+      directory.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }))
     })
     await act(async () => Promise.resolve())
-    expect(document.activeElement).toBe(row)
-    expect(onOpen).toHaveBeenCalledTimes(3)
+    expect(document.activeElement).toBe(directory)
+    expect(directory.getAttribute('aria-expanded')).toBe('false')
+
+    terminalDeck.style.visibility = 'hidden'
+    directory.focus()
+    act(() => {
+      directory.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
+    })
+    await act(async () => Promise.resolve())
+    expect(document.activeElement).toBe(directory)
+    expect(directory.getAttribute('aria-expanded')).toBe('true')
+    expect(onOpen).toHaveBeenCalledTimes(2)
   })
 
   it('reveals exact supported local entries and omits the action for SSH', async () => {
@@ -156,7 +173,7 @@ describe('Files rail reveal and open focus', () => {
 function renderFileTree(
   root: HostPath,
   onOpen: (path: HostPath, pinned: boolean, context?: FileOpenContext) => void,
-  onPointerOpen?: () => void,
+  onPointerActivate?: () => void,
 ): void {
   act(() => {
     reactRoot.render(
@@ -166,7 +183,7 @@ function renderFileTree(
         searchRefreshVersion={0}
         ignoredRefreshVersion={0}
         onOpen={onOpen}
-        onPointerOpen={onPointerOpen}
+        onPointerActivate={onPointerActivate}
         viewerPathRebind={{
           canRebindPath: () => true,
           rebindPath: () => true,

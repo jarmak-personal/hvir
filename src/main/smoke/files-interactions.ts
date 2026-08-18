@@ -1,6 +1,6 @@
 import type { BrowserWindow } from 'electron'
 
-import { hostPathEquals, type HostPath } from '../../shared'
+import { dirnameHostPath, hostPathEquals, type HostPath } from '../../shared'
 
 export async function verifyFilesInteractionsSmoke(
   win: BrowserWindow,
@@ -113,19 +113,21 @@ export async function verifyFilesInteractionsSmoke(
       `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`,
     )
 
-    await verifyPointerFileFocus(win, path)
+    await verifyPointerTreeFocus(win, path)
   } finally {
     win.setContentSize(originalSize[0], originalSize[1])
     await win.webContents.executeJavaScript(`
       delete window.__hvirFilesRevealMenu;
       delete window.__hvirFilesPathMenu;
       delete window.__hvirFilesPointerOpen;
-      delete window.__hvirFilesCollapsedPointerOpen;
+      delete window.__hvirFilesDirectoryPointer;
+      delete window.__hvirFilesCollapsedDirectoryPointer;
     `)
   }
 }
 
-async function verifyPointerFileFocus(win: BrowserWindow, path: HostPath): Promise<void> {
+async function verifyPointerTreeFocus(win: BrowserWindow, path: HostPath): Promise<void> {
+  const directory = dirnameHostPath(path)
   await rendererValue(
     win,
     `(() => {
@@ -174,6 +176,37 @@ async function verifyPointerFileFocus(win: BrowserWindow, path: HostPath): Promi
   await rendererValue(
     win,
     `(() => {
+      const row = document.querySelector(
+        '.files-panel .directory-row[title=${JSON.stringify(directory.path)}]'
+      );
+      if (!(row instanceof HTMLButtonElement)) return undefined;
+      if (!window.__hvirFilesDirectoryPointer) {
+        row.focus();
+        row.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+        window.__hvirFilesDirectoryPointer = true;
+        return undefined;
+      }
+      return document.activeElement?.closest('.terminal-surface.active') ? true : undefined;
+    })()`,
+    'pointer-activated directory did not return focus to the visible active terminal',
+  )
+  await rendererValue(
+    win,
+    `(() => {
+      const row = document.querySelector(
+        '.files-panel .directory-row[title=${JSON.stringify(directory.path)}]'
+      );
+      if (!(row instanceof HTMLButtonElement)) return undefined;
+      row.focus();
+      row.click();
+      return document.activeElement === row && row.getAttribute('aria-expanded') === 'true'
+        ? true : undefined;
+    })()`,
+    'keyboard-activated directory transferred focus away from its tree row',
+  )
+  await rendererValue(
+    win,
+    `(() => {
       const collapse = document.querySelector('.terminal-collapse-toggle');
       if (!(collapse instanceof HTMLButtonElement)) return undefined;
       if (collapse.getAttribute('aria-pressed') !== 'true') {
@@ -181,20 +214,25 @@ async function verifyPointerFileFocus(win: BrowserWindow, path: HostPath): Promi
         return undefined;
       }
       const row = document.querySelector(
-        '.files-panel [role="treeitem"][title=${JSON.stringify(path.path)}]'
+        '.files-panel .directory-row[title=${JSON.stringify(directory.path)}]'
       );
       if (!(row instanceof HTMLButtonElement)) return undefined;
-      if (!window.__hvirFilesCollapsedPointerOpen) {
+      if (!window.__hvirFilesCollapsedDirectoryPointer) {
         row.focus();
         row.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
-        window.__hvirFilesCollapsedPointerOpen = true;
+        window.__hvirFilesCollapsedDirectoryPointer = true;
         return undefined;
       }
       return document.activeElement === row ? true : undefined;
     })()`,
-    'pointer-opened file changed focus while no terminal was visible',
+    'pointer-activated directory changed focus while no terminal was visible',
   )
   await win.webContents.executeJavaScript(`
+    const directory = document.querySelector(
+      '.files-panel .directory-row[title=${JSON.stringify(directory.path)}]'
+    );
+    if (directory instanceof HTMLButtonElement &&
+        directory.getAttribute('aria-expanded') !== 'true') directory.click();
     const collapse = document.querySelector('.terminal-collapse-toggle');
     if (collapse instanceof HTMLButtonElement &&
         collapse.getAttribute('aria-pressed') === 'true') collapse.click();
