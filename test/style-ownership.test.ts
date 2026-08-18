@@ -85,8 +85,8 @@ describe('renderer style ownership', () => {
       'utf8',
     )
 
-    expect(projects).toContain('animation: project-name-working-sweep 9s linear infinite')
-    expect(projects).toContain('66.667%,\n  100%')
+    expect(projects).toContain('animation: project-name-working-sweep 6.5s linear infinite')
+    expect(projects).toContain('92.3076923077%,\n  100%')
     expect(projects).toContain('@media (prefers-reduced-motion: reduce)')
     expect(projects).toMatch(
       /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.project-name-working \{[\s\S]*?animation: none;[\s\S]*?text-decoration-style: dashed;[\s\S]*?\n {2}\}\n\}/u,
