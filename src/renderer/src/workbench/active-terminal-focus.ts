@@ -6,3 +6,14 @@ export function focusActiveTerminalAfterLayout(): void {
     document.querySelector<HTMLElement>(ACTIVE_TERMINAL_INPUT)?.focus()
   })
 }
+
+export function focusVisibleActiveTerminalAfterLayout(): void {
+  window.requestAnimationFrame(() => {
+    const input = document.querySelector<HTMLElement>(ACTIVE_TERMINAL_INPUT)
+    const deck = input?.closest<HTMLElement>('.terminal-deck')
+    if (!input || !deck) return
+    const style = getComputedStyle(deck)
+    if (style.visibility === 'hidden' || style.display === 'none') return
+    input.focus()
+  })
+}

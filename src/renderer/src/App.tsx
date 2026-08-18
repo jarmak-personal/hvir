@@ -32,6 +32,7 @@ import { setAppTheme, useAppTheme } from './theme'
 import { SettingsDialog } from './settings/SettingsDialog'
 import { setAppSettings, terminalPreferences, useAppSettings } from './settings/settings'
 import { useWorkbenchCommands } from './workbench/use-workbench-commands'
+import { focusVisibleActiveTerminalAfterLayout } from './workbench/active-terminal-focus'
 import { useWorkbenchLayout } from './workbench/use-workbench-layout'
 import { useWorkbenchOverlays } from './workbench/use-workbench-overlays'
 import { TerminalLayoutControls } from './workbench/TerminalLayoutControls'
@@ -139,10 +140,8 @@ export function App(): ReactElement {
   const {
     projectState,
     root,
-    activeProject,
     activeWorkspace,
     connectionState,
-    watchTier,
     rootError,
     refreshHosts,
   } = session
@@ -419,7 +418,7 @@ export function App(): ReactElement {
           onReopenWorkspace={(projectId, workspaceId) =>
             void session.reopenWorkspace(projectId, workspaceId)
           }
-          watchTier={watchTier}
+          watchTier={session.watchTier}
           statusError={session.error}
           onChangeConnection={overlays.openProjectPicker}
           onDisconnect={() => void session.disconnect()}
@@ -479,6 +478,7 @@ export function App(): ReactElement {
               selected={terminalPathActivation.revealRequest?.path ?? activeTab?.path}
               revealRequest={terminalPathActivation.revealRequest}
               onOpen={openFile}
+              onPointerActivate={focusVisibleActiveTerminalAfterLayout}
               viewerPathRebind={viewer}
               onWorkspaceContentChanged={session.refreshWorkspaceContent}
               connected={connectionState === 'connected'}
@@ -664,7 +664,7 @@ export function App(): ReactElement {
           theme={theme}
           settings={settings}
           workspaceRoot={root}
-          projectRoot={activeProject?.registeredRoot}
+          projectRoot={session.activeProject?.registeredRoot}
           initialDestination={overlays.settingsDestination}
           onClose={overlays.closeSettings}
           onSave={(nextTheme, nextSettings) => {

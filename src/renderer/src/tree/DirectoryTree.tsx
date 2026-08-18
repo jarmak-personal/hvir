@@ -64,7 +64,12 @@ export interface DirectoryTreeProps {
   readonly dropTarget?: DirectoryTreeDropTarget
   readonly showFiles?: boolean
   readonly onSelectDirectory?: (path: HostPath) => void
-  readonly onOpenFile?: (path: HostPath, pinned: boolean) => void
+  readonly onOpenFile?: (
+    path: HostPath,
+    pinned: boolean,
+    source: 'pointer' | 'keyboard',
+  ) => void
+  readonly onPointerActivate?: () => void
   readonly onExpandedChange?: (path: HostPath, expanded: boolean) => void
 }
 
@@ -102,6 +107,7 @@ export function DirectoryTree({
   showFiles = true,
   onSelectDirectory,
   onOpenFile,
+  onPointerActivate,
   onExpandedChange,
 }: DirectoryTreeProps): ReactElement {
   const pathCopyMenu = usePathCopyMenu(pathCopyRoot)
@@ -143,6 +149,7 @@ export function DirectoryTree({
           dropTarget={dropTarget}
           onSelectDirectory={onSelectDirectory}
           onOpenFile={onOpenFile}
+          onPointerActivate={onPointerActivate}
           onExpandedChange={onExpandedChange}
         />
       </div>
@@ -193,6 +200,7 @@ function DirectoryNode({
   dropTarget,
   onSelectDirectory,
   onOpenFile,
+  onPointerActivate,
   onExpandedChange,
 }: DirectoryNodeProps): ReactElement {
   const stablePath = useMemo(
@@ -318,13 +326,14 @@ function DirectoryNode({
             linked ? 'symlink' : 'dir',
           )
         }
-        onClick={() => {
+        onClick={(event) => {
           if (onSelectDirectory) {
             onSelectDirectory(stablePath)
             setOpen((value) => (isSelected ? !value : true))
           } else {
             setOpen((value) => !value)
           }
+          if (event.detail !== 0) onPointerActivate?.()
         }}
         onKeyDown={(event) => {
           if (
@@ -404,6 +413,7 @@ function DirectoryNode({
                   dropTarget={dropTarget}
                   onSelectDirectory={onSelectDirectory}
                   onOpenFile={onOpenFile}
+                  onPointerActivate={onPointerActivate}
                   onExpandedChange={onExpandedChange}
                 />,
               ]
@@ -432,6 +442,7 @@ function DirectoryNode({
                   dropTarget={dropTarget}
                   onSelectDirectory={onSelectDirectory}
                   onOpenFile={onOpenFile}
+                  onPointerActivate={onPointerActivate}
                   onExpandedChange={onExpandedChange}
                 />,
               ]
@@ -461,8 +472,11 @@ function DirectoryNode({
                 onContextMenu={(event) =>
                   entryActions?.openFromPointer(event, child, entry.name, entry.type)
                 }
-                onClick={() => openable && onOpenFile?.(child, false)}
-                onDoubleClick={() => openable && onOpenFile?.(child, true)}
+                onClick={(event) =>
+                  openable &&
+                  onOpenFile?.(child, false, event.detail === 0 ? 'keyboard' : 'pointer')
+                }
+                onDoubleClick={() => openable && onOpenFile?.(child, true, 'pointer')}
                 onKeyDown={(event) => {
                   if (
                     !entryActions?.openFromKeyboard(event, child, entry.name, entry.type)
@@ -511,6 +525,7 @@ function SymlinkNode({
   dropTarget,
   onSelectDirectory,
   onOpenFile,
+  onPointerActivate,
   onExpandedChange,
 }: DirectoryNodeProps): ReactElement | null {
   const stablePath = useMemo(
@@ -566,6 +581,7 @@ function SymlinkNode({
         dropTarget={dropTarget}
         onSelectDirectory={onSelectDirectory}
         onOpenFile={onOpenFile}
+        onPointerActivate={onPointerActivate}
         onExpandedChange={onExpandedChange}
       />
     )
@@ -592,8 +608,10 @@ function SymlinkNode({
         onContextMenu={(event) =>
           entryActions?.openFromPointer(event, stablePath, label, 'symlink')
         }
-        onClick={() => onOpenFile?.(stablePath, false)}
-        onDoubleClick={() => onOpenFile?.(stablePath, true)}
+        onClick={(event) =>
+          onOpenFile?.(stablePath, false, event.detail === 0 ? 'keyboard' : 'pointer')
+        }
+        onDoubleClick={() => onOpenFile?.(stablePath, true, 'pointer')}
         onKeyDown={(event) => {
           if (!entryActions?.openFromKeyboard(event, stablePath, label, 'symlink')) {
             handleLeafTreeKey(event)

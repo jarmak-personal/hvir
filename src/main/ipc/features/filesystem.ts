@@ -1,5 +1,6 @@
 import {
   MAX_EXTERNAL_FILE_SOURCES,
+  LOCAL_HOST_ID,
   hostPath,
   hostPathEquals,
   repositoryImageMimeType,
@@ -12,8 +13,10 @@ type FilesystemIpcDeps = Pick<
   IpcDeps,
   | 'getProject'
   | 'getProjectState'
+  | 'getHost'
   | 'filenameSearch'
   | 'projectFiles'
+  | 'revealLocalEntry'
   | 'rendererResources'
 >
 
@@ -80,6 +83,37 @@ export function registerFilesystemIpc(ipc: IpcRegistrar, deps: FilesystemIpcDeps
       })
       const stat = await host.stat(canonical)
       return { path: hostPath(canonical.hostId, req.path.path), type: stat.type }
+    }),
+  )
+
+  ipc.handle('fs:reveal-entry', (req, context) =>
+    operationResult(async () => {
+      context.owner()
+      const workspaceRoot = ipc.authority.workspaceRoot(
+        ipc.authority.reconstructHostPath(req.workspaceRoot),
+      )
+      if (workspaceRoot.hostId !== LOCAL_HOST_ID) {
+        throw new Error('Only local workspace entries can be revealed')
+      }
+      const workspace = deps
+        .getProjectState()
+        .projects.flatMap((project) => project.workspaces)
+        .find((candidate) => hostPathEquals(candidate.root, workspaceRoot))
+      if (!workspace || workspace.closed || workspace.missing) {
+        throw new Error('Workspace is no longer available')
+      }
+      const host = deps.getHost(LOCAL_HOST_ID)
+      if (!host) throw new Error('The local project host is unavailable')
+      const path = await ipc.authority.projectPath(
+        ipc.authority.reconstructHostPath(req.path),
+        workspaceRoot,
+        host,
+      )
+      const stat = await host.stat(path)
+      if (!['file', 'dir', 'symlink'].includes(stat.type)) {
+        throw new Error('Only files, folders, and symbolic links can be revealed')
+      }
+      deps.revealLocalEntry(path)
     }),
   )
 

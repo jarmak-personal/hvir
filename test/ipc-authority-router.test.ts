@@ -176,6 +176,17 @@ function fixture() {
       }),
     )
   const realpath = vi.fn((path: typeof root) => Promise.resolve(path))
+  const stat = vi
+    .fn<ProjectHost['stat']>()
+    .mockResolvedValue({ type: 'file', size: 0, mtimeMs: 0, mode: 0o644 })
+  const projectHost = {
+    hostId: root.hostId,
+    connectionState: 'connected',
+    watchTier: 'native',
+    realpath,
+    stat,
+  } as unknown as ProjectHost
+  const revealLocalEntry = vi.fn()
   const deps = {
     rendererResources,
     recordIpcContractDiagnostic,
@@ -197,15 +208,9 @@ function fixture() {
     getProjectState: () => projectState(),
     getRegisteredWorkspaceRoot: (candidate: typeof root) =>
       candidate.path === root.path && candidate.hostId === root.hostId ? root : undefined,
-    getProject: () => ({
-      root,
-      host: {
-        hostId: root.hostId,
-        connectionState: 'connected',
-        watchTier: 'native',
-        realpath,
-      } as unknown as ProjectHost,
-    }),
+    getProject: () => ({ root, host: projectHost }),
+    getHost: (hostId: string) => (hostId === root.hostId ? projectHost : undefined),
+    revealLocalEntry,
   } as unknown as IpcDeps
   const transport = new FakeIpcMain()
   return {
@@ -224,6 +229,8 @@ function fixture() {
     restoreDocumentReview,
     saveDocumentReview,
     revalidateDocumentReview,
+    stat,
+    revealLocalEntry,
     recordIpcContractDiagnostic,
   }
 }
@@ -443,6 +450,7 @@ describe('IpcAuthorityRouter', () => {
         'document-review:send-now-delivery',
         'ssh:prompt-response',
         'fs:filename-search',
+        'fs:reveal-entry',
         'fs:create-entry',
         'fs:acquire-clipboard-files',
         'fs:acquire-dropped-files',
@@ -488,6 +496,7 @@ describe('IpcAuthorityRouter', () => {
         'fs:readdir',
         'fs:filename-search',
         'fs:resolve-entry',
+        'fs:reveal-entry',
         'fs:read',
         'fs:read-asset',
         'fs:write',
@@ -592,6 +601,80 @@ describe('IpcAuthorityRouter', () => {
       name: 'new-file.ts',
       kind: 'file',
     })
+  })
+
+  it.each(['file', 'dir', 'symlink'] as const)(
+    'reveals one exact registered local %s through the native adapter',
+    async (type) => {
+      const { deps, transport, stat, revealLocalEntry } = fixture()
+      stat.mockResolvedValue({ type, size: 0, mtimeMs: 0, mode: 0o644 })
+      registerIpcHandlers(deps, transport)
+
+      await expect(
+        transport.invokes.get('fs:reveal-entry')?.[0]?.(ipcEvent(), {
+          workspaceRoot: { hostId: 'local', path: '/project' },
+          path: { hostId: 'local', path: '/project/src/link.txt' },
+        }),
+      ).resolves.toEqual({ ok: true, value: undefined })
+      expect(revealLocalEntry).toHaveBeenCalledWith(localPath('/project/src/link.txt'))
+    },
+  )
+
+  it('rejects stale, SSH, outside, and unsupported reveal targets before the adapter', async () => {
+    const { deps, transport, revealLocalEntry } = fixture()
+    registerIpcHandlers(deps, transport)
+    const invoke = transport.invokes.get('fs:reveal-entry')?.[0]
+
+    await expect(
+      invoke?.(ipcEvent(), {
+        workspaceRoot: { hostId: 'local', path: '/project' },
+        path: { hostId: 'local', path: '/outside/file.txt' },
+      }),
+    ).resolves.toEqual({ ok: false, error: 'Path escapes the project root' })
+
+    const sshRoot = { hostId: 'ssh:example', path: '/project' }
+    vi.spyOn(deps, 'getRegisteredWorkspaceRoot').mockReturnValue(sshRoot as typeof root)
+    await expect(
+      invoke?.(ipcEvent(), { workspaceRoot: sshRoot, path: sshRoot }),
+    ).resolves.toEqual({
+      ok: false,
+      error: 'Only local workspace entries can be revealed',
+    })
+
+    vi.spyOn(deps, 'getRegisteredWorkspaceRoot').mockReturnValue(root)
+    vi.spyOn(deps, 'getProjectState').mockReturnValue({
+      ...projectState(),
+      projects: [
+        {
+          ...projectState().projects[0]!,
+          workspaces: [{ ...projectState().projects[0]!.workspaces[0]!, missing: true }],
+        },
+      ],
+    })
+    await expect(
+      invoke?.(ipcEvent(), { workspaceRoot: root, path: root }),
+    ).resolves.toEqual({ ok: false, error: 'Workspace is no longer available' })
+
+    vi.restoreAllMocks()
+    const unsupported = fixture()
+    unsupported.stat.mockResolvedValue({
+      type: 'other',
+      size: 0,
+      mtimeMs: 0,
+      mode: 0,
+    })
+    registerIpcHandlers(unsupported.deps, unsupported.transport)
+    await expect(
+      unsupported.transport.invokes.get('fs:reveal-entry')?.[0]?.(ipcEvent(), {
+        workspaceRoot: root,
+        path: root,
+      }),
+    ).resolves.toEqual({
+      ok: false,
+      error: 'Only files, folders, and symbolic links can be revealed',
+    })
+    expect(revealLocalEntry).not.toHaveBeenCalled()
+    expect(unsupported.revealLocalEntry).not.toHaveBeenCalled()
   })
 
   it('rejects an unnormalized create-entry path before the effect owner', async () => {

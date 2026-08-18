@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactElement } from 'react'
 import { createPortal } from 'react-dom'
 
 import type { HostPath } from '../../../shared'
+import { useViewportContextMenuPosition } from '../context-menu/viewport-context-menu'
 import { copyHostPath, PATH_COPY_LABELS, type PathCopyKind } from './path-copy'
 import type { PathCopyMenuController } from './use-path-copy-menu'
 
@@ -23,6 +24,7 @@ export function PathCopyMenu({
 }: PathCopyMenuProps): ReactElement | null {
   const { request } = controller
   const menuRef = useRef<HTMLDivElement>(null)
+  const menuPosition = useViewportContextMenuPosition(menuRef, request)
   const alive = useRef(true)
   const latestRequest = useRef(request)
   const ownerKey = `${workspaceRoot.hostId}\0${workspaceRoot.path}`
@@ -100,10 +102,10 @@ export function PathCopyMenu({
       {request ? (
         <div
           ref={menuRef}
-          className="path-copy-menu"
+          className="path-copy-menu viewport-context-menu"
           role="menu"
           aria-label={`Path actions for ${request.label}`}
-          style={boundedMenuPosition(request.x, request.y)}
+          style={menuPosition}
         >
           {(Object.keys(PATH_COPY_LABELS) as PathCopyKind[]).map((kind) => (
             <button
@@ -138,17 +140,4 @@ function writeApplicationClipboard(value: string): Promise<void> {
     return Promise.reject(new Error('Clipboard writing is unavailable'))
   }
   return navigator.clipboard.writeText(value)
-}
-
-function boundedMenuPosition(
-  x: number,
-  y: number,
-): {
-  readonly left: number
-  readonly top: number
-} {
-  return {
-    left: Math.max(8, Math.min(x, window.innerWidth - 208)),
-    top: Math.max(8, Math.min(y, window.innerHeight - 84)),
-  }
 }

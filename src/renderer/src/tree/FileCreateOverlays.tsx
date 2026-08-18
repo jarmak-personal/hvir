@@ -8,12 +8,14 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 
+import { useViewportContextMenuPosition } from '../context-menu/viewport-context-menu'
 import { displayHostPath } from '../../../shared'
 import { PATH_COPY_LABELS, type PathCopyKind } from '../path-copy/path-copy'
 import { FileOrganizationDialog } from './FileOrganizationDialog'
 import { FileDeletionDialog } from './FileDeletionDialog'
 import { FileExternalMoveDialog } from './FileExternalMoveDialog'
 import { projectFileEntryNameError } from './project-file-entry-name'
+import { fileManagerRevealLabel } from './file-manager-reveal'
 import type { FileCreateActionsController } from './use-file-create-actions'
 
 export function FileCreateOverlays({
@@ -23,6 +25,7 @@ export function FileCreateOverlays({
 }): ReactElement | null {
   const { menu, dialog, feedback, copyProgress } = controller
   const menuRef = useRef<HTMLDivElement>(null)
+  const menuPosition = useViewportContextMenuPosition(menuRef, menu)
   const controllerRef = useRef(controller)
   controllerRef.current = controller
   const [name, setName] = useState('')
@@ -66,10 +69,10 @@ export function FileCreateOverlays({
       {menu ? (
         <div
           ref={menuRef}
-          className="file-action-menu hvir-scrollbar-obscuring"
+          className="file-action-menu viewport-context-menu hvir-scrollbar-obscuring"
           role="menu"
           aria-label={`File actions for ${menu.label}`}
-          style={boundedMenuPosition(menu.x, menu.y)}
+          style={menuPosition}
           onKeyDown={moveMenuFocus}
         >
           <button
@@ -157,6 +160,19 @@ export function FileCreateOverlays({
               {PATH_COPY_LABELS[kind]}
             </button>
           ))}
+          {controller.canRevealInFileManager ? (
+            <>
+              <div className="file-action-menu-separator" role="separator" />
+              <button
+                type="button"
+                role="menuitem"
+                disabled={controller.pending}
+                onClick={() => controller.revealInFileManager()}
+              >
+                {fileManagerRevealLabel()}
+              </button>
+            </>
+          ) : null}
         </div>
       ) : null}
       {dialog ? (
@@ -327,14 +343,4 @@ function moveMenuFocus(event: KeyboardEvent<HTMLDivElement>): void {
           ? items[(current + 1 + items.length) % items.length]
           : items[(current - 1 + items.length) % items.length]
   next?.focus()
-}
-
-function boundedMenuPosition(
-  x: number,
-  y: number,
-): { readonly left: number; readonly top: number } {
-  return {
-    left: Math.max(8, Math.min(x, window.innerWidth - 208)),
-    top: Math.max(8, Math.min(y, window.innerHeight - 224)),
-  }
 }

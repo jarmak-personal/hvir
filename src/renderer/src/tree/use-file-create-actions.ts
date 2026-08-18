@@ -11,12 +11,7 @@ import {
   type ProjectFileOperationProgress,
   type ProjectFileOperationResult,
 } from '../../../shared'
-import {
-  copyHostPath,
-  PATH_COPY_LABELS,
-  writeApplicationClipboard,
-  type PathCopyKind,
-} from '../path-copy/path-copy'
+import type { PathCopyKind } from '../path-copy/path-copy'
 import type {
   DirectoryTreeEntryActions,
   DirectoryTreeRevealRequest,
@@ -43,6 +38,8 @@ import {
   type FileDeletionActionsController,
 } from './use-file-deletion-actions'
 import type { ViewerPathRemovalCapability } from '../viewer/viewer-path-removal'
+import { useFileManagerReveal } from './use-file-manager-reveal'
+import { usePathCopyAction } from './use-path-copy-action'
 
 export interface FileActionMenuRequest {
   readonly id: number
@@ -76,12 +73,14 @@ export interface FileCreateActionsController {
   readonly organization: FileOrganizationActionsController
   readonly deletion: FileDeletionActionsController
   readonly externalMove: ExternalFileMoveController
+  readonly canRevealInFileManager: boolean
   canOrganizeMenu(action: FileOrganizationAction): boolean
   openRootFromPointer(event: MouseEvent<HTMLElement>): void
   beginCreate(kind: ProjectFileCreateKind): void
   beginOrganization(action: FileOrganizationAction): void
   beginDeletion(): void
   beginExternalMove(): void
+  revealInFileManager(): void
   submitCreate(name: string): void
   copyPath(kind: PathCopyKind): void
   pasteFiles(target: HostPath, targetType: FileType): void
@@ -373,36 +372,21 @@ export function useFileCreateActions(
     [dialog, onCreatedFile, onWorkspaceContentChanged, operationPending],
   )
 
-  const copyPath = useCallback(
-    (kind: PathCopyKind) => {
-      if (!menu || operationPending) return
-      const requestOwnerKey = ownerKey
-      const returnFocus = menu.focusMenu ? menu.returnFocus : undefined
-      setPending(true)
-      void copyHostPath(root, menu.target, kind, writeApplicationClipboard).then(
-        () => {
-          if (!alive.current || latestOwnerKey.current !== requestOwnerKey) return
-          setFeedback({
-            kind: 'success',
-            message: `${PATH_COPY_LABELS[kind].replace('Copy ', '')} copied.`,
-          })
-          setMenu(undefined)
-          setPending(false)
-          returnFocus?.focus({ preventScroll: true })
-        },
-        () => {
-          if (!alive.current || latestOwnerKey.current !== requestOwnerKey) return
-          setFeedback({
-            kind: 'error',
-            message: 'Could not copy the path to the clipboard.',
-          })
-          setMenu(undefined)
-          setPending(false)
-          returnFocus?.focus({ preventScroll: true })
-        },
-      )
-    },
-    [menu, operationPending, ownerKey, root],
+  const copyPath = usePathCopyAction(
+    root,
+    menu,
+    operationPending,
+    setPending,
+    setMenu,
+    setFeedback,
+  )
+  const fileManagerReveal = useFileManagerReveal(
+    root,
+    menu,
+    operationPending,
+    setPending,
+    setMenu,
+    setFeedback,
   )
 
   return {
@@ -415,6 +399,7 @@ export function useFileCreateActions(
     organization,
     deletion,
     externalMove: externalFiles.move,
+    canRevealInFileManager: fileManagerReveal.available,
     selectedDirectory,
     revealRequest,
     refreshVersion,
@@ -459,6 +444,7 @@ export function useFileCreateActions(
       if (!menu || operationPending) return
       externalFiles.beginMove(menu.target, menu.targetType)
     },
+    revealInFileManager: fileManagerReveal.run,
     submitCreate,
     copyPath,
     pasteFiles(target, targetType) {
