@@ -60,6 +60,7 @@ export class TerminalRuntime {
     this.options = options
     this.interactions = new TerminalRuntimeInteractions(
       options.fallbackTitle,
+      options.highlightSubmittedInput,
       () => this.surface.canFocus(),
       () => this.focus(),
       () => this.options.onFocus(),
@@ -95,6 +96,7 @@ export class TerminalRuntime {
       throw new Error('Live terminal launch context cannot change')
     }
     const typographyChanged = applyLivePaneOptions(this.pane, this.options, options)
+    this.interactions.setHighlightSubmittedInput(options.highlightSubmittedInput)
     this.options = options
     this.interactions.updateAvailability(runtimeCanInteract(options))
     if (typographyChanged) this.interactions.retainedBufferChanged()

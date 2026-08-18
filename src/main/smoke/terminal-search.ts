@@ -146,6 +146,18 @@ export async function verifyTerminalSearch(
                                 !firstHighlightRow ||
                                 firstHighlight.getBoundingClientRect().width <= 0
                               ) return fail('current terminal search match was not highlighted');
+                              const inputLayer = engine.querySelector(
+                                '.terminal-submitted-input-decoration-layer'
+                              );
+                              const searchLayer = firstHighlight.parentElement;
+                              if (
+                                !(inputLayer instanceof HTMLElement) ||
+                                !(searchLayer instanceof HTMLElement) ||
+                                Number(getComputedStyle(inputLayer).zIndex) >=
+                                  Number(getComputedStyle(searchLayer).zIndex)
+                              ) return fail(
+                                'terminal search highlight did not take visual precedence'
+                              );
                               const next = search.querySelector(
                                 'button[aria-label="Next terminal match"]'
                               );

@@ -121,6 +121,7 @@ export function normalizeAppSettings(value: unknown): AppSettings {
         ? candidate.terminalCursorBlink
         : 'terminal',
     terminalLigatures: candidate.terminalLigatures === false ? false : true,
+    highlightSubmittedInput: candidate.highlightSubmittedInput === false ? false : true,
     interfaceFont: normalizeFontPreference(candidate.interfaceFont),
     monospaceFont: normalizeFontPreference(candidate.monospaceFont),
     interfaceScale: normalizeInterfaceScale(candidate.interfaceScale),
@@ -142,6 +143,7 @@ function defaults(): AppSettings {
     terminalCursorShape: 'block',
     terminalCursorBlink: 'terminal',
     terminalLigatures: true,
+    highlightSubmittedInput: true,
     interfaceFont: systemFontPreference(),
     monospaceFont: systemFontPreference(),
     interfaceScale: DEFAULT_INTERFACE_SCALE,
@@ -163,6 +165,7 @@ export function terminalPreferences(settings: AppSettings): TerminalPreferences 
       blink: settings.terminalCursorBlink,
     },
     terminalLigatures: settings.terminalLigatures,
+    highlightSubmittedInput: settings.highlightSubmittedInput,
     terminalTypography: {
       fontFamily: fontFamilyStack(settings.monospaceFont, 'monospace'),
       fontSize: settings.terminalTextSize,

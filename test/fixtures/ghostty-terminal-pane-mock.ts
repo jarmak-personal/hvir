@@ -48,6 +48,7 @@ class MockTerminal {
   }
   readonly buffer = { active: { getLine: () => undefined } }
   readonly wasmTerm = {
+    isAlternateScreen: () => false,
     getColors: () => undefined,
     getCursor: () => ({
       blinking: this.options.cursorBlink !== false,

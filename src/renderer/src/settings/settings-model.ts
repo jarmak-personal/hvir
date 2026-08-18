@@ -28,6 +28,7 @@ export interface AppSettings {
   readonly terminalCursorShape: TerminalCursorShape
   readonly terminalCursorBlink: TerminalCursorBlinkPolicy
   readonly terminalLigatures: boolean
+  readonly highlightSubmittedInput: boolean
   readonly interfaceFont: FontPreference
   readonly monospaceFont: FontPreference
   readonly interfaceScale: number
@@ -47,6 +48,7 @@ export interface TerminalPreferences {
     readonly blink: TerminalCursorBlinkPolicy
   }
   readonly terminalLigatures: boolean
+  readonly highlightSubmittedInput: boolean
   readonly terminalTypography: TextTypography
   readonly composerSubmitMode: ComposerSubmitMode
 }

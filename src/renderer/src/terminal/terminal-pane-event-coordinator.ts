@@ -25,9 +25,16 @@ export class TerminalPaneEventCoordinator {
   }
   private currentTitle: string
   private container?: HTMLElement
+  private pane?: TerminalPane
+  private highlightSubmittedInput: boolean
+  private synchronizedSubmittedInputIds: readonly number[] = []
 
-  constructor(private readonly fallbackTitle: string) {
+  constructor(
+    private readonly fallbackTitle: string,
+    highlightSubmittedInput = true,
+  ) {
     this.currentTitle = fallbackTitle
+    this.highlightSubmittedInput = highlightSubmittedInput
   }
 
   snapshot = (): TerminalPaneEventSnapshot => this.currentSnapshot
@@ -44,6 +51,23 @@ export class TerminalPaneEventCoordinator {
 
   detach(container: HTMLElement): void {
     if (this.container === container) this.container = undefined
+  }
+
+  bind(pane: TerminalPane): void {
+    this.pane = pane
+    this.synchronizeSubmittedInputDecorations(true)
+  }
+
+  unbind(): void {
+    this.pane?.setSubmittedInputDecorations([])
+    this.pane = undefined
+    this.synchronizedSubmittedInputIds = []
+  }
+
+  setHighlightSubmittedInput(enabled: boolean): void {
+    if (enabled === this.highlightSubmittedInput) return
+    this.highlightSubmittedInput = enabled
+    this.synchronizeSubmittedInputDecorations()
   }
 
   handle(event: TerminalEvent): TerminalPaneEventEffect | undefined {
@@ -70,6 +94,7 @@ export class TerminalPaneEventCoordinator {
     }
     if (event.type !== 'semantic') return undefined
     const changed = this.regions.consume(event)
+    this.synchronizeSubmittedInputDecorations()
     this.updateTelemetry()
     if (changed) this.publish()
     return undefined
@@ -86,19 +111,23 @@ export class TerminalPaneEventCoordinator {
     const summary = target
       ? this.regions.activate(target.id, screen, plan.resolved)
       : undefined
+    if (plan.changed) this.synchronizeSubmittedInputDecorations()
     if (plan.changed || target) this.publish(summary)
   }
 
   extractCurrentRegion(pane: TerminalPane, signal: AbortSignal): Promise<string> {
     const range = this.regions.currentCopyRange(pane.activeEventScreen())
-    if (!range) return Promise.reject(new Error('No semantic terminal region is available'))
+    if (!range)
+      return Promise.reject(new Error('No semantic terminal region is available'))
     const end = range.end ?? pane.captureRetainedBufferBoundary()
-    if (!end) return Promise.reject(new Error('The current terminal region is unavailable'))
+    if (!end)
+      return Promise.reject(new Error('The current terminal region is unavailable'))
     return pane.extractRetainedBufferRange(range.start, end, { signal })
   }
 
   clear(): void {
     this.regions.clear()
+    this.synchronizeSubmittedInputDecorations()
     this.currentTitle = this.fallbackTitle
     this.updateTelemetry()
     this.publish()
@@ -122,6 +151,22 @@ export class TerminalPaneEventCoordinator {
     this.container.dataset.terminalSemanticRegionLimit = String(
       MAX_TERMINAL_SEMANTIC_REGIONS,
     )
+  }
+
+  private synchronizeSubmittedInputDecorations(force = false): void {
+    const decorations = this.highlightSubmittedInput
+      ? this.regions.completedCommandDecorations()
+      : []
+    const ids = decorations.map(({ id }) => id)
+    if (
+      !force &&
+      ids.length === this.synchronizedSubmittedInputIds.length &&
+      ids.every((id, index) => id === this.synchronizedSubmittedInputIds[index])
+    ) {
+      return
+    }
+    this.synchronizedSubmittedInputIds = ids
+    this.pane?.setSubmittedInputDecorations(decorations)
   }
 }
 

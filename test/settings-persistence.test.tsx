@@ -31,6 +31,7 @@ describe('app settings typography persistence', () => {
       terminalCursorShape: 'block',
       terminalCursorBlink: 'terminal',
       terminalLigatures: true,
+      highlightSubmittedInput: true,
       interfaceFont: { mode: 'system', family: '' },
       monospaceFont: { mode: 'system', family: '' },
       interfaceScale: 1,
@@ -51,6 +52,7 @@ describe('app settings typography persistence', () => {
       terminalCursorShape: 'bar',
       terminalCursorBlink: 'steady',
       terminalLigatures: false,
+      highlightSubmittedInput: false,
       interfaceFont: { mode: 'custom', family: 'Example Sans' },
       monospaceFont: { mode: 'custom', family: 'Example Mono' },
       interfaceScale: 1.25,
@@ -78,6 +80,7 @@ describe('app settings typography persistence', () => {
       terminalCursorShape: 'bar',
       terminalCursorBlink: 'steady',
       terminalLigatures: false,
+      highlightSubmittedInput: false,
       interfaceFont: { mode: 'custom', family: 'Example Sans' },
       monospaceFont: { mode: 'custom', family: 'Example Mono' },
       interfaceScale: 1.25,
@@ -93,6 +96,7 @@ describe('app settings typography persistence', () => {
       blink: 'steady',
     })
     expect(preferences.terminalLigatures).toBe(false)
+    expect(preferences.highlightSubmittedInput).toBe(false)
   })
 
   it.each(['app', 'dark', 'light'] as const)(
@@ -162,6 +166,7 @@ describe('app settings typography persistence', () => {
         terminalCursorShape: 'block_hollow',
         terminalCursorBlink: true,
         terminalLigatures: 'off',
+        highlightSubmittedInput: 'off',
       }),
     )
 
@@ -170,10 +175,12 @@ describe('app settings typography persistence', () => {
       terminalCursorShape: 'block',
       terminalCursorBlink: 'terminal',
       terminalLigatures: true,
+      highlightSubmittedInput: true,
     })
     expect(settings.terminalPreferences(settings.getAppSettings())).toMatchObject({
       terminalCursorDefaults: { shape: 'block', blink: 'terminal' },
       terminalLigatures: true,
+      highlightSubmittedInput: true,
     })
   })
 })

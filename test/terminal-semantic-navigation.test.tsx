@@ -120,9 +120,14 @@ vi.mock('ghostty-web', () => {
       id: number
       screen: 'normal' | 'alternate'
       row: number
+      column: number
     }) {
       return this.state.resolved.has(provenance.id)
-        ? { screen: provenance.screen, row: provenance.row }
+        ? {
+            screen: provenance.screen,
+            row: provenance.row,
+            column: provenance.column,
+          }
         : null
     }
     activeEventScreen(): 'normal' | 'alternate' {
@@ -175,12 +180,43 @@ describe('semantic transcript navigation', () => {
 
     act(() => root.render(<TerminalView {...viewProps(registry)} />))
     await act(async () => {
-      await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce())
+      await vi.waitFor(() => {
+        expect(invoke).toHaveBeenCalledOnce()
+        expect(
+          host.querySelector('.terminal-surface')?.getAttribute('data-terminal-status'),
+        ).toMatch(/^pid /)
+      })
     })
     const state = terminalState.instances[0]!
+    state.scrollback = 10
     const surface = host.querySelector<HTMLElement>('.terminal-engine-host')
     const canvas = surface?.querySelector('canvas')
     emitTranscript(state, 'normal', 10)
+    expect(
+      surface?.querySelectorAll('.terminal-submitted-input-decoration'),
+    ).toHaveLength(2)
+    expect(
+      surface
+        ?.querySelector('.terminal-submitted-input-decoration')
+        ?.getAttribute('data-retained-row'),
+    ).toBe('12')
+
+    act(() =>
+      root.render(
+        <TerminalView {...viewProps(registry)} highlightSubmittedInput={false} />,
+      ),
+    )
+    expect(
+      surface?.querySelectorAll('.terminal-submitted-input-decoration'),
+    ).toHaveLength(0)
+    expect(host.querySelector('.terminal-engine-host')).toBe(surface)
+    expect(surface?.querySelector('canvas')).toBe(canvas)
+    expect(invoke).toHaveBeenCalledOnce()
+
+    act(() => root.render(<TerminalView {...viewProps(registry)} />))
+    expect(
+      surface?.querySelectorAll('.terminal-submitted-input-decoration'),
+    ).toHaveLength(2)
 
     const previous = host.querySelector<HTMLButtonElement>(
       'button[aria-label="Previous transcript region"]',
@@ -196,7 +232,7 @@ describe('semantic transcript navigation', () => {
     expect(host.querySelector('.terminal-semantic-region')?.textContent).toBe(
       'Output 3 of 3',
     )
-    expect(state.scrolls).toEqual([36])
+    expect(state.scrolls).toEqual([0])
     expect(document.activeElement).toBe(focused)
     expect(host.querySelector('.terminal-engine-host')).toBe(surface)
     expect(surface?.querySelector('canvas')).toBe(canvas)
@@ -208,7 +244,7 @@ describe('semantic transcript navigation', () => {
     expect(host.querySelector('.terminal-semantic-region')?.textContent).toBe(
       'Command 2 of 3',
     )
-    expect(state.scrolls.at(-1)).toBe(38)
+    expect(state.scrolls.at(-1)).toBe(0)
 
     act(() => {
       root.unmount()
@@ -231,7 +267,12 @@ describe('semantic transcript navigation', () => {
     const root = createRoot(host)
     act(() => root.render(<TerminalView {...viewProps(registry)} />))
     await act(async () => {
-      await vi.waitFor(() => expect(terminalState.instances).toHaveLength(1))
+      await vi.waitFor(() => {
+        expect(terminalState.instances).toHaveLength(1)
+        expect(
+          host.querySelector('.terminal-surface')?.getAttribute('data-terminal-status'),
+        ).toMatch(/^pid /)
+      })
     })
     const state = terminalState.instances[0]!
     emitTranscript(state, 'normal', 10)
@@ -271,6 +312,7 @@ describe('semantic transcript navigation', () => {
         ?.click()
     })
     expect(host.querySelector('.terminal-semantic-navigation')).toBeNull()
+    expect(host.querySelectorAll('.terminal-submitted-input-decoration')).toHaveLength(0)
 
     emitTranscript(state, 'alternate', 4, 200)
     act(() =>
@@ -343,6 +385,7 @@ function viewProps(registry: TerminalRuntimeRegistry) {
     typography: { fontFamily: 'monospace', fontSize: 13 },
     cursorDefaults: { shape: 'block', blink: 'terminal' } as const,
     ligatures: true,
+    highlightSubmittedInput: true,
     composerSubmitMode: 'enter' as const,
     cwd: localPath('/repo'),
     workspaceRoot: localPath('/repo'),

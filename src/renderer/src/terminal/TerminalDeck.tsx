@@ -37,6 +37,7 @@ export function TerminalDeck({
   terminalTypography,
   cursorDefaults,
   ligatures,
+  highlightSubmittedInput,
   composerSubmitMode,
   workspaceRoot,
   connectionState,
@@ -72,6 +73,7 @@ export function TerminalDeck({
   readonly terminalTypography: TerminalTypography
   readonly cursorDefaults: TerminalCursorDefaults
   readonly ligatures: boolean
+  readonly highlightSubmittedInput: boolean
   readonly composerSubmitMode: ComposerSubmitMode
   readonly workspaceRoot: HostPath
   readonly connectionState: HostConnectionState
@@ -109,6 +111,7 @@ export function TerminalDeck({
       terminalTypography={terminalTypography}
       cursorDefaults={cursorDefaults}
       ligatures={ligatures}
+      highlightSubmittedInput={highlightSubmittedInput}
       composerSubmitMode={composerSubmitMode}
       workspaceRoot={workspaceRoot}
       connectionState={connectionState}

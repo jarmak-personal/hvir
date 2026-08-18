@@ -16,6 +16,7 @@ const settings = {
   terminalCursorShape: 'block' as const,
   terminalCursorBlink: 'terminal' as const,
   terminalLigatures: true,
+  highlightSubmittedInput: true,
   interfaceFont: { mode: 'system' as const, family: '' },
   monospaceFont: { mode: 'system' as const, family: '' },
   interfaceScale: 1,

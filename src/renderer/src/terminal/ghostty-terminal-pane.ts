@@ -31,6 +31,7 @@ import type {
   TerminalLinkActivation,
   TerminalRetainedBufferRange,
   TerminalRetainedBufferSearch,
+  TerminalSubmittedInputDecoration,
   TerminalTypography,
 } from './terminal-pane'
 import { translateGhosttyTerminalEvent } from './ghostty-terminal-events'
@@ -49,6 +50,7 @@ import {
 } from './ghostty-terminal-keyboard'
 import { writePreservingViewport } from './terminal-viewport'
 import { TerminalWheelController } from './terminal-wheel'
+import { GhosttySubmittedInputDecorations } from './ghostty-submitted-input-decorations'
 
 let initializeGhostty: Promise<void> | undefined
 const TERMINAL_SCROLLBACK_BYTES = 10_000_000
@@ -162,6 +164,12 @@ class GhosttyTerminalPane implements TerminalPane {
       resolveClipboardFilePaste: (file) =>
         resolveGhosttyTerminalFilePaste(window.hvir, file),
     })
+    this.submittedInputDecorations = new GhosttySubmittedInputDecorations(
+      this.terminal,
+      theme,
+      (provenance) => this.resolveEventProvenance(provenance),
+      () => this.activeEventScreen(),
+    )
     this.fit = new TerminalFitController(this.terminal)
     this.terminal.attachCustomKeyEventHandler((event) => {
       const pasteFallback = ghosttyClipboardPasteFallback(event)
@@ -192,6 +200,7 @@ class GhosttyTerminalPane implements TerminalPane {
     range: GhosttyRetainedBufferRange
   }>
   private searchHighlightLayer?: HTMLDivElement
+  private readonly submittedInputDecorations: GhosttySubmittedInputDecorations
   private hasPresentedFrame = false
 
   readonly events: TerminalPaneEvents = {
@@ -223,6 +232,9 @@ class GhosttyTerminalPane implements TerminalPane {
         fontFamily: this.typography.fontFamily,
         fontSize: this.typography.fontSize,
         fontLigatures: this.ligatures,
+        submittedInputDecorations: this.submittedInputDecorations.stats.decorations,
+        submittedInputDecorationSegments: this.submittedInputDecorations.stats.segments,
+        submittedInputDecorationPaints: this.submittedInputDecorations.stats.paints,
       }),
     })
     Object.defineProperty(surface, '__hvirTerminalCursor', {
@@ -239,17 +251,25 @@ class GhosttyTerminalPane implements TerminalPane {
       this.terminal.onData((data) => this.emitInput(data)),
       this.terminal.onResize((size) => {
         this.resizeListeners.emit(size)
+        this.submittedInputDecorations.render()
         this.renderSearchHighlight()
       }),
-      this.terminal.onScroll(() => this.renderSearchHighlight()),
+      this.terminal.onScroll(() => {
+        this.submittedInputDecorations.render()
+        this.renderSearchHighlight()
+      }),
       this.terminal.onTerminalEvent((event) => {
         const translated = translateGhosttyTerminalEvent(event, (provenance) =>
           this.retainProvenance(provenance),
         )
-        if (translated) this.eventListeners.emit(translated)
+        if (translated) {
+          this.eventListeners.emit(translated)
+          this.submittedInputDecorations.render()
+        }
       }),
     )
     this.terminal.open(surface)
+    this.submittedInputDecorations.mount(surface)
     const searchHighlightLayer = document.createElement('div')
     searchHighlightLayer.className = 'terminal-search-match-highlight-layer'
     searchHighlightLayer.setAttribute('aria-hidden', 'true')
@@ -282,6 +302,7 @@ class GhosttyTerminalPane implements TerminalPane {
   write(data: string): void {
     if (this.disposed) return
     writePreservingViewport(this.terminal, data)
+    this.submittedInputDecorations.render()
     this.renderSearchHighlight()
   }
 
@@ -293,6 +314,7 @@ class GhosttyTerminalPane implements TerminalPane {
     if (this.disposed || terminalColorThemeEquals(theme, this.theme)) return
     this.terminal.options.theme = toGhosttyTheme(theme)
     this.theme = theme
+    this.submittedInputDecorations.setTheme(theme)
   }
 
   setTypography(typography: TerminalTypography): void {
@@ -339,10 +361,19 @@ class GhosttyTerminalPane implements TerminalPane {
       this.terminal.setRenderPaused(true)
       const canvas = this.terminal.renderer?.getCanvas()
       if (canvas) canvas.style.visibility = 'hidden'
+      this.submittedInputDecorations.setPresentation('hidden')
       this.renderSearchHighlight()
     } else {
+      this.submittedInputDecorations.setPresentation('visible')
       this.revealAfterSettledFit()
     }
+  }
+
+  setSubmittedInputDecorations(
+    decorations: readonly TerminalSubmittedInputDecoration[],
+  ): void {
+    if (this.disposed) return
+    this.submittedInputDecorations.setDecorations(decorations)
   }
 
   redraw(): void {
@@ -442,12 +473,14 @@ class GhosttyTerminalPane implements TerminalPane {
   clear(): void {
     if (this.disposed) return
     this.terminal.clear()
+    this.submittedInputDecorations.clear()
     this.releaseSearchHighlight()
   }
 
   reset(): void {
     if (this.disposed) return
     this.terminal.reset()
+    this.submittedInputDecorations.clear()
     this.releaseSearchHighlight()
   }
 
@@ -466,6 +499,7 @@ class GhosttyTerminalPane implements TerminalPane {
     renderer?.clear()
     if (canvas) canvas.style.visibility = 'hidden'
     this.terminal.dispose()
+    this.submittedInputDecorations.dispose()
     this.searchHighlight = undefined
     this.searchHighlightLayer?.remove()
     this.searchHighlightLayer = undefined
@@ -611,6 +645,7 @@ class GhosttyTerminalPane implements TerminalPane {
       // Canvas/GPU backing stores can otherwise remain stale until a later
       // physical resize happens to force a full render.
       this.redraw()
+      this.submittedInputDecorations.render()
       this.renderSearchHighlight()
       const canvas = this.terminal.renderer?.getCanvas()
       this.hasPresentedFrame = true

@@ -85,6 +85,7 @@ describe('terminal workspace materialization bridge', () => {
         terminalTypography: { fontFamily: 'monospace', fontSize: 13 },
         terminalCursorDefaults: { shape: 'block', blink: 'terminal' } as const,
         terminalLigatures: true,
+        highlightSubmittedInput: true,
         composerSubmitMode: 'enter' as const,
         idleThresholdMs: 10_000,
         terminalRecoveryMode: 'prompt' as const,

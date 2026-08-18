@@ -21,12 +21,32 @@
   display: block;
 }
 
+.terminal-submitted-input-decoration-layer,
 .terminal-search-match-highlight-layer {
   position: absolute;
-  z-index: 1;
   inset: 0;
   overflow: hidden;
   pointer-events: none;
+}
+
+.terminal-submitted-input-decoration-layer {
+  z-index: 1;
+}
+
+.terminal-submitted-input-decoration {
+  position: absolute;
+  box-sizing: border-box;
+  border-left: 2px solid
+    color-mix(in srgb, var(--terminal-input-foreground) 42%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--terminal-input-foreground) 10%,
+    transparent
+  );
+}
+
+.terminal-search-match-highlight-layer {
+  z-index: 2;
 }
 
 .terminal-search-match-highlight {

@@ -88,6 +88,26 @@ export function TerminalSettings({
               </small>
             </span>
           </label>
+          <label htmlFor="settings-highlight-submitted-input">
+            <span>Submitted input</span>
+            <span className="settings-checkbox-copy">
+              <span className="settings-checkbox-control">
+                <input
+                  id="settings-highlight-submitted-input"
+                  type="checkbox"
+                  checked={draft.highlightSubmittedInput}
+                  onChange={(event) =>
+                    onChange('highlightSubmittedInput', event.currentTarget.checked)
+                  }
+                />
+                Highlight submitted input
+              </span>
+              <small>
+                Add a quiet background and edge marker after a terminal reports a
+                completed input boundary.
+              </small>
+            </span>
+          </label>
         </fieldset>
         <label className="settings-checkbox">
           <span>Message submission</span>

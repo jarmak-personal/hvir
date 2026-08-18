@@ -16,7 +16,15 @@ describe('terminal semantic regions', () => {
     regions.consume(marker('fresh-line-new-prompt', 1, 10))
     regions.consume(marker('prompt-start', 2, 10))
     regions.consume(marker('end-prompt-start-input', 3, 11))
+    expect(regions.completedCommandDecorations()).toEqual([])
     regions.consume(marker('end-input-start-output', 4, 12))
+    expect(regions.completedCommandDecorations()).toEqual([
+      {
+        id: 2,
+        start: { id: 3, row: 11, column: 0, screen: 'normal' },
+        end: { id: 4, row: 12, column: 0, screen: 'normal' },
+      },
+    ])
     regions.consume(marker('end-command', 5, 18))
 
     const first = regions.navigationPlan('next', 'normal', retain)
@@ -76,6 +84,7 @@ describe('terminal semantic regions', () => {
     expect(
       regions.navigationPlan('next', 'normal', retain).resolved.map(({ kind }) => kind),
     ).toEqual(['prompt', 'command', 'output'])
+    expect(regions.completedCommandDecorations()).toHaveLength(1)
   })
 
   it('keeps alternate and normal screen transitions independent', () => {
@@ -95,6 +104,11 @@ describe('terminal semantic regions', () => {
       ['normal', 'command'],
     ])
     const alternate = resolved.filter(({ location }) => location.screen === 'alternate')
+    expect(
+      regions
+        .completedCommandDecorations()
+        .map(({ start, end }) => [start.screen, start.row, end.screen, end.row]),
+    ).toEqual([['alternate', 1, 'alternate', 2]])
     expect(regions.activate(alternate[1]!.id, 'alternate', resolved)).toEqual({
       kind: 'command',
       index: 2,

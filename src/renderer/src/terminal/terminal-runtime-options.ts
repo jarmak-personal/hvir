@@ -43,6 +43,7 @@ export interface TerminalRuntimeOptions {
   readonly typography: TerminalTypography
   readonly cursorDefaults: TerminalCursorDefaults
   readonly ligatures: boolean
+  readonly highlightSubmittedInput: boolean
   readonly cwd: HostPath
   readonly workspaceRoot: HostPath
   readonly connectionState: HostConnectionState

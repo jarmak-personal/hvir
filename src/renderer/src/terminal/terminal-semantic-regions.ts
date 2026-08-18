@@ -3,6 +3,7 @@ import type {
   TerminalEventProvenance,
   TerminalEventScreen,
   TerminalSemanticAction,
+  TerminalSubmittedInputDecoration,
 } from './terminal-pane'
 
 export const MAX_TERMINAL_SEMANTIC_REGIONS = 256
@@ -66,6 +67,14 @@ export class TerminalSemanticRegions {
 
   get size(): number {
     return this.regions.length
+  }
+
+  completedCommandDecorations(): readonly TerminalSubmittedInputDecoration[] {
+    return this.regions.flatMap((region) =>
+      region.kind === 'command' && region.end
+        ? [{ id: region.id, start: region.start, end: region.end }]
+        : [],
+    )
   }
 
   consume(marker: TerminalSemanticMarker): boolean {
@@ -181,10 +190,15 @@ export class TerminalSemanticRegions {
     const active =
       this.activeId === undefined
         ? undefined
-        : this.regions.find((region) => region.id === this.activeId && region.screen === screen)
+        : this.regions.find(
+            (region) => region.id === this.activeId && region.screen === screen,
+          )
     const region =
-      active ?? [...this.regions].reverse().find((candidate) => candidate.screen === screen)
-    return region ? { kind: region.kind, start: region.start, end: region.end } : undefined
+      active ??
+      [...this.regions].reverse().find((candidate) => candidate.screen === screen)
+    return region
+      ? { kind: region.kind, start: region.start, end: region.end }
+      : undefined
   }
 
   clear(): void {

@@ -331,6 +331,28 @@ describe('SettingsDialog section workflow', () => {
     expect(onSave).not.toHaveBeenCalled()
   })
 
+  it('saves the submitted-input highlight toggle', async () => {
+    const onSave = vi.fn()
+    renderDialog(undefined, onSave)
+    await selectSection('Terminal')
+
+    const highlight = document.querySelector<HTMLInputElement>(
+      '#settings-highlight-submitted-input',
+    )!
+    expect(highlight.checked).toBe(true)
+    expect(document.body.textContent).toContain('completed input boundary')
+
+    act(() => highlight.click())
+    await act(async () => {
+      button('Save app settings').click()
+      await Promise.resolve()
+    })
+    expect(onSave).toHaveBeenCalledWith(
+      'dark',
+      expect.objectContaining({ highlightSubmittedInput: false }),
+    )
+  })
+
   it('contains focus and Escape inside the nested composer consent dialog', async () => {
     const onClose = vi.fn()
     renderDialog(undefined, vi.fn(), onClose)
@@ -419,6 +441,7 @@ function renderDialog(
           terminalCursorShape: 'block',
           terminalCursorBlink: 'terminal',
           terminalLigatures: true,
+          highlightSubmittedInput: true,
           interfaceFont: { mode: 'system', family: '' },
           monospaceFont: { mode: 'system', family: '' },
           interfaceScale: 1,

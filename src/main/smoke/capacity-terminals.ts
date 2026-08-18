@@ -21,6 +21,9 @@ export interface TerminalPresentationSample extends TerminalRenderStats {
   readonly delivery: TerminalDeliverySample
   readonly semanticRegions: number
   readonly semanticRegionLimit: number
+  readonly submittedInputDecorations: number
+  readonly submittedInputDecorationSegments: number
+  readonly submittedInputDecorationPaints: number
 }
 
 export interface TerminalDeliverySample {
@@ -856,6 +859,15 @@ export function verifyTerminalActivity(
       )
     }
     if (
+      current.submittedInputDecorations <= 0 ||
+      current.submittedInputDecorations > current.semanticRegions
+    ) {
+      throw new Error(
+        `terminal ${current.sessionId} submitted-input decorations were unbounded: ` +
+          `${current.submittedInputDecorations}/${current.semanticRegions}`,
+      )
+    }
+    if (
       current.delivery.bufferedBytes > 64 * 1024 ||
       current.delivery.peakBufferedBytes > 64 * 1024
     ) {
@@ -867,10 +879,21 @@ export function verifyTerminalActivity(
     }
     hiddenParsedWrites += parsedDelta
     hiddenPresentationFrames += frameDelta
-    if (frameDelta !== 0 || current.pendingFrame || !current.paused) {
+    if (
+      frameDelta !== 0 ||
+      current.pendingFrame ||
+      !current.paused ||
+      current.submittedInputDecorationSegments !== 0 ||
+      current.submittedInputDecorationPaints !== previous.submittedInputDecorationPaints
+    ) {
       throw new Error(
         `hidden terminal ${current.sessionId} presented work: frames=${frameDelta} ` +
-          `pending=${current.pendingFrame} paused=${current.paused}`,
+          `pending=${current.pendingFrame} paused=${current.paused} ` +
+          `input-segments=${current.submittedInputDecorationSegments} ` +
+          `input-paints=${
+            current.submittedInputDecorationPaints -
+            previous.submittedInputDecorationPaints
+          }`,
       )
     }
     if (activeFixtureIds.includes(current.sessionId) && parsedDelta <= 0) {

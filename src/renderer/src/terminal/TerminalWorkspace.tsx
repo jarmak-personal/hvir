@@ -277,6 +277,7 @@ export function TerminalWorkspace({
         terminalTypography={preferences.terminalTypography}
         cursorDefaults={preferences.terminalCursorDefaults}
         ligatures={preferences.terminalLigatures}
+        highlightSubmittedInput={preferences.highlightSubmittedInput}
         composerSubmitMode={preferences.composerSubmitMode}
         workspaceRoot={workspaceRoot}
         connectionState={connectionState}

@@ -184,6 +184,7 @@ function defaultSettings(): AppSettings {
     terminalCursorShape: 'block',
     terminalCursorBlink: 'terminal',
     terminalLigatures: true,
+    highlightSubmittedInput: true,
     interfaceFont: { mode: 'system', family: '' },
     monospaceFont: { mode: 'system', family: '' },
     interfaceScale: 1,

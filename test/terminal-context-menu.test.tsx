@@ -54,6 +54,7 @@ describe('terminal context menu ownership', () => {
   it('clears semantic transcript metadata with both retained-buffer clearing actions', () => {
     const interactions = new TerminalRuntimeInteractions(
       'Shell',
+      true,
       () => true,
       vi.fn(),
       vi.fn(),
@@ -415,6 +416,7 @@ function paneFixture() {
     setCursorDefaults: vi.fn(),
     setLigatures: vi.fn(),
     setPresentation: vi.fn(),
+    setSubmittedInputDecorations: vi.fn(),
     redraw: vi.fn(),
     resolveEventProvenance: vi.fn(() => undefined),
     activeEventScreen: vi.fn(() => 'normal' as const),

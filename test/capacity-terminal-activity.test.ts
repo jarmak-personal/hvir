@@ -93,6 +93,9 @@ function samples(): readonly TerminalPresentationSample[] {
     retainedByteLimit: 10_000_000,
     semanticRegions: 256,
     semanticRegionLimit: 256,
+    submittedInputDecorations: 85,
+    submittedInputDecorationSegments: index === 0 ? 1 : 0,
+    submittedInputDecorationPaints: index === 0 ? 10 : 1,
     delivery: {
       nativeDataEvents: 10,
       deliveryCallbacks: 5,

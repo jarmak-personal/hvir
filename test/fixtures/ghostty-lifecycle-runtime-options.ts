@@ -26,6 +26,7 @@ export function ghosttyLifecycleRuntimeOptions() {
     typography: { fontFamily: 'ui-monospace, monospace', fontSize: 13 },
     cursorDefaults: { shape: 'block', blink: 'terminal' },
     ligatures: true,
+    highlightSubmittedInput: true,
     cwd: localPath('/repo'),
     workspaceRoot: localPath('/repo'),
     connectionState: 'connected',

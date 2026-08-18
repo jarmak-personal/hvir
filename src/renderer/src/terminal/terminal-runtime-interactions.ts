@@ -14,11 +14,15 @@ export class TerminalRuntimeInteractions {
 
   constructor(
     fallbackTitle: string,
+    highlightSubmittedInput: boolean,
     private readonly canFocus: () => boolean,
     restoreFocus: () => void,
     private readonly focusOwner: () => void,
   ) {
-    this.paneEvents = new TerminalPaneEventCoordinator(fallbackTitle)
+    this.paneEvents = new TerminalPaneEventCoordinator(
+      fallbackTitle,
+      highlightSubmittedInput,
+    )
     this.search = new TerminalSearchController(restoreFocus, (pane, signal) =>
       this.paneEvents.extractCurrentRegion(pane, signal),
     )
@@ -52,6 +56,7 @@ export class TerminalRuntimeInteractions {
 
   bind(pane: TerminalPane, ptyId: string): void {
     this.pane = pane
+    this.paneEvents.bind(pane)
     this.search.bind(pane)
     this.synchronizeAvailability()
     this.contextMenu.bind(pane, ptyId, this.focusOwner, {
@@ -76,9 +81,14 @@ export class TerminalRuntimeInteractions {
     this.search.retainedBufferChanged()
   }
 
+  setHighlightSubmittedInput(enabled: boolean): void {
+    this.paneEvents.setHighlightSubmittedInput(enabled)
+  }
+
   revoke(clearRegions: boolean): void {
     this.search.revoke()
     this.contextMenu.revoke()
+    if (clearRegions) this.paneEvents.unbind()
     this.pane = undefined
     if (clearRegions) this.paneEvents.clear()
   }

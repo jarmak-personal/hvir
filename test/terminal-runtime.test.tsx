@@ -35,6 +35,7 @@ function options(
     typography: { fontFamily: 'ui-monospace, monospace', fontSize: 13 },
     cursorDefaults: { shape: 'block', blink: 'terminal' },
     ligatures: true,
+    highlightSubmittedInput: true,
     cwd: localPath('/repo'),
     workspaceRoot,
     connectionState,

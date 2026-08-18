@@ -30,6 +30,7 @@ export interface TerminalSessionRuntimesProps {
   readonly terminalTypography: TerminalTypography
   readonly cursorDefaults: TerminalCursorDefaults
   readonly ligatures: boolean
+  readonly highlightSubmittedInput: boolean
   readonly composerSubmitMode: ComposerSubmitMode
   readonly workspaceRoot: HostPath
   readonly connectionState: HostConnectionState
@@ -62,6 +63,7 @@ export function TerminalSessionRuntimes({
   terminalTypography,
   cursorDefaults,
   ligatures,
+  highlightSubmittedInput,
   composerSubmitMode,
   workspaceRoot,
   connectionState,
@@ -112,6 +114,7 @@ export function TerminalSessionRuntimes({
             typography={terminalTypography}
             cursorDefaults={cursorDefaults}
             ligatures={ligatures}
+            highlightSubmittedInput={highlightSubmittedInput}
             composerSubmitMode={composerSubmitMode}
             cwd={session.cwd}
             workspaceRoot={workspaceRoot}

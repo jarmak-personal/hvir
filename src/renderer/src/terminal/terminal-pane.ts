@@ -78,6 +78,13 @@ export interface TerminalRetainedBufferRange {
   readonly end: Readonly<{ row: number; column: number }>
 }
 
+/** One completed semantic command range, owned by the transcript-region model. */
+export interface TerminalSubmittedInputDecoration {
+  readonly id: number
+  readonly start: TerminalEventProvenance
+  readonly end: TerminalEventProvenance
+}
+
 /** One immutable, pane-owned native search snapshot. */
 export interface TerminalRetainedBufferSearch {
   readonly query: string
@@ -219,6 +226,10 @@ export interface TerminalPane {
   setLigatures(enabled: boolean): void
   /** Start or stop visible engine work without changing the live terminal state. */
   setPresentation(presentation: TerminalPresentation): void
+  /** Replace the completed-input ranges painted by this pane without exposing geometry. */
+  setSubmittedInputDecorations(
+    decorations: readonly TerminalSubmittedInputDecoration[],
+  ): void
   /** Force the current grid to repaint without changing PTY geometry. */
   redraw(): void
   /** Resolve retained semantic provenance, or fail closed after eviction/reset. */
