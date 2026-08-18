@@ -36,11 +36,11 @@
 .terminal-submitted-input-decoration {
   position: absolute;
   box-sizing: border-box;
-  border-left: 2px solid
-    color-mix(in srgb, var(--terminal-input-foreground) 42%, transparent);
+  border-left: 1px solid
+    color-mix(in srgb, var(--terminal-input-foreground) 28%, transparent);
   background: color-mix(
     in srgb,
-    var(--terminal-input-foreground) 10%,
+    var(--terminal-input-foreground) 5%,
     transparent
   );
 }
