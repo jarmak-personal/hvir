@@ -18,6 +18,10 @@ import {
 } from './workspace-attention'
 import type { AppTheme } from '../theme'
 import { ConfirmationDialog } from '../workbench/ConfirmationDialog'
+import {
+  closeOnMiddleClick,
+  suppressMiddleClickDefault,
+} from '../workbench/middle-click-close'
 import { WorkbenchHealthControl } from '../health/WorkbenchHealthControl'
 import { ClosedWorktreesDialog, CloseWorkspaceDialog } from './WorkspaceCatalogDialogs'
 
@@ -148,6 +152,29 @@ export function ProjectsBar({
     connectionMenuRef.current?.focus()
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [connectionMenu])
+  const canCloseWorkspace = (workspace: WorkspaceState): boolean =>
+    !busy &&
+    !workspace.missing &&
+    workspace.id !== state.activeWorkspaceId &&
+    planningWorkspaceId !== workspace.id
+  const requestWorkspaceClose = (projectId: string, workspace: WorkspaceState): void => {
+    if (!canCloseWorkspace(workspace)) return
+    setPlanningWorkspaceId(workspace.id)
+    void onPlanCloseWorkspace(projectId, workspace.id)
+      .then((plan) => {
+        if (!plan) return
+        if (plan.terminalCount > 0) {
+          setCloseWorkspaceRequest({
+            projectId,
+            workspaceId: workspace.id,
+            plan,
+          })
+        } else {
+          onCloseWorkspace(projectId, workspace.id, plan, false)
+        }
+      })
+      .finally(() => setPlanningWorkspaceId(undefined))
+  }
   return (
     <>
       <header className="projects-shell">
@@ -286,6 +313,15 @@ export function ProjectsBar({
                 className={`workspace-tab${workspace.id === state.activeWorkspaceId ? ' active' : ''}${workspace.missing ? ' missing' : ''}`}
                 key={workspace.id}
                 title={workspaceStatusTitle(workspace)}
+                onMouseDown={(event) => {
+                  if (canCloseWorkspace(workspace)) suppressMiddleClickDefault(event)
+                }}
+                onAuxClick={(event) => {
+                  if (!canCloseWorkspace(workspace)) return
+                  closeOnMiddleClick(event, () =>
+                    requestWorkspaceClose(activeProject.id, workspace),
+                  )
+                }}
               >
                 <button
                   type="button"
@@ -306,28 +342,8 @@ export function ProjectsBar({
                   <button
                     type="button"
                     className="workspace-close"
-                    disabled={
-                      busy ||
-                      workspace.id === state.activeWorkspaceId ||
-                      planningWorkspaceId === workspace.id
-                    }
-                    onClick={() => {
-                      setPlanningWorkspaceId(workspace.id)
-                      void onPlanCloseWorkspace(activeProject.id, workspace.id)
-                        .then((plan) => {
-                          if (!plan) return
-                          if (plan.terminalCount > 0) {
-                            setCloseWorkspaceRequest({
-                              projectId: activeProject.id,
-                              workspaceId: workspace.id,
-                              plan,
-                            })
-                          } else {
-                            onCloseWorkspace(activeProject.id, workspace.id, plan, false)
-                          }
-                        })
-                        .finally(() => setPlanningWorkspaceId(undefined))
-                    }}
+                    disabled={!canCloseWorkspace(workspace)}
+                    onClick={() => requestWorkspaceClose(activeProject.id, workspace)}
                     aria-label={`Close workspace ${workspace.name}`}
                     title={
                       workspace.id === state.activeWorkspaceId

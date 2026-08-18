@@ -377,6 +377,33 @@ export function verifyViewerPositions(
           ),
         'viewer drag/drop did not move the tab to the primary pane'
       );
+      const activeBeforeMiddle = primary.querySelector('.viewer-tab.active .tab-main')
+        ?.getAttribute('title');
+      const middleTarget = [...primary.querySelectorAll('.viewer-tab')]
+        .find((tab) => !tab.classList.contains('active'));
+      const middleTargetTitle = middleTarget?.querySelector('.tab-main')
+        ?.getAttribute('title');
+      if (!activeBeforeMiddle || !middleTarget || !middleTargetTitle) {
+        throw new Error('viewer middle-click fixtures missing');
+      }
+      const mouseDownHandled = !middleTarget.dispatchEvent(new MouseEvent('mousedown', {
+        button: 1, bubbles: true, cancelable: true
+      }));
+      const auxClickHandled = !middleTarget.dispatchEvent(new MouseEvent('auxclick', {
+        button: 1, bubbles: true, cancelable: true
+      }));
+      if (!mouseDownHandled || !auxClickHandled) {
+        throw new Error('viewer middle-click did not suppress auxiliary defaults');
+      }
+      await waitFor(
+        () => ![...primary.querySelectorAll('.viewer-tab .tab-main')]
+          .some((tab) => tab.getAttribute('title') === middleTargetTitle),
+        'viewer middle-click did not close its target'
+      );
+      if (primary.querySelector('.viewer-tab.active .tab-main')?.getAttribute('title') !==
+          activeBeforeMiddle) {
+        throw new Error('viewer middle-click activated the closing tab');
+      }
       secondary.querySelector('[aria-label="Close secondary viewer"]')?.click();
       await waitFor(
         () => !document.querySelector('[data-viewer-pane="secondary"]'),
@@ -385,7 +412,7 @@ export function verifyViewerPositions(
       primary.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
 
       return 'mode command · line ' + targetLine + ' · ' + transitions.join(', ') +
-        ' · go-to 121:3 · split scoped + drag/drop + keyboard divider' + (cleanLine === undefined
+        ' · go-to 121:3 · split scoped + drag/drop + middle-close + keyboard divider' + (cleanLine === undefined
           ? ''
           : ' · empty diff preserved line ' + cleanLine);
     })()

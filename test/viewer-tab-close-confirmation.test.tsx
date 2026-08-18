@@ -78,24 +78,121 @@ describe('dirty viewer tab close confirmation', () => {
   })
 })
 
-function renderStrip(openTab: ViewerTab, onClose: (id: string) => void): void {
+describe('viewer tab middle-click close', () => {
+  it('closes an inactive clean file tab without activating it and suppresses auxiliary defaults', () => {
+    const onActivate = vi.fn()
+    const onClose = vi.fn()
+    renderStrip(tab(false), onClose, { activeId: undefined, onActivate })
+
+    const events = middleClick(viewerTab())
+
+    expect(events.mouseDown.defaultPrevented).toBe(true)
+    expect(events.auxClick.defaultPrevented).toBe(true)
+    expect(onClose).toHaveBeenCalledWith('tab-notes')
+    expect(onActivate).not.toHaveBeenCalled()
+    expect(host.querySelector('[role="dialog"]')).toBeNull()
+  })
+
+  it('routes dirty secondary tabs through the existing confirmation', () => {
+    const onActivate = vi.fn()
+    const onClose = vi.fn()
+    renderStrip({ ...tab(true), pane: 'secondary' }, onClose, {
+      pane: 'secondary',
+      activeId: undefined,
+      onActivate,
+    })
+
+    const events = middleClick(viewerTab())
+
+    expect(events.auxClick.defaultPrevented).toBe(true)
+    expect(onActivate).not.toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
+    expect(host.querySelector('[role="dialog"]')?.textContent).toContain(
+      'Close notes.md without saving?',
+    )
+
+    act(() => button('Close without saving').click())
+    expect(onClose).toHaveBeenCalledWith('tab-notes')
+  })
+
+  it('uses the existing Git-history and web-pane close owners without activation', () => {
+    const onActivateGraph = vi.fn()
+    const onCloseGraph = vi.fn()
+    const onActivateWeb = vi.fn()
+    const onCloseWeb = vi.fn()
+    renderStrip(tab(false), vi.fn(), {
+      graphOpen: true,
+      onActivateGraph,
+      onCloseGraph,
+      webTabs: [{ id: 'web-1', title: 'localhost:3000' }],
+      onActivateWeb,
+      onCloseWeb,
+    })
+
+    const graphEvents = middleClick(requiredElement('.git-graph-tab'))
+    const webEvents = middleClick(requiredElement('.web-pane-tab'))
+
+    expect(graphEvents.auxClick.defaultPrevented).toBe(true)
+    expect(webEvents.auxClick.defaultPrevented).toBe(true)
+    expect(onCloseGraph).toHaveBeenCalledOnce()
+    expect(onCloseWeb).toHaveBeenCalledWith('web-1')
+    expect(onActivateGraph).not.toHaveBeenCalled()
+    expect(onActivateWeb).not.toHaveBeenCalled()
+  })
+
+  it('leaves left activation and double-click pinning unchanged', () => {
+    const onActivate = vi.fn()
+    const onPin = vi.fn()
+    renderStrip(tab(false), vi.fn(), { onActivate, onPin })
+
+    act(() => {
+      requiredElement<HTMLButtonElement>('.tab-main').click()
+      viewerTab().dispatchEvent(
+        new MouseEvent('dblclick', { button: 0, bubbles: true, cancelable: true }),
+      )
+    })
+
+    expect(onActivate).toHaveBeenCalledWith('tab-notes')
+    expect(onPin).toHaveBeenCalledWith('tab-notes')
+  })
+})
+
+function renderStrip(
+  openTab: ViewerTab,
+  onClose: (id: string) => void,
+  overrides: Partial<{
+    readonly pane: 'primary' | 'secondary'
+    readonly activeId: string
+    readonly onActivate: (id: string) => void
+    readonly onPin: (id: string) => void
+    readonly graphOpen: boolean
+    readonly onActivateGraph: () => void
+    readonly onCloseGraph: () => void
+    readonly webTabs: readonly { readonly id: string; readonly title: string }[]
+    readonly onActivateWeb: (id: string) => void
+    readonly onCloseWeb: (id: string) => void
+  }> = {},
+): void {
   act(() => {
     root.render(
       <TabStrip
         tabs={[openTab]}
-        pane="primary"
-        activeId={openTab.id}
-        onActivate={vi.fn()}
+        pane={overrides.pane ?? 'primary'}
+        activeId={'activeId' in overrides ? overrides.activeId : openTab.id}
+        onActivate={overrides.onActivate ?? vi.fn()}
         onClose={onClose}
-        onPin={vi.fn()}
+        onPin={overrides.onPin ?? vi.fn()}
         onReorder={vi.fn()}
         onMoveToPane={vi.fn()}
         split={false}
         onSplit={vi.fn()}
-        graphOpen={false}
+        graphOpen={overrides.graphOpen ?? false}
         graphActive={false}
-        onActivateGraph={vi.fn()}
-        onCloseGraph={vi.fn()}
+        onActivateGraph={overrides.onActivateGraph ?? vi.fn()}
+        onCloseGraph={overrides.onCloseGraph ?? vi.fn()}
+        webTabs={overrides.webTabs}
+        onActivateWeb={overrides.onActivateWeb}
+        onCloseWeb={overrides.onCloseWeb}
       />,
     )
   })
@@ -130,4 +227,35 @@ function button(label: string): HTMLButtonElement {
   )
   if (!match) throw new Error(`Missing button '${label}'`)
   return match
+}
+
+function viewerTab(): HTMLDivElement {
+  return requiredElement('.viewer-tab:not(.git-graph-tab):not(.web-pane-tab)')
+}
+
+function requiredElement<T extends Element = HTMLDivElement>(selector: string): T {
+  const match = host.querySelector<T>(selector)
+  if (!match) throw new Error(`Missing element '${selector}'`)
+  return match
+}
+
+function middleClick(target: Element): {
+  readonly mouseDown: MouseEvent
+  readonly auxClick: MouseEvent
+} {
+  const mouseDown = new MouseEvent('mousedown', {
+    button: 1,
+    bubbles: true,
+    cancelable: true,
+  })
+  const auxClick = new MouseEvent('auxclick', {
+    button: 1,
+    bubbles: true,
+    cancelable: true,
+  })
+  act(() => {
+    target.dispatchEvent(mouseDown)
+    target.dispatchEvent(auxClick)
+  })
+  return { mouseDown, auxClick }
 }
