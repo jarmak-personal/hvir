@@ -1,6 +1,7 @@
 import { GitHubClient } from './github-client.ts'
 import { nextPageCursor, type PageInfo } from './github-pagination.ts'
 import type {
+  IssueHierarchySnapshot,
   IssueReference,
   IssueSnapshot,
   PlanningIssueSnapshot,
@@ -8,6 +9,7 @@ import type {
 } from './issue-planning.ts'
 
 export type {
+  IssueHierarchySnapshot,
   IssueReference,
   PlanningIssueSnapshot,
   PullRequestReference,
@@ -17,6 +19,48 @@ export interface GitHubIssueRepositoryOptions {
   owner: string
   name: string
   client: GitHubClient
+}
+
+export interface AgentWorkIssueReference {
+  number: number
+  repository: string
+}
+
+export interface AgentWorkProjectionIssueFacts {
+  body: string
+  labels: string[]
+  parent: AgentWorkIssueReference | null
+}
+
+export interface AgentWorkRollupTargetFacts {
+  number: number
+  state: 'OPEN' | 'CLOSED'
+  labels: string[]
+  parent: AgentWorkIssueReference | null
+  directChildren: AgentWorkIssueReference[]
+}
+
+export interface AgentWorkRollupParticipantFacts {
+  number: number
+  state: 'OPEN' | 'CLOSED'
+  labels: string[]
+  parent: AgentWorkIssueReference | null
+  hasDirectChildren: boolean
+}
+
+interface LabelConnection {
+  nodes: Array<{ name: string }>
+  pageInfo: PageInfo
+}
+
+interface AgentWorkIssueReferenceNode {
+  number: number
+  repository: { nameWithOwner: string }
+}
+
+interface AgentWorkIssueConnection {
+  nodes: AgentWorkIssueReferenceNode[]
+  pageInfo: PageInfo
 }
 
 interface IssueConnectionNode {
@@ -186,6 +230,154 @@ export class GitHubIssueRepository {
     }
   }
 
+  async getIssueHierarchy(issueNumber: number): Promise<IssueHierarchySnapshot> {
+    const [issue, parent, subIssues] = await Promise.all([
+      this.getIssue(issueNumber),
+      this.#getParent(issueNumber),
+      this.#getSubIssues(issueNumber),
+    ])
+    return {
+      ...issue,
+      repository: this.repository,
+      parent,
+      subIssues: sortIssueReferences(subIssues),
+    }
+  }
+
+  async getAgentWorkProjectionIssue(
+    issueNumber: number,
+  ): Promise<AgentWorkProjectionIssueFacts> {
+    const data: {
+      repository: {
+        issue: {
+          body: string
+          labels: LabelConnection
+          parent: AgentWorkIssueReferenceNode | null
+        } | null
+      } | null
+    } = await this.#client.graphql(
+      `query AgentWorkProjectionIssue($owner: String!, $name: String!, $number: Int!) {
+        repository(owner: $owner, name: $name) {
+          issue(number: $number) {
+            body
+            labels(first: 100) {
+              nodes { name }
+              pageInfo { endCursor hasNextPage }
+            }
+            parent { number repository { nameWithOwner } }
+          }
+        }
+      }`,
+      { owner: this.#owner, name: this.#name, number: issueNumber },
+    )
+    const issue = data.repository?.issue
+    if (issue === null || issue === undefined) {
+      throw new Error(
+        `Issue #${issueNumber} was not found in the configured repository ${this.repository}.`,
+      )
+    }
+    return {
+      body: issue.body,
+      labels: await this.#completeAgentWorkLabels(issueNumber, issue.labels),
+      parent: issue.parent === null ? null : agentWorkIssueReference(issue.parent),
+    }
+  }
+
+  async getAgentWorkRollupTarget(
+    issueNumber: number,
+  ): Promise<AgentWorkRollupTargetFacts> {
+    const data: {
+      repository: {
+        issue: {
+          number: number
+          state: 'OPEN' | 'CLOSED'
+          labels: LabelConnection
+          parent: AgentWorkIssueReferenceNode | null
+          subIssues: AgentWorkIssueConnection
+        } | null
+      } | null
+    } = await this.#client.graphql(
+      `query AgentWorkRollupTarget($owner: String!, $name: String!, $number: Int!) {
+        repository(owner: $owner, name: $name) {
+          issue(number: $number) {
+            number state
+            labels(first: 100) {
+              nodes { name }
+              pageInfo { endCursor hasNextPage }
+            }
+            parent { number repository { nameWithOwner } }
+            subIssues(first: 100) {
+              nodes { number repository { nameWithOwner } }
+              pageInfo { endCursor hasNextPage }
+            }
+          }
+        }
+      }`,
+      { owner: this.#owner, name: this.#name, number: issueNumber },
+    )
+    const issue = data.repository?.issue
+    if (issue === null || issue === undefined) {
+      throw new Error(
+        `Issue #${issueNumber} was not found in the configured repository ${this.repository}.`,
+      )
+    }
+    const [labels, directChildren] = await Promise.all([
+      this.#completeAgentWorkLabels(issueNumber, issue.labels),
+      this.#completeAgentWorkSubIssues(issueNumber, issue.subIssues),
+    ])
+    return {
+      number: issue.number,
+      state: issue.state,
+      labels,
+      parent: issue.parent === null ? null : agentWorkIssueReference(issue.parent),
+      directChildren: directChildren.sort(compareReferences),
+    }
+  }
+
+  async getAgentWorkRollupParticipant(
+    issueNumber: number,
+  ): Promise<AgentWorkRollupParticipantFacts> {
+    const data: {
+      repository: {
+        issue: {
+          number: number
+          state: 'OPEN' | 'CLOSED'
+          labels: LabelConnection
+          parent: AgentWorkIssueReferenceNode | null
+          subIssues: { totalCount: number }
+        } | null
+      } | null
+    } = await this.#client.graphql(
+      `query AgentWorkRollupParticipant($owner: String!, $name: String!, $number: Int!) {
+        repository(owner: $owner, name: $name) {
+          issue(number: $number) {
+            number state
+            labels(first: 100) {
+              nodes { name }
+              pageInfo { endCursor hasNextPage }
+            }
+            parent { number repository { nameWithOwner } }
+            subIssues(first: 1) { totalCount }
+          }
+        }
+      }`,
+      { owner: this.#owner, name: this.#name, number: issueNumber },
+    )
+    const issue = data.repository?.issue
+    if (issue === null || issue === undefined) {
+      throw new Error(
+        `Issue #${issueNumber} was not found in the configured repository ${this.repository}.`,
+      )
+    }
+    return {
+      number: issue.number,
+      state: issue.state,
+      labels: await this.#completeAgentWorkLabels(issueNumber, issue.labels),
+      parent: issue.parent === null ? null : agentWorkIssueReference(issue.parent),
+      hasDirectChildren: issue.subIssues.totalCount > 0,
+    }
+  }
+
   async addLabels(issueNumber: number, labels: string[]): Promise<void> {
     if (labels.length === 0) return
     await this.#client.rest(
@@ -226,6 +418,84 @@ export class GitHubIssueRepository {
 
   get repository(): string {
     return `${this.#owner}/${this.#name}`
+  }
+
+  async #completeAgentWorkLabels(
+    issueNumber: number,
+    initial: LabelConnection,
+  ): Promise<string[]> {
+    const labels = initial.nodes.map((label) => label.name)
+    let cursor = nextPageCursor(initial.pageInfo)
+    while (cursor !== null) {
+      const data: {
+        repository: {
+          issue: { labels: LabelConnection } | null
+        } | null
+      } = await this.#client.graphql(
+        `query AgentWorkIssueLabels($owner: String!, $name: String!, $number: Int!, $after: String!) {
+          repository(owner: $owner, name: $name) {
+            issue(number: $number) {
+              labels(first: 100, after: $after) {
+                nodes { name }
+                pageInfo { endCursor hasNextPage }
+              }
+            }
+          }
+        }`,
+        {
+          owner: this.#owner,
+          name: this.#name,
+          number: issueNumber,
+          after: cursor,
+        },
+      )
+      const connection = data.repository?.issue?.labels
+      if (connection === undefined) {
+        throw new Error(`Labels for issue #${issueNumber} could not be read.`)
+      }
+      labels.push(...connection.nodes.map((label) => label.name))
+      cursor = nextPageCursor(connection.pageInfo)
+    }
+    return labels
+  }
+
+  async #completeAgentWorkSubIssues(
+    issueNumber: number,
+    initial: AgentWorkIssueConnection,
+  ): Promise<AgentWorkIssueReference[]> {
+    const issues = initial.nodes.map(agentWorkIssueReference)
+    let cursor = nextPageCursor(initial.pageInfo)
+    while (cursor !== null) {
+      const data: {
+        repository: {
+          issue: { subIssues: AgentWorkIssueConnection } | null
+        } | null
+      } = await this.#client.graphql(
+        `query AgentWorkRollupChildren($owner: String!, $name: String!, $number: Int!, $after: String!) {
+          repository(owner: $owner, name: $name) {
+            issue(number: $number) {
+              subIssues(first: 100, after: $after) {
+                nodes { number repository { nameWithOwner } }
+                pageInfo { endCursor hasNextPage }
+              }
+            }
+          }
+        }`,
+        {
+          owner: this.#owner,
+          name: this.#name,
+          number: issueNumber,
+          after: cursor,
+        },
+      )
+      const connection = data.repository?.issue?.subIssues
+      if (connection === undefined) {
+        throw new Error(`Sub-issues for issue #${issueNumber} could not be read.`)
+      }
+      issues.push(...connection.nodes.map(agentWorkIssueReference))
+      cursor = nextPageCursor(connection.pageInfo)
+    }
+    return issues
   }
 
   async #getParent(issueNumber: number): Promise<IssueReference | null> {
@@ -352,6 +622,15 @@ function issueReference(issue: IssueConnectionNode): IssueReference {
     repository: issue.repository.nameWithOwner,
     number: issue.number,
     state: issue.state,
+  }
+}
+
+function agentWorkIssueReference(
+  issue: AgentWorkIssueReferenceNode,
+): AgentWorkIssueReference {
+  return {
+    repository: issue.repository.nameWithOwner,
+    number: issue.number,
   }
 }
 

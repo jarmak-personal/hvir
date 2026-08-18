@@ -1,4 +1,24 @@
 import { GitHubClient } from './github-client.ts'
+import {
+  CANONICAL_PROJECT_CONFIGURATION,
+  configuredProjectSchema,
+  type CanonicalProjectConfiguration,
+} from './canonical-project-config.ts'
+import {
+  requireCanonicalSingleSelectField,
+  setCanonicalSingleSelect,
+  type CanonicalProjectField,
+  type CanonicalProjectSchema,
+} from './canonical-project-fields.ts'
+import {
+  type AgentWorkProjectFieldName,
+  type AgentWorkProjectValue,
+  type AgentWorkProjectValues,
+} from './agent-work-project-fields.ts'
+import {
+  readAgentWorkProjectValues,
+  setAgentWorkProjectValue,
+} from './github-agent-work-project.ts'
 import { nextPageCursor, type PageInfo } from './github-pagination.ts'
 import { KIND_DEFINITIONS, type KindOption } from './kind-policy.ts'
 import { PROJECT_STATUS_OPTIONS, type ProjectStatus } from './planning-fields.ts'
@@ -18,21 +38,11 @@ export interface GitHubCanonicalProjectOptions {
   repositoryOwner: string
   repositoryName: string
   client: GitHubClient
+  configuration?: CanonicalProjectConfiguration
+  itemLookup?: 'direct' | 'enumerated'
 }
 
-interface ProjectField {
-  typename: string
-  id?: string
-  name?: string
-  options?: Array<{ id: string; name: string }>
-}
-
-interface ProjectSchemaContext {
-  id: string
-  fields: ProjectField[]
-}
-
-interface ProjectContext extends ProjectSchemaContext {
+interface ProjectContext extends CanonicalProjectSchema {
   items: Map<string, CanonicalProjectItem>
 }
 
@@ -46,6 +56,16 @@ interface ProjectItemNode {
   }
   kind: null | { __typename: string; name?: string }
   status: null | { __typename: string; name?: string }
+}
+
+interface IssueProjectItemNode extends ProjectItemNode {
+  project: null | { id: string }
+}
+
+export interface CanonicalProjectAuditReport {
+  outcome: 'valid' | 'drift'
+  project: { owner: string; number: number }
+  diagnostics: string[]
 }
 
 const PROJECT_ITEM_FIELDS = `
@@ -70,8 +90,12 @@ export class GitHubCanonicalProject {
   readonly #repositoryOwner: string
   readonly #repositoryName: string
   readonly #client: GitHubClient
-  #schemaContext?: Promise<ProjectSchemaContext>
+  readonly #configuration: CanonicalProjectConfiguration
+  readonly #itemLookup: 'direct' | 'enumerated'
+  readonly #schemaContext: CanonicalProjectSchema
   #items?: Promise<Map<string, CanonicalProjectItem>>
+  #loadedItems?: Map<string, CanonicalProjectItem>
+  readonly #issueItems = new Map<number, Promise<CanonicalProjectItem | undefined>>()
 
   constructor(options: GitHubCanonicalProjectOptions) {
     this.#owner = options.owner
@@ -79,19 +103,28 @@ export class GitHubCanonicalProject {
     this.#repositoryOwner = options.repositoryOwner
     this.#repositoryName = options.repositoryName
     this.#client = options.client
+    this.#configuration = options.configuration ?? CANONICAL_PROJECT_CONFIGURATION
+    this.#itemLookup = options.itemLookup ?? 'direct'
+    this.#schemaContext = configuredProjectSchema(this.#configuration)
+    if (
+      `${this.#repositoryOwner}/${this.#repositoryName}` !==
+        this.#configuration.repository ||
+      this.#owner !== this.#configuration.owner ||
+      this.#number !== this.#configuration.number
+    ) {
+      throw new Error(
+        'The requested repository or Project coordinates do not match the stored canonical Project configuration.',
+      )
+    }
   }
 
   async getIssueItem(issueNumber: number): Promise<CanonicalProjectItem | undefined> {
-    const context = await this.#getContext()
-    return context.items.get(
-      projectItemKey(this.#repositoryOwner, this.#repositoryName, issueNumber),
-    )
+    return this.#getIssueItem(issueNumber)
   }
 
   async refreshIssueItem(issueNumber: number): Promise<CanonicalProjectItem | undefined> {
-    const context = await this.#getContext()
     const key = projectItemKey(this.#repositoryOwner, this.#repositoryName, issueNumber)
-    const current = context.items.get(key)
+    const current = await this.#getIssueItem(issueNumber)
     if (current === undefined) return undefined
 
     const data: {
@@ -106,12 +139,12 @@ export class GitHubCanonicalProject {
       { itemId: current.id },
     )
     if (data.node?.__typename !== 'ProjectV2Item') {
-      context.items.delete(key)
+      this.#cacheIssueItem(issueNumber, undefined)
       return undefined
     }
     const refreshed = canonicalProjectItem(data.node)
     if (refreshed === undefined) {
-      context.items.delete(key)
+      this.#cacheIssueItem(issueNumber, undefined)
       return undefined
     }
     const refreshedKey = projectItemKeyFromName(
@@ -123,18 +156,58 @@ export class GitHubCanonicalProject {
         `The refreshed Project item no longer refers to the expected issue #${issueNumber} in ${this.#repositoryOwner}/${this.#repositoryName}.`,
       )
     }
-    context.items.set(key, refreshed)
+    this.#cacheIssueItem(issueNumber, refreshed)
     return refreshed
   }
 
-  async validatePlanningSchema(): Promise<void> {
-    const context = await this.#getSchemaContext()
-    this.#requireKindField(context)
-    this.#requireField(context, 'Status', PROJECT_STATUS_OPTIONS)
+  validatePlanningSchema(): Promise<void> {
+    return Promise.resolve().then(() => {
+      const context = this.#getSchemaContext()
+      this.#requireKindField(context)
+      this.#requireField(context, 'Status', PROJECT_STATUS_OPTIONS)
+    })
   }
 
-  async validateKindSchema(): Promise<void> {
-    this.#requireKindField(await this.#getSchemaContext())
+  validateKindSchema(): Promise<void> {
+    return Promise.resolve().then(() => {
+      this.#requireKindField(this.#getSchemaContext())
+    })
+  }
+
+  async auditConfiguration(): Promise<CanonicalProjectAuditReport> {
+    const live = await this.#loadLiveSchemaContext()
+    const diagnostics = auditConfiguredSchema(this.#schemaContext, live)
+    return {
+      outcome: diagnostics.length === 0 ? 'valid' : 'drift',
+      project: { owner: this.#owner, number: this.#number },
+      diagnostics,
+    }
+  }
+
+  async readAgentWorkProjection(issueNumber: number): Promise<AgentWorkProjectValues> {
+    const context = this.#getSchemaContext()
+    return readAgentWorkProjectValues({
+      client: this.#client,
+      schema: context,
+      item: await this.#getIssueItem(issueNumber),
+      issueNumber,
+    })
+  }
+
+  async setAgentWorkProjectionField(
+    issueNumber: number,
+    name: AgentWorkProjectFieldName,
+    value: AgentWorkProjectValue | undefined,
+  ): Promise<void> {
+    const context = this.#getSchemaContext()
+    await setAgentWorkProjectValue({
+      client: this.#client,
+      schema: context,
+      item: await this.#getIssueItem(issueNumber),
+      issueNumber,
+      name,
+      value,
+    })
   }
 
   async addIssue(issue: {
@@ -147,9 +220,8 @@ export class GitHubCanonicalProject {
         `Closed issue #${issue.number} is not eligible to be added to the Project.`,
       )
     }
-    const context = await this.#getContext()
-    const key = projectItemKey(this.#repositoryOwner, this.#repositoryName, issue.number)
-    const existing = context.items.get(key)
+    const context = this.#getSchemaContext()
+    const existing = await this.#getIssueItem(issue.number)
     if (existing !== undefined) return existing
 
     const data: {
@@ -176,7 +248,7 @@ export class GitHubCanonicalProject {
       kind: null,
       status: null,
     }
-    context.items.set(key, item)
+    this.#cacheIssueItem(issue.number, item)
     return item
   }
 
@@ -190,7 +262,7 @@ export class GitHubCanonicalProject {
         `Closed issue #${issue.number} is not eligible to be restored to the Project.`,
       )
     }
-    const context = await this.#getContext()
+    const context = this.#getSchemaContext()
     const data: {
       unarchiveProjectV2Item: { item: { id: string; isArchived: boolean } | null }
     } = await this.#client.graphql(
@@ -212,35 +284,37 @@ export class GitHubCanonicalProject {
   }
 
   async setKind(item: CanonicalProjectItem, option: KindOption): Promise<boolean> {
-    const context = await this.#getContext()
+    const context = this.#getSchemaContext()
     const field = this.#requireKindField(context)
     if (item.kind === option) return false
-    await this.#setSingleSelect(context.id, item.id, field.id, field.options, option)
+    await setCanonicalSingleSelect(this.#client, context.id, item.id, field, option)
     item.kind = option
     return true
   }
 
   async setStatus(item: CanonicalProjectItem, status: ProjectStatus): Promise<void> {
-    const context = await this.#getContext()
+    const context = this.#getSchemaContext()
     const field = this.#requireField(context, 'Status', PROJECT_STATUS_OPTIONS)
     if (item.status === status) return
-    await this.#setSingleSelect(context.id, item.id, field.id, field.options, status)
+    await setCanonicalSingleSelect(this.#client, context.id, item.id, field, status)
     item.status = status
   }
 
   async #getContext(): Promise<ProjectContext> {
-    const schema = await this.#getSchemaContext()
+    const schema = this.#getSchemaContext()
+    const items = await (this.#items ??= this.#loadItems(schema.id))
+    this.#loadedItems = items
     return {
       ...schema,
-      items: await (this.#items ??= this.#loadItems(schema.id)),
+      items,
     }
   }
 
-  async #getSchemaContext(): Promise<ProjectSchemaContext> {
-    return (this.#schemaContext ??= this.#loadSchemaContext())
+  #getSchemaContext(): CanonicalProjectSchema {
+    return this.#schemaContext
   }
 
-  async #loadSchemaContext(): Promise<ProjectSchemaContext> {
+  async #loadLiveSchemaContext(): Promise<CanonicalProjectSchema> {
     const projectData: {
       user: { projectV2: { id: string } | null } | null
     } = await this.#client.graphql(
@@ -258,9 +332,102 @@ export class GitHubCanonicalProject {
     return { id: project.id, fields: await this.#loadFields(project.id) }
   }
 
-  async #loadFields(projectId: string): Promise<ProjectField[]> {
+  async #getIssueItem(issueNumber: number): Promise<CanonicalProjectItem | undefined> {
+    if (this.#itemLookup === 'enumerated') {
+      const context = await this.#getContext()
+      return context.items.get(
+        projectItemKey(this.#repositoryOwner, this.#repositoryName, issueNumber),
+      )
+    }
+    let pending = this.#issueItems.get(issueNumber)
+    if (pending === undefined) {
+      pending = this.#loadIssueItem(issueNumber)
+      this.#issueItems.set(issueNumber, pending)
+    }
+    return pending
+  }
+
+  #cacheIssueItem(issueNumber: number, item: CanonicalProjectItem | undefined): void {
+    if (this.#itemLookup === 'enumerated' && this.#loadedItems !== undefined) {
+      const key = projectItemKey(this.#repositoryOwner, this.#repositoryName, issueNumber)
+      if (item === undefined) this.#loadedItems.delete(key)
+      else this.#loadedItems.set(key, item)
+      return
+    }
+    this.#issueItems.set(issueNumber, Promise.resolve(item))
+  }
+
+  async #loadIssueItem(issueNumber: number): Promise<CanonicalProjectItem | undefined> {
     let cursor: string | null = null
-    const fields: ProjectField[] = []
+    let result: CanonicalProjectItem | undefined
+    do {
+      const data: {
+        repository: {
+          issue: {
+            projectItems: {
+              nodes: IssueProjectItemNode[]
+              pageInfo: PageInfo
+            }
+          } | null
+        } | null
+      } = await this.#client.graphql(
+        `query IssueProjectItems($owner: String!, $name: String!, $number: Int!, $after: String) {
+          repository(owner: $owner, name: $name) {
+            issue(number: $number) {
+              projectItems(first: 100, after: $after, includeArchived: true) {
+                nodes {
+                  project { id }
+                  ${PROJECT_ITEM_FIELDS}
+                }
+                pageInfo { endCursor hasNextPage }
+              }
+            }
+          }
+        }`,
+        {
+          owner: this.#repositoryOwner,
+          name: this.#repositoryName,
+          number: issueNumber,
+          after: cursor,
+        },
+      )
+      if (data.repository === null) {
+        throw new Error(
+          `The configured repository ${this.#repositoryOwner}/${this.#repositoryName} was not found or the Project token cannot read it.`,
+        )
+      }
+      const issue = data.repository.issue
+      if (issue === null) {
+        throw new Error(
+          `Issue #${issueNumber} was not found in ${this.#repositoryOwner}/${this.#repositoryName}.`,
+        )
+      }
+      const connection = issue.projectItems
+      for (const node of connection.nodes) {
+        if (node.project?.id !== this.#configuration.id) continue
+        const item = canonicalProjectItem(node)
+        if (
+          item === undefined ||
+          projectItemKeyFromName(item.repository, item.issueNumber) !==
+            projectItemKey(this.#repositoryOwner, this.#repositoryName, issueNumber)
+        ) {
+          continue
+        }
+        if (result !== undefined) {
+          throw new Error(
+            `The canonical Project contains more than one item for ${item.repository}#${item.issueNumber}.`,
+          )
+        }
+        result = item
+      }
+      cursor = nextPageCursor(connection.pageInfo)
+    } while (cursor !== null)
+    return result
+  }
+
+  async #loadFields(projectId: string): Promise<CanonicalProjectField[]> {
+    let cursor: string | null = null
+    const fields: CanonicalProjectField[] = []
     do {
       const data: {
         node: {
@@ -269,6 +436,7 @@ export class GitHubCanonicalProject {
               __typename: string
               id?: string
               name?: string
+              dataType?: string
               options?: Array<{ id: string; name: string }>
             }>
             pageInfo: PageInfo
@@ -281,7 +449,7 @@ export class GitHubCanonicalProject {
               fields(first: 100, after: $after) {
                 nodes {
                   __typename
-                  ... on ProjectV2Field { id name }
+                  ... on ProjectV2Field { id name dataType }
                   ... on ProjectV2SingleSelectField { id name options { id name } }
                 }
                 pageInfo { endCursor hasNextPage }
@@ -300,6 +468,7 @@ export class GitHubCanonicalProject {
           typename: field.__typename,
           ...(field.id === undefined ? {} : { id: field.id }),
           ...(field.name === undefined ? {} : { name: field.name }),
+          ...(field.dataType === undefined ? {} : { dataType: field.dataType }),
           ...(field.options === undefined ? {} : { options: field.options }),
         })),
       )
@@ -355,39 +524,19 @@ export class GitHubCanonicalProject {
   }
 
   #requireField(
-    context: ProjectSchemaContext,
+    context: CanonicalProjectSchema,
     name: string,
     expectedOptions: readonly string[],
   ): { id: string; options: Array<{ id: string; name: string }> } {
-    const matches = context.fields.filter((field) => field.name === name)
-    if (matches.length === 0) {
-      throw new Error(
-        `Project field "${name}" is missing. Reconcile the documented single-select schema before retrying.`,
-      )
-    }
-    if (matches.length > 1) {
-      throw new Error(`The canonical Project has more than one field named "${name}".`)
-    }
-    const field = matches[0]!
-    if (
-      field.typename !== 'ProjectV2SingleSelectField' ||
-      field.id === undefined ||
-      field.options === undefined
-    ) {
-      throw new Error(`Project field "${name}" exists but is not a single-select field.`)
-    }
-    const available = new Set(field.options.map((option) => option.name))
-    for (const option of expectedOptions) {
-      if (!available.has(option)) {
-        throw new Error(
-          `Project field "${name}" is missing the expected "${option}" option. Reconcile the documented schema before retrying.`,
-        )
-      }
-    }
-    return { id: field.id, options: field.options }
+    return requireCanonicalSingleSelectField(
+      context,
+      name,
+      expectedOptions,
+      'single-select',
+    )
   }
 
-  #requireKindField(context: ProjectSchemaContext): {
+  #requireKindField(context: CanonicalProjectSchema): {
     id: string
     options: Array<{ id: string; name: string }>
   } {
@@ -397,30 +546,72 @@ export class GitHubCanonicalProject {
       KIND_DEFINITIONS.map((definition) => definition.option),
     )
   }
+}
 
-  async #setSingleSelect(
-    projectId: string,
-    itemId: string,
-    fieldId: string,
-    options: Array<{ id: string; name: string }>,
-    value: string,
-  ): Promise<void> {
-    const optionId = options.find((option) => option.name === value)?.id
-    if (optionId === undefined) {
-      throw new Error(`Unexpected Project option after schema validation: "${value}".`)
-    }
-    await this.#client.graphql(
-      `mutation SetProjectSingleSelect($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
-        updateProjectV2ItemFieldValue(input: {
-          projectId: $projectId
-          itemId: $itemId
-          fieldId: $fieldId
-          value: {singleSelectOptionId: $optionId}
-        }) { projectV2Item { id } }
-      }`,
-      { projectId, itemId, fieldId, optionId },
+function auditConfiguredSchema(
+  configured: CanonicalProjectSchema,
+  live: CanonicalProjectSchema,
+): string[] {
+  const diagnostics: string[] = []
+  if (live.id !== configured.id) {
+    diagnostics.push(
+      'The stored canonical Project node ID no longer matches the configured owner and number. Update canonical-project-config.ts before running Project mutations.',
     )
+    return diagnostics
   }
+
+  for (const expected of configured.fields) {
+    if (expected.id === undefined || expected.name === undefined) continue
+    const sameName = live.fields.filter((field) => field.name === expected.name)
+    if (sameName.length > 1) {
+      diagnostics.push(
+        `The live canonical Project has more than one field named "${expected.name}". Remove the duplicate before updating stored configuration.`,
+      )
+      continue
+    }
+    const actual = live.fields.find((field) => field.id === expected.id)
+    if (actual === undefined) {
+      diagnostics.push(
+        `The stored node ID for Project field "${expected.name}" is no longer present. Update canonical-project-config.ts from the provisioned field.`,
+      )
+      continue
+    }
+    if (actual.name !== expected.name) {
+      diagnostics.push(
+        `Project field "${expected.name}" was renamed to "${actual.name ?? 'an unreadable name'}". Restore the canonical name or update the stored contract deliberately.`,
+      )
+    }
+    if (actual.typename !== expected.typename || actual.dataType !== expected.dataType) {
+      diagnostics.push(
+        `Project field "${expected.name}" no longer has its configured type. Restore the documented schema before running Project mutations.`,
+      )
+      continue
+    }
+    if (expected.typename !== 'ProjectV2SingleSelectField') continue
+    const expectedOptions = expected.options ?? []
+    const actualOptions = actual.options ?? []
+    for (const expectedOption of expectedOptions) {
+      const actualOption = actualOptions.find((option) => option.id === expectedOption.id)
+      if (actualOption === undefined) {
+        diagnostics.push(
+          `The stored node ID for Project option "${expected.name} / ${expectedOption.name}" is no longer present. Update canonical-project-config.ts from the provisioned option.`,
+        )
+      } else if (actualOption.name !== expectedOption.name) {
+        diagnostics.push(
+          `Project option "${expected.name} / ${expectedOption.name}" was renamed to "${actualOption.name}". Restore the canonical name or update the stored contract deliberately.`,
+        )
+      }
+    }
+    const expectedOptionIds = new Set(expectedOptions.map((option) => option.id))
+    for (const unexpected of actualOptions.filter(
+      (option) => !expectedOptionIds.has(option.id),
+    )) {
+      diagnostics.push(
+        `Project field "${expected.name}" has an unconfigured option named "${unexpected.name}". Remove it or add it to the stored contract deliberately.`,
+      )
+    }
+  }
+  return diagnostics
 }
 
 function canonicalProjectItem(

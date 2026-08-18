@@ -141,6 +141,7 @@ export default tseslint.config(
       'scripts/validate-release-pr.mts',
       'scripts/generate-terminal-theme-catalog.mts',
       'scripts/check-terminal-runtime.mts',
+      'scripts/agent-work-checkpoint-store.mts',
       'scripts/ghostty-web-update/candidate-bundle.mts',
       'scripts/ghostty-web-update/cli.mts',
       'scripts/ghostty-web-update/github-delivery.mts',

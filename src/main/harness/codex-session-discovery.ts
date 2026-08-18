@@ -109,6 +109,8 @@ export function createCodexSessionDiscovery(options: CodexSessionDiscoveryOption
 
     async identify(host, rawSnapshot, context) {
       if (!isSnapshot(rawSnapshot)) return { status: 'unavailable' }
+      const canonicalCwd = await canonicalCodexCwd(host, context.cwd, context.signal)
+      if (!canonicalCwd) return { status: 'unavailable' }
       const baseline = new Set(rawSnapshot.paths)
       const deadline = (context.discoveryStartedAtMs ?? context.launchedAtMs) + timeoutMs
       const launchedAtHostMs =
@@ -131,7 +133,7 @@ export function createCodexSessionDiscovery(options: CodexSessionDiscoveryOption
         const matches = await matchingSessions(
           host,
           newPaths,
-          context.cwd,
+          canonicalCwd,
           launchedAtHostMs,
           scan.hostNowMs,
           context.signal,
@@ -173,6 +175,20 @@ export function createCodexSessionDiscovery(options: CodexSessionDiscoveryOption
 }
 
 export const codexSessionDiscovery = createCodexSessionDiscovery()
+
+export async function canonicalCodexCwd(
+  host: ProjectHost,
+  cwd: HostPath,
+  signal: AbortSignal,
+): Promise<HostPath | undefined> {
+  if (signal.aborted || cwd.hostId !== host.hostId) return undefined
+  try {
+    const canonical = await host.realpath(cwd)
+    return !signal.aborted && canonical.hostId === host.hostId ? canonical : undefined
+  } catch {
+    return undefined
+  }
+}
 
 async function listSessionFiles(
   host: ProjectHost,

@@ -28,6 +28,7 @@ async function main(): Promise<void> {
     projectNumber,
     repositoryToken: process.env.HVIR_REPO_TOKEN ?? '',
     projectToken: process.env.HVIR_PROJECT_TOKEN ?? '',
+    itemLookup: options.issueNumber === undefined ? 'enumerated' : 'direct',
   })
   const input: ReconcileKindInput = {
     apply: options.apply,

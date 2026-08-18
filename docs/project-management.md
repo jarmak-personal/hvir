@@ -135,13 +135,223 @@ repository/Project access, schema drift, archived/missing mutation intent, Graph
 exhausted bounded retries exit 1 with an actionable diagnostic.
 
 The planning-record and kind commands share the same bounded GitHub request, pagination,
-canonical Project lookup, schema-validation, item-lookup, and token-redaction mechanics. Each
-command remains one process per consumer operation; lookup and mutation steps are not separate
-runner jobs.
+repository-owned canonical Project configuration, schema-validation, item-lookup, and
+token-redaction mechanics. Per-issue operations resolve membership through the issue's own
+Project-items connection and match the stored canonical Project ID. A bulk kind reconciliation
+still enumerates the complete canonical Project because the Project membership is its input.
+Each command remains one process per consumer operation; lookup and mutation steps are not
+separate runner jobs.
 
 Both commands use `HVIR_REPO_TOKEN`, `HVIR_PROJECT_TOKEN`, `HVIR_REPOSITORY`,
 `HVIR_PROJECT_OWNER`, and `HVIR_PROJECT_NUMBER` as documented above. Credentials are read only
 from the environment and are never accepted as command-line values.
+
+### Agent-work measurement ledger
+
+The repository-owned measurement command reads one issue's complete append-only agent-work
+history and returns normalized active records, per-phase totals, and the issue's Own lifecycle
+total:
+
+```sh
+HVIR_REPO_TOKEN="$(gh auth token)" \
+npm run project:measure -- --issue 573
+```
+
+An append takes its closed JSON record from `HVIR_AGENT_WORK_RECORD`. It is a dry run unless
+`--apply` is present:
+
+```sh
+agent_work_record='{"schema":1,"issueNumber":573,"phase":"implementation","runKey":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","idempotencyKey":"1111111111111111111111111111111111111111111111111111111111111111","availability":"complete","route":{"initial":{"harness":"codex","modelId":"gpt-5.6-sol","requestedReasoningEffort":"xhigh","effectiveReasoningEffort":"xhigh"},"changes":[]},"usage":{"freshInputTokens":100,"cacheReadInputTokens":50,"cacheWriteInputTokens":10,"outputTokens":20,"reasoningTokens":5,"normalizedTokenTotal":180},"timing":{"activeWallMilliseconds":120000}}'
+
+HVIR_REPO_TOKEN="$(gh auth token)" \
+HVIR_AGENT_WORK_RECORD="$agent_work_record" \
+npm run project:measure -- --issue 573 --append
+
+# After reviewing the returned would-append operation:
+HVIR_REPO_TOKEN="$(gh auth token)" \
+HVIR_AGENT_WORK_RECORD="$agent_work_record" \
+npm run project:measure -- --issue 573 --append --apply
+```
+
+The command emits one canonical comment with this exact first-line marker:
+
+```text
+<!-- hvir-agent-work-measurement:v1 -->
+```
+
+The marker is followed by one `json` fence containing the canonical pretty-printed record. A
+reader admits only that exact generated layout and schema when the comment author is the
+configured repository owner. The repository token used to append measurements must authenticate
+as that same owner; this is the sole trusted measurement actor, not a general comment-trust
+registry. Marker-shaped comments from every other author are unrelated and are not parsed, so
+even malformed forgeries produce no ledger diagnostic. A trusted marker-bearing comment with
+malformed JSON, unexpected fields, invalid values, or a mismatched issue number is reported only
+through a fixed diagnostic. A trusted measurement comment whose GitHub `createdAt` and
+`updatedAt` differ is rejected with a fixed edited-record diagnostic because append-only history
+cannot admit edited evidence. Neither raw comment bodies, author provenance, timestamps, nor
+GitHub internal IDs appear in a report.
+
+Schema version 1 has these rules:
+
+- `issueNumber` is the positive repository issue number. `phase` is `issue-planning`,
+  `implementation`, `implementation-review`, or `epic-coordination`.
+- `runKey` and `idempotencyKey` are lowercase 64-character hexadecimal SHA-256 values derived
+  only from bounded operation identity. They must never be derived from prompts, responses,
+  code, issue prose, paths, provider session identifiers, or other excluded content.
+- `availability` is `complete`, `partial`, or `unavailable`. Complete records require the four
+  additive counters and their exact safe-integer sum. Partial records require an initial route,
+  at least one observed usage or timing value, a nonempty fixed `missingFacts` list, and no exact
+  normalized total. Unavailable records require one fixed `unavailableReason` and contain no
+  usage, timing, or missing-fact claims. Provider and ledger code consume one shared closed
+  counter and unavailable-reason vocabulary; provider reasons, including
+  `invalid-session-identity`, are valid wire values without an independent translation table.
+- A complete or partial `route` starts with harness `claude-code` or `codex`, optionally records
+  bounded model and requested/effective reasoning-effort identifiers, and keeps ordered route
+  changes with an explicit `escalation` boolean. Consumers never infer escalation from model
+  names.
+- `usage` may contain `freshInputTokens`, `cacheReadInputTokens`,
+  `cacheWriteInputTokens`, `outputTokens`, `reasoningTokens`, and, only when exact,
+  `normalizedTokenTotal`. Every counter is a non-negative safe integer. Reasoning tokens remain
+  non-additive.
+- `timing` may contain non-negative safe-integer `activeWallMilliseconds` and
+  `modelOrApiMilliseconds`. `timeToFirstCandidateMilliseconds` belongs only to implementation.
+  An implementation record may also carry `outcome.firstPass` as `pending`, `accepted`,
+  `rework-required`, or `no-candidate`; candidate-producing outcomes use only a bounded
+  content-free candidate reference.
+- `supersedes`, when present, is a new record's reference to the currently active earlier
+  idempotency key for the same issue, phase, and run. Corrections append; comments are never
+  edited or deleted. A supersession fork or cross-run reference is invalid.
+
+Reads paginate the complete comment history and carry only body, author login, and creation/update
+timestamps to the pure normalizer. Repeating the same valid key and record returns
+`duplicate` without appending; even if two external requests produced identical comments, the
+normalized usage counts the key once. Reusing a key for different facts is a fixed conflict. A
+retry always reads current history before attempting a write. The append uses one non-retrying
+POST so an ambiguous mutation is not replayed inside the transport, then re-reads the ledger
+after both confirmed and uncertain responses. `ledger` always means the last successfully
+observed history; a dry run or failed read-back keeps the intended projection separately as
+`plannedLedger`. The operation reports `appended: true`, `appended: false`, or `appended: null`
+when GitHub still cannot establish the outcome. An uncertain outcome or failed/incomplete
+read-back emits only a fixed diagnostic and exits nonzero so a later retry resolves current state
+again.
+
+Phase and Own totals include active records only. Exact normalized totals appear only when every
+active contributing run is complete; otherwise reports retain counter coverage and a labeled
+known subtotal without substituting zero for missing evidence. The comment ledger is
+authoritative before any later Project measurement projection. First-pass outcome and time to
+first candidate remain per-record facts: phase and Own totals do not choose a priority or first
+value for them. This command does not mutate Project fields or expose a generic issue-comment
+operation.
+
+### Agent-work Project projections
+
+The same repository-owned command has one separate projection operation. It reads the exact
+`Initial forecast` rubric and any later `Pre-implementation forecast revision` sections from the
+issue plus the valid active measurement ledger, validates only the documented measurement fields,
+and plans changes without mutating by default:
+
+```sh
+HVIR_REPO_TOKEN="$(gh auth token)" \
+HVIR_PROJECT_TOKEN="$(gh auth token)" \
+npm run project:measure -- --issue 574 --project
+
+# After reviewing the named set and clear operations:
+HVIR_REPO_TOKEN="$(gh auth token)" \
+HVIR_PROJECT_TOKEN="$(gh auth token)" \
+npm run project:measure -- --issue 574 --project --apply
+```
+
+Append and projection are deliberately separate operations. A lifecycle writes the authoritative
+ledger record first, then projects it. If projection partially fails, retry `--project --apply`;
+the retry re-reads the current issue, ledger, issue-scoped Project item, and values and never
+appends another measurement.
+
+The measurement Project schema is fixed and domain-named:
+
+| Project field | Type | Projected semantics |
+| --- | --- | --- |
+| `Agent difficulty` | Number | Latest pre-implementation forecast difficulty from 1 through 5 after validating its four rubric factors. |
+| `Risk` | Single select | `Low`, `Moderate`, `High`, or `Critical` from that forecast. |
+| `Estimate confidence` | Single select | `Low`, `Medium`, or `High` from that forecast. |
+| `Initial model` | Text | Earliest active non-review run's exact available initial model identifier. |
+| `Reasoning effort` | Text | Effective effort when available, otherwise requested effort, from that non-review initial route. |
+| `Model route` | Text | Bounded content-free active non-review route sequence, including explicit change or escalation labels; independent review routes remain in the ledger. |
+| `Planning tokens` | Number | Safe known `issue-planning` subtotal; absent only when no safe observed subtotal exists. |
+| `Implementation tokens` | Number | Safe known `implementation` subtotal; review-driven corrections are new implementation runs. |
+| `Review tokens` | Number | Safe known `implementation-review` subtotal; absent only when no safe observed subtotal exists. |
+| `Lifecycle tokens` | Number | Safe known lifecycle subtotal. Ordinary issues and epic children project their own work; root epics reserve this field for Rollup reconciliation. |
+| `Measurement coverage` | Single select | `Complete`, `Partial`, or `Unavailable` for the projected token evidence. Root epics reserve this field for Rollup reconciliation. |
+| `Time to first candidate (ms)` | Number | First active implementation record's explicit candidate duration in milliseconds. |
+| `First-pass outcome` | Single select | `Pending`, `Accepted`, `Rework required`, or `No candidate`; explicit rework is sticky. |
+
+Unknown evidence is absent, never zero. Partial evidence retains every safe observed subtotal;
+an unavailable total clears a stale token value only when no safe subtotal remains. The operation
+updates only the names above and exposes no arbitrary field setter. Its report contains normalized
+values, fixed diagnostics, and named operations only—never issue prose, comments, internal IDs,
+credentials, or raw API responses.
+
+One-issue projection never writes a root epic's Planning, Implementation, Review, Lifecycle, or
+Measurement coverage fields. Those columns are reserved for the separate Rollup owner, so
+reprojecting the epic cannot erase or replace a reconciled aggregate.
+
+A malformed forecast or overlong derived route is not authoritative absence: reconciliation
+reports the fixed failure and leaves the affected current fields untouched. Likewise, invalid or
+conflicting ledger records and aggregate overflow make ledger-derived values unsafe, so the
+report omits those values, preserves their current Project fields, and exits nonzero. Identical
+duplicate records remain safe to project once but still produce a fixed nonzero diagnostic so
+the redundant history is visible without exposing comment content.
+
+Missing or duplicate fields, wrong types, incomplete single-select options, missing or archived
+items, and permission failures fail visibly. A write sequence stops on its first failure and
+reports preceding updates plus unattempted fields; fixed diagnostics distinguish permission,
+schema/validation, transport, and otherwise unclassified write failures without including raw
+failure content. The ledger remains authoritative. These
+measurement-only failures do not change the `issue:context` or `issue:start` readiness schema,
+which continues to require only membership, `Kind`, and `Status`.
+
+### Agent-work epic Rollups
+
+Rollup reconciliation is separate from both ledger append and one-issue projection. It reads the
+target issue's native relationships and the active ledger for the target and each direct child,
+then plans the root epic's Rollup-owned standard token fields:
+
+```sh
+HVIR_REPO_TOKEN="$(gh auth token)" \
+HVIR_PROJECT_TOKEN="$(gh auth token)" \
+npm run project:measure -- --issue 570 --rollup
+
+# After reviewing the relationship, coverage, and named Project operation:
+HVIR_REPO_TOKEN="$(gh auth token)" \
+HVIR_PROJECT_TOKEN="$(gh auth token)" \
+npm run project:measure -- --issue 570 --rollup --apply
+```
+
+A root `kind:epic` Rollup is its current Own per-phase and lifecycle totals plus each native direct
+child's current Own totals exactly once. Direct-child open or closed state does not change
+ownership. The phase subtotals populate Planning, Implementation, and Review tokens; the
+lifecycle subtotal also includes the root epic's coordination work. Ledger normalization removes
+superseded records and deduplicates identical retries before aggregation. The operation never
+reads a child's Project Rollup or traverses a grandchild.
+It rejects cross-repository relationships, mismatched native parents, nested epics, and nested
+descendants without overwriting a previously safe value. An active parent-only
+`epic-coordination` record on a child is also invalid Rollup evidence.
+
+Complete evidence records `Complete`; incomplete evidence retains available safe known subtotals
+and records `Partial`, or records `Unavailable` when no safe subtotal exists. Unsafe relationship,
+ledger, or overflow diagnostics preserve the current fields and exit nonzero. Identical
+reconciliation is a no-op. Applying `--rollup` to an ordinary issue or epic child does not invent
+root-epic aggregates.
+
+Rollup reconciliation owns Planning, Implementation, Review, Lifecycle, and Measurement coverage
+for root epics. One-issue projection reserves all five fields on those rows, so the two owners
+cannot race or overwrite each other. Project-wide issue-owned analysis excludes root-epic rows;
+including both child Own values and the parent Rollup would count the same child work twice.
+
+Lifecycle skills run Rollup only for an applicable root epic after append and issue projection:
+the changed issue itself when it is a root epic, or the one exact native parent after a direct
+child changes. Ordinary issues run no Rollup, and an epic child does not run Rollup against itself.
+Parent reconciliation writes no child comment or Project field. Append, issue projection, and
+Rollup retry independently from current authoritative state.
 
 ### Delivery context
 
@@ -307,12 +517,54 @@ gh project field-create 1 \
   --single-select-options 'Epic,Feature,Bug,Refactor,Docs,Maintenance,Enhancement'
 ```
 
-Runtime automation does not create or silently repair schema. A missing field, wrong field type,
-or renamed/missing option is an actionable failure so schema drift is reviewed deliberately.
-The planning-record command also expects the canonical Project's `Status` single-select field to
+Runtime automation does not create or silently repair schema. The canonical Project ID, field
+IDs, and single-select option IDs are stable, non-secret deployment identity stored in
+`scripts/project-management/canonical-project-config.ts`. Update that public contract deliberately
+after provisioning or an intentional schema change, then audit it against GitHub:
+
+```sh
+HVIR_PROJECT_TOKEN="$(gh auth token)" npm run project:audit
+```
+
+The named audit compares the configured owner and Project number, Project ID, field ID/name/type,
+and exact option ID/name sets. Drift produces an actionable, content-free diagnostic. Ordinary
+projection and reconciliation use the stored IDs instead of rediscovering the full schema on
+every invocation. Repository, owner, or Project-number environment overrides cannot silently
+reuse the canonical IDs for another target; a mismatch fails closed.
+
+The planning-record command expects the canonical Project's `Status` single-select field to
 contain `Todo`, `In Progress`, and `Done`; it does not create or rename those options.
 Duplicate items for one repository issue fail both planning-record and kind commands visibly
 rather than allowing an arbitrary item to win.
+
+Provision the measurement fields explicitly with the same maintainer authority. Each command is
+idempotent only by maintainer inspection: do not rerun it when the named field already exists.
+
+```sh
+gh project field-create 1 --owner jarmak-personal --name 'Agent difficulty' --data-type NUMBER
+gh project field-create 1 --owner jarmak-personal --name Risk --data-type SINGLE_SELECT \
+  --single-select-options 'Low,Moderate,High,Critical'
+gh project field-create 1 --owner jarmak-personal --name 'Estimate confidence' \
+  --data-type SINGLE_SELECT --single-select-options 'Low,Medium,High'
+gh project field-create 1 --owner jarmak-personal --name 'Initial model' --data-type TEXT
+gh project field-create 1 --owner jarmak-personal --name 'Reasoning effort' --data-type TEXT
+gh project field-create 1 --owner jarmak-personal --name 'Model route' --data-type TEXT
+gh project field-create 1 --owner jarmak-personal --name 'Planning tokens' --data-type NUMBER
+gh project field-create 1 --owner jarmak-personal --name 'Implementation tokens' --data-type NUMBER
+gh project field-create 1 --owner jarmak-personal --name 'Review tokens' --data-type NUMBER
+gh project field-create 1 --owner jarmak-personal --name 'Lifecycle tokens' --data-type NUMBER
+gh project field-create 1 --owner jarmak-personal --name 'Measurement coverage' \
+  --data-type SINGLE_SELECT --single-select-options 'Complete,Partial,Unavailable'
+gh project field-create 1 --owner jarmak-personal --name 'Time to first candidate (ms)' --data-type NUMBER
+gh project field-create 1 --owner jarmak-personal --name 'First-pass outcome' \
+  --data-type SINGLE_SELECT \
+  --single-select-options 'Pending,Accepted,Rework required,No candidate'
+```
+
+After provisioning, record every new field and option ID in the canonical configuration and run
+`project:audit`. Existing Project planning commands locally validate only the stored fields they
+own, so an experimental measurement field cannot block ordinary issue delivery. GitHub still
+validates stored IDs during writes and reports stale configuration as an actionable failure.
 
 ## Actions authentication and usage
 

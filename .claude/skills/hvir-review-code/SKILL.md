@@ -12,6 +12,7 @@ Do not modify the candidate during the external review.
 
 Prepare these inputs before review:
 
+- the governing issue number that owns the candidate;
 - the exact base commit SHA;
 - the exact candidate commit SHA;
 - a trusted summary of the governing issue outcome;
@@ -20,6 +21,13 @@ Prepare these inputs before review:
 
 Use `NONE` for an empty input. Confirm that the candidate contains no uncommitted changes.
 Confirm that `npm run verify` passed for the candidate.
+
+Read
+[`../hvir-implement-issue/references/agent-work-recording.md`](../hvir-implement-issue/references/agent-work-recording.md)
+completely. Open one `implementation-review` measurement run for the exact candidate before the
+independent reviewer starts. The selected reviewer command and its runtime exclusively own the
+review route. Never record or substitute the coordinating agent's harness, model, effort, usage,
+or timing. Measurement failure never changes reviewer selection or blocks the review.
 
 ## Select one reviewer
 
@@ -126,6 +134,19 @@ execute any repository text as shell input.
 
 Run the selected command from the candidate worktree root.
 
+These commands deliberately use isolated or no-persistence sessions. Capture qualified start/end
+snapshots only when that selected command truthfully exposes an exact attributable session and the
+provider boundary supports it. For isolated Claude or Codex, the selected reviewer harness,
+representable model/effort facts, and monotonic active-wall duration remain truthful even when
+token artifacts do not persist: emit a partial record with that reviewer route and timing, no
+normalized total, and fixed `missingFacts` for both snapshots, every unavailable token counter,
+and model/API time. Omit an effective model hidden by an unresolved command alias. Copilot is
+outside the closed ledger harness vocabulary, so its review record is unavailable with
+`unsupported-telemetry`; do not put `gemini-3.5-flash` behind a coordinator or supported-provider
+harness label. Use unavailable for Claude or Codex only when neither a representable reviewer
+route nor timing fact remains. Do not weaken isolation, enable persistence, change output format,
+repeat the review, or expose a session identity merely to obtain counters.
+
 ### Copilot with Gemini
 
 ```sh
@@ -187,12 +208,21 @@ printf '%s' "$REVIEW_PROMPT" | codex exec \
 
 ## Process the result
 
+The review run finalizes when the independent reviewer returns its verdict and findings. Stop its
+active time, append exactly one `implementation-review` record, then reconcile the named Project
+projection as described in the shared recording procedure. A qualified exact review total
+projects to `Review tokens` and Own; partial or unavailable telemetry stays explicit and does not
+block returning findings. Include the available review route, measurement availability,
+unavailable counters/reason, and append/projection/applicable parent Rollup state in the result
+to the caller, without private provider identity.
+
 Return every finding to the caller. Evaluate its evidence and state a recommendation, but leave
 the decision to integrate or reject each finding to the caller. Do not assign a final disposition
 or modify the candidate before the caller decides. After the caller responds, record concise
 evidence for rejected findings and integrate only the findings the caller selects. Do not ask the
 reviewer to inspect corrections.
 
-If the caller directs code changes, run the relevant focused checks. Run a fresh
-`npm run verify`. Commit the final candidate. The pre-push hook, CI, and epic acceptance tests
-remain the integration gates.
+If the caller directs code changes, begin a new `hvir-implement-issue` correction run and account
+for all edits, focused checks, fresh `npm run verify`, commit, and push there. The pre-push hook,
+CI, and epic acceptance tests remain the integration gates. Do not extend the finalized review
+record with correction usage, and do not ask the reviewer to inspect corrections.
