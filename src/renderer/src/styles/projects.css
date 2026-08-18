@@ -178,8 +178,8 @@
   mask-repeat: no-repeat;
   -webkit-mask-size: 300% 100%;
   mask-size: 300% 100%;
-  /* Six-second sweep followed by three seconds with the full name steady. */
-  animation: project-name-working-sweep 9s linear infinite;
+  /* Six-second sweep followed by half a second with the full name steady. */
+  animation: project-name-working-sweep 6.5s linear infinite;
 }
 
 @keyframes project-name-working-sweep {
@@ -188,7 +188,7 @@
     mask-position: 100% 0;
   }
 
-  66.667%,
+  92.3076923077%,
   100% {
     -webkit-mask-position: 0 0;
     mask-position: 0 0;

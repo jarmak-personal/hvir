@@ -19,7 +19,7 @@ low-salience presentation data. This count remains separate from actionable atte
 
 When a project has at least one Working terminal and no actionable Ready or bell signal, its name
 shows a left-to-right fade sweep. The name stays in layout and readable throughout the sweep. One
-six-second sweep is followed by three seconds with the complete name steady. The animation changes
+six-second sweep is followed by 0.5 seconds with the complete name steady. The animation changes
 no project-tab dimensions, neighboring controls, accessible text, or focus behavior.
 
 Actionable attention takes priority. A project with Ready or bell attention keeps a steady name
