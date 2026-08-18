@@ -432,6 +432,9 @@ async function moveByDragFromRenderer(options: {
         if (window.__hvirProjectDragSent) {
           const feedback = document.querySelector('.file-operation-feedback.error');
           if (feedback) throw new Error(feedback.textContent || 'drag move failed');
+          if (document.querySelector('.file-operation-feedback.success')) {
+            throw new Error('successful drag move showed redundant feedback');
+          }
           const moved = document.querySelector(
             '.files-panel [role="treeitem"][title=${JSON.stringify(destination.path)}]'
           );

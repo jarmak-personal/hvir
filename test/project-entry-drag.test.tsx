@@ -182,6 +182,7 @@ describe('Files tree internal drag interaction', () => {
       localPath('/repo/src/existing.md'),
     )
     expect(onWorkspaceContentChanged).toHaveBeenCalledOnce()
+    expect(document.querySelector('.file-operation-feedback')).toBeNull()
   })
 
   it('rejects invalid targets and clears transient state on drag end', async () => {
@@ -213,6 +214,35 @@ describe('Files tree internal drag interaction', () => {
     expect(rejected.dropEffect).toBe('none')
     expect(container.querySelector('[data-file-drop-target]')).toBeNull()
     expect(invoke).not.toHaveBeenCalledWith('fs:organize-entry', expect.anything())
+  })
+
+  it('retains error feedback when a drag move is not completed', async () => {
+    renderTree()
+    await waitForRows()
+    const source = row('/repo/existing.md')!
+    const destination = row('/repo/src')!
+    const transfer = dragTransfer()
+
+    act(() => {
+      source.dispatchEvent(dragEvent('dragstart', transfer))
+    })
+    act(() => {
+      destination.dispatchEvent(dragEvent('dragover', transfer))
+    })
+    act(() => {
+      destination.dispatchEvent(dragEvent('drop', transfer))
+    })
+    await act(settle)
+
+    act(() => operationEvents.forEach((accept) => accept(conflictedMove())))
+    await act(async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    })
+    expect(document.querySelector('.file-operation-feedback.error')?.textContent).toContain(
+      'Destination exists',
+    )
+    expect(viewer.rebindPath).not.toHaveBeenCalled()
+    expect(onWorkspaceContentChanged).not.toHaveBeenCalled()
   })
 })
 
@@ -295,6 +325,29 @@ function completedMove(): ProjectFileOperationProgress {
           destination: localPath('/repo/src/existing.md'),
           status: 'completed',
           effect: 'moved-entry',
+        },
+      ],
+    },
+  }
+}
+
+function conflictedMove(): ProjectFileOperationProgress {
+  const completed = completedMove()
+  if (completed.result?.outcome !== 'completed') {
+    throw new Error('Expected a completed drag move fixture')
+  }
+  const item = completed.result.items[0]
+  if (!item) throw new Error('Expected a drag move item fixture')
+  return {
+    ...completed,
+    result: {
+      ...completed.result,
+      items: [
+        {
+          ...item,
+          status: 'conflicted',
+          effect: 'none',
+          reason: 'Destination exists',
         },
       ],
     },

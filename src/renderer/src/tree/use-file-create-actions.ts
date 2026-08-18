@@ -164,9 +164,15 @@ export function useFileCreateActions(
     onWorkspaceContentChanged,
   })
   const handleOrganizationComplete = useCallback(
-    (result: ProjectFileOperationResult | undefined) => {
+    (
+      result: ProjectFileOperationResult | undefined,
+      completionFeedback: 'all' | 'errors-only',
+    ) => {
       setRefreshVersion((value) => value + 1)
-      setFeedback(organizationFeedback(result))
+      const resultFeedback = organizationFeedback(result)
+      if (completionFeedback === 'all' || resultFeedback.kind === 'error') {
+        setFeedback(resultFeedback)
+      }
       if (projectFileResultHasEffect(result)) onWorkspaceContentChanged()
       const item = result?.outcome === 'completed' ? result.items[0] : undefined
       if (item?.status === 'completed') {
