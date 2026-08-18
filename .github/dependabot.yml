@@ -1,12 +1,18 @@
 version: 2
 
-updates:
-  - package-ecosystem: npm
-    directory: /
+multi-ecosystem-groups:
+  all-dependency-updates:
     schedule:
       interval: daily
       time: '09:00'
       timezone: America/New_York
+
+updates:
+  - package-ecosystem: npm
+    directory: /
+    patterns:
+      - '*'
+    multi-ecosystem-group: all-dependency-updates
     open-pull-requests-limit: 10
     commit-message:
       prefix: deps
@@ -28,13 +34,6 @@ updates:
         update-types:
           - version-update:semver-major
     groups:
-      npm-minor-and-patch:
-        applies-to: version-updates
-        patterns:
-          - '*'
-        update-types:
-          - minor
-          - patch
       npm-security-updates:
         applies-to: security-updates
         patterns:
@@ -42,19 +41,9 @@ updates:
 
   - package-ecosystem: github-actions
     directory: /
-    schedule:
-      interval: weekly
-      day: monday
-      time: '09:00'
-      timezone: America/New_York
+    patterns:
+      - '*'
+    multi-ecosystem-group: all-dependency-updates
     open-pull-requests-limit: 5
     commit-message:
       prefix: ci
-    groups:
-      actions-minor-and-patch:
-        applies-to: version-updates
-        patterns:
-          - '*'
-        update-types:
-          - minor
-          - patch
