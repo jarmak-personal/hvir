@@ -76,6 +76,7 @@ export interface IpcDeps {
   readonly getHost: (hostId: string) => ProjectHost | undefined
   readonly connectedHosts: () => readonly ProjectHost[]
   readonly getRegisteredWorkspaceRoot: (root: HostPath) => HostPath | undefined
+  readonly revealLocalEntry: (path: HostPath) => void
   readonly getProjectState: () => ProjectState
   readonly listHosts: () => readonly ProjectHostOption[]
   readonly connectHost: (hostId: string, owner: RendererOwner) => Promise<ConnectedHost>

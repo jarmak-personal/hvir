@@ -550,6 +550,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       return committed
     }
     const openedFolderSelections: Array<{ hostId: string; path: string }> = []
+    const revealedEntries: HostPath[] = []
     const terminalMoveSmoke = createTerminalMoveSmokeHarness({
       sourceState: smokeProjectState,
       targetRoot: smokeWebSwitchRoot,
@@ -600,6 +601,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         hostPathEquals(root, smokeRemoteRoot)
           ? root
           : undefined,
+      revealLocalEntry: (path) => revealedEntries.push(path),
       getProjectState: () => smokeIpcProjectState,
       listHosts: () => [
         {
@@ -840,6 +842,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         remoteState: smokeRemoteFileProjectState,
         switchedState: () => smokeProjectReturnState('smoke-project-return'),
         publish: (state) => emit('project:state', setSmokeProjectState(state)),
+        revealedEntries,
       })
       console.log(`[smoke] project file operations OK (${projectFilesResult})`)
       const result = await verifyWorkspaceRemoteWorkflow({

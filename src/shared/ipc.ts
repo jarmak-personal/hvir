@@ -250,6 +250,11 @@ export interface ReadFileRequest {
   readonly path: HostPath
 }
 
+export interface RevealProjectEntryRequest {
+  readonly workspaceRoot: HostPath
+  readonly path: HostPath
+}
+
 /** Preload-only payload populated through Electron's disk-backed File bridge. */
 export interface AcquireDroppedFilesRequest {
   readonly paths: readonly string[]
@@ -673,6 +678,10 @@ export interface IpcInvokeMap {
     request: ReadFileRequest
     response: OperationResult<ResolveEntryResponse>
   }
+  'fs:reveal-entry': {
+    request: RevealProjectEntryRequest
+    response: OperationResult<void>
+  }
   'fs:read': { request: ReadFileRequest; response: OperationResult<ReadFileResponse> }
   'fs:read-asset': {
     request: ReadFileRequest
@@ -981,6 +990,7 @@ export const INVOKE_CHANNELS = [
   'fs:readdir',
   'fs:filename-search',
   'fs:resolve-entry',
+  'fs:reveal-entry',
   'fs:read',
   'fs:read-asset',
   'fs:write',

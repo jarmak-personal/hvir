@@ -34,6 +34,7 @@ interface FileTreeProps {
   readonly selected?: HostPath
   readonly revealRequest?: DirectoryTreeRevealRequest
   readonly onOpen: (path: HostPath, pinned: boolean, context?: FileOpenContext) => void
+  readonly onPointerOpen?: () => void
   readonly viewerPathRebind: ViewerPathRebindCapability & ViewerPathRemovalCapability
   readonly onWorkspaceContentChanged: () => void
   readonly connected?: boolean
@@ -54,6 +55,7 @@ export function FileTree({
   selected,
   revealRequest,
   onOpen,
+  onPointerOpen,
   viewerPathRebind,
   onWorkspaceContentChanged,
   connected = true,
@@ -189,9 +191,10 @@ export function FileTree({
                 revealRequest={fileCreate.revealRequest ?? revealRequest}
                 pathCopyRoot={root}
                 entryActions={fileCreate.entryActions}
-                onOpenFile={(path, pinned) => {
+                onOpenFile={(path, pinned, source) => {
                   fileCreate.clearCreatedSelection()
                   onOpen(path, pinned)
+                  if (source === 'pointer') onPointerOpen?.()
                 }}
                 onExpandedChange={onExpandedChange}
               />

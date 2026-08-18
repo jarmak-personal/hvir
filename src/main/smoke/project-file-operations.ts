@@ -25,6 +25,7 @@ import {
   openDeletionFixture,
   verifyProjectEntryDeletionRefresh,
 } from './project-entry-deletion'
+import { verifyFilesInteractionsSmoke } from './files-interactions'
 
 /**
  * Immediate deterministic remote filesystem boundary for the renderer smoke.
@@ -111,6 +112,7 @@ export async function verifyProjectFileOperationsSmoke(options: {
   readonly remoteState: () => ProjectState
   readonly switchedState: () => ProjectState
   readonly publish: (state: ProjectState) => void
+  readonly revealedEntries: readonly HostPath[]
 }): Promise<string> {
   const {
     win,
@@ -125,6 +127,7 @@ export async function verifyProjectFileOperationsSmoke(options: {
     remoteState,
     switchedState,
     publish,
+    revealedEntries,
   } = options
   const pointerName = '.hvir-smoke-created-pointer.txt'
   const renamedName = '.hvir-smoke-renamed-pointer.txt'
@@ -166,6 +169,7 @@ export async function verifyProjectFileOperationsSmoke(options: {
     if (pointerStat.type !== 'file' || pointerStat.size !== 0) {
       throw new Error('pointer create did not produce one empty regular file')
     }
+    await verifyFilesInteractionsSmoke(win, pointerPath, revealedEntries)
     const organizationPayload = 'organization smoke payload\n'
     await localHost.writeFile(pointerPath, organizationPayload)
     await waitForEditorContent(win, organizationPayload)
@@ -255,6 +259,7 @@ export async function verifyProjectFileOperationsSmoke(options: {
     await verifyProjectEntryDeletionRefresh(win, duplicatedPath, movedPointerPath)
 
     publish(remoteState())
+    await verifyRemoteRevealOmitted(win, remoteRoot)
     await createFromRenderer({
       win,
       root: remoteRoot,
@@ -409,6 +414,44 @@ export async function verifyProjectFileOperationsSmoke(options: {
     ])
     publish(localState())
   }
+}
+
+async function verifyRemoteRevealOmitted(
+  win: BrowserWindow,
+  remoteRoot: HostPath,
+): Promise<void> {
+  await rendererValue(
+    win,
+    `(() => {
+      const row = document.querySelector(
+        '.files-panel .directory-row[title=${JSON.stringify(remoteRoot.path)}]'
+      );
+      if (!(row instanceof HTMLButtonElement)) return undefined;
+      if (!window.__hvirRemoteRevealMenu) {
+        row.dispatchEvent(new MouseEvent('contextmenu', {
+          bubbles: true,
+          clientX: window.innerWidth - 1,
+          clientY: window.innerHeight - 1
+        }));
+        window.__hvirRemoteRevealMenu = true;
+        return undefined;
+      }
+      const menu = document.querySelector('.file-action-menu');
+      if (!(menu instanceof HTMLElement)) return undefined;
+      const labels = [...menu.querySelectorAll('[role="menuitem"]')]
+        .map((node) => node.textContent?.trim());
+      if (labels.includes('Reveal in Finder') || labels.includes('Show in File Manager')) {
+        throw new Error('SSH Files menu exposed a local reveal action');
+      }
+      const bounds = menu.getBoundingClientRect();
+      return bounds.right <= window.innerWidth && bounds.bottom <= window.innerHeight;
+    })()`,
+    'SSH Files menu did not preserve bounded placement without reveal',
+  )
+  await win.webContents.executeJavaScript(`
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    delete window.__hvirRemoteRevealMenu;
+  `)
 }
 
 async function organizeFromRenderer(options: {

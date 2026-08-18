@@ -62,7 +62,11 @@ export interface DirectoryTreeProps {
   readonly entryActions?: DirectoryTreeEntryActions
   readonly showFiles?: boolean
   readonly onSelectDirectory?: (path: HostPath) => void
-  readonly onOpenFile?: (path: HostPath, pinned: boolean) => void
+  readonly onOpenFile?: (
+    path: HostPath,
+    pinned: boolean,
+    source: 'pointer' | 'keyboard',
+  ) => void
   readonly onExpandedChange?: (path: HostPath, expanded: boolean) => void
 }
 
@@ -423,8 +427,11 @@ function DirectoryNode({
                 onContextMenu={(event) =>
                   entryActions?.openFromPointer(event, child, entry.name, entry.type)
                 }
-                onClick={() => openable && onOpenFile?.(child, false)}
-                onDoubleClick={() => openable && onOpenFile?.(child, true)}
+                onClick={(event) =>
+                  openable &&
+                  onOpenFile?.(child, false, event.detail === 0 ? 'keyboard' : 'pointer')
+                }
+                onDoubleClick={() => openable && onOpenFile?.(child, true, 'pointer')}
                 onKeyDown={(event) => {
                   if (
                     !entryActions?.openFromKeyboard(event, child, entry.name, entry.type)
@@ -543,8 +550,10 @@ function SymlinkNode({
         onContextMenu={(event) =>
           entryActions?.openFromPointer(event, stablePath, label, 'symlink')
         }
-        onClick={() => onOpenFile?.(stablePath, false)}
-        onDoubleClick={() => onOpenFile?.(stablePath, true)}
+        onClick={(event) =>
+          onOpenFile?.(stablePath, false, event.detail === 0 ? 'keyboard' : 'pointer')
+        }
+        onDoubleClick={() => onOpenFile?.(stablePath, true, 'pointer')}
         onKeyDown={(event) => {
           if (!entryActions?.openFromKeyboard(event, stablePath, label, 'symlink')) {
             handleLeafTreeKey(event)

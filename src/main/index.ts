@@ -7,6 +7,7 @@ import { GitWorkerHostRouter } from './git/worker-host-router'
 import { HtmlPreviewProtocol } from './html-preview-protocol'
 import { createWorkerClient, workerPath, type WorkerClient } from './worker-host'
 import { electronTrash, ProjectHostCatalog, RendererSshPrompter } from './project-host'
+import { electronReveal } from './project-host/electron-project-reveal'
 import { ProjectRegistry } from './project-registry'
 import { ProjectCoordinator } from './project-coordinator'
 import { PtySupervisor } from './pty/pty-supervisor'
@@ -373,6 +374,7 @@ function createWorkbenchEntry(): void {
         connectedHosts: () => projectRegistry?.connectedHosts() ?? [],
         getRegisteredWorkspaceRoot: (root) =>
           projectRegistry?.registeredWorkspaceRoot(root),
+        revealLocalEntry: electronReveal(shell),
         getProjectState: () => registry.state(),
         listHosts: () => projectRegistry?.listHosts() ?? [],
         ...projectCommands,
@@ -407,9 +409,7 @@ function createWorkbenchEntry(): void {
       }),
       (router) => router.dispose(),
     )
-    // Paint the workbench before background watch and Git discovery can touch a
-    // slow or unexpectedly broad directory.
-    createWindow()
+    createWindow() // Paint before background watch and Git discovery touches a slow directory.
     if (projectRegistry.active.host.connectionState === 'connected') {
       void workspaceCoordinator
         .replaceWatch(projectRegistry.active)
