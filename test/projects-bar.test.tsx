@@ -255,28 +255,131 @@ describe('ProjectsBar status presentation', () => {
   })
 })
 
+describe('ProjectsBar middle-click close', () => {
+  it.each([
+    ['local', projectState(0, 0)],
+    ['SSH', remoteWorkspaceState()],
+  ])(
+    'runs the existing close plan for an inactive present %s worktree without switching',
+    async (_hostKind, state) => {
+      const callbacks = renderProjectsBar(state, {})
+      callbacks.plan.mockResolvedValueOnce({ terminalCount: 0 })
+      const workspace = requiredElement('.workspace-tab:not(.active)')
+
+      const events = await middleClick(workspace)
+
+      expect(events.mouseDown.defaultPrevented).toBe(true)
+      expect(events.auxClick.defaultPrevented).toBe(true)
+      const project = state.projects[0]!
+      const inactive = project.workspaces.find(
+        (candidate) => candidate.id !== state.activeWorkspaceId,
+      )!
+      expect(callbacks.plan).toHaveBeenCalledWith(project.id, inactive.id)
+      expect(callbacks.close).toHaveBeenCalledWith(
+        project.id,
+        inactive.id,
+        { terminalCount: 0 },
+        false,
+      )
+      expect(callbacks.switchWorkspace).not.toHaveBeenCalled()
+    },
+  )
+
+  it('opens the existing destructive confirmation for retained terminals', async () => {
+    const callbacks = renderProjectsBar(projectState(0, 0), {})
+    callbacks.plan.mockResolvedValueOnce({ terminalCount: 2 })
+
+    await middleClick(requiredElement('.workspace-tab:not(.active)'))
+
+    expect(callbacks.close).not.toHaveBeenCalled()
+    expect(host.querySelector('.close-workspace-dialog')?.textContent).toContain(
+      '2 hvir terminals will be terminated',
+    )
+  })
+
+  it('leaves active, missing, busy, and already-planning workspaces open', async () => {
+    const state = projectState(0, 0)
+    const project = state.projects[0]!
+    const feature = project.workspaces[1]!
+    const missingState: ProjectState = {
+      ...state,
+      projects: [
+        {
+          ...project,
+          workspaces: [project.workspaces[0]!, { ...feature, missing: true }],
+        },
+      ],
+    }
+    const activeCallbacks = renderProjectsBar(state, {})
+    const activeEvents = await middleClick(requiredElement('.workspace-tab.active'))
+    expect(activeEvents.auxClick.defaultPrevented).toBe(false)
+    expect(activeCallbacks.plan).not.toHaveBeenCalled()
+
+    const missingCallbacks = renderProjectsBar(missingState, {})
+    const missingEvents = await middleClick(requiredElement('.workspace-tab.missing'))
+    expect(missingEvents.auxClick.defaultPrevented).toBe(false)
+    expect(missingCallbacks.plan).not.toHaveBeenCalled()
+
+    const busyCallbacks = renderProjectsBar(state, {}, { busy: true })
+    const busyEvents = await middleClick(requiredElement('.workspace-tab:not(.active)'))
+    expect(busyEvents.auxClick.defaultPrevented).toBe(false)
+    expect(busyCallbacks.plan).not.toHaveBeenCalled()
+
+    let resolvePlan: ((plan: { terminalCount: number }) => void) | undefined
+    const planningCallbacks = renderProjectsBar(state, {})
+    planningCallbacks.plan.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolvePlan = resolve
+        }),
+    )
+    const planningTab = requiredElement('.workspace-tab:not(.active)')
+    await middleClick(planningTab, false)
+    const repeatedEvents = await middleClick(planningTab, false)
+    expect(repeatedEvents.auxClick.defaultPrevented).toBe(false)
+    expect(planningCallbacks.plan).toHaveBeenCalledOnce()
+    await act(async () => {
+      resolvePlan?.({ terminalCount: 0 })
+      await Promise.resolve()
+    })
+  })
+
+  it('does not close project tabs or open the project-close dialog', async () => {
+    const callbacks = renderProjectsBar(projectState(0, 0), {})
+
+    const events = await middleClick(requiredElement('.project-tab'))
+
+    expect(events.auxClick.defaultPrevented).toBe(false)
+    expect(callbacks.closeProject).not.toHaveBeenCalled()
+    expect(host.querySelector('.close-project-dialog')).toBeNull()
+  })
+})
+
 function renderProjectsBar(
   state: ProjectState,
   rollups: Readonly<
     Record<string, { readonly actionable: number; readonly working: number }>
   >,
+  options: { readonly busy?: boolean } = {},
 ) {
   const callbacks = {
     plan: vi.fn(() => Promise.resolve({ terminalCount: 0 })),
     close: vi.fn(),
     reopen: vi.fn(),
     dismiss: vi.fn(),
+    switchWorkspace: vi.fn(),
+    closeProject: vi.fn(),
   }
   act(() => {
     root.render(
       <ProjectsBar
         state={state}
         rollups={rollups}
-        busy={false}
+        busy={options.busy ?? false}
         onAdd={vi.fn()}
-        onSwitch={vi.fn()}
+        onSwitch={callbacks.switchWorkspace}
         onRefresh={vi.fn()}
-        onCloseProject={vi.fn()}
+        onCloseProject={callbacks.closeProject}
         onPrune={vi.fn()}
         onDismiss={callbacks.dismiss}
         onPlanCloseWorkspace={callbacks.plan}
@@ -375,4 +478,83 @@ function remoteProjectState(states: readonly HostConnectionState[]): ProjectStat
     watchTier: activeProject.watchTier,
     projects,
   }
+}
+
+function remoteWorkspaceState(): ProjectState {
+  const hostId = asHostId('remote-workspaces')
+  const mainRoot = hostPath(hostId, '/srv/repo')
+  const featureRoot = hostPath(hostId, '/srv/repo-feature')
+  const mainId = `workspace:${hostId}:${mainRoot.path}`
+  const featureId = `workspace:${hostId}:${featureRoot.path}`
+  const projectId = `project:${hostId}:${mainRoot.path}`
+  return {
+    revision: 0,
+    root: mainRoot,
+    activeProjectId: projectId,
+    activeWorkspaceId: mainId,
+    connectionState: 'connected',
+    watchTier: 'polling',
+    projects: [
+      {
+        id: projectId,
+        displayName: 'remote-repo',
+        registeredRoot: mainRoot,
+        connectionState: 'connected',
+        watchTier: 'polling',
+        activeWorkspaceId: mainId,
+        workspaces: [
+          {
+            id: mainId,
+            root: mainRoot,
+            name: 'main',
+            branch: 'main',
+            main: true,
+            closed: false,
+            missing: false,
+            repository: true,
+            changedFiles: 0,
+          },
+          {
+            id: featureId,
+            root: featureRoot,
+            name: 'feature',
+            branch: 'feature',
+            main: false,
+            closed: false,
+            missing: false,
+            repository: true,
+            changedFiles: 0,
+          },
+        ],
+      },
+    ],
+  }
+}
+
+function requiredElement<T extends Element = HTMLDivElement>(selector: string): T {
+  const match = host.querySelector<T>(selector)
+  if (!match) throw new Error(`Missing element '${selector}'`)
+  return match
+}
+
+async function middleClick(
+  target: Element,
+  settle = true,
+): Promise<{ readonly mouseDown: MouseEvent; readonly auxClick: MouseEvent }> {
+  const mouseDown = new MouseEvent('mousedown', {
+    button: 1,
+    bubbles: true,
+    cancelable: true,
+  })
+  const auxClick = new MouseEvent('auxclick', {
+    button: 1,
+    bubbles: true,
+    cancelable: true,
+  })
+  await act(async () => {
+    target.dispatchEvent(mouseDown)
+    target.dispatchEvent(auxClick)
+    if (settle) await Promise.resolve()
+  })
+  return { mouseDown, auxClick }
 }
