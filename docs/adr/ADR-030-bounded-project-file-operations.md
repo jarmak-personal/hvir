@@ -258,7 +258,7 @@ monitoring and broad renderer filesystem access are prohibited.
 
 ### External move
 
-Ordinary clipboard paste and drag-and-drop always copy and leave every source unchanged.
+Ordinary clipboard paste and external drag-and-drop always copy and leave every source unchanged.
 External move is a separately named native-picker action and is available only when the
 application host truthfully provides recoverable trash. It never has a permanent-delete
 fallback.

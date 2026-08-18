@@ -45,6 +45,8 @@ export interface FileOrganizationActionsController {
   readonly dialogError?: string
   readonly pending: boolean
   readonly progress?: ProjectFileOperationProgress
+  canMove(source: HostPath, destinationDirectory: HostPath): boolean
+  move(source: HostPath, destinationDirectory: HostPath): boolean
   begin(action: FileOrganizationAction, source: HostPath, sourceType: FileType): void
   selectDirectory(path: HostPath): void
   submit(name: string): void
@@ -109,6 +111,59 @@ export function useFileOrganizationActions(options: {
     onComplete: finish,
     onError: fail,
   })
+  const startRequest = useCallback(
+    (request: ProjectFileOrganizationRequest): boolean => {
+      const accepted = operation.start(
+        () => window.hvir.invoke('fs:organize-entry', request),
+        request.action === 'rename'
+          ? 'renaming'
+          : request.action === 'move'
+            ? 'moving'
+            : 'duplicating',
+        `The ${request.action} operation could not start`,
+      )
+      if (accepted) activeRequest.current = request
+      return accepted
+    },
+    [operation],
+  )
+
+  const canMove = useCallback(
+    (source: HostPath, destinationDirectory: HostPath): boolean => {
+      if (
+        operation.pending ||
+        source.hostId !== root.hostId ||
+        destinationDirectory.hostId !== root.hostId ||
+        hostPathEquals(source, root) ||
+        !containsHostPath(root, source) ||
+        !containsHostPath(root, destinationDirectory)
+      ) {
+        return false
+      }
+      return canRebindPath(
+        source,
+        joinHostPath(destinationDirectory, basenameHostPath(source)),
+      )
+    },
+    [canRebindPath, operation.pending, root],
+  )
+
+  const move = useCallback(
+    (source: HostPath, destinationDirectory: HostPath): boolean => {
+      if (!canMove(source, destinationDirectory)) return false
+      const request: ProjectFileOrganizationRequest = {
+        action: 'move',
+        workspaceRoot: hostPath(root.hostId, root.path),
+        source: hostPath(source.hostId, source.path),
+        destinationDirectory: hostPath(
+          destinationDirectory.hostId,
+          destinationDirectory.path,
+        ),
+      }
+      return startRequest(request)
+    },
+    [canMove, root, startRequest],
+  )
 
   useEffect(() => {
     activeRequest.current = undefined
@@ -121,6 +176,8 @@ export function useFileOrganizationActions(options: {
     dialogError,
     pending: operation.pending,
     progress: operation.progress,
+    canMove,
+    move,
     begin(action, source, sourceType) {
       if (operation.pending || hostPathEquals(source, root)) return
       setDialog({
@@ -159,16 +216,7 @@ export function useFileOrganizationActions(options: {
         return
       }
       setDialogError(undefined)
-      const accepted = operation.start(
-        () => window.hvir.invoke('fs:organize-entry', request),
-        request.action === 'rename'
-          ? 'renaming'
-          : request.action === 'move'
-            ? 'moving'
-            : 'duplicating',
-        `The ${request.action} operation could not start`,
-      )
-      if (accepted) activeRequest.current = request
+      startRequest(request)
     },
     dismiss() {
       if (operation.pending) return

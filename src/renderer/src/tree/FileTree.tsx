@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactElement,
+} from 'react'
 
 import {
   basenameHostPath,
@@ -18,11 +25,23 @@ import { buildTreeGitDecorations } from './git-status-decoration'
 import { FilenameSearch } from './FilenameSearch'
 import { FileCreateOverlays } from './FileCreateOverlays'
 import { fileActionDestination } from './file-action-destination'
+import {
+  canDragProjectEntry,
+  isProjectEntryDrag,
+  PROJECT_ENTRY_DRAG_TYPE,
+  projectEntryDropRequest,
+  type ProjectEntryDragSource,
+} from './project-entry-drag'
 import { useFileCreateActions } from './use-file-create-actions'
 import type { ViewerPathRebindCapability } from '../viewer/viewer-path-rebind'
 import type { ViewerPathRemovalCapability } from '../viewer/viewer-path-removal'
 
 const NO_CHANGED_FILES: readonly GitChangedFile[] = []
+
+interface FileDropTarget {
+  readonly path: HostPath
+  readonly effect: 'copy' | 'move'
+}
 
 interface FileTreeProps {
   readonly root: HostPath
@@ -64,7 +83,8 @@ export function FileTree({
   onExpandedChange,
 }: FileTreeProps): ReactElement {
   const [searchActive, setSearchActive] = useState(false)
-  const [dropTarget, setDropTarget] = useState<HostPath>()
+  const [dropTarget, setDropTarget] = useState<FileDropTarget>()
+  const projectDrag = useRef<ProjectEntryDragSource | undefined>(undefined)
   const fileCreate = useFileCreateActions({
     root,
     onCreatedFile: onOpen,
@@ -74,7 +94,10 @@ export function FileTree({
     closeCleanPath: viewerPathRebind.closeCleanPath,
     onWorkspaceContentChanged,
   })
-  useEffect(() => setDropTarget(undefined), [root.hostId, root.path])
+  useEffect(() => {
+    projectDrag.current = undefined
+    setDropTarget(undefined)
+  }, [connected, root.hostId, root.path])
   const gitDecorations = useMemo(
     () =>
       buildTreeGitDecorations(
@@ -133,12 +156,68 @@ export function FileTree({
               event.stopPropagation()
               fileCreate.pasteFiles(target.path, target.type)
             }}
+            onDragStart={(event) => {
+              const source = fileTarget(event.target, root)
+              if (
+                !connected ||
+                fileCreate.pending ||
+                !source ||
+                !source.projectOperationAvailable ||
+                !canDragProjectEntry(root, source.path, source.type)
+              ) {
+                event.preventDefault()
+                projectDrag.current = undefined
+                setDropTarget(undefined)
+                return
+              }
+              projectDrag.current = {
+                source: source.path,
+                sourceType: source.type,
+              }
+              event.dataTransfer.effectAllowed = 'move'
+              event.dataTransfer.setData(PROJECT_ENTRY_DRAG_TYPE, '1')
+            }}
             onDragOver={(event) => {
+              const target = fileTarget(event.target, root) ?? {
+                path: root,
+                type: 'dir',
+                projectOperationAvailable: true,
+              }
+              if (isProjectEntryDrag([...event.dataTransfer.types])) {
+                const request = projectDrag.current
+                  ? projectEntryDropRequest(
+                      root,
+                      projectDrag.current,
+                      target.path,
+                      target.type,
+                    )
+                  : undefined
+                if (
+                  !connected ||
+                  fileCreate.pending ||
+                  !target.projectOperationAvailable ||
+                  !request ||
+                  !fileCreate.organization.canMove(
+                    request.source,
+                    request.destinationDirectory,
+                  )
+                ) {
+                  event.dataTransfer.dropEffect = 'none'
+                  setDropTarget(undefined)
+                  return
+                }
+                event.preventDefault()
+                event.dataTransfer.dropEffect = 'move'
+                setDropTarget({ path: request.destinationDirectory, effect: 'move' })
+                return
+              }
               if (!event.dataTransfer.types.includes('Files')) return
               event.preventDefault()
               event.dataTransfer.dropEffect = 'copy'
-              const target = fileTarget(event.target, root) ?? { path: root, type: 'dir' }
-              setDropTarget(fileActionDestination(root, target.path, target.type))
+              setDropTarget({
+                path: fileActionDestination(root, target.path, target.type),
+                effect: 'copy',
+              })
             }}
             onDragLeave={(event) => {
               if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
@@ -146,9 +225,42 @@ export function FileTree({
               }
             }}
             onDrop={(event) => {
+              const target = fileTarget(event.target, root) ?? {
+                path: root,
+                type: 'dir',
+                projectOperationAvailable: true,
+              }
+              if (isProjectEntryDrag([...event.dataTransfer.types])) {
+                event.preventDefault()
+                const request = projectDrag.current
+                  ? projectEntryDropRequest(
+                      root,
+                      projectDrag.current,
+                      target.path,
+                      target.type,
+                    )
+                  : undefined
+                projectDrag.current = undefined
+                setDropTarget(undefined)
+                if (
+                  connected &&
+                  !fileCreate.pending &&
+                  target.projectOperationAvailable &&
+                  request &&
+                  fileCreate.organization.canMove(
+                    request.source,
+                    request.destinationDirectory,
+                  )
+                ) {
+                  fileCreate.organization.move(
+                    request.source,
+                    request.destinationDirectory,
+                  )
+                }
+                return
+              }
               if (!event.dataTransfer.types.includes('Files')) return
               event.preventDefault()
-              const target = fileTarget(event.target, root) ?? { path: root, type: 'dir' }
               setDropTarget(undefined)
               fileCreate.dropFiles(
                 [...event.dataTransfer.files],
@@ -156,10 +268,15 @@ export function FileTree({
                 target.type,
               )
             }}
+            onDragEnd={() => {
+              projectDrag.current = undefined
+              setDropTarget(undefined)
+            }}
           >
             {dropTarget ? (
               <div className="file-drop-target" role="status">
-                Copy into {basenameHostPath(dropTarget) || dropTarget.path}
+                {dropTarget.effect === 'move' ? 'Move into' : 'Copy into'}{' '}
+                {basenameHostPath(dropTarget.path) || dropTarget.path.path}
               </div>
             ) : null}
             {watchInterestsLimited ? (
@@ -189,6 +306,12 @@ export function FileTree({
                 revealRequest={fileCreate.revealRequest ?? revealRequest}
                 pathCopyRoot={root}
                 entryActions={fileCreate.entryActions}
+                isDraggable={(path, type) =>
+                  connected &&
+                  !fileCreate.pending &&
+                  canDragProjectEntry(root, path, type)
+                }
+                dropTarget={dropTarget}
                 onOpenFile={(path, pinned) => {
                   fileCreate.clearCreatedSelection()
                   onOpen(path, pinned)
@@ -209,7 +332,13 @@ export function FileTree({
 function fileTarget(
   value: EventTarget | null,
   root: HostPath,
-): { readonly path: HostPath; readonly type: FileType } | undefined {
+):
+  | {
+      readonly path: HostPath
+      readonly type: FileType
+      readonly projectOperationAvailable: boolean
+    }
+  | undefined {
   if (!(value instanceof Element)) return undefined
   const row = value.closest<HTMLElement>('[data-file-path][data-file-type]')
   const path = row?.dataset.filePath
@@ -217,7 +346,13 @@ function fileTarget(
   const type = row?.dataset.fileType
   if (!path || hostId !== root.hostId || !isFileType(type)) return undefined
   const target = hostPath(root.hostId, path)
-  return containsHostPath(root, target) ? { path: target, type } : undefined
+  return containsHostPath(root, target)
+    ? {
+        path: target,
+        type,
+        projectOperationAvailable: row?.dataset.projectFileUnavailable !== 'true',
+      }
+    : undefined
 }
 
 function isFileType(value: unknown): value is FileType {
