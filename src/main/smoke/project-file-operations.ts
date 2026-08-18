@@ -196,14 +196,12 @@ export async function verifyProjectFileOperationsSmoke(options: {
       entry: 'pointer',
     })
     await markActiveEditorDirty(win, 'unsaved organization marker')
-    await organizeFromRenderer({
+    await moveByDragFromRenderer({
       win,
       root: localRoot,
       source: renamedPath,
-      action: 'move',
       destinationDirectory: organizationDirectory,
       destination: movedPointerPath,
-      entry: 'pointer',
       expectActiveTab: true,
       expectDirtyText: 'unsaved organization marker',
     })
@@ -270,14 +268,12 @@ export async function verifyProjectFileOperationsSmoke(options: {
     if ((await localHost.stat(keyboardPath)).type !== 'dir') {
       throw new Error('remote keyboard create did not produce one directory')
     }
-    await organizeFromRenderer({
+    await moveByDragFromRenderer({
       win,
       root: remoteRoot,
       source: remoteKeyboardPath,
-      action: 'move',
       destinationDirectory: remoteOrganizationDirectory,
       destination: movedRemoteKeyboardPath,
-      entry: 'keyboard',
     })
     await expectMissingHostPath(localHost, keyboardPath)
     if ((await localHost.stat(movedKeyboardPath)).type !== 'dir') {
@@ -397,7 +393,7 @@ export async function verifyProjectFileOperationsSmoke(options: {
       localHost.createFileExclusive = originalCreate
     }
 
-    return `pointer create + clean rename · dirty-tab move + deletion block · recoverable local deletion + outside-workspace recovery + Files/search/Git/tab refresh · permanent remote keyboard deletion · clipboard local copy · preload drop remote copy · ${externalMoveResult} · workspace switch preserved snapshot`
+    return `pointer create + clean rename · local dirty-tab drag move + deletion block · recoverable local deletion + outside-workspace recovery + Files/search/Git/tab refresh · remote drag move + permanent keyboard deletion · clipboard local copy · preload drop remote copy · ${externalMoveResult} · workspace switch preserved snapshot`
   } catch (reason) {
     const state = await readProjectFileSmokeState(win)
     throw new Error(
@@ -452,6 +448,103 @@ async function verifyRemoteRevealOmitted(
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     delete window.__hvirRemoteRevealMenu;
   `)
+}
+
+async function moveByDragFromRenderer(options: {
+  readonly win: BrowserWindow
+  readonly root: HostPath
+  readonly source: HostPath
+  readonly destinationDirectory: HostPath
+  readonly destination: HostPath
+  readonly expectActiveTab?: boolean
+  readonly expectDirtyText?: string
+}): Promise<void> {
+  const {
+    win,
+    root,
+    source,
+    destinationDirectory,
+    destination,
+    expectActiveTab = false,
+    expectDirtyText,
+  } = options
+  try {
+    await rendererValue(
+      win,
+      `(() => {
+        if (window.__hvirProjectDragSent) {
+          const feedback = document.querySelector('.file-operation-feedback.error');
+          if (feedback) throw new Error(feedback.textContent || 'drag move failed');
+          if (document.querySelector('.file-operation-feedback.success')) {
+            throw new Error('successful drag move showed redundant feedback');
+          }
+          const moved = document.querySelector(
+            '.files-panel [role="treeitem"][title=${JSON.stringify(destination.path)}]'
+          );
+          if (!moved) return undefined;
+          ${
+            expectActiveTab
+              ? `const tab = document.querySelector(
+                  '.viewer-tab.active .tab-main[title=${JSON.stringify(destination.path)}]'
+                );
+                if (!tab) return undefined;`
+              : ''
+          }
+          ${
+            expectDirtyText
+              ? `if (!document.querySelector('.viewer-tab.active .tab-status')
+                    ?.textContent?.trim()) return undefined;
+                if (!document.querySelector('.cm-content')?.textContent
+                    ?.includes(${JSON.stringify(expectDirtyText)})) return undefined;`
+              : ''
+          }
+          return true;
+        }
+        const source = document.querySelector(
+          '.files-panel [role="treeitem"][title=${JSON.stringify(source.path)}]'
+        );
+        const target = document.querySelector(
+          '.files-panel .directory-row[title=${JSON.stringify(destinationDirectory.path)}]'
+        );
+        if (!(source instanceof HTMLButtonElement) ||
+            !(target instanceof HTMLButtonElement)) return undefined;
+        if (!source.draggable) throw new Error('supported project entry was not draggable');
+        if (!window.__hvirProjectDragTransfer) {
+          const transfer = new DataTransfer();
+          source.dispatchEvent(new DragEvent('dragstart', {
+            bubbles: true, cancelable: true, dataTransfer: transfer
+          }));
+          target.dispatchEvent(new DragEvent('dragover', {
+            bubbles: true, cancelable: true, dataTransfer: transfer
+          }));
+          window.__hvirProjectDragTransfer = transfer;
+          return undefined;
+        }
+        const transfer = window.__hvirProjectDragTransfer;
+        const status = document.querySelector('.file-drop-target');
+        if (target.dataset.fileDropTarget !== 'move' ||
+            !target.textContent?.includes('Move here') ||
+            !status?.textContent?.includes('Move into')) {
+          throw new Error('drag move did not expose its actual non-color destination');
+        }
+        target.dispatchEvent(new DragEvent('drop', {
+          bubbles: true, cancelable: true, dataTransfer: transfer
+        }));
+        source.dispatchEvent(new DragEvent('dragend', {
+          bubbles: true, dataTransfer: transfer
+        }));
+        window.__hvirProjectDragSent = true;
+        return undefined;
+      })()`,
+      `project entry drag move did not settle for ${root.hostId}`,
+      20_000,
+    )
+  } finally {
+    await win.webContents.executeJavaScript(`
+      delete window.__hvirProjectDragTransfer;
+      delete window.__hvirProjectDragSent;
+    `)
+  }
 }
 
 async function organizeFromRenderer(options: {

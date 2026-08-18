@@ -4,6 +4,10 @@ import { basenameHostPath, type HostPath } from '../../../shared'
 import { PathCopyMenu } from '../path-copy/PathCopyMenu'
 import { usePathCopyMenu } from '../path-copy/use-path-copy-menu'
 import { ConfirmationDialog } from '../workbench/ConfirmationDialog'
+import {
+  closeOnMiddleClick,
+  suppressMiddleClickDefault,
+} from '../workbench/middle-click-close'
 import type { ViewerPaneId, ViewerTab } from './tab-state'
 
 const VIEWER_TAB_DRAG_TYPE = 'application/x-hvir-viewer-tab'
@@ -113,6 +117,8 @@ export function TabStrip({
             onDoubleClick={(event) => {
               if (event.button === 0) onPin(tab.id)
             }}
+            onMouseDown={suppressMiddleClickDefault}
+            onAuxClick={(event) => closeOnMiddleClick(event, () => requestClose(tab))}
           >
             <button
               className="tab-main"
@@ -149,6 +155,8 @@ export function TabStrip({
             className={`viewer-tab git-graph-tab${graphActive ? ' active' : ''}`}
             role="tab"
             aria-selected={graphActive}
+            onMouseDown={suppressMiddleClickDefault}
+            onAuxClick={(event) => closeOnMiddleClick(event, onCloseGraph)}
           >
             <button
               className="tab-main"
@@ -177,6 +185,10 @@ export function TabStrip({
             key={webTab.id}
             role="tab"
             aria-selected={webTab.id === activeWebId}
+            onMouseDown={suppressMiddleClickDefault}
+            onAuxClick={(event) =>
+              closeOnMiddleClick(event, () => onCloseWeb?.(webTab.id))
+            }
           >
             <button
               className="tab-main"

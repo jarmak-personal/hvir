@@ -43,15 +43,10 @@ export function workspaceCloseSmokeCommands({
     projectById: (projectId: string) =>
       getState().projects.find((project) => project.id === projectId),
     closeWorkspace: (projectId: string, workspaceId: string) => {
-      const state = updateWorkspace(
-        getState(),
-        projectId,
-        workspaceId,
-        (workspace) => ({
-          ...workspace,
-          closed: true,
-        }),
-      )
+      const state = updateWorkspace(getState(), projectId, workspaceId, (workspace) => ({
+        ...workspace,
+        closed: true,
+      }))
       return Promise.resolve(setState(state))
     },
     reopenWorkspace: (projectId: string, workspaceId: string) => {
@@ -210,7 +205,7 @@ export async function verifyWorkspaceCloseSmoke({
   )
   emitState(getState())
 
-  await runCloseDialog(win, 'Cancel')
+  await runCloseDialog(win, 'Cancel', 'button')
   if (
     !supervisor.get(sessionId) ||
     !recovery.has(closeRoot, sessionId) ||
@@ -220,7 +215,7 @@ export async function verifyWorkspaceCloseSmoke({
   }
 
   const unaffectedBefore = [...supervisor.workspaceSessionIds(activeRoot)].sort()
-  await runCloseDialog(win, 'Close workspace')
+  await runCloseDialog(win, 'Close workspace', 'middle-click')
   if (supervisor.get(sessionId)) throw new Error('workspace close retained its live PTY')
   if (recovery.has(closeRoot, sessionId)) {
     throw new Error('workspace close retained its recovery record')
@@ -269,6 +264,7 @@ function updateWorkspace(
 async function runCloseDialog(
   win: BrowserWindow,
   action: 'Cancel' | 'Close workspace',
+  interaction: 'button' | 'middle-click',
 ): Promise<void> {
   await withTimeout(
     win.webContents.executeJavaScript(`
@@ -306,7 +302,28 @@ async function runCloseDialog(
           if (document.querySelector('[aria-label="Closeable terminal workspace"]')) {
             return reject(new Error('inactive retained record materialized a workspace view'));
           }
-          close.click();
+          if (${JSON.stringify(interaction)} === 'middle-click') {
+            const tab = close.closest('.workspace-tab');
+            const activeBefore = document.querySelector('.workspace-tab.active')?.textContent;
+            const mouseDownHandled = !tab?.dispatchEvent(new MouseEvent('mousedown', {
+              button: 1, bubbles: true, cancelable: true
+            }));
+            const auxClickHandled = !tab?.dispatchEvent(new MouseEvent('auxclick', {
+              button: 1, bubbles: true, cancelable: true
+            }));
+            const activeAfter = document.querySelector('.workspace-tab.active')?.textContent;
+            if (!mouseDownHandled || !auxClickHandled) {
+              return reject(new Error('workspace middle-click did not suppress auxiliary defaults'));
+            }
+            if (activeAfter !== activeBefore) {
+              return reject(new Error('workspace middle-click activated the closing worktree'));
+            }
+            if (document.querySelector('.close-project-dialog')) {
+              return reject(new Error('workspace middle-click opened the project-close dialog'));
+            }
+          } else {
+            close.click();
+          }
           const waitForDialog = () => {
             const dialog = document.querySelector('.close-workspace-dialog');
             if (!dialog) {

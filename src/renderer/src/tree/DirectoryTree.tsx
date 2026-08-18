@@ -60,6 +60,8 @@ export interface DirectoryTreeProps {
   readonly revealRequest?: DirectoryTreeRevealRequest
   readonly pathCopyRoot?: HostPath
   readonly entryActions?: DirectoryTreeEntryActions
+  readonly isDraggable?: (path: HostPath, type: FileType) => boolean
+  readonly dropTarget?: DirectoryTreeDropTarget
   readonly showFiles?: boolean
   readonly onSelectDirectory?: (path: HostPath) => void
   readonly onOpenFile?: (
@@ -69,6 +71,11 @@ export interface DirectoryTreeProps {
   ) => void
   readonly onPointerActivate?: () => void
   readonly onExpandedChange?: (path: HostPath, expanded: boolean) => void
+}
+
+export interface DirectoryTreeDropTarget {
+  readonly path: HostPath
+  readonly effect: 'copy' | 'move'
 }
 
 export interface DirectoryTreeRevealRequest {
@@ -95,6 +102,8 @@ export function DirectoryTree({
   revealRequest,
   pathCopyRoot,
   entryActions,
+  isDraggable,
+  dropTarget,
   showFiles = true,
   onSelectDirectory,
   onOpenFile,
@@ -136,6 +145,8 @@ export function DirectoryTree({
           revealRequest={revealRequest}
           showFiles={showFiles}
           entryActions={actions}
+          isDraggable={isDraggable}
+          dropTarget={dropTarget}
           onSelectDirectory={onSelectDirectory}
           onOpenFile={onOpenFile}
           onPointerActivate={onPointerActivate}
@@ -160,6 +171,7 @@ interface DirectoryNodeProps extends Omit<
   readonly linked?: boolean
   readonly gitIgnored?: boolean
   readonly gitIgnoredRoot?: boolean
+  readonly pathTraversesSymlink?: boolean
   readonly refreshVersion: number
   readonly ignoredRefreshVersion: number
   readonly showFiles: boolean
@@ -173,6 +185,7 @@ function DirectoryNode({
   linked = false,
   gitIgnored = false,
   gitIgnoredRoot = false,
+  pathTraversesSymlink = false,
   loadEntries,
   loadIgnoredEntries,
   resolveEntry,
@@ -183,6 +196,8 @@ function DirectoryNode({
   revealRequest,
   showFiles,
   entryActions,
+  isDraggable,
+  dropTarget,
   onSelectDirectory,
   onOpenFile,
   onPointerActivate,
@@ -207,6 +222,9 @@ function DirectoryNode({
   )
   const rowRef = useRef<HTMLButtonElement>(null)
   const gitDecoration = gitDecorations?.directories.get(treeGitPathKey(stablePath))
+  const isDropTarget = Boolean(
+    dropTarget && hostPathEquals(dropTarget.path, stablePath),
+  )
   const entryNames = useMemo(() => entries.map((entry) => entry.name), [entries])
 
   useEffect(() => {
@@ -292,7 +310,13 @@ function DirectoryNode({
         data-file-host={stablePath.hostId}
         data-file-path={stablePath.path}
         data-file-type={linked ? 'symlink' : 'dir'}
-        className={`tree-row directory-row${isSelected ? ' selected' : ''}${linked ? ' symlink-row' : ''}${gitIgnored ? ' gitignored' : ''}${gitDecoration ? ` git-status-${gitDecoration.tone}` : ''}`}
+        data-project-file-unavailable={pathTraversesSymlink ? 'true' : undefined}
+        data-file-drop-target={isDropTarget ? dropTarget?.effect : undefined}
+        draggable={
+          !pathTraversesSymlink &&
+          (isDraggable?.(stablePath, linked ? 'symlink' : 'dir') ?? false)
+        }
+        className={`tree-row directory-row${isSelected ? ' selected' : ''}${linked ? ' symlink-row' : ''}${gitIgnored ? ' gitignored' : ''}${gitDecoration ? ` git-status-${gitDecoration.tone}` : ''}${isDropTarget ? ' file-drop-target-row' : ''}`}
         style={{ paddingLeft: 10 + depth * 14, zIndex: depth + 1 }}
         onContextMenu={(event) =>
           entryActions?.openFromPointer(
@@ -350,6 +374,7 @@ function DirectoryNode({
         <span className="tree-name">{label}</span>
         {gitIgnoredRoot ? <span className="tree-gitignored">ignored</span> : null}
         {gitDecoration ? <DirectoryGitStatus decoration={gitDecoration} /> : null}
+        {isDropTarget ? <TreeDropTargetMarker effect={dropTarget!.effect} /> : null}
         {loading && !loadedOnce ? <span className="tree-loading">…</span> : null}
       </button>
       {open && error ? (
@@ -373,6 +398,7 @@ function DirectoryNode({
                   depth={depth + 1}
                   gitIgnored={childGitIgnored}
                   gitIgnoredRoot={childGitIgnoredRoot}
+                  pathTraversesSymlink={pathTraversesSymlink || linked}
                   loadEntries={loadEntries}
                   loadIgnoredEntries={loadIgnoredEntries}
                   resolveEntry={resolveEntry}
@@ -383,6 +409,8 @@ function DirectoryNode({
                   revealRequest={revealRequest}
                   showFiles={showFiles}
                   entryActions={entryActions}
+                  isDraggable={isDraggable}
+                  dropTarget={dropTarget}
                   onSelectDirectory={onSelectDirectory}
                   onOpenFile={onOpenFile}
                   onPointerActivate={onPointerActivate}
@@ -399,6 +427,7 @@ function DirectoryNode({
                   depth={depth + 1}
                   gitIgnored={childGitIgnored}
                   gitIgnoredRoot={childGitIgnoredRoot}
+                  pathTraversesSymlink={pathTraversesSymlink || linked}
                   loadEntries={loadEntries}
                   loadIgnoredEntries={loadIgnoredEntries}
                   resolveEntry={resolveEntry}
@@ -409,6 +438,8 @@ function DirectoryNode({
                   revealRequest={revealRequest}
                   showFiles={showFiles}
                   entryActions={entryActions}
+                  isDraggable={isDraggable}
+                  dropTarget={dropTarget}
                   onSelectDirectory={onSelectDirectory}
                   onOpenFile={onOpenFile}
                   onPointerActivate={onPointerActivate}
@@ -428,6 +459,13 @@ function DirectoryNode({
                 data-file-host={child.hostId}
                 data-file-path={child.path}
                 data-file-type={entry.type}
+                data-project-file-unavailable={
+                  pathTraversesSymlink || linked ? 'true' : undefined
+                }
+                draggable={
+                  !(pathTraversesSymlink || linked) &&
+                  (isDraggable?.(child, entry.type) ?? false)
+                }
                 key={`${child.hostId}:${child.path}`}
                 className={`tree-row file-row${fileSelected ? ' selected' : ''}${childGitIgnored ? ' gitignored' : ''}${fileGitDecoration ? ` git-status-${fileGitDecoration.tone}` : ''}`}
                 style={{ paddingLeft: 24 + (depth + 1) * 14 }}
@@ -472,6 +510,7 @@ function SymlinkNode({
   depth,
   gitIgnored = false,
   gitIgnoredRoot = false,
+  pathTraversesSymlink = false,
   loadEntries,
   loadIgnoredEntries,
   resolveEntry,
@@ -482,6 +521,8 @@ function SymlinkNode({
   revealRequest,
   showFiles,
   entryActions,
+  isDraggable,
+  dropTarget,
   onSelectDirectory,
   onOpenFile,
   onPointerActivate,
@@ -524,6 +565,7 @@ function SymlinkNode({
         depth={depth}
         gitIgnored={gitIgnored}
         gitIgnoredRoot={gitIgnoredRoot}
+        pathTraversesSymlink={pathTraversesSymlink}
         linked
         loadEntries={loadEntries}
         loadIgnoredEntries={loadIgnoredEntries}
@@ -535,6 +577,8 @@ function SymlinkNode({
         revealRequest={revealRequest}
         showFiles={showFiles}
         entryActions={entryActions}
+        isDraggable={isDraggable}
+        dropTarget={dropTarget}
         onSelectDirectory={onSelectDirectory}
         onOpenFile={onOpenFile}
         onPointerActivate={onPointerActivate}
@@ -554,6 +598,11 @@ function SymlinkNode({
         data-file-host={stablePath.hostId}
         data-file-path={stablePath.path}
         data-file-type="symlink"
+        data-project-file-unavailable={pathTraversesSymlink ? 'true' : undefined}
+        draggable={
+          !pathTraversesSymlink &&
+          (isDraggable?.(stablePath, 'symlink') ?? false)
+        }
         className={`tree-row file-row symlink-row${fileSelected ? ' selected' : ''}${gitIgnored ? ' gitignored' : ''}${fileGitDecoration ? ` git-status-${fileGitDecoration.tone}` : ''}`}
         style={{ paddingLeft: 24 + depth * 14 }}
         onContextMenu={(event) =>
@@ -589,6 +638,7 @@ function SymlinkNode({
       data-file-host={stablePath.hostId}
       data-file-path={stablePath.path}
       data-file-type="symlink"
+      draggable={false}
       className={`tree-row file-row symlink-row${gitIgnored ? ' gitignored' : ''}`}
       style={{ paddingLeft: 24 + depth * 14 }}
       onContextMenu={(event) =>
@@ -615,6 +665,18 @@ function SymlinkNode({
       {gitIgnoredRoot ? <span className="tree-gitignored">ignored</span> : null}
       {!error && !targetType ? <span className="tree-loading">…</span> : null}
     </button>
+  )
+}
+
+function TreeDropTargetMarker({
+  effect,
+}: {
+  readonly effect: DirectoryTreeDropTarget['effect']
+}): ReactElement {
+  return (
+    <span className="tree-drop-target-marker">
+      <span aria-hidden="true">↳</span> {effect === 'move' ? 'Move here' : 'Copy here'}
+    </span>
   )
 }
 
