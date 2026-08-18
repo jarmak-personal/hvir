@@ -105,7 +105,7 @@
   "devDependencies": {
     "@electron/rebuild": "^4.2.0",
     "@eslint/js": "^10.0.1",
-    "@stryker-mutator/core": "^9.6.1",
+    "@stryker-mutator/core": "^10.0.0",
     "@stryker-mutator/vitest-runner": "^9.6.1",
     "@types/node": "^24.13.3",
     "@types/plist": "^3.0.5",
