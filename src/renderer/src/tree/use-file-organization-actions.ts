@@ -19,6 +19,8 @@ import { useProjectFileOperation } from './use-project-file-operation'
 
 export type FileOrganizationAction = 'rename' | 'move' | 'duplicate'
 
+type FileOrganizationCompletionFeedback = 'all' | 'errors-only'
+
 export function canOrganizeAction(
   root: HostPath,
   target: HostPath | undefined,
@@ -45,6 +47,8 @@ export interface FileOrganizationActionsController {
   readonly dialogError?: string
   readonly pending: boolean
   readonly progress?: ProjectFileOperationProgress
+  canMove(source: HostPath, destinationDirectory: HostPath): boolean
+  move(source: HostPath, destinationDirectory: HostPath): boolean
   begin(action: FileOrganizationAction, source: HostPath, sourceType: FileType): void
   selectDirectory(path: HostPath): void
   submit(name: string): void
@@ -57,32 +61,41 @@ export function useFileOrganizationActions(options: {
   readonly canRebindPath: (source: HostPath, destination: HostPath) => boolean
   readonly onRebindPath: (source: HostPath, destination: HostPath) => boolean
   readonly onStart: () => void
-  readonly onComplete: (result: ProjectFileOperationResult | undefined) => void
+  readonly onComplete: (
+    result: ProjectFileOperationResult | undefined,
+    feedback: FileOrganizationCompletionFeedback,
+  ) => void
   readonly onError: (message: string) => void
 }): FileOrganizationActionsController {
   const { root, canRebindPath, onRebindPath, onStart, onComplete, onError } = options
   const [dialog, setDialog] = useState<FileOrganizationDialogRequest>()
   const [dialogError, setDialogError] = useState<string>()
   const nextId = useRef(0)
-  const activeRequest = useRef<ProjectFileOrganizationRequest | undefined>(undefined)
+  const activeRequest = useRef<
+    | {
+        readonly request: ProjectFileOrganizationRequest
+        readonly feedback: FileOrganizationCompletionFeedback
+      }
+    | undefined
+  >(undefined)
   const ownerKey = projectFileOwnerKey(root)
   const latestOwnerKey = useRef(ownerKey)
   latestOwnerKey.current = ownerKey
   const finish = useCallback(
     (result: ProjectFileOperationResult | undefined) => {
-      const request = activeRequest.current
+      const active = activeRequest.current
       activeRequest.current = undefined
       const item = result?.outcome === 'completed' ? result.items[0] : undefined
       if (
-        request &&
+        active &&
         item?.status === 'completed' &&
         (item.effect === 'renamed-entry' || item.effect === 'moved-entry')
       ) {
-        const rebound = onRebindPath(request.source, item.destination)
+        const rebound = onRebindPath(active.request.source, item.destination)
         if (!rebound) {
           setDialog(undefined)
           setDialogError(undefined)
-          onComplete(result)
+          onComplete(result, active.feedback)
           onError(
             'The filesystem move succeeded, but source-tab identities could not be rebound because the destination now has unsaved changes. Both source and destination buffers were preserved; save or close the destination tab, then reopen the moved files from the tree.',
           )
@@ -91,7 +104,7 @@ export function useFileOrganizationActions(options: {
       }
       setDialog(undefined)
       setDialogError(undefined)
-      onComplete(result)
+      onComplete(result, active?.feedback ?? 'all')
     },
     [onComplete, onError, onRebindPath],
   )
@@ -109,6 +122,62 @@ export function useFileOrganizationActions(options: {
     onComplete: finish,
     onError: fail,
   })
+  const startRequest = useCallback(
+    (
+      request: ProjectFileOrganizationRequest,
+      feedback: FileOrganizationCompletionFeedback = 'all',
+    ): boolean => {
+      const accepted = operation.start(
+        () => window.hvir.invoke('fs:organize-entry', request),
+        request.action === 'rename'
+          ? 'renaming'
+          : request.action === 'move'
+            ? 'moving'
+            : 'duplicating',
+        `The ${request.action} operation could not start`,
+      )
+      if (accepted) activeRequest.current = { request, feedback }
+      return accepted
+    },
+    [operation],
+  )
+
+  const canMove = useCallback(
+    (source: HostPath, destinationDirectory: HostPath): boolean => {
+      if (
+        operation.pending ||
+        source.hostId !== root.hostId ||
+        destinationDirectory.hostId !== root.hostId ||
+        hostPathEquals(source, root) ||
+        !containsHostPath(root, source) ||
+        !containsHostPath(root, destinationDirectory)
+      ) {
+        return false
+      }
+      return canRebindPath(
+        source,
+        joinHostPath(destinationDirectory, basenameHostPath(source)),
+      )
+    },
+    [canRebindPath, operation.pending, root],
+  )
+
+  const move = useCallback(
+    (source: HostPath, destinationDirectory: HostPath): boolean => {
+      if (!canMove(source, destinationDirectory)) return false
+      const request: ProjectFileOrganizationRequest = {
+        action: 'move',
+        workspaceRoot: hostPath(root.hostId, root.path),
+        source: hostPath(source.hostId, source.path),
+        destinationDirectory: hostPath(
+          destinationDirectory.hostId,
+          destinationDirectory.path,
+        ),
+      }
+      return startRequest(request, 'errors-only')
+    },
+    [canMove, root, startRequest],
+  )
 
   useEffect(() => {
     activeRequest.current = undefined
@@ -121,6 +190,8 @@ export function useFileOrganizationActions(options: {
     dialogError,
     pending: operation.pending,
     progress: operation.progress,
+    canMove,
+    move,
     begin(action, source, sourceType) {
       if (operation.pending || hostPathEquals(source, root)) return
       setDialog({
@@ -159,16 +230,7 @@ export function useFileOrganizationActions(options: {
         return
       }
       setDialogError(undefined)
-      const accepted = operation.start(
-        () => window.hvir.invoke('fs:organize-entry', request),
-        request.action === 'rename'
-          ? 'renaming'
-          : request.action === 'move'
-            ? 'moving'
-            : 'duplicating',
-        `The ${request.action} operation could not start`,
-      )
-      if (accepted) activeRequest.current = request
+      startRequest(request)
     },
     dismiss() {
       if (operation.pending) return

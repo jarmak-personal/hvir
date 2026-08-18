@@ -29,7 +29,12 @@ let rebindPath: ReturnType<
   typeof vi.fn<(source: HostPath, destination: HostPath) => boolean>
 >
 let onComplete: ReturnType<
-  typeof vi.fn<(result: ProjectFileOperationResult | undefined) => void>
+  typeof vi.fn<
+    (
+      result: ProjectFileOperationResult | undefined,
+      feedback: 'all' | 'errors-only',
+    ) => void
+  >
 >
 let onError: ReturnType<typeof vi.fn<(message: string) => void>>
 let viewer: ReturnType<typeof useViewerWorkspace>
@@ -148,6 +153,23 @@ describe('file organization action lifecycle', () => {
 
     expect(rebindPath).not.toHaveBeenCalled()
     expect(onComplete).toHaveBeenCalledTimes(1)
+  })
+
+  it('marks direct moves as errors-only feedback while dialog operations retain feedback', async () => {
+    const source = localPath('/repo/source.ts')
+    act(() => {
+      controller.move(source, localPath('/repo/destination'))
+    })
+    await act(settle)
+
+    act(() => operationEvent?.(completed('moved-entry', '/repo/destination/source.ts')))
+    expect(onComplete).toHaveBeenCalledWith(expect.anything(), 'errors-only')
+
+    act(() => controller.begin('rename', source, 'file'))
+    act(() => controller.submit('renamed.ts'))
+    await act(settle)
+    act(() => operationEvent?.(completed('renamed-entry', '/repo/renamed.ts')))
+    expect(onComplete).toHaveBeenLastCalledWith(expect.anything(), 'all')
   })
 
   it('rebinds an ordinary dirty source tab after a deferred successful operation', async () => {
