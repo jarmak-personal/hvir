@@ -213,6 +213,10 @@ async function verifyPointerTreeFocus(win: BrowserWindow, path: HostPath): Promi
         collapse.click();
         return undefined;
       }
+      const deck = document.querySelector('.terminal-deck');
+      if (!(deck instanceof HTMLElement) || getComputedStyle(deck).visibility !== 'hidden') {
+        return undefined;
+      }
       const row = document.querySelector(
         '.files-panel .directory-row[title=${JSON.stringify(directory.path)}]'
       );
