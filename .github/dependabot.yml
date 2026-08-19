@@ -6,6 +6,9 @@ multi-ecosystem-groups:
       interval: daily
       time: '09:00'
       timezone: America/New_York
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: deps
 
 updates:
   - package-ecosystem: npm
@@ -13,9 +16,6 @@ updates:
     patterns:
       - '*'
     multi-ecosystem-group: all-dependency-updates
-    open-pull-requests-limit: 10
-    commit-message:
-      prefix: deps
     ignore:
       # A dedicated provenance-validating workflow owns this immutable release artifact.
       - dependency-name: 'ghostty-web'
@@ -44,6 +44,3 @@ updates:
     patterns:
       - '*'
     multi-ecosystem-group: all-dependency-updates
-    open-pull-requests-limit: 5
-    commit-message:
-      prefix: ci
