@@ -211,10 +211,13 @@ that bot pull request starts the focused integrity job, not the skipped matrices
 
 Merging the release pull request creates the exact default-branch source commit. Its `push` event
 runs the complete CI matrix once, including Linux native-package build and installed acceptance.
-A `current` dispatch observes GitHub Actions for up to ten minutes when that commit's
-first-attempt CI is not yet registered or is still running. It never starts or reruns CI. Exact CI
-success continues the release automatically; a terminal failure or exhausted wait fails closed
-before protected native build or publication work.
+A `current` dispatch observes GitHub Actions while that commit's first-attempt CI is not yet
+registered or is still running. The bounded 85-minute observation horizon covers the required
+CI graph's 55-minute configured critical path plus a 30-minute aggregate allowance for ordinary
+hosted-runner scheduling. The Release evidence step and enclosing job have larger timeouts, so
+they cannot expire before that horizon. Release never starts or reruns CI. Exact CI success
+continues the release automatically; a terminal failure or exhausted observation horizon fails
+closed before protected native build or publication work.
 
 The release downloads the exact named Linux x64 and arm64 artifacts retained by that accepted CI
 run instead of rebuilding or re-exercising them. Cross-workflow download is pinned to the accepted

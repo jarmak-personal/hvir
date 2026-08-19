@@ -12,6 +12,7 @@ import {
   evaluateReleaseCiEvidence,
   requireReleaseCiEvidence,
   REQUIRED_CI_JOBS,
+  RELEASE_CI_MAX_WAIT_MS,
   RELEASE_REPOSITORY,
   waitForReleaseCiEvidence,
   type CiWorkflowJob,
@@ -187,7 +188,7 @@ describe('release CI evidence', () => {
     ).toEqual({ accepted: false, rejection: 'pending-run' })
   })
 
-  it.each(['failure', 'cancelled', 'skipped'])(
+  it.each(['failure', 'cancelled', 'skipped', 'timed_out'])(
     'rejects a %s workflow conclusion',
     (conclusion) => {
       expect(
@@ -200,6 +201,19 @@ describe('release CI evidence', () => {
     expect(
       evaluateReleaseCiEvidence(evidence({ runs: [successfulRun({ runAttempt: 2 })] })),
     ).toEqual({ accepted: false, rejection: 'rerun-only' })
+  })
+
+  it('does not let a successful rerun replace a failed first attempt', () => {
+    expect(
+      evaluateReleaseCiEvidence(
+        evidence({
+          runs: [
+            successfulRun({ conclusion: 'failure' }),
+            successfulRun({ id: 43, runAttempt: 2 }),
+          ],
+        }),
+      ),
+    ).toEqual({ accepted: false, rejection: 'unsuccessful-run' })
   })
 
   it.each([
@@ -275,6 +289,55 @@ describe('release CI evidence', () => {
     expect(sleeps).toEqual([10, 10])
   })
 
+  it('keeps observing pending evidence beyond ten minutes before success', async () => {
+    const pending = evidence({
+      runs: [successfulRun({ status: 'in_progress', conclusion: null })],
+    })
+    const observations = [pending, pending, evidence()]
+    const pollIntervalMs = 6 * 60_000
+    let now = 0
+    let loadCount = 0
+
+    await expect(
+      waitForReleaseCiEvidence({
+        loadEvidence: () => Promise.resolve(observations[loadCount++]!),
+        now: () => now,
+        sleep: (milliseconds) => {
+          now += milliseconds
+          return Promise.resolve()
+        },
+        pollIntervalMs,
+      }),
+    ).resolves.toBe(42)
+    expect(loadCount).toBe(3)
+    expect(now).toBe(12 * 60_000)
+  })
+
+  it('rejects a terminal failure observed after a long pending interval', async () => {
+    const observations = [
+      evidence({
+        runs: [successfulRun({ status: 'in_progress', conclusion: null })],
+      }),
+      evidence({ runs: [successfulRun({ conclusion: 'failure' })] }),
+    ]
+    let now = 0
+    let loadCount = 0
+
+    await expect(
+      waitForReleaseCiEvidence({
+        loadEvidence: () => Promise.resolve(observations[loadCount++]!),
+        now: () => now,
+        sleep: (milliseconds) => {
+          now += milliseconds
+          return Promise.resolve()
+        },
+        pollIntervalMs: 12 * 60_000,
+      }),
+    ).rejects.toThrow('Trusted CI evidence rejected: unsuccessful-run')
+    expect(loadCount).toBe(2)
+    expect(now).toBe(12 * 60_000)
+  })
+
   it.each([
     [
       'an unsuccessful first attempt',
@@ -345,4 +408,33 @@ describe('release CI evidence', () => {
       expect(sleeps).toEqual([10, 10])
     },
   )
+
+  it('fails closed only after exhausting the configured observation horizon', async () => {
+    const pending = evidence({
+      runs: [successfulRun({ status: 'in_progress', conclusion: null })],
+    })
+    const sleeps: number[] = []
+    let now = 0
+    let loadCount = 0
+
+    await expect(
+      waitForReleaseCiEvidence({
+        loadEvidence: () => {
+          loadCount += 1
+          return Promise.resolve(pending)
+        },
+        now: () => now,
+        sleep: (milliseconds) => {
+          sleeps.push(milliseconds)
+          now += milliseconds
+          return Promise.resolve()
+        },
+        pollIntervalMs: RELEASE_CI_MAX_WAIT_MS,
+      }),
+    ).rejects.toThrow(
+      'Trusted CI evidence rejected after bounded wait: pending-run',
+    )
+    expect(loadCount).toBe(2)
+    expect(sleeps).toEqual([RELEASE_CI_MAX_WAIT_MS])
+  })
 })
