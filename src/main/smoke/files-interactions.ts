@@ -122,6 +122,7 @@ export async function verifyFilesInteractionsSmoke(
       delete window.__hvirFilesPointerOpen;
       delete window.__hvirFilesDirectoryPointer;
       delete window.__hvirFilesCollapsedDirectoryPointer;
+      delete window.__hvirFilesTerminalEngine;
     `)
   }
 }
@@ -131,7 +132,15 @@ async function verifyPointerTreeFocus(win: BrowserWindow, path: HostPath): Promi
   await rendererValue(
     win,
     `(() => {
-      if (document.querySelector('.terminal-surface.active .terminal-container')) return true;
+      const container = document.querySelector(
+        '.terminal-surface.active .terminal-container'
+      );
+      const engine = container?.querySelector('.terminal-engine-host');
+      const delivery = container?.__hvirTerminalDelivery;
+      if (container && engine && delivery?.presentation === 'visible') {
+        window.__hvirFilesTerminalEngine = engine;
+        return true;
+      }
       const create = document.querySelector('.terminal-empty button');
       if (!(create instanceof HTMLButtonElement)) return undefined;
       if (!window.__hvirFilesTerminalRequested) {
@@ -217,6 +226,15 @@ async function verifyPointerTreeFocus(win: BrowserWindow, path: HostPath): Promi
       if (!(deck instanceof HTMLElement) || getComputedStyle(deck).visibility !== 'hidden') {
         return undefined;
       }
+      const engine = window.__hvirFilesTerminalEngine;
+      const retainedContainer = engine?.parentElement;
+      const delivery = retainedContainer?.__hvirTerminalDelivery;
+      if (delivery?.presentation !== 'hidden') {
+        throw new Error(
+          'collapsed terminal retained presentation=' +
+          (delivery?.presentation || 'unavailable')
+        );
+      }
       const row = document.querySelector(
         '.files-panel .directory-row[title=${JSON.stringify(directory.path)}]'
       );
@@ -227,7 +245,13 @@ async function verifyPointerTreeFocus(win: BrowserWindow, path: HostPath): Promi
         window.__hvirFilesCollapsedDirectoryPointer = true;
         return undefined;
       }
-      return document.activeElement === row ? true : undefined;
+      if (document.activeElement === row) return true;
+      const focus = document.activeElement;
+      throw new Error(
+        'collapsed terminal focus=' +
+        (focus?.getAttribute?.('class') || focus?.tagName || 'unavailable') +
+        ' presentation=' + delivery.presentation
+      );
     })()`,
     'pointer-activated directory changed focus while no terminal was visible',
   )
@@ -242,6 +266,18 @@ async function verifyPointerTreeFocus(win: BrowserWindow, path: HostPath): Promi
         collapse.getAttribute('aria-pressed') === 'true') collapse.click();
     delete window.__hvirFilesTerminalRequested;
   `)
+  await rendererValue(
+    win,
+    `(() => {
+      const engine = window.__hvirFilesTerminalEngine;
+      const container = engine?.parentElement;
+      const delivery = container?.__hvirTerminalDelivery;
+      return engine?.isConnected && delivery?.presentation === 'visible'
+        ? true
+        : undefined;
+    })()`,
+    'restored terminal did not re-present its retained pane',
+  )
 }
 
 function rendererValue(

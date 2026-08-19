@@ -13,12 +13,20 @@ vi.mock('../src/renderer/src/terminal/TerminalWorkspace', () => ({
   TerminalWorkspace: ({
     workspaceId,
     visible,
+    presentationVisible,
   }: {
     readonly workspaceId: string
     readonly visible: boolean
+    readonly presentationVisible: boolean
   }) => {
     workspaceRender(workspaceId)
-    return <div data-mounted-workspace={workspaceId} data-visible={String(visible)} />
+    return (
+      <div
+        data-mounted-workspace={workspaceId}
+        data-visible={String(visible)}
+        data-presentation-visible={String(presentationVisible)}
+      />
+    )
   },
 }))
 
@@ -33,6 +41,7 @@ describe('terminal workspace collection', () => {
         <TerminalWorkspaceCollection
           state={state}
           runtime={{ moveProps: vi.fn(() => ({})) } as never}
+          terminalPresented
           railCompact={false}
           onRailCompact={vi.fn()}
           onRollup={vi.fn()}
@@ -151,19 +160,51 @@ describe('terminal workspace collection', () => {
     ).toBe('true')
     act(() => root.unmount())
   })
+
+  it('qualifies selected-workspace presentation with workbench layout', () => {
+    const host = document.createElement('div')
+    const root = createRoot(host)
+    const state = projectStateWithOpenWorktrees(1)
+
+    act(() => {
+      root.render(
+        collection({ state, materializedWorkspaceIds: [], terminalPresented: false }),
+      )
+    })
+    expect(
+      host
+        .querySelector('[data-mounted-workspace="workspace-open"]')
+        ?.getAttribute('data-presentation-visible'),
+    ).toBe('false')
+
+    act(() => {
+      root.render(
+        collection({ state, materializedWorkspaceIds: [], terminalPresented: true }),
+      )
+    })
+    expect(
+      host
+        .querySelector('[data-mounted-workspace="workspace-open"]')
+        ?.getAttribute('data-presentation-visible'),
+    ).toBe('true')
+    act(() => root.unmount())
+  })
 })
 
 function collection({
   state,
   materializedWorkspaceIds,
+  terminalPresented = true,
 }: {
   readonly state: ProjectState
   readonly materializedWorkspaceIds: readonly string[]
+  readonly terminalPresented?: boolean
 }) {
   return (
     <TerminalWorkspaceCollection
       state={state}
       runtime={{ materializedWorkspaceIds, moveProps: vi.fn(() => ({})) } as never}
+      terminalPresented={terminalPresented}
       railCompact={false}
       onRailCompact={vi.fn()}
       onRollup={vi.fn()}
