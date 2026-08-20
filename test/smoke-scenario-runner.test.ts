@@ -11,6 +11,7 @@ import {
   formatSmokeScenarioResults,
   invokeSmokeScenario,
   parseSmokeRepetitionCount,
+  registerSmokeLauncherSignals,
   runSmokeScenarioGroups,
   selectedSmokeScenarios,
   smokeScenarioEnvironment,
@@ -207,6 +208,34 @@ describe('Electron smoke result aggregation', () => {
       },
     ])
     expect(invoke).not.toHaveBeenCalled()
+  })
+
+  it('keeps launcher signal handlers installed and escalates a repeated signal', () => {
+    const interruption = new AbortController()
+    const escalate = vi.fn()
+    const handlers = new Map<NodeJS.Signals, () => void>()
+    const target = {
+      on: (signal: NodeJS.Signals, handler: () => void): void => {
+        handlers.set(signal, handler)
+      },
+      off: (signal: NodeJS.Signals, handler: () => void): void => {
+        if (handlers.get(signal) === handler) handlers.delete(signal)
+      },
+    }
+    const remove = registerSmokeLauncherSignals(interruption, escalate, target)
+    const terminate = handlers.get('SIGTERM')
+    if (!terminate) throw new Error('SIGTERM handler was not registered')
+
+    terminate()
+    expect(interruption.signal.aborted).toBe(true)
+    expect(interruption.signal.reason).toBe('SIGTERM')
+    expect(escalate).not.toHaveBeenCalled()
+    expect(handlers.get('SIGTERM')).toBe(terminate)
+
+    terminate()
+    expect(escalate).toHaveBeenCalledOnce()
+    remove()
+    expect(handlers).toHaveProperty('size', 0)
   })
 
   it('defaults to one iteration and accepts bounded ASCII decimal counts', () => {
@@ -474,6 +503,91 @@ describe('Electron smoke process failure artifacts', () => {
     )
   })
 
+  it('escalates a repeated interruption for a SIGTERM-ignoring process group', async () => {
+    if (process.platform === 'win32') return
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    onTestFinished(() => consoleError.mockRestore())
+    const directory = await mkdtemp(join(tmpdir(), 'hvir-smoke-escalation-'))
+    onTestFinished(() => rm(directory, { recursive: true, force: true }))
+    const descendantPath = join(directory, 'descendant.pid')
+    const interruption = new AbortController()
+    let escalate: (() => void) | undefined
+    let completed = false
+    const invocation = invokeSmokeScenario('web-pane', 1, 1, {
+      command: process.execPath,
+      args: [
+        '-e',
+        `const { spawn } = require('node:child_process'); const { writeFileSync } = require('node:fs'); process.on('SIGTERM', () => undefined); const child = spawn(process.execPath, ['-e', "process.on('SIGTERM', () => undefined); setInterval(() => undefined, 1000)"], { stdio: 'ignore' }); writeFileSync(${JSON.stringify(descendantPath)}, String(child.pid)); setInterval(() => undefined, 1000)`,
+      ],
+      environment: {},
+      timeoutMs: 5_000,
+      terminationGraceMs: 5_000,
+      forceKillSettleMs: 500,
+      artifactDirectory: directory,
+      interruptionSignal: interruption.signal,
+      registerSignalEscalation: (ownedEscalation) => {
+        escalate = ownedEscalation
+        return () => {
+          escalate = undefined
+        }
+      },
+    })
+    void invocation.then(() => {
+      completed = true
+    })
+    const descendantPid = await waitForPid(descendantPath)
+    interruption.abort('SIGTERM')
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(completed).toBe(false)
+    if (!escalate) throw new Error('owned process-group escalation was not registered')
+
+    escalate()
+
+    await expect(invocation).resolves.toMatchObject({
+      status: 'failed',
+      signal: 'SIGKILL',
+      error: 'launcher interrupted',
+    })
+    await expectProcessGone(descendantPid)
+    const artifact = JSON.parse(
+      await readFile(join(directory, 'web-pane-iteration-1-of-1.json'), 'utf8'),
+    ) as { outcome: string }
+    expect(artifact.outcome).toBe('launcher-interrupted')
+  })
+
+  it('settles containment after SIGKILL when an escaped descendant retains pipes', async () => {
+    if (process.platform === 'win32') return
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    onTestFinished(() => consoleError.mockRestore())
+    const directory = await mkdtemp(join(tmpdir(), 'hvir-smoke-forced-settle-'))
+    onTestFinished(() => rm(directory, { recursive: true, force: true }))
+    const descendantPath = join(directory, 'descendant.pid')
+    const invocation = invokeSmokeScenario('web-pane', 1, 1, {
+      command: process.execPath,
+      args: [
+        '-e',
+        `const { spawn } = require('node:child_process'); const { writeFileSync } = require('node:fs'); const child = spawn(process.execPath, ['-e', 'setInterval(() => undefined, 1000)'], { detached: true, stdio: ['ignore', 'inherit', 'inherit'] }); child.unref(); writeFileSync(${JSON.stringify(descendantPath)}, String(child.pid)); setInterval(() => undefined, 1000)`,
+      ],
+      environment: {},
+      timeoutMs: 100,
+      terminationGraceMs: 50,
+      forceKillSettleMs: 50,
+      artifactDirectory: directory,
+    })
+    const descendantPid = await waitForPid(descendantPath)
+    onTestFinished(() => terminateFixtureProcess(descendantPid))
+
+    await expect(invocation).resolves.toMatchObject({
+      status: 'failed',
+      error: 'process exceeded outer attempt containment',
+    })
+    const artifact = JSON.parse(
+      await readFile(join(directory, 'web-pane-iteration-1-of-1.json'), 'utf8'),
+    ) as { outcome: string; process: { exitCode: number | null; signal: string | null } }
+    expect(artifact.outcome).toBe('attempt-contained')
+    expect(artifact.process).toMatchObject({ exitCode: null, signal: null })
+  })
+
   it('bounds a stalled artifact writer independently of process termination', async () => {
     await expect(
       writeSmokeFailureArtifactWithinDeadline(
@@ -509,6 +623,14 @@ async function expectProcessGone(pid: number): Promise<void> {
   }
   process.kill(pid, 'SIGKILL')
   throw new Error('detached smoke descendant survived launcher interruption')
+}
+
+function terminateFixtureProcess(pid: number): void {
+  try {
+    process.kill(pid, 'SIGKILL')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
+  }
 }
 
 describe('Electron smoke command contracts', () => {

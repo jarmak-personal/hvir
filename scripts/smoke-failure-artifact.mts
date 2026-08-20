@@ -252,7 +252,11 @@ function validateSmokeFailureArtifact(
   }
   const hasExit = artifact.process.exitCode !== null
   const hasSignal = artifact.process.signal !== null
-  if (artifact.process.spawnError ? hasExit || hasSignal : hasExit === hasSignal) {
+  const processOutcomeInvalid = artifact.process.spawnError
+    ? hasExit || hasSignal
+    : (hasExit && hasSignal) ||
+      (artifact.outcome === 'process-failure' && !hasExit && !hasSignal)
+  if (processOutcomeInvalid) {
     throw new Error('Smoke failure process outcome was inconsistent')
   }
   if ((artifact.outcome === 'spawn-failure') !== artifact.process.spawnError) {

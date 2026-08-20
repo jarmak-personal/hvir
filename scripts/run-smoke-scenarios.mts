@@ -41,6 +41,7 @@ const DEFAULT_SMOKE_ATTEMPT_TIMEOUT_MS = 180_000
 const CAPACITY_SMOKE_ATTEMPT_TIMEOUT_MS = 600_000
 const FAILURE_ARTIFACT_TIMEOUT_MS = 1_000
 const SMOKE_TERMINATION_GRACE_MS = 15_000
+const SMOKE_FORCE_KILL_SETTLE_MS = 1_000
 // Independent acceptance oracle for Electron's native standard-error text.
 const DISPOSED_RENDER_FRAME_MESSAGE =
   'Render frame was disposed before WebFrameMain could be accessed'
@@ -52,8 +53,10 @@ export interface SmokeScenarioInvocationOptions {
   readonly environment?: NodeJS.ProcessEnv
   readonly timeoutMs?: number
   readonly terminationGraceMs?: number
+  readonly forceKillSettleMs?: number
   readonly artifactDirectory?: string
   readonly interruptionSignal?: AbortSignal
+  readonly registerSignalEscalation?: (escalate: () => void) => () => void
 }
 
 export function smokeAttemptTimeoutMs(scenario: SmokeScenarioName): number {
@@ -211,6 +214,7 @@ export function invokeSmokeScenario(
     const timers: {
       attempt?: ReturnType<typeof setTimeout>
       termination?: ReturnType<typeof setTimeout>
+      forcedSettle?: ReturnType<typeof setTimeout>
     } = {}
     let forcedOutcome:
       | {
@@ -221,6 +225,56 @@ export function invokeSmokeScenario(
     const clearTimers = (): void => {
       if (timers.attempt) clearTimeout(timers.attempt)
       if (timers.termination) clearTimeout(timers.termination)
+      if (timers.forcedSettle) clearTimeout(timers.forcedSettle)
+    }
+    let unregisterSignalEscalation: (() => void) | undefined
+    const releaseInterruptionOwnership = (): void => {
+      options.interruptionSignal?.removeEventListener('abort', interrupt)
+      unregisterSignalEscalation?.()
+      unregisterSignalEscalation = undefined
+    }
+    const settleForcedAttempt = (
+      exitCode: number | null,
+      signal: NodeJS.Signals | null,
+    ): void => {
+      if (settled || !forcedOutcome) return
+      settled = true
+      clearTimers()
+      releaseInterruptionOwnership()
+      child.stdout.destroy()
+      child.stderr.destroy()
+      collector.finish()
+      const durationMs = performance.now() - startedAt
+      const result = {
+        status: 'failed',
+        ...(exitCode === null ? {} : { exitCode }),
+        ...(signal === null ? {} : { signal }),
+        error: forcedOutcome.error,
+        durationMs,
+      } as const
+      void retainFailureArtifact(
+        {
+          scenario,
+          iteration,
+          repetitionCount,
+          durationMs,
+          exitCode,
+          signal,
+          spawnError: false,
+          outcome: forcedOutcome.outcome,
+          collector,
+        },
+        options.artifactDirectory,
+      ).finally(() => resolveResult(result))
+    }
+    const escalateForcedTermination = (): void => {
+      if (settled || !forcedOutcome) return
+      if (timers.termination) clearTimeout(timers.termination)
+      terminateSmokeAttempt(child.pid, 'SIGKILL')
+      timers.forcedSettle ??= setTimeout(
+        () => settleForcedAttempt(null, null),
+        options.forceKillSettleMs ?? SMOKE_FORCE_KILL_SETTLE_MS,
+      )
     }
     const beginForcedTermination = (
       outcome: 'attempt-contained' | 'launcher-interrupted',
@@ -231,13 +285,16 @@ export function invokeSmokeScenario(
       if (timers.attempt) clearTimeout(timers.attempt)
       terminateSmokeAttempt(child.pid, 'SIGTERM')
       timers.termination = setTimeout(
-        () => terminateSmokeAttempt(child.pid, 'SIGKILL'),
+        escalateForcedTermination,
         options.terminationGraceMs ?? SMOKE_TERMINATION_GRACE_MS,
       )
     }
     const interrupt = (): void =>
       beginForcedTermination('launcher-interrupted', 'launcher interrupted')
     options.interruptionSignal?.addEventListener('abort', interrupt, { once: true })
+    unregisterSignalEscalation = options.registerSignalEscalation?.(
+      escalateForcedTermination,
+    )
     child.stdout.on('data', (chunk: string) => {
       process.stdout.write(chunk)
       collector.observe('stdout', chunk)
@@ -262,7 +319,7 @@ export function invokeSmokeScenario(
       if (settled) return
       settled = true
       clearTimers()
-      options.interruptionSignal?.removeEventListener('abort', interrupt)
+      releaseInterruptionOwnership()
       collector.finish()
       const durationMs = performance.now() - startedAt
       void retainFailureArtifact(
@@ -284,35 +341,15 @@ export function invokeSmokeScenario(
     })
     child.once('close', (exitCode, signal) => {
       if (settled) return
-      settled = true
-      clearTimers()
-      options.interruptionSignal?.removeEventListener('abort', interrupt)
-      collector.finish()
-      const durationMs = performance.now() - startedAt
       if (forcedOutcome) {
-        const result = {
-          status: 'failed',
-          ...(exitCode === null ? {} : { exitCode }),
-          ...(signal === null ? {} : { signal }),
-          error: forcedOutcome.error,
-          durationMs,
-        } as const
-        void retainFailureArtifact(
-          {
-            scenario,
-            iteration,
-            repetitionCount,
-            durationMs,
-            exitCode,
-            signal,
-            spawnError: false,
-            outcome: forcedOutcome.outcome,
-            collector,
-          },
-          options.artifactDirectory,
-        ).finally(() => resolveResult(result))
+        settleForcedAttempt(exitCode, signal)
         return
       }
+      settled = true
+      clearTimers()
+      releaseInterruptionOwnership()
+      collector.finish()
+      const durationMs = performance.now() - startedAt
       const successSentinel = collector.evidence().logs.successSentinel
       const result = classifySmokeAttempt({
         exitCode,
@@ -416,7 +453,10 @@ export function formatSmokeScenarioResults(
 
 async function main(): Promise<void> {
   const interruption = new AbortController()
-  const removeSignalHandlers = registerSmokeLauncherSignals(interruption)
+  let escalateActiveAttempt: (() => void) | undefined
+  const removeSignalHandlers = registerSmokeLauncherSignals(interruption, () =>
+    escalateActiveAttempt?.(),
+  )
   const scenarios = selectedSmokeScenarios(
     process.env.HVIR_SMOKE_SCENARIO,
     process.argv.slice(2),
@@ -429,6 +469,12 @@ async function main(): Promise<void> {
       (scenario, iteration, total) =>
         invokeSmokeScenario(scenario, iteration, total, {
           interruptionSignal: interruption.signal,
+          registerSignalEscalation: (escalate) => {
+            escalateActiveAttempt = escalate
+            return () => {
+              if (escalateActiveAttempt === escalate) escalateActiveAttempt = undefined
+            }
+          },
         }),
       interruption.signal,
     )
@@ -439,15 +485,25 @@ async function main(): Promise<void> {
   }
 }
 
-export function registerSmokeLauncherSignals(interruption: AbortController): () => void {
+export function registerSmokeLauncherSignals(
+  interruption: AbortController,
+  escalate: () => void = () => undefined,
+  target: {
+    on(signal: NodeJS.Signals, handler: () => void): void
+    off(signal: NodeJS.Signals, handler: () => void): void
+  } = process,
+): () => void {
   const handlers = new Map<NodeJS.Signals, () => void>()
   for (const signal of ['SIGHUP', 'SIGINT', 'SIGTERM'] as const) {
-    const handler = (): void => interruption.abort(signal)
+    const handler = (): void => {
+      if (interruption.signal.aborted) return escalate()
+      interruption.abort(signal)
+    }
     handlers.set(signal, handler)
-    process.once(signal, handler)
+    target.on(signal, handler)
   }
   return () => {
-    for (const [signal, handler] of handlers) process.off(signal, handler)
+    for (const [signal, handler] of handlers) target.off(signal, handler)
   }
 }
 

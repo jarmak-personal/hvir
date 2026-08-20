@@ -270,7 +270,7 @@ export async function verifyDocumentReviewWorkflow(options: {
   await runCleanupTaskWithinDeadline(async () => {
     await destroyed
     await waitForCondition(() => !resources.isCurrent(replacementOwner))
-  }, 10_000)
+  })
   try {
     review.delivery.preview(replacementOwner, {
       workspace,

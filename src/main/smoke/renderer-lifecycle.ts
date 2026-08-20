@@ -138,7 +138,7 @@ export async function verifyTerminalRendererDestruction(options: {
   await runCleanupTaskWithinDeadline(async () => {
     await destroyed
     await waitFor(() => supervisor.list().length === 0)
-  }, 10_000)
+  })
 }
 async function restoreStorage(
   win: BrowserWindow,

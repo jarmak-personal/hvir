@@ -45,6 +45,18 @@ describe('renderer-authority smoke boundaries', () => {
     expect(checkpoints).toEqual(['renderer-authority-resource-revocation-awaiting'])
   })
 
+  it('surfaces permanent predicate failures immediately', async () => {
+    const failure = new Error('renderer owner lookup failed')
+
+    await expect(
+      waitForRendererAuthorityCondition(
+        'renderer-authority-resource-revocation-awaiting',
+        () => Promise.reject(failure),
+        () => undefined,
+      ),
+    ).rejects.toBe(failure)
+  })
+
   it('keeps only the real destruction-to-resource-revocation boundary', () => {
     expect(rendererAuthoritySource).not.toContain('routes.open(')
     expect(rendererAuthoritySource).not.toContain('htmlPreviews')

@@ -123,11 +123,7 @@ export async function waitForRendererAuthorityCondition(
 ): Promise<void> {
   checkpoint(operation)
   for (;;) {
-    try {
-      if (await Promise.resolve().then(predicate)) return
-    } catch {
-      // Destruction may briefly reject work while native cleanup settles.
-    }
+    if (await Promise.resolve().then(predicate)) return
     await delay(timing.pollIntervalMs)
   }
 }

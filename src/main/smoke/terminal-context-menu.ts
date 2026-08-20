@@ -32,10 +32,7 @@ export async function verifyTerminalContextMenu(
       terminal.ownerId,
       "stty -echo -icanon min 0 time 50; printf '\\033[?1000h\\033[?1006h\n__HVIR_MENU_READY__\n'; hvir_menu_leak=$(dd bs=1 count=1 2>/dev/null | od -An -tx1 | tr -d ' \\n'); printf '\\033[?1000l\\033[?1006l'; stty icanon min 1 time 0; if [ -n \"$hvir_menu_leak\" ]; then printf '\n__HVIR_MENU_LEAK__:%s\n' \"$hvir_menu_leak\"; fi; printf '\n__HVIR_MENU_ACTIONS_READY__\n'; IFS= read -r hvir_menu_input; printf '\n__HVIR_MENU_INPUT__:%s:END\n' \"$hvir_menu_input\"; stty echo\n",
     )
-    await waitForOutput(
-      () => containsOutputLine(output, READY),
-      'terminal menu probe did not start',
-    )
+    await waitForOutput(() => containsOutputLine(output, READY))
     output = ''
 
     const pointerAndKeyboard = (await win.webContents.executeJavaScript(`
@@ -198,19 +195,13 @@ export async function verifyTerminalContextMenu(
         })
       `)) as string
 
-    await waitForOutput(
-      () => containsOutputLine(output, ACTIONS_READY),
-      'terminal menu non-interference probe did not settle',
-    )
+    await waitForOutput(() => containsOutputLine(output, ACTIONS_READY))
     if (output.includes(LEAK)) {
       throw new Error(
         `opening or invoking terminal menu actions wrote PTY input: ${JSON.stringify(output)}`,
       )
     }
-    await waitForClipboard(
-      (value) => value.includes(READY),
-      'Copy Selection did not reach the application clipboard',
-    )
+    await waitForClipboard((value) => value.includes(READY))
 
     const settings = (await win.webContents.executeJavaScript(
       menuActionScript(
@@ -260,10 +251,7 @@ export async function verifyTerminalContextMenu(
     }
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' })
     win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' })
-    await waitForOutput(
-      () => output.includes(INPUT),
-      'terminal context Paste did not preserve exact plain text',
-    )
+    await waitForOutput(() => output.includes(INPUT))
 
     const split = (await win.webContents.executeJavaScript(
       menuActionScript(
@@ -366,7 +354,7 @@ function containsOutputLine(output: string, marker: string): boolean {
   return output.replaceAll('\r', '').split('\n').includes(marker)
 }
 
-async function waitForOutput(predicate: () => boolean, _failure: string): Promise<void> {
+async function waitForOutput(predicate: () => boolean): Promise<void> {
   await new Promise<void>((resolve) => {
     const poll = (): void => {
       if (predicate()) return resolve()
@@ -376,10 +364,7 @@ async function waitForOutput(predicate: () => boolean, _failure: string): Promis
   })
 }
 
-async function waitForClipboard(
-  predicate: (value: string) => boolean,
-  _failure: string,
-): Promise<void> {
+async function waitForClipboard(predicate: (value: string) => boolean): Promise<void> {
   await new Promise<void>((resolve) => {
     const poll = (): void => {
       if (predicate(clipboard.readText())) return resolve()
