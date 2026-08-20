@@ -601,28 +601,33 @@ async function verifyTerminalLayoutFocus(win: BrowserWindow): Promise<string> {
         let backgroundHarnessFocus = false;
         const expectFocused = async (button, expectedMode) => {
           const input = activeInput();
-          if (!(input instanceof HTMLElement)) {
+          const engine = input?.querySelector('.terminal-engine-host');
+          if (!(input instanceof HTMLElement) || !(engine instanceof HTMLElement)) {
             throw new Error('active terminal input missing after ' + expectedMode);
           }
           await new Promise((resolve, reject) => {
             let timer;
+            const ready = () =>
+              input.contains(document.activeElement) &&
+              input.__hvirTerminalDelivery?.presentation === 'visible' &&
+              !engine.__hvirTerminalPerformance?.paused;
             const finish = () => {
+              if (!ready()) return;
               if (timer) clearTimeout(timer);
               input.removeEventListener('focus', finish);
               resolve();
             };
             const poll = () => {
               const container = input.closest('.terminal-container');
-              if (document.activeElement === input) return finish();
+              if (ready()) return finish();
               if (
                 document.activeElement === container &&
                 !document.hasFocus()
               ) {
                 backgroundHarnessFocus = true;
                 input.focus();
-                if (document.activeElement === input) return finish();
+                if (ready()) return finish();
               }
-
               timer = setTimeout(poll, 25);
             };
             input.addEventListener('focus', finish);
@@ -634,10 +639,39 @@ async function verifyTerminalLayoutFocus(win: BrowserWindow): Promise<string> {
             throw new Error(expectedMode + ' layout changed the saved terminal track');
           }
         };
+        const expectCollapsed = async (button) => {
+          const input = activeInput();
+          const engine = input?.querySelector('.terminal-engine-host');
+          if (!(input instanceof HTMLElement) || !(engine instanceof HTMLElement)) {
+            throw new Error('active terminal input missing before collapsed layout');
+          }
+          button.focus();
+          button.click();
+          await waitFor(() => {
+            const delivery = input.__hvirTerminalDelivery;
+            const presentation = engine.__hvirTerminalPerformance;
+            return workbench.classList.contains('terminal-collapsed') &&
+              delivery?.presentation === 'hidden' && presentation?.paused;
+          });
+          if (!input.isConnected || document.activeElement !== button) {
+            const delivery = input.__hvirTerminalDelivery;
+            const presentation = engine.__hvirTerminalPerformance;
+            throw new Error(
+              'collapsed layout focus=' +
+              (document.activeElement?.className || document.activeElement?.tagName) +
+              ' inputConnected=' + input.isConnected +
+              ' delivery=' + delivery?.presentation +
+              ' paused=' + presentation?.paused
+            );
+          }
+          if (workbench.style.getPropertyValue('--terminal-track') !== terminalTrack) {
+            throw new Error('collapsed layout changed the saved terminal track');
+          }
+        };
 
         await expectFocused(maximize, 'maximized');
         await expectFocused(maximize, 'restored');
-        await expectFocused(minimize, 'collapsed');
+        await expectCollapsed(minimize);
         await expectFocused(minimize, 'restored');
         const deck = document.querySelector('.terminal-deck:not([hidden])');
         const rail = document.querySelector('.terminal-rail:not([hidden])');

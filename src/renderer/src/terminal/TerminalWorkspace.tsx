@@ -53,6 +53,7 @@ interface TerminalWorkspaceProps {
   readonly connectionState: HostConnectionState
   readonly available: boolean
   readonly visible: boolean
+  readonly presentationVisible: boolean
   readonly railCompact: boolean
   readonly onRailCompact: (compact: boolean) => void
   readonly label: string
@@ -98,6 +99,7 @@ export function TerminalWorkspace({
   connectionState,
   available,
   visible,
+  presentationVisible,
   railCompact,
   onRailCompact,
   label,
@@ -262,6 +264,7 @@ export function TerminalWorkspace({
         deckRef={terminalDeckRef}
         label={label}
         visible={visible}
+        presentationVisible={presentationVisible}
         available={available}
         ready={recoveryReady}
         sessions={sessions}

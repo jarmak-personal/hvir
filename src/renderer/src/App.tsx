@@ -182,13 +182,9 @@ export function App(): ReactElement {
     treeCollapsed,
     setTreeCollapsed,
     setTreeWidth,
-    resetTreeWidth,
     setTerminalHeight,
-    resetTerminalHeight,
     setViewerPrimaryWidth,
     resetViewerPrimaryWidth,
-    focusTerminal,
-    focusViewer,
     focusTree,
   } = layout
   const git = useGitWorkspace({
@@ -250,8 +246,8 @@ export function App(): ReactElement {
     findInTerminal: terminalWorkspaces.openTerminalSearch,
     goToLine: viewerCommands.goToLine,
     toggleTerminalFocus,
-    focusTerminal,
-    focusViewer: () => focusViewer(getActivePane()),
+    focusTerminal: layout.focusTerminal,
+    focusViewer: () => layout.focusViewer(getActivePane()),
     focusTree,
     switchWorkspace: (direction) => workspaceSwitchRef.current(direction),
   })
@@ -545,7 +541,7 @@ export function App(): ReactElement {
               workbenchRef.current?.querySelector<HTMLElement>('.tree-panel')
             if (current) setTreeWidth(current.getBoundingClientRect().width + delta)
           }}
-          onReset={resetTreeWidth}
+          onReset={layout.resetTreeWidth}
           action={
             <button
               type="button"
@@ -628,12 +624,15 @@ export function App(): ReactElement {
               workbenchRef.current?.querySelector<HTMLElement>('.terminal-panel')
             if (current) setTerminalHeight(current.getBoundingClientRect().height + delta)
           }}
-          onReset={resetTerminalHeight}
+          onReset={layout.resetTerminalHeight}
           action={<TerminalLayoutControls mode={terminalMode} onMode={setTerminalMode} />}
         />
         <TerminalWorkspaceCollection
           state={projectState}
           runtime={terminalWorkspaces}
+          terminalPresented={
+            terminalMode !== 'collapsed' && !(webViewFocused && webViewActive)
+          }
           railCompact={layout.terminalRailCompact}
           onRailCompact={layout.setTerminalRailCompact}
           onRollup={terminalAttention.updateRollup}

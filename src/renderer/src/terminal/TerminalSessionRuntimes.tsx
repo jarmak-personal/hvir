@@ -24,6 +24,7 @@ export interface TerminalSessionRuntimesProps {
   readonly primaryActiveId?: string
   readonly secondaryActiveId?: string
   readonly presented: boolean
+  readonly presentationVisible: boolean
   readonly terminalTheme: TerminalThemeOverride
   readonly terminalLightThemeId: string
   readonly terminalDarkThemeId: string
@@ -56,6 +57,7 @@ export function TerminalSessionRuntimes({
   primaryActiveId,
   secondaryActiveId,
   presented,
+  presentationVisible,
   terminalTheme,
   terminalLightThemeId,
   terminalDarkThemeId,
@@ -100,6 +102,7 @@ export function TerminalSessionRuntimes({
             presented={presented}
             visible={
               presented &&
+              presentationVisible &&
               session.id ===
                 (session.pane === 'primary' ? primaryActiveId : secondaryActiveId)
             }
