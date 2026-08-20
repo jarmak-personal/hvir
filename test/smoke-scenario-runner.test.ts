@@ -697,6 +697,10 @@ describe('Electron smoke command contracts', () => {
     new URL('../src/main/smoke/project-file-operations.ts', import.meta.url),
     'utf8',
   )
+  const filesInteractionsScenario = readFileSync(
+    new URL('../src/main/smoke/files-interactions.ts', import.meta.url),
+    'utf8',
+  )
   const failureEvidenceScenario = readFileSync(
     new URL('../src/main/smoke/failure-evidence.mts', import.meta.url),
     'utf8',
@@ -719,6 +723,10 @@ describe('Electron smoke command contracts', () => {
   )
   const terminalPresentationScenario = readFileSync(
     new URL('../src/main/smoke/terminal-presentation.ts', import.meta.url),
+    'utf8',
+  )
+  const terminalExplicitLaunchScenario = readFileSync(
+    new URL('../src/main/smoke/terminal-explicit-launch.ts', import.meta.url),
     'utf8',
   )
   const terminalRendererLifecycleScenario = readFileSync(
@@ -878,6 +886,46 @@ describe('Electron smoke command contracts', () => {
     )
   })
 
+  it('retains owner-local terminal presentation progress and failure evidence', () => {
+    const stages = [
+      'explicit-launch',
+      'keyboard',
+      'file-paste',
+      'palette',
+      'semantic-navigation',
+      'search',
+      'horizon',
+      'layout-focus',
+      'project-return',
+      'launch-menu',
+      'session-switch',
+      'synchronized-output',
+      'hidden-reveal',
+      'focus',
+      'cursor-cadence',
+      'input',
+      'cursor-style',
+      'ligatures',
+      'context-menu',
+      'typography',
+      'theme-gallery',
+    ]
+    for (const stage of stages) {
+      const awaiting = `terminal-presentation-${stage}-awaiting`
+      const ready = `terminal-presentation-${stage}-ready`
+      expect(
+        terminalPresentationScenario.indexOf(`checkpoint('${awaiting}')`),
+      ).toBeLessThan(terminalPresentationScenario.indexOf(`checkpoint('${ready}')`))
+      expect(failureEvidenceScenario).toContain(`'${awaiting}'`)
+      expect(failureEvidenceScenario).toContain(`'${ready}'`)
+    }
+    expect(smokeWorkflow).toContain('recordSmokeCheckpoint,\n        smokeRoot')
+    expect(terminalPresentationScenario).toContain('.terminal-recovery-status')
+    expect(terminalPresentationScenario).toContain('onExit: (exit) =>')
+    expect(terminalExplicitLaunchScenario).toContain('.terminal-recovery-status')
+    expect(terminalPresentationScenario).not.toContain('Date.now()')
+  })
+
   it('serializes document review closure before direct top-terminal send', () => {
     expect(documentReviewScenario.match(/webContents\.executeJavaScript/g)).toHaveLength(
       1,
@@ -1028,7 +1076,12 @@ describe('Electron smoke command contracts', () => {
     expect(projectFileOperationsScenario).not.toContain('requestAnimationFrame')
     const projectFileStages = [
       'local-create',
-      'local-interactions',
+      'local-reveal-menu',
+      'local-reveal-action',
+      'local-path-menu',
+      'local-tree-focus',
+      'local-external-write',
+      'local-editor-refresh',
       'local-organization',
       'local-deletion',
       'remote-operations',
@@ -1037,18 +1090,23 @@ describe('Electron smoke command contracts', () => {
       'external-move',
       'workspace-switch',
     ]
+    const projectFileReadiness = projectFileOperationsScenario + filesInteractionsScenario
     for (const stage of projectFileStages) {
       const awaiting = `project-files-${stage}-awaiting`
       const ready = `project-files-${stage}-ready`
-      expect(
-        projectFileOperationsScenario.indexOf(`checkpoint('${awaiting}')`),
-      ).toBeLessThan(projectFileOperationsScenario.indexOf(`checkpoint('${ready}')`))
+      expect(projectFileReadiness.indexOf(`checkpoint('${awaiting}')`)).toBeLessThan(
+        projectFileReadiness.indexOf(`checkpoint('${ready}')`),
+      )
       expect(failureEvidenceScenario).toContain(`'${awaiting}'`)
       expect(failureEvidenceScenario).toContain(`'${ready}'`)
     }
+    expect(projectFileReadiness).not.toContain('project-files-local-interactions')
     expect(smokeWorkflow).toContain('checkpoint: recordSmokeCheckpoint')
     expect(projectFileOperationsScenario).not.toContain('Date.now()')
     expect(projectFileOperationsScenario).toContain(
+      "document.querySelector('.file-operation-feedback.error')",
+    )
+    expect(filesInteractionsScenario).toContain(
       "document.querySelector('.file-operation-feedback.error')",
     )
     expect(externalFileMoveScenario).toContain("feedback?.classList.contains('error')")
