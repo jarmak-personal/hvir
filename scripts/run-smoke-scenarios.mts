@@ -107,6 +107,16 @@ export async function runSmokeScenarioGroups(
   const results: SmokeScenarioResult[] = []
   for (let iteration = 1; iteration <= repetitionCount; iteration += 1) {
     for (const scenario of scenarios) {
+      if (interruptionSignal?.aborted) {
+        results.push({
+          scenario,
+          iteration,
+          repetitionCount,
+          status: 'failed',
+          error: 'launcher interrupted',
+        })
+        return results
+      }
       try {
         results.push({
           scenario,
@@ -173,6 +183,9 @@ export function invokeSmokeScenario(
   repetitionCount: number,
   options: SmokeScenarioInvocationOptions = {},
 ): Promise<Omit<SmokeScenarioResult, 'scenario' | 'iteration' | 'repetitionCount'>> {
+  if (options.interruptionSignal?.aborted) {
+    return Promise.resolve({ status: 'failed', error: 'launcher interrupted' })
+  }
   const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
   console.log(
     `[smoke:group] ${scenario} iteration ${iteration}/${repetitionCount} starting`,

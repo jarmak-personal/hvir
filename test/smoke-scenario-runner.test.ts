@@ -190,6 +190,25 @@ describe('Electron smoke result aggregation', () => {
     )
   })
 
+  it('does not invoke a scenario group after launcher interruption', async () => {
+    const interruption = new AbortController()
+    interruption.abort('SIGTERM')
+    const invoke = vi.fn()
+
+    await expect(
+      runSmokeScenarioGroups(['web-pane'], 1, invoke, interruption.signal),
+    ).resolves.toEqual([
+      {
+        scenario: 'web-pane',
+        iteration: 1,
+        repetitionCount: 1,
+        status: 'failed',
+        error: 'launcher interrupted',
+      },
+    ])
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
   it('defaults to one iteration and accepts bounded ASCII decimal counts', () => {
     expect(parseSmokeRepetitionCount(undefined)).toBe(1)
     expect(parseSmokeRepetitionCount('1')).toBe(1)
@@ -264,6 +283,18 @@ describe('Electron smoke process failure artifacts', () => {
     }
     return { artifact, result }
   }
+
+  it('does not spawn when the launcher is already interrupted', async () => {
+    const interruption = new AbortController()
+    interruption.abort('SIGTERM')
+
+    await expect(
+      invokeSmokeScenario('web-pane', 1, 1, {
+        command: 'hvir-smoke-command-that-does-not-exist',
+        interruptionSignal: interruption.signal,
+      }),
+    ).resolves.toEqual({ status: 'failed', error: 'launcher interrupted' })
+  })
 
   it('retains spawn, nonzero-exit, and signal outcomes', async () => {
     const spawnFailure = await invokeFixture({

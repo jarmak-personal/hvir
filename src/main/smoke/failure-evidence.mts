@@ -91,16 +91,22 @@ export interface SmokeFailureEvidence {
 
 export type SmokeFailureEvidenceSink = (line: string) => void
 
+let stderrGuardInstalled = false
+
+function guardSmokeFailureEvidenceSink(): void {
+  if (stderrGuardInstalled) return
+  stderrGuardInstalled = true
+  process.stderr.on('error', (error: NodeJS.ErrnoException) => {
+    if (error.code !== 'EPIPE') throw error
+  })
+}
+
 const stderrSmokeFailureEvidenceSink: SmokeFailureEvidenceSink = (line) => {
-  const ignoreUnavailableSink = (): void => undefined
-  const releaseUnavailableSinkGuard = (): void => {
-    setImmediate(() => process.stderr.off('error', ignoreUnavailableSink))
-  }
-  process.stderr.once('error', ignoreUnavailableSink)
+  guardSmokeFailureEvidenceSink()
   try {
-    process.stderr.write(line, releaseUnavailableSinkGuard)
+    process.stderr.write(line)
   } catch {
-    process.stderr.off('error', ignoreUnavailableSink)
+    // A synchronously rejected diagnostic write is best-effort too.
   }
 }
 
