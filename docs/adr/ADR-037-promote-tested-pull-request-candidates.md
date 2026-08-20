@@ -25,30 +25,32 @@ protected base before merge.
 
 The `main` ruleset is the sole merge-enforcement owner. It continues to require a pull request,
 blocks deletion and force-pushes, and has no bypass actors. It additionally requires checks from
-GitHub Actions with GitHub's strict, up-to-date policy:
-
-- `CI / Merge acceptance`, the single aggregate result for the ordinary correctness portfolio;
-- `CodeQL / Analyze JavaScript and TypeScript`, the independent security result.
+GitHub Actions with GitHub's strict, up-to-date policy. Its one required status is
+`CI / Merge acceptance`, the aggregate result for the complete ordinary merge portfolio.
 
 An ordinary first-attempt CI run is accepted only when it belongs to this repository, the canonical
 CI workflow and path, the `pull_request` event, the current `main` base, and the pull request's
-current same-repository head SHA. Its required jobs are verification, Linux Electron smoke, and
-macOS arm64 Electron correctness. Every job must be present exactly once, completed, and successful.
-The aggregate job runs even when a prerequisite fails or skips, and accepts only workflow attempt
-one. A rerun of the same workflow execution therefore cannot replace failed evidence; a changed
-head SHA is a new candidate and may produce its own first attempt.
+current same-repository head SHA. Its required jobs are verification, Linux Electron smoke, macOS
+arm64 Electron correctness, and CodeQL analysis. Every job must be present exactly once, completed,
+and successful. The aggregate job runs even when a prerequisite fails or skips, and accepts only
+workflow attempt one. A rerun of the same workflow execution therefore cannot replace failed CI or
+CodeQL evidence; a changed head SHA is a new candidate and may produce its own first attempt.
 
-The candidate identity is the accepted head commit and its Git tree. Strict checks require that
-head to contain the current protected base. `main` permits merge and squash merges, but not rebase
-merges. The resulting merge is eligible for promotion only when it is the pull request's recorded
-merge commit and its Git tree is identical to the accepted head tree. Commit identity may differ;
-tree identity may not. Direct pushes cannot satisfy the pull-request rule or create promotable
-evidence.
+The tested candidate is the pull-request merge commit checked out by the required jobs from
+`github.sha`, not merely the branch head named by the workflow-run API. The workflow contract
+requires every named job to use that default merge-ref checkout. Strict checks require the exact
+base SHA recorded for the run to be an ancestor of its same-repository head SHA. That makes the
+tested merge-ref tree exactly the head tree, so no additional manifest is needed. `main` permits
+merge and squash merges, but not rebase merges. The resulting merge is eligible for promotion only
+when it is the pull request's recorded merge commit and its Git tree is identical to that accepted
+head tree. Commit identity may differ; tree identity may not. Direct pushes cannot satisfy the
+pull-request rule or create promotable evidence.
 
 The exact version-only automation path is the sole specialized exception. Its aggregate result
 accepts only the existing trusted validator's exact repository, bot author, base, source, branch,
-two-file change set, and synchronized version-content contract. Ordinary jobs and CodeQL may skip
-only after that exact classification. Any other identity or change takes the ordinary path.
+two-file change set, and synchronized version-content contract. Ordinary jobs, including CodeQL,
+may skip only after that exact classification; the aggregate itself still runs and must succeed.
+Any other identity or change takes the ordinary path.
 
 The decision is fail closed:
 
@@ -56,9 +58,9 @@ The decision is fail closed:
 | --- | --- | --- |
 | Repository and workflow | Canonical repository, named workflow and path | Wrong repository, head repository, workflow, path, or unrelated run |
 | Event and attempt | Pull-request event, workflow attempt one | Push, dispatch, rerun-only, automatic or manual retry |
-| Base and candidate | Current protected base is contained by the exact PR head | Stale base, changed head, changed tree, or ambiguous candidate |
-| Required jobs | One completed successful instance of every named job | Missing, pending, failed, cancelled, skipped, neutral, or duplicate job |
-| Merge | The same PR is merged and its recorded merge tree equals the accepted head tree | Open, closed-unmerged, different merge, direct push, or unequal tree |
+| Base and candidate | Merge ref tested from `github.sha`; recorded base is an ancestor of the exact PR head | Stale base, changed head, nonstandard checkout, changed tested tree, or ambiguous candidate |
+| Ordinary required jobs | One completed successful instance of every named job | Missing, pending, failed, cancelled, skipped, neutral, or duplicate job |
+| Merge | The same PR is merged and its recorded merge tree equals the tested candidate tree | Open, closed-unmerged, different merge, direct push, or unequal tree |
 | Release source | Exact accepted merge commit reachable from `main` | Missing, unrelated, unmerged, ambiguous, or substituted source |
 
 ### Release trust and native certification
@@ -66,10 +68,13 @@ The decision is fail closed:
 The Release workflow owns a narrow exact-source bridge because GitHub does not retain the tested
 pull-request merge ref as a durable release identity. The existing release-evidence validator is
 the only bridge owner. Given only the canonical repository, protected branch, and selected full
-source SHA, it reads bounded GitHub pull-request and first-attempt workflow/job metadata plus the
-corresponding Git commit and tree identities. It accepts exactly one merged ordinary pull request
-that satisfies the relation above, or exactly one merged version-only pull request that satisfies
-the existing post-merge validator. It is not a reusable evidence service or general policy engine.
+source SHA, it reads bounded GitHub pull-request and first-attempt workflow/job metadata, the exact
+recorded base and head identities, and the corresponding Git commit and tree identities. It
+requires the run head SHA to equal the merged pull request head, the recorded base to be its
+ancestor, the selected source to equal the pull request's recorded merge commit, and the source tree
+to equal the head tree. It accepts exactly one merged ordinary pull request that satisfies that
+relation, or exactly one merged version-only pull request that satisfies the existing post-merge
+validator. The bridge is not a reusable evidence service or general policy engine.
 
 Native packages move to the release-candidate lifecycle. For the selected source, Release:
 
@@ -91,8 +96,8 @@ Only these owners change cadence:
 
 | Owner | Cadence and evidence | Consumer and failure behavior |
 | --- | --- | --- |
-| CI | Ordinary PR only; verification plus Linux and macOS Electron jobs feed one first-attempt aggregate result | The `main` ruleset and release bridge reject any missing or unsuccessful required job |
-| CodeQL | Ordinary PR plus its independent security schedule; no duplicate `main` push analysis | The `main` ruleset requires the first PR attempt; version-only automation uses its exact exception |
+| CI | Ordinary PR only; verification, Linux and macOS Electron, and CodeQL jobs feed one first-attempt aggregate result | The `main` ruleset and release bridge reject any missing or unsuccessful required job or mismatched tested tree |
+| CodeQL schedule | Independent scheduled security analysis only; PR analysis is owned by CI and no `main` push analysis remains | Security reporting; it cannot create merge or release evidence |
 | Release | Exact accepted merged source; Linux x64/arm64 `.deb` files, protected macOS arm64 `.pkg`, manifest, installer, notices, and digests | Assembly and publication reject an incomplete, substituted, or mismatched set |
 | Capacity | Controlled machine only through `npm run gauntlet` / `npm run performance:capacity` | Maintainer release-readiness evidence; the exact candidate runs once and a crossing is not retried into a pass |
 
@@ -110,9 +115,10 @@ their existing cadences. Metadata, release dispatch, and other workflows may sti
 1. Add this decision without changing enforcement or workflow cadence.
 2. Make Release build and accept its exact Linux and protected macOS packages, then remove the
    ordinary-CI native, compatibility, unsigned macOS, and unsigned assembly jobs and dependencies.
-3. Add the first-attempt aggregate result and exact-source promotion validator while existing
-   `main` CI still runs.
-4. Configure the active `main` ruleset with the named strict checks and no bypass, and prove an
+3. Put PR CodeQL and the other required jobs behind the first-attempt aggregate, enforce their
+   merge-ref checkout contract, and add the exact-source validator while existing `main` CI still
+   runs.
+4. Configure the active `main` ruleset with the named strict check and no bypass, and prove an
    up-to-date ordinary pull request and the exact version-only exception can merge.
 5. Remove the `main` push correctness triggers and hosted capacity job only after the preceding
    protections and release path are active.
