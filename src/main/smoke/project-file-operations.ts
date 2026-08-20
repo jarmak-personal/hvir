@@ -174,12 +174,14 @@ export async function verifyProjectFileOperationsSmoke(options: {
       throw new Error('pointer create did not produce one empty regular file')
     }
     checkpoint('project-files-local-create-ready')
-    checkpoint('project-files-local-interactions-awaiting')
-    await verifyFilesInteractionsSmoke(win, pointerPath, revealedEntries)
+    await verifyFilesInteractionsSmoke(win, pointerPath, revealedEntries, checkpoint)
     const organizationPayload = 'organization smoke payload\n'
+    checkpoint('project-files-local-external-write-awaiting')
     await localHost.writeFile(pointerPath, organizationPayload)
+    checkpoint('project-files-local-external-write-ready')
+    checkpoint('project-files-local-editor-refresh-awaiting')
     await waitForEditorContent(win, organizationPayload)
-    checkpoint('project-files-local-interactions-ready')
+    checkpoint('project-files-local-editor-refresh-ready')
     checkpoint('project-files-local-organization-awaiting')
     await organizeFromRenderer({
       win,

@@ -1,16 +1,19 @@
 import type { BrowserWindow } from 'electron'
 
 import { dirnameHostPath, hostPathEquals, type HostPath } from '../../shared'
+import type { SmokeFailureCheckpoint } from './failure-evidence.mts'
 
 export async function verifyFilesInteractionsSmoke(
   win: BrowserWindow,
   path: HostPath,
   revealedEntries: readonly HostPath[],
+  checkpoint: (checkpoint: SmokeFailureCheckpoint) => void,
 ): Promise<void> {
   const expectedLabel =
     process.platform === 'darwin' ? 'Reveal in Finder' : 'Show in File Manager'
   const originalSize = win.getContentSize() as [number, number]
   try {
+    checkpoint('project-files-local-reveal-menu-awaiting')
     await rendererValue(
       win,
       `(() => {
@@ -57,6 +60,8 @@ export async function verifyFilesInteractionsSmoke(
         return actionBounds.top >= bounds.top && actionBounds.bottom <= bounds.bottom;
       })()`,
     )
+    checkpoint('project-files-local-reveal-menu-ready')
+    checkpoint('project-files-local-reveal-action-awaiting')
     await win.webContents.executeJavaScript(`
       [...document.querySelectorAll('.file-action-menu [role="menuitem"]')]
         .find((node) => node.textContent?.trim() === ${JSON.stringify(expectedLabel)})
@@ -67,7 +72,9 @@ export async function verifyFilesInteractionsSmoke(
         await new Promise((resolve) => setTimeout(resolve, 20))
       }
     })()
+    checkpoint('project-files-local-reveal-action-ready')
 
+    checkpoint('project-files-local-path-menu-awaiting')
     await rendererValue(
       win,
       `(() => {
@@ -104,8 +111,11 @@ export async function verifyFilesInteractionsSmoke(
     await win.webContents.executeJavaScript(
       `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`,
     )
+    checkpoint('project-files-local-path-menu-ready')
 
+    checkpoint('project-files-local-tree-focus-awaiting')
     await verifyPointerTreeFocus(win, path)
+    checkpoint('project-files-local-tree-focus-ready')
   } finally {
     win.setContentSize(originalSize[0], originalSize[1])
     await win.webContents.executeJavaScript(`
@@ -124,6 +134,10 @@ async function verifyPointerTreeFocus(win: BrowserWindow, path: HostPath): Promi
     win,
     `(() => {
       if (document.querySelector('.terminal-surface.active .terminal-container')) return true;
+      const failure = document.querySelector(
+        '.terminal-surface.active .terminal-recovery-status'
+      )?.textContent?.trim();
+      if (failure) throw new Error('file interaction terminal failed: ' + failure);
       const create = document.querySelector('.terminal-empty button');
       if (!(create instanceof HTMLButtonElement)) return undefined;
       if (!window.__hvirFilesTerminalRequested) {
@@ -234,6 +248,10 @@ function rendererValue(win: BrowserWindow, expression: string): Promise<unknown>
     new Promise((resolve, reject) => {
       const poll = () => {
         try {
+          const feedback = document.querySelector('.file-operation-feedback.error');
+          if (feedback) {
+            throw new Error(feedback.textContent || 'file interaction failed');
+          }
           const value = ${expression};
           if (value) return resolve(value);
         } catch (error) {
