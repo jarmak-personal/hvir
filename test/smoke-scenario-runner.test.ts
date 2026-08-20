@@ -697,6 +697,10 @@ describe('Electron smoke command contracts', () => {
     new URL('../src/main/smoke/project-file-operations.ts', import.meta.url),
     'utf8',
   )
+  const failureEvidenceScenario = readFileSync(
+    new URL('../src/main/smoke/failure-evidence.mts', import.meta.url),
+    'utf8',
+  )
   const externalFileMoveScenario = readFileSync(
     new URL('../src/main/smoke/external-file-move.ts', import.meta.url),
     'utf8',
@@ -1022,6 +1026,32 @@ describe('Electron smoke command contracts', () => {
     expect(projectFileOperationsScenario).toContain('workspace switch preserved snapshot')
     expect(projectFileOperationsScenario).toContain("'.mode-control button")
     expect(projectFileOperationsScenario).not.toContain('requestAnimationFrame')
+    const projectFileStages = [
+      'local-create',
+      'local-interactions',
+      'local-organization',
+      'local-deletion',
+      'remote-operations',
+      'clipboard-copy',
+      'remote-drop',
+      'external-move',
+      'workspace-switch',
+    ]
+    for (const stage of projectFileStages) {
+      const awaiting = `project-files-${stage}-awaiting`
+      const ready = `project-files-${stage}-ready`
+      expect(
+        projectFileOperationsScenario.indexOf(`checkpoint('${awaiting}')`),
+      ).toBeLessThan(projectFileOperationsScenario.indexOf(`checkpoint('${ready}')`))
+      expect(failureEvidenceScenario).toContain(`'${awaiting}'`)
+      expect(failureEvidenceScenario).toContain(`'${ready}'`)
+    }
+    expect(smokeWorkflow).toContain('checkpoint: recordSmokeCheckpoint')
+    expect(projectFileOperationsScenario).not.toContain('Date.now()')
+    expect(projectFileOperationsScenario).toContain(
+      "document.querySelector('.file-operation-feedback.error')",
+    )
+    expect(externalFileMoveScenario).toContain("feedback?.classList.contains('error')")
     expect(webPaneScenario).toContain('state=${JSON.stringify(state)}')
     expect(webPaneScenario).toContain('routes.source')
     expect(webPaneScenario).toContain('routes.paneIdForGuest')

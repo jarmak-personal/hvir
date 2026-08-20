@@ -837,6 +837,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         switchedState: () => smokeProjectReturnState('smoke-project-return'),
         publish: (state) => emit('project:state', setSmokeProjectState(state)),
         revealedEntries,
+        checkpoint: recordSmokeCheckpoint,
       })
       console.log(`[smoke] project file operations OK (${projectFilesResult})`)
       const result = await verifyWorkspaceRemoteWorkflow({

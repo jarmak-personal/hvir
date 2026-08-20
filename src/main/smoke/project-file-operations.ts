@@ -26,6 +26,7 @@ import {
   verifyProjectEntryDeletionRefresh,
 } from './project-entry-deletion'
 import { verifyFilesInteractionsSmoke } from './files-interactions'
+import type { SmokeFailureCheckpoint } from './failure-evidence.mts'
 
 /**
  * Immediate deterministic remote filesystem boundary for the renderer smoke.
@@ -113,6 +114,7 @@ export async function verifyProjectFileOperationsSmoke(options: {
   readonly switchedState: () => ProjectState
   readonly publish: (state: ProjectState) => void
   readonly revealedEntries: readonly HostPath[]
+  readonly checkpoint: (checkpoint: SmokeFailureCheckpoint) => void
 }): Promise<string> {
   const {
     win,
@@ -128,6 +130,7 @@ export async function verifyProjectFileOperationsSmoke(options: {
     switchedState,
     publish,
     revealedEntries,
+    checkpoint,
   } = options
   const pointerName = '.hvir-smoke-created-pointer.txt'
   const renamedName = '.hvir-smoke-renamed-pointer.txt'
@@ -158,6 +161,7 @@ export async function verifyProjectFileOperationsSmoke(options: {
   }
   try {
     publish(localState())
+    checkpoint('project-files-local-create-awaiting')
     await createFromRenderer({
       win,
       root: localRoot,
@@ -169,10 +173,14 @@ export async function verifyProjectFileOperationsSmoke(options: {
     if (pointerStat.type !== 'file' || pointerStat.size !== 0) {
       throw new Error('pointer create did not produce one empty regular file')
     }
+    checkpoint('project-files-local-create-ready')
+    checkpoint('project-files-local-interactions-awaiting')
     await verifyFilesInteractionsSmoke(win, pointerPath, revealedEntries)
     const organizationPayload = 'organization smoke payload\n'
     await localHost.writeFile(pointerPath, organizationPayload)
     await waitForEditorContent(win, organizationPayload)
+    checkpoint('project-files-local-interactions-ready')
+    checkpoint('project-files-local-organization-awaiting')
     await organizeFromRenderer({
       win,
       root: localRoot,
@@ -224,7 +232,9 @@ export async function verifyProjectFileOperationsSmoke(options: {
       throw new Error('duplicate did not preserve exact saved file bytes')
     }
     await verifyOrganizationRefresh(win, duplicatedPath)
+    checkpoint('project-files-local-organization-ready')
 
+    checkpoint('project-files-local-deletion-awaiting')
     await deleteProjectEntryFromRenderer({
       win,
       root: localRoot,
@@ -254,7 +264,9 @@ export async function verifyProjectFileOperationsSmoke(options: {
       )
     }
     await verifyProjectEntryDeletionRefresh(win, duplicatedPath, movedPointerPath)
+    checkpoint('project-files-local-deletion-ready')
 
+    checkpoint('project-files-remote-operations-awaiting')
     publish(remoteState())
     await verifyRemoteRevealOmitted(win, remoteRoot)
     await createFromRenderer({
@@ -292,7 +304,9 @@ export async function verifyProjectFileOperationsSmoke(options: {
     ) {
       throw new Error('permanent remote deletion wrote unexpected recovery state')
     }
+    checkpoint('project-files-remote-operations-ready')
 
+    checkpoint('project-files-clipboard-copy-awaiting')
     publish(localState())
     await localHost.writeFile(clipboardSource, 'clipboard smoke payload')
     await localHost.writeFile(droppedSource, 'drop smoke payload')
@@ -324,7 +338,9 @@ export async function verifyProjectFileOperationsSmoke(options: {
     ) {
       throw new Error('clipboard copy did not preserve exact file content')
     }
+    checkpoint('project-files-clipboard-copy-ready')
 
+    checkpoint('project-files-remote-drop-awaiting')
     publish(remoteState())
     await dropDiskFileFromRenderer(win, remoteRoot, droppedSource.path, droppedName)
     const droppedDestination = joinHostPath(localRoot, droppedName)
@@ -332,7 +348,9 @@ export async function verifyProjectFileOperationsSmoke(options: {
     if ((await localHost.readTextFile(droppedDestination)) !== 'drop smoke payload') {
       throw new Error('remote drop copy did not preserve exact file content')
     }
+    checkpoint('project-files-remote-drop-ready')
 
+    checkpoint('project-files-external-move-awaiting')
     const externalMoveResult = await verifyExternalFileMoveSmoke({
       win,
       localHost,
@@ -345,7 +363,9 @@ export async function verifyProjectFileOperationsSmoke(options: {
       remoteState,
       publish,
     })
+    checkpoint('project-files-external-move-ready')
 
+    checkpoint('project-files-workspace-switch-awaiting')
     const originalCreate = localHost.createFileExclusive.bind(localHost)
     let releaseCreate: (() => void) | undefined
     let markEntered: (() => void) | undefined
@@ -389,6 +409,7 @@ export async function verifyProjectFileOperationsSmoke(options: {
       releaseCreate?.()
       localHost.createFileExclusive = originalCreate
     }
+    checkpoint('project-files-workspace-switch-ready')
 
     return `pointer create + clean rename · local dirty-tab drag move + deletion block · recoverable local deletion + outside-workspace recovery + Files/search/Git/tab refresh · remote drag move + permanent keyboard deletion · clipboard local copy · preload drop remote copy · ${externalMoveResult} · workspace switch preserved snapshot`
   } catch (reason) {
@@ -888,6 +909,8 @@ async function dropDiskFileFromRenderer(
           window.__hvirDropSent = true;
           return undefined;
         }
+        const feedback = document.querySelector('.file-operation-feedback.error');
+        if (feedback) throw new Error(feedback.textContent || 'disk drop failed');
         return document.querySelector(
           '.files-panel [role="treeitem"][title=${JSON.stringify(destination.path)}]'
         ) ? true : undefined;
@@ -972,6 +995,8 @@ async function createFromRenderer(options: {
         return undefined;
       }
       if (window.__hvirProjectFileSubmitted) {
+        const feedback = document.querySelector('.file-operation-feedback.error');
+        if (feedback) throw new Error(feedback.textContent || 'project entry create failed');
         const created = document.querySelector(
           '.files-panel [role="treeitem"][title=${JSON.stringify(targetPath)}]'
         );
@@ -1056,6 +1081,8 @@ async function submitCreateFromRenderer(
         window.__hvirProjectFileSubmitted = true;
         return undefined;
       }
+      const feedback = document.querySelector('.file-operation-feedback.error');
+      if (feedback) throw new Error(feedback.textContent || 'snapshot create failed');
       return dialog.textContent?.includes('Creating…') ? true : undefined;
     })()`,
   )

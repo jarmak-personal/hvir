@@ -206,6 +206,10 @@ async function moveExternalFromRenderer(options: {
       `(() => {
         if (window.__hvirExternalMoveSubmitted) {
           const feedback = document.querySelector('.file-operation-feedback');
+          if (feedback?.classList.contains('error') &&
+              !feedback.textContent?.includes(${JSON.stringify(expectedFeedback)})) {
+            throw new Error(feedback.textContent || 'external move failed');
+          }
           if (!feedback?.textContent?.includes(${JSON.stringify(expectedFeedback)})) {
             return undefined;
           }
