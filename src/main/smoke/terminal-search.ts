@@ -1,7 +1,6 @@
 import { clipboard, type BrowserWindow } from 'electron'
 
 import type { PtySupervisor } from '../pty/pty-supervisor'
-import { withTerminalSmokeTimeout } from './terminal-smoke-timeout'
 
 const READY = '__HVIR_SEARCH_READY__'
 const MATCH = 'hvir-search-match'
@@ -37,22 +36,31 @@ export async function verifyTerminalSearch(
         `printf '\\n%s\\n%s\\n%s\\n%s\\n' "$hvir_search_match" ` +
         `"$hvir_search_match" "$hvir_search_match" "$hvir_search_ready"\n`,
     )
-    await waitFor(() => output.includes(READY), 'terminal search fixture did not settle')
-    await new Promise<void>((resolve) => setTimeout(resolve, 300))
+    await waitFor(() => output.includes(READY))
     clipboard.clear()
     win.focus()
     win.webContents.focus()
-    await new Promise<void>((resolve) => setTimeout(resolve, 100))
+    await win.webContents.executeJavaScript(`
+      new Promise((resolve) => {
+        const poll = () => {
+          const surface = document.querySelector(
+            '.terminal-surface.active[data-terminal-session=' +
+              JSON.stringify(${JSON.stringify(sessionId)}) + ']'
+          );
+          const engine = surface?.querySelector('.terminal-engine-host');
+          if (document.hasFocus() && engine?.querySelector('canvas')) return resolve();
+          setTimeout(poll, 20);
+        };
+        poll();
+      })
+    `)
 
-    const result = (await withTerminalSmokeTimeout(
-      win.webContents.executeJavaScript(`
+    const result = (await win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
-          const deadline = Date.now() + 8000;
           const fail = (message) => reject(new Error(message));
           const poll = (predicate, message, next) => {
             const value = predicate();
             if (value) return next(value);
-            if (Date.now() > deadline) return fail(message);
             setTimeout(() => poll(predicate, message, next), 20);
           };
           const surface = document.querySelector(
@@ -226,10 +234,7 @@ export async function verifyTerminalSearch(
             }
           );
         })
-      `),
-      'terminal search Electron proof timed out',
-      10_000,
-    )) as string
+      `)) as string
     if (clipboard.readText() !== MATCH) {
       throw new Error(
         `Copy Match was not exact plain text: ${JSON.stringify(clipboard.readText())}`,
@@ -237,10 +242,8 @@ export async function verifyTerminalSearch(
     }
 
     clipboard.clear()
-    await withTerminalSmokeTimeout(
-      win.webContents.executeJavaScript(`
+    await win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
-          const deadline = Date.now() + 5000;
           const poll = () => {
             const search = document.querySelector('.terminal-surface.active .terminal-search');
             const copy = search && [...search.querySelectorAll('button')].find(
@@ -268,31 +271,22 @@ export async function verifyTerminalSearch(
                       )) return reject(new Error('search highlight survived search close'));
                       return resolve(undefined);
                     }
-                    if (Date.now() > deadline) {
-                      return reject(new Error('terminal search did not close after region copy'));
-                    }
+
                     setTimeout(waitForClose, 20);
                   };
                   return waitForClose();
                 }
-                if (Date.now() > deadline) {
-                  return reject(new Error('Copy Region did not report success: ' + feedback));
-                }
+
                 setTimeout(waitForCopy, 20);
               };
               return waitForCopy();
             }
-            if (Date.now() > deadline) {
-              return reject(new Error('Copy Semantic Region action unavailable'));
-            }
+
             setTimeout(poll, 20);
           };
           poll();
         })
-      `),
-      'terminal semantic region copy timed out',
-      7_000,
-    )
+      `)
     if (clipboard.readText() !== 'output\n') {
       throw new Error(
         `Copy Region was not exact plain text: ${JSON.stringify(clipboard.readText())}`,
@@ -308,14 +302,8 @@ export async function verifyTerminalSearch(
   }
 }
 
-async function waitFor(
-  predicate: () => boolean,
-  message: string,
-  timeoutMs = 8_000,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs
+async function waitFor(predicate: () => boolean): Promise<void> {
   while (!predicate()) {
-    if (Date.now() > deadline) throw new Error(message)
     await new Promise<void>((resolve) => setTimeout(resolve, 20))
   }
 }

@@ -39,7 +39,8 @@ measurement, and evidence from one platform does not substitute for another.
 Hosted macOS CI temporarily runs `npm run smoke:macos:ci`, excluding terminal presentation, and
 does not run capacity while the observed macOS presentation-readiness and native PTY teardown
 flakes are hardened. The full `smoke:macos` command remains the macOS pre-push check, capacity
-remains locally runnable, and Linux CI continues to gate on its deterministic capacity contracts.
+remains locally runnable, and quantitative plus deterministic capacity evidence is owned by the
+controlled path below rather than GitHub-hosted runners.
 
 ## Controlled quantitative gate
 

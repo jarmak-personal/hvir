@@ -28,7 +28,7 @@ jobs:
   prepare:
     name: Prepare ${{ inputs.bump }} release
     runs-on: ubuntu-24.04
-    timeout-minutes: 95
+    timeout-minutes: 15
     permissions:
       actions: read
       contents: write
@@ -39,7 +39,6 @@ jobs:
       version: ${{ steps.release.outputs.version }}
       tag: ${{ steps.release.outputs.tag }}
       sha: ${{ steps.release.outputs.sha }}
-      ci_run_id: ${{ steps.ci_evidence.outputs.run_id }}
     steps:
       - name: Require the default branch
         env:
@@ -145,9 +144,8 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Require exact-source first-attempt CI evidence
-        id: ci_evidence
         if: inputs.bump == 'current'
-        timeout-minutes: 86
+        timeout-minutes: 5
         env:
           GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           GITHUB_TOKEN: ${{ github.token }}
@@ -176,6 +174,206 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
+  build-linux:
+    name: Build and accept Linux package (${{ matrix.name }})
+    needs: prepare
+    if: needs.prepare.outputs.ready == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x64
+            os: ubuntu-22.04
+            build: npm run pack:linux:x64
+            deb_arch: amd64
+            release_arch: x64
+          - name: Linux arm64
+            os: ubuntu-22.04-arm
+            build: npm run pack:linux:arm64
+            deb_arch: arm64
+            release_arch: arm64
+    env:
+      HVIR_LINUX_PACKAGE_ACCEPTANCE: '1'
+
+    steps:
+      - name: Check out exact release source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build native package
+        run: ${{ matrix.build }}
+
+      - name: Install, update, launch, and remove native package
+        run: xvfb-run -a npm run smoke:linux:installed
+
+      - name: Bind the accepted package name and digest
+        env:
+          DEB_ARCH: ${{ matrix.deb_arch }}
+          RELEASE_ARCH: ${{ matrix.release_arch }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          source="dist/hvir_${version}_${DEB_ARCH}.deb"
+          target="hvir-${version}-linux-${RELEASE_ARCH}.deb"
+          if [ ! -f "$source" ] || [ -e "dist/$target" ]; then
+            echo "::error::Expected exactly one accepted package at $source"
+            exit 1
+          fi
+          mv -- "$source" "dist/$target"
+          (
+            cd dist
+            sha256sum "$target" > "$target.sha256"
+            sha256sum --check --strict "$target.sha256"
+          )
+
+      - name: Retain the exact accepted package
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-linux-${{ matrix.release_arch }}
+          path: |
+            dist/hvir-*-linux-${{ matrix.release_arch }}.deb
+            dist/hvir-*-linux-${{ matrix.release_arch }}.deb.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  accept-linux-ubuntu-24:
+    name: Accept release package (${{ matrix.name }})
+    needs:
+      - prepare
+      - build-linux
+    if: >-
+      needs.prepare.outputs.ready == 'true' &&
+      needs.build-linux.result == 'success'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu 24.04 x64
+            os: ubuntu-24.04
+            artifact_name: release-linux-x64
+            deb_arch: amd64
+            release_arch: x64
+          - name: Ubuntu 24.04 arm64
+            os: ubuntu-24.04-arm
+            artifact_name: release-linux-arm64
+            deb_arch: arm64
+            release_arch: arm64
+    env:
+      HVIR_LINUX_PACKAGE_ACCEPTANCE: '1'
+
+    steps:
+      - name: Check out exact release source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Download the accepted baseline package
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist
+
+      - name: Verify and restore the exact package for acceptance
+        env:
+          DEB_ARCH: ${{ matrix.deb_arch }}
+          RELEASE_ARCH: ${{ matrix.release_arch }}
+        run: node scripts/prepare-release-linux-package.mts "$RELEASE_ARCH" "$DEB_ARCH"
+
+      - name: Install, update, launch, and remove native package
+        run: xvfb-run -a npm run smoke:linux:installed
+
+  accept-linux-debian:
+    name: Accept release package (${{ matrix.name }})
+    needs:
+      - prepare
+      - build-linux
+    if: >-
+      needs.prepare.outputs.ready == 'true' &&
+      needs.build-linux.result == 'success'
+    runs-on: ${{ matrix.os }}
+    container:
+      image: node:24-trixie
+      options: --security-opt seccomp=unconfined
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Debian 13 x64
+            os: ubuntu-22.04
+            artifact_name: release-linux-x64
+            deb_arch: amd64
+            release_arch: x64
+          - name: Debian 13 arm64
+            os: ubuntu-22.04-arm
+            artifact_name: release-linux-arm64
+            deb_arch: arm64
+            release_arch: arm64
+
+    steps:
+      - name: Check out exact release source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+
+      - name: Download the accepted baseline package
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist
+
+      - name: Prepare the disposable Debian acceptance host
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install \
+            --no-install-recommends \
+            -y \
+            file \
+            git \
+            sudo \
+            xauth \
+            xvfb
+          useradd --create-home --shell /bin/bash hvir-acceptance
+          printf 'hvir-acceptance ALL=(ALL) NOPASSWD: ALL\n' \
+            >/etc/sudoers.d/hvir-acceptance
+          chmod 0440 /etc/sudoers.d/hvir-acceptance
+
+      - name: Verify and restore the exact package for acceptance
+        env:
+          DEB_ARCH: ${{ matrix.deb_arch }}
+          RELEASE_ARCH: ${{ matrix.release_arch }}
+        run: |
+          node scripts/prepare-release-linux-package.mts "$RELEASE_ARCH" "$DEB_ARCH"
+          chown -R hvir-acceptance:hvir-acceptance "$GITHUB_WORKSPACE"
+
+      - name: Install, update, launch, and remove native package
+        run: |
+          sudo -u hvir-acceptance env \
+            HOME=/home/hvir-acceptance \
+            HVIR_LINUX_PACKAGE_ACCEPTANCE=1 \
+            PATH=/usr/local/bin:/usr/bin:/bin \
+            xvfb-run -a npm run smoke:linux:installed
+
   build-macos:
     name: Build and accept macOS arm64
     needs: prepare
@@ -190,8 +388,16 @@ jobs:
     name: Assemble, verify, and publish immutable release
     needs:
       - prepare
+      - build-linux
+      - accept-linux-ubuntu-24
+      - accept-linux-debian
       - build-macos
-    if: needs.prepare.outputs.ready == 'true'
+    if: >-
+      needs.prepare.outputs.ready == 'true' &&
+      needs.build-linux.result == 'success' &&
+      needs.accept-linux-ubuntu-24.result == 'success' &&
+      needs.accept-linux-debian.result == 'success' &&
+      needs.build-macos.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: native-release-signing
@@ -212,31 +418,16 @@ jobs:
           node-version: 24
           package-manager-cache: false
 
-      - name: Require exact CI artifact source
-        env:
-          CI_RUN_ID: ${{ needs.prepare.outputs.ci_run_id }}
-        run: |
-          if [[ ! "$CI_RUN_ID" =~ ^[1-9][0-9]*$ ]]; then
-            echo "::error::Exact-source CI run ID is unavailable"
-            exit 1
-          fi
-
-      - name: Download accepted Linux x64 package from exact CI
+      - name: Download accepted Linux x64 package
         uses: actions/download-artifact@v8
         with:
-          name: hvir-Linux x64-deb
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: ${{ needs.prepare.outputs.ci_run_id }}
+          name: release-linux-x64
           path: dist/release
 
-      - name: Download accepted Linux arm64 package from exact CI
+      - name: Download accepted Linux arm64 package
         uses: actions/download-artifact@v8
         with:
-          name: hvir-Linux arm64-deb
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: ${{ needs.prepare.outputs.ci_run_id }}
+          name: release-linux-arm64
           path: dist/release
 
       - name: Download protected accepted macOS package
@@ -244,6 +435,33 @@ jobs:
         with:
           name: release-macos-arm64
           path: dist/release
+
+      - name: Verify the exact accepted native artifact set
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          expected=$(printf '%s\n' \
+            "hvir-${VERSION}-darwin-arm64.pkg" \
+            "hvir-${VERSION}-darwin-arm64.pkg.sha256" \
+            "hvir-${VERSION}-linux-arm64.deb" \
+            "hvir-${VERSION}-linux-arm64.deb.sha256" \
+            "hvir-${VERSION}-linux-x64.deb" \
+            "hvir-${VERSION}-linux-x64.deb.sha256" |
+            sort)
+          actual=$(find dist/release -maxdepth 1 -type f -printf '%f\n' | sort)
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::Accepted native artifact set is incomplete or unexpected"
+            diff -u <(printf '%s\n' "$expected") <(printf '%s\n' "$actual") || true
+            exit 1
+          fi
+          (
+            cd dist/release
+            sha256sum --check --strict \
+              "hvir-${VERSION}-linux-x64.deb.sha256" \
+              "hvir-${VERSION}-linux-arm64.deb.sha256" \
+              "hvir-${VERSION}-darwin-arm64.pkg.sha256"
+            rm -- ./*.sha256
+          )
 
       - name: Require repository release immutability
         env:

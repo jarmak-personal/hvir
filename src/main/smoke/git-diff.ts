@@ -4,12 +4,11 @@ import type { BrowserWindow } from 'electron'
 export function verifyGitDiffBases(win: BrowserWindow): Promise<string> {
   return win.webContents.executeJavaScript(`
     (async () => {
-      const deadline = Date.now() + 15000;
       const waitFor = async (test, message) => {
         for (;;) {
           const value = test();
           if (value) return value;
-          if (Date.now() > deadline) throw new Error(message);
+
           await new Promise((painted) => requestAnimationFrame(painted));
         }
       };

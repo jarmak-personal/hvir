@@ -71,20 +71,6 @@ describe('required Electron smoke failure retention', () => {
       'ci-electron-smoke-failure-${{ github.run_attempt }}',
     )
 
-    const capacity = ci.jobs['capacity-smoke']!
-    expect(
-      requireStep(capacity, 'Run capacity contracts and collect performance evidence'),
-    ).toMatchObject({
-      env: {
-        HVIR_SMOKE_ARTIFACT_DIR: '${{ runner.temp }}/hvir-smoke-artifacts/capacity',
-      },
-      run: 'xvfb-run -a npm run smoke:capacity',
-    })
-    expectFailureUpload(
-      requireStep(capacity, 'Upload bounded capacity failure evidence'),
-      'ci-capacity-smoke-failure-${{ github.run_attempt }}',
-    )
-
     const macos = ci.jobs['macos-electron-smoke']!
     expect(requireStep(macos, 'Run focused unpackaged Electron scenarios')).toMatchObject(
       {

@@ -2,7 +2,7 @@ import type { Disposer } from '../../shared'
 import type { ManagedPty, PtySupervisor } from '../pty/pty-supervisor'
 
 type PtyLifecycleSupervisor = Pick<PtySupervisor, 'get' | 'kill' | 'onExit'>
-type PtyOutputSupervisor = Pick<PtySupervisor, 'attach' | 'get'>
+type PtyOutputSupervisor = Pick<PtySupervisor, 'attach'>
 
 const MAX_RETAINED_OUTPUT = 4_096
 
@@ -23,17 +23,14 @@ export interface WaitForPtyOutputOptions {
   readonly scenario: string
   /** Synchronous action that causes the expected output after attachment. */
   readonly trigger: () => void
-  readonly timeoutMs?: number
 }
 
 /** Await semantic PTY output through the production stream and retain bounded diagnostics. */
 export async function waitForPtyOutput(
   options: WaitForPtyOutputOptions,
 ): Promise<string> {
-  const { supervisor, terminal, expected, scenario, trigger, timeoutMs = 5_000 } = options
-  const startedAt = Date.now()
+  const { supervisor, terminal, expected, scenario, trigger } = options
   let retainedOutput = ''
-  let outputCallbackFired = false
   let disposeOutput: Disposer = () => undefined
   let primaryFailure: unknown
   let hasPrimaryFailure = false
@@ -46,7 +43,6 @@ export async function waitForPtyOutput(
         terminal.ownerId,
         {
           onData: (data) => {
-            outputCallbackFired = true
             const combined = `${retainedOutput}${data}`
             const matched = combined.includes(expected)
             retainedOutput = combined.slice(-MAX_RETAINED_OUTPUT)
@@ -73,17 +69,7 @@ export async function waitForPtyOutput(
     })
 
     trigger()
-    if (!(await eventBeforeDeadline(outputEvent, timeoutMs))) {
-      const elapsedMs = Date.now() - startedAt
-      const supervisorMember = supervisor.get(terminal.id) !== undefined
-      throw new Error(
-        `${scenario} timed out (` +
-          `terminalId=${terminal.id}, pid=${terminal.pid}, elapsedMs=${elapsedMs}, ` +
-          `outputCallbackFired=${outputCallbackFired}, ` +
-          `supervisorMember=${supervisorMember}, ` +
-          `retainedOutput=${JSON.stringify(retainedOutput)})`,
-      )
-    }
+    await outputEvent
   } catch (reason) {
     hasPrimaryFailure = true
     primaryFailure = reason

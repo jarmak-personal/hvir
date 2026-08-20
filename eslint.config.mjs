@@ -138,6 +138,7 @@ export default tseslint.config(
       'scripts/real-host-ssh-contract.mts',
       'scripts/run-real-host-ssh-acceptance.mts',
       'scripts/require-release-ci-evidence.mts',
+      'scripts/prepare-release-linux-package.mts',
       'scripts/validate-release-pr.mts',
       'scripts/generate-terminal-theme-catalog.mts',
       'scripts/check-terminal-runtime.mts',

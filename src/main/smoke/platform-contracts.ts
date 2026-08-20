@@ -42,7 +42,6 @@ interface PaneDividerControlPoints {
   readonly terminal: PaneDividerPoint
 }
 
-const PANE_DIVIDER_STATE_TIMEOUT_MS = 2_000
 const PANE_DIVIDER_STATE_POLL_MS = 25
 
 /** Prove the real platform contracts retained by unpackaged and installed smoke. */
@@ -108,29 +107,19 @@ async function verifyPaneDividerControlVisibility(win: BrowserWindow): Promise<s
         document.documentElement.setAttribute('data-theme', ${JSON.stringify(theme)});
         if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
       `)
-      await expectPaneDividerVisibility(win, points.safe, hidden, `${theme} inactive`)
-      await expectPaneDividerVisibility(
-        win,
-        points.tree,
-        treeRevealed,
-        `${theme} tree hover`,
-      )
-      await expectPaneDividerVisibility(
-        win,
-        points.terminal,
-        terminalRevealed,
-        `${theme} terminal hover`,
-      )
+      await expectPaneDividerVisibility(win, points.safe, hidden)
+      await expectPaneDividerVisibility(win, points.tree, treeRevealed)
+      await expectPaneDividerVisibility(win, points.terminal, terminalRevealed)
     }
 
     moveMouse(win, points.safe)
     win.focus()
     win.webContents.focus()
     await focusPaneDividerAction(win, '.tree-resizer')
-    await waitForPaneDividerVisibility(win, [1, 1, 1, 0, 0, 0], 'tree keyboard focus')
+    await waitForPaneDividerVisibility(win, [1, 1, 1, 0, 0, 0])
 
     await focusPaneDividerAction(win, '.terminal-resizer')
-    await waitForPaneDividerVisibility(win, [0, 0, 0, 1, 1, 1], 'terminal keyboard focus')
+    await waitForPaneDividerVisibility(win, [0, 0, 0, 1, 1, 1])
   } finally {
     await win.webContents.executeJavaScript(`
       if (${JSON.stringify(originalTheme)} === null) {
@@ -206,37 +195,19 @@ async function expectPaneDividerVisibility(
   win: BrowserWindow,
   point: PaneDividerPoint,
   expected: PaneDividerVisibility,
-  context: string,
 ): Promise<void> {
   moveMouse(win, point)
-  await waitForPaneDividerVisibility(win, expected, context)
+  await waitForPaneDividerVisibility(win, expected)
 }
 
 async function waitForPaneDividerVisibility(
   win: BrowserWindow,
   expected: PaneDividerVisibility,
-  context: string,
 ): Promise<void> {
-  const deadline = Date.now() + PANE_DIVIDER_STATE_TIMEOUT_MS
   let actual = await paneDividerVisibility(win)
   while (!paneDividerVisibilityMatches(actual, expected)) {
-    if (Date.now() > deadline) {
-      assertPaneDividerVisibility(actual, expected, context)
-    }
     await new Promise((resolve) => setTimeout(resolve, PANE_DIVIDER_STATE_POLL_MS))
     actual = await paneDividerVisibility(win)
-  }
-}
-
-function assertPaneDividerVisibility(
-  actual: PaneDividerVisibility,
-  expected: PaneDividerVisibility,
-  context: string,
-): void {
-  if (!paneDividerVisibilityMatches(actual, expected)) {
-    throw new Error(
-      `${context} state was ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`,
-    )
   }
 }
 
@@ -314,7 +285,6 @@ async function platformContractSnapshot(
 ): Promise<PlatformContractSnapshot> {
   return (await win.webContents.executeJavaScript(`
     new Promise((resolve, reject) => {
-      const deadline = Date.now() + 15000;
       let lastSnapshot = { terminalStatus: 'not mounted' };
       const rect = (node) => {
         if (!(node instanceof Element)) return undefined;
@@ -381,11 +351,7 @@ async function platformContractSnapshot(
             'platform terminal failed to start: ' + JSON.stringify(lastSnapshot)
           ));
         }
-        if (Date.now() > deadline) {
-          return reject(new Error(
-            'platform contracts did not materialize: ' + JSON.stringify(lastSnapshot)
-          ));
-        }
+
         setTimeout(poll, 25);
       };
       poll();

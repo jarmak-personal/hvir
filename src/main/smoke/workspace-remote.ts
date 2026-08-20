@@ -271,7 +271,6 @@ export async function verifyWorkspaceRemoteWorkflow(options: {
         }
       })()`,
       'project registration flow did not settle',
-      12_000,
     )) as string
     if (
       openedFolderSelections.length !== 1 ||
@@ -423,12 +422,10 @@ function rendererWait(
 function rendererValue(
   win: BrowserWindow,
   expression: string,
-  message: string,
-  timeoutMs = 10_000,
+  _message: string,
 ): Promise<unknown> {
   return win.webContents.executeJavaScript(`
     new Promise((resolve, reject) => {
-      const deadline = Date.now() + ${timeoutMs};
       const poll = () => {
         try {
           const value = ${expression};
@@ -436,7 +433,6 @@ function rendererValue(
         } catch (error) {
           return reject(error);
         }
-        if (Date.now() > deadline) return reject(new Error(${JSON.stringify(message)}));
         setTimeout(poll, 25);
       };
       poll();

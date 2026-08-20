@@ -29,6 +29,10 @@ const ciWorkflow = readFileSync(
   new URL('../.github/workflows/ci.yml', import.meta.url),
   'utf8',
 )
+const releaseWorkflow = readFileSync(
+  new URL('../.github/workflows/release.yml', import.meta.url),
+  'utf8',
+)
 const packagedRuntimeInspection = readFileSync(
   new URL('../scripts/inspect-packaged-runtime.mts', import.meta.url),
   'utf8',
@@ -135,11 +139,15 @@ describe('Linux native package contract', () => {
     expect(installedStartupProbe).toContain("process.command.includes('--type=renderer')")
     expect(installedStartupProbe).toContain("await stopProcessGroup(child, 'SIGTERM'")
     expect(installedStartupProbe).toContain("HVIR_SMOKE: '1'")
-    expect(ciWorkflow).toContain('Native package acceptance (${{ matrix.name }})')
-    expect(ciWorkflow).toContain('ubuntu-22.04-arm')
-    expect(ciWorkflow).toContain('ubuntu-24.04-arm')
-    expect(ciWorkflow).toContain('node:24-trixie')
-    expect(ciWorkflow).toContain('xvfb-run -a npm run smoke:linux:installed')
+    expect(releaseWorkflow).toContain(
+      'Build and accept Linux package (${{ matrix.name }})',
+    )
+    expect(releaseWorkflow).toContain('ubuntu-22.04-arm')
+    expect(releaseWorkflow).toContain('ubuntu-24.04-arm')
+    expect(releaseWorkflow).toContain('node:24-trixie')
+    expect(releaseWorkflow).toContain(
+      'xvfb-run -a npm run smoke:linux:installed',
+    )
     expect(ciWorkflow).toContain('xvfb-run -a npm run smoke')
   })
 })
