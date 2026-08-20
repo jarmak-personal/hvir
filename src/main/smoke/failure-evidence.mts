@@ -33,6 +33,8 @@ export const SMOKE_FAILURE_CHECKPOINTS = [
   'renderer-recovery-route-opened',
   'renderer-recovery-reload-awaiting',
   'renderer-recovery-reload-loaded',
+  'renderer-recovery-readiness-awaiting',
+  'renderer-recovery-readiness-ready',
   'renderer-recovery-replacement-ipc-awaiting',
   'renderer-recovery-replacement-ipc-ready',
   'renderer-recovery-controls-awaiting',

@@ -33,6 +33,7 @@ export async function verifyRendererProcessRecovery(options: {
   readonly root: HostPath
   readonly liveReloadPath: HostPath
   readonly host: ProjectHost
+  readonly replacementReady: Promise<RendererOwner>
   readonly checkpoint: (checkpoint: SmokeFailureCheckpoint) => void
 }): Promise<string> {
   const {
@@ -44,6 +45,7 @@ export async function verifyRendererProcessRecovery(options: {
     root,
     liveReloadPath,
     host,
+    replacementReady,
     checkpoint,
   } = options
   const initialOwner = resources.currentOwner(win.webContents.id)
@@ -96,17 +98,34 @@ export async function verifyRendererProcessRecovery(options: {
     const loaded = new Promise<void>((resolve) =>
       win.webContents.once('did-finish-load', () => resolve()),
     )
+    const rendererGone = new Promise<Electron.RenderProcessGoneDetails>((resolve) =>
+      win.webContents.once('render-process-gone', (_event, details) => resolve(details)),
+    )
 
     checkpoint('renderer-recovery-reload-awaiting')
-    process.kill(initialProcessId, 'SIGKILL')
+    win.webContents.forcefullyCrashRenderer()
     await host.writeFile(
       liveReloadPath,
       'renderer recovery stale generation watch event\n',
     )
+    const exit = await rendererGone
+    if (exit.reason !== 'killed' && exit.reason !== 'crashed') {
+      throw new Error(`forced renderer crash exited with ${exit.reason}`)
+    }
     await loaded
     checkpoint('renderer-recovery-reload-loaded')
 
-    const replacement = resources.currentOwner(win.webContents.id)
+    checkpoint('renderer-recovery-readiness-awaiting')
+    const replacement = await replacementReady
+    if (
+      replacement.id !== initialOwner.id ||
+      replacement.generation !== initialOwner.generation + 1
+    ) {
+      throw new Error(
+        `renderer recovery accepted unexpected owner ${replacement.id}:${replacement.generation}`,
+      )
+    }
+    checkpoint('renderer-recovery-readiness-ready')
     await installReplacementDeliveryObserver(win, liveReloadPath)
     reattachRecoveryPty(resources, supervisor, localPty, replacement, win.webContents)
     reattachRecoveryPty(resources, supervisor, remotePty, replacement, win.webContents)
@@ -196,11 +215,6 @@ export async function verifyRendererProcessRecovery(options: {
       throw new Error('renderer replacement changed the active PTY producer set')
     }
 
-    if (replacement.generation !== initialOwner.generation + 1) {
-      throw new Error(
-        `renderer recovery advanced ${replacement.generation - initialOwner.generation} generations`,
-      )
-    }
     const replacementProcessId = win.webContents.getOSProcessId()
     if (replacementProcessId <= 0 || initialProcessId === replacementProcessId) {
       throw new Error('renderer recovery did not create a replacement OS process')
@@ -211,10 +225,14 @@ export async function verifyRendererProcessRecovery(options: {
     )
     checkpoint('renderer-recovery-route-revoked')
     checkpoint('renderer-recovery-diagnostics-awaiting')
-    await waitForRecoveryEvidence(diagnostics, initialOwner)
+    await waitForRecoveryEvidence(
+      diagnostics,
+      initialOwner,
+      exit.reason === 'killed' ? 'killed' : 'crashed',
+    )
     checkpoint('renderer-recovery-diagnostics-ready')
     result =
-      `killed renderer ${initialProcessId} → ${replacementProcessId} · ` +
+      `forced renderer crash ${initialProcessId} → ${replacementProcessId} · ` +
       `generation ${initialOwner.generation} → ${replacement.generation} · ` +
       `${functionalControl} · old route revoked · ` +
       `local/remote-qualified PTYs, watch, and health delivered`
@@ -423,6 +441,7 @@ async function waitForCondition(predicate: () => boolean): Promise<void> {
 async function waitForRecoveryEvidence(
   diagnostics: RuntimeDiagnostics,
   initialOwner: RendererOwner,
+  expectedReason: 'crashed' | 'killed',
 ): Promise<void> {
   for (;;) {
     const events = diagnostics
@@ -433,7 +452,8 @@ async function waitForRecoveryEvidence(
           event.ownerGeneration === initialOwner.generation,
       )
     const exited = events.find(
-      (event) => event.kind === 'renderer-process-exited' && event.reason === 'killed',
+      (event) =>
+        event.kind === 'renderer-process-exited' && event.reason === expectedReason,
     )
     if (exited) {
       return
