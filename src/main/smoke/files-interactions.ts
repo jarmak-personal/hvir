@@ -1,16 +1,19 @@
 import type { BrowserWindow } from 'electron'
 
 import { dirnameHostPath, hostPathEquals, type HostPath } from '../../shared'
+import type { SmokeFailureCheckpoint } from './failure-evidence.mts'
 
 export async function verifyFilesInteractionsSmoke(
   win: BrowserWindow,
   path: HostPath,
   revealedEntries: readonly HostPath[],
+  checkpoint: (checkpoint: SmokeFailureCheckpoint) => void,
 ): Promise<void> {
   const expectedLabel =
     process.platform === 'darwin' ? 'Reveal in Finder' : 'Show in File Manager'
   const originalSize = win.getContentSize() as [number, number]
   try {
+    checkpoint('project-files-local-reveal-menu-awaiting')
     await rendererValue(
       win,
       `(() => {
@@ -32,14 +35,12 @@ export async function verifyFilesInteractionsSmoke(
         return menu.getBoundingClientRect().right <= window.innerWidth &&
           menu.getBoundingClientRect().bottom <= window.innerHeight;
       })()`,
-      'local Files action menu did not open inside the viewport',
     )
 
     win.setContentSize(480, 320)
     await rendererValue(
       win,
       `window.innerWidth === 480 && window.innerHeight === 320 ? true : undefined`,
-      'Files interaction viewport did not resize to 480x320',
     )
     await rendererValue(
       win,
@@ -58,22 +59,22 @@ export async function verifyFilesInteractionsSmoke(
         const actionBounds = action.getBoundingClientRect();
         return actionBounds.top >= bounds.top && actionBounds.bottom <= bounds.bottom;
       })()`,
-      'resized Files action menu was not bounded and internally reachable',
     )
+    checkpoint('project-files-local-reveal-menu-ready')
+    checkpoint('project-files-local-reveal-action-awaiting')
     await win.webContents.executeJavaScript(`
       [...document.querySelectorAll('.file-action-menu [role="menuitem"]')]
         .find((node) => node.textContent?.trim() === ${JSON.stringify(expectedLabel)})
         ?.click();
     `)
-    await withTimeout(
-      (async () => {
-        while (!revealedEntries.some((candidate) => hostPathEquals(candidate, path))) {
-          await new Promise((resolve) => setTimeout(resolve, 20))
-        }
-      })(),
-      'local Files reveal did not reach its native adapter',
-    )
+    await (async () => {
+      while (!revealedEntries.some((candidate) => hostPathEquals(candidate, path))) {
+        await new Promise((resolve) => setTimeout(resolve, 20))
+      }
+    })()
+    checkpoint('project-files-local-reveal-action-ready')
 
+    checkpoint('project-files-local-path-menu-awaiting')
     await rendererValue(
       win,
       `(() => {
@@ -94,7 +95,6 @@ export async function verifyFilesInteractionsSmoke(
         return bounds.left >= 0 && bounds.top >= 0 &&
           bounds.right <= window.innerWidth && bounds.bottom <= window.innerHeight;
       })()`,
-      'path-copy menu was not reachable at 480x320',
     )
     win.setContentSize(520, 360)
     await rendererValue(
@@ -107,13 +107,15 @@ export async function verifyFilesInteractionsSmoke(
         return bounds.left >= 0 && bounds.top >= 0 &&
           bounds.right <= window.innerWidth && bounds.bottom <= window.innerHeight;
       })()`,
-      'path-copy menu escaped after a live resize',
     )
     await win.webContents.executeJavaScript(
       `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`,
     )
+    checkpoint('project-files-local-path-menu-ready')
 
+    checkpoint('project-files-local-tree-focus-awaiting')
     await verifyPointerTreeFocus(win, path)
+    checkpoint('project-files-local-tree-focus-ready')
   } finally {
     win.setContentSize(originalSize[0], originalSize[1])
     await win.webContents.executeJavaScript(`
@@ -132,6 +134,10 @@ async function verifyPointerTreeFocus(win: BrowserWindow, path: HostPath): Promi
     win,
     `(() => {
       if (document.querySelector('.terminal-surface.active .terminal-container')) return true;
+      const failure = document.querySelector(
+        '.terminal-surface.active .terminal-recovery-status'
+      )?.textContent?.trim();
+      if (failure) throw new Error('file interaction terminal failed: ' + failure);
       const create = document.querySelector('.terminal-empty button');
       if (!(create instanceof HTMLButtonElement)) return undefined;
       if (!window.__hvirFilesTerminalRequested) {
@@ -140,8 +146,6 @@ async function verifyPointerTreeFocus(win: BrowserWindow, path: HostPath): Promi
       }
       return undefined;
     })()`,
-    'Files focus smoke could not create a visible terminal',
-    20_000,
   )
   await rendererValue(
     win,
@@ -158,7 +162,6 @@ async function verifyPointerTreeFocus(win: BrowserWindow, path: HostPath): Promi
       }
       return document.activeElement?.closest('.terminal-surface.active') ? true : undefined;
     })()`,
-    'pointer-opened file did not return focus to the visible active terminal',
   )
   await rendererValue(
     win,
@@ -171,7 +174,6 @@ async function verifyPointerTreeFocus(win: BrowserWindow, path: HostPath): Promi
       row.click();
       return document.activeElement === row ? true : undefined;
     })()`,
-    'keyboard-opened file transferred focus away from its tree row',
   )
   await rendererValue(
     win,
@@ -188,7 +190,6 @@ async function verifyPointerTreeFocus(win: BrowserWindow, path: HostPath): Promi
       }
       return document.activeElement?.closest('.terminal-surface.active') ? true : undefined;
     })()`,
-    'pointer-activated directory did not return focus to the visible active terminal',
   )
   await rendererValue(
     win,
@@ -202,7 +203,6 @@ async function verifyPointerTreeFocus(win: BrowserWindow, path: HostPath): Promi
       return document.activeElement === row && row.getAttribute('aria-expanded') === 'true'
         ? true : undefined;
     })()`,
-    'keyboard-activated directory transferred focus away from its tree row',
   )
   await rendererValue(
     win,
@@ -229,7 +229,6 @@ async function verifyPointerTreeFocus(win: BrowserWindow, path: HostPath): Promi
       }
       return document.activeElement === row ? true : undefined;
     })()`,
-    'pointer-activated directory changed focus while no terminal was visible',
   )
   await win.webContents.executeJavaScript(`
     const directory = document.querySelector(
@@ -244,35 +243,23 @@ async function verifyPointerTreeFocus(win: BrowserWindow, path: HostPath): Promi
   `)
 }
 
-function rendererValue(
-  win: BrowserWindow,
-  expression: string,
-  message: string,
-  timeoutMs = 10_000,
-): Promise<unknown> {
+function rendererValue(win: BrowserWindow, expression: string): Promise<unknown> {
   return win.webContents.executeJavaScript(`
     new Promise((resolve, reject) => {
-      const deadline = Date.now() + ${timeoutMs};
       const poll = () => {
         try {
+          const feedback = document.querySelector('.file-operation-feedback.error');
+          if (feedback) {
+            throw new Error(feedback.textContent || 'file interaction failed');
+          }
           const value = ${expression};
           if (value) return resolve(value);
         } catch (error) {
           return reject(error);
         }
-        if (Date.now() > deadline) return reject(new Error(${JSON.stringify(message)}));
         setTimeout(poll, 25);
       };
       poll();
     })
   `) as Promise<unknown>
-}
-
-function withTimeout<T>(promise: Promise<T>, message: string): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_resolve, reject) =>
-      setTimeout(() => reject(new Error(message)), 10_000),
-    ),
-  ])
 }

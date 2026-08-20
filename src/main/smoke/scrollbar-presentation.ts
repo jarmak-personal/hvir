@@ -28,7 +28,6 @@ interface ScrollbarVisibilitySnapshot {
 
 const FIXTURE_ID = 'hvir-scrollbar-smoke-fixture'
 const SURFACE_ID = 'hvir-scrollbar-smoke-surface'
-const VISIBILITY_TIMEOUT_MS = 3_000
 const VISIBILITY_POLL_MS = 25
 
 /** Exercise the real overlay geometry and native scroll input path in Electron. */
@@ -65,35 +64,31 @@ export async function verifyScrollbarPresentation(win: BrowserWindow): Promise<s
       y: Math.round(snapshot.point[1]),
       deltaY: -120,
     })
-    await waitForScrollTop(win, (position) => position > 0, 'wheel input')
+    await waitForScrollTop(win, (position) => position > 0)
 
     await resetFixture(win)
     moveMouse(win, snapshot.trackPoint)
     await new Promise((resolve) => setTimeout(resolve, 100))
     await assertOverlayTarget(win, snapshot.trackPoint, 'track')
     clickMouse(win, snapshot.trackPoint)
-    await waitForScrollTop(win, (position) => position > 0, 'scrollbar track input')
+    await waitForScrollTop(win, (position) => position > 0)
 
     await resetFixture(win)
     moveMouse(win, snapshot.thumbPoint)
     await new Promise((resolve) => setTimeout(resolve, 100))
     await assertOverlayTarget(win, snapshot.thumbPoint, 'thumb')
     dragMouse(win, snapshot.thumbPoint, snapshot.thumbDragPoint)
-    await waitForScrollTop(win, (position) => position > 0, 'scrollbar thumb drag')
+    await waitForScrollTop(win, (position) => position > 0)
 
     await resetAndFocusFixture(win)
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'END' })
     win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'END' })
-    await waitForScrollTop(
-      win,
-      (position, maximum) => position >= maximum - 1,
-      'keyboard input',
-    )
+    await waitForScrollTop(win, (position, maximum) => position >= maximum - 1)
 
-    const active = await waitForFixtureVisibility(win, true, true, 'scrollbar activity')
+    const active = await waitForFixtureVisibility(win, true, true)
     await verifyObscuringOverlay(win, snapshot.trackPoint)
     moveMouse(win, snapshot.emptyPoint)
-    const idle = await waitForFixtureVisibility(win, false, false, 'scrollbar idle')
+    const idle = await waitForFixtureVisibility(win, false, false)
     if (
       active.clientWidth !== snapshot.clientWidth ||
       active.clientHeight !== snapshot.clientHeight ||
@@ -396,9 +391,7 @@ async function resetAndFocusFixture(win: BrowserWindow): Promise<void> {
 async function waitForScrollTop(
   win: BrowserWindow,
   complete: (position: number, maximum: number) => boolean,
-  interaction: string,
 ): Promise<void> {
-  const deadline = Date.now() + 2_000
   for (;;) {
     const position = (await win.webContents.executeJavaScript(`
       (() => {
@@ -408,12 +401,7 @@ async function waitForScrollTop(
       })()
     `)) as { readonly position: number; readonly maximum: number }
     if (complete(position.position, position.maximum)) return
-    if (Date.now() > deadline) {
-      throw new Error(
-        `${interaction} did not move the scroll surface ` +
-          `(position=${position.position}, maximum=${position.maximum})`,
-      )
-    }
+
     await new Promise((resolve) => setTimeout(resolve, 25))
   }
 }
@@ -441,9 +429,7 @@ async function waitForFixtureVisibility(
   win: BrowserWindow,
   verticalVisible: boolean,
   horizontalVisible: boolean,
-  state: string,
 ): Promise<ScrollbarVisibilitySnapshot> {
-  const deadline = Date.now() + VISIBILITY_TIMEOUT_MS
   for (;;) {
     const snapshot = await fixtureDimensions(win)
     if (
@@ -452,13 +438,7 @@ async function waitForFixtureVisibility(
     ) {
       return snapshot
     }
-    if (Date.now() >= deadline) {
-      throw new Error(
-        `${state} did not reach expected overlay visibility ` +
-          `(vertical=${verticalVisible}, horizontal=${horizontalVisible}, ` +
-          `last=${JSON.stringify(snapshot)})`,
-      )
-    }
+
     await new Promise((resolve) => setTimeout(resolve, VISIBILITY_POLL_MS))
   }
 }

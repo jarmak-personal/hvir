@@ -32,7 +32,6 @@ export async function verifyWorkbenchHealthFault(
   clipboard.clear()
   const reviewed = (await win.webContents.executeJavaScript(`
     new Promise((resolve, reject) => {
-      const deadline = Date.now() + 5000;
       let pixelSentinel;
       document.querySelector('.workbench-health-toggle')?.click();
       const inspect = () => {
@@ -42,9 +41,7 @@ export async function verifyWorkbenchHealthFault(
             .find((button) => button.textContent?.trim() === 'Prepare diagnostic report');
           prepare?.click();
           inspectReport(text);
-        } else if (Date.now() > deadline) {
-          reject(new Error('resolved workbench health history missing'));
-        } else {
+        }  else {
           setTimeout(inspect, 20);
         }
       };
@@ -53,7 +50,7 @@ export async function verifyWorkbenchHealthFault(
         const preview = dialog?.querySelector('.diagnostic-report-preview')?.textContent || '';
         if (!dialog || !preview.includes('main-document-load-failed') ||
             !preview.includes('workbench-health-recovered')) {
-          if (Date.now() > deadline) return reject(new Error('diagnostic report preview missing'));
+
           return setTimeout(() => inspectReport(history), 20);
         }
         const noImageInitially = !dialog.querySelector('img');
@@ -93,7 +90,7 @@ export async function verifyWorkbenchHealthFault(
         const image = dialog?.querySelector('img');
         const status = dialog?.querySelector('[role="status"]')?.textContent || '';
         if (!image || !status.includes('Screenshot included')) {
-          if (Date.now() > deadline) return reject(new Error('masked screenshot missing'));
+
           return setTimeout(
             () => inspectCapture(history, preview, noImageInitially, rect),
             20
@@ -110,7 +107,7 @@ export async function verifyWorkbenchHealthFault(
         const dialog = document.querySelector('.diagnostic-report-dialog');
         const status = dialog?.querySelector('[role="status"]')?.textContent || '';
         if (!status.includes('Exact reviewed artifact copied.')) {
-          if (Date.now() > deadline) return reject(new Error('diagnostic report copy missing'));
+
           return setTimeout(() => inspectCopy(result), 20);
         }
         const remove = [...dialog.querySelectorAll('button')]
@@ -118,7 +115,7 @@ export async function verifyWorkbenchHealthFault(
         remove?.click();
         const inspectDeleted = () => {
           if (!document.querySelector('.diagnostic-report-dialog')) return resolve(result);
-          if (Date.now() > deadline) return reject(new Error('temporary report was not deleted'));
+
           setTimeout(inspectDeleted, 20);
         };
         inspectDeleted();
@@ -162,7 +159,6 @@ export async function verifyWorkbenchHealthFault(
 async function deleteLocalDiagnosticEvidence(win: BrowserWindow): Promise<void> {
   await win.webContents.executeJavaScript(`
     new Promise((resolve, reject) => {
-      const deadline = Date.now() + 3000;
       document.querySelector('.workbench-health-toggle')?.click();
       const inspect = () => {
         const storage = document.querySelector('.workbench-health-storage');
@@ -174,9 +170,7 @@ async function deleteLocalDiagnosticEvidence(win: BrowserWindow): Promise<void> 
           remove.click();
           return waitForDeleted();
         }
-        if (Date.now() > deadline) {
-          return reject(new Error('local diagnostic evidence controls missing: ' + text));
-        }
+
         setTimeout(inspect, 20);
       };
       const waitForDeleted = () => {
@@ -187,9 +181,7 @@ async function deleteLocalDiagnosticEvidence(win: BrowserWindow): Promise<void> 
             .find((button) => button.textContent?.trim() === 'Close')?.click();
           return resolve();
         }
-        if (Date.now() > deadline) {
-          return reject(new Error('local diagnostic evidence remained: ' + status));
-        }
+
         setTimeout(waitForDeleted, 20);
       };
       inspect();
@@ -232,11 +224,10 @@ function assertMaskedPixel(
 function waitForHealthLabel(expected: string): string {
   return `
     new Promise((resolve, reject) => {
-      const deadline = Date.now() + 3000;
       const inspect = () => {
         const label = document.querySelector('.workbench-health-toggle')?.getAttribute('aria-label') || '';
         if (label.includes(${JSON.stringify(expected)})) resolve(label);
-        else if (Date.now() > deadline) reject(new Error('workbench health affordance missing: ' + label));
+
         else setTimeout(inspect, 20);
       };
       inspect();

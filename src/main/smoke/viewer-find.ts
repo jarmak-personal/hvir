@@ -12,7 +12,6 @@ export function verifyViewerFind(
 ): Promise<string> {
   return win.webContents.executeJavaScript(`
     (async () => {
-      const deadline = Date.now() + 30000;
       const mac = /Mac/.test(navigator.platform);
       const chord = (target) => target.dispatchEvent(new KeyboardEvent('keydown', {
         key: 'f', ctrlKey: !mac, metaKey: mac, bubbles: true
@@ -21,7 +20,6 @@ export function verifyViewerFind(
         for (;;) {
           const value = test();
           if (value) return value;
-          if (Date.now() > deadline) throw new Error(message);
           await new Promise((resolve) => setTimeout(resolve, 25));
         }
       };

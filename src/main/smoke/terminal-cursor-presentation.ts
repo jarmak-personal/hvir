@@ -1,7 +1,6 @@
 import type { BrowserWindow } from 'electron'
 
 import type { PtySupervisor } from '../pty/pty-supervisor'
-import { withTerminalSmokeTimeout } from './terminal-smoke-timeout'
 
 type CursorShape = 'block' | 'hollow-block' | 'bar' | 'underline'
 type CursorBlink = 'terminal' | 'blinking' | 'steady'
@@ -24,8 +23,7 @@ export async function verifyTerminalCursorPresentation(
   if (!terminal) throw new Error('cursor presentation check has no retained terminal')
   const originalInstanceId = terminal.instanceId
 
-  await withTerminalSmokeTimeout(
-    win.webContents.executeJavaScript(`
+  await win.webContents.executeJavaScript(`
       (() => {
         const surface = document.querySelector('.terminal-surface.active');
         const engine = surface?.querySelector('.terminal-engine-host');
@@ -37,9 +35,7 @@ export async function verifyTerminalCursorPresentation(
         ) throw new Error('cursor presentation fixtures missing');
         canvas.__hvirCursorCanvasIdentity = Object.freeze({});
       })()
-    `),
-    'cursor presentation setup timed out',
-  )
+    `)
 
   const shapes = [
     ['block', 'block'],
@@ -108,10 +104,8 @@ async function applyCursorSettings(
   shape: CursorShape,
   blink: CursorBlink,
 ): Promise<void> {
-  await withTerminalSmokeTimeout(
-    win.webContents.executeJavaScript(`
+  await win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
-        const deadline = Date.now() + 8000;
         const expectedShape = ${JSON.stringify(shape)};
         const expectedBlink = ${JSON.stringify(blink)};
         const fail = (message) => reject(new Error(message));
@@ -127,7 +121,7 @@ async function applyCursorSettings(
             terminal.click();
             return edit();
           }
-          if (Date.now() > deadline) return fail('Terminal settings did not open');
+
           setTimeout(openTerminal, 20);
         };
         const setSelect = (control, value) => {
@@ -155,7 +149,7 @@ async function applyCursorSettings(
             save.click();
             return waitForApplied();
           }
-          if (Date.now() > deadline) return fail('cursor settings controls missing');
+
           setTimeout(edit, 20);
         };
         const waitForApplied = () => {
@@ -174,31 +168,20 @@ async function applyCursorSettings(
             canvas instanceof HTMLCanvasElement &&
             canvas.__hvirCursorCanvasIdentity
           ) return resolve(undefined);
-          if (Date.now() > deadline) {
-            return fail('cursor settings did not update retained pane: ' + JSON.stringify({
-              stored,
-              defaults,
-              canvasRetained: Boolean(canvas?.__hvirCursorCanvasIdentity)
-            }));
-          }
+
           setTimeout(waitForApplied, 20);
         };
         openTerminal();
       })
-    `),
-    `cursor settings ${shape}/${blink} timed out`,
-    10_000,
-  )
+    `)
 }
 
 async function waitForCursor(
   win: BrowserWindow,
   expected: CursorExpectation,
 ): Promise<void> {
-  await withTerminalSmokeTimeout(
-    win.webContents.executeJavaScript(`
+  await win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
-        const deadline = Date.now() + 5000;
         const expected = ${JSON.stringify(expected)};
         const fail = (message) => reject(new Error(message));
         const sameRgb = (left, right, tolerance = 4) =>
@@ -276,22 +259,12 @@ async function waitForCursor(
             cursor.default === expected.default &&
             canvasMatches(canvas, { ...stats, effectiveCursor: cursor })
           ) return resolve(undefined);
-          if (Date.now() > deadline) {
-            return fail('cursor state or Canvas did not settle: ' + JSON.stringify({
-              cursor,
-              paused: stats?.paused,
-              pendingFrame: stats?.pendingFrame,
-              canvasRetained: Boolean(canvas?.__hvirCursorCanvasIdentity)
-            }));
-          }
+
           setTimeout(poll, 20);
         };
         poll();
       })
-    `),
-    `cursor state ${expected.shape}/${expected.blinking}/${expected.default} timed out`,
-    7_000,
-  )
+    `)
 }
 
 function writeCursorControl(

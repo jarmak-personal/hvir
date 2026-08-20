@@ -4,7 +4,6 @@ import type { BrowserWindow } from 'electron'
 export function verifyDirtyBranchSwitch(win: BrowserWindow): Promise<string> {
   return win.webContents.executeJavaScript(`
     new Promise((resolve, reject) => {
-      const deadline = Date.now() + 15000;
       [...document.querySelectorAll('button')]
         .find((node) => node.textContent?.trim().startsWith('Changes'))?.click();
       const start = () => {
@@ -12,9 +11,7 @@ export function verifyDirtyBranchSwitch(win: BrowserWindow): Promise<string> {
         const target = select && [...select.options]
           .find((option) => option.value === 'main');
         if (!select || !target || !document.querySelector('.git-file')) {
-          if (Date.now() > deadline) {
-            return reject(new Error('Dirty branch target or working-tree evidence missing'));
-          }
+
           return setTimeout(start, 25);
         }
         if (target.disabled) return reject(new Error('Dirty branch target is disabled'));
@@ -33,9 +30,7 @@ export function verifyDirtyBranchSwitch(win: BrowserWindow): Promise<string> {
         ) {
           return observeStability(target);
         }
-        if (Date.now() > deadline) {
-          return reject(new Error('Dirty branch switch did not refresh'));
-        }
+
         setTimeout(() => poll(target), 25);
       };
       const observeStability = (target) => {

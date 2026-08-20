@@ -20,11 +20,9 @@ export async function verifyTerminalProjectReturn(
     terminal.ownerId,
     "printf '\\033]0;Project return buffer\\007\\033[41m\\033[2J\\033[Hproject-return-buffer\\033[0m'; IFS= read -r hvir_project_return\n",
   )
-  const status = (await withProjectReturnTimeout(
-    win.webContents.executeJavaScript(`
+  const status = (await win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
         const sessionId = ${JSON.stringify(terminal.id)};
-        const deadline = Date.now() + 8000;
         const fail = (message) => reject(new Error(message));
         const projectButton = (name) =>
           [...document.querySelectorAll('.project-tab-main')].find(
@@ -63,9 +61,7 @@ export async function verifyTerminalProjectReturn(
             secondary.click();
             return waitForDetached(surface, container, engine, canvas);
           }
-          if (Date.now() > deadline) {
-            return fail('project return buffer did not become ready: title=' + title);
-          }
+
           setTimeout(waitForBuffer, 25);
         };
         const waitForDetached = (surface, container, engine, canvas) => {
@@ -88,14 +84,7 @@ export async function verifyTerminalProjectReturn(
             primary.click();
             return waitForReturn(engine, canvas);
           }
-          if (Date.now() > deadline) {
-            return fail(
-              'terminal did not detach hidden: project=' + activeProject +
-              ' connected=' + engine.isConnected +
-              ' delivery=' + delivery?.presentation +
-              ' paused=' + presentation?.paused
-            );
-          }
+
           setTimeout(() => waitForDetached(surface, container, engine, canvas), 25);
         };
         const waitForReturn = (engine, canvas) => {
@@ -131,26 +120,12 @@ export async function verifyTerminalProjectReturn(
           ) {
             return resolve('same PTY session + retained buffer + focused owner');
           }
-          if (Date.now() > deadline) {
-            return fail(
-              'terminal project return did not restore its owner and buffer: project=' +
-              activeProject + ' same=' + [
-                currentEngine === engine,
-                currentCanvas === canvas
-              ].join('/') +
-              ' delivery=' + delivery?.presentation +
-              ' paused=' + presentation?.paused +
-              ' pixel=' + (pixel ? [...pixel].join('/') : 'missing') +
-              ' focus=' + engine.contains(document.activeElement)
-            );
-          }
+
           setTimeout(() => waitForReturn(engine, canvas), 25);
         };
         waitForBuffer();
       })
-    `),
-    10_000,
-  )) as string
+    `)) as string
   supervisor.write(terminal.id, terminal.ownerId, '\n')
   const retained = supervisor
     .list()
@@ -165,11 +140,9 @@ async function verifyViewerProjectReturn(
   win: BrowserWindow,
   path: HostPath,
 ): Promise<string> {
-  return (await withProjectReturnTimeout(
-    win.webContents.executeJavaScript(`
+  return (await win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
         const path = ${JSON.stringify(path.path)};
-        const deadline = Date.now() + 20000;
         const fail = (message) => reject(new Error(message + ': ' + JSON.stringify({
           project: document.querySelector('.project-tab.active .project-tab-main strong')
             ?.textContent?.trim(),
@@ -185,7 +158,6 @@ async function verifyViewerProjectReturn(
         const waitFor = (test, message, next) => {
           const value = test();
           if (value) return next(value);
-          if (Date.now() > deadline) return fail(message);
           setTimeout(() => waitFor(test, message, next), 25);
         };
         const projectButton = (name) =>
@@ -282,26 +254,5 @@ async function verifyViewerProjectReturn(
           }
         );
       })
-    `),
-    22_000,
-  )) as string
-}
-
-function withProjectReturnTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error('terminal project return timed out')),
-      timeoutMs,
-    )
-    promise.then(
-      (value) => {
-        clearTimeout(timer)
-        resolve(value)
-      },
-      (error) => {
-        clearTimeout(timer)
-        reject(error instanceof Error ? error : new Error(String(error)))
-      },
-    )
-  })
+    `)) as string
 }

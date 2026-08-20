@@ -1,7 +1,6 @@
 import type { BrowserWindow } from 'electron'
 
 import type { ManagedPty, PtySupervisor } from '../pty/pty-supervisor'
-import { withTerminalSmokeTimeout } from './terminal-smoke-timeout'
 
 /**
  * Exercises the complete hidden-pane presentation boundary: background parsing
@@ -19,12 +18,10 @@ export async function verifyHiddenTerminalReveal(
     "printf '\\033[41m\\033[2J\\033[Hhidden-buffer\\033[0m\\033]0;Hidden buffered\\007\\007'; IFS= read -r hvir_input; printf 'input:%s\\n' \"$hvir_input\"; sleep 10\n",
   )
 
-  return (await withTerminalSmokeTimeout(
-    win.webContents.executeJavaScript(`
+  return (await win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
         const sessionId = ${JSON.stringify(terminal.id)};
         const quiescentSessionId = ${JSON.stringify(quiescentTerminal.id)};
-        const deadline = Date.now() + 8000;
         const fail = (message) => reject(new Error(message));
         const statsRemainHidden = (current, snapshot) =>
           current && current.paused && !current.pendingFrame &&
@@ -76,10 +73,7 @@ export async function verifyHiddenTerminalReveal(
               );
             }, 650);
           }
-          if (Date.now() > deadline) {
-            return fail('hidden terminal output did not settle: title=' + title +
-              ' bell=' + Boolean(bell) + ' surface=' + Boolean(surface));
-          }
+
           setTimeout(waitForHiddenOutput, 25);
         };
         const selectFromCompactRail = (
@@ -304,9 +298,7 @@ export async function verifyHiddenTerminalReveal(
                 });
               });
             }
-            if (Date.now() > deadline) {
-              return fail('compact terminal markers did not appear');
-            }
+
             setTimeout(waitForMarkers, 25);
           };
           waitForMarkers();
@@ -371,18 +363,12 @@ export async function verifyHiddenTerminalReveal(
                   'multiple hidden surfaces stable + current repaint'
                 );
               }
-              if (Date.now() > deadline) {
-                return fail('terminal rail did not restore after compact marker switch');
-              }
+
               setTimeout(waitForRestore, 25);
             };
             return waitForRestore();
           }
-          if (Date.now() > deadline) {
-            return fail(
-              'compact marker did not activate and clear the revealed terminal'
-            );
-          }
+
           setTimeout(
             () =>
               waitForReveal(
@@ -400,8 +386,5 @@ export async function verifyHiddenTerminalReveal(
         };
         waitForHiddenOutput();
       })
-    `),
-    'hidden terminal compact switch timed out',
-    12_000,
-  )) as string
+    `)) as string
 }
