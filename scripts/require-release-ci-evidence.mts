@@ -1,4 +1,3 @@
-import { appendFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 
 import {
@@ -90,7 +89,7 @@ export type EvidenceRejection =
   | 'changed-tree'
 
 export type EvidenceDecision =
-  | { accepted: true; runId: number; kind: 'ordinary' | 'version-only' }
+  | { accepted: true; kind: 'ordinary' | 'version-only' }
   | { accepted: false; rejection: EvidenceRejection }
 
 export interface ReleaseCiEvidence {
@@ -252,7 +251,7 @@ export function evaluateReleaseCiEvidence(
     if (evidence.versionOnlyIntegrityAccepted !== true) {
       return { accepted: false, rejection: 'invalid-version-only' }
     }
-    return { accepted: true, runId: run.id, kind: 'version-only' }
+    return { accepted: true, kind: 'version-only' }
   }
   if (releaseClassifier.conclusion !== 'skipped') {
     return { accepted: false, rejection: 'unsuccessful-job' }
@@ -261,7 +260,7 @@ export function evaluateReleaseCiEvidence(
     const failure = requireJobConclusion(evidence.jobs, name, 'success')
     if (failure) return failure
   }
-  return { accepted: true, runId: run.id, kind: 'ordinary' }
+  return { accepted: true, kind: 'ordinary' }
 }
 
 interface GitHubPullRequestResponse {
@@ -571,7 +570,7 @@ export async function loadReleaseCiEvidence(
   }
 }
 
-export async function requireReleaseCiEvidence(): Promise<number> {
+export async function requireReleaseCiEvidence(): Promise<void> {
   const repository = requireReleaseEnvironment('GITHUB_REPOSITORY')
   if (repository !== RELEASE_REPOSITORY) {
     throw new Error('Release CI evidence is restricted to the canonical repository')
@@ -582,7 +581,6 @@ export async function requireReleaseCiEvidence(): Promise<number> {
     requireReleaseEnvironment('RELEASE_SOURCE_SHA'),
   )
   const token = requireReleaseEnvironment('GITHUB_TOKEN')
-  const outputPath = requireReleaseEnvironment('GITHUB_OUTPUT')
 
   const decision = evaluateReleaseCiEvidence(
     await loadReleaseCiEvidence(repository, defaultBranch, sourceSha, token),
@@ -591,9 +589,7 @@ export async function requireReleaseCiEvidence(): Promise<number> {
     throw new Error(`Trusted CI evidence rejected: ${decision.rejection}`)
   }
 
-  await appendFile(outputPath, `run_id=${decision.runId}\n`)
   process.stdout.write(`Trusted ${decision.kind} merge evidence accepted.\n`)
-  return decision.runId
 }
 
 const invokedPath = process.argv[1]

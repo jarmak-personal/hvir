@@ -173,19 +173,14 @@ describe('CI workflow', () => {
       MACOS_ELECTRON_SMOKE: '${{ needs.macos-electron-smoke.result }}',
       CODEQL: '${{ needs.codeql.result }}',
     })
-    expect(step?.run).toContain('if [ "$RUN_ATTEMPT" != 1 ]')
     expect(step?.run).toContain('if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$')
     expect(step?.run).toContain('if [ "$(git rev-parse HEAD)" != "$HEAD_SHA" ]')
     expect(step?.run).toContain(
       'if ! git merge-base --is-ancestor "$BASE_SHA" "$HEAD_SHA"',
     )
-    expect(step?.run).toContain('if [ "$RELEASE_VERSION_INTEGRITY" = success ]')
-    expect(step?.run).toContain('if [ "$result" != skipped ]')
-    expect(step?.run).toContain('if [ "$RELEASE_VERSION_INTEGRITY" != skipped ]')
-    expect(step?.run).toContain('if [ "$result" != success ]')
   })
 
-  it('accepts only an exact head whose tested base is its ancestor', async () => {
+  it('executes every ordinary, version-only, and identity acceptance branch', async () => {
     const aggregate = workflow.jobs['merge-acceptance']
     const script = aggregate?.steps.find(
       (candidate) => candidate.name === 'Require complete first-attempt merge evidence',
@@ -208,8 +203,7 @@ describe('CI workflow', () => {
     const divergedSha = git('rev-parse', 'HEAD')
     git('switch', '--quiet', '--detach', headSha)
 
-    const environment = {
-      ...process.env,
+    const ordinaryEnvironment = {
       BASE_SHA: baseSha,
       HEAD_SHA: headSha,
       RUN_ATTEMPT: '1',
@@ -219,15 +213,41 @@ describe('CI workflow', () => {
       MACOS_ELECTRON_SMOKE: 'success',
       CODEQL: 'success',
     }
-    expect(
-      spawnSync('bash', ['-c', script], { cwd: repository, env: environment }).status,
-    ).toBe(0)
-    expect(
+    const runAggregate = (overrides: Record<string, string> = {}): number | null =>
       spawnSync('bash', ['-c', script], {
         cwd: repository,
-        env: { ...environment, BASE_SHA: divergedSha },
-      }).status,
-    ).toBe(1)
+        env: { ...process.env, ...ordinaryEnvironment, ...overrides },
+      }).status
+
+    expect(runAggregate()).toBe(0)
+    const rejectedCases: Array<Record<string, string>> = [
+      { BASE_SHA: divergedSha },
+      { BASE_SHA: 'not-a-sha' },
+      { HEAD_SHA: baseSha },
+      { RUN_ATTEMPT: '2' },
+      { VERIFY: 'failure' },
+      { RELEASE_VERSION_INTEGRITY: 'failure' },
+    ]
+    for (const rejected of rejectedCases) {
+      expect(runAggregate(rejected)).toBe(1)
+    }
+
+    const versionOnly = {
+      RELEASE_VERSION_INTEGRITY: 'success',
+      VERIFY: 'skipped',
+      ELECTRON_SMOKE: 'skipped',
+      MACOS_ELECTRON_SMOKE: 'skipped',
+      CODEQL: 'skipped',
+    }
+    expect(runAggregate(versionOnly)).toBe(0)
+    for (const job of [
+      'VERIFY',
+      'ELECTRON_SMOKE',
+      'MACOS_ELECTRON_SMOKE',
+      'CODEQL',
+    ]) {
+      expect(runAggregate({ ...versionOnly, [job]: 'success' })).toBe(1)
+    }
   })
 
   it('removes hosted capacity while retaining controlled capacity commands', () => {

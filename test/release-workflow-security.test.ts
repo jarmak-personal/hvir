@@ -134,7 +134,7 @@ describe('native release automation', () => {
       (step) => step.name === 'Require exact-source first-attempt CI evidence',
     )
     const evidenceTimeoutMinutes = evidenceStep?.['timeout-minutes'] ?? 0
-    expect(evidenceStep?.id).toBe('ci_evidence')
+    expect(evidenceStep?.id).toBeUndefined()
     expect(evidenceTimeoutMinutes).toBe(5)
     expect(prepare?.['timeout-minutes']).toBe(15)
     expect(releaseWorkflow).toContain("if: inputs.bump == 'current'")
@@ -155,6 +155,8 @@ describe('native release automation', () => {
     expect(releaseCiEvidenceScript).not.toMatch(/\/rerun|\/dispatches/)
     expect(releaseCiEvidenceScript).not.toContain('method:')
     expect(releaseCiEvidenceScript).not.toContain('response.text()')
+    expect(releaseCiEvidenceScript).not.toContain('GITHUB_OUTPUT')
+    expect(releaseCiEvidenceScript).not.toContain('run_id')
   })
 
   it('dispatches only a merged same-repository bot release PR from trusted workflow code', () => {

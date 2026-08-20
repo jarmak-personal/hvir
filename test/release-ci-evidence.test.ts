@@ -1,9 +1,6 @@
 import { readFileSync } from 'node:fs'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 
-import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parse } from 'yaml'
 
 import {
@@ -196,12 +193,11 @@ function releaseCiFetch(): ReturnType<typeof vi.fn> {
   })
 }
 
-function stubReleaseEnvironment(outputPath = ''): void {
+function stubReleaseEnvironment(): void {
   for (const [name, value] of Object.entries({
     GITHUB_REPOSITORY: RELEASE_REPOSITORY,
     GITHUB_DEFAULT_BRANCH: 'main',
     GITHUB_TOKEN: 'test-token',
-    GITHUB_OUTPUT: outputPath,
     RELEASE_SOURCE_SHA: sourceSha,
   })) {
     vi.stubEnv(name, value)
@@ -228,7 +224,6 @@ describe('release CI evidence', () => {
   it('accepts an exact ordinary merged candidate', () => {
     expect(evaluateReleaseCiEvidence(evidence())).toEqual({
       accepted: true,
-      runId: 42,
       kind: 'ordinary',
     })
   })
@@ -244,7 +239,7 @@ describe('release CI evidence', () => {
           },
         }),
       ),
-    ).toEqual({ accepted: true, runId: 42, kind: 'ordinary' })
+    ).toEqual({ accepted: true, kind: 'ordinary' })
   })
 
   it('accepts the exact validator-backed version-only exception', () => {
@@ -255,7 +250,7 @@ describe('release CI evidence', () => {
           versionOnlyIntegrityAccepted: true,
         }),
       ),
-    ).toEqual({ accepted: true, runId: 42, kind: 'version-only' })
+    ).toEqual({ accepted: true, kind: 'version-only' })
   })
 
   it('rejects version-only skip evidence without exact validator acceptance', () => {
@@ -396,17 +391,14 @@ describe('release CI evidence', () => {
     }
   })
 
-  it('loads bounded exact-source metadata and writes the accepted run', async () => {
-    const temporaryDirectory = await mkdtemp(join(tmpdir(), 'hvir-release-ci-'))
-    onTestFinished(() => rm(temporaryDirectory, { recursive: true, force: true }))
-    const outputPath = join(temporaryDirectory, 'output')
-    stubReleaseEnvironment(outputPath)
+  it('loads bounded exact-source metadata and accepts the decision', async () => {
+    stubReleaseEnvironment()
     const fetchMock = releaseCiFetch()
     vi.stubGlobal('fetch', fetchMock)
-    vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
-    await expect(requireReleaseCiEvidence()).resolves.toBe(42)
-    await expect(readFile(outputPath, 'utf8')).resolves.toBe('run_id=42\n')
+    await expect(requireReleaseCiEvidence()).resolves.toBeUndefined()
+    expect(stdout).toHaveBeenCalledWith('Trusted ordinary merge evidence accepted.\n')
     expect(fetchMock).toHaveBeenCalledTimes(7)
     for (const call of fetchMock.mock.calls) {
       expect((call[1] as RequestInit | undefined)?.method).toBeUndefined()
@@ -457,14 +449,15 @@ describe('release CI evidence', () => {
 
   it('requires all local inputs before making an evidence request', async () => {
     stubReleaseEnvironment()
+    vi.stubEnv('GITHUB_TOKEN', '')
     const fetchMock = releaseCiFetch()
     vi.stubGlobal('fetch', fetchMock)
-    await expect(requireReleaseCiEvidence()).rejects.toThrow('GITHUB_OUTPUT is required')
+    await expect(requireReleaseCiEvidence()).rejects.toThrow('GITHUB_TOKEN is required')
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('reports only the status of a failed GitHub evidence request', async () => {
-    stubReleaseEnvironment('/tmp/output')
+    stubReleaseEnvironment()
     vi.stubGlobal(
       'fetch',
       vi.fn(() =>
