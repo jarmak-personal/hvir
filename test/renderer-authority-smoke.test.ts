@@ -20,6 +20,10 @@ const mainEntrySource = readFileSync(
   new URL('../src/main/index.ts', import.meta.url),
   'utf8',
 )
+const smokeCompositionSource = readFileSync(
+  new URL('../src/main/smoke/index.ts', import.meta.url),
+  'utf8',
+)
 
 describe('renderer-authority smoke boundaries', () => {
   it('accepts slow semantic readiness without an operation deadline', async () => {
@@ -67,9 +71,11 @@ describe('renderer-authority smoke boundaries', () => {
     expect(rendererAuthoritySource).not.toContain("'did-finish-load'")
     expect(rendererRecoverySource).toContain('routes.open(')
     expect(rendererRecoverySource).toContain("'did-finish-load'")
-    expect(rendererRecoverySource).toContain("process.kill(initialProcessId, 'SIGKILL')")
+    expect(rendererRecoverySource).toContain('win.webContents.forcefullyCrashRenderer()')
+    expect(rendererRecoverySource).not.toContain('process.kill(')
+    expect(rendererRecoverySource).not.toContain('win.webContents.reload()')
     expect(rendererRecoverySource).not.toContain('reloadUnresponsiveRenderer')
-    expect(rendererRecoverySource).not.toContain("'render-process-gone'")
+    expect(rendererRecoverySource).toContain("'render-process-gone'")
     expect(rendererRecoverySource).not.toContain("'renderer-recovery-exit-awaiting'")
     expect(rendererRecoverySource).not.toContain('win.webContents.capturePage()')
     expect(
@@ -79,7 +85,14 @@ describe('renderer-authority smoke boundaries', () => {
     ).toBeGreaterThan(
       rendererRecoverySource.indexOf("checkpoint('renderer-recovery-route-opened')"),
     )
-    expect(rendererRecoverySource).toContain("event.reason === 'killed'")
+    expect(rendererRecoverySource).toContain('replacement = await replacementReady')
+    expect(smokeCompositionSource).toContain(
+      'if (accepted) acceptedRendererReadySink?.(owner)',
+    )
+    expect(smokeCompositionSource).toContain(
+      'owner.generation === initialRendererGeneration',
+    )
+    expect(smokeCompositionSource).toContain('replacementReady,')
     expect(rendererRecoverySource).toContain("window.hvir.invoke('app:info'")
     expect(rendererRecoverySource).toContain(
       "'renderer-recovery-replacement-ipc-awaiting'",
