@@ -497,7 +497,6 @@ export async function loadReleaseCiEvidence(
   defaultBranch: string,
   sourceSha: string,
   token: string,
-  workflowActor: string,
 ): Promise<ReleaseCiEvidence> {
   const pullRequests = await loadPullRequests(repository, sourceSha, token)
   const sourcePullRequests = pullRequests.filter(
@@ -548,7 +547,6 @@ export async function loadReleaseCiEvidence(
     const decision = await loadReleasePrIntegrityDecision({
       repository,
       defaultBranch,
-      workflowActor,
       token,
       mode: 'merged',
       pullRequestNumber: pullRequest.number,
@@ -584,17 +582,10 @@ export async function requireReleaseCiEvidence(): Promise<number> {
     requireReleaseEnvironment('RELEASE_SOURCE_SHA'),
   )
   const token = requireReleaseEnvironment('GITHUB_TOKEN')
-  const workflowActor = requireReleaseEnvironment('GITHUB_ACTOR')
   const outputPath = requireReleaseEnvironment('GITHUB_OUTPUT')
 
   const decision = evaluateReleaseCiEvidence(
-    await loadReleaseCiEvidence(
-      repository,
-      defaultBranch,
-      sourceSha,
-      token,
-      workflowActor,
-    ),
+    await loadReleaseCiEvidence(repository, defaultBranch, sourceSha, token),
   )
   if (!decision.accepted) {
     throw new Error(`Trusted CI evidence rejected: ${decision.rejection}`)

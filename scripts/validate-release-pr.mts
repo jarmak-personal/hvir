@@ -19,7 +19,7 @@ export interface ReleasePrIntegrityEvidence {
   mode: ReleasePrMode
   repository: string
   defaultBranch: string
-  workflowActor: string
+  workflowActor?: string
   pullRequestNumber: number
   pullRequestState: string
   merged: boolean
@@ -254,7 +254,7 @@ interface GitHubContentResponse {
 export interface ReleasePrIntegrityRequest {
   repository: string
   defaultBranch: string
-  workflowActor: string
+  workflowActor?: string
   token: string
   mode: ReleasePrMode
   pullRequestNumber: number
@@ -312,7 +312,6 @@ export async function loadReleasePrIntegrityDecision(
   const {
     repository,
     defaultBranch,
-    workflowActor,
     token,
     mode,
     pullRequestNumber,
@@ -377,7 +376,7 @@ export async function loadReleasePrIntegrityDecision(
     mode,
     repository,
     defaultBranch,
-    workflowActor,
+    ...(mode === 'pre-merge' ? { workflowActor: request.workflowActor } : {}),
     pullRequestNumber,
     pullRequestState: githubEvidence.requiredString(pullRequest.state),
     merged: requiredBoolean(pullRequest.merged),
@@ -406,12 +405,15 @@ export async function validateReleasePullRequest(): Promise<string> {
   const pullRequestNumber = requirePullRequestNumber(
     requireReleaseEnvironment('RELEASE_PR_NUMBER'),
   )
+  const mode = requireMode(requireReleaseEnvironment('RELEASE_PR_MODE'))
   const decision = await loadReleasePrIntegrityDecision({
     repository: requireReleaseEnvironment('GITHUB_REPOSITORY'),
     defaultBranch: requireReleaseEnvironment('GITHUB_DEFAULT_BRANCH'),
-    workflowActor: requireReleaseEnvironment('GITHUB_ACTOR'),
+    ...(mode === 'pre-merge'
+      ? { workflowActor: requireReleaseEnvironment('GITHUB_ACTOR') }
+      : {}),
     token: requireReleaseEnvironment('GITHUB_TOKEN'),
-    mode: requireMode(requireReleaseEnvironment('RELEASE_PR_MODE')),
+    mode,
     pullRequestNumber,
     expectedHeadSha: requireFullCommitSha(
       'RELEASE_PR_HEAD_SHA',

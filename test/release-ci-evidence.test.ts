@@ -200,7 +200,6 @@ function stubReleaseEnvironment(outputPath = ''): void {
   for (const [name, value] of Object.entries({
     GITHUB_REPOSITORY: RELEASE_REPOSITORY,
     GITHUB_DEFAULT_BRANCH: 'main',
-    GITHUB_ACTOR: 'jarmak-personal',
     GITHUB_TOKEN: 'test-token',
     GITHUB_OUTPUT: outputPath,
     RELEASE_SOURCE_SHA: sourceSha,
@@ -296,6 +295,8 @@ describe('release CI evidence', () => {
       workflowRun({ event: 'push' }),
       workflowRun({ name: 'Another workflow' }),
       workflowRun({ path: '.github/workflows/other.yml' }),
+      workflowRun({ headSha: otherSha }),
+      workflowRun({ headBranch: 'agent/another-issue' }),
     ]) {
       expect(evaluateReleaseCiEvidence(evidence({ runs: [changed] }))).toEqual({
         accepted: false,
@@ -432,13 +433,7 @@ describe('release CI evidence', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     await expect(
-      loadReleaseCiEvidence(
-        RELEASE_REPOSITORY,
-        'main',
-        sourceSha,
-        'test-token',
-        'jarmak-personal',
-      ),
+      loadReleaseCiEvidence(RELEASE_REPOSITORY, 'main', sourceSha, 'test-token'),
     ).resolves.toMatchObject({ pullRequests: { length: 101 } })
     expect(
       fetchMock.mock.calls.filter((call) =>
@@ -455,13 +450,7 @@ describe('release CI evidence', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     await expect(
-      loadReleaseCiEvidence(
-        RELEASE_REPOSITORY,
-        'main',
-        sourceSha,
-        'test-token',
-        'jarmak-personal',
-      ),
+      loadReleaseCiEvidence(RELEASE_REPOSITORY, 'main', sourceSha, 'test-token'),
     ).rejects.toThrow('GitHub merge evidence response was incomplete')
     expect(fetchMock).toHaveBeenCalledTimes(10)
   })

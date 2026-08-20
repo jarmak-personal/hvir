@@ -1,6 +1,10 @@
+import { execFileSync, spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, onTestFinished } from 'vitest'
 import { parse } from 'yaml'
 
 const workflowSource = readFileSync(
@@ -146,10 +150,21 @@ describe('CI workflow', () => {
       'macos-electron-smoke',
       'codeql',
     ])
+    expect(aggregate.steps[0]).toEqual({
+      name: 'Check out exact head for base ancestry proof',
+      uses: 'actions/checkout@v7',
+      with: {
+        ref: '${{ github.event.pull_request.head.sha }}',
+        'fetch-depth': 0,
+        'persist-credentials': false,
+      },
+    })
     const step = aggregate.steps.find(
       (candidate) => candidate.name === 'Require complete first-attempt merge evidence',
     )
     expect(step?.env).toEqual({
+      BASE_SHA: '${{ github.event.pull_request.base.sha }}',
+      HEAD_SHA: '${{ github.event.pull_request.head.sha }}',
       RUN_ATTEMPT: '${{ github.run_attempt }}',
       RELEASE_VERSION_INTEGRITY:
         '${{ needs.release-version-integrity.result }}',
@@ -159,10 +174,60 @@ describe('CI workflow', () => {
       CODEQL: '${{ needs.codeql.result }}',
     })
     expect(step?.run).toContain('if [ "$RUN_ATTEMPT" != 1 ]')
+    expect(step?.run).toContain('if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$')
+    expect(step?.run).toContain('if [ "$(git rev-parse HEAD)" != "$HEAD_SHA" ]')
+    expect(step?.run).toContain(
+      'if ! git merge-base --is-ancestor "$BASE_SHA" "$HEAD_SHA"',
+    )
     expect(step?.run).toContain('if [ "$RELEASE_VERSION_INTEGRITY" = success ]')
     expect(step?.run).toContain('if [ "$result" != skipped ]')
     expect(step?.run).toContain('if [ "$RELEASE_VERSION_INTEGRITY" != skipped ]')
     expect(step?.run).toContain('if [ "$result" != success ]')
+  })
+
+  it('accepts only an exact head whose tested base is its ancestor', async () => {
+    const aggregate = workflow.jobs['merge-acceptance']
+    const script = aggregate?.steps.find(
+      (candidate) => candidate.name === 'Require complete first-attempt merge evidence',
+    )?.run
+    if (!script) throw new Error('Missing merge acceptance decision')
+
+    const repository = await mkdtemp(join(tmpdir(), 'hvir-merge-acceptance-'))
+    onTestFinished(() => rm(repository, { recursive: true, force: true }))
+    const git = (...args: string[]): string =>
+      execFileSync('git', args, { cwd: repository, encoding: 'utf8' }).trim()
+    git('init', '--initial-branch=main')
+    git('config', 'user.email', 'ci@example.invalid')
+    git('config', 'user.name', 'CI')
+    git('commit', '--allow-empty', '-m', 'base')
+    const baseSha = git('rev-parse', 'HEAD')
+    git('commit', '--allow-empty', '-m', 'head')
+    const headSha = git('rev-parse', 'HEAD')
+    git('switch', '--quiet', '--create', 'diverged', baseSha)
+    git('commit', '--allow-empty', '-m', 'diverged')
+    const divergedSha = git('rev-parse', 'HEAD')
+    git('switch', '--quiet', '--detach', headSha)
+
+    const environment = {
+      ...process.env,
+      BASE_SHA: baseSha,
+      HEAD_SHA: headSha,
+      RUN_ATTEMPT: '1',
+      RELEASE_VERSION_INTEGRITY: 'skipped',
+      VERIFY: 'success',
+      ELECTRON_SMOKE: 'success',
+      MACOS_ELECTRON_SMOKE: 'success',
+      CODEQL: 'success',
+    }
+    expect(
+      spawnSync('bash', ['-c', script], { cwd: repository, env: environment }).status,
+    ).toBe(0)
+    expect(
+      spawnSync('bash', ['-c', script], {
+        cwd: repository,
+        env: { ...environment, BASE_SHA: divergedSha },
+      }).status,
+    ).toBe(1)
   })
 
   it('removes hosted capacity while retaining controlled capacity commands', () => {

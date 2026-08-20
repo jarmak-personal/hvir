@@ -197,8 +197,17 @@ jobs:
     timeout-minutes: 5
 
     steps:
+      - name: Check out exact head for base ancestry proof
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
       - name: Require complete first-attempt merge evidence
         env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
           RELEASE_VERSION_INTEGRITY: ${{ needs.release-version-integrity.result }}
           VERIFY: ${{ needs.verify.result }}
@@ -208,6 +217,18 @@ jobs:
         run: |
           if [ "$RUN_ATTEMPT" != 1 ]; then
             echo "::error::Only workflow attempt one can satisfy merge acceptance"
+            exit 1
+          fi
+          if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ || ! "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Pull request base and head must be full commit SHAs"
+            exit 1
+          fi
+          if [ "$(git rev-parse HEAD)" != "$HEAD_SHA" ]; then
+            echo "::error::Merge acceptance did not check out the exact pull request head"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$BASE_SHA" "$HEAD_SHA"; then
+            echo "::error::The tested pull request base is not an ancestor of its head"
             exit 1
           fi
 
