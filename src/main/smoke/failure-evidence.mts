@@ -116,8 +116,9 @@ let stderrGuardInstalled = false
 function guardSmokeFailureEvidenceSink(): void {
   if (stderrGuardInstalled) return
   stderrGuardInstalled = true
-  process.stderr.on('error', (error: NodeJS.ErrnoException) => {
-    if (error.code !== 'EPIPE') throw error
+  process.stderr.on('error', () => {
+    // This inherited diagnostic sink is best-effort. Its failure must not
+    // become a second smoke-process fault, regardless of the stream error.
   })
 }
 

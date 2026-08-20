@@ -264,4 +264,36 @@ describe('bounded smoke failure evidence', () => {
     ).not.toThrow()
     expect(unavailableSink).toHaveBeenCalledOnce()
   })
+
+  it('contains every asynchronous inherited output sink error', () => {
+    let errorListener: ((error: NodeJS.ErrnoException) => void) | undefined
+    const onSpy = vi
+      .spyOn(process.stderr, 'on')
+      .mockImplementation(
+        (event: string, listener: (error: NodeJS.ErrnoException) => void) => {
+          if (event === 'error') errorListener = listener
+          return process.stderr
+        },
+      )
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
+    onTestFinished(() => {
+      onSpy.mockRestore()
+      writeSpy.mockRestore()
+    })
+
+    reportSmokeFailureEvidence('scenario-active', {
+      windowCount: 1,
+      ptyCount: 0,
+      watcherActive: true,
+      rendererOwnerActive: true,
+      rendererGeneration: 1,
+    })
+
+    expect(errorListener).toBeDefined()
+    for (const code of ['EPIPE', 'EIO']) {
+      const error = new Error('stderr unavailable') as NodeJS.ErrnoException
+      error.code = code
+      expect(() => errorListener?.(error)).not.toThrow()
+    }
+  })
 })
