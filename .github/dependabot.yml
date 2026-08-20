@@ -23,6 +23,10 @@ updates:
       - dependency-name: '@types/node'
         update-types:
           - version-update:semver-major
+      # Keep plist on its CommonJS-compatible v3 line while main dependencies are externalized.
+      - dependency-name: plist
+        update-types:
+          - version-update:semver-major
       # Revisit these when their named upstream tool supports the next major.
       - dependency-name: typescript
         update-types:
