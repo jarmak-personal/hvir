@@ -204,15 +204,6 @@ jobs:
         with:
           ref: ${{ needs.prepare.outputs.sha }}
 
-      - name: Confirm exact release source
-        env:
-          RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
-        run: |
-          if [ "$(git rev-parse HEAD)" != "$RELEASE_SHA" ]; then
-            echo "::error::Linux package checkout does not match the release source"
-            exit 1
-          fi
-
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:

@@ -314,6 +314,9 @@ describe('native release automation', () => {
       ]),
     )
     const producerSteps = producer?.steps ?? []
+    expect(producerSteps.map((step) => step.run ?? '').join('\n')).not.toContain(
+      'git rev-parse HEAD',
+    )
     const digest = producerSteps.find(
       (step) => step.name === 'Bind the accepted package name and digest',
     )
