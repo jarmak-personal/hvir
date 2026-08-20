@@ -52,11 +52,14 @@ function evidence(
 ): ReleasePrIntegrityEvidence {
   const headPackage = packageJson('0.1.9')
   const headLockfile = lockfile('0.1.9')
+  const { mode = 'pre-merge', workflowActor, ...rest } = overrides
   return {
-    mode: 'pre-merge',
+    mode,
     repository: 'jarmak-personal/hvir',
     defaultBranch: 'main',
-    workflowActor: RELEASE_PR_AUTHOR,
+    ...(mode === 'pre-merge'
+      ? { workflowActor: workflowActor ?? RELEASE_PR_AUTHOR }
+      : {}),
     pullRequestNumber: 407,
     pullRequestState: 'open',
     merged: false,
@@ -77,7 +80,7 @@ function evidence(
     headLockfile,
     sourcePackage: structuredClone(headPackage),
     sourceLockfile: structuredClone(headLockfile),
-    ...overrides,
+    ...rest,
   }
 }
 
@@ -192,7 +195,6 @@ describe('release PR integrity', () => {
       evaluateReleasePrIntegrity(
         evidence({
           mode: 'merged',
-          workflowActor: 'jarmak-personal',
           pullRequestState: 'closed',
           merged: true,
           mergeCommitSha: mergeSha,
@@ -218,7 +220,6 @@ describe('release PR integrity', () => {
       'a merged source SHA that differs from its merge commit',
       {
         mode: 'merged',
-        workflowActor: 'maintainer',
         pullRequestState: 'closed',
         merged: true,
         mergeCommitSha: mergeSha,
@@ -325,7 +326,6 @@ describe('release PR integrity', () => {
       evaluateReleasePrIntegrity(
         evidence({
           mode: 'merged',
-          workflowActor: 'jarmak-personal',
           pullRequestState: 'closed',
           merged: true,
           mergeCommitSha: mergeSha,

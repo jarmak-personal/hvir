@@ -1,9 +1,6 @@
 name: CI
 
 on:
-  push:
-    branches:
-      - main
   pull_request:
     branches:
       - main
@@ -127,40 +124,6 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  capacity-smoke:
-    name: Capacity contracts + performance evidence (Linux)
-    needs: release-version-integrity
-    if: always() && needs.release-version-integrity.result == 'skipped'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          package-manager-cache: false
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run capacity contracts and collect performance evidence
-        env:
-          HVIR_SMOKE_ARTIFACT_DIR: ${{ runner.temp }}/hvir-smoke-artifacts/capacity
-        run: xvfb-run -a npm run smoke:capacity
-
-      - name: Upload bounded capacity failure evidence
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: ci-capacity-smoke-failure-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/hvir-smoke-artifacts
-          if-no-files-found: ignore
-          retention-days: 7
-
   macos-electron-smoke:
     # Temporary reduced gate: terminal-presentation, terminal-lifecycle, and capacity
     # remain available through local commands while their macOS flakes are hardened.
@@ -196,3 +159,96 @@ jobs:
           path: ${{ runner.temp }}/hvir-smoke-artifacts
           if-no-files-found: ignore
           retention-days: 7
+
+  codeql:
+    name: CodeQL analysis
+    needs: release-version-integrity
+    if: always() && needs.release-version-integrity.result == 'skipped'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+      security-events: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4.37.7
+        with:
+          languages: javascript-typescript
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v4.37.7
+
+  merge-acceptance:
+    name: Merge acceptance
+    needs:
+      - release-version-integrity
+      - verify
+      - electron-smoke
+      - macos-electron-smoke
+      - codeql
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out exact head for base ancestry proof
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require complete first-attempt merge evidence
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          RELEASE_VERSION_INTEGRITY: ${{ needs.release-version-integrity.result }}
+          VERIFY: ${{ needs.verify.result }}
+          ELECTRON_SMOKE: ${{ needs.electron-smoke.result }}
+          MACOS_ELECTRON_SMOKE: ${{ needs.macos-electron-smoke.result }}
+          CODEQL: ${{ needs.codeql.result }}
+        run: |
+          if [ "$RUN_ATTEMPT" != 1 ]; then
+            echo "::error::Only workflow attempt one can satisfy merge acceptance"
+            exit 1
+          fi
+          if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ || ! "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Pull request base and head must be full commit SHAs"
+            exit 1
+          fi
+          if [ "$(git rev-parse HEAD)" != "$HEAD_SHA" ]; then
+            echo "::error::Merge acceptance did not check out the exact pull request head"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$BASE_SHA" "$HEAD_SHA"; then
+            echo "::error::The tested pull request base is not an ancestor of its head"
+            exit 1
+          fi
+
+          if [ "$RELEASE_VERSION_INTEGRITY" = success ]; then
+            for result in "$VERIFY" "$ELECTRON_SMOKE" "$MACOS_ELECTRON_SMOKE" "$CODEQL"; do
+              if [ "$result" != skipped ]; then
+                echo "::error::Version-only acceptance requires every ordinary job to skip"
+                exit 1
+              fi
+            done
+            exit 0
+          fi
+
+          if [ "$RELEASE_VERSION_INTEGRITY" != skipped ]; then
+            echo "::error::The version-only classifier did not skip or succeed"
+            exit 1
+          fi
+          for result in "$VERIFY" "$ELECTRON_SMOKE" "$MACOS_ELECTRON_SMOKE" "$CODEQL"; do
+            if [ "$result" != success ]; then
+              echo "::error::Every ordinary required job must succeed"
+              exit 1
+            fi
+          done

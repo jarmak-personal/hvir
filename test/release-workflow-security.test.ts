@@ -4,10 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 
 import {
-  RELEASE_CI_HOSTED_RUNNER_SCHEDULING_ALLOWANCE_MS,
-  RELEASE_CI_MAX_WAIT_MS,
-  RELEASE_CI_REQUIRED_CRITICAL_PATH_MS,
-  REQUIRED_CI_JOBS,
+  MERGE_ACCEPTANCE_JOB,
 } from '../scripts/require-release-ci-evidence.mts'
 
 const releaseWorkflow = readFileSync(
@@ -47,58 +44,6 @@ const ciWorkflow = readFileSync(
   new URL('../.github/workflows/ci.yml', import.meta.url),
   'utf8',
 )
-const ci = parse(ciWorkflow) as {
-  jobs: Record<
-    string,
-    {
-      name: string
-      needs?: string | string[]
-      'timeout-minutes'?: number
-      strategy?: { matrix?: { include?: Array<{ name?: string }> } }
-      steps?: Array<{
-        name?: string
-        uses?: string
-        run?: string
-        with?: Record<string, string | number | boolean>
-      }>
-    }
-  >
-}
-
-function requiredCiCriticalPathMinutes(): number {
-  const requiredNames = new Set<string>(REQUIRED_CI_JOBS)
-  const requiredJobIds = new Set(
-    Object.entries(ci.jobs)
-      .filter(([, job]) => {
-        const matrix = job.strategy?.matrix?.include
-        const names = matrix
-          ? matrix.map((entry) => job.name.replace('${{ matrix.name }}', entry.name ?? ''))
-          : [job.name]
-        return names.some((name) => requiredNames.has(name))
-      })
-      .map(([id]) => id),
-  )
-  const totals = new Map<string, number>()
-
-  const visit = (id: string): number => {
-    const known = totals.get(id)
-    if (known !== undefined) return known
-    const job = ci.jobs[id]
-    if (!job || !requiredJobIds.has(id)) return 0
-    const timeout = job['timeout-minutes']
-    if (!timeout) throw new Error(`Required CI job ${id} needs a timeout`)
-    const dependencies = Array.isArray(job.needs)
-      ? job.needs
-      : job.needs
-        ? [job.needs]
-        : []
-    const total = timeout + Math.max(0, ...dependencies.map(visit))
-    totals.set(id, total)
-    return total
-  }
-
-  return Math.max(...[...requiredJobIds].map(visit))
-}
 const macosWorkflow = readFileSync(
   new URL('../.github/workflows/macos-package-release.yml', import.meta.url),
   'utf8',
@@ -190,22 +135,8 @@ describe('native release automation', () => {
     )
     const evidenceTimeoutMinutes = evidenceStep?.['timeout-minutes'] ?? 0
     expect(evidenceStep?.id).toBe('ci_evidence')
-    expect(evidenceTimeoutMinutes).toBe(46)
-    expect(prepare?.['timeout-minutes']).toBe(55)
-    expect(evidenceTimeoutMinutes * 60_000).toBe(
-      RELEASE_CI_MAX_WAIT_MS + 60_000,
-    )
-    expect(prepare?.['timeout-minutes']).toBe(
-      evidenceTimeoutMinutes + 9,
-    )
-    expect(RELEASE_CI_REQUIRED_CRITICAL_PATH_MS).toBe(
-      requiredCiCriticalPathMinutes() * 60_000,
-    )
-    expect(RELEASE_CI_HOSTED_RUNNER_SCHEDULING_ALLOWANCE_MS).toBe(30 * 60_000)
-    expect(RELEASE_CI_MAX_WAIT_MS).toBe(
-      RELEASE_CI_REQUIRED_CRITICAL_PATH_MS +
-        RELEASE_CI_HOSTED_RUNNER_SCHEDULING_ALLOWANCE_MS,
-    )
+    expect(evidenceTimeoutMinutes).toBe(5)
+    expect(prepare?.['timeout-minutes']).toBe(15)
     expect(releaseWorkflow).toContain("if: inputs.bump == 'current'")
     expect(releaseWorkflow).not.toContain("if: inputs.bump != 'current'")
     expect(releaseWorkflow).not.toContain('Verify release source')
@@ -219,7 +150,8 @@ describe('native release automation', () => {
     expect(releaseCiEvidenceScript).toContain(
       "export const CI_WORKFLOW_PATH = '.github/workflows/ci.yml'",
     )
-    expect(releaseCiEvidenceScript).toContain('run.runAttempt === 1')
+    expect(releaseCiEvidenceScript).toContain('run.runAttempt !== 1')
+    expect(releaseCiEvidenceScript).toContain(MERGE_ACCEPTANCE_JOB)
     expect(releaseCiEvidenceScript).not.toMatch(/\/rerun|\/dispatches/)
     expect(releaseCiEvidenceScript).not.toContain('method:')
     expect(releaseCiEvidenceScript).not.toContain('response.text()')
