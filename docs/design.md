@@ -271,6 +271,11 @@ and UTF-8 byte size.
 Launch syntax is not current runtime permission state; hvir removes profile-derived risk and
 acknowledgment while preserving exact provider, host, artifact, and recovery authority.
 
+### [ADR-037 — Promote tested pull-request candidates](adr/ADR-037-promote-tested-pull-request-candidates.md)
+
+Strict first-attempt pull-request checks admit one exact candidate tree to merge and release,
+while native certification moves to Release and capacity evidence moves to controlled machines.
+
 ## 5. Architecture
 
 ### Process model
