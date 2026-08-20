@@ -2,6 +2,7 @@ import type { BrowserWindow } from 'electron'
 
 import { joinHostPath, type HostPath } from '../../shared'
 import type { PtySupervisor } from '../pty/pty-supervisor'
+import type { SmokeFailureCheckpoint } from './failure-evidence.mts'
 import { ensureExplicitBareShellLaunch } from './terminal-explicit-launch'
 import { verifyTerminalClipboardFilePaste } from './terminal-file-paste'
 import { verifyTerminalContextMenu } from './terminal-context-menu'
@@ -20,18 +21,36 @@ import { verifySynchronizedOutput } from './terminal-synchronized-output'
 export async function verifyTerminalPresentationLifecycle(
   win: BrowserWindow,
   supervisor: PtySupervisor,
+  checkpoint: (checkpoint: SmokeFailureCheckpoint) => void,
   launchMenuOverflowRoot?: HostPath,
 ): Promise<string> {
+  checkpoint('terminal-presentation-explicit-launch-awaiting')
   const explicitLaunch = await ensureExplicitBareShellLaunch(win, supervisor)
+  checkpoint('terminal-presentation-explicit-launch-ready')
+  checkpoint('terminal-presentation-keyboard-awaiting')
   await verifyNegotiatedTerminalKeyboard(win, supervisor)
+  checkpoint('terminal-presentation-keyboard-ready')
   if (launchMenuOverflowRoot) {
+    checkpoint('terminal-presentation-file-paste-awaiting')
     await verifyTerminalClipboardFilePaste(win, supervisor, launchMenuOverflowRoot)
+    checkpoint('terminal-presentation-file-paste-ready')
   }
+  checkpoint('terminal-presentation-palette-awaiting')
   const paletteStatus = await verifyTerminalPalettePresentation(win, supervisor)
+  checkpoint('terminal-presentation-palette-ready')
+  checkpoint('terminal-presentation-semantic-navigation-awaiting')
   const semanticStatus = await verifyTerminalSemanticNavigation(win, supervisor)
+  checkpoint('terminal-presentation-semantic-navigation-ready')
+  checkpoint('terminal-presentation-search-awaiting')
   const searchStatus = await verifyTerminalSearch(win, supervisor)
+  checkpoint('terminal-presentation-search-ready')
+  checkpoint('terminal-presentation-horizon-awaiting')
   const horizonStatus = await verifyTerminalHorizonPresentation(win)
+  checkpoint('terminal-presentation-horizon-ready')
+  checkpoint('terminal-presentation-layout-focus-awaiting')
   const layoutFocusStatus = await verifyTerminalLayoutFocus(win)
+  checkpoint('terminal-presentation-layout-focus-ready')
+  checkpoint('terminal-presentation-project-return-awaiting')
   const projectReturnStatus = await verifyTerminalProjectReturn(
     win,
     supervisor,
@@ -39,9 +58,13 @@ export async function verifyTerminalPresentationLifecycle(
       ? joinHostPath(launchMenuOverflowRoot, '.hvir-smoke-oversized-diff.txt')
       : undefined,
   )
+  checkpoint('terminal-presentation-project-return-ready')
+  checkpoint('terminal-presentation-launch-menu-awaiting')
   const launchMenuStatus = launchMenuOverflowRoot
     ? await verifyTerminalLaunchMenuOverflow(win, launchMenuOverflowRoot)
     : undefined
+  checkpoint('terminal-presentation-launch-menu-ready')
+  checkpoint('terminal-presentation-session-switch-awaiting')
   const switchStatus = (await win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
         let menuOpened = false;
@@ -50,6 +73,9 @@ export async function verifyTerminalPresentationLifecycle(
           const surfaces = [...document.querySelectorAll('.terminal-surface')];
           const active = document.querySelector('.terminal-surface.active');
           const status = active?.getAttribute('data-terminal-status') || '';
+          const failure = active?.querySelector('.terminal-recovery-status')
+            ?.textContent?.trim();
+          if (failure) return reject(new Error('terminal session launch failed: ' + failure));
           if (rows.length === 3 && surfaces.length === 3 && status.startsWith('pid ')) {
             const visible = surfaces.filter(
               (surface) => getComputedStyle(surface).visibility === 'visible'
@@ -87,6 +113,7 @@ export async function verifyTerminalPresentationLifecycle(
         waitForTerminals();
       })
     `)) as string
+  checkpoint('terminal-presentation-session-switch-ready')
   const ownerTerminals = supervisor
     .list()
     .filter((terminal) => terminal.ownerId === win.webContents.id)
@@ -94,26 +121,39 @@ export async function verifyTerminalPresentationLifecycle(
   const quiescentTerminal = ownerTerminals[2]
   if (!secondTerminal) throw new Error('second terminal was not registered')
   if (!quiescentTerminal) throw new Error('quiescent third terminal was not registered')
+  checkpoint('terminal-presentation-synchronized-output-awaiting')
   const synchronizedOutputStatus = await verifySynchronizedOutput(
     win,
     supervisor,
     secondTerminal.id,
   )
+  checkpoint('terminal-presentation-synchronized-output-ready')
+  checkpoint('terminal-presentation-hidden-reveal-awaiting')
   const revealStatus = await verifyHiddenTerminalReveal(
     win,
     supervisor,
     secondTerminal,
     quiescentTerminal,
   )
+  checkpoint('terminal-presentation-hidden-reveal-ready')
 
   let inputProbe = ''
+  let inputExit: string | undefined
   const detachInputProbe = supervisor.attach(secondTerminal.id, secondTerminal.ownerId, {
     onData: (data) => {
       inputProbe = (inputProbe + data).slice(-4_096)
     },
+    onExit: (exit) => {
+      inputExit = exit.signal ? `signal ${exit.signal}` : `code ${exit.exitCode}`
+    },
   })
+  checkpoint('terminal-presentation-focus-awaiting')
   await focusTerminalEngine(win, secondTerminal.id)
+  checkpoint('terminal-presentation-focus-ready')
+  checkpoint('terminal-presentation-cursor-cadence-awaiting')
   const cursorStatus = await verifyActiveCursorCadence(win, secondTerminal.id)
+  checkpoint('terminal-presentation-cursor-cadence-ready')
+  checkpoint('terminal-presentation-input-awaiting')
   for (const keyCode of ['H', 'V', 'I', 'R']) {
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode })
     win.webContents.sendInputEvent({ type: 'keyUp', keyCode })
@@ -121,9 +161,11 @@ export async function verifyTerminalPresentationLifecycle(
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' })
   win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' })
   try {
-    await new Promise<void>((resolve) => {
+    await new Promise<void>((resolve, reject) => {
       const poll = (): void => {
         if (inputProbe.includes('input:hvir')) return resolve()
+        if (inputExit)
+          return reject(new Error(`terminal input PTY exited with ${inputExit}`))
         setTimeout(poll, 25)
       }
       poll()
@@ -149,6 +191,9 @@ export async function verifyTerminalPresentationLifecycle(
             '.terminal-list-main[data-terminal-session="' + CSS.escape(sessionId) + '"]'
           );
           const row = button?.closest('.terminal-list-row');
+          const failure = row?.querySelector('.terminal-recovery-status')
+            ?.textContent?.trim();
+          if (failure) return reject(new Error('terminal input session failed: ' + failure));
           if (!closing && row) {
             const extra = rows.at(-1);
             if (extra && extra !== row) extra.querySelector('.terminal-close-button')?.click();
@@ -161,14 +206,25 @@ export async function verifyTerminalPresentationLifecycle(
         poll();
       })
     `)) as string
+  checkpoint('terminal-presentation-input-ready')
+  checkpoint('terminal-presentation-cursor-style-awaiting')
   const cursorPresentationStatus = await verifyTerminalCursorPresentation(win, supervisor)
+  checkpoint('terminal-presentation-cursor-style-ready')
+  checkpoint('terminal-presentation-ligatures-awaiting')
   const ligaturePresentationStatus = await verifyTerminalLigaturePresentation(
     win,
     supervisor,
   )
+  checkpoint('terminal-presentation-ligatures-ready')
+  checkpoint('terminal-presentation-context-menu-awaiting')
   const contextMenuStatus = await verifyTerminalContextMenu(win, supervisor)
+  checkpoint('terminal-presentation-context-menu-ready')
+  checkpoint('terminal-presentation-typography-awaiting')
   const typographyStatus = await verifyLiveTerminalTypography(win, supervisor)
+  checkpoint('terminal-presentation-typography-ready')
+  checkpoint('terminal-presentation-theme-gallery-awaiting')
   const themeGalleryStatus = await verifyTerminalThemeGalleryPresentation(win, supervisor)
+  checkpoint('terminal-presentation-theme-gallery-ready')
   return [
     explicitLaunch,
     paletteStatus,
@@ -215,6 +271,7 @@ async function verifyLiveTerminalTypography(
     )
   }
   let resolveResize: () => void = () => undefined
+  let typographyTerminalExit: string | undefined
   const resizeObserved = new Promise<void>((resolve) => {
     resolveResize = resolve
   })
@@ -249,6 +306,12 @@ async function verifyLiveTerminalTypography(
         }, 25)
       }
     },
+    onExit: (exit) => {
+      typographyTerminalExit = exit.signal
+        ? `signal ${exit.signal}`
+        : `code ${exit.exitCode}`
+      resolveResize()
+    },
   })
   let presentation:
     | { readonly cols: number; readonly rows: number; readonly fontSize: number }
@@ -262,6 +325,9 @@ async function verifyLiveTerminalTypography(
         const engine = panel?.querySelector('.terminal-engine-host');
         const canvas = engine?.querySelector('canvas');
         const before = engine?.__hvirTerminalPerformance;
+        const terminalFailure = () => document.querySelector(
+          '.terminal-surface.active .terminal-recovery-status'
+        )?.textContent?.trim();
         const settingsButton = document.querySelector('.settings-toggle');
         if (
           !(engine instanceof HTMLElement) ||
@@ -273,6 +339,8 @@ async function verifyLiveTerminalTypography(
         }
         settingsButton.click();
         const waitForSettings = () => {
+          const failure = terminalFailure();
+          if (failure) return fail('typography terminal failed: ' + failure);
           const mode = document.querySelector('#settings-monospace-font-mode');
           const size = document.querySelector('#settings-terminal-text-size');
           if (
@@ -290,6 +358,8 @@ async function verifyLiveTerminalTypography(
             selectSetter?.call(mode, 'custom');
             mode.dispatchEvent(new Event('change', { bubbles: true }));
             const waitForFamily = () => {
+              const failure = terminalFailure();
+              if (failure) return fail('typography terminal failed: ' + failure);
               const family = document.querySelector('#settings-monospace-font');
               if (family instanceof HTMLInputElement) {
                 inputSetter?.call(family, 'monospace');
@@ -313,6 +383,8 @@ async function verifyLiveTerminalTypography(
           setTimeout(waitForSettings, 25);
         };
         const waitForApplied = (nextSize) => {
+          const failure = terminalFailure();
+          if (failure) return fail('typography terminal failed: ' + failure);
           const current = engine.__hvirTerminalPerformance;
           const stack = getComputedStyle(document.documentElement)
             .getPropertyValue('--hvir-monospace-font');
@@ -352,6 +424,9 @@ async function verifyLiveTerminalTypography(
     }
     queryPtySize()
     await resizeObserved
+    if (typographyTerminalExit) {
+      throw new Error(`terminal typography PTY exited with ${typographyTerminalExit}`)
+    }
   } catch (error) {
     failure = new Error(
       `${error instanceof Error ? error.message : String(error)}: ${JSON.stringify({
@@ -388,6 +463,9 @@ async function focusTerminalEngine(win: BrowserWindow, sessionId: string): Promi
             '.terminal-surface[data-terminal-session="' + CSS.escape(sessionId) + '"]'
           );
           const engine = surface?.querySelector('.terminal-engine-host');
+          const failure = surface?.querySelector('.terminal-recovery-status')
+            ?.textContent?.trim();
+          if (failure) return reject(new Error('terminal focus session failed: ' + failure));
           if (
             surface?.classList.contains('active') &&
             getComputedStyle(surface).visibility === 'visible' &&
@@ -460,6 +538,9 @@ async function waitForCursorPhase(
             '.terminal-surface[data-terminal-session="' + CSS.escape(sessionId) + '"]'
           );
           const engine = surface?.querySelector('.terminal-engine-host');
+          const failure = surface?.querySelector('.terminal-recovery-status')
+            ?.textContent?.trim();
+          if (failure) return reject(new Error('terminal cursor session failed: ' + failure));
           const stats = engine?.__hvirTerminalPerformance;
           if (
             stats && !stats.paused && !stats.pendingFrame &&

@@ -983,6 +983,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       const presentation = await verifyTerminalPresentationLifecycle(
         win,
         supervisor,
+        recordSmokeCheckpoint,
         smokeRoot,
       )
       console.log(`[smoke] terminal presentation lifecycle OK (${presentation})`)

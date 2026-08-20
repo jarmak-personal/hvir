@@ -14,8 +14,12 @@ export async function ensureExplicitBareShellLaunch(
       (async () => {
         const waitFor = (read, message) => new Promise((resolve, reject) => {
           const poll = () => {
-            const value = read();
-            if (value) return resolve(value);
+            try {
+              const value = read();
+              if (value) return resolve(value);
+            } catch (error) {
+              return reject(error);
+            }
 
             setTimeout(poll, 25);
           };
@@ -55,6 +59,9 @@ export async function ensureExplicitBareShellLaunch(
           const rows = document.querySelectorAll('.terminal-list-row');
           const active = document.querySelector('.terminal-surface.active');
           const value = active?.getAttribute('data-terminal-status') || '';
+          const failure = active?.querySelector('.terminal-recovery-status')
+            ?.textContent?.trim();
+          if (failure) throw new Error('explicit Bare Shell failed: ' + failure);
           return rows.length === 1 && surfaces.length === 1 && value.startsWith('pid ')
             ? value
             : undefined;
