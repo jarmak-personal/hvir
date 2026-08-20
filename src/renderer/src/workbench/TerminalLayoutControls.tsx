@@ -17,7 +17,7 @@ export function TerminalLayoutControls({
     mode === 'collapsed' ? 'Restore split view' : 'Maximize viewer and minimize terminal'
   const applyMode = (next: TerminalLayoutMode): void => {
     onMode(next)
-    focusActiveTerminalAfterLayout()
+    if (next !== 'collapsed') focusActiveTerminalAfterLayout()
   }
 
   return (

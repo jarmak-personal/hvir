@@ -864,7 +864,7 @@ describe('Electron smoke command contracts', () => {
     expect(viewerContentScenario).not.toContain('large-file activation stalled paint')
   })
 
-  it('waits for exact terminal focus instead of assuming a frame count', () => {
+  it('waits for terminal-owned focus and settled presentation instead of a frame count', () => {
     const layoutFocusScenario = terminalPresentationScenario.slice(
       terminalPresentationScenario.indexOf('async function verifyTerminalLayoutFocus'),
       terminalPresentationScenario.indexOf(
@@ -872,7 +872,13 @@ describe('Electron smoke command contracts', () => {
       ),
     )
     expect(layoutFocusScenario).toContain("input.addEventListener('focus', finish)")
-    expect(layoutFocusScenario).toContain('document.activeElement === input')
+    expect(layoutFocusScenario).toContain('input.contains(document.activeElement)')
+    expect(layoutFocusScenario).toContain(
+      "input.__hvirTerminalDelivery?.presentation === 'visible'",
+    )
+    expect(layoutFocusScenario).toContain(
+      '!engine.__hvirTerminalPerformance?.paused',
+    )
     expect(layoutFocusScenario).toContain('!document.hasFocus()')
     expect(layoutFocusScenario).toContain('input.focus()')
     expect(layoutFocusScenario).not.toContain('app.focus(')

@@ -10,6 +10,7 @@ type WorkspaceRuntime = ReturnType<typeof useTerminalWorkspaceRuntime>
 interface TerminalWorkspaceCollectionProps {
   readonly state?: ProjectState
   readonly runtime: WorkspaceRuntime
+  readonly terminalPresented: boolean
   readonly railCompact: WorkspaceProps['railCompact']
   readonly onRailCompact: WorkspaceProps['onRailCompact']
   readonly onRollup: WorkspaceProps['onRollup']
@@ -26,6 +27,7 @@ interface TerminalWorkspaceCollectionProps {
 export function TerminalWorkspaceCollection({
   state,
   runtime,
+  terminalPresented,
   railCompact,
   onRailCompact,
   onRollup,
@@ -56,6 +58,9 @@ export function TerminalWorkspaceCollection({
               label={workspace.name}
               available={!workspace.missing}
               visible={workspace.id === state.activeWorkspaceId}
+              presentationVisible={
+                terminalPresented && workspace.id === state.activeWorkspaceId
+              }
               railCompact={railCompact}
               onRailCompact={onRailCompact}
               connectionState={project.connectionState}

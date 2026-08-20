@@ -30,13 +30,13 @@ afterEach(() => {
 
 describe('TerminalLayoutControls', () => {
   it.each([
-    ['Maximize terminal', 'restored', 'maximized'],
-    ['Restore split view', 'maximized', 'restored'],
-    ['Maximize viewer and minimize terminal', 'restored', 'collapsed'],
-    ['Restore split view', 'collapsed', 'restored'],
+    ['Maximize terminal', 'restored', 'maximized', true],
+    ['Restore split view', 'maximized', 'restored', true],
+    ['Maximize viewer and minimize terminal', 'restored', 'collapsed', false],
+    ['Restore split view', 'collapsed', 'restored', true],
   ] as const)(
-    'applies %s and then focuses the active terminal',
-    (label, mode, expectedMode) => {
+    'applies %s and respects terminal presentation focus',
+    (label, mode, expectedMode, focusesTerminal) => {
       const onMode = vi.fn()
       renderControls(mode, onMode)
       const activeInput = addSplitTerminals()
@@ -46,6 +46,10 @@ describe('TerminalLayoutControls', () => {
 
       expect(onMode).toHaveBeenCalledWith(expectedMode)
       expect(document.activeElement).toBe(button)
+      if (!focusesTerminal) {
+        expect(animationFrames).toHaveLength(0)
+        return
+      }
       flushAnimationFrame()
       expect(document.activeElement).toBe(activeInput)
 
