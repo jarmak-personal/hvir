@@ -203,28 +203,30 @@ the version-only release pull-request flow. Preparation validates only the gener
 change; it does not install dependencies or rerun product verification and Electron smoke. An
 untouched same-repository bot release pull request runs one read-only integrity job that proves
 its identity, exact two-file change set, synchronized semantic versions, and absence of other
-package or lockfile changes. Product verification, Electron, capacity, native-package, assembly,
-and CodeQL jobs are condition-skipped for only that pull-request event. Any ordinary pull request
-or non-bot release-branch update retains the complete CI and CodeQL gates.
+package or lockfile changes. Product verification, Electron, capacity, and CodeQL jobs are
+condition-skipped for only that pull-request event. Any ordinary pull request or non-bot
+release-branch update retains the complete CI and CodeQL gates.
 GitHub marks workflows opened by the repository `GITHUB_TOKEN` as approval-required; approving
 that bot pull request starts the focused integrity job, not the skipped matrices.
 
 Merging the release pull request creates the exact default-branch source commit. Its `push` event
-runs the complete CI matrix once, including Linux native-package build and installed acceptance.
-A `current` dispatch observes GitHub Actions while that commit's first-attempt CI is not yet
-registered or is still running. The bounded 85-minute observation horizon covers the required
-CI graph's 55-minute configured critical path plus a 30-minute aggregate allowance for ordinary
-hosted-runner scheduling. The Release evidence step and enclosing job have larger timeouts, so
-they cannot expire before that horizon. Release never starts or reruns CI. Exact CI success
-continues the release automatically; a terminal failure or exhausted observation horizon fails
-closed before protected native build or publication work.
+runs the remaining correctness CI once. A `current` dispatch observes GitHub Actions while that
+commit's first-attempt CI is not yet registered or is still running. The bounded 45-minute
+observation horizon covers the required CI graph's 15-minute configured critical path plus a
+30-minute aggregate allowance for ordinary hosted-runner scheduling. The Release evidence step
+and enclosing job have larger timeouts, so they cannot expire before that horizon. Release never
+starts or reruns CI. Exact CI success continues the release automatically; a terminal failure or
+exhausted observation horizon fails closed before native build or publication work.
 
-The release downloads the exact named Linux x64 and arm64 artifacts retained by that accepted CI
-run instead of rebuilding or re-exercising them. Cross-workflow download is pinned to the accepted
-run ID and repository, and GitHub's artifact digest check remains fail-closed. A missing, expired,
-renamed, inaccessible, or digest-invalid artifact stops the release before tag or draft creation.
-The protected release environment still builds, signs, notarizes, staples, and exercises the
-macOS package because those guarantees are release-specific.
+Release builds the Linux x64 and arm64 packages once from that exact source on matching native
+Ubuntu 22.04 runners. Each baseline job completes installed-package acceptance before retaining
+the public-name artifact and a SHA-256 sidecar. Ubuntu 24.04 and Debian stable jobs download and
+verify that same current-run artifact rather than rebuilding it. The protected release environment
+builds, signs, notarizes, staples, and exercises the macOS package, then retains it with its own
+digest sidecar. Assembly accepts only the exact three artifact-and-digest pairs from the current
+Release run after every native acceptance job succeeds. A missing, renamed, unexpected,
+wrong-version, inaccessible, or digest-invalid artifact stops the release before tag or draft
+creation.
 
 A trusted `current` dispatch produces exactly these assets:
 
@@ -243,8 +245,8 @@ unexpected, or misnamed native inputs and proves that the installer embeds the s
 artifact names and digests.
 
 Linux x64 and Linux arm64 artifacts are built and exercised on matching native Ubuntu 22.04
-runners in the exact-source CI run, then those same artifacts are exercised on Ubuntu 24.04 and
-Debian stable userspaces on matching native architectures before they flow into Release. The
+runners in the exact-source Release run, then those same digest-bound artifacts are exercised on
+Ubuntu 24.04 and Debian stable userspaces on matching native architectures before assembly. The
 macOS arm64 artifact is built and exercised on its matching native runner in the protected
 Release workflow. It
 additionally passes application and installer signature validation, Gatekeeper assessment,

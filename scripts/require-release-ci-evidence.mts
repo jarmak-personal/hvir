@@ -11,11 +11,10 @@ export const RELEASE_REPOSITORY = 'jarmak-personal/hvir'
 export const CI_WORKFLOW_NAME = 'CI'
 export const CI_WORKFLOW_PATH = '.github/workflows/ci.yml'
 export const RELEASE_CI_POLL_INTERVAL_MS = 10_000
-// The required main-push graph can spend 55 minutes on its longest configured path:
-// native package (25), compatibility (20), then release assembly (10). The extra
-// 30 minutes is a bounded aggregate allowance for ordinary hosted-runner scheduling.
+// The remaining required main-push jobs run independently with 15-minute bounds. The
+// extra 30 minutes is a bounded aggregate allowance for ordinary hosted-runner scheduling.
 // Workflow tests keep these values aligned with ci.yml and the Release timeouts.
-export const RELEASE_CI_REQUIRED_CRITICAL_PATH_MS = 55 * 60_000
+export const RELEASE_CI_REQUIRED_CRITICAL_PATH_MS = 15 * 60_000
 export const RELEASE_CI_HOSTED_RUNNER_SCHEDULING_ALLOWANCE_MS = 30 * 60_000
 export const RELEASE_CI_MAX_WAIT_MS =
   RELEASE_CI_REQUIRED_CRITICAL_PATH_MS +
@@ -26,14 +25,6 @@ export const REQUIRED_CI_JOBS = [
   'Electron smoke (Linux)',
   'Capacity contracts + performance evidence (Linux)',
   'Electron correctness (macOS arm64; temporary reduced gate)',
-  'Native package acceptance (Linux x64)',
-  'Native package acceptance (Linux arm64)',
-  'Native package compatibility (Ubuntu 24.04 x64)',
-  'Native package compatibility (Ubuntu 24.04 arm64)',
-  'Native package compatibility (Debian 13 x64)',
-  'Native package compatibility (Debian 13 arm64)',
-  'Native package acceptance (macOS arm64, unsigned structure)',
-  'Native release assembly (unsigned structure)',
 ] as const
 
 export interface CiWorkflowRun {

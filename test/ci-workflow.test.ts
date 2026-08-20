@@ -49,18 +49,6 @@ const codeqlWorkflow = parse(
 ) as { jobs: Record<string, WorkflowJob> }
 
 const fullCiCondition = "always() && needs.release-version-integrity.result == 'skipped'"
-const nativeAssemblyCondition = [
-  'always()',
-  "needs.native-linux-package.result == 'success'",
-  "needs.native-linux-ubuntu-24.result == 'success'",
-  "needs.native-linux-debian.result == 'success'",
-  "needs.native-macos-package.result == 'success'",
-].join(' && ')
-const nativeCompatibilityCondition = [
-  'always()',
-  "needs.release-version-integrity.result == 'skipped'",
-  "needs.native-linux-package.result == 'success'",
-].join(' && ')
 const releasePrIdentityCondition = [
   "github.event_name == 'pull_request'",
   "github.actor == 'github-actions[bot]'",
@@ -147,123 +135,18 @@ describe('CI workflow', () => {
     expect(commands).toEqual(['npm ci', 'npm run smoke:macos:ci'])
   })
 
-  it('retires npm payload smoke and keeps native acceptance on both Linux architectures', () => {
+  it('leaves native package certification and assembly to the release lifecycle', () => {
     expect(workflow.jobs['packaged-smoke']).toBeUndefined()
-    const job = workflow.jobs['native-linux-package']
-    if (!job) throw new Error('Missing CI job: native-linux-package')
-    expect(job.name).toBe('Native package acceptance (${{ matrix.name }})')
-    expect(job.needs).toBe('release-version-integrity')
-    expect(job.if).toBe(fullCiCondition)
-    expect(job.strategy?.['fail-fast']).toBe(false)
-    expect(job.strategy?.matrix.include).toEqual([
-      {
-        name: 'Linux x64',
-        os: 'ubuntu-22.04',
-        build: 'npm run pack:linux:x64',
-        deb_arch: 'amd64',
-        release_arch: 'x64',
-        artifact: 'dist/hvir-*-linux-x64.deb',
-      },
-      {
-        name: 'Linux arm64',
-        os: 'ubuntu-22.04-arm',
-        build: 'npm run pack:linux:arm64',
-        deb_arch: 'arm64',
-        release_arch: 'arm64',
-        artifact: 'dist/hvir-*-linux-arm64.deb',
-      },
-    ])
-    expect(job.steps).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ run: 'xvfb-run -a npm run smoke:linux:installed' }),
-        expect.objectContaining({
-          name: 'Give the accepted artifact its public release name',
-        }),
-      ]),
-    )
-  })
-
-  it('accepts the exact baseline artifacts on Ubuntu 24.04 and Debian stable for both architectures', () => {
-    const ubuntu = workflow.jobs['native-linux-ubuntu-24']
-    const debian = workflow.jobs['native-linux-debian']
-    if (!ubuntu || !debian) throw new Error('Missing Linux compatibility jobs')
-
-    for (const job of [ubuntu, debian]) {
-      expect(job.needs).toEqual(['release-version-integrity', 'native-linux-package'])
-      expect(job.if).toBe(nativeCompatibilityCondition)
-      expect(job.strategy?.['fail-fast']).toBe(false)
-      expect(job.steps).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            name: 'Download the accepted baseline package',
-            uses: 'actions/download-artifact@v8',
-          }),
-          expect.objectContaining({
-            name: 'Install, update, launch, and remove native package',
-          }),
-        ]),
-      )
-      expect(job.steps.map((step) => step.run ?? '').join('\n')).not.toContain(
-        'pack:linux',
-      )
-    }
-
-    expect(ubuntu.strategy?.matrix.include).toEqual([
-      {
-        name: 'Ubuntu 24.04 x64',
-        os: 'ubuntu-24.04',
-        artifact_name: 'hvir-Linux x64-deb',
-        deb_arch: 'amd64',
-        release_arch: 'x64',
-      },
-      {
-        name: 'Ubuntu 24.04 arm64',
-        os: 'ubuntu-24.04-arm',
-        artifact_name: 'hvir-Linux arm64-deb',
-        deb_arch: 'arm64',
-        release_arch: 'arm64',
-      },
-    ])
-    expect(debian.container).toEqual({
-      image: 'node:24-trixie',
-      options: '--security-opt seccomp=unconfined',
-    })
-    expect(debian.strategy?.matrix.include).toEqual([
-      {
-        name: 'Debian 13 x64',
-        os: 'ubuntu-22.04',
-        artifact_name: 'hvir-Linux x64-deb',
-        deb_arch: 'amd64',
-        release_arch: 'x64',
-      },
-      {
-        name: 'Debian 13 arm64',
-        os: 'ubuntu-22.04-arm',
-        artifact_name: 'hvir-Linux arm64-deb',
-        deb_arch: 'arm64',
-        release_arch: 'arm64',
-      },
-    ])
-  })
-
-  it('assembles the accepted native matrix without publishing from pull-request CI', () => {
-    const job = workflow.jobs['native-release-assembly']
-    if (!job) throw new Error('Missing CI job: native-release-assembly')
-    expect(job.name).toBe('Native release assembly (unsigned structure)')
-    expect(job.needs).toEqual([
+    for (const id of [
       'native-linux-package',
       'native-linux-ubuntu-24',
       'native-linux-debian',
       'native-macos-package',
-    ])
-    expect(job.if).toBe(nativeAssemblyCondition)
-    const commands = job.steps.map((step) => step.run ?? '').join('\n')
-    expect(commands).toContain('npm run assemble:native-release')
-    expect(commands).toContain('bash -n dist/release/install.sh')
-    expect(commands).toContain('sha256sum --check SHA256SUMS')
-    expect(commands).not.toContain('hvir_${version}_amd64.deb')
-    expect(commands).not.toContain('hvir_${version}_arm64.deb')
-    expect(commands).not.toMatch(/gh release (?:create|upload|edit)/)
+      'native-release-assembly',
+      'signed-macos-epic-acceptance',
+    ]) {
+      expect(workflow.jobs[id]).toBeUndefined()
+    }
   })
 
   it('uses one trusted release classifier and preserves ordinary CI and CodeQL', () => {
@@ -298,8 +181,6 @@ describe('CI workflow', () => {
       'electron-smoke',
       'capacity-smoke',
       'macos-electron-smoke',
-      'native-linux-package',
-      'native-macos-package',
     ]) {
       expect(workflow.jobs[id]).toMatchObject({
         needs: 'release-version-integrity',
