@@ -94,4 +94,10 @@ describe('renderer-authority smoke boundaries', () => {
       "if (!__HVIR_SMOKE_BUILD__ && process.platform !== 'darwin') app.quit()",
     )
   })
+
+  it('keeps macOS activation under the smoke composition owner', () => {
+    expect(mainEntrySource).toContain(
+      "app.on('activate', () => {\n    if (__HVIR_SMOKE_BUILD__ && process.env['HVIR_SMOKE']) return",
+    )
+  })
 })
