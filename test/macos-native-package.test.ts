@@ -55,7 +55,15 @@ const signedWorkflowSource = readFileSync(
   'utf8',
 )
 const signedWorkflow = parse(signedWorkflowSource) as {
-  on: Record<string, unknown>
+  on: {
+    workflow_call: {
+      inputs: Record<
+        string,
+        { default?: boolean; required: boolean; type: 'boolean' | 'string' }
+      >
+      secrets: Record<string, { required: boolean }>
+    }
+  }
   jobs: Record<
     string,
     {
@@ -182,7 +190,7 @@ describe('macOS native package contract', () => {
     expect(installedStartupProbe).toContain("HVIR_SMOKE: '1'")
   })
 
-  it('keeps credentials out of PR YAML and gates signing behind exact protected sources', () => {
+  it('keeps credentials out of CI and gates signing behind the protected merged source', () => {
     expect(ci.jobs['native-macos-package']).toBeUndefined()
     expect(ci.jobs['signed-macos-epic-acceptance']).toBeUndefined()
     expect(ciSource).not.toMatch(/MACOS_(APPLICATION|INSTALLER|NOTARY|TEAM)/)
@@ -193,16 +201,20 @@ describe('macOS native package contract', () => {
     expect(releaseSource).toContain('allow_merged_source: true')
     expect(releaseSource).toContain('secrets: inherit')
 
-    expect(Object.keys(signedWorkflow.on)).toEqual([
-      'workflow_call',
-      'workflow_dispatch',
+    expect(Object.keys(signedWorkflow.on)).toEqual(['workflow_call'])
+    const workflowCall = signedWorkflow.on.workflow_call
+    expect(Object.keys(workflowCall.inputs)).toEqual([
+      'source_sha',
+      'allow_merged_source',
     ])
-    expect(signedWorkflowSource).toContain('allow_merged_source')
-    expect(signedWorkflowSource).toContain('allow_pull_request_signing')
-    expect(signedWorkflowSource).toContain('source_branch')
-    const workflowCall = signedWorkflow.on.workflow_call as {
-      secrets: Record<string, { required: boolean }>
-    }
+    expect(workflowCall.inputs).toMatchObject({
+      source_sha: { required: true, type: 'string' },
+      allow_merged_source: {
+        required: false,
+        default: false,
+        type: 'boolean',
+      },
+    })
     expect(Object.keys(workflowCall.secrets)).toEqual([
       'MACOS_APPLICATION_CERTIFICATE',
       'MACOS_APPLICATION_CERTIFICATE_PASSWORD',
@@ -219,21 +231,40 @@ describe('macOS native package contract', () => {
     const signed = signedWorkflow.jobs['signed-package']
     if (!signed) throw new Error('Missing signed-package release job')
     expect(signed.environment).toBe('native-release-signing')
-    expect(signedWorkflowSource).toContain(
-      'source_sha must exactly match the selected branch tip $WORKFLOW_SHA',
+    const sourceGuard = signed.steps.find(
+      (step) => step.name === 'Require an exact protected merged source',
     )
-    expect(signedWorkflowSource).toContain(
-      'git fetch origin "refs/heads/$SOURCE_BRANCH"',
+    expect(sourceGuard?.env).toEqual({
+      ALLOW_MERGED_SOURCE: '${{ inputs.allow_merged_source }}',
+      REF_TYPE: '${{ github.ref_type }}',
+      SOURCE_SHA: '${{ inputs.source_sha }}',
+    })
+    expect(sourceGuard?.run).toContain('[ "$REF_TYPE" != branch ]')
+    expect(sourceGuard?.run).toContain('[ "$ALLOW_MERGED_SOURCE" != true ]')
+    expect(sourceGuard?.run).toContain('^[0-9a-f]{40}$')
+    expect(
+      signed.steps.find((step) => step.name === 'Check out trusted source')?.with,
+    ).toEqual({
+      ref: '${{ inputs.source_sha }}',
+      'fetch-depth': 0,
+    })
+    const containment = signed.steps.find(
+      (step) => step.name === 'Confirm the protected branch contains the exact source',
     )
-    expect(signedWorkflowSource).toContain('git rev-parse FETCH_HEAD')
+    expect(containment?.env).toEqual({
+      SOURCE_BRANCH: '${{ github.ref_name }}',
+      SOURCE_SHA: '${{ inputs.source_sha }}',
+    })
+    expect(containment?.run).toContain('git fetch origin "refs/heads/$SOURCE_BRANCH"')
+    expect(containment?.run).toContain('[ "$(git rev-parse HEAD)" != "$SOURCE_SHA" ]')
+    expect(containment?.run).toContain(
+      'git merge-base --is-ancestor "$SOURCE_SHA" "$branch_sha"',
+    )
     expect(signedWorkflowSource).toContain('MACOS_APPLICATION_CERTIFICATE')
     expect(signedWorkflowSource).toContain('MACOS_INSTALLER_CERTIFICATE')
     expect(signedWorkflowSource).toContain('MACOS_NOTARY_KEY')
     expect(signedWorkflowSource).toContain(
       'Require protected signing credentials',
-    )
-    expect(signedWorkflowSource).toContain(
-      'CSC_FOR_PULL_REQUEST: ${{ inputs.allow_pull_request_signing }}',
     )
     expect(signedWorkflowSource).toContain('xcrun stapler staple "$package"')
     const acceptanceIndex = signed.steps.findIndex(
@@ -259,6 +290,5 @@ describe('macOS native package contract', () => {
         'retention-days': 1,
       },
     })
-    expect(signedWorkflowSource).not.toMatch(/pull_request:|push:/)
   })
 })
