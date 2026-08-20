@@ -311,26 +311,29 @@ describe('native release automation', () => {
         expect.objectContaining({
           run: 'xvfb-run -a npm run smoke:linux:installed',
         }),
-        expect.objectContaining({
-          name: 'Bind the accepted package name and digest',
-          run: expect.stringContaining('sha256sum --check --strict'),
-        }),
-        expect.objectContaining({
-          name: 'Retain the exact accepted package',
-          uses: 'actions/upload-artifact@v7',
-          with: expect.objectContaining({
-            name: 'release-linux-${{ matrix.release_arch }}',
-            path:
-              'dist/hvir-*-linux-${{ matrix.release_arch }}.deb\n' +
-              'dist/hvir-*-linux-${{ matrix.release_arch }}.deb.sha256\n',
-            'if-no-files-found': 'error',
-            'compression-level': 0,
-            'retention-days': 1,
-          }),
-        }),
       ]),
     )
     const producerSteps = producer?.steps ?? []
+    const digest = producerSteps.find(
+      (step) => step.name === 'Bind the accepted package name and digest',
+    )
+    expect(digest?.run).toContain('sha256sum --check --strict')
+    const retained = producerSteps.find(
+      (step) => step.name === 'Retain the exact accepted package',
+    )
+    expect(retained).toEqual({
+      name: 'Retain the exact accepted package',
+      uses: 'actions/upload-artifact@v7',
+      with: {
+        name: 'release-linux-${{ matrix.release_arch }}',
+        path:
+          'dist/hvir-*-linux-${{ matrix.release_arch }}.deb\n' +
+          'dist/hvir-*-linux-${{ matrix.release_arch }}.deb.sha256\n',
+        'if-no-files-found': 'error',
+        'compression-level': 0,
+        'retention-days': 1,
+      },
+    })
     expect(
       producerSteps.findIndex(
         (step) => step.name === 'Install, update, launch, and remove native package',
