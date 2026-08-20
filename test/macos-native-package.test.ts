@@ -46,6 +46,10 @@ const ci = parse(ciSource) as {
     }
   >
 }
+const releaseSource = readFileSync(
+  new URL('../.github/workflows/release.yml', import.meta.url),
+  'utf8',
+)
 const signedWorkflowSource = readFileSync(
   new URL('../.github/workflows/macos-package-release.yml', import.meta.url),
   'utf8',
@@ -56,7 +60,13 @@ const signedWorkflow = parse(signedWorkflowSource) as {
     string,
     {
       environment: string
-      steps: Array<{ name: string; run?: string; env?: Record<string, string> }>
+      steps: Array<{
+        env?: Record<string, string>
+        name: string
+        run?: string
+        uses?: string
+        with?: Record<string, unknown>
+      }>
     }
   >
 }
@@ -173,46 +183,15 @@ describe('macOS native package contract', () => {
   })
 
   it('keeps credentials out of PR YAML and gates signing behind exact protected sources', () => {
-    const structural = ci.jobs['native-macos-package']
-    if (!structural) throw new Error('Missing native-macos-package CI job')
-    expect(structural).toMatchObject({
-      name: 'Native package acceptance (macOS arm64, unsigned structure)',
-      'runs-on': 'macos-15',
-      env: {
-        CSC_IDENTITY_AUTO_DISCOVERY: 'false',
-        HVIR_MACOS_PACKAGE_ACCEPTANCE: '1',
-        HVIR_MACOS_PACKAGE_MODE: 'structural',
-      },
-    })
-    expect(structural.steps).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ run: 'npm run pack:mac:arm64' }),
-        expect.objectContaining({ run: 'npm run smoke:macos:installed' }),
-      ]),
-    )
+    expect(ci.jobs['native-macos-package']).toBeUndefined()
+    expect(ci.jobs['signed-macos-epic-acceptance']).toBeUndefined()
     expect(ciSource).not.toMatch(/MACOS_(APPLICATION|INSTALLER|NOTARY|TEAM)/)
-    expect(ciSource).toContain('signed-macos-epic-acceptance:')
-    expect(ciSource).toContain("github.event.pull_request.number == 234")
-    expect(ciSource).toContain(
-      "github.event.pull_request.base.ref == 'main'",
-    )
-    expect(ciSource).toContain(
-      "github.event.pull_request.head.ref == 'epic/222-native-distribution'",
-    )
-    expect(ciSource).toContain(
-      'github.event.pull_request.head.repo.full_name == github.repository',
-    )
-    expect(ciSource).toContain(
-      'source_sha: ${{ github.event.pull_request.head.sha }}',
-    )
-    expect(ciSource).toContain(
-      'source_branch: epic/222-native-distribution',
-    )
-    expect(ciSource).toContain('allow_pull_request_signing: true')
-    expect(ciSource).toContain(
+    expect(releaseSource).toContain(
       'uses: ./.github/workflows/macos-package-release.yml',
     )
-    expect(ci.jobs['signed-macos-epic-acceptance']?.secrets).toBe('inherit')
+    expect(releaseSource).toContain('source_sha: ${{ needs.prepare.outputs.sha }}')
+    expect(releaseSource).toContain('allow_merged_source: true')
+    expect(releaseSource).toContain('secrets: inherit')
 
     expect(Object.keys(signedWorkflow.on)).toEqual([
       'workflow_call',
@@ -257,6 +236,29 @@ describe('macOS native package contract', () => {
       'CSC_FOR_PULL_REQUEST: ${{ inputs.allow_pull_request_signing }}',
     )
     expect(signedWorkflowSource).toContain('xcrun stapler staple "$package"')
+    const acceptanceIndex = signed.steps.findIndex(
+      (step) => step.name === 'Install, update, launch, and remove signed package',
+    )
+    const digestIndex = signed.steps.findIndex(
+      (step) => step.name === 'Give the accepted artifact its public release name',
+    )
+    const uploadIndex = signed.steps.findIndex(
+      (step) => step.name === 'Retain accepted package for release assembly',
+    )
+    expect(digestIndex).toBeGreaterThan(acceptanceIndex)
+    expect(uploadIndex).toBeGreaterThan(digestIndex)
+    expect(signed.steps[digestIndex]?.run).toContain('shasum -a 256 --check')
+    expect(signed.steps[uploadIndex]).toMatchObject({
+      uses: 'actions/upload-artifact@v7',
+      with: {
+        name: 'release-macos-arm64',
+        path:
+          'dist/hvir-*-darwin-arm64.pkg\n' +
+          'dist/hvir-*-darwin-arm64.pkg.sha256\n',
+        'if-no-files-found': 'error',
+        'retention-days': 1,
+      },
+    })
     expect(signedWorkflowSource).not.toMatch(/pull_request:|push:/)
   })
 })

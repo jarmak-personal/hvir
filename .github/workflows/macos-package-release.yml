@@ -201,17 +201,24 @@ jobs:
         run: |
           package_version=$(node -p "require('./package.json').version")
           source="dist/hvir-${package_version}-macos-arm64.pkg"
-          target="dist/hvir-${package_version}-darwin-arm64.pkg"
-          if [ ! -f "$source" ] || [ -e "$target" ]; then
+          target="hvir-${package_version}-darwin-arm64.pkg"
+          if [ ! -f "$source" ] || [ -e "dist/$target" ]; then
             echo "::error::Expected exactly one accepted package at $source"
             exit 1
           fi
-          mv -- "$source" "$target"
+          mv -- "$source" "dist/$target"
+          (
+            cd dist
+            shasum -a 256 "$target" > "$target.sha256"
+            shasum -a 256 --check "$target.sha256"
+          )
 
       - name: Retain accepted package for release assembly
         uses: actions/upload-artifact@v7
         with:
           name: release-macos-arm64
-          path: dist/hvir-*-darwin-arm64.pkg
+          path: |
+            dist/hvir-*-darwin-arm64.pkg
+            dist/hvir-*-darwin-arm64.pkg.sha256
           if-no-files-found: error
           retention-days: 1

@@ -136,9 +136,7 @@ describe('ghostty-web update workflow', () => {
         'verify',
         'electron-smoke',
         'capacity-smoke',
-        'native-linux-package',
-        'native-macos-package',
-        'native-release-assembly',
+        'macos-electron-smoke',
       ]),
     )
     expect(codeql.on).toHaveProperty('pull_request')

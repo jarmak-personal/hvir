@@ -35,9 +35,7 @@ const ciWorkflow = parse(
 
 function requiredWorkflowJobNames(): string[] {
   return Object.entries(ciWorkflow.jobs).flatMap(([id, job]) => {
-    if (id === 'release-version-integrity' || id === 'signed-macos-epic-acceptance') {
-      return []
-    }
+    if (id === 'release-version-integrity') return []
     const matrix = job.strategy?.matrix?.include
     if (!matrix) return [job.name]
     return matrix.map((entry) => job.name.replace('${{ matrix.name }}', entry.name ?? ''))
@@ -148,7 +146,7 @@ describe('release CI evidence', () => {
     })
   })
 
-  it('exposes the accepted exact-source run for immutable artifact download', async () => {
+  it('records the accepted exact-source first attempt', async () => {
     const temporaryDirectory = await mkdtemp(join(tmpdir(), 'hvir-release-ci-'))
     onTestFinished(() => rm(temporaryDirectory, { recursive: true, force: true }))
     const outputPath = join(temporaryDirectory, 'output')

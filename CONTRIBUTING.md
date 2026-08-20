@@ -394,8 +394,8 @@ one marked pull request. A newer release advances that same branch and pull requ
 unwanted update suppresses that release until a newer one appears. Generated pull requests are
 the documented automated-dependency exception: they intentionally have no governing issue or
 closing relationship, never merge automatically, and pass through the ordinary pull-request,
-planning, CodeQL, Electron, capacity, packaging, release-assembly, branch-protection, and
-maintainer-review gates.
+planning, CodeQL, Electron, capacity, branch-protection, and maintainer-review gates. Native
+packaging and assembly remain release-candidate gates.
 
 Repository administration must provide a dedicated GitHub App installed only on hvir. Grant the
 App repository metadata read, contents write, and pull-request write permissions only. Do not
