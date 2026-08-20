@@ -159,7 +159,13 @@ export class HarnessTelemetryHub {
     this.epoch = epoch
     this.stream = stream
     for (const subscription of this.subscriptions.values()) {
+      if (subscription.followerRestartTimer) {
+        clearTimeout(subscription.followerRestartTimer)
+        subscription.followerRestartTimer = undefined
+      }
       subscription.admittedGeneration = undefined
+      subscription.followerRestartAttempts = 0
+      subscription.suspended = false
     }
     const lines = new BoundedLineReader(
       (line) => this.acceptFrame(stream, line),
@@ -200,8 +206,12 @@ export class HarnessTelemetryHub {
     this.flushing = true
     this.reconcileRequested = false
     const generation = ++this.generation
-    const subscriptions = [...this.subscriptions.values()].filter(
+    const liveSubscriptions = [...this.subscriptions.values()]
+    const subscriptions = liveSubscriptions.filter(
       (subscription) => !subscription.suspended,
+    )
+    const excludedSubscriptions = liveSubscriptions.filter(
+      (subscription) => subscription.suspended,
     )
     // Admit before writing: a newly-created remote follower can replay its
     // bounded history as soon as its S record arrives.
@@ -215,6 +225,9 @@ export class HarnessTelemetryHub {
         await stream.write(
           `S\t${generation}\t${subscription.subscriptionId}\t${subscription.sessionId}\t${resource || '-'}\n`,
         )
+      }
+      for (const subscription of excludedSubscriptions) {
+        this.scheduleFollowerRestart(subscription)
       }
     } catch (error) {
       this.failStream(stream, asError(error))
@@ -276,7 +289,18 @@ export class HarnessTelemetryHub {
     subscription.suspended = true
     subscription.admittedGeneration = undefined
     this.scheduleReconcile(0)
-    if (subscription.followerRestartAttempts >= MAX_FOLLOWER_RESTARTS) return
+  }
+
+  private scheduleFollowerRestart(subscription: LiveSubscription): void {
+    if (
+      this.stopped ||
+      this.subscriptions.get(subscription.subscriptionId) !== subscription ||
+      !subscription.suspended ||
+      subscription.followerRestartTimer ||
+      subscription.followerRestartAttempts >= MAX_FOLLOWER_RESTARTS
+    ) {
+      return
+    }
     subscription.followerRestartAttempts += 1
     subscription.followerRestartTimer = setTimeout(() => {
       subscription.followerRestartTimer = undefined

@@ -180,6 +180,123 @@ describe('HarnessTelemetryHub', () => {
     void stop()
   })
 
+  it('waits for a reconcile that excludes a failed follower before replacing it', async () => {
+    let releaseSecondReconcile: (() => void) | undefined
+    const stream = fakeStream((value) => {
+      if (value !== 'R\t2\t2\n') return Promise.resolve()
+      return new Promise<void>((resolve) => {
+        releaseSecondReconcile = resolve
+      })
+    })
+    const execStream = vi.fn<ProjectHost['execStream']>(() => stream.handle)
+    const hub = telemetryHub(execStream, true)
+    const first = subscription(27)
+    const second = subscription(28)
+    const stopFirst = hub.subscribe(first)
+    await vi.waitFor(() => expect(stream.writes).toHaveLength(2))
+    const epoch = execStream.mock.calls[0]?.[1].at(-1)
+    if (!epoch) throw new Error('Expected telemetry hub epoch argument')
+
+    const stopSecond = hub.subscribe(second)
+    await vi.waitFor(() => expect(releaseSecondReconcile).toBeTypeOf('function'))
+    stream.stdout(
+      healthFrame(
+        epoch,
+        '1',
+        first.subscriptionId,
+        first.sessionId,
+        'unavailable',
+        'follower-exited',
+      ),
+    )
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    releaseSecondReconcile?.()
+
+    await vi.waitFor(
+      () => expect(stream.writes.filter((value) => value.startsWith('R\t'))[2]).toBe(
+        'R\t3\t1\n',
+      ),
+      { timeout: 1_000 },
+    )
+    await vi.waitFor(
+      () => expect(stream.writes.filter((value) => value.startsWith('R\t'))[3]).toBe(
+        'R\t4\t2\n',
+      ),
+      { timeout: 1_000 },
+    )
+
+    void stopFirst()
+    void stopSecond()
+  })
+
+  it('re-admits an exhausted follower after the whole helper restarts', async () => {
+    const streams = [fakeStream(), fakeStream()]
+    const execStream = vi
+      .fn<ProjectHost['execStream']>()
+      .mockReturnValueOnce(streams[0]!.handle)
+      .mockReturnValueOnce(streams[1]!.handle)
+    const hub = telemetryHub(execStream, true)
+    const live = subscription(29)
+    const stop = hub.subscribe(live)
+    await vi.waitFor(() => expect(streams[0]!.writes).toHaveLength(2))
+    const epoch = execStream.mock.calls[0]?.[1].at(-1)
+    if (!epoch) throw new Error('Expected telemetry hub epoch argument')
+
+    for (const [failureGeneration, replacementGeneration] of [
+      ['1', 3],
+      ['3', 5],
+      ['5', 7],
+    ] as const) {
+      streams[0]!.stdout(
+        healthFrame(
+          epoch,
+          failureGeneration,
+          live.subscriptionId,
+          live.sessionId,
+          'unavailable',
+          'follower-exited',
+        ),
+      )
+      await vi.waitFor(
+        () =>
+          expect(
+            streams[0]!.writes.filter((value) => value.startsWith('R\t')).at(-1),
+          ).toBe(`R\t${replacementGeneration}\t1\n`),
+        { timeout: 1_500 },
+      )
+    }
+
+    streams[0]!.stdout(
+      healthFrame(
+        epoch,
+        '7',
+        live.subscriptionId,
+        live.sessionId,
+        'unavailable',
+        'follower-exited',
+      ),
+    )
+    await vi.waitFor(() =>
+      expect(streams[0]!.writes.filter((value) => value.startsWith('R\t')).at(-1)).toBe(
+        'R\t8\t0\n',
+      ),
+    )
+
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    streams[0]!.fail(new Error('transport lost'))
+    await vi.waitFor(() => expect(execStream).toHaveBeenCalledTimes(2), {
+      timeout: 1_000,
+    })
+    await vi.waitFor(() => expect(streams[1]!.writes).toHaveLength(2))
+    expect(streams[1]!.writes[0]).toBe('R\t9\t1\n')
+    expect(streams[1]!.writes[1]).toContain(
+      `\t${live.subscriptionId}\t${live.sessionId}\t`,
+    )
+
+    void stop()
+    warning.mockRestore()
+  })
+
   it('handles back-to-back helper error and exit once, then admits restart health', async () => {
     const streams = [fakeStream(), fakeStream()]
     const execStream = vi
@@ -588,7 +705,7 @@ function healthFrame(
   return `H\t${epoch}\t${generation}\t${subscriptionId}\t${sessionId}\t${status}\t${reason}\n`
 }
 
-function fakeStream(): FakeStream {
+function fakeStream(write?: (value: string) => Promise<void>): FakeStream {
   const stdoutListeners = new Set<(value: string) => void>()
   const errorListeners = new Set<(error: Error) => void>()
   const exitListeners = new Set<
@@ -609,7 +726,7 @@ function fakeStream(): FakeStream {
     onExit: (callback) => subscribe(exitListeners, callback),
     write: (value) => {
       writes.push(value)
-      return Promise.resolve()
+      return write?.(value) ?? Promise.resolve()
     },
     end,
     kill: () => undefined,
