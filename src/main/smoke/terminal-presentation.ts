@@ -652,7 +652,7 @@ async function verifyTerminalLayoutFocus(win: BrowserWindow): Promise<string> {
             const presentation = engine.__hvirTerminalPerformance;
             return workbench.classList.contains('terminal-collapsed') &&
               delivery?.presentation === 'hidden' && presentation?.paused;
-          }, 'collapsed layout did not hide the retained terminal presentation');
+          });
           if (!input.isConnected || document.activeElement !== button) {
             const delivery = input.__hvirTerminalDelivery;
             const presentation = engine.__hvirTerminalPerformance;
