@@ -1,12 +1,9 @@
 import type { BrowserWindow } from 'electron'
 
-import { withTerminalSmokeTimeout } from './terminal-smoke-timeout'
-
 export async function verifyTerminalHorizonPresentation(
   win: BrowserWindow,
 ): Promise<string> {
-  return (await withTerminalSmokeTimeout(
-    win.webContents.executeJavaScript(`
+  return (await win.webContents.executeJavaScript(`
       (async () => {
         const workbench = document.querySelector('.workbench');
         const viewer = document.querySelector('.viewer-panel');
@@ -144,8 +141,5 @@ export async function verifyTerminalHorizonPresentation(
         }
         return 'dark/light full-width horizon + quiet hidden-surface modes';
       })()
-    `),
-    'terminal horizon presentation check timed out',
-    6_000,
-  )) as string
+    `)) as string
 }

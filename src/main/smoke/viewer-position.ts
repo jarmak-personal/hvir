@@ -74,12 +74,10 @@ export function verifyViewerPositions(
 ): Promise<string> {
   return win.webContents.executeJavaScript(`
     (async () => {
-      const waitFor = (test, message) => new Promise((resolve, reject) => {
-        const deadline = Date.now() + 20000;
+      const waitFor = (test) => new Promise((resolve) => {
         const poll = () => {
           const value = test();
           if (value) return resolve(value);
-          if (Date.now() > deadline) return reject(new Error(message));
           setTimeout(poll, 25);
         };
         poll();
@@ -426,7 +424,6 @@ export function verifySourceDiffPosition(
 ): Promise<string> {
   return win.webContents.executeJavaScript(`
     (async () => {
-      const deadline = Date.now() + 20000;
       const sourceSelector = '.source-shell .cm-scroller';
       const sourceGutter = '.cm-lineNumbers .cm-gutterElement';
       const diffSelector = '.cm-mergeView';
@@ -502,7 +499,6 @@ export function verifySourceDiffPosition(
           snapshot();
           const value = test();
           if (value) return value;
-          if (Date.now() > deadline) fail(message);
           await new Promise((painted) => requestAnimationFrame(painted));
         }
       };

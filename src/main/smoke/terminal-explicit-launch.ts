@@ -1,7 +1,6 @@
 import type { BrowserWindow } from 'electron'
 
 import type { PtySupervisor } from '../pty/pty-supervisor'
-import { withTerminalSmokeTimeout } from './terminal-smoke-timeout'
 
 /** Prove the empty workspace boundary before admitting one explicit Bare Shell. */
 export async function ensureExplicitBareShellLaunch(
@@ -11,15 +10,13 @@ export async function ensureExplicitBareShellLaunch(
   const existing = supervisor.list()
   if (existing.length > 0) return `retained explicit terminal pid ${existing[0]!.pid}`
 
-  const result = (await withTerminalSmokeTimeout(
-    win.webContents.executeJavaScript(`
+  const result = (await win.webContents.executeJavaScript(`
       (async () => {
-        const deadline = Date.now() + 15000;
         const waitFor = (read, message) => new Promise((resolve, reject) => {
           const poll = () => {
             const value = read();
             if (value) return resolve(value);
-            if (Date.now() > deadline) return reject(new Error(message));
+
             setTimeout(poll, 25);
           };
           poll();
@@ -64,10 +61,7 @@ export async function ensureExplicitBareShellLaunch(
         }, 'explicit Bare Shell did not become live');
         return status;
       })()
-    `),
-    'explicit empty-workspace launch timed out',
-    20_000,
-  )) as string
+    `)) as string
 
   const terminals = supervisor.list()
   if (terminals.length !== 1 || !result.includes(String(terminals[0]!.pid))) {

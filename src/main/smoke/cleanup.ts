@@ -54,9 +54,9 @@ export class SmokeCleanup {
   }
 }
 
-async function runCleanupTaskWithinDeadline(
+export async function runCleanupTaskWithinDeadline(
   task: SmokeCleanupTask,
-  timeoutMs: number,
+  timeoutMs = DEFAULT_CLEANUP_TASK_TIMEOUT_MS,
 ): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined
   try {

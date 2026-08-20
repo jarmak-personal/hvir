@@ -738,25 +738,19 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       discardedRendererGenerations++
     })
     smokeWindow = win
-    await withTimeout(
-      new Promise<void>((resolve) => win.once('ready-to-show', resolve)),
-      'window never became ready',
-    )
+    await new Promise<void>((resolve) => win.once('ready-to-show', resolve))
     const initialRendererGeneration = rendererResources.currentOwner(
       win.webContents.id,
     ).generation
     recordSmokePhase('window-ready')
     console.log('[smoke] window ready-to-show OK')
     // A real preload round-trip establishes more than ready-to-show paint.
-    const rendererResult = (await withTimeout(
-      win.webContents.executeJavaScript(`
+    const rendererResult = (await win.webContents.executeJavaScript(`
         Promise.all([
           window.hvir.invoke('app:info', undefined),
           window.hvir.invoke('demo:echo', { text: 'renderer-ping' })
         ]).then(([info, echoed]) => ({ info, echoed }))
-      `),
-      'renderer IPC round-trip timed out',
-    )) as {
+      `)) as {
       info: { electronVersion: string }
       echoed: { text: string; workerPid: number }
     }
@@ -843,6 +837,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         switchedState: () => smokeProjectReturnState('smoke-project-return'),
         publish: (state) => emit('project:state', setSmokeProjectState(state)),
         revealedEntries,
+        checkpoint: recordSmokeCheckpoint,
       })
       console.log(`[smoke] project file operations OK (${projectFilesResult})`)
       const result = await verifyWorkspaceRemoteWorkflow({
@@ -974,21 +969,18 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     }
     if (mode === 'terminal-lifecycle') {
       const launchStatus = await ensureExplicitBareShellLaunch(win, supervisor)
-      const reconnectStatus = await withTimeout(
-        verifyTerminalReconnectRemount({
-          win,
-          supervisor,
-          resources: rendererResources,
-          root: smokeRoot,
-          connectedState: smokeProjectState('connected'),
-          disconnectedState: smokeProjectState('disconnected'),
-          emitProjectState: (state) => {
-            const committed = setSmokeProjectState(state)
-            emit('project:state', committed)
-          },
-        }),
-        'terminal reconnect lifecycle timed out',
-      )
+      const reconnectStatus = await verifyTerminalReconnectRemount({
+        win,
+        supervisor,
+        resources: rendererResources,
+        root: smokeRoot,
+        connectedState: smokeProjectState('connected'),
+        disconnectedState: smokeProjectState('disconnected'),
+        emitProjectState: (state) => {
+          const committed = setSmokeProjectState(state)
+          emit('project:state', committed)
+        },
+      })
       const recoveryStatus = await verifyRendererRolloverRecovery({
         win,
         supervisor,
@@ -1024,8 +1016,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       console.log('HVIR_SMOKE_OK')
       return 0
     }
-    const profileSmoke = (await withTimeout(
-      win.webContents.executeJavaScript(`
+    const profileSmoke = (await win.webContents.executeJavaScript(`
         (async () => {
           const root = ${JSON.stringify(smokeRoot)};
           const defaults = await window.hvir.invoke('harness:profiles', { root });
@@ -1091,9 +1082,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
               'risk' in preview
           };
         })()
-      `),
-      'structured harness profile smoke timed out',
-    )) as {
+      `)) as {
       defaultIds: readonly string[]
       requestedProviderIds: readonly string[]
       materialized: readonly {
@@ -1143,8 +1132,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     })
     console.log(`[smoke] live terminal worktree move OK (${terminalMoveStatus})`)
 
-    const themeStatus = (await withTimeout(
-      win.webContents.executeJavaScript(`
+    const themeStatus = (await win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
           const initial = document.documentElement.dataset.theme;
           const canvas = document.querySelector('.terminal-container canvas');
@@ -1202,15 +1190,11 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
             });
           }));
         })
-      `),
-      'theme switch smoke timed out',
-    )) as string
+      `)) as string
     console.log(`[smoke] synchronized theme switch OK (${themeStatus})`)
 
-    const railNavigationStatus = (await withTimeout(
-      win.webContents.executeJavaScript(`
+    const railNavigationStatus = (await win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
-          const deadline = Date.now() + 5000;
           const railButtons = [...document.querySelectorAll('.rail-nav button')];
           const byLabel = (label) =>
             railButtons.find((node) => node.textContent?.trim().startsWith(label));
@@ -1236,9 +1220,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
               placeholder.hidden ||
               !placeholder.textContent?.includes('Coming soon')
             ) {
-              if (Date.now() > deadline) {
-                return reject(new Error('Harness coming-soon route is not interactive'));
-              }
+
               return setTimeout(waitForHarness, 25);
             }
             files.click();
@@ -1255,22 +1237,17 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
                   'stable tabs · Files state preserved · Harness coming soon'
                 );
               }
-              if (Date.now() > deadline) {
-                return reject(new Error('Files rail state did not restore after Harness'));
-              }
+
               setTimeout(waitForFiles, 25);
             };
             waitForFiles();
           };
           waitForHarness();
         })
-      `),
-      'rail navigation did not preserve section state',
-    )) as string
+      `)) as string
     console.log(`[smoke] rail navigation OK (${railNavigationStatus})`)
 
-    const resizeStatus = (await withTimeout(
-      win.webContents.executeJavaScript(`
+    const resizeStatus = (await win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
           const tree = document.querySelector('.tree-panel');
           const workbench = document.querySelector('.workbench');
@@ -1395,13 +1372,10 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
             }));
           }));
         })
-      `),
-      'pane resize controls did not respond',
-    )) as string
+      `)) as string
     console.log(`[smoke] pane dividers OK (${resizeStatus})`)
 
-    const resizerActionStatus = (await withTimeout(
-      win.webContents.executeJavaScript(`
+    const resizerActionStatus = (await win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
           const frames = () => new Promise((done) =>
             requestAnimationFrame(() => requestAnimationFrame(done))
@@ -1487,15 +1461,11 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
           };
           void run().catch(reject);
         })
-      `),
-      'pane action drag smoke timed out',
-    )) as string
+      `)) as string
     console.log(`[smoke] pane action drags OK (${resizerActionStatus})`)
 
-    const splitStatus = (await withTimeout(
-      win.webContents.executeJavaScript(`
+    const splitStatus = (await win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
-          const deadline = Date.now() + 15000;
           const terminalSplit = () => {
             const button = document.querySelector('.terminal-split-button');
             const before = document.querySelectorAll('.terminal-list-row').length;
@@ -1525,27 +1495,21 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
                         document.querySelectorAll('.terminal-list-row').length === before) {
                       return resolve('terminal PTY split + keyboard divider');
                     }
-                    if (Date.now() > deadline) return reject(new Error('terminal split did not collapse'));
                     setTimeout(waitForCollapse, 50);
                   };
                   waitForCollapse();
                 });
               }
-              if (Date.now() > deadline) return reject(new Error('split terminal PTY did not become ready'));
               setTimeout(waitForTerminal, 50);
             };
             waitForTerminal();
           };
           terminalSplit();
         })
-      `),
-      'split layout smoke timed out',
-      18_000,
-    )) as string
+      `)) as string
     console.log(`[smoke] split panes OK (${splitStatus})`)
 
-    const settingsStatus = (await withTimeout(
-      win.webContents.executeJavaScript(`
+    const settingsStatus = (await win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
           document.querySelector('.settings-toggle')?.click();
           requestAnimationFrame(() => {
@@ -1616,18 +1580,14 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
             });
           });
         })
-      `),
-      'settings smoke timed out',
-    )) as string
+      `)) as string
     console.log(`[smoke] minimal settings OK (${settingsStatus})`)
 
     const manualProfileStatus = await verifyHarnessManualProfilePointerActivation(win)
     console.log(`[smoke] manual harness profile OK (${manualProfileStatus})`)
 
-    const harnessRenameStatus = (await withTimeout(
-      win.webContents.executeJavaScript(`
+    const harnessRenameStatus = (await win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
-          const deadline = Date.now() + 10000;
           document.querySelector(
             '.terminal-icon-button[aria-label="New terminal"]'
           )?.click();
@@ -1637,7 +1597,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
               row.querySelector('strong')?.textContent?.trim() === 'Smoke custom harness'
             );
             if (!source) {
-              if (Date.now() > deadline) return reject(new Error('smoke harness profile missing'));
               return setTimeout(waitForProfile, 50);
             }
             if (rows.some((row) =>
@@ -1745,26 +1704,20 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
                                 'section-targeted + duplicate-safe add + rename + same-line argv + guarded save'
                               );
                             }
-                            if (Date.now() > deadline) {
-                              return reject(new Error('guarded harness save did not close settings'));
-                            }
+
                             setTimeout(waitForGuardedSave, 50);
                           };
                           waitForGuardedSave();
                           });
                         });
                       }
-                      if (Date.now() > deadline) {
-                        return reject(new Error('same-line arguments did not reach preview'));
-                      }
+
                       setTimeout(waitForArgumentPreview, 50);
                     };
                     waitForArgumentPreview();
                   });
                 }
-                if (Date.now() > deadline) {
-                  return reject(new Error('duplicated harness profile did not become editable'));
-                }
+
                 setTimeout(waitForDuplicate, 50);
               };
                 waitForDuplicate();
@@ -1799,9 +1752,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
                   .find((button) => button.textContent?.trim() === 'Cancel')?.click();
                 return requestAnimationFrame(beginProfileEdit);
               }
-              if (Date.now() > deadline) {
-                return reject(new Error('configured template detection did not settle'));
-              }
+
               setTimeout(waitForConfiguredTemplate, 50);
             };
             waitForConfiguredTemplate();
@@ -1813,16 +1764,12 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
               configure.click();
               return waitForProfile();
             }
-            if (Date.now() > deadline) {
-              return reject(new Error('configure harnesses action missing'));
-            }
+
             requestAnimationFrame(waitForConfigure);
           };
           waitForConfigure();
         })
-      `),
-      'harness profile editor smoke timed out',
-    )) as string
+      `)) as string
     console.log(`[smoke] harness profile editor OK (${harnessRenameStatus})`)
 
     const harnessSettingsCaptures = await captureHarnessSettingsVisuals(
@@ -1925,21 +1872,3 @@ type EmitSmokeEvent = <E extends IpcEventChannel>(
   channel: E,
   payload: IpcEventPayload<E>,
 ) => void
-
-async function withTimeout<T>(
-  promise: Promise<T>,
-  message: string,
-  timeoutMs = 15000,
-): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), timeoutMs)
-      }),
-    ])
-  } finally {
-    if (timer) clearTimeout(timer)
-  }
-}

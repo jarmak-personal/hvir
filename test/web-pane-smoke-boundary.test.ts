@@ -7,29 +7,9 @@ import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import {
   closeWebPaneSmokeServer,
   withWebPaneDiagnosisTimeout,
-  withWebPaneSmokeTimeout,
 } from '../src/main/smoke/web-pane-boundary'
 
 describe('web-pane smoke boundaries', () => {
-  it('fails a never-settling operation at its named inner boundary', async () => {
-    vi.useFakeTimers()
-    onTestFinished(() => {
-      vi.useRealTimers()
-    })
-    const operation = withWebPaneSmokeTimeout(
-      new Promise<never>(() => undefined),
-      'web-pane-guest-ready-awaiting timed out',
-      25,
-    )
-    const failure = expect(operation).rejects.toThrow(
-      'web-pane-guest-ready-awaiting timed out',
-    )
-
-    await vi.advanceTimersByTimeAsync(25)
-
-    await failure
-  })
-
   it('bounds failure diagnosis independently of the failed operation', async () => {
     vi.useFakeTimers()
     onTestFinished(() => {

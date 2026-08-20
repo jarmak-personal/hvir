@@ -1,7 +1,6 @@
 import type { BrowserWindow } from 'electron'
 
 import type { PtySupervisor } from '../pty/pty-supervisor'
-import { withTerminalSmokeTimeout } from './terminal-smoke-timeout'
 
 const OBSERVER_KEY = '__hvirSynchronizedOutputSmoke'
 
@@ -16,11 +15,9 @@ export async function verifySynchronizedOutput(
   const instanceId = terminal.instanceId
   let commandStarted = false
 
-  const observed = withTerminalSmokeTimeout(
-    win.webContents.executeJavaScript(`
+  const observed = win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
         const sessionId = ${JSON.stringify(sessionId)};
-        const deadline = Date.now() + 12000;
         const fail = (message) => reject(new Error(message));
         const pixel = (canvas) => {
           const context = canvas?.getContext('2d');
@@ -82,7 +79,6 @@ export async function verifySynchronizedOutput(
             window.${OBSERVER_KEY} = { phase: 'ready' };
             return waitForActive(canvas, initialPixel, baseline, original);
           }
-          if (Date.now() > deadline) return fail('synchronized-output fixtures missing');
           setTimeout(waitForFixtures, 25);
         };
         const waitForActive = (canvas, initialPixel, baseline, original) => {
@@ -106,7 +102,6 @@ export async function verifySynchronizedOutput(
             current.button.click();
             return waitForActiveReveal(canvas, initialPixel, baseline, original);
           }
-          if (Date.now() > deadline) return fail('synchronized output did not become active');
           setTimeout(() => waitForActive(canvas, initialPixel, baseline, original), 25);
         };
         const waitForActiveReveal = (canvas, initialPixel, baseline, original) => {
@@ -155,7 +150,6 @@ export async function verifySynchronizedOutput(
             }));
             return;
           }
-          if (Date.now() > deadline) return fail('active synchronization reveal timed out');
           setTimeout(() => waitForActiveReveal(canvas, initialPixel, baseline, original), 25);
         };
         const waitForRehidden = (canvas, initialPixel, baseline, original) => {
@@ -176,7 +170,6 @@ export async function verifySynchronizedOutput(
             window.${OBSERVER_KEY} = { phase: 'continue' };
             return waitForCompletedHidden(canvas, initialPixel, baseline, original);
           }
-          if (Date.now() > deadline) return fail('synchronized terminal did not rehide');
           setTimeout(() => waitForRehidden(canvas, initialPixel, baseline, original), 25);
         };
         const waitForCompletedHidden = (canvas, initialPixel, baseline, original) => {
@@ -201,7 +194,6 @@ export async function verifySynchronizedOutput(
             current.button.click();
             return waitForFinalFrame(canvas, initialPixel, baseline, original);
           }
-          if (Date.now() > deadline) return fail('synchronized output did not complete hidden');
           setTimeout(
             () => waitForCompletedHidden(canvas, initialPixel, baseline, original),
             25
@@ -232,12 +224,7 @@ export async function verifySynchronizedOutput(
             original.click();
             return waitForFinalRehide(canvas, baseline);
           }
-          if (Date.now() > deadline) return fail(
-            'final synchronized frame did not settle: frames=' +
-            current.stats?.renderFrames + '/' + baseline.renderFrames +
-            ' full=' + current.stats?.fullRenderFrames + '/' + baseline.fullRenderFrames +
-            ' pixel=' + (finalPixel ?? []).join('/')
-          );
+
           setTimeout(
             () => waitForFinalFrame(canvas, initialPixel, baseline, original),
             25
@@ -255,15 +242,11 @@ export async function verifySynchronizedOutput(
               'split mode + parsed while deferred + no partial frame + one final frame'
             );
           }
-          if (Date.now() > deadline) return fail('final synchronized Canvas did not rehide');
           setTimeout(() => waitForFinalRehide(canvas, baseline), 25);
         };
         waitForFixtures();
       })
-    `),
-    'synchronized-output presentation proof timed out',
-    14_000,
-  ) as Promise<string>
+    `) as Promise<string>
 
   try {
     await waitForObserverPhase(win, 'ready')
@@ -291,18 +274,14 @@ async function waitForObserverPhase(
   win: BrowserWindow,
   expected: 'ready' | 'continue',
 ): Promise<void> {
-  await withTerminalSmokeTimeout(
-    new Promise<void>((resolve) => {
-      const poll = async (): Promise<void> => {
-        const phase = (await win.webContents.executeJavaScript(
-          `window.${OBSERVER_KEY}?.phase`,
-        )) as unknown
-        if (phase === expected) return resolve()
-        setTimeout(() => void poll(), 25)
-      }
-      void poll()
-    }),
-    `synchronized-output observer did not reach ${expected}`,
-    5_000,
-  )
+  await new Promise<void>((resolve) => {
+    const poll = async (): Promise<void> => {
+      const phase = (await win.webContents.executeJavaScript(
+        `window.${OBSERVER_KEY}?.phase`,
+      )) as unknown
+      if (phase === expected) return resolve()
+      setTimeout(() => void poll(), 25)
+    }
+    void poll()
+  })
 }

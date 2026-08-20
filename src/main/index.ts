@@ -467,9 +467,8 @@ function createWorkbenchEntry(): void {
     if (!__HVIR_SMOKE_BUILD__ && process.platform !== 'darwin') app.quit()
   })
   app.on('activate', () => {
-    void runtime
-      .reopen()
-      .catch((error) => console.error('[window] failed to reopen workbench', error))
+    if (__HVIR_SMOKE_BUILD__ && process.env['HVIR_SMOKE']) return
+    void runtime.reopen().catch((error) => console.error('[window] reopen failed', error))
   })
   app.on('before-quit', (event) => {
     if (runtime.isShutdown) return

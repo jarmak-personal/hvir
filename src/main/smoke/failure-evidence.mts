@@ -48,6 +48,24 @@ export const SMOKE_FAILURE_CHECKPOINTS = [
   'renderer-authority-destroyed',
   'renderer-authority-resource-revocation-awaiting',
   'renderer-authority-resource-revoked',
+  'project-files-local-create-awaiting',
+  'project-files-local-create-ready',
+  'project-files-local-interactions-awaiting',
+  'project-files-local-interactions-ready',
+  'project-files-local-organization-awaiting',
+  'project-files-local-organization-ready',
+  'project-files-local-deletion-awaiting',
+  'project-files-local-deletion-ready',
+  'project-files-remote-operations-awaiting',
+  'project-files-remote-operations-ready',
+  'project-files-clipboard-copy-awaiting',
+  'project-files-clipboard-copy-ready',
+  'project-files-remote-drop-awaiting',
+  'project-files-remote-drop-ready',
+  'project-files-external-move-awaiting',
+  'project-files-external-move-ready',
+  'project-files-workspace-switch-awaiting',
+  'project-files-workspace-switch-ready',
 ] as const
 
 export type SmokeFailureCheckpoint = (typeof SMOKE_FAILURE_CHECKPOINTS)[number]
@@ -89,22 +107,48 @@ export interface SmokeFailureEvidence {
   readonly owners: SmokeOwnedResourceEvidence
 }
 
+export type SmokeFailureEvidenceSink = (line: string) => void
+
+let stderrGuardInstalled = false
+
+function guardSmokeFailureEvidenceSink(): void {
+  if (stderrGuardInstalled) return
+  stderrGuardInstalled = true
+  process.stderr.on('error', (error: NodeJS.ErrnoException) => {
+    if (error.code !== 'EPIPE') throw error
+  })
+}
+
+const stderrSmokeFailureEvidenceSink: SmokeFailureEvidenceSink = (line) => {
+  guardSmokeFailureEvidenceSink()
+  try {
+    process.stderr.write(line)
+  } catch {
+    // A synchronously rejected diagnostic write is best-effort too.
+  }
+}
+
 /** Emit only a closed, content-free snapshot for the outer process launcher. */
 export function reportSmokeFailureEvidence(
   phase: SmokeFailurePhase,
   owners: SmokeOwnedResourceEvidence,
   checkpoint: SmokeFailureCheckpoint | null = null,
   cleanupResource: SmokeCleanupResource | null = null,
+  sink: SmokeFailureEvidenceSink = stderrSmokeFailureEvidenceSink,
 ): void {
-  console.error(
-    `[smoke:failure-evidence] ${JSON.stringify({
-      schema: 1,
-      phase,
-      checkpoint,
-      cleanupResource,
-      owners,
-    } satisfies SmokeFailureEvidence)}`,
-  )
+  const line = `[smoke:failure-evidence] ${JSON.stringify({
+    schema: 1,
+    phase,
+    checkpoint,
+    cleanupResource,
+    owners,
+  } satisfies SmokeFailureEvidence)}\n`
+  try {
+    sink(line)
+  } catch {
+    // The launcher owns this best-effort pipe. Teardown can revoke it before
+    // Electron has finished, and diagnostic loss must not become a new fault.
+  }
 }
 
 export function smokeCleanupResource(name: string): SmokeCleanupResource | null {

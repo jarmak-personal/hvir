@@ -1,7 +1,6 @@
 import type { BrowserWindow } from 'electron'
 
 import type { PtySupervisor } from '../pty/pty-supervisor'
-import { withTerminalSmokeTimeout } from './terminal-smoke-timeout'
 
 const ANSI_BACKGROUND_CODES = [
   40, 41, 42, 43, 44, 45, 46, 47, 100, 101, 102, 103, 104, 105, 106, 107,
@@ -23,10 +22,8 @@ export async function verifyTerminalPalettePresentation(
     `stty -echo; printf '${printfEscaped(sequence)}'; IFS= read -r hvir_palette; stty echo\n`,
   )
   try {
-    const status = (await withTerminalSmokeTimeout(
-      win.webContents.executeJavaScript(`
+    const status = (await win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
-          const deadline = Date.now() + 10000;
           const ansiKeys = [
             'black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white',
             'brightBlack', 'brightRed', 'brightGreen', 'brightYellow',
@@ -136,10 +133,7 @@ export async function verifyTerminalPalettePresentation(
           };
           const waitForBase = (theme, next) => {
             if (baseMatches(theme)) return next();
-            if (Date.now() > deadline) {
-              return fail('palette did not reach native state and Canvas for ' + theme + ': ' +
-                JSON.stringify(read()));
-            }
+
             setTimeout(() => waitForBase(theme, next), 25);
           };
           const openSelection = (theme, next) => {
@@ -158,7 +152,7 @@ export async function verifyTerminalPalettePresentation(
                 selectAll.click();
                 return waitForSelection(theme, next);
               }
-              if (Date.now() > deadline) return fail('palette Select All action missing');
+
               setTimeout(waitForMenu, 25);
             };
             waitForMenu();
@@ -178,10 +172,7 @@ export async function verifyTerminalPalettePresentation(
           };
           const waitForSelection = (theme, next) => {
             if (selectionMatches(theme)) return next();
-            if (Date.now() > deadline) {
-              return fail('selection palette did not paint for ' + theme + ': ' +
-                JSON.stringify(read()));
-            }
+
             setTimeout(() => waitForSelection(theme, next), 25);
           };
           const waitForFixture = () => {
@@ -216,15 +207,12 @@ export async function verifyTerminalPalettePresentation(
                 });
               });
             }
-            if (Date.now() > deadline) return fail('palette fixture did not settle');
+
             setTimeout(waitForFixture, 25);
           };
           waitForFixture();
         })
-      `),
-      'terminal palette presentation timed out',
-      12_000,
-    )) as string
+      `)) as string
     const retained = supervisor
       .list()
       .filter((candidate) => candidate.ownerId === win.webContents.id)

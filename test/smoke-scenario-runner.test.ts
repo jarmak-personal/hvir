@@ -11,11 +11,11 @@ import {
   formatSmokeScenarioResults,
   invokeSmokeScenario,
   parseSmokeRepetitionCount,
+  registerSmokeLauncherSignals,
   runSmokeScenarioGroups,
   selectedSmokeScenarios,
   smokeScenarioEnvironment,
   smokeAttemptTimeoutMs,
-  smokeCheckpointTimeoutMs,
   writeSmokeFailureArtifactWithinDeadline,
   type SmokeScenarioName,
 } from '../scripts/run-smoke-scenarios.mts'
@@ -191,6 +191,53 @@ describe('Electron smoke result aggregation', () => {
     )
   })
 
+  it('does not invoke a scenario group after launcher interruption', async () => {
+    const interruption = new AbortController()
+    interruption.abort('SIGTERM')
+    const invoke = vi.fn()
+
+    await expect(
+      runSmokeScenarioGroups(['web-pane'], 1, invoke, interruption.signal),
+    ).resolves.toEqual([
+      {
+        scenario: 'web-pane',
+        iteration: 1,
+        repetitionCount: 1,
+        status: 'failed',
+        error: 'launcher interrupted',
+      },
+    ])
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
+  it('keeps launcher signal handlers installed and escalates a repeated signal', () => {
+    const interruption = new AbortController()
+    const escalate = vi.fn()
+    const handlers = new Map<NodeJS.Signals, () => void>()
+    const target = {
+      on: (signal: NodeJS.Signals, handler: () => void): void => {
+        handlers.set(signal, handler)
+      },
+      off: (signal: NodeJS.Signals, handler: () => void): void => {
+        if (handlers.get(signal) === handler) handlers.delete(signal)
+      },
+    }
+    const remove = registerSmokeLauncherSignals(interruption, escalate, target)
+    const terminate = handlers.get('SIGTERM')
+    if (!terminate) throw new Error('SIGTERM handler was not registered')
+
+    terminate()
+    expect(interruption.signal.aborted).toBe(true)
+    expect(interruption.signal.reason).toBe('SIGTERM')
+    expect(escalate).not.toHaveBeenCalled()
+    expect(handlers.get('SIGTERM')).toBe(terminate)
+
+    terminate()
+    expect(escalate).toHaveBeenCalledOnce()
+    remove()
+    expect(handlers).toHaveProperty('size', 0)
+  })
+
   it('defaults to one iteration and accepts bounded ASCII decimal counts', () => {
     expect(parseSmokeRepetitionCount(undefined)).toBe(1)
     expect(parseSmokeRepetitionCount('1')).toBe(1)
@@ -224,53 +271,9 @@ describe('Electron smoke result aggregation', () => {
     })
   })
 
-  it('keeps every attempt bounded while allowing the capacity sampling window', () => {
+  it('keeps only the outer attempt bound while allowing the capacity sampling window', () => {
     expect(smokeAttemptTimeoutMs('pty-native')).toBe(180_000)
     expect(smokeAttemptTimeoutMs('capacity')).toBe(600_000)
-    expect(
-      smokeCheckpointTimeoutMs('renderer-recovery', 'renderer-recovery-route-opening'),
-    ).toBe(15_000)
-    expect(
-      smokeCheckpointTimeoutMs('renderer-recovery', 'renderer-recovery-reload-awaiting'),
-    ).toBe(15_000)
-    expect(
-      smokeCheckpointTimeoutMs(
-        'renderer-recovery',
-        'renderer-recovery-replacement-ipc-awaiting',
-      ),
-    ).toBe(15_000)
-    expect(
-      smokeCheckpointTimeoutMs(
-        'renderer-recovery',
-        'renderer-recovery-route-revocation-awaiting',
-      ),
-    ).toBe(15_000)
-    expect(
-      smokeCheckpointTimeoutMs('renderer-recovery', 'renderer-recovery-reload-loaded'),
-    ).toBeUndefined()
-    expect(
-      smokeCheckpointTimeoutMs(
-        'renderer-authority',
-        'renderer-authority-destruction-awaiting',
-      ),
-    ).toBe(15_000)
-    expect(
-      smokeCheckpointTimeoutMs(
-        'renderer-authority',
-        'renderer-authority-resource-revocation-awaiting',
-      ),
-    ).toBe(15_000)
-    expect(
-      smokeCheckpointTimeoutMs(
-        'renderer-authority',
-        'renderer-authority-resource-revoked',
-      ),
-    ).toBeUndefined()
-    expect(smokeCheckpointTimeoutMs('web-pane', 'web-pane-guest-ready-awaiting')).toBe(
-      15_000,
-    )
-    expect(smokeCheckpointTimeoutMs('web-pane', 'web-pane-guest-ready')).toBeUndefined()
-    expect(smokeCheckpointTimeoutMs('web-pane', null)).toBeUndefined()
   })
 })
 
@@ -279,7 +282,7 @@ describe('Electron smoke process failure artifacts', () => {
     command: string
     args?: readonly string[]
     timeoutMs?: number
-    checkpointTimeoutMs?: number
+    terminationGraceMs?: number
     scenario?: SmokeScenarioName
   }) {
     const directory = await mkdtemp(join(tmpdir(), 'hvir-smoke-launcher-'))
@@ -305,9 +308,22 @@ describe('Electron smoke process failure artifacts', () => {
         spawnError: boolean
       }
       semanticSnapshot: { phase: string } | null
+      outcome: string
     }
     return { artifact, result }
   }
+
+  it('does not spawn when the launcher is already interrupted', async () => {
+    const interruption = new AbortController()
+    interruption.abort('SIGTERM')
+
+    await expect(
+      invokeSmokeScenario('web-pane', 1, 1, {
+        command: 'hvir-smoke-command-that-does-not-exist',
+        interruptionSignal: interruption.signal,
+      }),
+    ).resolves.toEqual({ status: 'failed', error: 'launcher interrupted' })
+  })
 
   it('retains spawn, nonzero-exit, and signal outcomes', async () => {
     const spawnFailure = await invokeFixture({
@@ -350,8 +366,7 @@ describe('Electron smoke process failure artifacts', () => {
       stderr.mockRestore()
       stdout.mockRestore()
     })
-    const fixture = await invokeFixture({
-      scenario: 'renderer-recovery',
+    const result = await invokeSmokeScenario('renderer-recovery', 1, 1, {
       command: process.execPath,
       args: [
         '-e',
@@ -360,14 +375,14 @@ describe('Electron smoke process failure artifacts', () => {
       timeoutMs: 1_000,
     })
 
-    expect(fixture.result).toMatchObject({
+    expect(result).toMatchObject({
       status: 'failed',
       exitCode: 0,
       error: 'disposed renderer frame delivery reached standard error',
     })
   })
 
-  it('kills a never-settling attempt and retains its last completed phase first', async () => {
+  it('contains a never-settling attempt and retains its last completed phase first', async () => {
     const evidence = JSON.stringify({
       schema: 1,
       phase: 'renderer-ready',
@@ -392,20 +407,21 @@ describe('Electron smoke process failure artifacts', () => {
 
     expect(fixture.result).toMatchObject({
       status: 'failed',
-      signal: 'SIGKILL',
-      error: 'process timed out',
+      signal: 'SIGTERM',
+      error: 'process exceeded outer attempt containment',
     })
     expect(fixture.artifact).toMatchObject({
-      schema: 1,
+      schema: 2,
       scenario: 'web-pane',
       iteration: 1,
       repetitionCount: 1,
     })
     expect(fixture.artifact.process).toEqual({
       exitCode: null,
-      signal: 'SIGKILL',
+      signal: 'SIGTERM',
       spawnError: false,
     })
+    expect(fixture.artifact.outcome).toBe('attempt-contained')
     expect(fixture.artifact.semanticSnapshot).toEqual({
       schema: 1,
       phase: 'renderer-ready',
@@ -421,7 +437,7 @@ describe('Electron smoke process failure artifacts', () => {
     })
   })
 
-  it('kills a main-loop stall at its renderer-recovery checkpoint deadline', async () => {
+  it('lets slow checkpoint progress complete within the outer attempt bound', async () => {
     const evidence = JSON.stringify({
       schema: 1,
       phase: 'scenario-active',
@@ -435,62 +451,141 @@ describe('Electron smoke process failure artifacts', () => {
         rendererGeneration: 1,
       },
     })
-    const fixture = await invokeFixture({
-      scenario: 'renderer-recovery',
+    const result = await invokeSmokeScenario('renderer-recovery', 1, 1, {
       command: process.execPath,
       args: [
         '-e',
-        `process.stderr.write(${JSON.stringify(`[smoke:failure-evidence] ${evidence}\n`)}); setInterval(() => undefined, 1_000)`,
+        `process.stderr.write(${JSON.stringify(`[smoke:failure-evidence] ${evidence}\n`)}); setTimeout(() => { console.log('HVIR_SMOKE_OK'); process.exit(0) }, 100)`,
       ],
       timeoutMs: 1_000,
-      checkpointTimeoutMs: 50,
     })
 
-    expect(fixture.result).toMatchObject({
-      status: 'failed',
-      signal: 'SIGKILL',
-      error: 'process timed out at renderer-recovery-reload-awaiting after 50ms',
-    })
-    expect(fixture.artifact.semanticSnapshot).toMatchObject({
-      phase: 'scenario-active',
-      checkpoint: 'renderer-recovery-reload-awaiting',
+    expect(result).toMatchObject({
+      status: 'passed',
+      exitCode: 0,
     })
   })
 
-  it('kills a main-loop stall at its web-pane checkpoint deadline', async () => {
-    const evidence = JSON.stringify({
-      schema: 1,
-      phase: 'scenario-active',
-      checkpoint: 'web-pane-guest-ready-awaiting',
-      cleanupResource: null,
-      owners: {
-        windowCount: 1,
-        ptyCount: 1,
-        watcherActive: true,
-        rendererOwnerActive: true,
-        rendererGeneration: 1,
-      },
-    })
-    const fixture = await invokeFixture({
-      scenario: 'web-pane',
+  it('interrupts the detached smoke process group without leaving a descendant', async () => {
+    if (process.platform === 'win32') return
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    onTestFinished(() => consoleError.mockRestore())
+    const directory = await mkdtemp(join(tmpdir(), 'hvir-smoke-interrupt-'))
+    onTestFinished(() => rm(directory, { recursive: true, force: true }))
+    const descendantPath = join(directory, 'descendant.pid')
+    const interruption = new AbortController()
+    const invocation = invokeSmokeScenario('web-pane', 1, 1, {
       command: process.execPath,
       args: [
         '-e',
-        `process.stderr.write(${JSON.stringify(`[smoke:failure-evidence] ${evidence}\n`)}); setInterval(() => undefined, 1_000)`,
+        `const { spawn } = require('node:child_process'); const { writeFileSync } = require('node:fs'); const child = spawn(process.execPath, ['-e', 'setInterval(() => undefined, 1000)'], { stdio: 'ignore' }); writeFileSync(${JSON.stringify(descendantPath)}, String(child.pid)); setInterval(() => undefined, 1000)`,
       ],
-      timeoutMs: 1_000,
-      checkpointTimeoutMs: 50,
+      environment: {},
+      timeoutMs: 5_000,
+      terminationGraceMs: 100,
+      artifactDirectory: directory,
+      interruptionSignal: interruption.signal,
     })
+    const descendantPid = await waitForPid(descendantPath)
+    interruption.abort('SIGTERM')
 
-    expect(fixture.result).toMatchObject({
+    await expect(invocation).resolves.toMatchObject({
+      status: 'failed',
+      error: 'launcher interrupted',
+    })
+    await expectProcessGone(descendantPid)
+    const artifact = JSON.parse(
+      await readFile(join(directory, 'web-pane-iteration-1-of-1.json'), 'utf8'),
+    ) as { outcome: string }
+    expect(artifact.outcome).toBe('launcher-interrupted')
+    expect(consoleError).not.toHaveBeenCalledWith(
+      '[smoke:artifact] failed to retain bounded failure evidence',
+    )
+  })
+
+  it('escalates a repeated interruption for a SIGTERM-ignoring process group', async () => {
+    if (process.platform === 'win32') return
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    onTestFinished(() => consoleError.mockRestore())
+    const directory = await mkdtemp(join(tmpdir(), 'hvir-smoke-escalation-'))
+    onTestFinished(() => rm(directory, { recursive: true, force: true }))
+    const descendantPath = join(directory, 'descendant.pid')
+    const interruption = new AbortController()
+    let escalate: (() => void) | undefined
+    let completed = false
+    const invocation = invokeSmokeScenario('web-pane', 1, 1, {
+      command: process.execPath,
+      args: [
+        '-e',
+        `const { spawn } = require('node:child_process'); const { writeFileSync } = require('node:fs'); process.on('SIGTERM', () => undefined); const child = spawn(process.execPath, ['-e', "process.on('SIGTERM', () => undefined); setInterval(() => undefined, 1000)"], { stdio: 'ignore' }); writeFileSync(${JSON.stringify(descendantPath)}, String(child.pid)); setInterval(() => undefined, 1000)`,
+      ],
+      environment: {},
+      timeoutMs: 5_000,
+      terminationGraceMs: 5_000,
+      forceKillSettleMs: 500,
+      artifactDirectory: directory,
+      interruptionSignal: interruption.signal,
+      registerSignalEscalation: (ownedEscalation) => {
+        escalate = ownedEscalation
+        return () => {
+          escalate = undefined
+        }
+      },
+    })
+    void invocation.then(() => {
+      completed = true
+    })
+    const descendantPid = await waitForPid(descendantPath)
+    interruption.abort('SIGTERM')
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(completed).toBe(false)
+    if (!escalate) throw new Error('owned process-group escalation was not registered')
+
+    escalate()
+
+    await expect(invocation).resolves.toMatchObject({
       status: 'failed',
       signal: 'SIGKILL',
-      error: 'process timed out at web-pane-guest-ready-awaiting after 50ms',
+      error: 'launcher interrupted',
     })
-    expect(fixture.artifact.semanticSnapshot).toMatchObject({
-      phase: 'scenario-active',
-      checkpoint: 'web-pane-guest-ready-awaiting',
+    await expectProcessGone(descendantPid)
+    const artifact = JSON.parse(
+      await readFile(join(directory, 'web-pane-iteration-1-of-1.json'), 'utf8'),
+    ) as { outcome: string }
+    expect(artifact.outcome).toBe('launcher-interrupted')
+  })
+
+  it('settles containment after SIGKILL when an escaped descendant retains pipes', async () => {
+    if (process.platform === 'win32') return
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    onTestFinished(() => consoleError.mockRestore())
+    const directory = await mkdtemp(join(tmpdir(), 'hvir-smoke-forced-settle-'))
+    onTestFinished(() => rm(directory, { recursive: true, force: true }))
+    const descendantPath = join(directory, 'descendant.pid')
+    const invocation = invokeSmokeScenario('web-pane', 1, 1, {
+      command: process.execPath,
+      args: [
+        '-e',
+        `const { spawn } = require('node:child_process'); const { writeFileSync } = require('node:fs'); const child = spawn(process.execPath, ['-e', 'setInterval(() => undefined, 1000)'], { detached: true, stdio: ['ignore', 'inherit', 'inherit'] }); child.unref(); writeFileSync(${JSON.stringify(descendantPath)}, String(child.pid)); setInterval(() => undefined, 1000)`,
+      ],
+      environment: {},
+      timeoutMs: 100,
+      terminationGraceMs: 50,
+      forceKillSettleMs: 50,
+      artifactDirectory: directory,
     })
+    const descendantPid = await waitForPid(descendantPath)
+    onTestFinished(() => terminateFixtureProcess(descendantPid))
+
+    await expect(invocation).resolves.toMatchObject({
+      status: 'failed',
+      error: 'process exceeded outer attempt containment',
+    })
+    const artifact = JSON.parse(
+      await readFile(join(directory, 'web-pane-iteration-1-of-1.json'), 'utf8'),
+    ) as { outcome: string; process: { exitCode: number | null; signal: string | null } }
+    expect(artifact.outcome).toBe('attempt-contained')
+    expect(artifact.process).toMatchObject({ exitCode: null, signal: null })
   })
 
   it('bounds a stalled artifact writer independently of process termination', async () => {
@@ -502,6 +597,41 @@ describe('Electron smoke process failure artifacts', () => {
     ).rejects.toThrow('artifact retention timed out')
   })
 })
+
+async function waitForPid(path: string): Promise<number> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      const value = Number(await readFile(path, 'utf8'))
+      if (Number.isSafeInteger(value) && value > 0) return value
+    } catch {
+      // The child has not published its process identity yet.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  throw new Error('descendant pid was not published')
+}
+
+async function expectProcessGone(pid: number): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      process.kill(pid, 0)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ESRCH') return
+      throw error
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  process.kill(pid, 'SIGKILL')
+  throw new Error('detached smoke descendant survived launcher interruption')
+}
+
+function terminateFixtureProcess(pid: number): void {
+  try {
+    process.kill(pid, 'SIGKILL')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
+  }
+}
 
 describe('Electron smoke command contracts', () => {
   const packageJson = JSON.parse(
@@ -565,6 +695,10 @@ describe('Electron smoke command contracts', () => {
   )
   const projectFileOperationsScenario = readFileSync(
     new URL('../src/main/smoke/project-file-operations.ts', import.meta.url),
+    'utf8',
+  )
+  const failureEvidenceScenario = readFileSync(
+    new URL('../src/main/smoke/failure-evidence.mts', import.meta.url),
     'utf8',
   )
   const externalFileMoveScenario = readFileSync(
@@ -737,6 +871,11 @@ describe('Electron smoke command contracts', () => {
     expect(layoutFocusScenario).not.toContain(
       'requestAnimationFrame(() => requestAnimationFrame(resolve))',
     )
+    expect(layoutFocusScenario).not.toContain('Date.now()')
+    expect(layoutFocusScenario).not.toContain('waitDeadline')
+    expect(layoutFocusScenario).toContain(
+      'const waitFor = (read) => new Promise((resolve)',
+    )
   })
 
   it('serializes document review closure before direct top-terminal send', () => {
@@ -833,6 +972,13 @@ describe('Electron smoke command contracts', () => {
     )
     expect(gitWorkflowScenario).not.toContain('requestAnimationFrame')
     expect(viewerContentScenario).not.toMatch(/setTimeout\([^\n]*100\)/)
+    expect(
+      [...viewerContentScenario.matchAll(/const (\w+Deadline) = Date\.now\(\)/g)].map(
+        ([, name]) => name,
+      ),
+    ).toEqual(['closeDeadline'])
+    expect(viewerContentScenario).not.toContain('source highlight timed out')
+    expect(viewerContentScenario).not.toContain('mmd Mermaid fixture timed out')
     expect(viewerPositionScenario).not.toContain("querySelector('.terminal-panel')")
     expect(viewerPositionScenario).toContain('cleanScroll')
     expect(viewerFindScenario).not.toContain("querySelector('.terminal-panel')")
@@ -880,6 +1026,32 @@ describe('Electron smoke command contracts', () => {
     expect(projectFileOperationsScenario).toContain('workspace switch preserved snapshot')
     expect(projectFileOperationsScenario).toContain("'.mode-control button")
     expect(projectFileOperationsScenario).not.toContain('requestAnimationFrame')
+    const projectFileStages = [
+      'local-create',
+      'local-interactions',
+      'local-organization',
+      'local-deletion',
+      'remote-operations',
+      'clipboard-copy',
+      'remote-drop',
+      'external-move',
+      'workspace-switch',
+    ]
+    for (const stage of projectFileStages) {
+      const awaiting = `project-files-${stage}-awaiting`
+      const ready = `project-files-${stage}-ready`
+      expect(
+        projectFileOperationsScenario.indexOf(`checkpoint('${awaiting}')`),
+      ).toBeLessThan(projectFileOperationsScenario.indexOf(`checkpoint('${ready}')`))
+      expect(failureEvidenceScenario).toContain(`'${awaiting}'`)
+      expect(failureEvidenceScenario).toContain(`'${ready}'`)
+    }
+    expect(smokeWorkflow).toContain('checkpoint: recordSmokeCheckpoint')
+    expect(projectFileOperationsScenario).not.toContain('Date.now()')
+    expect(projectFileOperationsScenario).toContain(
+      "document.querySelector('.file-operation-feedback.error')",
+    )
+    expect(externalFileMoveScenario).toContain("feedback?.classList.contains('error')")
     expect(webPaneScenario).toContain('state=${JSON.stringify(state)}')
     expect(webPaneScenario).toContain('routes.source')
     expect(webPaneScenario).toContain('routes.paneIdForGuest')

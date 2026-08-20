@@ -22,32 +22,39 @@ const mainEntrySource = readFileSync(
 )
 
 describe('renderer-authority smoke boundaries', () => {
-  it('fails a never-settling Electron operation at its named inner boundary', async () => {
+  it('accepts slow semantic readiness without an operation deadline', async () => {
     vi.useFakeTimers()
     onTestFinished(() => {
       vi.useRealTimers()
     })
     const checkpoints: string[] = []
+    let ready = false
     const operation = waitForRendererAuthorityCondition(
       'renderer-authority-resource-revocation-awaiting',
-      () => new Promise<never>(() => undefined),
-      'renderer resource was not revoked',
+      () => ready,
       (checkpoint) => checkpoints.push(checkpoint),
       {
-        operationTimeoutMs: 100,
-        predicateTimeoutMs: 25,
-        pollIntervalMs: 1,
+        pollIntervalMs: 25,
         diagnosisTimeoutMs: 25,
       },
     )
-    const failure = expect(operation).rejects.toThrow(
-      'renderer-authority-resource-revocation-awaiting timed out after 25ms',
-    )
-
+    await vi.advanceTimersByTimeAsync(100)
+    ready = true
     await vi.advanceTimersByTimeAsync(25)
-
-    await failure
+    await operation
     expect(checkpoints).toEqual(['renderer-authority-resource-revocation-awaiting'])
+  })
+
+  it('surfaces permanent predicate failures immediately', async () => {
+    const failure = new Error('renderer owner lookup failed')
+
+    await expect(
+      waitForRendererAuthorityCondition(
+        'renderer-authority-resource-revocation-awaiting',
+        () => Promise.reject(failure),
+        () => undefined,
+      ),
+    ).rejects.toBe(failure)
   })
 
   it('keeps only the real destruction-to-resource-revocation boundary', () => {
@@ -97,6 +104,12 @@ describe('renderer-authority smoke boundaries', () => {
   it('keeps Linux last-window shutdown under the smoke cleanup owner', () => {
     expect(mainEntrySource).toContain(
       "if (!__HVIR_SMOKE_BUILD__ && process.platform !== 'darwin') app.quit()",
+    )
+  })
+
+  it('keeps macOS activation under the smoke composition owner', () => {
+    expect(mainEntrySource).toContain(
+      "app.on('activate', () => {\n    if (__HVIR_SMOKE_BUILD__ && process.env['HVIR_SMOKE']) return",
     )
   })
 })
