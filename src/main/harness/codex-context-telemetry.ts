@@ -1,7 +1,12 @@
 /** Structured Codex context usage, isolated behind the harness adapter seam. */
 
 import type { HarnessTelemetry, HostPath } from '../../shared'
-import { asHarnessProviderId, contextHarnessSnapshot, hostPath } from '../../shared'
+import {
+  asHarnessProviderId,
+  contextHarnessSnapshot,
+  contextStatusHarnessSnapshot,
+  hostPath,
+} from '../../shared'
 import type { Disposer, ProjectHost } from '../project-host'
 import {
   nonNegativeUsageCounter,
@@ -20,6 +25,7 @@ import {
   buildTelemetryHubScript,
   HarnessTelemetryHubRegistry,
 } from './harness-telemetry-hub'
+import type { HarnessTelemetryFollowerHealth } from './harness-telemetry-protocol'
 
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const FIND_SESSION_SCRIPT = `
@@ -29,8 +35,8 @@ find "$root" -type f -name "rollout-*-$1.jsonl" -print0
 `.trim()
 const FOLLOW_TOKEN_COUNTS_SCRIPT = buildTelemetryHubScript({
   prepareFollower: `
-    [ "$follower_resource" != - ] || exit 1
-    follower_source=$(decode_base64 "$follower_resource") || exit 1
+    [ "$follower_resource" != - ] || fail_follower resource-invalid
+    follower_source=$(decode_base64 "$follower_resource") || fail_follower resource-invalid
   `,
   acceptRecord: `
       case "$line" in
@@ -297,7 +303,28 @@ const codexHubs = new HarnessTelemetryHubRegistry({
   providerId: 'codex',
   remoteScript: FOLLOW_TOKEN_COUNTS_SCRIPT,
   parse: parseCodexTokenCount,
+  followerHealth: (sessionId, health) => codexContextHealth(sessionId, health),
 })
+
+function codexContextHealth(
+  sessionId: string,
+  health: HarnessTelemetryFollowerHealth,
+): HarnessTelemetry {
+  const reason =
+    health.status === 'pending'
+      ? 'Waiting for Codex context telemetry'
+      : health.reason === 'resource-invalid'
+        ? 'Codex rollout unavailable'
+        : health.reason === 'follower-exited'
+          ? 'Codex context follower unavailable'
+          : 'Codex context helper unavailable'
+  return contextStatusHarnessSnapshot({
+    providerId: asHarnessProviderId('codex'),
+    provenance: 'Codex context telemetry lifecycle',
+    context: { status: health.status, reason },
+    sessionId,
+  })
+}
 
 function isPositiveFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0

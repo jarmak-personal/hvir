@@ -604,6 +604,13 @@ describe('Codex context telemetry', () => {
     for (const listener of stdoutListeners) listener(frame)
     expect(contextPercent(emitted.mock.calls.at(-1)?.[0])).toBe(40)
 
+    const health = `H\t${epoch}\t${generation}\t${SESSION_ID}\t${SESSION_ID}\tunavailable\tfollower-exited\n`
+    for (const listener of stdoutListeners) listener(health)
+    expect(emitted.mock.calls.at(-1)?.[0]?.facets.context).toEqual({
+      status: 'unavailable',
+      reason: 'Codex context follower unavailable',
+    })
+
     void stop()
     expect(end).toHaveBeenCalledOnce()
     await vi.waitFor(() => expect(dispose).toHaveBeenCalledOnce())
