@@ -264,7 +264,6 @@ jobs:
       - prepare
       - build-linux
     if: >-
-      always() &&
       needs.prepare.outputs.ready == 'true' &&
       needs.build-linux.result == 'success'
     runs-on: ${{ matrix.os }}
@@ -308,24 +307,7 @@ jobs:
         env:
           DEB_ARCH: ${{ matrix.deb_arch }}
           RELEASE_ARCH: ${{ matrix.release_arch }}
-          RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
-        run: |
-          if [ "$(git rev-parse HEAD)" != "$RELEASE_SHA" ]; then
-            echo "::error::Ubuntu acceptance checkout does not match the release source"
-            exit 1
-          fi
-          version=$(node -p "require('./package.json').version")
-          package="hvir-${version}-linux-${RELEASE_ARCH}.deb"
-          if [ "$(find dist -maxdepth 1 -type f | wc -l)" -ne 2 ] ||
-            [ ! -f "dist/$package" ] || [ ! -f "dist/$package.sha256" ]; then
-            echo "::error::Accepted package evidence is incomplete or unexpected"
-            exit 1
-          fi
-          (
-            cd dist
-            sha256sum --check --strict "$package.sha256"
-          )
-          mv -- "dist/$package" "dist/hvir_${version}_${DEB_ARCH}.deb"
+        run: node scripts/prepare-release-linux-package.mts "$RELEASE_ARCH" "$DEB_ARCH"
 
       - name: Install, update, launch, and remove native package
         run: xvfb-run -a npm run smoke:linux:installed
@@ -336,7 +318,6 @@ jobs:
       - prepare
       - build-linux
     if: >-
-      always() &&
       needs.prepare.outputs.ready == 'true' &&
       needs.build-linux.result == 'success'
     runs-on: ${{ matrix.os }}
@@ -372,15 +353,7 @@ jobs:
           path: dist
 
       - name: Prepare the disposable Debian acceptance host
-        env:
-          DEB_ARCH: ${{ matrix.deb_arch }}
-          RELEASE_ARCH: ${{ matrix.release_arch }}
-          RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
         run: |
-          if [ "$(git rev-parse HEAD)" != "$RELEASE_SHA" ]; then
-            echo "::error::Debian acceptance checkout does not match the release source"
-            exit 1
-          fi
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install \
             --no-install-recommends \
@@ -394,18 +367,13 @@ jobs:
           printf 'hvir-acceptance ALL=(ALL) NOPASSWD: ALL\n' \
             >/etc/sudoers.d/hvir-acceptance
           chmod 0440 /etc/sudoers.d/hvir-acceptance
-          version=$(node -p "require('./package.json').version")
-          package="hvir-${version}-linux-${RELEASE_ARCH}.deb"
-          if [ "$(find dist -maxdepth 1 -type f | wc -l)" -ne 2 ] ||
-            [ ! -f "dist/$package" ] || [ ! -f "dist/$package.sha256" ]; then
-            echo "::error::Accepted package evidence is incomplete or unexpected"
-            exit 1
-          fi
-          (
-            cd dist
-            sha256sum --check --strict "$package.sha256"
-          )
-          mv -- "dist/$package" "dist/hvir_${version}_${DEB_ARCH}.deb"
+
+      - name: Verify and restore the exact package for acceptance
+        env:
+          DEB_ARCH: ${{ matrix.deb_arch }}
+          RELEASE_ARCH: ${{ matrix.release_arch }}
+        run: |
+          node scripts/prepare-release-linux-package.mts "$RELEASE_ARCH" "$DEB_ARCH"
           chown -R hvir-acceptance:hvir-acceptance "$GITHUB_WORKSPACE"
 
       - name: Install, update, launch, and remove native package
@@ -435,7 +403,6 @@ jobs:
       - accept-linux-debian
       - build-macos
     if: >-
-      always() &&
       needs.prepare.outputs.ready == 'true' &&
       needs.build-linux.result == 'success' &&
       needs.accept-linux-ubuntu-24.result == 'success' &&

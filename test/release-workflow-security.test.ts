@@ -396,8 +396,7 @@ describe('native release automation', () => {
     for (const job of [ubuntu, debian]) {
       expect(job?.needs).toEqual(['prepare', 'build-linux'])
       expect(job?.if).toBe(
-        "always() && needs.prepare.outputs.ready == 'true' && " +
-          "needs.build-linux.result == 'success'",
+        "needs.prepare.outputs.ready == 'true' && needs.build-linux.result == 'success'",
       )
       expect(job?.steps).toEqual(
         expect.arrayContaining([
@@ -418,8 +417,8 @@ describe('native release automation', () => {
       const downloadIndex = steps.findIndex(
         (step) => step.name === 'Download the accepted baseline package',
       )
-      const verifyIndex = steps.findIndex((step) =>
-        step.run?.includes('sha256sum --check --strict'),
+      const verifyIndex = steps.findIndex(
+        (step) => step.name === 'Verify and restore the exact package for acceptance',
       )
       const acceptanceIndex = steps.findIndex(
         (step) => step.name === 'Install, update, launch, and remove native package',
@@ -428,15 +427,15 @@ describe('native release automation', () => {
       expect(verifyIndex).toBeGreaterThan(downloadIndex)
       expect(acceptanceIndex).toBeGreaterThan(verifyIndex)
       const verification = steps[verifyIndex]
-      expect(verification?.env?.RELEASE_SHA).toBe('${{ needs.prepare.outputs.sha }}')
-      expect(verification?.run).toContain('git rev-parse HEAD')
       expect(verification?.run).toContain(
-        '"$(find dist -maxdepth 1 -type f | wc -l)" -ne 2',
+        'node scripts/prepare-release-linux-package.mts "$RELEASE_ARCH" "$DEB_ARCH"',
       )
-      expect(verification?.run).toContain('sha256sum --check --strict')
       const commands = steps.map((step) => step.run ?? '').join('\n')
       expect(commands).not.toContain('pack:linux')
+      expect(commands).not.toContain('git rev-parse HEAD')
     }
+    const debianCommands = (debian?.steps ?? []).map((step) => step.run ?? '').join('\n')
+    expect(debianCommands).not.toMatch(/\bgit (?:rev-parse|checkout|status|show)\b/)
   })
 
   it('joins only current release artifacts after every native acceptance succeeds', () => {
@@ -450,8 +449,7 @@ describe('native release automation', () => {
     ])
     expect(publish?.permissions).toEqual({ actions: 'read', contents: 'write' })
     expect(publish?.if).toBe(
-      "always() && needs.prepare.outputs.ready == 'true' && " +
-        "needs.build-linux.result == 'success' && " +
+      "needs.prepare.outputs.ready == 'true' && needs.build-linux.result == 'success' && " +
         "needs.accept-linux-ubuntu-24.result == 'success' && " +
         "needs.accept-linux-debian.result == 'success' && " +
         "needs.build-macos.result == 'success'",
