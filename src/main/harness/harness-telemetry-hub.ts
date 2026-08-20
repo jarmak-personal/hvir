@@ -13,6 +13,8 @@ export const MAX_TELEMETRY_SUBSCRIPTIONS = 128
 export const MAX_TELEMETRY_RESOURCE_BYTES = 64 * 1024
 const MAX_TELEMETRY_FRAME_LENGTH = 256 * 1024
 const RESTART_DELAY_MS = 250
+const FOLLOWER_RESTART_DELAY_MS = 250
+const MAX_FOLLOWER_RESTARTS = 3
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export interface HarnessTelemetrySubscription {
@@ -25,6 +27,9 @@ export interface HarnessTelemetrySubscription {
 
 interface LiveSubscription extends HarnessTelemetrySubscription {
   admittedGeneration?: number
+  followerRestartAttempts: number
+  followerRestartTimer?: ReturnType<typeof setTimeout>
+  suspended: boolean
 }
 
 export interface HarnessTelemetryHubOptions {
@@ -104,7 +109,11 @@ export class HarnessTelemetryHub {
       )
     }
     this.stopped = false
-    const live: LiveSubscription = { ...subscription }
+    const live: LiveSubscription = {
+      ...subscription,
+      followerRestartAttempts: 0,
+      suspended: false,
+    }
     this.subscriptions.set(subscription.subscriptionId, live)
     const abort = (): void => dispose()
     let disposed = false
@@ -113,6 +122,7 @@ export class HarnessTelemetryHub {
       disposed = true
       subscription.signal.removeEventListener('abort', abort)
       if (this.subscriptions.get(subscription.subscriptionId) !== live) return
+      if (live.followerRestartTimer) clearTimeout(live.followerRestartTimer)
       this.subscriptions.delete(subscription.subscriptionId)
       if (this.subscriptions.size === 0) {
         this.stop()
@@ -149,7 +159,13 @@ export class HarnessTelemetryHub {
     this.epoch = epoch
     this.stream = stream
     for (const subscription of this.subscriptions.values()) {
+      if (subscription.followerRestartTimer) {
+        clearTimeout(subscription.followerRestartTimer)
+        subscription.followerRestartTimer = undefined
+      }
       subscription.admittedGeneration = undefined
+      subscription.followerRestartAttempts = 0
+      subscription.suspended = false
     }
     const lines = new BoundedLineReader(
       (line) => this.acceptFrame(stream, line),
@@ -190,7 +206,13 @@ export class HarnessTelemetryHub {
     this.flushing = true
     this.reconcileRequested = false
     const generation = ++this.generation
-    const subscriptions = [...this.subscriptions.values()]
+    const liveSubscriptions = [...this.subscriptions.values()]
+    const subscriptions = liveSubscriptions.filter(
+      (subscription) => !subscription.suspended,
+    )
+    const excludedSubscriptions = liveSubscriptions.filter(
+      (subscription) => subscription.suspended,
+    )
     // Admit before writing: a newly-created remote follower can replay its
     // bounded history as soon as its S record arrives.
     for (const subscription of subscriptions) {
@@ -203,6 +225,9 @@ export class HarnessTelemetryHub {
         await stream.write(
           `S\t${generation}\t${subscription.subscriptionId}\t${subscription.sessionId}\t${resource || '-'}\n`,
         )
+      }
+      for (const subscription of excludedSubscriptions) {
+        this.scheduleFollowerRestart(subscription)
       }
     } catch (error) {
       this.failStream(stream, asError(error))
@@ -236,10 +261,17 @@ export class HarnessTelemetryHub {
         frame.health,
       )
       if (telemetry) subscription.emit(telemetry)
+      if (
+        frame.health.status === 'unavailable' &&
+        frame.health.reason === 'follower-exited'
+      ) {
+        this.recoverFollower(subscription)
+      }
       return
     }
     const telemetry = this.options.parse(frame.record)
     if (!telemetry) return
+    subscription.followerRestartAttempts = 0
     subscription.emit({
       ...telemetry,
       facets: {
@@ -250,6 +282,37 @@ export class HarnessTelemetryHub {
         },
       },
     })
+  }
+
+  private recoverFollower(subscription: LiveSubscription): void {
+    if (subscription.suspended || subscription.followerRestartTimer) return
+    subscription.suspended = true
+    subscription.admittedGeneration = undefined
+    this.scheduleReconcile(0)
+  }
+
+  private scheduleFollowerRestart(subscription: LiveSubscription): void {
+    if (
+      this.stopped ||
+      this.subscriptions.get(subscription.subscriptionId) !== subscription ||
+      !subscription.suspended ||
+      subscription.followerRestartTimer ||
+      subscription.followerRestartAttempts >= MAX_FOLLOWER_RESTARTS
+    ) {
+      return
+    }
+    subscription.followerRestartAttempts += 1
+    subscription.followerRestartTimer = setTimeout(() => {
+      subscription.followerRestartTimer = undefined
+      if (
+        this.stopped ||
+        this.subscriptions.get(subscription.subscriptionId) !== subscription
+      ) {
+        return
+      }
+      subscription.suspended = false
+      this.scheduleReconcile(0)
+    }, FOLLOWER_RESTART_DELAY_MS * subscription.followerRestartAttempts)
   }
 
   private failStream(stream: ExecStreamHandle, error: Error): void {

@@ -1,14 +1,12 @@
 import type { Server } from 'node:http'
 
-const WEB_PANE_OPERATION_TIMEOUT_MS = 15_000
 const WEB_PANE_DIAGNOSIS_TIMEOUT_MS = 1_000
 const WEB_PANE_SERVER_CLOSE_TIMEOUT_MS = 1_000
 
-/** Bound one external web-pane smoke operation independently of the aggregate process. */
-export async function withWebPaneSmokeTimeout<T>(
+async function withWebPaneLifecycleTimeout<T>(
   operation: Promise<T>,
   message: string,
-  timeoutMs = WEB_PANE_OPERATION_TIMEOUT_MS,
+  timeoutMs: number,
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
@@ -25,7 +23,7 @@ export async function withWebPaneSmokeTimeout<T>(
 
 /** Keep failure-state collection from replacing the original failure with a hang. */
 export function withWebPaneDiagnosisTimeout<T>(operation: Promise<T>): Promise<T> {
-  return withWebPaneSmokeTimeout(
+  return withWebPaneLifecycleTimeout(
     operation,
     'web pane failure diagnosis timed out',
     WEB_PANE_DIAGNOSIS_TIMEOUT_MS,
@@ -42,7 +40,7 @@ export async function closeWebPaneSmokeServer(server: Server): Promise<void> {
     })
   })
   server.closeAllConnections()
-  await withWebPaneSmokeTimeout(
+  await withWebPaneLifecycleTimeout(
     closing,
     'web pane dashboard server close timed out',
     WEB_PANE_SERVER_CLOSE_TIMEOUT_MS,

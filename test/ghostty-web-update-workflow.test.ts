@@ -126,22 +126,17 @@ describe('ghostty-web update workflow', () => {
       readonly jobs: Record<string, unknown>
       readonly on: { readonly pull_request: unknown }
     }
-    const codeql = parse(codeqlSource) as {
-      readonly on: { readonly pull_request: unknown }
-    }
-
     expect(ci.on).toHaveProperty('pull_request')
     expect(Object.keys(ci.jobs)).toEqual(
       expect.arrayContaining([
         'verify',
         'electron-smoke',
-        'capacity-smoke',
-        'native-linux-package',
-        'native-macos-package',
-        'native-release-assembly',
+        'macos-electron-smoke',
+        'codeql',
+        'merge-acceptance',
       ]),
     )
-    expect(codeql.on).toHaveProperty('pull_request')
+    expect(codeqlSource).not.toMatch(/^ {2}pull_request:/m)
     expect(planningSource).toMatch(/^\s+pull_request_target:/m)
     expect(source).not.toMatch(/(?:merge|auto-merge|workflow_dispatch).*pull request/i)
     expect(dependabotSource).toContain("dependency-name: 'ghostty-web'")

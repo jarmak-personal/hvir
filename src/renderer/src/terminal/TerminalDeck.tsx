@@ -22,6 +22,7 @@ export function TerminalDeck({
   deckRef,
   label,
   visible,
+  presentationVisible,
   available,
   ready,
   sessions,
@@ -57,6 +58,7 @@ export function TerminalDeck({
   readonly deckRef: RefObject<HTMLDivElement | null>
   readonly label: string
   readonly visible: boolean
+  readonly presentationVisible: boolean
   readonly available: boolean
   readonly ready: boolean
   readonly sessions: readonly TerminalSession[]
@@ -103,6 +105,7 @@ export function TerminalDeck({
       primaryActiveId={primaryActiveId}
       secondaryActiveId={secondaryActiveId}
       presented={visible}
+      presentationVisible={presentationVisible}
       terminalTheme={terminalTheme}
       terminalLightThemeId={terminalLightThemeId}
       terminalDarkThemeId={terminalDarkThemeId}

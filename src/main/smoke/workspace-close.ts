@@ -178,18 +178,15 @@ export async function verifyWorkspaceCloseSmoke({
     active: true,
     updatedAt: Date.now(),
   })
-  await withTimeout(
-    supervisor.spawn({
-      host,
-      provider: plainShellProvider,
-      cwd: closeRoot,
-      workspaceRoot: closeRoot,
-      ownerId: owner.id,
-      ownerGeneration: owner.generation,
-      sessionId,
-    }),
-    'workspace close PTY setup timed out',
-  )
+  await supervisor.spawn({
+    host,
+    provider: plainShellProvider,
+    cwd: closeRoot,
+    workspaceRoot: closeRoot,
+    ownerId: owner.id,
+    ownerGeneration: owner.generation,
+    sessionId,
+  })
   let resourceReleased = false
   resources.register(
     owner,
@@ -266,37 +263,18 @@ async function runCloseDialog(
   action: 'Cancel' | 'Close workspace',
   interaction: 'button' | 'middle-click',
 ): Promise<void> {
-  await withTimeout(
-    win.webContents.executeJavaScript(`
+  await win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
-        const deadline = Date.now() + 10000;
         const waitForControl = () => {
           const close = document.querySelector(
             '[aria-label="Close workspace Closeable"]'
           );
           if (!close) {
-            if (Date.now() > deadline) {
-              const labels = [...document.querySelectorAll('.workspace-tab button')]
-                .map((button) => button.getAttribute('aria-label') || button.textContent?.trim());
-              const projects = [...document.querySelectorAll('.project-tab')]
-                .map((tab) => tab.textContent?.trim());
-              const fatal = document.querySelector('.fatal-error')?.textContent || '';
-              const bar = document.querySelector('.workspaces-bar')?.outerHTML || '';
-              return reject(new Error(
-                'workspace close control missing: labels=' + JSON.stringify(labels) +
-                ' projects=' + JSON.stringify(projects) + ' fatal=' + fatal +
-                ' bar=' + bar.slice(0, 4000)
-              ));
-            }
+
             return setTimeout(waitForControl, 25);
           }
           if (close.disabled) {
-            if (Date.now() > deadline) {
-              const active = close.closest('.workspace-tab')?.classList.contains('active');
-              return reject(new Error(
-                'inactive workspace close remained disabled: active=' + active
-              ));
-            }
+
             return setTimeout(waitForControl, 25);
           }
           if (document.querySelector('[aria-label="Closeable terminal workspace"]')) {
@@ -327,7 +305,6 @@ async function runCloseDialog(
           const waitForDialog = () => {
             const dialog = document.querySelector('.close-workspace-dialog');
             if (!dialog) {
-              if (Date.now() > deadline) return reject(new Error('workspace close dialog missing'));
               return setTimeout(waitForDialog, 25);
             }
             const text = dialog.textContent || '';
@@ -350,7 +327,6 @@ async function runCloseDialog(
                 ? dialogClosed && Boolean(tab) && !terminalWorkspace
                 : dialogClosed && !tab && Boolean(catalog) && !terminalWorkspace;
               if (done) return resolve(true);
-              if (Date.now() > deadline) return reject(new Error('workspace close result did not settle'));
               setTimeout(waitForResult, 25);
             };
             waitForResult();
@@ -359,21 +335,5 @@ async function runCloseDialog(
         };
         waitForControl();
       })
-    `),
-    'workspace close UI timed out',
-  )
-}
-
-async function withTimeout<T>(promise: Promise<T>, message: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), 15_000)
-      }),
-    ])
-  } finally {
-    if (timer) clearTimeout(timer)
-  }
+    `)
 }

@@ -105,7 +105,7 @@ describe('terminal workspace materialization bridge', () => {
     }
 
     await act(async () => {
-      root.render(<TerminalWorkspace {...props} visible />)
+      root.render(<TerminalWorkspace {...props} visible presentationVisible />)
       await settleEffects()
     })
     onMaterializationChange.mockClear()
@@ -117,14 +117,16 @@ describe('terminal workspace materialization bridge', () => {
     expect(onMaterializationChange).toHaveBeenLastCalledWith('workspace', true)
 
     await act(async () => {
-      root.render(<TerminalWorkspace {...props} visible={false} />)
+      root.render(
+        <TerminalWorkspace {...props} visible={false} presentationVisible={false} />,
+      )
       await settleEffects()
     })
     expect(host.querySelector('[data-testid="close"]')).toBeNull()
     expect(onMaterializationChange).not.toHaveBeenCalledWith('workspace', false)
 
     await act(async () => {
-      root.render(<TerminalWorkspace {...props} visible />)
+      root.render(<TerminalWorkspace {...props} visible presentationVisible />)
       await settleEffects()
     })
     await act(async () => {

@@ -1,7 +1,6 @@
 import type { BrowserWindow } from 'electron'
 
 import type { PtySupervisor } from '../pty/pty-supervisor'
-import { withTerminalSmokeTimeout } from './terminal-smoke-timeout'
 
 /** Prove semantic navigation through the production Ghostty canvas and retained PTY. */
 export async function verifyTerminalSemanticNavigation(
@@ -23,10 +22,8 @@ export async function verifyTerminalSemanticNavigation(
       `printf '\\033]133;D;0\\007'\n`,
   )
 
-  const result = (await withTerminalSmokeTimeout(
-    win.webContents.executeJavaScript(`
+  const result = (await win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
-        const deadline = Date.now() + 8000;
         const fail = (message) => reject(new Error(message));
         const poll = () => {
           const surface = document.querySelector(
@@ -112,35 +109,27 @@ export async function verifyTerminalSemanticNavigation(
                           presentations.join(' · ')
                         );
                       }
-                      if (Date.now() > deadline) return fail('next region did not navigate');
+
                       requestAnimationFrame(waitForNext);
                     };
                     return waitForNext();
                   }
-                  if (Date.now() > deadline) return fail('previous region did not navigate');
+
                   requestAnimationFrame(waitForCommand);
                 };
                 return waitForCommand();
               }
-              if (Date.now() > deadline) return fail('latest region did not navigate');
+
               requestAnimationFrame(waitForOutput);
             };
             return waitForOutput();
           }
-          if (Date.now() > deadline) {
-            return fail(
-              'semantic navigation fixtures did not settle: regions=' +
-              container?.dataset.terminalSemanticRegions
-            );
-          }
+
           setTimeout(poll, 25);
         };
         poll();
       })
-    `),
-    'semantic transcript navigation timed out',
-    10_000,
-  )) as string
+    `)) as string
 
   const retained = supervisor.list().find((candidate) => candidate.id === terminal.id)
   if (!retained || retained.instanceId !== instanceId) {

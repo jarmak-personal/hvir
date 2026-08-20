@@ -20,11 +20,12 @@ function matches(pattern: RegExp): string[] {
 }
 
 describe('PR planning workflow security', () => {
-  it('runs required checks for PRs to main and epic integration branches', () => {
-    for (const requiredWorkflow of [ciWorkflow, codeqlWorkflow]) {
-      expect(requiredWorkflow.match(/- main/g)).toHaveLength(2)
-      expect(requiredWorkflow.match(/- 'epic\/\*\*'/g)).toHaveLength(1)
-    }
+  it('runs the aggregate CI portfolio for main and epic pull requests', () => {
+    expect(ciWorkflow.match(/- main/g)).toHaveLength(1)
+    expect(ciWorkflow.match(/- 'epic\/\*\*'/g)).toHaveLength(1)
+    expect(ciWorkflow).toContain('name: CodeQL analysis')
+    expect(codeqlWorkflow).not.toMatch(/^ {2}pull_request:/m)
+    expect(codeqlWorkflow).toMatch(/^ {2}schedule:/m)
   })
 
   it('uses immutable third-party actions and trusted main automation only', () => {

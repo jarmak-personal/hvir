@@ -20,8 +20,6 @@ export async function openDeletionFixture(
       row.click();
       return undefined;
     })()`,
-    'clean deletion fixture did not open in the viewer',
-    15_000,
   )
 }
 
@@ -162,8 +160,6 @@ export async function deleteProjectEntryFromRenderer(options: {
               return undefined;`
         }
       })()`,
-      `${entry} ${recovery} deletion did not settle`,
-      20_000,
     )
   } finally {
     await win.webContents.executeJavaScript(`
@@ -194,8 +190,6 @@ export async function verifyProjectEntryDeletionRefresh(
       );
       return retained ? true : undefined;
     })()`,
-    'Files/viewer deletion refresh did not preserve the correct tab outcomes',
-    15_000,
   )
   await rendererValue(
     win,
@@ -221,8 +215,6 @@ export async function verifyProjectEntryDeletionRefresh(
       );
       return status === '0 files' && !deletedResult ? true : undefined;
     })()`,
-    'filename search retained the deleted entry',
-    20_000,
   )
   await win.webContents.executeJavaScript(`
     document.querySelector('.filename-search-close')?.click();
@@ -245,8 +237,6 @@ export async function verifyProjectEntryDeletionRefresh(
         '.git-panel .git-file[title=${JSON.stringify(deletedPath.path)}]'
       ) ? undefined : true;
     })()`,
-    'Git view retained the deleted entry',
-    20_000,
   )
   await win.webContents.executeJavaScript(`
     [...document.querySelectorAll('.rail-nav button')]
@@ -254,15 +244,9 @@ export async function verifyProjectEntryDeletionRefresh(
   `)
 }
 
-function rendererValue(
-  win: BrowserWindow,
-  expression: string,
-  message: string,
-  timeoutMs = 10_000,
-): Promise<unknown> {
+function rendererValue(win: BrowserWindow, expression: string): Promise<unknown> {
   return win.webContents.executeJavaScript(`
     new Promise((resolve, reject) => {
-      const deadline = Date.now() + ${timeoutMs};
       const poll = () => {
         try {
           const value = ${expression};
@@ -270,7 +254,7 @@ function rendererValue(
         } catch (error) {
           return reject(error);
         }
-        if (Date.now() > deadline) return reject(new Error(${JSON.stringify(message)}));
+
         setTimeout(poll, 25);
       };
       poll();

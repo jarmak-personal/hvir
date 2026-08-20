@@ -49,7 +49,6 @@ export async function captureHarnessSettingsVisuals(
 async function openHarnessSettings(win: BrowserWindow): Promise<void> {
   await win.webContents.executeJavaScript(`
     new Promise((resolve, reject) => {
-      const deadline = Date.now() + 10000;
       document.querySelector('.settings-toggle')?.click();
       const open = () => {
         const dialog = document.querySelector('.settings-dialog');
@@ -61,11 +60,9 @@ async function openHarnessSettings(win: BrowserWindow): Promise<void> {
           return requestAnimationFrame(() => {
             const editor = document.querySelector('.settings-profile-editor');
             if (editor) return resolve(true);
-            if (Date.now() > deadline) return reject(new Error('capture editor missing'));
             requestAnimationFrame(open);
           });
         }
-        if (Date.now() > deadline) return reject(new Error('capture settings missing'));
         requestAnimationFrame(open);
       };
       open();
@@ -101,7 +98,10 @@ async function setTheme(win: BrowserWindow, theme: 'dark' | 'light'): Promise<vo
   `)
 }
 
-async function setDisclosureState(win: BrowserWindow, openAdvanced: boolean): Promise<void> {
+async function setDisclosureState(
+  win: BrowserWindow,
+  openAdvanced: boolean,
+): Promise<void> {
   await win.webContents.executeJavaScript(`
     new Promise((resolve) => {
       const details = [...document.querySelectorAll('.settings-profile-disclosure')];

@@ -1,7 +1,6 @@
 import type { BrowserWindow } from 'electron'
 
 import type { PtySupervisor } from '../pty/pty-supervisor'
-import { withTerminalSmokeTimeout } from './terminal-smoke-timeout'
 
 interface SavedThemePair {
   readonly darkId: string
@@ -18,10 +17,8 @@ export async function verifyTerminalThemeGalleryPresentation(
     .find((candidate) => candidate.ownerId === win.webContents.id)
   if (!terminal) throw new Error('terminal theme gallery check has no retained terminal')
 
-  const saved = (await withTerminalSmokeTimeout(
-    win.webContents.executeJavaScript(`
+  const saved = (await win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
-        const deadline = Date.now() + 18000;
         const fail = (message) => reject(new Error(message));
         const surface = document.querySelector('.terminal-surface.active');
         const container = surface?.querySelector('.terminal-container');
@@ -79,7 +76,6 @@ export async function verifyTerminalThemeGalleryPresentation(
             }
             return next(gallery, search);
           }
-          if (Date.now() > deadline) return fail('bounded terminal theme gallery did not open');
           setTimeout(() => waitForDialog(next), 25);
         };
         const chooseTarget = (target, gallery, next) => {
@@ -99,7 +95,6 @@ export async function verifyTerminalThemeGalleryPresentation(
               '.terminal-theme-current .terminal-theme-preview-heading strong'
             )?.textContent?.trim();
             if (radio.checked && (alreadySelected || current !== previous)) return next();
-            if (Date.now() > deadline) return fail('theme target did not activate: ' + target);
             setTimeout(waitForTarget, 25);
           };
           waitForTarget();
@@ -132,15 +127,12 @@ export async function verifyTerminalThemeGalleryPresentation(
                     selected instanceof HTMLButtonElement &&
                     selected.dataset.terminalThemeId === id
                   ) return next({ id, background });
-                  if (Date.now() > deadline) {
-                    return fail('theme selection did not commit: ' + name);
-                  }
+
                   setTimeout(waitForSelection, 25);
                 };
                 waitForSelection();
                 return;
               }
-              if (Date.now() > deadline) return fail('theme search did not find ' + name);
               setTimeout(waitForTheme, 25);
             };
             waitForTheme();
@@ -155,7 +147,6 @@ export async function verifyTerminalThemeGalleryPresentation(
           button.click();
           const waitForClose = () => {
             if (!document.querySelector('.settings-dialog')) return next();
-            if (Date.now() > deadline) return fail('settings did not close after ' + label);
             setTimeout(waitForClose, 25);
           };
           waitForClose();
@@ -200,10 +191,7 @@ export async function verifyTerminalThemeGalleryPresentation(
                       lightId: selections.light.id
                     });
                   }
-                  if (Date.now() > deadline) {
-                    return fail('saved theme pair did not update the retained terminal: ' +
-                      JSON.stringify({ currentSettings, palette: stats?.palette }));
-                  }
+
                   setTimeout(waitForApplied, 25);
                 };
                 waitForApplied();
@@ -212,10 +200,7 @@ export async function verifyTerminalThemeGalleryPresentation(
           });
         });
       })
-    `),
-    'terminal theme gallery save/cancel timed out',
-    20_000,
-  )) as SavedThemePair
+    `)) as SavedThemePair
 
   const retained = supervisor
     .list()
@@ -224,26 +209,15 @@ export async function verifyTerminalThemeGalleryPresentation(
     throw new Error('terminal theme save replaced or restarted the retained PTY')
   }
 
-  await withTerminalSmokeTimeout(
-    new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(
-        () => reject(new Error('renderer restart did not finish loading')),
-        10_000,
-      )
-      win.webContents.once('did-finish-load', () => {
-        clearTimeout(timeout)
-        resolve()
-      })
-      win.webContents.reload()
-    }),
-    'terminal theme renderer restart timed out',
-    12_000,
-  )
+  await new Promise<void>((resolve) => {
+    win.webContents.once('did-finish-load', () => {
+      resolve()
+    })
+    win.webContents.reload()
+  })
 
-  const restarted = (await withTerminalSmokeTimeout(
-    win.webContents.executeJavaScript(`
+  const restarted = (await win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
-        const deadline = Date.now() + 10000;
         const expected = ${JSON.stringify(saved)};
         const fail = (message) => reject(new Error(message));
         const open = () => {
@@ -257,7 +231,6 @@ export async function verifyTerminalThemeGalleryPresentation(
             button.click();
             return inspectDark();
           }
-          if (Date.now() > deadline) return fail('saved theme pair missing after restart');
           setTimeout(open, 25);
         };
         const currentName = () => document.querySelector(
@@ -279,7 +252,6 @@ export async function verifyTerminalThemeGalleryPresentation(
             light.click();
             return inspectLight();
           }
-          if (Date.now() > deadline) return fail('dark selection missing after restart');
           setTimeout(inspectDark, 25);
         };
         const inspectLight = () => {
@@ -289,15 +261,11 @@ export async function verifyTerminalThemeGalleryPresentation(
             close?.click();
             return resolve('Catppuccin Mocha + Alabaster');
           }
-          if (Date.now() > deadline) return fail('light selection missing after restart');
           setTimeout(inspectLight, 25);
         };
         open();
       })
-    `),
-    'terminal theme restart persistence timed out',
-    12_000,
-  )) as string
+    `)) as string
 
   return `collapsed-by-default bounded data previews + paired save/cancel + retained Canvas/PTY + ${restarted} restart persistence`
 }

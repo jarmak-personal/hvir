@@ -6,6 +6,7 @@ import {
   type TerminalRecoverySession,
 } from '../../shared'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
+import { runCleanupTaskWithinDeadline } from './cleanup'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import type { HostPath } from '../../shared'
 
@@ -65,11 +66,9 @@ export async function verifyRendererRolloverRecovery(options: {
       win.webContents.once('did-finish-load', () => resolve()),
     )
     win.webContents.reload()
-    await timeout(reloaded, 'recovery smoke reload timed out')
-    const recoveryStatus = (await timeout(
-      win.webContents.executeJavaScript(`
+    await reloaded
+    const recoveryStatus = (await win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
-          const deadline = Date.now() + 10000;
           const waitForDialog = () => {
             const dialog = document.querySelector('.terminal-recovery-dialog');
             const option = dialog?.querySelector('.terminal-recovery-option input');
@@ -97,9 +96,7 @@ export async function verifyRendererRolloverRecovery(options: {
                     if (status.startsWith('Reattached · pid ') && gitReady) {
                       return resolve('toggle selection · restore · ' + status);
                     }
-                    if (Date.now() > deadline) {
-                      return reject(new Error('restored workspace did not settle: ' + status));
-                    }
+
                     setTimeout(waitForTerminal, 25);
                   };
                   waitForTerminal();
@@ -107,15 +104,11 @@ export async function verifyRendererRolloverRecovery(options: {
               });
               return;
             }
-            if (Date.now() > deadline) return reject(new Error('recovery dialog missing'));
             setTimeout(waitForDialog, 25);
           };
           waitForDialog();
         })
-      `),
-      'terminal recovery interaction timed out',
-      12_000,
-    )) as string
+      `)) as string
     if (supervisor.get('smoke-recovery-shell')?.pid !== retainedPid) {
       throw new Error('renderer reload replaced the retained PTY process')
     }
@@ -142,28 +135,11 @@ export async function verifyTerminalRendererDestruction(options: {
     win.webContents.once('destroyed', () => resolve()),
   )
   win.destroy()
-  await timeout(destroyed, 'window webContents was not destroyed')
-  await waitFor(() => supervisor.list().length === 0, 'window close left an orphaned PTY')
+  await runCleanupTaskWithinDeadline(async () => {
+    await destroyed
+    await waitFor(() => supervisor.list().length === 0)
+  })
 }
-
-async function timeout<T>(
-  promise: Promise<T>,
-  message: string,
-  timeoutMs = 15_000,
-): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), timeoutMs)
-      }),
-    ])
-  } finally {
-    if (timer) clearTimeout(timer)
-  }
-}
-
 async function restoreStorage(
   win: BrowserWindow,
   key: string,
@@ -180,10 +156,8 @@ async function restoreStorage(
   }
 }
 
-async function waitFor(predicate: () => boolean, message: string): Promise<void> {
-  const deadline = Date.now() + 5_000
+async function waitFor(predicate: () => boolean): Promise<void> {
   while (!predicate()) {
-    if (Date.now() >= deadline) throw new Error(message)
     await new Promise<void>((resolve) => setTimeout(resolve, 25))
   }
 }

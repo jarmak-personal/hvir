@@ -82,7 +82,7 @@ describe('Files rail reveal and activation focus', () => {
     const terminalDeck = document.createElement('div')
     terminalDeck.className = 'terminal-deck'
     terminalDeck.innerHTML =
-      '<section class="terminal-surface active"><div class="terminal-container" tabindex="-1"></div></section>'
+      '<section class="terminal-surface visible active"><div class="terminal-container" tabindex="-1"></div></section>'
     vi.spyOn(terminalDeck, 'getBoundingClientRect').mockReturnValue({
       x: 0,
       y: 0,

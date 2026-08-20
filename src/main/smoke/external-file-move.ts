@@ -206,6 +206,10 @@ async function moveExternalFromRenderer(options: {
       `(() => {
         if (window.__hvirExternalMoveSubmitted) {
           const feedback = document.querySelector('.file-operation-feedback');
+          if (feedback?.classList.contains('error') &&
+              !feedback.textContent?.includes(${JSON.stringify(expectedFeedback)})) {
+            throw new Error(feedback.textContent || 'external move failed');
+          }
           if (!feedback?.textContent?.includes(${JSON.stringify(expectedFeedback)})) {
             return undefined;
           }
@@ -289,8 +293,6 @@ async function moveExternalFromRenderer(options: {
         window.__hvirExternalMoveSubmitted = true;
         return undefined;
       })()`,
-      `${entry} external ${kind} move did not settle`,
-      30_000,
     )
   } finally {
     await win.webContents.executeJavaScript(`
@@ -328,8 +330,6 @@ async function verifyExternalMoveRefresh(
         '.filename-search-result[title=${JSON.stringify(destination.path)}]'
       ) ? true : undefined;
     })()`,
-    'filename search did not refresh for the external move',
-    20_000,
   )
   await win.webContents.executeJavaScript(`
     document.querySelector('.filename-search-close')?.click();
@@ -349,8 +349,6 @@ async function verifyExternalMoveRefresh(
         '.git-panel .git-file[title=${JSON.stringify(destination.path)}]'
       ) ? true : undefined;
     })()`,
-    'Git view did not refresh for the external move',
-    20_000,
   )
   await win.webContents.executeJavaScript(`
     [...document.querySelectorAll('.rail-nav button')]
@@ -388,15 +386,9 @@ function removeFixtures(host: ProjectHost, paths: readonly HostPath[]): Promise<
     .then(() => undefined)
 }
 
-function rendererValue(
-  win: BrowserWindow,
-  expression: string,
-  message: string,
-  timeoutMs = 10_000,
-): Promise<unknown> {
+function rendererValue(win: BrowserWindow, expression: string): Promise<unknown> {
   return win.webContents.executeJavaScript(`
     new Promise((resolve, reject) => {
-      const deadline = Date.now() + ${timeoutMs};
       const poll = () => {
         try {
           const value = ${expression};
@@ -404,7 +396,7 @@ function rendererValue(
         } catch (error) {
           return reject(error);
         }
-        if (Date.now() > deadline) return reject(new Error(${JSON.stringify(message)}));
+
         setTimeout(poll, 25);
       };
       poll();

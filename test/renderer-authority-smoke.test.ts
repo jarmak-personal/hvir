@@ -20,34 +20,45 @@ const mainEntrySource = readFileSync(
   new URL('../src/main/index.ts', import.meta.url),
   'utf8',
 )
+const smokeCompositionSource = readFileSync(
+  new URL('../src/main/smoke/index.ts', import.meta.url),
+  'utf8',
+)
 
 describe('renderer-authority smoke boundaries', () => {
-  it('fails a never-settling Electron operation at its named inner boundary', async () => {
+  it('accepts slow semantic readiness without an operation deadline', async () => {
     vi.useFakeTimers()
     onTestFinished(() => {
       vi.useRealTimers()
     })
     const checkpoints: string[] = []
+    let ready = false
     const operation = waitForRendererAuthorityCondition(
       'renderer-authority-resource-revocation-awaiting',
-      () => new Promise<never>(() => undefined),
-      'renderer resource was not revoked',
+      () => ready,
       (checkpoint) => checkpoints.push(checkpoint),
       {
-        operationTimeoutMs: 100,
-        predicateTimeoutMs: 25,
-        pollIntervalMs: 1,
+        pollIntervalMs: 25,
         diagnosisTimeoutMs: 25,
       },
     )
-    const failure = expect(operation).rejects.toThrow(
-      'renderer-authority-resource-revocation-awaiting timed out after 25ms',
-    )
-
+    await vi.advanceTimersByTimeAsync(100)
+    ready = true
     await vi.advanceTimersByTimeAsync(25)
-
-    await failure
+    await operation
     expect(checkpoints).toEqual(['renderer-authority-resource-revocation-awaiting'])
+  })
+
+  it('surfaces permanent predicate failures immediately', async () => {
+    const failure = new Error('renderer owner lookup failed')
+
+    await expect(
+      waitForRendererAuthorityCondition(
+        'renderer-authority-resource-revocation-awaiting',
+        () => Promise.reject(failure),
+        () => undefined,
+      ),
+    ).rejects.toBe(failure)
   })
 
   it('keeps only the real destruction-to-resource-revocation boundary', () => {
@@ -60,9 +71,11 @@ describe('renderer-authority smoke boundaries', () => {
     expect(rendererAuthoritySource).not.toContain("'did-finish-load'")
     expect(rendererRecoverySource).toContain('routes.open(')
     expect(rendererRecoverySource).toContain("'did-finish-load'")
-    expect(rendererRecoverySource).toContain("process.kill(initialProcessId, 'SIGKILL')")
+    expect(rendererRecoverySource).toContain('win.webContents.forcefullyCrashRenderer()')
+    expect(rendererRecoverySource).not.toContain('process.kill(')
+    expect(rendererRecoverySource).not.toContain('win.webContents.reload()')
     expect(rendererRecoverySource).not.toContain('reloadUnresponsiveRenderer')
-    expect(rendererRecoverySource).not.toContain("'render-process-gone'")
+    expect(rendererRecoverySource).toContain("'render-process-gone'")
     expect(rendererRecoverySource).not.toContain("'renderer-recovery-exit-awaiting'")
     expect(rendererRecoverySource).not.toContain('win.webContents.capturePage()')
     expect(
@@ -72,7 +85,14 @@ describe('renderer-authority smoke boundaries', () => {
     ).toBeGreaterThan(
       rendererRecoverySource.indexOf("checkpoint('renderer-recovery-route-opened')"),
     )
-    expect(rendererRecoverySource).toContain("event.reason === 'killed'")
+    expect(rendererRecoverySource).toContain('replacement = await replacementReady')
+    expect(smokeCompositionSource).toContain(
+      'if (accepted) acceptedRendererReadySink?.(owner)',
+    )
+    expect(smokeCompositionSource).toContain(
+      'owner.generation === initialRendererGeneration',
+    )
+    expect(smokeCompositionSource).toContain('replacementReady,')
     expect(rendererRecoverySource).toContain("window.hvir.invoke('app:info'")
     expect(rendererRecoverySource).toContain(
       "'renderer-recovery-replacement-ipc-awaiting'",
@@ -97,6 +117,12 @@ describe('renderer-authority smoke boundaries', () => {
   it('keeps Linux last-window shutdown under the smoke cleanup owner', () => {
     expect(mainEntrySource).toContain(
       "if (!__HVIR_SMOKE_BUILD__ && process.platform !== 'darwin') app.quit()",
+    )
+  })
+
+  it('keeps macOS activation under the smoke composition owner', () => {
+    expect(mainEntrySource).toContain(
+      "app.on('activate', () => {\n    if (__HVIR_SMOKE_BUILD__ && process.env['HVIR_SMOKE']) return",
     )
   })
 })

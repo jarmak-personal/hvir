@@ -27,6 +27,9 @@ const paneState = vi.hoisted(() => ({
     readonly emitTitle: (title: string) => void
     readonly emitEvent: (event: TerminalEvent) => void
     readonly emitClipboardPaste: (fallbackData: string) => void
+    readonly focus: ReturnType<typeof vi.fn>
+    readonly reparent: ReturnType<typeof vi.fn>
+    readonly setPresentation: ReturnType<typeof vi.fn>
   }>,
 }))
 
@@ -35,15 +38,18 @@ vi.mock('../src/renderer/src/terminal/ghostty-terminal-pane', () => ({
     let eventListener: ((event: TerminalEvent) => void) | undefined
     let clipboardPasteListener: ((fallbackData: string) => void) | undefined
     let surface: HTMLDivElement | undefined
+    const focus = vi.fn()
+    const reparent = vi.fn((container: HTMLElement) => {
+      if (surface) container.append(surface)
+    })
+    const setPresentation = vi.fn()
     const pane = {
       mount: vi.fn((container: HTMLElement) => {
         surface = document.createElement('div')
         surface.className = 'terminal-engine-host'
         container.append(surface)
       }),
-      reparent: vi.fn((container: HTMLElement) => {
-        if (surface) container.append(surface)
-      }),
+      reparent,
       dispose: vi.fn(() => {
         surface?.remove()
         surface = undefined
@@ -54,7 +60,7 @@ vi.mock('../src/renderer/src/terminal/ghostty-terminal-pane', () => ({
       setTypography: vi.fn(),
       setCursorDefaults: vi.fn(),
       setLigatures: vi.fn(),
-      setPresentation: vi.fn(),
+      setPresentation,
       redraw: vi.fn(),
       resolveEventProvenance: vi.fn(() => undefined),
       activeEventScreen: vi.fn(() => 'normal' as const),
@@ -79,7 +85,7 @@ vi.mock('../src/renderer/src/terminal/ghostty-terminal-pane', () => ({
       selectAll: vi.fn(),
       clear: vi.fn(),
       reset: vi.fn(),
-      focus: vi.fn(),
+      focus,
       events: {
         onData: vi.fn(() => () => undefined),
         onClipboardPaste: vi.fn((listener: (fallbackData: string) => void) => {
@@ -100,6 +106,9 @@ vi.mock('../src/renderer/src/terminal/ghostty-terminal-pane', () => ({
       emitTitle: (title) => eventListener?.({ type: 'title', title }),
       emitEvent: (event) => eventListener?.(event),
       emitClipboardPaste: (fallbackData) => clipboardPasteListener?.(fallbackData),
+      focus,
+      reparent,
+      setPresentation,
     })
     return Promise.resolve(pane)
   }),
@@ -241,6 +250,63 @@ describe('terminal resume unavailable state', () => {
     expect(paneState.instances).toHaveLength(1)
     expect(invoke).toHaveBeenCalledOnce()
   })
+
+  it.each([
+    {
+      name: 'fresh launch',
+      configure: () => ({ harnessSessionId: undefined, resumeOnStart: false }),
+      resume: false,
+    },
+    {
+      name: 'exact resume',
+      configure: () => ({}),
+      resume: true,
+    },
+  ])(
+    'keeps delayed $name completion hidden until the retained pane is restored',
+    async ({ configure, resume }) => {
+      let completeStart: ((result: StartPtyResponse) => void) | undefined
+      invoke.mockReturnValueOnce(
+        new Promise<StartPtyResponse>((resolve) => {
+          completeStart = resolve
+        }),
+      )
+      const runtimeOptions = { ...options(), ...configure() }
+      const runtime = registry.acquire(runtimeOptions)
+      const initialContainer = document.createElement('div')
+
+      runtime.attach(initialContainer)
+      await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce())
+      expect(invoke).toHaveBeenCalledWith(
+        'pty:start',
+        expect.objectContaining({ resume }),
+      )
+      expect(deliveryPresentation(initialContainer)).toBe('visible')
+
+      runtime.update({ ...runtimeOptions, presentation: 'hidden' })
+      runtime.synchronizeLifecycle()
+      expect(deliveryPresentation(initialContainer)).toBe('hidden')
+
+      completeStart?.(startedResponse())
+      await vi.waitFor(() => expect(runtimeOptions.onStarted).toHaveBeenCalledOnce())
+      const pane = paneState.instances[0]!
+      expect(pane.setPresentation).toHaveBeenLastCalledWith('hidden')
+      expect(pane.focus).not.toHaveBeenCalled()
+      expect(runtimeOptions.onFocus).not.toHaveBeenCalled()
+      expect(send).not.toHaveBeenCalledWith('pty:kill', expect.anything())
+      expect(initialContainer.querySelector('.terminal-engine-host')).not.toBeNull()
+
+      runtime.update(runtimeOptions)
+      runtime.synchronizeLifecycle()
+      runtime.focus()
+
+      expect(invoke).toHaveBeenCalledOnce()
+      expect(pane.reparent).not.toHaveBeenCalled()
+      expect(pane.setPresentation).toHaveBeenLastCalledWith('visible')
+      expect(deliveryPresentation(initialContainer)).toBe('visible')
+      expect(pane.focus).toHaveBeenCalledOnce()
+    },
+  )
 
   it('keeps typed missing-artifact state sticky while preserving the retained identity', async () => {
     const runtimeOptions = options()
@@ -669,6 +735,16 @@ function startedResponse(): StartPtyResponse {
       contextPresentation: 'count',
     },
   }
+}
+
+function deliveryPresentation(container: object): 'visible' | 'hidden' | undefined {
+  return (
+    container as {
+      readonly __hvirTerminalDelivery?: {
+        readonly presentation: 'visible' | 'hidden'
+      }
+    }
+  ).__hvirTerminalDelivery?.presentation
 }
 
 function options(): TerminalRuntimeOptions {

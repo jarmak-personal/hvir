@@ -19,18 +19,15 @@ platform. Native packages are installer payloads and release evidence, not separ
 installation methods. [ADR-022](adr/ADR-022-platform-native-github-release-installation.md) owns
 the durable distribution, trust, privilege, update, removal, and migration boundaries.
 
-Pull-request CI builds the Linux release artifacts on the Ubuntu 22.04 ABI baseline, then runs
-native package acceptance for those same artifacts on Ubuntu 22.04, Ubuntu 24.04, and current
-Debian stable userspaces on both x64 and arm64. It also runs native package acceptance on macOS
-arm64.
-It temporarily runs `npm run smoke:macos:ci` against the unpackaged build on Apple silicon,
+Pull-request CI runs verification, Linux Electron smoke, CodeQL analysis, and temporarily
+`npm run smoke:macos:ci` against the unpackaged build on Apple silicon,
 covering the focused custom-profile PTY lifecycle, source/diff position, platform, and renderer
 recovery contracts. Terminal presentation remains in the full local/pre-push `npm run
-smoke:macos` command. macOS capacity is also temporarily local-only while its native PTY teardown
-flake is hardened; Linux CI continues to run `npm run smoke:capacity` for deterministic
-multi-terminal contracts and machine-dependent evidence. These commands are locally reproducible
-only on a matching supported platform; CI supplies the remaining cross-platform contract evidence,
-not an authoritative quantitative performance verdict.
+smoke:macos` command. Capacity runs only through the controlled `gauntlet` /
+`performance:capacity` path. Native package construction and installed acceptance belong to the
+exact-source Release run described below. These commands are locally reproducible only on a
+matching supported platform; CI supplies cross-platform correctness evidence, not an authoritative
+quantitative performance verdict.
 
 Installed-package acceptance launches the public command with fresh disposable roots, waits for
 the package-owned main process and a live renderer, and then proves the complete test-owned
@@ -116,13 +113,10 @@ carries a stapled ticket. The package owns:
 After digest verification, the installer asks `/usr/sbin/installer` to install the package
 noninteractively. The supported flow does not open Finder or Installer.app.
 
-Pull-request CI builds and exercises the unsigned package structure without receiving signing
-credentials. The protected signed-package workflow is both the reusable macOS release builder and
-a manually dispatched pre-merge acceptance workflow restricted to the exact tip commit of the
-selected branch. Both paths use the `native-release-signing` environment.
-Configure that environment with required reviewer and deployment-branch protection. Permit an
-epic branch only while its signed candidate is under maintainer acceptance; keep the default
-branch permitted for release. Configure these environment secrets:
+The protected signed-package workflow is the reusable macOS builder owned by Release. It accepts
+only the exact merged source selected by Release and uses the `native-release-signing`
+environment. Configure that environment with required reviewer and deployment-branch protection,
+with the default branch permitted for release. Configure these environment secrets:
 
 - `MACOS_APPLICATION_CERTIFICATE` and `MACOS_APPLICATION_CERTIFICATE_PASSWORD`: the
   electron-builder-compatible Developer ID Application certificate and password.
@@ -136,10 +130,10 @@ branch permitted for release. Configure these environment secrets:
   read-only Administration permission, used only to verify immutable releases are enabled before
   publication. The workflow's built-in token remains the release publication credential.
 
-The protected workflow refuses tags, stale manual branch tips, and source commits not contained in
-the release branch. It signs the hardened application and installer, notarizes and staples the
-package, validates both identities and Gatekeeper acceptance, and retains the package only after
-native install, update, launch, and removal acceptance passes.
+The protected workflow refuses tags and source commits not contained in the release branch. It
+signs the hardened application and installer, notarizes and staples the package, validates both
+identities and Gatekeeper acceptance, and retains the package only after native install, update,
+launch, and removal acceptance passes.
 
 The separately signed [macOS LAN SSH coexistence application](macos-ssh-acceptance.md) is
 contributor acceptance tooling, not another installer or release artifact. It reuses the protected
@@ -203,25 +197,27 @@ the version-only release pull-request flow. Preparation validates only the gener
 change; it does not install dependencies or rerun product verification and Electron smoke. An
 untouched same-repository bot release pull request runs one read-only integrity job that proves
 its identity, exact two-file change set, synchronized semantic versions, and absence of other
-package or lockfile changes. Product verification, Electron, capacity, native-package, assembly,
-and CodeQL jobs are condition-skipped for only that pull-request event. Any ordinary pull request
-or non-bot release-branch update retains the complete CI and CodeQL gates.
+package or lockfile changes. Product verification, Electron, and CodeQL jobs are
+condition-skipped for only that pull-request event. Any ordinary pull request or non-bot
+release-branch update retains the complete first-attempt merge portfolio.
 GitHub marks workflows opened by the repository `GITHUB_TOKEN` as approval-required; approving
 that bot pull request starts the focused integrity job, not the skipped matrices.
 
-Merging the release pull request creates the exact default-branch source commit. Its `push` event
-runs the complete CI matrix once, including Linux native-package build and installed acceptance.
-A `current` dispatch observes GitHub Actions for up to ten minutes when that commit's
-first-attempt CI is not yet registered or is still running. It never starts or reruns CI. Exact CI
-success continues the release automatically; a terminal failure or exhausted wait fails closed
-before protected native build or publication work.
+The strict `main` ruleset admits the release pull request only after its exact version validator
+and first-attempt aggregate succeed. A `current` dispatch then relates that merged source to the
+same pull request, head, recorded base, first-attempt jobs, and equal source/head trees. Release
+never starts or reruns CI, and a direct, stale, changed, incomplete, ambiguous, or rerun-only
+source fails closed before native build or publication work.
 
-The release downloads the exact named Linux x64 and arm64 artifacts retained by that accepted CI
-run instead of rebuilding or re-exercising them. Cross-workflow download is pinned to the accepted
-run ID and repository, and GitHub's artifact digest check remains fail-closed. A missing, expired,
-renamed, inaccessible, or digest-invalid artifact stops the release before tag or draft creation.
-The protected release environment still builds, signs, notarizes, staples, and exercises the
-macOS package because those guarantees are release-specific.
+Release builds the Linux x64 and arm64 packages once from that exact source on matching native
+Ubuntu 22.04 runners. Each baseline job completes installed-package acceptance before retaining
+the public-name artifact and a SHA-256 sidecar. Ubuntu 24.04 and Debian stable jobs download and
+verify that same current-run artifact rather than rebuilding it. The protected release environment
+builds, signs, notarizes, staples, and exercises the macOS package, then retains it with its own
+digest sidecar. Assembly accepts only the exact three artifact-and-digest pairs from the current
+Release run after every native acceptance job succeeds. A missing, renamed, unexpected,
+wrong-version, inaccessible, or digest-invalid artifact stops the release before tag or draft
+creation.
 
 A trusted `current` dispatch produces exactly these assets:
 
@@ -240,8 +236,8 @@ unexpected, or misnamed native inputs and proves that the installer embeds the s
 artifact names and digests.
 
 Linux x64 and Linux arm64 artifacts are built and exercised on matching native Ubuntu 22.04
-runners in the exact-source CI run, then those same artifacts are exercised on Ubuntu 24.04 and
-Debian stable userspaces on matching native architectures before they flow into Release. The
+runners in the exact-source Release run, then those same digest-bound artifacts are exercised on
+Ubuntu 24.04 and Debian stable userspaces on matching native architectures before assembly. The
 macOS arm64 artifact is built and exercised on its matching native runner in the protected
 Release workflow. It
 additionally passes application and installer signature validation, Gatekeeper assessment,

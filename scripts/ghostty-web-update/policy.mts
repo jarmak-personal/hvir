@@ -374,7 +374,7 @@ export function createGhosttyWebPullRequest(input: {
     '',
     '## Required gates',
     '',
-    'This ordinary pull request must pass hvir verification, Electron, capacity, native-package, release-assembly, planning, CodeQL, branch-protection, and maintainer-review gates. It is not automatically merged.',
+    'This ordinary pull request must pass hvir verification, Electron, CodeQL, first-attempt aggregate, planning, branch-protection, and maintainer-review gates. Native certification remains release-owned. It is not automatically merged.',
     '',
     `Preparation run: ${runUrl.toString()}`,
     '',

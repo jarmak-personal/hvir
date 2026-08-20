@@ -8,12 +8,12 @@ import type { HarnessProfileStore } from '../harness/harness-profile-store'
 import type { ProjectHost } from '../project-host'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
+import { runCleanupTaskWithinDeadline } from './cleanup'
 import type { DocumentReviewRuntime } from '../document-review'
 import { DocumentReviewStore } from '../document-review/document-review-store'
 import type { Disposer, HostPath, ReviewWorkspaceIdentity } from '../../shared'
 
 const COMMENT = 'First review line\nSecond review line with a tab:\tkept literal'
-const TIMEOUT_MS = 20_000
 
 /**
  * Exercises document review only at boundaries that require Electron, native PTY,
@@ -161,7 +161,7 @@ export async function verifyDocumentReviewWorkflow(options: {
     win.webContents.once('did-finish-load', () => resolveLoaded()),
   )
   win.reload()
-  await withTimeout(loaded, 'document review renderer reload did not finish')
+  await loaded
   await waitForRenderer(
     win,
     `window.hvir && document.querySelector('.workbench')`,
@@ -267,11 +267,10 @@ export async function verifyDocumentReviewWorkflow(options: {
     win.webContents.once('destroyed', () => resolveDestroyed()),
   )
   win.destroy()
-  await withTimeout(destroyed, 'document review window destruction did not settle')
-  await waitForCondition(
-    () => !resources.isCurrent(replacementOwner),
-    'destroyed renderer retained document review authority',
-  )
+  await runCleanupTaskWithinDeadline(async () => {
+    await destroyed
+    await waitForCondition(() => !resources.isCurrent(replacementOwner))
+  })
   try {
     review.delivery.preview(replacementOwner, {
       workspace,
@@ -402,17 +401,14 @@ async function waitForPtyMarker(
   let output = ''
   let detach: Disposer = () => undefined
   try {
-    await withTimeout(
-      new Promise<void>((resolveReady) => {
-        detach = supervisor.attach(terminal.id, terminal.ownerId, {
-          onData: (data) => {
-            output = (output + data).slice(-4_096)
-            if (output.includes(marker)) resolveReady()
-          },
-        })
-      }),
-      `document review PTY capture did not become ready (${terminal.id})`,
-    )
+    await new Promise<void>((resolveReady) => {
+      detach = supervisor.attach(terminal.id, terminal.ownerId, {
+        onData: (data) => {
+          output = (output + data).slice(-4_096)
+          if (output.includes(marker)) resolveReady()
+        },
+      })
+    })
   } finally {
     await detach()
   }
@@ -465,7 +461,6 @@ async function openFixture(win: BrowserWindow, path: HostPath): Promise<void> {
     `review fixture open (${path.path})`,
     `
       new Promise((resolve) => {
-        const deadline = Date.now() + ${TIMEOUT_MS};
         const poll = () => {
           const active = document.querySelector('.viewer-tab.active .tab-main')
             ?.getAttribute('title');
@@ -474,9 +469,7 @@ async function openFixture(win: BrowserWindow, path: HostPath): Promise<void> {
             (candidate) => candidate.getAttribute('title') === ${JSON.stringify(path.path)}
           );
           if (file instanceof HTMLElement) file.click();
-          if (Date.now() > deadline) {
-            return resolve({ ok: false, error: 'review fixture did not open' });
-          }
+
           setTimeout(poll, 25);
         };
         poll();
@@ -523,7 +516,6 @@ async function focusRenderedBlock(win: BrowserWindow, index: number): Promise<vo
     `rendered review block ${index} focus`,
     `
       new Promise((resolve) => {
-        const deadline = Date.now() + ${TIMEOUT_MS};
         const poll = () => {
           const blocks = document.querySelectorAll('.review-block-active');
           const block = blocks.item(${index});
@@ -531,9 +523,7 @@ async function focusRenderedBlock(win: BrowserWindow, index: number): Promise<vo
             block.focus();
             return resolve({ ok: true });
           }
-          if (Date.now() > deadline) {
-            return resolve({ ok: false, error: 'review block missing' });
-          }
+
           setTimeout(poll, 25);
         };
         poll();
@@ -548,7 +538,6 @@ async function proveRenderedControlsUseLeftGutter(win: BrowserWindow): Promise<v
     'rendered review left gutter geometry',
     `
       new Promise((resolve) => {
-        const deadline = Date.now() + ${TIMEOUT_MS};
         const poll = () => {
           const block = document.querySelector('.review-block-active');
           const add = block?.querySelector('.review-block-add');
@@ -561,12 +550,7 @@ async function proveRenderedControlsUseLeftGutter(win: BrowserWindow): Promise<v
               error: 'rendered review capture control was not in the left gutter'
             });
           }
-          if (Date.now() > deadline) {
-            return resolve({
-              ok: false,
-              error: 'rendered review capture control geometry was unavailable'
-            });
-          }
+
           setTimeout(poll, 25);
         };
         poll();
@@ -581,7 +565,6 @@ async function proveComposeContextVisible(win: BrowserWindow): Promise<void> {
     'review composer focus geometry',
     `
       new Promise((resolve) => {
-        const deadline = Date.now() + ${TIMEOUT_MS};
         const poll = () => {
           const inline = document.querySelector('.document-review-inline');
           const form = document.querySelector('.document-review-compose');
@@ -617,9 +600,7 @@ async function proveComposeContextVisible(win: BrowserWindow): Promise<void> {
               error: 'focused review composer duplicated or obscured its header, focus, or visible width'
             });
           }
-          if (Date.now() > deadline) {
-            return resolve({ ok: false, error: 'review composer geometry unavailable' });
-          }
+
           setTimeout(poll, 25);
         };
         poll();
@@ -679,7 +660,6 @@ async function openSourceReviewMarker(win: BrowserWindow): Promise<void> {
     'source review marker activation',
     `
       new Promise((resolve) => {
-        const deadline = Date.now() + ${TIMEOUT_MS};
         const poll = () => {
           const marker = document.querySelector('.cm-review-marker');
           if (marker instanceof HTMLElement) {
@@ -693,9 +673,7 @@ async function openSourceReviewMarker(win: BrowserWindow): Promise<void> {
             }));
             return resolve({ ok: true });
           }
-          if (Date.now() > deadline) {
-            return resolve({ ok: false, error: 'source review marker missing' });
-          }
+
           setTimeout(poll, 25);
         };
         poll();
@@ -774,7 +752,6 @@ async function preparedBody(win: BrowserWindow, terminalId: string): Promise<str
     'prepared body wait',
     `
       new Promise((resolve) => {
-        const deadline = Date.now() + ${TIMEOUT_MS};
         const poll = () => {
           const select = document.querySelector('[aria-label="Review handoff destination"]');
           const preview = document.querySelector('[aria-label="Exact review delivery preview"]');
@@ -784,9 +761,7 @@ async function preparedBody(win: BrowserWindow, terminalId: string): Promise<str
             preview instanceof HTMLElement &&
             insert instanceof HTMLButtonElement && !insert.disabled
           ) return resolve({ ok: true, value: preview.textContent || '' });
-          if (Date.now() > deadline) {
-            return resolve({ ok: false, error: 'prepared review body missing' });
-          }
+
           setTimeout(poll, 25);
         };
         poll();
@@ -801,7 +776,6 @@ async function waitForExactPreview(win: BrowserWindow): Promise<void> {
     'exact preview wait',
     `
       new Promise((resolve) => {
-        const deadline = Date.now() + ${TIMEOUT_MS - 1_000};
         const poll = () => {
           const preview = document.querySelector(
             '[aria-label="Exact review delivery preview"]'
@@ -817,14 +791,7 @@ async function waitForExactPreview(win: BrowserWindow): Promise<void> {
           if (alert) {
             return resolve({ ok: false, error: 'review delivery reported an error' });
           }
-          if (Date.now() > deadline) {
-            return resolve({
-              ok: false,
-              error: delivery
-                ? 'exact review payload did not settle'
-                : 'review delivery panel did not open'
-            });
-          }
+
           setTimeout(poll, 25);
         };
         poll();
@@ -849,7 +816,6 @@ async function openReviewCommentIfNeeded(win: BrowserWindow): Promise<void> {
     'inline review comment restore',
     `
       new Promise((resolve) => {
-        const deadline = Date.now() + ${TIMEOUT_MS};
         const poll = () => {
           if (document.querySelector('.document-review-comment')) {
             return resolve({ ok: true });
@@ -871,9 +837,7 @@ async function openReviewCommentIfNeeded(win: BrowserWindow): Promise<void> {
             }));
             return setTimeout(poll, 25);
           }
-          if (Date.now() > deadline) {
-            return resolve({ ok: false, error: 'review comment marker did not restore' });
-          }
+
           setTimeout(poll, 25);
         };
         poll();
@@ -888,7 +852,6 @@ async function ensureReviewMode(win: BrowserWindow): Promise<void> {
     'review mode restore',
     `
       new Promise((resolve) => {
-        const deadline = Date.now() + ${TIMEOUT_MS};
         let activated = false;
         const poll = () => {
           if (document.querySelector('[aria-label="Markdown review comments"]')) {
@@ -902,12 +865,7 @@ async function ensureReviewMode(win: BrowserWindow): Promise<void> {
             entry.click();
             activated = true;
           }
-          if (Date.now() > deadline) {
-            return resolve({
-              ok: false,
-              error: 'review mode did not restore for inspection'
-            });
-          }
+
           setTimeout(poll, 25);
         };
         poll();
@@ -1064,16 +1022,13 @@ async function waitForRenderer(
     message,
     `
       new Promise((resolve) => {
-        const deadline = Date.now() + ${TIMEOUT_MS};
         const poll = () => {
           try {
             if (${expression}) return resolve({ ok: true });
           } catch (error) {
             return resolve({ ok: false, error: String(error) });
           }
-          if (Date.now() > deadline) {
-            return resolve({ ok: false, error: ${JSON.stringify(message)} });
-          }
+
           setTimeout(poll, 25);
         };
         poll();
@@ -1093,17 +1048,12 @@ async function waitForExactCapture(
       throw new Error('document review PTY captured unexpected extra bytes')
     }
     return captured === expected
-  }, 'document review PTY did not capture the exact transport')
+  })
 }
 
-async function waitForCondition(
-  test: () => boolean | Promise<boolean>,
-  message: string,
-): Promise<void> {
-  const deadline = Date.now() + TIMEOUT_MS
+async function waitForCondition(test: () => boolean | Promise<boolean>): Promise<void> {
   for (;;) {
     if (await test()) return
-    if (Date.now() > deadline) throw new Error(message)
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 25))
   }
 }
@@ -1132,10 +1082,7 @@ async function evaluateRenderer<T>(
 ): Promise<T> {
   let result: unknown
   try {
-    result = await withTimeout(
-      win.webContents.executeJavaScript(script),
-      `${stage} timed out`,
-    )
+    result = await win.webContents.executeJavaScript(script)
   } catch (reason) {
     throw new Error(
       `renderer evaluation '${stage}' failed: ${
@@ -1161,20 +1108,4 @@ function isRendererOutcome(
   if (!value || typeof value !== 'object' || !('ok' in value)) return false
   if (value.ok === true) return true
   return value.ok === false && 'error' in value && typeof value.error === 'string'
-}
-
-function withTimeout<T>(promise: Promise<T>, message: string): Promise<T> {
-  return new Promise<T>((resolvePromise, reject) => {
-    const timer = setTimeout(() => reject(new Error(message)), TIMEOUT_MS)
-    promise.then(
-      (value) => {
-        clearTimeout(timer)
-        resolvePromise(value)
-      },
-      (reason) => {
-        clearTimeout(timer)
-        reject(reason instanceof Error ? reason : new Error(String(reason)))
-      },
-    )
-  })
 }

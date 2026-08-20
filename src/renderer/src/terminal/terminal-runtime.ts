@@ -143,7 +143,13 @@ export class TerminalRuntime {
   }
 
   focus(): void {
-    if (this.disposed || !this.surface.currentContainer) return
+    if (
+      this.disposed ||
+      !this.surface.currentContainer ||
+      this.options.presentation !== 'visible'
+    ) {
+      return
+    }
     if (this.pane && this.surface.canFocus()) this.pane.focus()
     this.options.onFocus()
   }

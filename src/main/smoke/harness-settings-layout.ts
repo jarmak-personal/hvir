@@ -17,10 +17,8 @@ export async function verifyHarnessManualProfilePointerActivation(
     await waitForButtonPoint(win, '.terminal-new-menu button', 'Add a harness…'),
   )
 
-  const configurePoint = (await withTimeout(
-    win.webContents.executeJavaScript(`
+  const configurePoint = (await win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
-        const deadline = Date.now() + 10000;
         const inspect = () => {
           const dialog = document.querySelector('.add-harness-dialog');
           const configure = [...(dialog?.querySelectorAll('button') || [])]
@@ -40,22 +38,16 @@ export async function verifyHarnessManualProfilePointerActivation(
               resolve({ x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 });
             }));
           }
-          if (Date.now() > deadline) {
-            return reject(new Error('manual profile action did not become ready'));
-          }
+
           requestAnimationFrame(inspect);
         };
         inspect();
       })
-    `),
-    'manual profile pointer target timed out',
-  )) as PointerPoint
+    `)) as PointerPoint
   clickMouse(win, configurePoint)
 
-  const status = (await withTimeout(
-    win.webContents.executeJavaScript(`
+  const status = (await win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
-        const deadline = Date.now() + 10000;
         const inspect = () => {
           const rawError = document.body.textContent?.includes(
             "Error invoking remote method 'harness:preview'"
@@ -78,23 +70,15 @@ export async function verifyHarnessManualProfilePointerActivation(
               previewText.includes('Enter an executable command to preview this profile.')) {
             return resolve('nested focus + one physical activation + local preview guidance');
           }
-          if (Date.now() > deadline) {
-            return reject(new Error(
-              'physical manual activation did not open the preview-gated Custom draft'
-            ));
-          }
+
           requestAnimationFrame(inspect);
         };
         inspect();
       })
-    `),
-    'manual profile activation timed out',
-  )) as string
+    `)) as string
 
-  await withTimeout(
-    win.webContents.executeJavaScript(`
+  await win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
-        const deadline = Date.now() + 10000;
         const close = [...document.querySelectorAll('.settings-dialog button')]
           .find((button) => button.textContent?.trim() === 'Close settings');
         if (!(close instanceof HTMLButtonElement)) {
@@ -109,23 +93,17 @@ export async function verifyHarnessManualProfilePointerActivation(
             button.click();
             return waitForClose();
           }
-          if (Date.now() > deadline) {
-            return reject(new Error('manual draft discard prompt did not open'));
-          }
+
           requestAnimationFrame(discard);
         };
         const waitForClose = () => {
           if (!document.querySelector('.settings-dialog')) return resolve(true);
-          if (Date.now() > deadline) {
-            return reject(new Error('settings remained open after discarding manual draft'));
-          }
+
           requestAnimationFrame(waitForClose);
         };
         discard();
       })
-    `),
-    'manual draft cleanup timed out',
-  )
+    `)
   return status
 }
 
@@ -134,14 +112,12 @@ export async function verifyCompactHarnessSettings(win: BrowserWindow): Promise<
   const originalContentSize = win.getContentSize()
   win.setContentSize(640, 720)
   try {
-    return (await withTimeout(
-      win.webContents.executeJavaScript(`
+    return (await win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
-          const deadline = Date.now() + 10000;
           const waitFor = (read, failure) => {
             const value = read();
             if (value) return value;
-            if (Date.now() > deadline) throw new Error(failure);
+
             return undefined;
           };
           document.querySelector('.settings-toggle')?.click();
@@ -151,9 +127,7 @@ export async function verifyCompactHarnessSettings(win: BrowserWindow): Promise<
               '.settings-section-index button'
             ) || [])].find((button) => button.textContent?.trim() === 'Harnesses');
             if (!dialog || !harnesses) {
-              if (Date.now() > deadline) {
-                return reject(new Error('compact settings surface did not paint'));
-              }
+
               return requestAnimationFrame(openHarnesses);
             }
             harnesses.click();
@@ -280,9 +254,7 @@ export async function verifyCompactHarnessSettings(win: BrowserWindow): Promise<
           };
           requestAnimationFrame(openHarnesses);
         })
-      `),
-      'compact harness settings smoke timed out',
-    )) as string
+      `)) as string
   } finally {
     win.setContentSize(originalContentSize[0]!, originalContentSize[1]!)
   }
@@ -298,10 +270,8 @@ async function waitForButtonPoint(
   selector: string,
   label: string,
 ): Promise<PointerPoint> {
-  return (await withTimeout(
-    win.webContents.executeJavaScript(`
+  return (await win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
-        const deadline = Date.now() + 10000;
         const inspect = () => {
           const button = [...document.querySelectorAll(${JSON.stringify(selector)})]
             .find((candidate) => candidate.textContent?.trim() === ${JSON.stringify(label)});
@@ -314,16 +284,12 @@ async function waitForButtonPoint(
               });
             }
           }
-          if (Date.now() > deadline) {
-            return reject(new Error(${JSON.stringify(`${label} pointer target missing`)}));
-          }
+
           requestAnimationFrame(inspect);
         };
         inspect();
       })
-    `),
-    `${label} pointer target timed out`,
-  )) as PointerPoint
+    `)) as PointerPoint
 }
 
 function clickMouse(win: BrowserWindow, point: PointerPoint): void {
@@ -341,22 +307,4 @@ function clickMouse(win: BrowserWindow, point: PointerPoint): void {
     clickCount: 1,
     ...location,
   })
-}
-
-async function withTimeout<T>(
-  promise: Promise<T>,
-  message: string,
-  timeoutMs = 15_000,
-): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), timeoutMs)
-      }),
-    ])
-  } finally {
-    if (timer) clearTimeout(timer)
-  }
 }
