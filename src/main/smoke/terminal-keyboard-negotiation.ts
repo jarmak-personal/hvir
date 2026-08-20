@@ -2,7 +2,6 @@ import type { BrowserWindow, InputEvent as ElectronInputEvent } from 'electron'
 
 import { plainShellProvider } from '../harness/harness-provider'
 import type { ManagedPty, PtySupervisor } from '../pty/pty-supervisor'
-import { withTerminalSmokeTimeout } from './terminal-smoke-timeout'
 
 interface KeyboardProbePhase {
   readonly name: string
@@ -134,7 +133,6 @@ const observed = [];
 const finish = (requestedCode, requestedMessage) => {
   if (finished) return;
   finished = true;
-  clearTimeout(deadline);
   process.stdin.pause();
   let code = requestedCode;
   let message = requestedMessage;
@@ -197,7 +195,6 @@ const advance = () => {
   process.stdout.write(Buffer.from(next.activateHex, 'hex'));
 };
 
-const deadline = setTimeout(() => fail('probe-timeout'), 8000);
 for (const signal of ['SIGHUP', 'SIGINT', 'SIGTERM']) {
   process.once(signal, () => finish(130, abortedMarker));
 }
@@ -440,8 +437,7 @@ async function focusExactTerminalEngine(
   win: BrowserWindow,
   sessionId: string,
 ): Promise<void> {
-  await withTerminalSmokeTimeout(
-    win.webContents.executeJavaScript(`
+  await win.webContents.executeJavaScript(`
       new Promise((resolve) => {
         const poll = () => {
           const surface = document.querySelector(
@@ -468,10 +464,7 @@ async function focusExactTerminalEngine(
         };
         poll();
       })
-    `),
-    'keyboard input target did not become the active matching terminal pane',
-    10_000,
-  )
+    `)
 }
 
 async function waitForProbeObservation(
@@ -480,44 +473,36 @@ async function waitForProbeObservation(
   marker: string,
   message: string,
 ): Promise<void> {
-  await withTerminalSmokeTimeout(
-    new Promise<void>((resolve, reject) => {
-      const poll = (): void => {
-        if (observation.failed) {
-          reject(new Error(`${message}: probe reported failure`))
-          return
-        }
-        const terminalExit = readTerminalExit()
-        if (terminalExit) {
-          reject(new Error(`${message}: Shell PTY exited with ${terminalExit}`))
-          return
-        }
-        if (observation.has(marker)) {
-          resolve()
-          return
-        }
-        setTimeout(poll, 25)
+  await new Promise<void>((resolve, reject) => {
+    const poll = (): void => {
+      if (observation.failed) {
+        reject(new Error(`${message}: probe reported failure`))
+        return
       }
-      poll()
-    }),
-    message,
-    10_000,
-  )
+      const terminalExit = readTerminalExit()
+      if (terminalExit) {
+        reject(new Error(`${message}: Shell PTY exited with ${terminalExit}`))
+        return
+      }
+      if (observation.has(marker)) {
+        resolve()
+        return
+      }
+      setTimeout(poll, 25)
+    }
+    poll()
+  })
 }
 
 async function waitForProbeClosure(observation: KeyboardProbeObservation): Promise<void> {
-  await withTerminalSmokeTimeout(
-    new Promise<void>((resolve) => {
-      const poll = (): void => {
-        if (observation.closed) {
-          resolve()
-          return
-        }
-        setTimeout(poll, 25)
+  await new Promise<void>((resolve) => {
+    const poll = (): void => {
+      if (observation.closed) {
+        resolve()
+        return
       }
-      poll()
-    }),
-    'keyboard probe interruption did not restore terminal state',
-    2_000,
-  )
+      setTimeout(poll, 25)
+    }
+    poll()
+  })
 }

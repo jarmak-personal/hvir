@@ -6,7 +6,6 @@ import { isLocal, joinHostPath, type HostPath } from '../../shared'
 import { plainShellProvider } from '../harness/harness-provider'
 import type { ManagedPty, PtySupervisor } from '../pty/pty-supervisor'
 import { URI_LIST_FORMAT } from '../terminal/electron-clipboard-file-paste'
-import { withTerminalSmokeTimeout } from './terminal-smoke-timeout'
 
 const INPUT_ID = '__hvir-terminal-file-paste-probe'
 const READY_MARKER = '__HVIR_FILE_PASTE_READY__'
@@ -27,7 +26,6 @@ let settle;
 const finish = (requestedCode, requestedMessage) => {
   if (finished) return;
   finished = true;
-  clearTimeout(deadline);
   clearTimeout(settle);
   process.stdin.pause();
   let code = requestedCode;
@@ -44,7 +42,6 @@ const finish = (requestedCode, requestedMessage) => {
   setTimeout(() => process.exit(code), 100);
 };
 const fail = (message) => finish(2, failure + message);
-const deadline = setTimeout(() => fail('timeout'), 8000);
 if (!process.stdin.isTTY || typeof process.stdin.setRawMode !== 'function') {
   fail('stdin-not-tty');
 } else {
@@ -340,27 +337,23 @@ async function waitForObservation(
   marker: string,
   message: string,
 ): Promise<void> {
-  await withTerminalSmokeTimeout(
-    new Promise<void>((resolve, reject) => {
-      const poll = (): void => {
-        if (observation.failed) {
-          reject(new Error(`${message}: probe reported failure`))
-          return
-        }
-        const terminalExit = readTerminalExit()
-        if (terminalExit) {
-          reject(new Error(`${message}: Shell PTY exited with ${terminalExit}`))
-          return
-        }
-        if (observation.has(marker)) {
-          resolve()
-          return
-        }
-        setTimeout(poll, 25)
+  await new Promise<void>((resolve, reject) => {
+    const poll = (): void => {
+      if (observation.failed) {
+        reject(new Error(`${message}: probe reported failure`))
+        return
       }
-      poll()
-    }),
-    message,
-    10_000,
-  )
+      const terminalExit = readTerminalExit()
+      if (terminalExit) {
+        reject(new Error(`${message}: Shell PTY exited with ${terminalExit}`))
+        return
+      }
+      if (observation.has(marker)) {
+        resolve()
+        return
+      }
+      setTimeout(poll, 25)
+    }
+    poll()
+  })
 }

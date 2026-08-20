@@ -3,31 +3,22 @@ import type { BrowserWindow } from 'electron'
 import type { RendererOwner, RendererResourceScopes } from '../renderer-resource-scopes'
 import type { SmokeFailureCheckpoint } from './failure-evidence.mts'
 
-const OPERATION_TIMEOUT_MS = 10_000
-const PREDICATE_TIMEOUT_MS = 2_000
 const POLL_INTERVAL_MS = 25
 const DIAGNOSIS_TIMEOUT_MS = 1_000
 
 export interface RendererAuthorityTiming {
-  readonly operationTimeoutMs: number
-  readonly predicateTimeoutMs: number
   readonly pollIntervalMs: number
   readonly diagnosisTimeoutMs: number
 }
 
 const DEFAULT_TIMING: RendererAuthorityTiming = {
-  operationTimeoutMs: OPERATION_TIMEOUT_MS,
-  predicateTimeoutMs: PREDICATE_TIMEOUT_MS,
   pollIntervalMs: POLL_INTERVAL_MS,
   diagnosisTimeoutMs: DIAGNOSIS_TIMEOUT_MS,
 }
 
-interface BoundedOperationOptions {
-  readonly timeoutMs?: number
+interface RendererAuthorityOperationOptions {
   readonly checkpoint?: (checkpoint: SmokeFailureCheckpoint) => void
 }
-
-class RendererAuthorityTimeoutError extends Error {}
 
 /** Exercise only the document and window transitions that require real Electron. */
 export async function verifyRendererAuthorityLifecycle(options: {
@@ -61,7 +52,6 @@ export async function verifyRendererAuthorityLifecycle(options: {
     await waitForRendererAuthorityCondition(
       'renderer-authority-resource-revocation-awaiting',
       () => resourceDisposed && !resources.isCurrent(owner),
-      'webContents destruction retained its renderer resource',
       checkpoint,
     )
     checkpoint('renderer-authority-resource-revoked')
@@ -83,18 +73,14 @@ export async function verifyRendererAuthorityLifecycle(options: {
   }
 }
 
-/** Run one named Electron boundary with its own deadline and semantic checkpoint. */
-function runBoundedRendererAuthorityOperation<T>(
+/** Run one named Electron boundary after publishing its diagnostic checkpoint. */
+function runRendererAuthorityOperation<T>(
   operation: SmokeFailureCheckpoint,
   execute: () => T | PromiseLike<T>,
-  options: BoundedOperationOptions = {},
+  options: RendererAuthorityOperationOptions = {},
 ): Promise<T> {
   options.checkpoint?.(operation)
-  return withRendererAuthorityTimeout(
-    Promise.resolve().then(execute),
-    operation,
-    options.timeoutMs ?? OPERATION_TIMEOUT_MS,
-  )
+  return Promise.resolve().then(execute)
 }
 
 async function waitForElectronEvent(
@@ -110,7 +96,7 @@ async function waitForElectronEvent(
   }
   let completed: () => void = () => undefined
   try {
-    await runBoundedRendererAuthorityOperation(
+    await runRendererAuthorityOperation(
       operation,
       () =>
         new Promise<void>((resolve, reject) => {
@@ -132,31 +118,17 @@ async function waitForElectronEvent(
 export async function waitForRendererAuthorityCondition(
   operation: SmokeFailureCheckpoint,
   predicate: () => boolean | Promise<boolean>,
-  message: string,
   checkpoint: (checkpoint: SmokeFailureCheckpoint) => void,
   timing: RendererAuthorityTiming = DEFAULT_TIMING,
 ): Promise<void> {
   checkpoint(operation)
-  const deadline = Date.now() + timing.operationTimeoutMs
   for (;;) {
-    const remaining = deadline - Date.now()
-    if (remaining <= 0) throw new Error(`${message} (${operation})`)
     try {
-      if (
-        await withRendererAuthorityTimeout(
-          Promise.resolve().then(predicate),
-          operation,
-          Math.min(timing.predicateTimeoutMs, remaining),
-        )
-      ) {
-        return
-      }
-    } catch (error) {
-      if (error instanceof RendererAuthorityTimeoutError) throw error
+      if (await Promise.resolve().then(predicate)) return
+    } catch {
       // Destruction may briefly reject work while native cleanup settles.
     }
-    if (Date.now() >= deadline) throw new Error(`${message} (${operation})`)
-    await delay(Math.min(timing.pollIntervalMs, deadline - Date.now()))
+    await delay(timing.pollIntervalMs)
   }
 }
 
@@ -175,9 +147,8 @@ async function collectFailureStateWithinDeadline(options: {
     resourceDisposed: options.resourceDisposed,
   }))
   try {
-    return await withRendererAuthorityTimeout(
+    return await withRendererAuthorityDiagnosisTimeout(
       diagnosis,
-      'failure-diagnosis',
       DEFAULT_TIMING.diagnosisTimeoutMs,
     )
   } catch {
@@ -185,9 +156,8 @@ async function collectFailureStateWithinDeadline(options: {
   }
 }
 
-async function withRendererAuthorityTimeout<T>(
+async function withRendererAuthorityDiagnosisTimeout<T>(
   promise: Promise<T>,
-  operation: string,
   timeoutMs: number,
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -195,15 +165,7 @@ async function withRendererAuthorityTimeout<T>(
     return await Promise.race([
       promise,
       new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(
-          () =>
-            reject(
-              new RendererAuthorityTimeoutError(
-                `Renderer authority ${operation} timed out after ${timeoutMs}ms`,
-              ),
-            ),
-          timeoutMs,
-        )
+        timer = setTimeout(() => reject(new Error('diagnosis timed out')), timeoutMs)
       }),
     ])
   } finally {

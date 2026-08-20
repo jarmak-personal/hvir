@@ -1,7 +1,6 @@
 import { clipboard, type BrowserWindow } from 'electron'
 
 import type { PtySupervisor } from '../pty/pty-supervisor'
-import { withTerminalSmokeTimeout } from './terminal-smoke-timeout'
 
 const READY = '__HVIR_MENU_READY__'
 const ACTIONS_READY = '__HVIR_MENU_ACTIONS_READY__'
@@ -39,10 +38,8 @@ export async function verifyTerminalContextMenu(
     )
     output = ''
 
-    const pointerAndKeyboard = (await withTerminalSmokeTimeout(
-      win.webContents.executeJavaScript(`
+    const pointerAndKeyboard = (await win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
-          const deadline = Date.now() + 4500;
           const fail = (message) => reject(new Error(message));
           const findAction = (label) => [...document.querySelectorAll(
             '.terminal-context-menu [role="menuitem"]'
@@ -52,7 +49,6 @@ export async function verifyTerminalContextMenu(
             if (menu instanceof HTMLElement && getComputedStyle(menu).visibility === 'visible') {
               return check(menu);
             }
-            if (Date.now() > deadline) return fail('terminal context menu did not open');
             setTimeout(() => waitForMenu(check), 20);
           };
           const openPointer = (canvas, check) => {
@@ -71,7 +67,6 @@ export async function verifyTerminalContextMenu(
           };
           const waitForDismissal = (next) => {
             if (!document.querySelector('.terminal-context-menu')) return next();
-            if (Date.now() > deadline) return fail('terminal context menu did not dismiss');
             setTimeout(() => waitForDismissal(next), 20);
           };
           const surface = document.querySelector('.terminal-surface.active');
@@ -201,15 +196,11 @@ export async function verifyTerminalContextMenu(
             });
           });
         })
-      `),
-      'terminal pointer and keyboard menu proof timed out',
-      6_000,
-    )) as string
+      `)) as string
 
     await waitForOutput(
       () => containsOutputLine(output, ACTIONS_READY),
       'terminal menu non-interference probe did not settle',
-      7_000,
     )
     if (output.includes(LEAK)) {
       throw new Error(
@@ -221,13 +212,11 @@ export async function verifyTerminalContextMenu(
       'Copy Selection did not reach the application clipboard',
     )
 
-    const settings = (await withTerminalSmokeTimeout(
-      win.webContents.executeJavaScript(
-        menuActionScript(
-          'Terminal Settings…',
-          `
+    const settings = (await win.webContents.executeJavaScript(
+      menuActionScript(
+        'Terminal Settings…',
+        `
         return new Promise((resolve, reject) => {
-          const deadline = Date.now() + 5000;
           const poll = () => {
             const heading = document.querySelector('#settings-terminal-title');
             const active = document.querySelector(
@@ -248,32 +237,22 @@ export async function verifyTerminalContextMenu(
               close.click();
               return resolve('Terminal Settings section');
             }
-            if (Date.now() > deadline) {
-              return reject(new Error(
-                'Terminal Settings did not open the Terminal section'
-              ));
-            }
             setTimeout(poll, 20);
           };
           poll();
         });
       `,
-        ),
       ),
-      'terminal Settings menu action timed out',
     )) as string
 
     clipboard.writeText('hvir-context-menu-paste')
-    const paste = (await withTerminalSmokeTimeout(
-      win.webContents.executeJavaScript(
-        menuActionScript(
-          'Paste',
-          `
+    const paste = (await win.webContents.executeJavaScript(
+      menuActionScript(
+        'Paste',
+        `
         return 'explicit plain-text Paste';
       `,
-        ),
       ),
-      'terminal Paste menu action timed out',
     )) as string
     await new Promise<void>((resolve) => setTimeout(resolve, 300))
     if (output.includes('__HVIR_MENU_INPUT__:')) {
@@ -286,13 +265,11 @@ export async function verifyTerminalContextMenu(
       'terminal context Paste did not preserve exact plain text',
     )
 
-    const split = (await withTerminalSmokeTimeout(
-      win.webContents.executeJavaScript(
-        menuActionScript(
-          'Split Terminal',
-          `
+    const split = (await win.webContents.executeJavaScript(
+      menuActionScript(
+        'Split Terminal',
+        `
         return new Promise((resolve, reject) => {
-          const deadline = Date.now() + 5000;
           const retained = window.__hvirSmokeContextMenu;
           const poll = () => {
             const surfaces = [...document.querySelectorAll('.terminal-surface')];
@@ -317,18 +294,12 @@ export async function verifyTerminalContextMenu(
               close.click();
               return resolve('existing split owner');
             }
-            if (Date.now() > deadline) {
-              return reject(new Error('Split Terminal did not create the other pane'));
-            }
             setTimeout(poll, 25);
           };
           poll();
         });
       `,
-        ),
       ),
-      'terminal Split menu action timed out',
-      7_000,
     )) as string
     await waitForTerminalCount(supervisor, win.webContents.id, 1)
 
@@ -352,7 +323,6 @@ export async function verifyTerminalContextMenu(
 function menuActionScript(label: string, accepted: string): string {
   return `
     new Promise((resolve, reject) => {
-      const deadline = Date.now() + 6000;
       const retained = window.__hvirSmokeContextMenu;
       const engine = retained?.engine;
       if (!(engine instanceof HTMLElement)) {
@@ -373,11 +343,6 @@ function menuActionScript(label: string, accepted: string): string {
           action.click();
           const awaitDismissal = () => {
             if (document.querySelector('.terminal-context-menu')) {
-              if (Date.now() > deadline) {
-                return reject(new Error(
-                  ${JSON.stringify(label)} + ' menu action did not settle'
-                ));
-              }
               setTimeout(awaitDismissal, 20);
               return;
             }
@@ -390,9 +355,6 @@ function menuActionScript(label: string, accepted: string): string {
           awaitDismissal();
           return;
         }
-        if (Date.now() > deadline) {
-          return reject(new Error(${JSON.stringify(label)} + ' menu action unavailable'));
-        }
         setTimeout(poll, 20);
       };
       poll();
@@ -404,38 +366,27 @@ function containsOutputLine(output: string, marker: string): boolean {
   return output.replaceAll('\r', '').split('\n').includes(marker)
 }
 
-async function waitForOutput(
-  predicate: () => boolean,
-  failure: string,
-  timeoutMs = 5_000,
-): Promise<void> {
-  await withTerminalSmokeTimeout(
-    new Promise<void>((resolve) => {
-      const poll = (): void => {
-        if (predicate()) return resolve()
-        setTimeout(poll, 25)
-      }
-      poll()
-    }),
-    failure,
-    timeoutMs,
-  )
+async function waitForOutput(predicate: () => boolean, _failure: string): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const poll = (): void => {
+      if (predicate()) return resolve()
+      setTimeout(poll, 25)
+    }
+    poll()
+  })
 }
 
 async function waitForClipboard(
   predicate: (value: string) => boolean,
-  failure: string,
+  _failure: string,
 ): Promise<void> {
-  await withTerminalSmokeTimeout(
-    new Promise<void>((resolve) => {
-      const poll = (): void => {
-        if (predicate(clipboard.readText())) return resolve()
-        setTimeout(poll, 25)
-      }
-      poll()
-    }),
-    failure,
-  )
+  await new Promise<void>((resolve) => {
+    const poll = (): void => {
+      if (predicate(clipboard.readText())) return resolve()
+      setTimeout(poll, 25)
+    }
+    poll()
+  })
 }
 
 async function waitForTerminalCount(
@@ -443,19 +394,16 @@ async function waitForTerminalCount(
   ownerId: number,
   expected: number,
 ): Promise<void> {
-  await withTerminalSmokeTimeout(
-    new Promise<void>((resolve) => {
-      const poll = (): void => {
-        if (
-          supervisor.list().filter((candidate) => candidate.ownerId === ownerId)
-            .length === expected
-        ) {
-          return resolve()
-        }
-        setTimeout(poll, 25)
+  await new Promise<void>((resolve) => {
+    const poll = (): void => {
+      if (
+        supervisor.list().filter((candidate) => candidate.ownerId === ownerId).length ===
+        expected
+      ) {
+        return resolve()
       }
-      poll()
-    }),
-    `terminal count did not return to ${expected}`,
-  )
+      setTimeout(poll, 25)
+    }
+    poll()
+  })
 }

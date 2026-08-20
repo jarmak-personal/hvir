@@ -89,22 +89,42 @@ export interface SmokeFailureEvidence {
   readonly owners: SmokeOwnedResourceEvidence
 }
 
+export type SmokeFailureEvidenceSink = (line: string) => void
+
+const stderrSmokeFailureEvidenceSink: SmokeFailureEvidenceSink = (line) => {
+  const ignoreUnavailableSink = (): void => undefined
+  const releaseUnavailableSinkGuard = (): void => {
+    setImmediate(() => process.stderr.off('error', ignoreUnavailableSink))
+  }
+  process.stderr.once('error', ignoreUnavailableSink)
+  try {
+    process.stderr.write(line, releaseUnavailableSinkGuard)
+  } catch {
+    process.stderr.off('error', ignoreUnavailableSink)
+  }
+}
+
 /** Emit only a closed, content-free snapshot for the outer process launcher. */
 export function reportSmokeFailureEvidence(
   phase: SmokeFailurePhase,
   owners: SmokeOwnedResourceEvidence,
   checkpoint: SmokeFailureCheckpoint | null = null,
   cleanupResource: SmokeCleanupResource | null = null,
+  sink: SmokeFailureEvidenceSink = stderrSmokeFailureEvidenceSink,
 ): void {
-  console.error(
-    `[smoke:failure-evidence] ${JSON.stringify({
-      schema: 1,
-      phase,
-      checkpoint,
-      cleanupResource,
-      owners,
-    } satisfies SmokeFailureEvidence)}`,
-  )
+  const line = `[smoke:failure-evidence] ${JSON.stringify({
+    schema: 1,
+    phase,
+    checkpoint,
+    cleanupResource,
+    owners,
+  } satisfies SmokeFailureEvidence)}\n`
+  try {
+    sink(line)
+  } catch {
+    // The launcher owns this best-effort pipe. Teardown can revoke it before
+    // Electron has finished, and diagnostic loss must not become a new fault.
+  }
 }
 
 export function smokeCleanupResource(name: string): SmokeCleanupResource | null {

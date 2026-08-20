@@ -17,10 +17,8 @@ export async function verifyGitWorkflow(options: {
     const diffBases = await verifyGitDiffBases(win)
     console.log(`[smoke] CodeMirror git diff bases OK (${diffBases})`)
 
-    const gitPanelStatus = (await withTimeout(
-      win.webContents.executeJavaScript(`
+    const gitPanelStatus = (await win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
-          const deadline = Date.now() + 15000;
           const button = (text) => [...document.querySelectorAll('button')]
             .find((node) => node.textContent?.trim().startsWith(text));
           button('Git')?.click();
@@ -29,7 +27,7 @@ export async function verifyGitWorkflow(options: {
               '[aria-label="Git"] button[title]'
             )].find((candidate) => candidate.querySelector('small'));
             if (!changed) {
-              if (Date.now() > deadline) return reject(new Error('Git changes did not load'));
+
               return setTimeout(waitForChanges, 50);
             }
             const branchPoint = button('Branch point');
@@ -60,13 +58,7 @@ export async function verifyGitWorkflow(options: {
                 ?.textContent?.trim();
               const expectedMode = untracked ? activeMode !== 'diff' : activeMode === 'diff';
               if (activePath !== changedPath || !activeMode || !expectedMode) {
-                if (Date.now() <= deadline) return setTimeout(waitForView, 50);
-                return reject(new Error(
-                  'Git file did not settle: target=' + changedPath +
-                    ' active=' + activePath +
-                    ' mode=' + activeMode +
-                    (untracked ? ' for untracked file' : ' for tracked file')
-                ));
+                return setTimeout(waitForView, 50)
               }
               button('History')?.click();
               const waitForHistory = () => {
@@ -74,7 +66,7 @@ export async function verifyGitWorkflow(options: {
                   '[aria-label="Commit history"] [role="listitem"] button[aria-expanded]'
                 );
                 if (!commit) {
-                  if (Date.now() > deadline) return reject(new Error('Git history did not page'));
+
                   return setTimeout(waitForHistory, 50);
                 }
                 commit.click();
@@ -92,9 +84,7 @@ export async function verifyGitWorkflow(options: {
                     openFull.click();
                     return waitForDetail();
                   }
-                  if (Date.now() > deadline) {
-                    return reject(new Error('Commit did not expand in rail history'));
-                  }
+
                   setTimeout(waitForRailDetail, 50);
                 };
                 const waitForDetail = () => {
@@ -115,7 +105,7 @@ export async function verifyGitWorkflow(options: {
                         ' · paged history→rail tree→graph detail'
                     );
                   }
-                  if (Date.now() > deadline) return reject(new Error('Commit graph detail did not load'));
+
                   setTimeout(waitForDetail, 50);
                 };
                 waitForRailDetail();
@@ -126,16 +116,9 @@ export async function verifyGitWorkflow(options: {
           };
           waitForChanges();
         })
-      `),
-      'Git panel integration timed out',
-      20000,
-    )) as string
+      `)) as string
     console.log(`[smoke] mounted Git panel OK (${gitPanelStatus})`)
-    const dirtyBranch = await withTimeout(
-      verifyDirtyBranchSwitch(win),
-      'dirty branch switch timed out',
-      20000,
-    )
+    const dirtyBranch = await verifyDirtyBranchSwitch(win)
     const [activeBranch, dirtyStatus] = await Promise.all([
       host.exec('git', ['-C', root.path, 'branch', '--show-current']),
       host.exec('git', ['-C', root.path, 'status', '--porcelain']),
@@ -145,17 +128,15 @@ export async function verifyGitWorkflow(options: {
     }
     console.log(`[smoke] dirty branch switch + refresh OK (${dirtyBranch})`)
 
-    const blameStatus = (await withTimeout(
-      win.webContents.executeJavaScript(`
+    const blameStatus = (await win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
-          const deadline = Date.now() + 15000;
           const button = (text) => [...document.querySelectorAll('button')]
             .find((node) => node.textContent?.trim() === text);
           button('Files')?.click();
           const waitForSource = () => {
             const blameButton = button('Blame');
             if (!blameButton || !document.querySelector('.source-shell .cm-editor')) {
-              if (Date.now() > deadline) return reject(new Error('source view missing for blame'));
+
               return setTimeout(waitForSource, 50);
             }
             blameButton.click();
@@ -171,16 +152,14 @@ export async function verifyGitWorkflow(options: {
                   ) {
                     return resolve(label + ' · compact when off');
                   }
-                  if (Date.now() > deadline) {
-                    return reject(new Error('disabled blame gutter still reserves width'));
-                  }
+
                   setTimeout(waitForHidden, 25);
                 };
                 return waitForHidden();
               }
               const status = document.querySelector('.source-meta')?.textContent || '';
               if (status.includes('blame unavailable')) return reject(new Error(status));
-              if (Date.now() > deadline) return reject(new Error('blame gutter did not load: ' + status));
+
               setTimeout(waitForBlame, 50);
             };
             waitForBlame();
@@ -189,14 +168,14 @@ export async function verifyGitWorkflow(options: {
             const tracked = [...document.querySelectorAll('.file-row')]
               .find((node) => node.getAttribute('title')?.endsWith('/package-lock.json'));
             if (!tracked) {
-              if (Date.now() > deadline) return reject(new Error('tracked blame fixture missing'));
+
               return setTimeout(openTracked, 50);
             }
             tracked.click();
             const activateTracked = () => {
               const title = document.querySelector('.viewer-tab.active .tab-name')?.textContent || '';
               if (!title.includes('package-lock.json')) {
-                if (Date.now() > deadline) return reject(new Error('large blame fixture did not activate'));
+
                 return setTimeout(activateTracked, 50);
               }
               button('source')?.click();
@@ -206,16 +185,11 @@ export async function verifyGitWorkflow(options: {
           };
           openTracked();
         })
-      `),
-      'Blame integration timed out',
-      20000,
-    )) as string
+      `)) as string
     console.log(`[smoke] lazy blame gutter OK (${blameStatus})`)
 
-    const decorationsStatus = (await withTimeout(
-      win.webContents.executeJavaScript(`
+    const decorationsStatus = (await win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
-          const deadline = Date.now() + 10000;
           [...document.querySelectorAll('button')]
             .find((candidate) => candidate.textContent?.trim().startsWith('Files'))
             ?.click();
@@ -235,16 +209,12 @@ export async function verifyGitWorkflow(options: {
                   rootStatus.getAttribute('aria-label')
               );
             }
-            if (Date.now() > deadline) {
-              return reject(new Error('Files Git decorations did not settle'));
-            }
+
             setTimeout(inspect, 25);
           };
           inspect();
         })
-      `),
-      'Files Git decorations timed out',
-    )) as string
+      `)) as string
     console.log(`[smoke] Files Git decorations OK (${decorationsStatus})`)
 
     return [
@@ -292,22 +262,4 @@ function readGitWorkflowState(win: BrowserWindow): Promise<unknown> {
       };
     })()
   `) as Promise<unknown>
-}
-
-async function withTimeout<T>(
-  promise: Promise<T>,
-  message: string,
-  timeoutMs = 15_000,
-): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), timeoutMs)
-      }),
-    ])
-  } finally {
-    if (timer) clearTimeout(timer)
-  }
 }

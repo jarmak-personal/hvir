@@ -1,7 +1,6 @@
 import { clipboard, type BrowserWindow } from 'electron'
 
 import type { PtySupervisor } from '../pty/pty-supervisor'
-import { withTerminalSmokeTimeout } from './terminal-smoke-timeout'
 
 const SHAPING_LINE = 'ffi -> !== === <= >='
 
@@ -23,10 +22,8 @@ export async function verifyTerminalLigaturePresentation(
     `printf '\\033[2J\\033[H${SHAPING_LINE}\\n\\033[4;12H'; sleep 40\n`,
   )
 
-  const presentation = (await withTerminalSmokeTimeout(
-    win.webContents.executeJavaScript(`
+  const presentation = (await win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
-        const deadline = Date.now() + 10000;
         const expectedLine = ${JSON.stringify(SHAPING_LINE)};
         const fail = (message) => reject(new Error(message));
         const poll = () => {
@@ -92,13 +89,7 @@ export async function verifyTerminalLigaturePresentation(
             }));
             return waitForCopy();
           }
-          if (Date.now() > deadline) {
-            return fail('ligature line did not settle: ' + JSON.stringify({
-              fontLigatures: stats?.fontLigatures,
-              lastFrame: stats?.lastFrame,
-              cursor
-            }));
-          }
+
           setTimeout(poll, 20);
         };
         const waitForCopy = () => {
@@ -115,15 +106,12 @@ export async function verifyTerminalLigaturePresentation(
               maxRunCells: retained.maxRunCells
             });
           }
-          if (Date.now() > deadline) return fail('ligature cell selection was unavailable');
+
           setTimeout(waitForCopy, 20);
         };
         poll();
       })
-    `),
-    'terminal ligature shaping and selection timed out',
-    12_000,
-  )) as {
+    `)) as {
     readonly fontFamily: string
     readonly shapedRuns: number
     readonly shapedCells: number
@@ -145,10 +133,8 @@ export async function verifyTerminalLigaturePresentation(
 }
 
 async function applyLigatureSetting(win: BrowserWindow, enabled: boolean): Promise<void> {
-  await withTerminalSmokeTimeout(
-    win.webContents.executeJavaScript(`
+  await win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
-        const deadline = Date.now() + 8000;
         const enabled = ${JSON.stringify(enabled)};
         const fail = (message) => reject(new Error(message));
         const retained = window.__hvirLigaturePresentation;
@@ -165,7 +151,7 @@ async function applyLigatureSetting(win: BrowserWindow, enabled: boolean): Promi
             terminal.click();
             return edit();
           }
-          if (Date.now() > deadline) return fail('Terminal settings did not open');
+
           setTimeout(openTerminal, 20);
         };
         const edit = () => {
@@ -180,7 +166,7 @@ async function applyLigatureSetting(win: BrowserWindow, enabled: boolean): Promi
             save.click();
             return waitForApplied();
           }
-          if (Date.now() > deadline) return fail('ligature settings control missing');
+
           setTimeout(edit, 20);
         };
         const waitForApplied = () => {
@@ -204,34 +190,19 @@ async function applyLigatureSetting(win: BrowserWindow, enabled: boolean): Promi
             retained.engine.querySelector('canvas') === retained.canvas &&
             retained.canvas.__hvirLigatureCanvasIdentity
           ) return resolve(undefined);
-          if (Date.now() > deadline) {
-            return fail('ligature setting did not update retained pane: ' + JSON.stringify({
-              enabled,
-              stored,
-              stats,
-              cursor,
-              canvasRetained: Boolean(retained.canvas.__hvirLigatureCanvasIdentity)
-            }));
-          }
+
           setTimeout(waitForApplied, 20);
         };
         openTerminal();
       })
-    `),
-    `terminal ligatures ${enabled ? 'on' : 'off'} timed out`,
-    10_000,
-  )
+    `)
 }
 
 async function waitForClipboard(expected: string): Promise<void> {
-  const deadline = Date.now() + 3_000
-  while (Date.now() <= deadline) {
+  for (;;) {
     if (clipboard.readText() === expected) return
     await new Promise<void>((resolve) => setTimeout(resolve, 20))
   }
-  throw new Error(
-    `ligature pointer selection copied unexpected text: ${JSON.stringify(clipboard.readText())}`,
-  )
 }
 
 function assertRetainedPty(

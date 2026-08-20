@@ -2,13 +2,14 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { describe, expect, it, onTestFinished } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 
 import {
   SmokeAttemptEvidenceCollector,
   createSmokeFailureArtifact,
   writeSmokeFailureArtifact,
 } from '../scripts/smoke-failure-artifact.mts'
+import { reportSmokeFailureEvidence } from '../src/main/smoke/failure-evidence.mts'
 
 describe('bounded smoke failure evidence', () => {
   it('recognizes the success sentinel across stdout chunk boundaries', () => {
@@ -73,12 +74,13 @@ describe('bounded smoke failure evidence', () => {
     })
 
     expect(artifact).toEqual({
-      schema: 1,
+      schema: 2,
       scenario: 'web-pane',
       iteration: 2,
       repetitionCount: 20,
       durationMs: 1235,
       expectedOutcome: 'exit-zero-with-success-sentinel',
+      outcome: 'process-failure',
       process: { exitCode: 1, signal: null, spawnError: false },
       semanticSnapshot: {
         schema: 1,
@@ -236,5 +238,30 @@ describe('bounded smoke failure evidence', () => {
     await expect(writeSmokeFailureArtifact(directory, artifact)).rejects.toThrow(
       'contained unreviewed fields',
     )
+  })
+
+  it('drops failure evidence when the inherited output sink is unavailable', () => {
+    const unavailableSink = vi.fn(() => {
+      const error = new Error('pipe closed') as NodeJS.ErrnoException
+      error.code = 'EPIPE'
+      throw error
+    })
+
+    expect(() =>
+      reportSmokeFailureEvidence(
+        'scenario-active',
+        {
+          windowCount: 1,
+          ptyCount: 0,
+          watcherActive: true,
+          rendererOwnerActive: true,
+          rendererGeneration: 1,
+        },
+        null,
+        null,
+        unavailableSink,
+      ),
+    ).not.toThrow()
+    expect(unavailableSink).toHaveBeenCalledOnce()
   })
 })

@@ -26,12 +26,14 @@ export interface SmokeApplicationLogEvidence {
 }
 
 export interface SmokeFailureArtifact {
-  readonly schema: 1
+  readonly schema: 2
   readonly scenario: ElectronSmokeScenario
   readonly iteration: number
   readonly repetitionCount: number
   readonly durationMs: number
   readonly expectedOutcome: 'exit-zero-with-success-sentinel'
+  readonly outcome:
+    'process-failure' | 'spawn-failure' | 'attempt-contained' | 'launcher-interrupted'
   readonly process: {
     readonly exitCode: number | null
     readonly signal: NodeJS.Signals | null
@@ -102,16 +104,19 @@ export function createSmokeFailureArtifact(options: {
   readonly exitCode: number | null
   readonly signal: NodeJS.Signals | null
   readonly spawnError: boolean
+  readonly outcome?: SmokeFailureArtifact['outcome']
   readonly collector: SmokeAttemptEvidenceCollector
 }): SmokeFailureArtifact {
   const evidence = options.collector.evidence()
   return {
-    schema: 1,
+    schema: 2,
     scenario: options.scenario,
     iteration: boundedCount(options.iteration),
     repetitionCount: boundedCount(options.repetitionCount),
     durationMs: boundedDuration(options.durationMs),
     expectedOutcome: 'exit-zero-with-success-sentinel',
+    outcome:
+      options.outcome ?? (options.spawnError ? 'spawn-failure' : 'process-failure'),
     process: {
       exitCode: options.exitCode,
       signal: options.signal,
@@ -205,6 +210,7 @@ function validateSmokeFailureArtifact(
     'durationMs',
     'expectedOutcome',
     'iteration',
+    'outcome',
     'process',
     'repetitionCount',
     'scenario',
@@ -212,9 +218,15 @@ function validateSmokeFailureArtifact(
     'semanticSnapshot',
   ])
   if (
-    artifact.schema !== 1 ||
+    artifact.schema !== 2 ||
     !ELECTRON_SMOKE_SCENARIOS.includes(artifact.scenario as never) ||
-    artifact.expectedOutcome !== 'exit-zero-with-success-sentinel'
+    artifact.expectedOutcome !== 'exit-zero-with-success-sentinel' ||
+    ![
+      'process-failure',
+      'spawn-failure',
+      'attempt-contained',
+      'launcher-interrupted',
+    ].includes(artifact.outcome as string)
   ) {
     throw new Error('Smoke failure artifact envelope was invalid')
   }
@@ -242,6 +254,9 @@ function validateSmokeFailureArtifact(
   const hasSignal = artifact.process.signal !== null
   if (artifact.process.spawnError ? hasExit || hasSignal : hasExit === hasSignal) {
     throw new Error('Smoke failure process outcome was inconsistent')
+  }
+  if ((artifact.outcome === 'spawn-failure') !== artifact.process.spawnError) {
+    throw new Error('Smoke failure classification was inconsistent')
   }
 
   if (!isRecord(artifact.applicationLogs)) {

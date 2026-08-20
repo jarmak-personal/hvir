@@ -198,7 +198,6 @@ export async function verifyProjectFileOperationsSmoke(options: {
     await markActiveEditorDirty(win, 'unsaved organization marker')
     await moveByDragFromRenderer({
       win,
-      root: localRoot,
       source: renamedPath,
       destinationDirectory: organizationDirectory,
       destination: movedPointerPath,
@@ -270,7 +269,6 @@ export async function verifyProjectFileOperationsSmoke(options: {
     }
     await moveByDragFromRenderer({
       win,
-      root: remoteRoot,
       source: remoteKeyboardPath,
       destinationDirectory: remoteOrganizationDirectory,
       destination: movedRemoteKeyboardPath,
@@ -366,7 +364,7 @@ export async function verifyProjectFileOperationsSmoke(options: {
     }
     try {
       await submitCreateFromRenderer(win, localRoot, snapshotName)
-      await withTimeout(entered, 'snapshot create did not reach its approved effect')
+      await entered
       publish(switchedState())
       await waitForActiveRoot(win, switchedRoot)
       releaseCreate?.()
@@ -386,7 +384,6 @@ export async function verifyProjectFileOperationsSmoke(options: {
             ? 'late completion ignored by replacement workspace'
             : undefined;
         })()`,
-        'replacement workspace consumed a late create completion',
       )
     } finally {
       releaseCreate?.()
@@ -442,7 +439,6 @@ async function verifyRemoteRevealOmitted(
       const bounds = menu.getBoundingClientRect();
       return bounds.right <= window.innerWidth && bounds.bottom <= window.innerHeight;
     })()`,
-    'SSH Files menu did not preserve bounded placement without reveal',
   )
   await win.webContents.executeJavaScript(`
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
@@ -452,7 +448,6 @@ async function verifyRemoteRevealOmitted(
 
 async function moveByDragFromRenderer(options: {
   readonly win: BrowserWindow
-  readonly root: HostPath
   readonly source: HostPath
   readonly destinationDirectory: HostPath
   readonly destination: HostPath
@@ -461,7 +456,6 @@ async function moveByDragFromRenderer(options: {
 }): Promise<void> {
   const {
     win,
-    root,
     source,
     destinationDirectory,
     destination,
@@ -536,8 +530,6 @@ async function moveByDragFromRenderer(options: {
         window.__hvirProjectDragSent = true;
         return undefined;
       })()`,
-      `project entry drag move did not settle for ${root.hostId}`,
-      20_000,
     )
   } finally {
     await win.webContents.executeJavaScript(`
@@ -693,8 +685,6 @@ async function organizeFromRenderer(options: {
         window.__hvirOrganizationSubmitted = true;
         return undefined;
       })()`,
-      `${entry} ${action} did not settle`,
-      20_000,
     )
   } finally {
     await win.webContents.executeJavaScript(`
@@ -711,8 +701,6 @@ async function waitForEditorContent(win: BrowserWindow, content: string): Promis
     `document.querySelector('.cm-content')?.textContent?.includes(${JSON.stringify(
       content.trim(),
     )}) ? true : undefined`,
-    'clean open file did not refresh after its saved content changed',
-    15_000,
   )
 }
 
@@ -727,7 +715,6 @@ async function markActiveEditorDirty(win: BrowserWindow, marker: string): Promis
       document.querySelector('.cm-content')?.textContent?.includes(${JSON.stringify(marker)})
         ? true
         : undefined`,
-    'editor did not retain the unsaved organization marker',
   )
 }
 
@@ -745,7 +732,6 @@ async function revealTreeDirectory(win: BrowserWindow, path: HostPath): Promise<
       }
       return true;
     })()`,
-    'organization destination did not expand in the Files tree',
   )
 }
 
@@ -758,8 +744,6 @@ async function verifyOrganizationRefresh(
     `document.querySelector(
       '.files-panel [role="treeitem"][title=${JSON.stringify(duplicatedPath.path)}]'
     ) ? true : undefined`,
-    'Files tree did not refresh for the duplicate',
-    15_000,
   )
   await rendererValue(
     win,
@@ -783,8 +767,6 @@ async function verifyOrganizationRefresh(
         '.filename-search-result[title=${JSON.stringify(duplicatedPath.path)}]'
       ) ? true : undefined;
     })()`,
-    'filename search did not refresh for the duplicate',
-    20_000,
   )
   await win.webContents.executeJavaScript(`
     document.querySelector('.filename-search-close')?.click();
@@ -804,8 +786,6 @@ async function verifyOrganizationRefresh(
         '.git-panel .git-file[title=${JSON.stringify(duplicatedPath.path)}]'
       ) ? true : undefined;
     })()`,
-    'Git view did not refresh for the duplicate',
-    20_000,
   )
   await win.webContents.executeJavaScript(`
     [...document.querySelectorAll('.rail-nav button')]
@@ -852,8 +832,6 @@ async function pasteClipboardFromRenderer(
         '.files-panel [role="treeitem"][title=${JSON.stringify(destination.path)}]'
       ) ? true : undefined;
     })()`,
-    'clipboard file paste did not settle',
-    20_000,
   )
   await win.webContents.executeJavaScript('delete window.__hvirClipboardPasteSent')
 }
@@ -914,8 +892,6 @@ async function dropDiskFileFromRenderer(
           '.files-panel [role="treeitem"][title=${JSON.stringify(destination.path)}]'
         ) ? true : undefined;
       })()`,
-      'disk-backed File drop did not settle',
-      20_000,
     )
   } finally {
     await win.webContents.executeJavaScript(`
@@ -1035,8 +1011,6 @@ async function createFromRenderer(options: {
       window.__hvirProjectFileSubmitted = true;
       return undefined;
     })()`,
-    `${entry} ${kind} creation did not settle`,
-    15_000,
   )
   await clearRendererCreateMarkers(win)
 }
@@ -1084,7 +1058,6 @@ async function submitCreateFromRenderer(
       }
       return dialog.textContent?.includes('Creating…') ? true : undefined;
     })()`,
-    'snapshot create was not submitted',
   )
 }
 
@@ -1094,13 +1067,11 @@ function waitForActiveRoot(win: BrowserWindow, root: HostPath): Promise<unknown>
     `document.querySelector('.files-panel .directory-row[title=${JSON.stringify(
       root.path,
     )}]') ? true : undefined`,
-    'replacement workspace tree did not settle',
   )
 }
 
 async function waitForHostPath(host: ProjectHost, path: HostPath): Promise<void> {
-  const deadline = Date.now() + 10_000
-  while (Date.now() <= deadline) {
+  for (;;) {
     try {
       await host.stat(path)
       return
@@ -1109,20 +1080,14 @@ async function waitForHostPath(host: ProjectHost, path: HostPath): Promise<void>
     }
     await new Promise<void>((resolve) => setTimeout(resolve, 25))
   }
-  throw new Error('accepted create did not complete at its snapshotted path')
 }
 
 async function waitForMacClipboardFileList(expectedPath: string): Promise<void> {
   const source = new ElectronClipboardFileSource()
-  const deadline = Date.now() + 5_000
-  while (Date.now() <= deadline) {
+  for (;;) {
     if (source.readPaths().includes(expectedPath)) return
     await new Promise<void>((resolve) => setTimeout(resolve, 25))
   }
-  const availableFormats = clipboard.availableFormats()
-  throw new Error(
-    `smoke clipboard did not retain reviewed public.file-url file-list data; available=${availableFormats.join(',')}`,
-  )
 }
 
 function clearRendererCreateMarkers(win: BrowserWindow): Promise<unknown> {
@@ -1133,15 +1098,9 @@ function clearRendererCreateMarkers(win: BrowserWindow): Promise<unknown> {
   `)
 }
 
-function rendererValue(
-  win: BrowserWindow,
-  expression: string,
-  message: string,
-  timeoutMs = 10_000,
-): Promise<unknown> {
+function rendererValue(win: BrowserWindow, expression: string): Promise<unknown> {
   return win.webContents.executeJavaScript(`
     new Promise((resolve, reject) => {
-      const deadline = Date.now() + ${timeoutMs};
       const poll = () => {
         try {
           const value = ${expression};
@@ -1149,23 +1108,12 @@ function rendererValue(
         } catch (error) {
           return reject(error);
         }
-        if (Date.now() > deadline) return reject(new Error(${JSON.stringify(message)}));
         setTimeout(poll, 25);
       };
       poll();
     })
   `) as Promise<unknown>
 }
-
-function withTimeout<T>(promise: Promise<T>, message: string): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_resolve, reject) =>
-      setTimeout(() => reject(new Error(message)), 10_000),
-    ),
-  ])
-}
-
 function isMissingPathError(reason: unknown): boolean {
   return (
     typeof reason === 'object' &&

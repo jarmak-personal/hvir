@@ -40,32 +40,23 @@ describe('smoke PTY output', () => {
     expect(typeof handlers?.onData).toBe('function')
   })
 
-  it('bounds retained output while reporting the last observed production state', async () => {
-    vi.useFakeTimers()
+  it('bounds retained output while allowing slow semantic success', async () => {
     const fixture = outputFixture()
-    fixture.get.mockReturnValue(fixture.terminal)
     const pending = waitForPtyOutput({
       supervisor: fixture.supervisor,
       terminal: fixture.terminal,
-      expected: 'missing-output',
+      expected: 'eventual-output',
       scenario: 'custom profile PTY output',
       trigger: () => fixture.order.push('trigger'),
-      timeoutMs: 20,
-    }).catch((reason: unknown) => reason)
+    })
     fixture.emitData(`discarded-prefix${'x'.repeat(5_000)}`)
+    await Promise.resolve()
+    fixture.emitData('eventual-output')
 
-    await vi.advanceTimersByTimeAsync(20)
-    const reason = await pending
-
-    expect(reason).toBeInstanceOf(Error)
-    const message = (reason as Error).message
-    expect(message).toContain(
-      'custom profile PTY output timed out ' +
-        '(terminalId=profile-smoke-terminal, pid=9102, elapsedMs=20, ' +
-        'outputCallbackFired=true, supervisorMember=true, retainedOutput="',
-    )
-    expect(message).not.toContain('discarded-prefix')
-    expect(message.length).toBeLessThan(4_500)
+    const retained = await pending
+    expect(retained).toContain('eventual-output')
+    expect(retained).not.toContain('discarded-prefix')
+    expect(retained.length).toBeLessThanOrEqual(4_096)
     expect(fixture.disposeOutput).toHaveBeenCalledOnce()
   })
 

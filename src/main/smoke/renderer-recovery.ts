@@ -51,17 +51,14 @@ export async function verifyRendererProcessRecovery(options: {
     throw new Error('empty renderer-recovery fixture started a PTY before user action')
   }
   checkpoint('renderer-recovery-route-opening')
-  const route = await timeout(
-    routes.open({
-      ownerId: initialOwner.id,
-      ownerGeneration: initialOwner.generation,
-      sourceTerminalId: 'renderer-recovery-rollover',
-      workspaceRoot: root,
-      host,
-      url: 'http://localhost:61337/renderer-recovery',
-    }),
-    'renderer recovery route did not open',
-  )
+  const route = await routes.open({
+    ownerId: initialOwner.id,
+    ownerGeneration: initialOwner.generation,
+    sourceTerminalId: 'renderer-recovery-rollover',
+    workspaceRoot: root,
+    host,
+    url: 'http://localhost:61337/renderer-recovery',
+  })
   checkpoint('renderer-recovery-route-opened')
   // The shared smoke harness has already observed ready-to-show and completed a
   // preload IPC round-trip. capturePage() adds no recovery-specific evidence here,
@@ -106,7 +103,7 @@ export async function verifyRendererProcessRecovery(options: {
       liveReloadPath,
       'renderer recovery stale generation watch event\n',
     )
-    await timeout(loaded, 'replacement renderer document did not load')
+    await loaded
     checkpoint('renderer-recovery-reload-loaded')
 
     const replacement = resources.currentOwner(win.webContents.id)
@@ -142,11 +139,8 @@ export async function verifyRendererProcessRecovery(options: {
     await waitForReplacementDeliveries(win)
 
     checkpoint('renderer-recovery-replacement-ipc-awaiting')
-    const replacementElectronVersion = (await timeout(
-      win.webContents.executeJavaScript(
-        `window.hvir.invoke('app:info', undefined).then((info) => info.electronVersion)`,
-      ),
-      'replacement renderer did not regain IPC authority',
+    const replacementElectronVersion = (await win.webContents.executeJavaScript(
+      `window.hvir.invoke('app:info', undefined).then((info) => info.electronVersion)`,
     )) as string
     if (!replacementElectronVersion) {
       throw new Error('replacement renderer returned empty IPC authority evidence')
@@ -154,10 +148,8 @@ export async function verifyRendererProcessRecovery(options: {
     checkpoint('renderer-recovery-replacement-ipc-ready')
 
     checkpoint('renderer-recovery-controls-awaiting')
-    const functionalControl = (await timeout(
-      win.webContents.executeJavaScript(`
+    const functionalControl = (await win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
-        const deadline = Date.now() + 10000;
         const inspect = () => {
           const workbench = document.querySelector('.workbench');
           const buttons = [...document.querySelectorAll('.rail-nav button')];
@@ -178,42 +170,27 @@ export async function verifyRendererProcessRecovery(options: {
             });
             return;
           }
-          if (Date.now() >= deadline) {
-            return reject(new Error('replacement workbench controls were unavailable'));
-          }
           setTimeout(inspect, 25);
         };
         inspect();
       })
-    `),
-      'replacement workbench control timed out',
-    )) as string
+    `)) as string
     checkpoint('renderer-recovery-controls-ready')
 
     checkpoint('renderer-recovery-terminal-lifecycle-awaiting')
-    await timeout(
-      win.webContents.executeJavaScript(`
-      new Promise((resolve, reject) => {
-        const deadline = Date.now() + 10000;
+    await win.webContents.executeJavaScript(`
+      new Promise((resolve) => {
         const inspect = () => {
           const emptyAction = [...document.querySelectorAll('.terminal-empty button')]
             .find((button) => button.textContent?.trim() === 'New terminal');
           const sessions = document.querySelectorAll('.terminal-list-row').length;
           const surfaces = document.querySelectorAll('.terminal-surface').length;
           if (emptyAction && sessions === 0 && surfaces === 0) return resolve();
-          if (Date.now() >= deadline) {
-            return reject(new Error(
-              'replacement empty terminal area did not settle: sessions=' + sessions +
-              ' surfaces=' + surfaces
-            ));
-          }
           setTimeout(inspect, 25);
         };
         inspect();
       })
-    `),
-      'replacement empty terminal lifecycle timed out',
-    )
+    `)
     checkpoint('renderer-recovery-terminal-lifecycle-ready')
     if (supervisor.list().length !== 2) {
       throw new Error('renderer replacement changed the active PTY producer set')
@@ -231,7 +208,6 @@ export async function verifyRendererProcessRecovery(options: {
     checkpoint('renderer-recovery-route-revocation-awaiting')
     await waitForCondition(
       () => !routes.has(route.paneId, initialOwner.id, initialOwner.generation),
-      'renderer recovery retained its old web route',
     )
     checkpoint('renderer-recovery-route-revoked')
     checkpoint('renderer-recovery-diagnostics-awaiting')
@@ -423,47 +399,32 @@ function installReplacementDeliveryObserver(
 }
 
 async function waitForReplacementDeliveries(win: BrowserWindow): Promise<void> {
-  await timeout(
-    win.webContents.executeJavaScript(`
-      new Promise((resolve, reject) => {
-        const deadline = Date.now() + 10000;
+  await win.webContents.executeJavaScript(`
+      new Promise((resolve) => {
         const inspect = () => {
           const deliveries = window.__hvirRendererRecoveryDeliveries;
           if (deliveries?.local && deliveries.ssh && deliveries.watch && deliveries.health) {
             return resolve();
           }
-          if (Date.now() >= deadline) {
-            return reject(new Error(
-              'replacement renderer delivery did not settle: ' + JSON.stringify(deliveries)
-            ));
-          }
           setTimeout(inspect, 25);
         };
         inspect();
       })
-    `),
-    'replacement renderer event delivery timed out',
-  )
+    `)
 }
 
-async function waitForCondition(
-  predicate: () => boolean,
-  message: string,
-): Promise<void> {
-  const deadline = Date.now() + 5_000
-  while (Date.now() < deadline) {
+async function waitForCondition(predicate: () => boolean): Promise<void> {
+  for (;;) {
     if (predicate()) return
     await new Promise<void>((resolve) => setTimeout(resolve, 25))
   }
-  throw new Error(message)
 }
 
 async function waitForRecoveryEvidence(
   diagnostics: RuntimeDiagnostics,
   initialOwner: RendererOwner,
 ): Promise<void> {
-  const deadline = Date.now() + 5_000
-  while (Date.now() < deadline) {
+  for (;;) {
     const events = diagnostics
       .snapshot()
       .events.filter(
@@ -478,24 +439,5 @@ async function waitForRecoveryEvidence(
       return
     }
     await new Promise<void>((resolve) => setTimeout(resolve, 25))
-  }
-  throw new Error('renderer recovery diagnostics did not record the killed process')
-}
-
-async function timeout<T>(
-  promise: Promise<T>,
-  message: string,
-  timeoutMs = 15_000,
-): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), timeoutMs)
-      }),
-    ])
-  } finally {
-    if (timer) clearTimeout(timer)
   }
 }

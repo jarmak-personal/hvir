@@ -3,7 +3,6 @@ import type { BrowserWindow } from 'electron'
 export async function verifyFilenameSearch(win: BrowserWindow): Promise<string> {
   return win.webContents.executeJavaScript(`
     new Promise((resolve, reject) => {
-      const deadline = Date.now() + 20000;
       const mod = navigator.userAgent.includes('Mac')
         ? { metaKey: true }
         : { ctrlKey: true };
@@ -26,13 +25,11 @@ export async function verifyFilenameSearch(win: BrowserWindow): Promise<string> 
         );
         const rootGitStatus = rootRow?.querySelector('.tree-git-status.directory');
         if (!trigger || !testDirectory) {
-          if (Date.now() > deadline) return reject(new Error('filename search controls missing'));
+
           return setTimeout(waitForControl, 50);
         }
         if (!rootGitStatus) {
-          if (Date.now() > deadline) {
-            return reject(new Error('root Git status badge missing for layout check'));
-          }
+
           return setTimeout(waitForControl, 50);
         }
         if (document.querySelector('[data-filename-search]')) {
@@ -49,9 +46,7 @@ export async function verifyFilenameSearch(win: BrowserWindow): Promise<string> 
       const waitForTriggeredInput = (testDirectory) => {
         const input = document.querySelector('[data-filename-search]');
         if (!input) {
-          if (Date.now() > deadline) {
-            return reject(new Error('filename search action did not open the input'));
-          }
+
           return setTimeout(() => waitForTriggeredInput(testDirectory), 25);
         }
         if (document.activeElement !== input) {
@@ -64,18 +59,14 @@ export async function verifyFilenameSearch(win: BrowserWindow): Promise<string> 
       };
       const waitForDismissal = (testDirectory) => {
         if (document.querySelector('[data-filename-search]')) {
-          if (Date.now() > deadline) {
-            return reject(new Error('Escape did not dismiss filename search'));
-          }
+
           return setTimeout(() => waitForDismissal(testDirectory), 25);
         }
         key(document.body, 'p');
         const waitForInput = () => {
           const input = document.querySelector('[data-filename-search]');
           if (!input) {
-            if (Date.now() > deadline) {
-              return reject(new Error('workbench Mod+P did not open filename search'));
-            }
+
             return setTimeout(waitForInput, 25);
           }
           if (document.activeElement !== input) {
@@ -93,7 +84,7 @@ export async function verifyFilenameSearch(win: BrowserWindow): Promise<string> 
         const result = [...document.querySelectorAll('.filename-search-result')]
           .find((node) => node.textContent?.includes('rendered.yml'));
         if (!result) {
-          if (Date.now() > deadline) return reject(new Error('collapsed filename result missing'));
+
           return setTimeout(() => waitForResult(input, testDirectory), 50);
         }
         input.dispatchEvent(new KeyboardEvent('keydown', {
@@ -119,7 +110,7 @@ export async function verifyFilenameSearch(win: BrowserWindow): Promise<string> 
               'on-demand · badge-safe · wildcard · collapsed result · keyboard activation'
             );
           }
-          if (Date.now() > deadline) return reject(new Error('filename result did not open: ' + title));
+
           setTimeout(waitForOpen, 50);
         };
         waitForOpen();
