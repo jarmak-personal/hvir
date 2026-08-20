@@ -251,6 +251,17 @@ interface GitHubContentResponse {
   content?: unknown
 }
 
+export interface ReleasePrIntegrityRequest {
+  repository: string
+  defaultBranch: string
+  workflowActor: string
+  token: string
+  mode: ReleasePrMode
+  pullRequestNumber: number
+  expectedHeadSha: string
+  sourceSha: string
+}
+
 const githubEvidence = new ReleaseGitHubEvidenceReader('GitHub release PR evidence')
 
 function requiredBoolean(value: unknown): boolean {
@@ -295,24 +306,19 @@ async function loadJsonFile(
   }
 }
 
-export async function validateReleasePullRequest(): Promise<string> {
-  const repository = requireReleaseEnvironment('GITHUB_REPOSITORY')
-  const defaultBranch = requireReleaseEnvironment('GITHUB_DEFAULT_BRANCH')
-  const workflowActor = requireReleaseEnvironment('GITHUB_ACTOR')
-  const token = requireReleaseEnvironment('GITHUB_TOKEN')
-  const mode = requireMode(requireReleaseEnvironment('RELEASE_PR_MODE'))
-  const pullRequestNumber = requirePullRequestNumber(
-    requireReleaseEnvironment('RELEASE_PR_NUMBER'),
-  )
-  const expectedHeadSha = requireFullCommitSha(
-    'RELEASE_PR_HEAD_SHA',
-    requireReleaseEnvironment('RELEASE_PR_HEAD_SHA'),
-  )
-  const sourceSha = requireFullCommitSha(
-    'RELEASE_SOURCE_SHA',
-    requireReleaseEnvironment('RELEASE_SOURCE_SHA'),
-  )
-
+export async function loadReleasePrIntegrityDecision(
+  request: ReleasePrIntegrityRequest,
+): Promise<ReleasePrIntegrityDecision> {
+  const {
+    repository,
+    defaultBranch,
+    workflowActor,
+    token,
+    mode,
+    pullRequestNumber,
+    expectedHeadSha,
+    sourceSha,
+  } = request
   const pullRequestUrl = new URL(
     `https://api.github.com/repos/${repository}/pulls/${pullRequestNumber}`,
   )
@@ -367,7 +373,7 @@ export async function validateReleasePullRequest(): Promise<string> {
     loadFile('package-lock.json', sourceSha),
   ])
 
-  const decision = evaluateReleasePrIntegrity({
+  return evaluateReleasePrIntegrity({
     mode,
     repository,
     defaultBranch,
@@ -393,6 +399,28 @@ export async function validateReleasePullRequest(): Promise<string> {
     headLockfile,
     sourcePackage,
     sourceLockfile,
+  })
+}
+
+export async function validateReleasePullRequest(): Promise<string> {
+  const pullRequestNumber = requirePullRequestNumber(
+    requireReleaseEnvironment('RELEASE_PR_NUMBER'),
+  )
+  const decision = await loadReleasePrIntegrityDecision({
+    repository: requireReleaseEnvironment('GITHUB_REPOSITORY'),
+    defaultBranch: requireReleaseEnvironment('GITHUB_DEFAULT_BRANCH'),
+    workflowActor: requireReleaseEnvironment('GITHUB_ACTOR'),
+    token: requireReleaseEnvironment('GITHUB_TOKEN'),
+    mode: requireMode(requireReleaseEnvironment('RELEASE_PR_MODE')),
+    pullRequestNumber,
+    expectedHeadSha: requireFullCommitSha(
+      'RELEASE_PR_HEAD_SHA',
+      requireReleaseEnvironment('RELEASE_PR_HEAD_SHA'),
+    ),
+    sourceSha: requireFullCommitSha(
+      'RELEASE_SOURCE_SHA',
+      requireReleaseEnvironment('RELEASE_SOURCE_SHA'),
+    ),
   })
   if (!decision.accepted) {
     throw new Error(`Release PR integrity rejected: ${decision.rejection}`)

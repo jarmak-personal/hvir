@@ -287,13 +287,13 @@ The pre-push hook uses that full command on macOS. As a temporary containment wh
 macOS presentation-readiness and native PTY teardown flakes are hardened, hosted macOS CI runs
 `npm run smoke:macos:ci`, which omits terminal presentation and terminal lifecycle, and does not
 run capacity. The workspace/remote, web-pane, and renderer-authority groups remain in that hosted
-gate. Linux CI continues to gate on `npm run smoke:capacity`; both omitted macOS paths remain
-directly runnable locally and are not treated as allowed failures.
+gate. Capacity remains a controlled-machine release-readiness command rather than a hosted merge
+gate; both omitted macOS paths remain directly runnable locally and are not treated as allowed
+failures.
 `npm run smoke:capacity`
 selects the capacity group: terminal
 topology, presentation, delivery, exact input, cleanup, and recovery contracts remain blocking,
-while CPU, latency, and working-set measurements are labeled evidence. CI invokes this command
-on Linux; the temporary macOS containment above leaves it local-only there. `npm run
+while CPU, latency, and working-set measurements are labeled evidence. `npm run
 performance:capacity` runs the same contracts and samples
 but enforces the quantitative budgets on a controlled machine. These commands use the same
 aggregate launcher, so a failing group does not prevent reporting its scheduled siblings.
@@ -394,7 +394,8 @@ one marked pull request. A newer release advances that same branch and pull requ
 unwanted update suppresses that release until a newer one appears. Generated pull requests are
 the documented automated-dependency exception: they intentionally have no governing issue or
 closing relationship, never merge automatically, and pass through the ordinary pull-request,
-planning, CodeQL, Electron, capacity, branch-protection, and maintainer-review gates. Native
+planning, verification, CodeQL, Electron, aggregate, branch-protection, and maintainer-review
+gates. Native
 packaging and assembly remain release-candidate gates.
 
 Repository administration must provide a dedicated GitHub App installed only on hvir. Grant the
