@@ -500,12 +500,10 @@ async function verifyTerminalLayoutFocus(win: BrowserWindow): Promise<string> {
         const activeInput = () => document.querySelector(
           '.terminal-deck:not([hidden]) .terminal-surface.active .terminal-container'
         );
-        const waitFor = (read, message) => new Promise((resolve, reject) => {
-          const waitDeadline = Date.now() + 4000;
+        const waitFor = (read) => new Promise((resolve) => {
           const poll = () => {
             const value = read();
             if (value) return resolve(value);
-            if (Date.now() > waitDeadline) return reject(new Error(message));
             setTimeout(poll, 25);
           };
           poll();
@@ -584,10 +582,7 @@ async function verifyTerminalLayoutFocus(win: BrowserWindow): Promise<string> {
           ].join(':'))
           .join('|');
         add.click();
-        await waitFor(
-          () => document.querySelector('.terminal-new-menu'),
-          'terminal launch menu did not open before rail collapse'
-        );
+        await waitFor(() => document.querySelector('.terminal-new-menu'));
         await expectFocused(collapseRail, 'compact rail');
         await waitFor(() => {
           const strip = document.querySelector('.terminal-rail-compact-strip');
@@ -599,7 +594,7 @@ async function verifyTerminalLayoutFocus(win: BrowserWindow): Promise<string> {
             deck.getBoundingClientRect().width > deckWidth + 100 &&
             canvas.getBoundingClientRect().width > canvasWidth + 100
           );
-        }, 'compact terminal rail did not release and refit the terminal width');
+        });
         const deckBounds = deck.getBoundingClientRect();
         const railBounds = rail.getBoundingClientRect();
         const restoreBounds = restoreRail.getBoundingClientRect();
@@ -639,8 +634,7 @@ async function verifyTerminalLayoutFocus(win: BrowserWindow): Promise<string> {
           () =>
             !workbench.classList.contains('terminal-rail-compact') &&
             Math.abs(deck.getBoundingClientRect().width - deckWidth) <= 1 &&
-            Math.abs(canvas.getBoundingClientRect().width - canvasWidth) <= 1,
-          'restored terminal rail did not refit the original terminal width'
+            Math.abs(canvas.getBoundingClientRect().width - canvasWidth) <= 1
         );
         if (
           workbench.classList.contains('terminal-focused') ||

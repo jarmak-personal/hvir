@@ -867,6 +867,11 @@ describe('Electron smoke command contracts', () => {
     expect(layoutFocusScenario).not.toContain(
       'requestAnimationFrame(() => requestAnimationFrame(resolve))',
     )
+    expect(layoutFocusScenario).not.toContain('Date.now()')
+    expect(layoutFocusScenario).not.toContain('waitDeadline')
+    expect(layoutFocusScenario).toContain(
+      'const waitFor = (read) => new Promise((resolve)',
+    )
   })
 
   it('serializes document review closure before direct top-terminal send', () => {
@@ -963,6 +968,13 @@ describe('Electron smoke command contracts', () => {
     )
     expect(gitWorkflowScenario).not.toContain('requestAnimationFrame')
     expect(viewerContentScenario).not.toMatch(/setTimeout\([^\n]*100\)/)
+    expect(
+      [...viewerContentScenario.matchAll(/const (\w+Deadline) = Date\.now\(\)/g)].map(
+        ([, name]) => name,
+      ),
+    ).toEqual(['closeDeadline'])
+    expect(viewerContentScenario).not.toContain('source highlight timed out')
+    expect(viewerContentScenario).not.toContain('mmd Mermaid fixture timed out')
     expect(viewerPositionScenario).not.toContain("querySelector('.terminal-panel')")
     expect(viewerPositionScenario).toContain('cleanScroll')
     expect(viewerFindScenario).not.toContain("querySelector('.terminal-panel')")

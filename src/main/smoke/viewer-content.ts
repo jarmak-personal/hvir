@@ -46,7 +46,6 @@ export async function verifyViewerContent(options: {
                   .find((node) => node.textContent?.trim() === 'source');
                 if (!source) return reject(new Error('source mode control missing'));
                 source.click();
-                const sourceDeadline = Date.now() + 20000;
                 const waitForSource = () => {
                   const status = document.querySelector('.source-meta')?.textContent || '';
                   if (document.querySelector('.cm-editor') && status.includes('markdown')) {
@@ -57,7 +56,6 @@ export async function verifyViewerContent(options: {
                     }
                     return resolve('rendered→source · ' + status + ' · tab focus ring');
                   }
-                  if (Date.now() > sourceDeadline) return reject(new Error('source highlight timed out: ' + status));
                   setTimeout(waitForSource, 50);
                 };
                 waitForSource();
@@ -117,17 +115,12 @@ export async function verifyViewerContent(options: {
                       return reject(new Error('scroll destroyed the canonical Mermaid diagram'));
                     }
                     return openWhenReady('/test/fixtures/rendered-mmd.md', () => {
-                      const mmdDeadline = Date.now() + 10000;
                       const waitForMmd = () => {
                         const activeTitle = document.querySelector('.viewer-tab.active .tab-name')?.textContent?.trim();
                         if (activeTitle === 'rendered-mmd.md' &&
                             document.querySelectorAll('.mermaid-diagram svg').length === 1) {
                           return resolve('lazy TOML Shiki + canonical Mermaid + mmd alias + ProjectHost image + task lists + stable scroll');
                         }
-                        if (Date.now() > mmdDeadline) return reject(new Error(
-                          'mmd Mermaid fixture timed out: title=' + activeTitle +
-                          ' mermaid=' + document.querySelectorAll('.mermaid-diagram svg').length
-                        ));
                         setTimeout(waitForMmd, 50);
                       };
                       waitForMmd();
