@@ -26,7 +26,9 @@ protected base before merge.
 The `main` ruleset is the sole merge-enforcement owner. It continues to require a pull request,
 blocks deletion and force-pushes, and has no bypass actors. It additionally requires checks from
 GitHub Actions with GitHub's strict, up-to-date policy. Its one required status is
-`CI / Merge acceptance`, the aggregate result for the complete ordinary merge portfolio.
+the `Merge acceptance` job from the `CI` workflow, the aggregate result for the complete ordinary
+merge portfolio. The ruleset uses the literal check-run name `Merge acceptance`; GitHub displays
+the workflow-qualified label as `CI / Merge acceptance`.
 
 An ordinary first-attempt CI run is accepted only when it belongs to this repository, the canonical
 CI workflow and path, the `pull_request` event, the current `main` base, and the pull request's
@@ -118,8 +120,9 @@ their existing cadences. Metadata, release dispatch, and other workflows may sti
 3. Put PR CodeQL and the other required jobs behind the first-attempt aggregate, enforce their
    merge-ref checkout contract, and add the exact-source validator while existing `main` CI still
    runs.
-4. Configure the active `main` ruleset with the named strict check and no bypass, and prove an
-   up-to-date ordinary pull request and the exact version-only exception can merge.
+4. Configure the active `main` ruleset with the literal `Merge acceptance` strict check and no
+   bypass, and prove an up-to-date ordinary pull request and the exact version-only exception can
+   merge.
 5. Remove the `main` push correctness triggers and hosted capacity job only after the preceding
    protections and release path are active.
 
