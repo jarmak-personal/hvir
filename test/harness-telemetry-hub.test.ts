@@ -144,6 +144,42 @@ describe('HarnessTelemetryHub', () => {
     void stopSecond()
   })
 
+  it('reconciles one failed follower out before a bounded replacement', async () => {
+    const stream = fakeStream()
+    const execStream = vi.fn<ProjectHost['execStream']>(() => stream.handle)
+    const hub = telemetryHub(execStream, true)
+    const emit = vi.fn<(value: HarnessTelemetry | undefined) => void>()
+    const live = subscription(26, emit)
+    const stop = hub.subscribe(live)
+    await vi.waitFor(() => expect(stream.writes).toHaveLength(2))
+    const epoch = execStream.mock.calls[0]?.[1].at(-1)
+    if (!epoch) throw new Error('Expected telemetry hub epoch argument')
+
+    stream.stdout(
+      healthFrame(
+        epoch,
+        '1',
+        live.subscriptionId,
+        live.sessionId,
+        'unavailable',
+        'follower-exited',
+      ),
+    )
+
+    expect(emit.mock.calls[0]?.[0]?.facets.context).toEqual({
+      status: 'unavailable',
+      reason: 'follower-exited',
+    })
+    await vi.waitFor(() => expect(stream.writes[2]).toBe('R\t2\t0\n'))
+    await vi.waitFor(() => expect(stream.writes).toHaveLength(5), { timeout: 1_000 })
+    expect(stream.writes[3]).toBe('R\t3\t1\n')
+
+    stream.stdout(frame(epoch, '3', live.subscriptionId, live.sessionId, 31))
+    expectSnapshot(emit.mock.calls.at(-1)?.[0], 31, live.sessionId)
+
+    void stop()
+  })
+
   it('handles back-to-back helper error and exit once, then admits restart health', async () => {
     const streams = [fakeStream(), fakeStream()]
     const execStream = vi
@@ -283,7 +319,7 @@ describe('HarnessTelemetryHub', () => {
     void stopSecond()
   })
 
-  it('keeps an unexpected follower failure isolated and stops replacements quietly', async () => {
+  it('bounds repeated follower recovery without disturbing survivors', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'hvir-telemetry-health-'))
     const firstPath = join(directory, 'first.jsonl')
     const secondPath = join(directory, 'second.jsonl')
@@ -322,16 +358,22 @@ describe('HarnessTelemetryHub', () => {
     try {
       await vi.waitFor(
         () => {
-          expect(failedEmit.mock.calls.map(([value]) => value?.facets.context)).toEqual([
-            { status: 'pending', reason: 'awaiting-source' },
-            { status: 'unavailable', reason: 'follower-exited' },
-          ])
+          expect(
+            failedEmit.mock.calls.filter(
+              ([value]) => value?.facets.context.status === 'pending',
+            ),
+          ).toHaveLength(4)
+          expect(
+            failedEmit.mock.calls.filter(
+              ([value]) => value?.facets.context.status === 'unavailable',
+            ),
+          ).toHaveLength(4)
           expect(survivorEmit.mock.calls[0]?.[0]?.facets.context).toEqual({
             status: 'pending',
             reason: 'awaiting-source',
           })
         },
-        { timeout: 4_000 },
+        { timeout: 6_000 },
       )
 
       stopUnrelated = hub.subscribe(unrelated)
@@ -343,7 +385,8 @@ describe('HarnessTelemetryHub', () => {
           }),
         { timeout: 4_000 },
       )
-      expect(failedEmit).toHaveBeenCalledTimes(2)
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      expect(failedEmit).toHaveBeenCalledTimes(8)
 
       void stopSurvivor()
       stopSurvivor = hub.subscribe({ ...survivor, resource: secondPath })
