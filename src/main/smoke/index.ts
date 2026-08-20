@@ -11,7 +11,7 @@ import type { HtmlPreviewProtocol } from '../html-preview-protocol'
 import type { RuntimeDiagnostics } from '../diagnostics/runtime-diagnostics'
 import { sendRendererEvent } from '../renderer-event-delivery'
 import { registerIpcHandlers } from '../ipc'
-import type { RendererResourceScopes } from '../renderer-resource-scopes'
+import type { RendererOwner, RendererResourceScopes } from '../renderer-resource-scopes'
 import { LocalHost } from '../project-host'
 import { PtySupervisor } from '../pty/pty-supervisor'
 import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
@@ -581,6 +581,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       externalMoveSmoke.picker,
     )
     cleanup.defer('project file operations', () => projectFiles.dispose())
+    let acceptedRendererReadySink: ((owner: RendererOwner) => void) | undefined
     const ipcRouter = registerIpcHandlers({
       echoWorker: worker,
       gitWorker: git,
@@ -685,7 +686,11 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       pullGit: () => Promise.resolve(setSmokeProjectState(smokeProjectState())),
       respondSshPrompt: () => undefined,
       rendererResources,
-      rendererReady: dependencies.rendererReady,
+      rendererReady: (owner, reportedGeneration) => {
+        const accepted = dependencies.rendererReady(owner, reportedGeneration)
+        if (accepted) acceptedRendererReadySink?.(owner)
+        return accepted
+      },
       getWorkbenchHealth: () => ({
         version: 1,
         evidence: 'memory-only',
@@ -776,17 +781,34 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     recordSmokePhase('scenario-active')
     if (await verifyDevelopmentPerformanceMode(win, mode)) return 0
     if (mode === 'renderer-recovery') {
-      const result = await verifyRendererProcessRecovery({
-        win,
-        resources: rendererResources,
-        diagnostics: dependencies.runtimeDiagnostics,
-        supervisor,
-        routes: webPaneRoutes,
-        root: smokeRoot,
-        liveReloadPath,
-        host,
-        checkpoint: recordSmokeCheckpoint,
+      const replacementReady = new Promise<RendererOwner>((resolve) => {
+        acceptedRendererReadySink = (owner) => {
+          if (
+            owner.id === win.webContents.id &&
+            owner.generation === initialRendererGeneration
+          ) {
+            return
+          }
+          resolve(owner)
+        }
       })
+      let result: string
+      try {
+        result = await verifyRendererProcessRecovery({
+          win,
+          resources: rendererResources,
+          diagnostics: dependencies.runtimeDiagnostics,
+          supervisor,
+          routes: webPaneRoutes,
+          root: smokeRoot,
+          liveReloadPath,
+          host,
+          replacementReady,
+          checkpoint: recordSmokeCheckpoint,
+        })
+      } finally {
+        acceptedRendererReadySink = undefined
+      }
       if (discardedRendererGenerations !== 1) {
         throw new Error(
           `renderer recovery discarded resources ${discardedRendererGenerations} times`,
