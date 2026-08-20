@@ -113,13 +113,10 @@ carries a stapled ticket. The package owns:
 After digest verification, the installer asks `/usr/sbin/installer` to install the package
 noninteractively. The supported flow does not open Finder or Installer.app.
 
-Pull-request CI builds and exercises the unsigned package structure without receiving signing
-credentials. The protected signed-package workflow is both the reusable macOS release builder and
-a manually dispatched pre-merge acceptance workflow restricted to the exact tip commit of the
-selected branch. Both paths use the `native-release-signing` environment.
-Configure that environment with required reviewer and deployment-branch protection. Permit an
-epic branch only while its signed candidate is under maintainer acceptance; keep the default
-branch permitted for release. Configure these environment secrets:
+The protected signed-package workflow is the reusable macOS builder owned by Release. It accepts
+only the exact merged source selected by Release and uses the `native-release-signing`
+environment. Configure that environment with required reviewer and deployment-branch protection,
+with the default branch permitted for release. Configure these environment secrets:
 
 - `MACOS_APPLICATION_CERTIFICATE` and `MACOS_APPLICATION_CERTIFICATE_PASSWORD`: the
   electron-builder-compatible Developer ID Application certificate and password.
@@ -133,10 +130,10 @@ branch permitted for release. Configure these environment secrets:
   read-only Administration permission, used only to verify immutable releases are enabled before
   publication. The workflow's built-in token remains the release publication credential.
 
-The protected workflow refuses tags, stale manual branch tips, and source commits not contained in
-the release branch. It signs the hardened application and installer, notarizes and staples the
-package, validates both identities and Gatekeeper acceptance, and retains the package only after
-native install, update, launch, and removal acceptance passes.
+The protected workflow refuses tags and source commits not contained in the release branch. It
+signs the hardened application and installer, notarizes and staples the package, validates both
+identities and Gatekeeper acceptance, and retains the package only after native install, update,
+launch, and removal acceptance passes.
 
 The separately signed [macOS LAN SSH coexistence application](macos-ssh-acceptance.md) is
 contributor acceptance tooling, not another installer or release artifact. It reuses the protected
