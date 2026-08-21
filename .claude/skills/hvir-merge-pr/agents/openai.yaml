@@ -1,0 +1,6 @@
+interface:
+  display_name: 'hvir Merge PR'
+  short_description: 'Accept one authorized ordinary hvir PR'
+  default_prompt: 'Use $hvir-merge-pr with one pull request number to merge and reconcile that explicitly authorized ordinary hvir pull request.'
+policy:
+  allow_implicit_invocation: false

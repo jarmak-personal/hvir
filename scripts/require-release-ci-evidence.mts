@@ -7,18 +7,17 @@ import {
   requireReleaseEnvironment,
 } from './release-github-evidence.mts'
 import { loadReleasePrIntegrityDecision } from './validate-release-pr.mts'
+import {
+  evaluateCompletedCiAttempt,
+  loadCiAttemptJobs,
+  RELEASE_VERSION_INTEGRITY_JOB,
+  type CiAttemptEvidenceRejection,
+  type CiWorkflowJob,
+} from './ci-attempt-evidence.mts'
 
 export const RELEASE_REPOSITORY = 'jarmak-personal/hvir'
 export const CI_WORKFLOW_NAME = 'CI'
 export const CI_WORKFLOW_PATH = '.github/workflows/ci.yml'
-export const RELEASE_VERSION_INTEGRITY_JOB = 'Release version integrity'
-export const MERGE_ACCEPTANCE_JOB = 'Merge acceptance'
-export const REQUIRED_CI_JOBS = [
-  'Verification (Linux)',
-  'Electron smoke (Linux)',
-  'Electron correctness (macOS arm64; temporary reduced gate)',
-  'CodeQL analysis',
-] as const
 
 const PAGE_SIZE = 100
 const MAX_EVIDENCE_PAGES = 10
@@ -52,12 +51,6 @@ export interface CiWorkflowRun {
   conclusion: string | null
 }
 
-export interface CiWorkflowJob {
-  name: string
-  status: string
-  conclusion: string | null
-}
-
 export interface CommitComparison {
   status: string
   mergeBaseSha: string
@@ -70,20 +63,16 @@ export interface CommitIdentity {
 }
 
 export type EvidenceRejection =
+  | CiAttemptEvidenceRejection
   | 'missing-pull-request'
   | 'ambiguous-pull-request'
   | 'invalid-pull-request'
   | 'missing-run'
-  | 'rerun-only'
   | 'ambiguous-run'
   | 'pending-run'
   | 'unsuccessful-run'
   | 'changed-candidate'
   | 'stale-base'
-  | 'missing-job'
-  | 'ambiguous-job'
-  | 'pending-job'
-  | 'unsuccessful-job'
   | 'invalid-version-only'
   | 'unreachable-source'
   | 'changed-tree'
@@ -122,46 +111,7 @@ function matchesRunCandidate(
   )
 }
 
-function exactJob(
-  jobs: readonly CiWorkflowJob[],
-  name: string,
-): CiWorkflowJob | EvidenceDecision {
-  const matches = jobs.filter((job) => job.name === name)
-  if (matches.length === 0) {
-    return { accepted: false, rejection: 'missing-job' }
-  }
-  if (matches.length !== 1) {
-    return { accepted: false, rejection: 'ambiguous-job' }
-  }
-  const job = matches[0]!
-  if (job.status !== 'completed') {
-    return { accepted: false, rejection: 'pending-job' }
-  }
-  return job
-}
-
-function isRejectedJob(
-  result: CiWorkflowJob | EvidenceDecision,
-): result is EvidenceDecision {
-  return 'accepted' in result
-}
-
-function requireJobConclusion(
-  jobs: readonly CiWorkflowJob[],
-  name: string,
-  conclusion: 'success' | 'skipped',
-): EvidenceDecision | null {
-  const result = exactJob(jobs, name)
-  if (isRejectedJob(result)) return result
-  if (result.conclusion !== conclusion) {
-    return { accepted: false, rejection: 'unsuccessful-job' }
-  }
-  return null
-}
-
-export function evaluateReleaseCiEvidence(
-  evidence: ReleaseCiEvidence,
-): EvidenceDecision {
+export function evaluateReleaseCiEvidence(evidence: ReleaseCiEvidence): EvidenceDecision {
   const sourcePullRequests = evidence.pullRequests.filter(
     (pullRequest) => pullRequest.mergeCommitSha === evidence.sourceSha,
   )
@@ -196,9 +146,6 @@ export function evaluateReleaseCiEvidence(
   }
 
   const run = candidateRuns[0]!
-  if (run.runAttempt !== 1) {
-    return { accepted: false, rejection: 'rerun-only' }
-  }
   if (run.status !== 'completed') {
     return { accepted: false, rejection: 'pending-run' }
   }
@@ -234,31 +181,13 @@ export function evaluateReleaseCiEvidence(
     return { accepted: false, rejection: 'changed-tree' }
   }
 
-  const aggregateFailure = requireJobConclusion(
-    evidence.jobs,
-    MERGE_ACCEPTANCE_JOB,
-    'success',
-  )
-  if (aggregateFailure) return aggregateFailure
-
-  const releaseClassifier = exactJob(evidence.jobs, RELEASE_VERSION_INTEGRITY_JOB)
-  if (isRejectedJob(releaseClassifier)) return releaseClassifier
-  if (releaseClassifier.conclusion === 'success') {
-    for (const name of REQUIRED_CI_JOBS) {
-      const failure = requireJobConclusion(evidence.jobs, name, 'skipped')
-      if (failure) return failure
-    }
+  const attemptDecision = evaluateCompletedCiAttempt(evidence.jobs)
+  if (!attemptDecision.accepted) return attemptDecision
+  if (attemptDecision.kind === 'version-only') {
     if (evidence.versionOnlyIntegrityAccepted !== true) {
       return { accepted: false, rejection: 'invalid-version-only' }
     }
     return { accepted: true, kind: 'version-only' }
-  }
-  if (releaseClassifier.conclusion !== 'skipped') {
-    return { accepted: false, rejection: 'unsuccessful-job' }
-  }
-  for (const name of REQUIRED_CI_JOBS) {
-    const failure = requireJobConclusion(evidence.jobs, name, 'success')
-    if (failure) return failure
   }
   return { accepted: true, kind: 'ordinary' }
 }
@@ -296,14 +225,6 @@ interface GitHubWorkflowRun {
   run_attempt?: unknown
   status?: unknown
   conclusion?: unknown
-}
-
-interface GitHubJobsResponse {
-  jobs?: Array<{
-    name?: unknown
-    status?: unknown
-    conclusion?: unknown
-  }>
 }
 
 interface GitHubComparisonResponse {
@@ -423,30 +344,6 @@ async function loadWorkflowRuns(
   })
 }
 
-async function loadJobs(
-  repository: string,
-  runId: number,
-  token: string,
-): Promise<CiWorkflowJob[]> {
-  const raw = await loadBoundedPages(
-    (page) => {
-      const url = new URL(
-        `https://api.github.com/repos/${repository}/actions/runs/${runId}/attempts/1/jobs`,
-      )
-      url.searchParams.set('per_page', String(PAGE_SIZE))
-      url.searchParams.set('page', String(page))
-      return url
-    },
-    (response) => (response as GitHubJobsResponse).jobs,
-    token,
-  )
-  return raw.map((job) => ({
-    name: githubEvidence.requiredString(job.name),
-    status: githubEvidence.requiredString(job.status),
-    conclusion: githubEvidence.nullableString(job.conclusion),
-  }))
-}
-
 async function loadComparison(
   repository: string,
   base: string,
@@ -523,7 +420,9 @@ export async function loadReleaseCiEvidence(
     matchesRunCandidate(run, repository, pullRequest),
   )
   const candidateRun = candidateRuns.length === 1 ? candidateRuns[0]! : null
-  const jobs = candidateRun ? await loadJobs(repository, candidateRun.id, token) : []
+  const jobs = candidateRun
+    ? await loadCiAttemptJobs(repository, candidateRun.id, candidateRun.runAttempt, token)
+    : []
   const [sourceToDefault, sourceCommit, headCommit] = await Promise.all([
     loadComparison(repository, sourceSha, defaultBranch, token),
     loadCommit(repository, sourceSha, token),

@@ -199,15 +199,15 @@ untouched same-repository bot release pull request runs one read-only integrity 
 its identity, exact two-file change set, synchronized semantic versions, and absence of other
 package or lockfile changes. Product verification, Electron, and CodeQL jobs are
 condition-skipped for only that pull-request event. Any ordinary pull request or non-bot
-release-branch update retains the complete first-attempt merge portfolio.
+release-branch update retains the complete merge portfolio.
 GitHub marks workflows opened by the repository `GITHUB_TOKEN` as approval-required; approving
 that bot pull request starts the focused integrity job, not the skipped matrices.
 
 The strict `main` ruleset admits the release pull request only after its exact version validator
-and first-attempt aggregate succeed. A `current` dispatch then relates that merged source to the
-same pull request, head, recorded base, first-attempt jobs, and equal source/head trees. Release
-never starts or reruns CI, and a direct, stale, changed, incomplete, ambiguous, or rerun-only
-source fails closed before native build or publication work.
+and coherent-attempt aggregate succeed. A `current` dispatch then relates that merged source to
+the same pull request, head, recorded base, exact current-attempt jobs, and equal source/head
+trees. Release never starts or reruns CI, and a direct, stale, changed, incomplete, ambiguous, or
+partial-attempt source fails closed before native build or publication work.
 
 Release builds the Linux x64 and arm64 packages once from that exact source on matching native
 Ubuntu 22.04 runners. Each baseline job completes installed-package acceptance before retaining

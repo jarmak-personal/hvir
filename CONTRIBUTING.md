@@ -81,12 +81,15 @@ explicit product non-goal, close that loop before asking anyone to write code.
 
 ## Use agents deliberately
 
-The repository provides three lifecycle skills, one test-design skill, and two focused reviewers:
+The repository provides four lifecycle skills, one test-design skill, and two focused reviewers:
 
 - `hvir-create-issue` evaluates product and ADR alignment, sharpens the problem and outcome,
   and prepares a discussion-ready issue.
 - `hvir-implement-issue` performs architecture reconnaissance, raises design concerns before
   editing, and implements an aligned issue with verification.
+- `hvir-merge-pr` accepts one explicitly authorized ordinary pull-request number, resolves and
+  verifies its native issue and exact head, then confirms and reconciles closure, Project, and
+  measurement state.
 - `hvir-implement-epic` privately coordinates an authorized epic's direct children through the
   single-issue workflow, coherence review, staged integration, cumulative handoff, and cleanup.
 - `write-hvir-tests` selects the behavior owner and lowest real test altitude for test changes,
@@ -109,8 +112,8 @@ Never commit agent credentials, personal MCP configuration, or machine-local har
 The review skills normally run only when a maintainer invokes them. Explicit invocation of
 `hvir-implement-epic` is the narrow exception: it authorizes that coordinator to apply
 `hvir-review-code` selection policy once to eligible child candidates and once to the cumulative
-candidate. `hvir-create-issue` and `hvir-implement-issue` do not independently invoke or suggest
-review.
+candidate. `hvir-create-issue`, `hvir-implement-issue`, and `hvir-merge-pr` do not independently
+invoke or suggest review.
 
 The canonical [agent-work measurement contract](docs/agent-work-measurements.md) defines the
 forecast rubric, phase boundaries, provider-neutral usage vocabulary, append-only correction
@@ -144,6 +147,39 @@ capability.
 
 This lifecycle belongs only to repository contributor tooling. The hvir application continues
 to discover worktrees without creating, moving, repairing, merging, or removing them.
+
+## Accept ordinary delivery
+
+`hvir-implement-issue` ends after it has verified, committed, pushed, audited, and handed off one
+ordinary candidate pull request. It does not infer acceptance or merge authority. When the
+maintainer accepts that pull request, invoke `hvir-merge-pr` with only its pull-request number.
+The repository operation, not the maintainer, resolves the native issue and exact head.
+
+The skill plans and applies one repository-owned operation:
+
+```sh
+npm run issue:merge -- --pull-request 190 --json
+npm run issue:merge -- --pull-request 190 --apply --json
+```
+
+The operation admits only an ordinary issue pull request to `main`. It derives exactly one
+same-repository native closing issue and snapshots the full pull-request head, then verifies that
+identity, mergeability, resolved review state, and every required check attached to that head
+before using GitHub's ordinary merge API with the derived SHA guard. Branch protection remains
+authoritative.
+
+After a merge, the same operation confirms the recorded head and merge commit, native issue
+closure, and canonical Project `Done` state. It then reconciles only existing agent-work evidence:
+a pending first candidate may become accepted through append-only supersession when that exact
+candidate merged without a later implementation run; rework remains sticky; missing evidence
+stays unavailable; and review values come only from existing review records. The named Project
+projection follows the ledger. No merge-phase measurement or inferred review usage is created.
+
+A repeated run with the same pull-request number rereads current state. It skips a proven merge
+and resumes closure, Project, ledger, or projection reconciliation using the identity recorded by
+the merged pull request. A post-merge failure does not rewrite GitHub history. Changed candidates
+return through `hvir-implement-issue`.
+Epic-child and cumulative epic pull requests remain exclusively owned by `hvir-implement-epic`.
 
 ## Stage epic delivery
 
