@@ -3,9 +3,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 
-import {
-  MERGE_ACCEPTANCE_JOB,
-} from '../scripts/require-release-ci-evidence.mts'
+import { MERGE_ACCEPTANCE_JOB } from '../scripts/ci-attempt-evidence.mts'
 
 const releaseWorkflow = readFileSync(
   new URL('../.github/workflows/release.yml', import.meta.url),
@@ -58,6 +56,10 @@ const prepareReleaseScript = readFileSync(
 )
 const releaseCiEvidenceScript = readFileSync(
   new URL('../scripts/require-release-ci-evidence.mts', import.meta.url),
+  'utf8',
+)
+const ciAttemptEvidenceScript = readFileSync(
+  new URL('../scripts/ci-attempt-evidence.mts', import.meta.url),
   'utf8',
 )
 const releasePrIntegrityScript = readFileSync(
@@ -131,7 +133,7 @@ describe('native release automation', () => {
     expect(releaseWorkflow).toContain('run: node scripts/require-release-ci-evidence.mts')
     const prepare = release.jobs.prepare
     const evidenceStep = prepare?.steps?.find(
-      (step) => step.name === 'Require exact-source first-attempt CI evidence',
+      (step) => step.name === 'Require exact-source coherent CI evidence',
     )
     const evidenceTimeoutMinutes = evidenceStep?.['timeout-minutes'] ?? 0
     expect(evidenceStep?.id).toBeUndefined()
@@ -150,10 +152,12 @@ describe('native release automation', () => {
     expect(releaseCiEvidenceScript).toContain(
       "export const CI_WORKFLOW_PATH = '.github/workflows/ci.yml'",
     )
-    expect(releaseCiEvidenceScript).toContain('run.runAttempt !== 1')
-    expect(releaseCiEvidenceScript).toContain(MERGE_ACCEPTANCE_JOB)
+    expect(releaseCiEvidenceScript).toContain('candidateRun.runAttempt')
+    expect(ciAttemptEvidenceScript).toContain(MERGE_ACCEPTANCE_JOB)
     expect(releaseCiEvidenceScript).not.toMatch(/\/rerun|\/dispatches/)
+    expect(ciAttemptEvidenceScript).not.toMatch(/\/rerun|\/dispatches/)
     expect(releaseCiEvidenceScript).not.toContain('method:')
+    expect(ciAttemptEvidenceScript).not.toContain('method:')
     expect(releaseCiEvidenceScript).not.toContain('response.text()')
     expect(releaseCiEvidenceScript).not.toContain('GITHUB_OUTPUT')
     expect(releaseCiEvidenceScript).not.toContain('run_id')
