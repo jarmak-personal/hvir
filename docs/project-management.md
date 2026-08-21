@@ -421,30 +421,29 @@ never changes Project membership, Kind, or Status.
 
 ### Ordinary pull-request merge acceptance
 
-Plan and apply one explicitly authorized ordinary issue candidate through the repository-owned
-merge coordinator:
+Plan and apply one explicitly authorized ordinary pull request through the repository-owned merge
+coordinator. The pull-request number is the only authority input:
 
 ```sh
 HVIR_REPO_TOKEN="$(gh auth token)" \
 HVIR_PROJECT_TOKEN="$(gh auth token)" \
-npm run issue:merge -- --issue 168 --pull-request 190 \
-  --candidate aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --json
+npm run issue:merge -- --pull-request 190 --json
 
 HVIR_REPO_TOKEN="$(gh auth token)" \
 HVIR_PROJECT_TOKEN="$(gh auth token)" \
-npm run issue:merge -- --issue 168 --pull-request 190 \
-  --candidate aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --apply --json
+npm run issue:merge -- --pull-request 190 --apply --json
 ```
 
-The full lowercase candidate SHA, issue number, and pull-request number are required authority;
-the command never selects or guesses them. Dry-run rereads the current issue, pull request,
-required checks, Project record, and measurement ledger without mutation. Apply recomputes those
-facts, uses GitHub's normal merge API with the exact head guard and merge-commit method, and never
-bypasses branch protection.
+The command resolves exactly one same-repository native closing issue and snapshots the pull
+request's full current head SHA. Dry-run rereads that resolved issue, pull request, required
+checks, Project record, and measurement ledger without mutation. Apply freshly recomputes those
+facts, uses GitHub's normal merge API with the derived exact-head guard and merge-commit method,
+and never bypasses branch protection. A missing, foreign, or ambiguous closing relationship
+cannot supply an issue identity and stops before any issue, Project, or ledger operation.
 
 Admission is fail closed. The issue must have one valid non-epic kind, no native parent or direct
 children, and exactly one native closing relationship from the authorized same-repository pull
-request. The pull request must be open, non-draft, target `main`, retain the exact candidate head,
+request. The pull request must be open, non-draft, target `main`, retain the resolved exact head,
 have a complete successful required-check set for that head, and be cleanly mergeable without an
 unresolved review decision. Closed-unmerged, fork-head, stale-base, conflict, unknown,
 relationship, pagination, pending-check, and failed-check states are diagnostics and perform no
@@ -460,8 +459,9 @@ unchanged. Missing evidence remains unavailable, and review fields come only fro
 `implementation-review` records.
 
 The merge request is attempted once. A rejected or uncertain response is resolved by rereading
-GitHub before the command reports. A retry with the same issue, pull request, and candidate skips
-an already proven merge and resumes only native closure, Project, append, or projection work.
+GitHub before the command reports. A retry with the same pull-request number skips an already
+proven merge and resumes only native closure, Project, append, or projection work using the
+identity recorded by the merged pull request.
 Append idempotency prevents duplicate usage; existing comments are never edited. Exit code 0
 means a clean dry run, merge, or recovery; policy and reconciliation diagnostics exit 2; an
 operational failure before a report exits 1. Epic children and root epics are refused and remain

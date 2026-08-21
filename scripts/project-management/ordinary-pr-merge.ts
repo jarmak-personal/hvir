@@ -78,10 +78,13 @@ export interface OrdinaryPullRequestMergePorts {
 }
 
 export interface OrdinaryPullRequestMergeInput {
-  issueNumber: number
   pullRequestNumber: number
-  candidateOid: string
   apply: boolean
+}
+
+interface ResolvedOrdinaryPullRequestMergeInput extends OrdinaryPullRequestMergeInput {
+  issueNumber: number
+  candidateOid: string
 }
 
 export type OrdinaryPullRequestMergeDiagnostic =
@@ -119,9 +122,9 @@ export type OrdinaryPullRequestMergeDiagnostic =
   | 'measurement-projection-failed'
 
 export interface OrdinaryPullRequestMergeReport {
-  issueNumber: number
+  issueNumber: number | null
   pullRequestNumber: number
-  candidateOid: string
+  candidateOid: string | null
   apply: boolean
   outcome:
     'blocked' | 'would-merge' | 'would-reconcile' | 'merged' | 'recovered' | 'partial'
@@ -134,7 +137,7 @@ export interface OrdinaryPullRequestMergeReport {
     requiredChecks: OrdinaryMergeRequiredCheck[]
   }
   issue: {
-    state: 'OPEN' | 'CLOSED'
+    state: 'OPEN' | 'CLOSED' | null
     projectStatus: string | null
   }
   merge: {
@@ -174,16 +177,31 @@ export async function reconcileOrdinaryPullRequestMerge(
   input: OrdinaryPullRequestMergeInput,
 ): Promise<OrdinaryPullRequestMergeReport> {
   requireInput(input)
-  const [initialPullRequest, initialPlanning, initialHistory] = await Promise.all([
-    ports.pullRequests.readPullRequest(input.pullRequestNumber),
-    ports.planning.inspect(input.issueNumber),
-    ports.ledger.readCommentHistory(input.issueNumber),
-  ])
-  const initialLedger = normalizeAgentWorkComments(input.issueNumber, initialHistory)
-  const report = initialReport(input, initialPullRequest, initialPlanning.record)
-  report.diagnostics.push(
-    ...preMergeDiagnostics(input, initialPullRequest, initialPlanning.record),
+  const initialPullRequest = await ports.pullRequests.readPullRequest(
+    input.pullRequestNumber,
   )
+  const resolved = resolveOrdinaryPullRequestMergeInput(input, initialPullRequest)
+  if (resolved.input === undefined) {
+    return unresolvedReport(input, initialPullRequest, resolved.diagnostics)
+  }
+  const [initialPlanning, initialHistory] = await Promise.all([
+    ports.planning.inspect(resolved.input.issueNumber),
+    ports.ledger.readCommentHistory(resolved.input.issueNumber),
+  ])
+  const initialLedger = normalizeAgentWorkComments(
+    resolved.input.issueNumber,
+    initialHistory,
+  )
+  const report = initialReport(resolved.input, initialPullRequest, initialPlanning.record)
+  report.diagnostics.push(
+    ...preMergeDiagnostics(resolved.input, initialPullRequest, initialPlanning.record),
+  )
+  if (
+    initialLedger.diagnostics.length === 0 &&
+    planOrdinaryMergeAcceptanceCorrection(initialLedger, resolved.input).candidateMismatch
+  ) {
+    report.diagnostics.push('measurement-candidate-mismatch')
+  }
   if (report.diagnostics.length > 0) return report
 
   const startedMerged = initialPullRequest.state === 'MERGED'
@@ -196,7 +214,7 @@ export async function reconcileOrdinaryPullRequestMerge(
   if (!startedMerged) {
     const attempt = await ports.pullRequests.mergePullRequest(
       input.pullRequestNumber,
-      input.candidateOid,
+      resolved.input.candidateOid,
     )
     report.merge.outcome = attempt.outcome
     if (attempt.outcome === 'rejected') report.diagnostics.push('merge-rejected')
@@ -207,9 +225,9 @@ export async function reconcileOrdinaryPullRequestMerge(
     report.merge.outcome = 'already-merged'
   }
 
-  const confirmed = await confirmMergedState(ports, input)
+  const confirmed = await confirmMergedState(ports, resolved.input)
   updateObservedState(report, confirmed.pullRequest, confirmed.planning.record)
-  if (!isExactMergedCandidate(confirmed.pullRequest, input)) {
+  if (!isExactMergedCandidate(confirmed.pullRequest, resolved.input)) {
     report.outcome = 'partial'
     report.diagnostics.push('merge-result-mismatch')
     return report
@@ -221,7 +239,7 @@ export async function reconcileOrdinaryPullRequestMerge(
   report.merge.outcome = startedMerged ? 'already-merged' : 'merged'
 
   const postMergeDiagnostics = preMergeDiagnostics(
-    input,
+    resolved.input,
     confirmed.pullRequest,
     confirmed.planning.record,
   )
@@ -240,7 +258,7 @@ export async function reconcileOrdinaryPullRequestMerge(
   let planning: PlanningRecordReport
   try {
     planning = await ports.planning.converge({
-      issueNumber: input.issueNumber,
+      issueNumber: resolved.input.issueNumber,
       active: false,
       apply: input.apply,
     })
@@ -266,7 +284,7 @@ export async function reconcileOrdinaryPullRequestMerge(
 
   await reconcileAcceptanceMeasurement(
     ports,
-    input,
+    resolved.input,
     report,
     startedMerged ? initialLedger : undefined,
   )
@@ -281,9 +299,89 @@ export async function reconcileOrdinaryPullRequestMerge(
   return report
 }
 
+function resolveOrdinaryPullRequestMergeInput(
+  input: OrdinaryPullRequestMergeInput,
+  pullRequest: OrdinaryMergePullRequest,
+): {
+  input?: ResolvedOrdinaryPullRequestMergeInput
+  diagnostics: OrdinaryPullRequestMergeDiagnostic[]
+} {
+  const diagnostics: OrdinaryPullRequestMergeDiagnostic[] = []
+  if (pullRequest.number !== input.pullRequestNumber) {
+    diagnostics.push('pull-request-identity-mismatch')
+  }
+  const issueNumber = resolvedClosingIssueNumber(pullRequest)
+  if (!pullRequest.relationshipsComplete || pullRequest.closingIssues.length > 1) {
+    diagnostics.push('relationship-ambiguous')
+  } else if (issueNumber === undefined) {
+    diagnostics.push('relationship-mismatch')
+  }
+  if (!FULL_SHA_PATTERN.test(pullRequest.headRefOid)) {
+    diagnostics.push('head-mismatch')
+  }
+  if (diagnostics.length > 0 || issueNumber === undefined) {
+    return { diagnostics: dedupe(diagnostics) }
+  }
+  return {
+    input: {
+      ...input,
+      issueNumber,
+      candidateOid: pullRequest.headRefOid,
+    },
+    diagnostics: [],
+  }
+}
+
+function resolvedClosingIssueNumber(
+  pullRequest: OrdinaryMergePullRequest,
+): number | undefined {
+  if (!pullRequest.relationshipsComplete || pullRequest.closingIssues.length !== 1) {
+    return undefined
+  }
+  const closing = pullRequest.closingIssues[0]!
+  if (
+    closing.repository.toLowerCase() !== pullRequest.repository.toLowerCase() ||
+    !Number.isSafeInteger(closing.number) ||
+    closing.number <= 0
+  ) {
+    return undefined
+  }
+  return closing.number
+}
+
+function unresolvedReport(
+  input: OrdinaryPullRequestMergeInput,
+  pullRequest: OrdinaryMergePullRequest,
+  diagnostics: OrdinaryPullRequestMergeDiagnostic[],
+): OrdinaryPullRequestMergeReport {
+  return {
+    issueNumber: resolvedClosingIssueNumber(pullRequest) ?? null,
+    pullRequestNumber: input.pullRequestNumber,
+    candidateOid: FULL_SHA_PATTERN.test(pullRequest.headRefOid)
+      ? pullRequest.headRefOid
+      : null,
+    apply: input.apply,
+    outcome: 'blocked',
+    pullRequest: {
+      state: pullRequest.state,
+      base: pullRequest.baseRefName,
+      headBranch: pullRequest.headRefName,
+      headOid: pullRequest.headRefOid,
+      mergeCommitOid: pullRequest.mergeCommitOid,
+      requiredChecks: pullRequest.requiredChecks,
+    },
+    issue: { state: null, projectStatus: null },
+    merge: { outcome: 'not-attempted' },
+    project: { outcome: 'deferred' },
+    measurement: { outcome: 'deferred' },
+    projection: { outcome: 'deferred' },
+    diagnostics,
+  }
+}
+
 async function confirmMergedState(
   ports: OrdinaryPullRequestMergePorts,
-  input: OrdinaryPullRequestMergeInput,
+  input: ResolvedOrdinaryPullRequestMergeInput,
 ): Promise<{ pullRequest: OrdinaryMergePullRequest; planning: PlanningRecordReport }> {
   const wait =
     ports.wait ??
@@ -310,7 +408,7 @@ async function confirmMergedState(
 
 async function reconcileAcceptanceMeasurement(
   ports: OrdinaryPullRequestMergePorts,
-  input: OrdinaryPullRequestMergeInput,
+  input: ResolvedOrdinaryPullRequestMergeInput,
   report: OrdinaryPullRequestMergeReport,
   initialLedger?: NormalizedAgentWorkLedger,
 ): Promise<void> {
@@ -382,7 +480,7 @@ async function reconcileAcceptanceMeasurement(
 }
 
 function preMergeDiagnostics(
-  input: OrdinaryPullRequestMergeInput,
+  input: ResolvedOrdinaryPullRequestMergeInput,
   pullRequest: OrdinaryMergePullRequest,
   planning: NormalizedPlanningRecord,
 ): OrdinaryPullRequestMergeDiagnostic[] {
@@ -456,7 +554,7 @@ function preMergeDiagnostics(
 }
 
 function initialReport(
-  input: OrdinaryPullRequestMergeInput,
+  input: ResolvedOrdinaryPullRequestMergeInput,
   pullRequest: OrdinaryMergePullRequest,
   planning: NormalizedPlanningRecord,
 ): OrdinaryPullRequestMergeReport {
@@ -503,7 +601,7 @@ function updateObservedState(
 
 function isExactMergedCandidate(
   pullRequest: OrdinaryMergePullRequest,
-  input: OrdinaryPullRequestMergeInput,
+  input: ResolvedOrdinaryPullRequestMergeInput,
 ): boolean {
   return (
     pullRequest.state === 'MERGED' &&
@@ -514,14 +612,8 @@ function isExactMergedCandidate(
 }
 
 function requireInput(input: OrdinaryPullRequestMergeInput): void {
-  if (!Number.isSafeInteger(input.issueNumber) || input.issueNumber <= 0) {
-    throw new Error('Issue number must be a positive integer.')
-  }
   if (!Number.isSafeInteger(input.pullRequestNumber) || input.pullRequestNumber <= 0) {
     throw new Error('Pull request number must be a positive integer.')
-  }
-  if (!FULL_SHA_PATTERN.test(input.candidateOid)) {
-    throw new Error('Candidate must be one full lowercase 40-character commit SHA.')
   }
 }
 

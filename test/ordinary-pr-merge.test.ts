@@ -46,6 +46,8 @@ function fixture(options: FixtureOptions = {}): {
   projectValues: AgentWorkProjectValues
   mergePullRequest: ReturnType<typeof vi.fn>
   appendComment: ReturnType<typeof vi.fn>
+  inspect: ReturnType<typeof vi.fn>
+  readCommentHistory: ReturnType<typeof vi.fn>
 } {
   const pullRequest: OrdinaryMergePullRequest = {
     repository,
@@ -136,6 +138,9 @@ function fixture(options: FixtureOptions = {}): {
     })
     return Promise.resolve()
   })
+  const readCommentHistory = vi.fn(() =>
+    Promise.resolve({ trustedActor: 'jarmak-personal', comments: [...comments] }),
+  )
   return {
     pullRequest,
     planning,
@@ -143,6 +148,8 @@ function fixture(options: FixtureOptions = {}): {
     projectValues,
     mergePullRequest,
     appendComment,
+    inspect,
+    readCommentHistory,
     ports: {
       pullRequests: {
         readPullRequest: vi.fn(() => Promise.resolve({ ...pullRequest })),
@@ -150,9 +157,7 @@ function fixture(options: FixtureOptions = {}): {
       },
       planning: { inspect, converge },
       ledger: {
-        readCommentHistory: vi.fn(() =>
-          Promise.resolve({ trustedActor: 'jarmak-personal', comments: [...comments] }),
-        ),
+        readCommentHistory,
         appendComment,
       },
       projectionSource: {
@@ -186,13 +191,13 @@ describe('ordinary pull request merge acceptance', () => {
     const candidateFixture = fixture()
 
     const result = await reconcileOrdinaryPullRequestMerge(candidateFixture.ports, {
-      issueNumber: 611,
       pullRequestNumber: 700,
-      candidateOid: candidate,
       apply: false,
     })
 
     expect(result).toMatchObject({
+      issueNumber: 611,
+      candidateOid: candidate,
       outcome: 'would-merge',
       merge: { outcome: 'would-merge' },
       diagnostics: [],
@@ -206,9 +211,7 @@ describe('ordinary pull request merge acceptance', () => {
     const candidateFixture = fixture()
 
     const result = await reconcileOrdinaryPullRequestMerge(candidateFixture.ports, {
-      issueNumber: 611,
       pullRequestNumber: 700,
-      candidateOid: candidate,
       apply: true,
     })
 
@@ -237,12 +240,17 @@ describe('ordinary pull request merge acceptance', () => {
   >([
     ['draft', { isDraft: true }, 'pull-request-draft'],
     ['wrong base', { baseRefName: 'epic/600-delivery' }, 'base-mismatch'],
-    ['wrong head', { headRefOid: 'c'.repeat(40) }, 'head-mismatch'],
     [
-      'wrong relationship',
-      { closingIssues: [{ repository, number: 612 }] },
+      'head not recorded by implementation',
+      { headRefOid: 'c'.repeat(40) },
+      'measurement-candidate-mismatch',
+    ],
+    [
+      'foreign relationship',
+      { closingIssues: [{ repository: 'someone-else/hvir', number: 611 }] },
       'relationship-mismatch',
     ],
+    ['missing relationship', { closingIssues: [] }, 'relationship-mismatch'],
     [
       'ambiguous relationship',
       {
@@ -259,14 +267,30 @@ describe('ordinary pull request merge acceptance', () => {
   ])('blocks a %s before mutation', async (_name, pullRequest, diagnostic) => {
     const candidateFixture = fixture({ pullRequest })
     const result = await reconcileOrdinaryPullRequestMerge(candidateFixture.ports, {
-      issueNumber: 611,
       pullRequestNumber: 700,
-      candidateOid: candidate,
       apply: true,
     })
 
     expect(result.diagnostics).toContain(diagnostic)
     expect(candidateFixture.mergePullRequest).not.toHaveBeenCalled()
+  })
+
+  it('does not read issue-owned state when the pull request cannot resolve one issue', async () => {
+    const candidateFixture = fixture({ pullRequest: { closingIssues: [] } })
+
+    const result = await reconcileOrdinaryPullRequestMerge(candidateFixture.ports, {
+      pullRequestNumber: 700,
+      apply: true,
+    })
+
+    expect(result).toMatchObject({
+      issueNumber: null,
+      candidateOid: candidate,
+      issue: { state: null, projectStatus: null },
+      diagnostics: ['relationship-mismatch'],
+    })
+    expect(candidateFixture.inspect).not.toHaveBeenCalled()
+    expect(candidateFixture.readCommentHistory).not.toHaveBeenCalled()
   })
 
   it.each([
@@ -280,9 +304,7 @@ describe('ordinary pull request merge acceptance', () => {
     })
 
     const result = await reconcileOrdinaryPullRequestMerge(candidateFixture.ports, {
-      issueNumber: 611,
       pullRequestNumber: 700,
-      candidateOid: candidate,
       apply: true,
     })
 
@@ -297,9 +319,7 @@ describe('ordinary pull request merge acceptance', () => {
     })
 
     const result = await reconcileOrdinaryPullRequestMerge(candidateFixture.ports, {
-      issueNumber: 611,
       pullRequestNumber: 700,
-      candidateOid: candidate,
       apply: true,
     })
 
@@ -315,9 +335,7 @@ describe('ordinary pull request merge acceptance', () => {
     const candidateFixture = fixture({ closeOnMerge: false })
 
     const first = await reconcileOrdinaryPullRequestMerge(candidateFixture.ports, {
-      issueNumber: 611,
       pullRequestNumber: 700,
-      candidateOid: candidate,
       apply: true,
     })
     expect(first).toMatchObject({
@@ -328,9 +346,7 @@ describe('ordinary pull request merge acceptance', () => {
 
     candidateFixture.planning.issue.state = 'CLOSED'
     const resumed = await reconcileOrdinaryPullRequestMerge(candidateFixture.ports, {
-      issueNumber: 611,
       pullRequestNumber: 700,
-      candidateOid: candidate,
       apply: true,
     })
 
@@ -358,9 +374,7 @@ describe('ordinary pull request merge acceptance', () => {
     })
 
     const result = await reconcileOrdinaryPullRequestMerge(candidateFixture.ports, {
-      issueNumber: 611,
       pullRequestNumber: 700,
-      candidateOid: candidate,
       apply: true,
     })
 
@@ -381,9 +395,7 @@ describe('ordinary pull request merge acceptance', () => {
     })
 
     const result = await reconcileOrdinaryPullRequestMerge(candidateFixture.ports, {
-      issueNumber: 611,
       pullRequestNumber: 700,
-      candidateOid: candidate,
       apply: true,
     })
 
@@ -415,9 +427,7 @@ describe('ordinary pull request merge acceptance', () => {
     })
 
     const result = await reconcileOrdinaryPullRequestMerge(candidateFixture.ports, {
-      issueNumber: 611,
       pullRequestNumber: 700,
-      candidateOid: laterCandidate,
       apply: true,
     })
 
@@ -433,9 +443,7 @@ describe('ordinary pull request merge acceptance', () => {
     const candidateFixture = fixture({ records: [] })
 
     const result = await reconcileOrdinaryPullRequestMerge(candidateFixture.ports, {
-      issueNumber: 611,
       pullRequestNumber: 700,
-      candidateOid: candidate,
       apply: true,
     })
 
@@ -450,9 +458,7 @@ describe('ordinary pull request merge acceptance', () => {
     const candidateFixture = fixture({ projectionFailure: true })
 
     const result = await reconcileOrdinaryPullRequestMerge(candidateFixture.ports, {
-      issueNumber: 611,
       pullRequestNumber: 700,
-      candidateOid: candidate,
       apply: true,
     })
 
@@ -482,9 +488,7 @@ describe('ordinary pull request merge acceptance', () => {
 
     for (const candidateFixture of [rootEpic, child]) {
       const result = await reconcileOrdinaryPullRequestMerge(candidateFixture.ports, {
-        issueNumber: 611,
         pullRequestNumber: 700,
-        candidateOid: candidate,
         apply: true,
       })
       expect(result.diagnostics).toContain('issue-not-ordinary')
@@ -492,36 +496,29 @@ describe('ordinary pull request merge acceptance', () => {
     }
   })
 
-  it('requires an explicit issue, pull request, and full candidate SHA', () => {
+  it('accepts only one explicit pull request number', () => {
     expect(
       parseOrdinaryPullRequestMergeCliOptions([
-        '--issue',
-        '611',
         '--pull-request',
         '700',
-        '--candidate',
-        candidate,
         '--apply',
         '--json',
       ]),
     ).toEqual({
       help: false,
-      issueNumber: 611,
       pullRequestNumber: 700,
-      candidateOid: candidate,
       apply: true,
       json: true,
     })
+    expect(() => parseOrdinaryPullRequestMergeCliOptions([])).toThrow(
+      '--pull-request is required',
+    )
+    expect(() => parseOrdinaryPullRequestMergeCliOptions(['--issue', '611'])).toThrow(
+      'Unknown argument: --issue',
+    )
     expect(() =>
-      parseOrdinaryPullRequestMergeCliOptions([
-        '--issue',
-        '611',
-        '--pull-request',
-        '700',
-        '--candidate',
-        candidate.slice(0, 12),
-      ]),
-    ).toThrow('full lowercase')
+      parseOrdinaryPullRequestMergeCliOptions(['--candidate', candidate]),
+    ).toThrow('Unknown argument: --candidate')
   })
 })
 

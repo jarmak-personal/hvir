@@ -15,12 +15,14 @@ describe('hvir ordinary merge skill', () => {
     expect(skill).toContain('name: hvir-merge-pr')
   })
 
-  it('requires explicit immutable authority and delegates policy to the repository owner', () => {
+  it('accepts only a pull request number and delegates identity policy', () => {
+    expect(skill).toContain('`$hvir-merge-pr <pull-request-number>`')
     expect(skill).toContain(
-      'Require the maintainer to name the governing issue, pull request, and full',
+      'the pull request number is the only accepted maintainer input',
     )
-    expect(skill).toContain('npm run issue:merge -- --issue <issue> --pull-request <pr>')
-    expect(skill).toContain('--candidate <full-candidate-sha> --apply --json')
+    expect(skill).toContain('Do not request or accept a separately supplied issue number')
+    expect(skill).toContain('npm run issue:merge -- --pull-request <pr> --json')
+    expect(skill).toContain('npm run issue:merge -- --pull-request <pr> --apply --json')
     expect(skill).toContain('do not recreate its policy with ad hoc `gh`')
   })
 
@@ -32,9 +34,10 @@ describe('hvir ordinary merge skill', () => {
     expect(skill).toContain('`hvir-implement-epic`')
   })
 
-  it('preserves the idempotent recovery tuple after a partial post-merge result', () => {
-    expect(skill).toContain('rerun the same dry-run/apply sequence')
-    expect(skill).toContain('skips a proven existing merge')
-    expect(skill).toContain('the exact idempotent retry tuple')
+  it('preserves PR-number-only recovery after a partial post-merge result', () => {
+    expect(skill).toContain('rerun the same PR-number-only dry-run/apply')
+    expect(skill).toContain('skips a proven')
+    expect(skill).toContain('existing merge')
+    expect(skill).toContain('the exact PR-number retry invocation')
   })
 })

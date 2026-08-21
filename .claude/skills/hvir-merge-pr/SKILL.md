@@ -6,9 +6,12 @@ description: Merge and reconcile one explicitly authorized ordinary hvir issue p
 # Merge an ordinary hvir pull request
 
 Accept one exact ordinary delivery candidate without extending implementation, review, or epic
-coordination authority. Require the maintainer to name the governing issue, pull request, and full
-handed-off candidate commit SHA. If any of those three identities is absent, stop and request it.
-Do not infer authorization from an implementation handoff or an open pull request.
+coordination authority. Require the maintainer to invoke `$hvir-merge-pr <pull-request-number>`;
+the pull request number is the only accepted maintainer input. If it is absent, stop and request
+it. Do not request or accept a separately supplied issue number or candidate SHA. The repository
+operation resolves the one native closing issue and snapshots the pull request's full head SHA,
+then validates both before mutation. Do not infer authorization from an implementation handoff or
+an open pull request.
 
 Read `AGENTS.md`, `CONTRIBUTING.md`,
 [`docs/project-management.md`](../../../docs/project-management.md), and
@@ -26,13 +29,11 @@ recomputed plan:
 ```sh
 HVIR_REPO_TOKEN="$(gh auth token)" \
 HVIR_PROJECT_TOKEN="$(gh auth token)" \
-npm run issue:merge -- --issue <issue> --pull-request <pr> \
-  --candidate <full-candidate-sha> --json
+npm run issue:merge -- --pull-request <pr> --json
 
 HVIR_REPO_TOKEN="$(gh auth token)" \
 HVIR_PROJECT_TOKEN="$(gh auth token)" \
-npm run issue:merge -- --issue <issue> --pull-request <pr> \
-  --candidate <full-candidate-sha> --apply --json
+npm run issue:merge -- --pull-request <pr> --apply --json
 ```
 
 The repository operation owns ordinary-delivery validation, the exact-head guarded GitHub merge,
@@ -48,10 +49,11 @@ relationship, or any other non-ordinary delivery, stop and direct the maintainer
 ## Recover after a partial result
 
 A successful GitHub merge is never rolled back by a later closure, Project, ledger, or projection
-failure. Preserve the original issue, pull-request, and candidate tuple. Diagnose only the named
-failure, then rerun the same dry-run/apply sequence. The repository operation rereads current
-GitHub and ledger state, skips a proven existing merge, and uses append idempotency and
-supersession rather than editing or duplicating measurement history.
+failure. Preserve the authorized pull-request number and the resolved issue/candidate identity in
+the report. Diagnose only the named failure, then rerun the same PR-number-only dry-run/apply
+sequence. The repository operation rereads current GitHub and ledger state, skips a proven
+existing merge, and uses append idempotency and supersession rather than editing or duplicating
+measurement history.
 
 Do not change the branch, candidate, pull-request body, issue relationship, implementation
 records, or Project fields by hand to make a blocked result pass. A changed candidate returns to
@@ -68,4 +70,4 @@ Return a compact maintainer handoff containing:
 - native issue closure and canonical Project Status;
 - active first-pass outcome, append result, measurement availability, and projection result;
 - confirmation that no review usage was invented and no epic integration was performed; and
-- any post-merge reconciliation failure plus the exact idempotent retry tuple.
+- any post-merge reconciliation failure plus the exact PR-number retry invocation.

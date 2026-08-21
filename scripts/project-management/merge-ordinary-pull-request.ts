@@ -65,9 +65,7 @@ async function main(): Promise<void> {
       project,
     },
     {
-      issueNumber: requireOption(options.issueNumber, '--issue'),
       pullRequestNumber: requireOption(options.pullRequestNumber, '--pull-request'),
-      candidateOid: requireOption(options.candidateOid, '--candidate'),
       apply: options.apply,
     },
   )
