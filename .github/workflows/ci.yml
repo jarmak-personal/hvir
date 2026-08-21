@@ -195,6 +195,9 @@ jobs:
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
 
     steps:
       - name: Check out exact head for base ancestry proof
@@ -204,21 +207,16 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Require complete first-attempt merge evidence
+      - name: Require one coherent CI attempt
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/ci-attempt-evidence.mts
+
+      - name: Require exact candidate ancestry
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          RUN_ATTEMPT: ${{ github.run_attempt }}
-          RELEASE_VERSION_INTEGRITY: ${{ needs.release-version-integrity.result }}
-          VERIFY: ${{ needs.verify.result }}
-          ELECTRON_SMOKE: ${{ needs.electron-smoke.result }}
-          MACOS_ELECTRON_SMOKE: ${{ needs.macos-electron-smoke.result }}
-          CODEQL: ${{ needs.codeql.result }}
         run: |
-          if [ "$RUN_ATTEMPT" != 1 ]; then
-            echo "::error::Only workflow attempt one can satisfy merge acceptance"
-            exit 1
-          fi
           if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ || ! "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             echo "::error::Pull request base and head must be full commit SHAs"
             exit 1
@@ -231,24 +229,3 @@ jobs:
             echo "::error::The tested pull request base is not an ancestor of its head"
             exit 1
           fi
-
-          if [ "$RELEASE_VERSION_INTEGRITY" = success ]; then
-            for result in "$VERIFY" "$ELECTRON_SMOKE" "$MACOS_ELECTRON_SMOKE" "$CODEQL"; do
-              if [ "$result" != skipped ]; then
-                echo "::error::Version-only acceptance requires every ordinary job to skip"
-                exit 1
-              fi
-            done
-            exit 0
-          fi
-
-          if [ "$RELEASE_VERSION_INTEGRITY" != skipped ]; then
-            echo "::error::The version-only classifier did not skip or succeed"
-            exit 1
-          fi
-          for result in "$VERIFY" "$ELECTRON_SMOKE" "$MACOS_ELECTRON_SMOKE" "$CODEQL"; do
-            if [ "$result" != success ]; then
-              echo "::error::Every ordinary required job must succeed"
-              exit 1
-            fi
-          done

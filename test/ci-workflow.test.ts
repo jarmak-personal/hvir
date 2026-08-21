@@ -138,11 +138,15 @@ describe('CI workflow', () => {
     }
   })
 
-  it('always reports one first-attempt aggregate and fails every incomplete branch', () => {
+  it('always reports one coherent-attempt aggregate and fails every incomplete branch', () => {
     const aggregate = workflow.jobs['merge-acceptance']
     if (!aggregate) throw new Error('Missing merge acceptance job')
     expect(aggregate.name).toBe('Merge acceptance')
     expect(aggregate.if).toBe('always()')
+    expect(aggregate.permissions).toEqual({
+      actions: 'read',
+      contents: 'read',
+    })
     expect(aggregate.needs).toEqual([
       'release-version-integrity',
       'verify',
@@ -159,19 +163,17 @@ describe('CI workflow', () => {
         'persist-credentials': false,
       },
     })
+    expect(aggregate.steps).toContainEqual({
+      name: 'Require one coherent CI attempt',
+      env: { GITHUB_TOKEN: '${{ github.token }}' },
+      run: 'node scripts/ci-attempt-evidence.mts',
+    })
     const step = aggregate.steps.find(
-      (candidate) => candidate.name === 'Require complete first-attempt merge evidence',
+      (candidate) => candidate.name === 'Require exact candidate ancestry',
     )
     expect(step?.env).toEqual({
       BASE_SHA: '${{ github.event.pull_request.base.sha }}',
       HEAD_SHA: '${{ github.event.pull_request.head.sha }}',
-      RUN_ATTEMPT: '${{ github.run_attempt }}',
-      RELEASE_VERSION_INTEGRITY:
-        '${{ needs.release-version-integrity.result }}',
-      VERIFY: '${{ needs.verify.result }}',
-      ELECTRON_SMOKE: '${{ needs.electron-smoke.result }}',
-      MACOS_ELECTRON_SMOKE: '${{ needs.macos-electron-smoke.result }}',
-      CODEQL: '${{ needs.codeql.result }}',
     })
     expect(step?.run).toContain('if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$')
     expect(step?.run).toContain('if [ "$(git rev-parse HEAD)" != "$HEAD_SHA" ]')
@@ -180,10 +182,10 @@ describe('CI workflow', () => {
     )
   })
 
-  it('executes every ordinary, version-only, and identity acceptance branch', async () => {
+  it('executes every candidate-identity acceptance branch', async () => {
     const aggregate = workflow.jobs['merge-acceptance']
     const script = aggregate?.steps.find(
-      (candidate) => candidate.name === 'Require complete first-attempt merge evidence',
+      (candidate) => candidate.name === 'Require exact candidate ancestry',
     )?.run
     if (!script) throw new Error('Missing merge acceptance decision')
 
@@ -206,12 +208,6 @@ describe('CI workflow', () => {
     const ordinaryEnvironment = {
       BASE_SHA: baseSha,
       HEAD_SHA: headSha,
-      RUN_ATTEMPT: '1',
-      RELEASE_VERSION_INTEGRITY: 'skipped',
-      VERIFY: 'success',
-      ELECTRON_SMOKE: 'success',
-      MACOS_ELECTRON_SMOKE: 'success',
-      CODEQL: 'success',
     }
     const runAggregate = (overrides: Record<string, string> = {}): number | null =>
       spawnSync('bash', ['-c', script], {
@@ -224,29 +220,9 @@ describe('CI workflow', () => {
       { BASE_SHA: divergedSha },
       { BASE_SHA: 'not-a-sha' },
       { HEAD_SHA: baseSha },
-      { RUN_ATTEMPT: '2' },
-      { VERIFY: 'failure' },
-      { RELEASE_VERSION_INTEGRITY: 'failure' },
     ]
     for (const rejected of rejectedCases) {
       expect(runAggregate(rejected)).toBe(1)
-    }
-
-    const versionOnly = {
-      RELEASE_VERSION_INTEGRITY: 'success',
-      VERIFY: 'skipped',
-      ELECTRON_SMOKE: 'skipped',
-      MACOS_ELECTRON_SMOKE: 'skipped',
-      CODEQL: 'skipped',
-    }
-    expect(runAggregate(versionOnly)).toBe(0)
-    for (const job of [
-      'VERIFY',
-      'ELECTRON_SMOKE',
-      'MACOS_ELECTRON_SMOKE',
-      'CODEQL',
-    ]) {
-      expect(runAggregate({ ...versionOnly, [job]: 'success' })).toBe(1)
     }
   })
 
@@ -262,13 +238,9 @@ describe('CI workflow', () => {
 
   it('leaves standalone CodeQL with scheduled security ownership only', () => {
     expect(codeqlSource).toMatch(/^on:\n {2}schedule:/m)
-    expect(codeqlSource).not.toMatch(
-      /^ {2}(push|pull_request|workflow_dispatch):/m,
-    )
+    expect(codeqlSource).not.toMatch(/^ {2}(push|pull_request|workflow_dispatch):/m)
     expect(codeqlWorkflow.jobs.analyze?.if).toBeUndefined()
-    expect(codeqlWorkflow.jobs.analyze?.name).toBe(
-      'Analyze JavaScript and TypeScript',
-    )
+    expect(codeqlWorkflow.jobs.analyze?.name).toBe('Analyze JavaScript and TypeScript')
   })
 
   it('records the comparable candidate and default-branch workload counts', () => {

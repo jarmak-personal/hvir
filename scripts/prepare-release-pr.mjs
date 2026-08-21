@@ -205,7 +205,7 @@ async function createPullRequest(input) {
     '',
     '## Release automation',
     '',
-    `The [preparation run](${input.runUrl}) generated and locally validated this version-only change. Approving GitHub's workflow prompt runs one focused package-version integrity check and the first-attempt aggregate without the ordinary product or native-package matrices. After merge, Release requires the exact accepted pull-request and source-tree relation before continuing with \`current\`.`,
+    `The [preparation run](${input.runUrl}) generated and locally validated this version-only change. Approving GitHub's workflow prompt runs one focused package-version integrity check and a coherent merge aggregate without the ordinary product or native-package matrices. After merge, Release requires the exact accepted pull-request, CI attempt, and source-tree relation before continuing with \`current\`.`,
     '',
     `**Full changelog:** ${input.serverUrl}/${input.repository}/compare/${input.previousTag ?? input.baseSha}...${input.branch}`,
     '',

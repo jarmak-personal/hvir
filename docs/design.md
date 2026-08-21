@@ -276,6 +276,11 @@ acknowledgment while preserving exact provider, host, artifact, and recovery aut
 Strict first-attempt pull-request checks admit one exact candidate tree to merge and release,
 while native certification moves to Release and capacity evidence moves to controlled machines.
 
+### [ADR-038 — Trust one coherent CI attempt per candidate](adr/ADR-038-coherent-ci-attempts.md)
+
+One complete workflow attempt may certify an exact candidate after approval or an explicit full
+rerun, while partial reruns and cross-attempt job assembly remain ineligible.
+
 ## 5. Architecture
 
 ### Process model
