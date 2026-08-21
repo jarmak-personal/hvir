@@ -419,6 +419,54 @@ successful plan, apply, or idempotent reuse; 2 means a safe-delivery conflict; a
 operational or partial-apply failure. The command reads Project state through `issue:context` but
 never changes Project membership, Kind, or Status.
 
+### Ordinary pull-request merge acceptance
+
+Plan and apply one explicitly authorized ordinary issue candidate through the repository-owned
+merge coordinator:
+
+```sh
+HVIR_REPO_TOKEN="$(gh auth token)" \
+HVIR_PROJECT_TOKEN="$(gh auth token)" \
+npm run issue:merge -- --issue 168 --pull-request 190 \
+  --candidate aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --json
+
+HVIR_REPO_TOKEN="$(gh auth token)" \
+HVIR_PROJECT_TOKEN="$(gh auth token)" \
+npm run issue:merge -- --issue 168 --pull-request 190 \
+  --candidate aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --apply --json
+```
+
+The full lowercase candidate SHA, issue number, and pull-request number are required authority;
+the command never selects or guesses them. Dry-run rereads the current issue, pull request,
+required checks, Project record, and measurement ledger without mutation. Apply recomputes those
+facts, uses GitHub's normal merge API with the exact head guard and merge-commit method, and never
+bypasses branch protection.
+
+Admission is fail closed. The issue must have one valid non-epic kind, no native parent or direct
+children, and exactly one native closing relationship from the authorized same-repository pull
+request. The pull request must be open, non-draft, target `main`, retain the exact candidate head,
+have a complete successful required-check set for that head, and be cleanly mergeable without an
+unresolved review decision. Closed-unmerged, fork-head, stale-base, conflict, unknown,
+relationship, pagination, pending-check, and failed-check states are diagnostics and perform no
+merge.
+
+After GitHub records the merge, the coordinator rereads the exact pull request and issue, waits
+only a bounded interval for native closing semantics, and delegates Project `Done` convergence to
+the existing planning-record owner. It derives any first-pass correction from the normalized
+append-only ledger and delegates append and named Project projection to their existing owners.
+Only a pending exact first candidate with no later implementation run becomes accepted. A later
+implementation run makes first-pass rework sticky; existing accepted or rework states remain
+unchanged. Missing evidence remains unavailable, and review fields come only from existing
+`implementation-review` records.
+
+The merge request is attempted once. A rejected or uncertain response is resolved by rereading
+GitHub before the command reports. A retry with the same issue, pull request, and candidate skips
+an already proven merge and resumes only native closure, Project, append, or projection work.
+Append idempotency prevents duplicate usage; existing comments are never edited. Exit code 0
+means a clean dry run, merge, or recovery; policy and reconciliation diagnostics exit 2; an
+operational failure before a report exits 1. Epic children and root epics are refused and remain
+owned by `hvir-implement-epic`.
+
 ## Pull request relationships and Status
 
 Issues remain the canonical planning records; pull requests are relationship and lifecycle

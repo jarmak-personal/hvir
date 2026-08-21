@@ -30,6 +30,11 @@ product fit, architecture questions, and acceptance there before editing. A PR t
 [`CONTRIBUTING.md`](CONTRIBUTING.md). Broad epics should be decomposed into independently
 reviewable child issues.
 
+**Ordinary acceptance is separately authorized.** `hvir-implement-issue` stops at a verified,
+pushed pull-request handoff. A maintainer invokes `hvir-merge-pr` with one exact issue, pull
+request, and candidate SHA to merge ordinary delivery to `main` and reconcile its post-merge
+state. Epic-child integration and cumulative epic delivery remain owned by `hvir-implement-epic`.
+
 **Do not spend effort drafting or creating an issue without the user's go-ahead.** An agent may
 briefly propose using `hvir-create-issue`, but must wait for explicit approval before invoking
 it. After drafting, it must show the exact issue and receive separate approval before publishing.
