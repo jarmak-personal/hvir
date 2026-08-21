@@ -8,16 +8,18 @@ import {
   CI_WORKFLOW_PATH,
   evaluateReleaseCiEvidence,
   loadReleaseCiEvidence,
-  MERGE_ACCEPTANCE_JOB,
   RELEASE_REPOSITORY,
-  RELEASE_VERSION_INTEGRITY_JOB,
   requireReleaseCiEvidence,
-  REQUIRED_CI_JOBS,
-  type CiWorkflowJob,
   type CiWorkflowRun,
   type MergedPullRequest,
   type ReleaseCiEvidence,
 } from '../scripts/require-release-ci-evidence.mts'
+import {
+  MERGE_ACCEPTANCE_JOB,
+  RELEASE_VERSION_INTEGRITY_JOB,
+  REQUIRED_CI_JOBS,
+  type CiWorkflowJob,
+} from '../scripts/ci-attempt-evidence.mts'
 
 const baseSha = '1111111111111111111111111111111111111111'
 const headSha = '2222222222222222222222222222222222222222'
@@ -29,9 +31,7 @@ const ciWorkflow = parse(
   readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8'),
 ) as { jobs: Record<string, { name: string }> }
 
-function pullRequest(
-  overrides: Partial<MergedPullRequest> = {},
-): MergedPullRequest {
+function pullRequest(overrides: Partial<MergedPullRequest> = {}): MergedPullRequest {
   return {
     number: 625,
     state: 'closed',
@@ -112,7 +112,9 @@ function requestUrl(value: unknown): string {
   throw new Error('Unexpected request input')
 }
 
-function apiPullRequest(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+function apiPullRequest(
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
   return {
     number: 625,
     state: 'closed',
@@ -132,7 +134,9 @@ function apiPullRequest(overrides: Record<string, unknown> = {}): Record<string,
   }
 }
 
-function apiWorkflowRun(): Record<string, unknown> {
+function apiWorkflowRun(
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
   return {
     id: 42,
     name: CI_WORKFLOW_NAME,
@@ -146,6 +150,7 @@ function apiWorkflowRun(): Record<string, unknown> {
     status: 'completed',
     conclusion: 'success',
     pull_requests: [],
+    ...overrides,
   }
 }
 
@@ -255,9 +260,7 @@ describe('release CI evidence', () => {
 
   it('rejects version-only skip evidence without exact validator acceptance', () => {
     expect(
-      evaluateReleaseCiEvidence(
-        evidence({ jobs: successfulJobs('version-only') }),
-      ),
+      evaluateReleaseCiEvidence(evidence({ jobs: successfulJobs('version-only') })),
     ).toEqual({ accepted: false, rejection: 'invalid-version-only' })
   })
 
@@ -277,13 +280,14 @@ describe('release CI evidence', () => {
       pullRequest({ base: { ...pullRequest().base, ref: 'epic/511' } }),
       pullRequest({ head: { ...pullRequest().head, repository: 'someone/hvir' } }),
     ]) {
-      expect(
-        evaluateReleaseCiEvidence(evidence({ pullRequests: [changed] })),
-      ).toEqual({ accepted: false, rejection: 'invalid-pull-request' })
+      expect(evaluateReleaseCiEvidence(evidence({ pullRequests: [changed] }))).toEqual({
+        accepted: false,
+        rejection: 'invalid-pull-request',
+      })
     }
   })
 
-  it('rejects wrong, duplicate, pending, failed, and rerun-only workflow evidence', () => {
+  it('rejects wrong, duplicate, pending, and failed workflow evidence', () => {
     for (const changed of [
       workflowRun({ repository: 'someone/hvir' }),
       workflowRun({ headRepository: 'someone/hvir' }),
@@ -304,9 +308,6 @@ describe('release CI evidence', () => {
       ),
     ).toEqual({ accepted: false, rejection: 'ambiguous-run' })
     expect(
-      evaluateReleaseCiEvidence(evidence({ runs: [workflowRun({ runAttempt: 2 })] })),
-    ).toEqual({ accepted: false, rejection: 'rerun-only' })
-    expect(
       evaluateReleaseCiEvidence(
         evidence({
           runs: [workflowRun({ status: 'in_progress', conclusion: null })],
@@ -320,6 +321,20 @@ describe('release CI evidence', () => {
     ).toEqual({ accepted: false, rejection: 'unsuccessful-run' })
   })
 
+  it('accepts one complete rerun attempt and rejects partial-attempt job evidence', () => {
+    const rerun = evidence({ runs: [workflowRun({ runAttempt: 2 })] })
+    expect(evaluateReleaseCiEvidence(rerun)).toEqual({
+      accepted: true,
+      kind: 'ordinary',
+    })
+    expect(
+      evaluateReleaseCiEvidence({
+        ...rerun,
+        jobs: successfulJobs().filter((job) => job.name !== REQUIRED_CI_JOBS[0]),
+      }),
+    ).toEqual({ accepted: false, rejection: 'missing-job' })
+  })
+
   it('rejects a source without the exact merge or squash parent shape', () => {
     for (const sourceCommit of [
       { sha: otherSha, treeSha, parents: [baseSha] },
@@ -327,9 +342,10 @@ describe('release CI evidence', () => {
       { sha: sourceSha, treeSha, parents: [baseSha, otherSha] },
       { sha: sourceSha, treeSha, parents: [baseSha, headSha, otherSha] },
     ]) {
-      expect(
-        evaluateReleaseCiEvidence(evidence({ sourceCommit })),
-      ).toEqual({ accepted: false, rejection: 'changed-candidate' })
+      expect(evaluateReleaseCiEvidence(evidence({ sourceCommit }))).toEqual({
+        accepted: false,
+        rejection: 'changed-candidate',
+      })
     }
   })
 
@@ -408,6 +424,37 @@ describe('release CI evidence', () => {
     }
   })
 
+  it('loads jobs only from the workflow run current attempt', async () => {
+    const baseFetch = releaseCiFetch()
+    const fetchMock = vi.fn((input: string | URL | Request) => {
+      const url = input instanceof Request ? new URL(input.url) : new URL(input)
+      if (url.pathname.endsWith('/actions/workflows/ci.yml/runs')) {
+        return Promise.resolve(
+          githubJson({ workflow_runs: [apiWorkflowRun({ run_attempt: 2 })] }),
+        )
+      }
+      if (url.pathname.endsWith('/actions/runs/42/attempts/2/jobs')) {
+        return Promise.resolve(githubJson({ jobs: successfulJobs() }))
+      }
+      return (baseFetch as (value: string | URL | Request) => Promise<Response>)(input)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      loadReleaseCiEvidence(RELEASE_REPOSITORY, 'main', sourceSha, 'test-token'),
+    ).resolves.toMatchObject({
+      runs: [expect.objectContaining({ runAttempt: 2 })],
+      jobs: successfulJobs(),
+    })
+    expect(
+      fetchMock.mock.calls.some((call) =>
+        new URL(requestUrl(call[0])).pathname.endsWith(
+          '/actions/runs/42/attempts/1/jobs',
+        ),
+      ),
+    ).toBe(false)
+  })
+
   it('paginates complete metadata instead of choosing from a truncated first page', async () => {
     const firstPage = Array.from({ length: 100 }, (_, index) =>
       apiPullRequest({ number: index + 1, merge_commit_sha: otherSha }),
@@ -417,7 +464,9 @@ describe('release CI evidence', () => {
       const url = input instanceof Request ? new URL(input.url) : new URL(input)
       if (url.pathname.endsWith(`/commits/${sourceSha}/pulls`)) {
         return Promise.resolve(
-          githubJson(url.searchParams.get('page') === '1' ? firstPage : [apiPullRequest()]),
+          githubJson(
+            url.searchParams.get('page') === '1' ? firstPage : [apiPullRequest()],
+          ),
         )
       }
       return (baseFetch as (value: string | URL | Request) => Promise<Response>)(input)
