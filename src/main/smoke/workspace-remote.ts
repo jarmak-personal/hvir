@@ -212,8 +212,8 @@ export async function verifyWorkspaceRemoteWorkflow(options: {
           window.__hvirSmokeFolderSubmitted &&
           !document.querySelector('.project-dialog')
         ) {
-          return 'Local→invalid→reveal→use ' +
-            ${JSON.stringify(`${activeRoot.path}/docs`)};
+          return 'Local→invalid→reveal→create→use ' +
+            ${JSON.stringify(`${activeRoot.path}/hvir-picker-created`)};
         }
         const input = document.querySelector('.folder-path-form input');
         const selected = document.querySelector('.folder-selection code')?.textContent || '';
@@ -248,14 +248,36 @@ export async function verifyWorkspaceRemoteWorkflow(options: {
         if (!window.__hvirSmokeRevealStarted) {
           if (!error.includes('Folder not found') || !use.disabled ||
               document.activeElement !== input) return undefined;
-          const target = ${JSON.stringify(`${activeRoot.path}/docs`)};
+          const target = ${JSON.stringify(activeRoot.path)};
           setPath(target);
           browser.scrollTop = browser.scrollHeight;
           show.click();
           window.__hvirSmokeRevealStarted = true;
           return undefined;
         }
-        const target = ${JSON.stringify(`${activeRoot.path}/docs`)};
+        if (window.__hvirSmokeCreateSubmitted) {
+          const created = ${JSON.stringify(`${activeRoot.path}/hvir-picker-created`)};
+          const createdRow = [...document.querySelectorAll('.folder-browser .directory-row')]
+            .find((node) => node.getAttribute('title') === created);
+          if (createdRow?.classList.contains('selected') && selected === created) {
+            use.click();
+            window.__hvirSmokeFolderSubmitted = true;
+          }
+          return undefined;
+        }
+        if (window.__hvirSmokeCreateOpened) {
+          const name = document.querySelector('input[aria-label="New folder name"]');
+          const create = [...document.querySelectorAll('.project-dialog button')]
+            .find((node) => node.textContent?.trim() === 'Create');
+          if (!(name instanceof HTMLInputElement) || !create) return undefined;
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+            .set.call(name, 'hvir-picker-created');
+          name.dispatchEvent(new Event('input', { bubbles: true }));
+          create.click();
+          window.__hvirSmokeCreateSubmitted = true;
+          return undefined;
+        }
+        const target = ${JSON.stringify(activeRoot.path)};
         const row = [...document.querySelectorAll('.folder-browser .directory-row')]
           .find((node) => node.getAttribute('title') === target);
         const bounds = browser.getBoundingClientRect();
@@ -265,8 +287,11 @@ export async function verifyWorkspaceRemoteWorkflow(options: {
           rect.top >= bounds.top && rect.bottom <= bounds.bottom &&
           !use.disabled && document.activeElement === input
         ) {
-          use.click();
-          window.__hvirSmokeFolderSubmitted = true;
+          const create = [...document.querySelectorAll('.project-dialog button')]
+            .find((node) => node.textContent?.trim() === 'New folder');
+          if (!create) throw new Error('new folder action is missing');
+          create.click();
+          window.__hvirSmokeCreateOpened = true;
           return undefined;
         }
       })()`,
@@ -275,7 +300,7 @@ export async function verifyWorkspaceRemoteWorkflow(options: {
     if (
       openedFolderSelections.length !== 1 ||
       openedFolderSelections[0]?.hostId !== activeRoot.hostId ||
-      openedFolderSelections[0]?.path !== `${activeRoot.path}/docs`
+      openedFolderSelections[0]?.path !== `${activeRoot.path}/hvir-picker-created`
     ) {
       throw new Error(
         `folder selection opened an unexpected target: ${JSON.stringify(openedFolderSelections)}`,

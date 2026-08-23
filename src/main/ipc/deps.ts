@@ -30,6 +30,7 @@ import type { DiagnosticReportCoordinator } from '../diagnostics/diagnostic-repo
 import type { RuntimeDiagnostics } from '../diagnostics/runtime-diagnostics'
 import type { FilenameSearchCoordinator } from '../filename-search/filename-search-coordinator'
 import type { ProjectFileOperationCoordinator } from '../project-file-operations'
+import type { ProjectFolderPickerCoordinator } from '../project-folder-picker'
 import type {
   DocumentReviewCoordinator,
   DocumentReviewDeliveryCoordinator,
@@ -63,6 +64,10 @@ export interface IpcDeps {
     | 'discloseDeletion'
     | 'delete'
     | 'cancel'
+  >
+  readonly projectFolderPicker: Pick<
+    ProjectFolderPickerCoordinator,
+    'start' | 'browse' | 'createDirectory' | 'close'
   >
   readonly documentReview: Pick<
     DocumentReviewCoordinator,

@@ -11,9 +11,11 @@ import {
   type BrowseHostResponse,
   type ConnectedHost,
   type DirEntry,
+  type HostPath,
   type ProjectHostOption,
   type ProjectState,
 } from '../src/shared'
+import type { ProjectFolderPickerPort } from '../src/renderer/src/workspaces/project-folder-picker-client'
 
 const localHost: ProjectHostOption = {
   hostId: 'local',
@@ -217,22 +219,125 @@ describe('SessionDialog folder selection', () => {
     expect(onOpen).toHaveBeenCalledWith('ssh-dev', '/srv/tree')
     expect(onOpened).toHaveBeenCalledOnce()
   })
+
+  it.each([
+    ['local', localHost, '/projects/initial'],
+    ['SSH', sshHost, '/srv/initial'],
+  ])(
+    'creates, reveals, selects, and opens a folder on the %s host',
+    async (_label, currentHost, suggestedPath) => {
+      let createdName: string | undefined
+      const onBrowse = vi.fn((hostId: string, path: string) => {
+        const response = browseResponse(hostId, path)
+        return Promise.resolve(
+          path === suggestedPath && createdName
+            ? {
+                ...response,
+                directories: [
+                  ...response.directories,
+                  { name: createdName, type: 'dir' as const },
+                ],
+              }
+            : response,
+        )
+      })
+      const onCreateDirectory = vi.fn(
+        (_pickerId: string, parent: HostPath, name: string) => {
+          createdName = name
+          return Promise.resolve(hostPath(parent.hostId, `${parent.path}/${name}`))
+        },
+      )
+      const onOpen = vi.fn((hostId: string, path: string) =>
+        Promise.resolve(projectState(hostId, path)),
+      )
+      renderDialog({
+        currentHost,
+        suggestedPath,
+        onBrowse,
+        onCreateDirectory,
+        onOpen,
+      })
+
+      await chooseFolder()
+      await waitFor(() => selectedRow(suggestedPath) !== undefined)
+      await clickButton('New folder')
+      expect(button('Create').disabled).toBe(true)
+      changeNamedInput('New folder name', 'new-project')
+      await clickButton('Create')
+      await waitFor(() => selectedRow(`${suggestedPath}/new-project`) !== undefined)
+
+      expect(onCreateDirectory).toHaveBeenCalledWith(
+        'picker-1',
+        hostPath(asHostId(currentHost.hostId), suggestedPath),
+        'new-project',
+      )
+      expect(pathInput().value).toBe(`${suggestedPath}/new-project`)
+      await clickButton('Use this folder')
+      expect(onOpen).toHaveBeenCalledWith(
+        currentHost.hostId,
+        `${suggestedPath}/new-project`,
+      )
+    },
+  )
+
+  it('keeps the selected parent unchanged and shows a create conflict', async () => {
+    const onCreateDirectory = vi
+      .fn<ProjectFolderPickerPort['createDirectory']>()
+      .mockRejectedValue(new Error('The destination already exists'))
+    const onOpen = vi.fn((hostId: string, path: string) =>
+      Promise.resolve(projectState(hostId, path)),
+    )
+    renderDialog({
+      currentHost: localHost,
+      suggestedPath: '/projects/initial',
+      onBrowse: (hostId, path) => Promise.resolve(browseResponse(hostId, path)),
+      onCreateDirectory,
+      onOpen,
+    })
+
+    await chooseFolder()
+    await waitFor(() => selectedRow('/projects/initial') !== undefined)
+    await clickButton('New folder')
+    changeNamedInput('New folder name', 'existing')
+    await clickButton('Create')
+    await waitFor(
+      () =>
+        document.body.textContent?.includes('The destination already exists') === true,
+    )
+
+    expect(pathInput().value).toBe('/projects/initial')
+    expect(selectedRow('/projects/initial')).toBeTruthy()
+    expect(
+      document.querySelector<HTMLInputElement>('input[aria-label="New folder name"]')
+        ?.value,
+    ).toBe('existing')
+    expect(onOpen).not.toHaveBeenCalled()
+  })
 })
 
 function renderDialog({
   currentHost,
   suggestedPath,
   onBrowse,
+  onCreateDirectory = (_pickerId, parent, name) =>
+    Promise.resolve(hostPath(parent.hostId, `${parent.path}/${name}`)),
   onOpen,
   onOpened = vi.fn(),
 }: {
   readonly currentHost: ProjectHostOption
   readonly suggestedPath: string
   readonly onBrowse: (hostId: string, path: string) => Promise<BrowseHostResponse>
+  readonly onCreateDirectory?: ProjectFolderPickerPort['createDirectory']
   readonly onOpen: (hostId: string, path: string) => Promise<ProjectState>
   readonly onOpened?: (state: ProjectState) => void
 }): void {
   const connected: ConnectedHost = { host: currentHost, suggestedPath }
+  const folderPicker: ProjectFolderPickerPort = {
+    start: () => Promise.resolve({ pickerId: 'picker-1' }),
+    browse: (_pickerId, path) => onBrowse(currentHost.hostId, path),
+    createDirectory: onCreateDirectory,
+    close: () => Promise.resolve(),
+  }
   act(() => {
     root.render(
       <SessionDialog
@@ -241,7 +346,7 @@ function renderDialog({
         suspended={false}
         onCancel={vi.fn()}
         onConnect={() => Promise.resolve(connected)}
-        onBrowse={onBrowse}
+        folderPicker={folderPicker}
         onDisconnect={() => Promise.resolve(currentHost)}
         onOpen={onOpen}
         onOpened={onOpened}
@@ -314,6 +419,18 @@ function buttonOrUndefined(label: string): HTMLButtonElement | undefined {
 
 function changeInput(value: string): void {
   const input = pathInput()
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(
+      input,
+      value,
+    )
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+}
+
+function changeNamedInput(label: string, value: string): void {
+  const input = document.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)
+  if (!input) throw new Error(`Missing input '${label}'`)
   act(() => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(
       input,
