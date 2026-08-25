@@ -478,7 +478,8 @@ describe('Electron smoke process failure artifacts', () => {
       command: process.execPath,
       args: [
         '-e',
-        `const { spawn } = require('node:child_process'); const { writeFileSync } = require('node:fs'); const child = spawn(process.execPath, ['-e', 'setInterval(() => undefined, 1000)'], { stdio: 'ignore' }); writeFileSync(${JSON.stringify(descendantPath)}, String(child.pid)); setInterval(() => undefined, 1000)`,
+        `const { spawn } = require('node:child_process'); const { writeFileSync } = require('node:fs'); const child = spawn(process.execPath, ['-e', 'setInterval(() => undefined, 1000)'], { stdio: 'ignore' }); writeFileSync(process.argv[1], String(child.pid)); setInterval(() => undefined, 1000)`,
+        descendantPath,
       ],
       environment: {},
       timeoutMs: 5_000,
@@ -517,7 +518,8 @@ describe('Electron smoke process failure artifacts', () => {
       command: process.execPath,
       args: [
         '-e',
-        `const { spawn } = require('node:child_process'); const { writeFileSync } = require('node:fs'); process.on('SIGTERM', () => undefined); const child = spawn(process.execPath, ['-e', "process.on('SIGTERM', () => undefined); setInterval(() => undefined, 1000)"], { stdio: 'ignore' }); writeFileSync(${JSON.stringify(descendantPath)}, String(child.pid)); setInterval(() => undefined, 1000)`,
+        `const { spawn } = require('node:child_process'); const { writeFileSync } = require('node:fs'); process.on('SIGTERM', () => undefined); const child = spawn(process.execPath, ['-e', "process.on('SIGTERM', () => undefined); setInterval(() => undefined, 1000)"], { stdio: 'ignore' }); writeFileSync(process.argv[1], String(child.pid)); setInterval(() => undefined, 1000)`,
+        descendantPath,
       ],
       environment: {},
       timeoutMs: 5_000,
@@ -566,7 +568,8 @@ describe('Electron smoke process failure artifacts', () => {
       command: process.execPath,
       args: [
         '-e',
-        `const { spawn } = require('node:child_process'); const { writeFileSync } = require('node:fs'); const child = spawn(process.execPath, ['-e', 'setInterval(() => undefined, 1000)'], { detached: true, stdio: ['ignore', 'inherit', 'inherit'] }); child.unref(); writeFileSync(${JSON.stringify(descendantPath)}, String(child.pid)); setInterval(() => undefined, 1000)`,
+        `const { spawn } = require('node:child_process'); const { writeFileSync } = require('node:fs'); const child = spawn(process.execPath, ['-e', 'setInterval(() => undefined, 1000)'], { detached: true, stdio: ['ignore', 'inherit', 'inherit'] }); child.unref(); writeFileSync(process.argv[1], String(child.pid)); setInterval(() => undefined, 1000)`,
+        descendantPath,
       ],
       environment: {},
       timeoutMs: 100,
