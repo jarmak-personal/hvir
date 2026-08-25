@@ -4,6 +4,7 @@ import { ProjectFolderPickerCoordinator } from '../src/main/project-folder-picke
 import {
   ProjectPathExistsError,
   type Disposer,
+  type ExclusiveCreateOptions,
   type ProjectHost,
 } from '../src/main/project-host'
 import { RendererResourceScopes } from '../src/main/renderer-resource-scopes'
@@ -34,6 +35,7 @@ describe('ProjectFolderPickerCoordinator', () => {
     ).resolves.toEqual(path(hostId, '/projects/new-project'))
     expect(fixture.host.created).toEqual(['/projects/new-project'])
 
+    await fixture.coordinator.browse(fixture.owner, lease.pickerId, '/projects')
     await expect(
       fixture.coordinator.createDirectory(
         fixture.owner,
@@ -63,7 +65,7 @@ describe('ProjectFolderPickerCoordinator', () => {
     },
   )
 
-  it('independently validates the exact canonical destination parent', async () => {
+  it('binds creation to the exact canonical parent selected through the picker', async () => {
     const fixture = pickerFixture('local')
     const lease = await fixture.coordinator.start(fixture.owner, 'local')
 
@@ -75,7 +77,19 @@ describe('ProjectFolderPickerCoordinator', () => {
         'wrong-host',
       ),
     ).rejects.toThrow('Invalid destination folder')
+    await expect(
+      fixture.coordinator.createDirectory(
+        fixture.owner,
+        lease.pickerId,
+        path('local', '/projects'),
+        'before-selection',
+      ),
+    ).rejects.toThrow('Select the destination folder again')
+
     fixture.host.aliases.set('/alias', '/projects')
+    await expect(
+      fixture.coordinator.browse(fixture.owner, lease.pickerId, '/alias'),
+    ).resolves.toMatchObject({ path: path('local', '/projects') })
     await expect(
       fixture.coordinator.createDirectory(
         fixture.owner,
@@ -83,8 +97,60 @@ describe('ProjectFolderPickerCoordinator', () => {
         path('local', '/alias'),
         'through-alias',
       ),
-    ).rejects.toThrow('no longer active')
-    expect(fixture.host.createDirectoryExclusive).not.toHaveBeenCalled()
+    ).rejects.toThrow('Select the destination folder again')
+    await expect(
+      fixture.coordinator.createDirectory(
+        fixture.owner,
+        lease.pickerId,
+        path('local', '/projects'),
+        'canonical-selection',
+      ),
+    ).resolves.toEqual(path('local', '/projects/canonical-selection'))
+    expect(fixture.host.created).toEqual(['/projects/canonical-selection'])
+  })
+
+  it('aborts and rolls back an in-flight create when picker authority is revoked', async () => {
+    const fixture = pickerFixture('local')
+    const lease = await fixture.coordinator.start(fixture.owner, 'local')
+    await fixture.coordinator.browse(fixture.owner, lease.pickerId, '/projects')
+    let started!: () => void
+    const createStarted = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    let createSignal: AbortSignal | undefined
+    fixture.host.createDirectoryExclusive.mockImplementationOnce(
+      async (destination, options) => {
+        createSignal = options.signal
+        options.signal?.throwIfAborted()
+        fixture.host.entries.add(destination.path)
+        fixture.host.created.push(destination.path)
+        started()
+        try {
+          await aborted(options.signal)
+        } catch (reason) {
+          fixture.host.entries.delete(destination.path)
+          fixture.host.created.splice(fixture.host.created.indexOf(destination.path), 1)
+          throw reason
+        }
+      },
+    )
+
+    const create = fixture.coordinator.createDirectory(
+      fixture.owner,
+      lease.pickerId,
+      path('local', '/projects'),
+      'revoked',
+    )
+    await createStarted
+    await expect(
+      fixture.coordinator.browse(fixture.owner, lease.pickerId, '/projects'),
+    ).rejects.toThrow('already being created')
+    await fixture.coordinator.close(fixture.owner, lease.pickerId)
+
+    await expect(create).rejects.toThrow('no longer active')
+    expect(createSignal?.aborted).toBe(true)
+    expect(fixture.host.entries.has('/projects/revoked')).toBe(false)
+    expect(fixture.host.created).toEqual([])
   })
 
   it('revokes authority on picker replacement, close, host change, and renderer change', async () => {
@@ -146,13 +212,27 @@ describe('ProjectFolderPickerCoordinator', () => {
   it('surfaces missing, inaccessible, and create failures without changing entries', async () => {
     const fixture = pickerFixture('ssh-dev')
     const lease = await fixture.coordinator.start(fixture.owner, 'ssh-dev')
+    await fixture.coordinator.browse(fixture.owner, lease.pickerId, '/projects')
     fixture.projects.browse = vi.fn(() =>
       Promise.reject(new Error('Cannot access folder')),
     )
     await expect(
       fixture.coordinator.browse(fixture.owner, lease.pickerId, '/private'),
     ).rejects.toThrow('Cannot access folder')
+    await expect(
+      fixture.coordinator.createDirectory(
+        fixture.owner,
+        lease.pickerId,
+        path('ssh-dev', '/projects'),
+        'after-failed-selection',
+      ),
+    ).rejects.toThrow('Select the destination folder again')
+    expect(fixture.host.createDirectoryExclusive).not.toHaveBeenCalled()
 
+    fixture.projects.browse = vi.fn((requestedHostId, requestedPath) =>
+      fixture.host.browse(requestedHostId, requestedPath),
+    )
+    await fixture.coordinator.browse(fixture.owner, lease.pickerId, '/projects')
     fixture.host.createDirectoryExclusive.mockRejectedValueOnce(
       new Error('SSH connection lost'),
     )
@@ -202,12 +282,23 @@ class FakeHost {
   readonly listeners = new Set<(state: HostConnectionState) => void>()
   connectionState: HostConnectionState = 'connected'
   readonly hostId
-  readonly createDirectoryExclusive = vi.fn((destination: HostPath): Promise<void> => {
-    if (this.entries.has(destination.path)) throw new ProjectPathExistsError()
-    this.entries.add(destination.path)
-    this.created.push(destination.path)
-    return Promise.resolve()
-  })
+  readonly createDirectoryExclusive = vi.fn(
+    (destination: HostPath, options: ExclusiveCreateOptions): Promise<void> => {
+      options.signal?.throwIfAborted()
+      if (this.entries.has(destination.path)) throw new ProjectPathExistsError()
+      this.entries.add(destination.path)
+      this.created.push(destination.path)
+      options.onCreated?.()
+      try {
+        options.signal?.throwIfAborted()
+      } catch (reason) {
+        this.entries.delete(destination.path)
+        this.created.splice(this.created.indexOf(destination.path), 1)
+        throw reason
+      }
+      return Promise.resolve()
+    },
+  )
 
   constructor(hostId: string) {
     this.hostId = asHostId(hostId)
@@ -237,11 +328,28 @@ class FakeHost {
   }
 
   browse(requestedHostId: string, requestedPath: string): Promise<BrowseHostResponse> {
-    if (requestedHostId !== this.hostId || !this.entries.has(requestedPath)) {
+    const resolved = this.aliases.get(requestedPath) ?? requestedPath
+    if (requestedHostId !== this.hostId || !this.entries.has(resolved)) {
       return Promise.reject(new Error('Folder not found'))
     }
-    return Promise.resolve({ path: path(this.hostId, requestedPath), directories: [] })
+    return Promise.resolve({ path: path(this.hostId, resolved), directories: [] })
   }
+}
+
+function aborted(signal: AbortSignal | undefined): Promise<never> {
+  if (!signal) return Promise.reject(new Error('Missing abort signal'))
+  if (signal.aborted) return Promise.reject(abortReason(signal))
+  return new Promise((_resolve, reject) => {
+    signal.addEventListener('abort', () => reject(abortReason(signal)), {
+      once: true,
+    })
+  })
+}
+
+function abortReason(signal: AbortSignal): Error {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new Error('Create was aborted')
 }
 
 function path(hostId: string, value: string): HostPath {

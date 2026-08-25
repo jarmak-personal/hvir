@@ -211,13 +211,47 @@ describe('SessionDialog folder selection', () => {
     await waitFor(() => selectedRow('/srv/typed') !== undefined)
 
     act(() => directoryRow('/srv/tree')?.click())
+    await waitFor(() => selectedRow('/srv/tree') !== undefined)
     expect(pathInput().value).toBe('/srv/tree')
-    expect(selectedRow('/srv/tree')).toBeTruthy()
 
     expect(onBrowse.mock.calls.every(([hostId]) => hostId === 'ssh-dev')).toBe(true)
     await clickButton('Use this folder')
     expect(onOpen).toHaveBeenCalledWith('ssh-dev', '/srv/tree')
     expect(onOpened).toHaveBeenCalledOnce()
+  })
+
+  it('uses ordinary browsing for the tree and picker authority for selection', async () => {
+    const onBrowse = vi.fn((hostId: string, path: string) =>
+      Promise.resolve(browseResponse(hostId, path)),
+    )
+    const onPickerBrowse = vi.fn((_pickerId: string, path: string) =>
+      Promise.resolve(browseResponse('local', path)),
+    )
+    renderDialog({
+      currentHost: localHost,
+      suggestedPath: '/projects/initial',
+      onBrowse,
+      onPickerBrowse,
+      onOpen: (hostId, path) => Promise.resolve(projectState(hostId, path)),
+    })
+
+    await chooseFolder()
+    await waitFor(() => selectedRow('/projects/initial') !== undefined)
+    expect(onBrowse).toHaveBeenCalledWith('local', '/')
+    expect(onBrowse).toHaveBeenCalledWith('local', '/projects')
+    expect(onPickerBrowse).toHaveBeenCalledWith('picker-1', '/projects/initial')
+    expect(onPickerBrowse).not.toHaveBeenCalledWith('picker-1', '/')
+
+    onBrowse.mockClear()
+    onPickerBrowse.mockClear()
+    act(() => directoryRow('/projects/tree')?.click())
+    await waitFor(() => selectedRow('/projects/tree') !== undefined)
+
+    expect(onPickerBrowse).toHaveBeenCalledExactlyOnceWith(
+      'picker-1',
+      '/projects/tree',
+    )
+    expect(onBrowse).toHaveBeenCalledExactlyOnceWith('local', '/projects/tree')
   })
 
   it.each([
@@ -319,6 +353,7 @@ function renderDialog({
   currentHost,
   suggestedPath,
   onBrowse,
+  onPickerBrowse,
   onCreateDirectory = (_pickerId, parent, name) =>
     Promise.resolve(hostPath(parent.hostId, `${parent.path}/${name}`)),
   onOpen,
@@ -327,6 +362,7 @@ function renderDialog({
   readonly currentHost: ProjectHostOption
   readonly suggestedPath: string
   readonly onBrowse: (hostId: string, path: string) => Promise<BrowseHostResponse>
+  readonly onPickerBrowse?: ProjectFolderPickerPort['browse']
   readonly onCreateDirectory?: ProjectFolderPickerPort['createDirectory']
   readonly onOpen: (hostId: string, path: string) => Promise<ProjectState>
   readonly onOpened?: (state: ProjectState) => void
@@ -334,7 +370,9 @@ function renderDialog({
   const connected: ConnectedHost = { host: currentHost, suggestedPath }
   const folderPicker: ProjectFolderPickerPort = {
     start: () => Promise.resolve({ pickerId: 'picker-1' }),
-    browse: (_pickerId, path) => onBrowse(currentHost.hostId, path),
+    browse:
+      onPickerBrowse ??
+      ((_pickerId, path) => onBrowse(currentHost.hostId, path)),
     createDirectory: onCreateDirectory,
     close: () => Promise.resolve(),
   }
@@ -346,6 +384,7 @@ function renderDialog({
         suspended={false}
         onCancel={vi.fn()}
         onConnect={() => Promise.resolve(connected)}
+        onBrowse={onBrowse}
         folderPicker={folderPicker}
         onDisconnect={() => Promise.resolve(currentHost)}
         onOpen={onOpen}

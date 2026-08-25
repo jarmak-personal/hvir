@@ -32,6 +32,9 @@ interface PickerRecord {
   readonly host: ProjectHost
   readonly stopHostState: Disposer
   lease?: RendererResourceLease
+  selectionGeneration: number
+  selectedParent?: HostPath
+  createAbort?: AbortController
   active: boolean
 }
 
@@ -62,11 +65,14 @@ export class ProjectFolderPickerCoordinator {
       owner,
       host,
       stopHostState: () => stopHostState(),
+      selectionGeneration: 0,
       active: true,
     }
-    stopHostState = host.onConnectionState(
-      () => void record.lease?.dispose().catch(() => undefined),
-    )
+    stopHostState = host.onConnectionState((state) => {
+      if (state !== 'connected') {
+        void record.lease?.dispose().catch(() => undefined)
+      }
+    })
     try {
       record.lease = this.resources.register(
         owner,
@@ -87,9 +93,19 @@ export class ProjectFolderPickerCoordinator {
     path: string,
   ): Promise<BrowseHostResponse> {
     const record = this.requireCurrent(owner, pickerId)
+    if (record.createAbort) throw new Error('A folder is already being created')
+    const selectionGeneration = (record.selectionGeneration += 1)
+    record.selectedParent = undefined
     const result = await this.projects.browseHost(record.host.hostId, path)
     this.assertStillCurrent(record)
     if (result.path.hostId !== record.host.hostId) throw stalePickerError()
+    if (
+      record.selectionGeneration !== selectionGeneration ||
+      record.createAbort
+    ) {
+      throw new Error('Select the destination folder again')
+    }
+    record.selectedParent = result.path
     return result
   }
 
@@ -110,29 +126,48 @@ export class ProjectFolderPickerCoordinator {
     ) {
       throw new Error('Invalid destination folder')
     }
-    const selectedParent = hostPath(
+    const requestedParent = hostPath(
       asHostId(destinationParent.hostId),
       destinationParent.path,
     )
+    if (
+      !record.selectedParent ||
+      !hostPathEquals(record.selectedParent, requestedParent)
+    ) {
+      throw new Error('Select the destination folder again')
+    }
+    if (record.createAbort) throw new Error('A folder is already being created')
 
-    const canonicalParent = await record.host.realpath(selectedParent)
-    this.assertStillCurrent(record)
-    if (!hostPathEquals(canonicalParent, selectedParent)) throw stalePickerError()
-    const parentStat = await record.host.stat(canonicalParent)
-    this.assertStillCurrent(record)
-    if (parentStat.type !== 'dir') throw new Error('The selected folder is unavailable')
-
-    const destination = joinHostPath(canonicalParent, name)
+    const abort = new AbortController()
+    record.createAbort = abort
     try {
-      await record.host.createDirectoryExclusive(destination, { mode: 0o755 })
+      const canonicalParent = await record.host.realpath(requestedParent)
+      this.assertStillCurrent(record)
+      if (!hostPathEquals(canonicalParent, record.selectedParent)) {
+        throw new Error('Select the destination folder again')
+      }
+      const parentStat = await record.host.stat(canonicalParent)
+      this.assertStillCurrent(record)
+      if (parentStat.type !== 'dir') {
+        throw new Error('The selected folder is unavailable')
+      }
+
+      const destination = joinHostPath(canonicalParent, name)
+      await record.host.createDirectoryExclusive(destination, {
+        mode: 0o755,
+        signal: abort.signal,
+      })
+      this.assertStillCurrent(record)
+      record.selectedParent = destination
+      return destination
     } catch (error) {
       if (isProjectPathExistsError(error)) {
         throw new Error('The destination already exists', { cause: error })
       }
       throw error
+    } finally {
+      if (record.createAbort === abort) record.createAbort = undefined
     }
-    this.assertStillCurrent(record)
-    return destination
   }
 
   async close(owner: RendererOwner, pickerId: string): Promise<void> {
@@ -168,6 +203,10 @@ export class ProjectFolderPickerCoordinator {
   private async revoke(record: PickerRecord): Promise<void> {
     if (!record.active) return
     record.active = false
+    record.selectionGeneration += 1
+    record.selectedParent = undefined
+    record.createAbort?.abort(stalePickerError())
+    record.createAbort = undefined
     await record.stopHostState()
     if (this.activeByOwner.get(ownerKey(record.owner)) === record) {
       this.activeByOwner.delete(ownerKey(record.owner))

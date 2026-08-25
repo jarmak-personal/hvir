@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, type ReactElement } from 'rea
 import {
   asHostId,
   hostPath,
+  type BrowseHostResponse,
   type ConnectedHost,
   type HostPath,
   type ProjectHostOption,
@@ -19,6 +20,7 @@ export function SessionDialog({
   suspended,
   onCancel,
   onConnect,
+  onBrowse,
   folderPicker,
   onDisconnect,
   onOpen,
@@ -29,6 +31,7 @@ export function SessionDialog({
   readonly suspended: boolean
   readonly onCancel: () => void
   readonly onConnect: (hostId: string) => Promise<ConnectedHost>
+  readonly onBrowse: (hostId: string, path: string) => Promise<BrowseHostResponse>
   readonly folderPicker: ProjectFolderPickerPort
   readonly onDisconnect: (hostId: string) => Promise<ProjectHostOption>
   readonly onOpen: (hostId: string, path: string) => Promise<ProjectState>
@@ -187,10 +190,10 @@ export function SessionDialog({
   const connectedHostId = connected?.host.hostId
   const loadPickerEntries = useCallback(
     async (directory: HostPath) => {
-      if (!pickerId) return []
-      return (await folderPicker.browse(pickerId, directory.path)).directories
+      if (!connectedHostId) return []
+      return (await onBrowse(connectedHostId, directory.path)).directories
     },
-    [folderPicker, pickerId],
+    [connectedHostId, onBrowse],
   )
 
   useEffect(() => {
@@ -359,9 +362,7 @@ export function SessionDialog({
                   showFiles={false}
                   onSelectDirectory={(directory) => {
                     if (busy) return
-                    setPathInput(directory.path)
-                    setSelectedPath(directory.path)
-                    setRevealRequest(undefined)
+                    void selectPath(directory.path)
                   }}
                 />
               ) : null}
