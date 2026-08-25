@@ -653,6 +653,7 @@ export function App(): ReactElement {
           onCancel={overlays.closeProjectPicker}
           onConnect={session.connectHost}
           onBrowse={session.browseHost}
+          folderPicker={session.folderPicker}
           onDisconnect={session.disconnectHost}
           onOpen={session.openHost}
           onOpened={overlays.closeProjectPicker}

@@ -14,6 +14,7 @@ export type RendererResourceQualifier =
         | 'diagnostic-report'
         | 'filename-search'
         | 'external-file-grant'
+        | 'project-folder-picker'
     }
   | {
       readonly lifetime: 'workspace'

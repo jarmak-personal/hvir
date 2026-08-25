@@ -7,6 +7,7 @@ import { GitWorkerHostRouter } from './git/worker-host-router'
 import { HtmlPreviewProtocol } from './html-preview-protocol'
 import { createWorkerClient, workerPath, type WorkerClient } from './worker-host'
 import { electronTrash, ProjectHostCatalog, RendererSshPrompter } from './project-host'
+import { ProjectFolderPickerCoordinator as FolderPicker } from './project-folder-picker'
 import { electronReveal } from './project-host/electron-project-reveal'
 import { ProjectRegistry } from './project-registry'
 import { ProjectCoordinator } from './project-coordinator'
@@ -180,10 +181,7 @@ function createWorkbenchEntry(): void {
           : localPath(selection.filePaths[0])
       },
     )
-    if (!registry) {
-      app.quit()
-      return
-    }
+    if (!registry) return app.quit()
     projectRegistry = runtime.own('project registry', registry, (ownedRegistry) =>
       ownedRegistry.dispose(),
     )
@@ -367,6 +365,7 @@ function createWorkbenchEntry(): void {
         gitWorker,
         filenameSearch,
         projectFiles,
+        projectFolderPicker: new FolderPicker(projectRegistry, rendererScopes),
         documentReview: documentReview.coordinator,
         documentReviewDelivery: documentReview.delivery,
         getProject: () => registry.active,

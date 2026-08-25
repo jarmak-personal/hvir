@@ -9,6 +9,7 @@ type ProjectIpcDeps = Pick<
   | 'connectHost'
   | 'disconnectHost'
   | 'browseHost'
+  | 'projectFolderPicker'
   | 'openProject'
   | 'switchWorkspace'
   | 'refreshProject'
@@ -34,6 +35,27 @@ export function registerProjectIpc(ipc: IpcRegistrar, deps: ProjectIpcDeps): voi
   )
   ipc.handle('project:browse-host', (req, context) =>
     operationResult(() => deps.browseHost(req.hostId, req.path, context.owner())),
+  )
+  ipc.handle('project:folder-picker-start', (req, context) =>
+    operationResult(() => deps.projectFolderPicker.start(context.owner(), req.hostId)),
+  )
+  ipc.handle('project:folder-picker-browse', (req, context) =>
+    operationResult(() =>
+      deps.projectFolderPicker.browse(context.owner(), req.pickerId, req.path),
+    ),
+  )
+  ipc.handle('project:folder-picker-create-directory', (req, context) =>
+    operationResult(() =>
+      deps.projectFolderPicker.createDirectory(
+        context.owner(),
+        req.pickerId,
+        req.destinationParent,
+        req.name,
+      ),
+    ),
+  )
+  ipc.handle('project:folder-picker-close', (req, context) =>
+    operationResult(() => deps.projectFolderPicker.close(context.owner(), req.pickerId)),
   )
   ipc.handle('project:open', (req, context) =>
     operationResult(() => deps.openProject(req.hostId, req.path, context.owner())),

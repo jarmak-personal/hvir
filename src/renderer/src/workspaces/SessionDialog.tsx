@@ -12,6 +12,7 @@ import {
 import { DirectoryTree } from '../tree/DirectoryTree'
 import { useModalKeyboard } from '../workbench/use-modal-keyboard'
 import { RemoteConnectionBadge } from './ConnectionStatus'
+import type { ProjectFolderPickerPort } from './project-folder-picker-client'
 
 export function SessionDialog({
   hosts,
@@ -20,6 +21,7 @@ export function SessionDialog({
   onCancel,
   onConnect,
   onBrowse,
+  folderPicker,
   onDisconnect,
   onOpen,
   onOpened,
@@ -30,6 +32,7 @@ export function SessionDialog({
   readonly onCancel: () => void
   readonly onConnect: (hostId: string) => Promise<ConnectedHost>
   readonly onBrowse: (hostId: string, path: string) => Promise<BrowseHostResponse>
+  readonly folderPicker: ProjectFolderPickerPort
   readonly onDisconnect: (hostId: string) => Promise<ProjectHostOption>
   readonly onOpen: (hostId: string, path: string) => Promise<ProjectState>
   readonly onOpened: (state: ProjectState) => void
@@ -44,6 +47,7 @@ export function SessionDialog({
       : (hosts[0]?.hostId ?? 'local'),
   )
   const [connected, setConnected] = useState<ConnectedHost>()
+  const [pickerId, setPickerId] = useState<string>()
   const [pathInput, setPathInput] = useState('')
   const [selectedPath, setSelectedPath] = useState<string>()
   const [revealRequest, setRevealRequest] = useState<{
@@ -52,6 +56,8 @@ export function SessionDialog({
   }>()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
+  const [newFolderName, setNewFolderName] = useState<string>()
+  const [treeRefreshVersion, setTreeRefreshVersion] = useState(0)
   const selectedHost = hosts.find((host) => host.hostId === hostId)
 
   const releaseUnopenedHost = async (): Promise<void> => {
@@ -60,9 +66,16 @@ export function SessionDialog({
     }
   }
 
+  const releasePicker = async (): Promise<void> => {
+    if (!pickerId) return
+    await folderPicker.close(pickerId)
+    setPickerId(undefined)
+  }
+
   const cancel = async (): Promise<void> => {
     setBusy(true)
     try {
+      await releasePicker()
       await releaseUnopenedHost()
     } finally {
       onCancel()
@@ -73,12 +86,14 @@ export function SessionDialog({
     setBusy(true)
     setError(undefined)
     try {
+      await releasePicker()
       await releaseUnopenedHost()
       setStage('host')
       setConnected(undefined)
       setPathInput('')
       setSelectedPath(undefined)
       setRevealRequest(undefined)
+      setNewFolderName(undefined)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
@@ -87,14 +102,14 @@ export function SessionDialog({
   }
 
   const selectPath = async (targetPath: string): Promise<void> => {
-    if (!connected) return
+    if (!pickerId) return
     setBusy(true)
     setError(undefined)
     setPathInput(targetPath)
     setSelectedPath(undefined)
     setRevealRequest(undefined)
     try {
-      const result = await onBrowse(connected.host.hostId, targetPath)
+      const result = await folderPicker.browse(pickerId, targetPath)
       setPathInput(result.path.path)
       setSelectedPath(result.path.path)
       setRevealRequest({
@@ -118,7 +133,9 @@ export function SessionDialog({
       setPathInput(result.suggestedPath)
       setSelectedPath(undefined)
       setRevealRequest(undefined)
-      const listing = await onBrowse(result.host.hostId, result.suggestedPath)
+      const lease = await folderPicker.start(result.host.hostId)
+      setPickerId(lease.pickerId)
+      const listing = await folderPicker.browse(lease.pickerId, result.suggestedPath)
       setPathInput(listing.path.path)
       setSelectedPath(listing.path.path)
       setRevealRequest({
@@ -138,10 +155,34 @@ export function SessionDialog({
     setError(undefined)
     try {
       const state = await onOpen(connected.host.hostId, selectedPath)
+      await releasePicker().catch(() => undefined)
       rememberFolder(connected.host.hostId, state.root.path)
       onOpened(state)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
+      setBusy(false)
+    }
+  }
+
+  const createDirectory = async (): Promise<void> => {
+    if (!pickerId || !selectedPath || newFolderName === undefined || !connectedHostId)
+      return
+    setBusy(true)
+    setError(undefined)
+    try {
+      const created = await folderPicker.createDirectory(
+        pickerId,
+        hostPath(asHostId(connectedHostId), selectedPath),
+        newFolderName,
+      )
+      setPathInput(created.path)
+      setSelectedPath(created.path)
+      setRevealRequest({ path: created.path, token: ++nextRevealToken.current })
+      setTreeRefreshVersion((version) => version + 1)
+      setNewFolderName(undefined)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
       setBusy(false)
     }
   }
@@ -156,8 +197,15 @@ export function SessionDialog({
   )
 
   useEffect(() => {
-    if (stage === 'folder' && !busy) pathInputRef.current?.focus()
-  }, [busy, stage])
+    if (!pickerId) return
+    return () => void folderPicker.close(pickerId).catch(() => undefined)
+  }, [folderPicker, pickerId])
+
+  useEffect(() => {
+    if (stage === 'folder' && !busy && newFolderName === undefined) {
+      pathInputRef.current?.focus()
+    }
+  }, [busy, newFolderName, stage])
 
   useModalKeyboard(dialogRef, () => void cancel(), !busy, !suspended)
 
@@ -256,12 +304,48 @@ export function SessionDialog({
               <div className="folder-selection">
                 <small>Selected folder</small>
                 <code>{selectedPath ?? 'Choose a folder from the tree'}</code>
+                {newFolderName === undefined ? (
+                  <button
+                    type="button"
+                    disabled={busy || !selectedPath}
+                    onClick={() => setNewFolderName('')}
+                  >
+                    New folder
+                  </button>
+                ) : (
+                  <form
+                    className="folder-create-form"
+                    onSubmit={(event) => {
+                      event.preventDefault()
+                      void createDirectory()
+                    }}
+                  >
+                    <input
+                      aria-label="New folder name"
+                      autoFocus
+                      disabled={busy}
+                      value={newFolderName}
+                      onChange={(event) => setNewFolderName(event.target.value)}
+                    />
+                    <button type="submit" disabled={busy || newFolderName.length === 0}>
+                      Create
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => setNewFolderName(undefined)}
+                    >
+                      Cancel
+                    </button>
+                  </form>
+                )}
               </div>
               {connectedHostId ? (
                 <DirectoryTree
                   root={hostPath(asHostId(connectedHostId), '/')}
                   rootLabel="/"
                   loadEntries={loadPickerEntries}
+                  refreshVersion={treeRefreshVersion}
                   selected={
                     selectedPath
                       ? hostPath(asHostId(connectedHostId), selectedPath)
@@ -278,9 +362,7 @@ export function SessionDialog({
                   showFiles={false}
                   onSelectDirectory={(directory) => {
                     if (busy) return
-                    setPathInput(directory.path)
-                    setSelectedPath(directory.path)
-                    setRevealRequest(undefined)
+                    void selectPath(directory.path)
                   }}
                 />
               ) : null}

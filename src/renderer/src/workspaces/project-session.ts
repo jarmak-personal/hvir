@@ -20,6 +20,7 @@ import {
   selectRelativeWorkspace,
 } from './project-session-model'
 import { createWorkspaceSessionActions } from './workspace-session-actions'
+import { projectFolderPickerClient } from './project-folder-picker-client'
 
 const WATCH_REFRESH_DELAY_MS = 250
 
@@ -460,6 +461,7 @@ export function useProjectSession(options: UseProjectSessionOptions) {
     reconnect,
     connectHost,
     browseHost,
+    folderPicker: projectFolderPickerClient,
     disconnectHost,
     openHost,
     answerPrompt,

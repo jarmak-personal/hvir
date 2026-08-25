@@ -216,6 +216,29 @@ export interface BrowseHostResponse {
   readonly directories: readonly DirEntry[]
 }
 
+export interface ProjectFolderPickerStartRequest {
+  readonly hostId: string
+}
+
+export interface ProjectFolderPickerLease {
+  readonly pickerId: string
+}
+
+export interface ProjectFolderPickerBrowseRequest {
+  readonly pickerId: string
+  readonly path: string
+}
+
+export interface ProjectFolderPickerCreateDirectoryRequest {
+  readonly pickerId: string
+  readonly destinationParent: HostPath
+  readonly name: string
+}
+
+export interface ProjectFolderPickerCloseRequest {
+  readonly pickerId: string
+}
+
 export type OperationResult<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly error: string }
@@ -588,6 +611,22 @@ export interface IpcInvokeMap {
   'project:browse-host': {
     request: BrowseHostRequest
     response: OperationResult<BrowseHostResponse>
+  }
+  'project:folder-picker-start': {
+    request: ProjectFolderPickerStartRequest
+    response: OperationResult<ProjectFolderPickerLease>
+  }
+  'project:folder-picker-browse': {
+    request: ProjectFolderPickerBrowseRequest
+    response: OperationResult<BrowseHostResponse>
+  }
+  'project:folder-picker-create-directory': {
+    request: ProjectFolderPickerCreateDirectoryRequest
+    response: OperationResult<HostPath>
+  }
+  'project:folder-picker-close': {
+    request: ProjectFolderPickerCloseRequest
+    response: OperationResult<void>
   }
   'project:open': {
     request: OpenProjectRequest
@@ -967,6 +1006,10 @@ export const INVOKE_CHANNELS = [
   'project:connect-host',
   'project:disconnect-host',
   'project:browse-host',
+  'project:folder-picker-start',
+  'project:folder-picker-browse',
+  'project:folder-picker-create-directory',
+  'project:folder-picker-close',
   'project:open',
   'project:switch',
   'project:refresh',

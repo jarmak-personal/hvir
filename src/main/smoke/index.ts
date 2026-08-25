@@ -3,6 +3,7 @@ import type { BrowserWindow } from 'electron'
 import { dispatchWorkerHostCall } from '../git/worker-host-broker'
 import { createFilenameSearchCoordinator } from '../filename-search'
 import { createProjectFileOperationCoordinator } from '../project-file-operations'
+import { ProjectFolderPickerCoordinator } from '../project-folder-picker'
 import { createDocumentReviewRuntime } from '../document-review'
 import { HarnessProfileStore } from '../harness/harness-profile-store'
 import { harnessProviderCatalog, harnessProviders } from '../harness/harness-provider'
@@ -581,12 +582,29 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       externalMoveSmoke.picker,
     )
     cleanup.defer('project file operations', () => projectFiles.dispose())
+    const browseSmokeHost = async (_hostId: string, path: string) => {
+      if (path.endsWith('.missing')) throw new Error(`Folder not found: ${path}`)
+      const canonical = await host.realpath(localPath(path))
+      const directories = (await host.readdir(canonical)).filter(
+        (entry) => entry.type === 'dir',
+      )
+      return { path: canonical, directories }
+    }
+    const projectFolderPicker = new ProjectFolderPickerCoordinator(
+      {
+        hostById: (hostId) =>
+          hostId === smokeRemoteHost.hostId ? smokeRemoteHost : host,
+        browseHost: browseSmokeHost,
+      },
+      rendererResources,
+    )
     let acceptedRendererReadySink: ((owner: RendererOwner) => void) | undefined
     const ipcRouter = registerIpcHandlers({
       echoWorker: worker,
       gitWorker: git,
       filenameSearch,
       projectFiles,
+      projectFolderPicker,
       documentReview: documentReview.coordinator,
       documentReviewDelivery: documentReview.delivery,
       getProject: () =>
@@ -632,14 +650,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
           connectionState: host.connectionState,
           watchTier: host.watchTier,
         }),
-      browseHost: async (_hostId, path) => {
-        if (path.endsWith('.missing')) throw new Error(`Folder not found: ${path}`)
-        const canonical = await host.realpath(localPath(path))
-        const directories = (await host.readdir(canonical)).filter(
-          (entry) => entry.type === 'dir',
-        )
-        return { path: canonical, directories }
-      },
+      browseHost: browseSmokeHost,
       openProject: (hostId, path) => {
         openedFolderSelections.push({ hostId, path })
         return Promise.resolve(setSmokeProjectState(smokeProjectState()))
