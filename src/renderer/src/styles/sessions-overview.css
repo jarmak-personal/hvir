@@ -79,6 +79,7 @@
 .sessions-controls button,
 .sessions-controls select,
 .sessions-notice button,
+.sessions-usage button,
 .session-card header button {
   border: 1px solid var(--border-strong);
   border-radius: 5px;
@@ -116,6 +117,12 @@
   border-bottom-color: #15191f;
   background: #15191f;
   color: var(--text-strong);
+}
+
+.sessions-lenses button[aria-current='page'] {
+  border-color: #4a6a8d;
+  border-bottom-color: #223247;
+  background: #223247;
 }
 
 .sessions-controls {

@@ -10,8 +10,15 @@ import {
 } from '../../shared'
 import { SessionsProjectionCoordinator } from '../../renderer/src/sessions/sessions-projection-coordinator'
 import type { SessionsRendererSession } from '../../renderer/src/sessions/sessions-renderer-observation'
+import type { HarnessProvider } from '../harness/harness-provider'
+import type { ProjectHost } from '../project-host'
 import type { RendererOwner, RendererResourceScopes } from '../renderer-resource-scopes'
 import type { PtySupervisor } from '../pty/pty-supervisor'
+import { SESSIONS_USAGE_SMOKE_TOTAL } from './sessions-usage-provider'
+
+const USAGE_SESSION_ID = '00000000-0000-4000-8000-000000006511'
+const USAGE_SESSION_TITLE = 'Usage cumulative fixture'
+const DISCONNECTED_USAGE_TITLE = 'Disconnected usage fixture'
 
 export async function verifySessionsProjectionSmoke(options: {
   readonly win: BrowserWindow
@@ -24,6 +31,8 @@ export async function verifySessionsProjectionSmoke(options: {
   readonly roots: readonly [HostPath, HostPath, HostPath]
   readonly addRetained: (root: HostPath, session: TerminalRecoverySession) => void
   readonly supervisor: PtySupervisor
+  readonly usageHost: ProjectHost
+  readonly usageProvider: HarnessProvider
 }): Promise<string> {
   const {
     win,
@@ -36,10 +45,21 @@ export async function verifySessionsProjectionSmoke(options: {
     roots,
     addRetained,
     supervisor,
+    usageHost,
+    usageProvider,
   } = options
   publishState(state)
   roots.forEach((root, index) =>
     addRetained(root, recovery(`smoke-sessions-${index + 1}`, root, providerId)),
+  )
+  addRetained(
+    roots[2],
+    usageRecovery(
+      '00000000-0000-4000-8000-000000006512',
+      roots[2],
+      usageProvider,
+      DISCONNECTED_USAGE_TITLE,
+    ),
   )
 
   const initial = (await win.webContents.executeJavaScript(`
@@ -49,9 +69,57 @@ export async function verifySessionsProjectionSmoke(options: {
     });
     window.hvir.invoke('sessions:observe', { demandGeneration: 1 });
   `)) as unknown
-  const initialSnapshot = assertSnapshot(initial, 3)
+  const initialSnapshot = assertSnapshot(initial, 4)
   assertContentFree(initial, [...roots, state.root])
   await assertRendererJoin(initialSnapshot)
+
+  const usageInfo = await supervisor.spawn({
+    host: usageHost,
+    provider: usageProvider,
+    cwd: roots[0],
+    workspaceRoot: roots[0],
+    ownerId: initialOwner.id,
+    ownerGeneration: initialOwner.generation,
+    sessionId: USAGE_SESSION_ID,
+    profileId: usageProvider.profile.defaultProfile?.id,
+    launchRevision: usageProvider.profile.version,
+    artifact: {
+      identity: 'sessions-usage-electron-smoke',
+      environment: {},
+      unsetEnvironment: [],
+    },
+  })
+  supervisor.attach(
+    usageInfo.id,
+    usageInfo.ownerId,
+    { onData: () => undefined },
+    usageInfo.ownerGeneration,
+  )
+  addRetained(
+    roots[0],
+    usageRecovery(USAGE_SESSION_ID, roots[0], usageProvider, USAGE_SESSION_TITLE),
+  )
+  const usageProjection = assertSnapshot(
+    await win.webContents.executeJavaScript(
+      `window.hvir.invoke('sessions:snapshot', { demandGeneration: 1 })`,
+    ),
+    5,
+  )
+  const usageSession = usageProjection.sessions.find(
+    (session) => session.title === USAGE_SESSION_TITLE,
+  )
+  if (!usageSession?.livePty) {
+    throw new Error('Sessions Usage smoke fixture lacked its exact live PTY')
+  }
+  const initialUsage = (await win.webContents.executeJavaScript(`
+    window.hvir.invoke('sessions:usage-observe', ${JSON.stringify({
+      demandGeneration: 11,
+      projectionDemandGeneration: 1,
+      sourceRevision: usageProjection.revision,
+      targets: [{ handle: usageSession.handle, livePty: usageSession.livePty }],
+    })})
+  `)) as UsageSmokeSnapshot
+  await waitForExactUsage(win, initialUsage, 11)
 
   const reloaded = new Promise<void>((resolve) =>
     win.webContents.once('did-finish-load', () => resolve()),
@@ -64,6 +132,32 @@ export async function verifySessionsProjectionSmoke(options: {
     !resources.isCurrent(replacement)
   ) {
     throw new Error('Sessions projection renderer generation did not roll forward')
+  }
+
+  const staleUsageDemand = (await win.webContents.executeJavaScript(`
+    window.hvir.invoke('sessions:usage-snapshot', { demandGeneration: 11 }).then(
+      () => 'accepted',
+      () => 'rejected'
+    );
+  `)) as string
+  if (staleUsageDemand !== 'rejected') {
+    throw new Error('Sessions Usage retained a stale renderer demand')
+  }
+  const rolledUsageInfo = supervisor.get(usageInfo.id)
+  const alreadyTransferred =
+    rolledUsageInfo?.ownerId === replacement.id &&
+    rolledUsageInfo.ownerGeneration === replacement.generation
+  if (
+    !alreadyTransferred &&
+    !supervisor.transferRendererSession(
+      usageInfo.id,
+      rolledUsageInfo?.ownerId ?? initialOwner.id,
+      rolledUsageInfo?.ownerGeneration ?? initialOwner.generation,
+      replacement.id,
+      replacement.generation,
+    )
+  ) {
+    throw new Error('Sessions Usage fixture did not survive renderer rollover')
   }
 
   const staleDemand = (await win.webContents.executeJavaScript(`
@@ -84,7 +178,7 @@ export async function verifySessionsProjectionSmoke(options: {
     });
     window.hvir.invoke('sessions:observe', { demandGeneration: 2 });
   `)) as unknown
-  const reopenedSnapshot = assertSnapshot(reopened, 4)
+  const reopenedSnapshot = assertSnapshot(reopened, 6)
   assertContentFree(reopened, [...roots, state.root])
   const staleSession = reopenedSnapshot.sessions[0]
   const staleWorkspace = reopenedSnapshot.workspaces.find(
@@ -444,10 +538,10 @@ async function verifySessionsOverview(
               if (!feedback.includes('does not have the same live terminal')) {
                 return wait(refused, 'retained Open refusal');
               }
-              button('Harnesses', overview)?.click();
+              button('Working', overview)?.click();
               const filtered = () => {
                 if (!overview.textContent?.includes('No sessions match')) {
-                  return wait(filtered, 'Harnesses filter');
+                  return wait(filtered, 'Working filter');
                 }
                 button('Reset filters', overview)?.click();
                 const enterDetail = () => {
@@ -455,9 +549,15 @@ async function verifySessionsOverview(
                   const filteredCards = currentOverview
                     ? [...currentOverview.querySelectorAll('.session-card')]
                     : [];
-                  const live = filteredCards.find((card) =>
-                    fact(card, 'Lifecycle') === 'Live' && button('Interact', card)
-                  );
+                  const live = filteredCards.find((card) => {
+                    const title = card.querySelector('h3')?.textContent?.trim();
+                    return fact(card, 'Lifecycle') === 'Live' &&
+                      button('Interact', card) &&
+                      [...document.querySelectorAll('.workbench .terminal-surface')].some(
+                        (surface) => surface.getAttribute('aria-label') === title &&
+                          surface.querySelector('.terminal-engine-host')
+                      );
+                  });
                   if (!(live instanceof HTMLElement)) return wait(enterDetail, 'live card');
                   const liveTitle = live.querySelector('h3')?.textContent?.trim();
                   const workspaceSurface = [...document.querySelectorAll('.workbench .terminal-surface')]
@@ -524,7 +624,10 @@ async function verifySessionsOverview(
                         return wait(restored, 'workspace surface restoration');
                       }
                       const currentLive = [...returnedOverview.querySelectorAll('.session-card')]
-                        .find((card) => fact(card, 'Lifecycle') === 'Live');
+                        .find((card) =>
+                          fact(card, 'Lifecycle') === 'Live' &&
+                          card.querySelector('h3')?.textContent?.trim() === liveTitle
+                        );
                       if (!(currentLive instanceof HTMLElement)) {
                         return wait(restored, 'restored live card');
                       }
@@ -547,7 +650,7 @@ async function verifySessionsOverview(
                     ) {
                       return wait(focused, 'exact terminal focus');
                     }
-                    resolve('full-page overview + filters + retained refusal + one exact interactive detail/input/restore + exact live Open/focus');
+                    resolve('full-page overview + bounded accessible Usage renderer rollover/restart/cumulative/disconnected lifecycle + filters + retained refusal + one exact interactive detail/input/restore + exact live Open/focus');
                   };
                   attached();
                 };
@@ -557,7 +660,64 @@ async function verifySessionsOverview(
             };
             refused();
           };
-          interact();
+          const verifyUsage = () => {
+            button('Usage', overview)?.click();
+            const usageReady = () => {
+              const ranking = overview.querySelector('.sessions-usage-ranking');
+              const rows = ranking ? [...ranking.querySelectorAll(':scope > li')] : [];
+              if (!ranking || rows.length < 5) return wait(usageReady, 'Usage ranking readiness');
+              const usageText = overview.textContent || '';
+              if (
+                !usageText.includes('Recent') ||
+                !usageText.includes('Session total') ||
+                !usageText.includes('Token categories') ||
+                rows.length > 40 ||
+                privatePaths.some((path) => overview.innerHTML.includes(path)) ||
+                overview.querySelector('.terminal-surface')
+              ) {
+                return reject(new Error('Sessions Usage production shape was unsafe or unbounded'));
+              }
+              const usageFixture = rows.find((row) =>
+                row.querySelector('h3')?.textContent?.trim() === ${JSON.stringify(USAGE_SESSION_TITLE)}
+              );
+              const disconnectedUsage = rows.find((row) =>
+                row.querySelector('h3')?.textContent?.trim() === ${JSON.stringify(DISCONNECTED_USAGE_TITLE)}
+              );
+              if (
+                !(usageFixture instanceof HTMLElement) ||
+                !usageFixture.textContent?.includes('No current coverage') ||
+                !usageFixture.textContent?.includes('exact total unavailable') ||
+                !(disconnectedUsage instanceof HTMLElement) ||
+                !disconnectedUsage.textContent?.includes('Connection unavailable')
+              ) {
+                return wait(usageReady, 'Usage restart and disconnected truth');
+              }
+              button('Session total', overview)?.click();
+              const cumulative = () => {
+                const currentUsageFixture = [...overview.querySelectorAll('.sessions-usage-ranking > li')]
+                  .find((row) => row.querySelector('h3')?.textContent?.trim() === ${JSON.stringify(USAGE_SESSION_TITLE)});
+                if (!currentUsageFixture?.textContent?.includes('${SESSIONS_USAGE_SMOKE_TOTAL.toLocaleString('en-US')} tokens')) {
+                  return wait(cumulative, 'Usage cumulative restoration');
+                }
+                button('Recent', overview)?.click();
+                button('1 minute', overview)?.click();
+                button('Overview', overview)?.click();
+                const released = () => {
+                  if (!overview.querySelector('.session-card')) {
+                    return wait(released, 'Overview return after Usage');
+                  }
+                  window.hvir.invoke('sessions:usage-snapshot', { demandGeneration: 1 }).then(
+                    () => reject(new Error('Usage demand remained active after leaving its lens')),
+                    () => interact()
+                  );
+                };
+                released();
+              };
+              cumulative();
+            };
+            usageReady();
+          };
+          verifyUsage();
         } catch (error) {
           reject(error);
         }
@@ -566,7 +726,14 @@ async function verifySessionsOverview(
     });
   `) as Promise<string>
   try {
-    const sessionId = await waitForSessionsDetailProbe(win)
+    const sessionId = await Promise.race([
+      waitForSessionsDetailProbe(win),
+      verification.then(() => {
+        throw new Error(
+          'Sessions overview completed before its detail proof target was exposed',
+        )
+      }),
+    ])
     const proof = await verifySessionsDetailInputAndResize(win, supervisor, sessionId)
     await win.webContents.executeJavaScript(
       `window.__hvirSessionsDetailProbeComplete = true`,
@@ -584,7 +751,9 @@ async function verifySessionsOverview(
 }
 
 async function waitForSessionsDetailProbe(win: BrowserWindow): Promise<string> {
-  const deadline = Date.now() + 20_000
+  // Let the renderer-owned staged proof report its exact bounded failure before
+  // this cross-process guard supplies a last-resort missing-probe diagnostic.
+  const deadline = Date.now() + 25_000
   while (Date.now() <= deadline) {
     const sessionId = (await win.webContents.executeJavaScript(
       `window.__hvirSessionsDetailProbe?.sessionId`,
@@ -728,6 +897,63 @@ function recovery(
     position: 0,
     active: true,
     updatedAt: Date.now(),
+  }
+}
+
+function usageRecovery(
+  id: string,
+  root: HostPath,
+  provider: HarnessProvider,
+  title: string,
+): TerminalRecoverySession {
+  const profileId = provider.profile.defaultProfile?.id
+  if (!profileId) throw new Error('Sessions Usage smoke provider lacked a profile')
+  return {
+    id,
+    providerId: provider.manifest.id,
+    profileId,
+    launchRevision: provider.profile.version,
+    recoverySkipCount: 0,
+    harnessSessionId: id,
+    hostId: root.hostId,
+    cwd: root,
+    title,
+    position: 0,
+    active: true,
+    updatedAt: Date.now(),
+  }
+}
+
+interface UsageSmokeSnapshot {
+  readonly rows?: readonly {
+    readonly usage?: {
+      readonly status?: string
+      readonly value?: { readonly normalizedTokenTotal?: number }
+    }
+  }[]
+}
+
+async function waitForExactUsage(
+  win: BrowserWindow,
+  initial: UsageSmokeSnapshot,
+  demandGeneration: number,
+): Promise<void> {
+  let snapshot = initial
+  const deadline = Date.now() + 5_000
+  while (
+    !snapshot.rows?.some(
+      (row) =>
+        row.usage?.status === 'exact' &&
+        row.usage.value?.normalizedTokenTotal === SESSIONS_USAGE_SMOKE_TOTAL,
+    )
+  ) {
+    if (Date.now() > deadline) {
+      throw new Error('Sessions Usage cumulative smoke fixture did not become exact')
+    }
+    await delay(25)
+    snapshot = (await win.webContents.executeJavaScript(
+      `window.hvir.invoke('sessions:usage-snapshot', { demandGeneration: ${demandGeneration} })`,
+    )) as UsageSmokeSnapshot
   }
 }
 

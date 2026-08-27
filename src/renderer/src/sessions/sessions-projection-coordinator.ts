@@ -368,7 +368,14 @@ function projectRow(
     context: telemetry.context,
     turn: telemetry.turn,
     telemetryFreshness: telemetry.freshness,
-    usage: { status: 'unsupported' },
+    usage:
+      provider?.usageSupported !== true
+        ? { status: 'unsupported' }
+        : workspace.host.connectionState !== 'connected'
+          ? { status: 'unavailable', reason: 'connection-unavailable' }
+          : main?.livePty
+            ? { status: 'pending', reason: 'identity-pending' }
+            : { status: 'unavailable', reason: 'not-live' },
     livePty: main?.livePty,
   }
 }
