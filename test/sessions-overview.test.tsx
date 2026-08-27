@@ -5,6 +5,8 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { SessionsOverview } from '../src/renderer/src/sessions/SessionsOverview'
+import { SessionsUsageLens } from '../src/renderer/src/sessions/SessionsUsageLens'
+import { joinSessionsProjection } from '../src/renderer/src/sessions/sessions-projection-coordinator'
 import {
   MAX_SESSIONS_PROJECTION_ROWS,
   SESSIONS_PROJECTION_VERSION,
@@ -19,6 +21,7 @@ import {
   type SessionsObservationSnapshot,
   type SessionsOpenRequest,
   type SessionsOpenResponse,
+  type SessionsProjectionSnapshot,
   type SessionsTerminalResolutionResponse,
   type SessionsUsageDemandTarget,
   type SessionsUsageSnapshot,
@@ -449,6 +452,49 @@ describe('SessionsOverview', () => {
     expect(api.usageSnapshot).toHaveBeenCalled()
   })
 
+  it('reacquires Usage after React Strict Mode replays setup, cleanup, and setup', async () => {
+    const api = installApi()
+    const observed = snapshot(4)
+    const rows = joinSessionsProjection(observed, rendererSessions())
+    const projection: SessionsProjectionSnapshot = {
+      version: SESSIONS_PROJECTION_VERSION,
+      demandGeneration: observed.demandGeneration,
+      revision: 1,
+      sourceRevision: observed.revision,
+      status: 'available' as const,
+      rows,
+    }
+
+    await act(async () => {
+      root.render(
+        <StrictMode>
+          <SessionsUsageLens
+            projection={projection}
+            rows={rows}
+            foreground
+            selected={rows[0]?.handle}
+            onSelect={vi.fn()}
+          />
+        </StrictMode>,
+      )
+      await settle()
+    })
+
+    expect(
+      api.usageObserve.mock.calls.map(([request]) => request.demandGeneration),
+    ).toEqual([1, 3])
+    expect(api.usageRelease).toHaveBeenCalledExactlyOnceWith(1)
+    expect(api.usageListenerCount()).toBe(1)
+    expect(host.textContent).toContain('Token usage ranking')
+
+    await act(async () => {
+      root.render(<div>Workspace</div>)
+      await settle()
+    })
+    expect(api.usageRelease.mock.calls).toEqual([[1], [3]])
+    expect(api.usageListenerCount()).toBe(0)
+  })
+
   it('keeps quiet, unsupported, and unavailable rows with reliable accessible values', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(0)
@@ -725,6 +771,7 @@ function installApi(
     usageObserve,
     usageSnapshot,
     usageRelease,
+    usageListenerCount: () => usageListeners.size,
     listenerCount: () => listeners.size,
     invoke: vi.fn((channel: string, request: { demandGeneration: number }) => {
       if (channel === 'sessions:observe') return observe(request.demandGeneration)
