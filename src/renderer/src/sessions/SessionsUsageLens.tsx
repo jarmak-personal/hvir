@@ -7,12 +7,7 @@ import {
   type ReactElement,
 } from 'react'
 
-import type {
-  HarnessUsageValue,
-  SessionsProjectionSnapshot,
-  SessionsTerminalHandle,
-  SessionsUsageFact,
-} from '../../../shared'
+import type { SessionsProjectionSnapshot, SessionsTerminalHandle } from '../../../shared'
 import { SESSIONS_OVERVIEW_PAGE_SIZE } from './sessions-overview-model'
 import {
   SessionsUsageCoordinator,
@@ -24,6 +19,20 @@ import {
   type SessionsUsageRankedRow,
   type SessionsUsageWindow,
 } from './sessions-usage-model'
+import {
+  compactState,
+  counterLabel,
+  coverageLabel,
+  cumulativeLabel,
+  durationLabel,
+  freshnessLabel,
+  hasPositiveCategories,
+  primaryUsage,
+  recentLabel,
+  relativeAge,
+  usageStatus,
+  usageValue,
+} from './sessions-usage-presentation'
 
 export function SessionsUsageLens({
   projection,
@@ -64,12 +73,12 @@ export function SessionsUsageLens({
   // coordinator reusable when React Strict Mode replays setup after cleanup;
   // useSyncExternalStore removes its listener and the ref becomes unreachable on unmount.
 
-  const ranked = usage.ranking
-  const handles = ranked.map((entry) => entry.row.handle)
-  const pageCount = Math.max(1, Math.ceil(ranked.length / SESSIONS_OVERVIEW_PAGE_SIZE))
+  const entries = usage.ranking
+  const handles = entries.map((entry) => entry.row.handle)
+  const pageCount = Math.max(1, Math.ceil(entries.length / SESSIONS_OVERVIEW_PAGE_SIZE))
   const boundedPage = Math.min(pageIndex, pageCount - 1)
   const pageStart = boundedPage * SESSIONS_OVERVIEW_PAGE_SIZE
-  const pageRows = ranked.slice(pageStart, pageStart + SESSIONS_OVERVIEW_PAGE_SIZE)
+  const pageRows = entries.slice(pageStart, pageStart + SESSIONS_OVERVIEW_PAGE_SIZE)
   useEffect(() => {
     if (boundedPage !== pageIndex) setPageIndex(boundedPage)
   }, [boundedPage, pageIndex])
@@ -92,10 +101,15 @@ export function SessionsUsageLens({
     rowElements.current.get(handle)?.focus()
   }, [pageRows])
 
-  const maxValue = Math.max(1, ...ranked.map((entry) => entry.rankValue ?? 0))
+  const maxRankValue = Math.max(1, ...entries.map((entry) => entry.rankValue ?? 0))
+  const selectMode = (nextMode: SessionsUsageMode): void => {
+    if (nextMode === mode) return
+    source.configure(projectionRef.current, rows, nextMode, windowMs)
+    setMode(nextMode)
+  }
   const showPage = (next: number): void => {
     const bounded = Math.min(Math.max(next, 0), pageCount - 1)
-    const target = ranked[bounded * SESSIONS_OVERVIEW_PAGE_SIZE]
+    const target = entries[bounded * SESSIONS_OVERVIEW_PAGE_SIZE]
     setPageIndex(bounded)
     if (!target) return
     onSelect(target.row.handle)
@@ -134,21 +148,21 @@ export function SessionsUsageLens({
     <section className="sessions-usage" aria-labelledby="sessions-usage-title">
       <header className="sessions-usage-header">
         <div>
-          <h2 id="sessions-usage-title">Token usage ranking</h2>
-          <p>{usageStatus(usage.status, usage.sampledAt)}</p>
+          <h2 id="sessions-usage-title">Token usage</h2>
+          <p>{usageStatus(usage.status, usage.sampledAt, mode, entries)}</p>
         </div>
-        <div className="sessions-usage-modes" aria-label="Usage ranking mode">
+        <div className="sessions-usage-modes" aria-label="Usage view">
           <button
             type="button"
             aria-pressed={mode === 'recent'}
-            onClick={() => setMode('recent')}
+            onClick={() => selectMode('recent')}
           >
             Recent
           </button>
           <button
             type="button"
             aria-pressed={mode === 'session-total'}
-            onClick={() => setMode('session-total')}
+            onClick={() => selectMode('session-total')}
           >
             Session total
           </button>
@@ -191,11 +205,11 @@ export function SessionsUsageLens({
         </section>
       ) : (
         <>
-          <nav className="sessions-pagination" aria-label="Usage ranking pages">
+          <nav className="sessions-pagination" aria-label="Usage pages">
             <p>
               Showing {pageStart + 1}–
-              {Math.min(pageStart + pageRows.length, ranked.length)} of {ranked.length}{' '}
-              ranked sessions
+              {Math.min(pageStart + pageRows.length, entries.length)} of {entries.length}{' '}
+              sessions
             </p>
             <div>
               <button
@@ -217,11 +231,16 @@ export function SessionsUsageLens({
               </button>
             </div>
           </nav>
-          <ol className="sessions-usage-ranking" aria-label="Session token usage ranking">
+          <ul className="sessions-usage-ranking" aria-label="Session token usage">
             {pageRows.map((entry) => (
               <li
                 key={entry.row.handle}
-                className={selected === entry.row.handle ? 'selected' : undefined}
+                className={[
+                  selected === entry.row.handle ? 'selected' : undefined,
+                  entry.rank === undefined ? 'compact' : undefined,
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
                 aria-current={selected === entry.row.handle ? 'true' : undefined}
                 tabIndex={selected === entry.row.handle ? 0 : -1}
                 ref={(element) => {
@@ -236,12 +255,12 @@ export function SessionsUsageLens({
                   entry={entry}
                   mode={mode}
                   windowMs={windowMs}
-                  maxValue={maxValue}
+                  maxRankValue={maxRankValue}
                   sampledAt={usage.sampledAt}
                 />
               </li>
             ))}
-          </ol>
+          </ul>
         </>
       )}
     </section>
@@ -252,17 +271,17 @@ function UsageRankRow({
   entry,
   mode,
   windowMs,
-  maxValue,
+  maxRankValue,
   sampledAt,
 }: {
   readonly entry: SessionsUsageRankedRow
   readonly mode: SessionsUsageMode
   readonly windowMs: SessionsUsageWindow
-  readonly maxValue: number
+  readonly maxRankValue: number
   readonly sampledAt: number
 }): ReactElement {
   const value = mode === 'recent' ? entry.recent.value : usageValue(entry.usage)
-  const primary = entry.rankValue
+  const primary = primaryUsage(entry, mode, windowMs)
   const categories = [
     ['fresh-input', value.freshInputTokens],
     ['cache-read', value.cacheReadInputTokens],
@@ -283,73 +302,92 @@ function UsageRankRow({
           </p>
         </div>
         <strong>
-          <span aria-hidden="true">{usageValueCompact(primary, entry, mode)}</span>
-          <span className="sessions-visually-hidden">
-            {usageValueAccessible(primary, entry, mode, windowMs)}
-          </span>
+          <span aria-hidden="true">{primary.compact}</span>
+          <span className="sessions-visually-hidden">{primary.accessible}</span>
         </strong>
       </header>
-      <div className="sessions-usage-bar" aria-hidden="true">
-        {categories.map(([name, categoryValue]) => (
-          <span
-            key={name}
-            className={name}
-            style={{
-              width: `${
-                primary === undefined || categoryValue === undefined
-                  ? 0
-                  : (categoryValue / maxValue) * 100
-              }%`,
-            }}
-          />
-        ))}
-      </div>
-      <dl>
-        <UsageFact label="Recent" value={recentLabel(entry, windowMs)} />
-        <UsageFact label="Session total" value={cumulativeLabel(entry.usage)} />
-        <UsageFact
-          label="Coverage"
-          value={`${coverageLabel(entry.recent.coverage)} · ${entry.recent.coveragePercent}% of ${durationLabel(windowMs)}`}
-        />
-        <UsageFact label="Freshness" value={freshnessLabel(entry.usage, sampledAt)} />
-        <UsageFact
-          label="Last activity"
-          value={
-            entry.recent.lastActivityAt === undefined
-              ? 'No positive observed change'
-              : relativeAge(entry.recent.lastActivityAt, sampledAt)
-          }
-        />
-      </dl>
-      <details>
-        <summary>Token categories</summary>
-        <dl className="sessions-usage-categories">
+      {primary.barScale ? (
+        <div
+          className={`sessions-usage-bar ${primary.barScale}`}
+          data-scale={primary.barScale}
+          aria-hidden="true"
+        >
+          {categories.map(([name, categoryValue]) => (
+            <span
+              key={name}
+              className={name}
+              style={{
+                width: `${
+                  categoryValue === undefined
+                    ? 0
+                    : (categoryValue /
+                        (primary.barScale === 'ranked'
+                          ? maxRankValue
+                          : primary.barValue)) *
+                      100
+                }%`,
+              }}
+            />
+          ))}
+        </div>
+      ) : null}
+      {entry.rank === undefined ? (
+        <p className="sessions-usage-compact-state">
+          {compactState(entry, mode, windowMs, sampledAt)}
+        </p>
+      ) : (
+        <dl>
+          <UsageFact label="Recent" value={recentLabel(entry, windowMs)} />
+          <UsageFact label="Session total" value={cumulativeLabel(entry.usage)} />
           <UsageFact
-            className="fresh-input"
-            label="Fresh input"
-            value={counterLabel(value.freshInputTokens)}
+            label="Coverage"
+            value={`${coverageLabel(entry.recent.coverage)} · ${entry.recent.coveragePercent}% of ${durationLabel(windowMs)}`}
           />
           <UsageFact
-            className="cache-read"
-            label="Cache read"
-            value={counterLabel(value.cacheReadInputTokens)}
+            label="Cumulative freshness"
+            value={freshnessLabel(entry.usage, sampledAt)}
           />
           <UsageFact
-            className="cache-write"
-            label="Cache write"
-            value={counterLabel(value.cacheWriteInputTokens)}
-          />
-          <UsageFact
-            className="output"
-            label="Output"
-            value={counterLabel(value.outputTokens)}
-          />
-          <UsageFact
-            label="Reasoning (part of output)"
-            value={counterLabel(value.reasoningTokens)}
+            label="Last activity"
+            value={
+              entry.recent.lastActivityAt === undefined
+                ? 'No positive observed change'
+                : relativeAge(entry.recent.lastActivityAt, sampledAt)
+            }
           />
         </dl>
-      </details>
+      )}
+      {hasPositiveCategories(value) ? (
+        <details>
+          <summary>Token categories</summary>
+          <dl className="sessions-usage-categories">
+            <UsageFact
+              className="fresh-input"
+              label="Fresh input"
+              value={counterLabel(value.freshInputTokens)}
+            />
+            <UsageFact
+              className="cache-read"
+              label="Cache read"
+              value={counterLabel(value.cacheReadInputTokens)}
+            />
+            <UsageFact
+              className="cache-write"
+              label="Cache write"
+              value={counterLabel(value.cacheWriteInputTokens)}
+            />
+            <UsageFact
+              className="output"
+              label="Output"
+              value={counterLabel(value.outputTokens)}
+            />
+            <UsageFact
+              label="Reasoning (part of output)"
+              value={counterLabel(value.reasoningTokens)}
+            />
+          </dl>
+        </details>
+      ) : null}
     </article>
   )
 }
@@ -369,103 +407,4 @@ function UsageFact({
       <dd>{value}</dd>
     </div>
   )
-}
-
-function usageValue(fact: SessionsUsageFact): HarnessUsageValue {
-  return fact.status === 'exact' || fact.status === 'partial' || fact.status === 'stale'
-    ? fact.value
-    : {}
-}
-
-function recentLabel(entry: SessionsUsageRankedRow, windowMs: number): string {
-  const total = entry.recent.value.normalizedTokenTotal
-  if (total !== undefined) {
-    return total === 0
-      ? `No activity in ${durationLabel(windowMs)}`
-      : `${total.toLocaleString()} tokens in ${durationLabel(windowMs)}`
-  }
-  return `${coverageLabel(entry.recent.coverage)} observation · exact total unavailable`
-}
-
-function cumulativeLabel(fact: SessionsUsageFact): string {
-  if (fact.status === 'exact') {
-    return `${fact.value.normalizedTokenTotal?.toLocaleString()} tokens`
-  }
-  if (fact.status === 'partial') return 'Partial categories · exact total unavailable'
-  if (fact.status === 'stale') return 'Stale cumulative observation'
-  return `${sentenceCase(fact.status)} · ${'reason' in fact ? sentenceCase(fact.reason) : 'capability state'}`
-}
-
-function freshnessLabel(fact: SessionsUsageFact, sampledAt: number): string {
-  if (fact.status === 'exact' || fact.status === 'partial' || fact.status === 'stale') {
-    return `${sentenceCase(fact.status)} · observed ${relativeAge(fact.observedAt, sampledAt)}`
-  }
-  return sentenceCase(fact.status)
-}
-
-function usageValueAccessible(
-  value: number | undefined,
-  entry: SessionsUsageRankedRow,
-  mode: SessionsUsageMode,
-  windowMs: number,
-): string {
-  if (value === undefined) return `${sentenceCase(entry.usage.status)} usage; not ranked`
-  return `${entry.rank === undefined ? '' : `Rank ${entry.rank}; `}${value.toLocaleString()} tokens ${
-    mode === 'recent' ? `in the last ${durationLabel(windowMs)}` : 'for this session'
-  }`
-}
-
-function usageValueCompact(
-  value: number | undefined,
-  entry: SessionsUsageRankedRow,
-  mode: SessionsUsageMode,
-): string {
-  if (value === undefined) return sentenceCase(entry.usage.status)
-  if (mode === 'recent' && value === 0) return 'No activity'
-  return new Intl.NumberFormat(undefined, { notation: 'compact' }).format(value)
-}
-
-function usageStatus(
-  status: 'inactive' | 'pending' | 'available' | 'unavailable',
-  sampledAt: number,
-): string {
-  if (status === 'pending') return 'Newly observing; the first exact value is a baseline.'
-  if (status === 'unavailable') return 'Usage observation is currently unavailable.'
-  if (status === 'inactive') return 'Usage observation is inactive.'
-  return `Sampling latest cumulative observations · updated ${relativeAge(sampledAt, Date.now())}`
-}
-
-function counterLabel(value: number | undefined): string {
-  return value === undefined ? 'Unavailable' : `${value.toLocaleString()} tokens`
-}
-
-function coverageLabel(value: SessionsUsageRankedRow['recent']['coverage']): string {
-  switch (value) {
-    case 'complete':
-      return 'Complete coverage'
-    case 'partial':
-      return 'Partial coverage'
-    case 'none':
-      return 'No current coverage'
-    case 'reset':
-      return 'Reset boundary'
-  }
-}
-
-function durationLabel(milliseconds: number): string {
-  const minutes = milliseconds / 60_000
-  return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`
-}
-
-function relativeAge(then: number, now: number): string {
-  const seconds = Math.max(0, Math.floor((now - then) / 1_000))
-  if (seconds < 2) return 'just now'
-  if (seconds < 60) return `${seconds} seconds ago`
-  const minutes = Math.floor(seconds / 60)
-  return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'} ago`
-}
-
-function sentenceCase(value: string): string {
-  const spaced = value.replaceAll('-', ' ')
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1)
 }

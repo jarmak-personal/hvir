@@ -73,6 +73,11 @@
   background: linear-gradient(145deg, #181c22, #14171c);
 }
 
+.sessions-usage-ranking > li.compact {
+  contain-intrinsic-size: 94px;
+  padding: 8px 11px;
+}
+
 .sessions-usage-ranking > li:hover,
 .sessions-usage-ranking > li.selected,
 .sessions-usage-ranking > li:focus-visible {
@@ -133,6 +138,12 @@
   background: #242a32;
 }
 
+.sessions-usage-bar.observed {
+  outline: 1px dashed #526273;
+  outline-offset: 2px;
+  background: #1c2229;
+}
+
 .sessions-usage-bar span {
   height: 100%;
   transition: width 220ms ease-out;
@@ -176,6 +187,12 @@
   overflow-wrap: anywhere;
   color: #b8c0ca;
   font-size: calc(9px * var(--hvir-interface-scale));
+}
+
+.sessions-usage-compact-state {
+  margin: 7px 0 0;
+  color: #8f9aa8;
+  font-size: calc(8px * var(--hvir-interface-scale));
 }
 
 .sessions-usage-ranking details {

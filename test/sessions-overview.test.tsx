@@ -477,11 +477,25 @@ describe('SessionsOverview', () => {
     await act(async () => {
       button('Usage').click()
       await settle()
-      button('Session total').click()
-      await settle()
     })
 
-    expect(host.textContent).toContain('Token usage ranking')
+    expect(host.textContent).toContain('Token usage')
+    expect(host.textContent).toContain('Recent is establishing baselines')
+    expect(host.textContent).toContain('Baseline')
+    expect(host.textContent).not.toContain('Rank 1')
+    expect(
+      [...host.querySelectorAll('.sessions-visually-hidden')].some((label) =>
+        label.textContent?.includes(
+          'exact cumulative total is 200 tokens and is shown separately',
+        ),
+      ),
+    ).toBe(true)
+
+    act(() => button('Session total').click())
+    expect(host.textContent).toContain('Exact cumulative totals are ranked')
+    expect(
+      host.querySelectorAll('.sessions-usage-bar[data-scale="ranked"]'),
+    ).toHaveLength(2)
     expect(host.textContent).toContain('Reasoning (part of output)')
     expect(host.querySelectorAll('.sessions-usage-ranking > li')).toHaveLength(2)
     expect(
@@ -551,7 +565,7 @@ describe('SessionsOverview', () => {
     ).toEqual([1, 3])
     expect(api.usageRelease).toHaveBeenCalledExactlyOnceWith(1)
     expect(api.usageListenerCount()).toBe(1)
-    expect(host.textContent).toContain('Token usage ranking')
+    expect(host.textContent).toContain('Token usage')
 
     await act(async () => {
       root.render(<div>Workspace</div>)
@@ -643,11 +657,97 @@ describe('SessionsOverview', () => {
     ).toEqual(
       expect.arrayContaining([
         expect.stringContaining('0 tokens in the last 1 minute'),
-        expect.stringContaining('Unsupported usage; not ranked'),
-        expect.stringContaining('Unavailable usage; not ranked'),
+        expect.stringContaining(
+          'Unsupported usage; exact Recent total unavailable; unranked',
+        ),
+        expect.stringContaining(
+          'Unavailable usage; exact Recent total unavailable; unranked',
+        ),
       ]),
     )
+    expect(host.querySelectorAll('.sessions-usage-ranking > li.compact')).toHaveLength(2)
+    expect(
+      host.querySelectorAll('.sessions-usage-ranking > li.compact .sessions-usage-bar'),
+    ).toHaveLength(0)
+    expect(
+      host.querySelectorAll('.sessions-usage-ranking > li.compact details'),
+    ).toHaveLength(0)
     vi.useRealTimers()
+  })
+
+  it('visualizes a positive partial Recent observation without assigning a rank', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    let sample = 0
+    installApi({
+      usageSnapshot: (demandGeneration, targets) => ({
+        version: SESSIONS_PROJECTION_VERSION,
+        demandGeneration,
+        revision: sample + 1,
+        sampledAt: Date.now(),
+        rows: targets.map((target) => ({
+          handle: target.handle,
+          usage: {
+            status: 'partial' as const,
+            observedAt: Date.now(),
+            value: {
+              freshInputTokens: 20 + sample * 10,
+              outputTokens: 5 + sample * 5,
+            },
+          },
+        })),
+      }),
+    })
+    const observed = snapshot(1)
+    const rows = joinSessionsProjection(observed, rendererSessions()).slice(0, 1)
+    const projection: SessionsProjectionSnapshot = {
+      version: SESSIONS_PROJECTION_VERSION,
+      demandGeneration: observed.demandGeneration,
+      revision: 1,
+      sourceRevision: observed.revision,
+      status: 'available',
+      rows,
+    }
+    await act(async () => {
+      root.render(
+        <SessionsUsageLens
+          projection={projection}
+          rows={rows}
+          foreground
+          selected={rows[0]?.handle}
+          onSelect={vi.fn()}
+        />,
+      )
+      await settle()
+    })
+    sample = 1
+    await act(async () => {
+      vi.advanceTimersByTime(10_000)
+      await settle()
+    })
+
+    expect(host.textContent).toContain('Recent observations are partial')
+    expect(host.textContent).toContain('15 observed')
+    expect(host.textContent).toContain('Not ranked')
+    expect(host.textContent).toContain('Coverage: Partial coverage · 3% of 5 minutes')
+    expect(host.textContent).toContain(
+      'Cumulative freshness: Partial · observed just now',
+    )
+    expect(host.textContent).toContain('Last activity: just now')
+    expect(host.textContent).not.toContain('Rank 1')
+    expect(host.querySelector('.sessions-visually-hidden')?.textContent).toContain(
+      '15 observed tokens in the last 5 minutes; partial coverage; exact Recent total unavailable; unranked',
+    )
+    const bar = host.querySelector<HTMLElement>(
+      '.sessions-usage-bar[data-scale="observed"]',
+    )
+    expect(bar).not.toBeNull()
+    expect(bar?.querySelector<HTMLElement>('.fresh-input')?.style.width).toBe(
+      '66.66666666666666%',
+    )
+    expect(bar?.querySelector<HTMLElement>('.output')?.style.width).toBe(
+      '33.33333333333333%',
+    )
   })
 
   it('keeps the Usage ranking mount bounded at projection capacity', async () => {
@@ -664,7 +764,7 @@ describe('SessionsOverview', () => {
     })
 
     expect(host.textContent).toContain(
-      `Showing 1–40 of ${MAX_SESSIONS_PROJECTION_ROWS} ranked sessions`,
+      `Showing 1–40 of ${MAX_SESSIONS_PROJECTION_ROWS} sessions`,
     )
     expect(host.querySelectorAll('.sessions-usage-ranking > li')).toHaveLength(40)
     expect(
@@ -680,7 +780,7 @@ describe('SessionsOverview', () => {
       await settle()
     })
     expect(host.textContent).toContain(
-      `Showing 41–80 of ${MAX_SESSIONS_PROJECTION_ROWS} ranked sessions`,
+      `Showing 41–80 of ${MAX_SESSIONS_PROJECTION_ROWS} sessions`,
     )
     expect(host.querySelectorAll('.sessions-usage-ranking > li')).toHaveLength(40)
     expect(document.activeElement).toBe(

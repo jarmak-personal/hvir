@@ -83,6 +83,37 @@ describe('Sessions usage sampling and ranking policy', () => {
     expect(recent.coveragePercent).toBeLessThan(100)
     expect(recent.value.normalizedTokenTotal).toBeUndefined()
     expect(recent.value.freshInputTokens).toBe(2)
+    expect(recent.observedTokenSubtotal).toBe(2)
+  })
+
+  it('keeps a positive partial Recent subtotal presentable but outside ordinal ranking', () => {
+    const target = row('partial-observation')
+    let history = appendSessionsUsageSample(undefined, {
+      sampledAt: 0,
+      usage: partial({ freshInputTokens: 20, outputTokens: 5 }),
+    })
+    history = appendSessionsUsageSample(history, {
+      sampledAt: 10_000,
+      usage: partial({ freshInputTokens: 30, outputTokens: 10 }),
+    })
+
+    const [entry] = rankSessionsUsage(
+      [target],
+      new Map([[target.handle, partial({ freshInputTokens: 30, outputTokens: 10 })]]),
+      new Map([[target.handle, history]]),
+      'recent',
+      60_000,
+      10_000,
+    )
+
+    expect(entry?.recent).toMatchObject({
+      coverage: 'partial',
+      observedTokenSubtotal: 15,
+      value: { freshInputTokens: 10, outputTokens: 5 },
+    })
+    expect(entry?.recent.value.normalizedTokenTotal).toBeUndefined()
+    expect(entry?.rankValue).toBeUndefined()
+    expect(entry?.rank).toBeUndefined()
   })
 
   it('retains one event boundary without turning exact refreshes into samples', () => {
