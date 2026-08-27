@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -18,11 +19,16 @@ import type {
   SessionsWorkspaceQualifier,
 } from '../../../shared'
 import { SessionsOverviewCard } from './SessionsOverviewCard'
+import { SessionsTerminalDetail } from './SessionsTerminalDetail'
 import {
   SessionsProjectionCoordinator,
   createSessionsMainObservationPort,
 } from './sessions-projection-coordinator'
 import type { SessionsRendererObservationPort } from './sessions-renderer-observation'
+import { terminalDetailEligible } from './sessions-terminal-detail-controller'
+import type { SessionsTerminalSurfacePort } from './sessions-terminal-surface'
+import { useSessionsForeground } from './use-sessions-foreground'
+import { useSessionsTerminalDetail } from './use-sessions-terminal-detail'
 import {
   DEFAULT_SESSIONS_OVERVIEW_POLICY,
   SESSIONS_OVERVIEW_PAGE_SIZE,
@@ -32,7 +38,6 @@ import {
   sessionsOverviewPage,
   sessionsOverviewPolicyLabel,
   sessionsOverviewRows,
-  type SessionsOverviewFilter,
   type SessionsOverviewGroup,
   type SessionsOverviewPolicy,
   type SessionsOverviewSort,
@@ -40,6 +45,7 @@ import {
 
 interface SessionsOverviewProps {
   readonly observation: SessionsRendererObservationPort
+  readonly surface: SessionsTerminalSurfacePort
   readonly onReturn: () => void
   readonly onOpened: (state: ProjectState) => void
   readonly onFocusOpened: (
@@ -52,6 +58,7 @@ interface SessionsOverviewProps {
 
 export function SessionsOverview({
   observation,
+  surface,
   onReturn,
   onOpened,
   onFocusOpened,
@@ -69,6 +76,11 @@ export function SessionsOverview({
     source.snapshot,
     source.snapshot,
   )
+  const { controller: detail, state: detailState } = useSessionsTerminalDetail({
+    surface,
+    snapshot,
+    foreground,
+  })
   const [policy, setPolicy] = useState<SessionsOverviewPolicy>(
     DEFAULT_SESSIONS_OVERVIEW_POLICY,
   )
@@ -141,6 +153,13 @@ export function SessionsOverview({
     pendingFocus.current = undefined
     rowElements.current.get(handle)?.focus()
   }, [page.rows])
+  useLayoutEffect(() => {
+    if (detailState.status !== 'inactive') return
+    const handle = pendingFocus.current
+    if (!handle) return
+    pendingFocus.current = undefined
+    rowElements.current.get(handle)?.focus()
+  }, [detailState.status])
 
   const updatePolicy = <K extends keyof SessionsOverviewPolicy>(
     key: K,
@@ -238,6 +257,22 @@ export function SessionsOverview({
   }
 
   const policyLabel = sessionsOverviewPolicyLabel(policy)
+  if (detailState.status !== 'inactive') {
+    return (
+      <SessionsTerminalDetail
+        controller={detail}
+        state={detailState}
+        onBack={() => {
+          pendingFocus.current = detail.selectedHandle()
+          detail.close()
+        }}
+        onReturn={() => {
+          detail.close()
+          onReturn()
+        }}
+      />
+    )
+  }
   return (
     <main className="sessions-overview" aria-labelledby="sessions-title">
       <header className="sessions-overview-header">
@@ -410,6 +445,11 @@ export function SessionsOverview({
                           row={row}
                           opening={opening === row.handle}
                           onOpen={() => void open(row)}
+                          onInteract={
+                            terminalDetailEligible(row)
+                              ? () => detail.open(row, source.snapshot(), foreground)
+                              : undefined
+                          }
                         />
                       </article>
                     )
@@ -456,25 +496,3 @@ function openUnavailableMessage(reason: SessionsOpenUnavailableReason): string {
       return 'This session does not have the same live terminal anymore.'
   }
 }
-
-function useSessionsForeground(): boolean {
-  const [foreground, setForeground] = useState(
-    () => document.visibilityState === 'visible' && document.hasFocus(),
-  )
-  useEffect(() => {
-    const update = (): void =>
-      setForeground(document.visibilityState === 'visible' && document.hasFocus())
-    window.addEventListener('focus', update)
-    window.addEventListener('blur', update)
-    document.addEventListener('visibilitychange', update)
-    update()
-    return () => {
-      window.removeEventListener('focus', update)
-      window.removeEventListener('blur', update)
-      document.removeEventListener('visibilitychange', update)
-    }
-  }, [])
-  return foreground
-}
-
-export type { SessionsOverviewFilter }

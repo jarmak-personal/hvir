@@ -130,10 +130,17 @@ export async function verifySessionsProjectionSmoke(options: {
   }
 
   const terminalStatus = await ensureSessionsLiveTerminal(win, supervisor)
-  app.focus({ steal: true })
   win.show()
-  win.focus()
-  win.webContents.focus()
+  const focusDeadline = Date.now() + 5_000
+  while (!((await win.webContents.executeJavaScript(`document.hasFocus()`)) as boolean)) {
+    app.focus({ steal: true })
+    win.focus()
+    win.webContents.focus()
+    if (Date.now() > focusDeadline) {
+      throw new Error('Sessions detail smoke window did not regain focus')
+    }
+    await delay(25)
+  }
   await win.webContents.executeJavaScript(`
     new Promise((resolve, reject) => {
       const deadline = Date.now() + 5_000;
@@ -145,7 +152,11 @@ export async function verifySessionsProjectionSmoke(options: {
       poll();
     });
   `)
-  const overviewStatus = await verifySessionsOverview(win, [...roots, state.root])
+  const overviewStatus = await verifySessionsOverview(
+    win,
+    [...roots, state.root],
+    supervisor,
+  )
   const releasedAfterReturn = (await win.webContents.executeJavaScript(`
     new Promise((resolve) => {
       const poll = () => {
@@ -161,8 +172,9 @@ export async function verifySessionsProjectionSmoke(options: {
     throw new Error('Sessions overview retained observation demand after Open returned')
   }
   const pickerStatus = await verifySessionsProjectPickerReturn(win)
+  const hiddenTerminalStatus = await ensureSessionsLiveTerminal(win, supervisor)
   const hiddenStatus = await verifySessionsHiddenRelease(win)
-  return `cross-project/worktree + disconnected SSH + renderer rollover + stale Open + quiet release + ${terminalStatus} + ${overviewStatus} + ${pickerStatus} + ${hiddenStatus}`
+  return `cross-project/worktree + disconnected SSH + renderer rollover + stale Open + quiet release + ${terminalStatus} + ${overviewStatus} + ${pickerStatus} + hidden ${hiddenTerminalStatus} + ${hiddenStatus}`
 }
 
 async function verifySessionsProjectPickerReturn(win: BrowserWindow): Promise<string> {
@@ -227,13 +239,43 @@ async function verifySessionsHiddenRelease(win: BrowserWindow): Promise<string> 
   await win.webContents.executeJavaScript(`
     new Promise((resolve, reject) => {
       const deadline = Date.now() + 10_000;
+      const workspaceSurface = [...document.querySelectorAll('.workbench .terminal-surface')]
+        .find((surface) =>
+          surface.querySelector('.terminal-engine-host') &&
+          (surface.getAttribute('data-terminal-status') || '').startsWith('pid ')
+        );
+      const title = workspaceSurface?.getAttribute('aria-label');
+      if (!title) return reject(new Error('Sessions hidden-release check lacked a live terminal'));
       document.querySelector('.sessions-destination')?.click();
       const poll = () => {
-        if (document.querySelectorAll('.sessions-overview .session-card').length > 0) {
-          return resolve(true);
+        const overview = document.querySelector('.sessions-overview');
+        const card = overview
+          ? [...overview.querySelectorAll('.session-card')]
+            .find((candidate) => candidate.querySelector('h3')?.textContent?.trim() === title)
+          : undefined;
+        const interact = card
+          ? [...card.querySelectorAll('button')]
+            .find((button) => button.textContent?.trim() === 'Interact')
+          : undefined;
+        if (interact instanceof HTMLButtonElement) {
+          interact.click();
+          return detail();
         }
         if (Date.now() > deadline) return reject(new Error('Sessions hidden-release check lacked overview'));
         setTimeout(poll, 25);
+      };
+      const detail = () => {
+        const input = document.querySelector('.sessions-detail-terminal-container');
+        if (
+          input?.querySelector('.terminal-engine-host') &&
+          input.__hvirTerminalDelivery?.presentation === 'visible'
+        ) {
+          return resolve(true);
+        }
+        if (Date.now() > deadline) {
+          return reject(new Error('Sessions hidden-release check lacked exact detail'));
+        }
+        setTimeout(detail, 25);
       };
       poll();
     });
@@ -244,9 +286,21 @@ async function verifySessionsHiddenRelease(win: BrowserWindow): Promise<string> 
       const deadline = Date.now() + 5_000;
       const poll = () => {
         if (document.visibilityState === 'hidden' || !document.hasFocus()) {
+          const detail = document.querySelector('.sessions-terminal-detail');
+          const input = detail?.querySelector('.sessions-detail-terminal-container');
+          if (
+            !(detail instanceof HTMLElement) ||
+            input?.querySelector('.terminal-engine-host') ||
+            input?.__hvirTerminalDelivery?.presentation !== 'hidden'
+          ) {
+            if (Date.now() > deadline) {
+              return reject(new Error('hidden Sessions retained a presented detail surface'));
+            }
+            return setTimeout(poll, 25);
+          }
           return window.hvir.invoke('sessions:snapshot', { demandGeneration: 1 }).then(
             () => reject(new Error('hidden Sessions retained demand')),
-            () => resolve('released')
+            () => resolve('detail surface and demand released')
           );
         }
         if (Date.now() > deadline) return reject(new Error('Sessions did not become hidden or unfocused'));
@@ -307,15 +361,22 @@ async function ensureSessionsLiveTerminal(
 async function verifySessionsOverview(
   win: BrowserWindow,
   privateRoots: readonly HostPath[],
+  supervisor: PtySupervisor,
 ): Promise<string> {
-  return (await win.webContents.executeJavaScript(`
+  const verification = win.webContents.executeJavaScript(`
     new Promise((resolve, reject) => {
       const deadline = Date.now() + 20_000;
       const wait = (next, stage) => {
         if (Date.now() <= deadline) return setTimeout(next, 25);
         const overview = document.querySelector('.sessions-overview');
+        const detail = document.querySelector('.sessions-terminal-detail');
+        const detailInput = detail?.querySelector('.sessions-detail-terminal-container');
         reject(new Error('Sessions overview timed out at ' + stage + ': ' + JSON.stringify({
           overview: Boolean(overview),
+          detail: detail?.textContent?.trim(),
+          detailEngines: detail?.querySelectorAll('.terminal-engine-host').length ?? 0,
+          globalEngines: document.querySelectorAll('.terminal-engine-host').length,
+          detailPresentation: detailInput?.__hvirTerminalDelivery?.presentation,
           cards: overview?.querySelectorAll('.session-card').length ?? 0,
           notice: overview?.querySelector('.sessions-notice')?.textContent?.trim(),
           feedback: overview?.querySelector('.sessions-feedback')?.textContent?.trim(),
@@ -389,11 +450,89 @@ async function verifySessionsOverview(
                   return wait(filtered, 'Harnesses filter');
                 }
                 button('Reset filters', overview)?.click();
-                const openLive = () => {
-                  const filteredCards = [...overview.querySelectorAll('.session-card')];
-                  const live = filteredCards.find((card) => fact(card, 'Lifecycle') === 'Live');
-                  if (!(live instanceof HTMLElement)) return wait(openLive, 'live card');
-                  button('Open', live)?.click();
+                const enterDetail = () => {
+                  const currentOverview = document.querySelector('.sessions-overview');
+                  const filteredCards = currentOverview
+                    ? [...currentOverview.querySelectorAll('.session-card')]
+                    : [];
+                  const live = filteredCards.find((card) =>
+                    fact(card, 'Lifecycle') === 'Live' && button('Interact', card)
+                  );
+                  if (!(live instanceof HTMLElement)) return wait(enterDetail, 'live card');
+                  const liveTitle = live.querySelector('h3')?.textContent?.trim();
+                  const workspaceSurface = [...document.querySelectorAll('.workbench .terminal-surface')]
+                    .find((surface) =>
+                      surface.getAttribute('aria-label') === liveTitle &&
+                      surface.querySelector('.terminal-engine-host')
+                    );
+                  const workspaceInput = workspaceSurface?.querySelector('.terminal-container');
+                  const workspaceEngine = workspaceInput?.querySelector('.terminal-engine-host');
+                  const engineCount = document.querySelectorAll('.terminal-engine-host').length;
+                  if (
+                    !(workspaceInput instanceof HTMLElement) ||
+                    !(workspaceEngine instanceof HTMLElement)
+                  ) {
+                    return reject(new Error('live card lacked its exact workspace terminal surface'));
+                  }
+                  const sessionId = workspaceSurface?.getAttribute('data-terminal-session');
+                  if (!sessionId) {
+                    return reject(new Error('live terminal surface lacked its existing session identity'));
+                  }
+                  button('Interact', live)?.click();
+                  const attached = () => {
+                    const detail = document.querySelector('.sessions-terminal-detail');
+                    const input = detail?.querySelector('.sessions-detail-terminal-container');
+                    const engine = input?.querySelector('.terminal-engine-host');
+                    const delivery = input?.__hvirTerminalDelivery;
+                    const performance = engine?.__hvirTerminalPerformance;
+                    if (
+                      !(detail instanceof HTMLElement) ||
+                      !(input instanceof HTMLElement) ||
+                      !(engine instanceof HTMLElement) ||
+                      engine !== workspaceEngine ||
+                      document.querySelectorAll('.terminal-engine-host').length !== engineCount ||
+                      delivery?.presentation !== 'visible' ||
+                      performance?.paused ||
+                      !(document.activeElement === engine || engine.contains(document.activeElement))
+                    ) {
+                      return wait(attached, 'exact detail attachment');
+                    }
+                    window.__hvirSessionsDetailProbe = { sessionId };
+                    const proof = () => {
+                      if (window.__hvirSessionsDetailProbeFailure) {
+                        return reject(new Error(window.__hvirSessionsDetailProbeFailure));
+                      }
+                      if (!window.__hvirSessionsDetailProbeComplete) {
+                        return wait(proof, 'exact detail input and resize proof');
+                      }
+                      delete window.__hvirSessionsDetailProbe;
+                      delete window.__hvirSessionsDetailProbeComplete;
+                      delete window.__hvirSessionsDetailProbeFailure;
+                      button('Back to Sessions', detail)?.click();
+                      restored();
+                    };
+                    const restored = () => {
+                      const returnedOverview = document.querySelector('.sessions-overview');
+                      const restoredEngine = workspaceInput.querySelector('.terminal-engine-host');
+                      if (
+                        !(returnedOverview instanceof HTMLElement) ||
+                        restoredEngine !== workspaceEngine ||
+                        workspaceInput.__hvirTerminalDelivery?.presentation !== 'hidden' ||
+                        !restoredEngine.__hvirTerminalPerformance?.paused ||
+                        document.querySelectorAll('.terminal-engine-host').length !== engineCount
+                      ) {
+                        return wait(restored, 'workspace surface restoration');
+                      }
+                      const currentLive = [...returnedOverview.querySelectorAll('.session-card')]
+                        .find((card) => fact(card, 'Lifecycle') === 'Live');
+                      if (!(currentLive instanceof HTMLElement)) {
+                        return wait(restored, 'restored live card');
+                      }
+                      button('Open', currentLive)?.click();
+                      focused();
+                    };
+                    proof();
+                  };
                   const focused = () => {
                     if (document.querySelector('.sessions-overview')) {
                       return wait(focused, 'Open navigation');
@@ -408,11 +547,11 @@ async function verifySessionsOverview(
                     ) {
                       return wait(focused, 'exact terminal focus');
                     }
-                    resolve('full-page overview + filters + retained refusal + exact live Open/focus');
+                    resolve('full-page overview + filters + retained refusal + one exact interactive detail/input/restore + exact live Open/focus');
                   };
-                  focused();
+                  attached();
                 };
-                openLive();
+                enterDetail();
               };
               filtered();
             };
@@ -425,7 +564,151 @@ async function verifySessionsOverview(
       };
       ready();
     });
-  `)) as string
+  `) as Promise<string>
+  try {
+    const sessionId = await waitForSessionsDetailProbe(win)
+    const proof = await verifySessionsDetailInputAndResize(win, supervisor, sessionId)
+    await win.webContents.executeJavaScript(
+      `window.__hvirSessionsDetailProbeComplete = true`,
+    )
+    return `${await verification} + ${proof}`
+  } catch (error) {
+    await win.webContents
+      .executeJavaScript(
+        `window.__hvirSessionsDetailProbeFailure = 'Sessions detail production proof failed'`,
+      )
+      .catch(() => undefined)
+    await verification.catch(() => undefined)
+    throw error
+  }
+}
+
+async function waitForSessionsDetailProbe(win: BrowserWindow): Promise<string> {
+  const deadline = Date.now() + 20_000
+  while (Date.now() <= deadline) {
+    const sessionId = (await win.webContents.executeJavaScript(
+      `window.__hvirSessionsDetailProbe?.sessionId`,
+    )) as string | undefined
+    if (sessionId) return sessionId
+    await delay(25)
+  }
+  throw new Error('Sessions detail did not expose its smoke-only production proof target')
+}
+
+async function verifySessionsDetailInputAndResize(
+  win: BrowserWindow,
+  supervisor: PtySupervisor,
+  sessionId: string,
+): Promise<string> {
+  const terminal = supervisor.get(sessionId)
+  if (!terminal) throw new Error('Sessions detail proof target no longer had a live PTY')
+  let output = ''
+  let exited = false
+  const detach = supervisor.attach(
+    terminal.id,
+    terminal.ownerId,
+    {
+      onData: (data) => {
+        output = (output + data).slice(-32_768)
+      },
+      onExit: () => {
+        exited = true
+      },
+    },
+    terminal.ownerGeneration,
+  )
+  try {
+    supervisor.write(
+      terminal.id,
+      terminal.ownerId,
+      `printf '\\r\\nsessions-detail-size-a:'; stty size\n`,
+      terminal.ownerGeneration,
+    )
+    const initial = await waitForTerminalSize(
+      () => output,
+      () => exited,
+      'sessions-detail-size-a',
+    )
+    await win.webContents.executeJavaScript(`
+      (() => {
+        const detail = document.querySelector('.sessions-detail-terminal');
+        if (!(detail instanceof HTMLElement)) throw new Error('Sessions detail disappeared');
+        detail.style.width = '430px';
+        detail.style.height = '280px';
+        detail.style.justifySelf = 'start';
+      })()
+    `)
+    await delay(250)
+    supervisor.write(
+      terminal.id,
+      terminal.ownerId,
+      `printf '\\r\\nsessions-detail-size-b:'; stty size; stty -echo; printf '\\r\\nsessions-detail-input-awaiting\\r\\n'; IFS= read -r hvir_input; stty echo; printf '\\r\\nsessions-detail-input:%s\\r\\n' "$hvir_input"\n`,
+      terminal.ownerGeneration,
+    )
+    const resized = await waitForTerminalSize(
+      () => output,
+      () => exited,
+      'sessions-detail-size-b',
+    )
+    if (initial.rows === resized.rows && initial.cols === resized.cols) {
+      throw new Error(
+        `Sessions detail resize did not reach the exact PTY (${initial.rows}x${initial.cols})`,
+      )
+    }
+    await waitForTerminalOutput(
+      () => output.includes('sessions-detail-input-awaiting'),
+      () => exited,
+      'Sessions detail PTY did not become input-ready',
+    )
+    for (const keyCode of ['H', 'V', 'I', 'R']) {
+      win.webContents.sendInputEvent({ type: 'keyDown', keyCode })
+      win.webContents.sendInputEvent({ type: 'keyUp', keyCode })
+    }
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' })
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' })
+    await waitForTerminalOutput(
+      () => output.includes('sessions-detail-input:hvir'),
+      () => exited,
+      'Sessions detail input did not reach the exact PTY',
+    )
+    return `trusted input + exact PTY resize ${initial.rows}x${initial.cols}→${resized.rows}x${resized.cols}`
+  } finally {
+    void detach()
+  }
+}
+
+async function waitForTerminalSize(
+  output: () => string,
+  exited: () => boolean,
+  marker: string,
+): Promise<{ readonly rows: number; readonly cols: number }> {
+  let match: RegExpMatchArray | null = null
+  await waitForTerminalOutput(
+    () => {
+      match = output().match(new RegExp(`${marker}:(\\d+)\\s+(\\d+)`))
+      return match !== null
+    },
+    exited,
+    `Sessions detail PTY omitted ${marker}`,
+  )
+  return { rows: Number(match![1]), cols: Number(match![2]) }
+}
+
+async function waitForTerminalOutput(
+  ready: () => boolean,
+  exited: () => boolean,
+  message: string,
+): Promise<void> {
+  const deadline = Date.now() + 5_000
+  while (!ready()) {
+    if (exited()) throw new Error(`${message}; PTY exited`)
+    if (Date.now() > deadline) throw new Error(message)
+    await delay(25)
+  }
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds))
 }
 
 function recovery(

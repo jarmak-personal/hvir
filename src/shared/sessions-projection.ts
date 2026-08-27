@@ -178,6 +178,19 @@ export type SessionsOpenResponse =
       readonly reason: SessionsOpenUnavailableReason
     }
 
+/** Exact read-only resolution for borrowing an existing renderer terminal surface. */
+export type SessionsTerminalResolutionResponse =
+  | {
+      readonly outcome: 'resolved'
+      readonly handle: SessionsTerminalHandle
+      readonly workspaceQualifier: SessionsWorkspaceQualifier
+      readonly livePty: SessionsLivePtyQualifier
+    }
+  | {
+      readonly outcome: 'unavailable'
+      readonly reason: SessionsOpenUnavailableReason
+    }
+
 export type SessionsLifecycle =
   'retained' | 'starting' | 'resuming' | 'live' | 'stopped' | 'unavailable'
 

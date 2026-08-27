@@ -17,6 +17,12 @@ import {
 import type { TerminalRuntimeOptions } from './terminal-runtime-options'
 import { TerminalRuntimeInteractions } from './terminal-runtime-interactions'
 import { TerminalSurfaceAttachment } from './terminal-surface-attachment'
+import type {
+  SessionsTerminalSurfaceLease,
+  SessionsTerminalSurfaceRequest,
+  SessionsTerminalSurfaceRevocationReason,
+} from '../sessions/sessions-terminal-surface'
+import { TerminalSessionsSurfaceOwner } from './terminal-sessions-surface-owner'
 
 const PTY_RESIZE_DEBOUNCE_MS = 75
 
@@ -41,6 +47,7 @@ export class TerminalRuntime {
   private pendingReplacementId?: string
   private activePtyId?: string
   private activePtyInstanceId?: string
+  private readonly sessionsSurface: TerminalSessionsSurfaceOwner
   private startController?: AbortController
   readonly interactions: TerminalRuntimeInteractions
   private disposed = false
@@ -59,6 +66,15 @@ export class TerminalRuntime {
     ) => Promise<() => void>,
   ) {
     this.options = options
+    this.sessionsSurface = new TerminalSessionsSurfaceOwner(this.surface, () => ({
+      disposed: this.disposed,
+      sessionId: this.options.sessionId,
+      started: this.started,
+      ptyInstanceId: this.activePtyInstanceId,
+      pane: this.pane,
+      connected: this.options.connectionState === 'connected',
+      focused: () => this.options.onFocus(),
+    }))
     this.interactions = new TerminalRuntimeInteractions(
       options.fallbackTitle,
       () => this.surface.canFocus(),
@@ -96,6 +112,9 @@ export class TerminalRuntime {
       throw new Error('Live terminal launch context cannot change')
     }
     const typographyChanged = applyLivePaneOptions(this.pane, this.options, options)
+    if (!hostPathEquals(options.workspaceRoot, this.options.workspaceRoot)) {
+      this.revokeSessionsSurface('workspace-unavailable')
+    }
     this.options = options
     this.interactions.updateAvailability(runtimeCanInteract(options))
     if (typographyChanged) this.interactions.retainedBufferChanged()
@@ -115,6 +134,7 @@ export class TerminalRuntime {
       }
       return
     }
+    this.revokeSessionsSurface('connection-unavailable')
     this.disconnected = true
     if (this.started && connectionState !== 'disconnected') return
     this.releaseSurface(this.starting)
@@ -151,7 +171,8 @@ export class TerminalRuntime {
     ) {
       return
     }
-    if (this.pane && this.surface.canFocus()) this.pane.focus()
+    if (!this.surface.isWorkspaceCurrent()) return
+    if (this.pane && this.surface.canWorkspaceFocus()) this.pane.focus()
     this.options.onFocus()
   }
 
@@ -163,13 +184,19 @@ export class TerminalRuntime {
       !this.pane ||
       !this.surface.currentContainer ||
       this.options.presentation !== 'visible' ||
-      !this.surface.canFocus()
+      !this.surface.canWorkspaceFocus()
     ) {
       return false
     }
     this.pane.focus()
     this.options.onFocus()
     return true
+  }
+
+  acquireSessionsSurface(
+    request: SessionsTerminalSurfaceRequest,
+  ): SessionsTerminalSurfaceLease | undefined {
+    return this.sessionsSurface.acquire(request)
   }
 
   restart(): void {
@@ -217,7 +244,7 @@ export class TerminalRuntime {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
-    this.releaseSurface(true)
+    this.releaseSurface(true, 'owner-disposed')
     this.surface.dispose()
     this.listeners.clear()
   }
@@ -407,11 +434,13 @@ export class TerminalRuntime {
   private installPaneListeners(pane: TerminalPane): void {
     this.paneDisposers = [
       pane.events.onData((data) => {
+        if (!this.surface.canFocus()) return
         this.options.onInput(data)
         if (this.started) window.hvir.send('pty:write', { id: this.activePtyId!, data })
         else this.pendingInput += data
       }),
       pane.events.onClipboardPaste((fallbackData) => {
+        if (!this.surface.canFocus()) return
         this.options.onInput(fallbackData)
         if (this.started) {
           window.hvir.send('terminal:paste-image', {
@@ -421,14 +450,27 @@ export class TerminalRuntime {
         } else this.pendingInput += fallbackData
       }),
       pane.events.onResize(({ cols, rows }) => {
+        if (!this.surface.canFocus()) return
         this.interactions.retainedBufferChanged()
         this.terminalSize = { cols, rows }
         if (!this.started) return
         if (this.resizeTimer !== undefined) window.clearTimeout(this.resizeTimer)
+        const interactionGeneration = this.surface.interactionGeneration
+        const ptyId = this.activePtyId
+        const ptyInstanceId = this.activePtyInstanceId
         this.resizeTimer = window.setTimeout(() => {
           this.resizeTimer = undefined
+          if (
+            !this.surface.canFocus() ||
+            interactionGeneration !== this.surface.interactionGeneration ||
+            !ptyId ||
+            ptyId !== this.activePtyId ||
+            (ptyInstanceId !== undefined && ptyInstanceId !== this.activePtyInstanceId)
+          ) {
+            return
+          }
           window.hvir.send('pty:resize', {
-            id: this.activePtyId!,
+            id: ptyId,
             ...this.terminalSize,
           })
         }, PTY_RESIZE_DEBOUNCE_MS)
@@ -461,6 +503,7 @@ export class TerminalRuntime {
           this.interactions.retainedBufferChanged()
         },
         onExit: (exitCode) => {
+          this.revokeSessionsSurface('terminal-unavailable')
           this.started = false
           this.activePtyId = undefined
           this.activePtyInstanceId = undefined
@@ -481,7 +524,11 @@ export class TerminalRuntime {
     this.surface.installRoute(this.eventRoute)
   }
 
-  private releaseSurface(kill: boolean): void {
+  private releaseSurface(
+    kill: boolean,
+    revocationReason: SessionsTerminalSurfaceRevocationReason = 'terminal-unavailable',
+  ): void {
+    this.revokeSessionsSurface(revocationReason)
     const wasStarting = this.starting
     this.startController?.abort()
     this.startController = undefined
@@ -507,6 +554,10 @@ export class TerminalRuntime {
     this.started = false
     this.activePtyId = undefined
     this.activePtyInstanceId = undefined
+  }
+
+  private revokeSessionsSurface(reason: SessionsTerminalSurfaceRevocationReason): void {
+    this.sessionsSurface.revoke(reason)
   }
 
   private updateSnapshot(snapshot: TerminalRuntimeSnapshot): void {

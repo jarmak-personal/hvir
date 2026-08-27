@@ -3,6 +3,10 @@ import { TerminalEventRouter } from './terminal-event-router'
 import { TerminalRuntime } from './terminal-runtime'
 import type { TerminalRuntimeOptions } from './terminal-runtime-options'
 import type { TerminalRuntimeSnapshot } from './terminal-runtime-presentation'
+import type {
+  SessionsTerminalSurfaceLease,
+  SessionsTerminalSurfaceRequest,
+} from '../sessions/sessions-terminal-surface'
 
 export class TerminalRuntimeRegistry {
   private readonly runtimes = new Map<string, TerminalRuntime>()
@@ -65,6 +69,12 @@ export class TerminalRuntimeRegistry {
 
   focusLiveInstance(id: string, instanceId: string): boolean {
     return this.runtimes.get(id)?.focusLiveInstance(instanceId) === true
+  }
+
+  acquireSessionsSurface(
+    request: SessionsTerminalSurfaceRequest,
+  ): SessionsTerminalSurfaceLease | undefined {
+    return this.runtimes.get(request.handle)?.acquireSessionsSurface(request)
   }
 
   dispose(): void {

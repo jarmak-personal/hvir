@@ -130,6 +130,40 @@ describe('TerminalWorkspaceRuntimeOwner', () => {
     owner.dispose()
   })
 
+  it('resolves a Sessions surface only through the exact materialized renderer fact', () => {
+    const owner = new TerminalWorkspaceRuntimeOwner()
+    const handle = asSessionsTerminalHandle('terminal-1')
+    const qualifier = sessionsWorkspaceQualifier(1, 0, 0)
+    owner.registerSessionsSource('workspace-a', () => [session(handle, qualifier)])
+    const expected = { release: vi.fn() }
+    const acquire = vi
+      .spyOn(owner.runtimes, 'acquireSessionsSurface')
+      .mockReturnValue(expected as never)
+    const request = {
+      handle,
+      workspaceQualifier: qualifier,
+      livePty: {
+        handle: asSessionsPtyHandle('instance-1'),
+        rendererOwnerId: 8,
+        rendererGeneration: 3,
+      },
+      projectionRevision: 5,
+      sourceRevision: 9,
+    }
+
+    expect(owner.sessionsSurface.acquire(request)).toBe(expected)
+    expect(acquire).toHaveBeenCalledExactlyOnceWith(request)
+    expect(
+      owner.sessionsSurface.acquire({
+        ...request,
+        workspaceQualifier: sessionsWorkspaceQualifier(2, 0, 0),
+      }),
+    ).toBeUndefined()
+    expect(acquire).toHaveBeenCalledOnce()
+    owner.dispose()
+    expect(owner.sessionsSurface.acquire(request)).toBeUndefined()
+  })
+
   it('waits a bounded number of frames for delayed presentation and revokes the wait on disposal', async () => {
     const owner = new TerminalWorkspaceRuntimeOwner()
     const handle = asSessionsTerminalHandle('terminal-delayed')

@@ -76,6 +76,7 @@ import type {
   SessionsOpenResponse,
   SessionsObservationSnapshot,
   SessionsProjectionChange,
+  SessionsTerminalResolutionResponse,
 } from './sessions-projection'
 import type { KeybindingAction, KeybindingMap } from './keybindings'
 import type { WebPaneDiagnosticEvent } from './web-pane'
@@ -884,6 +885,10 @@ export interface IpcInvokeMap {
   }
   'sessions:release': { request: SessionsDemandRequest; response: void }
   'sessions:open': { request: SessionsOpenRequest; response: SessionsOpenResponse }
+  'sessions:resolve-terminal': {
+    request: SessionsOpenRequest
+    response: SessionsTerminalResolutionResponse
+  }
   'terminal:resolve-file-clipboard': {
     request: Record<string, never>
     response: string | undefined
@@ -1103,6 +1108,7 @@ export const INVOKE_CHANNELS = [
   'sessions:snapshot',
   'sessions:release',
   'sessions:open',
+  'sessions:resolve-terminal',
   'terminal:resolve-file-clipboard',
   'pty:start',
   'web-pane:open',
