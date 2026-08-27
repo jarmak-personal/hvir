@@ -32,6 +32,8 @@ export interface SessionsUsageHistory {
 
 export interface SessionsRecentUsage {
   readonly value: HarnessUsageValue
+  /** Known additive change only; it is presentation evidence, never a rank value. */
+  readonly observedTokenSubtotal?: number
   readonly coverage: SessionsUsageCoverage
   readonly coveragePercent: number
   readonly lastActivityAt?: number
@@ -121,11 +123,13 @@ export function recentSessionsUsage(
     normalizedTokenTotal = safeUsageSum(normalizedTokenTotal, counters[name] ?? 0)
   }
   const observedMs = Math.min(windowMs, exactCoverageMs + partialCoverageMs)
+  const observedTokenSubtotal = knownAdditiveTokenSubtotal(counters)
   return {
     value: {
       ...counters,
       ...(normalizedTokenTotal === undefined ? {} : { normalizedTokenTotal }),
     },
+    ...(observedTokenSubtotal === undefined ? {} : { observedTokenSubtotal }),
     coverage: resetBoundary
       ? 'reset'
       : complete
@@ -136,6 +140,20 @@ export function recentSessionsUsage(
     coveragePercent: Math.min(100, Math.floor((observedMs / windowMs) * 100)),
     lastActivityAt: history?.lastActivityAt,
   }
+}
+
+export function knownAdditiveTokenSubtotal(value: HarnessUsageValue): number | undefined {
+  let subtotal = 0
+  let observed = false
+  for (const name of HARNESS_USAGE_ADDITIVE_TOKEN_COUNTER_NAMES) {
+    const counter = value[name]
+    if (counter === undefined) continue
+    observed = true
+    const next = safeUsageSum(subtotal, counter)
+    if (next === undefined) return undefined
+    subtotal = next
+  }
+  return observed ? subtotal : undefined
 }
 
 export function rankSessionsUsage(
