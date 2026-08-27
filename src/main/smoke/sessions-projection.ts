@@ -600,7 +600,12 @@ async function verifySessionsOverview(
     });
   `) as Promise<string>
   try {
-    const sessionId = await waitForSessionsDetailProbe(win)
+    const sessionId = await Promise.race([
+      waitForSessionsDetailProbe(win),
+      verification.then(() => {
+        throw new Error('Sessions overview completed before its detail proof target was exposed')
+      }),
+    ])
     const proof = await verifySessionsDetailInputAndResize(win, supervisor, sessionId)
     await win.webContents.executeJavaScript(
       `window.__hvirSessionsDetailProbeComplete = true`,
@@ -618,7 +623,9 @@ async function verifySessionsOverview(
 }
 
 async function waitForSessionsDetailProbe(win: BrowserWindow): Promise<string> {
-  const deadline = Date.now() + 20_000
+  // Let the renderer-owned staged proof report its exact bounded failure before
+  // this cross-process guard supplies a last-resort missing-probe diagnostic.
+  const deadline = Date.now() + 25_000
   while (Date.now() <= deadline) {
     const sessionId = (await win.webContents.executeJavaScript(
       `window.__hvirSessionsDetailProbe?.sessionId`,
