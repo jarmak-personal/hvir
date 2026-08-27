@@ -151,10 +151,19 @@ export function compactState(
   entry: SessionsUsageRankedRow,
   mode: SessionsUsageMode,
   windowMs: number,
+  sampledAt: number,
 ): string {
+  const coverage = `${coverageLabel(entry.recent.coverage)} · ${entry.recent.coveragePercent}% of ${durationLabel(windowMs)}`
+  const freshness = comparableUsage(entry.usage)
+    ? ` · Cumulative freshness: ${freshnessLabel(entry.usage, sampledAt)}`
+    : ''
+  const activity =
+    entry.recent.lastActivityAt === undefined
+      ? ''
+      : ` · Last activity: ${relativeAge(entry.recent.lastActivityAt, sampledAt)}`
   return mode === 'recent'
-    ? `Recent: ${recentLabel(entry, windowMs)} · Session total: ${cumulativeLabel(entry.usage)}`
-    : `Session total: ${cumulativeLabel(entry.usage)}`
+    ? `Recent: ${recentLabel(entry, windowMs)} · Coverage: ${coverage} · Session total: ${cumulativeLabel(entry.usage)}${freshness}${activity}`
+    : `Session total: ${cumulativeLabel(entry.usage)}${freshness} · Recent coverage: ${coverage}${activity}`
 }
 
 export function hasPositiveCategories(value: HarnessUsageValue): boolean {

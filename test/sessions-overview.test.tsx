@@ -663,6 +663,11 @@ describe('SessionsOverview', () => {
     expect(host.textContent).toContain('Recent observations are partial')
     expect(host.textContent).toContain('15 observed')
     expect(host.textContent).toContain('Not ranked')
+    expect(host.textContent).toContain('Coverage: Partial coverage · 3% of 5 minutes')
+    expect(host.textContent).toContain(
+      'Cumulative freshness: Partial · observed just now',
+    )
+    expect(host.textContent).toContain('Last activity: just now')
     expect(host.textContent).not.toContain('Rank 1')
     expect(host.querySelector('.sessions-visually-hidden')?.textContent).toContain(
       '15 observed tokens in the last 5 minutes; partial coverage; exact Recent total unavailable; unranked',

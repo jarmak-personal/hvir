@@ -333,7 +333,7 @@ function UsageRankRow({
       ) : null}
       {entry.rank === undefined ? (
         <p className="sessions-usage-compact-state">
-          {compactState(entry, mode, windowMs)}
+          {compactState(entry, mode, windowMs, sampledAt)}
         </p>
       ) : (
         <dl>
