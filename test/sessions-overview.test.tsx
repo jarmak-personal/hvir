@@ -50,42 +50,6 @@ afterEach(() => {
 })
 
 describe('SessionsOverview', () => {
-  it('survives StrictMode effect replay with one current projection demand', async () => {
-    const api = installApi()
-
-    await act(async () => {
-      root.render(
-        <StrictMode>
-          <SessionsOverview
-            observation={{
-              snapshot: rendererSessions,
-              subscribe: () => () => undefined,
-            }}
-            surface={{ acquire: () => undefined }}
-            onReturn={vi.fn()}
-            onOpened={vi.fn()}
-            onFocusOpened={vi.fn(() => Promise.resolve(true))}
-            onOpenFailed={vi.fn()}
-          />
-        </StrictMode>,
-      )
-      await settle()
-    })
-
-    expect(host.querySelectorAll('.session-card')).toHaveLength(2)
-    expect(api.observe.mock.calls).toEqual([[1], [3]])
-    expect(api.release).toHaveBeenCalledExactlyOnceWith(1)
-    expect(api.listenerCount()).toBe(1)
-
-    await act(async () => {
-      root.render(<div>Workspace</div>)
-      await settle()
-    })
-
-    expect(api.release.mock.calls).toEqual([[1], [3]])
-    expect(api.listenerCount()).toBe(0)
-  })
-
   it('discloses policy, supports keyboard/filter/reset, hides opaque handles, and releases background demand', async () => {
     const api = installApi()
     await renderOverview({
@@ -213,12 +177,15 @@ describe('SessionsOverview', () => {
     )
   })
 
-  it('attaches one actual provider-neutral surface in detail and restores accessible overview focus', async () => {
+  it('keeps one interactive surface current through StrictMode replay and restores overview focus', async () => {
+    let current = snapshot(1)
     const workspace = document.createElement('div')
     const engine = document.createElement('div')
     engine.className = 'terminal-engine-host'
     engine.tabIndex = 0
     workspace.append(engine)
+    const input = vi.fn()
+    engine.addEventListener('keydown', input)
     const lease = componentLease(engine, workspace)
     const surface = { acquire: vi.fn(() => lease.value) }
     const frame = vi
@@ -227,15 +194,19 @@ describe('SessionsOverview', () => {
         callback(0)
         return 1
       })
-    const api = installApi()
-    await renderOverview({ surface })
-
+    const api = installApi({
+      snapshot: (demandGeneration) => ({ ...current, demandGeneration }),
+    })
+    await renderOverview({ surface }, true)
+    expect(api.observe.mock.calls).toEqual([[1], [3]])
+    expect(api.release).toHaveBeenCalledExactlyOnceWith(1)
+    expect(api.listenerCount()).toBe(1)
     await act(async () => {
       button('Interact', '.session-card').click()
       await settle()
     })
     expect(api.resolveTerminal).toHaveBeenCalledWith({
-      demandGeneration: 1,
+      demandGeneration: 3,
       sourceRevision: 7,
       handle: 'terminal-private-agent',
       projectId: 'opaque-project',
@@ -254,7 +225,34 @@ describe('SessionsOverview', () => {
     expect(host.innerHTML).not.toContain('live-instance-agent')
     expect(lease.focus).toHaveBeenCalledOnce()
     expect(document.activeElement).toBe(engine)
-
+    current = {
+      ...current,
+      revision: 8,
+      sessions: current.sessions.map((session, index) =>
+        index === 0
+          ? {
+              ...session,
+              telemetry: {
+                ...session.telemetry,
+                model: { status: 'available' as const, value: { id: 'model-new' } },
+              },
+            }
+          : session,
+      ),
+    }
+    await act(async () => {
+      api.emit({ demandGeneration: 3, revision: 8 })
+      await settle()
+    })
+    expect(lease.renew).toHaveBeenCalledOnce()
+    expect(surface.acquire).toHaveBeenCalledOnce()
+    expect(lease.attach).toHaveBeenCalledOnce()
+    expect(lease.release).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(engine)
+    act(() => {
+      engine.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', bubbles: true }))
+    })
+    expect(input).toHaveBeenCalledOnce()
     await act(async () => {
       button('Back to Sessions').click()
       await settle()
@@ -263,6 +261,13 @@ describe('SessionsOverview', () => {
     expect(workspace.querySelector('.terminal-engine-host')).toBe(engine)
     expect(host.querySelector('h1')?.textContent).toBe('Sessions')
     expect(document.activeElement).toBe(host.querySelector('.session-card'))
+    await act(async () => {
+      root.render(<div>Workspace</div>)
+      await settle()
+    })
+    expect(api.release.mock.calls).toEqual([[1], [3]])
+    expect(api.listenerCount()).toBe(0)
+    expect(lease.release).toHaveBeenCalledOnce()
     frame.mockRestore()
   })
 
@@ -954,8 +959,9 @@ function componentLease(engine: HTMLElement, workspace: HTMLElement) {
     container = undefined
     workspace.append(engine)
   })
+  const renew = vi.fn(() => true)
   const value: SessionsTerminalSurfaceLease = {
-    renew: vi.fn(() => true),
+    renew,
     attach,
     detach,
     setVisible,
@@ -963,7 +969,7 @@ function componentLease(engine: HTMLElement, workspace: HTMLElement) {
     subscribe: () => () => undefined,
     release,
   }
-  return { value, attach, detach, setVisible, focus, release }
+  return { value, renew, attach, detach, setVisible, focus, release }
 }
 
 function openedResponse(): SessionsOpenResponse {
@@ -982,9 +988,10 @@ function openedResponse(): SessionsOpenResponse {
 
 async function renderOverview(
   overrides: Partial<Parameters<typeof SessionsOverview>[0]> = {},
+  strict = false,
 ): Promise<void> {
   await act(async () => {
-    root.render(
+    const overview = (
       <SessionsOverview
         observation={{
           snapshot: rendererSessions,
@@ -996,8 +1003,9 @@ async function renderOverview(
         onFocusOpened={vi.fn(() => Promise.resolve(true))}
         onOpenFailed={vi.fn()}
         {...overrides}
-      />,
+      />
     )
+    root.render(strict ? <StrictMode>{overview}</StrictMode> : overview)
     await settle()
   })
 }
