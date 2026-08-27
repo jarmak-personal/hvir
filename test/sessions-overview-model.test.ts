@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_SESSIONS_OVERVIEW_POLICY,
   SESSIONS_OVERVIEW_PAGE_SIZE,
+  sessionsOverviewCardFacts,
   sessionsOverviewFocusFallback,
   sessionsOverviewGroups,
   sessionsOverviewPage,
@@ -95,6 +96,65 @@ describe('Sessions overview policy', () => {
     expect(last.pageIndex).toBe(last.pageCount - 1)
     expect(last.rows.length).toBeLessThanOrEqual(SESSIONS_OVERVIEW_PAGE_SIZE)
     expect(first.groups.flatMap((group) => group.rows)).toEqual(first.rows)
+  })
+
+  it('groups only matching limitations while preserving pending and stale facts', () => {
+    const fixture = row('retained')
+    const presentation = sessionsOverviewCardFacts({
+      ...fixture,
+      attention: { status: 'unavailable', reason: 'not-materialized' },
+      working: { status: 'unavailable', reason: 'not-materialized' },
+      model: {
+        status: 'stale',
+        value: { id: 'model-safe' },
+        observedAt: 10,
+        reason: 'source-stale',
+      },
+      context: { status: 'pending', reason: 'telemetry-pending' },
+      turn: { status: 'unsupported' },
+      telemetryFreshness: { status: 'unavailable', reason: 'source-unavailable' },
+      usage: { status: 'unavailable', reason: 'not-live' },
+    })
+
+    expect(presentation.facts).toEqual([
+      { label: 'Lifecycle', value: 'Retained', tone: 'available' },
+      { label: 'Host', value: 'Local · Connected', tone: 'available' },
+      { label: 'Model', value: 'Stale · model-safe', tone: 'stale' },
+      { label: 'Context', value: 'Pending', tone: 'pending' },
+    ])
+    expect(presentation.summaries).toEqual([
+      {
+        label: 'Limited facts',
+        value: 'Attention and Working — Unavailable · Not materialized',
+      },
+      { label: 'Limited facts', value: 'Provider turn — Unsupported' },
+      {
+        label: 'Limited facts',
+        value: 'Telemetry — Unavailable · Source unavailable',
+      },
+      {
+        label: 'Limited facts',
+        value: 'Usage capability — Unavailable · Not live',
+      },
+    ])
+  })
+
+  it('compacts neutral activity without hiding non-neutral action', () => {
+    const quiet = sessionsOverviewCardFacts(row('quiet'))
+    const attention = sessionsOverviewCardFacts(
+      row('attention', { attention: 'bell', working: true }),
+    )
+
+    expect(quiet.summaries[0]).toEqual({
+      label: 'Quiet state',
+      value: 'Attention — None; Working — Not working',
+    })
+    expect(attention.facts).toEqual(
+      expect.arrayContaining([
+        { label: 'Attention', value: 'Bell', tone: 'actionable' },
+        { label: 'Working', value: 'Working', tone: 'actionable' },
+      ]),
+    )
   })
 })
 

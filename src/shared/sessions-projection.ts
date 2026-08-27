@@ -359,3 +359,16 @@ export function sessionsProjectionOptionalText(
 export function sessionsProjectionTitle(value: string | undefined): string {
   return sessionsProjectionText(value, 512, 'Terminal')
 }
+
+/** Keeps an opaque routing handle from crossing the projection's display boundary. */
+export function sessionsProjectionDisplayTitle(
+  value: string | undefined,
+  handle: SessionsTerminalHandle,
+  fallback: string,
+): string {
+  const title = sessionsProjectionTitle(value)
+  const opaqueTitle = sessionsProjectionTitle(String(handle))
+  if (title !== opaqueTitle) return title
+  const safeFallback = sessionsProjectionTitle(fallback)
+  return safeFallback === opaqueTitle ? 'Terminal' : safeFallback
+}

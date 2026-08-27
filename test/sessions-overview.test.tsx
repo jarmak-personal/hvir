@@ -88,7 +88,12 @@ describe('SessionsOverview', () => {
 
   it('discloses policy, supports keyboard/filter/reset, hides opaque handles, and releases background demand', async () => {
     const api = installApi()
-    await renderOverview()
+    await renderOverview({
+      observation: {
+        snapshot: () => rendererSessions().slice(0, 1),
+        subscribe: () => () => undefined,
+      },
+    })
 
     expect(host.querySelector('h1')?.textContent).toBe('Sessions')
     expect(host.querySelectorAll('.session-card')).toHaveLength(2)
@@ -102,12 +107,36 @@ describe('SessionsOverview', () => {
     expect(host.textContent).toContain('LifecycleLive')
     expect(host.textContent).toContain('HostLocal · Connected')
     expect(host.textContent).toContain('AttentionBell')
-    expect(host.textContent).toContain('WorkingNot working')
-    expect(host.textContent).toContain('Provider turnIdle')
     expect(host.textContent).toContain('Context12% used')
     expect(host.textContent).toContain('TelemetryAvailable')
-    expect(host.textContent).toContain('Usage capabilityUnsupported')
-    expect(host.textContent).toContain('ModelUnsupported')
+    expect(host.textContent).toContain(
+      'Limited factsProvider turn, Model, Context, Telemetry, and Usage capability — Unsupported',
+    )
+
+    const shellCard = [...host.querySelectorAll<HTMLElement>('.session-card')].find(
+      (card) => card.textContent?.includes('Shell terminal'),
+    )!
+    expect(shellCard.querySelectorAll('.session-fact')).toHaveLength(2)
+    expect(shellCard.querySelectorAll('.session-fact-summary')).toHaveLength(2)
+    expect(shellCard.textContent).toContain(
+      'Attention and Working — Unavailable · Not materialized',
+    )
+    expect(shellCard.textContent).toContain(
+      'Provider turn, Model, Context, Telemetry, and Usage capability — Unsupported',
+    )
+
+    const agentCard = [...host.querySelectorAll<HTMLElement>('.session-card')].find(
+      (card) => card.textContent?.includes('Agent terminal'),
+    )!
+    expect(agentCard.querySelector('.session-fact.actionable')?.textContent).toBe(
+      'AttentionBell',
+    )
+    expect(agentCard.textContent).toContain(
+      'Quiet stateWorking — Not working; Provider turn — Idle',
+    )
+    expect(agentCard.querySelectorAll('.session-fact.available').length).toBeGreaterThan(
+      2,
+    )
 
     const cards = [...host.querySelectorAll<HTMLElement>('.session-card')]
     act(() => {

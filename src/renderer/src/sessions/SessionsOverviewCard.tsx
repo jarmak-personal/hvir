@@ -1,6 +1,10 @@
 import type { ReactElement } from 'react'
 
 import type { SessionsFact, SessionsProjectionRow } from '../../../shared'
+import {
+  sessionsOverviewCardFacts,
+  type SessionsOverviewCardFact,
+} from './sessions-overview-model'
 
 export function SessionsOverviewCard({
   row,
@@ -13,6 +17,7 @@ export function SessionsOverviewCard({
   readonly onOpen: () => void
   readonly onInteract?: () => void
 }): ReactElement {
+  const presentation = sessionsOverviewCardFacts(row)
   return (
     <>
       <header>
@@ -45,55 +50,25 @@ export function SessionsOverviewCard({
         {row.provider.name} · {factLabel(row.profile, (value) => String(value.id))}
       </p>
       <dl className="session-facts">
-        <Fact
-          label="Lifecycle"
-          value={sentenceCase(row.lifecycle)}
-          reason={row.lifecycleReason}
-        />
-        <Fact
-          label="Host"
-          value={`${row.host.label} · ${sentenceCase(row.connectionState)}`}
-        />
-        <Fact label="Attention" value={factLabel(row.attention, sentenceCase)} />
-        <Fact
-          label="Working"
-          value={factLabel(row.working, (value) => (value ? 'Working' : 'Not working'))}
-        />
-        <Fact
-          label="Provider turn"
-          value={factLabel(row.turn, (value) => sentenceCase(value.state))}
-        />
-        <Fact
-          label="Model"
-          value={factLabel(row.model, (value) => value.displayName ?? value.id)}
-        />
-        <Fact label="Context" value={factLabel(row.context, contextLabel)} />
-        <Fact
-          label="Telemetry"
-          value={factLabel(row.telemetryFreshness, () => 'Available')}
-        />
-        <Fact label="Usage capability" value={sentenceCase(row.usage.status)} />
+        {presentation.facts.map((fact) => (
+          <Fact key={fact.label} fact={fact} />
+        ))}
+        {presentation.summaries.map((summary) => (
+          <div className="session-fact-summary" key={`${summary.label}:${summary.value}`}>
+            <dt>{summary.label}</dt>
+            <dd>{summary.value}</dd>
+          </div>
+        ))}
       </dl>
     </>
   )
 }
 
-function Fact({
-  label,
-  value,
-  reason,
-}: {
-  readonly label: string
-  readonly value: string
-  readonly reason?: string
-}): ReactElement {
+function Fact({ fact }: { readonly fact: SessionsOverviewCardFact }): ReactElement {
   return (
-    <div>
-      <dt>{label}</dt>
-      <dd>
-        {value}
-        {reason ? ` · ${reasonLabel(reason)}` : ''}
-      </dd>
+    <div className={`session-fact ${fact.tone}`}>
+      <dt>{fact.label}</dt>
+      <dd>{fact.value}</dd>
     </div>
   )
 }
@@ -113,23 +88,7 @@ function factLabel<T>(fact: SessionsFact<T>, available: (value: T) => string): s
   }
 }
 
-function contextLabel(value: {
-  readonly usedTokens: number
-  readonly windowTokens?: number
-  readonly usedPercent?: number
-}): string {
-  if (value.usedPercent !== undefined) return `${value.usedPercent}% used`
-  if (value.windowTokens !== undefined) {
-    return `${value.usedTokens.toLocaleString()} of ${value.windowTokens.toLocaleString()} tokens`
-  }
-  return `${value.usedTokens.toLocaleString()} tokens used`
-}
-
-function sentenceCase(value: string): string {
-  const spaced = value.replaceAll('-', ' ')
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1)
-}
-
 function reasonLabel(reason: string): string {
-  return sentenceCase(reason)
+  const spaced = reason.replaceAll('-', ' ')
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1)
 }
