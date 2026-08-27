@@ -670,7 +670,6 @@ async function verifySessionsOverview(
               if (
                 !usageText.includes('Recent') ||
                 !usageText.includes('Session total') ||
-                !usageText.includes('Token categories') ||
                 rows.length > 40 ||
                 privatePaths.some((path) => overview.innerHTML.includes(path)) ||
                 overview.querySelector('.terminal-surface')
@@ -685,9 +684,12 @@ async function verifySessionsOverview(
               );
               if (
                 !(usageFixture instanceof HTMLElement) ||
-                !usageFixture.textContent?.includes('No current coverage') ||
-                !usageFixture.textContent?.includes('exact total unavailable') ||
+                !usageFixture.classList.contains('compact') ||
+                !usageFixture.textContent?.includes('Not ranked') ||
+                !usageFixture.textContent?.includes('Baseline only') ||
+                !usageFixture.textContent?.includes('exact Recent total unavailable') ||
                 !(disconnectedUsage instanceof HTMLElement) ||
+                !disconnectedUsage.classList.contains('compact') ||
                 !disconnectedUsage.textContent?.includes('Connection unavailable')
               ) {
                 return wait(usageReady, 'Usage restart and disconnected truth');
@@ -696,7 +698,11 @@ async function verifySessionsOverview(
               const cumulative = () => {
                 const currentUsageFixture = [...overview.querySelectorAll('.sessions-usage-ranking > li')]
                   .find((row) => row.querySelector('h3')?.textContent?.trim() === ${JSON.stringify(USAGE_SESSION_TITLE)});
-                if (!currentUsageFixture?.textContent?.includes('${SESSIONS_USAGE_SMOKE_TOTAL.toLocaleString('en-US')} tokens')) {
+                if (
+                  !currentUsageFixture?.textContent?.includes('${SESSIONS_USAGE_SMOKE_TOTAL.toLocaleString('en-US')} tokens') ||
+                  !currentUsageFixture?.querySelector('.sessions-usage-bar[data-scale="ranked"]') ||
+                  !currentUsageFixture?.textContent?.includes('Token categories')
+                ) {
                   return wait(cumulative, 'Usage cumulative restoration');
                 }
                 button('Recent', overview)?.click();
