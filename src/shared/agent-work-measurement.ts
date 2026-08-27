@@ -4,7 +4,7 @@ import {
   HARNESS_USAGE_ADDITIVE_TOKEN_COUNTER_NAMES,
   HARNESS_USAGE_TOKEN_COUNTER_NAMES,
   type HarnessUsageCounterName,
-} from './harness-usage'
+} from './harness-usage.ts'
 
 export const AGENT_WORK_TOKEN_COUNTER_NAMES = HARNESS_USAGE_TOKEN_COUNTER_NAMES
 export type AgentWorkTokenCounterName = HarnessUsageCounterName
