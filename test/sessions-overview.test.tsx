@@ -72,22 +72,17 @@ describe('SessionsOverview', () => {
     expect(host.textContent).toContain('HostLocal · Connected')
     expect(host.textContent).toContain('AttentionBell')
     expect(host.textContent).toContain('Context12% used')
-    expect(host.textContent).toContain('TelemetryAvailable')
-    expect(host.textContent).toContain(
-      'Limited factsProvider turn, Model, Context, Telemetry, and Usage capability — Unsupported',
-    )
+    expect(host.textContent).not.toContain('TelemetryAvailable')
+    expect(host.textContent).not.toContain('Limited facts')
+    expect(host.textContent).not.toContain('Quiet state')
+    expect(host.textContent).not.toContain('Unsupported')
+    expect(host.textContent).not.toContain('Unavailable · Not materialized')
 
     const shellCard = [...host.querySelectorAll<HTMLElement>('.session-card')].find(
       (card) => card.textContent?.includes('Shell terminal'),
     )!
     expect(shellCard.querySelectorAll('.session-fact')).toHaveLength(2)
-    expect(shellCard.querySelectorAll('.session-fact-summary')).toHaveLength(2)
-    expect(shellCard.textContent).toContain(
-      'Attention and Working — Unavailable · Not materialized',
-    )
-    expect(shellCard.textContent).toContain(
-      'Provider turn, Model, Context, Telemetry, and Usage capability — Unsupported',
-    )
+    expect(shellCard.querySelector('.session-fact-summary')).toBeNull()
 
     const agentCard = [...host.querySelectorAll<HTMLElement>('.session-card')].find(
       (card) => card.textContent?.includes('Agent terminal'),
@@ -95,11 +90,8 @@ describe('SessionsOverview', () => {
     expect(agentCard.querySelector('.session-fact.actionable')?.textContent).toBe(
       'AttentionBell',
     )
-    expect(agentCard.textContent).toContain(
-      'Quiet stateWorking — Not working; Provider turn — Idle',
-    )
     expect(agentCard.querySelectorAll('.session-fact.available').length).toBeGreaterThan(
-      2,
+      1,
     )
 
     const cards = [...host.querySelectorAll<HTMLElement>('.session-card')]

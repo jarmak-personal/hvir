@@ -47,17 +47,12 @@ export function SessionsOverviewCard({
         {row.workspace.main ? <small>project root</small> : null}
       </p>
       <p className="session-provider">
-        {row.provider.name} · {factLabel(row.profile, (value) => String(value.id))}
+        {row.provider.name}
+        {visibleFactLabel(row.profile, (value) => String(value.id))}
       </p>
       <dl className="session-facts">
         {presentation.facts.map((fact) => (
           <Fact key={fact.label} fact={fact} />
-        ))}
-        {presentation.summaries.map((summary) => (
-          <div className="session-fact-summary" key={`${summary.label}:${summary.value}`}>
-            <dt>{summary.label}</dt>
-            <dd>{summary.value}</dd>
-          </div>
         ))}
       </dl>
     </>
@@ -73,22 +68,18 @@ function Fact({ fact }: { readonly fact: SessionsOverviewCardFact }): ReactEleme
   )
 }
 
-function factLabel<T>(fact: SessionsFact<T>, available: (value: T) => string): string {
+function visibleFactLabel<T>(
+  fact: SessionsFact<T>,
+  available: (value: T) => string,
+): string | undefined {
   switch (fact.status) {
     case 'available':
-      return available(fact.value)
+      return ` · ${available(fact.value)}`
     case 'stale':
-      return `Stale · ${available(fact.value)}`
+      return ` · Stale · ${available(fact.value)}`
     case 'pending':
-      return 'Pending'
     case 'unavailable':
-      return `Unavailable · ${reasonLabel(fact.reason)}`
     case 'unsupported':
-      return 'Unsupported'
+      return undefined
   }
-}
-
-function reasonLabel(reason: string): string {
-  const spaced = reason.replaceAll('-', ' ')
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1)
 }

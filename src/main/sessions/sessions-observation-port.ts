@@ -373,7 +373,11 @@ export function assembleSessionsObservation({
         retained.title,
         handle,
         `${provider?.displayName ?? String(retained.providerId)} · ${workspace.workspaceName}`,
-        [retained.workspaceRoot.path, retained.cwd.path],
+        [
+          retained.workspaceRoot.path,
+          retained.cwd.path,
+          retained.harnessSessionId ?? '',
+        ],
       ),
       lifecycle: pty ? 'live' : 'retained',
       livePty: pty

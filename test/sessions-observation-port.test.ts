@@ -141,6 +141,13 @@ describe('SessionsObservationPort', () => {
           shellProfile,
           'Review /unrelated/location · 550e8400-e29b-41d4-a716-446655440000',
         ),
+        retained(
+          'provider-identity-title',
+          localRoot,
+          codex,
+          codexProfile,
+          'provider-session-secret',
+        ),
       ],
       ptys: [],
     })
@@ -157,10 +164,14 @@ describe('SessionsObservationPort', () => {
     expect(
       source.sessions.find((row) => row.handle === 'different-route-handle')?.title,
     ).toBe('Review /unrelated/location · 550e8400-e29b-41d4-a716-446655440000')
+    expect(
+      source.sessions.find((row) => row.handle === 'provider-identity-title')?.title,
+    ).toBe('Codex · main')
     const projectedTitles = source.sessions.map((session) => session.title).join('\n')
     expect(projectedTitles).not.toContain(worktreeRoot.path)
     expect(projectedTitles).not.toContain(localCwd.path)
     expect(projectedTitles).not.toContain('opaque-route-handle')
+    expect(projectedTitles).not.toContain('provider-session-secret')
   })
 
   it('rejects telemetry attributed to a different provider', () => {
