@@ -22,6 +22,7 @@ const shell = asHarnessProviderId('plain-shell')
 const codexProfile = asHarnessProfileId('codex-default')
 const shellProfile = asHarnessProfileId('plain-shell-default')
 const localRoot = localPath('/private/repo')
+const localCwd = localPath('/private/repo/packages/app')
 const worktreeRoot = localPath('/private/worktree')
 const sshRoot = hostPath(asHostId('ssh-prod'), '/secret/remote/repo')
 
@@ -105,7 +106,7 @@ describe('SessionsObservationPort', () => {
     expect(source.sessions.filter((row) => row.handle === 'terminal-0')).toHaveLength(1)
   })
 
-  it('replaces only an exact opaque handle title with a safe session label', () => {
+  it('rejects exact known path and embedded-handle titles without guessing at other values', () => {
     const source = assembleSessionsObservation({
       projectState: projectState(),
       hosts: hostOptions(),
@@ -116,14 +117,29 @@ describe('SessionsObservationPort', () => {
           localRoot,
           codex,
           codexProfile,
-          'opaque-route-handle',
+          'Investigate opaque-route-handle next',
+        ),
+        retained(
+          'workspace-path-title',
+          worktreeRoot,
+          shell,
+          shellProfile,
+          `Shell in ${worktreeRoot.path}`,
+        ),
+        retained(
+          'cwd-path-title',
+          localRoot,
+          codex,
+          codexProfile,
+          `Agent in ${localCwd.path}`,
+          localCwd,
         ),
         retained(
           'different-route-handle',
           worktreeRoot,
           shell,
           shellProfile,
-          '550e8400-e29b-41d4-a716-446655440000',
+          'Review /unrelated/location · 550e8400-e29b-41d4-a716-446655440000',
         ),
       ],
       ptys: [],
@@ -133,8 +149,18 @@ describe('SessionsObservationPort', () => {
       source.sessions.find((row) => row.handle === 'opaque-route-handle')?.title,
     ).toBe('Codex · main')
     expect(
+      source.sessions.find((row) => row.handle === 'workspace-path-title')?.title,
+    ).toBe('Shell · feature')
+    expect(source.sessions.find((row) => row.handle === 'cwd-path-title')?.title).toBe(
+      'Codex · main',
+    )
+    expect(
       source.sessions.find((row) => row.handle === 'different-route-handle')?.title,
-    ).toBe('550e8400-e29b-41d4-a716-446655440000')
+    ).toBe('Review /unrelated/location · 550e8400-e29b-41d4-a716-446655440000')
+    const projectedTitles = source.sessions.map((session) => session.title).join('\n')
+    expect(projectedTitles).not.toContain(worktreeRoot.path)
+    expect(projectedTitles).not.toContain(localCwd.path)
+    expect(projectedTitles).not.toContain('opaque-route-handle')
   })
 
   it('rejects telemetry attributed to a different provider', () => {
@@ -445,6 +471,7 @@ function retained(
   providerId: typeof codex,
   profileId: typeof codexProfile,
   title: string,
+  cwd = root,
 ): OwnedTerminalSession {
   return {
     id,
@@ -456,7 +483,7 @@ function retained(
     harnessSessionId: 'provider-session-secret',
     hostId: root.hostId,
     workspaceRoot: root,
-    cwd: root,
+    cwd,
     title,
     position: 0,
     active: true,

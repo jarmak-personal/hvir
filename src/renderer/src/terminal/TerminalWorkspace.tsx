@@ -8,7 +8,7 @@ import {
 } from 'react'
 import {
   asSessionsTerminalHandle,
-  sessionsProjectionTitle,
+  sessionsProjectionDisplayTitle,
   type HostConnectionState,
   type HostPath,
   type MoveTerminalResponse,
@@ -175,12 +175,21 @@ export function TerminalWorkspace({
     onSessionsSource(workspaceId, () =>
       modelRef.current.sessions.map((session) => {
         const runtime = runtimes.sessionSnapshot(session.id)
+        const handle = asSessionsTerminalHandle(session.id)
+        const providerName =
+          providers.find((provider) => provider.id === session.providerId)?.displayName ??
+          String(session.providerId)
         return {
-          handle: asSessionsTerminalHandle(session.id),
+          handle,
           workspaceQualifier: sessionsWorkspaceQualifier,
           providerId: session.providerId,
           profileId: session.profileId,
-          title: sessionsProjectionTitle(session.title),
+          title: sessionsProjectionDisplayTitle(
+            session.title,
+            handle,
+            `${providerName} · ${label}`,
+            [workspaceRoot.path, session.cwd.path],
+          ),
           dormant: session.dormant === true,
           resumeOnStart: session.resumeOnStart,
           exited: runtime?.exited === true,
@@ -190,7 +199,15 @@ export function TerminalWorkspace({
       }),
     )
     return () => onSessionsSource(workspaceId, undefined)
-  }, [onSessionsSource, runtimes, sessionsWorkspaceQualifier, workspaceId])
+  }, [
+    label,
+    onSessionsSource,
+    providers,
+    runtimes,
+    sessionsWorkspaceQualifier,
+    workspaceId,
+    workspaceRoot.path,
+  ])
   const { sessions, activeId } = model
   useEffect(() => {
     onMaterializationChange(workspaceId, sessions.length > 0)

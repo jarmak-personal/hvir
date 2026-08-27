@@ -373,6 +373,7 @@ export function assembleSessionsObservation({
         retained.title,
         handle,
         `${provider?.displayName ?? String(retained.providerId)} · ${workspace.workspaceName}`,
+        [retained.workspaceRoot.path, retained.cwd.path],
       ),
       lifecycle: pty ? 'live' : 'retained',
       livePty: pty
@@ -414,6 +415,7 @@ export function assembleSessionsObservation({
         `${provider?.displayName ?? String(pty.info.providerId)} · ${workspace.workspaceName}`,
         asSessionsTerminalHandle(pty.info.id),
         'Terminal',
+        [pty.info.workspaceRoot.path, pty.info.cwd.path],
       ),
       lifecycle: 'live',
       livePty: {

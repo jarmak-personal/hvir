@@ -89,16 +89,16 @@ describe('SessionsProjectionCoordinator', () => {
 
     expect(rows[0]).toMatchObject({
       workspace: { id: 'workspace-b' },
-      title: 'Session moved',
+      title: 'Codex · feature',
       attention: { status: 'unavailable', reason: 'not-materialized' },
     })
   })
 
-  it('never presents an exact opaque handle from a renderer title', () => {
+  it('never presents an embedded opaque handle from a renderer title', () => {
     const source = observation(1, [observed('opaque-route-handle', 'workspace-a')])
     const rows = joinSessionsProjection(source, [
       renderer('opaque-route-handle', 'workspace-a', {
-        title: 'opaque-route-handle',
+        title: 'Investigate opaque-route-handle next',
       }),
     ])
 
