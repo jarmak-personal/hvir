@@ -18,7 +18,6 @@ import type { TerminalRuntimeOptions } from './terminal-runtime-options'
 import { TerminalRuntimeInteractions } from './terminal-runtime-interactions'
 import { TerminalSurfaceAttachment } from './terminal-surface-attachment'
 import type {
-  SessionsTerminalSurfaceLease,
   SessionsTerminalSurfaceRequest,
   SessionsTerminalSurfaceRevocationReason,
 } from '../sessions/sessions-terminal-surface'
@@ -195,8 +194,14 @@ export class TerminalRuntime {
 
   acquireSessionsSurface(
     request: SessionsTerminalSurfaceRequest,
-  ): SessionsTerminalSurfaceLease | undefined {
+  ): ReturnType<TerminalSessionsSurfaceOwner['acquire']> {
     return this.sessionsSurface.acquire(request)
+  }
+
+  sessionsSurfaceAvailability(
+    request: Pick<SessionsTerminalSurfaceRequest, 'handle' | 'livePty'>,
+  ) {
+    return this.sessionsSurface.availability(request)
   }
 
   restart(): void {

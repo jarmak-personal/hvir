@@ -30,11 +30,11 @@ describe('SessionsTerminalDetailController', () => {
     const pending = deferred<SessionsTerminalResolutionResponse>()
     const resolve = vi.fn(() => pending.promise)
     const lease = fakeLease()
-    const acquire = vi.fn<SessionsTerminalSurfacePort['acquire']>(() => lease.value)
+    const acquire = vi.fn<SessionsTerminalSurfacePort['acquire']>(() => acquired(lease))
     const frames = fakeFrames()
     const controller = new SessionsTerminalDetailController(
       { resolve },
-      { acquire },
+      surfacePort(acquire),
       frames.value,
     )
     const current = snapshot(3, 7, row('terminal-1', 'pty-1'))
@@ -95,12 +95,12 @@ describe('SessionsTerminalDetailController', () => {
       .mockResolvedValueOnce(resolved(row('terminal-1', 'pty-2')))
     const acquire = vi
       .fn<SessionsTerminalSurfacePort['acquire']>()
-      .mockReturnValueOnce(firstLease.value)
-      .mockReturnValueOnce(secondLease.value)
+      .mockReturnValueOnce(acquired(firstLease))
+      .mockReturnValueOnce(acquired(secondLease))
     const frames = fakeFrames()
     const controller = new SessionsTerminalDetailController(
       { resolve },
-      { acquire },
+      surfacePort(acquire),
       frames.value,
     )
     const initial = snapshot(1, 4, row('terminal-1', 'pty-1'))
@@ -162,11 +162,11 @@ describe('SessionsTerminalDetailController', () => {
       )
     const acquire = vi
       .fn<SessionsTerminalSurfacePort['acquire']>()
-      .mockReturnValueOnce(firstLease.value)
-      .mockReturnValueOnce(secondLease.value)
+      .mockReturnValueOnce(acquired(firstLease))
+      .mockReturnValueOnce(acquired(secondLease))
     const controller = new SessionsTerminalDetailController(
       { resolve },
-      { acquire },
+      surfacePort(acquire),
       fakeFrames().value,
     )
     const initial = snapshot(1, 4, row('terminal-1', 'pty-1'))
@@ -206,11 +206,11 @@ describe('SessionsTerminalDetailController', () => {
       .mockResolvedValue(resolved(row('terminal-1', 'pty-1')))
     const acquire = vi
       .fn<SessionsTerminalSurfacePort['acquire']>()
-      .mockReturnValueOnce(firstLease.value)
-      .mockReturnValueOnce(secondLease.value)
+      .mockReturnValueOnce(acquired(firstLease))
+      .mockReturnValueOnce(acquired(secondLease))
     const controller = new SessionsTerminalDetailController(
       { resolve },
-      { acquire },
+      surfacePort(acquire),
       fakeFrames().value,
     )
     const initial = snapshot(1, 4, row('terminal-1', 'pty-1'))
@@ -239,7 +239,7 @@ describe('SessionsTerminalDetailController', () => {
     const lease = fakeLease()
     const controller = new SessionsTerminalDetailController(
       { resolve },
-      { acquire: () => lease.value },
+      surfacePort(() => acquired(lease)),
       fakeFrames().value,
     )
     const initial = snapshot(1, 2, row('terminal-1', 'pty-1'))
@@ -282,7 +282,7 @@ describe('SessionsTerminalDetailController', () => {
     }
     const controller = new SessionsTerminalDetailController(
       resolution,
-      { acquire: () => lease.value },
+      surfacePort(() => acquired(lease)),
       fakeFrames().value,
     )
     const initial = snapshot(1, 2, row('terminal-1', 'pty-1'))
@@ -308,6 +308,31 @@ describe('SessionsTerminalDetailController', () => {
       message: 'This session no longer has an exact live terminal available.',
     })
   })
+
+  it.each([
+    ['source-missing', 'This terminal no longer has a current workspace surface.'],
+    ['runtime-not-ready', 'This terminal surface is not ready for interaction.'],
+    ['instance-mismatch', 'The live terminal changed before interaction began.'],
+    ['lease-conflict', 'This terminal surface is already being shown elsewhere.'],
+  ] as const)(
+    'keeps acquisition failure %s distinct and content-free',
+    async (reason, message) => {
+      const controller = new SessionsTerminalDetailController(
+        { resolve: (request) => Promise.resolve(resolved(row(request.handle, 'pty-1'))) },
+        surfacePort(() => ({ outcome: 'unavailable', reason })),
+        fakeFrames().value,
+      )
+      const current = snapshot(1, 2, row('terminal-1', 'pty-1'))
+
+      controller.open(current.rows[0]!, current, true)
+      await settle()
+
+      expect(controller.snapshot()).toMatchObject({
+        status: 'unavailable',
+        message,
+      })
+    },
+  )
 })
 
 function fakeLease() {
@@ -355,6 +380,19 @@ function fakeLease() {
     ) => {
       for (const listener of listeners) listener(reason)
     },
+  }
+}
+
+function acquired(lease: ReturnType<typeof fakeLease>) {
+  return { outcome: 'acquired' as const, lease: lease.value }
+}
+
+function surfacePort(
+  acquire: SessionsTerminalSurfacePort['acquire'],
+): SessionsTerminalSurfacePort {
+  return {
+    availability: () => ({ outcome: 'available' }),
+    acquire,
   }
 }
 

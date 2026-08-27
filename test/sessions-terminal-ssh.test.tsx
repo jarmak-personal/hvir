@@ -178,7 +178,7 @@ describe('Sessions terminal detail over deterministic SSH', () => {
 
     const instanceId = supervisor.get('terminal-1')!.instanceId
     const surface = workspace.querySelector('.terminal-engine-host')
-    const lease = registry.acquireSessionsSurface({
+    const acquisition = registry.acquireSessionsSurface({
       handle: asSessionsTerminalHandle('terminal-1'),
       workspaceQualifier: sessionsWorkspaceQualifier(1, 0, 0),
       workspaceRuntimeId: asSessionsWorkspaceRuntimeId('workspace-runtime'),
@@ -191,7 +191,10 @@ describe('Sessions terminal detail over deterministic SSH', () => {
       projectionRevision: 1,
       sourceRevision: 1,
     })
-    expect(lease?.attach(detail)).toBe(true)
+    expect(acquisition.outcome).toBe('acquired')
+    if (acquisition.outcome !== 'acquired') throw new Error('Expected surface lease')
+    const lease = acquisition.lease
+    expect(lease.attach(detail)).toBe(true)
     expect(detail.querySelector('.terminal-engine-host')).toBe(surface)
     expect(ghosttyState.instances).toHaveLength(1)
     expect(clientFactory).toHaveBeenCalledOnce()
@@ -212,7 +215,7 @@ describe('Sessions terminal detail over deterministic SSH', () => {
       expect(reason).toBe('terminal-unavailable')
       expect(workspace.querySelector('.terminal-engine-host')).toBe(surface)
     })
-    lease?.subscribe(revoked)
+    lease.subscribe(revoked)
     const connectionStates: string[] = []
     const stopConnection = host.onConnectionState((connectionState) => {
       connectionStates.push(connectionState)

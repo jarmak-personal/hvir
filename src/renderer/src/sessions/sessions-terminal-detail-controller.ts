@@ -9,10 +9,12 @@ import type {
   SessionsTerminalResolutionResponse,
   SessionsWorkspaceRuntimeId,
 } from '../../../shared'
-import type {
-  SessionsTerminalSurfaceLease,
-  SessionsTerminalSurfacePort,
-  SessionsTerminalSurfaceRevocationReason,
+import {
+  sessionsTerminalSurfaceEligible,
+  type SessionsTerminalSurfaceLease,
+  type SessionsTerminalSurfacePort,
+  type SessionsTerminalSurfaceRevocationReason,
+  type SessionsTerminalSurfaceUnavailableReason,
 } from './sessions-terminal-surface'
 
 export interface SessionsTerminalDetailContext {
@@ -157,7 +159,7 @@ export class SessionsTerminalDetailController {
       )
       return
     }
-    if (!row || !terminalDetailEligible(row)) {
+    if (!row || !sessionsTerminalSurfaceEligible(row)) {
       this.cancelPending()
       this.releaseLease()
       this.authority = undefined
@@ -227,17 +229,18 @@ export class SessionsTerminalDetailController {
       })
       return
     }
-    const lease = this.surfaces.acquire(
+    const acquisition = this.surfaces.acquire(
       surfaceRequest(authority, response.workspaceRuntimeId),
     )
-    if (!lease) {
+    if (acquisition.outcome === 'unavailable') {
       this.publish({
         status: 'unavailable',
         context: detailContext(authority.row),
-        message: detailUnavailableMessage('terminal-unavailable'),
+        message: surfaceUnavailableMessage(acquisition.reason),
       })
       return
     }
+    const lease = acquisition.lease
     this.lease = lease
     this.leaseWorkspaceRuntimeId = response.workspaceRuntimeId
     this.authority = authority
@@ -380,14 +383,6 @@ export function createSessionsTerminalResolutionPort(
   }
 }
 
-export function terminalDetailEligible(row: SessionsProjectionRow): boolean {
-  return (
-    row.lifecycle === 'live' &&
-    row.connectionState === 'connected' &&
-    row.livePty !== undefined
-  )
-}
-
 function resolutionRequest(authority: DetailAuthority): SessionsOpenRequest {
   const row = authority.row
   return {
@@ -485,5 +480,20 @@ function surfaceRevocationMessage(
       return 'The terminal moved or its workspace became unavailable.'
     case 'owner-disposed':
       return 'The terminal owner was replaced.'
+  }
+}
+
+function surfaceUnavailableMessage(
+  reason: SessionsTerminalSurfaceUnavailableReason,
+): string {
+  switch (reason) {
+    case 'source-missing':
+      return 'This terminal no longer has a current workspace surface.'
+    case 'runtime-not-ready':
+      return 'This terminal surface is not ready for interaction.'
+    case 'instance-mismatch':
+      return 'The live terminal changed before interaction began.'
+    case 'lease-conflict':
+      return 'This terminal surface is already being shown elsewhere.'
   }
 }

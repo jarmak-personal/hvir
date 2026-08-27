@@ -1,6 +1,7 @@
 import type {
   SessionsLivePtyQualifier,
   SessionsTerminalHandle,
+  SessionsProjectionRow,
   SessionsWorkspaceQualifier,
   SessionsWorkspaceRuntimeId,
 } from '../../../shared'
@@ -14,6 +15,21 @@ export interface SessionsTerminalSurfaceRequest {
   readonly projectionRevision: number
   readonly sourceRevision: number
 }
+
+export type SessionsTerminalSurfaceUnavailableReason =
+  'source-missing' | 'runtime-not-ready' | 'instance-mismatch' | 'lease-conflict'
+
+export type SessionsTerminalSurfaceCapabilityRequest = Pick<
+  SessionsTerminalSurfaceRequest,
+  'handle' | 'workspaceQualifier' | 'livePty'
+>
+
+export type SessionsTerminalSurfaceAvailability =
+  | { readonly outcome: 'available' }
+  | {
+      readonly outcome: 'unavailable'
+      readonly reason: SessionsTerminalSurfaceUnavailableReason
+    }
 
 export type SessionsTerminalSurfaceRevocationReason =
   | 'terminal-unavailable'
@@ -35,7 +51,37 @@ export interface SessionsTerminalSurfaceLease {
 }
 
 export interface SessionsTerminalSurfacePort {
-  acquire(
-    request: SessionsTerminalSurfaceRequest,
-  ): SessionsTerminalSurfaceLease | undefined
+  availability(
+    request: SessionsTerminalSurfaceCapabilityRequest,
+  ): SessionsTerminalSurfaceAvailability
+  acquire(request: SessionsTerminalSurfaceRequest):
+    | { readonly outcome: 'acquired'; readonly lease: SessionsTerminalSurfaceLease }
+    | {
+        readonly outcome: 'unavailable'
+        readonly reason: SessionsTerminalSurfaceUnavailableReason
+      }
+}
+
+export function sessionsTerminalSurfaceAvailable(
+  row: SessionsProjectionRow,
+  surfaces: SessionsTerminalSurfacePort,
+): boolean {
+  const livePty = row.livePty
+  return (
+    sessionsTerminalSurfaceEligible(row) &&
+    livePty !== undefined &&
+    surfaces.availability({
+      handle: row.handle,
+      workspaceQualifier: row.workspace.qualifier,
+      livePty,
+    }).outcome === 'available'
+  )
+}
+
+export function sessionsTerminalSurfaceEligible(row: SessionsProjectionRow): boolean {
+  return (
+    row.lifecycle === 'live' &&
+    row.connectionState === 'connected' &&
+    row.livePty !== undefined
+  )
 }

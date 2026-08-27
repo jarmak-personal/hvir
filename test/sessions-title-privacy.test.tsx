@@ -16,6 +16,7 @@ import {
   sessionsWorkspaceQualifier,
   type SessionsObservationSnapshot,
 } from '../src/shared'
+import type { SessionsTerminalSurfacePort } from '../src/renderer/src/sessions/sessions-terminal-surface'
 
 const privateHandle = asSessionsTerminalHandle('terminal-private-agent')
 const privatePath = '/private/repo'
@@ -49,33 +50,9 @@ afterEach(() => {
 
 describe('Sessions title privacy', () => {
   it('keeps an embedded live handle out of headings, accessible labels, and DOM', async () => {
-    await act(async () => {
-      root.render(
-        <SessionsOverview
-          observation={{
-            snapshot: () => [
-              {
-                handle: privateHandle,
-                workspaceQualifier,
-                providerId,
-                profileId,
-                title: `Working in ${privatePath} for ${privateHandle}`,
-                dormant: false,
-                resumeOnStart: false,
-                exited: false,
-                recoveryUnavailable: false,
-              },
-            ],
-            subscribe: () => () => undefined,
-          }}
-          surface={{ acquire: () => undefined }}
-          onReturn={vi.fn()}
-          onOpened={vi.fn()}
-          onFocusOpened={vi.fn(() => Promise.resolve(true))}
-          onOpenFailed={vi.fn()}
-        />,
-      )
-      await settle()
+    await renderOverview({
+      availability: () => ({ outcome: 'available' }),
+      acquire: () => ({ outcome: 'unavailable', reason: 'runtime-not-ready' }),
     })
 
     const card = host.querySelector<HTMLElement>('.session-card')!
@@ -99,7 +76,73 @@ describe('Sessions title privacy', () => {
     expect(host.innerHTML).not.toContain(privateHandle)
     expect(host.innerHTML).not.toContain(privatePath)
   })
+
+  it('keeps race-time feedback when an available surface stops being ready', async () => {
+    await renderOverview({
+      availability: () => ({ outcome: 'available' }),
+      acquire: () => ({ outcome: 'unavailable', reason: 'runtime-not-ready' }),
+    })
+
+    await act(async () => {
+      button('Interact').click()
+      await settle()
+    })
+
+    expect(host.textContent).toContain(
+      'This terminal surface is not ready for interaction.',
+    )
+    expect(host.querySelector('.sessions-detail-terminal')).toBeInstanceOf(HTMLElement)
+  })
+
+  it('offers Open but omits Interact without a currently borrowable surface', async () => {
+    await renderOverview({
+      availability: () => ({ outcome: 'unavailable', reason: 'runtime-not-ready' }),
+      acquire: () => ({ outcome: 'unavailable', reason: 'runtime-not-ready' }),
+    })
+
+    expect(button('Open')).toBeInstanceOf(HTMLButtonElement)
+    expect(host.textContent).not.toContain('Interact')
+  })
 })
+
+async function renderOverview(surface: SessionsTerminalSurfacePort): Promise<void> {
+  await act(async () => {
+    root.render(
+      <SessionsOverview
+        observation={{
+          snapshot: () => [
+            {
+              handle: privateHandle,
+              workspaceQualifier,
+              providerId,
+              profileId,
+              title: `Working in ${privatePath} for ${privateHandle}`,
+              dormant: false,
+              resumeOnStart: false,
+              exited: false,
+              recoveryUnavailable: false,
+            },
+          ],
+          subscribe: () => () => undefined,
+        }}
+        surface={surface}
+        onReturn={vi.fn()}
+        onOpened={vi.fn()}
+        onFocusOpened={vi.fn(() => Promise.resolve(true))}
+        onOpenFailed={vi.fn()}
+      />,
+    )
+    await settle()
+  })
+}
+
+function button(text: string): HTMLButtonElement {
+  const match = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+    (candidate) => candidate.textContent?.trim() === text,
+  )
+  if (!match) throw new Error(`Missing button ${text}`)
+  return match
+}
 
 function installApi(): void {
   const listeners = new Set<(payload: unknown) => void>()

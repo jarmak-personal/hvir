@@ -885,14 +885,17 @@ describe('GhosttyTerminalPane lifecycle', () => {
     await Promise.resolve()
     const state = ghosttyState.instances[0]!
     const surface = workspace.querySelector('.terminal-engine-host')
-    const lease = registry.acquireSessionsSurface(sessionsSurfaceRequest(4))
+    const acquisition = registry.acquireSessionsSurface(sessionsSurfaceRequest(4))
 
-    expect(lease).toBeDefined()
-    expect(
-      registry.acquireSessionsSurface(sessionsSurfaceRequest(4)),
-    ).toBeUndefined()
+    expect(acquisition.outcome).toBe('acquired')
+    if (acquisition.outcome !== 'acquired') throw new Error('Expected surface lease')
+    const lease = acquisition.lease
+    expect(registry.acquireSessionsSurface(sessionsSurfaceRequest(4))).toEqual({
+      outcome: 'unavailable',
+      reason: 'lease-conflict',
+    })
     const focusCountBeforeDetail = vi.mocked(options.onFocus).mock.calls.length
-    expect(lease?.attach(detail)).toBe(true)
+    expect(lease.attach(detail)).toBe(true)
     expect(detail.querySelector('.terminal-engine-host')).toBe(surface)
     expect(document.querySelectorAll('.terminal-engine-host')).toHaveLength(1)
     expect(options.onFocus).toHaveBeenCalledTimes(focusCountBeforeDetail)
@@ -911,13 +914,13 @@ describe('GhosttyTerminalPane lifecycle', () => {
       cols: 100,
       rows: 31,
     })
-    expect(lease?.focus(detail)).toBe(true)
+    expect(lease.focus(detail)).toBe(true)
     expect(options.onFocus).toHaveBeenCalledTimes(focusCountBeforeDetail + 1)
 
     send.mockClear()
     vi.mocked(options.onInput).mockClear()
     state.emitResize({ cols: 102, rows: 33 })
-    lease?.setVisible(detail, false)
+    lease.setVisible(detail, false)
     await vi.advanceTimersByTimeAsync(75)
     state.emitData('hidden input')
     state.emitResize({ cols: 101, rows: 32 })
@@ -933,29 +936,33 @@ describe('GhosttyTerminalPane lifecycle', () => {
     })
     expect(options.onInput).not.toHaveBeenCalled()
 
-    lease?.release()
+    lease.release()
     expect(workspace.querySelector('.terminal-engine-host')).toBe(surface)
     expect(invoke).toHaveBeenCalledOnce()
-    expect(lease?.focus(detail)).toBe(false)
-    const successor = registry.acquireSessionsSurface(sessionsSurfaceRequest(5))
+    expect(lease.focus(detail)).toBe(false)
+    const successorResult = registry.acquireSessionsSurface(sessionsSurfaceRequest(5))
+    if (successorResult.outcome !== 'acquired') throw new Error('Expected successor')
+    const successor = successorResult.lease
     const disconnected = vi.fn()
-    successor?.subscribe(disconnected)
-    successor?.attach(detail)
+    successor.subscribe(disconnected)
+    successor.attach(detail)
     runtime.update({ ...options, connectionState: 'connecting' })
     runtime.synchronizeLifecycle()
     expect(disconnected).toHaveBeenCalledExactlyOnceWith('connection-unavailable')
-    expect(successor?.focus(detail)).toBe(false)
+    expect(successor.focus(detail)).toBe(false)
 
     runtime.update(options)
     runtime.synchronizeLifecycle()
-    const finalLease = registry.acquireSessionsSurface(sessionsSurfaceRequest(6))
+    const finalResult = registry.acquireSessionsSurface(sessionsSurfaceRequest(6))
+    if (finalResult.outcome !== 'acquired') throw new Error('Expected final lease')
+    const finalLease = finalResult.lease
     const revoked = vi.fn()
-    finalLease?.subscribe(revoked)
-    finalLease?.attach(detail)
+    finalLease.subscribe(revoked)
+    finalLease.attach(detail)
     expect(invoke).toHaveBeenCalledOnce()
     registry.dispose()
     expect(revoked).toHaveBeenCalledExactlyOnceWith('owner-disposed')
-    expect(finalLease?.focus(detail)).toBe(false)
+    expect(finalLease.focus(detail)).toBe(false)
     vi.useRealTimers()
   })
 

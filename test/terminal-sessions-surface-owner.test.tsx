@@ -63,7 +63,7 @@ describe('TerminalSessionsSurfaceOwner', () => {
     await vi.runAllTimersAsync()
     await Promise.resolve()
     const surface = workspace.querySelector('.terminal-engine-host')
-    const lease = registry.acquireSessionsSurface({
+    const acquisition = registry.acquireSessionsSurface({
       handle: asSessionsTerminalHandle('terminal-1'),
       workspaceQualifier: sessionsWorkspaceQualifier(1, 0, 0),
       workspaceRuntimeId: asSessionsWorkspaceRuntimeId('workspace-runtime'),
@@ -76,13 +76,16 @@ describe('TerminalSessionsSurfaceOwner', () => {
       projectionRevision: 4,
       sourceRevision: 8,
     })
-    expect(lease?.attach(detail)).toBe(true)
-    expect(lease?.focus(detail)).toBe(true)
+    expect(acquisition.outcome).toBe('acquired')
+    if (acquisition.outcome !== 'acquired') throw new Error('Expected surface lease')
+    const lease = acquisition.lease
+    expect(lease.attach(detail)).toBe(true)
+    expect(lease.focus(detail)).toBe(true)
     send.mockClear()
     vi.mocked(options.onFocus).mockClear()
 
     expect(
-      lease?.renew({
+      lease.renew({
         handle: asSessionsTerminalHandle('terminal-1'),
         workspaceQualifier: sessionsWorkspaceQualifier(2, 1, 0),
         workspaceRuntimeId: asSessionsWorkspaceRuntimeId('workspace-runtime'),
@@ -97,7 +100,7 @@ describe('TerminalSessionsSurfaceOwner', () => {
       }),
     ).toBe(true)
     expect(
-      lease?.renew({
+      lease.renew({
         handle: asSessionsTerminalHandle('terminal-1'),
         workspaceQualifier: sessionsWorkspaceQualifier(2, 1, 0),
         workspaceRuntimeId: asSessionsWorkspaceRuntimeId('workspace-replaced'),

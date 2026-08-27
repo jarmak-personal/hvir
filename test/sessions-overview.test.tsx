@@ -27,7 +27,10 @@ import {
   type SessionsUsageDemandTarget,
   type SessionsUsageSnapshot,
 } from '../src/shared'
-import type { SessionsTerminalSurfaceLease } from '../src/renderer/src/sessions/sessions-terminal-surface'
+import type {
+  SessionsTerminalSurfaceLease,
+  SessionsTerminalSurfacePort,
+} from '../src/renderer/src/sessions/sessions-terminal-surface'
 
 let host: HTMLDivElement
 let root: Root
@@ -180,7 +183,8 @@ describe('SessionsOverview', () => {
     const input = vi.fn()
     engine.addEventListener('keydown', input)
     const lease = componentLease(engine, workspace)
-    const surface = { acquire: vi.fn(() => lease.value) }
+    const acquire = vi.fn(() => acquired(lease.value))
+    const surface = availableSurface(acquire)
     const frame = vi
       .spyOn(window, 'requestAnimationFrame')
       .mockImplementation((callback) => {
@@ -238,7 +242,7 @@ describe('SessionsOverview', () => {
       await settle()
     })
     expect(lease.renew).toHaveBeenCalledOnce()
-    expect(surface.acquire).toHaveBeenCalledOnce()
+    expect(acquire).toHaveBeenCalledOnce()
     expect(lease.attach).toHaveBeenCalledOnce()
     expect(lease.release).not.toHaveBeenCalled()
     expect(document.activeElement).toBe(engine)
@@ -262,24 +266,6 @@ describe('SessionsOverview', () => {
     expect(api.listenerCount()).toBe(0)
     expect(lease.release).toHaveBeenCalledOnce()
     frame.mockRestore()
-  })
-
-  it('keeps bounded detail feedback when exact surface acquisition loses its runtime', async () => {
-    installApi()
-    await renderOverview({ surface: { acquire: () => undefined } })
-
-    await act(async () => {
-      button('Interact', '.session-card').click()
-      await settle()
-    })
-    expect(host.textContent).toContain(
-      'This session no longer has the same live terminal.',
-    )
-    expect(
-      host.querySelector('.sessions-detail-terminal')?.getAttribute('aria-label'),
-    ).toBe('Agent terminal terminal')
-    expect(host.querySelectorAll('.terminal-engine-host')).toHaveLength(0)
-    expect(button('Back to Sessions')).toBeInstanceOf(HTMLButtonElement)
   })
 
   it('distinguishes the true empty state from a filtered empty state', async () => {
@@ -991,7 +977,10 @@ async function renderOverview(
           snapshot: rendererSessions,
           subscribe: () => () => undefined,
         }}
-        surface={{ acquire: () => undefined }}
+        surface={availableSurface(() => ({
+          outcome: 'unavailable',
+          reason: 'runtime-not-ready',
+        }))}
         onReturn={vi.fn()}
         onOpened={vi.fn()}
         onFocusOpened={vi.fn(() => Promise.resolve(true))}
@@ -1002,6 +991,19 @@ async function renderOverview(
     root.render(strict ? <StrictMode>{overview}</StrictMode> : overview)
     await settle()
   })
+}
+
+function acquired(lease: SessionsTerminalSurfaceLease) {
+  return { outcome: 'acquired' as const, lease }
+}
+
+function availableSurface(
+  acquire: SessionsTerminalSurfacePort['acquire'],
+): SessionsTerminalSurfacePort {
+  return {
+    availability: () => ({ outcome: 'available' }),
+    acquire,
+  }
 }
 
 function rendererSessions() {
