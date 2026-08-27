@@ -401,6 +401,13 @@ First-class multiple directories, without VSCode's multi-root heaviness. Two tie
 **project** (registered) → **worktrees** (discovered), per ADR-008 — a workspace = a
 worktree = a place an agent is working, with notification rollups at each tier.
 
+### Global Sessions
+The [Sessions ownership and topology-feasibility gate](sessions-ownership-and-feasibility.md)
+defines the demand-scoped read-only projection, usage observation, exclusive live-terminal
+surface lease, and current provider-topology boundary. It composes the existing session,
+PTY, host, provider, attention, runtime, and `TerminalPane` owners without creating a global
+authority or background observer.
+
 ---
 
 ## 8. MVP path
