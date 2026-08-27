@@ -149,9 +149,14 @@ describe('SessionsObservationPort', () => {
     expect(ptys.listenerCount()).toBe(1)
     expect(projects.listenerCount()).toBe(1)
 
+    const sourceChange = vi.fn()
+    const stopSourceChanges = port.observeSourceChanges(sourceChange)
     sessions.publish()
+    expect(sourceChange).toHaveBeenCalledOnce()
     expect(emit).not.toHaveBeenCalled()
+    void stopSourceChanges()
     sessions.set([retained('session-1', localRoot, shell, shellProfile, 'Renamed Shell')])
+    expect(sourceChange).toHaveBeenCalledOnce()
     expect(emit).toHaveBeenCalledExactlyOnceWith(owner, {
       demandGeneration: 1,
       revision: initial.revision + 1,

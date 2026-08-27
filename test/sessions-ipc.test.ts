@@ -160,6 +160,63 @@ describe('Sessions IPC', () => {
       reason: 'stale-projection',
     })
     expect(switchWorkspace).toHaveBeenCalledOnce()
+
+    resolveOpen.mockReturnValueOnce({
+      outcome: 'resolved',
+      projectId: 'project-real',
+      workspaceId: 'workspace-real',
+      handle: asSessionsTerminalHandle('terminal-1'),
+      workspaceQualifier: qualifier,
+      livePty,
+    })
+    await expect(
+      invoke('sessions:resolve-terminal', request, { owner: () => owner }),
+    ).resolves.toEqual({
+      outcome: 'resolved',
+      handle: 'terminal-1',
+      workspaceQualifier: qualifier,
+      livePty,
+    })
+    expect(switchWorkspace).toHaveBeenCalledOnce()
+    await scopes.dispose()
+  })
+
+  it('routes the exact production Usage demand shape and revokes it with the renderer owner', async () => {
+    const scopes = new RendererResourceScopes()
+    const owner = scopes.activateOwner(23)
+    const observation = {
+      acquire: vi.fn(),
+      snapshot: vi.fn(),
+      release: vi.fn(),
+    }
+    const { invoke, sessionsUsage } = fixture(scopes, observation)
+    const request = {
+      demandGeneration: 6,
+      projectionDemandGeneration: 4,
+      sourceRevision: 9,
+      targets: [
+        {
+          handle: asSessionsTerminalHandle('terminal-usage'),
+          livePty: {
+            handle: asSessionsPtyHandle('instance-usage'),
+            rendererOwnerId: owner.id,
+            rendererGeneration: owner.generation,
+          },
+        },
+      ],
+    }
+
+    await expect(
+      invoke('sessions:usage-observe', request, { owner: () => owner }),
+    ).resolves.toMatchObject({ demandGeneration: 6, sampledAt: 100 })
+    expect(sessionsUsage.acquire).toHaveBeenCalledExactlyOnceWith(owner, request)
+    await expect(
+      invoke('sessions:usage-snapshot', { demandGeneration: 6 }, { owner: () => owner }),
+    ).resolves.toMatchObject({ demandGeneration: 6, revision: 2 })
+
+    const rollover = scopes.rolloverOwner(owner.id)
+    await rollover.cleanup
+    expect(sessionsUsage.release).toHaveBeenCalledExactlyOnceWith(owner, 6)
     await scopes.dispose()
   })
 })
@@ -180,6 +237,23 @@ function fixture(
       handlers.set(channel, handler)
     },
   } as unknown as IpcRegistrar
+  const sessionsUsage = {
+    acquire: vi.fn((_owner, request: { demandGeneration: number }) => ({
+      version: SESSIONS_PROJECTION_VERSION,
+      demandGeneration: request.demandGeneration,
+      revision: 1,
+      sampledAt: 100,
+      rows: [],
+    })),
+    snapshot: vi.fn((_owner, demandGeneration: number) => ({
+      version: SESSIONS_PROJECTION_VERSION,
+      demandGeneration,
+      revision: 2,
+      sampledAt: 200,
+      rows: [],
+    })),
+    release: vi.fn(() => true),
+  }
   registerSessionsIpc(ipc, {
     rendererResources,
     sessionsObservation: {
@@ -188,9 +262,11 @@ function fixture(
         sessionsObservation.resolveOpen ??
         vi.fn(() => ({ outcome: 'unavailable', reason: 'stale-projection' })),
     },
+    sessionsUsage,
     switchWorkspace,
   } as never)
   return {
+    sessionsUsage,
     invoke: (channel: string, request: unknown, context: unknown) => {
       const handler = handlers.get(channel)
       if (!handler) throw new Error(`Missing handler ${channel}`)

@@ -76,6 +76,10 @@ import type {
   SessionsOpenResponse,
   SessionsObservationSnapshot,
   SessionsProjectionChange,
+  SessionsTerminalResolutionResponse,
+  SessionsUsageChange,
+  SessionsUsageDemandRequest,
+  SessionsUsageSnapshot,
 } from './sessions-projection'
 import type { KeybindingAction, KeybindingMap } from './keybindings'
 import type { WebPaneDiagnosticEvent } from './web-pane'
@@ -883,7 +887,20 @@ export interface IpcInvokeMap {
     response: SessionsObservationSnapshot
   }
   'sessions:release': { request: SessionsDemandRequest; response: void }
+  'sessions:usage-observe': {
+    request: SessionsUsageDemandRequest
+    response: SessionsUsageSnapshot
+  }
+  'sessions:usage-snapshot': {
+    request: SessionsDemandRequest
+    response: SessionsUsageSnapshot
+  }
+  'sessions:usage-release': { request: SessionsDemandRequest; response: void }
   'sessions:open': { request: SessionsOpenRequest; response: SessionsOpenResponse }
+  'sessions:resolve-terminal': {
+    request: SessionsOpenRequest
+    response: SessionsTerminalResolutionResponse
+  }
   'terminal:resolve-file-clipboard': {
     request: Record<string, never>
     response: string | undefined
@@ -932,6 +949,7 @@ export interface IpcEventMap {
   'project:watch': WatchEvent
   'project:state': ProjectState
   'sessions:changed': SessionsProjectionChange
+  'sessions:usage-changed': SessionsUsageChange
   'fs:project-file-operation': ProjectFileOperationProgress
   'ssh:prompt': SshPromptRequest
   'ssh:prompt-cancel': { readonly hostId: string }
@@ -1102,7 +1120,11 @@ export const INVOKE_CHANNELS = [
   'sessions:observe',
   'sessions:snapshot',
   'sessions:release',
+  'sessions:usage-observe',
+  'sessions:usage-snapshot',
+  'sessions:usage-release',
   'sessions:open',
+  'sessions:resolve-terminal',
   'terminal:resolve-file-clipboard',
   'pty:start',
   'web-pane:open',
@@ -1141,6 +1163,7 @@ export const EVENT_CHANNELS = [
   'project:watch',
   'project:state',
   'sessions:changed',
+  'sessions:usage-changed',
   'fs:project-file-operation',
   'ssh:prompt',
   'ssh:prompt-cancel',

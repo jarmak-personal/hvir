@@ -256,6 +256,7 @@ class MockTerminal {
 
   write(data: string): void {
     this.state.writes.push(data)
+    if (data.includes('\x1b[6n')) this.state.emitData('\x1b[1;1R')
   }
 
   resize(cols: number, rows: number): void {

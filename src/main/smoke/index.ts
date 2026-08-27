@@ -6,7 +6,12 @@ import { createProjectFileOperationCoordinator } from '../project-file-operation
 import { ProjectFolderPickerCoordinator } from '../project-folder-picker'
 import { createDocumentReviewRuntime } from '../document-review'
 import { HarnessProfileStore } from '../harness/harness-profile-store'
-import { harnessProviderCatalog, harnessProviders } from '../harness/harness-provider'
+import {
+  HarnessProviderRegistry,
+  harnessProviderCatalog,
+  harnessProviders,
+} from '../harness/harness-provider'
+import { HarnessUsageDemandController } from '../harness/harness-usage-demand-controller'
 import type { HarnessProbeManager } from '../harness/harness-probe'
 import type { HtmlPreviewProtocol } from '../html-preview-protocol'
 import type { RuntimeDiagnostics } from '../diagnostics/runtime-diagnostics'
@@ -16,6 +21,7 @@ import type { RendererOwner, RendererResourceScopes } from '../renderer-resource
 import { LocalHost } from '../project-host'
 import { PtySupervisor } from '../pty/pty-supervisor'
 import { SessionsObservationPort } from '../sessions/sessions-observation-port'
+import { SessionsUsageObservationPort } from '../sessions/sessions-usage-observation-port'
 import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
 import { createWorkerClient, workerPath } from '../worker-host'
 import { createWorkspaceCleanup } from '../workspace-cleanup'
@@ -54,6 +60,7 @@ import { verifyViewerContent } from './viewer-content'
 import { verifyWorkbenchHealthFault } from './workbench-health'
 import { verifyRendererProcessRecovery } from './renderer-recovery'
 import { verifySessionsProjectionSmoke } from './sessions-projection'
+import { sessionsUsageSmokeProvider } from './sessions-usage-provider'
 import type { ElectronSmokeMode } from './scenario-selection.mts'
 import { createTerminalMoveSmokeHarness, verifyTerminalMoveSmoke } from './terminal-move'
 import { createSmokeTerminalSessionStore } from './terminal-session-store'
@@ -599,6 +606,10 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     }
     const smokeTerminalSessionHarness = createSmokeTerminalSessionStore(smokeRoot)
     const smokeTerminalSessions = smokeTerminalSessionHarness.store
+    const smokeSessionsProviders = new HarnessProviderRegistry([
+      ...harnessProviders.all(),
+      sessionsUsageSmokeProvider,
+    ])
     const smokeHarnessProfiles = await HarnessProfileStore.load(host, harnessProfilesPath)
     await host.removeFile(documentReviewPath, { ignoreMissing: true })
     cleanup.defer('document review draft', () =>
@@ -648,10 +659,11 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       projectState: () => smokeIpcProjectState,
       hosts: smokeHostOptions,
       providers: () =>
-        harnessProviders.all().map((provider) => ({
+        smokeSessionsProviders.all().map((provider) => ({
           id: provider.manifest.id,
           displayName: provider.manifest.displayName,
           telemetrySupported: Boolean(provider.telemetry),
+          usageSupported: Boolean(provider.usageTelemetry),
           sessionKind: provider.manifest.sessionKind,
         })),
       sessions: smokeTerminalSessions,
@@ -672,6 +684,22 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       },
     })
     cleanup.defer('Sessions observation', () => sessionsObservation.dispose())
+    const sessionsUsageDemand = new HarnessUsageDemandController(smokeSessionsProviders)
+    cleanup.defer('Sessions usage demand', () => sessionsUsageDemand.dispose())
+    const sessionsUsage = new SessionsUsageObservationPort({
+      sessions: sessionsObservation,
+      ptys: supervisor,
+      usage: sessionsUsageDemand,
+      emit: (owner, change) => {
+        if (
+          smokeWindow?.webContents.id === owner.id &&
+          rendererResources.isCurrent(owner)
+        ) {
+          sendRendererEvent(smokeWindow.webContents, 'sessions:usage-changed', change)
+        }
+      },
+    })
+    cleanup.defer('Sessions usage observation', () => sessionsUsage.dispose())
     const openedFolderSelections: Array<{ hostId: string; path: string }> = []
     const revealedEntries: HostPath[] = []
     const terminalMoveSmoke = createTerminalMoveSmokeHarness({
@@ -836,6 +864,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       ptySupervisor: supervisor,
       terminalSessions: smokeTerminalSessions,
       sessionsObservation,
+      sessionsUsage,
       terminalMoves: terminalMoveSmoke.coordinator,
       harnessProfiles: smokeHarnessProfiles,
       harnessProbes: harnessProbeManager,
@@ -971,6 +1000,8 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
           roots: [smokeWebSwitchRoot, smokeCloseableRoot, smokeRemoteRoot],
           addRetained: smokeTerminalSessionHarness.add,
           supervisor,
+          usageHost: host,
+          usageProvider: sessionsUsageSmokeProvider,
         })
       } finally {
         acceptedRendererReadySink = undefined

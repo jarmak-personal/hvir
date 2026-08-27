@@ -17,8 +17,13 @@ import {
   localPath,
   sessionsWorkspaceQualifier,
   type SessionsObservationSnapshot,
+  type SessionsOpenRequest,
   type SessionsOpenResponse,
+  type SessionsTerminalResolutionResponse,
+  type SessionsUsageDemandTarget,
+  type SessionsUsageSnapshot,
 } from '../src/shared'
+import type { SessionsTerminalSurfaceLease } from '../src/renderer/src/sessions/sessions-terminal-surface'
 
 let host: HTMLDivElement
 let root: Root
@@ -36,6 +41,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   host.remove()
+  vi.useRealTimers()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
@@ -174,6 +180,77 @@ describe('SessionsOverview', () => {
     )
   })
 
+  it('attaches one actual provider-neutral surface in detail and restores accessible overview focus', async () => {
+    const workspace = document.createElement('div')
+    const engine = document.createElement('div')
+    engine.className = 'terminal-engine-host'
+    engine.tabIndex = 0
+    workspace.append(engine)
+    const lease = componentLease(engine, workspace)
+    const surface = { acquire: vi.fn(() => lease.value) }
+    const frame = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        callback(0)
+        return 1
+      })
+    const api = installApi()
+    await renderOverview({ surface })
+
+    await act(async () => {
+      button('Interact', '.session-card').click()
+      await settle()
+    })
+    expect(api.resolveTerminal).toHaveBeenCalledWith({
+      demandGeneration: 1,
+      sourceRevision: 7,
+      handle: 'terminal-private-agent',
+      projectId: 'opaque-project',
+      workspaceId: 'opaque-workspace',
+      workspaceQualifier: '11:0:0',
+      livePty: {
+        handle: 'live-instance-agent',
+        rendererOwnerId: 4,
+        rendererGeneration: 6,
+      },
+    })
+    expect(host.querySelector('h1')?.textContent).toBe('Agent terminal')
+    expect(host.querySelectorAll('.sessions-detail-terminal')).toHaveLength(1)
+    expect(host.querySelectorAll('.terminal-engine-host')).toHaveLength(1)
+    expect(host.innerHTML).not.toContain('terminal-private-agent')
+    expect(host.innerHTML).not.toContain('live-instance-agent')
+    expect(lease.focus).toHaveBeenCalledOnce()
+    expect(document.activeElement).toBe(engine)
+
+    await act(async () => {
+      button('Back to Sessions').click()
+      await settle()
+    })
+    expect(lease.release).toHaveBeenCalledOnce()
+    expect(workspace.querySelector('.terminal-engine-host')).toBe(engine)
+    expect(host.querySelector('h1')?.textContent).toBe('Sessions')
+    expect(document.activeElement).toBe(host.querySelector('.session-card'))
+    frame.mockRestore()
+  })
+
+  it('keeps bounded detail feedback when exact surface acquisition loses its runtime', async () => {
+    installApi()
+    await renderOverview({ surface: { acquire: () => undefined } })
+
+    await act(async () => {
+      button('Interact', '.session-card').click()
+      await settle()
+    })
+    expect(host.textContent).toContain(
+      'This session no longer has the same live terminal.',
+    )
+    expect(
+      host.querySelector('.sessions-detail-terminal')?.getAttribute('aria-label'),
+    ).toBe('Agent terminal terminal')
+    expect(host.querySelectorAll('.terminal-engine-host')).toHaveLength(0)
+    expect(button('Back to Sessions')).toBeInstanceOf(HTMLButtonElement)
+  })
+
   it('distinguishes the true empty state from a filtered empty state', async () => {
     installApi({
       snapshot: (demandGeneration) => ({
@@ -271,6 +348,233 @@ describe('SessionsOverview', () => {
     expect(document.activeElement).toBe(host.querySelector('.session-card'))
   })
 
+  it('ranks provider-neutral totals, exposes categories, preserves focused identity on reorder, and releases on blur', async () => {
+    let revision = 1
+    let totals = new Map([
+      [asSessionsTerminalHandle('terminal-private-agent'), 200],
+      [asSessionsTerminalHandle('terminal-private-shell'), 100],
+    ])
+    const api = installApi({
+      snapshot: (demandGeneration) => {
+        const value = snapshot(demandGeneration)
+        return {
+          ...value,
+          providers: value.providers.map((provider) => ({
+            ...provider,
+            usageSupported: true,
+          })),
+          sessions: value.sessions.map((session) =>
+            session.handle === 'terminal-private-shell'
+              ? {
+                  ...session,
+                  lifecycle: 'live' as const,
+                  livePty: {
+                    handle: asSessionsPtyHandle('live-instance-shell'),
+                    rendererOwnerId: 4,
+                    rendererGeneration: 6,
+                  },
+                }
+              : session,
+          ),
+        }
+      },
+      usageSnapshot: (demandGeneration, targets) => ({
+        version: SESSIONS_PROJECTION_VERSION,
+        demandGeneration,
+        revision,
+        sampledAt: revision * 10_000,
+        rows: targets.map((target) => {
+          const total = totals.get(target.handle) ?? 0
+          return {
+            handle: target.handle,
+            usage: {
+              status: 'exact' as const,
+              observedAt: revision * 10_000,
+              value: {
+                freshInputTokens: total / 2,
+                cacheReadInputTokens: total / 4,
+                cacheWriteInputTokens: 0,
+                outputTokens: total / 4,
+                reasoningTokens: total / 8,
+                normalizedTokenTotal: total,
+              },
+            },
+          }
+        }),
+      }),
+    })
+    await renderOverview()
+    await act(async () => {
+      button('Usage').click()
+      await settle()
+      button('Session total').click()
+      await settle()
+    })
+
+    expect(host.textContent).toContain('Token usage ranking')
+    expect(host.textContent).toContain('Reasoning (part of output)')
+    expect(host.querySelectorAll('.sessions-usage-ranking > li')).toHaveLength(2)
+    expect(
+      [...host.querySelectorAll('.sessions-visually-hidden')].some((label) =>
+        label.textContent?.includes('200 tokens for this session'),
+      ),
+    ).toBe(true)
+    expect(host.querySelector('.sessions-usage-ranking strong[aria-label]')).toBeNull()
+    const agent = [
+      ...host.querySelectorAll<HTMLElement>('.sessions-usage-ranking > li'),
+    ].find((row) => row.textContent?.includes('Agent terminal'))!
+    act(() => agent.focus())
+
+    totals = new Map([
+      [asSessionsTerminalHandle('terminal-private-agent'), 50],
+      [asSessionsTerminalHandle('terminal-private-shell'), 300],
+    ])
+    revision = 2
+    await act(async () => {
+      api.usageEmit({ demandGeneration: 1, revision })
+      await settle()
+    })
+    expect(host.querySelector('.sessions-usage-ranking > li h3')?.textContent).toBe(
+      'Shell terminal',
+    )
+    expect(document.activeElement?.textContent).toContain('Agent terminal')
+
+    focused = false
+    await act(async () => {
+      window.dispatchEvent(new Event('blur'))
+      await settle()
+    })
+    expect(api.usageRelease).toHaveBeenCalledExactlyOnceWith(1)
+    expect(api.usageSnapshot).toHaveBeenCalled()
+  })
+
+  it('keeps quiet, unsupported, and unavailable rows with reliable accessible values', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const base = snapshot(1)
+    const unavailableHandle = asSessionsTerminalHandle('terminal-unavailable')
+    const unavailablePty = asSessionsPtyHandle('live-instance-unavailable')
+    installApi({
+      snapshot: (demandGeneration) => ({
+        ...base,
+        demandGeneration,
+        sessions: [
+          ...base.sessions,
+          {
+            ...base.sessions[0]!,
+            handle: unavailableHandle,
+            title: 'Unavailable terminal',
+            livePty: {
+              handle: unavailablePty,
+              rendererOwnerId: 4,
+              rendererGeneration: 6,
+            },
+          },
+        ],
+      }),
+      usageSnapshot: (demandGeneration, targets) => ({
+        version: SESSIONS_PROJECTION_VERSION,
+        demandGeneration,
+        revision: 1,
+        sampledAt: Date.now(),
+        rows: targets.map((target) => ({
+          handle: target.handle,
+          usage:
+            target.handle === unavailableHandle
+              ? ({ status: 'unavailable', reason: 'source-unavailable' } as const)
+              : ({
+                  status: 'exact',
+                  observedAt: Date.now(),
+                  value: {
+                    freshInputTokens: 0,
+                    cacheReadInputTokens: 0,
+                    cacheWriteInputTokens: 0,
+                    outputTokens: 0,
+                    normalizedTokenTotal: 0,
+                  },
+                } as const),
+        })),
+      }),
+    })
+    await renderOverview({
+      observation: {
+        snapshot: () => [
+          ...rendererSessions(),
+          {
+            ...rendererSessions()[0]!,
+            handle: unavailableHandle,
+            title: 'Unavailable terminal',
+          },
+        ],
+        subscribe: () => () => undefined,
+      },
+    })
+    await act(async () => {
+      button('Usage').click()
+      await settle()
+      button('1 minute').click()
+      for (let sample = 0; sample < 6; sample += 1) {
+        vi.advanceTimersByTime(10_000)
+        await settle()
+      }
+    })
+
+    expect(host.querySelectorAll('.sessions-usage-ranking > li')).toHaveLength(3)
+    expect(host.textContent).toContain('No activity in 1 minute')
+    expect(host.textContent).toContain('Unsupported · capability state')
+    expect(host.textContent).toContain('Unavailable · Source unavailable')
+    expect(
+      [...host.querySelectorAll('.sessions-visually-hidden')].map(
+        (label) => label.textContent,
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('0 tokens in the last 1 minute'),
+        expect.stringContaining('Unsupported usage; not ranked'),
+        expect.stringContaining('Unavailable usage; not ranked'),
+      ]),
+    )
+    vi.useRealTimers()
+  })
+
+  it('keeps the Usage ranking mount bounded at projection capacity', async () => {
+    installApi({ snapshot: capacitySnapshot })
+    await renderOverview({
+      observation: {
+        snapshot: capacityRendererSessions,
+        subscribe: () => () => undefined,
+      },
+    })
+    await act(async () => {
+      button('Usage').click()
+      await settle()
+    })
+
+    expect(host.textContent).toContain(
+      `Showing 1–40 of ${MAX_SESSIONS_PROJECTION_ROWS} ranked sessions`,
+    )
+    expect(host.querySelectorAll('.sessions-usage-ranking > li')).toHaveLength(40)
+    expect(
+      host.querySelectorAll('.sessions-usage-ranking > li[tabindex="0"]'),
+    ).toHaveLength(1)
+
+    const last = host.querySelectorAll<HTMLElement>('.sessions-usage-ranking > li')[39]
+    await act(async () => {
+      last?.focus()
+      last?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
+      )
+      await settle()
+    })
+    expect(host.textContent).toContain(
+      `Showing 41–80 of ${MAX_SESSIONS_PROJECTION_ROWS} ranked sessions`,
+    )
+    expect(host.querySelectorAll('.sessions-usage-ranking > li')).toHaveLength(40)
+    expect(document.activeElement).toBe(
+      host.querySelector('.sessions-usage-ranking > li'),
+    )
+  })
+
   it('replaces Opening feedback when an unavailable Open completes after a projection revision', async () => {
     let current = snapshot(1)
     let complete!: (response: SessionsOpenResponse) => void
@@ -351,34 +655,99 @@ function installApi(
   options: {
     readonly snapshot?: (demandGeneration: number) => SessionsObservationSnapshot
     readonly open?: (request: unknown) => Promise<SessionsOpenResponse>
+    readonly resolveTerminal?: (
+      request: unknown,
+    ) => Promise<SessionsTerminalResolutionResponse>
+    readonly usageSnapshot?: (
+      demandGeneration: number,
+      targets: readonly SessionsUsageDemandTarget[],
+    ) => SessionsUsageSnapshot
   } = {},
 ) {
   const listeners = new Set<(payload: unknown) => void>()
+  const usageListeners = new Set<(payload: unknown) => void>()
   const readSnapshot = options.snapshot ?? snapshot
   const observe = vi.fn((generation: number) => Promise.resolve(readSnapshot(generation)))
   const release = vi.fn((_generation: number) => Promise.resolve())
   const open = vi.fn(
     options.open ?? ((_request: unknown) => Promise.resolve(openedResponse())),
   )
+  const resolveTerminal = vi.fn(
+    options.resolveTerminal ??
+      ((request: unknown) => {
+        const exact = request as SessionsOpenRequest
+        return Promise.resolve({
+          outcome: 'resolved' as const,
+          handle: exact.handle,
+          workspaceQualifier: exact.workspaceQualifier,
+          livePty: exact.livePty,
+        })
+      }),
+  )
+  let usageTargets: readonly SessionsUsageDemandTarget[] = []
+  const readUsageSnapshot =
+    options.usageSnapshot ??
+    ((demandGeneration: number, targets: readonly SessionsUsageDemandTarget[]) => ({
+      version: SESSIONS_PROJECTION_VERSION,
+      demandGeneration,
+      revision: 1,
+      sampledAt: 10_000,
+      rows: targets.map((target) => ({
+        handle: target.handle,
+        usage: { status: 'pending' as const, reason: 'observation-pending' as const },
+      })),
+    }))
+  const usageObserve = vi.fn(
+    (request: {
+      demandGeneration: number
+      targets: readonly SessionsUsageDemandTarget[]
+    }) => {
+      usageTargets = request.targets
+      return Promise.resolve(readUsageSnapshot(request.demandGeneration, usageTargets))
+    },
+  )
+  const usageSnapshot = vi.fn((demandGeneration: number) =>
+    Promise.resolve(readUsageSnapshot(demandGeneration, usageTargets)),
+  )
+  const usageRelease = vi.fn((_demandGeneration: number) => Promise.resolve())
   const api = {
     observe,
     release,
     open,
+    resolveTerminal,
     emit: (payload: unknown) => {
       for (const listener of listeners) listener(payload)
     },
+    usageEmit: (payload: unknown) => {
+      for (const listener of usageListeners) listener(payload)
+    },
+    usageObserve,
+    usageSnapshot,
+    usageRelease,
     listenerCount: () => listeners.size,
     invoke: vi.fn((channel: string, request: { demandGeneration: number }) => {
       if (channel === 'sessions:observe') return observe(request.demandGeneration)
       if (channel === 'sessions:snapshot')
         return Promise.resolve(readSnapshot(request.demandGeneration))
       if (channel === 'sessions:release') return release(request.demandGeneration)
+      if (channel === 'sessions:usage-observe') return usageObserve(request as never)
+      if (channel === 'sessions:usage-snapshot')
+        return usageSnapshot(request.demandGeneration)
+      if (channel === 'sessions:usage-release')
+        return usageRelease(request.demandGeneration)
       if (channel === 'sessions:open') return open(request)
+      if (channel === 'sessions:resolve-terminal') return resolveTerminal(request)
       return Promise.reject(new Error(`Unexpected channel ${channel}`))
     }),
     on: vi.fn((channel: string, listener: (payload: unknown) => void) => {
-      if (channel === 'sessions:changed') listeners.add(listener)
-      return () => listeners.delete(listener)
+      const selected =
+        channel === 'sessions:changed'
+          ? listeners
+          : channel === 'sessions:usage-changed'
+            ? usageListeners
+            : undefined
+      selected?.add(listener)
+      return () => selected?.delete(listener)
     }),
   }
   Object.defineProperty(window, 'hvir', {
@@ -386,6 +755,38 @@ function installApi(
     value: api,
   })
   return api
+}
+
+function componentLease(engine: HTMLElement, workspace: HTMLElement) {
+  let container: HTMLElement | undefined
+  const attach = vi.fn((next: HTMLElement) => {
+    container = next
+    next.append(engine)
+    return true
+  })
+  const detach = vi.fn((current: HTMLElement) => {
+    if (container === current) container = undefined
+  })
+  const setVisible = vi.fn((current: HTMLElement) => container === current)
+  const focus = vi.fn((current: HTMLElement) => {
+    if (container !== current) return false
+    engine.focus()
+    return true
+  })
+  const release = vi.fn(() => {
+    container = undefined
+    workspace.append(engine)
+  })
+  const value: SessionsTerminalSurfaceLease = {
+    renew: vi.fn(() => true),
+    attach,
+    detach,
+    setVisible,
+    focus,
+    subscribe: () => () => undefined,
+    release,
+  }
+  return { value, attach, detach, setVisible, focus, release }
 }
 
 function openedResponse(): SessionsOpenResponse {
@@ -412,6 +813,7 @@ async function renderOverview(
           snapshot: rendererSessions,
           subscribe: () => () => undefined,
         }}
+        surface={{ acquire: () => undefined }}
         onReturn={vi.fn()}
         onOpened={vi.fn()}
         onFocusOpened={vi.fn(() => Promise.resolve(true))}
@@ -464,12 +866,14 @@ function snapshot(demandGeneration: number): SessionsObservationSnapshot {
         id: asHarnessProviderId('codex'),
         displayName: 'Codex',
         telemetrySupported: true,
+        usageSupported: true,
         sessionKind: 'agent',
       },
       {
         id: asHarnessProviderId('plain-shell'),
         displayName: 'Shell',
         telemetrySupported: false,
+        usageSupported: false,
         sessionKind: 'shell',
       },
     ],

@@ -10,6 +10,11 @@ import { TerminalView } from '../src/renderer/src/terminal/TerminalView'
 import type { TerminalRuntimeOptions } from '../src/renderer/src/terminal/terminal-runtime-options'
 import { TerminalRuntimeRegistry } from '../src/renderer/src/terminal/terminal-runtime-registry'
 import type { TerminalEvent } from '../src/renderer/src/terminal/terminal-pane'
+import {
+  asSessionsPtyHandle,
+  asSessionsTerminalHandle,
+  sessionsWorkspaceQualifier,
+} from '../src/shared'
 import { ghosttyLifecycleRuntimeOptions as runtimeOptions } from './fixtures/ghostty-lifecycle-runtime-options'
 import { ghosttyState, ghosttyWebMock } from './fixtures/ghostty-terminal-pane-mock'
 
@@ -232,13 +237,13 @@ describe('GhosttyTerminalPane lifecycle', () => {
     })
 
     expect(customHandled).toBe(true)
-    expect(input.mock.calls).toEqual([['a']])
+    expect(input.mock.calls).toEqual([['a', 'user']])
     expect(clipboardPaste).toHaveBeenCalledExactlyOnceWith('\x16')
     expect(state.cursorBlinkResets).toBe(2)
 
     pane.setPresentation('hidden')
     state.emitData('b')
-    expect(input).toHaveBeenLastCalledWith('b')
+    expect(input).toHaveBeenLastCalledWith('b', 'user')
     expect(state.cursorBlinkResets).toBe(2)
 
     pane.setPresentation('visible')
@@ -834,6 +839,167 @@ describe('GhosttyTerminalPane lifecycle', () => {
     expect(deliveryPresentation(third)).toBe('visible')
 
     registry.dispose()
+  })
+
+  it('borrows the one actual pane for Sessions and gates input, resize, focus, and restoration by its lease', async () => {
+    vi.useFakeTimers()
+    const invoke = vi.fn(() =>
+      Promise.resolve({
+        outcome: 'started' as const,
+        id: 'terminal-1',
+        instanceId: 'instance-1',
+        pid: 4321,
+        resumed: false,
+        reattached: false,
+        harnessSessionId: undefined,
+        identityStatus: 'unsupported' as const,
+        capabilities: {
+          sessionIdentity: 'none' as const,
+          exactResume: false,
+          contextPresentation: 'none' as const,
+        },
+      }),
+    )
+    const send = vi.fn()
+    const events = new Map<string, (event: never) => void>()
+    Object.defineProperty(window, 'hvir', {
+      configurable: true,
+      value: {
+        invoke,
+        send,
+        on: vi.fn((channel: string, listener: (event: never) => void) => {
+          events.set(channel, listener)
+          return () => events.delete(channel)
+        }),
+      },
+    })
+    const registry = new TerminalRuntimeRegistry()
+    const options = runtimeOptions()
+    const runtime = registry.acquire(options)
+    const workspace = document.createElement('div')
+    const detail = document.createElement('div')
+    document.body.append(workspace, detail)
+    runtime.attach(workspace)
+    await vi.runAllTimersAsync()
+    await Promise.resolve()
+    const state = ghosttyState.instances[0]!
+    const surface = workspace.querySelector('.terminal-engine-host')
+    const lease = registry.acquireSessionsSurface({
+      handle: asSessionsTerminalHandle('terminal-1'),
+      workspaceQualifier: sessionsWorkspaceQualifier(1, 0, 0),
+      livePty: {
+        handle: asSessionsPtyHandle('instance-1'),
+        rendererOwnerId: 7,
+        rendererGeneration: 2,
+      },
+      demandGeneration: 1,
+      projectionRevision: 4,
+      sourceRevision: 8,
+    })
+
+    expect(lease).toBeDefined()
+    expect(
+      registry.acquireSessionsSurface({
+        handle: asSessionsTerminalHandle('terminal-1'),
+        workspaceQualifier: sessionsWorkspaceQualifier(1, 0, 0),
+        livePty: {
+          handle: asSessionsPtyHandle('instance-1'),
+          rendererOwnerId: 7,
+          rendererGeneration: 2,
+        },
+        demandGeneration: 1,
+        projectionRevision: 4,
+        sourceRevision: 8,
+      }),
+    ).toBeUndefined()
+    const focusCountBeforeDetail = vi.mocked(options.onFocus).mock.calls.length
+    expect(lease?.attach(detail)).toBe(true)
+    expect(detail.querySelector('.terminal-engine-host')).toBe(surface)
+    expect(document.querySelectorAll('.terminal-engine-host')).toHaveLength(1)
+    expect(options.onFocus).toHaveBeenCalledTimes(focusCountBeforeDetail)
+    runtime.focus()
+    expect(options.onFocus).toHaveBeenCalledTimes(focusCountBeforeDetail)
+
+    state.emitData('direct input')
+    state.emitResize({ cols: 100, rows: 31 })
+    await vi.advanceTimersByTimeAsync(75)
+    expect(send).toHaveBeenCalledWith('pty:write', {
+      id: 'terminal-1',
+      data: 'direct input',
+    })
+    expect(send).toHaveBeenCalledWith('pty:resize', {
+      id: 'terminal-1',
+      cols: 100,
+      rows: 31,
+    })
+    expect(lease?.focus(detail)).toBe(true)
+    expect(options.onFocus).toHaveBeenCalledTimes(focusCountBeforeDetail + 1)
+
+    send.mockClear()
+    vi.mocked(options.onInput).mockClear()
+    state.emitResize({ cols: 102, rows: 33 })
+    lease?.setVisible(detail, false)
+    await vi.advanceTimersByTimeAsync(75)
+    state.emitData('hidden input')
+    state.emitResize({ cols: 101, rows: 32 })
+    await vi.advanceTimersByTimeAsync(75)
+    expect(send).not.toHaveBeenCalled()
+    expect(options.onInput).not.toHaveBeenCalled()
+
+    events.get('pty:data')?.({ id: 'terminal-1', data: '\x1b[6n' } as never)
+    await vi.advanceTimersByTimeAsync(40)
+    expect(send).toHaveBeenCalledExactlyOnceWith('pty:write', {
+      id: 'terminal-1',
+      data: '\x1b[1;1R',
+    })
+    expect(options.onInput).not.toHaveBeenCalled()
+
+    lease?.release()
+    expect(workspace.querySelector('.terminal-engine-host')).toBe(surface)
+    expect(invoke).toHaveBeenCalledOnce()
+    expect(lease?.focus(detail)).toBe(false)
+    const successor = registry.acquireSessionsSurface({
+      handle: asSessionsTerminalHandle('terminal-1'),
+      workspaceQualifier: sessionsWorkspaceQualifier(1, 0, 0),
+      livePty: {
+        handle: asSessionsPtyHandle('instance-1'),
+        rendererOwnerId: 7,
+        rendererGeneration: 2,
+      },
+      demandGeneration: 1,
+      projectionRevision: 5,
+      sourceRevision: 8,
+    })
+    const disconnected = vi.fn()
+    successor?.subscribe(disconnected)
+    successor?.attach(detail)
+    runtime.update({ ...options, connectionState: 'connecting' })
+    runtime.synchronizeLifecycle()
+    expect(disconnected).toHaveBeenCalledExactlyOnceWith('connection-unavailable')
+    expect(successor?.focus(detail)).toBe(false)
+
+    runtime.update(options)
+    runtime.synchronizeLifecycle()
+    const finalLease = registry.acquireSessionsSurface({
+      handle: asSessionsTerminalHandle('terminal-1'),
+      workspaceQualifier: sessionsWorkspaceQualifier(1, 0, 0),
+      livePty: {
+        handle: asSessionsPtyHandle('instance-1'),
+        rendererOwnerId: 7,
+        rendererGeneration: 2,
+      },
+      demandGeneration: 1,
+      projectionRevision: 6,
+      sourceRevision: 8,
+    })
+    const revoked = vi.fn()
+    finalLease?.subscribe(revoked)
+    finalLease?.attach(detail)
+    expect(invoke).toHaveBeenCalledOnce()
+    registry.dispose()
+    expect(revoked).toHaveBeenCalledExactlyOnceWith('owner-disposed')
+    expect(finalLease?.focus(detail)).toBe(false)
+    vi.useRealTimers()
   })
 
   it('starts fresh once and keeps React ownership through the identity handoff', async () => {

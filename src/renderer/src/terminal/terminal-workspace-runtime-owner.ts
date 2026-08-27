@@ -2,6 +2,10 @@ import { TerminalRuntimeRegistry } from './terminal-runtime-registry'
 import type { TerminalWorkspaceController } from './use-terminal-workspace-move'
 import type { SessionsRendererSession } from '../sessions/sessions-renderer-observation'
 import type {
+  SessionsTerminalSurfacePort,
+  SessionsTerminalSurfaceRequest,
+} from '../sessions/sessions-terminal-surface'
+import type {
   SessionsLivePtyQualifier,
   SessionsTerminalHandle,
   SessionsWorkspaceQualifier,
@@ -53,6 +57,10 @@ export class TerminalWorkspaceRuntimeOwner {
     subscribe: this.subscribeSessions,
   }
 
+  readonly sessionsSurface: SessionsTerminalSurfacePort = {
+    acquire: (request) => this.acquireSessionsSurface(request),
+  }
+
   registerSessionsSource = (
     workspaceId: string,
     source: (() => readonly SessionsRendererSession[]) | undefined,
@@ -66,6 +74,21 @@ export class TerminalWorkspaceRuntimeOwner {
   sessionsChanged = (workspaceId: string): void => {
     if (!this.sessionsSources.has(workspaceId)) return
     this.publishSessions()
+  }
+
+  private acquireSessionsSurface(request: SessionsTerminalSurfaceRequest) {
+    if (this.disposed) return undefined
+    const exact = [...this.sessionsSources.values()].some((snapshot) =>
+      snapshot().some(
+        (session) =>
+          session.handle === request.handle &&
+          session.workspaceQualifier === request.workspaceQualifier &&
+          !session.dormant &&
+          !session.exited,
+      ),
+    )
+    if (!exact) return undefined
+    return this.runtimes.acquireSessionsSurface(request)
   }
 
   focusProjectedSession(

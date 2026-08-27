@@ -248,7 +248,7 @@ function createWorkbenchEntry(): void {
       }),
       (supervisor) => supervisor.disposeAllAndWait(),
     )
-    const sessionsObservation = installApplicationSessionsObservation(
+    const sessionsPorts = installApplicationSessionsObservation(
       runtime,
       projectRegistry,
       terminalSessionRegistry,
@@ -390,7 +390,8 @@ function createWorkbenchEntry(): void {
           diagnostics.recordRenderContainment(owner, batch),
         ptySupervisor,
         terminalSessions: terminalSessionRegistry,
-        sessionsObservation,
+        sessionsObservation: sessionsPorts.observation,
+        sessionsUsage: sessionsPorts.usage,
         terminalMoves,
         harnessProfiles: harnessProfileStore,
         harnessProbes: harnessProbeManager,

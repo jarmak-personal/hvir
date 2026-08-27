@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -18,28 +19,33 @@ import type {
   SessionsWorkspaceQualifier,
 } from '../../../shared'
 import { SessionsOverviewCard } from './SessionsOverviewCard'
+import { SessionsCollectionToolbar, type SessionsLens } from './SessionsCollectionToolbar'
+import { SessionsTerminalDetail } from './SessionsTerminalDetail'
+import { SessionsUsageLens } from './SessionsUsageLens'
 import {
   SessionsProjectionCoordinator,
   createSessionsMainObservationPort,
 } from './sessions-projection-coordinator'
 import type { SessionsRendererObservationPort } from './sessions-renderer-observation'
+import { terminalDetailEligible } from './sessions-terminal-detail-controller'
+import type { SessionsTerminalSurfacePort } from './sessions-terminal-surface'
+import { useSessionsForeground } from './use-sessions-foreground'
+import { useSessionsTerminalDetail } from './use-sessions-terminal-detail'
 import {
   DEFAULT_SESSIONS_OVERVIEW_POLICY,
   SESSIONS_OVERVIEW_PAGE_SIZE,
-  filterLabel,
   sessionsOverviewFocusFallback,
   sessionsOverviewGroups,
+  sessionsOverviewMatchesFilter,
   sessionsOverviewPage,
   sessionsOverviewPolicyLabel,
   sessionsOverviewRows,
-  type SessionsOverviewFilter,
-  type SessionsOverviewGroup,
   type SessionsOverviewPolicy,
-  type SessionsOverviewSort,
 } from './sessions-overview-model'
 
 interface SessionsOverviewProps {
   readonly observation: SessionsRendererObservationPort
+  readonly surface: SessionsTerminalSurfacePort
   readonly onReturn: () => void
   readonly onOpened: (state: ProjectState) => void
   readonly onFocusOpened: (
@@ -52,6 +58,7 @@ interface SessionsOverviewProps {
 
 export function SessionsOverview({
   observation,
+  surface,
   onReturn,
   onOpened,
   onFocusOpened,
@@ -69,9 +76,15 @@ export function SessionsOverview({
     source.snapshot,
     source.snapshot,
   )
+  const { controller: detail, state: detailState } = useSessionsTerminalDetail({
+    surface,
+    snapshot,
+    foreground,
+  })
   const [policy, setPolicy] = useState<SessionsOverviewPolicy>(
     DEFAULT_SESSIONS_OVERVIEW_POLICY,
   )
+  const [lens, setLens] = useState<SessionsLens>('overview')
   const [selected, setSelected] = useState<SessionsTerminalHandle>()
   const [feedback, setFeedback] = useState<string>()
   const [opening, setOpening] = useState<SessionsTerminalHandle>()
@@ -109,6 +122,11 @@ export function SessionsOverview({
     [policy, snapshot.rows],
   )
   const rows = useMemo(() => sessionsOverviewRows(allGroups), [allGroups])
+  const usageRows = useMemo(
+    () =>
+      snapshot.rows.filter((row) => sessionsOverviewMatchesFilter(row, policy.filter)),
+    [policy.filter, snapshot.rows],
+  )
   const handles = useMemo(() => rows.map((row) => row.handle), [rows])
   const page = useMemo(
     () => sessionsOverviewPage(allGroups, pageIndex),
@@ -140,6 +158,13 @@ export function SessionsOverview({
     pendingFocus.current = undefined
     rowElements.current.get(handle)?.focus()
   }, [page.rows])
+  useLayoutEffect(() => {
+    if (detailState.status !== 'inactive') return
+    const handle = pendingFocus.current
+    if (!handle) return
+    pendingFocus.current = undefined
+    rowElements.current.get(handle)?.focus()
+  }, [detailState.status])
 
   const updatePolicy = <K extends keyof SessionsOverviewPolicy>(
     key: K,
@@ -237,6 +262,22 @@ export function SessionsOverview({
   }
 
   const policyLabel = sessionsOverviewPolicyLabel(policy)
+  if (detailState.status !== 'inactive') {
+    return (
+      <SessionsTerminalDetail
+        controller={detail}
+        state={detailState}
+        onBack={() => {
+          pendingFocus.current = detail.selectedHandle()
+          detail.close()
+        }}
+        onReturn={() => {
+          detail.close()
+          onReturn()
+        }}
+      />
+    )
+  }
   return (
     <main className="sessions-overview" aria-labelledby="sessions-title">
       <header className="sessions-overview-header">
@@ -249,64 +290,32 @@ export function SessionsOverview({
           Return to current workspace
         </button>
       </header>
-      <nav className="sessions-lenses" aria-label="Sessions views">
-        <button type="button" aria-current="page">
-          Overview
-        </button>
-      </nav>
-      <section className="sessions-controls" aria-label="Session collection controls">
-        <fieldset>
-          <legend>Filter</legend>
-          {(['all', 'harnesses', 'shells', 'attention', 'working'] as const).map(
-            (filter) => (
-              <button
-                key={filter}
-                ref={filter === 'all' ? collectionControl : undefined}
-                type="button"
-                aria-pressed={policy.filter === filter}
-                onClick={() => updatePolicy('filter', filter)}
-              >
-                {filterLabel(filter)}
-              </button>
-            ),
-          )}
-        </fieldset>
-        <label>
-          Group
-          <select
-            value={policy.group}
-            onChange={(event) =>
-              updatePolicy('group', event.currentTarget.value as SessionsOverviewGroup)
-            }
-          >
-            <option value="project">Project</option>
-            <option value="workspace">Workspace</option>
-            <option value="none">None</option>
-          </select>
-        </label>
-        <label>
-          Sort
-          <select
-            value={policy.sort}
-            onChange={(event) =>
-              updatePolicy('sort', event.currentTarget.value as SessionsOverviewSort)
-            }
-          >
-            <option value="priority">Attention and activity</option>
-            <option value="title">Title</option>
-            <option value="project">Project and workspace</option>
-          </select>
-        </label>
-      </section>
-      <p className="sessions-policy" aria-live="polite">
-        {policyLabel}
-      </p>
+      <SessionsCollectionToolbar
+        lens={lens}
+        policy={policy}
+        collectionControl={collectionControl}
+        onLens={(value) => {
+          setLens(value)
+          setFeedback(undefined)
+        }}
+        onFilter={(value) => updatePolicy('filter', value)}
+        onGroup={(value) => updatePolicy('group', value)}
+        onSort={(value) => updatePolicy('sort', value)}
+      />
       {feedback ? (
         <p className="sessions-feedback" role="status">
           {feedback}
         </p>
       ) : null}
-      {!foreground ? (
+      {lens === 'usage' ? (
+        <SessionsUsageLens
+          projection={snapshot}
+          rows={usageRows}
+          foreground={foreground}
+          selected={selected}
+          onSelect={setSelected}
+        />
+      ) : !foreground ? (
         <OverviewNotice title="Updates paused" detail="Focus hvir to refresh Sessions." />
       ) : snapshot.status === 'pending' ? (
         <OverviewNotice
@@ -409,6 +418,11 @@ export function SessionsOverview({
                           row={row}
                           opening={opening === row.handle}
                           onOpen={() => void open(row)}
+                          onInteract={
+                            terminalDetailEligible(row)
+                              ? () => detail.open(row, source.snapshot(), foreground)
+                              : undefined
+                          }
                         />
                       </article>
                     )
@@ -455,25 +469,3 @@ function openUnavailableMessage(reason: SessionsOpenUnavailableReason): string {
       return 'This session does not have the same live terminal anymore.'
   }
 }
-
-function useSessionsForeground(): boolean {
-  const [foreground, setForeground] = useState(
-    () => document.visibilityState === 'visible' && document.hasFocus(),
-  )
-  useEffect(() => {
-    const update = (): void =>
-      setForeground(document.visibilityState === 'visible' && document.hasFocus())
-    window.addEventListener('focus', update)
-    window.addEventListener('blur', update)
-    document.addEventListener('visibilitychange', update)
-    update()
-    return () => {
-      window.removeEventListener('focus', update)
-      window.removeEventListener('blur', update)
-      document.removeEventListener('visibilitychange', update)
-    }
-  }, [])
-  return foreground
-}
-
-export type { SessionsOverviewFilter }
