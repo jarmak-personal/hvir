@@ -5,6 +5,7 @@ import {
   nextTerminalSplitPane,
   terminalPaneActiveId,
   terminalWorkspaceReducer,
+  terminalWorkspaceActionAffectsSessionsProjection,
   type TerminalSession,
   type TerminalWorkspaceModel,
 } from '../src/renderer/src/terminal/terminal-workspace-model'
@@ -151,6 +152,21 @@ describe('terminal workspace model', () => {
 
     expect(model.sessions).toEqual([live])
     expect(model.activeId).toBe(live.id)
+  })
+
+  it('keeps pointer resize changes out of Sessions observation notifications', () => {
+    expect(
+      terminalWorkspaceActionAffectsSessionsProjection({
+        type: 'primary-width-changed',
+        width: 420,
+      }),
+    ).toBe(false)
+    expect(
+      terminalWorkspaceActionAffectsSessionsProjection({
+        type: 'session-updated',
+        session: session('changed', 'primary'),
+      }),
+    ).toBe(true)
   })
 })
 

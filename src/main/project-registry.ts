@@ -94,6 +94,7 @@ export class ProjectRegistry {
   private pendingWrite: Promise<void> = Promise.resolve()
   private stateRevision = 0
   private readonly stopHostState: Disposer
+  private readonly stateListeners = new Set<() => void>()
 
   private constructor(
     private readonly hostCatalog: ProjectRegistryHostCatalog,
@@ -210,6 +211,13 @@ export class ProjectRegistry {
   projectById(projectId: string): RegisteredProjectState | undefined {
     const project = this.projects.find((candidate) => candidate.id === projectId)
     return project ? this.rendererProject(project) : undefined
+  }
+
+  observe(listener: () => void): Disposer {
+    this.stateListeners.add(listener)
+    return () => {
+      this.stateListeners.delete(listener)
+    }
   }
 
   /** Resolve only exact persisted workspace roots; no live host is required. */
@@ -718,6 +726,7 @@ export class ProjectRegistry {
 
   async dispose(): Promise<void> {
     await this.stopHostState()
+    this.stateListeners.clear()
     await this.pendingWrite
   }
 
@@ -764,7 +773,10 @@ export class ProjectRegistry {
   private publishState(emit = true): ProjectState {
     this.stateRevision += 1
     const state = this.state()
-    if (emit) this.onState(state)
+    if (emit) {
+      this.onState(state)
+      for (const listener of this.stateListeners) listener()
+    }
     return state
   }
 

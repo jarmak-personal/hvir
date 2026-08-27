@@ -47,6 +47,8 @@ describe('TerminalSessionRegistry', () => {
 
   it('persists an exact discovered identity with its rail position and title', async () => {
     const root = localPath('/tmp/project')
+    const listener = vi.fn()
+    const release = registry.observe(listener)
     await registry.recordSpawn({
       id: SESSION_ID,
       providerId: CODEX_PROVIDER_ID,
@@ -98,6 +100,11 @@ describe('TerminalSessionRegistry', () => {
         attention: 'bell',
       }),
     ])
+    expect(listener).toHaveBeenCalled()
+    expect(registry.observationSnapshot()).toEqual([
+      expect.objectContaining({ id: SESSION_ID, workspaceRoot: root }),
+    ])
+    await release()
   })
 
   it.each([

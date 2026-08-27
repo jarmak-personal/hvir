@@ -15,6 +15,7 @@ export type RendererResourceQualifier =
         | 'filename-search'
         | 'external-file-grant'
         | 'project-folder-picker'
+        | 'sessions-observation'
     }
   | {
       readonly lifetime: 'workspace'

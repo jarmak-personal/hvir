@@ -97,6 +97,16 @@ export interface ManagedPty {
   readonly identityStatus: HarnessSessionIdentityStatus
 }
 
+export interface ObservedManagedPty {
+  readonly info: ManagedPty
+  readonly telemetry?: HarnessTelemetry
+}
+
+export interface PtyObservationSource {
+  observationSnapshot(): readonly ObservedManagedPty[]
+  observe(listener: () => void): Disposer
+}
+
 export type HarnessSessionIdentityStatus = TerminalIdentityStatus
 
 export interface PtyStreamHandlers {
@@ -197,6 +207,7 @@ export class PtySupervisor {
     (info: ManagedPty, exit: PtyExit) => void
   >()
   private readonly identityListeners = new Set<(info: ManagedPty) => void>()
+  private readonly observationListeners = new Set<() => void>()
   private readonly discoveryQueues = new Map<string, Promise<void>>()
   private readonly discoveryControllers = new Set<AbortController>()
   private readonly identityAcceptances = new Set<Promise<boolean>>()
@@ -437,6 +448,7 @@ export class PtySupervisor {
           // The registry represents live sessions. Removing an exited entry
           // also permits a later deterministic resume with the same id.
           if (this.entries.get(sessionId) === entry) this.entries.delete(sessionId)
+          this.publishObservation()
         }
       }),
     )
@@ -472,6 +484,7 @@ export class PtySupervisor {
     }
 
     this.reportDiagnostic({ kind: 'pty-spawned', ...diagnosticContext })
+    this.publishObservation()
     return info
   }
 
@@ -534,6 +547,7 @@ export class PtySupervisor {
       ownerId: nextOwnerId,
       ownerGeneration: nextOwnerGeneration,
     }
+    this.publishObservation()
     return true
   }
 
@@ -572,8 +586,7 @@ export class PtySupervisor {
       entry.exited ||
       this.entries.get(id) !== entry ||
       entry.info.ownerId !== ownerId ||
-      (ownerGeneration !== undefined &&
-        entry.info.ownerGeneration !== ownerGeneration)
+      (ownerGeneration !== undefined && entry.info.ownerGeneration !== ownerGeneration)
     ) {
       throw new PtyWriteIndeterminateError(
         `PTY session '${id}' exited before write completion`,
@@ -628,11 +641,26 @@ export class PtySupervisor {
       throw new Error('PTY cannot move to another host')
     }
     entry.info = { ...entry.info, workspaceRoot: targetRoot }
+    this.publishObservation()
     return entry.info
   }
 
   list(): ManagedPty[] {
     return [...this.entries.values()].map((e) => e.info)
+  }
+
+  observationSnapshot(): readonly ObservedManagedPty[] {
+    return [...this.entries.values()].map((entry) => ({
+      info: entry.info,
+      telemetry: entry.telemetry,
+    }))
+  }
+
+  observe(listener: () => void): Disposer {
+    this.observationListeners.add(listener)
+    return () => {
+      this.observationListeners.delete(listener)
+    }
   }
 
   workspaceSessionIds(root: HostPath): readonly string[] {
@@ -654,9 +682,13 @@ export class PtySupervisor {
       pending.controller.abort()
       this.pendingIds.delete(id)
     }
+    let changed = false
     for (const [id, entry] of this.entries) {
-      if (hostPathEquals(entry.info.workspaceRoot, root)) this.disposeEntry(id, entry)
+      if (hostPathEquals(entry.info.workspaceRoot, root)) {
+        changed = this.disposeEntry(id, entry) || changed
+      }
     }
+    if (changed) this.publishObservation()
   }
 
   isOwnedBy(id: string, ownerId: number, ownerGeneration?: number): boolean {
@@ -745,6 +777,7 @@ export class PtySupervisor {
       if (!entry.exited) entry.pty.kill()
     }
     this.entries.clear()
+    this.publishObservation()
     return pendingExits
   }
 
@@ -759,6 +792,7 @@ export class PtySupervisor {
   private clearLifetimeListeners(): void {
     this.globalExitListeners.clear()
     this.identityListeners.clear()
+    this.observationListeners.clear()
   }
 
   /** Kill only the sessions and pending spawns owned by one renderer. */
@@ -774,6 +808,7 @@ export class PtySupervisor {
       pending.controller.abort()
       this.pendingIds.delete(id)
     }
+    let changed = false
     for (const [id, entry] of this.entries) {
       if (
         entry.info.ownerId !== ownerId ||
@@ -781,8 +816,9 @@ export class PtySupervisor {
       ) {
         continue
       }
-      this.disposeEntry(id, entry)
+      changed = this.disposeEntry(id, entry) || changed
     }
+    if (changed) this.publishObservation()
   }
 
   /** Cancel one pending/live session when its narrow renderer lease is revoked. */
@@ -801,7 +837,7 @@ export class PtySupervisor {
       entry?.info.ownerId === ownerId &&
       (ownerGeneration === undefined || entry.info.ownerGeneration === ownerGeneration)
     ) {
-      this.disposeEntry(id, entry)
+      if (this.disposeEntry(id, entry)) this.publishObservation()
     }
   }
 
@@ -822,7 +858,7 @@ export class PtySupervisor {
     return entry
   }
 
-  private disposeEntry(id: string, entry: Entry): void {
+  private disposeEntry(id: string, entry: Entry): boolean {
     this.cancelPendingIdentity(id)
     for (const dispose of entry.disposers) void dispose()
     entry.dataListeners.clear()
@@ -831,7 +867,9 @@ export class PtySupervisor {
     entry.replay.length = 0
     entry.replayLength = 0
     if (!entry.exited) entry.pty.kill()
-    if (this.entries.get(id) === entry) this.entries.delete(id)
+    if (this.entries.get(id) !== entry) return false
+    this.entries.delete(id)
+    return true
   }
 
   private assertPending(id: string, pending: PendingEntry, generation: number): void {
@@ -945,6 +983,7 @@ export class PtySupervisor {
     }
     if (entry.exited || this.entries.get(entry.info.id) !== entry) return
     for (const cb of this.identityListeners) cb(entry.info)
+    this.publishObservation()
     if (
       entry.identityRetryPending &&
       entry.info.identityStatus === 'unavailable' &&
@@ -972,6 +1011,7 @@ export class PtySupervisor {
     entry.identityDiscoveryActive = true
     entry.info = { ...entry.info, identityStatus: 'discovering' }
     for (const cb of this.identityListeners) cb(entry.info)
+    this.publishObservation()
 
     const controller = new AbortController()
     this.discoveryControllers.add(controller)
@@ -1031,6 +1071,7 @@ export class PtySupervisor {
       }
       entry.telemetry = telemetry
       for (const cb of entry.telemetryListeners) cb(telemetry)
+      this.publishObservation()
     }
     void Promise.resolve()
       .then(() =>
@@ -1073,6 +1114,10 @@ export class PtySupervisor {
           }
         },
       )
+  }
+
+  private publishObservation(): void {
+    for (const listener of this.observationListeners) listener()
   }
 }
 

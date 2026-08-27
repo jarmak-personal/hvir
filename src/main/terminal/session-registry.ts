@@ -12,7 +12,7 @@ import {
   type TerminalLayoutEntry,
   type TerminalRecoverySession,
 } from '../../shared'
-import type { ProjectHost } from '../project-host'
+import type { Disposer, ProjectHost } from '../project-host'
 import { harnessProvider } from '../harness/harness-provider'
 import type { HarnessRecoveryProfileReference } from '../harness/harness-profile-store'
 
@@ -149,6 +149,12 @@ export interface TerminalSessionStore {
   flush(): Promise<void>
 }
 
+/** Main-internal read-only observation seam; sensitive fields never cross IPC directly. */
+export interface TerminalSessionObservationSource {
+  observationSnapshot(): readonly OwnedTerminalSession[]
+  observe(listener: () => void): Disposer
+}
+
 export interface TerminalMoveSessionStore {
   get(id: string): OwnedTerminalSession | undefined
   move(request: MoveTerminalSession): Promise<TerminalRecoverySession>
@@ -166,6 +172,7 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
   private readonly forgotten = new Set<string>()
   private readonly pendingIdentities = new Map<string, PendingIdentityRegistration>()
   private pendingWrite: Promise<void> = Promise.resolve()
+  private readonly observationListeners = new Set<() => void>()
 
   private constructor(
     private readonly host: ProjectHost,
@@ -275,6 +282,17 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
     return session ? { ...session } : undefined
   }
 
+  observationSnapshot(): readonly OwnedTerminalSession[] {
+    return [...this.sessions.values()].map((session) => ({ ...session }))
+  }
+
+  observe(listener: () => void): Disposer {
+    this.observationListeners.add(listener)
+    return () => {
+      this.observationListeners.delete(listener)
+    }
+  }
+
   profileReferences(): readonly HarnessRecoveryProfileReference[] {
     return [...this.sessions.values()].map((session) => ({
       providerId: session.providerId,
@@ -339,6 +357,7 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
     if (previous.size === 0) return
     try {
       await this.persist()
+      this.publishObservation()
     } catch (error) {
       for (const [id, prior] of previous) {
         const attempted = applied.get(id)
@@ -387,6 +406,7 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
     this.sessions.set(spawn.id, recorded)
     try {
       await this.persist()
+      this.publishObservation()
       pendingIdentity?.resolve(
         recorded.harnessSessionId === pendingIdentity.harnessSessionId,
       )
@@ -454,6 +474,7 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
       pendingIdentity?.resolve(
         replacement.harnessSessionId === pendingIdentity.harnessSessionId,
       )
+      this.publishObservation()
     } catch (error) {
       pendingIdentity?.resolve(false)
       if (this.forgotten.has(spawn.id)) throw error
@@ -503,6 +524,7 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
     this.sessions.set(id, recorded)
     try {
       await this.persist()
+      this.publishObservation()
       return true
     } catch (error) {
       const retained = this.sessions.get(id)
@@ -545,7 +567,9 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
       this.sessions.set(item.id, next)
       changed = true
     }
-    return changed ? this.persist() : Promise.resolve()
+    return changed
+      ? this.persist().then(() => this.publishObservation())
+      : Promise.resolve()
   }
 
   forget(workspaceRoot: HostPath, id: string): Promise<void> {
@@ -557,7 +581,7 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
     this.cancelIdentityRegistration(id)
     if (!current) return Promise.resolve()
     this.sessions.delete(id)
-    return this.persist()
+    return this.persist().then(() => this.publishObservation())
   }
 
   async move(request: MoveTerminalSession): Promise<TerminalRecoverySession> {
@@ -576,6 +600,7 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
     this.sessions.set(request.id, updated)
     try {
       await this.persist()
+      this.publishObservation()
     } catch (error) {
       if (this.sessions.get(request.id) === updated)
         this.sessions.set(request.id, current)
@@ -603,6 +628,7 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
     this.sessions.set(request.id, updated)
     try {
       await this.persist()
+      this.publishObservation()
     } catch (error) {
       if (this.sessions.get(request.id) === updated) {
         this.sessions.set(request.id, current)
@@ -672,6 +698,10 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
       })
     this.pendingWrite = write
     return write
+  }
+
+  private publishObservation(): void {
+    for (const listener of this.observationListeners) listener()
   }
 }
 
