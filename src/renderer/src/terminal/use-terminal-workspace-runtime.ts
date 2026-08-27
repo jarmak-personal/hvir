@@ -62,6 +62,7 @@ export function useTerminalWorkspaceRuntime({
 
   return {
     materializedWorkspaceIds,
+    sessionsObservation: owner.sessionsObservation,
     openTerminalSearch: () => owner.runtimes.openSearch(),
     moveProps: (project: RegisteredProjectState, workspace: WorkspaceState) => ({
       runtimes: owner.runtimes,
@@ -69,6 +70,8 @@ export function useTerminalWorkspaceRuntime({
         (target) => target.id !== workspace.id && !target.missing && !target.closed,
       ),
       onMaterializationChange: owner.retainWorkspace,
+      onSessionsSource: owner.registerSessionsSource,
+      onSessionsChanged: owner.sessionsChanged,
       onController: transfer.register,
       onPrepareMoveTarget: transfer.prepare,
       onReleaseMoveTarget: transfer.release,

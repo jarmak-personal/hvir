@@ -7,19 +7,30 @@ import { describe, expect, it, vi } from 'vitest'
 import { builtInProfiles } from '../src/main/harness/harness-profile-store'
 import { TerminalWorkspace } from '../src/renderer/src/terminal/TerminalWorkspace'
 import type { TerminalWorkspaceModel } from '../src/renderer/src/terminal/terminal-workspace-model'
-import { localPath, type HarnessProviderDescriptor } from '../src/shared'
+import {
+  localPath,
+  sessionsWorkspaceQualifier,
+  type HarnessProviderDescriptor,
+} from '../src/shared'
 
 vi.mock('../src/renderer/src/terminal/TerminalDeck', () => ({
   TerminalDeck: ({
     onCreateDefault,
+    onResetPrimaryWidth,
     sessions,
   }: {
     readonly onCreateDefault?: () => void
+    readonly onResetPrimaryWidth: () => void
     readonly sessions: TerminalWorkspaceModel['sessions']
   }) => (
-    <button type="button" data-testid="new" onClick={onCreateDefault}>
-      New {sessions.length}
-    </button>
+    <>
+      <button type="button" data-testid="new" onClick={onCreateDefault}>
+        New {sessions.length}
+      </button>
+      <button type="button" data-testid="resize-reset" onClick={onResetPrimaryWidth}>
+        Reset split
+      </button>
+    </>
   ),
 }))
 
@@ -67,9 +78,11 @@ describe('terminal workspace materialization bridge', () => {
     const host = document.createElement('div')
     const root = createRoot(host)
     const onMaterializationChange = vi.fn()
+    const onSessionsChanged = vi.fn()
     const props = {
       cwd: localPath('/repo'),
       workspaceId: 'workspace',
+      sessionsWorkspaceQualifier: sessionsWorkspaceQualifier(1, 0, 0),
       connectionState: 'connected' as const,
       available: true,
       railCompact: false,
@@ -96,6 +109,8 @@ describe('terminal workspace materialization bridge', () => {
       runtimes: { disposeSession: vi.fn() } as never,
       moveTargets: [],
       onMaterializationChange,
+      onSessionsSource: vi.fn(),
+      onSessionsChanged,
       onController: vi.fn(),
       onPrepareMoveTarget: vi.fn(() => Promise.resolve()),
       onReleaseMoveTarget: vi.fn(),
@@ -115,6 +130,14 @@ describe('terminal workspace materialization bridge', () => {
       await settleEffects()
     })
     expect(onMaterializationChange).toHaveBeenLastCalledWith('workspace', true)
+    expect(onSessionsChanged).toHaveBeenCalled()
+
+    onSessionsChanged.mockClear()
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[data-testid="resize-reset"]')?.click()
+      await settleEffects()
+    })
+    expect(onSessionsChanged).not.toHaveBeenCalled()
 
     await act(async () => {
       root.render(

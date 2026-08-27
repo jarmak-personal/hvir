@@ -23,6 +23,7 @@ import { createWorkspaceCleanup } from './workspace-cleanup'
 import { WorkspaceRemovalCoordinator } from './workspace-removal-coordinator'
 import { TerminalSessionRegistry } from './terminal/session-registry'
 import { TerminalWorkspaceMoveCoordinator } from './terminal/terminal-workspace-move-coordinator'
+import { installTerminalIdentityPublication } from './terminal/terminal-identity-publication'
 import { RendererResourceScopes, type RendererOwner } from './renderer-resource-scopes'
 import { createRendererPresentationInstaller } from './renderer-presentation-resources'
 import { createElectronWindowManager } from './window/electron-window-manager'
@@ -34,6 +35,7 @@ import { createFilenameSearchCoordinator } from './filename-search'
 import { createProjectFileOperationCoordinator } from './project-file-operations'
 import type { DocumentReviewRuntime } from './document-review'
 import { installApplicationDocumentReviewRuntime } from './document-review/document-review-application'
+import { installApplicationSessionsObservation } from './sessions/sessions-observation-application'
 import { applicationRuntime, applicationUserDataPath } from './application-runtime'
 import {
   GIT_WORKSPACE_ACTIVITY_TYPE,
@@ -246,6 +248,13 @@ function createWorkbenchEntry(): void {
       }),
       (supervisor) => supervisor.disposeAllAndWait(),
     )
+    const sessionsObservation = installApplicationSessionsObservation(
+      runtime,
+      projectRegistry,
+      terminalSessionRegistry,
+      ptySupervisor,
+      rendererEvents,
+    )
     documentReview = await installApplicationDocumentReviewRuntime(
       runtime,
       hostCatalog.local,
@@ -337,17 +346,7 @@ function createWorkbenchEntry(): void {
       }),
       (badge) => badge.clear(),
     )
-    ptySupervisor.onSessionIdentity((info) => {
-      rendererEvents.toRenderer(
-        { id: info.ownerId, generation: info.ownerGeneration },
-        'pty:identity',
-        {
-          id: info.id,
-          harnessSessionId: info.harnessSessionId,
-          identityStatus: info.identityStatus,
-        },
-      )
-    })
+    installTerminalIdentityPublication(runtime, ptySupervisor, rendererEvents)
     const withSshPresentation = <T>(owner: RendererOwner, operation: () => T): T => {
       if (!sshPrompter) throw new Error('SSH prompting is unavailable')
       return sshPrompter.runForOwner(owner, operation)
@@ -391,6 +390,7 @@ function createWorkbenchEntry(): void {
           diagnostics.recordRenderContainment(owner, batch),
         ptySupervisor,
         terminalSessions: terminalSessionRegistry,
+        sessionsObservation,
         terminalMoves,
         harnessProfiles: harnessProfileStore,
         harnessProbes: harnessProbeManager,
