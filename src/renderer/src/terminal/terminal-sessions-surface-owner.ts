@@ -121,10 +121,11 @@ export class TerminalSessionsSurfaceOwner {
     next: SessionsTerminalSurfaceRequest,
     current: () => boolean,
   ): boolean {
+    // The acquired runtime already owns the exact workspace surface. Its action
+    // qualifier may rotate when unrelated global ProjectState revisions publish.
     if (
       !current() ||
       next.handle !== state.request.handle ||
-      next.workspaceQualifier !== state.request.workspaceQualifier ||
       next.livePty.handle !== state.request.livePty.handle ||
       next.livePty.rendererOwnerId !== state.request.livePty.rendererOwnerId ||
       next.livePty.rendererGeneration !== state.request.livePty.rendererGeneration ||

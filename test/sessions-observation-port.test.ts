@@ -176,6 +176,47 @@ describe('SessionsObservationPort', () => {
     port.dispose()
   })
 
+  it('keeps the local opaque workspace identity stable across an unrelated SSH project revision', () => {
+    let currentState: ProjectState = projectState()
+    const projects = listeners()
+    const port = new SessionsObservationPort({
+      projectState: () => currentState,
+      hosts: hostOptions,
+      providers,
+      sessions: observationSource([
+        retained('local-session', localRoot, shell, shellProfile, 'Shell'),
+      ]),
+      ptys: observationSource([livePty('local-session', localRoot)]),
+      observeProjects: projects.observe,
+      emit: vi.fn(),
+    })
+    const owner = { id: 9, generation: 2 }
+    const initial = port.acquire(owner, 1)
+    const firstLocal = initial.workspaces.find(
+      (workspace) => workspace.workspaceName === 'main',
+    )!
+
+    currentState = {
+      ...currentState,
+      revision: currentState.revision + 1,
+      projects: currentState.projects.map((project) =>
+        project.registeredRoot.hostId === 'ssh-prod'
+          ? { ...project, connectionState: 'connecting' }
+          : project,
+      ),
+    }
+    projects.publish()
+
+    const current = port.snapshot(owner, 1)
+    const currentLocal = current.workspaces.find(
+      (workspace) => workspace.workspaceName === 'main',
+    )!
+    expect(currentLocal.workspaceId).toBe(firstLocal.workspaceId)
+    expect(currentLocal.qualifier).not.toBe(firstLocal.qualifier)
+    expect(current.revision).toBeGreaterThan(initial.revision)
+    port.dispose()
+  })
+
   it('resolves exact live Open through opaque identities and rejects stale or disconnected targets', () => {
     const sessions = observationSource([
       retained('local-session', localRoot, codex, codexProfile, 'Local'),

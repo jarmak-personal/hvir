@@ -84,7 +84,7 @@ describe('SessionsTerminalDetailController', () => {
     expect(controller.snapshot()).toEqual({ status: 'inactive' })
   })
 
-  it('renews freshness-only revisions without releasing, resolving, or refocusing the unchanged target', async () => {
+  it('renews an unrelated global project/SSH revision without releasing, resolving, or refocusing the unchanged target', async () => {
     const firstLease = fakeLease()
     const secondLease = fakeLease()
     const resolve = vi
@@ -105,13 +105,27 @@ describe('SessionsTerminalDetailController', () => {
     controller.open(initial.rows[0]!, initial, true)
     await settle()
 
-    const newer = { ...initial, revision: 2, sourceRevision: 6 }
+    const newer = {
+      ...initial,
+      revision: 2,
+      sourceRevision: 6,
+      rows: [
+        {
+          ...initial.rows[0]!,
+          workspace: {
+            ...initial.rows[0]!.workspace,
+            qualifier: sessionsWorkspaceQualifier(9, 1, 0),
+          },
+        },
+      ],
+    }
     controller.synchronize(newer, true)
     expect(resolve).toHaveBeenCalledOnce()
     expect(firstLease.release).not.toHaveBeenCalled()
     expect(firstLease.renew).toHaveBeenCalledWith(
       expect.objectContaining({
         demandGeneration: 1,
+        workspaceQualifier: '9:1:0',
         projectionRevision: 2,
         sourceRevision: 6,
       }),
@@ -126,6 +140,57 @@ describe('SessionsTerminalDetailController', () => {
     expect(controller.snapshot().status).toBe('resolving')
     await settle()
     expect(resolve).toHaveBeenCalledTimes(2)
+    expect(acquire).toHaveBeenCalledTimes(2)
+    expect(controller.snapshot().status).toBe('ready')
+  })
+
+  it('re-resolves when the opaque workspace owner changes under the same session and PTY', async () => {
+    const firstLease = fakeLease()
+    const secondLease = fakeLease()
+    const resolve = vi
+      .fn<SessionsTerminalResolutionPort['resolve']>()
+      .mockImplementation((request) =>
+        Promise.resolve({
+          outcome: 'resolved',
+          handle: request.handle,
+          workspaceQualifier: request.workspaceQualifier,
+          livePty: request.livePty!,
+        }),
+      )
+    const acquire = vi
+      .fn<SessionsTerminalSurfacePort['acquire']>()
+      .mockReturnValueOnce(firstLease.value)
+      .mockReturnValueOnce(secondLease.value)
+    const controller = new SessionsTerminalDetailController(
+      { resolve },
+      { acquire },
+      fakeFrames().value,
+    )
+    const initial = snapshot(1, 4, row('terminal-1', 'pty-1'))
+    controller.open(initial.rows[0]!, initial, true)
+    await settle()
+
+    controller.synchronize(
+      {
+        ...initial,
+        revision: 2,
+        sourceRevision: 6,
+        rows: [
+          {
+            ...initial.rows[0]!,
+            workspace: {
+              ...initial.rows[0]!.workspace,
+              id: asSessionsWorkspaceHandle('workspace-replaced'),
+            },
+          },
+        ],
+      },
+      true,
+    )
+
+    expect(firstLease.release).toHaveBeenCalledOnce()
+    expect(resolve).toHaveBeenCalledTimes(2)
+    await settle()
     expect(acquire).toHaveBeenCalledTimes(2)
     expect(controller.snapshot().status).toBe('ready')
   })

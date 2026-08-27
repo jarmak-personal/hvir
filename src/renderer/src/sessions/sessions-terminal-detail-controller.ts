@@ -412,10 +412,12 @@ function sameAuthority(left: DetailAuthority, right: DetailAuthority): boolean {
 }
 
 function sameResolvedTarget(left: DetailAuthority, right: DetailAuthority): boolean {
+  // The workspace qualifier belongs to one action snapshot; the opaque workspace
+  // handle is the stable host-qualified owner for this demand lifetime.
   return (
     left.demandGeneration === right.demandGeneration &&
     left.row.handle === right.row.handle &&
-    left.row.workspace.qualifier === right.row.workspace.qualifier &&
+    left.row.workspace.id === right.row.workspace.id &&
     sameLivePty(left.row.livePty, right.row.livePty)
   )
 }
