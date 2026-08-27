@@ -51,6 +51,24 @@ describe('terminal workspace model', () => {
     expect(model.activeId).toBe('b')
   })
 
+  it('selects an exact Sessions target without clearing attention or starting it', () => {
+    const selected = { ...session('selected', 'secondary'), attention: 'idle' as const }
+    const model = reduce(
+      reduce(initialTerminalWorkspaceModel, {
+        type: 'sessions-replaced',
+        sessions: [session('current', 'primary'), selected],
+        activeId: 'current',
+      }),
+      { type: 'session-selected', id: selected.id },
+    )
+
+    expect(model.activeId).toBe(selected.id)
+    expect(model.activePane).toBe('secondary')
+    expect(model.sessions[1]).toBe(selected)
+    expect(model.sessions[1]?.attention).toBe('idle')
+    expect(model.sessions[1]?.startMode).toBeUndefined()
+  })
+
   it('replaces one session in place while preserving split selection', () => {
     const original = session('a', 'primary')
     let model = reduce(initialTerminalWorkspaceModel, {

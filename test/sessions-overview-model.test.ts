@@ -1,0 +1,149 @@
+import { describe, expect, it } from 'vitest'
+
+import {
+  DEFAULT_SESSIONS_OVERVIEW_POLICY,
+  sessionsOverviewFocusFallback,
+  sessionsOverviewGroups,
+  sessionsOverviewRows,
+} from '../src/renderer/src/sessions/sessions-overview-model'
+import {
+  MAX_SESSIONS_PROJECTION_ROWS,
+  asHarnessProfileId,
+  asHarnessProviderId,
+  asSessionsProjectHandle,
+  asSessionsTerminalHandle,
+  asSessionsWorkspaceHandle,
+  sessionsWorkspaceQualifier,
+  type SessionsProjectionRow,
+} from '../src/shared'
+
+describe('Sessions overview policy', () => {
+  it('keeps quiet membership while separating harnesses, shells, attention, and Working', () => {
+    const rows = [
+      row('quiet-agent', { title: 'Quiet agent' }),
+      row('shell', { kind: 'shell' }),
+      row('attention', { attention: 'ready' }),
+      row('working', { working: true }),
+    ]
+
+    expect(filtered(rows, 'all')).toEqual([
+      'attention',
+      'working',
+      'quiet-agent',
+      'shell',
+    ])
+    expect(filtered(rows, 'harnesses')).toEqual(['attention', 'working', 'quiet-agent'])
+    expect(filtered(rows, 'shells')).toEqual(['shell'])
+    expect(filtered(rows, 'attention')).toEqual(['attention'])
+    expect(filtered(rows, 'working')).toEqual(['working'])
+  })
+
+  it('groups without losing deterministic priority and disclosure order', () => {
+    const groups = sessionsOverviewGroups(
+      [
+        row('b', { project: 'Project B', workspace: 'main' }),
+        row('a-working', { project: 'Project A', workspace: 'feature', working: true }),
+        row('a-ready', { project: 'Project A', workspace: 'main', attention: 'bell' }),
+      ],
+      DEFAULT_SESSIONS_OVERVIEW_POLICY,
+    )
+
+    expect(groups.map((group) => group.label)).toEqual(['Project A', 'Project B'])
+    expect(
+      groups.flatMap((group) => group.rows.map((candidate) => candidate.handle)),
+    ).toEqual(['a-ready', 'a-working', 'b'])
+  })
+
+  it('preserves an opaque selection across reorder and chooses a deterministic neighbor on removal', () => {
+    const first = ['a', 'b', 'c'].map(asSessionsTerminalHandle)
+    const reordered = ['c', 'b', 'a'].map(asSessionsTerminalHandle)
+    expect(sessionsOverviewFocusFallback(first, reordered, first[1])).toBe(first[1])
+    expect(
+      sessionsOverviewFocusFallback(
+        first,
+        ['a', 'c'].map(asSessionsTerminalHandle),
+        first[1],
+      ),
+    ).toBe('c')
+    expect(sessionsOverviewFocusFallback(first, [], first[1])).toBeUndefined()
+  })
+
+  it('keeps the projection capacity bound deterministic without creating another limit', () => {
+    const rows = Array.from({ length: MAX_SESSIONS_PROJECTION_ROWS }, (_, index) =>
+      row(`capacity-${index}`, {
+        project: `Project ${index % 20}`,
+        workspace: `worktree-${index % 50}`,
+        working: index % 7 === 0,
+      }),
+    )
+    const ordered = sessionsOverviewRows(
+      sessionsOverviewGroups(rows, DEFAULT_SESSIONS_OVERVIEW_POLICY),
+    )
+
+    expect(ordered).toHaveLength(MAX_SESSIONS_PROJECTION_ROWS)
+    expect(new Set(ordered.map((candidate) => candidate.handle)).size).toBe(
+      MAX_SESSIONS_PROJECTION_ROWS,
+    )
+  })
+})
+
+function filtered(
+  rows: readonly SessionsProjectionRow[],
+  filter: 'all' | 'harnesses' | 'shells' | 'attention' | 'working',
+) {
+  return sessionsOverviewRows(
+    sessionsOverviewGroups(rows, { ...DEFAULT_SESSIONS_OVERVIEW_POLICY, filter }),
+  ).map((candidate) => candidate.handle)
+}
+
+function row(
+  id: string,
+  options: {
+    readonly title?: string
+    readonly kind?: 'agent' | 'shell'
+    readonly project?: string
+    readonly workspace?: string
+    readonly attention?: 'none' | 'ready' | 'bell'
+    readonly working?: boolean
+  } = {},
+): SessionsProjectionRow {
+  const unavailable = { status: 'unsupported' as const }
+  return {
+    handle: asSessionsTerminalHandle(id),
+    project: {
+      id: asSessionsProjectHandle(`project-${options.project ?? 'Project A'}`),
+      name: options.project ?? 'Project A',
+    },
+    workspace: {
+      id: asSessionsWorkspaceHandle(`workspace-${options.workspace ?? 'main'}`),
+      name: options.workspace ?? 'main',
+      main: (options.workspace ?? 'main') === 'main',
+      qualifier: sessionsWorkspaceQualifier(1, 0, 0),
+    },
+    host: {
+      id: 'local',
+      label: 'Local',
+      kind: 'local',
+      connectionState: 'connected',
+    },
+    provider: {
+      id: asHarnessProviderId(options.kind === 'shell' ? 'plain-shell' : 'codex'),
+      name: options.kind === 'shell' ? 'Shell' : 'Codex',
+      kind: options.kind ?? 'agent',
+    },
+    profile: {
+      status: 'available',
+      value: { id: asHarnessProfileId('fixture-profile') },
+    },
+    title: options.title ?? id,
+    lifecycle: 'retained',
+    connectionState: 'connected',
+    attention: { status: 'available', value: options.attention ?? 'none' },
+    working: { status: 'available', value: options.working ?? false },
+    model: unavailable,
+    context: unavailable,
+    turn: unavailable,
+    telemetryFreshness: unavailable,
+    usage: { status: 'unsupported' },
+  }
+}

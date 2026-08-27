@@ -1,6 +1,7 @@
 import type { HostConnectionState } from './fs-types'
 import type { HarnessProfileId } from './harness-profile'
 import type { HarnessProviderId } from './harness-provider'
+import type { ProjectState } from './ipc'
 
 export const SESSIONS_PROJECTION_VERSION = 1
 export const MAX_SESSIONS_PROJECTION_ROWS = 500
@@ -92,6 +93,7 @@ export interface SessionsProviderProjection {
   readonly id: HarnessProviderId
   readonly displayName: string
   readonly telemetrySupported: boolean
+  readonly sessionKind: 'agent' | 'shell'
 }
 
 export interface SessionsWorkspaceProjection {
@@ -147,6 +149,35 @@ export interface SessionsDemandRequest {
   readonly demandGeneration: number
 }
 
+export interface SessionsOpenRequest extends SessionsDemandRequest {
+  readonly sourceRevision: number
+  readonly handle: SessionsTerminalHandle
+  readonly projectId: SessionsProjectHandle
+  readonly workspaceId: SessionsWorkspaceHandle
+  readonly workspaceQualifier: SessionsWorkspaceQualifier
+  readonly livePty?: SessionsLivePtyQualifier
+}
+
+export type SessionsOpenUnavailableReason =
+  | 'stale-projection'
+  | 'session-unavailable'
+  | 'workspace-unavailable'
+  | 'connection-unavailable'
+  | 'terminal-unavailable'
+
+export type SessionsOpenResponse =
+  | {
+      readonly outcome: 'opened'
+      readonly state: ProjectState
+      readonly handle: SessionsTerminalHandle
+      readonly workspaceQualifier: SessionsWorkspaceQualifier
+      readonly livePty: SessionsLivePtyQualifier
+    }
+  | {
+      readonly outcome: 'unavailable'
+      readonly reason: SessionsOpenUnavailableReason
+    }
+
 export type SessionsLifecycle =
   'retained' | 'starting' | 'resuming' | 'live' | 'stopped' | 'unavailable'
 
@@ -157,9 +188,14 @@ export interface SessionsProjectionRow {
     readonly id: SessionsWorkspaceHandle
     readonly name: string
     readonly main: boolean
+    readonly qualifier: SessionsWorkspaceQualifier
   }
   readonly host: SessionsWorkspaceProjection['host']
-  readonly provider: { readonly id: HarnessProviderId; readonly name: string }
+  readonly provider: {
+    readonly id: HarnessProviderId
+    readonly name: string
+    readonly kind: 'agent' | 'shell'
+  }
   readonly profile: SessionsFact<{ readonly id: HarnessProfileId }>
   readonly title: string
   readonly lifecycle: SessionsLifecycle
@@ -180,6 +216,8 @@ export interface SessionsProjectionSnapshot {
   readonly version: typeof SESSIONS_PROJECTION_VERSION
   readonly demandGeneration: number
   readonly revision: number
+  /** Main-owned observation revision used only for exact actions. */
+  readonly sourceRevision: number
   readonly status: 'inactive' | 'pending' | 'available' | 'unavailable'
   readonly unavailableReason?: 'source-unavailable'
   readonly rows: readonly SessionsProjectionRow[]

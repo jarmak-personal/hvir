@@ -29,6 +29,7 @@ const INACTIVE_SNAPSHOT: SessionsProjectionSnapshot = {
   version: SESSIONS_PROJECTION_VERSION,
   demandGeneration: 0,
   revision: 0,
+  sourceRevision: 0,
   status: 'inactive',
   rows: [],
 }
@@ -207,6 +208,7 @@ export class SessionsProjectionCoordinator {
       version: SESSIONS_PROJECTION_VERSION,
       demandGeneration: this.mainSnapshot.demandGeneration,
       revision: this.projectionRevision,
+      sourceRevision: this.mainSnapshot.revision,
       status: 'available',
       rows,
     }
@@ -220,6 +222,7 @@ export class SessionsProjectionCoordinator {
       version: SESSIONS_PROJECTION_VERSION,
       demandGeneration,
       revision: this.projectionRevision,
+      sourceRevision: 0,
       status: 'pending',
       rows: [],
     }
@@ -233,6 +236,7 @@ export class SessionsProjectionCoordinator {
       version: SESSIONS_PROJECTION_VERSION,
       demandGeneration,
       revision: this.projectionRevision,
+      sourceRevision: 0,
       status: 'unavailable',
       unavailableReason: 'source-unavailable',
       rows: [],
@@ -344,11 +348,13 @@ function projectRow(
       id: workspace.workspaceId,
       name: workspace.workspaceName,
       main: workspace.main,
+      qualifier: workspace.qualifier,
     },
     host: workspace.host,
     provider: {
       id: renderer?.providerId ?? main!.providerId,
       name: provider?.displayName ?? String(renderer?.providerId ?? main!.providerId),
+      kind: provider?.sessionKind ?? 'agent',
     },
     profile: renderer
       ? { status: 'available', value: { id: renderer.profileId } }

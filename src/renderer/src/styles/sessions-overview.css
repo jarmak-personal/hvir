@@ -1,0 +1,332 @@
+.sessions-destination {
+  position: sticky;
+  z-index: 3;
+  left: 0;
+  height: 31px;
+  flex: 0 0 auto;
+  align-self: end;
+  padding: 0 13px;
+  border: 1px solid var(--border-strong);
+  border-bottom-color: var(--border-strong);
+  border-radius: 5px 5px 0 0;
+  background: #101318;
+  color: #aab2be;
+  font-size: calc(11px * var(--hvir-interface-scale));
+  font-weight: 680;
+}
+
+.sessions-destination:hover,
+.sessions-destination:focus-visible {
+  background: #1b2028;
+  color: #eef1f5;
+}
+
+.sessions-destination:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.sessions-destination.active {
+  border-bottom-color: #111419;
+  background: #111419;
+  color: #eef1f5;
+}
+
+.sessions-overview {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: clamp(18px, 3vw, 38px);
+  background:
+    radial-gradient(circle at 15% 0%, rgb(51 83 122 / 16%), transparent 34%), #0f1115;
+  color: var(--text);
+}
+
+.sessions-overview-header {
+  max-width: 1440px;
+  margin: 0 auto;
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.sessions-overview-header h1 {
+  margin: 2px 0 4px;
+  color: var(--text-strong);
+  font-size: calc(28px * var(--hvir-interface-scale));
+  font-weight: 680;
+  letter-spacing: -0.025em;
+}
+
+.sessions-overview-header p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: calc(11px * var(--hvir-interface-scale));
+}
+
+.sessions-overview-header .sessions-eyebrow {
+  color: #7e9dc1;
+  font-size: calc(9px * var(--hvir-interface-scale));
+  font-weight: 760;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.sessions-return,
+.sessions-lenses button,
+.sessions-controls button,
+.sessions-controls select,
+.sessions-notice button,
+.session-card header button {
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: #181c23;
+  color: #c5ccd6;
+  font: inherit;
+}
+
+.sessions-return {
+  flex: 0 0 auto;
+  padding: 7px 11px;
+}
+
+.sessions-lenses,
+.sessions-controls,
+.sessions-policy,
+.sessions-feedback,
+.sessions-groups,
+.sessions-notice {
+  max-width: 1440px;
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.sessions-lenses {
+  margin-top: 25px;
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.sessions-lenses button {
+  margin-bottom: -1px;
+  padding: 7px 14px;
+  border-radius: 5px 5px 0 0;
+  border-bottom-color: #15191f;
+  background: #15191f;
+  color: var(--text-strong);
+}
+
+.sessions-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  padding: 14px 0 9px;
+}
+
+.sessions-controls fieldset {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+}
+
+.sessions-controls legend,
+.sessions-controls label {
+  color: var(--text-muted);
+  font-size: calc(9px * var(--hvir-interface-scale));
+}
+
+.sessions-controls legend {
+  width: 100%;
+  margin-bottom: 4px;
+}
+
+.sessions-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sessions-controls button,
+.sessions-controls select {
+  height: 29px;
+  padding: 0 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
+}
+
+.sessions-controls button[aria-pressed='true'] {
+  border-color: #4a6a8d;
+  background: #223247;
+  color: #eef4fb;
+}
+
+.sessions-policy,
+.sessions-feedback {
+  margin-top: 0;
+  margin-bottom: 10px;
+  color: var(--text-muted);
+  font-size: calc(9px * var(--hvir-interface-scale));
+}
+
+.sessions-feedback {
+  min-height: 1.35em;
+  color: #c8a76d;
+}
+
+.sessions-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.sessions-group h2 {
+  margin: 0 0 9px;
+  color: #cbd2dc;
+  font-size: calc(12px * var(--hvir-interface-scale));
+  font-weight: 650;
+}
+
+.sessions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  gap: 10px;
+}
+
+.session-card {
+  min-width: 0;
+  content-visibility: auto;
+  contain-intrinsic-size: 285px;
+  padding: 13px;
+  border: 1px solid #2b323d;
+  border-radius: 7px;
+  outline: none;
+  background: linear-gradient(145deg, #181c22, #14171c);
+  box-shadow: 0 5px 18px rgb(0 0 0 / 12%);
+}
+
+.session-card:hover,
+.session-card.selected,
+.session-card:focus-visible {
+  border-color: #496785;
+  background: linear-gradient(145deg, #1a2028, #151a21);
+}
+
+.session-card:focus-visible {
+  box-shadow: inset 0 0 0 1px #6e91b7;
+}
+
+.session-card > header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.session-card h3 {
+  margin: 6px 0 0;
+  overflow-wrap: anywhere;
+  color: var(--text-strong);
+  font-size: calc(13px * var(--hvir-interface-scale));
+  font-weight: 660;
+}
+
+.session-kind {
+  color: #7ea6cf;
+  font-size: calc(8px * var(--hvir-interface-scale));
+  font-weight: 760;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.session-kind.shell {
+  color: #a99c82;
+}
+
+.session-card header button,
+.sessions-notice button {
+  padding: 5px 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
+}
+
+.session-card button:hover:not(:disabled),
+.sessions-overview button:hover:not(:disabled) {
+  border-color: #506a87;
+  background: #233044;
+  color: #f0f4f9;
+}
+
+.session-location,
+.session-provider {
+  margin: 9px 0 0;
+  color: var(--text-muted);
+  font-size: calc(9px * var(--hvir-interface-scale));
+}
+
+.session-location small {
+  margin-left: 7px;
+  color: #6f7a89;
+}
+
+.session-facts {
+  margin: 12px 0 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px 12px;
+}
+
+.session-facts > div {
+  min-width: 0;
+}
+
+.session-facts dt {
+  color: #6f7987;
+  font-size: calc(8px * var(--hvir-interface-scale));
+}
+
+.session-facts dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+  color: #b8c0ca;
+  font-size: calc(9px * var(--hvir-interface-scale));
+}
+
+.sessions-notice {
+  margin-top: 30px;
+  padding: 30px;
+  border: 1px dashed #343d49;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.sessions-notice h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: calc(15px * var(--hvir-interface-scale));
+}
+
+.sessions-notice p {
+  margin: 7px 0 13px;
+  color: var(--text-muted);
+  font-size: calc(10px * var(--hvir-interface-scale));
+}
+
+@media (max-width: 680px) {
+  .sessions-overview-header {
+    flex-direction: column;
+  }
+
+  .sessions-controls {
+    align-items: stretch;
+  }
+
+  .sessions-controls label {
+    flex: 1 1 130px;
+  }
+
+  .session-facts {
+    grid-template-columns: 1fr;
+  }
+}

@@ -33,6 +33,21 @@ afterEach(() => {
 })
 
 describe('ProjectsBar status presentation', () => {
+  it('keeps Sessions as the fixed application destination and leaves it through project navigation', () => {
+    const callbacks = renderProjectsBar(projectState(0, 0), {}, { sessionsActive: true })
+    const sessions = host.querySelector<HTMLButtonElement>('.sessions-destination')
+    expect(sessions?.getAttribute('aria-current')).toBe('page')
+    expect(host.querySelector('.project-tab.active')).toBeNull()
+
+    act(() => host.querySelector<HTMLButtonElement>('.project-tab-main')?.click())
+    expect(callbacks.switchWorkspace).toHaveBeenCalledWith(
+      'project:local:/repo',
+      'workspace:local:/repo',
+    )
+    act(() => sessions?.click())
+    expect(callbacks.sessions).toHaveBeenCalledOnce()
+  })
+
   it('omits Git change counts while keeping actionable attention', () => {
     renderProjectsBar(projectState(2, 3), {
       'workspace:local:/repo': { actionable: 1, working: 0 },
@@ -360,7 +375,7 @@ function renderProjectsBar(
   rollups: Readonly<
     Record<string, { readonly actionable: number; readonly working: number }>
   >,
-  options: { readonly busy?: boolean } = {},
+  options: { readonly busy?: boolean; readonly sessionsActive?: boolean } = {},
 ) {
   const callbacks = {
     plan: vi.fn(() => Promise.resolve({ terminalCount: 0 })),
@@ -369,6 +384,7 @@ function renderProjectsBar(
     dismiss: vi.fn(),
     switchWorkspace: vi.fn(),
     closeProject: vi.fn(),
+    sessions: vi.fn(),
   }
   act(() => {
     root.render(
@@ -392,6 +408,8 @@ function renderProjectsBar(
         theme="dark"
         onTheme={vi.fn()}
         onSettings={vi.fn()}
+        sessionsActive={options.sessionsActive ?? false}
+        onSessions={callbacks.sessions}
       />,
     )
   })

@@ -132,6 +132,7 @@ describe('SessionsProjectionCoordinator', () => {
       version: SESSIONS_PROJECTION_VERSION,
       demandGeneration: 0,
       revision: 0,
+      sourceRevision: 0,
       status: 'inactive',
       rows: [],
     })
@@ -201,7 +202,14 @@ function observation(
     version: SESSIONS_PROJECTION_VERSION,
     demandGeneration: 1,
     revision,
-    providers: [{ id: providerId, displayName: 'Codex', telemetrySupported: true }],
+    providers: [
+      {
+        id: providerId,
+        displayName: 'Codex',
+        telemetrySupported: true,
+        sessionKind: 'agent',
+      },
+    ],
     workspaces: [
       workspace('workspace-a', 'Project A', 'main', 'connected'),
       workspace('workspace-b', 'Project B', 'feature', 'disconnected'),

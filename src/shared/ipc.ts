@@ -72,6 +72,8 @@ import type {
 import type { RegisteredProjectState } from './workspace-types'
 import type {
   SessionsDemandRequest,
+  SessionsOpenRequest,
+  SessionsOpenResponse,
   SessionsObservationSnapshot,
   SessionsProjectionChange,
 } from './sessions-projection'
@@ -418,6 +420,8 @@ export type StartPtyResponse =
   | {
       readonly outcome: 'started'
       readonly id: string
+      /** Exact live spawn identity, distinct from the retained terminal id. */
+      readonly instanceId: string
       readonly pid: number
       readonly resumed: boolean
       readonly reattached: boolean
@@ -879,6 +883,7 @@ export interface IpcInvokeMap {
     response: SessionsObservationSnapshot
   }
   'sessions:release': { request: SessionsDemandRequest; response: void }
+  'sessions:open': { request: SessionsOpenRequest; response: SessionsOpenResponse }
   'terminal:resolve-file-clipboard': {
     request: Record<string, never>
     response: string | undefined
@@ -1097,6 +1102,7 @@ export const INVOKE_CHANNELS = [
   'sessions:observe',
   'sessions:snapshot',
   'sessions:release',
+  'sessions:open',
   'terminal:resolve-file-clipboard',
   'pty:start',
   'web-pane:open',

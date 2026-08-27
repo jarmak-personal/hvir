@@ -157,7 +157,7 @@ export interface IpcDeps {
   readonly terminalSessions: TerminalSessionStore
   readonly sessionsObservation: Pick<
     SessionsObservationPort,
-    'acquire' | 'snapshot' | 'release'
+    'acquire' | 'snapshot' | 'release' | 'resolveOpen'
   >
   readonly terminalMoves: Pick<TerminalWorkspaceMoveCoordinator, 'plan' | 'move'>
   readonly harnessProfiles: HarnessProfileStoreContract

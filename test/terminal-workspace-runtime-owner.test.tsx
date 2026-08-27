@@ -1,4 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
+// @vitest-environment happy-dom
+
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { TerminalWorkspaceRuntimeOwner } from '../src/renderer/src/terminal/terminal-workspace-runtime-owner'
 import type { TerminalWorkspaceController } from '../src/renderer/src/terminal/use-terminal-workspace-move'
@@ -6,10 +8,12 @@ import {
   asHarnessProfileId,
   asHarnessProviderId,
   asSessionsTerminalHandle,
+  asSessionsPtyHandle,
   sessionsWorkspaceQualifier,
 } from '../src/shared'
 
 describe('TerminalWorkspaceRuntimeOwner', () => {
+  afterEach(() => vi.restoreAllMocks())
   it('materializes only retained workspace models', () => {
     const owner = new TerminalWorkspaceRuntimeOwner()
     const listener = vi.fn()
@@ -91,11 +95,56 @@ describe('TerminalWorkspaceRuntimeOwner', () => {
     owner.dispose()
     expect(owner.sessionsObservation.snapshot()).toEqual([])
   })
+
+  it('selects and focuses only the exact projected live PTY after presentation commits', async () => {
+    const owner = new TerminalWorkspaceRuntimeOwner()
+    const handle = asSessionsTerminalHandle('terminal-1')
+    const qualifier = sessionsWorkspaceQualifier(1, 0, 0)
+    const selected = vi.fn(() => true)
+    owner.registerSessionsSource('workspace-a', () => [
+      {
+        handle,
+        workspaceQualifier: qualifier,
+        providerId: asHarnessProviderId('plain-shell'),
+        profileId: asHarnessProfileId('plain-shell-default'),
+        title: 'Shell',
+        dormant: false,
+        resumeOnStart: false,
+        exited: false,
+        recoveryUnavailable: false,
+      },
+    ])
+    owner.registerController('workspace-a', {
+      ...controller(),
+      hasSession: vi.fn(() => true),
+      selectSession: selected,
+    })
+    const focusLive = vi.spyOn(owner.runtimes, 'focusLiveInstance').mockReturnValue(true)
+    let runFrame: FrameRequestCallback | undefined
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      runFrame = callback
+      return 14
+    })
+
+    const focused = owner.focusProjectedSession(handle, qualifier, {
+      handle: asSessionsPtyHandle('instance-1'),
+      rendererOwnerId: 8,
+      rendererGeneration: 3,
+    })
+    expect(selected).toHaveBeenCalledExactlyOnceWith(handle)
+    expect(focusLive).not.toHaveBeenCalled()
+    runFrame?.(0)
+
+    await expect(focused).resolves.toBe(true)
+    expect(focusLive).toHaveBeenCalledExactlyOnceWith(handle, 'instance-1')
+    owner.dispose()
+  })
 })
 
 function controller(): TerminalWorkspaceController {
   return {
     hasSession: vi.fn(() => false),
+    selectSession: vi.fn(() => false),
     transferOut: vi.fn(() => undefined),
     transferIn: vi.fn(),
   }

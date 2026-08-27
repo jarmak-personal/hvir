@@ -5,6 +5,7 @@ export const githubCopilotProvider: HarnessProvider = {
   manifest: {
     id: asHarnessProviderId('github-copilot-cli'),
     displayName: 'GitHub Copilot CLI',
+    sessionKind: 'agent',
     contextPresentation: 'none',
   },
   profile: {

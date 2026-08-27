@@ -20,6 +20,7 @@ export const OWNER_SCOPED_INVOKE_CHANNELS = [
   'sessions:observe',
   'sessions:snapshot',
   'sessions:release',
+  'sessions:open',
   'document-review:restore',
   'document-review:save',
   'document-review:revalidate',

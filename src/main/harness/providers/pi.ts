@@ -5,6 +5,7 @@ export const piProvider: HarnessProvider = {
   manifest: {
     id: asHarnessProviderId('pi'),
     displayName: 'Pi',
+    sessionKind: 'agent',
     contextPresentation: 'none',
   },
   profile: {

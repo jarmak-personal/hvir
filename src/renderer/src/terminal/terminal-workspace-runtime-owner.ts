@@ -1,6 +1,11 @@
 import { TerminalRuntimeRegistry } from './terminal-runtime-registry'
 import type { TerminalWorkspaceController } from './use-terminal-workspace-move'
 import type { SessionsRendererSession } from '../sessions/sessions-renderer-observation'
+import type {
+  SessionsLivePtyQualifier,
+  SessionsTerminalHandle,
+  SessionsWorkspaceQualifier,
+} from '../../../shared'
 
 interface ControllerWaiter {
   readonly resolve: () => void
@@ -21,6 +26,7 @@ export class TerminalWorkspaceRuntimeOwner {
     () => readonly SessionsRendererSession[]
   >()
   private readonly sessionsListeners = new Set<() => void>()
+  private readonly focusFrames = new Map<number, (focused: boolean) => void>()
   private materializedSnapshot: readonly string[] = []
   private disposed = false
 
@@ -57,6 +63,34 @@ export class TerminalWorkspaceRuntimeOwner {
   sessionsChanged = (workspaceId: string): void => {
     if (!this.sessionsSources.has(workspaceId)) return
     this.publishSessions()
+  }
+
+  focusProjectedSession(
+    handle: SessionsTerminalHandle,
+    workspaceQualifier: SessionsWorkspaceQualifier,
+    livePty: SessionsLivePtyQualifier,
+  ): Promise<boolean> {
+    if (this.disposed) return Promise.resolve(false)
+    const source = [...this.sessionsSources].find(([, snapshot]) =>
+      snapshot().some(
+        (session) =>
+          session.handle === handle &&
+          session.workspaceQualifier === workspaceQualifier &&
+          !session.dormant &&
+          !session.exited,
+      ),
+    )
+    const controller = source ? this.controllers.get(source[0]) : undefined
+    if (!controller?.hasSession(handle) || !controller.selectSession(handle)) {
+      return Promise.resolve(false)
+    }
+    return new Promise((resolve) => {
+      const frame = window.requestAnimationFrame(() => {
+        this.focusFrames.delete(frame)
+        resolve(!this.disposed && this.runtimes.focusLiveInstance(handle, livePty.handle))
+      })
+      this.focusFrames.set(frame, resolve)
+    })
   }
 
   retainWorkspace = (workspaceId: string, retained: boolean): void => {
@@ -124,6 +158,11 @@ export class TerminalWorkspaceRuntimeOwner {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    for (const [frame, resolve] of this.focusFrames) {
+      window.cancelAnimationFrame(frame)
+      resolve(false)
+    }
+    this.focusFrames.clear()
     for (const workspaceId of this.controllerWaiters.keys()) {
       this.rejectWaiters(
         workspaceId,
