@@ -9,6 +9,9 @@ The decisions below apply ADR-003, ADR-006, ADR-008 through ADR-010, ADR-012,
 ADR-014, ADR-019, ADR-024, ADR-031, and ADR-034. They do not establish a new
 project-wide rule, so this evaluation adds no ADR.
 
+Later implementation follows ADR-014's existing test-altitude rule. This gate does
+not restate a child-by-child verification plan.
+
 ## Decision summary
 
 `SessionsProjectionCoordinator` is the one named projection coordinator. It lives in
@@ -231,16 +234,6 @@ terminal's launch, transport, authentication, failure, and recovery contract. On
 would additionally require a remote process plus a protected socket or forwarded transport.
 That is precisely the process and launch change this gate excludes.
 
-The content-free live proof ran on macOS arm64 with `codex-cli 0.149.0`. A bounded temporary
-stdio App Server performed only `initialize`, exact `thread/read` with turns omitted, and
-an exact-parent `thread/list` capped at one result. It returned the exact identifier match
-and accepted the parent filter, but reported the concurrently active exact Codex session
-as `notLoaded`. The proof emitted only booleans, the status enum, protocol name, and bound
-result; it emitted no provider identifier, path, title, preview, turn, item, prompt,
-response, reasoning, or raw record. The process was terminated immediately after both
-responses. It did not start, resume, fork, steer, archive, subscribe to, or otherwise
-mutate a thread.
-
 This is decisive rather than an environment-only absence: exact persisted correlation is
 available, but live native-TUI topology is not. Codex topology remains unsupported until
 the existing native TUI exposes a provider-owned, read-only attachment that shares its
@@ -252,9 +245,8 @@ replacing the TUI launch contract.
 The current [Claude Code hooks documentation](https://code.claude.com/docs/en/hooks)
 defines exact `SubagentStart` and `SubagentStop` events. Both carry the parent
 `session_id`, unique `agent_id`, and `agent_type`; stop additionally carries the subagent
-artifact path and final assistant response. The local `claude 2.1.237` CLI also accepts an
-inline `--settings` JSON value for one launch, so hook configuration need not be written to
-a user or repository settings file.
+artifact path and final assistant response. A launch-scoped hook can avoid writing user or
+repository settings, but that does not satisfy demand-scoped cleanup.
 
 The source still fails the accepted boundary:
 
@@ -271,12 +263,6 @@ The source still fails the accepted boundary:
   No qualifying service-free, safely revocable design is documented or currently owned by
   `ProjectHost`.
 
-No live Claude subagent was created for this evaluation. Creating one solely to fire hooks
-would alter provider conversation state and expose the response-shaped stop payload, while
-the bounded proof requirement was already satisfied by the non-mutating Codex read. Static
-CLI and official-contract inspection was enough to classify the boundary as unsupported,
-not unavailable.
-
 Claude topology may be reconsidered only if the bundled provider can attach and detach an
 exact current-session observer on demand, select a content-free event schema before hvir
 receives it, report a complete lifecycle, and cleanly revoke the same design through
@@ -291,20 +277,6 @@ must be deferred from the current epic. Later work must not infer relationships 
 paths, terminal titles, timing, current directories, ambient latest state, or provider
 content. This result does not block the global Sessions projection, overview, per-session
 usage, live terminal detail, or moving session-usage ranking.
-
-## Verification expectations for later children
-
-Pure tests own projection joins, revision gaps, demand reference counting, counter
-arithmetic, bounded retention, qualifier matching, idempotent disposal, and late-result
-rejection. Immediate main adapter tests own provider, PTY, registry, and host snapshot
-translation without raw identity leakage. Renderer tests own runtime observation and one
-exclusive surface lease.
-
-Production-composed Electron evidence owns route enter/leave, hidden and unfocused quiet,
-renderer rollover, actual Ghostty reparenting, focus, direct input, fit/resize, PTY exit and
-replacement, safe workspace return, and accessible detail focus. Local and real-SSH
-evidence use the same projection and cleanup contract; SSH acceptance additionally proves
-that merely opening Sessions creates no connection, remote helper, or per-session channel.
 
 This architecture gate itself changes documentation only and therefore adds no runtime
 observer, process, timer, buffer, IPC channel, surface, or test fixture.
