@@ -22,11 +22,19 @@ import {
   type HostPath,
 } from '../../shared'
 import type { Disposer, ProjectHost } from '../project-host'
-import type { HarnessUsageSnapshotProvider } from './agent-work-usage'
+import type { HarnessUsageSnapshotProvider } from './harness-usage'
 import { configureClaudeComposerSubmit } from './claude-keybindings'
-import { observeClaudeContext, snapshotClaudeUsage } from './claude-context-telemetry'
+import {
+  observeClaudeContext,
+  observeClaudeUsage,
+  snapshotClaudeUsage,
+} from './claude-context-telemetry'
 import { claudeResumeAvailability } from './claude-session-recovery'
-import { observeCodexContext, snapshotCodexUsage } from './codex-context-telemetry'
+import {
+  observeCodexContext,
+  observeCodexUsage,
+  snapshotCodexUsage,
+} from './codex-context-telemetry'
 import { codexSessionDiscovery } from './codex-session-discovery'
 import { piProvider } from './providers/pi'
 import { geminiProvider } from './providers/gemini'
@@ -235,6 +243,8 @@ export interface HarnessProvider {
   readonly sessionDiscovery?: HarnessSessionDiscovery
   /** Optional structured, read-only operational state for this harness. */
   readonly telemetry?: HarnessTelemetryObserver
+  /** Demand-scoped cumulative usage observation for an exact live session. */
+  readonly usageTelemetry?: HarnessTelemetryObserver
   /** Content-free cumulative counters for bounded lifecycle phase snapshots. */
   readonly usageSnapshots?: HarnessUsageSnapshotProvider
   /** Fail-closed check that the exact provider artifact can actually resume. */
@@ -328,6 +338,7 @@ export const claudeCodeProvider: HarnessProvider = {
   supportsResume: true,
   sessionIdentity: 'preassigned',
   telemetry: { observe: observeClaudeContext },
+  usageTelemetry: { observe: observeClaudeUsage },
   usageSnapshots: { snapshot: snapshotClaudeUsage },
   resumeValidation: { availability: claudeResumeAvailability },
   probe: versionProbe('preassigned', true, 'pressure', {
@@ -397,6 +408,7 @@ export const codexProvider: HarnessProvider = {
   sessionIdentity: 'discovered',
   sessionDiscovery: codexSessionDiscovery,
   telemetry: { observe: observeCodexContext },
+  usageTelemetry: { observe: observeCodexUsage },
   usageSnapshots: { snapshot: snapshotCodexUsage },
   probe: versionProbe('discovered', true, 'pressure', {
     reviewInsert: codexReviewInsert,
@@ -521,7 +533,7 @@ export class HarnessProviderRegistry {
       throw new Error(`Harness provider '${id}' validates resume without supporting it`)
     }
     if (
-      (provider.sessionDiscovery || provider.telemetry) &&
+      (provider.sessionDiscovery || provider.telemetry || provider.usageTelemetry) &&
       provider.profile.reservedEnvironmentKeys.some(
         (key) => !provider.profile.artifactEnvironmentKeys.includes(key),
       )

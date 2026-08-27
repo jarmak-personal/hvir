@@ -9,12 +9,18 @@ import {
 } from '../../shared'
 import type { Disposer, ProjectHost } from '../project-host'
 import {
+  harnessUsageSnapshotTelemetry,
+  harnessUsageValue,
   nonNegativeUsageCounter,
   unavailableHarnessUsageSnapshot,
-  type HarnessUsageCounters,
+  usageCountersDecreased,
+  usageCountersEqual,
+  usageObservationHarnessTelemetry,
+  usageStatusHarnessTelemetry,
   type HarnessUsageSnapshot,
   type HarnessUsageSnapshotContext,
-} from './agent-work-usage'
+} from './harness-usage'
+import type { HarnessUsageCounters } from '../../shared'
 import {
   boundedHarnessUsageString,
   scanHarnessUsageArtifactLines,
@@ -26,6 +32,7 @@ import {
   HarnessTelemetryHubRegistry,
 } from './harness-telemetry-hub'
 import type { HarnessTelemetryFollowerHealth } from './harness-telemetry-protocol'
+import { scheduleHarnessUsageRead } from './harness-usage-read-scheduler'
 
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const FIND_SESSION_SCRIPT = `
@@ -49,6 +56,8 @@ const FOLLOW_TOKEN_COUNTS_SCRIPT = buildTelemetryHubScript({
   `,
 })
 const FIND_MAX_BUFFER = 256 * 1024
+const USAGE_ARTIFACT_RETRY_MS = 250
+const MAX_USAGE_ARTIFACT_RETRY_MS = 4_000
 
 interface CodexSessionData {
   readonly rolloutPath: HostPath
@@ -192,6 +201,246 @@ export async function observeCodexContext(
     signal: context.signal,
     emit: context.emit,
   })
+}
+
+export async function observeCodexUsage(
+  host: ProjectHost,
+  context: HarnessTelemetryContext,
+): Promise<Disposer> {
+  const providerId = asHarnessProviderId('codex')
+  context.emit(
+    usageStatusHarnessTelemetry({
+      providerId,
+      sessionId: context.sessionId,
+      provenance: 'Codex cumulative usage lifecycle',
+      usage: { status: 'pending', reason: 'Waiting for qualified Codex usage' },
+    }),
+  )
+  if (!SESSION_ID.test(context.sessionId) || context.signal.aborted) {
+    if (!context.signal.aborted) {
+      context.emit(
+        usageStatusHarnessTelemetry({
+          providerId,
+          sessionId: context.sessionId,
+          provenance: 'Codex cumulative usage lifecycle',
+          usage: { status: 'unavailable', reason: 'invalid-session-identity' },
+        }),
+      )
+    }
+    return () => undefined
+  }
+
+  let last: Extract<HarnessUsageSnapshot, { readonly status: 'available' }> | undefined
+  let awaitingReplay = false
+  let resetPending = false
+  let hubStop: Disposer | undefined
+  let retryTimer: ReturnType<typeof setTimeout> | undefined
+  let retryMilliseconds = USAGE_ARTIFACT_RETRY_MS
+  let resolving = false
+  let stopped = false
+
+  const scheduleRetry = (): void => {
+    if (stopped || context.signal.aborted || retryTimer || hubStop) return
+    const delay = retryMilliseconds
+    retryMilliseconds = Math.min(
+      MAX_USAGE_ARTIFACT_RETRY_MS,
+      retryMilliseconds * 2,
+    )
+    retryTimer = setTimeout(() => {
+      retryTimer = undefined
+      void resolveAndSubscribe().catch(() => scheduleRetry())
+    }, delay)
+  }
+
+  const resolveAndSubscribe = async (): Promise<void> => {
+    if (stopped || context.signal.aborted || resolving || hubStop) return
+    resolving = true
+    try {
+      const rolloutPath =
+        sessionDataPath(context.sessionData, host, context.sessionId) ??
+        (await findSessionPath(host, context.sessionId, context.signal, context.artifact))
+      if (!rolloutPath || context.signal.aborted || stopped) {
+        scheduleRetry()
+        return
+      }
+      let initial: HarnessUsageSnapshot
+      try {
+        initial = await scheduleHarnessUsageRead(host, context.signal, () =>
+          snapshotCodexUsage(host, {
+            ...context,
+            sessionData: { rolloutPath },
+          }),
+        )
+      } catch {
+        initial = unavailableHarnessUsageSnapshot(providerId, 'artifact-unavailable')
+      }
+      if (stopped || context.signal.aborted) return
+      if (initial.status === 'unavailable') {
+        if (initial.reason === 'artifact-unavailable') {
+          scheduleRetry()
+          return
+        }
+        if (initial.reason === 'usage-unavailable') {
+          context.emit(
+            usageStatusHarnessTelemetry({
+              providerId,
+              sessionId: context.sessionId,
+              provenance: 'Codex cumulative usage lifecycle',
+              usage: { status: 'pending', reason: 'Waiting for Codex usage records' },
+            }),
+          )
+        } else {
+          context.emit(
+            harnessUsageSnapshotTelemetry({
+              snapshot: initial,
+              sessionId: context.sessionId,
+              provenance: 'Codex qualified cumulative usage snapshot',
+            }),
+          )
+          return
+        }
+      } else {
+        last = initial
+        awaitingReplay = true
+        context.emit(
+          harnessUsageSnapshotTelemetry({
+            snapshot: initial,
+            sessionId: context.sessionId,
+            provenance: 'Codex qualified cumulative usage snapshot',
+          }),
+        )
+      }
+
+      hubStop = codexHubs.subscribe(host, {
+        subscriptionId: context.subscriptionId,
+        sessionId: context.sessionId,
+        resource: rolloutPath.path,
+        signal: context.signal,
+        emit: context.emit,
+        exposeSessionIdentity: false,
+        parse: (record) => {
+          const envelope = parseCodexUsageEnvelope(record)
+          if (
+            envelope?.type !== 'event_msg' ||
+            envelope.payload?.type !== 'token_count'
+          ) {
+            return null
+          }
+          const counters = normalizeCodexUsageCounters(
+            envelope.payload.info?.total_token_usage,
+          )
+          if (!counters) return null
+          const observedAt = Date.now()
+          if (last && awaitingReplay) {
+            if (usageCountersDecreased(last.counters, counters)) return null
+            awaitingReplay = false
+          }
+          if (last && usageCountersDecreased(last.counters, counters)) {
+            last = { ...last, observedAt, counters }
+            resetPending = true
+            return usageStatusHarnessTelemetry({
+              providerId,
+              sessionId: context.sessionId,
+              provenance: 'Codex cumulative usage continuity',
+              observedAt,
+              usage: {
+                status: 'reset',
+                reason: 'Codex cumulative counters decreased',
+              },
+            })
+          }
+          if (last && usageCountersEqual(last.counters, counters)) {
+            return resetPending
+              ? null
+              : (usageObservationHarnessTelemetry({
+                  providerId,
+                  sessionId: context.sessionId,
+                  provenance: 'Codex rollout cumulative token_count event',
+                  observedAt,
+                  counters,
+                  modelId: last.route.modelId,
+                }) ?? null)
+          }
+          resetPending = false
+          last = {
+            version: 1,
+            status: 'available',
+            providerId,
+            observedAt,
+            route: last?.route ?? {},
+            counters,
+            timing: {},
+          }
+          return (
+            usageObservationHarnessTelemetry({
+              providerId,
+              sessionId: context.sessionId,
+              provenance: 'Codex rollout cumulative token_count event',
+              observedAt,
+              counters,
+              modelId: last.route.modelId,
+            }) ?? null
+          )
+        },
+        followerHealth: (health) => {
+          if (health.status === 'pending') {
+            return last
+              ? undefined
+              : usageStatusHarnessTelemetry({
+                  providerId,
+                  sessionId: context.sessionId,
+                  provenance: 'Codex cumulative usage lifecycle',
+                  usage: {
+                    status: 'pending',
+                    reason: 'Waiting for Codex usage source',
+                  },
+                })
+          }
+          awaitingReplay = last !== undefined
+          if (last) {
+            const retained = harnessUsageValue(last.counters)
+            if (retained) {
+              return usageStatusHarnessTelemetry({
+                providerId,
+                sessionId: context.sessionId,
+                provenance: 'Codex cumulative usage lifecycle',
+                usage: {
+                  status: 'stale',
+                  value: retained.value,
+                  observedAt: last.observedAt,
+                  reason: `Codex usage follower ${health.reason}`,
+                },
+              })
+            }
+          }
+          return usageStatusHarnessTelemetry({
+            providerId,
+            sessionId: context.sessionId,
+            provenance: 'Codex cumulative usage lifecycle',
+            usage: { status: 'unavailable', reason: health.reason },
+          })
+        },
+      })
+      retryMilliseconds = USAGE_ARTIFACT_RETRY_MS
+    } finally {
+      resolving = false
+    }
+  }
+
+  await resolveAndSubscribe()
+  const abort = (): void => stop()
+  const stop = (): void => {
+    if (stopped) return
+    stopped = true
+    context.signal.removeEventListener('abort', abort)
+    if (retryTimer) clearTimeout(retryTimer)
+    retryTimer = undefined
+    void hubStop?.()
+    hubStop = undefined
+  }
+  context.signal.addEventListener('abort', abort, { once: true })
+  if (context.signal.aborted) stop()
+  return stop
 }
 
 export function parseCodexTokenCount(value: string): HarnessTelemetry | null {

@@ -1,4 +1,5 @@
 import type { HarnessProviderId } from './harness-provider'
+import type { HarnessUsageValue } from './harness-usage'
 
 export type HarnessFacet<T> =
   | { readonly status: 'unsupported' }
@@ -23,11 +24,19 @@ export interface HarnessContextFacet {
   readonly usedPercent?: number
 }
 
-export interface HarnessUsageFacet {
-  readonly inputTokens?: number
-  readonly outputTokens?: number
-  readonly costUsd?: number
-}
+export type HarnessUsageFacet =
+  | { readonly status: 'unsupported' }
+  | { readonly status: 'pending'; readonly reason?: string }
+  | { readonly status: 'unavailable'; readonly reason?: string }
+  | { readonly status: 'reset'; readonly reason?: string }
+  | {
+      readonly status: 'stale'
+      readonly value: HarnessUsageValue
+      readonly observedAt: number
+      readonly reason?: string
+    }
+  | { readonly status: 'exact'; readonly value: HarnessUsageValue }
+  | { readonly status: 'partial'; readonly value: HarnessUsageValue }
 
 export interface HarnessTurnFacet {
   readonly state: 'working' | 'waiting-for-user' | 'waiting-for-approval' | 'idle'
@@ -43,7 +52,7 @@ export interface HarnessSnapshotFacets {
   readonly session: HarnessFacet<HarnessSessionFacet>
   readonly model: HarnessFacet<HarnessModelFacet>
   readonly context: HarnessFacet<HarnessContextFacet>
-  readonly usage: HarnessFacet<HarnessUsageFacet>
+  readonly usage: HarnessUsageFacet
   readonly turn: HarnessFacet<HarnessTurnFacet>
   readonly integrations: HarnessFacet<HarnessIntegrationsFacet>
 }

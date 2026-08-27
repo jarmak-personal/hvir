@@ -80,8 +80,9 @@ describe('SessionsObservationPort', () => {
     expect(serialized).not.toContain('/secret/')
     expect(serialized).not.toContain('provider-session-secret')
     expect(serialized).not.toContain('private provenance')
-    expect(serialized).not.toContain('costUsd')
-    expect(serialized).not.toContain('44.50')
+    expect(serialized).not.toContain('freshInputTokens')
+    expect(serialized).not.toContain('normalizedTokenTotal')
+    expect(serialized).not.toContain('987654')
   })
 
   it('bounds many-session assembly without duplicating a live retained session', () => {
@@ -325,8 +326,12 @@ function telemetry() {
         value: { usedTokens: 120, windowTokens: 1_000, usedPercent: 12 },
       },
       usage: {
-        status: 'available' as const,
-        value: { inputTokens: 100, outputTokens: 20, costUsd: 44.5 },
+        status: 'exact' as const,
+        value: {
+          freshInputTokens: 987_654,
+          outputTokens: 20,
+          normalizedTokenTotal: 987_674,
+        },
       },
       turn: { status: 'available' as const, value: { state: 'working' as const } },
       integrations: { status: 'unsupported' as const },
