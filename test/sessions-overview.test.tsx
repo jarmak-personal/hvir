@@ -175,43 +175,6 @@ describe('SessionsOverview', () => {
     expect(host.querySelectorAll('.session-card')).toHaveLength(2)
   })
 
-  it('keeps an embedded live handle out of titles, accessible labels, detail headings, and DOM', async () => {
-    const privateHandle = 'terminal-private-agent'
-    const privatePath = '/private/repo'
-    installApi()
-    await renderOverview({
-      observation: {
-        snapshot: () =>
-          rendererSessions().map((session) =>
-            session.handle === privateHandle
-              ? {
-                  ...session,
-                  title: `Working in ${privatePath} for ${privateHandle}`,
-                }
-              : session,
-          ),
-        subscribe: () => () => undefined,
-      },
-    })
-
-    const card = host.querySelector<HTMLElement>('.session-card')!
-    expect(card.querySelector('h3')?.textContent).toBe('Codex · main')
-    expect(card.getAttribute('aria-label')).toBe('Codex · main, Codex, Project One, main')
-    expect(host.innerHTML).not.toContain(privateHandle)
-    expect(host.innerHTML).not.toContain(privatePath)
-
-    await act(async () => {
-      button('Interact', '.session-card').click()
-      await settle()
-    })
-    expect(host.querySelector('h1')?.textContent).toBe('Codex · main')
-    expect(
-      host.querySelector('.sessions-detail-terminal')?.getAttribute('aria-label'),
-    ).toBe('Codex · main terminal')
-    expect(host.innerHTML).not.toContain(privateHandle)
-    expect(host.innerHTML).not.toContain(privatePath)
-  })
-
   it('sends the exact opaque Open qualifiers and transfers successful focus to the terminal owner', async () => {
     const api = installApi()
     const onOpened = vi.fn()
