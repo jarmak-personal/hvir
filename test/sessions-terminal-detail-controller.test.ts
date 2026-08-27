@@ -104,8 +104,10 @@ describe('SessionsTerminalDetailController', () => {
       frames.value,
     )
     const initial = snapshot(1, 4, row('terminal-1', 'pty-1'))
+    controller.setContainer(document.createElement('div'))
     controller.open(initial.rows[0]!, initial, true)
     await settle()
+    firstLease.attach.mockClear()
 
     const newer = {
       ...initial,
@@ -170,6 +172,7 @@ describe('SessionsTerminalDetailController', () => {
       fakeFrames().value,
     )
     const initial = snapshot(1, 4, row('terminal-1', 'pty-1'))
+    controller.setContainer(document.createElement('div'))
     controller.open(initial.rows[0]!, initial, true)
     await settle()
 
@@ -214,6 +217,7 @@ describe('SessionsTerminalDetailController', () => {
       fakeFrames().value,
     )
     const initial = snapshot(1, 4, row('terminal-1', 'pty-1'))
+    controller.setContainer(document.createElement('div'))
     controller.open(initial.rows[0]!, initial, true)
     await settle()
 
@@ -243,6 +247,7 @@ describe('SessionsTerminalDetailController', () => {
       fakeFrames().value,
     )
     const initial = snapshot(1, 2, row('terminal-1', 'pty-1'))
+    controller.setContainer(document.createElement('div'))
     controller.open(initial.rows[0]!, initial, true)
     controller.synchronize(
       {
@@ -307,6 +312,69 @@ describe('SessionsTerminalDetailController', () => {
       status: 'unavailable',
       message: 'This session no longer has an exact live terminal available.',
     })
+  })
+
+  it('publishes ready only after attachment and fails closed when a replacement attach loses its lease', async () => {
+    const lease = fakeLease()
+    lease.attach.mockReturnValueOnce(true).mockReturnValueOnce(false)
+    const controller = new SessionsTerminalDetailController(
+      { resolve: (request) => Promise.resolve(resolved(row(request.handle, 'pty-1'))) },
+      surfacePort(() => acquired(lease)),
+      fakeFrames().value,
+    )
+    const current = snapshot(1, 2, row('terminal-1', 'pty-1'))
+    const initialContainer = document.createElement('div')
+    const replacementContainer = document.createElement('div')
+
+    controller.open(current.rows[0]!, current, true)
+    await settle()
+    expect(controller.snapshot().status).toBe('resolving')
+    expect(lease.attach).not.toHaveBeenCalled()
+    controller.synchronize({ ...current, revision: 2, sourceRevision: 3 }, true)
+    expect(controller.snapshot().status).toBe('resolving')
+
+    controller.setContainer(initialContainer)
+    expect(controller.snapshot().status).toBe('ready')
+    controller.setContainer(replacementContainer)
+
+    expect(lease.detach).toHaveBeenCalledExactlyOnceWith(initialContainer)
+    expect(lease.release).toHaveBeenCalledOnce()
+    expect(controller.snapshot()).toMatchObject({
+      status: 'unavailable',
+      message: 'The live terminal changed before interaction began.',
+    })
+
+    controller.setContainer(undefined)
+    controller.setContainer(initialContainer)
+    expect(controller.snapshot().status).toBe('unavailable')
+    controller.close()
+    expect(lease.release).toHaveBeenCalledOnce()
+  })
+
+  it('does not overwrite a synchronous lease revocation with stale attach failure', async () => {
+    const lease = fakeLease()
+    lease.attach.mockImplementation(() => {
+      lease.revoke('owner-disposed')
+      return false
+    })
+    const controller = new SessionsTerminalDetailController(
+      { resolve: (request) => Promise.resolve(resolved(row(request.handle, 'pty-1'))) },
+      surfacePort(() => acquired(lease)),
+      fakeFrames().value,
+    )
+    const current = snapshot(1, 2, row('terminal-1', 'pty-1'))
+    controller.setContainer(document.createElement('div'))
+
+    controller.open(current.rows[0]!, current, true)
+    await settle()
+
+    expect(controller.snapshot()).toMatchObject({
+      status: 'unavailable',
+      message: 'The terminal owner was replaced.',
+    })
+    expect(lease.release).not.toHaveBeenCalled()
+    controller.close()
+    expect(lease.release).not.toHaveBeenCalled()
   })
 
   it.each([

@@ -111,13 +111,15 @@ describe('TerminalWorkspaceRuntimeOwner', () => {
 
     const listener = vi.fn(() => owner.sessionsObservation.snapshot())
     const release = owner.sessionsObservation.subscribe(listener)
-    owner.sessionsChanged('workspace-a')
     expect(listener).toHaveBeenCalledOnce()
     expect(source).toHaveBeenCalledOnce()
+    owner.sessionsChanged('workspace-a')
+    expect(listener).toHaveBeenCalledTimes(2)
+    expect(source).toHaveBeenCalledTimes(2)
 
     release()
     owner.sessionsChanged('workspace-a')
-    expect(listener).toHaveBeenCalledOnce()
+    expect(listener).toHaveBeenCalledTimes(2)
     owner.dispose()
     expect(owner.sessionsObservation.snapshot()).toEqual([])
   })
@@ -159,6 +161,7 @@ describe('TerminalWorkspaceRuntimeOwner', () => {
     const handle = asSessionsTerminalHandle('terminal-1')
     const qualifier = sessionsWorkspaceQualifier(1, 0, 0)
     owner.registerSessionsSource('workspace-a', () => [session(handle, qualifier)])
+    const release = owner.sessionsObservation.subscribe(() => undefined)
     const expected = { outcome: 'acquired' as const, lease: { release: vi.fn() } }
     const acquire = vi
       .spyOn(owner.runtimes, 'acquireSessionsSurface')
@@ -193,6 +196,7 @@ describe('TerminalWorkspaceRuntimeOwner', () => {
       }),
     ).toEqual({ outcome: 'unavailable', reason: 'source-missing' })
     expect(acquire).toHaveBeenCalledTimes(2)
+    release()
     owner.dispose()
     expect(owner.sessionsSurface.acquire(request)).toEqual({
       outcome: 'unavailable',
@@ -219,11 +223,66 @@ describe('TerminalWorkspaceRuntimeOwner', () => {
       reason: 'source-missing',
     })
     owner.registerSessionsSource('workspace-a', () => [session(handle, qualifier)])
-    owner.sessionsObservation.snapshot()
+    const release = owner.sessionsObservation.subscribe(() => undefined)
     expect(owner.sessionsSurface.availability(request)).toEqual({
       outcome: 'unavailable',
       reason: 'runtime-not-ready',
     })
+    release()
+    owner.dispose()
+  })
+
+  it('updates preflight and acquisition from one source event before another snapshot read', () => {
+    const owner = new TerminalWorkspaceRuntimeOwner()
+    const handle = asSessionsTerminalHandle('terminal-1')
+    const qualifier = sessionsWorkspaceQualifier(1, 0, 0)
+    let sessions = [session(handle, qualifier)]
+    owner.registerSessionsSource('workspace-a', () => sessions)
+    const release = owner.sessionsObservation.subscribe(() => undefined)
+    const available = vi
+      .spyOn(owner.runtimes, 'sessionsSurfaceAvailability')
+      .mockReturnValue({ outcome: 'available' })
+    const expected = { outcome: 'acquired' as const, lease: { release: vi.fn() } }
+    const acquire = vi
+      .spyOn(owner.runtimes, 'acquireSessionsSurface')
+      .mockReturnValue(expected as never)
+    const capability = {
+      handle,
+      workspaceQualifier: qualifier,
+      livePty: {
+        handle: asSessionsPtyHandle('instance-1'),
+        rendererOwnerId: 8,
+        rendererGeneration: 3,
+      },
+    }
+    const request = {
+      ...capability,
+      workspaceRuntimeId: asSessionsWorkspaceRuntimeId('workspace-a'),
+      demandGeneration: 4,
+      projectionRevision: 5,
+      sourceRevision: 9,
+    }
+
+    expect(owner.sessionsSurface.availability(capability)).toEqual({
+      outcome: 'available',
+    })
+    expect(owner.sessionsSurface.acquire(request)).toBe(expected)
+
+    sessions = [{ ...session(handle, qualifier), dormant: true }]
+    owner.sessionsChanged('workspace-a')
+
+    expect(owner.sessionsSurface.availability(capability)).toEqual({
+      outcome: 'unavailable',
+      reason: 'source-missing',
+    })
+    expect(owner.sessionsSurface.acquire(request)).toEqual({
+      outcome: 'unavailable',
+      reason: 'source-missing',
+    })
+    expect(available).toHaveBeenCalledOnce()
+    expect(acquire).toHaveBeenCalledOnce()
+    expect(owner.sessionsObservation.snapshot()).toEqual(sessions)
+    release()
     owner.dispose()
   })
 
@@ -265,7 +324,7 @@ describe('TerminalWorkspaceRuntimeOwner', () => {
     const handle = asSessionsTerminalHandle('terminal-1')
     const qualifier = sessionsWorkspaceQualifier(1, 0, 0)
     owner.registerSessionsSource('workspace-a', () => [session(handle, qualifier)])
-    owner.sessionsObservation.snapshot()
+    const release = owner.sessionsObservation.subscribe(() => undefined)
     const capability = {
       handle,
       workspaceQualifier: qualifier,
@@ -305,6 +364,7 @@ describe('TerminalWorkspaceRuntimeOwner', () => {
     })
     acquisition.lease.release()
     expect(workspace.querySelector('.terminal-engine-host')).toBe(engine)
+    release()
     owner.dispose()
   })
 
