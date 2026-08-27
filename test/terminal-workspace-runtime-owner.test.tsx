@@ -8,6 +8,7 @@ import {
   asHarnessProfileId,
   asHarnessProviderId,
   asSessionsTerminalHandle,
+  asSessionsWorkspaceRuntimeId,
   asSessionsPtyHandle,
   sessionsWorkspaceQualifier,
   type SessionsTerminalHandle,
@@ -130,7 +131,7 @@ describe('TerminalWorkspaceRuntimeOwner', () => {
     owner.dispose()
   })
 
-  it('resolves a Sessions surface only through the exact materialized renderer fact', () => {
+  it('resolves a Sessions surface through its exact current renderer workspace owner across qualifier rotation', () => {
     const owner = new TerminalWorkspaceRuntimeOwner()
     const handle = asSessionsTerminalHandle('terminal-1')
     const qualifier = sessionsWorkspaceQualifier(1, 0, 0)
@@ -142,6 +143,7 @@ describe('TerminalWorkspaceRuntimeOwner', () => {
     const request = {
       handle,
       workspaceQualifier: qualifier,
+      workspaceRuntimeId: asSessionsWorkspaceRuntimeId('workspace-a'),
       livePty: {
         handle: asSessionsPtyHandle('instance-1'),
         rendererOwnerId: 8,
@@ -159,8 +161,15 @@ describe('TerminalWorkspaceRuntimeOwner', () => {
         ...request,
         workspaceQualifier: sessionsWorkspaceQualifier(2, 0, 0),
       }),
+    ).toBe(expected)
+    expect(acquire).toHaveBeenCalledTimes(2)
+    expect(
+      owner.sessionsSurface.acquire({
+        ...request,
+        workspaceRuntimeId: asSessionsWorkspaceRuntimeId('workspace-b'),
+      }),
     ).toBeUndefined()
-    expect(acquire).toHaveBeenCalledOnce()
+    expect(acquire).toHaveBeenCalledTimes(2)
     owner.dispose()
     expect(owner.sessionsSurface.acquire(request)).toBeUndefined()
   })

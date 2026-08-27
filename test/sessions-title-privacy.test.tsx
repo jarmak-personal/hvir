@@ -121,6 +121,7 @@ function installApi(): void {
               outcome: 'resolved' as const,
               handle: privateHandle,
               workspaceQualifier,
+              workspaceRuntimeId: 'workspace-runtime',
               livePty,
             })
           default:

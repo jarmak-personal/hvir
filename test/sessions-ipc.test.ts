@@ -175,6 +175,7 @@ describe('Sessions IPC', () => {
       outcome: 'resolved',
       handle: 'terminal-1',
       workspaceQualifier: qualifier,
+      workspaceRuntimeId: 'workspace-real',
       livePty,
     })
     expect(switchWorkspace).toHaveBeenCalledOnce()

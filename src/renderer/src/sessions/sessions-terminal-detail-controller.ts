@@ -7,6 +7,7 @@ import type {
   SessionsProjectionSnapshot,
   SessionsTerminalHandle,
   SessionsTerminalResolutionResponse,
+  SessionsWorkspaceRuntimeId,
 } from '../../../shared'
 import type {
   SessionsTerminalSurfaceLease,
@@ -53,6 +54,7 @@ export class SessionsTerminalDetailController {
   private latest?: SessionsProjectionSnapshot
   private foreground = false
   private lease?: SessionsTerminalSurfaceLease
+  private leaseWorkspaceRuntimeId?: SessionsWorkspaceRuntimeId
   private leaseUnsubscribe?: () => void
   private container?: HTMLElement
   private requestGeneration = 0
@@ -173,7 +175,10 @@ export class SessionsTerminalDetailController {
       row,
     }
     if (this.lease && this.authority && sameResolvedTarget(this.authority, next)) {
-      if (!this.lease.renew(surfaceRequest(next))) {
+      if (
+        !this.leaseWorkspaceRuntimeId ||
+        !this.lease.renew(surfaceRequest(next, this.leaseWorkspaceRuntimeId))
+      ) {
         this.beginResolution(next)
         return
       }
@@ -222,7 +227,9 @@ export class SessionsTerminalDetailController {
       })
       return
     }
-    const lease = this.surfaces.acquire(surfaceRequest(authority))
+    const lease = this.surfaces.acquire(
+      surfaceRequest(authority, response.workspaceRuntimeId),
+    )
     if (!lease) {
       this.publish({
         status: 'unavailable',
@@ -232,6 +239,7 @@ export class SessionsTerminalDetailController {
       return
     }
     this.lease = lease
+    this.leaseWorkspaceRuntimeId = response.workspaceRuntimeId
     this.authority = authority
     this.leaseUnsubscribe = lease.subscribe((reason) =>
       this.surfaceRevoked(lease, reason),
@@ -326,6 +334,7 @@ export class SessionsTerminalDetailController {
     const lease = this.lease
     const container = this.container
     this.lease = undefined
+    this.leaseWorkspaceRuntimeId = undefined
     this.leaseUnsubscribe?.()
     this.leaseUnsubscribe = undefined
     if (container) lease?.setVisible(container, false)
@@ -392,10 +401,14 @@ function resolutionRequest(authority: DetailAuthority): SessionsOpenRequest {
   }
 }
 
-function surfaceRequest(authority: DetailAuthority) {
+function surfaceRequest(
+  authority: DetailAuthority,
+  workspaceRuntimeId: SessionsWorkspaceRuntimeId,
+) {
   return {
     handle: authority.row.handle,
     workspaceQualifier: authority.row.workspace.qualifier,
+    workspaceRuntimeId,
     livePty: authority.row.livePty!,
     demandGeneration: authority.demandGeneration,
     projectionRevision: authority.projectionRevision,

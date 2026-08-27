@@ -15,6 +15,7 @@ declare const sessionsPtyHandleBrand: unique symbol
 declare const sessionsProjectHandleBrand: unique symbol
 declare const sessionsWorkspaceHandleBrand: unique symbol
 declare const sessionsWorkspaceQualifierBrand: unique symbol
+declare const sessionsWorkspaceRuntimeIdBrand: unique symbol
 
 /** Opaque hvir identity. Consumers may compare or route it, but never present it. */
 export type SessionsTerminalHandle = string & {
@@ -39,6 +40,11 @@ export type SessionsWorkspaceHandle = string & {
 /** Path-free qualifier for matching one ProjectState workspace revision in the renderer. */
 export type SessionsWorkspaceQualifier = string & {
   readonly [sessionsWorkspaceQualifierBrand]: 'SessionsWorkspaceQualifier'
+}
+
+/** Renderer workspace owner selected by main; never present this internal routing value. */
+export type SessionsWorkspaceRuntimeId = string & {
+  readonly [sessionsWorkspaceRuntimeIdBrand]: 'SessionsWorkspaceRuntimeId'
 }
 
 export type SessionsReasonCode =
@@ -244,6 +250,7 @@ export type SessionsTerminalResolutionResponse =
       readonly outcome: 'resolved'
       readonly handle: SessionsTerminalHandle
       readonly workspaceQualifier: SessionsWorkspaceQualifier
+      readonly workspaceRuntimeId: SessionsWorkspaceRuntimeId
       readonly livePty: SessionsLivePtyQualifier
     }
   | {
@@ -310,6 +317,12 @@ export function asSessionsProjectHandle(value: string): SessionsProjectHandle {
 
 export function asSessionsWorkspaceHandle(value: string): SessionsWorkspaceHandle {
   return value as SessionsWorkspaceHandle
+}
+
+export function asSessionsWorkspaceRuntimeId(
+  value: string,
+): SessionsWorkspaceRuntimeId {
+  return value as SessionsWorkspaceRuntimeId
 }
 
 export function sessionsWorkspaceQualifier(

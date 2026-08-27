@@ -18,6 +18,7 @@ import {
   asSessionsPtyHandle,
   asSessionsTerminalHandle,
   asSessionsWorkspaceHandle,
+  asSessionsWorkspaceRuntimeId,
   sessionsWorkspaceQualifier,
   type SessionsProjectionRow,
   type SessionsProjectionSnapshot,
@@ -62,6 +63,7 @@ describe('SessionsTerminalDetailController', () => {
     expect(acquire).toHaveBeenCalledExactlyOnceWith({
       handle: 'terminal-1',
       workspaceQualifier: '2:0:0',
+      workspaceRuntimeId: 'workspace-runtime',
       livePty: {
         handle: 'pty-1',
         rendererOwnerId: 12,
@@ -154,6 +156,7 @@ describe('SessionsTerminalDetailController', () => {
           outcome: 'resolved',
           handle: request.handle,
           workspaceQualifier: request.workspaceQualifier,
+          workspaceRuntimeId: asSessionsWorkspaceRuntimeId('workspace-runtime'),
           livePty: request.livePty!,
         }),
       )
@@ -273,6 +276,7 @@ describe('SessionsTerminalDetailController', () => {
           outcome: 'resolved',
           handle: request.handle,
           workspaceQualifier: request.workspaceQualifier,
+          workspaceRuntimeId: asSessionsWorkspaceRuntimeId('workspace-runtime'),
           livePty: request.livePty!,
         }),
     }
@@ -438,6 +442,7 @@ function resolved(row: SessionsProjectionRow): SessionsTerminalResolutionRespons
     outcome: 'resolved',
     handle: row.handle,
     workspaceQualifier: row.workspace.qualifier,
+    workspaceRuntimeId: asSessionsWorkspaceRuntimeId('workspace-runtime'),
     livePty: row.livePty!,
   }
 }

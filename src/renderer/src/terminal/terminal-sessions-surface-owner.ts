@@ -126,6 +126,7 @@ export class TerminalSessionsSurfaceOwner {
     if (
       !current() ||
       next.handle !== state.request.handle ||
+      next.workspaceRuntimeId !== state.request.workspaceRuntimeId ||
       next.livePty.handle !== state.request.livePty.handle ||
       next.livePty.rendererOwnerId !== state.request.livePty.rendererOwnerId ||
       next.livePty.rendererGeneration !== state.request.livePty.rendererGeneration ||
