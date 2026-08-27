@@ -60,7 +60,9 @@ export function SessionsUsageLens({
     if (!foreground || projection.status !== 'available') return
     return source.acquire(projectionRef.current)
   }, [foreground, projection.demandGeneration, projection.status, source])
-  useEffect(() => () => source.dispose(), [source])
+  // The acquisition cleanup owns every live Usage resource. Keep the render-owned
+  // coordinator reusable when React Strict Mode replays setup after cleanup;
+  // useSyncExternalStore removes its listener and the ref becomes unreachable on unmount.
 
   const ranked = usage.ranking
   const handles = ranked.map((entry) => entry.row.handle)
