@@ -63,15 +63,17 @@ export class SessionsUsageCoordinator {
   private inFlight = false
   private refreshPending = false
   private samplePending = false
+  private observationPending = false
   private observed = false
   private active = false
   private disposed = false
+  private projection?: SessionsProjectionSnapshot
   private presentation?: {
     readonly rows: readonly SessionsProjectionRow[]
     readonly mode: SessionsUsageMode
     readonly windowMs: SessionsUsageWindow
   }
-  private observeRequest?: SessionsUsageDemandRequest
+  private targetQualifiers = new Map<SessionsTerminalHandle, string>()
 
   constructor(
     private readonly main: SessionsUsageMainPort,
@@ -89,6 +91,7 @@ export class SessionsUsageCoordinator {
     if (this.disposed) throw new Error('Sessions usage coordinator is disposed')
     if (this.active) throw new Error('Sessions usage demand is already active')
     if (projection.status !== 'available') return () => undefined
+    this.projection = projection
     this.active = true
     const demandGeneration = ++this.demandGeneration
     this.facts = EMPTY_FACTS
@@ -102,18 +105,8 @@ export class SessionsUsageCoordinator {
         this.requestSnapshot(demandGeneration, false)
       }
     })
-    const request: SessionsUsageDemandRequest = {
-      demandGeneration,
-      projectionDemandGeneration: projection.demandGeneration,
-      sourceRevision: projection.sourceRevision,
-      targets: projection.rows.flatMap((row) =>
-        row.livePty && row.usage.status !== 'unsupported'
-          ? [{ handle: row.handle, livePty: row.livePty }]
-          : [],
-      ),
-    }
-    this.observeRequest = request
-    this.requestObservation(demandGeneration, request)
+    this.updateProjectionTargets(projection)
+    this.requestObservation(demandGeneration)
     let released = false
     return () => {
       if (released) return
@@ -123,13 +116,25 @@ export class SessionsUsageCoordinator {
   }
 
   configure(
+    projection: SessionsProjectionSnapshot,
     rows: readonly SessionsProjectionRow[],
     mode: SessionsUsageMode,
     windowMs: SessionsUsageWindow,
   ): void {
+    const previous = this.projection
+    this.projection = projection
     this.presentation = { rows, mode, windowMs }
+    this.updateProjectionTargets(projection)
     if (this.current.status !== 'inactive') {
       this.publish(this.current.status, this.current.sampledAt)
+    }
+    if (
+      this.active &&
+      projection.status === 'available' &&
+      (!previous ||
+        usageRequestFingerprint(previous) !== usageRequestFingerprint(projection))
+    ) {
+      this.requestObservation(this.demandGeneration)
     }
   }
 
@@ -140,17 +145,21 @@ export class SessionsUsageCoordinator {
     this.listeners.clear()
   }
 
-  private requestObservation(
-    demandGeneration: number,
-    request: SessionsUsageDemandRequest,
-  ): void {
-    if (!this.isCurrent(demandGeneration) || this.inFlight) return
+  private requestObservation(demandGeneration: number): void {
+    if (!this.isCurrent(demandGeneration)) return
+    if (this.inFlight) {
+      this.observationPending = true
+      return
+    }
+    const request = this.currentRequest(demandGeneration)
+    if (!request) return
     this.inFlight = true
+    this.observationPending = false
     void this.main.observe(request).then(
       (snapshot) => {
         if (!this.isCurrent(demandGeneration)) return
         this.inFlight = false
-        if (!this.acceptSnapshot(demandGeneration, snapshot, true)) {
+        if (!this.acceptSnapshot(demandGeneration, snapshot, !this.observed)) {
           this.publish('unavailable', this.clock.now())
         } else {
           this.observed = true
@@ -217,9 +226,10 @@ export class SessionsUsageCoordinator {
     )
     for (const row of snapshot.rows) {
       const usageSample = { sampledAt: snapshot.sampledAt, usage: row.usage }
-      const history = sample
-        ? appendSessionsUsageSample(histories.get(row.handle), usageSample)
-        : appendSessionsUsageStateBoundary(histories.get(row.handle), usageSample)
+      const history =
+        sample || histories.get(row.handle) === undefined
+          ? appendSessionsUsageSample(histories.get(row.handle), usageSample)
+          : appendSessionsUsageStateBoundary(histories.get(row.handle), usageSample)
       if (history) histories.set(row.handle, history)
     }
     this.facts = facts
@@ -234,14 +244,18 @@ export class SessionsUsageCoordinator {
       this.timer = undefined
       if (!this.isCurrent(demandGeneration)) return
       if (this.observed) this.requestSnapshot(demandGeneration, true)
-      else if (this.observeRequest) {
-        this.requestObservation(demandGeneration, this.observeRequest)
+      else {
+        this.requestObservation(demandGeneration)
       }
       this.schedule(demandGeneration)
     }, SESSIONS_USAGE_SAMPLE_CADENCE_MS)
   }
 
   private drainPending(demandGeneration: number): void {
+    if (this.observationPending && this.isCurrent(demandGeneration)) {
+      this.requestObservation(demandGeneration)
+      return
+    }
     if (!this.refreshPending || !this.isCurrent(demandGeneration)) return
     const sample = this.samplePending
     this.refreshPending = false
@@ -260,8 +274,9 @@ export class SessionsUsageCoordinator {
     this.inFlight = false
     this.refreshPending = false
     this.samplePending = false
+    this.observationPending = false
     this.observed = false
-    this.observeRequest = undefined
+    this.targetQualifiers.clear()
     this.facts = EMPTY_FACTS
     this.histories = EMPTY_HISTORIES
     this.current = INACTIVE
@@ -299,6 +314,63 @@ export class SessionsUsageCoordinator {
   private isCurrent(demandGeneration: number): boolean {
     return !this.disposed && this.active && this.demandGeneration === demandGeneration
   }
+
+  private currentRequest(
+    demandGeneration: number,
+  ): SessionsUsageDemandRequest | undefined {
+    const projection = this.projection
+    if (projection?.status !== 'available') return undefined
+    return {
+      demandGeneration,
+      projectionDemandGeneration: projection.demandGeneration,
+      sourceRevision: projection.sourceRevision,
+      targets: usageTargets(projection),
+    }
+  }
+
+  private updateProjectionTargets(projection: SessionsProjectionSnapshot): void {
+    if (projection.status !== 'available') return
+    const next = new Map(
+      usageTargets(projection).map((target) => [
+        target.handle,
+        JSON.stringify(target.livePty),
+      ]),
+    )
+    for (const [handle, qualifier] of this.targetQualifiers) {
+      if (next.get(handle) !== qualifier) {
+        if (this.histories !== EMPTY_HISTORIES) {
+          const histories = new Map(this.histories)
+          histories.delete(handle)
+          this.histories = histories
+        }
+        if (!next.has(handle) && this.facts !== EMPTY_FACTS) {
+          const facts = new Map(this.facts)
+          facts.delete(handle)
+          this.facts = facts
+        }
+      }
+    }
+    this.targetQualifiers = next
+  }
+}
+
+function usageTargets(
+  projection: SessionsProjectionSnapshot,
+): SessionsUsageDemandRequest['targets'] {
+  return projection.rows.flatMap((row) =>
+    row.livePty && row.usage.status !== 'unsupported'
+      ? [{ handle: row.handle, livePty: row.livePty }]
+      : [],
+  )
+}
+
+function usageRequestFingerprint(projection: SessionsProjectionSnapshot): string {
+  if (projection.status !== 'available') return projection.status
+  return JSON.stringify([
+    projection.demandGeneration,
+    projection.sourceRevision,
+    usageTargets(projection),
+  ])
 }
 
 export function createSessionsUsageMainPort(

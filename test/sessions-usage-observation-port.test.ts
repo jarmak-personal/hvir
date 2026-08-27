@@ -117,6 +117,45 @@ describe('SessionsUsageObservationPort', () => {
     expect(fixture.releases[0]).toHaveBeenCalledOnce()
   })
 
+  it('reconciles leases per opaque handle without revoking an unchanged session', () => {
+    const fixture = createFixture()
+    const initialRequest = request(4, [
+      ['terminal-1', 'instance-1'],
+      ['terminal-2', 'instance-2'],
+    ])
+    fixture.port.acquire(owner, initialRequest)
+    expect(fixture.acquired).toHaveLength(2)
+
+    fixture.currentUsageTargets.mockImplementation((_owner, _generation, targets) => {
+      const target = targets[0]!
+      if (target.handle === 'terminal-2') throw new Error('exact target changed')
+      return fixture.resolveTargets(owner, { ...initialRequest, targets })
+    })
+    fixture.sourceChanged()
+
+    expect(fixture.releases[0]).not.toHaveBeenCalled()
+    expect(fixture.releases[1]).toHaveBeenCalledOnce()
+    expect(fixture.port.snapshot(owner, 4).rows).toEqual([
+      expect.objectContaining({ handle: 'terminal-1' }),
+      {
+        handle: 'terminal-2',
+        usage: { status: 'unavailable', reason: 'source-unavailable' },
+      },
+    ])
+
+    const currentRequest = request(4, [
+      ['terminal-1', 'instance-1'],
+      ['terminal-2', 'instance-2-new'],
+    ])
+    fixture.port.acquire(owner, { ...currentRequest, sourceRevision: 8 })
+    expect(fixture.acquired).toHaveLength(3)
+    expect(fixture.releases[0]).not.toHaveBeenCalled()
+    expect(fixture.acquired[2]?.target.instanceId).toBe('instance-2-new')
+    fixture.port.release(owner, 4)
+    expect(fixture.releases[0]).toHaveBeenCalledOnce()
+    expect(fixture.releases[2]).toHaveBeenCalledOnce()
+  })
+
   it('starts the shared observer when the same live PTY finishes identity discovery', () => {
     const fixture = createFixture()
     fixture.resolveUsageObservation.mockReturnValueOnce({ status: 'pending' })
@@ -202,10 +241,10 @@ function createFixture(host = projectHost('local')) {
     })),
   )
   const resolveUsageObservation = vi.fn(
-    (_id: string, _instanceId: string): PtyUsageObservationResolution => ({
+    (_id: string, instanceId: string): PtyUsageObservationResolution => ({
       status: 'available',
       target: {
-        instanceId: 'instance-1',
+        instanceId,
         providerId,
         host,
         sessionId: '00000000-0000-4000-8000-000000000001',
@@ -272,21 +311,22 @@ function createFixture(host = projectHost('local')) {
   }
 }
 
-function request(demandGeneration: number): SessionsUsageDemandRequest {
+function request(
+  demandGeneration: number,
+  identities: readonly (readonly [string, string])[] = [['terminal-1', 'instance-1']],
+): SessionsUsageDemandRequest {
   return {
     demandGeneration,
     projectionDemandGeneration: 5,
     sourceRevision: 7,
-    targets: [
-      {
-        handle: asSessionsTerminalHandle('terminal-1'),
-        livePty: {
-          handle: asSessionsPtyHandle('instance-1'),
-          rendererOwnerId: owner.id,
-          rendererGeneration: owner.generation,
-        },
+    targets: identities.map(([handle, instance]) => ({
+      handle: asSessionsTerminalHandle(handle),
+      livePty: {
+        handle: asSessionsPtyHandle(instance),
+        rendererOwnerId: owner.id,
+        rendererGeneration: owner.generation,
       },
-    ],
+    })),
   }
 }
 

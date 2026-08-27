@@ -6,7 +6,11 @@ import { createProjectFileOperationCoordinator } from '../project-file-operation
 import { ProjectFolderPickerCoordinator } from '../project-folder-picker'
 import { createDocumentReviewRuntime } from '../document-review'
 import { HarnessProfileStore } from '../harness/harness-profile-store'
-import { harnessProviderCatalog, harnessProviders } from '../harness/harness-provider'
+import {
+  HarnessProviderRegistry,
+  harnessProviderCatalog,
+  harnessProviders,
+} from '../harness/harness-provider'
 import { HarnessUsageDemandController } from '../harness/harness-usage-demand-controller'
 import type { HarnessProbeManager } from '../harness/harness-probe'
 import type { HtmlPreviewProtocol } from '../html-preview-protocol'
@@ -56,6 +60,7 @@ import { verifyViewerContent } from './viewer-content'
 import { verifyWorkbenchHealthFault } from './workbench-health'
 import { verifyRendererProcessRecovery } from './renderer-recovery'
 import { verifySessionsProjectionSmoke } from './sessions-projection'
+import { sessionsUsageSmokeProvider } from './sessions-usage-provider'
 import type { ElectronSmokeMode } from './scenario-selection.mts'
 import { createTerminalMoveSmokeHarness, verifyTerminalMoveSmoke } from './terminal-move'
 import { createSmokeTerminalSessionStore } from './terminal-session-store'
@@ -601,6 +606,10 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     }
     const smokeTerminalSessionHarness = createSmokeTerminalSessionStore(smokeRoot)
     const smokeTerminalSessions = smokeTerminalSessionHarness.store
+    const smokeSessionsProviders = new HarnessProviderRegistry([
+      ...harnessProviders.all(),
+      sessionsUsageSmokeProvider,
+    ])
     const smokeHarnessProfiles = await HarnessProfileStore.load(host, harnessProfilesPath)
     await host.removeFile(documentReviewPath, { ignoreMissing: true })
     cleanup.defer('document review draft', () =>
@@ -650,7 +659,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       projectState: () => smokeIpcProjectState,
       hosts: smokeHostOptions,
       providers: () =>
-        harnessProviders.all().map((provider) => ({
+        smokeSessionsProviders.all().map((provider) => ({
           id: provider.manifest.id,
           displayName: provider.manifest.displayName,
           telemetrySupported: Boolean(provider.telemetry),
@@ -675,7 +684,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       },
     })
     cleanup.defer('Sessions observation', () => sessionsObservation.dispose())
-    const sessionsUsageDemand = new HarnessUsageDemandController(harnessProviders)
+    const sessionsUsageDemand = new HarnessUsageDemandController(smokeSessionsProviders)
     cleanup.defer('Sessions usage demand', () => sessionsUsageDemand.dispose())
     const sessionsUsage = new SessionsUsageObservationPort({
       sessions: sessionsObservation,
@@ -991,6 +1000,8 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
           roots: [smokeWebSwitchRoot, smokeCloseableRoot, smokeRemoteRoot],
           addRetained: smokeTerminalSessionHarness.add,
           supervisor,
+          usageHost: host,
+          usageProvider: sessionsUsageSmokeProvider,
         })
       } finally {
         acceptedRendererReadySink = undefined

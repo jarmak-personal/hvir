@@ -12,6 +12,7 @@ import {
   sessionsWorkspaceQualifier,
   type SessionsProjectionRow,
   type SessionsProjectionSnapshot,
+  type SessionsTerminalHandle,
   type SessionsUsageChange,
   type SessionsUsageDemandRequest,
   type SessionsUsageSnapshot,
@@ -23,7 +24,7 @@ describe('SessionsUsageCoordinator', () => {
     const main = new TestMain(usageSnapshot(1, 0, 10))
     const coordinator = new SessionsUsageCoordinator(main, clock)
     const projected = projection()
-    coordinator.configure(projected.rows, 'session-total', 60_000)
+    coordinator.configure(projected, projected.rows, 'session-total', 60_000)
     const release = coordinator.acquire(projected)
     await settle()
 
@@ -75,7 +76,7 @@ describe('SessionsUsageCoordinator', () => {
     const clock = new TestClock()
     const coordinator = new SessionsUsageCoordinator(main, clock)
     const projected = projection()
-    coordinator.configure(projected.rows, 'recent', 60_000)
+    coordinator.configure(projected, projected.rows, 'recent', 60_000)
     const release = coordinator.acquire(projected)
     await settle()
 
@@ -90,12 +91,91 @@ describe('SessionsUsageCoordinator', () => {
     expect(main.release).toHaveBeenCalledExactlyOnceWith(1)
   })
 
+  it('rebuilds a failed observation retry from the current projection revision', async () => {
+    const main = new TestMain(usageSnapshot(1, 0, 10))
+    let rejectStale!: (reason: Error) => void
+    main.observe.mockImplementationOnce(
+      () =>
+        new Promise<SessionsUsageSnapshot>((_resolve, reject) => {
+          rejectStale = reject
+        }),
+    )
+    const coordinator = new SessionsUsageCoordinator(main, new TestClock())
+    const stale = projection()
+    coordinator.configure(stale, stale.rows, 'recent', 60_000)
+    const release = coordinator.acquire(stale)
+    await settle()
+
+    const current = { ...stale, sourceRevision: stale.sourceRevision + 1 }
+    coordinator.configure(current, current.rows, 'recent', 60_000)
+    rejectStale(new Error('Sessions usage projection is no longer current'))
+    await settle()
+
+    expect(main.observe).toHaveBeenCalledTimes(2)
+    expect(main.observe.mock.calls.map(([request]) => request.sourceRevision)).toEqual([
+      8, 9,
+    ])
+    expect(coordinator.snapshot().status).toBe('available')
+    release()
+  })
+
+  it('preserves unchanged session history when another opaque target changes', async () => {
+    const first = row('first', 'instance-first')
+    const second = row('second', 'instance-second')
+    const initialProjection = projection([first, second])
+    const main = new TestMain(
+      multiUsageSnapshot(1, 0, [
+        [first.handle, 0],
+        [second.handle, 0],
+      ]),
+    )
+    const clock = new TestClock()
+    const coordinator = new SessionsUsageCoordinator(main, clock)
+    coordinator.configure(initialProjection, initialProjection.rows, 'recent', 60_000)
+    const release = coordinator.acquire(initialProjection)
+    await settle()
+
+    main.current = multiUsageSnapshot(1, 10_000, [
+      [first.handle, 10],
+      [second.handle, 20],
+    ])
+    clock.nowValue = 10_000
+    clock.fire()
+    await settle()
+    const firstCoverage = coordinator
+      .snapshot()
+      .ranking.find((entry) => entry.row.handle === first.handle)?.recent.coveragePercent
+
+    const replacement = row('second', 'instance-second-new')
+    const currentProjection = {
+      ...initialProjection,
+      sourceRevision: 9,
+      rows: [first, replacement],
+    }
+    main.current = multiUsageSnapshot(1, 10_000, [
+      [first.handle, 10],
+      [replacement.handle, 0],
+    ])
+    coordinator.configure(currentProjection, currentProjection.rows, 'recent', 60_000)
+    await settle()
+
+    const ranking = coordinator.snapshot().ranking
+    expect(
+      ranking.find((entry) => entry.row.handle === first.handle)?.recent.coveragePercent,
+    ).toBe(firstCoverage)
+    expect(
+      ranking.find((entry) => entry.row.handle === replacement.handle)?.recent
+        .lastActivityAt,
+    ).toBeUndefined()
+    release()
+  })
+
   it('retains an event-reported reset until the next cadence sample', async () => {
     const clock = new TestClock()
     const main = new TestMain(usageSnapshot(1, 0, 100))
     const coordinator = new SessionsUsageCoordinator(main, clock)
     const projected = projection()
-    coordinator.configure(projected.rows, 'recent', 60_000)
+    coordinator.configure(projected, projected.rows, 'recent', 60_000)
     const release = coordinator.acquire(projected)
     await settle()
 
@@ -133,7 +213,7 @@ describe('SessionsUsageCoordinator', () => {
     const clock = new TestClock()
     const coordinator = new SessionsUsageCoordinator(main, clock)
     const projected = projection()
-    coordinator.configure(projected.rows, 'recent', 60_000)
+    coordinator.configure(projected, projected.rows, 'recent', 60_000)
     const release = coordinator.acquire(projected)
     await settle()
 
@@ -195,14 +275,33 @@ class TestClock {
   }
 }
 
-function projection(): SessionsProjectionSnapshot {
+function projection(
+  rows: readonly SessionsProjectionRow[] = [row()],
+): SessionsProjectionSnapshot {
   return {
     version: SESSIONS_PROJECTION_VERSION,
     demandGeneration: 4,
     revision: 6,
     sourceRevision: 8,
     status: 'available',
-    rows: [row()],
+    rows,
+  }
+}
+
+function multiUsageSnapshot(
+  demandGeneration: number,
+  sampledAt: number,
+  values: readonly (readonly [SessionsTerminalHandle, number])[],
+): SessionsUsageSnapshot {
+  return {
+    version: SESSIONS_PROJECTION_VERSION,
+    demandGeneration,
+    revision: 1,
+    sampledAt,
+    rows: values.map(([handle, total]) => ({
+      handle,
+      usage: usageSnapshot(demandGeneration, sampledAt, total).rows[0]!.usage,
+    })),
   }
 }
 
@@ -236,10 +335,10 @@ function usageSnapshot(
   }
 }
 
-function row(): SessionsProjectionRow {
+function row(handle = 'terminal', instance = 'instance'): SessionsProjectionRow {
   const unsupported = { status: 'unsupported' as const }
   return {
-    handle: asSessionsTerminalHandle('terminal'),
+    handle: asSessionsTerminalHandle(handle),
     project: { id: asSessionsProjectHandle('project'), name: 'Project' },
     workspace: {
       id: asSessionsWorkspaceHandle('workspace'),
@@ -270,7 +369,7 @@ function row(): SessionsProjectionRow {
     telemetryFreshness: unsupported,
     usage: { status: 'pending', reason: 'identity-pending' },
     livePty: {
-      handle: asSessionsPtyHandle('instance'),
+      handle: asSessionsPtyHandle(instance),
       rendererOwnerId: 1,
       rendererGeneration: 2,
     },

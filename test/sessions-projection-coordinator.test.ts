@@ -49,6 +49,8 @@ describe('SessionsProjectionCoordinator', () => {
     })
     expect(rows.find((row) => row.handle === 'retained')).toMatchObject({
       lifecycle: 'retained',
+      connectionState: 'disconnected',
+      usage: { status: 'unavailable', reason: 'connection-unavailable' },
       attention: { status: 'unavailable', reason: 'not-materialized' },
       working: { status: 'unavailable', reason: 'not-materialized' },
     })

@@ -24,15 +24,15 @@ import { sessionsUsageFact } from './sessions-usage-projection'
 interface UsageLease {
   readonly owner: RendererOwner
   readonly demandGeneration: number
-  readonly order: readonly SessionsTerminalHandle[]
+  order: readonly SessionsTerminalHandle[]
   readonly projectionDemandGeneration: number
-  readonly targets: SessionsUsageDemandRequest['targets']
-  readonly targetFingerprint: string
+  targets: SessionsUsageDemandRequest['targets']
+  readonly targetFingerprints: Map<SessionsTerminalHandle, string>
+  readonly targetEpochs: Map<SessionsTerminalHandle, number>
   readonly facts: Map<SessionsTerminalHandle, SessionsUsageFact>
   readonly releases: Map<SessionsTerminalHandle, Disposer>
   revision: number
   notifyQueued: boolean
-  revoked: boolean
 }
 
 export interface SessionsUsageObservationPortOptions {
@@ -63,6 +63,8 @@ export class SessionsUsageObservationPort {
     const key = ownerKey(owner)
     const current = this.leases.get(key)
     if (current?.demandGeneration === request.demandGeneration) {
+      const targets = this.options.sessions.resolveUsageTargets(owner, request)
+      this.reconcileRequest(current, request, targets)
       return this.snapshot(owner, request.demandGeneration)
     }
     if (current) throw new Error('Sessions usage demand is already active')
@@ -74,19 +76,17 @@ export class SessionsUsageObservationPort {
       order: targets.map((target) => target.handle),
       projectionDemandGeneration: request.projectionDemandGeneration,
       targets: request.targets,
-      targetFingerprint: usageTargetsFingerprint(targets),
+      targetFingerprints: new Map(),
+      targetEpochs: new Map(),
       facts: new Map(),
       releases: new Map(),
       revision: 1,
       notifyQueued: false,
-      revoked: false,
     }
     this.leases.set(key, lease)
     this.startSourceObservation()
 
-    for (const target of targets) {
-      this.observeTarget(lease, target, false)
-    }
+    for (const target of targets) this.reconcileTarget(lease, target, false)
     return this.snapshot(owner, request.demandGeneration)
   }
 
@@ -140,33 +140,24 @@ export class SessionsUsageObservationPort {
   }
 
   private reconcileSourceChange(lease: UsageLease): void {
-    if (!this.currentLease(lease) || lease.revoked) return
-    try {
-      const current = this.options.sessions.currentUsageTargets(
-        lease.owner,
-        lease.projectionDemandGeneration,
-        lease.targets,
-      )
-      if (usageTargetsFingerprint(current) === lease.targetFingerprint) {
-        for (const target of current) this.observeTarget(lease, target, true)
-        return
-      }
-    } catch {
-      // The exact target disappeared; revoke below.
-    }
-    lease.revoked = true
-    for (const release of [...lease.releases.values()].reverse()) void release()
-    lease.releases.clear()
-    for (const [handle, fact] of lease.facts) {
-      if (fact.status !== 'unsupported') {
-        lease.facts.set(handle, {
+    if (!this.currentLease(lease)) return
+    for (const target of lease.targets) {
+      try {
+        const current = this.options.sessions.currentUsageTargets(
+          lease.owner,
+          lease.projectionDemandGeneration,
+          [target],
+        )[0]
+        if (!current) throw new Error('Sessions usage target is unavailable')
+        this.reconcileTarget(lease, current, true)
+      } catch {
+        this.stopTarget(lease, target.handle)
+        this.updateFact(lease, target.handle, {
           status: 'unavailable',
           reason: 'source-unavailable',
         })
       }
     }
-    lease.revision += 1
-    this.queueNotification(lease)
   }
 
   private queueNotification(lease: UsageLease): void {
@@ -183,10 +174,10 @@ export class SessionsUsageObservationPort {
   }
 
   private stopLease(lease: UsageLease): void {
-    lease.revoked = true
-    for (const release of [...lease.releases.values()].reverse()) void release()
-    lease.releases.clear()
+    for (const handle of lease.order) this.stopTarget(lease, handle)
     lease.facts.clear()
+    lease.targetFingerprints.clear()
+    lease.targetEpochs.clear()
   }
 
   private startSourceObservation(): void {
@@ -207,6 +198,8 @@ export class SessionsUsageObservationPort {
     notify: boolean,
   ): void {
     if (lease.releases.has(target.handle)) return
+    const epoch = (lease.targetEpochs.get(target.handle) ?? 0) + 1
+    lease.targetEpochs.set(target.handle, epoch)
     const setFact = (usage: SessionsUsageFact): void => {
       if (notify) this.updateFact(lease, target.handle, usage)
       else lease.facts.set(target.handle, usage)
@@ -243,7 +236,10 @@ export class SessionsUsageObservationPort {
         demandGeneration: lease.demandGeneration,
         target: resolution.target,
         emit: (telemetry) => {
-          if (this.currentLease(lease)) {
+          if (
+            this.currentLease(lease) &&
+            lease.targetEpochs.get(target.handle) === epoch
+          ) {
             this.updateFact(
               lease,
               target.handle,
@@ -252,14 +248,19 @@ export class SessionsUsageObservationPort {
           }
         },
       }
-      lease.releases.set(target.handle, this.options.usage.acquire(demand))
+      const release = this.options.usage.acquire(demand)
+      if (this.currentLease(lease) && lease.targetEpochs.get(target.handle) === epoch) {
+        lease.releases.set(target.handle, release)
+      } else {
+        void release()
+      }
     } catch {
       setFact({ status: 'unavailable', reason: 'source-unavailable' })
     }
   }
 
   private currentLease(lease: UsageLease): boolean {
-    return !lease.revoked && this.ownsLease(lease)
+    return this.ownsLease(lease)
   }
 
   private ownsLease(lease: UsageLease): boolean {
@@ -277,6 +278,53 @@ export class SessionsUsageObservationPort {
       throw new Error('Invalid Sessions usage demand')
     }
   }
+
+  private reconcileRequest(
+    lease: UsageLease,
+    request: SessionsUsageDemandRequest,
+    targets: readonly SessionsResolvedUsageTarget[],
+  ): void {
+    if (lease.projectionDemandGeneration !== request.projectionDemandGeneration) {
+      throw new Error('Sessions usage projection demand changed')
+    }
+    const nextHandles = new Set(targets.map((target) => target.handle))
+    const orderChanged =
+      targets.length !== lease.order.length ||
+      targets.some((target, index) => lease.order[index] !== target.handle)
+    for (const handle of lease.order) {
+      if (nextHandles.has(handle)) continue
+      this.stopTarget(lease, handle)
+      lease.facts.delete(handle)
+      lease.targetFingerprints.delete(handle)
+      lease.targetEpochs.delete(handle)
+    }
+    lease.order = targets.map((target) => target.handle)
+    lease.targets = request.targets
+    for (const target of targets) this.reconcileTarget(lease, target, false)
+    if (orderChanged) lease.revision += 1
+  }
+
+  private reconcileTarget(
+    lease: UsageLease,
+    target: SessionsResolvedUsageTarget,
+    notify: boolean,
+  ): void {
+    const fingerprint = usageTargetFingerprint(target)
+    if (lease.targetFingerprints.get(target.handle) === fingerprint) {
+      this.observeTarget(lease, target, notify)
+      return
+    }
+    this.stopTarget(lease, target.handle)
+    lease.targetFingerprints.set(target.handle, fingerprint)
+    this.observeTarget(lease, target, notify)
+  }
+
+  private stopTarget(lease: UsageLease, handle: SessionsTerminalHandle): void {
+    lease.targetEpochs.set(handle, (lease.targetEpochs.get(handle) ?? 0) + 1)
+    const release = lease.releases.get(handle)
+    lease.releases.delete(handle)
+    void release?.()
+  }
 }
 
 function ownerKey(owner: RendererOwner): string {
@@ -287,28 +335,13 @@ function positiveGeneration(value: number): boolean {
   return Number.isSafeInteger(value) && value > 0
 }
 
-function usageTargetsFingerprint(
-  targets: readonly {
-    readonly handle: SessionsTerminalHandle
-    readonly livePty?: {
-      readonly handle: string
-      readonly rendererOwnerId: number
-      readonly rendererGeneration: number
-    }
-    readonly providerId?: string
-    readonly usageSupported?: boolean
-    readonly connectionState?: string
-  }[],
-): string {
-  return JSON.stringify(
-    targets.map((target) => [
-      target.handle,
-      target.livePty?.handle,
-      target.livePty?.rendererOwnerId,
-      target.livePty?.rendererGeneration,
-      target.providerId,
-      target.usageSupported,
-      target.connectionState,
-    ]),
-  )
+function usageTargetFingerprint(target: SessionsResolvedUsageTarget): string {
+  return JSON.stringify([
+    target.livePty?.handle,
+    target.livePty?.rendererOwnerId,
+    target.livePty?.rendererGeneration,
+    target.providerId,
+    target.usageSupported,
+    target.connectionState,
+  ])
 }

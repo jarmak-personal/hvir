@@ -371,9 +371,11 @@ function projectRow(
     usage:
       provider?.usageSupported !== true
         ? { status: 'unsupported' }
-        : main?.livePty
-          ? { status: 'pending', reason: 'identity-pending' }
-          : { status: 'unavailable', reason: 'not-live' },
+        : workspace.host.connectionState !== 'connected'
+          ? { status: 'unavailable', reason: 'connection-unavailable' }
+          : main?.livePty
+            ? { status: 'pending', reason: 'identity-pending' }
+            : { status: 'unavailable', reason: 'not-live' },
     livePty: main?.livePty,
   }
 }

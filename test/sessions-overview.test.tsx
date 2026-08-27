@@ -41,6 +41,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   host.remove()
+  vi.useRealTimers()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
@@ -379,8 +380,11 @@ describe('SessionsOverview', () => {
     expect(host.textContent).toContain('Reasoning (part of output)')
     expect(host.querySelectorAll('.sessions-usage-ranking > li')).toHaveLength(2)
     expect(
-      host.querySelector('[aria-label*="200 tokens for this session"]'),
-    ).not.toBeNull()
+      [...host.querySelectorAll('.sessions-visually-hidden')].some((label) =>
+        label.textContent?.includes('200 tokens for this session'),
+      ),
+    ).toBe(true)
+    expect(host.querySelector('.sessions-usage-ranking strong[aria-label]')).toBeNull()
     const agent = [
       ...host.querySelectorAll<HTMLElement>('.sessions-usage-ranking > li'),
     ].find((row) => row.textContent?.includes('Agent terminal'))!
@@ -407,6 +411,95 @@ describe('SessionsOverview', () => {
     })
     expect(api.usageRelease).toHaveBeenCalledExactlyOnceWith(1)
     expect(api.usageSnapshot).toHaveBeenCalled()
+  })
+
+  it('keeps quiet, unsupported, and unavailable rows with reliable accessible values', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const base = snapshot(1)
+    const unavailableHandle = asSessionsTerminalHandle('terminal-unavailable')
+    const unavailablePty = asSessionsPtyHandle('live-instance-unavailable')
+    installApi({
+      snapshot: (demandGeneration) => ({
+        ...base,
+        demandGeneration,
+        sessions: [
+          ...base.sessions,
+          {
+            ...base.sessions[0]!,
+            handle: unavailableHandle,
+            title: 'Unavailable terminal',
+            livePty: {
+              handle: unavailablePty,
+              rendererOwnerId: 4,
+              rendererGeneration: 6,
+            },
+          },
+        ],
+      }),
+      usageSnapshot: (demandGeneration, targets) => ({
+        version: SESSIONS_PROJECTION_VERSION,
+        demandGeneration,
+        revision: 1,
+        sampledAt: Date.now(),
+        rows: targets.map((target) => ({
+          handle: target.handle,
+          usage:
+            target.handle === unavailableHandle
+              ? ({ status: 'unavailable', reason: 'source-unavailable' } as const)
+              : ({
+                  status: 'exact',
+                  observedAt: Date.now(),
+                  value: {
+                    freshInputTokens: 0,
+                    cacheReadInputTokens: 0,
+                    cacheWriteInputTokens: 0,
+                    outputTokens: 0,
+                    normalizedTokenTotal: 0,
+                  },
+                } as const),
+        })),
+      }),
+    })
+    await renderOverview({
+      observation: {
+        snapshot: () => [
+          ...rendererSessions(),
+          {
+            ...rendererSessions()[0]!,
+            handle: unavailableHandle,
+            title: 'Unavailable terminal',
+          },
+        ],
+        subscribe: () => () => undefined,
+      },
+    })
+    await act(async () => {
+      button('Usage').click()
+      await settle()
+      button('1 minute').click()
+      for (let sample = 0; sample < 6; sample += 1) {
+        vi.advanceTimersByTime(10_000)
+        await settle()
+      }
+    })
+
+    expect(host.querySelectorAll('.sessions-usage-ranking > li')).toHaveLength(3)
+    expect(host.textContent).toContain('No activity in 1 minute')
+    expect(host.textContent).toContain('Unsupported · capability state')
+    expect(host.textContent).toContain('Unavailable · Source unavailable')
+    expect(
+      [...host.querySelectorAll('.sessions-visually-hidden')].map(
+        (label) => label.textContent,
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('0 tokens in the last 1 minute'),
+        expect.stringContaining('Unsupported usage; not ranked'),
+        expect.stringContaining('Unavailable usage; not ranked'),
+      ]),
+    )
+    vi.useRealTimers()
   })
 
   it('keeps the Usage ranking mount bounded at projection capacity', async () => {

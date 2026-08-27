@@ -45,15 +45,6 @@ export function SessionsUsageLens({
   const source = coordinator.current
   const projectionRef = useRef(projection)
   projectionRef.current = projection
-  const targetFingerprint = projection.rows
-    .flatMap((row) =>
-      row.livePty && row.usage.status !== 'unsupported'
-        ? [
-            `${row.handle}\0${row.livePty.handle}\0${row.livePty.rendererOwnerId}\0${row.livePty.rendererGeneration}\0${row.connectionState}`,
-          ]
-        : [],
-    )
-    .join('\n')
   const usage = useSyncExternalStore(source.subscribe, source.snapshot, source.snapshot)
   const [mode, setMode] = useState<SessionsUsageMode>('recent')
   const [windowMs, setWindowMs] = useState<SessionsUsageWindow>(SESSIONS_USAGE_WINDOWS[1])
@@ -61,17 +52,14 @@ export function SessionsUsageLens({
   const rowElements = useRef(new Map<SessionsTerminalHandle, HTMLElement>())
   const pendingFocus = useRef<SessionsTerminalHandle | undefined>(undefined)
 
-  useEffect(() => source.configure(rows, mode, windowMs), [mode, rows, source, windowMs])
+  useEffect(
+    () => source.configure(projection, rows, mode, windowMs),
+    [mode, projection, rows, source, windowMs],
+  )
   useEffect(() => {
     if (!foreground || projection.status !== 'available') return
     return source.acquire(projectionRef.current)
-  }, [
-    foreground,
-    projection.demandGeneration,
-    projection.status,
-    source,
-    targetFingerprint,
-  ])
+  }, [foreground, projection.demandGeneration, projection.status, source])
   useEffect(() => () => source.dispose(), [source])
 
   const ranked = usage.ranking
@@ -292,8 +280,11 @@ function UsageRankRow({
             {entry.row.provider.name}
           </p>
         </div>
-        <strong aria-label={usageValueAccessible(primary, entry, mode, windowMs)}>
-          {usageValueCompact(primary, entry, mode)}
+        <strong>
+          <span aria-hidden="true">{usageValueCompact(primary, entry, mode)}</span>
+          <span className="sessions-visually-hidden">
+            {usageValueAccessible(primary, entry, mode, windowMs)}
+          </span>
         </strong>
       </header>
       <div className="sessions-usage-bar" aria-hidden="true">
