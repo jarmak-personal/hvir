@@ -1,4 +1,4 @@
-import type { BrowserWindow } from 'electron'
+import { app, type BrowserWindow } from 'electron'
 
 import type { PtySupervisor } from '../pty/pty-supervisor'
 
@@ -74,6 +74,13 @@ export interface TerminalLivePresentationCapacityReport {
   readonly shapedRuns: number
   readonly shapedCells: number
   readonly maxRunCells: number
+}
+
+export interface SessionsTerminalCapacityReport {
+  readonly liveTerminals: number
+  readonly ghosttyInstances: number
+  readonly sessionsPresented: number
+  readonly hiddenRenderFrameDelta: number
 }
 
 export async function waitForCapacityTerminalCount(
@@ -197,6 +204,154 @@ export async function activateCapacityTerminal(
     `),
     `capacity terminal ${position} activation timed out`,
   )
+}
+
+/** Move one of twelve live panes through Sessions without allocating presentation work. */
+export async function verifyCapacitySessionsTerminalDetail(
+  win: BrowserWindow,
+  supervisor: PtySupervisor,
+): Promise<SessionsTerminalCapacityReport> {
+  if (supervisor.list().length !== 12) {
+    throw new Error('Sessions capacity detail requires twelve live terminals')
+  }
+  win.show()
+  const focusDeadline = Date.now() + 5_000
+  while (!((await win.webContents.executeJavaScript(`document.hasFocus()`)) as boolean)) {
+    app.focus({ steal: true })
+    win.focus()
+    win.webContents.focus()
+    if (Date.now() > focusDeadline) {
+      throw new Error('Sessions capacity detail window did not regain focus')
+    }
+    await delay(25)
+  }
+  return (await withTimeout(
+    win.webContents.executeJavaScript(`
+      new Promise((resolve, reject) => {
+        const deadline = Date.now() + 20000;
+        const fail = (message) => reject(new Error(message));
+        const engines = [...document.querySelectorAll('.terminal-engine-host')];
+        if (engines.length !== 12) return fail('capacity Ghostty topology missing');
+        const original = new Set(engines);
+        const sameEngines = () => {
+          const current = [...document.querySelectorAll('.terminal-engine-host')];
+          return current.length === original.size && current.every((node) => original.has(node));
+        };
+        const sessions = document.querySelector('.sessions-destination');
+        if (!(sessions instanceof HTMLButtonElement)) {
+          return fail('Sessions destination unavailable');
+        }
+        sessions.click();
+        let detailEngine;
+        const overviewSnapshot = () => ({
+          destinationActive: document.querySelector('.sessions-destination')
+            ?.classList.contains('active') ?? false,
+          overview: Boolean(document.querySelector('.sessions-overview')),
+          cards: document.querySelectorAll('.session-card').length,
+          interact: [...document.querySelectorAll('.session-card button')]
+            .filter((button) => button.textContent?.trim() === 'Interact').length,
+          notices: [...document.querySelectorAll('.sessions-notice')]
+            .map((notice) => notice.textContent?.trim() || '')
+        });
+        const waitForOverview = () => {
+          const cards = [...document.querySelectorAll('.session-card')];
+          const interact = [...document.querySelectorAll('.session-card button')]
+            .filter((button) => button.textContent?.trim() === 'Interact');
+          if (cards.length >= 12 && interact.length === 12 && interact[0] instanceof HTMLButtonElement) {
+            interact[0].click();
+            return waitForDetail();
+          }
+          if (Date.now() > deadline) {
+            return fail('twelve Sessions rows did not settle: ' + JSON.stringify(overviewSnapshot()));
+          }
+          setTimeout(waitForOverview, 25);
+        };
+        const waitForDetail = () => {
+          const container = document.querySelector('.sessions-detail-terminal-container');
+          const current = container?.querySelector('.terminal-engine-host');
+          const delivery = container?.__hvirTerminalDelivery;
+          const stats = current?.__hvirTerminalPerformance;
+          const presented = [...document.querySelectorAll('.terminal-engine-host')]
+            .filter((engine) => engine.parentElement?.__hvirTerminalDelivery?.presentation === 'visible');
+          if (
+            current instanceof HTMLElement &&
+            sameEngines() &&
+            delivery?.presentation === 'visible' &&
+            stats?.paused === false &&
+            presented.length === 1 &&
+            presented[0] === current
+          ) {
+            detailEngine = current;
+            const back = [...document.querySelectorAll('.sessions-detail-actions button')]
+              .find((button) => button.textContent?.trim() === 'Back to Sessions');
+            if (!(back instanceof HTMLButtonElement)) return fail('Sessions back control missing');
+            back.click();
+            return waitForRelease();
+          }
+          if (Date.now() > deadline) return fail('Sessions detail surface did not settle');
+          setTimeout(waitForDetail, 25);
+        };
+        const waitForRelease = () => {
+          const parent = detailEngine?.parentElement;
+          const stats = detailEngine?.__hvirTerminalPerformance;
+          const delivery = parent?.__hvirTerminalDelivery;
+          if (
+            !document.querySelector('.sessions-terminal-detail') &&
+            detailEngine instanceof HTMLElement &&
+            sameEngines() &&
+            parent?.classList.contains('terminal-container') &&
+            !parent.classList.contains('sessions-detail-terminal-container') &&
+            delivery?.presentation === 'hidden' &&
+            stats?.paused === true &&
+            stats?.pendingFrame === false
+          ) {
+            const renderFrames = stats.renderFrames;
+            return setTimeout(() => finishHidden(renderFrames), 300);
+          }
+          if (Date.now() > deadline) return fail('Sessions detail surface did not restore');
+          setTimeout(waitForRelease, 25);
+        };
+        const finishHidden = (renderFrames) => {
+          const parent = detailEngine?.parentElement;
+          const stats = detailEngine?.__hvirTerminalPerformance;
+          const delivery = parent?.__hvirTerminalDelivery;
+          if (
+            !sameEngines() ||
+            stats?.paused !== true ||
+            stats?.pendingFrame !== false ||
+            delivery?.presentation !== 'hidden' ||
+            stats.renderFrames !== renderFrames
+          ) return fail('released Sessions surface retained recurring presentation work');
+          const restore = document.querySelector('.sessions-return');
+          if (!(restore instanceof HTMLButtonElement)) return fail('workspace return missing');
+          restore.click();
+          return waitForWorkspace(renderFrames);
+        };
+        const waitForWorkspace = (hiddenFrames) => {
+          const stats = detailEngine?.__hvirTerminalPerformance;
+          const parent = detailEngine?.parentElement;
+          if (
+            !document.querySelector('.sessions-overview') &&
+            sameEngines() &&
+            parent?.__hvirTerminalDelivery?.presentation === 'visible' &&
+            stats?.paused === false
+          ) {
+            return resolve({
+              liveTerminals: 12,
+              ghosttyInstances: original.size,
+              sessionsPresented: 1,
+              hiddenRenderFrameDelta: 0
+            });
+          }
+          if (Date.now() > deadline) return fail('workspace surface did not return');
+          setTimeout(() => waitForWorkspace(hiddenFrames), 25);
+        };
+        waitForOverview();
+      })
+    `),
+    'Sessions terminal capacity detail timed out',
+    25_000,
+  )) as SessionsTerminalCapacityReport
 }
 
 export async function readTerminalPresentation(

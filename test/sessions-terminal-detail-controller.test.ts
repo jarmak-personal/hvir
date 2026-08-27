@@ -67,6 +67,7 @@ describe('SessionsTerminalDetailController', () => {
         rendererOwnerId: 12,
         rendererGeneration: 4,
       },
+      demandGeneration: 3,
       projectionRevision: 3,
       sourceRevision: 7,
     })
@@ -83,7 +84,7 @@ describe('SessionsTerminalDetailController', () => {
     expect(controller.snapshot()).toEqual({ status: 'inactive' })
   })
 
-  it('renews renderer-only projection revisions but revokes before a changed PTY is resolved', async () => {
+  it('renews freshness-only revisions without releasing, resolving, or refocusing the unchanged target', async () => {
     const firstLease = fakeLease()
     const secondLease = fakeLease()
     const resolve = vi
@@ -104,12 +105,20 @@ describe('SessionsTerminalDetailController', () => {
     controller.open(initial.rows[0]!, initial, true)
     await settle()
 
-    controller.synchronize({ ...initial, revision: 2 }, true)
+    const newer = { ...initial, revision: 2, sourceRevision: 6 }
+    controller.synchronize(newer, true)
     expect(resolve).toHaveBeenCalledOnce()
     expect(firstLease.release).not.toHaveBeenCalled()
     expect(firstLease.renew).toHaveBeenCalledWith(
-      expect.objectContaining({ projectionRevision: 2, sourceRevision: 4 }),
+      expect.objectContaining({
+        demandGeneration: 1,
+        projectionRevision: 2,
+        sourceRevision: 6,
+      }),
     )
+    expect(firstLease.attach).not.toHaveBeenCalled()
+    expect(firstLease.setVisible).not.toHaveBeenCalled()
+    expect(firstLease.focus).not.toHaveBeenCalled()
 
     const replaced = snapshot(3, 5, row('terminal-1', 'pty-2'))
     controller.synchronize(replaced, true)
@@ -117,6 +126,37 @@ describe('SessionsTerminalDetailController', () => {
     expect(controller.snapshot().status).toBe('resolving')
     await settle()
     expect(resolve).toHaveBeenCalledTimes(2)
+    expect(acquire).toHaveBeenCalledTimes(2)
+    expect(controller.snapshot().status).toBe('ready')
+  })
+
+  it('re-resolves an unchanged terminal when its Sessions demand generation changes', async () => {
+    const firstLease = fakeLease()
+    const secondLease = fakeLease()
+    const resolve = vi
+      .fn<SessionsTerminalResolutionPort['resolve']>()
+      .mockResolvedValue(resolved(row('terminal-1', 'pty-1')))
+    const acquire = vi
+      .fn<SessionsTerminalSurfacePort['acquire']>()
+      .mockReturnValueOnce(firstLease.value)
+      .mockReturnValueOnce(secondLease.value)
+    const controller = new SessionsTerminalDetailController(
+      { resolve },
+      { acquire },
+      fakeFrames().value,
+    )
+    const initial = snapshot(1, 4, row('terminal-1', 'pty-1'))
+    controller.open(initial.rows[0]!, initial, true)
+    await settle()
+
+    controller.synchronize(
+      { ...initial, demandGeneration: 2, revision: 2, sourceRevision: 5 },
+      true,
+    )
+
+    expect(firstLease.release).toHaveBeenCalledOnce()
+    expect(resolve).toHaveBeenCalledTimes(2)
+    await settle()
     expect(acquire).toHaveBeenCalledTimes(2)
     expect(controller.snapshot().status).toBe('ready')
   })

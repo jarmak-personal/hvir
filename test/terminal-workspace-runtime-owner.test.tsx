@@ -147,6 +147,7 @@ describe('TerminalWorkspaceRuntimeOwner', () => {
         rendererOwnerId: 8,
         rendererGeneration: 3,
       },
+      demandGeneration: 4,
       projectionRevision: 5,
       sourceRevision: 9,
     }

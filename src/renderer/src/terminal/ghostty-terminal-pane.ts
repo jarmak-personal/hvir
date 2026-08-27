@@ -23,6 +23,7 @@ import type {
   TerminalEventProvenance,
   TerminalEventScreen,
   TerminalPane,
+  TerminalPaneDataSource,
   TerminalPaneEvents,
   TerminalPresentation,
   TerminalSize,
@@ -132,6 +133,27 @@ class ListenerSet<T> {
   }
 }
 
+class DataListenerSet {
+  private readonly listeners = new Set<
+    (data: string, source: TerminalPaneDataSource) => void
+  >()
+
+  on(callback: (data: string, source: TerminalPaneDataSource) => void): Disposer {
+    this.listeners.add(callback)
+    return () => {
+      this.listeners.delete(callback)
+    }
+  }
+
+  emit(data: string, source: TerminalPaneDataSource): void {
+    for (const callback of this.listeners) callback(data, source)
+  }
+
+  clear(): void {
+    this.listeners.clear()
+  }
+}
+
 class GhosttyTerminalPane implements TerminalPane {
   private readonly terminal: GhosttyTerminal
   private readonly fit: TerminalFitController
@@ -171,12 +193,12 @@ class GhosttyTerminalPane implements TerminalPane {
       }
       const data = ghosttyKeyboardOverride(event, options)
       if (data === undefined) return false
-      this.emitInput(data)
+      this.emitData(data, 'user')
       return true
     })
   }
 
-  private readonly dataListeners = new ListenerSet<string>()
+  private readonly dataListeners = new DataListenerSet()
   private readonly clipboardPasteListeners = new ListenerSet<string>()
   private readonly eventListeners = new ListenerSet<TerminalEvent>()
   private readonly resizeListeners = new ListenerSet<TerminalSize>()
@@ -193,6 +215,7 @@ class GhosttyTerminalPane implements TerminalPane {
   }>
   private searchHighlightLayer?: HTMLDivElement
   private hasPresentedFrame = false
+  private processingPtyOutput = 0
 
   readonly events: TerminalPaneEvents = {
     onData: (callback) => this.dataListeners.on(callback),
@@ -236,7 +259,12 @@ class GhosttyTerminalPane implements TerminalPane {
     this.surface = surface
     this.terminal.setRenderPaused(true)
     this.engineDisposers.push(
-      this.terminal.onData((data) => this.emitInput(data)),
+      this.terminal.onData((data) =>
+        this.emitData(
+          data,
+          this.processingPtyOutput > 0 ? 'terminal-response' : 'user',
+        ),
+      ),
       this.terminal.onResize((size) => {
         this.resizeListeners.emit(size)
         this.renderSearchHighlight()
@@ -281,8 +309,13 @@ class GhosttyTerminalPane implements TerminalPane {
 
   write(data: string): void {
     if (this.disposed) return
-    writePreservingViewport(this.terminal, data)
-    this.renderSearchHighlight()
+    this.processingPtyOutput += 1
+    try {
+      writePreservingViewport(this.terminal, data)
+      this.renderSearchHighlight()
+    } finally {
+      this.processingPtyOutput -= 1
+    }
   }
 
   resize(cols: number, rows: number): void {
@@ -478,9 +511,9 @@ class GhosttyTerminalPane implements TerminalPane {
     this.linkListeners.clear()
   }
 
-  private emitInput(data: string): void {
-    this.terminal.resetCursorBlink()
-    this.dataListeners.emit(data)
+  private emitData(data: string, source: TerminalPaneDataSource): void {
+    if (source === 'user') this.terminal.resetCursorBlink()
+    this.dataListeners.emit(data, source)
   }
 
   private retainProvenance(
@@ -595,7 +628,7 @@ class GhosttyTerminalPane implements TerminalPane {
       cellHeight: renderer?.charHeight ?? 16,
     })
     for (const data of result.data) {
-      this.dataListeners.emit(data)
+      this.emitData(data, 'user')
     }
     return result.handled
   }

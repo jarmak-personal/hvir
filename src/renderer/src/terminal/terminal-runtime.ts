@@ -433,11 +433,13 @@ export class TerminalRuntime {
 
   private installPaneListeners(pane: TerminalPane): void {
     this.paneDisposers = [
-      pane.events.onData((data) => {
-        if (!this.surface.canFocus()) return
-        this.options.onInput(data)
-        if (this.started) window.hvir.send('pty:write', { id: this.activePtyId!, data })
-        else this.pendingInput += data
+      pane.events.onData((data, source) => {
+        if (this.pane !== pane) return
+        if (source === 'user' && !this.surface.canFocus()) return
+        if (source === 'user') this.options.onInput(data)
+        if (this.started && this.activePtyId) {
+          window.hvir.send('pty:write', { id: this.activePtyId, data })
+        } else if (source === 'user') this.pendingInput += data
       }),
       pane.events.onClipboardPaste((fallbackData) => {
         if (!this.surface.canFocus()) return
@@ -450,10 +452,10 @@ export class TerminalRuntime {
         } else this.pendingInput += fallbackData
       }),
       pane.events.onResize(({ cols, rows }) => {
-        if (!this.surface.canFocus()) return
+        if (this.pane !== pane) return
         this.interactions.retainedBufferChanged()
         this.terminalSize = { cols, rows }
-        if (!this.started) return
+        if (!this.surface.canFocus() || !this.started) return
         if (this.resizeTimer !== undefined) window.clearTimeout(this.resizeTimer)
         const interactionGeneration = this.surface.interactionGeneration
         const ptyId = this.activePtyId

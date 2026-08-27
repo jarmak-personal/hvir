@@ -18,6 +18,7 @@ import {
   readTerminalPresentation,
   verifyHiddenPresentationSettles,
   verifyCapacityTerminalSearch,
+  verifyCapacitySessionsTerminalDetail,
   verifyCapacityPaletteUpdate,
   verifyCapacityLivePresentationUpdate,
   verifyTerminalActivity,
@@ -256,6 +257,12 @@ export async function runCapacityLoadSmoke(
   }
   await activateCapacityTerminal(win, 0)
   await verifyHiddenPresentationSettles(win)
+  const sessionsCapacity = await verifyCapacitySessionsTerminalDetail(win, supervisor)
+  console.log(
+    `[smoke:capacity:contract] one Sessions surface among twelve live terminals OK ` +
+      `(${sessionsCapacity.ghosttyInstances} constant Ghostty instances · ` +
+      `${sessionsCapacity.sessionsPresented} presented · quiet release)`,
+  )
   const paletteCapacity = await verifyCapacityPaletteUpdate(win)
   console.log(
     `[smoke:capacity:contract] 12 retained palette updates + hidden paint suppression OK ` +

@@ -237,13 +237,13 @@ describe('GhosttyTerminalPane lifecycle', () => {
     })
 
     expect(customHandled).toBe(true)
-    expect(input.mock.calls).toEqual([['a']])
+    expect(input.mock.calls).toEqual([['a', 'user']])
     expect(clipboardPaste).toHaveBeenCalledExactlyOnceWith('\x16')
     expect(state.cursorBlinkResets).toBe(2)
 
     pane.setPresentation('hidden')
     state.emitData('b')
-    expect(input).toHaveBeenLastCalledWith('b')
+    expect(input).toHaveBeenLastCalledWith('b', 'user')
     expect(state.cursorBlinkResets).toBe(2)
 
     pane.setPresentation('visible')
@@ -861,9 +861,17 @@ describe('GhosttyTerminalPane lifecycle', () => {
       }),
     )
     const send = vi.fn()
+    const events = new Map<string, (event: never) => void>()
     Object.defineProperty(window, 'hvir', {
       configurable: true,
-      value: { invoke, send, on: vi.fn(() => () => undefined) },
+      value: {
+        invoke,
+        send,
+        on: vi.fn((channel: string, listener: (event: never) => void) => {
+          events.set(channel, listener)
+          return () => events.delete(channel)
+        }),
+      },
     })
     const registry = new TerminalRuntimeRegistry()
     const options = runtimeOptions()
@@ -884,6 +892,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
         rendererOwnerId: 7,
         rendererGeneration: 2,
       },
+      demandGeneration: 1,
       projectionRevision: 4,
       sourceRevision: 8,
     })
@@ -898,6 +907,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
           rendererOwnerId: 7,
           rendererGeneration: 2,
         },
+        demandGeneration: 1,
         projectionRevision: 4,
         sourceRevision: 8,
       }),
@@ -926,6 +936,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
     expect(options.onFocus).toHaveBeenCalledTimes(focusCountBeforeDetail + 1)
 
     send.mockClear()
+    vi.mocked(options.onInput).mockClear()
     state.emitResize({ cols: 102, rows: 33 })
     lease?.setVisible(detail, false)
     await vi.advanceTimersByTimeAsync(75)
@@ -933,6 +944,15 @@ describe('GhosttyTerminalPane lifecycle', () => {
     state.emitResize({ cols: 101, rows: 32 })
     await vi.advanceTimersByTimeAsync(75)
     expect(send).not.toHaveBeenCalled()
+    expect(options.onInput).not.toHaveBeenCalled()
+
+    events.get('pty:data')?.({ id: 'terminal-1', data: '\x1b[6n' } as never)
+    await vi.advanceTimersByTimeAsync(40)
+    expect(send).toHaveBeenCalledExactlyOnceWith('pty:write', {
+      id: 'terminal-1',
+      data: '\x1b[1;1R',
+    })
+    expect(options.onInput).not.toHaveBeenCalled()
 
     lease?.release()
     expect(workspace.querySelector('.terminal-engine-host')).toBe(surface)
@@ -946,6 +966,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
         rendererOwnerId: 7,
         rendererGeneration: 2,
       },
+      demandGeneration: 1,
       projectionRevision: 5,
       sourceRevision: 8,
     })
@@ -967,6 +988,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
         rendererOwnerId: 7,
         rendererGeneration: 2,
       },
+      demandGeneration: 1,
       projectionRevision: 6,
       sourceRevision: 8,
     })

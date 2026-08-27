@@ -128,7 +128,8 @@ export class TerminalSessionsSurfaceOwner {
       next.livePty.handle !== state.request.livePty.handle ||
       next.livePty.rendererOwnerId !== state.request.livePty.rendererOwnerId ||
       next.livePty.rendererGeneration !== state.request.livePty.rendererGeneration ||
-      next.sourceRevision !== state.request.sourceRevision ||
+      next.demandGeneration !== state.request.demandGeneration ||
+      next.sourceRevision < state.request.sourceRevision ||
       next.projectionRevision < state.request.projectionRevision
     ) {
       return false

@@ -397,6 +397,7 @@ function surfaceRequest(authority: DetailAuthority) {
     handle: authority.row.handle,
     workspaceQualifier: authority.row.workspace.qualifier,
     livePty: authority.row.livePty!,
+    demandGeneration: authority.demandGeneration,
     projectionRevision: authority.projectionRevision,
     sourceRevision: authority.sourceRevision,
   }
@@ -404,7 +405,7 @@ function surfaceRequest(authority: DetailAuthority) {
 
 function sameAuthority(left: DetailAuthority, right: DetailAuthority): boolean {
   return (
-    left.demandGeneration === right.demandGeneration &&
+    left.sourceRevision === right.sourceRevision &&
     left.projectionRevision === right.projectionRevision &&
     sameResolvedTarget(left, right)
   )
@@ -413,7 +414,6 @@ function sameAuthority(left: DetailAuthority, right: DetailAuthority): boolean {
 function sameResolvedTarget(left: DetailAuthority, right: DetailAuthority): boolean {
   return (
     left.demandGeneration === right.demandGeneration &&
-    left.sourceRevision === right.sourceRevision &&
     left.row.handle === right.row.handle &&
     left.row.workspace.qualifier === right.row.workspace.qualifier &&
     sameLivePty(left.row.livePty, right.row.livePty)

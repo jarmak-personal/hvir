@@ -8,6 +8,7 @@ export interface SessionsTerminalSurfaceRequest {
   readonly handle: SessionsTerminalHandle
   readonly workspaceQualifier: SessionsWorkspaceQualifier
   readonly livePty: SessionsLivePtyQualifier
+  readonly demandGeneration: number
   readonly projectionRevision: number
   readonly sourceRevision: number
 }
