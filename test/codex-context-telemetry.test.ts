@@ -14,6 +14,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   observeCodexContext,
+  observeCodexUsage,
   parseCodexTokenCount,
   snapshotCodexUsage,
 } from '../src/main/harness/codex-context-telemetry'
@@ -27,6 +28,56 @@ import { localPath, type HarnessTelemetry } from '../src/shared'
 const SESSION_ID = '019ab123-4567-7890-abcd-ef0123456789'
 
 describe('Codex context telemetry', () => {
+  it('publishes demanded cumulative usage and marks counter resets without negative deltas', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'hvir-codex-live-usage-'))
+    const canonicalDirectory = await realpath(directory)
+    const path = localPath(join(directory, `rollout-session-${SESSION_ID}.jsonl`))
+    const host = new LocalHost()
+    const controller = new AbortController()
+    const emitted: HarnessTelemetry[] = []
+    await writeFile(
+      path.path,
+      `${sessionMeta(canonicalDirectory)}\n${cumulativeCodexUsage(40, 20, 5, 10, 3)}\n`,
+    )
+    await host.connect()
+    let stop: (() => void | Promise<void>) | undefined
+    try {
+      stop = await observeCodexUsage(host, {
+        subscriptionId: SESSION_ID,
+        sessionId: SESSION_ID,
+        cwd: localPath(directory),
+        sessionData: { rolloutPath: path },
+        artifact: { identity: 'test', environment: {}, unsetEnvironment: [] },
+        signal: controller.signal,
+        emit: (telemetry) => {
+          if (telemetry) emitted.push(telemetry)
+        },
+      })
+      await vi.waitFor(() => expect(exactUsageTotal(emitted.at(-1))).toBe(50), {
+        timeout: 4_000,
+      })
+      expect(JSON.stringify(emitted.at(-1))).not.toContain(SESSION_ID)
+
+      await appendFile(path.path, `${cumulativeCodexUsage(70, 30, 10, 20, 7)}\n`)
+      await vi.waitFor(() => expect(exactUsageTotal(emitted.at(-1))).toBe(90), {
+        timeout: 4_000,
+      })
+
+      await appendFile(path.path, `${cumulativeCodexUsage(8, 3, 1, 2, 1)}\n`)
+      await vi.waitFor(() => expect(emitted.at(-1)?.facets.usage.status).toBe('reset'), {
+        timeout: 4_000,
+      })
+      await appendFile(path.path, `${cumulativeCodexUsage(12, 4, 1, 3, 1)}\n`)
+      await vi.waitFor(() => expect(exactUsageTotal(emitted.at(-1))).toBe(15), {
+        timeout: 4_000,
+      })
+    } finally {
+      await stop?.()
+      await host.dispose()
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
   it('takes exact-session cumulative snapshots and calculates a real counter delta', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'hvir-codex-usage-'))
     const canonicalDirectory = await realpath(directory)
@@ -714,6 +765,11 @@ function contextPercent(telemetry: HarnessTelemetry | undefined): number | undef
   return context?.status === 'available' || context?.status === 'stale'
     ? context.value.usedPercent
     : undefined
+}
+
+function exactUsageTotal(telemetry: HarnessTelemetry | undefined): number | undefined {
+  const usage = telemetry?.facets.usage
+  return usage?.status === 'exact' ? usage.value.normalizedTokenTotal : undefined
 }
 
 function expectContextSnapshot(

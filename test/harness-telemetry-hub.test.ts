@@ -144,6 +144,37 @@ describe('HarnessTelemetryHub', () => {
     void stopSecond()
   })
 
+  it('lets a session-specific lifecycle mapper suppress the adapter default', async () => {
+    const stream = fakeStream()
+    const execStream = vi.fn<ProjectHost['execStream']>(() => stream.handle)
+    const hub = telemetryHub(execStream, true)
+    const emit = vi.fn<(value: HarnessTelemetry | undefined) => void>()
+    const followerHealth = vi.fn(() => undefined)
+    const live = { ...subscription(30, emit), followerHealth }
+    const stop = hub.subscribe(live)
+    await vi.waitFor(() => expect(stream.writes).toHaveLength(2))
+    const epoch = execStream.mock.calls[0]?.[1].at(-1)
+    if (!epoch) throw new Error('Expected telemetry hub epoch argument')
+
+    stream.stdout(
+      healthFrame(
+        epoch,
+        '1',
+        live.subscriptionId,
+        live.sessionId,
+        'pending',
+        'awaiting-source',
+      ),
+    )
+
+    expect(followerHealth).toHaveBeenCalledWith({
+      status: 'pending',
+      reason: 'awaiting-source',
+    })
+    expect(emit).not.toHaveBeenCalled()
+    void stop()
+  })
+
   it('reconciles one failed follower out before a bounded replacement', async () => {
     const stream = fakeStream()
     const execStream = vi.fn<ProjectHost['execStream']>(() => stream.handle)
@@ -213,15 +244,17 @@ describe('HarnessTelemetryHub', () => {
     releaseSecondReconcile?.()
 
     await vi.waitFor(
-      () => expect(stream.writes.filter((value) => value.startsWith('R\t'))[2]).toBe(
-        'R\t3\t1\n',
-      ),
+      () =>
+        expect(stream.writes.filter((value) => value.startsWith('R\t'))[2]).toBe(
+          'R\t3\t1\n',
+        ),
       { timeout: 1_000 },
     )
     await vi.waitFor(
-      () => expect(stream.writes.filter((value) => value.startsWith('R\t'))[3]).toBe(
-        'R\t4\t2\n',
-      ),
+      () =>
+        expect(stream.writes.filter((value) => value.startsWith('R\t'))[3]).toBe(
+          'R\t4\t2\n',
+        ),
       { timeout: 1_000 },
     )
 

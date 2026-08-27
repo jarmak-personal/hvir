@@ -23,6 +23,14 @@ export interface HarnessTelemetrySubscription {
   readonly resource: string
   readonly signal: AbortSignal
   readonly emit: (telemetry: HarnessTelemetry | undefined) => void
+  /** Usage consumers correlate out of band and must not publish provider session ids. */
+  readonly exposeSessionIdentity?: boolean
+  /** Provider-owned stateful parsing for this exact demanded session. */
+  readonly parse?: (record: string) => HarnessTelemetry | null
+  /** Provider-owned lifecycle mapping that may retain a stale usage value. */
+  readonly followerHealth?: (
+    health: HarnessTelemetryFollowerHealth,
+  ) => HarnessTelemetry | undefined
 }
 
 interface LiveSubscription extends HarnessTelemetrySubscription {
@@ -256,10 +264,9 @@ export class HarnessTelemetryHub {
       return
     }
     if (frame.kind === 'health') {
-      const telemetry = this.options.followerHealth?.(
-        subscription.sessionId,
-        frame.health,
-      )
+      const telemetry = subscription.followerHealth
+        ? subscription.followerHealth(frame.health)
+        : this.options.followerHealth?.(subscription.sessionId, frame.health)
       if (telemetry) subscription.emit(telemetry)
       if (
         frame.health.status === 'unavailable' &&
@@ -269,19 +276,23 @@ export class HarnessTelemetryHub {
       }
       return
     }
-    const telemetry = this.options.parse(frame.record)
+    const telemetry = (subscription.parse ?? this.options.parse)(frame.record)
     if (!telemetry) return
     subscription.followerRestartAttempts = 0
-    subscription.emit({
-      ...telemetry,
-      facets: {
-        ...telemetry.facets,
-        session: {
-          status: 'available',
-          value: { id: subscription.sessionId, state: 'active' },
-        },
-      },
-    })
+    subscription.emit(
+      subscription.exposeSessionIdentity === false
+        ? telemetry
+        : {
+            ...telemetry,
+            facets: {
+              ...telemetry.facets,
+              session: {
+                status: 'available',
+                value: { id: subscription.sessionId, state: 'active' },
+              },
+            },
+          },
+    )
   }
 
   private recoverFollower(subscription: LiveSubscription): void {

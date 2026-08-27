@@ -8,24 +8,32 @@ import {
 } from '../../shared'
 import type { Disposer, ProjectHost } from '../project-host'
 import {
+  harnessUsageSnapshotTelemetry,
+  harnessUsageValue,
   nonNegativeUsageCounter,
   sumNonNegativeUsageCounters,
   unavailableHarnessUsageSnapshot,
-  type HarnessUsageCounters,
+  usageCountersDecreased,
+  usageCountersEqual,
+  usageStatusHarnessTelemetry,
   type HarnessUsageRoute,
   type HarnessUsageSnapshot,
   type HarnessUsageSnapshotContext,
-} from './agent-work-usage'
+} from './harness-usage'
+import type { HarnessUsageCounters } from '../../shared'
 import {
   boundedHarnessUsageString,
   scanHarnessUsageArtifactLines,
 } from './harness-usage-artifact'
 import { resolveClaudeSessionArtifact } from './claude-session-artifact'
+import type { ClaudeSessionArtifactLocation } from './claude-session-artifact'
 import type { HarnessTelemetryContext } from './harness-provider'
 import {
   buildTelemetryHubScript,
   HarnessTelemetryHubRegistry,
 } from './harness-telemetry-hub'
+import type { HarnessTelemetryFollowerHealth } from './harness-telemetry-protocol'
+import { scheduleHarnessUsageRead } from './harness-usage-read-scheduler'
 
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const FOLLOW_USAGE_SCRIPT = buildTelemetryHubScript({
@@ -48,6 +56,7 @@ const FOLLOW_USAGE_SCRIPT = buildTelemetryHubScript({
       esac
   `,
 })
+export const MAX_CLAUDE_CUMULATIVE_USAGE_RECORDS = 2_048
 
 interface ClaudeUsageEnvelope {
   readonly type?: unknown
@@ -75,16 +84,36 @@ export async function snapshotClaudeUsage(
   host: ProjectHost,
   context: HarnessUsageSnapshotContext,
 ): Promise<HarnessUsageSnapshot> {
+  return (await readClaudeUsageObservation(host, context)).snapshot
+}
+
+interface ClaudeUsageObservation {
+  readonly snapshot: HarnessUsageSnapshot
+  readonly records?: ReadonlyMap<string, HarnessUsageCounters>
+}
+
+async function readClaudeUsageObservation(
+  host: ProjectHost,
+  context: HarnessUsageSnapshotContext,
+  qualifiedLocation?: ClaudeSessionArtifactLocation,
+): Promise<ClaudeUsageObservation> {
   const providerId = asHarnessProviderId('claude-code')
   if (!SESSION_ID.test(context.sessionId) || context.signal.aborted) {
-    return unavailableHarnessUsageSnapshot(providerId, 'invalid-session-identity')
+    return {
+      snapshot: unavailableHarnessUsageSnapshot(providerId, 'invalid-session-identity'),
+    }
   }
-  const location = await resolveClaudeSessionArtifact(host, context, context.signal)
+  const location =
+    qualifiedLocation ??
+    (await resolveClaudeSessionArtifact(host, context, context.signal))
   if (!location || context.signal.aborted) {
-    return unavailableHarnessUsageSnapshot(providerId, 'artifact-unavailable')
+    return {
+      snapshot: unavailableHarnessUsageSnapshot(providerId, 'artifact-unavailable'),
+    }
   }
   let identityMismatch = false
   let oversizedRecord = false
+  let recordLimitExceeded = false
   let route: HarnessUsageRoute = {}
   const records = new Map<string, HarnessUsageCounters>()
   const artifact = await scanHarnessUsageArtifactLines(
@@ -110,6 +139,14 @@ export async function snapshotClaudeUsage(
         if (!requestId || !messageId) return
         const counters = normalizeClaudeUsageCounters(envelope.message?.usage)
         if (!counters) return
+        const recordId = `${requestId}\0${messageId}`
+        if (
+          !records.has(recordId) &&
+          records.size >= MAX_CLAUDE_CUMULATIVE_USAGE_RECORDS
+        ) {
+          recordLimitExceeded = true
+          return
+        }
         const modelId = boundedHarnessUsageString(envelope.message?.model)
         const reasoningEffort = boundedHarnessUsageString(envelope.effort, 64)
         route = {
@@ -120,7 +157,7 @@ export async function snapshotClaudeUsage(
               ? { reasoningEffort: route.reasoningEffort }
               : {}),
         }
-        records.set(`${requestId}\0${messageId}`, counters)
+        records.set(recordId, counters)
       },
       oversized: () => {
         // Claude records are additive, so a skipped record makes the total unknowable.
@@ -129,36 +166,53 @@ export async function snapshotClaudeUsage(
     },
   )
   if (context.signal.aborted) {
-    return unavailableHarnessUsageSnapshot(providerId, 'artifact-unavailable')
+    return {
+      snapshot: unavailableHarnessUsageSnapshot(providerId, 'artifact-unavailable'),
+    }
   }
   if (artifact.status === 'unavailable') {
-    return unavailableHarnessUsageSnapshot(providerId, artifact.reason)
+    return {
+      snapshot: unavailableHarnessUsageSnapshot(providerId, artifact.reason),
+    }
   }
 
   if (identityMismatch) {
-    return unavailableHarnessUsageSnapshot(providerId, 'invalid-session-identity')
+    return {
+      snapshot: unavailableHarnessUsageSnapshot(providerId, 'invalid-session-identity'),
+    }
   }
-  if (oversizedRecord) {
-    return unavailableHarnessUsageSnapshot(providerId, 'usage-unavailable')
+  if (oversizedRecord || recordLimitExceeded) {
+    return {
+      snapshot: unavailableHarnessUsageSnapshot(providerId, 'usage-unavailable'),
+    }
   }
   if (records.size === 0) {
-    return unavailableHarnessUsageSnapshot(providerId, 'usage-unavailable')
+    return {
+      snapshot: unavailableHarnessUsageSnapshot(providerId, 'usage-unavailable'),
+      records,
+    }
   }
   const counters = sumClaudeUsageCounters([...records.values()])
   if (Object.keys(counters).length === 0) {
-    return unavailableHarnessUsageSnapshot(providerId, 'usage-unavailable')
+    return {
+      snapshot: unavailableHarnessUsageSnapshot(providerId, 'usage-unavailable'),
+      records,
+    }
   }
   return {
-    version: 1,
-    status: 'available',
-    providerId,
-    observedAt: Date.now(),
-    route: {
-      ...(route.modelId ? { modelId: route.modelId } : {}),
-      ...(route.reasoningEffort ? { reasoningEffort: route.reasoningEffort } : {}),
+    snapshot: {
+      version: 1,
+      status: 'available',
+      providerId,
+      observedAt: Date.now(),
+      route: {
+        ...(route.modelId ? { modelId: route.modelId } : {}),
+        ...(route.reasoningEffort ? { reasoningEffort: route.reasoningEffort } : {}),
+      },
+      counters,
+      timing: {},
     },
-    counters,
-    timing: {},
+    records,
   }
 }
 
@@ -201,6 +255,253 @@ export async function observeClaudeContext(
       context.emit(telemetry)
     },
   })
+}
+
+export async function observeClaudeUsage(
+  host: ProjectHost,
+  context: HarnessTelemetryContext,
+): Promise<Disposer> {
+  const providerId = asHarnessProviderId('claude-code')
+  context.emit(
+    usageStatusHarnessTelemetry({
+      providerId,
+      sessionId: context.sessionId,
+      provenance: 'Claude Code cumulative usage lifecycle',
+      usage: { status: 'pending', reason: 'Waiting for qualified Claude usage' },
+    }),
+  )
+  if (!SESSION_ID.test(context.sessionId) || context.signal.aborted) {
+    if (!context.signal.aborted) {
+      context.emit(
+        usageStatusHarnessTelemetry({
+          providerId,
+          sessionId: context.sessionId,
+          provenance: 'Claude Code cumulative usage lifecycle',
+          usage: { status: 'unavailable', reason: 'invalid-session-identity' },
+        }),
+      )
+    }
+    return () => undefined
+  }
+  const location = await resolveClaudeSessionArtifact(host, context, context.signal)
+  if (!location || context.signal.aborted) {
+    context.emit(
+      usageStatusHarnessTelemetry({
+        providerId,
+        sessionId: context.sessionId,
+        provenance: 'Claude Code cumulative usage lifecycle',
+        usage: { status: 'unavailable', reason: 'artifact-unavailable' },
+      }),
+    )
+    return () => undefined
+  }
+
+  let current: ClaudeUsageObservation
+  try {
+    current = await scheduleHarnessUsageRead(host, context.signal, () =>
+      readClaudeUsageObservation(host, context, location),
+    )
+  } catch {
+    current = {
+      snapshot: unavailableHarnessUsageSnapshot(providerId, 'artifact-unavailable'),
+    }
+  }
+  if (context.signal.aborted) return () => undefined
+
+  let resetPending = false
+  let stale = false
+  let reading = false
+  let dirty = false
+  const initialPending =
+    current.snapshot.status === 'unavailable' &&
+    (current.snapshot.reason === 'artifact-unavailable' ||
+      (current.snapshot.reason === 'usage-unavailable' && current.records !== undefined))
+  const initialTelemetry = initialPending
+    ? usageStatusHarnessTelemetry({
+        providerId,
+        sessionId: context.sessionId,
+        provenance: 'Claude Code cumulative usage lifecycle',
+        usage: { status: 'pending', reason: 'Waiting for Claude usage records' },
+      })
+    : harnessUsageSnapshotTelemetry({
+        snapshot: current.snapshot,
+        sessionId: context.sessionId,
+        provenance: 'Claude Code qualified cumulative usage snapshot',
+      })
+  context.emit(initialTelemetry)
+  if (current.snapshot.status === 'unavailable' && !initialPending) {
+    return () => undefined
+  }
+
+  const publishObservation = (next: ClaudeUsageObservation): void => {
+    if (context.signal.aborted) return
+    const previousAvailable =
+      current.snapshot.status === 'available' ? current.snapshot : undefined
+    const lostRecordContinuity = claudeUsageRecordsReplaced(current.records, next.records)
+    if (
+      previousAvailable &&
+      (lostRecordContinuity ||
+        (next.snapshot.status === 'available' &&
+          usageCountersDecreased(previousAvailable.counters, next.snapshot.counters)))
+    ) {
+      current = next
+      resetPending = true
+      stale = false
+      context.emit(
+        usageStatusHarnessTelemetry({
+          providerId,
+          sessionId: context.sessionId,
+          provenance: 'Claude Code cumulative usage continuity',
+          usage: {
+            status: 'reset',
+            reason: lostRecordContinuity
+              ? 'Claude usage transcript continuity changed'
+              : 'Claude cumulative counters decreased',
+          },
+        }),
+      )
+      return
+    }
+    if (next.snapshot.status === 'unavailable') {
+      const retained = previousAvailable && harnessUsageValue(previousAvailable.counters)
+      if (retained && next.snapshot.reason === 'artifact-unavailable') {
+        stale = true
+        context.emit(
+          usageStatusHarnessTelemetry({
+            providerId,
+            sessionId: context.sessionId,
+            provenance: 'Claude Code cumulative usage lifecycle',
+            usage: {
+              status: 'stale',
+              value: retained.value,
+              observedAt: previousAvailable.observedAt,
+              reason: next.snapshot.reason,
+            },
+          }),
+        )
+      } else {
+        current = next
+        context.emit(
+          harnessUsageSnapshotTelemetry({
+            snapshot: next.snapshot,
+            sessionId: context.sessionId,
+            provenance: 'Claude Code cumulative usage snapshot',
+          }),
+        )
+      }
+      return
+    }
+    const nextAvailable = next.snapshot
+    const changed =
+      !previousAvailable ||
+      !usageCountersEqual(previousAvailable.counters, nextAvailable.counters)
+    if (resetPending && !changed) return
+    resetPending = false
+    current = next
+    if (!changed && !stale) return
+    stale = false
+    context.emit(
+      harnessUsageSnapshotTelemetry({
+        snapshot: nextAvailable,
+        sessionId: context.sessionId,
+        provenance: 'Claude Code cumulative usage snapshot',
+      }),
+    )
+  }
+
+  const requestObservation = (): void => {
+    if (context.signal.aborted) return
+    if (reading) {
+      dirty = true
+      return
+    }
+    reading = true
+    void scheduleHarnessUsageRead(host, context.signal, () =>
+      readClaudeUsageObservation(host, context, location),
+    )
+      .then(publishObservation)
+      .catch(() => {
+        if (context.signal.aborted) return
+        publishObservation({
+          snapshot: unavailableHarnessUsageSnapshot(providerId, 'artifact-unavailable'),
+        })
+      })
+      .finally(() => {
+        reading = false
+        if (dirty) {
+          dirty = false
+          requestObservation()
+        }
+      })
+  }
+
+  return claudeHubs.subscribe(host, {
+    subscriptionId: context.subscriptionId,
+    sessionId: context.sessionId,
+    resource: location.transcript.path,
+    signal: context.signal,
+    emit: context.emit,
+    exposeSessionIdentity: false,
+    parse: (record) => {
+      const envelope = parseClaudeUsageEnvelope(record)
+      if (envelope && isClaudeAssistantUsage(envelope)) requestObservation()
+      return null
+    },
+    followerHealth: (health) => {
+      if (health.status === 'unavailable' && current.snapshot.status === 'available') {
+        stale = true
+      }
+      return claudeUsageHealth(context.sessionId, current.snapshot, health)
+    },
+  })
+}
+
+function claudeUsageRecordsReplaced(
+  previous: ReadonlyMap<string, HarnessUsageCounters> | undefined,
+  next: ReadonlyMap<string, HarnessUsageCounters> | undefined,
+): boolean {
+  if (!previous || previous.size === 0 || !next) return false
+  for (const recordId of previous.keys()) {
+    if (!next.has(recordId)) return true
+  }
+  return false
+}
+
+function claudeUsageHealth(
+  sessionId: string,
+  snapshot: HarnessUsageSnapshot,
+  health: HarnessTelemetryFollowerHealth,
+): HarnessTelemetry | undefined {
+  const providerId = asHarnessProviderId('claude-code')
+  if (health.status === 'pending') {
+    return snapshot.status === 'available'
+      ? undefined
+      : usageStatusHarnessTelemetry({
+          providerId,
+          sessionId,
+          provenance: 'Claude Code cumulative usage lifecycle',
+          usage: { status: 'pending', reason: 'Waiting for Claude usage source' },
+        })
+  }
+  const retained = snapshot.status === 'available' && harnessUsageValue(snapshot.counters)
+  return retained
+    ? usageStatusHarnessTelemetry({
+        providerId,
+        sessionId,
+        provenance: 'Claude Code cumulative usage lifecycle',
+        usage: {
+          status: 'stale',
+          value: retained.value,
+          observedAt: snapshot.observedAt,
+          reason: `Claude usage follower ${health.reason}`,
+        },
+      })
+    : usageStatusHarnessTelemetry({
+        providerId,
+        sessionId,
+        provenance: 'Claude Code cumulative usage lifecycle',
+        usage: { status: 'unavailable', reason: health.reason },
+      })
 }
 
 export function parseClaudeUsage(value: string): HarnessTelemetry | null {
