@@ -32,6 +32,6 @@ export function useSessionsTerminalDetail({
     () => controller.synchronize(snapshot, foreground),
     [controller, foreground, snapshot],
   )
-  useEffect(() => () => controller.dispose(), [controller])
+  useEffect(() => () => controller.close(), [controller])
   return { controller, state }
 }
