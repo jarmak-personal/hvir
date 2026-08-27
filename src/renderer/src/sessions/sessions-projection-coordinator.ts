@@ -354,7 +354,7 @@ function projectRow(
     provider: {
       id: renderer?.providerId ?? main!.providerId,
       name: provider?.displayName ?? String(renderer?.providerId ?? main!.providerId),
-      kind: provider?.sessionKind ?? 'agent',
+      kind: provider?.sessionKind ?? 'unknown',
     },
     profile: renderer
       ? { status: 'available', value: { id: renderer.profileId } }

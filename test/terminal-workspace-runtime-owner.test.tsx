@@ -10,6 +10,8 @@ import {
   asSessionsTerminalHandle,
   asSessionsPtyHandle,
   sessionsWorkspaceQualifier,
+  type SessionsTerminalHandle,
+  type SessionsWorkspaceQualifier,
 } from '../src/shared'
 
 describe('TerminalWorkspaceRuntimeOwner', () => {
@@ -101,19 +103,7 @@ describe('TerminalWorkspaceRuntimeOwner', () => {
     const handle = asSessionsTerminalHandle('terminal-1')
     const qualifier = sessionsWorkspaceQualifier(1, 0, 0)
     const selected = vi.fn(() => true)
-    owner.registerSessionsSource('workspace-a', () => [
-      {
-        handle,
-        workspaceQualifier: qualifier,
-        providerId: asHarnessProviderId('plain-shell'),
-        profileId: asHarnessProfileId('plain-shell-default'),
-        title: 'Shell',
-        dormant: false,
-        resumeOnStart: false,
-        exited: false,
-        recoveryUnavailable: false,
-      },
-    ])
+    owner.registerSessionsSource('workspace-a', () => [session(handle, qualifier)])
     owner.registerController('workspace-a', {
       ...controller(),
       hasSession: vi.fn(() => true),
@@ -139,6 +129,91 @@ describe('TerminalWorkspaceRuntimeOwner', () => {
     expect(focusLive).toHaveBeenCalledExactlyOnceWith(handle, 'instance-1')
     owner.dispose()
   })
+
+  it('waits a bounded number of frames for delayed presentation and revokes the wait on disposal', async () => {
+    const owner = new TerminalWorkspaceRuntimeOwner()
+    const handle = asSessionsTerminalHandle('terminal-delayed')
+    const qualifier = sessionsWorkspaceQualifier(1, 0, 0)
+    owner.registerSessionsSource('workspace-a', () => [session(handle, qualifier)])
+    owner.registerController('workspace-a', {
+      ...controller(),
+      hasSession: vi.fn(() => true),
+      selectSession: vi.fn(() => true),
+    })
+    const focusLive = vi
+      .spyOn(owner.runtimes, 'focusLiveInstance')
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true)
+    const frames = new Map<number, FrameRequestCallback>()
+    let nextFrame = 1
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      const frame = nextFrame++
+      frames.set(frame, callback)
+      return frame
+    })
+    const cancel = vi
+      .spyOn(window, 'cancelAnimationFrame')
+      .mockImplementation((frame) => {
+        frames.delete(frame)
+      })
+
+    const focused = owner.focusProjectedSession(handle, qualifier, {
+      handle: asSessionsPtyHandle('instance-delayed'),
+      rendererOwnerId: 8,
+      rendererGeneration: 3,
+    })
+    frames.get(1)?.(0)
+    expect(focusLive).toHaveBeenCalledOnce()
+    expect(frames.has(2)).toBe(true)
+    frames.get(2)?.(16)
+    await expect(focused).resolves.toBe(true)
+
+    vi.mocked(focusLive).mockReset().mockReturnValue(false)
+    const revoked = owner.focusProjectedSession(handle, qualifier, {
+      handle: asSessionsPtyHandle('instance-delayed'),
+      rendererOwnerId: 8,
+      rendererGeneration: 3,
+    })
+    expect(frames.has(3)).toBe(true)
+    owner.dispose()
+    await expect(revoked).resolves.toBe(false)
+    expect(cancel).toHaveBeenCalledWith(3)
+    expect(focusLive).not.toHaveBeenCalled()
+  })
+
+  it('stops a projected focus readiness wait after its bounded frame budget', async () => {
+    const owner = new TerminalWorkspaceRuntimeOwner()
+    const handle = asSessionsTerminalHandle('terminal-never-presented')
+    const qualifier = sessionsWorkspaceQualifier(1, 0, 0)
+    owner.registerSessionsSource('workspace-a', () => [session(handle, qualifier)])
+    owner.registerController('workspace-a', {
+      ...controller(),
+      hasSession: vi.fn(() => true),
+      selectSession: vi.fn(() => true),
+    })
+    const focusLive = vi.spyOn(owner.runtimes, 'focusLiveInstance').mockReturnValue(false)
+    let nextFrame: FrameRequestCallback | undefined
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      nextFrame = callback
+      return focusLive.mock.calls.length + 1
+    })
+
+    const focused = owner.focusProjectedSession(handle, qualifier, {
+      handle: asSessionsPtyHandle('instance-never-presented'),
+      rendererOwnerId: 8,
+      rendererGeneration: 3,
+    })
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const frame = nextFrame
+      nextFrame = undefined
+      frame?.(attempt * 16)
+    }
+
+    await expect(focused).resolves.toBe(false)
+    expect(focusLive).toHaveBeenCalledTimes(12)
+    expect(nextFrame).toBeUndefined()
+    owner.dispose()
+  })
 })
 
 function controller(): TerminalWorkspaceController {
@@ -147,5 +222,22 @@ function controller(): TerminalWorkspaceController {
     selectSession: vi.fn(() => false),
     transferOut: vi.fn(() => undefined),
     transferIn: vi.fn(),
+  }
+}
+
+function session(
+  handle: SessionsTerminalHandle,
+  workspaceQualifier: SessionsWorkspaceQualifier,
+) {
+  return {
+    handle,
+    workspaceQualifier,
+    providerId: asHarnessProviderId('plain-shell'),
+    profileId: asHarnessProfileId('plain-shell-default'),
+    title: 'Shell',
+    dormant: false,
+    resumeOnStart: false,
+    exited: false,
+    recoveryUnavailable: false,
   }
 }

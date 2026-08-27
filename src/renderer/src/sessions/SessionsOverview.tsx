@@ -25,9 +25,11 @@ import {
 import type { SessionsRendererObservationPort } from './sessions-renderer-observation'
 import {
   DEFAULT_SESSIONS_OVERVIEW_POLICY,
+  SESSIONS_OVERVIEW_PAGE_SIZE,
   filterLabel,
   sessionsOverviewFocusFallback,
   sessionsOverviewGroups,
+  sessionsOverviewPage,
   sessionsOverviewPolicyLabel,
   sessionsOverviewRows,
   type SessionsOverviewFilter,
@@ -73,7 +75,9 @@ export function SessionsOverview({
   const [selected, setSelected] = useState<SessionsTerminalHandle>()
   const [feedback, setFeedback] = useState<string>()
   const [opening, setOpening] = useState<SessionsTerminalHandle>()
+  const [pageIndex, setPageIndex] = useState(0)
   const previousOrder = useRef<readonly SessionsTerminalHandle[]>([])
+  const pendingFocus = useRef<SessionsTerminalHandle | undefined>(undefined)
   const rowElements = useRef(new Map<SessionsTerminalHandle, HTMLElement>())
   const collectionControl = useRef<HTMLButtonElement>(null)
   const openGeneration = useRef(0)
@@ -91,6 +95,7 @@ export function SessionsOverview({
     setSelected(undefined)
     setOpening(undefined)
     setFeedback(undefined)
+    setPageIndex(0)
   }, [foreground])
   useEffect(
     () => () => {
@@ -100,28 +105,50 @@ export function SessionsOverview({
     [source],
   )
 
-  const groups = useMemo(
+  const allGroups = useMemo(
     () => sessionsOverviewGroups(snapshot.rows, policy),
     [policy, snapshot.rows],
   )
-  const rows = useMemo(() => sessionsOverviewRows(groups), [groups])
+  const rows = useMemo(() => sessionsOverviewRows(allGroups), [allGroups])
   const handles = useMemo(() => rows.map((row) => row.handle), [rows])
+  const page = useMemo(
+    () => sessionsOverviewPage(allGroups, pageIndex),
+    [allGroups, pageIndex],
+  )
+  useEffect(() => {
+    if (page.pageIndex !== pageIndex) setPageIndex(page.pageIndex)
+  }, [page.pageIndex, pageIndex])
   useEffect(() => {
     const selectedDisappeared = selected !== undefined && !handles.includes(selected)
     const next = sessionsOverviewFocusFallback(previousOrder.current, handles, selected)
     previousOrder.current = handles
-    if (next !== selected) setSelected(next)
+    const nextIndex = next ? handles.indexOf(next) : -1
+    if (nextIndex >= 0) {
+      const nextPage = Math.floor(nextIndex / SESSIONS_OVERVIEW_PAGE_SIZE)
+      if (nextPage !== pageIndex) setPageIndex(nextPage)
+    }
+    if (next !== selected) {
+      setSelected(next)
+    }
     if (selectedDisappeared && document.activeElement === document.body) {
-      if (next) rowElements.current.get(next)?.focus()
+      if (next) pendingFocus.current = next
       else collectionControl.current?.focus()
     }
-  }, [handles, selected])
+  }, [handles, pageIndex, selected])
+  useEffect(() => {
+    const handle = pendingFocus.current
+    if (!handle || !page.rows.some((row) => row.handle === handle)) return
+    pendingFocus.current = undefined
+    rowElements.current.get(handle)?.focus()
+  }, [page.rows])
 
   const updatePolicy = <K extends keyof SessionsOverviewPolicy>(
     key: K,
     value: SessionsOverviewPolicy[K],
   ): void => {
     setPolicy((current) => ({ ...current, [key]: value }))
+    setSelected(undefined)
+    setPageIndex(0)
     setFeedback(undefined)
   }
 
@@ -144,8 +171,13 @@ export function SessionsOverview({
         })
         if (generation !== openGeneration.current) return
         if (result.outcome === 'unavailable') {
-          if (source.snapshot().revision !== captured.revision) return
-          setFeedback(openUnavailableMessage(result.reason))
+          setFeedback(
+            openUnavailableMessage(
+              source.snapshot().revision !== captured.revision
+                ? 'stale-projection'
+                : result.reason,
+            ),
+          )
           return
         }
         onOpened(result.state)
@@ -188,7 +220,21 @@ export function SessionsOverview({
     const next = handles[nextIndex]
     if (!next) return
     setSelected(next)
-    rowElements.current.get(next)?.focus()
+    const nextPage = Math.floor(nextIndex / SESSIONS_OVERVIEW_PAGE_SIZE)
+    if (nextPage === page.pageIndex) rowElements.current.get(next)?.focus()
+    else {
+      pendingFocus.current = next
+      setPageIndex(nextPage)
+    }
+  }
+
+  const showPage = (nextPage: number): void => {
+    const next = sessionsOverviewPage(allGroups, nextPage)
+    const target = next.rows[0]
+    setPageIndex(next.pageIndex)
+    if (!target) return
+    setSelected(target.handle)
+    pendingFocus.current = target.handle
   }
 
   const policyLabel = sessionsOverviewPolicyLabel(policy)
@@ -292,6 +338,8 @@ export function SessionsOverview({
               type="button"
               onClick={() => {
                 setPolicy(DEFAULT_SESSIONS_OVERVIEW_POLICY)
+                setSelected(undefined)
+                setPageIndex(0)
                 setFeedback(undefined)
               }}
             >
@@ -300,51 +348,77 @@ export function SessionsOverview({
           }
         />
       ) : (
-        <div className="sessions-groups" role="list" aria-label="hvir sessions">
-          {groups.map((group) => (
-            <section className="sessions-group" key={group.key}>
-              {group.label ? <h2>{group.label}</h2> : null}
-              <div className="sessions-grid">
-                {group.rows.map((row) => {
-                  const isSelected = selected === row.handle
-                  return (
-                    <article
-                      key={row.handle}
-                      className={`session-card${isSelected ? ' selected' : ''}`}
-                      role="listitem"
-                      aria-current={isSelected ? 'true' : undefined}
-                      aria-label={`${row.title}, ${row.provider.name}, ${row.project.name}, ${row.workspace.name}`}
-                      tabIndex={isSelected ? 0 : -1}
-                      ref={(element) => {
-                        if (element) rowElements.current.set(row.handle, element)
-                        else rowElements.current.delete(row.handle)
-                      }}
-                      onFocus={() => setSelected(row.handle)}
-                      onClick={() => setSelected(row.handle)}
-                      onKeyDown={(event) => {
-                        if (
-                          event.key === 'Enter' &&
-                          event.target === event.currentTarget
-                        ) {
-                          event.preventDefault()
-                          void open(row)
-                          return
-                        }
-                        moveFocus(event, row)
-                      }}
-                    >
-                      <SessionsOverviewCard
-                        row={row}
-                        opening={opening === row.handle}
-                        onOpen={() => void open(row)}
-                      />
-                    </article>
-                  )
-                })}
-              </div>
-            </section>
-          ))}
-        </div>
+        <>
+          <nav className="sessions-pagination" aria-label="Sessions pages">
+            <p aria-live="polite">
+              Showing {page.start + 1}–{page.end} of {page.totalRows} sessions
+            </p>
+            <div>
+              <button
+                type="button"
+                disabled={page.pageIndex === 0}
+                onClick={() => showPage(page.pageIndex - 1)}
+              >
+                Previous page
+              </button>
+              <span>
+                Page {page.pageIndex + 1} of {page.pageCount}
+              </span>
+              <button
+                type="button"
+                disabled={page.pageIndex + 1 >= page.pageCount}
+                onClick={() => showPage(page.pageIndex + 1)}
+              >
+                Next page
+              </button>
+            </div>
+          </nav>
+          <div className="sessions-groups" role="list" aria-label="hvir sessions">
+            {page.groups.map((group) => (
+              <section className="sessions-group" key={group.key}>
+                {group.label ? <h2>{group.label}</h2> : null}
+                <div className="sessions-grid">
+                  {group.rows.map((row) => {
+                    const isSelected = selected === row.handle
+                    return (
+                      <article
+                        key={row.handle}
+                        className={`session-card${isSelected ? ' selected' : ''}`}
+                        role="listitem"
+                        aria-current={isSelected ? 'true' : undefined}
+                        aria-label={`${row.title}, ${row.provider.name}, ${row.project.name}, ${row.workspace.name}`}
+                        tabIndex={isSelected ? 0 : -1}
+                        ref={(element) => {
+                          if (element) rowElements.current.set(row.handle, element)
+                          else rowElements.current.delete(row.handle)
+                        }}
+                        onFocus={() => setSelected(row.handle)}
+                        onClick={() => setSelected(row.handle)}
+                        onKeyDown={(event) => {
+                          if (
+                            event.key === 'Enter' &&
+                            event.target === event.currentTarget
+                          ) {
+                            event.preventDefault()
+                            void open(row)
+                            return
+                          }
+                          moveFocus(event, row)
+                        }}
+                      >
+                        <SessionsOverviewCard
+                          row={row}
+                          opening={opening === row.handle}
+                          onOpen={() => void open(row)}
+                        />
+                      </article>
+                    )
+                  })}
+                </div>
+              </section>
+            ))}
+          </div>
+        </>
       )}
     </main>
   )

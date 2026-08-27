@@ -194,7 +194,7 @@ export interface SessionsProjectionRow {
   readonly provider: {
     readonly id: HarnessProviderId
     readonly name: string
-    readonly kind: 'agent' | 'shell'
+    readonly kind: 'agent' | 'shell' | 'unknown'
   }
   readonly profile: SessionsFact<{ readonly id: HarnessProfileId }>
   readonly title: string

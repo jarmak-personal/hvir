@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { SessionsOverview } from '../src/renderer/src/sessions/SessionsOverview'
 import {
+  MAX_SESSIONS_PROJECTION_ROWS,
   SESSIONS_PROJECTION_VERSION,
   asHarnessProfileId,
   asHarnessProviderId,
@@ -54,7 +55,7 @@ describe('SessionsOverview', () => {
     expect(host.textContent).toContain('Agent harness')
     expect(host.textContent).toContain('Non-agent shell')
     expect(host.textContent).toContain('LifecycleLive')
-    expect(host.textContent).toContain('HostLocal · connected')
+    expect(host.textContent).toContain('HostLocal · Connected')
     expect(host.textContent).toContain('AttentionBell')
     expect(host.textContent).toContain('WorkingNot working')
     expect(host.textContent).toContain('Provider turnIdle')
@@ -200,6 +201,114 @@ describe('SessionsOverview', () => {
 
     expect(host.querySelectorAll('.session-card')).toHaveLength(1)
     expect(document.activeElement).toBe(host.querySelector('.session-card'))
+  })
+
+  it('mounts a bounded accessible page at projection capacity and moves keyboard focus across pages', async () => {
+    installApi({ snapshot: capacitySnapshot })
+    await renderOverview({
+      observation: {
+        snapshot: capacityRendererSessions,
+        subscribe: () => () => undefined,
+      },
+    })
+
+    expect(host.textContent).toContain(
+      `Showing 1–40 of ${MAX_SESSIONS_PROJECTION_ROWS} sessions`,
+    )
+    expect(host.textContent).toContain('Page 1 of 13')
+    expect(host.querySelectorAll('[role="list"]')).toHaveLength(1)
+    expect(host.querySelectorAll('[role="listitem"]')).toHaveLength(40)
+    expect(host.querySelectorAll('.session-card[tabindex="0"]')).toHaveLength(1)
+
+    const last = host.querySelectorAll<HTMLElement>('.session-card')[39]
+    await act(async () => {
+      last?.focus()
+      last?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
+      )
+      await settle()
+    })
+
+    expect(host.textContent).toContain(
+      `Showing 41–80 of ${MAX_SESSIONS_PROJECTION_ROWS} sessions`,
+    )
+    expect(host.querySelectorAll('.session-card')).toHaveLength(40)
+    expect(document.activeElement).toBe(host.querySelector('.session-card'))
+  })
+
+  it('replaces Opening feedback when an unavailable Open completes after a projection revision', async () => {
+    let current = snapshot(1)
+    let complete!: (response: SessionsOpenResponse) => void
+    const pending = new Promise<SessionsOpenResponse>((resolve) => {
+      complete = resolve
+    })
+    const api = installApi({
+      snapshot: (demandGeneration) => ({ ...current, demandGeneration }),
+      open: () => pending,
+    })
+    await renderOverview()
+
+    await act(async () => {
+      button('Open', '.session-card').click()
+      await settle()
+    })
+    expect(host.textContent).toContain('Opening exact terminal…')
+    current = {
+      ...current,
+      revision: 8,
+      workspaces: current.workspaces.map((workspace) => ({
+        ...workspace,
+        projectName: 'Project One updated',
+      })),
+    }
+    await act(async () => {
+      api.emit({ demandGeneration: 1, revision: 8 })
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      await settle()
+    })
+    await act(async () => {
+      complete({ outcome: 'unavailable', reason: 'terminal-unavailable' })
+      await settle()
+    })
+
+    expect(host.textContent).not.toContain('Opening exact terminal…')
+    expect(host.textContent).toContain(
+      'Sessions changed. Review the refreshed row before opening it.',
+    )
+  })
+
+  it('preserves free-text identifiers and presents missing provider capability truthfully', async () => {
+    installApi({
+      snapshot: (demandGeneration) => {
+        const current = snapshot(demandGeneration)
+        return {
+          ...current,
+          providers: [],
+          workspaces: current.workspaces.map((workspace) => ({
+            ...workspace,
+            host: { ...workspace.host, label: 'gpu-east-1' },
+          })),
+          sessions: current.sessions.map((session, index) =>
+            index === 0
+              ? {
+                  ...session,
+                  telemetry: {
+                    ...session.telemetry,
+                    model: { status: 'available', value: { id: 'gpt-5.6-sol' } },
+                  },
+                }
+              : session,
+          ),
+        }
+      },
+    })
+    await renderOverview()
+
+    expect(host.textContent).toContain('Hostgpu-east-1 · Connected')
+    expect(host.textContent).toContain('Modelgpt-5.6-sol')
+    expect(host.textContent).toContain('Provider capability unavailable')
+    expect(host.textContent).not.toContain('Gpu east 1')
+    expect(host.textContent).not.toContain('Gpt 5.6 sol')
   })
 })
 
@@ -389,6 +498,31 @@ function snapshot(demandGeneration: number): SessionsObservationSnapshot {
       },
     ],
   }
+}
+
+function capacitySnapshot(demandGeneration: number): SessionsObservationSnapshot {
+  const base = snapshot(demandGeneration)
+  const fixture = base.sessions[0]!
+  return {
+    ...base,
+    sessions: Array.from({ length: MAX_SESSIONS_PROJECTION_ROWS }, (_, index) => ({
+      ...fixture,
+      handle: asSessionsTerminalHandle(`capacity-${index}`),
+      title: `Capacity session ${index}`,
+      lifecycle: 'retained' as const,
+      livePty: undefined,
+    })),
+  }
+}
+
+function capacityRendererSessions() {
+  const fixture = rendererSessions()[0]!
+  return Array.from({ length: MAX_SESSIONS_PROJECTION_ROWS }, (_, index) => ({
+    ...fixture,
+    handle: asSessionsTerminalHandle(`capacity-${index}`),
+    title: `Capacity session ${index}`,
+    attention: undefined,
+  }))
 }
 
 function projectState() {

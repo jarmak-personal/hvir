@@ -16,7 +16,11 @@ export function SessionsOverviewCard({
       <header>
         <div>
           <span className={`session-kind ${row.provider.kind}`}>
-            {row.provider.kind === 'agent' ? 'Agent harness' : 'Non-agent shell'}
+            {row.provider.kind === 'agent'
+              ? 'Agent harness'
+              : row.provider.kind === 'shell'
+                ? 'Non-agent shell'
+                : 'Provider capability unavailable'}
           </span>
           <h3>{row.title}</h3>
         </div>
@@ -32,8 +36,15 @@ export function SessionsOverviewCard({
         {row.provider.name} · {factLabel(row.profile, (value) => String(value.id))}
       </p>
       <dl className="session-facts">
-        <Fact label="Lifecycle" value={row.lifecycle} reason={row.lifecycleReason} />
-        <Fact label="Host" value={`${row.host.label} · ${row.connectionState}`} />
+        <Fact
+          label="Lifecycle"
+          value={sentenceCase(row.lifecycle)}
+          reason={row.lifecycleReason}
+        />
+        <Fact
+          label="Host"
+          value={`${row.host.label} · ${sentenceCase(row.connectionState)}`}
+        />
         <Fact label="Attention" value={factLabel(row.attention, sentenceCase)} />
         <Fact
           label="Working"
@@ -52,7 +63,7 @@ export function SessionsOverviewCard({
           label="Telemetry"
           value={factLabel(row.telemetryFreshness, () => 'Available')}
         />
-        <Fact label="Usage capability" value={row.usage.status} />
+        <Fact label="Usage capability" value={sentenceCase(row.usage.status)} />
       </dl>
     </>
   )
@@ -71,7 +82,7 @@ function Fact({
     <div>
       <dt>{label}</dt>
       <dd>
-        {sentenceCase(value)}
+        {value}
         {reason ? ` · ${reasonLabel(reason)}` : ''}
       </dd>
     </div>
@@ -111,5 +122,5 @@ function sentenceCase(value: string): string {
 }
 
 function reasonLabel(reason: string): string {
-  return reason.replaceAll('-', ' ')
+  return sentenceCase(reason)
 }

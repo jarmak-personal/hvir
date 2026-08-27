@@ -17,6 +17,18 @@ export interface SessionsOverviewGroupModel {
   readonly rows: readonly SessionsProjectionRow[]
 }
 
+export const SESSIONS_OVERVIEW_PAGE_SIZE = 40
+
+export interface SessionsOverviewPageModel {
+  readonly pageIndex: number
+  readonly pageCount: number
+  readonly start: number
+  readonly end: number
+  readonly totalRows: number
+  readonly groups: readonly SessionsOverviewGroupModel[]
+  readonly rows: readonly SessionsProjectionRow[]
+}
+
 export const DEFAULT_SESSIONS_OVERVIEW_POLICY: SessionsOverviewPolicy = {
   filter: 'all',
   group: 'project',
@@ -58,6 +70,31 @@ export function sessionsOverviewRows(
   groups: readonly SessionsOverviewGroupModel[],
 ): readonly SessionsProjectionRow[] {
   return groups.flatMap((group) => group.rows)
+}
+
+export function sessionsOverviewPage(
+  groups: readonly SessionsOverviewGroupModel[],
+  requestedPage: number,
+): SessionsOverviewPageModel {
+  const allRows = sessionsOverviewRows(groups)
+  const pageCount = Math.max(1, Math.ceil(allRows.length / SESSIONS_OVERVIEW_PAGE_SIZE))
+  const pageIndex = Math.min(Math.max(requestedPage, 0), pageCount - 1)
+  const start = pageIndex * SESSIONS_OVERVIEW_PAGE_SIZE
+  const end = Math.min(start + SESSIONS_OVERVIEW_PAGE_SIZE, allRows.length)
+  const visibleHandles = new Set(allRows.slice(start, end).map((row) => row.handle))
+  const visibleGroups = groups.flatMap((group) => {
+    const rows = group.rows.filter((row) => visibleHandles.has(row.handle))
+    return rows.length > 0 ? [{ ...group, rows }] : []
+  })
+  return {
+    pageIndex,
+    pageCount,
+    start,
+    end,
+    totalRows: allRows.length,
+    groups: visibleGroups,
+    rows: allRows.slice(start, end),
+  }
 }
 
 export function sessionsOverviewFocusFallback(

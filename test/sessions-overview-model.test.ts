@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 
 import {
   DEFAULT_SESSIONS_OVERVIEW_POLICY,
+  SESSIONS_OVERVIEW_PAGE_SIZE,
   sessionsOverviewFocusFallback,
   sessionsOverviewGroups,
+  sessionsOverviewPage,
   sessionsOverviewRows,
 } from '../src/renderer/src/sessions/sessions-overview-model'
 import {
@@ -24,6 +26,7 @@ describe('Sessions overview policy', () => {
       row('shell', { kind: 'shell' }),
       row('attention', { attention: 'ready' }),
       row('working', { working: true }),
+      row('unknown', { kind: 'unknown' }),
     ]
 
     expect(filtered(rows, 'all')).toEqual([
@@ -31,6 +34,7 @@ describe('Sessions overview policy', () => {
       'working',
       'quiet-agent',
       'shell',
+      'unknown',
     ])
     expect(filtered(rows, 'harnesses')).toEqual(['attention', 'working', 'quiet-agent'])
     expect(filtered(rows, 'shells')).toEqual(['shell'])
@@ -84,6 +88,13 @@ describe('Sessions overview policy', () => {
     expect(new Set(ordered.map((candidate) => candidate.handle)).size).toBe(
       MAX_SESSIONS_PROJECTION_ROWS,
     )
+    const groups = sessionsOverviewGroups(rows, DEFAULT_SESSIONS_OVERVIEW_POLICY)
+    const first = sessionsOverviewPage(groups, 0)
+    const last = sessionsOverviewPage(groups, Number.MAX_SAFE_INTEGER)
+    expect(first.rows).toHaveLength(SESSIONS_OVERVIEW_PAGE_SIZE)
+    expect(last.pageIndex).toBe(last.pageCount - 1)
+    expect(last.rows.length).toBeLessThanOrEqual(SESSIONS_OVERVIEW_PAGE_SIZE)
+    expect(first.groups.flatMap((group) => group.rows)).toEqual(first.rows)
   })
 })
 
@@ -100,7 +111,7 @@ function row(
   id: string,
   options: {
     readonly title?: string
-    readonly kind?: 'agent' | 'shell'
+    readonly kind?: 'agent' | 'shell' | 'unknown'
     readonly project?: string
     readonly workspace?: string
     readonly attention?: 'none' | 'ready' | 'bell'
@@ -127,8 +138,19 @@ function row(
       connectionState: 'connected',
     },
     provider: {
-      id: asHarnessProviderId(options.kind === 'shell' ? 'plain-shell' : 'codex'),
-      name: options.kind === 'shell' ? 'Shell' : 'Codex',
+      id: asHarnessProviderId(
+        options.kind === 'shell'
+          ? 'plain-shell'
+          : options.kind === 'unknown'
+            ? 'missing-provider'
+            : 'codex',
+      ),
+      name:
+        options.kind === 'shell'
+          ? 'Shell'
+          : options.kind === 'unknown'
+            ? 'missing-provider'
+            : 'Codex',
       kind: options.kind ?? 'agent',
     },
     profile: {

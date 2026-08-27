@@ -239,6 +239,7 @@ export function App(): ReactElement {
     if (activeWorkspace?.missing) resetGitGraph()
   }, [activeWorkspace?.missing, resetGitGraph])
   useWorkbenchCommands(settings.keybindings, {
+    enabled: destination === 'workspace',
     closeWebPane: closeWebView,
     escapeWebPaneFocus: () => setWebViewFocused(false),
     canUseViewerCommands: () => !gitGraphActiveRef.current && !webViewActiveRef.current,
@@ -655,7 +656,7 @@ export function App(): ReactElement {
           folderPicker={session.folderPicker}
           onDisconnect={session.disconnectHost}
           onOpen={session.openHost}
-          onOpened={overlays.closeProjectPicker}
+          onOpened={() => (setDestination('workspace'), overlays.closeProjectPicker())}
         />
       ) : null}
       {overlays.settingsOpen ? (

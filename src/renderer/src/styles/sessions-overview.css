@@ -95,6 +95,7 @@
 .sessions-controls,
 .sessions-policy,
 .sessions-feedback,
+.sessions-pagination,
 .sessions-groups,
 .sessions-notice {
   max-width: 1440px;
@@ -182,6 +183,37 @@
   gap: 22px;
 }
 
+.sessions-pagination {
+  margin-top: 8px;
+  margin-bottom: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  color: var(--text-muted);
+  font-size: calc(9px * var(--hvir-interface-scale));
+}
+
+.sessions-pagination p {
+  margin: 0;
+}
+
+.sessions-pagination div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sessions-pagination button {
+  padding: 5px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: #181c23;
+  color: #c5ccd6;
+  font: inherit;
+}
+
 .sessions-group h2 {
   margin: 0 0 9px;
   color: #cbd2dc;
@@ -243,6 +275,10 @@
 
 .session-kind.shell {
   color: #a99c82;
+}
+
+.session-kind.unknown {
+  color: #c8a76d;
 }
 
 .session-card header button,
