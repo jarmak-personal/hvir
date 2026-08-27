@@ -3,7 +3,7 @@ import type { IpcDeps } from '../deps'
 
 type SessionsIpcDeps = Pick<
   IpcDeps,
-  'rendererResources' | 'sessionsObservation' | 'switchWorkspace'
+  'rendererResources' | 'sessionsObservation' | 'sessionsUsage' | 'switchWorkspace'
 >
 
 export function registerSessionsIpc(ipc: IpcRegistrar, deps: SessionsIpcDeps): void {
@@ -37,6 +37,36 @@ export function registerSessionsIpc(ipc: IpcRegistrar, deps: SessionsIpcDeps): v
     // resource. A duplicate from an older demand must not revoke a newer lease.
     if (!deps.sessionsObservation.release(owner, request.demandGeneration)) return
     await deps.rendererResources.disposeResource(owner, 'sessions-observation')
+  })
+
+  ipc.handle('sessions:usage-observe', (request, context) => {
+    const owner = context.owner()
+    deps.rendererResources.assertCurrent(owner)
+    const snapshot = deps.sessionsUsage.acquire(owner, request)
+    try {
+      deps.rendererResources.register(
+        owner,
+        { lifetime: 'renderer', type: 'sessions-usage-observation' },
+        () => {
+          deps.sessionsUsage.release(owner, request.demandGeneration)
+        },
+        { duplicate: 'reuse' },
+      )
+      return snapshot
+    } catch (error) {
+      deps.sessionsUsage.release(owner, request.demandGeneration)
+      throw error
+    }
+  })
+
+  ipc.handle('sessions:usage-snapshot', (request, context) =>
+    deps.sessionsUsage.snapshot(context.owner(), request.demandGeneration),
+  )
+
+  ipc.handle('sessions:usage-release', async (request, context) => {
+    const owner = context.owner()
+    if (!deps.sessionsUsage.release(owner, request.demandGeneration)) return
+    await deps.rendererResources.disposeResource(owner, 'sessions-usage-observation')
   })
 
   ipc.handle('sessions:open', async (request, context) => {

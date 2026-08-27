@@ -16,6 +16,9 @@ import {
   type SessionsObservedSession,
   type SessionsProjectionChange,
   type SessionsProviderProjection,
+  type SessionsTerminalHandle,
+  type SessionsUsageDemandRequest,
+  type SessionsUsageDemandTarget,
   type SessionsWorkspaceProjection,
 } from '../../shared'
 import type { Disposer } from '../project-host'
@@ -37,6 +40,7 @@ export interface SessionsObservationProvider {
   readonly id: SessionsProviderProjection['id']
   readonly displayName: string
   readonly telemetrySupported: boolean
+  readonly usageSupported?: boolean
   readonly sessionKind: 'agent' | 'shell'
 }
 
@@ -55,6 +59,12 @@ interface DemandLease {
   readonly demandGeneration: number
 }
 
+export interface SessionsResolvedUsageTarget extends SessionsUsageDemandTarget {
+  readonly providerId: SessionsProviderProjection['id']
+  readonly usageSupported: boolean
+  readonly connectionState: SessionsWorkspaceProjection['host']['connectionState']
+}
+
 export type { SessionsResolvedOpen } from './sessions-open-resolution'
 
 type ObservationBase = Omit<SessionsObservationSnapshot, 'demandGeneration' | 'revision'>
@@ -69,6 +79,7 @@ export class SessionsObservationPort {
   private fingerprint?: string
   private revision = 0
   private identities?: SessionsProjectionIdentityScope
+  private readonly sourceListeners = new Set<() => void>()
   private disposed = false
 
   constructor(private readonly options: SessionsObservationPortOptions) {}
@@ -131,11 +142,79 @@ export class SessionsObservationPort {
     })
   }
 
+  resolveUsageTargets(
+    owner: RendererOwner,
+    request: SessionsUsageDemandRequest,
+  ): readonly SessionsResolvedUsageTarget[] {
+    if (
+      request.sourceRevision !== this.revision ||
+      request.targets.length > MAX_SESSIONS_PROJECTION_ROWS
+    ) {
+      throw new Error('Sessions usage projection is no longer current')
+    }
+    return this.currentUsageTargets(
+      owner,
+      request.projectionDemandGeneration,
+      request.targets,
+    )
+  }
+
+  currentUsageTargets(
+    owner: RendererOwner,
+    projectionDemandGeneration: number,
+    targets: readonly SessionsUsageDemandTarget[],
+  ): readonly SessionsResolvedUsageTarget[] {
+    const lease = this.leases.get(ownerKey(owner))
+    if (
+      !lease ||
+      lease.demandGeneration !== projectionDemandGeneration ||
+      !this.current ||
+      targets.length > MAX_SESSIONS_PROJECTION_ROWS
+    ) {
+      throw new Error('Sessions usage projection is no longer current')
+    }
+    const requested = new Set<SessionsTerminalHandle>()
+    const sessions = new Map(
+      this.current.sessions.map((session) => [session.handle, session]),
+    )
+    const workspaces = new Map(
+      this.current.workspaces.map((workspace) => [workspace.workspaceId, workspace]),
+    )
+    const providers = new Map(
+      this.current.providers.map((provider) => [provider.id, provider]),
+    )
+    return targets.map((target) => {
+      if (requested.has(target.handle)) throw new Error('Duplicate Sessions usage target')
+      requested.add(target.handle)
+      const session = sessions.get(target.handle)
+      if (!session) throw new Error('Sessions usage target is unavailable')
+      if (!sameLivePty(target.livePty, session.livePty)) {
+        throw new Error('Sessions usage PTY qualifier is no longer current')
+      }
+      const workspace = workspaces.get(session.workspaceId)
+      if (!workspace) throw new Error('Sessions usage workspace is unavailable')
+      return {
+        ...target,
+        providerId: session.providerId,
+        usageSupported: providers.get(session.providerId)?.usageSupported === true,
+        connectionState: workspace.host.connectionState,
+      }
+    })
+  }
+
+  observeSourceChanges(listener: () => void): Disposer {
+    this.sourceListeners.add(listener)
+    return () => {
+      this.sourceListeners.delete(listener)
+    }
+  }
+
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
     this.leases.clear()
     this.stopSources()
+    this.sourceListeners.clear()
   }
 
   private startSources(): void {
@@ -160,7 +239,9 @@ export class SessionsObservationPort {
 
   private readonly sourceChanged = (): void => {
     if (this.leases.size === 0 || this.disposed) return
-    if (!this.rebuild(false)) return
+    const projectionChanged = this.rebuild(false)
+    for (const listener of this.sourceListeners) listener()
+    if (!projectionChanged) return
     for (const lease of this.leases.values()) {
       this.options.emit(lease.owner, {
         demandGeneration: lease.demandGeneration,
@@ -218,6 +299,7 @@ export function assembleSessionsObservation({
       id: provider.id,
       displayName: sessionsProjectionText(provider.displayName, 120, String(provider.id)),
       telemetrySupported: provider.telemetrySupported,
+      usageSupported: provider.usageSupported === true,
       sessionKind: provider.sessionKind,
     }))
     .sort((left, right) => String(left.id).localeCompare(String(right.id)))
@@ -354,4 +436,16 @@ export function assembleSessionsObservation({
 
 function ownerKey(owner: RendererOwner): string {
   return `${owner.id}:${owner.generation}`
+}
+
+function sameLivePty(
+  left: SessionsUsageDemandTarget['livePty'],
+  right: SessionsUsageDemandTarget['livePty'],
+): boolean {
+  if (!left || !right) return left === right
+  return (
+    left.handle === right.handle &&
+    left.rendererOwnerId === right.rendererOwnerId &&
+    left.rendererGeneration === right.rendererGeneration
+  )
 }

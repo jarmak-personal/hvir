@@ -45,7 +45,7 @@ describe('SessionsProjectionCoordinator', () => {
       attention: { status: 'available', value: 'none' },
       working: { status: 'available', value: true },
       livePty: { handle: 'pty-live', rendererGeneration: 3 },
-      usage: { status: 'unsupported' },
+      usage: { status: 'pending', reason: 'identity-pending' },
     })
     expect(rows.find((row) => row.handle === 'retained')).toMatchObject({
       lifecycle: 'retained',
@@ -222,6 +222,7 @@ function observation(
         id: providerId,
         displayName: 'Codex',
         telemetrySupported: true,
+        usageSupported: true,
         sessionKind: 'agent',
       },
     ],

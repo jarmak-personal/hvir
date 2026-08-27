@@ -547,7 +547,7 @@ async function verifySessionsOverview(
                     ) {
                       return wait(focused, 'exact terminal focus');
                     }
-                    resolve('full-page overview + filters + retained refusal + one exact interactive detail/input/restore + exact live Open/focus');
+                    resolve('full-page overview + bounded accessible Usage lifecycle + filters + retained refusal + one exact interactive detail/input/restore + exact live Open/focus');
                   };
                   attached();
                 };
@@ -557,7 +557,41 @@ async function verifySessionsOverview(
             };
             refused();
           };
-          interact();
+          const verifyUsage = () => {
+            button('Usage', overview)?.click();
+            const usageReady = () => {
+              const ranking = overview.querySelector('.sessions-usage-ranking');
+              const rows = ranking ? [...ranking.querySelectorAll(':scope > li')] : [];
+              if (!ranking || rows.length < 5) return wait(usageReady, 'Usage ranking readiness');
+              const usageText = overview.textContent || '';
+              if (
+                !usageText.includes('Recent') ||
+                !usageText.includes('Session total') ||
+                !usageText.includes('Token categories') ||
+                rows.length > 40 ||
+                privatePaths.some((path) => overview.innerHTML.includes(path)) ||
+                overview.querySelector('.terminal-surface')
+              ) {
+                return reject(new Error('Sessions Usage production shape was unsafe or unbounded'));
+              }
+              button('Session total', overview)?.click();
+              button('Recent', overview)?.click();
+              button('1 minute', overview)?.click();
+              button('Overview', overview)?.click();
+              const released = () => {
+                if (!overview.querySelector('.session-card')) {
+                  return wait(released, 'Overview return after Usage');
+                }
+                window.hvir.invoke('sessions:usage-snapshot', { demandGeneration: 1 }).then(
+                  () => reject(new Error('Usage demand remained active after leaving its lens')),
+                  () => interact()
+                );
+              };
+              released();
+            };
+            usageReady();
+          };
+          verifyUsage();
         } catch (error) {
           reject(error);
         }

@@ -40,7 +40,7 @@ export function sessionsOverviewGroups(
   policy: SessionsOverviewPolicy,
 ): readonly SessionsOverviewGroupModel[] {
   const ordered = rows
-    .filter((row) => matchesFilter(row, policy.filter))
+    .filter((row) => sessionsOverviewMatchesFilter(row, policy.filter))
     .sort(sorter(policy.sort))
   if (policy.group === 'none') return [{ key: 'all', rows: ordered }]
   const groups = new Map<string, SessionsOverviewGroupModel>()
@@ -149,7 +149,7 @@ function sortLabel(sort: SessionsOverviewSort): string {
   }
 }
 
-function matchesFilter(
+export function sessionsOverviewMatchesFilter(
   row: SessionsProjectionRow,
   filter: SessionsOverviewFilter,
 ): boolean {
