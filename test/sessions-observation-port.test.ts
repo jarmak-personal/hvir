@@ -105,6 +105,38 @@ describe('SessionsObservationPort', () => {
     expect(source.sessions.filter((row) => row.handle === 'terminal-0')).toHaveLength(1)
   })
 
+  it('replaces only an exact opaque handle title with a safe session label', () => {
+    const source = assembleSessionsObservation({
+      projectState: projectState(),
+      hosts: hostOptions(),
+      providers: providers(),
+      sessions: [
+        retained(
+          'opaque-route-handle',
+          localRoot,
+          codex,
+          codexProfile,
+          'opaque-route-handle',
+        ),
+        retained(
+          'different-route-handle',
+          worktreeRoot,
+          shell,
+          shellProfile,
+          '550e8400-e29b-41d4-a716-446655440000',
+        ),
+      ],
+      ptys: [],
+    })
+
+    expect(
+      source.sessions.find((row) => row.handle === 'opaque-route-handle')?.title,
+    ).toBe('Codex · main')
+    expect(
+      source.sessions.find((row) => row.handle === 'different-route-handle')?.title,
+    ).toBe('550e8400-e29b-41d4-a716-446655440000')
+  })
+
   it('rejects telemetry attributed to a different provider', () => {
     const mismatched = telemetry()
     mismatched.source.providerId = shell

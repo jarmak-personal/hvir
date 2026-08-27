@@ -1,7 +1,7 @@
 import {
   MAX_SESSIONS_PROJECTION_ROWS,
   SESSIONS_PROJECTION_VERSION,
-  sessionsProjectionTitle,
+  sessionsProjectionDisplayTitle,
   type HvirApi,
   type SessionsFact,
   type SessionsObservationSnapshot,
@@ -341,8 +341,11 @@ function projectRow(
   const attention = attentionProjection(renderer)
   const telemetry =
     main?.telemetry ?? rendererOnlyTelemetry(provider?.telemetrySupported === true)
+  const handle = main?.handle ?? renderer!.handle
+  const providerName =
+    provider?.displayName ?? String(renderer?.providerId ?? main!.providerId)
   return {
-    handle: main?.handle ?? renderer!.handle,
+    handle,
     project: { id: workspace.projectId, name: workspace.projectName },
     workspace: {
       id: workspace.workspaceId,
@@ -353,13 +356,17 @@ function projectRow(
     host: workspace.host,
     provider: {
       id: renderer?.providerId ?? main!.providerId,
-      name: provider?.displayName ?? String(renderer?.providerId ?? main!.providerId),
+      name: providerName,
       kind: provider?.sessionKind ?? 'unknown',
     },
     profile: renderer
       ? { status: 'available', value: { id: renderer.profileId } }
       : main!.profile,
-    title: sessionsProjectionTitle(renderer?.title ?? main?.title),
+    title: sessionsProjectionDisplayTitle(
+      renderer?.title ?? main?.title,
+      handle,
+      `${providerName} · ${workspace.workspaceName}`,
+    ),
     ...lifecycle,
     connectionState: workspace.host.connectionState,
     attention: attention.attention,

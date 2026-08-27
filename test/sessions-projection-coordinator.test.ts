@@ -94,6 +94,17 @@ describe('SessionsProjectionCoordinator', () => {
     })
   })
 
+  it('never presents an exact opaque handle from a renderer title', () => {
+    const source = observation(1, [observed('opaque-route-handle', 'workspace-a')])
+    const rows = joinSessionsProjection(source, [
+      renderer('opaque-route-handle', 'workspace-a', {
+        title: 'opaque-route-handle',
+      }),
+    ])
+
+    expect(rows[0]?.title).toBe('Codex · main')
+  })
+
   it('does not fabricate agent capability when the provider catalog entry is missing', () => {
     const source = observation(1, [observed('uncatalogued', 'workspace-a')])
     const rows = joinSessionsProjection({ ...source, providers: [] }, [

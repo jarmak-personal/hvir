@@ -6,8 +6,8 @@ import {
   SESSIONS_PROJECTION_VERSION,
   asSessionsPtyHandle,
   asSessionsTerminalHandle,
+  sessionsProjectionDisplayTitle,
   sessionsProjectionText,
-  sessionsProjectionTitle,
   sessionsWorkspaceQualifier,
   type ProjectHostOption,
   type ProjectState,
@@ -363,12 +363,17 @@ export function assembleSessionsObservation({
     if (!workspace) continue
     const pty = ptyById.get(retained.id)
     const provider = providerById.get(retained.providerId)
+    const handle = asSessionsTerminalHandle(retained.id)
     observed.set(retained.id, {
-      handle: asSessionsTerminalHandle(retained.id),
+      handle,
       workspaceId: workspace.workspaceId,
       providerId: retained.providerId,
       profile: { status: 'available', value: { id: retained.profileId } },
-      title: sessionsProjectionTitle(retained.title),
+      title: sessionsProjectionDisplayTitle(
+        retained.title,
+        handle,
+        `${provider?.displayName ?? String(retained.providerId)} · ${workspace.workspaceName}`,
+      ),
       lifecycle: pty ? 'live' : 'retained',
       livePty: pty
         ? {
@@ -405,8 +410,10 @@ export function assembleSessionsObservation({
       profile: pty.info.profileId
         ? { status: 'available', value: { id: pty.info.profileId } }
         : { status: 'unavailable', reason: 'source-unavailable' },
-      title: sessionsProjectionTitle(
+      title: sessionsProjectionDisplayTitle(
         `${provider?.displayName ?? String(pty.info.providerId)} · ${workspace.workspaceName}`,
+        asSessionsTerminalHandle(pty.info.id),
+        'Terminal',
       ),
       lifecycle: 'live',
       livePty: {
