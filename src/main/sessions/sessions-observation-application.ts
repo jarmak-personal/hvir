@@ -24,6 +24,7 @@ export function installApplicationSessionsObservation(
           id: provider.manifest.id,
           displayName: provider.manifest.displayName,
           telemetrySupported: Boolean(provider.telemetry),
+          sessionKind: provider.manifest.sessionKind,
         })),
       sessions,
       ptys,

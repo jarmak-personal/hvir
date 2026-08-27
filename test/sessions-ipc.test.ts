@@ -2,9 +2,15 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { IpcRegistrar } from '../src/main/ipc/authority-router'
 import { registerSessionsIpc } from '../src/main/ipc/features/sessions'
+import type { SessionsResolvedOpen } from '../src/main/sessions/sessions-observation-port'
 import { RendererResourceScopes } from '../src/main/renderer-resource-scopes'
 import {
   SESSIONS_PROJECTION_VERSION,
+  asSessionsProjectHandle,
+  asSessionsPtyHandle,
+  asSessionsTerminalHandle,
+  asSessionsWorkspaceHandle,
+  sessionsWorkspaceQualifier,
   type SessionsObservationSnapshot,
 } from '../src/shared'
 
@@ -90,6 +96,72 @@ describe('Sessions IPC', () => {
     await scopes.dispose()
     expect(observation.release).toHaveBeenLastCalledWith(owner, 9)
   })
+
+  it('routes only an exactly resolved Open through the existing workspace owner', async () => {
+    const scopes = new RendererResourceScopes()
+    const owner = scopes.activateOwner(11)
+    const qualifier = sessionsWorkspaceQualifier(3, 0, 0)
+    const livePty = {
+      handle: asSessionsPtyHandle('instance-1'),
+      rendererOwnerId: owner.id,
+      rendererGeneration: owner.generation,
+    }
+    const resolveOpen = vi.fn((): SessionsResolvedOpen => ({
+      outcome: 'resolved',
+      projectId: 'project-real',
+      workspaceId: 'workspace-real',
+      handle: asSessionsTerminalHandle('terminal-1'),
+      workspaceQualifier: qualifier,
+      livePty,
+    }))
+    const observation = {
+      acquire: vi.fn(),
+      snapshot: vi.fn(),
+      release: vi.fn(),
+      resolveOpen,
+    }
+    const switchWorkspace = vi.fn(() =>
+      Promise.resolve({ marker: 'production-project-state' }),
+    )
+    const { invoke } = fixture(scopes, observation, switchWorkspace)
+    const request = {
+      demandGeneration: 4,
+      sourceRevision: 7,
+      handle: asSessionsTerminalHandle('terminal-1'),
+      projectId: asSessionsProjectHandle('project-opaque'),
+      workspaceId: asSessionsWorkspaceHandle('workspace-opaque'),
+      workspaceQualifier: qualifier,
+      livePty,
+    }
+
+    await expect(
+      invoke('sessions:open', request, { owner: () => owner }),
+    ).resolves.toEqual({
+      outcome: 'opened',
+      state: { marker: 'production-project-state' },
+      handle: 'terminal-1',
+      workspaceQualifier: qualifier,
+      livePty,
+    })
+    expect(observation.resolveOpen).toHaveBeenCalledWith(owner, request)
+    expect(switchWorkspace).toHaveBeenCalledExactlyOnceWith(
+      'project-real',
+      'workspace-real',
+    )
+
+    resolveOpen.mockReturnValueOnce({
+      outcome: 'unavailable',
+      reason: 'stale-projection',
+    })
+    await expect(
+      invoke('sessions:open', request, { owner: () => owner }),
+    ).resolves.toEqual({
+      outcome: 'unavailable',
+      reason: 'stale-projection',
+    })
+    expect(switchWorkspace).toHaveBeenCalledOnce()
+    await scopes.dispose()
+  })
 })
 
 function fixture(
@@ -98,7 +170,9 @@ function fixture(
     acquire: ReturnType<typeof vi.fn>
     snapshot: ReturnType<typeof vi.fn>
     release: ReturnType<typeof vi.fn>
+    resolveOpen?: ReturnType<typeof vi.fn>
   },
+  switchWorkspace = vi.fn(),
 ) {
   const handlers = new Map<string, (request: never, context: never) => unknown>()
   const ipc = {
@@ -106,7 +180,16 @@ function fixture(
       handlers.set(channel, handler)
     },
   } as unknown as IpcRegistrar
-  registerSessionsIpc(ipc, { rendererResources, sessionsObservation } as never)
+  registerSessionsIpc(ipc, {
+    rendererResources,
+    sessionsObservation: {
+      ...sessionsObservation,
+      resolveOpen:
+        sessionsObservation.resolveOpen ??
+        vi.fn(() => ({ outcome: 'unavailable', reason: 'stale-projection' })),
+    },
+    switchWorkspace,
+  } as never)
   return {
     invoke: (channel: string, request: unknown, context: unknown) => {
       const handler = handlers.get(channel)

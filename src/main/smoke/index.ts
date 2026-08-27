@@ -652,6 +652,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
           id: provider.manifest.id,
           displayName: provider.manifest.displayName,
           telemetrySupported: Boolean(provider.telemetry),
+          sessionKind: provider.manifest.sessionKind,
         })),
       sessions: smokeTerminalSessions,
       ptys: supervisor,
@@ -770,9 +771,11 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       },
       switchWorkspace: (projectId) => {
         const state = setSmokeProjectState(
-          mode === 'terminal-presentation' || mode === 'document-review'
-            ? smokeProjectReturnState(projectId)
-            : smokeProjectState(),
+          mode === 'sessions-projection'
+            ? smokeIpcProjectState
+            : mode === 'terminal-presentation' || mode === 'document-review'
+              ? smokeProjectReturnState(projectId)
+              : smokeProjectState(),
         )
         if (mode === 'terminal-presentation' || mode === 'document-review') {
           emit('project:state', state)
@@ -967,6 +970,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
           providerId: defaultHarnessProviderId,
           roots: [smokeWebSwitchRoot, smokeCloseableRoot, smokeRemoteRoot],
           addRetained: smokeTerminalSessionHarness.add,
+          supervisor,
         })
       } finally {
         acceptedRendererReadySink = undefined
@@ -1379,31 +1383,35 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
           const byLabel = (label) =>
             railButtons.find((node) => node.textContent?.trim().startsWith(label));
           const files = byLabel('Files');
-          const harness = byLabel('Harness');
+          const sessions = document.querySelector('.sessions-destination');
           const directory = [...document.querySelectorAll('[aria-label="Files"] .tree-directory')]
             .find((node) => node.querySelector(':scope > .directory-row')
               ?.getAttribute('title')?.endsWith('/src'));
-          if (!files || !harness || !directory) {
+          if (!files || !(sessions instanceof HTMLButtonElement) || !directory) {
             return reject(new Error('stable rail navigation controls missing'));
           }
           const directoryRow = directory.querySelector(':scope > .directory-row');
           if (directoryRow?.getAttribute('aria-expanded') !== 'true') directoryRow?.click();
           const tabsBefore = document.querySelectorAll('.viewer-tab').length;
-          harness.click();
-          const waitForHarness = () => {
-            const placeholder = document.querySelector('.harness-placeholder');
+          sessions.click();
+          const waitForSessions = () => {
+            const overview = document.querySelector('.sessions-overview');
+            const workbench = document.querySelector('.workbench');
             if (
-              harness.disabled ||
-              !harness.classList.contains('active') ||
-              harness.getAttribute('aria-current') !== 'page' ||
-              !placeholder ||
-              placeholder.hidden ||
-              !placeholder.textContent?.includes('Coming soon')
+              sessions.disabled ||
+              !sessions.classList.contains('active') ||
+              sessions.getAttribute('aria-current') !== 'page' ||
+              !overview ||
+              !(workbench instanceof HTMLElement) ||
+              !workbench.hidden
             ) {
-
-              return setTimeout(waitForHarness, 25);
+              return setTimeout(waitForSessions, 25);
             }
-            files.click();
+            const returnToWorkspace = overview.querySelector('.sessions-return');
+            if (!(returnToWorkspace instanceof HTMLButtonElement)) {
+              return reject(new Error('Sessions return control missing'));
+            }
+            returnToWorkspace.click();
             const waitForFiles = () => {
               const currentFiles = [...document.querySelectorAll('.rail-nav button')]
                 .find((node) => node.textContent?.trim().startsWith('Files'));
@@ -1411,10 +1419,11 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
                 directoryRow?.getAttribute('aria-expanded') === 'true' &&
                 document.querySelectorAll('.viewer-tab').length === tabsBefore &&
                 currentFiles?.classList.contains('active') &&
-                !harness.disabled;
+                !sessions.disabled &&
+                !document.querySelector('.sessions-overview');
               if (ready) {
                 return resolve(
-                  'stable tabs · Files state preserved · Harness coming soon'
+                  'stable tabs · Files state preserved · Sessions full-page round trip'
                 );
               }
 
@@ -1422,7 +1431,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
             };
             waitForFiles();
           };
-          waitForHarness();
+          waitForSessions();
         })
       `)) as string
     console.log(`[smoke] rail navigation OK (${railNavigationStatus})`)

@@ -40,6 +40,7 @@ export class TerminalRuntime {
   private restartRequested = false
   private pendingReplacementId?: string
   private activePtyId?: string
+  private activePtyInstanceId?: string
   private startController?: AbortController
   readonly interactions: TerminalRuntimeInteractions
   private disposed = false
@@ -152,6 +153,23 @@ export class TerminalRuntime {
     }
     if (this.pane && this.surface.canFocus()) this.pane.focus()
     this.options.onFocus()
+  }
+
+  focusLiveInstance(instanceId: string): boolean {
+    if (
+      this.disposed ||
+      !this.started ||
+      this.activePtyInstanceId !== instanceId ||
+      !this.pane ||
+      !this.surface.currentContainer ||
+      this.options.presentation !== 'visible' ||
+      !this.surface.canFocus()
+    ) {
+      return false
+    }
+    this.pane.focus()
+    this.options.onFocus()
+    return true
   }
 
   restart(): void {
@@ -322,6 +340,7 @@ export class TerminalRuntime {
       this.started = true
       this.hasStarted = true
       this.activePtyId = result.id
+      this.activePtyInstanceId = result.instanceId
       this.interactions.bind(pane, result.id)
       const status = result.reattached
         ? `Reattached · pid ${result.pid}`
@@ -444,6 +463,7 @@ export class TerminalRuntime {
         onExit: (exitCode) => {
           this.started = false
           this.activePtyId = undefined
+          this.activePtyInstanceId = undefined
           this.interactions.revoke(false)
           this.updateSnapshot({
             ...this.currentSnapshot,
@@ -486,6 +506,7 @@ export class TerminalRuntime {
     }
     this.started = false
     this.activePtyId = undefined
+    this.activePtyInstanceId = undefined
   }
 
   private updateSnapshot(snapshot: TerminalRuntimeSnapshot): void {

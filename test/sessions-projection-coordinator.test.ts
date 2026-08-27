@@ -92,6 +92,21 @@ describe('SessionsProjectionCoordinator', () => {
     })
   })
 
+  it('does not fabricate agent capability when the provider catalog entry is missing', () => {
+    const source = observation(1, [observed('uncatalogued', 'workspace-a')])
+    const rows = joinSessionsProjection({ ...source, providers: [] }, [
+      renderer('uncatalogued', 'workspace-a'),
+    ])
+
+    expect(rows).toMatchObject([
+      {
+        provider: { id: 'codex', name: 'codex', kind: 'unknown' },
+        model: { status: 'unsupported' },
+        usage: { status: 'unsupported' },
+      },
+    ])
+  })
+
   it('shares one main demand, refreshes full snapshots, and releases on the last consumer', async () => {
     const main = mainPort(observation(1, [observed('retained', 'workspace-a')]))
     const rendererSource = rendererPort([])
@@ -132,6 +147,7 @@ describe('SessionsProjectionCoordinator', () => {
       version: SESSIONS_PROJECTION_VERSION,
       demandGeneration: 0,
       revision: 0,
+      sourceRevision: 0,
       status: 'inactive',
       rows: [],
     })
@@ -201,7 +217,14 @@ function observation(
     version: SESSIONS_PROJECTION_VERSION,
     demandGeneration: 1,
     revision,
-    providers: [{ id: providerId, displayName: 'Codex', telemetrySupported: true }],
+    providers: [
+      {
+        id: providerId,
+        displayName: 'Codex',
+        telemetrySupported: true,
+        sessionKind: 'agent',
+      },
+    ],
     workspaces: [
       workspace('workspace-a', 'Project A', 'main', 'connected'),
       workspace('workspace-b', 'Project B', 'feature', 'disconnected'),

@@ -103,14 +103,33 @@ describe('workbench command listener', () => {
     expect(terminalInput).toHaveBeenNthCalledWith(1, ordinaryForward)
     expect(terminalInput).toHaveBeenNthCalledWith(2, rejectedSearch)
   })
+
+  it('does not claim workbench shortcuts while another application destination is active', () => {
+    const ports = commandPorts()
+    act(() => root.render(<CommandHarness ports={ports} enabled={false} />))
+    const input = container.querySelector('input')!
+    const primaryModifier = /Mac/.test(navigator.platform)
+      ? { metaKey: true }
+      : { ctrlKey: true }
+    const findFile = keydown('p', primaryModifier)
+
+    act(() => {
+      input.dispatchEvent(findFile)
+    })
+
+    expect(findFile.defaultPrevented).toBe(false)
+    expect(ports.findFile).not.toHaveBeenCalled()
+  })
 })
 
 function CommandHarness({
   ports,
+  enabled = true,
 }: {
   readonly ports: WorkbenchCommandPorts
+  readonly enabled?: boolean
 }): ReactElement {
-  useWorkbenchCommands(DEFAULT_KEYBINDINGS, ports)
+  useWorkbenchCommands(DEFAULT_KEYBINDINGS, { ...ports, enabled })
   return (
     <div className="web-pane">
       <input aria-label="Web pane path" />

@@ -63,6 +63,10 @@ export class TerminalRuntimeRegistry {
     return this.runtimes.get(id)?.snapshot()
   }
 
+  focusLiveInstance(id: string, instanceId: string): boolean {
+    return this.runtimes.get(id)?.focusLiveInstance(instanceId) === true
+  }
+
   dispose(): void {
     for (const runtime of this.runtimes.values()) runtime.dispose()
     this.runtimes.clear()

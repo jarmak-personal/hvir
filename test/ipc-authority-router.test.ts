@@ -480,6 +480,7 @@ describe('IpcAuthorityRouter', () => {
         'sessions:observe',
         'sessions:snapshot',
         'sessions:release',
+        'sessions:open',
         'diagnostic-report:create',
         'diagnostic-report:capture',
         'diagnostic-report:copy',

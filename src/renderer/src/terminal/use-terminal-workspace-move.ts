@@ -14,6 +14,7 @@ import type {
 
 export interface TerminalWorkspaceController {
   readonly hasSession: (id: string) => boolean
+  readonly selectSession: (id: string) => boolean
   readonly transferOut: (id: string) => TerminalSession | undefined
   readonly transferIn: (session: TerminalSession) => void
 }
@@ -58,6 +59,11 @@ export function useTerminalWorkspaceMove({
   useEffect(() => {
     const controller: TerminalWorkspaceController = {
       hasSession: (id) => modelRef.current.sessions.some((session) => session.id === id),
+      selectSession: (id) => {
+        if (!modelRef.current.sessions.some((session) => session.id === id)) return false
+        send({ type: 'session-selected', id })
+        return true
+      },
       transferOut: (id) => {
         const session = modelRef.current.sessions.find((candidate) => candidate.id === id)
         if (!session) return undefined

@@ -63,6 +63,7 @@ export function useTerminalWorkspaceRuntime({
   return {
     materializedWorkspaceIds,
     sessionsObservation: owner.sessionsObservation,
+    focusProjectedSession: owner.focusProjectedSession.bind(owner),
     openTerminalSearch: () => owner.runtimes.openSearch(),
     moveProps: (project: RegisteredProjectState, workspace: WorkspaceState) => ({
       runtimes: owner.runtimes,

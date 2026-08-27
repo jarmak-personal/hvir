@@ -15,7 +15,7 @@ import {
 
 export function useWorkbenchCommands(
   keybindings: KeybindingMap,
-  ports: WorkbenchCommandPorts,
+  ports: WorkbenchCommandPorts & { readonly enabled?: boolean },
 ): void {
   const portsRef = useRef(ports)
   portsRef.current = ports
@@ -26,6 +26,7 @@ export function useWorkbenchCommands(
       paneId?: string,
       context?: KeybindingContext,
     ): boolean => {
+      if (portsRef.current.enabled === false) return false
       if (document.querySelector('[aria-modal="true"]')) return false
       return dispatchWorkbenchCommand(action, paneId, portsRef.current, context)
     }

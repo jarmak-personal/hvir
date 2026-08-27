@@ -188,6 +188,8 @@ export interface HarnessResumeValidation {
 export interface HarnessManifest {
   readonly id: HarnessProviderId
   readonly displayName: string
+  /** Product-neutral presentation kind; provider behavior stays behind this registry. */
+  readonly sessionKind: 'agent' | 'shell'
   readonly default?: boolean
   readonly contextPresentation: HarnessContextPresentation
   readonly contextPressure?: HarnessContextPressurePolicy
@@ -280,6 +282,7 @@ export const plainShellProvider: HarnessProvider = {
   manifest: {
     id: asHarnessProviderId('plain-shell'),
     displayName: 'Shell',
+    sessionKind: 'shell',
     default: true,
     contextPresentation: 'none',
   },
@@ -316,6 +319,7 @@ export const claudeCodeProvider: HarnessProvider = {
   manifest: {
     id: asHarnessProviderId('claude-code'),
     displayName: 'Claude Code',
+    sessionKind: 'agent',
     contextPresentation: 'pressure',
     contextPressure: CLAUDE_CONTEXT_PRESSURE,
     modifiedKeyProtocol: 'modify-other-keys',
@@ -376,6 +380,7 @@ export const codexProvider: HarnessProvider = {
   manifest: {
     id: asHarnessProviderId('codex'),
     displayName: 'Codex',
+    sessionKind: 'agent',
     contextPresentation: 'pressure',
     modifiedKeyProtocol: 'csi-u',
     metaEnterAliasesControl: true,
@@ -446,6 +451,7 @@ export const customCommandProvider: HarnessProvider = {
   manifest: {
     id: asHarnessProviderId('custom'),
     displayName: 'Custom',
+    sessionKind: 'shell',
     contextPresentation: 'none',
   },
   profile: {

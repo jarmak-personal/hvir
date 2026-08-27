@@ -9,6 +9,8 @@ import {
 export interface SessionsProjectionIdentityScope {
   project(root: HostPath): SessionsProjectHandle
   workspace(root: HostPath): SessionsWorkspaceHandle
+  resolveProject(handle: SessionsProjectHandle): HostPath | undefined
+  resolveWorkspace(handle: SessionsWorkspaceHandle): HostPath | undefined
   clear(): void
 }
 
@@ -16,6 +18,8 @@ export interface SessionsProjectionIdentityScope {
 export function createSessionsProjectionIdentityScope(): SessionsProjectionIdentityScope {
   const projects = new Map<string, SessionsProjectHandle>()
   const workspaces = new Map<string, SessionsWorkspaceHandle>()
+  const projectRoots = new Map<SessionsProjectHandle, HostPath>()
+  const workspaceRoots = new Map<SessionsWorkspaceHandle, HostPath>()
   let nextProject = 0
   let nextWorkspace = 0
 
@@ -26,6 +30,7 @@ export function createSessionsProjectionIdentityScope(): SessionsProjectionIdent
       if (current) return current
       const created = asSessionsProjectHandle(`sessions-project-${(nextProject += 1)}`)
       projects.set(key, created)
+      projectRoots.set(created, root)
       return created
     },
     workspace: (root) => {
@@ -36,11 +41,16 @@ export function createSessionsProjectionIdentityScope(): SessionsProjectionIdent
         `sessions-workspace-${(nextWorkspace += 1)}`,
       )
       workspaces.set(key, created)
+      workspaceRoots.set(created, root)
       return created
     },
+    resolveProject: (handle) => projectRoots.get(handle),
+    resolveWorkspace: (handle) => workspaceRoots.get(handle),
     clear: () => {
       projects.clear()
       workspaces.clear()
+      projectRoots.clear()
+      workspaceRoots.clear()
       nextProject = 0
       nextWorkspace = 0
     },
