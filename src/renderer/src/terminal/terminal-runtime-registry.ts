@@ -1,11 +1,8 @@
-import {
-  hostPathEquals,
-  TerminalStartAdmission,
-  type HostPath,
-} from '../../../shared'
+import { hostPathEquals, TerminalStartAdmission, type HostPath } from '../../../shared'
 import { TerminalEventRouter } from './terminal-event-router'
 import { TerminalRuntime } from './terminal-runtime'
 import type { TerminalRuntimeOptions } from './terminal-runtime-options'
+import type { TerminalRuntimeSnapshot } from './terminal-runtime-presentation'
 
 export class TerminalRuntimeRegistry {
   private readonly runtimes = new Map<string, TerminalRuntime>()
@@ -60,6 +57,10 @@ export class TerminalRuntimeRegistry {
       if (runtime.interactions.search.open()) return true
     }
     return false
+  }
+
+  sessionSnapshot(id: string): TerminalRuntimeSnapshot | undefined {
+    return this.runtimes.get(id)?.snapshot()
   }
 
   dispose(): void {

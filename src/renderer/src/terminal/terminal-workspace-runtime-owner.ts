@@ -1,5 +1,6 @@
 import { TerminalRuntimeRegistry } from './terminal-runtime-registry'
 import type { TerminalWorkspaceController } from './use-terminal-workspace-move'
+import type { SessionsRendererSession } from '../sessions/sessions-renderer-observation'
 
 interface ControllerWaiter {
   readonly resolve: () => void
@@ -15,6 +16,11 @@ export class TerminalWorkspaceRuntimeOwner {
   private readonly controllers = new Map<string, TerminalWorkspaceController>()
   private readonly controllerWaiters = new Map<string, Set<ControllerWaiter>>()
   private readonly listeners = new Set<() => void>()
+  private readonly sessionsSources = new Map<
+    string,
+    () => readonly SessionsRendererSession[]
+  >()
+  private readonly sessionsListeners = new Set<() => void>()
   private materializedSnapshot: readonly string[] = []
   private disposed = false
 
@@ -23,6 +29,34 @@ export class TerminalWorkspaceRuntimeOwner {
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
+  }
+
+  sessionsSnapshot = (): readonly SessionsRendererSession[] =>
+    [...this.sessionsSources.values()].flatMap((source) => source())
+
+  subscribeSessions = (listener: () => void): (() => void) => {
+    this.sessionsListeners.add(listener)
+    return () => this.sessionsListeners.delete(listener)
+  }
+
+  readonly sessionsObservation = {
+    snapshot: this.sessionsSnapshot,
+    subscribe: this.subscribeSessions,
+  }
+
+  registerSessionsSource = (
+    workspaceId: string,
+    source: (() => readonly SessionsRendererSession[]) | undefined,
+  ): void => {
+    if (this.disposed) return
+    if (source) this.sessionsSources.set(workspaceId, source)
+    else this.sessionsSources.delete(workspaceId)
+    this.publishSessions()
+  }
+
+  sessionsChanged = (workspaceId: string): void => {
+    if (!this.sessionsSources.has(workspaceId)) return
+    this.publishSessions()
   }
 
   retainWorkspace = (workspaceId: string, retained: boolean): void => {
@@ -97,10 +131,12 @@ export class TerminalWorkspaceRuntimeOwner {
       )
     }
     this.controllers.clear()
+    this.sessionsSources.clear()
     this.transferWorkspaceIds.clear()
     this.retainedWorkspaceIds.clear()
     this.materializedSnapshot = []
     this.listeners.clear()
+    this.sessionsListeners.clear()
     this.runtimes.dispose()
   }
 
@@ -112,7 +148,9 @@ export class TerminalWorkspaceRuntimeOwner {
   }
 
   private publishMaterialized(): void {
-    const next = [...new Set([...this.retainedWorkspaceIds, ...this.transferWorkspaceIds])]
+    const next = [
+      ...new Set([...this.retainedWorkspaceIds, ...this.transferWorkspaceIds]),
+    ]
     if (
       next.length === this.materializedSnapshot.length &&
       next.every((workspaceId, index) => workspaceId === this.materializedSnapshot[index])
@@ -121,5 +159,10 @@ export class TerminalWorkspaceRuntimeOwner {
     }
     this.materializedSnapshot = next
     for (const listener of this.listeners) listener()
+  }
+
+  private publishSessions(): void {
+    if (this.sessionsListeners.size === 0) return
+    for (const listener of this.sessionsListeners) listener()
   }
 }

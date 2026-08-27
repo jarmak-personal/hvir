@@ -477,6 +477,9 @@ describe('IpcAuthorityRouter', () => {
         'terminal:record-recovery-decision',
         'terminal:resolve-file-clipboard',
         'pty:start',
+        'sessions:observe',
+        'sessions:snapshot',
+        'sessions:release',
         'diagnostic-report:create',
         'diagnostic-report:capture',
         'diagnostic-report:copy',
@@ -556,6 +559,7 @@ describe('IpcAuthorityRouter', () => {
       'image-paste.ts',
       'clipboard.ts',
       'terminal-file-paste.ts',
+      'sessions.ts',
     ]
     const source = (
       await Promise.all(

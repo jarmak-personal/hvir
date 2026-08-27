@@ -96,6 +96,8 @@ describe('terminal workspace materialization bridge', () => {
       runtimes: { disposeSession: vi.fn() } as never,
       moveTargets: [],
       onMaterializationChange,
+      onSessionsSource: vi.fn(),
+      onSessionsChanged: vi.fn(),
       onController: vi.fn(),
       onPrepareMoveTarget: vi.fn(() => Promise.resolve()),
       onReleaseMoveTarget: vi.fn(),

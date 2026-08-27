@@ -15,6 +15,7 @@ import { registerIpcHandlers } from '../ipc'
 import type { RendererOwner, RendererResourceScopes } from '../renderer-resource-scopes'
 import { LocalHost } from '../project-host'
 import { PtySupervisor } from '../pty/pty-supervisor'
+import { SessionsObservationPort } from '../sessions/sessions-observation-port'
 import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
 import { createWorkerClient, workerPath } from '../worker-host'
 import { createWorkspaceCleanup } from '../workspace-cleanup'
@@ -52,6 +53,7 @@ import { verifyFocusedViewer } from './viewer-position'
 import { verifyViewerContent } from './viewer-content'
 import { verifyWorkbenchHealthFault } from './workbench-health'
 import { verifyRendererProcessRecovery } from './renderer-recovery'
+import { verifySessionsProjectionSmoke } from './sessions-projection'
 import type { ElectronSmokeMode } from './scenario-selection.mts'
 import { createTerminalMoveSmokeHarness, verifyTerminalMoveSmoke } from './terminal-move'
 import { createSmokeTerminalSessionStore } from './terminal-session-store'
@@ -348,6 +350,80 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       },
     ],
   })
+  const smokeSessionsProjectionState = (): ProjectState => ({
+    revision: smokeProjectRevision,
+    root: smokeRoot,
+    connectionState: 'connected',
+    watchTier: host.watchTier,
+    activeProjectId: 'smoke-sessions-primary',
+    activeWorkspaceId: 'smoke-workspace',
+    projects: [
+      {
+        id: 'smoke-sessions-primary',
+        registeredRoot: smokeRoot,
+        displayName: 'Primary project',
+        connectionState: 'connected',
+        watchTier: host.watchTier,
+        activeWorkspaceId: 'smoke-workspace',
+        workspaces: [
+          {
+            ...smokeProjectState().projects[0]!.workspaces[0]!,
+            id: 'smoke-workspace',
+          },
+          {
+            id: 'smoke-sessions-worktree',
+            root: smokeWebSwitchRoot,
+            name: 'feature/sessions',
+            main: false,
+            closed: false,
+            missing: false,
+            repository: true,
+            changedFiles: 0,
+          },
+        ],
+      },
+      {
+        id: 'smoke-sessions-secondary',
+        registeredRoot: smokeCloseableRoot,
+        displayName: 'Secondary project',
+        connectionState: 'connected',
+        watchTier: host.watchTier,
+        activeWorkspaceId: 'smoke-sessions-secondary-workspace',
+        workspaces: [
+          {
+            id: 'smoke-sessions-secondary-workspace',
+            root: smokeCloseableRoot,
+            name: 'main',
+            main: true,
+            closed: false,
+            missing: false,
+            repository: true,
+            changedFiles: 0,
+          },
+        ],
+      },
+      {
+        id: 'smoke-sessions-remote',
+        registeredRoot: smokeRemoteRoot,
+        displayName: 'Disconnected project',
+        connectionState: 'disconnected',
+        watchTier: 'polling',
+        activeWorkspaceId: 'smoke-sessions-remote-workspace',
+        workspaces: [
+          {
+            id: 'smoke-sessions-remote-workspace',
+            root: smokeRemoteRoot,
+            name: 'remote-main',
+            main: true,
+            closed: false,
+            missing: false,
+            repository: true,
+            changedFiles: 0,
+          },
+        ],
+      },
+    ],
+  })
   const smokeRemoteFileProjectState = (): ProjectState => ({
     revision: smokeProjectRevision,
     root: smokeRemoteRoot,
@@ -545,11 +621,56 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         ? smokeProjectReturnState('smoke-project')
         : smokeProjectState(),
     )
+    const smokeProjectObservationListeners = new Set<() => void>()
     const setSmokeProjectState = (state: ProjectState): ProjectState => {
       const committed = commitSmokeProjectState(state)
       smokeIpcProjectState = committed
+      for (const listener of smokeProjectObservationListeners) listener()
       return committed
     }
+    const smokeHostOptions = () => [
+      {
+        hostId: host.hostId,
+        label: 'Local',
+        kind: 'local' as const,
+        connectionState: host.connectionState,
+        watchTier: host.watchTier,
+      },
+      {
+        hostId: smokeRemoteHost.hostId,
+        label: 'Smoke SSH',
+        kind: 'ssh' as const,
+        connectionState: smokeRemoteHost.connectionState,
+        watchTier: smokeRemoteHost.watchTier,
+      },
+    ]
+    const sessionsObservation = new SessionsObservationPort({
+      projectState: () => smokeIpcProjectState,
+      hosts: smokeHostOptions,
+      providers: () =>
+        harnessProviders.all().map((provider) => ({
+          id: provider.manifest.id,
+          displayName: provider.manifest.displayName,
+          telemetrySupported: Boolean(provider.telemetry),
+        })),
+      sessions: smokeTerminalSessions,
+      ptys: supervisor,
+      observeProjects: (listener) => {
+        smokeProjectObservationListeners.add(listener)
+        return () => {
+          smokeProjectObservationListeners.delete(listener)
+        }
+      },
+      emit: (owner, change) => {
+        if (
+          smokeWindow?.webContents.id === owner.id &&
+          rendererResources.isCurrent(owner)
+        ) {
+          sendRendererEvent(smokeWindow.webContents, 'sessions:changed', change)
+        }
+      },
+    })
+    cleanup.defer('Sessions observation', () => sessionsObservation.dispose())
     const openedFolderSelections: Array<{ hostId: string; path: string }> = []
     const revealedEntries: HostPath[] = []
     const terminalMoveSmoke = createTerminalMoveSmokeHarness({
@@ -622,15 +743,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
           : undefined,
       revealLocalEntry: (path) => revealedEntries.push(path),
       getProjectState: () => smokeIpcProjectState,
-      listHosts: () => [
-        {
-          hostId: host.hostId,
-          label: 'Local',
-          kind: 'local',
-          connectionState: host.connectionState,
-          watchTier: host.watchTier,
-        },
-      ],
+      listHosts: smokeHostOptions,
       connectHost: () =>
         Promise.resolve({
           host: {
@@ -719,6 +832,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       recordRenderContainment: () => undefined,
       ptySupervisor: supervisor,
       terminalSessions: smokeTerminalSessions,
+      sessionsObservation,
       terminalMoves: terminalMoveSmoke.coordinator,
       harnessProfiles: smokeHarnessProfiles,
       harnessProbes: harnessProbeManager,
@@ -826,6 +940,38 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         )
       }
       console.log(`[smoke] renderer recovery OK (${result})`)
+      console.log('HVIR_SMOKE_OK')
+      return 0
+    }
+    if (mode === 'sessions-projection') {
+      const replacementReady = new Promise<RendererOwner>((resolve) => {
+        acceptedRendererReadySink = (owner) => {
+          if (
+            owner.id === win.webContents.id &&
+            owner.generation === initialRendererGeneration
+          ) {
+            return
+          }
+          resolve(owner)
+        }
+      })
+      let result: string
+      try {
+        result = await verifySessionsProjectionSmoke({
+          win,
+          initialOwner: rendererResources.currentOwner(win.webContents.id),
+          resources: rendererResources,
+          replacementReady,
+          state: smokeSessionsProjectionState(),
+          publishState: (state) => emit('project:state', setSmokeProjectState(state)),
+          providerId: defaultHarnessProviderId,
+          roots: [smokeWebSwitchRoot, smokeCloseableRoot, smokeRemoteRoot],
+          addRetained: smokeTerminalSessionHarness.add,
+        })
+      } finally {
+        acceptedRendererReadySink = undefined
+      }
+      console.log(`[smoke] Sessions projection OK (${result})`)
       console.log('HVIR_SMOKE_OK')
       return 0
     }

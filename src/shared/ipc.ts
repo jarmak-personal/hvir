@@ -70,6 +70,11 @@ import type {
   HarnessProfileInput,
 } from './harness-profile'
 import type { RegisteredProjectState } from './workspace-types'
+import type {
+  SessionsDemandRequest,
+  SessionsObservationSnapshot,
+  SessionsProjectionChange,
+} from './sessions-projection'
 import type { KeybindingAction, KeybindingMap } from './keybindings'
 import type { WebPaneDiagnosticEvent } from './web-pane'
 import type {
@@ -865,6 +870,15 @@ export interface IpcInvokeMap {
     request: RebindTerminalProfileRequest
     response: TerminalRecoverySession
   }
+  'sessions:observe': {
+    request: SessionsDemandRequest
+    response: SessionsObservationSnapshot
+  }
+  'sessions:snapshot': {
+    request: SessionsDemandRequest
+    response: SessionsObservationSnapshot
+  }
+  'sessions:release': { request: SessionsDemandRequest; response: void }
   'terminal:resolve-file-clipboard': {
     request: Record<string, never>
     response: string | undefined
@@ -912,6 +926,7 @@ export interface IpcEventMap {
   'workbench-health:state': WorkbenchHealthSnapshot
   'project:watch': WatchEvent
   'project:state': ProjectState
+  'sessions:changed': SessionsProjectionChange
   'fs:project-file-operation': ProjectFileOperationProgress
   'ssh:prompt': SshPromptRequest
   'ssh:prompt-cancel': { readonly hostId: string }
@@ -1079,6 +1094,9 @@ export const INVOKE_CHANNELS = [
   'terminal:plan-move',
   'terminal:move',
   'terminal:rebind-profile',
+  'sessions:observe',
+  'sessions:snapshot',
+  'sessions:release',
   'terminal:resolve-file-clipboard',
   'pty:start',
   'web-pane:open',
@@ -1116,6 +1134,7 @@ export const EVENT_CHANNELS = [
   'workbench-health:state',
   'project:watch',
   'project:state',
+  'sessions:changed',
   'fs:project-file-operation',
   'ssh:prompt',
   'ssh:prompt-cancel',
