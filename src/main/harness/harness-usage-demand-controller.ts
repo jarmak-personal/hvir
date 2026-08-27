@@ -9,7 +9,8 @@ import type {
 } from './harness-provider'
 import { usageStatusHarnessTelemetry } from './harness-usage'
 
-export const MAX_HARNESS_USAGE_DEMAND_TARGETS = 128
+// Reserve shared telemetry-hub capacity for context and other provider facets.
+export const MAX_HARNESS_USAGE_DEMAND_TARGETS = 96
 export const MAX_HARNESS_USAGE_DEMAND_LEASES = 256
 const EXACT_SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 

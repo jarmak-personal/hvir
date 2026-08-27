@@ -10,6 +10,7 @@ import {
   type HarnessProvider,
 } from '../src/main/harness/harness-provider'
 import { usageObservationHarnessTelemetry } from '../src/main/harness/harness-usage'
+import { MAX_TELEMETRY_SUBSCRIPTIONS } from '../src/main/harness/harness-telemetry-hub'
 import type { ProjectHost } from '../src/main/project-host'
 import {
   asHarnessProviderId,
@@ -132,6 +133,9 @@ describe('HarnessUsageDemandController', () => {
   })
 
   it('bounds many-session state and cleans every admitted observer', async () => {
+    expect(MAX_HARNESS_USAGE_DEMAND_TARGETS).toBeLessThan(
+      MAX_TELEMETRY_SUBSCRIPTIONS,
+    )
     const fixture = demandFixture()
     const stops = Array.from({ length: MAX_HARNESS_USAGE_DEMAND_TARGETS }, (_, index) =>
       fixture.controller.acquire(

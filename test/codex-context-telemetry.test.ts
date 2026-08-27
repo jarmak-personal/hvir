@@ -28,6 +28,81 @@ import { localPath, type HarnessTelemetry } from '../src/shared'
 const SESSION_ID = '019ab123-4567-7890-abcd-ef0123456789'
 
 describe('Codex context telemetry', () => {
+  it('keeps a qualified rollout pending until cumulative counters arrive', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'hvir-codex-pending-usage-'))
+    const canonicalDirectory = await realpath(directory)
+    const path = localPath(join(directory, `rollout-session-${SESSION_ID}.jsonl`))
+    const host = new LocalHost()
+    const controller = new AbortController()
+    const emitted: HarnessTelemetry[] = []
+    await writeFile(path.path, `${sessionMeta(canonicalDirectory)}\n`)
+    await host.connect()
+    let stop: (() => void | Promise<void>) | undefined
+    try {
+      stop = await observeCodexUsage(host, {
+        subscriptionId: SESSION_ID,
+        sessionId: SESSION_ID,
+        cwd: localPath(directory),
+        sessionData: { rolloutPath: path },
+        artifact: { identity: 'test', environment: {}, unsetEnvironment: [] },
+        signal: controller.signal,
+        emit: (telemetry) => {
+          if (telemetry) emitted.push(telemetry)
+        },
+      })
+      expect(emitted.at(-1)?.facets.usage.status).toBe('pending')
+      expect(emitted.some(({ facets }) => facets.usage.status === 'unavailable')).toBe(
+        false,
+      )
+
+      await appendFile(path.path, `${cumulativeCodexUsage(8, 3, 1, 2, 1)}\n`)
+      await vi.waitFor(() => expect(exactUsageTotal(emitted.at(-1))).toBe(10), {
+        timeout: 4_000,
+      })
+    } finally {
+      await stop?.()
+      await host.dispose()
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('retries a transient rollout read while usage demand remains active', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'hvir-codex-late-usage-'))
+    const canonicalDirectory = await realpath(directory)
+    const path = localPath(join(directory, `rollout-session-${SESSION_ID}.jsonl`))
+    const host = new LocalHost()
+    const controller = new AbortController()
+    const emitted: HarnessTelemetry[] = []
+    await host.connect()
+    let stop: (() => void | Promise<void>) | undefined
+    try {
+      stop = await observeCodexUsage(host, {
+        subscriptionId: SESSION_ID,
+        sessionId: SESSION_ID,
+        cwd: localPath(directory),
+        sessionData: { rolloutPath: path },
+        artifact: { identity: 'test', environment: {}, unsetEnvironment: [] },
+        signal: controller.signal,
+        emit: (telemetry) => {
+          if (telemetry) emitted.push(telemetry)
+        },
+      })
+      expect(emitted.at(-1)?.facets.usage.status).toBe('pending')
+
+      await writeFile(
+        path.path,
+        `${sessionMeta(canonicalDirectory)}\n${cumulativeCodexUsage(8, 3, 1, 2, 1)}\n`,
+      )
+      await vi.waitFor(() => expect(exactUsageTotal(emitted.at(-1))).toBe(10), {
+        timeout: 4_000,
+      })
+    } finally {
+      await stop?.()
+      await host.dispose()
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
   it('publishes demanded cumulative usage and marks counter resets without negative deltas', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'hvir-codex-live-usage-'))
     const canonicalDirectory = await realpath(directory)

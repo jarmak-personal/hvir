@@ -17,6 +17,11 @@ const FOLLOWER_RESTART_DELAY_MS = 250
 const MAX_FOLLOWER_RESTARTS = 3
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
+/** A provider accepted a healthy record that does not itself publish telemetry. */
+export const HEALTHY_HARNESS_TELEMETRY_RECORD = Symbol(
+  'healthy-harness-telemetry-record',
+)
+
 export interface HarnessTelemetrySubscription {
   readonly subscriptionId: string
   readonly sessionId: string
@@ -26,7 +31,9 @@ export interface HarnessTelemetrySubscription {
   /** Usage consumers correlate out of band and must not publish provider session ids. */
   readonly exposeSessionIdentity?: boolean
   /** Provider-owned stateful parsing for this exact demanded session. */
-  readonly parse?: (record: string) => HarnessTelemetry | null
+  readonly parse?: (
+    record: string,
+  ) => HarnessTelemetry | typeof HEALTHY_HARNESS_TELEMETRY_RECORD | null
   /** Provider-owned lifecycle mapping that may retain a stale usage value. */
   readonly followerHealth?: (
     health: HarnessTelemetryFollowerHealth,
@@ -264,9 +271,7 @@ export class HarnessTelemetryHub {
       return
     }
     if (frame.kind === 'health') {
-      const telemetry = subscription.followerHealth
-        ? subscription.followerHealth(frame.health)
-        : this.options.followerHealth?.(subscription.sessionId, frame.health)
+      const telemetry = this.mapFollowerHealth(subscription, frame.health)
       if (telemetry) subscription.emit(telemetry)
       if (
         frame.health.status === 'unavailable' &&
@@ -276,9 +281,11 @@ export class HarnessTelemetryHub {
       }
       return
     }
-    const telemetry = (subscription.parse ?? this.options.parse)(frame.record)
-    if (!telemetry) return
+    const parsed = (subscription.parse ?? this.options.parse)(frame.record)
+    if (!parsed) return
     subscription.followerRestartAttempts = 0
+    if (parsed === HEALTHY_HARNESS_TELEMETRY_RECORD) return
+    const telemetry = parsed
     subscription.emit(
       subscription.exposeSessionIdentity === false
         ? telemetry
@@ -333,12 +340,11 @@ export class HarnessTelemetryHub {
     stream.dispose()
     if (this.subscriptions.size === 0 || this.stopped) return
     for (const subscription of this.subscriptions.values()) {
-      subscription.emit(
-        this.options.followerHealth?.(subscription.sessionId, {
-          status: 'unavailable',
-          reason: 'helper-exited',
-        }),
-      )
+      const telemetry = this.mapFollowerHealth(subscription, {
+        status: 'unavailable',
+        reason: 'helper-exited',
+      })
+      if (telemetry || !subscription.followerHealth) subscription.emit(telemetry)
     }
     console.warn(`[harness:${this.options.providerId}] telemetry hub unavailable`, error)
     if (!this.restartTimer) {
@@ -347,6 +353,15 @@ export class HarnessTelemetryHub {
         this.ensureStream()
       }, RESTART_DELAY_MS)
     }
+  }
+
+  private mapFollowerHealth(
+    subscription: LiveSubscription,
+    health: HarnessTelemetryFollowerHealth,
+  ): HarnessTelemetry | undefined {
+    return subscription.followerHealth
+      ? subscription.followerHealth(health)
+      : this.options.followerHealth?.(subscription.sessionId, health)
   }
 
   private stop(): void {

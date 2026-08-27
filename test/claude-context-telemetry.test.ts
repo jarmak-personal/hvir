@@ -23,6 +23,86 @@ const SESSION_ID = '092bd463-4567-4890-abcd-ef0123456789'
 afterEach(() => vi.unstubAllEnvs())
 
 describe('Claude Code context telemetry', () => {
+  it('retries transient artifact resolution and folds live records without per-record rescans', async () => {
+    const configDirectory = await mkdtemp(join(tmpdir(), 'hvir-claude-retry-usage-'))
+    const cwd = join(configDirectory, 'workspace')
+    await mkdir(cwd)
+    const projectDirectory = join(
+      configDirectory,
+      'projects',
+      claudeProjectDirectoryName(await realpath(cwd)),
+    )
+    const transcript = join(projectDirectory, `${SESSION_ID}.jsonl`)
+    await mkdir(projectDirectory, { recursive: true })
+    await writeFile(
+      transcript,
+      `${claudeUsageRecord('request-1', 'message-1', {
+        input: 1,
+        cacheWrite: 1,
+        cacheRead: 1,
+        output: 1,
+      })}\n`,
+    )
+    const host = new LocalHost()
+    const controller = new AbortController()
+    const emitted: HarnessTelemetry[] = []
+    await host.connect()
+    const realExec = host.exec.bind(host)
+    const exec = vi
+      .spyOn(host, 'exec')
+      .mockRejectedValueOnce(new Error('temporary transport failure'))
+      .mockImplementation(realExec)
+    const readFileChunks = vi.spyOn(host.fileTransfer, 'readFileChunks')
+    let stop: (() => void | Promise<void>) | undefined
+    try {
+      stop = await observeClaudeUsage(host, {
+        subscriptionId: SESSION_ID,
+        sessionId: SESSION_ID,
+        cwd: localPath(cwd),
+        artifact: {
+          identity: 'test',
+          environment: { CLAUDE_CONFIG_DIR: configDirectory },
+          unsetEnvironment: [],
+        },
+        signal: controller.signal,
+        emit: (telemetry) => {
+          if (telemetry) emitted.push(telemetry)
+        },
+      })
+      expect(exec).toHaveBeenCalledTimes(2)
+      expect(exactUsageTotal(emitted.at(-1))).toBe(4)
+      expect(readFileChunks).toHaveBeenCalledOnce()
+
+      await appendFile(
+        transcript,
+        [
+          claudeUsageRecord('request-2', 'message-2', {
+            input: 2,
+            cacheWrite: 2,
+            cacheRead: 2,
+            output: 2,
+          }),
+          claudeUsageRecord('request-3', 'message-3', {
+            input: 3,
+            cacheWrite: 3,
+            cacheRead: 3,
+            output: 3,
+          }),
+        ].join('\n') + '\n',
+      )
+      await vi.waitFor(() => expect(exactUsageTotal(emitted.at(-1))).toBe(24), {
+        timeout: 900,
+      })
+      expect(readFileChunks).toHaveBeenCalledOnce()
+      await new Promise((resolve) => setTimeout(resolve, 1_200))
+      expect(readFileChunks).toHaveBeenCalledOnce()
+    } finally {
+      await stop?.()
+      await host.dispose()
+      await rm(configDirectory, { recursive: true, force: true })
+    }
+  })
+
   it('publishes demanded cumulative usage and detects transcript replacement', async () => {
     const configDirectory = await mkdtemp(join(tmpdir(), 'hvir-claude-live-usage-'))
     const cwd = join(configDirectory, 'workspace')

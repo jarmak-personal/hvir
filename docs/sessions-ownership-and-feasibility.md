@@ -60,7 +60,7 @@ remain unblocked.
 | Live or exited PTY instance | Main `PtySupervisor` | `get()`, `list()`, `onExit()`, `onSessionIdentity()`, and renderer-generation checks | Adapt only safe liveness and an opaque instance handle. Do not attach an output stream, replay output, spawn, resume, kill, write, or resize for card projection. |
 | Provider identity and structured telemetry | Main harness provider registry and the exact `PtySupervisor` entry | Provider capability descriptors, `HarnessSnapshot`, and the current PTY telemetry snapshot | Provider IDs stay opaque data. Providers observe and normalize; projection code never branches on `codex` or `claude-code`. |
 | Host-multiplexed live provider observation | Provider-owned `HarnessTelemetryHubRegistry` per `(host, provider)` | Its exact-session subscription and empty-hub eviction | Reuse when its semantics match. A Sessions consumer may add demand; a retained record alone never does. The hub survives only while some named consumer still demands it. |
-| Cumulative token counters | Each bundled provider's `usageSnapshots` implementation | Provider-owned artifact qualification and normalization; `nonNegativeUsageCounter()` and safe summation/delta policy | Extract the provider-neutral counter vocabulary and arithmetic narrowly if runtime consumers need it. Do not import the GitHub agent-work ledger or expose `costUsd`. |
+| Cumulative token counters | Each bundled provider's `usageSnapshots` implementation | Provider-owned artifact qualification and normalization; `nonNegativeUsageCounter()` and safe summation/delta policy | Extract the provider-neutral counter vocabulary and arithmetic narrowly if runtime consumers need it. Do not import the GitHub agent-work ledger or add monetary-cost fields. |
 | Attention and Working activity | Renderer terminal workspace model and `useTerminalAttentionController` | Existing `TerminalAttention`, `terminalActionableAttentionCount()`, and `terminalWorkingCount()` policy | Observe the current model; never reclassify output or provider turns. Working remains the deliberately imperfect generic input/output/idle heuristic. |
 | Materialized terminal workspace and runtime | Renderer `TerminalWorkspaceRuntimeOwner`, `TerminalRuntimeRegistry`, and exact `TerminalRuntime` | Existing snapshot/subscription patterns and runtime identity | Add only a read-only observation port for already materialized runtimes. Projection does not retain or materialize a workspace. |
 | Terminal presentation and event delivery | Exact `TerminalRuntime`, `TerminalSurfaceAttachment`, `TerminalEventRouter`, and `TerminalPane` | Existing reparent, visible/hidden presentation, bounded hidden delivery, fit, focus, and disposal behavior | Cards create no surface. Detail borrows the actual current surface through one qualified lease; it creates no pane, PTY, event route, or output copy. |
@@ -150,9 +150,8 @@ dispose. Process restart and view reopen therefore reset the moving window. Exac
 names, cadence, window size, aggregation, chart tuning, and card copy remain decisions for
 the usage children.
 
-The runtime vocabulary is token usage, never monetary cost. Neither the runtime
-`HarnessUsageFacet.costUsd` compatibility field nor GitHub agent-work planning and delivery
-records are a Sessions source.
+The runtime vocabulary is token usage, never monetary cost. GitHub agent-work planning and
+delivery records are not a Sessions source.
 
 Local and SSH sampling use the same `ProjectHost` port. Demand against a disconnected host
 returns an unavailable fact and releases its request resources; it does not connect or
