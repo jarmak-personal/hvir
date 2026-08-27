@@ -65,6 +65,12 @@ export type TerminalWorkspaceAction =
   | { readonly type: 'session-moved'; readonly id: string }
   | { readonly type: 'primary-width-changed'; readonly width?: number }
 
+export function terminalWorkspaceActionAffectsSessionsProjection(
+  action: TerminalWorkspaceAction,
+): boolean {
+  return action.type !== 'primary-width-changed'
+}
+
 export const initialTerminalWorkspaceModel: TerminalWorkspaceModel = {
   sessions: [],
   activePane: 'primary',

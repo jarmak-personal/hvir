@@ -5,8 +5,11 @@ import {
   type HarnessProviderId,
   type HostPath,
   type ProjectState,
+  type SessionsObservationSnapshot,
   type TerminalRecoverySession,
 } from '../../shared'
+import { SessionsProjectionCoordinator } from '../../renderer/src/sessions/sessions-projection-coordinator'
+import type { SessionsRendererSession } from '../../renderer/src/sessions/sessions-renderer-observation'
 import type { RendererOwner, RendererResourceScopes } from '../renderer-resource-scopes'
 
 export async function verifySessionsProjectionSmoke(options: {
@@ -43,8 +46,9 @@ export async function verifySessionsProjectionSmoke(options: {
     });
     window.hvir.invoke('sessions:observe', { demandGeneration: 1 });
   `)) as unknown
-  assertSnapshot(initial, 3)
-  assertContentFree(initial, roots)
+  const initialSnapshot = assertSnapshot(initial, 3)
+  assertContentFree(initial, [...roots, state.root])
+  await assertRendererJoin(initialSnapshot)
 
   const reloaded = new Promise<void>((resolve) =>
     win.webContents.once('did-finish-load', () => resolve()),
@@ -78,7 +82,7 @@ export async function verifySessionsProjectionSmoke(options: {
     window.hvir.invoke('sessions:observe', { demandGeneration: 2 });
   `)) as unknown
   assertSnapshot(reopened, 4)
-  assertContentFree(reopened, roots)
+  assertContentFree(reopened, [...roots, state.root])
 
   await win.webContents.executeJavaScript(
     `window.hvir.invoke('sessions:release', { demandGeneration: 2 })`,
@@ -124,21 +128,104 @@ function recovery(
   }
 }
 
-function assertSnapshot(value: unknown, expectedRows: number): void {
+function assertSnapshot(
+  value: unknown,
+  expectedRows: number,
+): SessionsObservationSnapshot {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('Sessions projection preload returned no snapshot')
   }
-  const snapshot = value as { rows?: unknown; sessions?: unknown }
-  const rows = Array.isArray(snapshot.sessions)
-    ? snapshot.sessions
-    : Array.isArray(snapshot.rows)
-      ? snapshot.rows
-      : undefined
-  if (rows?.length !== expectedRows) {
+  const snapshot = value as Record<string, unknown>
+  const keys = Object.keys(snapshot).sort()
+  const expectedKeys = [
+    'demandGeneration',
+    'providers',
+    'revision',
+    'sessions',
+    'version',
+    'workspaces',
+  ]
+  if (JSON.stringify(keys) !== JSON.stringify(expectedKeys)) {
     throw new Error(
-      `Sessions projection expected ${expectedRows} rows, received ${rows?.length ?? 0}`,
+      `Sessions projection returned unexpected IPC keys: ${keys.join(', ')}`,
     )
   }
+  if (!Array.isArray(snapshot.sessions) || snapshot.sessions.length !== expectedRows) {
+    throw new Error(
+      `Sessions projection expected ${expectedRows} sessions, received ${Array.isArray(snapshot.sessions) ? snapshot.sessions.length : 0}`,
+    )
+  }
+  if (!Array.isArray(snapshot.workspaces) || !Array.isArray(snapshot.providers)) {
+    throw new Error('Sessions projection omitted production workspace/provider catalogs')
+  }
+  for (const workspace of snapshot.workspaces as Array<Record<string, unknown>>) {
+    if (
+      typeof workspace.projectId !== 'string' ||
+      !workspace.projectId.startsWith('sessions-project-') ||
+      typeof workspace.workspaceId !== 'string' ||
+      !workspace.workspaceId.startsWith('sessions-workspace-') ||
+      typeof workspace.qualifier !== 'string'
+    ) {
+      throw new Error('Sessions projection returned a non-opaque workspace identity')
+    }
+  }
+  return value as SessionsObservationSnapshot
+}
+
+async function assertRendererJoin(snapshot: SessionsObservationSnapshot): Promise<void> {
+  const observed = snapshot.sessions[0]
+  const workspace = snapshot.workspaces.find(
+    (candidate) => candidate.workspaceId === observed?.workspaceId,
+  )
+  if (!observed || !workspace || observed.profile.status !== 'available') {
+    throw new Error('Sessions projection smoke lacked one joinable retained session')
+  }
+  const rendererSession: SessionsRendererSession = {
+    handle: observed.handle,
+    workspaceQualifier: workspace.qualifier,
+    providerId: observed.providerId,
+    profileId: observed.profile.value.id,
+    title: 'Renderer joined smoke session',
+    dormant: false,
+    resumeOnStart: false,
+    exited: false,
+    recoveryUnavailable: false,
+    attention: 'bell',
+  }
+  let released = false
+  const coordinator = new SessionsProjectionCoordinator(
+    {
+      observe: (demandGeneration) => Promise.resolve({ ...snapshot, demandGeneration }),
+      snapshot: (demandGeneration) => Promise.resolve({ ...snapshot, demandGeneration }),
+      release: () => {
+        released = true
+        return Promise.resolve()
+      },
+      subscribe: () => () => undefined,
+    },
+    {
+      snapshot: () => [rendererSession],
+      subscribe: () => () => undefined,
+    },
+  )
+  const release = coordinator.acquire()
+  await Promise.resolve()
+  await Promise.resolve()
+  const joined = coordinator.snapshot()
+  const row = joined.rows.find((candidate) => candidate.handle === observed.handle)
+  if (
+    joined.status !== 'available' ||
+    row?.title !== rendererSession.title ||
+    row.attention.status !== 'available' ||
+    row.attention.value !== 'bell' ||
+    row.workspace.id !== workspace.workspaceId
+  ) {
+    throw new Error('Sessions projection coordinator did not join the renderer row')
+  }
+  release()
+  await Promise.resolve()
+  coordinator.dispose()
+  if (!released) throw new Error('Sessions projection coordinator did not release demand')
 }
 
 function assertContentFree(value: unknown, roots: readonly HostPath[]): void {

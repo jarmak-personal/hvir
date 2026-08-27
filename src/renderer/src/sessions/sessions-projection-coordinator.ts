@@ -1,6 +1,7 @@
 import {
   MAX_SESSIONS_PROJECTION_ROWS,
   SESSIONS_PROJECTION_VERSION,
+  sessionsProjectionTitle,
   type HvirApi,
   type SessionsFact,
   type SessionsObservationSnapshot,
@@ -28,6 +29,7 @@ const INACTIVE_SNAPSHOT: SessionsProjectionSnapshot = {
   version: SESSIONS_PROJECTION_VERSION,
   demandGeneration: 0,
   revision: 0,
+  status: 'inactive',
   rows: [],
 }
 
@@ -43,6 +45,7 @@ export class SessionsProjectionCoordinator {
   private projectionRevision = 0
   private pendingMainRevision = 0
   private refreshInFlight = false
+  private initialObserveInFlight = false
   private rowsFingerprint = '[]'
   private disposed = false
 
@@ -71,6 +74,19 @@ export class SessionsProjectionCoordinator {
     }
   }
 
+  retry(): boolean {
+    if (
+      this.current.status !== 'unavailable' ||
+      !this.isCurrent(this.demandGeneration) ||
+      this.initialObserveInFlight
+    ) {
+      return false
+    }
+    this.publishPending(this.demandGeneration)
+    this.requestInitialObservation(this.demandGeneration)
+    return true
+  }
+
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
@@ -82,6 +98,7 @@ export class SessionsProjectionCoordinator {
   private start(): void {
     const demandGeneration = ++this.demandGeneration
     this.pendingMainRevision = 0
+    this.publishPending(demandGeneration)
     this.mainUnsubscribe = this.main.subscribe((change) => {
       if (
         this.disposed ||
@@ -97,16 +114,27 @@ export class SessionsProjectionCoordinator {
     this.rendererUnsubscribe = this.renderer.subscribe(() => {
       if (this.isCurrent(demandGeneration) && this.mainSnapshot) this.publishJoined()
     })
+    this.requestInitialObservation(demandGeneration)
+  }
+
+  private requestInitialObservation(demandGeneration: number): void {
+    if (this.initialObserveInFlight || !this.isCurrent(demandGeneration)) return
+    this.initialObserveInFlight = true
     void this.main.observe(demandGeneration).then(
       (snapshot) => {
-        if (!this.acceptMainSnapshot(demandGeneration, snapshot)) return
+        if (this.isCurrent(demandGeneration)) this.initialObserveInFlight = false
+        if (!this.acceptMainSnapshot(demandGeneration, snapshot)) {
+          if (this.isCurrent(demandGeneration)) this.publishUnavailable(demandGeneration)
+          return
+        }
         this.publishJoined()
         if (this.pendingMainRevision > snapshot.revision) {
           void this.refreshMain(demandGeneration)
         }
       },
       () => {
-        if (this.isCurrent(demandGeneration)) this.publishInactive(demandGeneration)
+        if (this.isCurrent(demandGeneration)) this.initialObserveInFlight = false
+        if (this.isCurrent(demandGeneration)) this.publishUnavailable(demandGeneration)
       },
     )
   }
@@ -121,6 +149,7 @@ export class SessionsProjectionCoordinator {
     this.mainSnapshot = undefined
     this.pendingMainRevision = 0
     this.refreshInFlight = false
+    this.initialObserveInFlight = false
     this.rowsFingerprint = '[]'
     this.current = INACTIVE_SNAPSHOT
     if (releasedGeneration > 0)
@@ -169,7 +198,7 @@ export class SessionsProjectionCoordinator {
     if (!this.mainSnapshot) return
     const rows = joinSessionsProjection(this.mainSnapshot, this.renderer.snapshot())
     const fingerprint = JSON.stringify(rows)
-    if (fingerprint === this.rowsFingerprint && this.current.demandGeneration !== 0) {
+    if (fingerprint === this.rowsFingerprint && this.current.status === 'available') {
       return
     }
     this.rowsFingerprint = fingerprint
@@ -178,18 +207,35 @@ export class SessionsProjectionCoordinator {
       version: SESSIONS_PROJECTION_VERSION,
       demandGeneration: this.mainSnapshot.demandGeneration,
       revision: this.projectionRevision,
+      status: 'available',
       rows,
     }
     this.publish()
   }
 
-  private publishInactive(demandGeneration: number): void {
+  private publishPending(demandGeneration: number): void {
     if (!this.isCurrent(demandGeneration)) return
     this.projectionRevision += 1
     this.current = {
-      ...INACTIVE_SNAPSHOT,
+      version: SESSIONS_PROJECTION_VERSION,
       demandGeneration,
       revision: this.projectionRevision,
+      status: 'pending',
+      rows: [],
+    }
+    this.publish()
+  }
+
+  private publishUnavailable(demandGeneration: number): void {
+    if (!this.isCurrent(demandGeneration)) return
+    this.projectionRevision += 1
+    this.current = {
+      version: SESSIONS_PROJECTION_VERSION,
+      demandGeneration,
+      revision: this.projectionRevision,
+      status: 'unavailable',
+      unavailableReason: 'source-unavailable',
+      rows: [],
     }
     this.publish()
   }
@@ -231,7 +277,9 @@ export function joinSessionsProjection(
     rendererByHandle.set(session.handle, rows)
   }
   for (const rows of rendererByHandle.values()) {
-    rows.sort((left, right) => left.workspaceId.localeCompare(right.workspaceId))
+    rows.sort((left, right) =>
+      left.workspaceQualifier.localeCompare(right.workspaceQualifier),
+    )
   }
 
   const rows = new Map<string, SessionsProjectionRow>()
@@ -255,7 +303,9 @@ export function joinSessionsProjection(
     if (rows.has(handle)) continue
     const renderer = candidates[0]
     if (!renderer) continue
-    const workspace = workspaceById.get(renderer.workspaceId)
+    const workspace = main.workspaces.find(
+      (candidate) => candidate.qualifier === renderer.workspaceQualifier,
+    )
     if (!workspace) continue
     rows.set(
       handle,
@@ -272,7 +322,9 @@ function selectRendererFact(
   candidates: readonly SessionsRendererSession[] | undefined,
   workspace: SessionsWorkspaceProjection,
 ): SessionsRendererSession | undefined {
-  return candidates?.find((candidate) => candidate.workspaceId === workspace.workspaceId)
+  return candidates?.find(
+    (candidate) => candidate.workspaceQualifier === workspace.qualifier,
+  )
 }
 
 function projectRow(
@@ -301,7 +353,7 @@ function projectRow(
     profile: renderer
       ? { status: 'available', value: { id: renderer.profileId } }
       : main!.profile,
-    title: boundedTitle(renderer?.title ?? main?.title ?? 'Terminal'),
+    title: sessionsProjectionTitle(renderer?.title ?? main?.title),
     ...lifecycle,
     connectionState: workspace.host.connectionState,
     attention: attention.attention,
@@ -371,15 +423,4 @@ function rendererOnlyTelemetry(supported: boolean): SessionsTelemetryFacts {
     turn: fact,
     freshness: fact,
   }
-}
-
-function boundedTitle(value: string): string {
-  const clean = [...value]
-    .map((character) => {
-      const code = character.charCodeAt(0)
-      return code <= 31 || code === 127 ? ' ' : character
-    })
-    .join('')
-    .trim()
-  return clean.slice(0, 512) || 'Terminal'
 }

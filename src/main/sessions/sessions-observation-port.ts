@@ -6,6 +6,10 @@ import {
   SESSIONS_PROJECTION_VERSION,
   asSessionsPtyHandle,
   asSessionsTerminalHandle,
+  sessionsProjectionOptionalText,
+  sessionsProjectionText,
+  sessionsProjectionTitle,
+  sessionsWorkspaceQualifier,
   type HarnessFacet,
   type HarnessModelFacet,
   type HarnessContextFacet,
@@ -29,6 +33,16 @@ import type { Disposer } from '../project-host'
 import type { PtyObservationSource } from '../pty/pty-supervisor'
 import type { RendererOwner } from '../renderer-resource-scopes'
 import type { TerminalSessionObservationSource } from '../terminal/session-registry'
+import {
+  createSessionsProjectionIdentityScope,
+  sessionsProjectionRootKey,
+  type SessionsProjectionIdentityScope,
+} from './sessions-projection-identities'
+import {
+  sessionsProjectionNonNegativeInteger,
+  sessionsProjectionPercent,
+  sessionsProjectionTimestamp,
+} from './sessions-projection-values'
 
 export interface SessionsObservationProvider {
   readonly id: SessionsProviderProjection['id']
@@ -62,6 +76,7 @@ export class SessionsObservationPort {
   private current?: ObservationBase
   private fingerprint?: string
   private revision = 0
+  private identities?: SessionsProjectionIdentityScope
   private disposed = false
 
   constructor(private readonly options: SessionsObservationPortOptions) {}
@@ -70,10 +85,21 @@ export class SessionsObservationPort {
     this.assertDemandGeneration(demandGeneration)
     if (this.disposed) throw new Error('Sessions observation is disposed')
     const key = ownerKey(owner)
-    if (this.leases.has(key)) {
+    const current = this.leases.get(key)
+    if (current?.demandGeneration === demandGeneration) {
+      return this.snapshot(owner, demandGeneration)
+    }
+    if (current) {
       throw new Error('Sessions observation demand is already active')
     }
-    if (this.leases.size === 0) this.startSources()
+    if (this.leases.size === 0) {
+      try {
+        this.startSources()
+      } catch (error) {
+        this.stopSources()
+        throw error
+      }
+    }
     this.leases.set(key, { owner, demandGeneration })
     return this.snapshot(owner, demandGeneration)
   }
@@ -110,6 +136,7 @@ export class SessionsObservationPort {
   private startSources(): void {
     // Subscribe before taking the initial snapshot so no source transition can fall
     // between observation and capture.
+    this.identities = createSessionsProjectionIdentityScope()
     this.sourceDisposers = [
       this.options.sessions.observe(this.sourceChanged),
       this.options.ptys.observe(this.sourceChanged),
@@ -122,6 +149,8 @@ export class SessionsObservationPort {
     for (const dispose of this.sourceDisposers.splice(0).reverse()) void dispose()
     this.current = undefined
     this.fingerprint = undefined
+    this.identities?.clear()
+    this.identities = undefined
   }
 
   private readonly sourceChanged = (): void => {
@@ -136,12 +165,14 @@ export class SessionsObservationPort {
   }
 
   private rebuild(initial: boolean): boolean {
+    if (!this.identities) throw new Error('Sessions projection identities are inactive')
     const next = assembleSessionsObservation({
       projectState: this.options.projectState(),
       hosts: this.options.hosts(),
       providers: this.options.providers(),
       sessions: this.options.sessions.observationSnapshot(),
       ptys: this.options.ptys.observationSnapshot(),
+      identities: this.identities,
     })
     const fingerprint = JSON.stringify(next)
     if (!initial && fingerprint === this.fingerprint) return false
@@ -164,12 +195,14 @@ export function assembleSessionsObservation({
   providers,
   sessions,
   ptys,
+  identities = createSessionsProjectionIdentityScope(),
 }: {
   readonly projectState: ProjectState
   readonly hosts: readonly ProjectHostOption[]
   readonly providers: readonly SessionsObservationProvider[]
   readonly sessions: ReturnType<TerminalSessionObservationSource['observationSnapshot']>
   readonly ptys: ReturnType<PtyObservationSource['observationSnapshot']>
+  readonly identities?: SessionsProjectionIdentityScope
 }): ObservationBase {
   const hostById = new Map(
     hosts.slice(0, MAX_SESSIONS_PROJECTION_WORKSPACES).map((host) => [host.hostId, host]),
@@ -178,7 +211,7 @@ export function assembleSessionsObservation({
     .slice(0, MAX_SESSIONS_PROJECTION_PROVIDERS)
     .map((provider) => ({
       id: provider.id,
-      displayName: boundedText(provider.displayName, 120, String(provider.id)),
+      displayName: sessionsProjectionText(provider.displayName, 120, String(provider.id)),
       telemetrySupported: provider.telemetrySupported,
     }))
     .sort((left, right) => String(left.id).localeCompare(String(right.id)))
@@ -186,30 +219,40 @@ export function assembleSessionsObservation({
     projectedProviders.map((provider) => [provider.id, provider]),
   )
   const workspaceByRoot = new Map<string, SessionsWorkspaceProjection>()
-  const workspaceById = new Map<string, SessionsWorkspaceProjection>()
   const workspaces: SessionsWorkspaceProjection[] = []
-  projects: for (const project of projectState.projects) {
+  projects: for (const [projectIndex, project] of projectState.projects.entries()) {
     const host = hostById.get(project.registeredRoot.hostId)
-    for (const workspace of project.workspaces) {
+    const projectHandle = identities.project(project.registeredRoot)
+    for (const [workspaceIndex, workspace] of project.workspaces.entries()) {
       if (workspaces.length >= MAX_SESSIONS_PROJECTION_WORKSPACES) break projects
+      const key = sessionsProjectionRootKey(workspace.root.hostId, workspace.root.path)
+      if (workspaceByRoot.has(key)) continue
       const projected: SessionsWorkspaceProjection = {
-        projectId: boundedText(project.id, 120, 'project'),
-        projectName: boundedText(project.displayName, 240, 'Project'),
-        workspaceId: boundedText(workspace.id, 120, 'workspace'),
-        workspaceName: boundedText(workspace.name, 240, 'Workspace'),
+        projectId: projectHandle,
+        projectName: sessionsProjectionText(project.displayName, 240, 'Project'),
+        workspaceId: identities.workspace(workspace.root),
+        qualifier: sessionsWorkspaceQualifier(
+          projectState.revision,
+          projectIndex,
+          workspaceIndex,
+        ),
+        workspaceName: sessionsProjectionText(workspace.name, 240, 'Workspace'),
         main: workspace.main,
         closed: workspace.closed,
         missing: workspace.missing,
         host: {
-          id: boundedText(workspace.root.hostId, 255, 'host'),
-          label: boundedText(host?.label ?? workspace.root.hostId, 240, 'Host'),
+          id: sessionsProjectionText(workspace.root.hostId, 255, 'host'),
+          label: sessionsProjectionText(
+            host?.label ?? workspace.root.hostId,
+            240,
+            'Host',
+          ),
           kind: host?.kind ?? (workspace.root.hostId === LOCAL_HOST_ID ? 'local' : 'ssh'),
           connectionState: project.connectionState,
         },
       }
       workspaces.push(projected)
-      workspaceByRoot.set(rootKey(workspace.root.hostId, workspace.root.path), projected)
-      workspaceById.set(projected.workspaceId, projected)
+      workspaceByRoot.set(key, projected)
     }
   }
   workspaces.sort(
@@ -224,7 +267,10 @@ export function assembleSessionsObservation({
   for (const retained of sessions.slice(0, MAX_SESSIONS_PROJECTION_ROWS)) {
     if (observed.size >= MAX_SESSIONS_PROJECTION_ROWS) break
     const workspace = workspaceByRoot.get(
-      rootKey(retained.workspaceRoot.hostId, retained.workspaceRoot.path),
+      sessionsProjectionRootKey(
+        retained.workspaceRoot.hostId,
+        retained.workspaceRoot.path,
+      ),
     )
     if (!workspace) continue
     const pty = ptyById.get(retained.id)
@@ -234,7 +280,7 @@ export function assembleSessionsObservation({
       workspaceId: workspace.workspaceId,
       providerId: retained.providerId,
       profile: { status: 'available', value: { id: retained.profileId } },
-      title: boundedText(retained.title, 512, 'Terminal'),
+      title: sessionsProjectionTitle(retained.title),
       lifecycle: pty ? 'live' : 'retained',
       livePty: pty
         ? {
@@ -257,7 +303,10 @@ export function assembleSessionsObservation({
     if (observed.size >= MAX_SESSIONS_PROJECTION_ROWS) break
     if (observed.has(pty.info.id)) continue
     const workspace = workspaceByRoot.get(
-      rootKey(pty.info.workspaceRoot.hostId, pty.info.workspaceRoot.path),
+      sessionsProjectionRootKey(
+        pty.info.workspaceRoot.hostId,
+        pty.info.workspaceRoot.path,
+      ),
     )
     if (!workspace) continue
     const provider = providerById.get(pty.info.providerId)
@@ -268,11 +317,9 @@ export function assembleSessionsObservation({
       profile: pty.info.profileId
         ? { status: 'available', value: { id: pty.info.profileId } }
         : { status: 'unavailable', reason: 'source-unavailable' },
-      title:
-        `${provider?.displayName ?? String(pty.info.providerId)} · ${workspace.workspaceName}`.slice(
-          0,
-          512,
-        ),
+      title: sessionsProjectionTitle(
+        `${provider?.displayName ?? String(pty.info.providerId)} · ${workspace.workspaceName}`,
+      ),
       lifecycle: 'live',
       livePty: {
         handle: asSessionsPtyHandle(pty.info.instanceId),
@@ -291,11 +338,7 @@ export function assembleSessionsObservation({
 
   return {
     version: SESSIONS_PROJECTION_VERSION,
-    workspaces: [...workspaceById.values()].sort(
-      (left, right) =>
-        left.projectId.localeCompare(right.projectId) ||
-        left.workspaceId.localeCompare(right.workspaceId),
-    ),
+    workspaces,
     providers: projectedProviders,
     sessions: [...observed.values()].sort((left, right) =>
       String(left.handle).localeCompare(String(right.handle)),
@@ -316,7 +359,7 @@ function telemetryFacts(
   if (
     telemetry.version !== 1 ||
     telemetry.source.providerId !== providerId ||
-    !safeTimestamp(telemetry.observedAt)
+    !sessionsProjectionTimestamp(telemetry.observedAt)
   ) {
     return unavailableTelemetry('source-unavailable')
   }
@@ -335,7 +378,7 @@ function telemetryFacts(
     ),
     turn: projectFacet(telemetry.facets.turn, observedAt, stale, reason, sanitizeTurn),
     freshness:
-      safeNonNegativeInteger(telemetry.freshness.staleAfterMs) !== undefined
+      sessionsProjectionNonNegativeInteger(telemetry.freshness.staleAfterMs) !== undefined
         ? stale
           ? {
               status: 'stale',
@@ -369,7 +412,7 @@ function projectFacet<TSource, TProjected>(
   const value = project(facet.value)
   if (!value) return { status: 'unavailable', reason: 'source-unavailable' }
   const observedAt =
-    facet.status === 'stale' && safeTimestamp(facet.observedAt)
+    facet.status === 'stale' && sessionsProjectionTimestamp(facet.observedAt)
       ? facet.observedAt
       : snapshotObservedAt
   if (forceStale || facet.status === 'stale') {
@@ -384,16 +427,16 @@ function projectFacet<TSource, TProjected>(
 }
 
 function sanitizeModel(value: HarnessModelFacet): SessionsModelFact | undefined {
-  const id = boundedOptionalText(value.id, 256)
+  const id = sessionsProjectionOptionalText(value.id, 256)
   if (!id) return undefined
-  const displayName = boundedOptionalText(value.displayName, 256)
+  const displayName = sessionsProjectionOptionalText(value.displayName, 256)
   return displayName ? { id, displayName } : { id }
 }
 
 function sanitizeContext(value: HarnessContextFacet): SessionsContextFact | undefined {
-  const usedTokens = safeNonNegativeInteger(value.usedTokens)
-  const windowTokens = safeNonNegativeInteger(value.windowTokens)
-  const usedPercent = safePercent(value.usedPercent)
+  const usedTokens = sessionsProjectionNonNegativeInteger(value.usedTokens)
+  const windowTokens = sessionsProjectionNonNegativeInteger(value.windowTokens)
+  const usedPercent = sessionsProjectionPercent(value.usedPercent)
   if (usedTokens === undefined) return undefined
   return {
     usedTokens,
@@ -439,45 +482,6 @@ function unavailableTelemetry(
     turn: { status: 'unavailable', reason },
     freshness: { status: 'unavailable', reason },
   }
-}
-
-function boundedText(value: string, max: number, fallback: string): string {
-  return boundedOptionalText(value, max) ?? fallback
-}
-
-function boundedOptionalText(value: string | undefined, max: number): string | undefined {
-  if (typeof value !== 'string') return undefined
-  const clean = [...value]
-    .map((character) => (controlCharacter(character) ? ' ' : character))
-    .join('')
-    .trim()
-    .slice(0, max)
-  return clean || undefined
-}
-
-function controlCharacter(character: string): boolean {
-  const code = character.charCodeAt(0)
-  return code <= 31 || code === 127
-}
-
-function safeNonNegativeInteger(value: number | undefined): number | undefined {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
-    ? value
-    : undefined
-}
-
-function safePercent(value: number | undefined): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100
-    ? value
-    : undefined
-}
-
-function safeTimestamp(value: number): boolean {
-  return Number.isSafeInteger(value) && value >= 0
-}
-
-function rootKey(hostId: string, path: string): string {
-  return `${hostId}\u0000${path}`
 }
 
 function ownerKey(owner: RendererOwner): string {

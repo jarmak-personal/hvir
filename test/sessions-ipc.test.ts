@@ -12,8 +12,15 @@ describe('Sessions IPC', () => {
   it('registers one renderer-qualified demand and releases it on rollover', async () => {
     const scopes = new RendererResourceScopes()
     const owner = scopes.activateOwner(17)
+    let activeDemand: number | undefined
     const observation = {
-      acquire: vi.fn((_owner, demandGeneration: number) => snapshot(demandGeneration, 1)),
+      acquire: vi.fn((_owner, demandGeneration: number) => {
+        if (activeDemand !== undefined && activeDemand !== demandGeneration) {
+          throw new Error('Sessions observation demand is already active')
+        }
+        activeDemand = demandGeneration
+        return snapshot(demandGeneration, 1)
+      }),
       snapshot: vi.fn((_owner, demandGeneration: number) =>
         snapshot(demandGeneration, 2),
       ),
@@ -25,11 +32,15 @@ describe('Sessions IPC', () => {
     await expect(
       invoke('sessions:observe', { demandGeneration: 4 }, context),
     ).resolves.toMatchObject({ demandGeneration: 4, revision: 1 })
-    expect(observation.acquire).toHaveBeenCalledExactlyOnceWith(owner, 4)
+    await expect(
+      invoke('sessions:observe', { demandGeneration: 4 }, context),
+    ).resolves.toMatchObject({ demandGeneration: 4, revision: 1 })
+    expect(observation.acquire).toHaveBeenNthCalledWith(1, owner, 4)
+    expect(observation.acquire).toHaveBeenNthCalledWith(2, owner, 4)
     await expect(
       invoke('sessions:observe', { demandGeneration: 5 }, context),
-    ).rejects.toThrow('already registered')
-    expect(observation.release).toHaveBeenCalledWith(owner, 5)
+    ).rejects.toThrow('already active')
+    expect(observation.release).not.toHaveBeenCalledWith(owner, 5)
 
     await expect(
       invoke('sessions:snapshot', { demandGeneration: 4 }, context),

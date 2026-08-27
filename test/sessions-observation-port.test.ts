@@ -31,7 +31,7 @@ describe('SessionsObservationPort', () => {
       hosts: hostOptions(),
       providers: providers(),
       sessions: [
-        retained('local-session', localRoot, codex, codexProfile, 'Local Codex'),
+        retained('local-session', localRoot, codex, codexProfile, ' Local\u0007Codex '),
         retained('worktree-session', worktreeRoot, shell, shellProfile, 'Shell'),
         retained('remote-session', sshRoot, codex, codexProfile, 'Remote Codex'),
       ],
@@ -40,6 +40,7 @@ describe('SessionsObservationPort', () => {
 
     expect(source.sessions).toHaveLength(3)
     expect(source.sessions.find((row) => row.handle === 'local-session')).toMatchObject({
+      title: 'Local Codex',
       lifecycle: 'live',
       livePty: {
         handle: 'pty-instance-local-session',
@@ -64,10 +65,15 @@ describe('SessionsObservationPort', () => {
       freshness: { status: 'unsupported' },
     })
     expect(
-      source.workspaces.find((row) => row.workspaceId === 'ssh-workspace'),
+      source.workspaces.find((row) => row.workspaceName === 'remote-main'),
     ).toMatchObject({
       host: { kind: 'ssh', connectionState: 'disconnected', label: 'Production' },
     })
+    expect(source.workspaces.map((workspace) => workspace.workspaceId)).toEqual([
+      'sessions-workspace-1',
+      'sessions-workspace-2',
+      'sessions-workspace-3',
+    ])
 
     const serialized = JSON.stringify(source)
     expect(serialized).not.toContain('/private/')
@@ -135,6 +141,7 @@ describe('SessionsObservationPort', () => {
     expect(() => port.acquire(owner, 0)).toThrow('Invalid Sessions demand generation')
 
     const initial = port.acquire(owner, 1)
+    expect(port.acquire(owner, 1)).toEqual(initial)
     expect(initial.revision).toBeGreaterThan(0)
     expect(sessions.listenerCount()).toBe(1)
     expect(ptys.listenerCount()).toBe(1)
@@ -164,34 +171,39 @@ describe('SessionsObservationPort', () => {
 })
 
 function projectState(): ProjectState {
+  const localProjectId = `project:${localRoot.hostId}:${localRoot.path}`
+  const localWorkspaceId = `workspace:${localRoot.hostId}:${localRoot.path}`
+  const worktreeWorkspaceId = `workspace:${worktreeRoot.hostId}:${worktreeRoot.path}`
+  const sshProjectId = `project:${sshRoot.hostId}:${sshRoot.path}`
+  const sshWorkspaceId = `workspace:${sshRoot.hostId}:${sshRoot.path}`
   return {
     revision: 1,
     root: localRoot,
     connectionState: 'connected',
     watchTier: 'native',
-    activeProjectId: 'local-project',
-    activeWorkspaceId: 'local-workspace',
+    activeProjectId: localProjectId,
+    activeWorkspaceId: localWorkspaceId,
     projects: [
       {
-        id: 'local-project',
+        id: localProjectId,
         registeredRoot: localRoot,
         displayName: 'Local project',
         connectionState: 'connected',
         watchTier: 'native',
-        activeWorkspaceId: 'local-workspace',
+        activeWorkspaceId: localWorkspaceId,
         workspaces: [
-          workspace('local-workspace', localRoot, 'main', true),
-          workspace('worktree-workspace', worktreeRoot, 'feature', false),
+          workspace(localWorkspaceId, localRoot, 'main', true),
+          workspace(worktreeWorkspaceId, worktreeRoot, 'feature', false),
         ],
       },
       {
-        id: 'ssh-project',
+        id: sshProjectId,
         registeredRoot: sshRoot,
         displayName: 'Remote project',
         connectionState: 'disconnected',
         watchTier: 'polling',
-        activeWorkspaceId: 'ssh-workspace',
-        workspaces: [workspace('ssh-workspace', sshRoot, 'remote-main', true)],
+        activeWorkspaceId: sshWorkspaceId,
+        workspaces: [workspace(sshWorkspaceId, sshRoot, 'remote-main', true)],
       },
     ],
   }

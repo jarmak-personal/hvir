@@ -15,6 +15,7 @@ export function registerSessionsIpc(ipc: IpcRegistrar, deps: SessionsIpcDeps): v
         () => {
           deps.sessionsObservation.release(owner, request.demandGeneration)
         },
+        { duplicate: 'reuse' },
       )
       return snapshot
     } catch (error) {

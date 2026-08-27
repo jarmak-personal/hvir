@@ -6,6 +6,7 @@ import {
   asHarnessProfileId,
   asHarnessProviderId,
   asSessionsTerminalHandle,
+  sessionsWorkspaceQualifier,
 } from '../src/shared'
 
 describe('TerminalWorkspaceRuntimeOwner', () => {
@@ -64,7 +65,7 @@ describe('TerminalWorkspaceRuntimeOwner', () => {
     const source = vi.fn(() => [
       {
         handle: asSessionsTerminalHandle('terminal-1'),
-        workspaceId: 'workspace-a',
+        workspaceQualifier: sessionsWorkspaceQualifier(1, 0, 0),
         providerId: asHarnessProviderId('plain-shell'),
         profileId: asHarnessProfileId('plain-shell-default'),
         title: 'Shell',

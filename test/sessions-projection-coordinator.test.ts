@@ -11,7 +11,10 @@ import {
   asHarnessProfileId,
   asHarnessProviderId,
   asSessionsPtyHandle,
+  asSessionsProjectHandle,
   asSessionsTerminalHandle,
+  asSessionsWorkspaceHandle,
+  sessionsWorkspaceQualifier,
   type SessionsObservationSnapshot,
   type SessionsProjectionChange,
 } from '../src/shared'
@@ -26,7 +29,10 @@ describe('SessionsProjectionCoordinator', () => {
       observed('retained', 'workspace-b', 'retained'),
     ])
     const rows = joinSessionsProjection(snapshot, [
-      renderer('live', 'workspace-a', { attention: 'working' }),
+      renderer('live', 'workspace-a', {
+        attention: 'working',
+        title: ' Live\u0007title ',
+      }),
       renderer('starting', 'workspace-a', { resumeOnStart: true, attention: 'idle' }),
       renderer('renderer-only', 'workspace-a', { attention: 'bell' }),
     ])
@@ -34,6 +40,7 @@ describe('SessionsProjectionCoordinator', () => {
     expect(rows).toHaveLength(4)
     expect(rows.find((row) => row.handle === 'live')).toMatchObject({
       lifecycle: 'live',
+      title: 'Live title',
       connectionState: 'connected',
       attention: { status: 'available', value: 'none' },
       working: { status: 'available', value: true },
@@ -94,10 +101,12 @@ describe('SessionsProjectionCoordinator', () => {
 
     const releaseFirst = coordinator.acquire()
     const releaseSecond = coordinator.acquire()
+    expect(coordinator.snapshot().status).toBe('pending')
     await settle()
 
     expect(main.observe).toHaveBeenCalledOnce()
     expect(coordinator.snapshot().rows).toHaveLength(1)
+    expect(coordinator.snapshot().status).toBe('available')
     const firstRevision = coordinator.snapshot().revision
 
     rendererSource.set([renderer('retained', 'workspace-a', { attention: 'working' })])
@@ -123,6 +132,7 @@ describe('SessionsProjectionCoordinator', () => {
       version: SESSIONS_PROJECTION_VERSION,
       demandGeneration: 0,
       revision: 0,
+      status: 'inactive',
       rows: [],
     })
     expect(rendererSource.listenerCount()).toBe(0)
@@ -152,6 +162,35 @@ describe('SessionsProjectionCoordinator', () => {
     expect(coordinator.snapshot().demandGeneration).toBe(0)
     expect(coordinator.snapshot().rows).toEqual([])
   })
+
+  it('represents an initial source failure and retries the same demand explicitly', async () => {
+    const main = mainPort(observation(1, [observed('retained', 'workspace-a')]))
+    main.observe
+      .mockRejectedValueOnce(new Error('transport unavailable'))
+      .mockResolvedValueOnce(observation(1, [observed('retained', 'workspace-a')]))
+    const coordinator = new SessionsProjectionCoordinator(main, rendererPort([]))
+    const release = coordinator.acquire()
+    await settle()
+
+    expect(coordinator.snapshot()).toMatchObject({
+      demandGeneration: 1,
+      status: 'unavailable',
+      unavailableReason: 'source-unavailable',
+      rows: [],
+    })
+    expect(coordinator.retry()).toBe(true)
+    expect(coordinator.snapshot()).toMatchObject({ status: 'pending', rows: [] })
+    await settle()
+
+    expect(main.observe).toHaveBeenCalledTimes(2)
+    expect(main.observe).toHaveBeenNthCalledWith(2, 1)
+    expect(coordinator.snapshot()).toMatchObject({
+      status: 'available',
+      rows: [{ handle: 'retained' }],
+    })
+    expect(coordinator.retry()).toBe(false)
+    release()
+  })
 })
 
 function observation(
@@ -178,9 +217,10 @@ function workspace(
   connectionState: 'connected' | 'disconnected',
 ) {
   return {
-    projectId: `project-${workspaceId}`,
+    projectId: asSessionsProjectHandle(`project-${workspaceId}`),
     projectName,
-    workspaceId,
+    workspaceId: asSessionsWorkspaceHandle(workspaceId),
+    qualifier: workspaceQualifier(workspaceId),
     workspaceName,
     main: workspaceName === 'main',
     closed: false,
@@ -202,7 +242,7 @@ function observed(
   const unsupported = { status: 'unsupported' as const }
   return {
     handle: asSessionsTerminalHandle(id),
-    workspaceId,
+    workspaceId: asSessionsWorkspaceHandle(workspaceId),
     providerId,
     profile: { status: 'available', value: { id: profileId } },
     title: `Session ${id}`,
@@ -231,7 +271,7 @@ function renderer(
 ): SessionsRendererSession {
   return {
     handle: asSessionsTerminalHandle(id),
-    workspaceId,
+    workspaceQualifier: workspaceQualifier(workspaceId),
     providerId,
     profileId,
     title: `Renderer ${id}`,
@@ -241,6 +281,10 @@ function renderer(
     recoveryUnavailable: false,
     ...overrides,
   }
+}
+
+function workspaceQualifier(workspaceId: string) {
+  return sessionsWorkspaceQualifier(7, 0, workspaceId === 'workspace-a' ? 0 : 1)
 }
 
 function mainPort(initial: SessionsObservationSnapshot) {

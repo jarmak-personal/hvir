@@ -9,6 +9,9 @@ export const MAX_SESSIONS_PROJECTION_PROVIDERS = 128
 
 declare const sessionsTerminalHandleBrand: unique symbol
 declare const sessionsPtyHandleBrand: unique symbol
+declare const sessionsProjectHandleBrand: unique symbol
+declare const sessionsWorkspaceHandleBrand: unique symbol
+declare const sessionsWorkspaceQualifierBrand: unique symbol
 
 /** Opaque hvir identity. Consumers may compare or route it, but never present it. */
 export type SessionsTerminalHandle = string & {
@@ -18,6 +21,21 @@ export type SessionsTerminalHandle = string & {
 /** Opaque identity for one exact live PTY instance. */
 export type SessionsPtyHandle = string & {
   readonly [sessionsPtyHandleBrand]: 'SessionsPtyHandle'
+}
+
+/** Projection-owned identity with no host or path content. */
+export type SessionsProjectHandle = string & {
+  readonly [sessionsProjectHandleBrand]: 'SessionsProjectHandle'
+}
+
+/** Projection-owned identity with no host or path content. */
+export type SessionsWorkspaceHandle = string & {
+  readonly [sessionsWorkspaceHandleBrand]: 'SessionsWorkspaceHandle'
+}
+
+/** Path-free qualifier for matching one ProjectState workspace revision in the renderer. */
+export type SessionsWorkspaceQualifier = string & {
+  readonly [sessionsWorkspaceQualifierBrand]: 'SessionsWorkspaceQualifier'
 }
 
 export type SessionsReasonCode =
@@ -77,9 +95,10 @@ export interface SessionsProviderProjection {
 }
 
 export interface SessionsWorkspaceProjection {
-  readonly projectId: string
+  readonly projectId: SessionsProjectHandle
   readonly projectName: string
-  readonly workspaceId: string
+  readonly workspaceId: SessionsWorkspaceHandle
+  readonly qualifier: SessionsWorkspaceQualifier
   readonly workspaceName: string
   readonly main: boolean
   readonly closed: boolean
@@ -101,7 +120,7 @@ export interface SessionsLivePtyQualifier {
 /** Main-safe facts before renderer runtime/attention state is joined. */
 export interface SessionsObservedSession {
   readonly handle: SessionsTerminalHandle
-  readonly workspaceId: string
+  readonly workspaceId: SessionsWorkspaceHandle
   readonly providerId: HarnessProviderId
   readonly profile: SessionsFact<{ readonly id: HarnessProfileId }>
   readonly title: string
@@ -133,9 +152,9 @@ export type SessionsLifecycle =
 
 export interface SessionsProjectionRow {
   readonly handle: SessionsTerminalHandle
-  readonly project: { readonly id: string; readonly name: string }
+  readonly project: { readonly id: SessionsProjectHandle; readonly name: string }
   readonly workspace: {
-    readonly id: string
+    readonly id: SessionsWorkspaceHandle
     readonly name: string
     readonly main: boolean
   }
@@ -161,6 +180,8 @@ export interface SessionsProjectionSnapshot {
   readonly version: typeof SESSIONS_PROJECTION_VERSION
   readonly demandGeneration: number
   readonly revision: number
+  readonly status: 'inactive' | 'pending' | 'available' | 'unavailable'
+  readonly unavailableReason?: 'source-unavailable'
   readonly rows: readonly SessionsProjectionRow[]
 }
 
@@ -170,4 +191,60 @@ export function asSessionsTerminalHandle(value: string): SessionsTerminalHandle 
 
 export function asSessionsPtyHandle(value: string): SessionsPtyHandle {
   return value as SessionsPtyHandle
+}
+
+export function asSessionsProjectHandle(value: string): SessionsProjectHandle {
+  return value as SessionsProjectHandle
+}
+
+export function asSessionsWorkspaceHandle(value: string): SessionsWorkspaceHandle {
+  return value as SessionsWorkspaceHandle
+}
+
+export function sessionsWorkspaceQualifier(
+  projectStateRevision: number,
+  projectIndex: number,
+  workspaceIndex: number,
+): SessionsWorkspaceQualifier {
+  if (
+    !Number.isSafeInteger(projectStateRevision) ||
+    projectStateRevision < 0 ||
+    !Number.isSafeInteger(projectIndex) ||
+    projectIndex < 0 ||
+    !Number.isSafeInteger(workspaceIndex) ||
+    workspaceIndex < 0
+  ) {
+    throw new Error('Invalid Sessions workspace qualifier')
+  }
+  return `${projectStateRevision}:${projectIndex}:${workspaceIndex}` as SessionsWorkspaceQualifier
+}
+
+export function sessionsProjectionText(
+  value: string | undefined,
+  max: number,
+  fallback: string,
+): string {
+  return sessionsProjectionOptionalText(value, max) ?? fallback
+}
+
+export function sessionsProjectionOptionalText(
+  value: string | undefined,
+  max: number,
+): string | undefined {
+  if (typeof value !== 'string' || !Number.isSafeInteger(max) || max <= 0) {
+    return undefined
+  }
+  const clean = [...value]
+    .map((character) => {
+      const code = character.charCodeAt(0)
+      return code <= 31 || code === 127 ? ' ' : character
+    })
+    .join('')
+    .trim()
+    .slice(0, max)
+  return clean || undefined
+}
+
+export function sessionsProjectionTitle(value: string | undefined): string {
+  return sessionsProjectionText(value, 512, 'Terminal')
 }

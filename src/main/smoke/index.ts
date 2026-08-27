@@ -355,23 +355,23 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     root: smokeRoot,
     connectionState: 'connected',
     watchTier: host.watchTier,
-    activeProjectId: 'smoke-sessions-primary',
-    activeWorkspaceId: 'smoke-workspace',
+    activeProjectId: `project:${smokeRoot.hostId}:${smokeRoot.path}`,
+    activeWorkspaceId: `workspace:${smokeRoot.hostId}:${smokeRoot.path}`,
     projects: [
       {
-        id: 'smoke-sessions-primary',
+        id: `project:${smokeRoot.hostId}:${smokeRoot.path}`,
         registeredRoot: smokeRoot,
         displayName: 'Primary project',
         connectionState: 'connected',
         watchTier: host.watchTier,
-        activeWorkspaceId: 'smoke-workspace',
+        activeWorkspaceId: `workspace:${smokeRoot.hostId}:${smokeRoot.path}`,
         workspaces: [
           {
             ...smokeProjectState().projects[0]!.workspaces[0]!,
-            id: 'smoke-workspace',
+            id: `workspace:${smokeRoot.hostId}:${smokeRoot.path}`,
           },
           {
-            id: 'smoke-sessions-worktree',
+            id: `workspace:${smokeWebSwitchRoot.hostId}:${smokeWebSwitchRoot.path}`,
             root: smokeWebSwitchRoot,
             name: 'feature/sessions',
             main: false,
@@ -383,15 +383,15 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         ],
       },
       {
-        id: 'smoke-sessions-secondary',
+        id: `project:${smokeCloseableRoot.hostId}:${smokeCloseableRoot.path}`,
         registeredRoot: smokeCloseableRoot,
         displayName: 'Secondary project',
         connectionState: 'connected',
         watchTier: host.watchTier,
-        activeWorkspaceId: 'smoke-sessions-secondary-workspace',
+        activeWorkspaceId: `workspace:${smokeCloseableRoot.hostId}:${smokeCloseableRoot.path}`,
         workspaces: [
           {
-            id: 'smoke-sessions-secondary-workspace',
+            id: `workspace:${smokeCloseableRoot.hostId}:${smokeCloseableRoot.path}`,
             root: smokeCloseableRoot,
             name: 'main',
             main: true,
@@ -403,15 +403,15 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         ],
       },
       {
-        id: 'smoke-sessions-remote',
+        id: `project:${smokeRemoteRoot.hostId}:${smokeRemoteRoot.path}`,
         registeredRoot: smokeRemoteRoot,
         displayName: 'Disconnected project',
         connectionState: 'disconnected',
         watchTier: 'polling',
-        activeWorkspaceId: 'smoke-sessions-remote-workspace',
+        activeWorkspaceId: `workspace:${smokeRemoteRoot.hostId}:${smokeRemoteRoot.path}`,
         workspaces: [
           {
-            id: 'smoke-sessions-remote-workspace',
+            id: `workspace:${smokeRemoteRoot.hostId}:${smokeRemoteRoot.path}`,
             root: smokeRemoteRoot,
             name: 'remote-main',
             main: true,

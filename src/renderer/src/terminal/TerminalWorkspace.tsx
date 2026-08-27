@@ -8,9 +8,11 @@ import {
 } from 'react'
 import {
   asSessionsTerminalHandle,
+  sessionsProjectionTitle,
   type HostConnectionState,
   type HostPath,
   type MoveTerminalResponse,
+  type SessionsWorkspaceQualifier,
   type WorkspaceState,
 } from '../../../shared'
 import type { SessionsRendererSession } from '../sessions/sessions-renderer-observation'
@@ -31,6 +33,7 @@ import {
   initialTerminalWorkspaceModel,
   terminalPaneActiveId,
   terminalWorkspaceReducer,
+  terminalWorkspaceActionAffectsSessionsProjection,
   terminalWorkspaceSplit,
   type TerminalSession,
   type TerminalWorkspaceAction,
@@ -52,6 +55,7 @@ import { useTerminalSessionCommands } from './use-terminal-session-commands'
 interface TerminalWorkspaceProps {
   readonly cwd: HostPath
   readonly workspaceId: string
+  readonly sessionsWorkspaceQualifier: SessionsWorkspaceQualifier
   readonly connectionState: HostConnectionState
   readonly available: boolean
   readonly visible: boolean
@@ -103,6 +107,7 @@ export interface TerminalWorkspaceRollup {
 export function TerminalWorkspace({
   cwd,
   workspaceId,
+  sessionsWorkspaceQualifier,
   connectionState,
   available,
   visible,
@@ -155,9 +160,13 @@ export function TerminalWorkspace({
     profileState
   const send = useCallback(
     (action: TerminalWorkspaceAction): void => {
-      modelRef.current = terminalWorkspaceReducer(modelRef.current, action)
+      const current = modelRef.current
+      const next = terminalWorkspaceReducer(current, action)
+      modelRef.current = next
       dispatch(action)
-      onSessionsChanged(workspaceId)
+      if (next !== current && terminalWorkspaceActionAffectsSessionsProjection(action)) {
+        onSessionsChanged(workspaceId)
+      }
     },
     [onSessionsChanged, workspaceId],
   )
@@ -168,10 +177,10 @@ export function TerminalWorkspace({
         const runtime = runtimes.sessionSnapshot(session.id)
         return {
           handle: asSessionsTerminalHandle(session.id),
-          workspaceId,
+          workspaceQualifier: sessionsWorkspaceQualifier,
           providerId: session.providerId,
           profileId: session.profileId,
-          title: session.title.slice(0, 512),
+          title: sessionsProjectionTitle(session.title),
           dormant: session.dormant === true,
           resumeOnStart: session.resumeOnStart,
           exited: runtime?.exited === true,
@@ -181,7 +190,7 @@ export function TerminalWorkspace({
       }),
     )
     return () => onSessionsSource(workspaceId, undefined)
-  }, [onSessionsSource, runtimes, workspaceId])
+  }, [onSessionsSource, runtimes, sessionsWorkspaceQualifier, workspaceId])
   const { sessions, activeId } = model
   useEffect(() => {
     onMaterializationChange(workspaceId, sessions.length > 0)
