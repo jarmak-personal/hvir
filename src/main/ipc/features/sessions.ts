@@ -1,5 +1,6 @@
 import type { IpcRegistrar } from '../authority-router'
 import type { IpcDeps } from '../deps'
+import { asSessionsWorkspaceRuntimeId } from '../../../shared'
 
 type SessionsIpcDeps = Pick<
   IpcDeps,
@@ -94,6 +95,7 @@ export function registerSessionsIpc(ipc: IpcRegistrar, deps: SessionsIpcDeps): v
       outcome: 'resolved' as const,
       handle: target.handle,
       workspaceQualifier: target.workspaceQualifier,
+      workspaceRuntimeId: asSessionsWorkspaceRuntimeId(target.workspaceId),
       livePty: target.livePty,
     }
   })

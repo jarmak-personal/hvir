@@ -6,6 +6,7 @@ import { TerminalRuntimeRegistry } from '../src/renderer/src/terminal/terminal-r
 import {
   asSessionsPtyHandle,
   asSessionsTerminalHandle,
+  asSessionsWorkspaceRuntimeId,
   sessionsWorkspaceQualifier,
 } from '../src/shared'
 import { ghosttyLifecycleRuntimeOptions } from './fixtures/ghostty-lifecycle-runtime-options'
@@ -65,6 +66,7 @@ describe('TerminalSessionsSurfaceOwner', () => {
     const lease = registry.acquireSessionsSurface({
       handle: asSessionsTerminalHandle('terminal-1'),
       workspaceQualifier: sessionsWorkspaceQualifier(1, 0, 0),
+      workspaceRuntimeId: asSessionsWorkspaceRuntimeId('workspace-runtime'),
       livePty: {
         handle: asSessionsPtyHandle('instance-1'),
         rendererOwnerId: 7,
@@ -83,6 +85,7 @@ describe('TerminalSessionsSurfaceOwner', () => {
       lease?.renew({
         handle: asSessionsTerminalHandle('terminal-1'),
         workspaceQualifier: sessionsWorkspaceQualifier(2, 1, 0),
+        workspaceRuntimeId: asSessionsWorkspaceRuntimeId('workspace-runtime'),
         livePty: {
           handle: asSessionsPtyHandle('instance-1'),
           rendererOwnerId: 7,
@@ -93,6 +96,21 @@ describe('TerminalSessionsSurfaceOwner', () => {
         sourceRevision: 9,
       }),
     ).toBe(true)
+    expect(
+      lease?.renew({
+        handle: asSessionsTerminalHandle('terminal-1'),
+        workspaceQualifier: sessionsWorkspaceQualifier(2, 1, 0),
+        workspaceRuntimeId: asSessionsWorkspaceRuntimeId('workspace-replaced'),
+        livePty: {
+          handle: asSessionsPtyHandle('instance-1'),
+          rendererOwnerId: 7,
+          rendererGeneration: 2,
+        },
+        demandGeneration: 1,
+        projectionRevision: 6,
+        sourceRevision: 10,
+      }),
+    ).toBe(false)
     expect(detail.querySelector('.terminal-engine-host')).toBe(surface)
     expect(options.onFocus).not.toHaveBeenCalled()
     ghosttyState.instances[0]!.emitData('input after unrelated revision')

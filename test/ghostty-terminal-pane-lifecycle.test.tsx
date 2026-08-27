@@ -13,6 +13,7 @@ import type { TerminalEvent } from '../src/renderer/src/terminal/terminal-pane'
 import {
   asSessionsPtyHandle,
   asSessionsTerminalHandle,
+  asSessionsWorkspaceRuntimeId,
   sessionsWorkspaceQualifier,
 } from '../src/shared'
 import { ghosttyLifecycleRuntimeOptions as runtimeOptions } from './fixtures/ghostty-lifecycle-runtime-options'
@@ -884,33 +885,11 @@ describe('GhosttyTerminalPane lifecycle', () => {
     await Promise.resolve()
     const state = ghosttyState.instances[0]!
     const surface = workspace.querySelector('.terminal-engine-host')
-    const lease = registry.acquireSessionsSurface({
-      handle: asSessionsTerminalHandle('terminal-1'),
-      workspaceQualifier: sessionsWorkspaceQualifier(1, 0, 0),
-      livePty: {
-        handle: asSessionsPtyHandle('instance-1'),
-        rendererOwnerId: 7,
-        rendererGeneration: 2,
-      },
-      demandGeneration: 1,
-      projectionRevision: 4,
-      sourceRevision: 8,
-    })
+    const lease = registry.acquireSessionsSurface(sessionsSurfaceRequest(4))
 
     expect(lease).toBeDefined()
     expect(
-      registry.acquireSessionsSurface({
-        handle: asSessionsTerminalHandle('terminal-1'),
-        workspaceQualifier: sessionsWorkspaceQualifier(1, 0, 0),
-        livePty: {
-          handle: asSessionsPtyHandle('instance-1'),
-          rendererOwnerId: 7,
-          rendererGeneration: 2,
-        },
-        demandGeneration: 1,
-        projectionRevision: 4,
-        sourceRevision: 8,
-      }),
+      registry.acquireSessionsSurface(sessionsSurfaceRequest(4)),
     ).toBeUndefined()
     const focusCountBeforeDetail = vi.mocked(options.onFocus).mock.calls.length
     expect(lease?.attach(detail)).toBe(true)
@@ -958,18 +937,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
     expect(workspace.querySelector('.terminal-engine-host')).toBe(surface)
     expect(invoke).toHaveBeenCalledOnce()
     expect(lease?.focus(detail)).toBe(false)
-    const successor = registry.acquireSessionsSurface({
-      handle: asSessionsTerminalHandle('terminal-1'),
-      workspaceQualifier: sessionsWorkspaceQualifier(1, 0, 0),
-      livePty: {
-        handle: asSessionsPtyHandle('instance-1'),
-        rendererOwnerId: 7,
-        rendererGeneration: 2,
-      },
-      demandGeneration: 1,
-      projectionRevision: 5,
-      sourceRevision: 8,
-    })
+    const successor = registry.acquireSessionsSurface(sessionsSurfaceRequest(5))
     const disconnected = vi.fn()
     successor?.subscribe(disconnected)
     successor?.attach(detail)
@@ -980,18 +948,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
 
     runtime.update(options)
     runtime.synchronizeLifecycle()
-    const finalLease = registry.acquireSessionsSurface({
-      handle: asSessionsTerminalHandle('terminal-1'),
-      workspaceQualifier: sessionsWorkspaceQualifier(1, 0, 0),
-      livePty: {
-        handle: asSessionsPtyHandle('instance-1'),
-        rendererOwnerId: 7,
-        rendererGeneration: 2,
-      },
-      demandGeneration: 1,
-      projectionRevision: 6,
-      sourceRevision: 8,
-    })
+    const finalLease = registry.acquireSessionsSurface(sessionsSurfaceRequest(6))
     const revoked = vi.fn()
     finalLease?.subscribe(revoked)
     finalLease?.attach(detail)
@@ -1182,6 +1139,22 @@ describe('GhosttyTerminalPane lifecycle', () => {
     })
   })
 })
+
+function sessionsSurfaceRequest(projectionRevision: number) {
+  return {
+    handle: asSessionsTerminalHandle('terminal-1'),
+    workspaceQualifier: sessionsWorkspaceQualifier(1, 0, 0),
+    workspaceRuntimeId: asSessionsWorkspaceRuntimeId('workspace-runtime'),
+    livePty: {
+      handle: asSessionsPtyHandle('instance-1'),
+      rendererOwnerId: 7,
+      rendererGeneration: 2,
+    },
+    demandGeneration: 1,
+    projectionRevision,
+    sourceRevision: 8,
+  }
+}
 
 const theme = () => terminalThemeForAppearance('dark')
 const typography = () => ({ fontFamily: 'ui-monospace, monospace', fontSize: 13 })

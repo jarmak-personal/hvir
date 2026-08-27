@@ -13,6 +13,7 @@ import {
   asHarnessProfileId,
   asSessionsPtyHandle,
   asSessionsTerminalHandle,
+  asSessionsWorkspaceRuntimeId,
   hostPath,
   sessionsWorkspaceQualifier,
 } from '../src/shared'
@@ -180,6 +181,7 @@ describe('Sessions terminal detail over deterministic SSH', () => {
     const lease = registry.acquireSessionsSurface({
       handle: asSessionsTerminalHandle('terminal-1'),
       workspaceQualifier: sessionsWorkspaceQualifier(1, 0, 0),
+      workspaceRuntimeId: asSessionsWorkspaceRuntimeId('workspace-runtime'),
       livePty: {
         handle: asSessionsPtyHandle(instanceId),
         rendererOwnerId: 7,

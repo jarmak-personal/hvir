@@ -78,15 +78,12 @@ export class TerminalWorkspaceRuntimeOwner {
 
   private acquireSessionsSurface(request: SessionsTerminalSurfaceRequest) {
     if (this.disposed) return undefined
-    const exact = [...this.sessionsSources.values()].some((snapshot) =>
-      snapshot().some(
+    const exact = this.sessionsSources
+      .get(request.workspaceRuntimeId)
+      ?.().some(
         (session) =>
-          session.handle === request.handle &&
-          session.workspaceQualifier === request.workspaceQualifier &&
-          !session.dormant &&
-          !session.exited,
-      ),
-    )
+          session.handle === request.handle && !session.dormant && !session.exited,
+      )
     if (!exact) return undefined
     return this.runtimes.acquireSessionsSurface(request)
   }

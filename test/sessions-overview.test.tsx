@@ -16,6 +16,7 @@ import {
   asSessionsProjectHandle,
   asSessionsTerminalHandle,
   asSessionsWorkspaceHandle,
+  asSessionsWorkspaceRuntimeId,
   localPath,
   sessionsWorkspaceQualifier,
   type SessionsObservationSnapshot,
@@ -853,6 +854,7 @@ function installApi(
           outcome: 'resolved' as const,
           handle: exact.handle,
           workspaceQualifier: exact.workspaceQualifier,
+          workspaceRuntimeId: asSessionsWorkspaceRuntimeId('workspace-runtime'),
           livePty: exact.livePty,
         })
       }),
