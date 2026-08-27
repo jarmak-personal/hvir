@@ -160,6 +160,24 @@ describe('Sessions IPC', () => {
       reason: 'stale-projection',
     })
     expect(switchWorkspace).toHaveBeenCalledOnce()
+
+    resolveOpen.mockReturnValueOnce({
+      outcome: 'resolved',
+      projectId: 'project-real',
+      workspaceId: 'workspace-real',
+      handle: asSessionsTerminalHandle('terminal-1'),
+      workspaceQualifier: qualifier,
+      livePty,
+    })
+    await expect(
+      invoke('sessions:resolve-terminal', request, { owner: () => owner }),
+    ).resolves.toEqual({
+      outcome: 'resolved',
+      handle: 'terminal-1',
+      workspaceQualifier: qualifier,
+      livePty,
+    })
+    expect(switchWorkspace).toHaveBeenCalledOnce()
     await scopes.dispose()
   })
 })

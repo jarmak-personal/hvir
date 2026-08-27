@@ -17,8 +17,11 @@ import {
   localPath,
   sessionsWorkspaceQualifier,
   type SessionsObservationSnapshot,
+  type SessionsOpenRequest,
   type SessionsOpenResponse,
+  type SessionsTerminalResolutionResponse,
 } from '../src/shared'
+import type { SessionsTerminalSurfaceLease } from '../src/renderer/src/sessions/sessions-terminal-surface'
 
 let host: HTMLDivElement
 let root: Root
@@ -137,6 +140,77 @@ describe('SessionsOverview', () => {
         rendererGeneration: 6,
       },
     )
+  })
+
+  it('attaches one actual provider-neutral surface in detail and restores accessible overview focus', async () => {
+    const workspace = document.createElement('div')
+    const engine = document.createElement('div')
+    engine.className = 'terminal-engine-host'
+    engine.tabIndex = 0
+    workspace.append(engine)
+    const lease = componentLease(engine, workspace)
+    const surface = { acquire: vi.fn(() => lease.value) }
+    const frame = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        callback(0)
+        return 1
+      })
+    const api = installApi()
+    await renderOverview({ surface })
+
+    await act(async () => {
+      button('Interact', '.session-card').click()
+      await settle()
+    })
+    expect(api.resolveTerminal).toHaveBeenCalledWith({
+      demandGeneration: 1,
+      sourceRevision: 7,
+      handle: 'terminal-private-agent',
+      projectId: 'opaque-project',
+      workspaceId: 'opaque-workspace',
+      workspaceQualifier: '11:0:0',
+      livePty: {
+        handle: 'live-instance-agent',
+        rendererOwnerId: 4,
+        rendererGeneration: 6,
+      },
+    })
+    expect(host.querySelector('h1')?.textContent).toBe('Agent terminal')
+    expect(host.querySelectorAll('.sessions-detail-terminal')).toHaveLength(1)
+    expect(host.querySelectorAll('.terminal-engine-host')).toHaveLength(1)
+    expect(host.innerHTML).not.toContain('terminal-private-agent')
+    expect(host.innerHTML).not.toContain('live-instance-agent')
+    expect(lease.focus).toHaveBeenCalledOnce()
+    expect(document.activeElement).toBe(engine)
+
+    await act(async () => {
+      button('Back to Sessions').click()
+      await settle()
+    })
+    expect(lease.release).toHaveBeenCalledOnce()
+    expect(workspace.querySelector('.terminal-engine-host')).toBe(engine)
+    expect(host.querySelector('h1')?.textContent).toBe('Sessions')
+    expect(document.activeElement).toBe(host.querySelector('.session-card'))
+    frame.mockRestore()
+  })
+
+  it('keeps bounded detail feedback when exact surface acquisition loses its runtime', async () => {
+    installApi()
+    await renderOverview({ surface: { acquire: () => undefined } })
+
+    await act(async () => {
+      button('Interact', '.session-card').click()
+      await settle()
+    })
+    expect(host.textContent).toContain(
+      'This session no longer has the same live terminal.',
+    )
+    expect(
+      host.querySelector('.sessions-detail-terminal')?.getAttribute('aria-label'),
+    ).toBe('Agent terminal terminal')
+    expect(host.querySelectorAll('.terminal-engine-host')).toHaveLength(0)
+    expect(button('Back to Sessions')).toBeInstanceOf(HTMLButtonElement)
   })
 
   it('distinguishes the true empty state from a filtered empty state', async () => {
@@ -316,6 +390,9 @@ function installApi(
   options: {
     readonly snapshot?: (demandGeneration: number) => SessionsObservationSnapshot
     readonly open?: (request: unknown) => Promise<SessionsOpenResponse>
+    readonly resolveTerminal?: (
+      request: unknown,
+    ) => Promise<SessionsTerminalResolutionResponse>
   } = {},
 ) {
   const listeners = new Set<(payload: unknown) => void>()
@@ -325,10 +402,23 @@ function installApi(
   const open = vi.fn(
     options.open ?? ((_request: unknown) => Promise.resolve(openedResponse())),
   )
+  const resolveTerminal = vi.fn(
+    options.resolveTerminal ??
+      ((request: unknown) => {
+        const exact = request as SessionsOpenRequest
+        return Promise.resolve({
+          outcome: 'resolved' as const,
+          handle: exact.handle,
+          workspaceQualifier: exact.workspaceQualifier,
+          livePty: exact.livePty,
+        })
+      }),
+  )
   const api = {
     observe,
     release,
     open,
+    resolveTerminal,
     emit: (payload: unknown) => {
       for (const listener of listeners) listener(payload)
     },
@@ -339,6 +429,7 @@ function installApi(
         return Promise.resolve(readSnapshot(request.demandGeneration))
       if (channel === 'sessions:release') return release(request.demandGeneration)
       if (channel === 'sessions:open') return open(request)
+      if (channel === 'sessions:resolve-terminal') return resolveTerminal(request)
       return Promise.reject(new Error(`Unexpected channel ${channel}`))
     }),
     on: vi.fn((channel: string, listener: (payload: unknown) => void) => {
@@ -351,6 +442,38 @@ function installApi(
     value: api,
   })
   return api
+}
+
+function componentLease(engine: HTMLElement, workspace: HTMLElement) {
+  let container: HTMLElement | undefined
+  const attach = vi.fn((next: HTMLElement) => {
+    container = next
+    next.append(engine)
+    return true
+  })
+  const detach = vi.fn((current: HTMLElement) => {
+    if (container === current) container = undefined
+  })
+  const setVisible = vi.fn((current: HTMLElement) => container === current)
+  const focus = vi.fn((current: HTMLElement) => {
+    if (container !== current) return false
+    engine.focus()
+    return true
+  })
+  const release = vi.fn(() => {
+    container = undefined
+    workspace.append(engine)
+  })
+  const value: SessionsTerminalSurfaceLease = {
+    renew: vi.fn(() => true),
+    attach,
+    detach,
+    setVisible,
+    focus,
+    subscribe: () => () => undefined,
+    release,
+  }
+  return { value, attach, detach, setVisible, focus, release }
 }
 
 function openedResponse(): SessionsOpenResponse {
@@ -377,6 +500,7 @@ async function renderOverview(
           snapshot: rendererSessions,
           subscribe: () => () => undefined,
         }}
+        surface={{ acquire: () => undefined }}
         onReturn={vi.fn()}
         onOpened={vi.fn()}
         onFocusOpened={vi.fn(() => Promise.resolve(true))}

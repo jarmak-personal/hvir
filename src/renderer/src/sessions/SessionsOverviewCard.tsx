@@ -6,10 +6,12 @@ export function SessionsOverviewCard({
   row,
   opening,
   onOpen,
+  onInteract,
 }: {
   readonly row: SessionsProjectionRow
   readonly opening: boolean
   readonly onOpen: () => void
+  readonly onInteract?: () => void
 }): ReactElement {
   return (
     <>
@@ -24,9 +26,16 @@ export function SessionsOverviewCard({
           </span>
           <h3>{row.title}</h3>
         </div>
-        <button type="button" disabled={opening} onClick={onOpen}>
-          {opening ? 'Opening…' : 'Open'}
-        </button>
+        <div className="session-card-actions">
+          {onInteract ? (
+            <button type="button" onClick={onInteract}>
+              Interact
+            </button>
+          ) : null}
+          <button type="button" disabled={opening} onClick={onOpen}>
+            {opening ? 'Opening…' : 'Open'}
+          </button>
+        </div>
       </header>
       <p className="session-location">
         {row.project.name} <span aria-hidden="true">/</span> {row.workspace.name}

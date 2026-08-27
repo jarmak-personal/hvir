@@ -54,4 +54,17 @@ export function registerSessionsIpc(ipc: IpcRegistrar, deps: SessionsIpcDeps): v
       livePty: target.livePty,
     }
   })
+
+  ipc.handle('sessions:resolve-terminal', (request, context) => {
+    const owner = context.owner()
+    deps.rendererResources.assertCurrent(owner)
+    const target = deps.sessionsObservation.resolveOpen(owner, request)
+    if (target.outcome === 'unavailable') return target
+    return {
+      outcome: 'resolved' as const,
+      handle: target.handle,
+      workspaceQualifier: target.workspaceQualifier,
+      livePty: target.livePty,
+    }
+  })
 }

@@ -58,6 +58,9 @@ export interface TerminalCursorDefaults {
 
 export type TerminalPresentation = 'visible' | 'hidden'
 
+/** Why the terminal engine produced bytes for its PTY-facing data channel. */
+export type TerminalPaneDataSource = 'user' | 'terminal-response'
+
 export type TerminalEventScreen = 'normal' | 'alternate'
 
 export interface TerminalEventProvenance {
@@ -186,8 +189,8 @@ export type TerminalLinkActivation =
   | { readonly kind: 'loopback-http'; readonly target: string }
 
 export interface TerminalPaneEvents {
-  /** User keystrokes / paste — data the pane wants written to the PTY. */
-  onData(cb: (data: string) => void): Disposer
+  /** User input or parser-owned protocol replies that must be written to the PTY. */
+  onData(cb: (data: string, source: TerminalPaneDataSource) => void): Disposer
   /** Explicit clipboard-paste gesture; policy remains outside the swappable pane. */
   onClipboardPaste(cb: (fallbackData: string) => void): Disposer
   /** Parser-owned terminal semantics; consumers retain all product authority. */

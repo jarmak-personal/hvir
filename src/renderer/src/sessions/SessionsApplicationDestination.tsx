@@ -7,10 +7,12 @@ import type {
   SessionsWorkspaceQualifier,
 } from '../../../shared'
 import type { SessionsRendererObservationPort } from './sessions-renderer-observation'
+import type { SessionsTerminalSurfacePort } from './sessions-terminal-surface'
 import { SessionsOverview } from './SessionsOverview'
 
 interface SessionsDestinationRuntime {
   readonly sessionsObservation: SessionsRendererObservationPort
+  readonly sessionsSurface: SessionsTerminalSurfacePort
   readonly focusProjectedSession: (
     handle: SessionsTerminalHandle,
     workspaceQualifier: SessionsWorkspaceQualifier,
@@ -35,6 +37,7 @@ export function SessionsApplicationDestination({
   return (
     <SessionsOverview
       observation={runtime.sessionsObservation}
+      surface={runtime.sessionsSurface}
       onReturn={onReturn}
       onOpened={(state) => {
         onOpened(state)
