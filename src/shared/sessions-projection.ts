@@ -360,15 +360,32 @@ export function sessionsProjectionTitle(value: string | undefined): string {
   return sessionsProjectionText(value, 512, 'Terminal')
 }
 
-/** Keeps an opaque routing handle from crossing the projection's display boundary. */
+/** Keeps exact private routing and path values from crossing a display boundary. */
 export function sessionsProjectionDisplayTitle(
   value: string | undefined,
   handle: SessionsTerminalHandle,
   fallback: string,
+  exactPrivateValues: readonly string[] = [],
 ): string {
   const title = sessionsProjectionTitle(value)
-  const opaqueTitle = sessionsProjectionTitle(String(handle))
-  if (title !== opaqueTitle) return title
+  const privateValues = [String(handle), ...exactPrivateValues].filter(
+    (privateValue) => privateValue.length > 0,
+  )
+  if (!containsExactPrivateValue(value, title, privateValues)) return title
   const safeFallback = sessionsProjectionTitle(fallback)
-  return safeFallback === opaqueTitle ? 'Terminal' : safeFallback
+  if (!containsExactPrivateValue(fallback, safeFallback, privateValues)) {
+    return safeFallback
+  }
+  return 'Terminal'
+}
+
+function containsExactPrivateValue(
+  rawValue: string | undefined,
+  projectedValue: string,
+  privateValues: readonly string[],
+): boolean {
+  return privateValues.some(
+    (privateValue) =>
+      rawValue?.includes(privateValue) === true || projectedValue.includes(privateValue),
+  )
 }

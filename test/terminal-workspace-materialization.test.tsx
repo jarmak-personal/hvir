@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client'
 import { describe, expect, it, vi } from 'vitest'
 
 import { builtInProfiles } from '../src/main/harness/harness-profile-store'
+import type { SessionsRendererSession } from '../src/renderer/src/sessions/sessions-renderer-observation'
 import { TerminalWorkspace } from '../src/renderer/src/terminal/TerminalWorkspace'
 import type { TerminalWorkspaceModel } from '../src/renderer/src/terminal/terminal-workspace-model'
 import {
@@ -17,10 +18,17 @@ vi.mock('../src/renderer/src/terminal/TerminalDeck', () => ({
   TerminalDeck: ({
     onCreateDefault,
     onResetPrimaryWidth,
+    onUpdateSession,
     sessions,
   }: {
     readonly onCreateDefault?: () => void
     readonly onResetPrimaryWidth: () => void
+    readonly onUpdateSession: (
+      id: string,
+      update: (
+        session: TerminalWorkspaceModel['sessions'][number],
+      ) => TerminalWorkspaceModel['sessions'][number],
+    ) => void
     readonly sessions: TerminalWorkspaceModel['sessions']
   }) => (
     <>
@@ -30,6 +38,20 @@ vi.mock('../src/renderer/src/terminal/TerminalDeck', () => ({
       <button type="button" data-testid="resize-reset" onClick={onResetPrimaryWidth}>
         Reset split
       </button>
+      {sessions[0] ? (
+        <button
+          type="button"
+          data-testid="private-title"
+          onClick={() =>
+            onUpdateSession(sessions[0]!.id, (session) => ({
+              ...session,
+              title: `Working in ${session.cwd.path}`,
+            }))
+          }
+        >
+          Private title
+        </button>
+      ) : null}
     </>
   ),
 }))
@@ -53,7 +75,7 @@ vi.mock('../src/renderer/src/terminal/TerminalWorkspaceControls', () => ({
 }))
 
 describe('terminal workspace materialization bridge', () => {
-  it('retains a session owner across navigation and releases it after close-last', async () => {
+  it('retains a session owner, filters its exact live cwd title, and releases after close-last', async () => {
     const profile = builtInProfiles()[0]!
     const provider = shellProvider(profile.providerId)
     Object.defineProperty(window, 'hvir', {
@@ -79,6 +101,13 @@ describe('terminal workspace materialization bridge', () => {
     const root = createRoot(host)
     const onMaterializationChange = vi.fn()
     const onSessionsChanged = vi.fn()
+    const onSessionsSource =
+      vi.fn<
+        (
+          workspaceId: string,
+          source: (() => readonly SessionsRendererSession[]) | undefined,
+        ) => void
+      >()
     const props = {
       cwd: localPath('/repo'),
       workspaceId: 'workspace',
@@ -106,10 +135,13 @@ describe('terminal workspace materialization bridge', () => {
       onOpenTerminalSettings: vi.fn(),
       onOpenHarnessSettings: vi.fn(),
       onAddHarness: vi.fn(),
-      runtimes: { disposeSession: vi.fn() } as never,
+      runtimes: {
+        disposeSession: vi.fn(),
+        sessionSnapshot: vi.fn(() => undefined),
+      } as never,
       moveTargets: [],
       onMaterializationChange,
-      onSessionsSource: vi.fn(),
+      onSessionsSource,
       onSessionsChanged,
       onController: vi.fn(),
       onPrepareMoveTarget: vi.fn(() => Promise.resolve()),
@@ -131,6 +163,17 @@ describe('terminal workspace materialization bridge', () => {
     })
     expect(onMaterializationChange).toHaveBeenLastCalledWith('workspace', true)
     expect(onSessionsChanged).toHaveBeenCalled()
+    const sessionsSource = [...props.onSessionsSource.mock.calls]
+      .reverse()
+      .find(([, source]) => typeof source === 'function')?.[1]
+    expect(sessionsSource).toBeTypeOf('function')
+
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[data-testid="private-title"]')?.click()
+      await settleEffects()
+    })
+    expect(sessionsSource?.()).toMatchObject([{ title: 'Shell · repo' }])
+    expect(sessionsSource?.()[0]?.title).not.toContain('/repo')
 
     onSessionsChanged.mockClear()
     await act(async () => {
