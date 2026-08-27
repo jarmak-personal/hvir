@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act } from 'react'
+import { StrictMode, act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -47,6 +47,42 @@ afterEach(() => {
 })
 
 describe('SessionsOverview', () => {
+  it('survives StrictMode effect replay with one current projection demand', async () => {
+    const api = installApi()
+
+    await act(async () => {
+      root.render(
+        <StrictMode>
+          <SessionsOverview
+            observation={{
+              snapshot: rendererSessions,
+              subscribe: () => () => undefined,
+            }}
+            surface={{ acquire: () => undefined }}
+            onReturn={vi.fn()}
+            onOpened={vi.fn()}
+            onFocusOpened={vi.fn(() => Promise.resolve(true))}
+            onOpenFailed={vi.fn()}
+          />
+        </StrictMode>,
+      )
+      await settle()
+    })
+
+    expect(host.querySelectorAll('.session-card')).toHaveLength(2)
+    expect(api.observe.mock.calls).toEqual([[1], [3]])
+    expect(api.release).toHaveBeenCalledExactlyOnceWith(1)
+    expect(api.listenerCount()).toBe(1)
+
+    await act(async () => {
+      root.render(<div>Workspace</div>)
+      await settle()
+    })
+
+    expect(api.release.mock.calls).toEqual([[1], [3]])
+    expect(api.listenerCount()).toBe(0)
+  })
+
   it('discloses policy, supports keyboard/filter/reset, hides opaque handles, and releases background demand', async () => {
     const api = installApi()
     await renderOverview()
