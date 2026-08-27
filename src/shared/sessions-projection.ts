@@ -1,11 +1,14 @@
 import type { HostConnectionState } from './fs-types'
 import type { HarnessProfileId } from './harness-profile'
 import type { HarnessProviderId } from './harness-provider'
+import type { HarnessUsageValue } from './harness-usage'
+import type { ProjectState } from './ipc'
 
 export const SESSIONS_PROJECTION_VERSION = 1
 export const MAX_SESSIONS_PROJECTION_ROWS = 500
 export const MAX_SESSIONS_PROJECTION_WORKSPACES = 1_000
 export const MAX_SESSIONS_PROJECTION_PROVIDERS = 128
+export const MAX_SESSIONS_USAGE_ROWS = MAX_SESSIONS_PROJECTION_ROWS
 
 declare const sessionsTerminalHandleBrand: unique symbol
 declare const sessionsPtyHandleBrand: unique symbol
@@ -50,6 +53,33 @@ export type SessionsReasonCode =
   | 'recovery-unavailable'
   | 'transport-unavailable'
 
+export type SessionsUsageReasonCode =
+  | 'not-live'
+  | 'identity-pending'
+  | 'observation-pending'
+  | 'identity-unavailable'
+  | 'connection-unavailable'
+  | 'source-unavailable'
+  | 'observation-capacity'
+
+/** Content-free cumulative usage projected from the provider-owned observer. */
+export type SessionsUsageFact =
+  | { readonly status: 'unsupported' }
+  | { readonly status: 'pending'; readonly reason: SessionsUsageReasonCode }
+  | { readonly status: 'unavailable'; readonly reason: SessionsUsageReasonCode }
+  | { readonly status: 'reset'; readonly reason: SessionsUsageReasonCode }
+  | {
+      readonly status: 'stale'
+      readonly value: HarnessUsageValue
+      readonly observedAt: number
+      readonly reason: SessionsUsageReasonCode
+    }
+  | {
+      readonly status: 'exact' | 'partial'
+      readonly value: HarnessUsageValue
+      readonly observedAt: number
+    }
+
 export type SessionsFact<T> =
   | { readonly status: 'unsupported' }
   | { readonly status: 'pending'; readonly reason: SessionsReasonCode }
@@ -92,6 +122,8 @@ export interface SessionsProviderProjection {
   readonly id: HarnessProviderId
   readonly displayName: string
   readonly telemetrySupported: boolean
+  readonly usageSupported: boolean
+  readonly sessionKind: 'agent' | 'shell'
 }
 
 export interface SessionsWorkspaceProjection {
@@ -147,6 +179,78 @@ export interface SessionsDemandRequest {
   readonly demandGeneration: number
 }
 
+export interface SessionsUsageDemandTarget {
+  readonly handle: SessionsTerminalHandle
+  readonly livePty?: SessionsLivePtyQualifier
+}
+
+export interface SessionsUsageDemandRequest {
+  readonly demandGeneration: number
+  readonly projectionDemandGeneration: number
+  readonly sourceRevision: number
+  readonly targets: readonly SessionsUsageDemandTarget[]
+}
+
+export interface SessionsUsageSnapshotRow {
+  readonly handle: SessionsTerminalHandle
+  readonly usage: SessionsUsageFact
+}
+
+export interface SessionsUsageSnapshot {
+  readonly version: typeof SESSIONS_PROJECTION_VERSION
+  readonly demandGeneration: number
+  readonly revision: number
+  readonly sampledAt: number
+  readonly rows: readonly SessionsUsageSnapshotRow[]
+}
+
+export interface SessionsUsageChange {
+  readonly demandGeneration: number
+  readonly revision: number
+}
+
+export interface SessionsOpenRequest extends SessionsDemandRequest {
+  readonly sourceRevision: number
+  readonly handle: SessionsTerminalHandle
+  readonly projectId: SessionsProjectHandle
+  readonly workspaceId: SessionsWorkspaceHandle
+  readonly workspaceQualifier: SessionsWorkspaceQualifier
+  readonly livePty?: SessionsLivePtyQualifier
+}
+
+export type SessionsOpenUnavailableReason =
+  | 'stale-projection'
+  | 'session-unavailable'
+  | 'workspace-unavailable'
+  | 'connection-unavailable'
+  | 'terminal-unavailable'
+
+export type SessionsOpenResponse =
+  | {
+      readonly outcome: 'opened'
+      readonly state: ProjectState
+      readonly handle: SessionsTerminalHandle
+      readonly workspaceQualifier: SessionsWorkspaceQualifier
+      readonly livePty: SessionsLivePtyQualifier
+    }
+  | {
+      readonly outcome: 'unavailable'
+      readonly reason: SessionsOpenUnavailableReason
+    }
+
+/** Exact read-only resolution for borrowing an existing renderer terminal surface. */
+export type SessionsTerminalResolutionResponse =
+  | {
+      readonly outcome: 'resolved'
+      readonly handle: SessionsTerminalHandle
+      readonly workspaceQualifier: SessionsWorkspaceQualifier
+      readonly livePty: SessionsLivePtyQualifier
+    }
+  | {
+      readonly outcome: 'unavailable'
+      readonly reason: SessionsOpenUnavailableReason
+    }
+
 export type SessionsLifecycle =
   'retained' | 'starting' | 'resuming' | 'live' | 'stopped' | 'unavailable'
 
@@ -157,9 +261,14 @@ export interface SessionsProjectionRow {
     readonly id: SessionsWorkspaceHandle
     readonly name: string
     readonly main: boolean
+    readonly qualifier: SessionsWorkspaceQualifier
   }
   readonly host: SessionsWorkspaceProjection['host']
-  readonly provider: { readonly id: HarnessProviderId; readonly name: string }
+  readonly provider: {
+    readonly id: HarnessProviderId
+    readonly name: string
+    readonly kind: 'agent' | 'shell' | 'unknown'
+  }
   readonly profile: SessionsFact<{ readonly id: HarnessProfileId }>
   readonly title: string
   readonly lifecycle: SessionsLifecycle
@@ -171,8 +280,8 @@ export interface SessionsProjectionRow {
   readonly context: SessionsFact<SessionsContextFact>
   readonly turn: SessionsFact<SessionsTurnFact>
   readonly telemetryFreshness: SessionsFact<SessionsFreshnessFact>
-  /** Reserved for the cumulative token-counter child; this issue never samples usage. */
-  readonly usage: { readonly status: 'unsupported' }
+  /** Capability baseline; the active Usage lens overlays demanded observations. */
+  readonly usage: SessionsUsageFact
   readonly livePty?: SessionsLivePtyQualifier
 }
 
@@ -180,6 +289,8 @@ export interface SessionsProjectionSnapshot {
   readonly version: typeof SESSIONS_PROJECTION_VERSION
   readonly demandGeneration: number
   readonly revision: number
+  /** Main-owned observation revision used only for exact actions. */
+  readonly sourceRevision: number
   readonly status: 'inactive' | 'pending' | 'available' | 'unavailable'
   readonly unavailableReason?: 'source-unavailable'
   readonly rows: readonly SessionsProjectionRow[]

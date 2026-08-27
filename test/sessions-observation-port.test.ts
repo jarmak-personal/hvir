@@ -11,6 +11,7 @@ import {
   asHarnessProfileId,
   asHarnessProviderId,
   asHostId,
+  asSessionsPtyHandle,
   hostPath,
   localPath,
   type ProjectState,
@@ -148,9 +149,14 @@ describe('SessionsObservationPort', () => {
     expect(ptys.listenerCount()).toBe(1)
     expect(projects.listenerCount()).toBe(1)
 
+    const sourceChange = vi.fn()
+    const stopSourceChanges = port.observeSourceChanges(sourceChange)
     sessions.publish()
+    expect(sourceChange).toHaveBeenCalledOnce()
     expect(emit).not.toHaveBeenCalled()
+    void stopSourceChanges()
     sessions.set([retained('session-1', localRoot, shell, shellProfile, 'Renamed Shell')])
+    expect(sourceChange).toHaveBeenCalledOnce()
     expect(emit).toHaveBeenCalledExactlyOnceWith(owner, {
       demandGeneration: 1,
       revision: initial.revision + 1,
@@ -167,6 +173,107 @@ describe('SessionsObservationPort', () => {
     expect(emit).not.toHaveBeenCalled()
     expect(() => port.snapshot(owner, 1)).toThrow('no longer current')
     expect(port.acquire(owner, 2).revision).toBeGreaterThan(initial.revision)
+    port.dispose()
+  })
+
+  it('resolves exact live Open through opaque identities and rejects stale or disconnected targets', () => {
+    const sessions = observationSource([
+      retained('local-session', localRoot, codex, codexProfile, 'Local'),
+      retained('remote-session', sshRoot, codex, codexProfile, 'Remote'),
+    ])
+    const ptys = observationSource([livePty('local-session', localRoot)])
+    const port = new SessionsObservationPort({
+      projectState,
+      hosts: hostOptions,
+      providers,
+      sessions,
+      ptys,
+      observeProjects: listeners().observe,
+      emit: vi.fn(),
+    })
+    const owner = { id: 7, generation: 4 }
+    const snapshot = port.acquire(owner, 1)
+    const local = snapshot.sessions.find(
+      (candidate) => candidate.handle === 'local-session',
+    )!
+    const localWorkspace = snapshot.workspaces.find(
+      (candidate) => candidate.workspaceId === local.workspaceId,
+    )!
+    const request = {
+      demandGeneration: 1,
+      sourceRevision: snapshot.revision,
+      handle: local.handle,
+      projectId: localWorkspace.projectId,
+      workspaceId: localWorkspace.workspaceId,
+      workspaceQualifier: localWorkspace.qualifier,
+      livePty: local.livePty,
+    }
+
+    expect(port.resolveOpen(owner, request)).toMatchObject({
+      outcome: 'resolved',
+      projectId: `project:${localRoot.hostId}:${localRoot.path}`,
+      workspaceId: `workspace:${localRoot.hostId}:${localRoot.path}`,
+      livePty: { handle: 'pty-instance-local-session' },
+    })
+
+    sessions.set([
+      retained('local-session', localRoot, codex, codexProfile, 'Changed'),
+      retained('remote-session', sshRoot, codex, codexProfile, 'Remote'),
+    ])
+    expect(port.resolveOpen(owner, request)).toEqual({
+      outcome: 'unavailable',
+      reason: 'stale-projection',
+    })
+
+    const current = port.snapshot(owner, 1)
+    const currentLocal = current.sessions.find(
+      (candidate) => candidate.handle === 'local-session',
+    )!
+    const currentLocalWorkspace = current.workspaces.find(
+      (candidate) => candidate.workspaceId === currentLocal.workspaceId,
+    )!
+    expect(
+      port.resolveOpen(owner, {
+        demandGeneration: 1,
+        sourceRevision: current.revision,
+        handle: currentLocal.handle,
+        projectId: currentLocalWorkspace.projectId,
+        workspaceId: currentLocalWorkspace.workspaceId,
+        workspaceQualifier: currentLocalWorkspace.qualifier,
+        livePty: {
+          ...currentLocal.livePty!,
+          handle: asSessionsPtyHandle('replacement-instance'),
+        },
+      }),
+    ).toEqual({ outcome: 'unavailable', reason: 'terminal-unavailable' })
+    expect(
+      port.resolveOpen(owner, {
+        demandGeneration: 1,
+        sourceRevision: current.revision,
+        handle: currentLocal.handle,
+        projectId: currentLocalWorkspace.projectId,
+        workspaceId: currentLocalWorkspace.workspaceId,
+        workspaceQualifier: currentLocalWorkspace.qualifier,
+        livePty: { ...currentLocal.livePty!, rendererGeneration: 5 },
+      }),
+    ).toEqual({ outcome: 'unavailable', reason: 'terminal-unavailable' })
+    const remote = current.sessions.find(
+      (candidate) => candidate.handle === 'remote-session',
+    )!
+    const remoteWorkspace = current.workspaces.find(
+      (candidate) => candidate.workspaceId === remote.workspaceId,
+    )!
+    expect(
+      port.resolveOpen(owner, {
+        demandGeneration: 1,
+        sourceRevision: current.revision,
+        handle: remote.handle,
+        projectId: remoteWorkspace.projectId,
+        workspaceId: remoteWorkspace.workspaceId,
+        workspaceQualifier: remoteWorkspace.qualifier,
+        livePty: remote.livePty,
+      }),
+    ).toEqual({ outcome: 'unavailable', reason: 'connection-unavailable' })
     port.dispose()
   })
 })
@@ -244,8 +351,18 @@ function hostOptions() {
 
 function providers() {
   return [
-    { id: codex, displayName: 'Codex', telemetrySupported: true },
-    { id: shell, displayName: 'Shell', telemetrySupported: false },
+    {
+      id: codex,
+      displayName: 'Codex',
+      telemetrySupported: true,
+      sessionKind: 'agent' as const,
+    },
+    {
+      id: shell,
+      displayName: 'Shell',
+      telemetrySupported: false,
+      sessionKind: 'shell' as const,
+    },
   ]
 }
 

@@ -6,27 +6,19 @@ import {
   SESSIONS_PROJECTION_VERSION,
   asSessionsPtyHandle,
   asSessionsTerminalHandle,
-  sessionsProjectionOptionalText,
   sessionsProjectionText,
   sessionsProjectionTitle,
   sessionsWorkspaceQualifier,
-  type HarnessFacet,
-  type HarnessModelFacet,
-  type HarnessContextFacet,
-  type HarnessTelemetry,
-  type HarnessTurnFacet,
-  type HostConnectionState,
   type ProjectHostOption,
   type ProjectState,
-  type SessionsContextFact,
-  type SessionsFact,
-  type SessionsModelFact,
   type SessionsObservationSnapshot,
+  type SessionsOpenRequest,
   type SessionsObservedSession,
   type SessionsProjectionChange,
   type SessionsProviderProjection,
-  type SessionsTelemetryFacts,
-  type SessionsTurnFact,
+  type SessionsTerminalHandle,
+  type SessionsUsageDemandRequest,
+  type SessionsUsageDemandTarget,
   type SessionsWorkspaceProjection,
 } from '../../shared'
 import type { Disposer } from '../project-host'
@@ -39,15 +31,17 @@ import {
   type SessionsProjectionIdentityScope,
 } from './sessions-projection-identities'
 import {
-  sessionsProjectionNonNegativeInteger,
-  sessionsProjectionPercent,
-  sessionsProjectionTimestamp,
-} from './sessions-projection-values'
+  resolveSessionsOpen,
+  type SessionsResolvedOpen,
+} from './sessions-open-resolution'
+import { sessionsTelemetryFacts } from './sessions-telemetry-projection'
 
 export interface SessionsObservationProvider {
   readonly id: SessionsProviderProjection['id']
   readonly displayName: string
   readonly telemetrySupported: boolean
+  readonly usageSupported?: boolean
+  readonly sessionKind: 'agent' | 'shell'
 }
 
 export interface SessionsObservationPortOptions {
@@ -65,6 +59,14 @@ interface DemandLease {
   readonly demandGeneration: number
 }
 
+export interface SessionsResolvedUsageTarget extends SessionsUsageDemandTarget {
+  readonly providerId: SessionsProviderProjection['id']
+  readonly usageSupported: boolean
+  readonly connectionState: SessionsWorkspaceProjection['host']['connectionState']
+}
+
+export type { SessionsResolvedOpen } from './sessions-open-resolution'
+
 type ObservationBase = Omit<SessionsObservationSnapshot, 'demandGeneration' | 'revision'>
 
 /**
@@ -77,6 +79,7 @@ export class SessionsObservationPort {
   private fingerprint?: string
   private revision = 0
   private identities?: SessionsProjectionIdentityScope
+  private readonly sourceListeners = new Set<() => void>()
   private disposed = false
 
   constructor(private readonly options: SessionsObservationPortOptions) {}
@@ -126,11 +129,92 @@ export class SessionsObservationPort {
     return true
   }
 
+  resolveOpen(owner: RendererOwner, request: SessionsOpenRequest): SessionsResolvedOpen {
+    const lease = this.leases.get(ownerKey(owner))
+    return resolveSessionsOpen({
+      owner,
+      request,
+      activeDemandGeneration: lease?.demandGeneration,
+      sourceRevision: this.revision,
+      observation: this.current,
+      identities: this.identities,
+      projectState: this.options.projectState(),
+    })
+  }
+
+  resolveUsageTargets(
+    owner: RendererOwner,
+    request: SessionsUsageDemandRequest,
+  ): readonly SessionsResolvedUsageTarget[] {
+    if (
+      request.sourceRevision !== this.revision ||
+      request.targets.length > MAX_SESSIONS_PROJECTION_ROWS
+    ) {
+      throw new Error('Sessions usage projection is no longer current')
+    }
+    return this.currentUsageTargets(
+      owner,
+      request.projectionDemandGeneration,
+      request.targets,
+    )
+  }
+
+  currentUsageTargets(
+    owner: RendererOwner,
+    projectionDemandGeneration: number,
+    targets: readonly SessionsUsageDemandTarget[],
+  ): readonly SessionsResolvedUsageTarget[] {
+    const lease = this.leases.get(ownerKey(owner))
+    if (
+      !lease ||
+      lease.demandGeneration !== projectionDemandGeneration ||
+      !this.current ||
+      targets.length > MAX_SESSIONS_PROJECTION_ROWS
+    ) {
+      throw new Error('Sessions usage projection is no longer current')
+    }
+    const requested = new Set<SessionsTerminalHandle>()
+    const sessions = new Map(
+      this.current.sessions.map((session) => [session.handle, session]),
+    )
+    const workspaces = new Map(
+      this.current.workspaces.map((workspace) => [workspace.workspaceId, workspace]),
+    )
+    const providers = new Map(
+      this.current.providers.map((provider) => [provider.id, provider]),
+    )
+    return targets.map((target) => {
+      if (requested.has(target.handle)) throw new Error('Duplicate Sessions usage target')
+      requested.add(target.handle)
+      const session = sessions.get(target.handle)
+      if (!session) throw new Error('Sessions usage target is unavailable')
+      if (!sameLivePty(target.livePty, session.livePty)) {
+        throw new Error('Sessions usage PTY qualifier is no longer current')
+      }
+      const workspace = workspaces.get(session.workspaceId)
+      if (!workspace) throw new Error('Sessions usage workspace is unavailable')
+      return {
+        ...target,
+        providerId: session.providerId,
+        usageSupported: providers.get(session.providerId)?.usageSupported === true,
+        connectionState: workspace.host.connectionState,
+      }
+    })
+  }
+
+  observeSourceChanges(listener: () => void): Disposer {
+    this.sourceListeners.add(listener)
+    return () => {
+      this.sourceListeners.delete(listener)
+    }
+  }
+
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
     this.leases.clear()
     this.stopSources()
+    this.sourceListeners.clear()
   }
 
   private startSources(): void {
@@ -155,7 +239,9 @@ export class SessionsObservationPort {
 
   private readonly sourceChanged = (): void => {
     if (this.leases.size === 0 || this.disposed) return
-    if (!this.rebuild(false)) return
+    const projectionChanged = this.rebuild(false)
+    for (const listener of this.sourceListeners) listener()
+    if (!projectionChanged) return
     for (const lease of this.leases.values()) {
       this.options.emit(lease.owner, {
         demandGeneration: lease.demandGeneration,
@@ -213,6 +299,8 @@ export function assembleSessionsObservation({
       id: provider.id,
       displayName: sessionsProjectionText(provider.displayName, 120, String(provider.id)),
       telemetrySupported: provider.telemetrySupported,
+      usageSupported: provider.usageSupported === true,
+      sessionKind: provider.sessionKind,
     }))
     .sort((left, right) => String(left.id).localeCompare(String(right.id)))
   const providerById = new Map(
@@ -289,7 +377,7 @@ export function assembleSessionsObservation({
             rendererGeneration: pty.info.ownerGeneration,
           }
         : undefined,
-      telemetry: telemetryFacts(
+      telemetry: sessionsTelemetryFacts(
         provider?.telemetrySupported === true,
         Boolean(pty),
         pty?.telemetry,
@@ -326,7 +414,7 @@ export function assembleSessionsObservation({
         rendererOwnerId: pty.info.ownerId,
         rendererGeneration: pty.info.ownerGeneration,
       },
-      telemetry: telemetryFacts(
+      telemetry: sessionsTelemetryFacts(
         provider?.telemetrySupported === true,
         true,
         pty.telemetry,
@@ -346,144 +434,18 @@ export function assembleSessionsObservation({
   }
 }
 
-function telemetryFacts(
-  supported: boolean,
-  live: boolean,
-  telemetry: HarnessTelemetry | undefined,
-  providerId: SessionsProviderProjection['id'],
-  connectionState: HostConnectionState,
-): SessionsTelemetryFacts {
-  if (!supported) return unsupportedTelemetry()
-  if (!live) return unavailableTelemetry('not-live')
-  if (!telemetry) return pendingTelemetry()
-  if (
-    telemetry.version !== 1 ||
-    telemetry.source.providerId !== providerId ||
-    !sessionsProjectionTimestamp(telemetry.observedAt)
-  ) {
-    return unavailableTelemetry('source-unavailable')
-  }
-  const observedAt = telemetry.observedAt
-  const disconnected = connectionState !== 'connected'
-  const stale = disconnected || telemetry.freshness.state === 'stale'
-  const reason = disconnected ? 'connection-unavailable' : 'source-stale'
-  return {
-    model: projectFacet(telemetry.facets.model, observedAt, stale, reason, sanitizeModel),
-    context: projectFacet(
-      telemetry.facets.context,
-      observedAt,
-      stale,
-      reason,
-      sanitizeContext,
-    ),
-    turn: projectFacet(telemetry.facets.turn, observedAt, stale, reason, sanitizeTurn),
-    freshness:
-      sessionsProjectionNonNegativeInteger(telemetry.freshness.staleAfterMs) !== undefined
-        ? stale
-          ? {
-              status: 'stale',
-              value: { staleAfterMs: telemetry.freshness.staleAfterMs },
-              observedAt,
-              reason,
-            }
-          : {
-              status: 'available',
-              value: { staleAfterMs: telemetry.freshness.staleAfterMs },
-              observedAt,
-            }
-        : { status: 'unavailable', reason: 'source-unavailable' },
-  }
-}
-
-function projectFacet<TSource, TProjected>(
-  facet: HarnessFacet<TSource>,
-  snapshotObservedAt: number,
-  forceStale: boolean,
-  staleReason: 'connection-unavailable' | 'source-stale',
-  project: (value: TSource) => TProjected | undefined,
-): SessionsFact<TProjected> {
-  if (facet.status === 'unsupported') return { status: 'unsupported' }
-  if (facet.status === 'pending') {
-    return { status: 'pending', reason: 'telemetry-pending' }
-  }
-  if (facet.status === 'unavailable') {
-    return { status: 'unavailable', reason: 'source-unavailable' }
-  }
-  const value = project(facet.value)
-  if (!value) return { status: 'unavailable', reason: 'source-unavailable' }
-  const observedAt =
-    facet.status === 'stale' && sessionsProjectionTimestamp(facet.observedAt)
-      ? facet.observedAt
-      : snapshotObservedAt
-  if (forceStale || facet.status === 'stale') {
-    return {
-      status: 'stale',
-      value,
-      observedAt,
-      reason: forceStale ? staleReason : 'source-stale',
-    }
-  }
-  return { status: 'available', value, observedAt }
-}
-
-function sanitizeModel(value: HarnessModelFacet): SessionsModelFact | undefined {
-  const id = sessionsProjectionOptionalText(value.id, 256)
-  if (!id) return undefined
-  const displayName = sessionsProjectionOptionalText(value.displayName, 256)
-  return displayName ? { id, displayName } : { id }
-}
-
-function sanitizeContext(value: HarnessContextFacet): SessionsContextFact | undefined {
-  const usedTokens = sessionsProjectionNonNegativeInteger(value.usedTokens)
-  const windowTokens = sessionsProjectionNonNegativeInteger(value.windowTokens)
-  const usedPercent = sessionsProjectionPercent(value.usedPercent)
-  if (usedTokens === undefined) return undefined
-  return {
-    usedTokens,
-    ...(windowTokens === undefined ? {} : { windowTokens }),
-    ...(usedPercent === undefined ? {} : { usedPercent }),
-  }
-}
-
-function sanitizeTurn(value: HarnessTurnFacet): SessionsTurnFact | undefined {
-  switch (value.state) {
-    case 'working':
-    case 'waiting-for-user':
-    case 'waiting-for-approval':
-    case 'idle':
-      return { state: value.state }
-  }
-}
-
-function unsupportedTelemetry(): SessionsTelemetryFacts {
-  return {
-    model: { status: 'unsupported' },
-    context: { status: 'unsupported' },
-    turn: { status: 'unsupported' },
-    freshness: { status: 'unsupported' },
-  }
-}
-
-function pendingTelemetry(): SessionsTelemetryFacts {
-  return {
-    model: { status: 'pending', reason: 'telemetry-pending' },
-    context: { status: 'pending', reason: 'telemetry-pending' },
-    turn: { status: 'pending', reason: 'telemetry-pending' },
-    freshness: { status: 'pending', reason: 'telemetry-pending' },
-  }
-}
-
-function unavailableTelemetry(
-  reason: 'not-live' | 'source-unavailable',
-): SessionsTelemetryFacts {
-  return {
-    model: { status: 'unavailable', reason },
-    context: { status: 'unavailable', reason },
-    turn: { status: 'unavailable', reason },
-    freshness: { status: 'unavailable', reason },
-  }
-}
-
 function ownerKey(owner: RendererOwner): string {
   return `${owner.id}:${owner.generation}`
+}
+
+function sameLivePty(
+  left: SessionsUsageDemandTarget['livePty'],
+  right: SessionsUsageDemandTarget['livePty'],
+): boolean {
+  if (!left || !right) return left === right
+  return (
+    left.handle === right.handle &&
+    left.rendererOwnerId === right.rendererOwnerId &&
+    left.rendererGeneration === right.rendererGeneration
+  )
 }

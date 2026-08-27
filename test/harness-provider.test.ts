@@ -439,6 +439,7 @@ describe('Harness providers', () => {
       manifest: {
         id: asHarnessProviderId('test-provider'),
         displayName: 'Test',
+        sessionKind: 'agent',
         default: true,
         contextPresentation: 'none',
       },

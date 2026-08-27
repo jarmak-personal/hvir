@@ -60,6 +60,7 @@ export type TerminalWorkspaceAction =
       readonly session: TerminalSession
     }
   | { readonly type: 'session-focused'; readonly id: string }
+  | { readonly type: 'session-selected'; readonly id: string }
   | { readonly type: 'session-updated'; readonly session: TerminalSession }
   | { readonly type: 'session-closed'; readonly id: string }
   | { readonly type: 'session-moved'; readonly id: string }
@@ -111,6 +112,16 @@ export function terminalWorkspaceReducer(
             'interactive',
           )
         }),
+        activeId: session.id,
+        activePane: session.pane,
+        activeByPane: { ...model.activeByPane, [session.pane]: session.id },
+      }
+    }
+    case 'session-selected': {
+      const session = model.sessions.find((candidate) => candidate.id === action.id)
+      if (!session) return model
+      return {
+        ...model,
         activeId: session.id,
         activePane: session.pane,
         activeByPane: { ...model.activeByPane, [session.pane]: session.id },

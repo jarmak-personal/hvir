@@ -39,7 +39,9 @@ import { TerminalLayoutControls } from './workbench/TerminalLayoutControls'
 import { useRendererReady } from './workbench/use-renderer-ready'
 import { useTerminalPathActivation } from './workbench/use-terminal-path-activation'
 import * as review from './document-review/use-document-review-workspace'
+import { SessionsApplicationDestination } from './sessions/SessionsApplicationDestination'
 export function App(): ReactElement {
+  const [destination, setDestination] = useState<'workspace' | 'sessions'>('workspace')
   const theme = useAppTheme()
   const settings = useAppSettings()
   const rootRef = useRef<HostPath | undefined>(undefined)
@@ -237,6 +239,7 @@ export function App(): ReactElement {
     if (activeWorkspace?.missing) resetGitGraph()
   }, [activeWorkspace?.missing, resetGitGraph])
   useWorkbenchCommands(settings.keybindings, {
+    enabled: destination === 'workspace',
     closeWebPane: closeWebView,
     escapeWebPaneFocus: () => setWebViewFocused(false),
     canUseViewerCommands: () => !gitGraphActiveRef.current && !webViewActiveRef.current,
@@ -249,7 +252,10 @@ export function App(): ReactElement {
     focusTerminal: layout.focusTerminal,
     focusViewer: () => layout.focusViewer(getActivePane()),
     focusTree,
-    switchWorkspace: (direction) => workspaceSwitchRef.current(direction),
+    switchWorkspace: (direction) => {
+      setDestination('workspace')
+      workspaceSwitchRef.current(direction)
+    },
   })
   const revealSourceTerminal = async (view: WebViewState): Promise<void> => {
     const target = projectState?.projects
@@ -398,9 +404,10 @@ export function App(): ReactElement {
           rollups={terminalAttention.rollups}
           busy={session.busy}
           onAdd={overlays.openProjectPicker}
-          onSwitch={(projectId, workspaceId) =>
+          onSwitch={(projectId, workspaceId) => {
+            setDestination('workspace')
             void session.switchWorkspace(projectId, workspaceId)
-          }
+          }}
           onRefresh={(projectId) => void session.refreshProject(projectId)}
           onCloseProject={(projectId) => void session.closeProject(projectId)}
           onPrune={(projectId) => void session.pruneWorktrees(projectId)}
@@ -422,11 +429,14 @@ export function App(): ReactElement {
           theme={theme}
           onTheme={(nextTheme) => setAppTheme(nextTheme)}
           onSettings={() => overlays.openSettings()}
+          sessionsActive={destination === 'sessions'}
+          onSessions={() => setDestination('sessions')}
         />
       ) : null}
       <main
         className={`workbench${connectionState === 'connected' ? '' : ' project-stale'}${terminalMode === 'maximized' ? ' terminal-focused' : ''}${terminalMode === 'collapsed' ? ' terminal-collapsed' : ''}${treeCollapsed ? ' tree-collapsed' : ''}${layout.terminalRailCompact ? ' terminal-rail-compact' : ''}${webViewFocused && webViewActive ? ' web-focused' : ''}`}
         ref={workbenchRef}
+        hidden={destination === 'sessions'}
       >
         <aside
           className="tree-panel"
@@ -453,14 +463,6 @@ export function App(): ReactElement {
                 Git{changedCount > 0 ? ` ${changedCountLabel}` : ''}
               </button>
             ) : null}
-            <button
-              type="button"
-              className={railMode === 'harness' ? 'active' : ''}
-              aria-current={railMode === 'harness' ? 'page' : undefined}
-              onClick={() => setRailMode('harness')}
-            >
-              Harness
-            </button>
           </nav>
           <div className="rail-content">
             <FileTree
@@ -508,17 +510,6 @@ export function App(): ReactElement {
                 autoFetchIntervalMs={settings.gitAutoFetchIntervalMs}
               />
             ) : null}
-            <section
-              className="rail-section harness-placeholder"
-              aria-label="Harness"
-              hidden={railMode !== 'harness'}
-            >
-              <div className="harness-placeholder-copy">
-                <strong>Harness view</strong>
-                <span>Coming soon</span>
-                <p>Agent activity and session context will live here.</p>
-              </div>
-            </section>
           </div>
         </aside>
         <PaneResizer
@@ -631,7 +622,9 @@ export function App(): ReactElement {
           state={projectState}
           runtime={terminalWorkspaces}
           terminalPresented={
-            terminalMode !== 'collapsed' && !(webViewFocused && webViewActive)
+            destination === 'workspace' &&
+            terminalMode !== 'collapsed' &&
+            !(webViewFocused && webViewActive)
           }
           railCompact={layout.terminalRailCompact}
           onRailCompact={layout.setTerminalRailCompact}
@@ -645,6 +638,13 @@ export function App(): ReactElement {
           onAddHarness={overlays.openAddHarnessSettings}
         />
       </main>
+      <SessionsApplicationDestination
+        active={destination === 'sessions'}
+        runtime={terminalWorkspaces}
+        onOpened={session.acceptProjectState}
+        onReturn={() => setDestination('workspace')}
+        onError={session.reportError}
+      />
       {overlays.projectPickerOpen ? (
         <SessionDialog
           hosts={session.hosts}
@@ -656,7 +656,7 @@ export function App(): ReactElement {
           folderPicker={session.folderPicker}
           onDisconnect={session.disconnectHost}
           onOpen={session.openHost}
-          onOpened={overlays.closeProjectPicker}
+          onOpened={() => (setDestination('workspace'), overlays.closeProjectPicker())}
         />
       ) : null}
       {overlays.settingsOpen ? (

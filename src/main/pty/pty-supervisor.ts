@@ -107,6 +107,26 @@ export interface PtyObservationSource {
   observe(listener: () => void): Disposer
 }
 
+export type PtyUsageObservationResolution =
+  | { readonly status: 'pending' }
+  | { readonly status: 'unavailable' }
+  | {
+      readonly status: 'available'
+      readonly target: {
+        readonly instanceId: string
+        readonly providerId: HarnessProviderId
+        readonly host: ProjectHost
+        readonly sessionId: string
+        readonly cwd: HostPath
+        readonly sessionData?: unknown
+        readonly artifact: HarnessArtifactContext
+      }
+    }
+
+export interface PtyUsageObservationSource {
+  resolveUsageObservation(id: string, instanceId: string): PtyUsageObservationResolution
+}
+
 export type HarnessSessionIdentityStatus = TerminalIdentityStatus
 
 export interface PtyStreamHandlers {
@@ -118,6 +138,11 @@ export interface PtyStreamHandlers {
 interface Entry {
   info: ManagedPty
   readonly pty: PtyProcess
+  readonly usage: {
+    readonly host: ProjectHost
+    readonly artifact: HarnessArtifactContext
+    sessionData?: unknown
+  }
   readonly dataListeners: Set<(data: string) => void>
   readonly exitListeners: Set<(exit: PtyExit) => void>
   readonly telemetryListeners: Set<(telemetry: HarnessTelemetry | undefined) => void>
@@ -382,6 +407,7 @@ export class PtySupervisor {
     const entry: Entry = {
       info,
       pty,
+      usage: { host: req.host, artifact },
       dataListeners: new Set(),
       exitListeners: new Set(),
       telemetryListeners: new Set(),
@@ -513,6 +539,31 @@ export class PtySupervisor {
       if (handlers.onData) entry.dataListeners.delete(handlers.onData)
       if (handlers.onExit) entry.exitListeners.delete(handlers.onExit)
       if (handlers.onTelemetry) entry.telemetryListeners.delete(handlers.onTelemetry)
+    }
+  }
+
+  resolveUsageObservation(id: string, instanceId: string): PtyUsageObservationResolution {
+    const entry = this.entries.get(id)
+    if (!entry || entry.exited || entry.info.instanceId !== instanceId) {
+      return { status: 'unavailable' }
+    }
+    if (entry.info.identityStatus === 'discovering') {
+      return { status: 'pending' }
+    }
+    if (entry.info.identityStatus !== 'identified' || !entry.info.harnessSessionId) {
+      return { status: 'unavailable' }
+    }
+    return {
+      status: 'available',
+      target: {
+        instanceId: entry.info.instanceId,
+        providerId: entry.info.providerId,
+        host: entry.usage.host,
+        sessionId: entry.info.harnessSessionId,
+        cwd: entry.info.cwd,
+        sessionData: entry.usage.sessionData,
+        artifact: entry.usage.artifact,
+      },
     }
   }
 
@@ -929,6 +980,7 @@ export class PtySupervisor {
       })
       if (entry.exited || this.entries.get(entry.info.id) !== entry) return
       if (result.status === 'identified') {
+        entry.usage.sessionData = result.sessionData
         let accepted = false
         try {
           accepted = await this.registerIdentity(entry.info.id, result.sessionId)

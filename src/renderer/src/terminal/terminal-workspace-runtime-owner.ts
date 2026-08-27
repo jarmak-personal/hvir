@@ -1,11 +1,22 @@
 import { TerminalRuntimeRegistry } from './terminal-runtime-registry'
 import type { TerminalWorkspaceController } from './use-terminal-workspace-move'
 import type { SessionsRendererSession } from '../sessions/sessions-renderer-observation'
+import type {
+  SessionsTerminalSurfacePort,
+  SessionsTerminalSurfaceRequest,
+} from '../sessions/sessions-terminal-surface'
+import type {
+  SessionsLivePtyQualifier,
+  SessionsTerminalHandle,
+  SessionsWorkspaceQualifier,
+} from '../../../shared'
 
 interface ControllerWaiter {
   readonly resolve: () => void
   readonly reject: (reason: Error) => void
 }
+
+const PROJECTED_SESSION_FOCUS_FRAME_LIMIT = 12
 
 /** Owns materialized renderer workspace models independently of presentation. */
 export class TerminalWorkspaceRuntimeOwner {
@@ -21,6 +32,8 @@ export class TerminalWorkspaceRuntimeOwner {
     () => readonly SessionsRendererSession[]
   >()
   private readonly sessionsListeners = new Set<() => void>()
+  private readonly focusFrames = new Map<number, (focused: boolean) => void>()
+  private focusGeneration = 0
   private materializedSnapshot: readonly string[] = []
   private disposed = false
 
@@ -44,6 +57,10 @@ export class TerminalWorkspaceRuntimeOwner {
     subscribe: this.subscribeSessions,
   }
 
+  readonly sessionsSurface: SessionsTerminalSurfacePort = {
+    acquire: (request) => this.acquireSessionsSurface(request),
+  }
+
   registerSessionsSource = (
     workspaceId: string,
     source: (() => readonly SessionsRendererSession[]) | undefined,
@@ -57,6 +74,68 @@ export class TerminalWorkspaceRuntimeOwner {
   sessionsChanged = (workspaceId: string): void => {
     if (!this.sessionsSources.has(workspaceId)) return
     this.publishSessions()
+  }
+
+  private acquireSessionsSurface(request: SessionsTerminalSurfaceRequest) {
+    if (this.disposed) return undefined
+    const exact = [...this.sessionsSources.values()].some((snapshot) =>
+      snapshot().some(
+        (session) =>
+          session.handle === request.handle &&
+          session.workspaceQualifier === request.workspaceQualifier &&
+          !session.dormant &&
+          !session.exited,
+      ),
+    )
+    if (!exact) return undefined
+    return this.runtimes.acquireSessionsSurface(request)
+  }
+
+  focusProjectedSession(
+    handle: SessionsTerminalHandle,
+    workspaceQualifier: SessionsWorkspaceQualifier,
+    livePty: SessionsLivePtyQualifier,
+  ): Promise<boolean> {
+    if (this.disposed) return Promise.resolve(false)
+    this.cancelFocusFrames()
+    const source = [...this.sessionsSources].find(([, snapshot]) =>
+      snapshot().some(
+        (session) =>
+          session.handle === handle &&
+          session.workspaceQualifier === workspaceQualifier &&
+          !session.dormant &&
+          !session.exited,
+      ),
+    )
+    const controller = source ? this.controllers.get(source[0]) : undefined
+    if (!controller?.hasSession(handle) || !controller.selectSession(handle)) {
+      return Promise.resolve(false)
+    }
+    const generation = this.focusGeneration
+    return new Promise((resolve) => {
+      let attempts = 0
+      const schedule = (): void => {
+        const frame = window.requestAnimationFrame(() => {
+          this.focusFrames.delete(frame)
+          if (this.disposed || generation !== this.focusGeneration) {
+            resolve(false)
+            return
+          }
+          attempts += 1
+          if (this.runtimes.focusLiveInstance(handle, livePty.handle)) {
+            resolve(true)
+            return
+          }
+          if (attempts >= PROJECTED_SESSION_FOCUS_FRAME_LIMIT) {
+            resolve(false)
+            return
+          }
+          schedule()
+        })
+        this.focusFrames.set(frame, resolve)
+      }
+      schedule()
+    })
   }
 
   retainWorkspace = (workspaceId: string, retained: boolean): void => {
@@ -124,6 +203,7 @@ export class TerminalWorkspaceRuntimeOwner {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    this.cancelFocusFrames()
     for (const workspaceId of this.controllerWaiters.keys()) {
       this.rejectWaiters(
         workspaceId,
@@ -145,6 +225,15 @@ export class TerminalWorkspaceRuntimeOwner {
     if (!waiters) return
     this.controllerWaiters.delete(workspaceId)
     for (const waiter of waiters) waiter.reject(reason)
+  }
+
+  private cancelFocusFrames(): void {
+    this.focusGeneration += 1
+    for (const [frame, resolve] of this.focusFrames) {
+      window.cancelAnimationFrame(frame)
+      resolve(false)
+    }
+    this.focusFrames.clear()
   }
 
   private publishMaterialized(): void {

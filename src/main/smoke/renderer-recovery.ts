@@ -169,25 +169,34 @@ export async function verifyRendererProcessRecovery(options: {
     checkpoint('renderer-recovery-controls-awaiting')
     const functionalControl = (await win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
+        const deadline = Date.now() + 10_000;
         const inspect = () => {
           const workbench = document.querySelector('.workbench');
           const buttons = [...document.querySelectorAll('.rail-nav button')];
           const files = buttons.find((button) => button.textContent?.trim() === 'Files');
-          const harness = buttons.find((button) => button.textContent?.trim() === 'Harness');
-          if (workbench && files && harness) {
-            harness.click();
+          const sessions = document.querySelector('.sessions-destination');
+          if (workbench && files && sessions) {
+            sessions.click();
             requestAnimationFrame(() => {
-              if (harness.getAttribute('aria-current') !== 'page') {
+              const returnToWorkspace = document.querySelector('.sessions-return');
+              if (
+                sessions.getAttribute('aria-current') !== 'page' ||
+                !workbench.hidden ||
+                !(returnToWorkspace instanceof HTMLButtonElement)
+              ) {
                 return reject(new Error('replacement workbench control was not functional'));
               }
-              files.click();
+              returnToWorkspace.click();
               requestAnimationFrame(() => {
-                files.getAttribute('aria-current') === 'page'
-                  ? resolve('Harness → Files')
+                files.getAttribute('aria-current') === 'page' && !workbench.hidden
+                  ? resolve('Sessions → Files')
                   : reject(new Error('replacement workbench did not restore Files'));
               });
             });
             return;
+          }
+          if (Date.now() > deadline) {
+            return reject(new Error('replacement workbench controls did not become ready'));
           }
           setTimeout(inspect, 25);
         };

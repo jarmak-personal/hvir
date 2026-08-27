@@ -6,6 +6,8 @@ import { describe, expect, it } from 'vitest'
 const expectedOrder = [
   'base.css',
   'projects.css',
+  'sessions-overview.css',
+  'sessions-usage.css',
   'health.css',
   'diagnostic-report.css',
   'shell.css',
@@ -86,11 +88,26 @@ describe('renderer style ownership', () => {
       'utf8',
     )
 
-    expect(projects).toContain('animation: project-name-working-sweep 6.5s linear infinite')
+    expect(projects).toContain(
+      'animation: project-name-working-sweep 6.5s linear infinite',
+    )
     expect(projects).toContain('92.3076923077%,\n  100%')
     expect(projects).toContain('@media (prefers-reduced-motion: reduce)')
     expect(projects).toMatch(
       /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.project-name-working \{[\s\S]*?animation: none;[\s\S]*?text-decoration-style: dashed;[\s\S]*?\n {2}\}\n\}/u,
+    )
+  })
+
+  it('keeps Usage movement bounded and provides the same static reduced-motion facts', () => {
+    const usage = readFileSync(
+      join(process.cwd(), 'src/renderer/src/styles/sessions-usage.css'),
+      'utf8',
+    )
+
+    expect(usage).toContain('transition: width 220ms ease-out')
+    expect(usage).not.toContain('animation:')
+    expect(usage).toMatch(
+      /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.sessions-usage-bar span \{[\s\S]*?transition: none;/u,
     )
   })
 

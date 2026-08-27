@@ -5,6 +5,7 @@ export const geminiProvider: HarnessProvider = {
   manifest: {
     id: asHarnessProviderId('gemini-cli'),
     displayName: 'Gemini CLI',
+    sessionKind: 'agent',
     contextPresentation: 'none',
   },
   profile: {
