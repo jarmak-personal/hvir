@@ -98,7 +98,7 @@ describe('Sessions overview policy', () => {
     expect(first.groups.flatMap((group) => group.rows)).toEqual(first.rows)
   })
 
-  it('groups only matching limitations while preserving pending and stale facts', () => {
+  it('omits unknown and pending facts while retaining useful stale conditions', () => {
     const fixture = row('retained')
     const presentation = sessionsOverviewCardFacts({
       ...fixture,
@@ -112,7 +112,12 @@ describe('Sessions overview policy', () => {
       },
       context: { status: 'pending', reason: 'telemetry-pending' },
       turn: { status: 'unsupported' },
-      telemetryFreshness: { status: 'unavailable', reason: 'source-unavailable' },
+      telemetryFreshness: {
+        status: 'stale',
+        value: { staleAfterMs: 30_000 },
+        observedAt: 10,
+        reason: 'source-stale',
+      },
       usage: { status: 'unavailable', reason: 'not-live' },
     })
 
@@ -120,35 +125,24 @@ describe('Sessions overview policy', () => {
       { label: 'Lifecycle', value: 'Retained', tone: 'available' },
       { label: 'Host', value: 'Local · Connected', tone: 'available' },
       { label: 'Model', value: 'Stale · model-safe', tone: 'stale' },
-      { label: 'Context', value: 'Pending', tone: 'pending' },
-    ])
-    expect(presentation.summaries).toEqual([
       {
-        label: 'Limited facts',
-        value: 'Attention and Working — Unavailable · Not materialized',
-      },
-      { label: 'Limited facts', value: 'Provider turn — Unsupported' },
-      {
-        label: 'Limited facts',
-        value: 'Telemetry — Unavailable · Source unavailable',
-      },
-      {
-        label: 'Limited facts',
-        value: 'Usage capability — Unavailable · Not live',
+        label: 'Telemetry',
+        value: 'Stale · Source stale',
+        tone: 'stale',
       },
     ])
   })
 
-  it('compacts neutral activity without hiding non-neutral action', () => {
+  it('omits neutral activity without hiding non-neutral action', () => {
     const quiet = sessionsOverviewCardFacts(row('quiet'))
     const attention = sessionsOverviewCardFacts(
       row('attention', { attention: 'bell', working: true }),
     )
 
-    expect(quiet.summaries[0]).toEqual({
-      label: 'Quiet state',
-      value: 'Attention — None; Working — Not working',
-    })
+    expect(quiet.facts).toEqual([
+      { label: 'Lifecycle', value: 'Retained', tone: 'available' },
+      { label: 'Host', value: 'Local · Connected', tone: 'available' },
+    ])
     expect(attention.facts).toEqual(
       expect.arrayContaining([
         { label: 'Attention', value: 'Bell', tone: 'actionable' },

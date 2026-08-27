@@ -39,18 +39,33 @@ vi.mock('../src/renderer/src/terminal/TerminalDeck', () => ({
         Reset split
       </button>
       {sessions[0] ? (
-        <button
-          type="button"
-          data-testid="private-title"
-          onClick={() =>
-            onUpdateSession(sessions[0]!.id, (session) => ({
-              ...session,
-              title: `Working in ${session.cwd.path}`,
-            }))
-          }
-        >
-          Private title
-        </button>
+        <>
+          <button
+            type="button"
+            data-testid="private-title"
+            onClick={() =>
+              onUpdateSession(sessions[0]!.id, (session) => ({
+                ...session,
+                title: `Working in ${session.cwd.path}`,
+              }))
+            }
+          >
+            Private title
+          </button>
+          <button
+            type="button"
+            data-testid="provider-title"
+            onClick={() =>
+              onUpdateSession(sessions[0]!.id, (session) => ({
+                ...session,
+                harnessSessionId: 'provider-session-secret',
+                title: 'provider-session-secret',
+              }))
+            }
+          >
+            Provider title
+          </button>
+        </>
       ) : null}
     </>
   ),
@@ -174,6 +189,13 @@ describe('terminal workspace materialization bridge', () => {
     })
     expect(sessionsSource?.()).toMatchObject([{ title: 'Shell · repo' }])
     expect(sessionsSource?.()[0]?.title).not.toContain('/repo')
+
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[data-testid="provider-title"]')?.click()
+      await settleEffects()
+    })
+    expect(sessionsSource?.()).toMatchObject([{ title: 'Shell · repo' }])
+    expect(sessionsSource?.()[0]?.title).not.toContain('provider-session-secret')
 
     onSessionsChanged.mockClear()
     await act(async () => {

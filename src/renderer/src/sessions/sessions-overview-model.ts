@@ -42,14 +42,8 @@ export interface SessionsOverviewCardFact {
   readonly tone: SessionsOverviewCardFactTone
 }
 
-export interface SessionsOverviewCardFactSummary {
-  readonly label: 'Quiet state' | 'Limited facts'
-  readonly value: string
-}
-
 export interface SessionsOverviewCardFacts {
   readonly facts: readonly SessionsOverviewCardFact[]
-  readonly summaries: readonly SessionsOverviewCardFactSummary[]
 }
 
 export const DEFAULT_SESSIONS_OVERVIEW_POLICY: SessionsOverviewPolicy = {
@@ -67,14 +61,14 @@ export function sessionsOverviewCardFacts(
       row.attention,
       sentenceCase,
       (value) => value !== 'none',
-      (value) => value === 'none',
+      (value) => value !== 'none',
     ),
     fact(
       'Working',
       row.working,
-      (value) => (value ? 'Working' : 'Not working'),
+      () => 'Working',
       Boolean,
-      (value) => !value,
+      Boolean,
     ),
     fact(
       'Provider turn',
@@ -82,13 +76,13 @@ export function sessionsOverviewCardFacts(
       (value) => sentenceCase(value.state),
       (value) =>
         value.state === 'waiting-for-user' || value.state === 'waiting-for-approval',
-      (value) => value.state === 'idle',
+      (value) => value.state !== 'idle',
     ),
     fact('Model', row.model, (value) => value.displayName ?? value.id),
     fact('Context', row.context, contextLabel),
-    fact('Telemetry', row.telemetryFreshness, () => 'Available'),
+    telemetryFact(row.telemetryFreshness),
     usageFact(row),
-  ]
+  ].filter((candidate): candidate is SessionsOverviewCardFact => candidate !== undefined)
   const facts: SessionsOverviewCardFact[] = [
     {
       label: 'Lifecycle',
@@ -105,41 +99,9 @@ export function sessionsOverviewCardFacts(
       value: `${row.host.label} · ${sentenceCase(row.connectionState)}`,
       tone: row.connectionState === 'connected' ? 'available' : 'actionable',
     },
-    ...candidates
-      .filter((candidate) => candidate.compact === false)
-      .map(({ compact: _compact, ...candidate }) => candidate),
+    ...candidates,
   ]
-  const grouped = new Map<string, string[]>()
-  for (const candidate of candidates) {
-    if (candidate.compact !== 'limited') continue
-    const labels = grouped.get(candidate.value)
-    if (labels) labels.push(candidate.label)
-    else grouped.set(candidate.value, [candidate.label])
-  }
-  const quiet = candidates.filter((candidate) => candidate.compact === 'quiet')
-  return {
-    facts,
-    summaries: [
-      ...(quiet.length > 0
-        ? [
-            {
-              label: 'Quiet state' as const,
-              value: quiet
-                .map((candidate) => `${candidate.label} — ${candidate.value}`)
-                .join('; '),
-            },
-          ]
-        : []),
-      ...[...grouped].map(([value, labels]) => ({
-        label: 'Limited facts' as const,
-        value: `${listLabel(labels)} — ${value}`,
-      })),
-    ],
-  }
-}
-
-interface CandidateFact extends SessionsOverviewCardFact {
-  readonly compact: false | 'quiet' | 'limited'
+  return { facts }
 }
 
 function fact<T>(
@@ -147,59 +109,48 @@ function fact<T>(
   projected: SessionsFact<T>,
   available: (value: T) => string,
   actionable: (value: T) => boolean = () => false,
-  quiet: (value: T) => boolean = () => false,
-): CandidateFact {
+  visible: (value: T) => boolean = () => true,
+): SessionsOverviewCardFact | undefined {
   switch (projected.status) {
-    case 'available':
+    case 'available': {
+      if (!visible(projected.value)) return undefined
       return {
         label,
         value: available(projected.value),
         tone: actionable(projected.value) ? 'actionable' : 'available',
-        compact: quiet(projected.value) ? 'quiet' : false,
       }
+    }
     case 'stale':
       return {
         label,
         value: `Stale · ${available(projected.value)}`,
         tone: 'stale',
-        compact: false,
       }
     case 'pending':
-      return { label, value: 'Pending', tone: 'pending', compact: false }
     case 'unavailable':
-      return {
-        label,
-        value: `Unavailable · ${sentenceCase(projected.reason)}`,
-        tone: 'available',
-        compact: 'limited',
-      }
     case 'unsupported':
-      return { label, value: 'Unsupported', tone: 'available', compact: 'limited' }
+      return undefined
   }
 }
 
-function usageFact(row: SessionsProjectionRow): CandidateFact {
+function telemetryFact(
+  telemetry: SessionsProjectionRow['telemetryFreshness'],
+): SessionsOverviewCardFact | undefined {
+  if (telemetry.status !== 'stale') return undefined
+  return {
+    label: 'Telemetry',
+    value: `Stale · ${sentenceCase(telemetry.reason)}`,
+    tone: 'stale',
+  }
+}
+
+function usageFact(row: SessionsProjectionRow): SessionsOverviewCardFact | undefined {
   const usage = row.usage
-  const compact =
-    usage.status === 'unavailable' || usage.status === 'unsupported' ? 'limited' : false
-  const value =
-    usage.status === 'unavailable'
-      ? `Unavailable · ${sentenceCase(usage.reason)}`
-      : usage.status === 'stale'
-        ? `Stale · ${sentenceCase(usage.reason)}`
-        : usage.status === 'reset'
-          ? `Reset · ${sentenceCase(usage.reason)}`
-          : sentenceCase(usage.status)
+  if (usage.status !== 'stale' && usage.status !== 'reset') return undefined
   return {
     label: 'Usage capability',
-    value,
-    tone:
-      usage.status === 'pending' || usage.status === 'reset'
-        ? 'pending'
-        : usage.status === 'stale'
-          ? 'stale'
-          : 'available',
-    compact,
+    value: `${usage.status === 'stale' ? 'Stale' : 'Reset'} · ${sentenceCase(usage.reason)}`,
+    tone: usage.status === 'stale' ? 'stale' : 'pending',
   }
 }
 
@@ -218,12 +169,6 @@ function contextLabel(value: {
 function sentenceCase(value: string): string {
   const spaced = value.replaceAll('-', ' ')
   return spaced.charAt(0).toUpperCase() + spaced.slice(1)
-}
-
-function listLabel(labels: readonly string[]): string {
-  if (labels.length < 2) return labels[0] ?? ''
-  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`
-  return `${labels.slice(0, -1).join(', ')}, and ${labels.at(-1)}`
 }
 
 export function sessionsOverviewGroups(

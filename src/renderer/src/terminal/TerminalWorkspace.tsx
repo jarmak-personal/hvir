@@ -188,7 +188,7 @@ export function TerminalWorkspace({
             session.title,
             handle,
             `${providerName} · ${label}`,
-            [workspaceRoot.path, session.cwd.path],
+            [workspaceRoot.path, session.cwd.path, session.harnessSessionId ?? ''],
           ),
           dormant: session.dormant === true,
           resumeOnStart: session.resumeOnStart,
