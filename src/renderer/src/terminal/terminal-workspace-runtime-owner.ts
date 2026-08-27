@@ -2,6 +2,7 @@ import { TerminalRuntimeRegistry } from './terminal-runtime-registry'
 import type { TerminalWorkspaceController } from './use-terminal-workspace-move'
 import type { SessionsRendererSession } from '../sessions/sessions-renderer-observation'
 import type {
+  SessionsTerminalSurfaceCapabilityRequest,
   SessionsTerminalSurfacePort,
   SessionsTerminalSurfaceRequest,
 } from '../sessions/sessions-terminal-surface'
@@ -31,6 +32,10 @@ export class TerminalWorkspaceRuntimeOwner {
     string,
     () => readonly SessionsRendererSession[]
   >()
+  private readonly sessionsSurfaceEligibility = new Map<
+    SessionsTerminalHandle,
+    Map<SessionsWorkspaceQualifier, boolean>
+  >()
   private readonly sessionsListeners = new Set<() => void>()
   private readonly focusFrames = new Map<number, (focused: boolean) => void>()
   private focusGeneration = 0
@@ -44,8 +49,21 @@ export class TerminalWorkspaceRuntimeOwner {
     return () => this.listeners.delete(listener)
   }
 
-  sessionsSnapshot = (): readonly SessionsRendererSession[] =>
-    [...this.sessionsSources.values()].flatMap((source) => source())
+  sessionsSnapshot = (): readonly SessionsRendererSession[] => {
+    this.sessionsSurfaceEligibility.clear()
+    const sessions: SessionsRendererSession[] = []
+    for (const source of this.sessionsSources.values()) {
+      for (const session of source()) {
+        sessions.push(session)
+        const workspaces =
+          this.sessionsSurfaceEligibility.get(session.handle) ??
+          new Map<SessionsWorkspaceQualifier, boolean>()
+        workspaces.set(session.workspaceQualifier, !session.dormant && !session.exited)
+        this.sessionsSurfaceEligibility.set(session.handle, workspaces)
+      }
+    }
+    return sessions
+  }
 
   subscribeSessions = (listener: () => void): (() => void) => {
     this.sessionsListeners.add(listener)
@@ -58,6 +76,7 @@ export class TerminalWorkspaceRuntimeOwner {
   }
 
   readonly sessionsSurface: SessionsTerminalSurfacePort = {
+    availability: (request) => this.sessionsSurfaceAvailability(request),
     acquire: (request) => this.acquireSessionsSurface(request),
   }
 
@@ -77,15 +96,32 @@ export class TerminalWorkspaceRuntimeOwner {
   }
 
   private acquireSessionsSurface(request: SessionsTerminalSurfaceRequest) {
-    if (this.disposed) return undefined
+    if (this.disposed) {
+      return { outcome: 'unavailable' as const, reason: 'runtime-not-ready' as const }
+    }
     const exact = this.sessionsSources
-      .get(request.workspaceRuntimeId)
-      ?.().some(
+      .get(request.workspaceRuntimeId)?.()
+      .some(
         (session) =>
           session.handle === request.handle && !session.dormant && !session.exited,
       )
-    if (!exact) return undefined
+    if (!exact) {
+      return { outcome: 'unavailable' as const, reason: 'source-missing' as const }
+    }
     return this.runtimes.acquireSessionsSurface(request)
+  }
+
+  private sessionsSurfaceAvailability(request: SessionsTerminalSurfaceCapabilityRequest) {
+    if (this.disposed) {
+      return { outcome: 'unavailable' as const, reason: 'runtime-not-ready' as const }
+    }
+    const eligible = this.sessionsSurfaceEligibility
+      .get(request.handle)
+      ?.get(request.workspaceQualifier)
+    if (eligible !== true) {
+      return { outcome: 'unavailable' as const, reason: 'source-missing' as const }
+    }
+    return this.runtimes.sessionsSurfaceAvailability(request)
   }
 
   focusProjectedSession(
@@ -209,6 +245,7 @@ export class TerminalWorkspaceRuntimeOwner {
     }
     this.controllers.clear()
     this.sessionsSources.clear()
+    this.sessionsSurfaceEligibility.clear()
     this.transferWorkspaceIds.clear()
     this.retainedWorkspaceIds.clear()
     this.materializedSnapshot = []

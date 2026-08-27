@@ -1,5 +1,7 @@
 import type {
+  SessionsTerminalSurfaceAvailability,
   SessionsTerminalSurfaceLease,
+  SessionsTerminalSurfacePort,
   SessionsTerminalSurfaceRequest,
   SessionsTerminalSurfaceRevocationReason,
 } from '../sessions/sessions-terminal-surface'
@@ -31,23 +33,32 @@ export class TerminalSessionsSurfaceOwner {
     private readonly context: () => SessionsSurfaceRuntimeContext,
   ) {}
 
+  availability(
+    request: Pick<SessionsTerminalSurfaceRequest, 'handle' | 'livePty'>,
+  ): SessionsTerminalSurfaceAvailability {
+    const context = this.context()
+    if (context.disposed || !context.started || !context.pane || !context.connected) {
+      return { outcome: 'unavailable', reason: 'runtime-not-ready' }
+    }
+    if (
+      request.handle !== context.sessionId ||
+      context.ptyInstanceId !== request.livePty.handle
+    ) {
+      return { outcome: 'unavailable', reason: 'instance-mismatch' }
+    }
+    if (this.active) return { outcome: 'unavailable', reason: 'lease-conflict' }
+    return { outcome: 'available' }
+  }
+
   acquire(
     request: SessionsTerminalSurfaceRequest,
-  ): SessionsTerminalSurfaceLease | undefined {
-    const context = this.context()
-    if (
-      context.disposed ||
-      this.active ||
-      request.handle !== context.sessionId ||
-      !context.started ||
-      context.ptyInstanceId !== request.livePty.handle ||
-      !context.pane ||
-      !context.connected
-    ) {
-      return undefined
-    }
+  ): ReturnType<SessionsTerminalSurfacePort['acquire']> {
+    const availability = this.availability(request)
+    if (availability.outcome === 'unavailable') return availability
     const generation = this.surface.acquireLease()
-    if (generation === undefined) return undefined
+    if (generation === undefined) {
+      return { outcome: 'unavailable', reason: 'lease-conflict' }
+    }
     const state: ActiveLease = { generation, request, listeners: new Set() }
     this.active = state
     let released = false
@@ -64,7 +75,7 @@ export class TerminalSessionsSurfaceOwner {
         this.surface.isCurrentLease(generation)
       )
     }
-    return {
+    const lease: SessionsTerminalSurfaceLease = {
       renew: (next) => this.renew(state, next, current),
       attach: (container) =>
         current() && this.surface.attachLease(generation, container, 'visible'),
@@ -105,6 +116,7 @@ export class TerminalSessionsSurfaceOwner {
         this.surface.releaseLease(generation)
       },
     }
+    return { outcome: 'acquired', lease }
   }
 
   revoke(reason: SessionsTerminalSurfaceRevocationReason): void {

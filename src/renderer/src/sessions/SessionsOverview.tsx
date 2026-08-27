@@ -27,8 +27,10 @@ import {
   createSessionsMainObservationPort,
 } from './sessions-projection-coordinator'
 import type { SessionsRendererObservationPort } from './sessions-renderer-observation'
-import { terminalDetailEligible } from './sessions-terminal-detail-controller'
-import type { SessionsTerminalSurfacePort } from './sessions-terminal-surface'
+import {
+  sessionsTerminalSurfaceAvailable,
+  type SessionsTerminalSurfacePort,
+} from './sessions-terminal-surface'
 import { useSessionsForeground } from './use-sessions-foreground'
 import { useSessionsTerminalDetail } from './use-sessions-terminal-detail'
 import {
@@ -419,7 +421,7 @@ export function SessionsOverview({
                           opening={opening === row.handle}
                           onOpen={() => void open(row)}
                           onInteract={
-                            terminalDetailEligible(row)
+                            sessionsTerminalSurfaceAvailable(row, surface)
                               ? () => detail.open(row, source.snapshot(), foreground)
                               : undefined
                           }

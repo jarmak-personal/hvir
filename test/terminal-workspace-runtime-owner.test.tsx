@@ -1,9 +1,11 @@
 // @vitest-environment happy-dom
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { TerminalWorkspaceRuntimeOwner } from '../src/renderer/src/terminal/terminal-workspace-runtime-owner'
 import type { TerminalWorkspaceController } from '../src/renderer/src/terminal/use-terminal-workspace-move'
+import { ghosttyLifecycleRuntimeOptions } from './fixtures/ghostty-lifecycle-runtime-options'
+import { ghosttyState } from './fixtures/ghostty-terminal-pane-mock'
 import {
   asHarnessProfileId,
   asHarnessProviderId,
@@ -15,8 +17,29 @@ import {
   type SessionsWorkspaceQualifier,
 } from '../src/shared'
 
+vi.mock('ghostty-web', async () => {
+  const { ghosttyWebMock } = await import('./fixtures/ghostty-terminal-pane-mock')
+  return ghosttyWebMock
+})
+
 describe('TerminalWorkspaceRuntimeOwner', () => {
-  afterEach(() => vi.restoreAllMocks())
+  beforeEach(() => {
+    ghosttyState.instances.splice(0)
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe(): void {}
+        disconnect(): void {}
+      },
+    )
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+    Reflect.deleteProperty(window, 'hvir')
+    document.body.replaceChildren()
+  })
   it('materializes only retained workspace models', () => {
     const owner = new TerminalWorkspaceRuntimeOwner()
     const listener = vi.fn()
@@ -136,7 +159,7 @@ describe('TerminalWorkspaceRuntimeOwner', () => {
     const handle = asSessionsTerminalHandle('terminal-1')
     const qualifier = sessionsWorkspaceQualifier(1, 0, 0)
     owner.registerSessionsSource('workspace-a', () => [session(handle, qualifier)])
-    const expected = { release: vi.fn() }
+    const expected = { outcome: 'acquired' as const, lease: { release: vi.fn() } }
     const acquire = vi
       .spyOn(owner.runtimes, 'acquireSessionsSurface')
       .mockReturnValue(expected as never)
@@ -168,10 +191,121 @@ describe('TerminalWorkspaceRuntimeOwner', () => {
         ...request,
         workspaceRuntimeId: asSessionsWorkspaceRuntimeId('workspace-b'),
       }),
-    ).toBeUndefined()
+    ).toEqual({ outcome: 'unavailable', reason: 'source-missing' })
     expect(acquire).toHaveBeenCalledTimes(2)
     owner.dispose()
-    expect(owner.sessionsSurface.acquire(request)).toBeUndefined()
+    expect(owner.sessionsSurface.acquire(request)).toEqual({
+      outcome: 'unavailable',
+      reason: 'runtime-not-ready',
+    })
+  })
+
+  it('distinguishes a missing renderer source from a source whose runtime is not ready', () => {
+    const owner = new TerminalWorkspaceRuntimeOwner()
+    const handle = asSessionsTerminalHandle('terminal-1')
+    const qualifier = sessionsWorkspaceQualifier(1, 0, 0)
+    const request = {
+      handle,
+      workspaceQualifier: qualifier,
+      livePty: {
+        handle: asSessionsPtyHandle('instance-1'),
+        rendererOwnerId: 8,
+        rendererGeneration: 3,
+      },
+    }
+
+    expect(owner.sessionsSurface.availability(request)).toEqual({
+      outcome: 'unavailable',
+      reason: 'source-missing',
+    })
+    owner.registerSessionsSource('workspace-a', () => [session(handle, qualifier)])
+    owner.sessionsObservation.snapshot()
+    expect(owner.sessionsSurface.availability(request)).toEqual({
+      outcome: 'unavailable',
+      reason: 'runtime-not-ready',
+    })
+    owner.dispose()
+  })
+
+  it('preflights and acquires the actual live surface through its indexed workspace source', async () => {
+    vi.useFakeTimers()
+    Object.defineProperty(window, 'hvir', {
+      configurable: true,
+      value: {
+        invoke: vi.fn(() =>
+          Promise.resolve({
+            outcome: 'started' as const,
+            id: 'terminal-1',
+            instanceId: 'instance-1',
+            pid: 4321,
+            resumed: false,
+            reattached: false,
+            harnessSessionId: undefined,
+            identityStatus: 'unsupported' as const,
+            capabilities: {
+              sessionIdentity: 'none' as const,
+              exactResume: false,
+              contextPresentation: 'none' as const,
+            },
+          }),
+        ),
+        send: vi.fn(),
+        on: vi.fn(() => () => undefined),
+      },
+    })
+    const owner = new TerminalWorkspaceRuntimeOwner()
+    const runtime = owner.runtimes.acquire(ghosttyLifecycleRuntimeOptions())
+    const workspace = document.createElement('div')
+    const detail = document.createElement('div')
+    document.body.append(workspace, detail)
+    runtime.attach(workspace)
+    await vi.runAllTimersAsync()
+    await Promise.resolve()
+
+    const handle = asSessionsTerminalHandle('terminal-1')
+    const qualifier = sessionsWorkspaceQualifier(1, 0, 0)
+    owner.registerSessionsSource('workspace-a', () => [session(handle, qualifier)])
+    owner.sessionsObservation.snapshot()
+    const capability = {
+      handle,
+      workspaceQualifier: qualifier,
+      livePty: {
+        handle: asSessionsPtyHandle('instance-1'),
+        rendererOwnerId: 8,
+        rendererGeneration: 3,
+      },
+    }
+
+    expect(owner.sessionsSurface.availability(capability)).toEqual({
+      outcome: 'available',
+    })
+    expect(
+      owner.sessionsSurface.availability({
+        ...capability,
+        livePty: { ...capability.livePty, handle: asSessionsPtyHandle('replaced') },
+      }),
+    ).toEqual({ outcome: 'unavailable', reason: 'instance-mismatch' })
+
+    const acquisition = owner.sessionsSurface.acquire({
+      ...capability,
+      workspaceRuntimeId: asSessionsWorkspaceRuntimeId('workspace-a'),
+      demandGeneration: 1,
+      projectionRevision: 2,
+      sourceRevision: 3,
+    })
+    expect(acquisition.outcome).toBe('acquired')
+    if (acquisition.outcome !== 'acquired') throw new Error('Expected surface lease')
+    const engine = workspace.querySelector('.terminal-engine-host')
+    expect(acquisition.lease.attach(detail)).toBe(true)
+    expect(detail.querySelector('.terminal-engine-host')).toBe(engine)
+    expect(ghosttyState.instances).toHaveLength(1)
+    expect(owner.sessionsSurface.availability(capability)).toEqual({
+      outcome: 'unavailable',
+      reason: 'lease-conflict',
+    })
+    acquisition.lease.release()
+    expect(workspace.querySelector('.terminal-engine-host')).toBe(engine)
+    owner.dispose()
   })
 
   it('waits a bounded number of frames for delayed presentation and revokes the wait on disposal', async () => {

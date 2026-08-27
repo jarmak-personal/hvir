@@ -4,7 +4,7 @@ import { TerminalRuntime } from './terminal-runtime'
 import type { TerminalRuntimeOptions } from './terminal-runtime-options'
 import type { TerminalRuntimeSnapshot } from './terminal-runtime-presentation'
 import type {
-  SessionsTerminalSurfaceLease,
+  SessionsTerminalSurfaceAvailability,
   SessionsTerminalSurfaceRequest,
 } from '../sessions/sessions-terminal-surface'
 
@@ -73,8 +73,24 @@ export class TerminalRuntimeRegistry {
 
   acquireSessionsSurface(
     request: SessionsTerminalSurfaceRequest,
-  ): SessionsTerminalSurfaceLease | undefined {
-    return this.runtimes.get(request.handle)?.acquireSessionsSurface(request)
+  ): ReturnType<TerminalRuntime['acquireSessionsSurface']> {
+    return (
+      this.runtimes.get(request.handle)?.acquireSessionsSurface(request) ?? {
+        outcome: 'unavailable',
+        reason: 'runtime-not-ready',
+      }
+    )
+  }
+
+  sessionsSurfaceAvailability(
+    request: Pick<SessionsTerminalSurfaceRequest, 'handle' | 'livePty'>,
+  ): SessionsTerminalSurfaceAvailability {
+    return (
+      this.runtimes.get(request.handle)?.sessionsSurfaceAvailability(request) ?? {
+        outcome: 'unavailable',
+        reason: 'runtime-not-ready',
+      }
+    )
   }
 
   dispose(): void {
