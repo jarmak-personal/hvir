@@ -334,6 +334,36 @@
   min-width: 0;
 }
 
+.session-fact.available dd {
+  color: #d0d7e0;
+  font-weight: 560;
+}
+
+.session-fact.actionable {
+  padding-left: 7px;
+  border-left: 2px solid #7ea6cf;
+}
+
+.session-fact.actionable dd {
+  color: #e4edf7;
+  font-weight: 680;
+}
+
+.session-fact.pending dd,
+.session-fact.stale dd {
+  color: #c8a76d;
+}
+
+.session-fact-summary {
+  grid-column: 1 / -1;
+  padding-top: 5px;
+  border-top: 1px solid rgb(73 103 133 / 28%);
+}
+
+.session-fact-summary dd {
+  color: #8f99a6;
+}
+
 .session-facts dt {
   color: #6f7987;
   font-size: calc(8px * var(--hvir-interface-scale));
