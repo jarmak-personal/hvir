@@ -100,9 +100,8 @@ export function SessionsOverview({
   useEffect(
     () => () => {
       openGeneration.current += 1
-      source.dispose()
     },
-    [source],
+    [],
   )
 
   const allGroups = useMemo(
