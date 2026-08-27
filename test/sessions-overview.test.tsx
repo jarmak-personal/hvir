@@ -58,6 +58,7 @@ describe('SessionsOverview', () => {
               snapshot: rendererSessions,
               subscribe: () => () => undefined,
             }}
+            surface={{ acquire: () => undefined }}
             onReturn={vi.fn()}
             onOpened={vi.fn()}
             onFocusOpened={vi.fn(() => Promise.resolve(true))}
