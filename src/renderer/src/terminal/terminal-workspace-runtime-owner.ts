@@ -17,6 +17,11 @@ interface ControllerWaiter {
   readonly reject: (reason: Error) => void
 }
 
+interface SessionsSurfaceEligibility {
+  readonly workspaceRuntimeIds: Set<string>
+  readonly workspaceQualifiers: Set<SessionsWorkspaceQualifier>
+}
+
 const PROJECTED_SESSION_FOCUS_FRAME_LIMIT = 12
 
 /** Owns materialized renderer workspace models independently of presentation. */
@@ -32,14 +37,19 @@ export class TerminalWorkspaceRuntimeOwner {
     string,
     () => readonly SessionsRendererSession[]
   >()
+  private readonly sessionsSourceSnapshots = new Map<
+    string,
+    readonly SessionsRendererSession[]
+  >()
   private readonly sessionsSurfaceEligibility = new Map<
     SessionsTerminalHandle,
-    Map<SessionsWorkspaceQualifier, boolean>
+    SessionsSurfaceEligibility
   >()
   private readonly sessionsListeners = new Set<() => void>()
   private readonly focusFrames = new Map<number, (focused: boolean) => void>()
   private focusGeneration = 0
   private materializedSnapshot: readonly string[] = []
+  private materializedSessionsSnapshot: readonly SessionsRendererSession[] = []
   private disposed = false
 
   snapshot = (): readonly string[] => this.materializedSnapshot
@@ -49,25 +59,17 @@ export class TerminalWorkspaceRuntimeOwner {
     return () => this.listeners.delete(listener)
   }
 
-  sessionsSnapshot = (): readonly SessionsRendererSession[] => {
-    this.sessionsSurfaceEligibility.clear()
-    const sessions: SessionsRendererSession[] = []
-    for (const source of this.sessionsSources.values()) {
-      for (const session of source()) {
-        sessions.push(session)
-        const workspaces =
-          this.sessionsSurfaceEligibility.get(session.handle) ??
-          new Map<SessionsWorkspaceQualifier, boolean>()
-        workspaces.set(session.workspaceQualifier, !session.dormant && !session.exited)
-        this.sessionsSurfaceEligibility.set(session.handle, workspaces)
-      }
-    }
-    return sessions
-  }
+  sessionsSnapshot = (): readonly SessionsRendererSession[] =>
+    this.materializedSessionsSnapshot
 
   subscribeSessions = (listener: () => void): (() => void) => {
+    const first = this.sessionsListeners.size === 0
     this.sessionsListeners.add(listener)
-    return () => this.sessionsListeners.delete(listener)
+    if (first) this.refreshSessionsSources()
+    return () => {
+      this.sessionsListeners.delete(listener)
+      if (this.sessionsListeners.size === 0) this.clearSessionsMaterialization()
+    }
   }
 
   readonly sessionsObservation = {
@@ -86,12 +88,21 @@ export class TerminalWorkspaceRuntimeOwner {
   ): void => {
     if (this.disposed) return
     if (source) this.sessionsSources.set(workspaceId, source)
-    else this.sessionsSources.delete(workspaceId)
+    else {
+      this.sessionsSources.delete(workspaceId)
+      this.sessionsSourceSnapshots.delete(workspaceId)
+    }
+    if (this.sessionsListeners.size === 0) return
+    if (source) this.sessionsSourceSnapshots.set(workspaceId, source())
+    this.rebuildSessionsMaterialization()
     this.publishSessions()
   }
 
   sessionsChanged = (workspaceId: string): void => {
-    if (!this.sessionsSources.has(workspaceId)) return
+    const source = this.sessionsSources.get(workspaceId)
+    if (!source || this.sessionsListeners.size === 0) return
+    this.sessionsSourceSnapshots.set(workspaceId, source())
+    this.rebuildSessionsMaterialization()
     this.publishSessions()
   }
 
@@ -99,13 +110,11 @@ export class TerminalWorkspaceRuntimeOwner {
     if (this.disposed) {
       return { outcome: 'unavailable' as const, reason: 'runtime-not-ready' as const }
     }
-    const exact = this.sessionsSources
-      .get(request.workspaceRuntimeId)?.()
-      .some(
-        (session) =>
-          session.handle === request.handle && !session.dormant && !session.exited,
-      )
-    if (!exact) {
+    if (
+      !this.sessionsSurfaceEligibility
+        .get(request.handle)
+        ?.workspaceRuntimeIds.has(request.workspaceRuntimeId)
+    ) {
       return { outcome: 'unavailable' as const, reason: 'source-missing' as const }
     }
     return this.runtimes.acquireSessionsSurface(request)
@@ -115,10 +124,11 @@ export class TerminalWorkspaceRuntimeOwner {
     if (this.disposed) {
       return { outcome: 'unavailable' as const, reason: 'runtime-not-ready' as const }
     }
-    const eligible = this.sessionsSurfaceEligibility
-      .get(request.handle)
-      ?.get(request.workspaceQualifier)
-    if (eligible !== true) {
+    if (
+      !this.sessionsSurfaceEligibility
+        .get(request.handle)
+        ?.workspaceQualifiers.has(request.workspaceQualifier)
+    ) {
       return { outcome: 'unavailable' as const, reason: 'source-missing' as const }
     }
     return this.runtimes.sessionsSurfaceAvailability(request)
@@ -136,8 +146,7 @@ export class TerminalWorkspaceRuntimeOwner {
         (session) =>
           session.handle === handle &&
           session.workspaceQualifier === workspaceQualifier &&
-          !session.dormant &&
-          !session.exited,
+          sessionsSurfaceEligible(session),
       ),
     )
     const controller = source ? this.controllers.get(source[0]) : undefined
@@ -245,7 +254,7 @@ export class TerminalWorkspaceRuntimeOwner {
     }
     this.controllers.clear()
     this.sessionsSources.clear()
-    this.sessionsSurfaceEligibility.clear()
+    this.clearSessionsMaterialization()
     this.transferWorkspaceIds.clear()
     this.retainedWorkspaceIds.clear()
     this.materializedSnapshot = []
@@ -288,4 +297,39 @@ export class TerminalWorkspaceRuntimeOwner {
     if (this.sessionsListeners.size === 0) return
     for (const listener of this.sessionsListeners) listener()
   }
+
+  private refreshSessionsSources(): void {
+    for (const [workspaceId, source] of this.sessionsSources) {
+      this.sessionsSourceSnapshots.set(workspaceId, source())
+    }
+    this.rebuildSessionsMaterialization()
+    this.publishSessions()
+  }
+
+  private rebuildSessionsMaterialization(): void {
+    this.sessionsSurfaceEligibility.clear()
+    this.materializedSessionsSnapshot = [...this.sessionsSourceSnapshots.values()].flat()
+    for (const [workspaceRuntimeId, sessions] of this.sessionsSourceSnapshots) {
+      for (const session of sessions) {
+        if (!sessionsSurfaceEligible(session)) continue
+        const eligibility = this.sessionsSurfaceEligibility.get(session.handle) ?? {
+          workspaceRuntimeIds: new Set<string>(),
+          workspaceQualifiers: new Set<SessionsWorkspaceQualifier>(),
+        }
+        eligibility.workspaceRuntimeIds.add(workspaceRuntimeId)
+        eligibility.workspaceQualifiers.add(session.workspaceQualifier)
+        this.sessionsSurfaceEligibility.set(session.handle, eligibility)
+      }
+    }
+  }
+
+  private clearSessionsMaterialization(): void {
+    this.sessionsSourceSnapshots.clear()
+    this.sessionsSurfaceEligibility.clear()
+    this.materializedSessionsSnapshot = []
+  }
+}
+
+function sessionsSurfaceEligible(session: SessionsRendererSession): boolean {
+  return !session.dormant && !session.exited
 }

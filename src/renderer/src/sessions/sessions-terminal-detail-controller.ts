@@ -11,10 +11,11 @@ import type {
 } from '../../../shared'
 import {
   sessionsTerminalSurfaceEligible,
+  sessionsTerminalSurfaceRevocationMessage,
+  sessionsTerminalSurfaceUnavailableMessage,
   type SessionsTerminalSurfaceLease,
   type SessionsTerminalSurfacePort,
   type SessionsTerminalSurfaceRevocationReason,
-  type SessionsTerminalSurfaceUnavailableReason,
 } from './sessions-terminal-surface'
 
 export interface SessionsTerminalDetailContext {
@@ -112,9 +113,9 @@ export class SessionsTerminalDetailController {
     this.container = container
     this.cancelFocus()
     if (previous) this.lease?.detach(previous)
-    if (container && this.current.status === 'ready' && this.lease?.attach(container)) {
-      this.scheduleFocus()
-    }
+    const lease = this.lease
+    const authority = this.authority
+    if (container && lease && authority) this.attachLease(container, lease, authority)
   }
 
   close(): void {
@@ -185,7 +186,9 @@ export class SessionsTerminalDetailController {
         return
       }
       this.authority = next
-      this.publish({ status: 'ready', context: detailContext(row) })
+      if (this.current.status === 'ready') {
+        this.publish({ status: 'ready', context: detailContext(row) })
+      }
       return
     }
     if (this.pendingAuthority && sameAuthority(this.pendingAuthority, next)) return
@@ -236,7 +239,7 @@ export class SessionsTerminalDetailController {
       this.publish({
         status: 'unavailable',
         context: detailContext(authority.row),
-        message: surfaceUnavailableMessage(acquisition.reason),
+        message: sessionsTerminalSurfaceUnavailableMessage(acquisition.reason),
       })
       return
     }
@@ -247,8 +250,7 @@ export class SessionsTerminalDetailController {
     this.leaseUnsubscribe = lease.subscribe((reason) =>
       this.surfaceRevoked(lease, reason),
     )
-    this.publish({ status: 'ready', context: detailContext(authority.row) })
-    if (this.container && lease.attach(this.container)) this.scheduleFocus()
+    if (this.container) this.attachLease(this.container, lease, authority)
   }
 
   private acceptUnavailable(
@@ -277,7 +279,11 @@ export class SessionsTerminalDetailController {
     this.authority = undefined
     this.cancelFocus()
     const row = this.latest?.rows.find((candidate) => candidate.handle === this.selected)
-    this.publishContext('unavailable', row, surfaceRevocationMessage(reason))
+    this.publishContext(
+      'unavailable',
+      row,
+      sessionsTerminalSurfaceRevocationMessage(reason),
+    )
   }
 
   private publishContext(
@@ -319,6 +325,32 @@ export class SessionsTerminalDetailController {
         )
       }
     })
+  }
+
+  private attachLease(
+    container: HTMLElement,
+    lease: SessionsTerminalSurfaceLease,
+    authority: DetailAuthority,
+  ): void {
+    const attached = lease.attach(container)
+    if (
+      this.lease !== lease ||
+      this.authority !== authority ||
+      this.container !== container
+    )
+      return
+    if (!attached) {
+      this.releaseLease()
+      this.authority = undefined
+      this.publish({
+        status: 'unavailable',
+        context: detailContext(authority.row),
+        message: sessionsTerminalSurfaceUnavailableMessage('instance-mismatch'),
+      })
+      return
+    }
+    this.publish({ status: 'ready', context: detailContext(authority.row) })
+    this.scheduleFocus()
   }
 
   private cancelPending(): void {
@@ -378,9 +410,7 @@ export class SessionsTerminalDetailController {
 export function createSessionsTerminalResolutionPort(
   api: Pick<HvirApi, 'invoke'>,
 ): SessionsTerminalResolutionPort {
-  return {
-    resolve: (request) => api.invoke('sessions:resolve-terminal', request),
-  }
+  return { resolve: (request) => api.invoke('sessions:resolve-terminal', request) }
 }
 
 function resolutionRequest(authority: DetailAuthority): SessionsOpenRequest {
@@ -465,35 +495,5 @@ function detailUnavailableMessage(reason: SessionsOpenUnavailableReason): string
       return 'The host disconnected. Reconnect from the workspace before trying again.'
     case 'terminal-unavailable':
       return 'This session no longer has the same live terminal.'
-  }
-}
-
-function surfaceRevocationMessage(
-  reason: SessionsTerminalSurfaceRevocationReason,
-): string {
-  switch (reason) {
-    case 'terminal-unavailable':
-      return 'The live terminal ended or was replaced.'
-    case 'connection-unavailable':
-      return 'The terminal host disconnected.'
-    case 'workspace-unavailable':
-      return 'The terminal moved or its workspace became unavailable.'
-    case 'owner-disposed':
-      return 'The terminal owner was replaced.'
-  }
-}
-
-function surfaceUnavailableMessage(
-  reason: SessionsTerminalSurfaceUnavailableReason,
-): string {
-  switch (reason) {
-    case 'source-missing':
-      return 'This terminal no longer has a current workspace surface.'
-    case 'runtime-not-ready':
-      return 'This terminal surface is not ready for interaction.'
-    case 'instance-mismatch':
-      return 'The live terminal changed before interaction began.'
-    case 'lease-conflict':
-      return 'This terminal surface is already being shown elsewhere.'
   }
 }

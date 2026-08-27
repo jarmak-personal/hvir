@@ -85,3 +85,33 @@ export function sessionsTerminalSurfaceEligible(row: SessionsProjectionRow): boo
     row.livePty !== undefined
   )
 }
+
+export function sessionsTerminalSurfaceUnavailableMessage(
+  reason: SessionsTerminalSurfaceUnavailableReason,
+): string {
+  switch (reason) {
+    case 'source-missing':
+      return 'This terminal no longer has a current workspace surface.'
+    case 'runtime-not-ready':
+      return 'This terminal surface is not ready for interaction.'
+    case 'instance-mismatch':
+      return 'The live terminal changed before interaction began.'
+    case 'lease-conflict':
+      return 'This terminal surface is already being shown elsewhere.'
+  }
+}
+
+export function sessionsTerminalSurfaceRevocationMessage(
+  reason: SessionsTerminalSurfaceRevocationReason,
+): string {
+  switch (reason) {
+    case 'terminal-unavailable':
+      return 'The live terminal ended or was replaced.'
+    case 'connection-unavailable':
+      return 'The terminal host disconnected.'
+    case 'workspace-unavailable':
+      return 'The terminal moved or its workspace became unavailable.'
+    case 'owner-disposed':
+      return 'The terminal owner was replaced.'
+  }
+}
