@@ -41,7 +41,7 @@ export class TerminalWorkspaceRuntimeOwner {
     string,
     readonly SessionsRendererSession[]
   >()
-  private readonly sessionsSurfaceEligibility = new Map<
+  private sessionsSurfaceEligibility = new Map<
     SessionsTerminalHandle,
     SessionsSurfaceEligibility
   >()
@@ -313,7 +313,7 @@ export class TerminalWorkspaceRuntimeOwner {
   }
 
   private publishSessionsSurfaceAvailability(): void {
-    if (this.disposed || this.sessionsSurfaceListeners.size === 0) return
+    if (this.disposed) return
     this.sessionsSurfaceRevision += 1
     for (const listener of this.sessionsSurfaceListeners) listener()
   }
@@ -327,30 +327,61 @@ export class TerminalWorkspaceRuntimeOwner {
   }
 
   private rebuildSessionsMaterialization(): void {
-    this.sessionsSurfaceEligibility.clear()
     this.materializedSessionsSnapshot = [...this.sessionsSourceSnapshots.values()].flat()
+    const nextEligibility = new Map<
+      SessionsTerminalHandle,
+      SessionsSurfaceEligibility
+    >()
     for (const [workspaceRuntimeId, sessions] of this.sessionsSourceSnapshots) {
       for (const session of sessions) {
         if (!sessionsSurfaceEligible(session)) continue
-        const eligibility = this.sessionsSurfaceEligibility.get(session.handle) ?? {
+        const eligibility = nextEligibility.get(session.handle) ?? {
           workspaceRuntimeIds: new Set<string>(),
           workspaceQualifiers: new Set<SessionsWorkspaceQualifier>(),
         }
         eligibility.workspaceRuntimeIds.add(workspaceRuntimeId)
         eligibility.workspaceQualifiers.add(session.workspaceQualifier)
-        this.sessionsSurfaceEligibility.set(session.handle, eligibility)
+        nextEligibility.set(session.handle, eligibility)
       }
     }
+    if (sessionsSurfaceEligibilityEqual(this.sessionsSurfaceEligibility, nextEligibility)) {
+      return
+    }
+    this.sessionsSurfaceEligibility = nextEligibility
     this.publishSessionsSurfaceAvailability()
   }
 
   private clearSessionsMaterialization(): void {
     this.sessionsSourceSnapshots.clear()
-    this.sessionsSurfaceEligibility.clear()
     this.materializedSessionsSnapshot = []
+    if (this.sessionsSurfaceEligibility.size === 0) return
+    this.sessionsSurfaceEligibility = new Map()
+    this.publishSessionsSurfaceAvailability()
   }
 }
 
 function sessionsSurfaceEligible(session: SessionsRendererSession): boolean {
   return !session.dormant && !session.exited
+}
+
+function sessionsSurfaceEligibilityEqual(
+  left: ReadonlyMap<SessionsTerminalHandle, SessionsSurfaceEligibility>,
+  right: ReadonlyMap<SessionsTerminalHandle, SessionsSurfaceEligibility>,
+): boolean {
+  if (left.size !== right.size) return false
+  for (const [handle, leftEligibility] of left) {
+    const rightEligibility = right.get(handle)
+    if (
+      !rightEligibility ||
+      !setsEqual(leftEligibility.workspaceRuntimeIds, rightEligibility.workspaceRuntimeIds) ||
+      !setsEqual(leftEligibility.workspaceQualifiers, rightEligibility.workspaceQualifiers)
+    ) {
+      return false
+    }
+  }
+  return true
+}
+
+function setsEqual<T>(left: ReadonlySet<T>, right: ReadonlySet<T>): boolean {
+  return left.size === right.size && [...left].every((value) => right.has(value))
 }

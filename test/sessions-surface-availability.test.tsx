@@ -38,7 +38,7 @@ afterEach(() => {
 })
 
 describe('Sessions surface availability', () => {
-  it('offers Interact when a retained runtime becomes borrowable without a projection change', async () => {
+  it('tracks readiness and lease conflicts without a projection change', async () => {
     const surface = observableSurface()
     await act(async () => {
       root.render(
@@ -65,11 +65,27 @@ describe('Sessions surface availability', () => {
     })
 
     expect(host.textContent).toContain('Interact')
+
+    await act(async () => {
+      surface.setAvailable(false, 'lease-conflict')
+      await settle()
+    })
+
+    expect(host.textContent).not.toContain('Interact')
+
+    await act(async () => {
+      surface.setAvailable(true)
+      await settle()
+    })
+
+    expect(host.textContent).toContain('Interact')
   })
 })
 
 function observableSurface() {
   let available = false
+  let unavailableReason: 'runtime-not-ready' | 'lease-conflict' =
+    'runtime-not-ready'
   let revision = 0
   const listeners = new Set<() => void>()
   const value: SessionsTerminalSurfacePort = {
@@ -81,13 +97,17 @@ function observableSurface() {
     availability: () =>
       available
         ? { outcome: 'available' }
-        : { outcome: 'unavailable', reason: 'runtime-not-ready' },
+        : { outcome: 'unavailable', reason: unavailableReason },
     acquire: () => ({ outcome: 'unavailable', reason: 'runtime-not-ready' }),
   }
   return {
     value,
-    setAvailable(next: boolean): void {
+    setAvailable(
+      next: boolean,
+      reason: 'runtime-not-ready' | 'lease-conflict' = 'runtime-not-ready',
+    ): void {
       available = next
+      unavailableReason = reason
       revision += 1
       for (const listener of listeners) listener()
     },

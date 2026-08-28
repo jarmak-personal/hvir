@@ -92,7 +92,7 @@ describe('TerminalWorkspaceRuntimeOwner', () => {
 
   it('reads materialized session facts only while an observer declares demand', () => {
     const owner = new TerminalWorkspaceRuntimeOwner()
-    const source = vi.fn(() => [
+    let sessions = [
       {
         handle: asSessionsTerminalHandle('terminal-1'),
         workspaceQualifier: sessionsWorkspaceQualifier(1, 0, 0),
@@ -104,7 +104,8 @@ describe('TerminalWorkspaceRuntimeOwner', () => {
         exited: false,
         recoveryUnavailable: false,
       },
-    ])
+    ]
+    const source = vi.fn(() => sessions)
     owner.registerSessionsSource('workspace-a', source)
     owner.sessionsChanged('workspace-a')
     expect(source).not.toHaveBeenCalled()
@@ -113,13 +114,21 @@ describe('TerminalWorkspaceRuntimeOwner', () => {
     const release = owner.sessionsObservation.subscribe(listener)
     expect(listener).toHaveBeenCalledOnce()
     expect(source).toHaveBeenCalledOnce()
+    const eligibleRevision = owner.sessionsSurface.availabilityRevision()
     owner.sessionsChanged('workspace-a')
     expect(listener).toHaveBeenCalledTimes(2)
     expect(source).toHaveBeenCalledTimes(2)
+    expect(owner.sessionsSurface.availabilityRevision()).toBe(eligibleRevision)
+
+    sessions = [{ ...sessions[0]!, exited: true }]
+    owner.sessionsChanged('workspace-a')
+    expect(owner.sessionsSurface.availabilityRevision()).toBeGreaterThan(
+      eligibleRevision,
+    )
 
     release()
     owner.sessionsChanged('workspace-a')
-    expect(listener).toHaveBeenCalledTimes(2)
+    expect(listener).toHaveBeenCalledTimes(3)
     owner.dispose()
     expect(owner.sessionsObservation.snapshot()).toEqual([])
   })
@@ -324,9 +333,6 @@ describe('TerminalWorkspaceRuntimeOwner', () => {
     const qualifier = sessionsWorkspaceQualifier(1, 0, 0)
     owner.registerSessionsSource('workspace-a', () => [session(handle, qualifier)])
     const release = owner.sessionsObservation.subscribe(() => undefined)
-    const availabilityChanged = vi.fn()
-    const releaseAvailability =
-      owner.sessionsSurface.subscribeAvailability(availabilityChanged)
     const capability = {
       handle,
       workspaceQualifier: qualifier,
@@ -343,11 +349,16 @@ describe('TerminalWorkspaceRuntimeOwner', () => {
       outcome: 'unavailable',
       reason: 'runtime-not-ready',
     })
+    const revisionBeforeRuntimeStart = owner.sessionsSurface.availabilityRevision()
     runtime.attach(workspace)
     await vi.runAllTimersAsync()
     await Promise.resolve()
-
-    expect(availabilityChanged).toHaveBeenCalledOnce()
+    expect(owner.sessionsSurface.availabilityRevision()).toBeGreaterThan(
+      revisionBeforeRuntimeStart,
+    )
+    const availabilityChanged = vi.fn()
+    const releaseAvailability =
+      owner.sessionsSurface.subscribeAvailability(availabilityChanged)
     expect(owner.sessionsSurface.availability(capability)).toEqual({
       outcome: 'available',
     })
@@ -367,7 +378,7 @@ describe('TerminalWorkspaceRuntimeOwner', () => {
     })
     expect(acquisition.outcome).toBe('acquired')
     if (acquisition.outcome !== 'acquired') throw new Error('Expected surface lease')
-    expect(availabilityChanged).toHaveBeenCalledTimes(2)
+    expect(availabilityChanged).toHaveBeenCalledOnce()
     const engine = workspace.querySelector('.terminal-engine-host')
     expect(acquisition.lease.attach(detail)).toBe(true)
     expect(detail.querySelector('.terminal-engine-host')).toBe(engine)
@@ -377,7 +388,10 @@ describe('TerminalWorkspaceRuntimeOwner', () => {
       reason: 'lease-conflict',
     })
     acquisition.lease.release()
-    expect(availabilityChanged).toHaveBeenCalledTimes(3)
+    expect(availabilityChanged).toHaveBeenCalledTimes(2)
+    expect(owner.sessionsSurface.availability(capability)).toEqual({
+      outcome: 'available',
+    })
     expect(workspace.querySelector('.terminal-engine-host')).toBe(engine)
     releaseAvailability()
     release()
