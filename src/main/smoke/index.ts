@@ -376,6 +376,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
           {
             ...smokeProjectState().projects[0]!.workspaces[0]!,
             id: `workspace:${smokeRoot.hostId}:${smokeRoot.path}`,
+            name: 'main',
           },
           {
             id: `workspace:${smokeWebSwitchRoot.hostId}:${smokeWebSwitchRoot.path}`,
@@ -1002,6 +1003,9 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
           supervisor,
           usageHost: host,
           usageProvider: sessionsUsageSmokeProvider,
+          captureDirectory: process.env.HVIR_SESSIONS_CAPTURE_DIR
+            ? localPath(process.env.HVIR_SESSIONS_CAPTURE_DIR)
+            : undefined,
         })
       } finally {
         acceptedRendererReadySink = undefined

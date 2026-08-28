@@ -25,6 +25,14 @@ them.
 - Lightweight is a feel: heavy filesystem, Git, watching, and telemetry work stays off the render
   thread.
 
+## Sessions across every workspace
+
+Sessions is an application-wide view of every hvir-owned harness and shell across projects
+and worktrees. See where work needs attention, choose **Interact** for the exact live
+terminal, then return to its workspace without losing the surrounding workbench.
+
+![Moving from a workspace to Sessions, interacting with a live terminal, and returning to the workspace](docs/screenshots/sessions-flow.gif)
+
 ## Install
 
 Install hvir from its latest GitHub Release, then launch it from any directory:
