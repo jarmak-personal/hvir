@@ -640,8 +640,22 @@ async function verifySessionsOverview(
                       if (!(currentLive instanceof HTMLElement)) {
                         return wait(restored, 'restored live card');
                       }
-                      button('Open', currentLive)?.click();
-                      focused();
+                      button('Interact', currentLive)?.click();
+                      const reattached = () => {
+                        const nextDetail = document.querySelector('.sessions-terminal-detail');
+                        const nextEngine = nextDetail?.querySelector('.terminal-engine-host');
+                        const goToWorkspace = nextDetail && button('Go to workspace', nextDetail);
+                        if (
+                          !(nextDetail instanceof HTMLElement) ||
+                          nextEngine !== workspaceEngine ||
+                          !(goToWorkspace instanceof HTMLButtonElement)
+                        ) {
+                          return wait(reattached, 'workspace action detail');
+                        }
+                        goToWorkspace.click();
+                        focused();
+                      };
+                      reattached();
                     };
                     proof();
                   };
@@ -659,7 +673,7 @@ async function verifySessionsOverview(
                     ) {
                       return wait(focused, 'exact terminal focus');
                     }
-                    resolve('active-project overview + filters + retained refusal + one exact interactive detail/input/restore + exact live Open/focus');
+                    resolve('active-project overview + filters + retained refusal + exact interactive detail/input/restore + exact detail workspace/focus');
                   };
                   attached();
                 };

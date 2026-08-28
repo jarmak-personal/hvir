@@ -3,6 +3,10 @@
 }
 
 .sessions-detail-backdrop {
+  --sessions-detail-origin-top: 50vh;
+  --sessions-detail-origin-right: 50vw;
+  --sessions-detail-origin-bottom: 50vh;
+  --sessions-detail-origin-left: 50vw;
   position: fixed;
   z-index: 20;
   inset: 0;
@@ -10,11 +14,10 @@
   padding: clamp(14px, 2.5vw, 34px);
   background: rgb(5 7 10 / 62%);
   backdrop-filter: blur(6px) saturate(70%);
+  animation: sessions-detail-reveal 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 .sessions-terminal-detail {
-  --sessions-detail-origin-x: 50vw;
-  --sessions-detail-origin-y: 50vh;
   min-width: 0;
   min-height: 0;
   display: grid;
@@ -28,22 +31,29 @@
     radial-gradient(circle at 15% 0%, rgb(51 83 122 / 20%), transparent 38%), #101318;
   box-shadow: 0 24px 80px rgb(0 0 0 / 48%);
   color: var(--text);
-  animation: sessions-detail-grow 160ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: sessions-detail-panel-arrive 240ms 40ms ease-out both;
 }
 
-@keyframes sessions-detail-grow {
+@keyframes sessions-detail-reveal {
   from {
-    opacity: 0.35;
-    clip-path: circle(
-      0 at var(--sessions-detail-origin-x) var(--sessions-detail-origin-y)
+    clip-path: inset(
+      var(--sessions-detail-origin-top) var(--sessions-detail-origin-right)
+        var(--sessions-detail-origin-bottom) var(--sessions-detail-origin-left) round 7px
     );
   }
 
   to {
+    clip-path: inset(0 round 0);
+  }
+}
+
+@keyframes sessions-detail-panel-arrive {
+  from {
+    opacity: 0.55;
+  }
+
+  to {
     opacity: 1;
-    clip-path: circle(
-      150vmax at var(--sessions-detail-origin-x) var(--sessions-detail-origin-y)
-    );
   }
 }
 
@@ -68,14 +78,6 @@
   margin: 0;
   color: var(--text-muted);
   font-size: calc(9px * var(--hvir-interface-scale));
-}
-
-.sessions-detail-header .sessions-eyebrow {
-  color: #7e9dc1;
-  font-size: calc(8px * var(--hvir-interface-scale));
-  font-weight: 760;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
 }
 
 .sessions-detail-actions {
@@ -134,6 +136,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .sessions-detail-backdrop,
   .sessions-terminal-detail {
     animation: none;
   }

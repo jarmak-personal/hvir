@@ -16,7 +16,10 @@ import {
   sessionsWorkspaceQualifier,
   type SessionsObservationSnapshot,
 } from '../src/shared'
-import type { SessionsTerminalSurfacePort } from '../src/renderer/src/sessions/sessions-terminal-surface'
+import type {
+  SessionsTerminalSurfaceLease,
+  SessionsTerminalSurfacePort,
+} from '../src/renderer/src/sessions/sessions-terminal-surface'
 
 const privateHandle = asSessionsTerminalHandle('terminal-private-agent')
 const privatePath = '/private/repo'
@@ -94,9 +97,85 @@ describe('Sessions title privacy', () => {
     )
     expect(host.querySelector('.sessions-detail-terminal')).toBeInstanceOf(HTMLElement)
   })
+
+  it('releases detail before exact workspace navigation', async () => {
+    const { surface, release } = availableSurface()
+    const api = installApi()
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      callback(0)
+      return 1
+    })
+    await renderOverview(surface)
+
+    await act(async () => {
+      button('Interact').click()
+      await settle()
+      button('Go to workspace').click()
+      await settle()
+    })
+
+    expect(release).toHaveBeenCalledOnce()
+    expect(api.open).toHaveBeenCalledOnce()
+    expect(api.open).toHaveBeenCalledWith({
+      demandGeneration: 1,
+      sourceRevision: 7,
+      handle: privateHandle,
+      projectId: 'opaque-project',
+      workspaceId: 'opaque-workspace',
+      workspaceQualifier,
+      livePty,
+    })
+    expect(release.mock.invocationCallOrder[0]).toBeLessThan(
+      api.open.mock.invocationCallOrder[0]!,
+    )
+  })
+
+  it('releases a disappeared row without opening and restores collection focus', async () => {
+    let current = observationSnapshot(1)
+    let rendererSessions = [rendererSession()]
+    let rendererChanged: () => void = () => undefined
+    const api = installApi({
+      snapshot: (generation) => ({ ...current, demandGeneration: generation }),
+    })
+    const { surface, release } = availableSurface()
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      callback(0)
+      return 1
+    })
+    await renderOverview(surface, {
+      observation: {
+        snapshot: () => rendererSessions,
+        subscribe: (listener) => {
+          rendererChanged = listener
+          return () => undefined
+        },
+      },
+    })
+    await act(async () => {
+      button('Interact').click()
+      await settle()
+    })
+    current = { ...current, revision: 8, sessions: [] }
+    rendererSessions = []
+    await act(async () => {
+      rendererChanged()
+      api.emit({ demandGeneration: 1, revision: 8 })
+      await settle()
+      button('Go to workspace').click()
+      await settle()
+    })
+
+    expect(release).toHaveBeenCalledOnce()
+    expect(api.open).not.toHaveBeenCalled()
+    expect(host.textContent).toContain('This session is no longer available.')
+    expect(document.activeElement).toBe(button('All sessions'))
+  })
 })
 
-async function renderOverview(surface: SessionsTerminalSurfacePort): Promise<void> {
+async function renderOverview(
+  surface: SessionsTerminalSurfacePort,
+  overrides: Partial<Parameters<typeof SessionsOverview>[0]> = {},
+): Promise<void> {
   await act(async () => {
     root.render(
       <SessionsOverview
@@ -117,14 +196,28 @@ async function renderOverview(surface: SessionsTerminalSurfacePort): Promise<voi
           subscribe: () => () => undefined,
         }}
         surface={surface}
-        onReturn={vi.fn()}
         onOpened={vi.fn()}
         onFocusOpened={vi.fn(() => Promise.resolve(true))}
         onOpenFailed={vi.fn()}
+        {...overrides}
       />,
     )
     await settle()
   })
+}
+
+function rendererSession() {
+  return {
+    handle: privateHandle,
+    workspaceQualifier,
+    providerId,
+    profileId,
+    title: `Working in ${privatePath} for ${privateHandle}`,
+    dormant: false,
+    resumeOnStart: false,
+    exited: false,
+    recoveryUnavailable: false,
+  }
 }
 
 function button(text: string): HTMLButtonElement {
@@ -135,39 +228,95 @@ function button(text: string): HTMLButtonElement {
   return match
 }
 
-function installApi(): void {
+function installApi(
+  options: {
+    readonly snapshot?: (demandGeneration: number) => SessionsObservationSnapshot
+  } = {},
+) {
   const listeners = new Set<(payload: unknown) => void>()
+  const snapshot = options.snapshot ?? observationSnapshot
+  const open = vi.fn((_request?: unknown) =>
+    Promise.resolve({ outcome: 'unavailable', reason: 'terminal-unavailable' }),
+  )
+  const invoke = vi.fn((channel: string, request: unknown) => {
+    const demandGeneration = (request as { readonly demandGeneration?: number })
+      .demandGeneration
+    switch (channel) {
+      case 'sessions:observe':
+      case 'sessions:snapshot':
+        return Promise.resolve(snapshot(demandGeneration ?? 1))
+      case 'sessions:release':
+      case 'sessions:usage-release':
+        return Promise.resolve(undefined)
+      case 'sessions:resolve-terminal':
+        return Promise.resolve({
+          outcome: 'resolved' as const,
+          handle: privateHandle,
+          workspaceQualifier,
+          workspaceRuntimeId: 'workspace-runtime',
+          livePty,
+        })
+      case 'sessions:open':
+        return open(request)
+      default:
+        return Promise.reject(new Error(`Unexpected channel ${channel}`))
+    }
+  })
   Object.defineProperty(window, 'hvir', {
     configurable: true,
     value: {
-      invoke: vi.fn((channel: string, request: unknown) => {
-        const demandGeneration = (request as { readonly demandGeneration?: number })
-          .demandGeneration
-        switch (channel) {
-          case 'sessions:observe':
-          case 'sessions:snapshot':
-            return Promise.resolve(observationSnapshot(demandGeneration ?? 1))
-          case 'sessions:release':
-          case 'sessions:usage-release':
-            return Promise.resolve(undefined)
-          case 'sessions:resolve-terminal':
-            return Promise.resolve({
-              outcome: 'resolved' as const,
-              handle: privateHandle,
-              workspaceQualifier,
-              workspaceRuntimeId: 'workspace-runtime',
-              livePty,
-            })
-          default:
-            return Promise.reject(new Error(`Unexpected channel ${channel}`))
-        }
-      }),
+      invoke,
       on: vi.fn((channel: string, listener: (payload: unknown) => void) => {
         if (channel === 'sessions:changed') listeners.add(listener)
         return () => listeners.delete(listener)
       }),
     },
   })
+  return {
+    emit: (payload: unknown) => {
+      for (const listener of listeners) listener(payload)
+    },
+    invoke,
+    open,
+  }
+}
+
+function availableSurface(): {
+  readonly surface: SessionsTerminalSurfacePort
+  readonly release: ReturnType<typeof vi.fn>
+} {
+  const owner = document.createElement('div')
+  const engine = document.createElement('div')
+  engine.tabIndex = 0
+  owner.append(engine)
+  let container: HTMLElement | undefined
+  const release = vi.fn(() => {
+    container = undefined
+    owner.append(engine)
+  })
+  const lease: SessionsTerminalSurfaceLease = {
+    renew: () => true,
+    attach: (next) => {
+      container = next
+      next.append(engine)
+      return true
+    },
+    detach: (current) => {
+      if (container === current) container = undefined
+    },
+    setVisible: (current) => container === current,
+    focus: (current) => {
+      if (container !== current) return false
+      engine.focus()
+      return true
+    },
+    subscribe: () => () => undefined,
+    release,
+  }
+  return {
+    surface: { acquire: () => ({ outcome: 'acquired', lease }) },
+    release,
+  }
 }
 
 function observationSnapshot(demandGeneration: number): SessionsObservationSnapshot {
