@@ -38,6 +38,7 @@ import {
   DEFAULT_SESSIONS_OVERVIEW_POLICY,
   SESSIONS_OVERVIEW_PAGE_SIZE,
   sessionsOverviewFocusFallback,
+  sessionsOverviewCardTitle,
   sessionsOverviewGroups,
   sessionsOverviewPage,
   sessionsOverviewPolicyLabel,
@@ -103,13 +104,11 @@ export function SessionsOverview({
   useEffect(() => {
     if (foreground) return
     openGeneration.current += 1
-    previousOrder.current = []
     rowElements.current.clear()
-    setSelected(undefined)
     setOpening(undefined)
     detailOrigin.current = undefined
     setFeedback(undefined)
-    setPageIndex(0)
+    pendingFocus.current = undefined
   }, [foreground])
   useEffect(
     () => () => {
@@ -129,9 +128,11 @@ export function SessionsOverview({
     [allGroups, pageIndex],
   )
   useEffect(() => {
+    if (!foreground || snapshot.status !== 'available') return
     if (page.pageIndex !== pageIndex) setPageIndex(page.pageIndex)
-  }, [page.pageIndex, pageIndex])
+  }, [foreground, page.pageIndex, pageIndex, snapshot.status])
   useEffect(() => {
+    if (!foreground || snapshot.status !== 'available') return
     const selectedDisappeared = selected !== undefined && !handles.includes(selected)
     const next = sessionsOverviewFocusFallback(previousOrder.current, handles, selected)
     previousOrder.current = handles
@@ -147,7 +148,7 @@ export function SessionsOverview({
       if (next) pendingFocus.current = next
       else collectionControl.current?.focus()
     }
-  }, [handles, pageIndex, selected])
+  }, [foreground, handles, pageIndex, selected, snapshot.status])
   useEffect(() => {
     const handle = pendingFocus.current
     if (!handle || !page.rows.some((row) => row.handle === handle)) return
@@ -382,13 +383,15 @@ export function SessionsOverview({
                     <div className="sessions-grid">
                       {group.rows.map((row) => {
                         const isSelected = selected === row.handle
+                        const liveTerminal = sessionsTerminalSurfaceEligible(row)
+                        const cardTitle = sessionsOverviewCardTitle(row, policy.group)
                         return (
                           <article
                             key={row.handle}
                             className={`session-card${isSelected ? ' selected' : ''}`}
                             role="listitem"
                             aria-current={isSelected ? 'true' : undefined}
-                            aria-label={`${row.title}, ${row.provider.name}, ${row.project.name}, ${row.workspace.name}`}
+                            aria-label={cardTitle}
                             tabIndex={isSelected ? 0 : -1}
                             ref={(element) => {
                               if (element) rowElements.current.set(row.handle, element)
@@ -402,7 +405,7 @@ export function SessionsOverview({
                                 event.target === event.currentTarget
                               ) {
                                 event.preventDefault()
-                                void open(row)
+                                if (liveTerminal) void open(row)
                                 return
                               }
                               moveFocus(event, row)
@@ -410,10 +413,11 @@ export function SessionsOverview({
                           >
                             <SessionsOverviewCard
                               row={row}
+                              group={policy.group}
                               opening={opening === row.handle}
-                              onOpen={() => void open(row)}
+                              onOpen={liveTerminal ? () => void open(row) : undefined}
                               onInteract={
-                                sessionsTerminalSurfaceEligible(row)
+                                liveTerminal
                                   ? () => {
                                       detailOrigin.current =
                                         sessionsTerminalOverlayOrigin(

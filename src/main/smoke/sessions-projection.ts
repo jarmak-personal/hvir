@@ -338,14 +338,17 @@ async function verifySessionsHiddenRelease(win: BrowserWindow): Promise<string> 
           surface.querySelector('.terminal-engine-host') &&
           (surface.getAttribute('data-terminal-status') || '').startsWith('pid ')
         );
-      const title = workspaceSurface?.getAttribute('aria-label');
-      if (!title) return reject(new Error('Sessions hidden-release check lacked a live terminal'));
+      if (!workspaceSurface) return reject(new Error('Sessions hidden-release check lacked a live terminal'));
       document.querySelector('.sessions-destination')?.click();
       const poll = () => {
         const overview = document.querySelector('.sessions-overview');
         const card = overview
           ? [...overview.querySelectorAll('.session-card')]
-            .find((candidate) => candidate.querySelector('h3')?.textContent?.trim() === title)
+            .find((candidate) =>
+              candidate.querySelector('h3')?.textContent?.trim() === 'Shell terminal' &&
+              [...candidate.querySelectorAll('button')]
+                .some((button) => button.textContent?.trim() === 'Interact')
+            )
           : undefined;
         const interact = card
           ? [...card.querySelectorAll('button')]
@@ -543,16 +546,22 @@ async function verifySessionsOverview(
               (group) => group.querySelector('h2')?.textContent?.includes('Primary project')
             );
             const retained = [...(primaryGroup?.querySelectorAll('.session-card') ?? [])]
-              .find((card) => button('Open', card) && !button('Interact', card));
+              .find((card) =>
+                card.querySelector('h3')?.textContent?.trim() === 'Shell terminal' &&
+                !button('Interact', card)
+              );
             if (!(retained instanceof HTMLElement)) {
               return reject(new Error('Sessions overview lacked a retained session row'));
             }
-            button('Open', retained)?.click();
-            const refused = () => {
-              const feedback = overview.querySelector('.sessions-feedback')?.textContent || '';
-              if (!feedback.includes('does not have the same live terminal')) {
-                return wait(refused, 'retained Open refusal');
-              }
+            if (button('Open', retained)) {
+              return reject(new Error('Sessions overview offered Open for a retained session'));
+            }
+            if (
+              overview.textContent?.includes('Retained smoke session') ||
+              overview.textContent?.includes('plain-shell-default')
+            ) {
+              return reject(new Error('Sessions overview exposed a source title or profile identity'));
+            }
               button('Working', overview)?.click();
               const filtered = () => {
                 if (!overview.textContent?.includes('No sessions match')) {
@@ -564,20 +573,15 @@ async function verifySessionsOverview(
                   const filteredCards = currentOverview
                     ? [...currentOverview.querySelectorAll('.session-card')]
                     : [];
-                  const live = filteredCards.find((card) => {
-                    const title = card.querySelector('h3')?.textContent?.trim();
-                    return button('Interact', card) &&
-                      [...document.querySelectorAll('.workbench .terminal-surface')].some(
-                        (surface) => surface.getAttribute('aria-label') === title &&
-                          surface.querySelector('.terminal-engine-host')
-                      );
-                  });
+                  const live = filteredCards.find((card) =>
+                    card.querySelector('h3')?.textContent?.trim() === 'Shell terminal' &&
+                    button('Interact', card)
+                  );
                   if (!(live instanceof HTMLElement)) return wait(enterDetail, 'live card');
-                  const liveTitle = live.querySelector('h3')?.textContent?.trim();
                   const workspaceSurface = [...document.querySelectorAll('.workbench .terminal-surface')]
                     .find((surface) =>
-                      surface.getAttribute('aria-label') === liveTitle &&
-                      surface.querySelector('.terminal-engine-host')
+                      surface.querySelector('.terminal-engine-host') &&
+                      (surface.getAttribute('data-terminal-status') || '').startsWith('pid ')
                     );
                   const workspaceInput = workspaceSurface?.querySelector('.terminal-container');
                   const workspaceEngine = workspaceInput?.querySelector('.terminal-engine-host');
@@ -645,7 +649,7 @@ async function verifySessionsOverview(
                       }
                       const currentLive = [...returnedOverview.querySelectorAll('.session-card')]
                         .find((card) =>
-                          card.querySelector('h3')?.textContent?.trim() === liveTitle &&
+                          card.querySelector('h3')?.textContent?.trim() === 'Shell terminal' &&
                           button('Interact', card)
                         );
                       if (!(currentLive instanceof HTMLElement)) {
@@ -684,15 +688,13 @@ async function verifySessionsOverview(
                     ) {
                       return wait(focused, 'exact terminal focus');
                     }
-                    resolve('application-wide overview + filters + retained refusal + exact interactive detail/input/restore + exact detail workspace/focus');
+                    resolve('application-wide overview + filters + retained action withheld + private card identity omitted + exact interactive detail/input/restore + exact detail workspace/focus');
                   };
                   attached();
                 };
                 enterDetail();
               };
               filtered();
-            };
-            refused();
           };
           interact();
         } catch (error) {

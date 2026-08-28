@@ -139,6 +139,7 @@ export function App(): ReactElement {
     onWatchEvent: reviewWatch.handle,
     isIgnoreRulePath: isGitIgnoreRulePath,
   })
+  const acceptSessionProject = session.acceptProjectState
   const {
     projectState,
     root,
@@ -641,8 +642,7 @@ export function App(): ReactElement {
       <SessionsApplicationDestination
         active={destination === 'sessions'}
         runtime={terminalWorkspaces}
-        onOpened={session.acceptProjectState}
-        onReturn={() => setDestination('workspace')}
+        onOpened={(state) => (acceptSessionProject(state), setDestination('workspace'))}
         onError={session.reportError}
       />
       {overlays.projectPickerOpen ? (

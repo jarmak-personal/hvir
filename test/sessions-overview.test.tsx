@@ -82,6 +82,10 @@ describe('SessionsOverview', () => {
     expect(host.textContent).not.toContain('Quiet state')
     expect(host.textContent).not.toContain('Unsupported')
     expect(host.textContent).not.toContain('Unavailable · Not materialized')
+    expect(host.textContent).not.toContain('Private agent title')
+    expect(host.textContent).not.toContain('Private shell title')
+    expect(host.textContent).not.toContain('codex-default')
+    expect(host.textContent).not.toContain('plain-shell-default')
     const shellCard = [...host.querySelectorAll<HTMLElement>('.session-card')].find(
       (card) => card.textContent?.includes('Shell terminal'),
     )!
@@ -91,11 +95,16 @@ describe('SessionsOverview', () => {
       [...shellCard.querySelectorAll<HTMLButtonElement>('button')].map((action) =>
         action.textContent?.trim(),
       ),
-    ).toEqual(['Open'])
+    ).toEqual([])
 
     const agentCard = [...host.querySelectorAll<HTMLElement>('.session-card')].find(
-      (card) => card.textContent?.includes('Agent terminal'),
+      (card) => card.textContent?.includes('Codex session'),
     )!
+    expect(
+      [...agentCard.querySelectorAll<HTMLButtonElement>('button')].map((action) =>
+        action.textContent?.trim(),
+      ),
+    ).toEqual(['Interact', 'Open'])
     expect(agentCard.querySelector('.session-fact.actionable')?.textContent).toBe(
       'AttentionBell',
     )
@@ -136,6 +145,87 @@ describe('SessionsOverview', () => {
     })
     expect(api.observe).toHaveBeenLastCalledWith(3)
     expect(host.querySelectorAll('.session-card')).toHaveLength(2)
+  })
+
+  it('withholds live actions when the host is disconnected', async () => {
+    installApi({
+      snapshot: (demandGeneration) => {
+        const current = snapshot(demandGeneration)
+        return {
+          ...current,
+          workspaces: current.workspaces.map((workspace) => ({
+            ...workspace,
+            host: { ...workspace.host, connectionState: 'disconnected' as const },
+          })),
+        }
+      },
+    })
+    await renderOverview()
+
+    const agentCard = [...host.querySelectorAll<HTMLElement>('.session-card')].find(
+      (card) => card.textContent?.includes('Codex session'),
+    )!
+    expect(agentCard.querySelectorAll('button')).toHaveLength(0)
+  })
+
+  it('offers project grouping and restores project identity when cards are ungrouped', async () => {
+    installApi()
+    await renderOverview()
+    const group = host.querySelector<HTMLSelectElement>('.sessions-controls select')!
+
+    expect([...group.options].map((option) => option.textContent)).toEqual([
+      'Workspace',
+      'Project',
+      'None',
+    ])
+    act(() => {
+      group.value = 'none'
+      group.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    expect(host.querySelector('.sessions-group h2')).toBeNull()
+    expect(host.querySelector('.session-card h3')?.textContent).toBe(
+      'Codex session · Project One / main',
+    )
+  })
+
+  it('preserves collection policy, page, and opaque selection across foreground release', async () => {
+    const api = installApi({ snapshot: capacitySnapshot })
+    await renderOverview({
+      observation: {
+        snapshot: capacityRendererSessions,
+        subscribe: () => () => undefined,
+      },
+    })
+    const group = host.querySelector<HTMLSelectElement>('.sessions-controls select')!
+    act(() => {
+      group.value = 'none'
+      group.dispatchEvent(new Event('change', { bubbles: true }))
+      button('Next page').click()
+    })
+    const selectedIndex = 5
+    act(() => host.querySelectorAll<HTMLElement>('.session-card')[selectedIndex]?.focus())
+
+    focused = false
+    await act(async () => {
+      window.dispatchEvent(new Event('blur'))
+      await settle()
+    })
+    expect(api.release).toHaveBeenCalledExactlyOnceWith(1)
+
+    focused = true
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'))
+      await settle()
+    })
+
+    expect(group.value).toBe('none')
+    expect(host.textContent).toContain('Page 2 of 13')
+    expect(
+      host
+        .querySelectorAll<HTMLElement>('.session-card')
+        [selectedIndex]?.getAttribute('aria-current'),
+    ).toBe('true')
   })
 
   it('sends the exact opaque Open qualifiers and transfers successful focus to the terminal owner', async () => {
@@ -219,7 +309,7 @@ describe('SessionsOverview', () => {
       },
     })
     expect(host.querySelector('.sessions-terminal-detail h1')?.textContent).toBe(
-      'Agent terminal',
+      'Private agent title',
     )
     expect(host.querySelector('.sessions-terminal-detail')?.getAttribute('role')).toBe(
       'dialog',
@@ -372,7 +462,6 @@ describe('SessionsOverview', () => {
     expect(host.querySelectorAll('.session-card')).toHaveLength(40)
     expect(document.activeElement).toBe(host.querySelector('.session-card'))
   })
-
 
   it('replaces Opening feedback when an unavailable Open completes after a projection revision', async () => {
     let current = snapshot(1)
@@ -631,7 +720,6 @@ async function renderOverview(
   })
 }
 
-
 function acquired(lease: SessionsTerminalSurfaceLease) {
   return { outcome: 'acquired' as const, lease }
 }
@@ -652,7 +740,7 @@ function rendererSessions() {
       workspaceQualifier,
       providerId: asHarnessProviderId('codex'),
       profileId: asHarnessProfileId('codex-default'),
-      title: 'Agent terminal',
+      title: 'Private agent title',
       dormant: false,
       resumeOnStart: false,
       exited: false,
@@ -664,7 +752,7 @@ function rendererSessions() {
       workspaceQualifier,
       providerId: asHarnessProviderId('plain-shell'),
       profileId: asHarnessProfileId('plain-shell-default'),
-      title: 'Shell terminal',
+      title: 'Private shell title',
       dormant: false,
       resumeOnStart: false,
       exited: false,
@@ -724,7 +812,7 @@ function snapshot(demandGeneration: number): SessionsObservationSnapshot {
           status: 'available',
           value: { id: asHarnessProfileId('codex-default') },
         },
-        title: 'Agent terminal',
+        title: 'Private agent title',
         lifecycle: 'live',
         livePty: {
           handle: asSessionsPtyHandle('live-instance-agent'),
@@ -746,7 +834,7 @@ function snapshot(demandGeneration: number): SessionsObservationSnapshot {
           status: 'available',
           value: { id: asHarnessProfileId('plain-shell-default') },
         },
-        title: 'Shell terminal',
+        title: 'Private shell title',
         lifecycle: 'retained',
         telemetry: {
           model: unsupported,
