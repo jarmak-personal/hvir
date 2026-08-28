@@ -290,7 +290,7 @@ describe('SessionsOverview', () => {
       observation: { snapshot: () => [], subscribe: () => () => undefined },
     })
 
-    expect(host.textContent).toContain('No sessions in this project')
+    expect(host.textContent).toContain('No hvir sessions')
     expect(host.textContent).not.toContain('No sessions match')
     expect(host.querySelector('button')?.textContent).not.toBe('Reset filters')
   })

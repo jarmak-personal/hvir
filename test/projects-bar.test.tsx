@@ -38,6 +38,7 @@ describe('ProjectsBar status presentation', () => {
     const sessions = host.querySelector<HTMLButtonElement>('.sessions-destination')
     expect(sessions?.getAttribute('aria-current')).toBe('page')
     expect(host.querySelector('.project-tab.active')).toBeNull()
+    expect(host.querySelector('.workspaces-bar')).toBeNull()
 
     act(() => host.querySelector<HTMLButtonElement>('.project-tab-main')?.click())
     expect(callbacks.switchWorkspace).toHaveBeenCalledWith(

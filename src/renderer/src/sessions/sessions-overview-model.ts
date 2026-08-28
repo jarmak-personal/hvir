@@ -142,13 +142,6 @@ export function sessionsOverviewGroups(
   return [...groups.values()]
 }
 
-export function sessionsOverviewProjectRows(
-  rows: readonly SessionsProjectionRow[],
-  project: SessionsProjectionRow['project']['id'] | undefined,
-): readonly SessionsProjectionRow[] {
-  return project ? rows.filter((row) => row.project.id === project) : []
-}
-
 export function sessionsOverviewRows(
   groups: readonly SessionsOverviewGroupModel[],
 ): readonly SessionsProjectionRow[] {
