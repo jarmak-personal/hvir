@@ -48,7 +48,6 @@ import {
 interface SessionsOverviewProps {
   readonly observation: SessionsRendererObservationPort
   readonly surface: SessionsTerminalSurfacePort
-  readonly onReturn: () => void
   readonly onOpened: (state: ProjectState) => void
   readonly onFocusOpened: (
     handle: SessionsTerminalHandle,
@@ -61,7 +60,6 @@ interface SessionsOverviewProps {
 export function SessionsOverview({
   observation,
   surface,
-  onReturn,
   onOpened,
   onFocusOpened,
   onOpenFailed,
@@ -161,7 +159,9 @@ export function SessionsOverview({
     const handle = pendingFocus.current
     if (!handle) return
     pendingFocus.current = undefined
-    rowElements.current.get(handle)?.focus()
+    const row = rowElements.current.get(handle)
+    if (row) row.focus()
+    else collectionControl.current?.focus()
   }, [detailState.status])
 
   const updatePolicy = <K extends keyof SessionsOverviewPolicy>(
@@ -220,6 +220,23 @@ export function SessionsOverview({
     },
     [onFocusOpened, onOpenFailed, onOpened, opening, source],
   )
+
+  const openDetailWorkspace = useCallback((): void => {
+    const handle = detail.selectedHandle()
+    if (handle) pendingFocus.current = handle
+    detail.close()
+    detailOrigin.current = undefined
+    if (!handle) {
+      setFeedback(openUnavailableMessage('session-unavailable'))
+      return
+    }
+    const row = source.snapshot().rows.find((candidate) => candidate.handle === handle)
+    if (!row) {
+      setFeedback(openUnavailableMessage('session-unavailable'))
+      return
+    }
+    void open(row)
+  }, [detail, open, source])
 
   const moveFocus = (
     event: ReactKeyboardEvent<HTMLElement>,
@@ -428,11 +445,7 @@ export function SessionsOverview({
             detail.close()
             detailOrigin.current = undefined
           }}
-          onReturn={() => {
-            detail.close()
-            detailOrigin.current = undefined
-            onReturn()
-          }}
+          onOpenWorkspace={openDetailWorkspace}
         />
       ) : null}
     </>

@@ -16,13 +16,18 @@ export function SessionsTerminalDetail({
   state,
   origin,
   onBack,
-  onReturn,
+  onOpenWorkspace,
 }: {
   readonly controller: SessionsTerminalDetailController
   readonly state: Exclude<SessionsTerminalDetailState, { readonly status: 'inactive' }>
-  readonly origin?: { readonly x: number; readonly y: number }
+  readonly origin?: {
+    readonly top: number
+    readonly right: number
+    readonly bottom: number
+    readonly left: number
+  }
   readonly onBack: () => void
-  readonly onReturn: () => void
+  readonly onOpenWorkspace: () => void
 }): ReactElement {
   const closeButton = useRef<HTMLButtonElement>(null)
   const setContainer = useCallback(
@@ -35,22 +40,22 @@ export function SessionsTerminalDetail({
   const ready = state.status === 'ready'
   const originStyle = origin
     ? ({
-        '--sessions-detail-origin-x': `${origin.x}px`,
-        '--sessions-detail-origin-y': `${origin.y}px`,
+        '--sessions-detail-origin-top': `${origin.top}px`,
+        '--sessions-detail-origin-right': `calc(100vw - ${origin.right}px)`,
+        '--sessions-detail-origin-bottom': `calc(100vh - ${origin.bottom}px)`,
+        '--sessions-detail-origin-left': `${origin.left}px`,
       } as CSSProperties)
     : undefined
   return (
-    <div className="sessions-detail-backdrop">
+    <div className="sessions-detail-backdrop" style={originStyle}>
       <section
         className="sessions-terminal-detail"
         role="dialog"
         aria-modal="true"
         aria-labelledby="sessions-detail-title"
-        style={originStyle}
       >
         <header className="sessions-detail-header">
           <div>
-            <p className="sessions-eyebrow">Live terminal</p>
             <h1 id="sessions-detail-title">{state.context.title}</h1>
             <p>
               {state.context.projectName} <span aria-hidden="true">/</span>{' '}
@@ -62,20 +67,15 @@ export function SessionsTerminalDetail({
             <button type="button" ref={closeButton} onClick={onBack}>
               Close
             </button>
-            <button type="button" onClick={onReturn}>
-              Return to current workspace
+            <button type="button" onClick={onOpenWorkspace}>
+              Go to workspace
             </button>
           </div>
         </header>
-        {state.message ? (
-          <p className="sessions-detail-status" role="status">
-            {state.message}
-          </p>
-        ) : state.status === 'resolving' ? (
-          <p className="sessions-detail-status" role="status">
-            Attaching the exact live terminal…
-          </p>
-        ) : null}
+        <p className="sessions-detail-status" role="status">
+          {state.message ??
+            (state.status === 'resolving' ? 'Attaching the exact live terminal…' : '')}
+        </p>
         <section
           className={`sessions-detail-terminal${ready ? ' ready' : ''}`}
           aria-label={`${state.context.title} terminal`}

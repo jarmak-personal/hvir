@@ -38,7 +38,6 @@ export function SessionsApplicationDestination({
     <SessionsOverview
       observation={runtime.sessionsObservation}
       surface={runtime.sessionsSurface}
-      onReturn={onReturn}
       onOpened={(state) => {
         onOpened(state)
         onReturn()

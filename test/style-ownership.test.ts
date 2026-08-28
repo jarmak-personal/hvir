@@ -121,10 +121,13 @@ describe('renderer style ownership', () => {
     )
 
     expect(detail).toContain(
-      'animation: sessions-detail-grow 160ms cubic-bezier(0.2, 0.8, 0.2, 1) both',
+      'animation: sessions-detail-reveal 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both',
+    )
+    expect(detail).toContain(
+      'animation: sessions-detail-panel-arrive 240ms 40ms ease-out both',
     )
     expect(detail).toMatch(
-      /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.sessions-terminal-detail \{[\s\S]*?animation: none;/u,
+      /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.sessions-detail-backdrop,[\s\S]*?\.sessions-terminal-detail \{[\s\S]*?animation: none;/u,
     )
   })
 
