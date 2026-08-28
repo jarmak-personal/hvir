@@ -432,7 +432,6 @@ function surfaceRequest(
 ) {
   return {
     handle: authority.row.handle,
-    workspaceQualifier: authority.row.workspace.qualifier,
     workspaceRuntimeId,
     livePty: authority.row.livePty!,
     demandGeneration: authority.demandGeneration,

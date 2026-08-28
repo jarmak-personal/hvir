@@ -92,14 +92,6 @@ describe('Sessions title privacy', () => {
     expect(host.querySelector('.sessions-detail-terminal')).toBeInstanceOf(HTMLElement)
   })
 
-  it('offers both exact-live actions before attempting to borrow the surface', async () => {
-    await renderOverview({
-      acquire: () => ({ outcome: 'unavailable', reason: 'runtime-not-ready' }),
-    })
-
-    expect(button('Open')).toBeInstanceOf(HTMLButtonElement)
-    expect(button('Interact')).toBeInstanceOf(HTMLButtonElement)
-  })
 })
 
 async function renderOverview(surface: SessionsTerminalSurfacePort): Promise<void> {

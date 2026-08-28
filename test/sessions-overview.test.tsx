@@ -87,6 +87,11 @@ describe('SessionsOverview', () => {
     )!
     expect(shellCard.querySelectorAll('.session-fact')).toHaveLength(2)
     expect(shellCard.querySelector('.session-fact-summary')).toBeNull()
+    expect(
+      [...shellCard.querySelectorAll<HTMLButtonElement>('button')].map((action) =>
+        action.textContent?.trim(),
+      ),
+    ).toEqual(['Open'])
 
     const agentCard = [...host.querySelectorAll<HTMLElement>('.session-card')].find(
       (card) => card.textContent?.includes('Agent terminal'),

@@ -2,13 +2,11 @@ import type {
   SessionsLivePtyQualifier,
   SessionsTerminalHandle,
   SessionsProjectionRow,
-  SessionsWorkspaceQualifier,
   SessionsWorkspaceRuntimeId,
 } from '../../../shared'
 
 export interface SessionsTerminalSurfaceRequest {
   readonly handle: SessionsTerminalHandle
-  readonly workspaceQualifier: SessionsWorkspaceQualifier
   readonly workspaceRuntimeId: SessionsWorkspaceRuntimeId
   readonly livePty: SessionsLivePtyQualifier
   readonly demandGeneration: number

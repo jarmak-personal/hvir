@@ -164,14 +164,12 @@ describe('TerminalWorkspaceRuntimeOwner', () => {
   it('delegates exact Sessions acquisition to the runtime selected by the authoritative handle', () => {
     const owner = new TerminalWorkspaceRuntimeOwner()
     const handle = asSessionsTerminalHandle('terminal-1')
-    const qualifier = sessionsWorkspaceQualifier(1, 0, 0)
     const expected = { outcome: 'acquired' as const, lease: { release: vi.fn() } }
     const acquire = vi
       .spyOn(owner.runtimes, 'acquireSessionsSurface')
       .mockReturnValue(expected as never)
     const request = {
       handle,
-      workspaceQualifier: qualifier,
       workspaceRuntimeId: asSessionsWorkspaceRuntimeId('workspace-a'),
       livePty: {
         handle: asSessionsPtyHandle('instance-1'),
@@ -188,17 +186,10 @@ describe('TerminalWorkspaceRuntimeOwner', () => {
     expect(
       owner.sessionsSurface.acquire({
         ...request,
-        workspaceQualifier: sessionsWorkspaceQualifier(2, 0, 0),
-      }),
-    ).toBe(expected)
-    expect(acquire).toHaveBeenCalledTimes(2)
-    expect(
-      owner.sessionsSurface.acquire({
-        ...request,
         workspaceRuntimeId: asSessionsWorkspaceRuntimeId('workspace-b'),
       }),
     ).toBe(expected)
-    expect(acquire).toHaveBeenCalledTimes(3)
+    expect(acquire).toHaveBeenCalledTimes(2)
     owner.dispose()
     expect(owner.sessionsSurface.acquire(request)).toEqual({
       outcome: 'unavailable',
@@ -235,10 +226,8 @@ describe('TerminalWorkspaceRuntimeOwner', () => {
     const owner = new TerminalWorkspaceRuntimeOwner()
     const runtime = owner.runtimes.acquire(ghosttyLifecycleRuntimeOptions())
     const handle = asSessionsTerminalHandle('terminal-1')
-    const qualifier = sessionsWorkspaceQualifier(1, 0, 0)
     const request = {
       handle,
-      workspaceQualifier: qualifier,
       workspaceRuntimeId: asSessionsWorkspaceRuntimeId('workspace-a'),
       livePty: {
         handle: asSessionsPtyHandle('instance-1'),

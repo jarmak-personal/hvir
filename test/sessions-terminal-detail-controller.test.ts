@@ -62,7 +62,6 @@ describe('SessionsTerminalDetailController', () => {
     await Promise.resolve()
     expect(acquire).toHaveBeenCalledExactlyOnceWith({
       handle: 'terminal-1',
-      workspaceQualifier: '2:0:0',
       workspaceRuntimeId: 'workspace-runtime',
       livePty: {
         handle: 'pty-1',
@@ -129,7 +128,6 @@ describe('SessionsTerminalDetailController', () => {
     expect(firstLease.renew).toHaveBeenCalledWith(
       expect.objectContaining({
         demandGeneration: 1,
-        workspaceQualifier: '9:1:0',
         projectionRevision: 2,
         sourceRevision: 6,
       }),
