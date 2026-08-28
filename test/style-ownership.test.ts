@@ -10,7 +10,6 @@ const expectedOrder = [
   'sessions-overview.css',
   'sessions-collection.css',
   'sessions-terminal-detail.css',
-  'sessions-usage.css',
   'health.css',
   'diagnostic-report.css',
   'shell.css',
@@ -98,19 +97,6 @@ describe('renderer style ownership', () => {
     expect(projects).toContain('@media (prefers-reduced-motion: reduce)')
     expect(projects).toMatch(
       /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.project-name-working \{[\s\S]*?animation: none;[\s\S]*?text-decoration-style: dashed;[\s\S]*?\n {2}\}\n\}/u,
-    )
-  })
-
-  it('keeps Usage movement bounded and provides the same static reduced-motion facts', () => {
-    const usage = readFileSync(
-      join(process.cwd(), 'src/renderer/src/styles/sessions-usage.css'),
-      'utf8',
-    )
-
-    expect(usage).toContain('transition: width 220ms ease-out')
-    expect(usage).not.toContain('animation:')
-    expect(usage).toMatch(
-      /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.sessions-usage-bar span \{[\s\S]*?transition: none;/u,
     )
   })
 
