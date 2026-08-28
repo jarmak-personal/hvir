@@ -88,18 +88,6 @@
 
 .sessions-detail-actions button {
   padding: 5px 9px;
-  border: 1px solid var(--border-strong);
-  border-radius: 5px;
-  background: #181c23;
-  color: #c5ccd6;
-  font: inherit;
-}
-
-.sessions-detail-actions button:hover,
-.sessions-detail-actions button:focus-visible {
-  border-color: #506a87;
-  background: #233044;
-  color: #f0f4f9;
 }
 
 .sessions-detail-status {

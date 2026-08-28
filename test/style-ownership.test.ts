@@ -113,6 +113,20 @@ describe('renderer style ownership', () => {
     )
   })
 
+  it('bounds the Sessions detail reveal and disables it for reduced motion', () => {
+    const detail = readFileSync(
+      join(process.cwd(), 'src/renderer/src/styles/sessions-terminal-detail.css'),
+      'utf8',
+    )
+
+    expect(detail).toContain(
+      'animation: sessions-detail-grow 160ms cubic-bezier(0.2, 0.8, 0.2, 1) both',
+    )
+    expect(detail).toMatch(
+      /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.sessions-terminal-detail \{[\s\S]*?animation: none;/u,
+    )
+  })
+
   it('routes renderer typography through the owned font and scale tokens', () => {
     const root = process.cwd()
     const styleRoot = join(root, 'src/renderer/src/styles')

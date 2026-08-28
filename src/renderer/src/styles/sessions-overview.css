@@ -75,6 +75,7 @@
 }
 
 .sessions-return,
+.sessions-detail-actions button,
 .sessions-lenses button,
 .sessions-controls button,
 .sessions-controls select,
@@ -228,7 +229,9 @@
   font-size: calc(9px * var(--hvir-interface-scale));
 }
 
-.sessions-overview button:hover:not(:disabled) {
+.sessions-overview button:hover:not(:disabled),
+.sessions-detail-actions button:hover:not(:disabled),
+.sessions-detail-actions button:focus-visible {
   border-color: #506a87;
   background: #233044;
   color: #f0f4f9;
