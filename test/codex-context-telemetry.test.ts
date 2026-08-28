@@ -20,7 +20,10 @@ import {
 } from '../src/main/harness/codex-context-telemetry'
 import { calculateHarnessUsageDelta } from '../src/main/harness/agent-work-usage'
 import { BoundedLineReader } from '../src/main/harness/bounded-line-reader'
-import { HARNESS_USAGE_RECORD_BYTE_LIMIT } from '../src/main/harness/harness-usage-artifact'
+import {
+  HARNESS_USAGE_ARTIFACT_BYTE_LIMIT,
+  HARNESS_USAGE_RECORD_BYTE_LIMIT,
+} from '../src/main/harness/harness-usage-artifact'
 import type { ExecStreamHandle, ProjectHost } from '../src/main/project-host'
 import { LocalHost } from '../src/main/project-host/local-host'
 import { localPath, type HarnessTelemetry } from '../src/shared'
@@ -221,7 +224,7 @@ describe('Codex context telemetry', () => {
     }
   })
 
-  it('reads exact cumulative counters after a rollout grows beyond 8 MiB', async () => {
+  it('fails closed when a rollout grows beyond the cumulative artifact bound', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'hvir-codex-large-usage-'))
     const canonicalDirectory = await realpath(directory)
     const path = localPath(join(directory, `rollout-session-${SESSION_ID}.jsonl`))
@@ -230,7 +233,9 @@ describe('Codex context telemetry', () => {
       type: 'response_item',
       payload: { opaque: 'x'.repeat(1024) },
     })}\n`
-    const repetitions = Math.ceil((8 * 1024 * 1024 + 1) / ignoredRecord.length)
+    const repetitions = Math.ceil(
+      (HARNESS_USAGE_ARTIFACT_BYTE_LIMIT + 1) / ignoredRecord.length,
+    )
     await writeFile(
       path.path,
       `${JSON.stringify({
@@ -249,14 +254,9 @@ describe('Codex context telemetry', () => {
       await expect(
         snapshotCodexUsage(host, usageContext(directory, path)),
       ).resolves.toMatchObject({
-        status: 'available',
-        counters: {
-          freshInputTokens: 35,
-          cacheReadInputTokens: 120,
-          cacheWriteInputTokens: 15,
-          outputTokens: 40,
-          reasoningTokens: 8,
-        },
+        status: 'unavailable',
+        providerId: 'codex',
+        reason: 'artifact-too-large',
       })
     } finally {
       await host.dispose()

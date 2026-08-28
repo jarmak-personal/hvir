@@ -60,6 +60,7 @@ export async function scanHarnessUsageArtifactLines(
 
   let parts: Buffer[] = []
   let lineBytes = 0
+  let artifactBytes = 0
   let discarding = false
   const visitRetainedLine = (): void => {
     if (lineBytes === 0) return
@@ -69,6 +70,10 @@ export async function scanHarnessUsageArtifactLines(
     for await (const chunk of transfer.readFileChunks(path, { signal })) {
       signal.throwIfAborted()
       const value = Buffer.from(chunk)
+      if (value.byteLength > HARNESS_USAGE_ARTIFACT_BYTE_LIMIT - artifactBytes) {
+        return { status: 'unavailable', reason: 'artifact-too-large' }
+      }
+      artifactBytes += value.byteLength
       let offset = 0
       while (offset < value.byteLength) {
         const newline = value.indexOf(0x0a, offset)

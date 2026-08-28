@@ -13,7 +13,10 @@ import {
 } from '../src/main/harness/claude-context-telemetry'
 import { calculateHarnessUsageDelta } from '../src/main/harness/agent-work-usage'
 import { claudeProjectDirectoryName } from '../src/main/harness/claude-session-artifact'
-import { HARNESS_USAGE_RECORD_BYTE_LIMIT } from '../src/main/harness/harness-usage-artifact'
+import {
+  HARNESS_USAGE_ARTIFACT_BYTE_LIMIT,
+  HARNESS_USAGE_RECORD_BYTE_LIMIT,
+} from '../src/main/harness/harness-usage-artifact'
 import type { ProjectHost } from '../src/main/project-host'
 import { LocalHost } from '../src/main/project-host/local-host'
 import { LOCAL_HOST_ID, localPath, type HarnessTelemetry } from '../src/shared'
@@ -345,7 +348,7 @@ describe('Claude Code context telemetry', () => {
     }
   })
 
-  it('reads exact cumulative counters after a transcript grows beyond 8 MiB', async () => {
+  it('fails closed when a transcript grows beyond the cumulative artifact bound', async () => {
     const configDirectory = await mkdtemp(join(tmpdir(), 'hvir-claude-large-usage-'))
     const cwd = join(configDirectory, 'workspace')
     await mkdir(cwd)
@@ -359,7 +362,9 @@ describe('Claude Code context telemetry', () => {
       type: 'user',
       message: { content: 'x'.repeat(1024) },
     })}\n`
-    const repetitions = Math.ceil((8 * 1024 * 1024 + 1) / ignoredRecord.length)
+    const repetitions = Math.ceil(
+      (HARNESS_USAGE_ARTIFACT_BYTE_LIMIT + 1) / ignoredRecord.length,
+    )
     await mkdir(projectDirectory, { recursive: true })
     await writeFile(transcript, ignoredRecord.repeat(repetitions))
     await appendFile(
@@ -386,14 +391,9 @@ describe('Claude Code context telemetry', () => {
           signal: new AbortController().signal,
         }),
       ).resolves.toMatchObject({
-        status: 'available',
-        route: { modelId: 'claude-test', reasoningEffort: 'high' },
-        counters: {
-          freshInputTokens: 10,
-          cacheReadInputTokens: 30,
-          cacheWriteInputTokens: 20,
-          outputTokens: 4,
-        },
+        status: 'unavailable',
+        providerId: 'claude-code',
+        reason: 'artifact-too-large',
       })
     } finally {
       await host.dispose()
