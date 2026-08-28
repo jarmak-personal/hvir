@@ -47,7 +47,6 @@
 .sessions-controls button,
 .sessions-controls select,
 .sessions-notice button,
-.sessions-usage button,
 .session-card header button {
   border: 1px solid var(--border-strong);
   border-radius: 5px;
