@@ -68,7 +68,9 @@ describe('Sessions title privacy', () => {
       await settle()
     })
 
-    expect(host.querySelector('h1')?.textContent).toBe('Codex · main')
+    expect(host.querySelector('.sessions-terminal-detail h1')?.textContent).toBe(
+      'Codex · main',
+    )
     expect(
       host.querySelector('.sessions-detail-terminal')?.getAttribute('aria-label'),
     ).toBe('Codex · main terminal')
