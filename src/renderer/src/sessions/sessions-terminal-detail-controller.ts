@@ -303,7 +303,7 @@ export class SessionsTerminalDetailController {
     this.publish({ status, context, message })
   }
 
-  private scheduleFocus(): void {
+  private scheduleFocus(focus = false): void {
     this.cancelFocus()
     const lease = this.lease
     const container = this.container
@@ -314,8 +314,7 @@ export class SessionsTerminalDetailController {
         this.lease !== lease ||
         this.container !== container ||
         !this.foreground ||
-        !lease.setVisible(container, true) ||
-        !lease.focus(container)
+        !(focus ? lease.focus(container) : lease.setVisible(container, true))
       ) {
         this.releaseLease()
         this.publishContext(
@@ -324,6 +323,7 @@ export class SessionsTerminalDetailController {
           'The exact terminal changed before it could receive focus.',
         )
       }
+      if (!focus) this.scheduleFocus(true)
     })
   }
 

@@ -76,6 +76,8 @@ describe('SessionsTerminalDetailController', () => {
     expect(lease.focus).not.toHaveBeenCalled()
     frames.run()
     expect(lease.setVisible).toHaveBeenCalledExactlyOnceWith(container, true)
+    expect(lease.focus).not.toHaveBeenCalled()
+    frames.run()
     expect(lease.focus).toHaveBeenCalledExactlyOnceWith(container)
     expect(controller.snapshot().status).toBe('ready')
 
