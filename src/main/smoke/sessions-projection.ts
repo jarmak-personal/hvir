@@ -757,6 +757,7 @@ async function verifySessionsDetailInputAndResize(
     terminal.ownerGeneration,
   )
   try {
+    await waitForSessionsDetailFill(win)
     supervisor.write(
       terminal.id,
       terminal.ownerId,
@@ -811,6 +812,32 @@ async function verifySessionsDetailInputAndResize(
   } finally {
     void detach()
   }
+}
+
+async function waitForSessionsDetailFill(win: BrowserWindow): Promise<void> {
+  const deadline = Date.now() + 5_000
+  while (Date.now() <= deadline) {
+    const fillsRegion = (await win.webContents.executeJavaScript(`
+      (() => {
+        const region = document.querySelector('.sessions-detail-terminal');
+        const container = region?.querySelector('.sessions-detail-terminal-container');
+        const canvas = container?.querySelector('canvas');
+        if (!(region instanceof HTMLElement) ||
+            !(container instanceof HTMLElement) ||
+            !(canvas instanceof HTMLCanvasElement)) return false;
+        const regionHeight = region.getBoundingClientRect().height;
+        const containerHeight = container.getBoundingClientRect().height;
+        const canvasHeight = canvas.getBoundingClientRect().height;
+        return getComputedStyle(container).position === 'absolute' &&
+          regionHeight > 0 &&
+          containerHeight >= regionHeight - 4 &&
+          canvasHeight >= container.clientHeight * 0.9;
+      })()
+    `)) as boolean
+    if (fillsRegion) return
+    await delay(25)
+  }
+  throw new Error('Sessions detail terminal did not fill its visible region')
 }
 
 async function waitForTerminalSize(
