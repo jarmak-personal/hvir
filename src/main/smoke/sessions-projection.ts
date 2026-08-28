@@ -813,23 +813,20 @@ async function verifySessionsDetailInputAndResize(
         detail.style.justifySelf = 'start';
       })()
     `)
-    await waitForSessionsDetailFit(win, initial)
+    const fitted = await waitForSessionsDetailFit(win, initial)
+    const resized = await waitForSessionsDetailPtyFit(
+      supervisor,
+      terminal,
+      () => output,
+      () => exited,
+      fitted,
+    )
     supervisor.write(
       terminal.id,
       terminal.ownerId,
-      `printf '\\r\\nsessions-detail-size-b:'; stty size; stty -echo; printf '\\r\\nsessions-detail-input-awaiting\\r\\n'; IFS= read -r hvir_input; stty echo; printf '\\r\\nsessions-detail-input:%s\\r\\n' "$hvir_input"\n`,
+      `stty -echo; printf '\\r\\nsessions-detail-input-awaiting\\r\\n'; IFS= read -r hvir_input; stty echo; printf '\\r\\nsessions-detail-input:%s\\r\\n' "$hvir_input"\n`,
       terminal.ownerGeneration,
     )
-    const resized = await waitForTerminalSize(
-      () => output,
-      () => exited,
-      'sessions-detail-size-b',
-    )
-    if (initial.rows === resized.rows && initial.cols === resized.cols) {
-      throw new Error(
-        `Sessions detail resize did not reach the exact PTY (${initial.rows}x${initial.cols})`,
-      )
-    }
     await waitForTerminalOutput(
       () => output.includes('sessions-detail-input-awaiting'),
       () => exited,
@@ -872,7 +869,7 @@ async function waitForTerminalSize(
 async function waitForSessionsDetailFit(
   win: BrowserWindow,
   initial: { readonly rows: number; readonly cols: number },
-): Promise<void> {
+): Promise<{ readonly rows: number; readonly cols: number }> {
   const deadline = Date.now() + 5_000
   while (Date.now() <= deadline) {
     const dimensions = (await win.webContents.executeJavaScript(`
@@ -888,11 +885,43 @@ async function waitForSessionsDetailFit(
       dimensions &&
       (dimensions.rows !== initial.rows || dimensions.cols !== initial.cols)
     ) {
-      return
+      return dimensions
     }
     await delay(25)
   }
   throw new Error('Sessions detail terminal did not refit after its geometry changed')
+}
+
+async function waitForSessionsDetailPtyFit(
+  supervisor: PtySupervisor,
+  terminal: {
+    readonly id: string
+    readonly ownerId: number
+    readonly ownerGeneration: number
+  },
+  output: () => string,
+  exited: () => boolean,
+  expected: { readonly rows: number; readonly cols: number },
+): Promise<{ readonly rows: number; readonly cols: number }> {
+  const deadline = Date.now() + 5_000
+  let attempt = 0
+  while (Date.now() <= deadline) {
+    const marker = `sessions-detail-size-b-${attempt++}`
+    supervisor.write(
+      terminal.id,
+      terminal.ownerId,
+      `printf '\\r\\n${marker}:'; stty size\n`,
+      terminal.ownerGeneration,
+    )
+    const dimensions = await waitForTerminalSize(output, exited, marker)
+    if (dimensions.rows === expected.rows && dimensions.cols === expected.cols) {
+      return dimensions
+    }
+    await delay(25)
+  }
+  throw new Error(
+    `Sessions detail resize did not reach the exact PTY (${expected.rows}x${expected.cols})`,
+  )
 }
 
 async function waitForTerminalOutput(
