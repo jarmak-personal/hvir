@@ -17,12 +17,7 @@ export interface SessionsTerminalSurfaceRequest {
 }
 
 export type SessionsTerminalSurfaceUnavailableReason =
-  'source-missing' | 'runtime-not-ready' | 'instance-mismatch' | 'lease-conflict'
-
-export type SessionsTerminalSurfaceCapabilityRequest = Pick<
-  SessionsTerminalSurfaceRequest,
-  'handle' | 'workspaceQualifier' | 'livePty'
->
+  'runtime-not-ready' | 'instance-mismatch' | 'lease-conflict'
 
 export type SessionsTerminalSurfaceAvailability =
   | { readonly outcome: 'available' }
@@ -51,33 +46,12 @@ export interface SessionsTerminalSurfaceLease {
 }
 
 export interface SessionsTerminalSurfacePort {
-  readonly availabilityRevision: () => number
-  readonly subscribeAvailability: (listener: () => void) => () => void
-  availability(
-    request: SessionsTerminalSurfaceCapabilityRequest,
-  ): SessionsTerminalSurfaceAvailability
   acquire(request: SessionsTerminalSurfaceRequest):
     | { readonly outcome: 'acquired'; readonly lease: SessionsTerminalSurfaceLease }
     | {
         readonly outcome: 'unavailable'
         readonly reason: SessionsTerminalSurfaceUnavailableReason
       }
-}
-
-export function sessionsTerminalSurfaceAvailable(
-  row: SessionsProjectionRow,
-  surfaces: SessionsTerminalSurfacePort,
-): boolean {
-  const livePty = row.livePty
-  return (
-    sessionsTerminalSurfaceEligible(row) &&
-    livePty !== undefined &&
-    surfaces.availability({
-      handle: row.handle,
-      workspaceQualifier: row.workspace.qualifier,
-      livePty,
-    }).outcome === 'available'
-  )
 }
 
 export function sessionsTerminalSurfaceEligible(row: SessionsProjectionRow): boolean {
@@ -92,8 +66,6 @@ export function sessionsTerminalSurfaceUnavailableMessage(
   reason: SessionsTerminalSurfaceUnavailableReason,
 ): string {
   switch (reason) {
-    case 'source-missing':
-      return 'This terminal no longer has a current workspace surface.'
     case 'runtime-not-ready':
       return 'This terminal surface is not ready for interaction.'
     case 'instance-mismatch':

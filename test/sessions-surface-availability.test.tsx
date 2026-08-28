@@ -38,8 +38,11 @@ afterEach(() => {
 })
 
 describe('Sessions surface availability', () => {
-  it('tracks readiness and lease conflicts without a projection change', async () => {
-    const surface = observableSurface()
+  it('offers Interact from the exact projected live PTY without speculative renderer preflight', async () => {
+    const acquire = vi.fn<SessionsTerminalSurfacePort['acquire']>(() => ({
+      outcome: 'unavailable',
+      reason: 'runtime-not-ready',
+    }))
     await act(async () => {
       root.render(
         <SessionsOverview
@@ -47,7 +50,7 @@ describe('Sessions surface availability', () => {
             snapshot: rendererSessions,
             subscribe: () => () => undefined,
           }}
-          surface={surface.value}
+          surface={{ acquire }}
           onReturn={vi.fn()}
           onOpened={vi.fn()}
           onFocusOpened={vi.fn(() => Promise.resolve(true))}
@@ -57,62 +60,10 @@ describe('Sessions surface availability', () => {
       await settle()
     })
 
-    expect(host.textContent).not.toContain('Interact')
-
-    await act(async () => {
-      surface.setAvailable(true)
-      await settle()
-    })
-
     expect(host.textContent).toContain('Interact')
-
-    await act(async () => {
-      surface.setAvailable(false, 'lease-conflict')
-      await settle()
-    })
-
-    expect(host.textContent).not.toContain('Interact')
-
-    await act(async () => {
-      surface.setAvailable(true)
-      await settle()
-    })
-
-    expect(host.textContent).toContain('Interact')
+    expect(acquire).not.toHaveBeenCalled()
   })
 })
-
-function observableSurface() {
-  let available = false
-  let unavailableReason: 'runtime-not-ready' | 'lease-conflict' =
-    'runtime-not-ready'
-  let revision = 0
-  const listeners = new Set<() => void>()
-  const value: SessionsTerminalSurfacePort = {
-    availabilityRevision: () => revision,
-    subscribeAvailability: (listener) => {
-      listeners.add(listener)
-      return () => listeners.delete(listener)
-    },
-    availability: () =>
-      available
-        ? { outcome: 'available' }
-        : { outcome: 'unavailable', reason: unavailableReason },
-    acquire: () => ({ outcome: 'unavailable', reason: 'runtime-not-ready' }),
-  }
-  return {
-    value,
-    setAvailable(
-      next: boolean,
-      reason: 'runtime-not-ready' | 'lease-conflict' = 'runtime-not-ready',
-    ): void {
-      available = next
-      unavailableReason = reason
-      revision += 1
-      for (const listener of listeners) listener()
-    },
-  }
-}
 
 function installApi(): void {
   Object.defineProperty(window, 'hvir', {

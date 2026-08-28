@@ -378,7 +378,6 @@ describe('SessionsTerminalDetailController', () => {
   })
 
   it.each([
-    ['source-missing', 'This terminal no longer has a current workspace surface.'],
     ['runtime-not-ready', 'This terminal surface is not ready for interaction.'],
     ['instance-mismatch', 'The live terminal changed before interaction began.'],
     ['lease-conflict', 'This terminal surface is already being shown elsewhere.'],
@@ -459,9 +458,6 @@ function surfacePort(
   acquire: SessionsTerminalSurfacePort['acquire'],
 ): SessionsTerminalSurfacePort {
   return {
-    availabilityRevision: () => 0,
-    subscribeAvailability: () => () => undefined,
-    availability: () => ({ outcome: 'available' }),
     acquire,
   }
 }

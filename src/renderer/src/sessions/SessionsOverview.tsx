@@ -28,7 +28,7 @@ import {
 } from './sessions-projection-coordinator'
 import type { SessionsRendererObservationPort } from './sessions-renderer-observation'
 import {
-  sessionsTerminalSurfaceAvailable,
+  sessionsTerminalSurfaceEligible,
   type SessionsTerminalSurfacePort,
 } from './sessions-terminal-surface'
 import { useSessionsForeground } from './use-sessions-foreground'
@@ -77,11 +77,6 @@ export function SessionsOverview({
     source.subscribe,
     source.snapshot,
     source.snapshot,
-  )
-  useSyncExternalStore(
-    surface.subscribeAvailability,
-    surface.availabilityRevision,
-    surface.availabilityRevision,
   )
   const { controller: detail, state: detailState } = useSessionsTerminalDetail({
     surface,
@@ -426,7 +421,7 @@ export function SessionsOverview({
                           opening={opening === row.handle}
                           onOpen={() => void open(row)}
                           onInteract={
-                            sessionsTerminalSurfaceAvailable(row, surface)
+                            sessionsTerminalSurfaceEligible(row)
                               ? () => detail.open(row, source.snapshot(), foreground)
                               : undefined
                           }
