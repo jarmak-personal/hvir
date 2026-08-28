@@ -527,6 +527,13 @@ async function verifySessionsOverview(
           if (overview.querySelector('.terminal-surface')) {
             throw new Error('Sessions cards materialized a preview terminal');
           }
+          const groups = [...overview.querySelectorAll('.sessions-group')];
+          if (groups.some((group) => group.getBoundingClientRect().width > 421)) {
+            throw new Error('Sessions workspace groups stretched beyond the dense column width');
+          }
+          if (!groups[0] || !button('Interact', groups[0])) {
+            throw new Error('Sessions activity ordering did not place a live group first');
+          }
           const harnessRail = [...document.querySelectorAll('.rail-nav button')]
             .some((candidate) => candidate.textContent?.trim() === 'Harness');
           if (harnessRail) throw new Error('legacy Harness rail placeholder remained');

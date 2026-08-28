@@ -265,7 +265,8 @@ function sorter(
 function sessionPriority(row: SessionsProjectionRow): number {
   if (row.attention.status === 'available' && row.attention.value !== 'none') return 0
   if (row.working.status === 'available' && row.working.value) return 1
-  return 2
+  if (row.lifecycle === 'live') return 2
+  return 3
 }
 
 function compareProject(

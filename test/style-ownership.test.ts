@@ -134,6 +134,18 @@ describe('renderer style ownership', () => {
     )
   })
 
+  it('keeps Sessions workspace groups dense instead of stretching sparse columns', () => {
+    const overview = readFileSync(
+      join(process.cwd(), 'src/renderer/src/styles/sessions-overview.css'),
+      'utf8',
+    )
+
+    expect(overview).toContain(
+      'grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 420px))',
+    )
+    expect(overview).toContain('justify-content: start')
+  })
+
   it('routes renderer typography through the owned font and scale tokens', () => {
     const root = process.cwd()
     const styleRoot = join(root, 'src/renderer/src/styles')

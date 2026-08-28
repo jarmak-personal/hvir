@@ -59,6 +59,23 @@ describe('Sessions overview policy', () => {
     ).toEqual(['a-ready', 'a-working', 'b'])
   })
 
+  it('places live sessions ahead of retained sessions when neither needs attention', () => {
+    const groups = sessionsOverviewGroups(
+      [
+        row('retained-a', { project: 'Archwitness' }),
+        row('live', { project: 'hvir', lifecycle: 'live' }),
+        row('retained-b', { project: 'Scrabalatro' }),
+      ],
+      DEFAULT_SESSIONS_OVERVIEW_POLICY,
+    )
+
+    expect(sessionsOverviewRows(groups).map((candidate) => candidate.handle)).toEqual([
+      'live',
+      'retained-a',
+      'retained-b',
+    ])
+  })
+
   it('preserves an opaque selection across reorder and chooses a deterministic neighbor on removal', () => {
     const first = ['a', 'b', 'c'].map(asSessionsTerminalHandle)
     const reordered = ['c', 'b', 'a'].map(asSessionsTerminalHandle)
@@ -161,6 +178,7 @@ function row(
     readonly workspace?: string
     readonly attention?: 'none' | 'ready' | 'bell'
     readonly working?: boolean
+    readonly lifecycle?: SessionsProjectionRow['lifecycle']
   } = {},
 ): SessionsProjectionRow {
   const unavailable = { status: 'unsupported' as const }
@@ -203,7 +221,7 @@ function row(
       value: { id: asHarnessProfileId('fixture-profile') },
     },
     title: options.title ?? id,
-    lifecycle: 'retained',
+    lifecycle: options.lifecycle ?? 'retained',
     connectionState: 'connected',
     attention: { status: 'available', value: options.attention ?? 'none' },
     working: { status: 'available', value: options.working ?? false },
