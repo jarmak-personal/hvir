@@ -127,6 +127,9 @@ describe('renderer style ownership', () => {
       'animation: sessions-detail-panel-arrive 240ms 40ms ease-out both',
     )
     expect(detail).toMatch(
+      /\.sessions-detail-terminal > \.sessions-detail-terminal-container \{\n[ ]{2}position: absolute;\n[ ]{2}inset: 0;/u,
+    )
+    expect(detail).toMatch(
       /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.sessions-detail-backdrop,[\s\S]*?\.sessions-terminal-detail \{[\s\S]*?animation: none;/u,
     )
   })
