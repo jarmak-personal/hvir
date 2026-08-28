@@ -1,11 +1,6 @@
-import {
-  useCallback,
-  useLayoutEffect,
-  useRef,
-  type CSSProperties,
-  type ReactElement,
-} from 'react'
+import { useCallback, useRef, type CSSProperties, type ReactElement } from 'react'
 
+import { useModalKeyboard } from '../workbench/use-modal-keyboard'
 import type {
   SessionsTerminalDetailController,
   SessionsTerminalDetailState,
@@ -29,14 +24,12 @@ export function SessionsTerminalDetail({
   readonly onBack: () => void
   readonly onOpenWorkspace: () => void
 }): ReactElement {
-  const closeButton = useRef<HTMLButtonElement>(null)
+  const dialog = useRef<HTMLElement>(null)
+  useModalKeyboard(dialog, onBack)
   const setContainer = useCallback(
     (container: HTMLDivElement | null) => controller.setContainer(container ?? undefined),
     [controller],
   )
-  useLayoutEffect(() => {
-    closeButton.current?.focus()
-  }, [])
   const ready = state.status === 'ready'
   const originStyle = origin
     ? ({
@@ -49,8 +42,10 @@ export function SessionsTerminalDetail({
   return (
     <div className="sessions-detail-backdrop" style={originStyle}>
       <section
+        ref={dialog}
         className="sessions-terminal-detail"
         role="dialog"
+        tabIndex={-1}
         aria-modal="true"
         aria-labelledby="sessions-detail-title"
       >
@@ -64,7 +59,7 @@ export function SessionsTerminalDetail({
             </p>
           </div>
           <div className="sessions-detail-actions">
-            <button type="button" ref={closeButton} onClick={onBack}>
+            <button type="button" autoFocus onClick={onBack}>
               Close
             </button>
             <button type="button" onClick={onOpenWorkspace}>

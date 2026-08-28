@@ -49,6 +49,7 @@ export class TerminalRuntime {
   private readonly sessionsSurface: TerminalSessionsSurfaceOwner
   private startController?: AbortController
   readonly interactions: TerminalRuntimeInteractions
+  private terminateLateStart = true
   private disposed = false
 
   constructor(
@@ -65,18 +66,15 @@ export class TerminalRuntime {
     ) => Promise<() => void>,
   ) {
     this.options = options
-    this.sessionsSurface = new TerminalSessionsSurfaceOwner(
-      this.surface,
-      () => ({
-        disposed: this.disposed,
-        sessionId: this.options.sessionId,
-        started: this.started,
-        ptyInstanceId: this.activePtyInstanceId,
-        pane: this.pane,
-        connected: this.options.connectionState === 'connected',
-        focused: () => this.options.onFocus(),
-      }),
-    )
+    this.sessionsSurface = new TerminalSessionsSurfaceOwner(this.surface, () => ({
+      disposed: this.disposed,
+      sessionId: this.options.sessionId,
+      started: this.started,
+      ptyInstanceId: this.activePtyInstanceId,
+      pane: this.pane,
+      connected: this.options.connectionState === 'connected',
+      focused: () => this.options.onFocus(),
+    }))
     this.interactions = new TerminalRuntimeInteractions(
       options.fallbackTitle,
       () => this.surface.canFocus(),
@@ -244,9 +242,18 @@ export class TerminalRuntime {
   }
 
   dispose(): void {
+    this.disposeOwnedResources(true)
+  }
+
+  disposeForRendererRollover(): void {
+    this.disposeOwnedResources(false)
+  }
+
+  private disposeOwnedResources(terminatePty: boolean): void {
     if (this.disposed) return
     this.disposed = true
-    this.releaseSurface(true, 'owner-disposed')
+    this.terminateLateStart = terminatePty
+    this.releaseSurface(terminatePty, 'owner-disposed')
     this.surface.dispose()
     this.listeners.clear()
   }
@@ -340,7 +347,7 @@ export class TerminalRuntime {
         harnessSessionId: resume ? this.options.harnessSessionId : undefined,
       })
       if (!this.isCurrent(generation)) {
-        if (result.outcome === 'started') {
+        if (this.terminateLateStart && result.outcome === 'started') {
           window.hvir.send('pty:kill', { id: result.id })
         }
         return

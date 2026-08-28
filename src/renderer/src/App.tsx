@@ -139,7 +139,7 @@ export function App(): ReactElement {
     onWatchEvent: reviewWatch.handle,
     isIgnoreRulePath: isGitIgnoreRulePath,
   })
-  const acceptSessionProject = session.acceptProjectState
+  const accept = session.acceptProjectState
   const {
     projectState,
     root,
@@ -188,7 +188,7 @@ export function App(): ReactElement {
     setTerminalHeight,
     setViewerPrimaryWidth,
     resetViewerPrimaryWidth,
-    focusTree,
+    focusTerminal: showTerminal,
   } = layout
   const git = useGitWorkspace({
     root,
@@ -221,7 +221,7 @@ export function App(): ReactElement {
     selectedFile: activeTab?.path,
     openFile: (path, position) =>
       openFile(path, true, 'file-tree', 'head', undefined, position),
-    revealDirectory: focusTree,
+    revealDirectory: layout.focusTree,
   })
   rootRef.current = root
   sessionErrorRef.current = session.reportError
@@ -252,7 +252,7 @@ export function App(): ReactElement {
     toggleTerminalFocus,
     focusTerminal: layout.focusTerminal,
     focusViewer: () => layout.focusViewer(getActivePane()),
-    focusTree,
+    focusTree: layout.focusTree,
     switchWorkspace: (direction) => {
       setDestination('workspace')
       workspaceSwitchRef.current(direction)
@@ -642,7 +642,7 @@ export function App(): ReactElement {
       <SessionsApplicationDestination
         active={destination === 'sessions'}
         runtime={terminalWorkspaces}
-        onOpened={(state) => (acceptSessionProject(state), setDestination('workspace'))}
+        onOpened={(state) => (showTerminal(), accept(state), setDestination('workspace'))}
         onError={session.reportError}
       />
       {overlays.projectPickerOpen ? (

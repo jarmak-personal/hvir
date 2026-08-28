@@ -49,7 +49,7 @@ export function useTerminalWorkspaceRuntime({
   useNewWorktreeMoveBadge({ projectState, acknowledgeWorkspaces, onError })
 
   useEffect(() => {
-    const dispose = (): void => owner.dispose()
+    const dispose = (): void => owner.disposeForRendererRollover()
     window.addEventListener('pagehide', dispose, { once: true })
     return () => window.removeEventListener('pagehide', dispose)
   }, [owner])

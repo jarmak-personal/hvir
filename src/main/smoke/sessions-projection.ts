@@ -660,15 +660,27 @@ async function verifySessionsOverview(
                         const nextDetail = document.querySelector('.sessions-terminal-detail');
                         const nextEngine = nextDetail?.querySelector('.terminal-engine-host');
                         const goToWorkspace = nextDetail && button('Go to workspace', nextDetail);
+                        const collapseTerminal = document.querySelector(
+                          '.terminal-collapse-toggle[aria-label="Maximize viewer and minimize terminal"]'
+                        );
                         if (
                           !(nextDetail instanceof HTMLElement) ||
                           nextEngine !== workspaceEngine ||
-                          !(goToWorkspace instanceof HTMLButtonElement)
+                          !(goToWorkspace instanceof HTMLButtonElement) ||
+                          !(collapseTerminal instanceof HTMLButtonElement)
                         ) {
                           return wait(reattached, 'workspace action detail');
                         }
-                        goToWorkspace.click();
-                        focused();
+                        collapseTerminal.click();
+                        const collapsed = () => {
+                          const workbench = document.querySelector('.workbench');
+                          if (!workbench?.classList.contains('terminal-collapsed')) {
+                            return wait(collapsed, 'collapsed terminal before workspace action');
+                          }
+                          goToWorkspace.click();
+                          focused();
+                        };
+                        collapsed();
                       };
                       reattached();
                     };
@@ -680,7 +692,9 @@ async function verifySessionsOverview(
                     }
                     const active = document.querySelector('.terminal-surface.active');
                     const engine = active?.querySelector('.terminal-engine-host');
+                    const workbench = document.querySelector('.workbench');
                     if (
+                      workbench?.classList.contains('terminal-collapsed') ||
                       !(active instanceof HTMLElement) ||
                       !(engine instanceof HTMLElement) ||
                       !((active.getAttribute('data-terminal-status') || '').startsWith('pid ')) ||
@@ -688,7 +702,7 @@ async function verifySessionsOverview(
                     ) {
                       return wait(focused, 'exact terminal focus');
                     }
-                    resolve('application-wide overview + filters + retained action withheld + private card identity omitted + exact interactive detail/input/restore + exact detail workspace/focus');
+                    resolve('application-wide overview + filters + retained action withheld + private card identity omitted + exact interactive detail/input/restore + collapsed terminal restored before exact detail workspace/focus');
                   };
                   attached();
                 };
@@ -767,6 +781,8 @@ async function verifySessionsDetailInputAndResize(
   )
   try {
     await waitForSessionsDetailFill(win)
+    const shortHeight = await verifySessionsDetailShortWindow(win)
+    await waitForSessionsDetailFill(win)
     supervisor.write(
       terminal.id,
       terminal.ownerId,
@@ -817,9 +833,43 @@ async function verifySessionsDetailInputAndResize(
       () => exited,
       'Sessions detail input did not reach the exact PTY',
     )
-    return `trusted input + exact PTY resize ${initial.rows}x${initial.cols}→${resized.rows}x${resized.cols}`
+    return `short-window region ${shortHeight}px + trusted input + exact PTY resize ${initial.rows}x${initial.cols}→${resized.rows}x${resized.cols}`
   } finally {
     void detach()
+  }
+}
+
+async function verifySessionsDetailShortWindow(win: BrowserWindow): Promise<number> {
+  const [width, height] = win.getContentSize() as [number, number]
+  try {
+    win.setContentSize(width, 320)
+    const deadline = Date.now() + 5_000
+    while (Date.now() <= deadline) {
+      const geometry = (await win.webContents.executeJavaScript(`
+        (() => {
+          const region = document.querySelector('.sessions-detail-terminal');
+          if (!(region instanceof HTMLElement)) return null;
+          const rect = region.getBoundingClientRect();
+          return { height: rect.height, bottom: rect.bottom, viewport: innerHeight };
+        })()
+      `)) as {
+        readonly height: number
+        readonly bottom: number
+        readonly viewport: number
+      } | null
+      if (
+        geometry &&
+        geometry.height > 0 &&
+        geometry.height < 240 &&
+        geometry.bottom <= geometry.viewport + 1
+      ) {
+        return Math.round(geometry.height)
+      }
+      await delay(25)
+    }
+    throw new Error('Sessions detail terminal did not shrink inside a short window')
+  } finally {
+    win.setContentSize(width, height)
   }
 }
 

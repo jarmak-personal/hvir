@@ -81,9 +81,17 @@ export class TerminalRuntimeRegistry {
 
   dispose(): void {
     for (const runtime of this.runtimes.values()) runtime.dispose()
+    this.disposeRendererResources()
+  }
+
+  disposeForRendererRollover(): void {
+    for (const runtime of this.runtimes.values()) runtime.disposeForRendererRollover()
+    this.disposeRendererResources()
+  }
+
+  private disposeRendererResources(): void {
     this.runtimes.clear()
     this.eventRouter?.dispose()
     this.eventRouter = undefined
   }
-
 }
