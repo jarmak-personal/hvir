@@ -347,8 +347,20 @@ describe('SessionsOverview', () => {
       engine.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', bubbles: true }))
     })
     expect(input).toHaveBeenCalledOnce()
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }))
+    })
+    expect(document.activeElement).toBe(button('Close'))
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }),
+      )
+    })
+    expect(document.activeElement).toBe(engine)
     await act(async () => {
-      button('Close').click()
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      )
       await settle()
     })
     expect(lease.release).toHaveBeenCalledOnce()

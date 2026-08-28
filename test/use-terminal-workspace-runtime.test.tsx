@@ -56,6 +56,7 @@ const projectState: ProjectState = {
 let host: HTMLDivElement
 let reactRoot: Root
 let current!: ReturnType<typeof useTerminalWorkspaceRuntime>
+let send: ReturnType<typeof vi.fn>
 
 describe('useTerminalWorkspaceRuntime', () => {
   beforeEach(() => {
@@ -68,6 +69,7 @@ describe('useTerminalWorkspaceRuntime', () => {
         disconnect(): void {}
       },
     )
+    send = vi.fn()
     Object.defineProperty(window, 'hvir', {
       configurable: true,
       value: {
@@ -88,7 +90,7 @@ describe('useTerminalWorkspaceRuntime', () => {
             },
           }),
         ),
-        send: vi.fn(),
+        send,
         on: vi.fn(() => () => undefined),
       },
     })
@@ -148,6 +150,8 @@ describe('useTerminalWorkspaceRuntime', () => {
     acquisition.lease.release()
 
     window.dispatchEvent(new Event('pagehide'))
+    expect(send.mock.calls.some(([channel]) => channel === 'pty:kill')).toBe(false)
+    expect(ghosttyState.instances[0]?.disposed).toBe(true)
     expect(current.sessionsSurface.acquire(request)).toEqual({
       outcome: 'unavailable',
       reason: 'runtime-not-ready',

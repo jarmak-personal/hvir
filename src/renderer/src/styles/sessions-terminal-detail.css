@@ -100,7 +100,7 @@
 .sessions-detail-terminal {
   position: relative;
   min-width: 0;
-  min-height: 240px;
+  min-height: 0;
   overflow: hidden;
   border: 1px solid #2b323d;
   border-radius: 7px;

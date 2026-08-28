@@ -211,6 +211,14 @@ export class TerminalWorkspaceRuntimeOwner {
   }
 
   dispose(): void {
+    this.disposeOwnedResources(false)
+  }
+
+  disposeForRendererRollover(): void {
+    this.disposeOwnedResources(true)
+  }
+
+  private disposeOwnedResources(preservePtys: boolean): void {
     if (this.disposed) return
     this.disposed = true
     this.cancelFocusFrames()
@@ -228,7 +236,8 @@ export class TerminalWorkspaceRuntimeOwner {
     this.materializedSnapshot = []
     this.listeners.clear()
     this.sessionsListeners.clear()
-    this.runtimes.dispose()
+    if (preservePtys) this.runtimes.disposeForRendererRollover()
+    else this.runtimes.dispose()
   }
 
   private rejectWaiters(workspaceId: string, reason: Error): void {

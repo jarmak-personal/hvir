@@ -1199,8 +1199,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       const recoveryStatus = await verifyRendererRolloverRecovery({
         win,
         supervisor,
-        root: smokeRoot,
-        providerId: defaultHarnessProviderId,
         setRecoverySessions: (sessions) => {
           smokeTerminalSessionHarness.set(sessions)
         },

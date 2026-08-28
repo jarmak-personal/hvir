@@ -960,6 +960,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
     finalLease.attach(detail)
     expect(invoke).toHaveBeenCalledOnce()
     registry.dispose()
+    expect(send).toHaveBeenCalledWith('pty:kill', { id: 'terminal-1' })
     expect(revoked).toHaveBeenCalledExactlyOnceWith('owner-disposed')
     expect(finalLease.focus(detail)).toBe(false)
     vi.useRealTimers()

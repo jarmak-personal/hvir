@@ -116,6 +116,9 @@ describe('renderer style ownership', () => {
       /\.sessions-detail-terminal > \.sessions-detail-terminal-container \{\n[ ]{2}position: absolute;\n[ ]{2}inset: 0;/u,
     )
     expect(detail).toMatch(
+      /\.sessions-detail-terminal \{[\s\S]*?min-width: 0;\n[ ]{2}min-height: 0;/u,
+    )
+    expect(detail).toMatch(
       /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.sessions-detail-backdrop,[\s\S]*?\.sessions-terminal-detail \{[\s\S]*?animation: none;/u,
     )
   })
