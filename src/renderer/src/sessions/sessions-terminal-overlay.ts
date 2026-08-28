@@ -1,6 +1,8 @@
 export interface SessionsTerminalOverlayOrigin {
-  readonly x: number
-  readonly y: number
+  readonly top: number
+  readonly right: number
+  readonly bottom: number
+  readonly left: number
 }
 
 export function sessionsTerminalOverlayOrigin(
@@ -9,7 +11,9 @@ export function sessionsTerminalOverlayOrigin(
   if (!element) return undefined
   const bounds = element.getBoundingClientRect()
   return {
-    x: bounds.left + bounds.width / 2,
-    y: bounds.top + bounds.height / 2,
+    top: bounds.top,
+    right: bounds.right,
+    bottom: bounds.bottom,
+    left: bounds.left,
   }
 }

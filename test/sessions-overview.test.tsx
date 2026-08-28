@@ -958,7 +958,6 @@ async function renderOverview(
           outcome: 'unavailable',
           reason: 'runtime-not-ready',
         }))}
-        onReturn={vi.fn()}
         onOpened={vi.fn()}
         onFocusOpened={vi.fn(() => Promise.resolve(true))}
         onOpenFailed={vi.fn()}
