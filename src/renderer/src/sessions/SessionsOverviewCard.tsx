@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react'
 
 import type { SessionsFact, SessionsProjectionRow } from '../../../shared'
+import { ProviderContextMeter } from '../harness/ProviderContextMeter'
 import {
   sessionsOverviewCardFacts,
   type SessionsOverviewCardFact,
@@ -24,10 +25,10 @@ export function SessionsOverviewCard({
         <div className="session-card-identity">
           <span className={`session-kind ${row.provider.kind}`}>
             {row.provider.kind === 'agent'
-              ? 'Agent harness'
+              ? 'Agent'
               : row.provider.kind === 'shell'
-                ? 'Non-agent shell'
-                : 'Provider capability unavailable'}
+                ? 'Shell'
+                : 'Terminal'}
           </span>
           <h3>{row.title}</h3>
         </div>
@@ -44,7 +45,7 @@ export function SessionsOverviewCard({
       </header>
       <div className="session-card-context">
         <p className="session-location">
-          {row.project.name} <span aria-hidden="true">/</span> {row.workspace.name}
+          {row.workspace.name}
           {row.workspace.main ? <small>project root</small> : null}
         </p>
         <p className="session-provider">
@@ -52,6 +53,12 @@ export function SessionsOverviewCard({
           {visibleFactLabel(row.profile, (value) => String(value.id))}
         </p>
       </div>
+      {row.context.status === 'available' || row.context.status === 'stale' ? (
+        <ProviderContextMeter
+          contextFacet={row.context}
+          pressurePolicy={row.provider.contextPressure}
+        />
+      ) : null}
       <dl className="session-facts">
         {presentation.facts.map((fact) => (
           <Fact key={fact.label} fact={fact} />

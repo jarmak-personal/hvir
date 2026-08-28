@@ -25,8 +25,8 @@
 .sessions-grid {
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  padding: 3px;
+  gap: 5px;
+  padding: 5px;
 }
 
 .sessions-group.ungrouped .sessions-grid {
@@ -41,10 +41,11 @@
   content-visibility: auto;
   contain-intrinsic-size: 92px;
   padding: 7px 8px;
-  border: 1px solid transparent;
-  border-radius: 4px;
+  border: 1px solid #303844;
+  border-radius: 5px;
   outline: none;
   background: #161a20;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 24%);
 }
 
 .session-card:hover,
@@ -117,6 +118,10 @@
   display: flex;
   flex-wrap: wrap;
   gap: 2px 9px;
+}
+
+.session-card > .provider-context {
+  margin-top: 5px;
 }
 
 .session-location,

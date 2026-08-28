@@ -37,46 +37,13 @@
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  padding: clamp(18px, 3vw, 38px);
+  padding: clamp(12px, 2vw, 24px);
   background:
     radial-gradient(circle at 15% 0%, rgb(51 83 122 / 16%), transparent 34%), #0f1115;
   color: var(--text);
 }
 
-.sessions-overview-header {
-  max-width: var(--sessions-content-width);
-  margin: 0 auto;
-  display: flex;
-  align-items: start;
-  justify-content: space-between;
-  gap: 24px;
-}
-
-.sessions-overview-header h1 {
-  margin: 2px 0 4px;
-  color: var(--text-strong);
-  font-size: calc(28px * var(--hvir-interface-scale));
-  font-weight: 680;
-  letter-spacing: -0.025em;
-}
-
-.sessions-overview-header p {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: calc(11px * var(--hvir-interface-scale));
-}
-
-.sessions-overview-header .sessions-eyebrow {
-  color: #7e9dc1;
-  font-size: calc(9px * var(--hvir-interface-scale));
-  font-weight: 760;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.sessions-return,
 .sessions-detail-actions button,
-.sessions-lenses button,
 .sessions-controls button,
 .sessions-controls select,
 .sessions-notice button,
@@ -89,12 +56,6 @@
   font: inherit;
 }
 
-.sessions-return {
-  flex: 0 0 auto;
-  padding: 7px 11px;
-}
-
-.sessions-lenses,
 .sessions-controls,
 .sessions-policy,
 .sessions-feedback,
@@ -106,32 +67,12 @@
   margin-left: auto;
 }
 
-.sessions-lenses {
-  margin-top: 25px;
-  border-bottom: 1px solid var(--border-strong);
-}
-
-.sessions-lenses button {
-  margin-bottom: -1px;
-  padding: 7px 14px;
-  border-radius: 5px 5px 0 0;
-  border-bottom-color: #15191f;
-  background: #15191f;
-  color: var(--text-strong);
-}
-
-.sessions-lenses button[aria-current='page'] {
-  border-color: #4a6a8d;
-  border-bottom-color: #223247;
-  background: #223247;
-}
-
 .sessions-controls {
   display: flex;
   flex-wrap: wrap;
   align-items: end;
   gap: 12px;
-  padding: 14px 0 9px;
+  padding: 0 0 7px;
 }
 
 .sessions-controls fieldset {

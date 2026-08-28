@@ -1,6 +1,6 @@
 import type { HostConnectionState } from './fs-types'
 import type { HarnessProfileId } from './harness-profile'
-import type { HarnessProviderId } from './harness-provider'
+import type { HarnessContextPressurePolicy, HarnessProviderId } from './harness-provider'
 import type { HarnessUsageValue } from './harness-usage'
 import type { ProjectState } from './ipc'
 
@@ -130,6 +130,7 @@ export interface SessionsProviderProjection {
   readonly telemetrySupported: boolean
   readonly usageSupported: boolean
   readonly sessionKind: 'agent' | 'shell'
+  readonly contextPressure?: HarnessContextPressurePolicy
 }
 
 export interface SessionsWorkspaceProjection {
@@ -171,6 +172,7 @@ export interface SessionsObservationSnapshot {
   readonly version: typeof SESSIONS_PROJECTION_VERSION
   readonly demandGeneration: number
   readonly revision: number
+  readonly activeProject?: SessionsProjectHandle
   readonly workspaces: readonly SessionsWorkspaceProjection[]
   readonly providers: readonly SessionsProviderProjection[]
   readonly sessions: readonly SessionsObservedSession[]
@@ -275,6 +277,7 @@ export interface SessionsProjectionRow {
     readonly id: HarnessProviderId
     readonly name: string
     readonly kind: 'agent' | 'shell' | 'unknown'
+    readonly contextPressure?: HarnessContextPressurePolicy
   }
   readonly profile: SessionsFact<{ readonly id: HarnessProfileId }>
   readonly title: string
@@ -298,6 +301,7 @@ export interface SessionsProjectionSnapshot {
   readonly revision: number
   /** Main-owned observation revision used only for exact actions. */
   readonly sourceRevision: number
+  readonly activeProject?: SessionsProjectHandle
   readonly status: 'inactive' | 'pending' | 'available' | 'unavailable'
   readonly unavailableReason?: 'source-unavailable'
   readonly rows: readonly SessionsProjectionRow[]
@@ -319,9 +323,7 @@ export function asSessionsWorkspaceHandle(value: string): SessionsWorkspaceHandl
   return value as SessionsWorkspaceHandle
 }
 
-export function asSessionsWorkspaceRuntimeId(
-  value: string,
-): SessionsWorkspaceRuntimeId {
+export function asSessionsWorkspaceRuntimeId(value: string): SessionsWorkspaceRuntimeId {
   return value as SessionsWorkspaceRuntimeId
 }
 

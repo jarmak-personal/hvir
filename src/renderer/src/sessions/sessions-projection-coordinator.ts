@@ -47,7 +47,7 @@ export class SessionsProjectionCoordinator {
   private pendingMainRevision = 0
   private refreshInFlight = false
   private initialObserveInFlight = false
-  private rowsFingerprint = '[]'
+  private projectionFingerprint = '[]'
   private disposed = false
 
   constructor(
@@ -151,7 +151,7 @@ export class SessionsProjectionCoordinator {
     this.pendingMainRevision = 0
     this.refreshInFlight = false
     this.initialObserveInFlight = false
-    this.rowsFingerprint = '[]'
+    this.projectionFingerprint = '[]'
     this.current = INACTIVE_SNAPSHOT
     if (releasedGeneration > 0)
       void this.main.release(releasedGeneration).catch(() => undefined)
@@ -198,17 +198,23 @@ export class SessionsProjectionCoordinator {
   private publishJoined(): void {
     if (!this.mainSnapshot) return
     const rows = joinSessionsProjection(this.mainSnapshot, this.renderer.snapshot())
-    const fingerprint = JSON.stringify(rows)
-    if (fingerprint === this.rowsFingerprint && this.current.status === 'available') {
+    const fingerprint = JSON.stringify([this.mainSnapshot.activeProject, rows])
+    if (
+      fingerprint === this.projectionFingerprint &&
+      this.current.status === 'available'
+    ) {
       return
     }
-    this.rowsFingerprint = fingerprint
+    this.projectionFingerprint = fingerprint
     this.projectionRevision += 1
     this.current = {
       version: SESSIONS_PROJECTION_VERSION,
       demandGeneration: this.mainSnapshot.demandGeneration,
       revision: this.projectionRevision,
       sourceRevision: this.mainSnapshot.revision,
+      ...(this.mainSnapshot.activeProject
+        ? { activeProject: this.mainSnapshot.activeProject }
+        : {}),
       status: 'available',
       rows,
     }
@@ -358,6 +364,7 @@ function projectRow(
       id: renderer?.providerId ?? main!.providerId,
       name: providerName,
       kind: provider?.sessionKind ?? 'unknown',
+      contextPressure: provider?.contextPressure,
     },
     profile: renderer
       ? { status: 'available', value: { id: renderer.profileId } }

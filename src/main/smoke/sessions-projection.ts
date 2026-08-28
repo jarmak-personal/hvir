@@ -268,7 +268,7 @@ export async function verifySessionsProjectionSmoke(options: {
   const pickerStatus = await verifySessionsProjectPickerReturn(win)
   const hiddenTerminalStatus = await ensureSessionsLiveTerminal(win, supervisor)
   const hiddenStatus = await verifySessionsHiddenRelease(win)
-  return `cross-project/worktree + disconnected SSH + renderer rollover + stale Open + quiet release + ${terminalStatus} + ${overviewStatus} + ${pickerStatus} + hidden ${hiddenTerminalStatus} + ${hiddenStatus}`
+  return `active-project worktrees + renderer rollover + stale Open + quiet release + ${terminalStatus} + ${overviewStatus} + ${pickerStatus} + hidden ${hiddenTerminalStatus} + ${hiddenStatus}`
 }
 
 async function verifySessionsProjectPickerReturn(win: BrowserWindow): Promise<string> {
@@ -488,9 +488,6 @@ async function verifySessionsOverview(
       const privatePaths = ${JSON.stringify(privateRoots.map((root) => root.path))};
       const button = (text, root = document) => [...root.querySelectorAll('button')]
         .find((candidate) => candidate.textContent?.trim() === text);
-      const fact = (card, label) => [...card.querySelectorAll('dt')]
-        .find((term) => term.textContent?.trim() === label)?.nextElementSibling
-        ?.textContent?.trim();
       const destination = document.querySelector('.sessions-destination');
       if (!(destination instanceof HTMLButtonElement)) {
         return reject(new Error('permanent Sessions destination missing'));
@@ -499,7 +496,7 @@ async function verifySessionsOverview(
       const ready = () => {
         const overview = document.querySelector('.sessions-overview');
         const cards = overview ? [...overview.querySelectorAll('.session-card')] : [];
-        if (!overview || cards.length < 5) return wait(ready, 'overview readiness');
+        if (!overview || cards.length < 3) return wait(ready, 'overview readiness');
         try {
           const text = overview.textContent || '';
           const workbench = document.querySelector('.workbench');
@@ -510,12 +507,13 @@ async function verifySessionsOverview(
             throw new Error('Sessions destination did not expose current navigation state');
           }
           if (
-            !text.includes('Primary project') ||
-            !text.includes('Secondary project') ||
-            !text.includes('Disconnected project')
+            !text.includes('feature/sessions') ||
+            text.includes('Secondary project') ||
+            text.includes('Disconnected project')
           ) {
-            throw new Error('Sessions overview omitted cross-project or disconnected rows');
+            throw new Error('Sessions overview did not stay within the active project');
           }
+          if (button('Usage', overview)) throw new Error('retired Usage lens remained visible');
           if (
             privatePaths.some((path) => overview.innerHTML.includes(path)) ||
             overview.innerHTML.includes('workspace:') ||
@@ -533,8 +531,7 @@ async function verifySessionsOverview(
           const interact = () => {
             const currentCards = [...overview.querySelectorAll('.session-card')];
             const retained = currentCards.find((card) =>
-              fact(card, 'Lifecycle') === 'Retained' &&
-              fact(card, 'Host')?.split(' · ').at(-1) === 'Connected'
+              button('Open', card) && !button('Interact', card)
             );
             if (!(retained instanceof HTMLElement)) {
               return reject(new Error('Sessions overview lacked a retained session row'));
@@ -558,8 +555,7 @@ async function verifySessionsOverview(
                     : [];
                   const live = filteredCards.find((card) => {
                     const title = card.querySelector('h3')?.textContent?.trim();
-                    return fact(card, 'Lifecycle') === 'Live' &&
-                      button('Interact', card) &&
+                    return button('Interact', card) &&
                       [...document.querySelectorAll('.workbench .terminal-surface')].some(
                         (surface) => surface.getAttribute('aria-label') === title &&
                           surface.querySelector('.terminal-engine-host')
@@ -638,8 +634,8 @@ async function verifySessionsOverview(
                       }
                       const currentLive = [...returnedOverview.querySelectorAll('.session-card')]
                         .find((card) =>
-                          fact(card, 'Lifecycle') === 'Live' &&
-                          card.querySelector('h3')?.textContent?.trim() === liveTitle
+                          card.querySelector('h3')?.textContent?.trim() === liveTitle &&
+                          button('Interact', card)
                         );
                       if (!(currentLive instanceof HTMLElement)) {
                         return wait(restored, 'restored live card');
@@ -663,7 +659,7 @@ async function verifySessionsOverview(
                     ) {
                       return wait(focused, 'exact terminal focus');
                     }
-                    resolve('full-page overview + bounded accessible Usage renderer rollover/restart/cumulative/disconnected lifecycle + filters + retained refusal + one exact interactive detail/input/restore + exact live Open/focus');
+                    resolve('active-project overview + filters + retained refusal + one exact interactive detail/input/restore + exact live Open/focus');
                   };
                   attached();
                 };
@@ -673,70 +669,7 @@ async function verifySessionsOverview(
             };
             refused();
           };
-          const verifyUsage = () => {
-            button('Usage', overview)?.click();
-            const usageReady = () => {
-              const ranking = overview.querySelector('.sessions-usage-ranking');
-              const rows = ranking ? [...ranking.querySelectorAll(':scope > li')] : [];
-              if (!ranking || rows.length < 5) return wait(usageReady, 'Usage ranking readiness');
-              const usageText = overview.textContent || '';
-              if (
-                !usageText.includes('Recent') ||
-                !usageText.includes('Session total') ||
-                rows.length > 40 ||
-                privatePaths.some((path) => overview.innerHTML.includes(path)) ||
-                overview.querySelector('.terminal-surface')
-              ) {
-                return reject(new Error('Sessions Usage production shape was unsafe or unbounded'));
-              }
-              const usageFixture = rows.find((row) =>
-                row.querySelector('h3')?.textContent?.trim() === ${JSON.stringify(USAGE_SESSION_TITLE)}
-              );
-              const disconnectedUsage = rows.find((row) =>
-                row.querySelector('h3')?.textContent?.trim() === ${JSON.stringify(DISCONNECTED_USAGE_TITLE)}
-              );
-              if (
-                !(usageFixture instanceof HTMLElement) ||
-                !usageFixture.classList.contains('compact') ||
-                !usageFixture.textContent?.includes('Not ranked') ||
-                !usageFixture.textContent?.includes('Baseline only') ||
-                !usageFixture.textContent?.includes('exact Recent total unavailable') ||
-                !(disconnectedUsage instanceof HTMLElement) ||
-                !disconnectedUsage.classList.contains('compact') ||
-                !disconnectedUsage.textContent?.includes('Connection unavailable')
-              ) {
-                return wait(usageReady, 'Usage restart and disconnected truth');
-              }
-              button('Session total', overview)?.click();
-              const cumulative = () => {
-                const currentUsageFixture = [...overview.querySelectorAll('.sessions-usage-ranking > li')]
-                  .find((row) => row.querySelector('h3')?.textContent?.trim() === ${JSON.stringify(USAGE_SESSION_TITLE)});
-                if (
-                  !currentUsageFixture?.textContent?.includes('${SESSIONS_USAGE_SMOKE_TOTAL.toLocaleString('en-US')} tokens') ||
-                  !currentUsageFixture?.querySelector('.sessions-usage-bar[data-scale="ranked"]') ||
-                  !currentUsageFixture?.textContent?.includes('Token categories')
-                ) {
-                  return wait(cumulative, 'Usage cumulative restoration');
-                }
-                button('Recent', overview)?.click();
-                button('1 minute', overview)?.click();
-                button('Overview', overview)?.click();
-                const released = () => {
-                  if (!overview.querySelector('.session-card')) {
-                    return wait(released, 'Overview return after Usage');
-                  }
-                  window.hvir.invoke('sessions:usage-snapshot', { demandGeneration: 1 }).then(
-                    () => reject(new Error('Usage demand remained active after leaving its lens')),
-                    () => interact()
-                  );
-                };
-                released();
-              };
-              cumulative();
-            };
-            usageReady();
-          };
-          verifyUsage();
+          interact();
         } catch (error) {
           reject(error);
         }
@@ -1041,6 +974,7 @@ function assertSnapshot(
   const snapshot = value as Record<string, unknown>
   const keys = Object.keys(snapshot).sort()
   const expectedKeys = [
+    'activeProject',
     'demandGeneration',
     'providers',
     'revision',
@@ -1060,6 +994,12 @@ function assertSnapshot(
   }
   if (!Array.isArray(snapshot.workspaces) || !Array.isArray(snapshot.providers)) {
     throw new Error('Sessions projection omitted production workspace/provider catalogs')
+  }
+  if (
+    typeof snapshot.activeProject !== 'string' ||
+    !snapshot.activeProject.startsWith('sessions-project-')
+  ) {
+    throw new Error('Sessions projection omitted its opaque active project identity')
   }
   for (const workspace of snapshot.workspaces as Array<Record<string, unknown>>) {
     if (

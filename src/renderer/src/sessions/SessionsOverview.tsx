@@ -20,9 +20,8 @@ import type {
 } from '../../../shared'
 import { SessionsOverviewCard } from './SessionsOverviewCard'
 import { SessionsOverviewNotice } from './SessionsOverviewNotice'
-import { SessionsCollectionToolbar, type SessionsLens } from './SessionsCollectionToolbar'
+import { SessionsCollectionToolbar } from './SessionsCollectionToolbar'
 import { SessionsTerminalDetail } from './SessionsTerminalDetail'
-import { SessionsUsageLens } from './SessionsUsageLens'
 import {
   SessionsProjectionCoordinator,
   createSessionsMainObservationPort,
@@ -40,9 +39,9 @@ import {
   SESSIONS_OVERVIEW_PAGE_SIZE,
   sessionsOverviewFocusFallback,
   sessionsOverviewGroups,
-  sessionsOverviewMatchesFilter,
   sessionsOverviewPage,
   sessionsOverviewPolicyLabel,
+  sessionsOverviewProjectRows,
   sessionsOverviewRows,
   type SessionsOverviewPolicy,
 } from './sessions-overview-model'
@@ -88,7 +87,6 @@ export function SessionsOverview({
   const [policy, setPolicy] = useState<SessionsOverviewPolicy>(
     DEFAULT_SESSIONS_OVERVIEW_POLICY,
   )
-  const [lens, setLens] = useState<SessionsLens>('overview')
   const [selected, setSelected] = useState<SessionsTerminalHandle>()
   const [feedback, setFeedback] = useState<string>()
   const [opening, setOpening] = useState<SessionsTerminalHandle>()
@@ -123,16 +121,15 @@ export function SessionsOverview({
     [],
   )
 
+  const projectRows = useMemo(
+    () => sessionsOverviewProjectRows(snapshot.rows, snapshot.activeProject),
+    [snapshot.activeProject, snapshot.rows],
+  )
   const allGroups = useMemo(
-    () => sessionsOverviewGroups(snapshot.rows, policy),
-    [policy, snapshot.rows],
+    () => sessionsOverviewGroups(projectRows, policy),
+    [policy, projectRows],
   )
   const rows = useMemo(() => sessionsOverviewRows(allGroups), [allGroups])
-  const usageRows = useMemo(
-    () =>
-      snapshot.rows.filter((row) => sessionsOverviewMatchesFilter(row, policy.filter)),
-    [policy.filter, snapshot.rows],
-  )
   const handles = useMemo(() => rows.map((row) => row.handle), [rows])
   const page = useMemo(
     () => sessionsOverviewPage(allGroups, pageIndex),
@@ -273,28 +270,13 @@ export function SessionsOverview({
     <>
       <main
         className={`sessions-overview${detailActive ? ' detail-active' : ''}`}
-        aria-labelledby={detailActive ? undefined : 'sessions-title'}
+        aria-label={detailActive ? undefined : 'Sessions'}
         aria-hidden={detailActive || undefined}
         inert={detailActive || undefined}
       >
-        <header className="sessions-overview-header">
-          <div>
-            <p className="sessions-eyebrow">Application sessions</p>
-            <h1 id="sessions-title">Sessions</h1>
-            <p>Live and retained hvir terminals across every registered workspace.</p>
-          </div>
-          <button type="button" className="sessions-return" onClick={onReturn}>
-            Return to current workspace
-          </button>
-        </header>
         <SessionsCollectionToolbar
-          lens={lens}
           policy={policy}
           collectionControl={collectionControl}
-          onLens={(value) => {
-            setLens(value)
-            setFeedback(undefined)
-          }}
           onFilter={(value) => updatePolicy('filter', value)}
           onGroup={(value) => updatePolicy('group', value)}
           onSort={(value) => updatePolicy('sort', value)}
@@ -304,15 +286,7 @@ export function SessionsOverview({
             {feedback}
           </p>
         ) : null}
-        {lens === 'usage' ? (
-          <SessionsUsageLens
-            projection={snapshot}
-            rows={usageRows}
-            foreground={foreground}
-            selected={selected}
-            onSelect={setSelected}
-          />
-        ) : !foreground ? (
+        {!foreground ? (
           <SessionsOverviewNotice
             title="Updates paused"
             detail="Focus hvir to refresh Sessions."
@@ -332,10 +306,10 @@ export function SessionsOverview({
               </button>
             }
           />
-        ) : snapshot.status === 'available' && snapshot.rows.length === 0 ? (
+        ) : snapshot.status === 'available' && projectRows.length === 0 ? (
           <SessionsOverviewNotice
-            title="No hvir sessions"
-            detail="Start a terminal from a workspace to see it here."
+            title="No sessions in this project"
+            detail="Start a terminal in this project to see it here."
           />
         ) : snapshot.status === 'available' && rows.length === 0 ? (
           <SessionsOverviewNotice

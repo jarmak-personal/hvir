@@ -7,6 +7,7 @@ import {
   sessionsOverviewFocusFallback,
   sessionsOverviewGroups,
   sessionsOverviewPage,
+  sessionsOverviewProjectRows,
   sessionsOverviewRows,
 } from '../src/renderer/src/sessions/sessions-overview-model'
 import {
@@ -50,7 +51,7 @@ describe('Sessions overview policy', () => {
         row('a-working', { project: 'Project A', workspace: 'feature', working: true }),
         row('a-ready', { project: 'Project A', workspace: 'main', attention: 'bell' }),
       ],
-      DEFAULT_SESSIONS_OVERVIEW_POLICY,
+      { ...DEFAULT_SESSIONS_OVERVIEW_POLICY, group: 'project' },
     )
 
     expect(groups.map((group) => group.label)).toEqual(['Project A', 'Project B'])
@@ -122,14 +123,7 @@ describe('Sessions overview policy', () => {
     })
 
     expect(presentation.facts).toEqual([
-      { label: 'Lifecycle', value: 'Retained', tone: 'available' },
-      { label: 'Host', value: 'Local · Connected', tone: 'available' },
       { label: 'Model', value: 'Stale · model-safe', tone: 'stale' },
-      {
-        label: 'Telemetry',
-        value: 'Stale · Source stale',
-        tone: 'stale',
-      },
     ])
   })
 
@@ -139,16 +133,27 @@ describe('Sessions overview policy', () => {
       row('attention', { attention: 'bell', working: true }),
     )
 
-    expect(quiet.facts).toEqual([
-      { label: 'Lifecycle', value: 'Retained', tone: 'available' },
-      { label: 'Host', value: 'Local · Connected', tone: 'available' },
-    ])
+    expect(quiet.facts).toEqual([])
     expect(attention.facts).toEqual(
       expect.arrayContaining([
         { label: 'Attention', value: 'Bell', tone: 'actionable' },
         { label: 'Working', value: 'Working', tone: 'actionable' },
       ]),
     )
+  })
+
+  it('scopes the collection by its opaque active project identity', () => {
+    const rows = [
+      row('current', { project: 'Current' }),
+      row('previous', { project: 'Previous' }),
+    ]
+
+    expect(
+      sessionsOverviewProjectRows(rows, asSessionsProjectHandle('project-Current')).map(
+        (candidate) => candidate.handle,
+      ),
+    ).toEqual(['current'])
+    expect(sessionsOverviewProjectRows(rows, undefined)).toEqual([])
   })
 })
 
