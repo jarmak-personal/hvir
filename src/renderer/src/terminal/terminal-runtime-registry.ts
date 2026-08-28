@@ -10,6 +10,7 @@ import type {
 
 export class TerminalRuntimeRegistry {
   private readonly runtimes = new Map<string, TerminalRuntime>()
+  private readonly sessionsSurfaceAvailabilityListeners = new Set<() => void>()
   private eventRouter?: TerminalEventRouter
   private readonly startAdmission = new TerminalStartAdmission(2)
 
@@ -34,6 +35,7 @@ export class TerminalRuntimeRegistry {
         this.runtimes.set(nextId, value)
       },
       (hostId, signal) => this.startAdmission.acquire(hostId, signal),
+      () => this.publishSessionsSurfaceAvailability(),
     )
     this.runtimes.set(options.sessionId, runtime)
     return runtime
@@ -93,10 +95,20 @@ export class TerminalRuntimeRegistry {
     )
   }
 
+  subscribeSessionsSurfaceAvailability = (listener: () => void): (() => void) => {
+    this.sessionsSurfaceAvailabilityListeners.add(listener)
+    return () => this.sessionsSurfaceAvailabilityListeners.delete(listener)
+  }
+
   dispose(): void {
     for (const runtime of this.runtimes.values()) runtime.dispose()
     this.runtimes.clear()
+    this.sessionsSurfaceAvailabilityListeners.clear()
     this.eventRouter?.dispose()
     this.eventRouter = undefined
+  }
+
+  private publishSessionsSurfaceAvailability(): void {
+    for (const listener of this.sessionsSurfaceAvailabilityListeners) listener()
   }
 }

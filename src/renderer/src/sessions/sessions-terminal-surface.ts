@@ -51,6 +51,8 @@ export interface SessionsTerminalSurfaceLease {
 }
 
 export interface SessionsTerminalSurfacePort {
+  readonly availabilityRevision: () => number
+  readonly subscribeAvailability: (listener: () => void) => () => void
   availability(
     request: SessionsTerminalSurfaceCapabilityRequest,
   ): SessionsTerminalSurfaceAvailability
