@@ -42,6 +42,7 @@ export interface SessionsObservationProvider {
   readonly telemetrySupported: boolean
   readonly usageSupported?: boolean
   readonly sessionKind: 'agent' | 'shell'
+  readonly contextPressure?: SessionsProviderProjection['contextPressure']
 }
 
 export interface SessionsObservationPortOptions {
@@ -301,6 +302,7 @@ export function assembleSessionsObservation({
       telemetrySupported: provider.telemetrySupported,
       usageSupported: provider.usageSupported === true,
       sessionKind: provider.sessionKind,
+      contextPressure: provider.contextPressure,
     }))
     .sort((left, right) => String(left.id).localeCompare(String(right.id)))
   const providerById = new Map(
@@ -308,9 +310,11 @@ export function assembleSessionsObservation({
   )
   const workspaceByRoot = new Map<string, SessionsWorkspaceProjection>()
   const workspaces: SessionsWorkspaceProjection[] = []
+  let activeProject: SessionsObservationSnapshot['activeProject']
   projects: for (const [projectIndex, project] of projectState.projects.entries()) {
     const host = hostById.get(project.registeredRoot.hostId)
     const projectHandle = identities.project(project.registeredRoot)
+    if (project.id === projectState.activeProjectId) activeProject = projectHandle
     for (const [workspaceIndex, workspace] of project.workspaces.entries()) {
       if (workspaces.length >= MAX_SESSIONS_PROJECTION_WORKSPACES) break projects
       const key = sessionsProjectionRootKey(workspace.root.hostId, workspace.root.path)
@@ -373,11 +377,7 @@ export function assembleSessionsObservation({
         retained.title,
         handle,
         `${provider?.displayName ?? String(retained.providerId)} · ${workspace.workspaceName}`,
-        [
-          retained.workspaceRoot.path,
-          retained.cwd.path,
-          retained.harnessSessionId ?? '',
-        ],
+        [retained.workspaceRoot.path, retained.cwd.path, retained.harnessSessionId ?? ''],
       ),
       lifecycle: pty ? 'live' : 'retained',
       livePty: pty
@@ -439,6 +439,7 @@ export function assembleSessionsObservation({
 
   return {
     version: SESSIONS_PROJECTION_VERSION,
+    ...(activeProject ? { activeProject } : {}),
     workspaces,
     providers: projectedProviders,
     sessions: [...observed.values()].sort((left, right) =>

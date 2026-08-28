@@ -76,6 +76,7 @@ describe('SessionsObservationPort', () => {
       'sessions-workspace-2',
       'sessions-workspace-3',
     ])
+    expect(source.activeProject).toBe(source.workspaces[0]?.projectId)
 
     const serialized = JSON.stringify(source)
     expect(serialized).not.toContain('/private/')
@@ -466,6 +467,11 @@ function providers() {
       displayName: 'Codex',
       telemetrySupported: true,
       sessionKind: 'agent' as const,
+      contextPressure: {
+        assumedWindowTokens: 200_000,
+        warningPercent: 40,
+        criticalPercent: 70,
+      },
     },
     {
       id: shell,

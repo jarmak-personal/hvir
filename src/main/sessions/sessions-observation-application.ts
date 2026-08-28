@@ -36,6 +36,7 @@ export function installApplicationSessionsObservation(
           telemetrySupported: Boolean(provider.telemetry),
           usageSupported: Boolean(provider.usageTelemetry),
           sessionKind: provider.manifest.sessionKind,
+          contextPressure: provider.manifest.contextPressure,
         })),
       sessions,
       ptys,

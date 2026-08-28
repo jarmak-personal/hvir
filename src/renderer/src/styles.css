@@ -3,6 +3,7 @@
  * shared by multiple feature surfaces. */
 @import './styles/base.css';
 @import './styles/projects.css';
+@import './styles/provider-context.css';
 @import './styles/sessions-overview.css';
 @import './styles/sessions-collection.css';
 @import './styles/sessions-terminal-detail.css';

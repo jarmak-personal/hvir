@@ -176,6 +176,7 @@ function observationSnapshot(demandGeneration: number): SessionsObservationSnaps
     version: SESSIONS_PROJECTION_VERSION,
     demandGeneration,
     revision: 7,
+    activeProject: asSessionsProjectHandle('opaque-project'),
     providers: [
       {
         id: providerId,

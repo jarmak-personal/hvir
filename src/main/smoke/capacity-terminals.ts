@@ -322,9 +322,9 @@ export async function verifyCapacitySessionsTerminalDetail(
             delivery?.presentation !== 'hidden' ||
             stats.renderFrames !== renderFrames
           ) return fail('released Sessions surface retained recurring presentation work');
-          const restore = document.querySelector('.sessions-return');
-          if (!(restore instanceof HTMLButtonElement)) return fail('workspace return missing');
-          restore.click();
+          const project = document.querySelector('.project-tab-main');
+          if (!(project instanceof HTMLButtonElement)) return fail('project navigation missing');
+          project.click();
           return waitForWorkspace(renderFrames);
         };
         const waitForWorkspace = (hiddenFrames) => {

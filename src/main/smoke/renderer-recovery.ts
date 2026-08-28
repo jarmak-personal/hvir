@@ -175,24 +175,30 @@ export async function verifyRendererProcessRecovery(options: {
           const buttons = [...document.querySelectorAll('.rail-nav button')];
           const files = buttons.find((button) => button.textContent?.trim() === 'Files');
           const sessions = document.querySelector('.sessions-destination');
-          if (workbench && files && sessions) {
+          const project = document.querySelector('.project-tab-main');
+          if (workbench && files && sessions && project instanceof HTMLButtonElement) {
             sessions.click();
-            requestAnimationFrame(() => {
-              const returnToWorkspace = document.querySelector('.sessions-return');
-              if (
-                sessions.getAttribute('aria-current') !== 'page' ||
-                !workbench.hidden ||
-                !(returnToWorkspace instanceof HTMLButtonElement)
-              ) {
+            const restoreWorkspace = () => {
+              if (sessions.getAttribute('aria-current') === 'page' && workbench.hidden) {
+                project.click();
+                const confirmFiles = () => {
+                  if (files.getAttribute('aria-current') === 'page' && !workbench.hidden) {
+                    return resolve('Sessions → project → Files');
+                  }
+                  if (Date.now() > deadline) {
+                    return reject(new Error('replacement workbench did not restore Files'));
+                  }
+                  requestAnimationFrame(confirmFiles);
+                };
+                requestAnimationFrame(confirmFiles);
+                return;
+              }
+              if (Date.now() > deadline) {
                 return reject(new Error('replacement workbench control was not functional'));
               }
-              returnToWorkspace.click();
-              requestAnimationFrame(() => {
-                files.getAttribute('aria-current') === 'page' && !workbench.hidden
-                  ? resolve('Sessions → Files')
-                  : reject(new Error('replacement workbench did not restore Files'));
-              });
-            });
+              requestAnimationFrame(restoreWorkspace);
+            };
+            requestAnimationFrame(restoreWorkspace);
             return;
           }
           if (Date.now() > deadline) {

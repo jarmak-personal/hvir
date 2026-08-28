@@ -59,21 +59,27 @@ describe('SessionsOverview', () => {
         subscribe: () => () => undefined,
       },
     })
-    expect(host.querySelector('h1')?.textContent).toBe('Sessions')
+    expect(host.querySelector('main')?.getAttribute('aria-label')).toBe('Sessions')
+    expect(host.textContent).not.toContain('Usage')
+    expect(api.usageObserve).not.toHaveBeenCalled()
     expect(host.querySelectorAll('.session-card')).toHaveLength(2)
-    expect(host.querySelector('.sessions-group h2')?.textContent).toBe('Project One')
+    expect(host.querySelector('.sessions-group h2')?.textContent).toBe(
+      'Project One / main',
+    )
     expect(host.querySelector('.sessions-pagination div')).toBeNull()
     expect(host.textContent).toContain(
-      'All sessions · Grouped by project · Sorted by attention and activity',
+      'All sessions · Grouped by workspace · Sorted by attention and activity',
     )
     expect(host.innerHTML).not.toContain('terminal-private-agent')
     expect(host.innerHTML).not.toContain('terminal-private-shell')
-    expect(host.textContent).toContain('Agent harness')
-    expect(host.textContent).toContain('Non-agent shell')
-    expect(host.textContent).toContain('LifecycleLive')
-    expect(host.textContent).toContain('HostLocal · Connected')
+    expect(host.textContent).toContain('Agent')
+    expect(host.textContent).toContain('Shell')
+    expect(host.textContent).not.toContain('Lifecycle')
+    expect(host.textContent).not.toContain('HostLocal · Connected')
     expect(host.textContent).toContain('AttentionBell')
-    expect(host.textContent).toContain('Context12% used')
+    expect(
+      host.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow'),
+    ).toBe('12')
     expect(host.textContent).not.toContain('TelemetryAvailable')
     expect(host.textContent).not.toContain('Limited facts')
     expect(host.textContent).not.toContain('Quiet state')
@@ -82,7 +88,7 @@ describe('SessionsOverview', () => {
     const shellCard = [...host.querySelectorAll<HTMLElement>('.session-card')].find(
       (card) => card.textContent?.includes('Shell terminal'),
     )!
-    expect(shellCard.querySelectorAll('.session-fact')).toHaveLength(2)
+    expect(shellCard.querySelectorAll('.session-fact')).toHaveLength(0)
     expect(shellCard.querySelector('.session-fact-summary')).toBeNull()
     expect(
       [...shellCard.querySelectorAll<HTMLButtonElement>('button')].map((action) =>
@@ -96,9 +102,7 @@ describe('SessionsOverview', () => {
     expect(agentCard.querySelector('.session-fact.actionable')?.textContent).toBe(
       'AttentionBell',
     )
-    expect(agentCard.querySelectorAll('.session-fact.available').length).toBeGreaterThan(
-      1,
-    )
+    expect(agentCard.querySelectorAll('.session-fact.available')).toHaveLength(1)
 
     const cards = [...host.querySelectorAll<HTMLElement>('.session-card')]
     act(() => {
@@ -115,7 +119,7 @@ describe('SessionsOverview', () => {
     expect(host.textContent).toContain('Shell terminal')
     act(() => button('Working').click())
     expect(host.textContent).toContain('No sessions match')
-    expect(host.textContent).toContain('Working · Grouped by project')
+    expect(host.textContent).toContain('Working · Grouped by workspace')
     act(() => button('Reset filters').click())
     expect(host.querySelectorAll('.session-card')).toHaveLength(2)
 
@@ -286,7 +290,7 @@ describe('SessionsOverview', () => {
       observation: { snapshot: () => [], subscribe: () => () => undefined },
     })
 
-    expect(host.textContent).toContain('No hvir sessions')
+    expect(host.textContent).toContain('No sessions in this project')
     expect(host.textContent).not.toContain('No sessions match')
     expect(host.querySelector('button')?.textContent).not.toBe('Reset filters')
   })
@@ -372,36 +376,37 @@ describe('SessionsOverview', () => {
     expect(document.activeElement).toBe(host.querySelector('.session-card'))
   })
 
-  it('ranks provider-neutral totals, exposes categories, preserves focused identity on reorder, and releases on blur', async () => {
+  it('keeps the dormant usage surface correct when mounted directly', async () => {
     let revision = 1
     let totals = new Map([
       [asSessionsTerminalHandle('terminal-private-agent'), 200],
       [asSessionsTerminalHandle('terminal-private-shell'), 100],
     ])
+    const readProjection = (demandGeneration: number) => {
+      const value = snapshot(demandGeneration)
+      return {
+        ...value,
+        providers: value.providers.map((provider) => ({
+          ...provider,
+          usageSupported: true,
+        })),
+        sessions: value.sessions.map((session) =>
+          session.handle === 'terminal-private-shell'
+            ? {
+                ...session,
+                lifecycle: 'live' as const,
+                livePty: {
+                  handle: asSessionsPtyHandle('live-instance-shell'),
+                  rendererOwnerId: 4,
+                  rendererGeneration: 6,
+                },
+              }
+            : session,
+        ),
+      }
+    }
     const api = installApi({
-      snapshot: (demandGeneration) => {
-        const value = snapshot(demandGeneration)
-        return {
-          ...value,
-          providers: value.providers.map((provider) => ({
-            ...provider,
-            usageSupported: true,
-          })),
-          sessions: value.sessions.map((session) =>
-            session.handle === 'terminal-private-shell'
-              ? {
-                  ...session,
-                  lifecycle: 'live' as const,
-                  livePty: {
-                    handle: asSessionsPtyHandle('live-instance-shell'),
-                    rendererOwnerId: 4,
-                    rendererGeneration: 6,
-                  },
-                }
-              : session,
-          ),
-        }
-      },
+      snapshot: readProjection,
       usageSnapshot: (demandGeneration, targets) => ({
         version: SESSIONS_PROJECTION_VERSION,
         demandGeneration,
@@ -427,11 +432,7 @@ describe('SessionsOverview', () => {
         }),
       }),
     })
-    await renderOverview()
-    await act(async () => {
-      button('Usage').click()
-      await settle()
-    })
+    await renderUsageLens(readProjection(1), rendererSessions())
 
     expect(host.textContent).toContain('Token usage')
     expect(host.textContent).toContain('Recent is establishing baselines')
@@ -477,9 +478,8 @@ describe('SessionsOverview', () => {
     )
     expect(document.activeElement?.textContent).toContain('Agent terminal')
 
-    focused = false
     await act(async () => {
-      window.dispatchEvent(new Event('blur'))
+      root.render(<div>Workspace</div>)
       await settle()
     })
     expect(api.usageRelease).toHaveBeenCalledExactlyOnceWith(1)
@@ -535,24 +535,25 @@ describe('SessionsOverview', () => {
     const base = snapshot(1)
     const unavailableHandle = asSessionsTerminalHandle('terminal-unavailable')
     const unavailablePty = asSessionsPtyHandle('live-instance-unavailable')
-    installApi({
-      snapshot: (demandGeneration) => ({
-        ...base,
-        demandGeneration,
-        sessions: [
-          ...base.sessions,
-          {
-            ...base.sessions[0]!,
-            handle: unavailableHandle,
-            title: 'Unavailable terminal',
-            livePty: {
-              handle: unavailablePty,
-              rendererOwnerId: 4,
-              rendererGeneration: 6,
-            },
+    const readProjection = (demandGeneration: number) => ({
+      ...base,
+      demandGeneration,
+      sessions: [
+        ...base.sessions,
+        {
+          ...base.sessions[0]!,
+          handle: unavailableHandle,
+          title: 'Unavailable terminal',
+          livePty: {
+            handle: unavailablePty,
+            rendererOwnerId: 4,
+            rendererGeneration: 6,
           },
-        ],
-      }),
+        },
+      ],
+    })
+    installApi({
+      snapshot: readProjection,
       usageSnapshot: (demandGeneration, targets) => ({
         version: SESSIONS_PROJECTION_VERSION,
         demandGeneration,
@@ -577,22 +578,16 @@ describe('SessionsOverview', () => {
         })),
       }),
     })
-    await renderOverview({
-      observation: {
-        snapshot: () => [
-          ...rendererSessions(),
-          {
-            ...rendererSessions()[0]!,
-            handle: unavailableHandle,
-            title: 'Unavailable terminal',
-          },
-        ],
-        subscribe: () => () => undefined,
+    const projectedRenderer = [
+      ...rendererSessions(),
+      {
+        ...rendererSessions()[0]!,
+        handle: unavailableHandle,
+        title: 'Unavailable terminal',
       },
-    })
+    ]
+    await renderUsageLens(readProjection(1), projectedRenderer)
     await act(async () => {
-      button('Usage').click()
-      await settle()
       button('1 minute').click()
       for (let sample = 0; sample < 6; sample += 1) {
         vi.advanceTimersByTime(10_000)
@@ -704,18 +699,9 @@ describe('SessionsOverview', () => {
     )
   })
 
-  it('keeps the Usage ranking mount bounded at projection capacity', async () => {
+  it('keeps the dormant Usage ranking mount bounded at projection capacity', async () => {
     installApi({ snapshot: capacitySnapshot })
-    await renderOverview({
-      observation: {
-        snapshot: capacityRendererSessions,
-        subscribe: () => () => undefined,
-      },
-    })
-    await act(async () => {
-      button('Usage').click()
-      await settle()
-    })
+    await renderUsageLens(capacitySnapshot(1), capacityRendererSessions())
 
     expect(host.textContent).toContain(
       `Showing 1–40 of ${MAX_SESSIONS_PROJECTION_ROWS} sessions`,
@@ -724,22 +710,6 @@ describe('SessionsOverview', () => {
     expect(
       host.querySelectorAll('.sessions-usage-ranking > li[tabindex="0"]'),
     ).toHaveLength(1)
-
-    const last = host.querySelectorAll<HTMLElement>('.sessions-usage-ranking > li')[39]
-    await act(async () => {
-      last?.focus()
-      last?.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
-      )
-      await settle()
-    })
-    expect(host.textContent).toContain(
-      `Showing 41–80 of ${MAX_SESSIONS_PROJECTION_ROWS} sessions`,
-    )
-    expect(host.querySelectorAll('.sessions-usage-ranking > li')).toHaveLength(40)
-    expect(document.activeElement).toBe(
-      host.querySelector('.sessions-usage-ranking > li'),
-    )
   })
 
   it('replaces Opening feedback when an unavailable Open completes after a projection revision', async () => {
@@ -810,9 +780,9 @@ describe('SessionsOverview', () => {
     })
     await renderOverview()
 
-    expect(host.textContent).toContain('Hostgpu-east-1 · Connected')
+    expect(host.textContent).not.toContain('Hostgpu-east-1 · Connected')
     expect(host.textContent).toContain('Modelgpt-5.6-sol')
-    expect(host.textContent).toContain('Provider capability unavailable')
+    expect(host.textContent).toContain('Terminal')
     expect(host.textContent).not.toContain('Gpu east 1')
     expect(host.textContent).not.toContain('Gpt 5.6 sol')
   })
@@ -1000,6 +970,33 @@ async function renderOverview(
   })
 }
 
+async function renderUsageLens(
+  observed: SessionsObservationSnapshot,
+  renderer: ReturnType<typeof rendererSessions>,
+): Promise<void> {
+  const rows = joinSessionsProjection(observed, renderer)
+  const projection: SessionsProjectionSnapshot = {
+    version: SESSIONS_PROJECTION_VERSION,
+    demandGeneration: observed.demandGeneration,
+    revision: 1,
+    sourceRevision: observed.revision,
+    status: 'available',
+    rows,
+  }
+  await act(async () => {
+    root.render(
+      <SessionsUsageLens
+        projection={projection}
+        rows={rows}
+        foreground
+        selected={rows[0]?.handle}
+        onSelect={vi.fn()}
+      />,
+    )
+    await settle()
+  })
+}
+
 function acquired(lease: SessionsTerminalSurfaceLease) {
   return { outcome: 'acquired' as const, lease }
 }
@@ -1048,6 +1045,7 @@ function snapshot(demandGeneration: number): SessionsObservationSnapshot {
     version: SESSIONS_PROJECTION_VERSION,
     demandGeneration,
     revision: 7,
+    activeProject: asSessionsProjectHandle('opaque-project'),
     providers: [
       {
         id: asHarnessProviderId('codex'),

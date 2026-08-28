@@ -1438,11 +1438,11 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
             ) {
               return setTimeout(waitForSessions, 25);
             }
-            const returnToWorkspace = overview.querySelector('.sessions-return');
-            if (!(returnToWorkspace instanceof HTMLButtonElement)) {
-              return reject(new Error('Sessions return control missing'));
+            const project = document.querySelector('.project-tab-main');
+            if (!(project instanceof HTMLButtonElement)) {
+              return reject(new Error('project navigation control missing'));
             }
-            returnToWorkspace.click();
+            project.click();
             const waitForFiles = () => {
               const currentFiles = [...document.querySelectorAll('.rail-nav button')]
                 .find((node) => node.textContent?.trim().startsWith('Files'));

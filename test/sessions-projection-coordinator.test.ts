@@ -135,6 +135,7 @@ describe('SessionsProjectionCoordinator', () => {
     expect(main.observe).toHaveBeenCalledOnce()
     expect(coordinator.snapshot().rows).toHaveLength(1)
     expect(coordinator.snapshot().status).toBe('available')
+    expect(coordinator.snapshot().activeProject).toBe('project-workspace-a')
     const firstRevision = coordinator.snapshot().revision
 
     rendererSource.set([renderer('retained', 'workspace-a', { attention: 'working' })])
@@ -230,6 +231,7 @@ function observation(
     version: SESSIONS_PROJECTION_VERSION,
     demandGeneration: 1,
     revision,
+    activeProject: asSessionsProjectHandle('project-workspace-a'),
     providers: [
       {
         id: providerId,

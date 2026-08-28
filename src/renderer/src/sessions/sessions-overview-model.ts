@@ -48,7 +48,7 @@ export interface SessionsOverviewCardFacts {
 
 export const DEFAULT_SESSIONS_OVERVIEW_POLICY: SessionsOverviewPolicy = {
   filter: 'all',
-  group: 'project',
+  group: 'workspace',
   sort: 'priority',
 }
 
@@ -63,13 +63,7 @@ export function sessionsOverviewCardFacts(
       (value) => value !== 'none',
       (value) => value !== 'none',
     ),
-    fact(
-      'Working',
-      row.working,
-      () => 'Working',
-      Boolean,
-      Boolean,
-    ),
+    fact('Working', row.working, () => 'Working', Boolean, Boolean),
     fact(
       'Provider turn',
       row.turn,
@@ -79,29 +73,8 @@ export function sessionsOverviewCardFacts(
       (value) => value.state !== 'idle',
     ),
     fact('Model', row.model, (value) => value.displayName ?? value.id),
-    fact('Context', row.context, contextLabel),
-    telemetryFact(row.telemetryFreshness),
-    usageFact(row),
   ].filter((candidate): candidate is SessionsOverviewCardFact => candidate !== undefined)
-  const facts: SessionsOverviewCardFact[] = [
-    {
-      label: 'Lifecycle',
-      value: `${sentenceCase(row.lifecycle)}${
-        row.lifecycleReason ? ` · ${sentenceCase(row.lifecycleReason)}` : ''
-      }`,
-      tone:
-        row.lifecycle === 'unavailable' || row.lifecycle === 'stopped'
-          ? 'actionable'
-          : 'available',
-    },
-    {
-      label: 'Host',
-      value: `${row.host.label} · ${sentenceCase(row.connectionState)}`,
-      tone: row.connectionState === 'connected' ? 'available' : 'actionable',
-    },
-    ...candidates,
-  ]
-  return { facts }
+  return { facts: candidates }
 }
 
 function fact<T>(
@@ -131,39 +104,6 @@ function fact<T>(
     case 'unsupported':
       return undefined
   }
-}
-
-function telemetryFact(
-  telemetry: SessionsProjectionRow['telemetryFreshness'],
-): SessionsOverviewCardFact | undefined {
-  if (telemetry.status !== 'stale') return undefined
-  return {
-    label: 'Telemetry',
-    value: `Stale · ${sentenceCase(telemetry.reason)}`,
-    tone: 'stale',
-  }
-}
-
-function usageFact(row: SessionsProjectionRow): SessionsOverviewCardFact | undefined {
-  const usage = row.usage
-  if (usage.status !== 'stale' && usage.status !== 'reset') return undefined
-  return {
-    label: 'Usage capability',
-    value: `${usage.status === 'stale' ? 'Stale' : 'Reset'} · ${sentenceCase(usage.reason)}`,
-    tone: usage.status === 'stale' ? 'stale' : 'pending',
-  }
-}
-
-function contextLabel(value: {
-  readonly usedTokens: number
-  readonly windowTokens?: number
-  readonly usedPercent?: number
-}): string {
-  if (value.usedPercent !== undefined) return `${value.usedPercent}% used`
-  if (value.windowTokens !== undefined) {
-    return `${value.usedTokens.toLocaleString()} of ${value.windowTokens.toLocaleString()} tokens`
-  }
-  return `${value.usedTokens.toLocaleString()} tokens used`
 }
 
 function sentenceCase(value: string): string {
@@ -200,6 +140,13 @@ export function sessionsOverviewGroups(
     })
   }
   return [...groups.values()]
+}
+
+export function sessionsOverviewProjectRows(
+  rows: readonly SessionsProjectionRow[],
+  project: SessionsProjectionRow['project']['id'] | undefined,
+): readonly SessionsProjectionRow[] {
+  return project ? rows.filter((row) => row.project.id === project) : []
 }
 
 export function sessionsOverviewRows(
