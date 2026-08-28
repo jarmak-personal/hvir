@@ -65,6 +65,8 @@ describe('SessionsOverview', () => {
 
     expect(host.querySelector('h1')?.textContent).toBe('Sessions')
     expect(host.querySelectorAll('.session-card')).toHaveLength(2)
+    expect(host.querySelector('.sessions-group h2')?.textContent).toBe('Project One')
+    expect(host.querySelector('.sessions-pagination div')).toBeNull()
     expect(host.textContent).toContain(
       'All sessions · Grouped by project · Sorted by attention and activity',
     )

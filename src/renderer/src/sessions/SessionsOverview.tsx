@@ -363,75 +363,84 @@ export function SessionsOverview({
             <p aria-live="polite">
               Showing {page.start + 1}–{page.end} of {page.totalRows} sessions
             </p>
-            <div>
-              <button
-                type="button"
-                disabled={page.pageIndex === 0}
-                onClick={() => showPage(page.pageIndex - 1)}
-              >
-                Previous page
-              </button>
-              <span>
-                Page {page.pageIndex + 1} of {page.pageCount}
-              </span>
-              <button
-                type="button"
-                disabled={page.pageIndex + 1 >= page.pageCount}
-                onClick={() => showPage(page.pageIndex + 1)}
-              >
-                Next page
-              </button>
-            </div>
+            {page.pageCount > 1 ? (
+              <div>
+                <button
+                  type="button"
+                  disabled={page.pageIndex === 0}
+                  onClick={() => showPage(page.pageIndex - 1)}
+                >
+                  Previous page
+                </button>
+                <span>
+                  Page {page.pageIndex + 1} of {page.pageCount}
+                </span>
+                <button
+                  type="button"
+                  disabled={page.pageIndex + 1 >= page.pageCount}
+                  onClick={() => showPage(page.pageIndex + 1)}
+                >
+                  Next page
+                </button>
+              </div>
+            ) : null}
           </nav>
           <div className="sessions-groups" role="list" aria-label="hvir sessions">
-            {page.groups.map((group) => (
-              <section className="sessions-group" key={group.key}>
-                {group.label ? <h2>{group.label}</h2> : null}
-                <div className="sessions-grid">
-                  {group.rows.map((row) => {
-                    const isSelected = selected === row.handle
-                    return (
-                      <article
-                        key={row.handle}
-                        className={`session-card${isSelected ? ' selected' : ''}`}
-                        role="listitem"
-                        aria-current={isSelected ? 'true' : undefined}
-                        aria-label={`${row.title}, ${row.provider.name}, ${row.project.name}, ${row.workspace.name}`}
-                        tabIndex={isSelected ? 0 : -1}
-                        ref={(element) => {
-                          if (element) rowElements.current.set(row.handle, element)
-                          else rowElements.current.delete(row.handle)
-                        }}
-                        onFocus={() => setSelected(row.handle)}
-                        onClick={() => setSelected(row.handle)}
-                        onKeyDown={(event) => {
-                          if (
-                            event.key === 'Enter' &&
-                            event.target === event.currentTarget
-                          ) {
-                            event.preventDefault()
-                            void open(row)
-                            return
-                          }
-                          moveFocus(event, row)
-                        }}
-                      >
-                        <SessionsOverviewCard
-                          row={row}
-                          opening={opening === row.handle}
-                          onOpen={() => void open(row)}
-                          onInteract={
-                            sessionsTerminalSurfaceEligible(row)
-                              ? () => detail.open(row, source.snapshot(), foreground)
-                              : undefined
-                          }
-                        />
-                      </article>
-                    )
-                  })}
-                </div>
-              </section>
-            ))}
+            {page.groups.map((group, groupIndex) => {
+              const headingId = group.label ? `sessions-group-${groupIndex}` : undefined
+              return (
+                <section
+                  className={`sessions-group${group.label ? '' : ' ungrouped'}`}
+                  key={group.key}
+                  aria-labelledby={headingId}
+                >
+                  {group.label ? <h2 id={headingId}>{group.label}</h2> : null}
+                  <div className="sessions-grid">
+                    {group.rows.map((row) => {
+                      const isSelected = selected === row.handle
+                      return (
+                        <article
+                          key={row.handle}
+                          className={`session-card${isSelected ? ' selected' : ''}`}
+                          role="listitem"
+                          aria-current={isSelected ? 'true' : undefined}
+                          aria-label={`${row.title}, ${row.provider.name}, ${row.project.name}, ${row.workspace.name}`}
+                          tabIndex={isSelected ? 0 : -1}
+                          ref={(element) => {
+                            if (element) rowElements.current.set(row.handle, element)
+                            else rowElements.current.delete(row.handle)
+                          }}
+                          onFocus={() => setSelected(row.handle)}
+                          onClick={() => setSelected(row.handle)}
+                          onKeyDown={(event) => {
+                            if (
+                              event.key === 'Enter' &&
+                              event.target === event.currentTarget
+                            ) {
+                              event.preventDefault()
+                              void open(row)
+                              return
+                            }
+                            moveFocus(event, row)
+                          }}
+                        >
+                          <SessionsOverviewCard
+                            row={row}
+                            opening={opening === row.handle}
+                            onOpen={() => void open(row)}
+                            onInteract={
+                              sessionsTerminalSurfaceEligible(row)
+                                ? () => detail.open(row, source.snapshot(), foreground)
+                                : undefined
+                            }
+                          />
+                        </article>
+                      )
+                    })}
+                  </div>
+                </section>
+              )
+            })}
           </div>
         </>
       )}

@@ -21,7 +21,7 @@ export function SessionsOverviewCard({
   return (
     <>
       <header>
-        <div>
+        <div className="session-card-identity">
           <span className={`session-kind ${row.provider.kind}`}>
             {row.provider.kind === 'agent'
               ? 'Agent harness'
@@ -42,14 +42,16 @@ export function SessionsOverviewCard({
           </button>
         </div>
       </header>
-      <p className="session-location">
-        {row.project.name} <span aria-hidden="true">/</span> {row.workspace.name}
-        {row.workspace.main ? <small>project root</small> : null}
-      </p>
-      <p className="session-provider">
-        {row.provider.name}
-        {visibleFactLabel(row.profile, (value) => String(value.id))}
-      </p>
+      <div className="session-card-context">
+        <p className="session-location">
+          {row.project.name} <span aria-hidden="true">/</span> {row.workspace.name}
+          {row.workspace.main ? <small>project root</small> : null}
+        </p>
+        <p className="session-provider">
+          {row.provider.name}
+          {visibleFactLabel(row.profile, (value) => String(value.id))}
+        </p>
+      </div>
       <dl className="session-facts">
         {presentation.facts.map((fact) => (
           <Fact key={fact.label} fact={fact} />

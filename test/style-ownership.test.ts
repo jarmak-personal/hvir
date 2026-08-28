@@ -7,6 +7,7 @@ const expectedOrder = [
   'base.css',
   'projects.css',
   'sessions-overview.css',
+  'sessions-collection.css',
   'sessions-usage.css',
   'health.css',
   'diagnostic-report.css',
