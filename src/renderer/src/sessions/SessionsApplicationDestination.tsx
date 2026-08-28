@@ -24,13 +24,11 @@ export function SessionsApplicationDestination({
   active,
   runtime,
   onOpened,
-  onReturn,
   onError,
 }: {
   readonly active: boolean
   readonly runtime: SessionsDestinationRuntime
   readonly onOpened: (state: ProjectState) => void
-  readonly onReturn: () => void
   readonly onError: (message: string) => void
 }): ReactElement | null {
   if (!active) return null
@@ -38,10 +36,7 @@ export function SessionsApplicationDestination({
     <SessionsOverview
       observation={runtime.sessionsObservation}
       surface={runtime.sessionsSurface}
-      onOpened={(state) => {
-        onOpened(state)
-        onReturn()
-      }}
+      onOpened={onOpened}
       onFocusOpened={runtime.focusProjectedSession}
       onOpenFailed={onError}
     />

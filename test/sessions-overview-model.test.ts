@@ -4,6 +4,7 @@ import {
   DEFAULT_SESSIONS_OVERVIEW_POLICY,
   SESSIONS_OVERVIEW_PAGE_SIZE,
   sessionsOverviewCardFacts,
+  sessionsOverviewCardTitle,
   sessionsOverviewFocusFallback,
   sessionsOverviewGroups,
   sessionsOverviewPage,
@@ -158,6 +159,19 @@ describe('Sessions overview policy', () => {
     )
   })
 
+  it('derives card titles from safe catalog facts instead of projected terminal titles', () => {
+    const fixture = row('private-handle', {
+      title: 'Provider-derived private conversation title',
+      project: 'Project One',
+      workspace: 'feature',
+    })
+
+    expect(sessionsOverviewCardTitle(fixture, 'workspace')).toBe('Codex session')
+    expect(sessionsOverviewCardTitle(fixture, 'project')).toBe('Codex session · feature')
+    expect(sessionsOverviewCardTitle(fixture, 'none')).toBe(
+      'Codex session · Project One / feature',
+    )
+  })
 })
 
 function filtered(

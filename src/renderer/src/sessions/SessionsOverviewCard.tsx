@@ -1,24 +1,29 @@
 import type { ReactElement } from 'react'
 
-import type { SessionsFact, SessionsProjectionRow } from '../../../shared'
+import type { SessionsProjectionRow } from '../../../shared'
 import { ProviderContextMeter } from '../harness/ProviderContextMeter'
 import {
   sessionsOverviewCardFacts,
+  sessionsOverviewCardTitle,
+  type SessionsOverviewGroup,
   type SessionsOverviewCardFact,
 } from './sessions-overview-model'
 
 export function SessionsOverviewCard({
   row,
+  group,
   opening,
   onOpen,
   onInteract,
 }: {
   readonly row: SessionsProjectionRow
+  readonly group: SessionsOverviewGroup
   readonly opening: boolean
-  readonly onOpen: () => void
+  readonly onOpen?: () => void
   readonly onInteract?: () => void
 }): ReactElement {
   const presentation = sessionsOverviewCardFacts(row)
+  const title = sessionsOverviewCardTitle(row, group)
   return (
     <>
       <header>
@@ -30,7 +35,7 @@ export function SessionsOverviewCard({
                 ? 'Shell'
                 : 'Terminal'}
           </span>
-          <h3>{row.title}</h3>
+          <h3>{title}</h3>
         </div>
         <div className="session-card-actions">
           {onInteract ? (
@@ -38,21 +43,13 @@ export function SessionsOverviewCard({
               Interact
             </button>
           ) : null}
-          <button type="button" disabled={opening} onClick={onOpen}>
-            {opening ? 'Opening…' : 'Open'}
-          </button>
+          {onOpen ? (
+            <button type="button" disabled={opening} onClick={onOpen}>
+              {opening ? 'Opening…' : 'Open'}
+            </button>
+          ) : null}
         </div>
       </header>
-      <div className="session-card-context">
-        <p className="session-location">
-          {row.workspace.name}
-          {row.workspace.main ? <small>project root</small> : null}
-        </p>
-        <p className="session-provider">
-          {row.provider.name}
-          {visibleFactLabel(row.profile, (value) => String(value.id))}
-        </p>
-      </div>
       {row.context.status === 'available' || row.context.status === 'stale' ? (
         <ProviderContextMeter
           contextFacet={row.context}
@@ -75,20 +72,4 @@ function Fact({ fact }: { readonly fact: SessionsOverviewCardFact }): ReactEleme
       <dd>{fact.value}</dd>
     </div>
   )
-}
-
-function visibleFactLabel<T>(
-  fact: SessionsFact<T>,
-  available: (value: T) => string,
-): string | undefined {
-  switch (fact.status) {
-    case 'available':
-      return ` · ${available(fact.value)}`
-    case 'stale':
-      return ` · Stale · ${available(fact.value)}`
-    case 'pending':
-    case 'unavailable':
-    case 'unsupported':
-      return undefined
-  }
 }

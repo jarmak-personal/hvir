@@ -50,6 +50,7 @@ export function SessionsCollectionToolbar({
             }
           >
             <option value="workspace">Workspace</option>
+            <option value="project">Project</option>
             <option value="none">None</option>
           </select>
         </label>

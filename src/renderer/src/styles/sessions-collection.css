@@ -112,29 +112,8 @@
   font-size: calc(8px * var(--hvir-interface-scale));
 }
 
-.session-card-context {
-  min-width: 0;
-  margin-top: 4px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px 9px;
-}
-
 .session-card > .provider-context {
   margin-top: 5px;
-}
-
-.session-location,
-.session-provider {
-  min-width: 0;
-  margin: 0;
-  color: var(--text-muted);
-  font-size: calc(8px * var(--hvir-interface-scale));
-}
-
-.session-location small {
-  margin-left: 5px;
-  color: #6f7a89;
 }
 
 .session-facts {

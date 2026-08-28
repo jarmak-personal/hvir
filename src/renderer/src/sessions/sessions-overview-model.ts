@@ -52,6 +52,23 @@ export const DEFAULT_SESSIONS_OVERVIEW_POLICY: SessionsOverviewPolicy = {
   sort: 'priority',
 }
 
+/** Derives card identity only from the projection's renderer-safe catalog facts. */
+export function sessionsOverviewCardTitle(
+  row: SessionsProjectionRow,
+  group: SessionsOverviewGroup,
+): string {
+  const kind = row.provider.kind === 'agent' ? 'session' : 'terminal'
+  const identity = `${row.provider.name} ${kind}`
+  switch (group) {
+    case 'workspace':
+      return identity
+    case 'project':
+      return `${identity} · ${row.workspace.name}`
+    case 'none':
+      return `${identity} · ${row.project.name} / ${row.workspace.name}`
+  }
+}
+
 export function sessionsOverviewCardFacts(
   row: SessionsProjectionRow,
 ): SessionsOverviewCardFacts {
