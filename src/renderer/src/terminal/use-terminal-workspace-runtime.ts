@@ -48,7 +48,11 @@ export function useTerminalWorkspaceRuntime({
   })
   useNewWorktreeMoveBadge({ projectState, acknowledgeWorkspaces, onError })
 
-  useEffect(() => () => owner.dispose(), [owner])
+  useEffect(() => {
+    const dispose = (): void => owner.dispose()
+    window.addEventListener('pagehide', dispose, { once: true })
+    return () => window.removeEventListener('pagehide', dispose)
+  }, [owner])
   useEffect(() => {
     owner.pruneWorkspaces(eligibleWorkspaceIds.current)
     owner.runtimes.disposeMissingWorkspaces(
