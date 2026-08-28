@@ -63,17 +63,22 @@ export class TerminalRuntime {
       hostId: string,
       signal: AbortSignal,
     ) => Promise<() => void>,
+    private readonly onSessionsSurfaceAvailabilityChange: () => void = () => undefined,
   ) {
     this.options = options
-    this.sessionsSurface = new TerminalSessionsSurfaceOwner(this.surface, () => ({
-      disposed: this.disposed,
-      sessionId: this.options.sessionId,
-      started: this.started,
-      ptyInstanceId: this.activePtyInstanceId,
-      pane: this.pane,
-      connected: this.options.connectionState === 'connected',
-      focused: () => this.options.onFocus(),
-    }))
+    this.sessionsSurface = new TerminalSessionsSurfaceOwner(
+      this.surface,
+      () => ({
+        disposed: this.disposed,
+        sessionId: this.options.sessionId,
+        started: this.started,
+        ptyInstanceId: this.activePtyInstanceId,
+        pane: this.pane,
+        connected: this.options.connectionState === 'connected',
+        focused: () => this.options.onFocus(),
+      }),
+      this.onSessionsSurfaceAvailabilityChange,
+    )
     this.interactions = new TerminalRuntimeInteractions(
       options.fallbackTitle,
       () => this.surface.canFocus(),
@@ -373,6 +378,7 @@ export class TerminalRuntime {
       this.hasStarted = true
       this.activePtyId = result.id
       this.activePtyInstanceId = result.instanceId
+      this.onSessionsSurfaceAvailabilityChange()
       this.interactions.bind(pane, result.id)
       const status = result.reattached
         ? `Reattached · pid ${result.pid}`
@@ -514,6 +520,7 @@ export class TerminalRuntime {
           this.started = false
           this.activePtyId = undefined
           this.activePtyInstanceId = undefined
+          this.onSessionsSurfaceAvailabilityChange()
           this.interactions.revoke(false)
           this.updateSnapshot({
             ...this.currentSnapshot,
@@ -561,6 +568,7 @@ export class TerminalRuntime {
     this.started = false
     this.activePtyId = undefined
     this.activePtyInstanceId = undefined
+    this.onSessionsSurfaceAvailabilityChange()
   }
 
   private revokeSessionsSurface(reason: SessionsTerminalSurfaceRevocationReason): void {

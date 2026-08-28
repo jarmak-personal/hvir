@@ -78,6 +78,11 @@ export function SessionsOverview({
     source.snapshot,
     source.snapshot,
   )
+  useSyncExternalStore(
+    surface.subscribeAvailability,
+    surface.availabilityRevision,
+    surface.availabilityRevision,
+  )
   const { controller: detail, state: detailState } = useSessionsTerminalDetail({
     surface,
     snapshot,

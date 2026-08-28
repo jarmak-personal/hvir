@@ -51,6 +51,8 @@ afterEach(() => {
 describe('Sessions title privacy', () => {
   it('keeps an embedded live handle out of headings, accessible labels, and DOM', async () => {
     await renderOverview({
+      availabilityRevision: () => 0,
+      subscribeAvailability: () => () => undefined,
       availability: () => ({ outcome: 'available' }),
       acquire: () => ({ outcome: 'unavailable', reason: 'runtime-not-ready' }),
     })
@@ -79,6 +81,8 @@ describe('Sessions title privacy', () => {
 
   it('keeps race-time feedback when an available surface stops being ready', async () => {
     await renderOverview({
+      availabilityRevision: () => 0,
+      subscribeAvailability: () => () => undefined,
       availability: () => ({ outcome: 'available' }),
       acquire: () => ({ outcome: 'unavailable', reason: 'runtime-not-ready' }),
     })
@@ -96,6 +100,8 @@ describe('Sessions title privacy', () => {
 
   it('offers Open but omits Interact without a currently borrowable surface', async () => {
     await renderOverview({
+      availabilityRevision: () => 0,
+      subscribeAvailability: () => () => undefined,
       availability: () => ({ outcome: 'unavailable', reason: 'runtime-not-ready' }),
       acquire: () => ({ outcome: 'unavailable', reason: 'runtime-not-ready' }),
     })

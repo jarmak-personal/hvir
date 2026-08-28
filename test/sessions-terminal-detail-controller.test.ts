@@ -459,6 +459,8 @@ function surfacePort(
   acquire: SessionsTerminalSurfacePort['acquire'],
 ): SessionsTerminalSurfacePort {
   return {
+    availabilityRevision: () => 0,
+    subscribeAvailability: () => () => undefined,
     availability: () => ({ outcome: 'available' }),
     acquire,
   }

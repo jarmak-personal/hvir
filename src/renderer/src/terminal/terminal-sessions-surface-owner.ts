@@ -31,6 +31,7 @@ export class TerminalSessionsSurfaceOwner {
   constructor(
     private readonly surface: TerminalSurfaceAttachment,
     private readonly context: () => SessionsSurfaceRuntimeContext,
+    private readonly onAvailabilityChange: () => void = () => undefined,
   ) {}
 
   availability(
@@ -61,6 +62,7 @@ export class TerminalSessionsSurfaceOwner {
     }
     const state: ActiveLease = { generation, request, listeners: new Set() }
     this.active = state
+    this.onAvailabilityChange()
     let released = false
     const current = (): boolean => {
       const latest = this.context()
@@ -114,6 +116,7 @@ export class TerminalSessionsSurfaceOwner {
         if (this.active !== state) return
         this.active = undefined
         this.surface.releaseLease(generation)
+        this.onAvailabilityChange()
       },
     }
     return { outcome: 'acquired', lease }
@@ -124,6 +127,7 @@ export class TerminalSessionsSurfaceOwner {
     if (!lease) return
     this.active = undefined
     this.surface.releaseLease(lease.generation)
+    this.onAvailabilityChange()
     for (const listener of lease.listeners) listener(reason)
     lease.listeners.clear()
   }
