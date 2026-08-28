@@ -465,12 +465,19 @@ async function verifySessionsOverview(
         const overview = document.querySelector('.sessions-overview');
         const detail = document.querySelector('.sessions-terminal-detail');
         const detailInput = detail?.querySelector('.sessions-detail-terminal-container');
+        const detailEngine = detailInput?.querySelector('.terminal-engine-host');
+        const active = document.activeElement;
         reject(new Error('Sessions overview timed out at ' + stage + ': ' + JSON.stringify({
           overview: Boolean(overview),
           detail: detail?.textContent?.trim(),
           detailEngines: detail?.querySelectorAll('.terminal-engine-host').length ?? 0,
           globalEngines: document.querySelectorAll('.terminal-engine-host').length,
           detailPresentation: detailInput?.__hvirTerminalDelivery?.presentation,
+          detailPaused: detailEngine?.__hvirTerminalPerformance?.paused,
+          detailFocused: detailEngine === active || detailEngine?.contains(active),
+          activeElement: active instanceof HTMLElement
+            ? { tag: active.tagName, className: active.className }
+            : null,
           cards: overview?.querySelectorAll('.session-card').length ?? 0,
           notice: overview?.querySelector('.sessions-notice')?.textContent?.trim(),
           feedback: overview?.querySelector('.sessions-feedback')?.textContent?.trim(),
@@ -585,8 +592,12 @@ async function verifySessionsOverview(
                     const engine = input?.querySelector('.terminal-engine-host');
                     const delivery = input?.__hvirTerminalDelivery;
                     const performance = engine?.__hvirTerminalPerformance;
+                    const background = document.querySelector('.sessions-overview');
                     if (
                       !(detail instanceof HTMLElement) ||
+                      !(background instanceof HTMLElement) ||
+                      !background.hasAttribute('inert') ||
+                      background.getAttribute('aria-hidden') !== 'true' ||
                       !(input instanceof HTMLElement) ||
                       !(engine instanceof HTMLElement) ||
                       engine !== workspaceEngine ||
@@ -608,7 +619,7 @@ async function verifySessionsOverview(
                       delete window.__hvirSessionsDetailProbe;
                       delete window.__hvirSessionsDetailProbeComplete;
                       delete window.__hvirSessionsDetailProbeFailure;
-                      button('Back to Sessions', detail)?.click();
+                      button('Close', detail)?.click();
                       restored();
                     };
                     const restored = () => {
@@ -616,6 +627,8 @@ async function verifySessionsOverview(
                       const restoredEngine = workspaceInput.querySelector('.terminal-engine-host');
                       if (
                         !(returnedOverview instanceof HTMLElement) ||
+                        returnedOverview.hasAttribute('inert') ||
+                        returnedOverview.hasAttribute('aria-hidden') ||
                         restoredEngine !== workspaceEngine ||
                         workspaceInput.__hvirTerminalDelivery?.presentation !== 'hidden' ||
                         !restoredEngine.__hvirTerminalPerformance?.paused ||

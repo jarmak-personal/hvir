@@ -8,6 +8,7 @@ const expectedOrder = [
   'projects.css',
   'sessions-overview.css',
   'sessions-collection.css',
+  'sessions-terminal-detail.css',
   'sessions-usage.css',
   'health.css',
   'diagnostic-report.css',
@@ -109,6 +110,20 @@ describe('renderer style ownership', () => {
     expect(usage).not.toContain('animation:')
     expect(usage).toMatch(
       /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.sessions-usage-bar span \{[\s\S]*?transition: none;/u,
+    )
+  })
+
+  it('bounds the Sessions detail reveal and disables it for reduced motion', () => {
+    const detail = readFileSync(
+      join(process.cwd(), 'src/renderer/src/styles/sessions-terminal-detail.css'),
+      'utf8',
+    )
+
+    expect(detail).toContain(
+      'animation: sessions-detail-grow 160ms cubic-bezier(0.2, 0.8, 0.2, 1) both',
+    )
+    expect(detail).toMatch(
+      /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.sessions-terminal-detail \{[\s\S]*?animation: none;/u,
     )
   })
 

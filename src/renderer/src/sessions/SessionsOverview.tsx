@@ -19,6 +19,7 @@ import type {
   SessionsWorkspaceQualifier,
 } from '../../../shared'
 import { SessionsOverviewCard } from './SessionsOverviewCard'
+import { SessionsOverviewNotice } from './SessionsOverviewNotice'
 import { SessionsCollectionToolbar, type SessionsLens } from './SessionsCollectionToolbar'
 import { SessionsTerminalDetail } from './SessionsTerminalDetail'
 import { SessionsUsageLens } from './SessionsUsageLens'
@@ -27,6 +28,7 @@ import {
   createSessionsMainObservationPort,
 } from './sessions-projection-coordinator'
 import type { SessionsRendererObservationPort } from './sessions-renderer-observation'
+import { sessionsTerminalOverlayOrigin } from './sessions-terminal-overlay'
 import {
   sessionsTerminalSurfaceEligible,
   type SessionsTerminalSurfacePort,
@@ -90,6 +92,7 @@ export function SessionsOverview({
   const [selected, setSelected] = useState<SessionsTerminalHandle>()
   const [feedback, setFeedback] = useState<string>()
   const [opening, setOpening] = useState<SessionsTerminalHandle>()
+  const detailOrigin = useRef<ReturnType<typeof sessionsTerminalOverlayOrigin>>(undefined)
   const [pageIndex, setPageIndex] = useState(0)
   const previousOrder = useRef<readonly SessionsTerminalHandle[]>([])
   const pendingFocus = useRef<SessionsTerminalHandle | undefined>(undefined)
@@ -109,6 +112,7 @@ export function SessionsOverview({
     rowElements.current.clear()
     setSelected(undefined)
     setOpening(undefined)
+    detailOrigin.current = undefined
     setFeedback(undefined)
     setPageIndex(0)
   }, [foreground])
@@ -264,205 +268,205 @@ export function SessionsOverview({
   }
 
   const policyLabel = sessionsOverviewPolicyLabel(policy)
-  if (detailState.status !== 'inactive') {
-    return (
-      <SessionsTerminalDetail
-        controller={detail}
-        state={detailState}
-        onBack={() => {
-          pendingFocus.current = detail.selectedHandle()
-          detail.close()
-        }}
-        onReturn={() => {
-          detail.close()
-          onReturn()
-        }}
-      />
-    )
-  }
+  const detailActive = detailState.status !== 'inactive'
   return (
-    <main className="sessions-overview" aria-labelledby="sessions-title">
-      <header className="sessions-overview-header">
-        <div>
-          <p className="sessions-eyebrow">Application sessions</p>
-          <h1 id="sessions-title">Sessions</h1>
-          <p>Live and retained hvir terminals across every registered workspace.</p>
-        </div>
-        <button type="button" className="sessions-return" onClick={onReturn}>
-          Return to current workspace
-        </button>
-      </header>
-      <SessionsCollectionToolbar
-        lens={lens}
-        policy={policy}
-        collectionControl={collectionControl}
-        onLens={(value) => {
-          setLens(value)
-          setFeedback(undefined)
-        }}
-        onFilter={(value) => updatePolicy('filter', value)}
-        onGroup={(value) => updatePolicy('group', value)}
-        onSort={(value) => updatePolicy('sort', value)}
-      />
-      {feedback ? (
-        <p className="sessions-feedback" role="status">
-          {feedback}
-        </p>
-      ) : null}
-      {lens === 'usage' ? (
-        <SessionsUsageLens
-          projection={snapshot}
-          rows={usageRows}
-          foreground={foreground}
-          selected={selected}
-          onSelect={setSelected}
-        />
-      ) : !foreground ? (
-        <OverviewNotice title="Updates paused" detail="Focus hvir to refresh Sessions." />
-      ) : snapshot.status === 'pending' ? (
-        <OverviewNotice
-          title="Loading sessions"
-          detail="Reading the current hvir-owned session projection."
-        />
-      ) : snapshot.status === 'unavailable' ? (
-        <OverviewNotice
-          title="Sessions unavailable"
-          detail="The current projection could not be read."
-          action={
-            <button type="button" onClick={() => source.retry()}>
-              Retry
-            </button>
-          }
-        />
-      ) : snapshot.status === 'available' && snapshot.rows.length === 0 ? (
-        <OverviewNotice
-          title="No hvir sessions"
-          detail="Start a terminal from a workspace to see it here."
-        />
-      ) : snapshot.status === 'available' && rows.length === 0 ? (
-        <OverviewNotice
-          title="No sessions match"
-          detail={policyLabel}
-          action={
-            <button
-              type="button"
-              onClick={() => {
-                setPolicy(DEFAULT_SESSIONS_OVERVIEW_POLICY)
-                setSelected(undefined)
-                setPageIndex(0)
-                setFeedback(undefined)
-              }}
-            >
-              Reset filters
-            </button>
-          }
-        />
-      ) : (
-        <>
-          <nav className="sessions-pagination" aria-label="Sessions pages">
-            <p aria-live="polite">
-              Showing {page.start + 1}–{page.end} of {page.totalRows} sessions
-            </p>
-            {page.pageCount > 1 ? (
-              <div>
-                <button
-                  type="button"
-                  disabled={page.pageIndex === 0}
-                  onClick={() => showPage(page.pageIndex - 1)}
-                >
-                  Previous page
-                </button>
-                <span>
-                  Page {page.pageIndex + 1} of {page.pageCount}
-                </span>
-                <button
-                  type="button"
-                  disabled={page.pageIndex + 1 >= page.pageCount}
-                  onClick={() => showPage(page.pageIndex + 1)}
-                >
-                  Next page
-                </button>
-              </div>
-            ) : null}
-          </nav>
-          <div className="sessions-groups" role="list" aria-label="hvir sessions">
-            {page.groups.map((group, groupIndex) => {
-              const headingId = group.label ? `sessions-group-${groupIndex}` : undefined
-              return (
-                <section
-                  className={`sessions-group${group.label ? '' : ' ungrouped'}`}
-                  key={group.key}
-                  aria-labelledby={headingId}
-                >
-                  {group.label ? <h2 id={headingId}>{group.label}</h2> : null}
-                  <div className="sessions-grid">
-                    {group.rows.map((row) => {
-                      const isSelected = selected === row.handle
-                      return (
-                        <article
-                          key={row.handle}
-                          className={`session-card${isSelected ? ' selected' : ''}`}
-                          role="listitem"
-                          aria-current={isSelected ? 'true' : undefined}
-                          aria-label={`${row.title}, ${row.provider.name}, ${row.project.name}, ${row.workspace.name}`}
-                          tabIndex={isSelected ? 0 : -1}
-                          ref={(element) => {
-                            if (element) rowElements.current.set(row.handle, element)
-                            else rowElements.current.delete(row.handle)
-                          }}
-                          onFocus={() => setSelected(row.handle)}
-                          onClick={() => setSelected(row.handle)}
-                          onKeyDown={(event) => {
-                            if (
-                              event.key === 'Enter' &&
-                              event.target === event.currentTarget
-                            ) {
-                              event.preventDefault()
-                              void open(row)
-                              return
-                            }
-                            moveFocus(event, row)
-                          }}
-                        >
-                          <SessionsOverviewCard
-                            row={row}
-                            opening={opening === row.handle}
-                            onOpen={() => void open(row)}
-                            onInteract={
-                              sessionsTerminalSurfaceEligible(row)
-                                ? () => detail.open(row, source.snapshot(), foreground)
-                                : undefined
-                            }
-                          />
-                        </article>
-                      )
-                    })}
-                  </div>
-                </section>
-              )
-            })}
+    <>
+      <main
+        className={`sessions-overview${detailActive ? ' detail-active' : ''}`}
+        aria-labelledby={detailActive ? undefined : 'sessions-title'}
+        aria-hidden={detailActive || undefined}
+        inert={detailActive || undefined}
+      >
+        <header className="sessions-overview-header">
+          <div>
+            <p className="sessions-eyebrow">Application sessions</p>
+            <h1 id="sessions-title">Sessions</h1>
+            <p>Live and retained hvir terminals across every registered workspace.</p>
           </div>
-        </>
-      )}
-    </main>
-  )
-}
-
-function OverviewNotice({
-  title,
-  detail,
-  action,
-}: {
-  readonly title: string
-  readonly detail: string
-  readonly action?: ReactElement
-}): ReactElement {
-  return (
-    <section className="sessions-notice">
-      <h2>{title}</h2>
-      <p>{detail}</p>
-      {action}
-    </section>
+          <button type="button" className="sessions-return" onClick={onReturn}>
+            Return to current workspace
+          </button>
+        </header>
+        <SessionsCollectionToolbar
+          lens={lens}
+          policy={policy}
+          collectionControl={collectionControl}
+          onLens={(value) => {
+            setLens(value)
+            setFeedback(undefined)
+          }}
+          onFilter={(value) => updatePolicy('filter', value)}
+          onGroup={(value) => updatePolicy('group', value)}
+          onSort={(value) => updatePolicy('sort', value)}
+        />
+        {feedback ? (
+          <p className="sessions-feedback" role="status">
+            {feedback}
+          </p>
+        ) : null}
+        {lens === 'usage' ? (
+          <SessionsUsageLens
+            projection={snapshot}
+            rows={usageRows}
+            foreground={foreground}
+            selected={selected}
+            onSelect={setSelected}
+          />
+        ) : !foreground ? (
+          <SessionsOverviewNotice
+            title="Updates paused"
+            detail="Focus hvir to refresh Sessions."
+          />
+        ) : snapshot.status === 'pending' ? (
+          <SessionsOverviewNotice
+            title="Loading sessions"
+            detail="Reading the current hvir-owned session projection."
+          />
+        ) : snapshot.status === 'unavailable' ? (
+          <SessionsOverviewNotice
+            title="Sessions unavailable"
+            detail="The current projection could not be read."
+            action={
+              <button type="button" onClick={() => source.retry()}>
+                Retry
+              </button>
+            }
+          />
+        ) : snapshot.status === 'available' && snapshot.rows.length === 0 ? (
+          <SessionsOverviewNotice
+            title="No hvir sessions"
+            detail="Start a terminal from a workspace to see it here."
+          />
+        ) : snapshot.status === 'available' && rows.length === 0 ? (
+          <SessionsOverviewNotice
+            title="No sessions match"
+            detail={policyLabel}
+            action={
+              <button
+                type="button"
+                onClick={() => {
+                  setPolicy(DEFAULT_SESSIONS_OVERVIEW_POLICY)
+                  setSelected(undefined)
+                  setPageIndex(0)
+                  setFeedback(undefined)
+                }}
+              >
+                Reset filters
+              </button>
+            }
+          />
+        ) : (
+          <>
+            <nav className="sessions-pagination" aria-label="Sessions pages">
+              <p aria-live="polite">
+                Showing {page.start + 1}–{page.end} of {page.totalRows} sessions
+              </p>
+              {page.pageCount > 1 ? (
+                <div>
+                  <button
+                    type="button"
+                    disabled={page.pageIndex === 0}
+                    onClick={() => showPage(page.pageIndex - 1)}
+                  >
+                    Previous page
+                  </button>
+                  <span>
+                    Page {page.pageIndex + 1} of {page.pageCount}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={page.pageIndex + 1 >= page.pageCount}
+                    onClick={() => showPage(page.pageIndex + 1)}
+                  >
+                    Next page
+                  </button>
+                </div>
+              ) : null}
+            </nav>
+            <div className="sessions-groups" role="list" aria-label="hvir sessions">
+              {page.groups.map((group, groupIndex) => {
+                const headingId = group.label ? `sessions-group-${groupIndex}` : undefined
+                return (
+                  <section
+                    className={`sessions-group${group.label ? '' : ' ungrouped'}`}
+                    key={group.key}
+                    aria-labelledby={headingId}
+                  >
+                    {group.label ? <h2 id={headingId}>{group.label}</h2> : null}
+                    <div className="sessions-grid">
+                      {group.rows.map((row) => {
+                        const isSelected = selected === row.handle
+                        return (
+                          <article
+                            key={row.handle}
+                            className={`session-card${isSelected ? ' selected' : ''}`}
+                            role="listitem"
+                            aria-current={isSelected ? 'true' : undefined}
+                            aria-label={`${row.title}, ${row.provider.name}, ${row.project.name}, ${row.workspace.name}`}
+                            tabIndex={isSelected ? 0 : -1}
+                            ref={(element) => {
+                              if (element) rowElements.current.set(row.handle, element)
+                              else rowElements.current.delete(row.handle)
+                            }}
+                            onFocus={() => setSelected(row.handle)}
+                            onClick={() => setSelected(row.handle)}
+                            onKeyDown={(event) => {
+                              if (
+                                event.key === 'Enter' &&
+                                event.target === event.currentTarget
+                              ) {
+                                event.preventDefault()
+                                void open(row)
+                                return
+                              }
+                              moveFocus(event, row)
+                            }}
+                          >
+                            <SessionsOverviewCard
+                              row={row}
+                              opening={opening === row.handle}
+                              onOpen={() => void open(row)}
+                              onInteract={
+                                sessionsTerminalSurfaceEligible(row)
+                                  ? () => {
+                                      detailOrigin.current =
+                                        sessionsTerminalOverlayOrigin(
+                                          rowElements.current.get(row.handle),
+                                        )
+                                      detail.open(row, source.snapshot(), foreground)
+                                    }
+                                  : undefined
+                              }
+                            />
+                          </article>
+                        )
+                      })}
+                    </div>
+                  </section>
+                )
+              })}
+            </div>
+          </>
+        )}
+      </main>
+      {detailState.status !== 'inactive' ? (
+        <SessionsTerminalDetail
+          controller={detail}
+          state={detailState}
+          origin={detailOrigin.current}
+          onBack={() => {
+            pendingFocus.current = detail.selectedHandle()
+            detail.close()
+            detailOrigin.current = undefined
+          }}
+          onReturn={() => {
+            detail.close()
+            detailOrigin.current = undefined
+            onReturn()
+          }}
+        />
+      ) : null}
+    </>
   )
 }
 

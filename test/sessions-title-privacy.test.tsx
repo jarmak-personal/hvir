@@ -68,11 +68,14 @@ describe('Sessions title privacy', () => {
       await settle()
     })
 
-    expect(host.querySelector('h1')?.textContent).toBe('Codex · main')
+    expect(host.querySelector('.sessions-terminal-detail h1')?.textContent).toBe(
+      'Codex · main',
+    )
     expect(
       host.querySelector('.sessions-detail-terminal')?.getAttribute('aria-label'),
     ).toBe('Codex · main terminal')
     expect(host.innerHTML).not.toContain(privateHandle)
+    expect(host.innerHTML).not.toContain(livePty.handle)
     expect(host.innerHTML).not.toContain(privatePath)
   })
 
@@ -91,7 +94,6 @@ describe('Sessions title privacy', () => {
     )
     expect(host.querySelector('.sessions-detail-terminal')).toBeInstanceOf(HTMLElement)
   })
-
 })
 
 async function renderOverview(surface: SessionsTerminalSurfacePort): Promise<void> {

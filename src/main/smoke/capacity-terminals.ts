@@ -283,7 +283,7 @@ export async function verifyCapacitySessionsTerminalDetail(
           ) {
             detailEngine = current;
             const back = [...document.querySelectorAll('.sessions-detail-actions button')]
-              .find((button) => button.textContent?.trim() === 'Back to Sessions');
+              .find((button) => button.textContent?.trim() === 'Close');
             if (!(back instanceof HTMLButtonElement)) return fail('Sessions back control missing');
             back.click();
             return waitForRelease();

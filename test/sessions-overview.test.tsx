@@ -31,7 +31,6 @@ import type {
   SessionsTerminalSurfaceLease,
   SessionsTerminalSurfacePort,
 } from '../src/renderer/src/sessions/sessions-terminal-surface'
-
 let host: HTMLDivElement
 let root: Root
 let focused = true
@@ -44,7 +43,6 @@ beforeEach(() => {
   document.body.append(host)
   root = createRoot(host)
 })
-
 afterEach(() => {
   act(() => root.unmount())
   host.remove()
@@ -52,7 +50,6 @@ afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
-
 describe('SessionsOverview', () => {
   it('discloses policy, supports keyboard/filter/reset, hides opaque handles, and releases background demand', async () => {
     const api = installApi()
@@ -62,7 +59,6 @@ describe('SessionsOverview', () => {
         subscribe: () => () => undefined,
       },
     })
-
     expect(host.querySelector('h1')?.textContent).toBe('Sessions')
     expect(host.querySelectorAll('.session-card')).toHaveLength(2)
     expect(host.querySelector('.sessions-group h2')?.textContent).toBe('Project One')
@@ -83,7 +79,6 @@ describe('SessionsOverview', () => {
     expect(host.textContent).not.toContain('Quiet state')
     expect(host.textContent).not.toContain('Unsupported')
     expect(host.textContent).not.toContain('Unavailable · Not materialized')
-
     const shellCard = [...host.querySelectorAll<HTMLElement>('.session-card')].find(
       (card) => card.textContent?.includes('Shell terminal'),
     )!
@@ -222,11 +217,15 @@ describe('SessionsOverview', () => {
         rendererGeneration: 6,
       },
     })
-    expect(host.querySelector('h1')?.textContent).toBe('Agent terminal')
+    expect(host.querySelector('.sessions-terminal-detail h1')?.textContent).toBe(
+      'Agent terminal',
+    )
+    expect(host.querySelector('.sessions-terminal-detail')?.getAttribute('role')).toBe(
+      'dialog',
+    )
+    expect(host.querySelector('.sessions-overview')?.hasAttribute('inert')).toBe(true)
     expect(host.querySelectorAll('.sessions-detail-terminal')).toHaveLength(1)
     expect(host.querySelectorAll('.terminal-engine-host')).toHaveLength(1)
-    expect(host.innerHTML).not.toContain('terminal-private-agent')
-    expect(host.innerHTML).not.toContain('live-instance-agent')
     expect(lease.focus).toHaveBeenCalledOnce()
     expect(document.activeElement).toBe(engine)
     current = {
@@ -258,12 +257,13 @@ describe('SessionsOverview', () => {
     })
     expect(input).toHaveBeenCalledOnce()
     await act(async () => {
-      button('Back to Sessions').click()
+      button('Close').click()
       await settle()
     })
     expect(lease.release).toHaveBeenCalledOnce()
     expect(workspace.querySelector('.terminal-engine-host')).toBe(engine)
-    expect(host.querySelector('h1')?.textContent).toBe('Sessions')
+    expect(host.querySelector('.sessions-terminal-detail')).toBeNull()
+    expect(host.querySelector('.sessions-overview')?.hasAttribute('inert')).toBe(false)
     expect(document.activeElement).toBe(host.querySelector('.session-card'))
     await act(async () => {
       root.render(<div>Workspace</div>)
