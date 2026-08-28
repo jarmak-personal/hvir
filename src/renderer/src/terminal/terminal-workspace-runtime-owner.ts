@@ -2,7 +2,6 @@ import { TerminalRuntimeRegistry } from './terminal-runtime-registry'
 import type { TerminalWorkspaceController } from './use-terminal-workspace-move'
 import type { SessionsRendererSession } from '../sessions/sessions-renderer-observation'
 import type {
-  SessionsTerminalSurfaceCapabilityRequest,
   SessionsTerminalSurfacePort,
   SessionsTerminalSurfaceRequest,
 } from '../sessions/sessions-terminal-surface'
@@ -15,11 +14,6 @@ import type {
 interface ControllerWaiter {
   readonly resolve: () => void
   readonly reject: (reason: Error) => void
-}
-
-interface SessionsSurfaceEligibility {
-  readonly workspaceRuntimeIds: Set<string>
-  readonly workspaceQualifiers: Set<SessionsWorkspaceQualifier>
 }
 
 const PROJECTED_SESSION_FOCUS_FRAME_LIMIT = 12
@@ -41,24 +35,12 @@ export class TerminalWorkspaceRuntimeOwner {
     string,
     readonly SessionsRendererSession[]
   >()
-  private sessionsSurfaceEligibility = new Map<
-    SessionsTerminalHandle,
-    SessionsSurfaceEligibility
-  >()
   private readonly sessionsListeners = new Set<() => void>()
-  private readonly sessionsSurfaceListeners = new Set<() => void>()
   private readonly focusFrames = new Map<number, (focused: boolean) => void>()
   private focusGeneration = 0
   private materializedSnapshot: readonly string[] = []
   private materializedSessionsSnapshot: readonly SessionsRendererSession[] = []
-  private sessionsSurfaceRevision = 0
   private disposed = false
-
-  constructor() {
-    this.runtimes.subscribeSessionsSurfaceAvailability(() => {
-      this.publishSessionsSurfaceAvailability()
-    })
-  }
 
   snapshot = (): readonly string[] => this.materializedSnapshot
 
@@ -86,12 +68,6 @@ export class TerminalWorkspaceRuntimeOwner {
   }
 
   readonly sessionsSurface: SessionsTerminalSurfacePort = {
-    availabilityRevision: () => this.sessionsSurfaceRevision,
-    subscribeAvailability: (listener) => {
-      this.sessionsSurfaceListeners.add(listener)
-      return () => this.sessionsSurfaceListeners.delete(listener)
-    },
-    availability: (request) => this.sessionsSurfaceAvailability(request),
     acquire: (request) => this.acquireSessionsSurface(request),
   }
 
@@ -123,28 +99,7 @@ export class TerminalWorkspaceRuntimeOwner {
     if (this.disposed) {
       return { outcome: 'unavailable' as const, reason: 'runtime-not-ready' as const }
     }
-    if (
-      !this.sessionsSurfaceEligibility
-        .get(request.handle)
-        ?.workspaceRuntimeIds.has(request.workspaceRuntimeId)
-    ) {
-      return { outcome: 'unavailable' as const, reason: 'source-missing' as const }
-    }
     return this.runtimes.acquireSessionsSurface(request)
-  }
-
-  private sessionsSurfaceAvailability(request: SessionsTerminalSurfaceCapabilityRequest) {
-    if (this.disposed) {
-      return { outcome: 'unavailable' as const, reason: 'runtime-not-ready' as const }
-    }
-    if (
-      !this.sessionsSurfaceEligibility
-        .get(request.handle)
-        ?.workspaceQualifiers.has(request.workspaceQualifier)
-    ) {
-      return { outcome: 'unavailable' as const, reason: 'source-missing' as const }
-    }
-    return this.runtimes.sessionsSurfaceAvailability(request)
   }
 
   focusProjectedSession(
@@ -273,7 +228,6 @@ export class TerminalWorkspaceRuntimeOwner {
     this.materializedSnapshot = []
     this.listeners.clear()
     this.sessionsListeners.clear()
-    this.sessionsSurfaceListeners.clear()
     this.runtimes.dispose()
   }
 
@@ -312,12 +266,6 @@ export class TerminalWorkspaceRuntimeOwner {
     for (const listener of this.sessionsListeners) listener()
   }
 
-  private publishSessionsSurfaceAvailability(): void {
-    if (this.disposed) return
-    this.sessionsSurfaceRevision += 1
-    for (const listener of this.sessionsSurfaceListeners) listener()
-  }
-
   private refreshSessionsSources(): void {
     for (const [workspaceId, source] of this.sessionsSources) {
       this.sessionsSourceSnapshots.set(workspaceId, source())
@@ -328,60 +276,14 @@ export class TerminalWorkspaceRuntimeOwner {
 
   private rebuildSessionsMaterialization(): void {
     this.materializedSessionsSnapshot = [...this.sessionsSourceSnapshots.values()].flat()
-    const nextEligibility = new Map<
-      SessionsTerminalHandle,
-      SessionsSurfaceEligibility
-    >()
-    for (const [workspaceRuntimeId, sessions] of this.sessionsSourceSnapshots) {
-      for (const session of sessions) {
-        if (!sessionsSurfaceEligible(session)) continue
-        const eligibility = nextEligibility.get(session.handle) ?? {
-          workspaceRuntimeIds: new Set<string>(),
-          workspaceQualifiers: new Set<SessionsWorkspaceQualifier>(),
-        }
-        eligibility.workspaceRuntimeIds.add(workspaceRuntimeId)
-        eligibility.workspaceQualifiers.add(session.workspaceQualifier)
-        nextEligibility.set(session.handle, eligibility)
-      }
-    }
-    if (sessionsSurfaceEligibilityEqual(this.sessionsSurfaceEligibility, nextEligibility)) {
-      return
-    }
-    this.sessionsSurfaceEligibility = nextEligibility
-    this.publishSessionsSurfaceAvailability()
   }
 
   private clearSessionsMaterialization(): void {
     this.sessionsSourceSnapshots.clear()
     this.materializedSessionsSnapshot = []
-    if (this.sessionsSurfaceEligibility.size === 0) return
-    this.sessionsSurfaceEligibility = new Map()
-    this.publishSessionsSurfaceAvailability()
   }
 }
 
 function sessionsSurfaceEligible(session: SessionsRendererSession): boolean {
   return !session.dormant && !session.exited
-}
-
-function sessionsSurfaceEligibilityEqual(
-  left: ReadonlyMap<SessionsTerminalHandle, SessionsSurfaceEligibility>,
-  right: ReadonlyMap<SessionsTerminalHandle, SessionsSurfaceEligibility>,
-): boolean {
-  if (left.size !== right.size) return false
-  for (const [handle, leftEligibility] of left) {
-    const rightEligibility = right.get(handle)
-    if (
-      !rightEligibility ||
-      !setsEqual(leftEligibility.workspaceRuntimeIds, rightEligibility.workspaceRuntimeIds) ||
-      !setsEqual(leftEligibility.workspaceQualifiers, rightEligibility.workspaceQualifiers)
-    ) {
-      return false
-    }
-  }
-  return true
-}
-
-function setsEqual<T>(left: ReadonlySet<T>, right: ReadonlySet<T>): boolean {
-  return left.size === right.size && [...left].every((value) => right.has(value))
 }

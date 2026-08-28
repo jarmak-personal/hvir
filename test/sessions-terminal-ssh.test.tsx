@@ -15,7 +15,6 @@ import {
   asSessionsTerminalHandle,
   asSessionsWorkspaceRuntimeId,
   hostPath,
-  sessionsWorkspaceQualifier,
 } from '../src/shared'
 import { ghosttyLifecycleRuntimeOptions } from './fixtures/ghostty-lifecycle-runtime-options'
 import { ghosttyState } from './fixtures/ghostty-terminal-pane-mock'
@@ -180,7 +179,6 @@ describe('Sessions terminal detail over deterministic SSH', () => {
     const surface = workspace.querySelector('.terminal-engine-host')
     const acquisition = registry.acquireSessionsSurface({
       handle: asSessionsTerminalHandle('terminal-1'),
-      workspaceQualifier: sessionsWorkspaceQualifier(1, 0, 0),
       workspaceRuntimeId: asSessionsWorkspaceRuntimeId('workspace-runtime'),
       livePty: {
         handle: asSessionsPtyHandle(instanceId),

@@ -813,7 +813,7 @@ async function verifySessionsDetailInputAndResize(
         detail.style.justifySelf = 'start';
       })()
     `)
-    await delay(250)
+    await waitForSessionsDetailFit(win, initial)
     supervisor.write(
       terminal.id,
       terminal.ownerId,
@@ -867,6 +867,32 @@ async function waitForTerminalSize(
     `Sessions detail PTY omitted ${marker}`,
   )
   return { rows: Number(match![1]), cols: Number(match![2]) }
+}
+
+async function waitForSessionsDetailFit(
+  win: BrowserWindow,
+  initial: { readonly rows: number; readonly cols: number },
+): Promise<void> {
+  const deadline = Date.now() + 5_000
+  while (Date.now() <= deadline) {
+    const dimensions = (await win.webContents.executeJavaScript(`
+      (() => {
+        const engine = document.querySelector(
+          '.sessions-detail-terminal .terminal-engine-host',
+        );
+        const performance = engine?.__hvirTerminalPerformance;
+        return performance ? { rows: performance.rows, cols: performance.cols } : null;
+      })()
+    `)) as { readonly rows: number; readonly cols: number } | null
+    if (
+      dimensions &&
+      (dimensions.rows !== initial.rows || dimensions.cols !== initial.cols)
+    ) {
+      return
+    }
+    await delay(25)
+  }
+  throw new Error('Sessions detail terminal did not refit after its geometry changed')
 }
 
 async function waitForTerminalOutput(

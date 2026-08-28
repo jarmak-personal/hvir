@@ -62,7 +62,6 @@ describe('SessionsTerminalDetailController', () => {
     await Promise.resolve()
     expect(acquire).toHaveBeenCalledExactlyOnceWith({
       handle: 'terminal-1',
-      workspaceQualifier: '2:0:0',
       workspaceRuntimeId: 'workspace-runtime',
       livePty: {
         handle: 'pty-1',
@@ -77,6 +76,8 @@ describe('SessionsTerminalDetailController', () => {
     expect(lease.focus).not.toHaveBeenCalled()
     frames.run()
     expect(lease.setVisible).toHaveBeenCalledExactlyOnceWith(container, true)
+    expect(lease.focus).not.toHaveBeenCalled()
+    frames.run()
     expect(lease.focus).toHaveBeenCalledExactlyOnceWith(container)
     expect(controller.snapshot().status).toBe('ready')
 
@@ -129,7 +130,6 @@ describe('SessionsTerminalDetailController', () => {
     expect(firstLease.renew).toHaveBeenCalledWith(
       expect.objectContaining({
         demandGeneration: 1,
-        workspaceQualifier: '9:1:0',
         projectionRevision: 2,
         sourceRevision: 6,
       }),
@@ -378,7 +378,6 @@ describe('SessionsTerminalDetailController', () => {
   })
 
   it.each([
-    ['source-missing', 'This terminal no longer has a current workspace surface.'],
     ['runtime-not-ready', 'This terminal surface is not ready for interaction.'],
     ['instance-mismatch', 'The live terminal changed before interaction began.'],
     ['lease-conflict', 'This terminal surface is already being shown elsewhere.'],
@@ -459,9 +458,6 @@ function surfacePort(
   acquire: SessionsTerminalSurfacePort['acquire'],
 ): SessionsTerminalSurfacePort {
   return {
-    availabilityRevision: () => 0,
-    subscribeAvailability: () => () => undefined,
-    availability: () => ({ outcome: 'available' }),
     acquire,
   }
 }

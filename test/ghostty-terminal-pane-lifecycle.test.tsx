@@ -14,7 +14,6 @@ import {
   asSessionsPtyHandle,
   asSessionsTerminalHandle,
   asSessionsWorkspaceRuntimeId,
-  sessionsWorkspaceQualifier,
 } from '../src/shared'
 import { ghosttyLifecycleRuntimeOptions as runtimeOptions } from './fixtures/ghostty-lifecycle-runtime-options'
 import { ghosttyState, ghosttyWebMock } from './fixtures/ghostty-terminal-pane-mock'
@@ -1150,7 +1149,6 @@ describe('GhosttyTerminalPane lifecycle', () => {
 function sessionsSurfaceRequest(projectionRevision: number) {
   return {
     handle: asSessionsTerminalHandle('terminal-1'),
-    workspaceQualifier: sessionsWorkspaceQualifier(1, 0, 0),
     workspaceRuntimeId: asSessionsWorkspaceRuntimeId('workspace-runtime'),
     livePty: {
       handle: asSessionsPtyHandle('instance-1'),

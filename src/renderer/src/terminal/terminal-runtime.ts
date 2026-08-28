@@ -63,7 +63,6 @@ export class TerminalRuntime {
       hostId: string,
       signal: AbortSignal,
     ) => Promise<() => void>,
-    private readonly onSessionsSurfaceAvailabilityChange: () => void = () => undefined,
   ) {
     this.options = options
     this.sessionsSurface = new TerminalSessionsSurfaceOwner(
@@ -77,7 +76,6 @@ export class TerminalRuntime {
         connected: this.options.connectionState === 'connected',
         focused: () => this.options.onFocus(),
       }),
-      this.onSessionsSurfaceAvailabilityChange,
     )
     this.interactions = new TerminalRuntimeInteractions(
       options.fallbackTitle,
@@ -201,12 +199,6 @@ export class TerminalRuntime {
     request: SessionsTerminalSurfaceRequest,
   ): ReturnType<TerminalSessionsSurfaceOwner['acquire']> {
     return this.sessionsSurface.acquire(request)
-  }
-
-  sessionsSurfaceAvailability(
-    request: Pick<SessionsTerminalSurfaceRequest, 'handle' | 'livePty'>,
-  ) {
-    return this.sessionsSurface.availability(request)
   }
 
   restart(): void {
@@ -378,7 +370,6 @@ export class TerminalRuntime {
       this.hasStarted = true
       this.activePtyId = result.id
       this.activePtyInstanceId = result.instanceId
-      this.onSessionsSurfaceAvailabilityChange()
       this.interactions.bind(pane, result.id)
       const status = result.reattached
         ? `Reattached · pid ${result.pid}`
@@ -520,7 +511,6 @@ export class TerminalRuntime {
           this.started = false
           this.activePtyId = undefined
           this.activePtyInstanceId = undefined
-          this.onSessionsSurfaceAvailabilityChange()
           this.interactions.revoke(false)
           this.updateSnapshot({
             ...this.currentSnapshot,
@@ -568,7 +558,6 @@ export class TerminalRuntime {
     this.started = false
     this.activePtyId = undefined
     this.activePtyInstanceId = undefined
-    this.onSessionsSurfaceAvailabilityChange()
   }
 
   private revokeSessionsSurface(reason: SessionsTerminalSurfaceRevocationReason): void {

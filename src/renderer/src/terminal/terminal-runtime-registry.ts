@@ -3,14 +3,10 @@ import { TerminalEventRouter } from './terminal-event-router'
 import { TerminalRuntime } from './terminal-runtime'
 import type { TerminalRuntimeOptions } from './terminal-runtime-options'
 import type { TerminalRuntimeSnapshot } from './terminal-runtime-presentation'
-import type {
-  SessionsTerminalSurfaceAvailability,
-  SessionsTerminalSurfaceRequest,
-} from '../sessions/sessions-terminal-surface'
+import type { SessionsTerminalSurfaceRequest } from '../sessions/sessions-terminal-surface'
 
 export class TerminalRuntimeRegistry {
   private readonly runtimes = new Map<string, TerminalRuntime>()
-  private readonly sessionsSurfaceAvailabilityListeners = new Set<() => void>()
   private eventRouter?: TerminalEventRouter
   private readonly startAdmission = new TerminalStartAdmission(2)
 
@@ -35,7 +31,6 @@ export class TerminalRuntimeRegistry {
         this.runtimes.set(nextId, value)
       },
       (hostId, signal) => this.startAdmission.acquire(hostId, signal),
-      () => this.publishSessionsSurfaceAvailability(),
     )
     this.runtimes.set(options.sessionId, runtime)
     return runtime
@@ -84,31 +79,11 @@ export class TerminalRuntimeRegistry {
     )
   }
 
-  sessionsSurfaceAvailability(
-    request: Pick<SessionsTerminalSurfaceRequest, 'handle' | 'livePty'>,
-  ): SessionsTerminalSurfaceAvailability {
-    return (
-      this.runtimes.get(request.handle)?.sessionsSurfaceAvailability(request) ?? {
-        outcome: 'unavailable',
-        reason: 'runtime-not-ready',
-      }
-    )
-  }
-
-  subscribeSessionsSurfaceAvailability = (listener: () => void): (() => void) => {
-    this.sessionsSurfaceAvailabilityListeners.add(listener)
-    return () => this.sessionsSurfaceAvailabilityListeners.delete(listener)
-  }
-
   dispose(): void {
     for (const runtime of this.runtimes.values()) runtime.dispose()
     this.runtimes.clear()
-    this.sessionsSurfaceAvailabilityListeners.clear()
     this.eventRouter?.dispose()
     this.eventRouter = undefined
   }
 
-  private publishSessionsSurfaceAvailability(): void {
-    for (const listener of this.sessionsSurfaceAvailabilityListeners) listener()
-  }
 }
