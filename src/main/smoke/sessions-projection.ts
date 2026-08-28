@@ -15,6 +15,7 @@ import type { ProjectHost } from '../project-host'
 import type { RendererOwner, RendererResourceScopes } from '../renderer-resource-scopes'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import { SESSIONS_USAGE_SMOKE_TOTAL } from './sessions-usage-provider'
+import { captureSessionsVisuals } from './sessions-visual'
 
 const USAGE_SESSION_ID = '00000000-0000-4000-8000-000000006511'
 const USAGE_SESSION_TITLE = 'Usage cumulative fixture'
@@ -33,6 +34,7 @@ export async function verifySessionsProjectionSmoke(options: {
   readonly supervisor: PtySupervisor
   readonly usageHost: ProjectHost
   readonly usageProvider: HarnessProvider
+  readonly captureDirectory?: HostPath
 }): Promise<string> {
   const {
     win,
@@ -47,6 +49,7 @@ export async function verifySessionsProjectionSmoke(options: {
     supervisor,
     usageHost,
     usageProvider,
+    captureDirectory,
   } = options
   publishState(state)
   roots.forEach((root, index) =>
@@ -246,6 +249,7 @@ export async function verifySessionsProjectionSmoke(options: {
       poll();
     });
   `)
+  const captures = await captureSessionsVisuals(win, usageHost, captureDirectory)
   const overviewStatus = await verifySessionsOverview(
     win,
     [...roots, state.root],
@@ -268,7 +272,8 @@ export async function verifySessionsProjectionSmoke(options: {
   const pickerStatus = await verifySessionsProjectPickerReturn(win)
   const hiddenTerminalStatus = await ensureSessionsLiveTerminal(win, supervisor)
   const hiddenStatus = await verifySessionsHiddenRelease(win)
-  return `cross-project/worktree + renderer rollover + stale Open + quiet release + ${terminalStatus} + ${overviewStatus} + ${pickerStatus} + hidden ${hiddenTerminalStatus} + ${hiddenStatus}`
+  const captureStatus = captures.length > 0 ? ` + ${captures.length} visual captures` : ''
+  return `cross-project/worktree + renderer rollover + stale Open + quiet release + ${terminalStatus}${captureStatus} + ${overviewStatus} + ${pickerStatus} + hidden ${hiddenTerminalStatus} + ${hiddenStatus}`
 }
 
 async function verifySessionsProjectPickerReturn(win: BrowserWindow): Promise<string> {
