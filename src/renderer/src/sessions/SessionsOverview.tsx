@@ -41,7 +41,6 @@ import {
   sessionsOverviewGroups,
   sessionsOverviewPage,
   sessionsOverviewPolicyLabel,
-  sessionsOverviewProjectRows,
   sessionsOverviewRows,
   type SessionsOverviewPolicy,
 } from './sessions-overview-model'
@@ -121,13 +120,9 @@ export function SessionsOverview({
     [],
   )
 
-  const projectRows = useMemo(
-    () => sessionsOverviewProjectRows(snapshot.rows, snapshot.activeProject),
-    [snapshot.activeProject, snapshot.rows],
-  )
   const allGroups = useMemo(
-    () => sessionsOverviewGroups(projectRows, policy),
-    [policy, projectRows],
+    () => sessionsOverviewGroups(snapshot.rows, policy),
+    [policy, snapshot.rows],
   )
   const rows = useMemo(() => sessionsOverviewRows(allGroups), [allGroups])
   const handles = useMemo(() => rows.map((row) => row.handle), [rows])
@@ -306,10 +301,10 @@ export function SessionsOverview({
               </button>
             }
           />
-        ) : snapshot.status === 'available' && projectRows.length === 0 ? (
+        ) : snapshot.status === 'available' && snapshot.rows.length === 0 ? (
           <SessionsOverviewNotice
-            title="No sessions in this project"
-            detail="Start a terminal in this project to see it here."
+            title="No hvir sessions"
+            detail="Start a terminal from a workspace to see it here."
           />
         ) : snapshot.status === 'available' && rows.length === 0 ? (
           <SessionsOverviewNotice

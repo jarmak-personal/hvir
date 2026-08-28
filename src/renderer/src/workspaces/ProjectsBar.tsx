@@ -314,7 +314,7 @@ export function ProjectsBar({
           </button>
           <span className="projects-bar-spacer" />
         </nav>
-        {activeProject && showWorkspacesBar ? (
+        {activeProject && showWorkspacesBar && !sessionsActive ? (
           <nav
             className="workspaces-bar"
             aria-label="Workspaces"

@@ -268,7 +268,7 @@ export async function verifySessionsProjectionSmoke(options: {
   const pickerStatus = await verifySessionsProjectPickerReturn(win)
   const hiddenTerminalStatus = await ensureSessionsLiveTerminal(win, supervisor)
   const hiddenStatus = await verifySessionsHiddenRelease(win)
-  return `active-project worktrees + renderer rollover + stale Open + quiet release + ${terminalStatus} + ${overviewStatus} + ${pickerStatus} + hidden ${hiddenTerminalStatus} + ${hiddenStatus}`
+  return `cross-project/worktree + renderer rollover + stale Open + quiet release + ${terminalStatus} + ${overviewStatus} + ${pickerStatus} + hidden ${hiddenTerminalStatus} + ${hiddenStatus}`
 }
 
 async function verifySessionsProjectPickerReturn(win: BrowserWindow): Promise<string> {
@@ -496,7 +496,7 @@ async function verifySessionsOverview(
       const ready = () => {
         const overview = document.querySelector('.sessions-overview');
         const cards = overview ? [...overview.querySelectorAll('.session-card')] : [];
-        if (!overview || cards.length < 3) return wait(ready, 'overview readiness');
+        if (!overview || cards.length < 5) return wait(ready, 'overview readiness');
         try {
           const text = overview.textContent || '';
           const workbench = document.querySelector('.workbench');
@@ -507,11 +507,14 @@ async function verifySessionsOverview(
             throw new Error('Sessions destination did not expose current navigation state');
           }
           if (
-            !text.includes('feature/sessions') ||
-            text.includes('Secondary project') ||
-            text.includes('Disconnected project')
+            !text.includes('Primary project') ||
+            !text.includes('Secondary project') ||
+            !text.includes('Disconnected project')
           ) {
-            throw new Error('Sessions overview did not stay within the active project');
+            throw new Error('Sessions overview omitted cross-project or disconnected rows');
+          }
+          if (document.querySelector('.workspaces-bar')) {
+            throw new Error('Sessions retained active-project workspace navigation');
           }
           if (button('Usage', overview)) throw new Error('retired Usage lens remained visible');
           if (
@@ -529,10 +532,11 @@ async function verifySessionsOverview(
           if (harnessRail) throw new Error('legacy Harness rail placeholder remained');
 
           const interact = () => {
-            const currentCards = [...overview.querySelectorAll('.session-card')];
-            const retained = currentCards.find((card) =>
-              button('Open', card) && !button('Interact', card)
+            const primaryGroup = [...overview.querySelectorAll('.sessions-group')].find(
+              (group) => group.querySelector('h2')?.textContent?.includes('Primary project')
             );
+            const retained = [...(primaryGroup?.querySelectorAll('.session-card') ?? [])]
+              .find((card) => button('Open', card) && !button('Interact', card));
             if (!(retained instanceof HTMLElement)) {
               return reject(new Error('Sessions overview lacked a retained session row'));
             }
@@ -659,7 +663,7 @@ async function verifySessionsOverview(
                     ) {
                       return wait(focused, 'exact terminal focus');
                     }
-                    resolve('active-project overview + filters + retained refusal + one exact interactive detail/input/restore + exact live Open/focus');
+                    resolve('application-wide overview + filters + retained refusal + one exact interactive detail/input/restore + exact live Open/focus');
                   };
                   attached();
                 };

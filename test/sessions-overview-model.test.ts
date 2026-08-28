@@ -7,7 +7,6 @@ import {
   sessionsOverviewFocusFallback,
   sessionsOverviewGroups,
   sessionsOverviewPage,
-  sessionsOverviewProjectRows,
   sessionsOverviewRows,
 } from '../src/renderer/src/sessions/sessions-overview-model'
 import {
@@ -142,19 +141,6 @@ describe('Sessions overview policy', () => {
     )
   })
 
-  it('scopes the collection by its opaque active project identity', () => {
-    const rows = [
-      row('current', { project: 'Current' }),
-      row('previous', { project: 'Previous' }),
-    ]
-
-    expect(
-      sessionsOverviewProjectRows(rows, asSessionsProjectHandle('project-Current')).map(
-        (candidate) => candidate.handle,
-      ),
-    ).toEqual(['current'])
-    expect(sessionsOverviewProjectRows(rows, undefined)).toEqual([])
-  })
 })
 
 function filtered(
