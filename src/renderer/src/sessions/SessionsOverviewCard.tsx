@@ -4,7 +4,7 @@ import type { SessionsProjectionRow } from '../../../shared'
 import { ProviderContextMeter } from '../harness/ProviderContextMeter'
 import {
   sessionsOverviewCardFacts,
-  sessionsOverviewCardTitle,
+  sessionsOverviewCardIdentity,
   type SessionsOverviewGroup,
   type SessionsOverviewCardFact,
 } from './sessions-overview-model'
@@ -23,19 +23,13 @@ export function SessionsOverviewCard({
   readonly onInteract?: () => void
 }): ReactElement {
   const presentation = sessionsOverviewCardFacts(row)
-  const title = sessionsOverviewCardTitle(row, group)
+  const identity = sessionsOverviewCardIdentity(row, group)
   return (
     <>
       <header>
         <div className="session-card-identity">
-          <span className={`session-kind ${row.provider.kind}`}>
-            {row.provider.kind === 'agent'
-              ? 'Agent'
-              : row.provider.kind === 'shell'
-                ? 'Shell'
-                : 'Terminal'}
-          </span>
-          <h3>{title}</h3>
+          <span className={`session-kind ${row.provider.kind}`}>{identity.label}</span>
+          <h3>{identity.title}</h3>
         </div>
         <div className="session-card-actions">
           {onInteract ? (

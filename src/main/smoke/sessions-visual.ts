@@ -129,6 +129,13 @@ async function installPrivacyTreatment(win: BrowserWindow): Promise<void> {
         html[data-hvir-sessions-capture='true'] .sessions-detail-header p {
           display: none !important;
         }
+        html[data-hvir-sessions-capture='true'] .session-kind.agent {
+          font-size: 0 !important;
+        }
+        html[data-hvir-sessions-capture='true'] .session-kind.agent::after {
+          content: 'Agent';
+          font-size: calc(7px * var(--hvir-interface-scale));
+        }
         html[data-hvir-sessions-capture='true'] .session-kind.agent + h3 {
           font-size: 0 !important;
         }

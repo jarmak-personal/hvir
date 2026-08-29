@@ -38,7 +38,7 @@ import {
   DEFAULT_SESSIONS_OVERVIEW_POLICY,
   SESSIONS_OVERVIEW_PAGE_SIZE,
   sessionsOverviewFocusFallback,
-  sessionsOverviewCardTitle,
+  sessionsOverviewCardIdentity,
   sessionsOverviewGroups,
   sessionsOverviewPage,
   sessionsOverviewPolicyLabel,
@@ -384,14 +384,17 @@ export function SessionsOverview({
                       {group.rows.map((row) => {
                         const isSelected = selected === row.handle
                         const liveTerminal = sessionsTerminalSurfaceEligible(row)
-                        const cardTitle = sessionsOverviewCardTitle(row, policy.group)
+                        const cardIdentity = sessionsOverviewCardIdentity(
+                          row,
+                          policy.group,
+                        )
                         return (
                           <article
                             key={row.handle}
                             className={`session-card${isSelected ? ' selected' : ''}`}
                             role="listitem"
                             aria-current={isSelected ? 'true' : undefined}
-                            aria-label={cardTitle}
+                            aria-label={cardIdentity.accessibleName}
                             tabIndex={isSelected ? 0 : -1}
                             ref={(element) => {
                               if (element) rowElements.current.set(row.handle, element)

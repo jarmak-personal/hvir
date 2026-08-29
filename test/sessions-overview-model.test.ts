@@ -4,7 +4,7 @@ import {
   DEFAULT_SESSIONS_OVERVIEW_POLICY,
   SESSIONS_OVERVIEW_PAGE_SIZE,
   sessionsOverviewCardFacts,
-  sessionsOverviewCardTitle,
+  sessionsOverviewCardIdentity,
   sessionsOverviewFocusFallback,
   sessionsOverviewGroups,
   sessionsOverviewPage,
@@ -166,22 +166,73 @@ describe('Sessions overview policy', () => {
       workspace: 'feature',
     })
 
-    expect(sessionsOverviewCardTitle(fixture, 'workspace')).toBe('Review release notes')
-    expect(sessionsOverviewCardTitle(fixture, 'project')).toBe(
-      'Review release notes · feature',
-    )
-    expect(sessionsOverviewCardTitle(fixture, 'none')).toBe(
-      'Review release notes · Project One / feature',
-    )
+    expect(sessionsOverviewCardIdentity(fixture, 'workspace')).toEqual({
+      label: 'Codex',
+      title: 'Review release notes',
+      accessibleName: 'Codex · Review release notes',
+    })
+    expect(sessionsOverviewCardIdentity(fixture, 'project')).toEqual({
+      label: 'Codex',
+      title: 'Review release notes · feature',
+      accessibleName: 'Codex · Review release notes · feature',
+    })
+    expect(sessionsOverviewCardIdentity(fixture, 'none')).toEqual({
+      label: 'Codex',
+      title: 'Review release notes · Project One / feature',
+      accessibleName: 'Codex · Review release notes · Project One / feature',
+    })
   })
 
   it('uses a generic provider label when the projected title is unavailable', () => {
-    expect(sessionsOverviewCardTitle(row('agent', { title: '' }), 'workspace')).toBe(
-      'Codex session',
-    )
     expect(
-      sessionsOverviewCardTitle(row('shell', { title: '', kind: 'shell' }), 'workspace'),
-    ).toBe('Shell terminal')
+      sessionsOverviewCardIdentity(row('agent', { title: '' }), 'workspace'),
+    ).toEqual({
+      label: 'Codex',
+      title: 'Codex session',
+      accessibleName: 'Codex session',
+    })
+    expect(
+      sessionsOverviewCardIdentity(
+        row('shell', { title: '', kind: 'shell' }),
+        'workspace',
+      ),
+    ).toEqual({
+      label: 'Shell',
+      title: 'Shell terminal',
+      accessibleName: 'Shell terminal',
+    })
+  })
+
+  it('does not repeat a provider already carried by the projected title', () => {
+    expect(
+      sessionsOverviewCardIdentity(
+        row('provider-title', { title: 'Codex · main' }),
+        'workspace',
+      ),
+    ).toEqual({
+      label: 'Codex',
+      title: 'Codex · main',
+      accessibleName: 'Codex · main',
+    })
+  })
+
+  it('distinguishes the same human title across agent providers', () => {
+    const codex = row('codex', { title: 'Review release notes' })
+    const claude = {
+      ...codex,
+      provider: {
+        ...codex.provider,
+        id: asHarnessProviderId('claude-code'),
+        name: 'Claude Code',
+      },
+    }
+
+    expect(sessionsOverviewCardIdentity(codex, 'workspace').accessibleName).toBe(
+      'Codex · Review release notes',
+    )
+    expect(sessionsOverviewCardIdentity(claude, 'workspace').accessibleName).toBe(
+      'Claude Code · Review release notes',
+    )
   })
 })
 

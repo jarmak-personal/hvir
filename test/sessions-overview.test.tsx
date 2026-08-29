@@ -69,7 +69,7 @@ describe('SessionsOverview', () => {
     )
     expect(host.innerHTML).not.toContain('terminal-private-agent')
     expect(host.innerHTML).not.toContain('terminal-private-shell')
-    expect(host.textContent).toContain('Agent')
+    expect(host.textContent).toContain('Codex')
     expect(host.textContent).toContain('Shell')
     expect(host.textContent).not.toContain('Lifecycle')
     expect(host.textContent).not.toContain('HostLocal · Connected')
@@ -89,6 +89,8 @@ describe('SessionsOverview', () => {
     const shellCard = [...host.querySelectorAll<HTMLElement>('.session-card')].find(
       (card) => card.textContent?.includes('Deploy preview shell'),
     )!
+    expect(shellCard.querySelector('.session-kind')?.textContent).toBe('Shell')
+    expect(shellCard.getAttribute('aria-label')).toBe('Shell · Deploy preview shell')
     expect(shellCard.querySelectorAll('.session-fact')).toHaveLength(0)
     expect(shellCard.querySelector('.session-fact-summary')).toBeNull()
     expect(
@@ -100,6 +102,8 @@ describe('SessionsOverview', () => {
     const agentCard = [...host.querySelectorAll<HTMLElement>('.session-card')].find(
       (card) => card.textContent?.includes('Review release notes'),
     )!
+    expect(agentCard.querySelector('.session-kind')?.textContent).toBe('Codex')
+    expect(agentCard.getAttribute('aria-label')).toBe('Codex · Review release notes')
     expect(
       [...agentCard.querySelectorAll<HTMLButtonElement>('button')].map((action) =>
         action.textContent?.trim(),
@@ -186,6 +190,9 @@ describe('SessionsOverview', () => {
     expect(host.querySelector('.sessions-group h2')).toBeNull()
     expect(host.querySelector('.session-card h3')?.textContent).toBe(
       'Review release notes · Project One / main',
+    )
+    expect(host.querySelector('.session-card')?.getAttribute('aria-label')).toBe(
+      'Codex · Review release notes · Project One / main',
     )
   })
 
