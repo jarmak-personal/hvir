@@ -41,6 +41,7 @@ describe('Harness providers', () => {
     expect(claudeCodeProvider.supportsResume).toBe(true)
     expect(claudeCodeProvider.sessionIdentity).toBe('preassigned')
     expect(claudeCodeProvider.telemetry).toBeDefined()
+    expect(claudeCodeProvider.usageTelemetry).toBeDefined()
   })
 
   it('resumes an exactly discovered Codex session id', () => {
@@ -62,6 +63,7 @@ describe('Harness providers', () => {
     expect(codexProvider.supportsResume).toBe(true)
     expect(codexProvider.sessionIdentity).toBe('discovered')
     expect(codexProvider.sessionDiscovery).toBeDefined()
+    expect(codexProvider.usageTelemetry).toBeDefined()
   })
 
   it('lets Codex own intentional-submit behavior inside its composer', () => {
@@ -396,6 +398,7 @@ describe('Harness providers', () => {
       expect(provider.sessionIdentity).toBe('none')
       expect(provider.supportsResume).toBe(false)
       expect(provider.telemetry).toBeUndefined()
+      expect(provider.usageTelemetry).toBeUndefined()
       return [id, provider.launch(context).file]
     })
     expect(actual).toEqual([
@@ -436,6 +439,7 @@ describe('Harness providers', () => {
       manifest: {
         id: asHarnessProviderId('test-provider'),
         displayName: 'Test',
+        sessionKind: 'agent',
         default: true,
         contextPresentation: 'none',
       },

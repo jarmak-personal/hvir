@@ -38,11 +38,11 @@ describe('Electron smoke scenario selection', () => {
   it('rejects unknown groups with the complete reproducible name set', () => {
     expect(() => parseElectronSmokeScenario('unknown')).toThrow(
       "Unknown Electron smoke scenario 'unknown'. Expected one of: " +
-        'pty-native, viewer-position, viewer-content, git-workflow, workspace-remote, web-pane, renderer-authority, platform-contracts, diagnostic-report-restart, renderer-recovery, document-review, development-performance, terminal-presentation, terminal-lifecycle, legacy-workflow, capacity',
+        'pty-native, viewer-position, viewer-content, git-workflow, workspace-remote, web-pane, renderer-authority, platform-contracts, diagnostic-report-restart, renderer-recovery, sessions-projection, document-review, development-performance, terminal-presentation, terminal-lifecycle, legacy-workflow, capacity',
     )
     expect(() => selectedSmokeScenarios('unknown')).toThrow(
       "Unknown Electron smoke scenario 'unknown'. Expected one of: " +
-        'pty-native, viewer-position, viewer-content, git-workflow, workspace-remote, web-pane, renderer-authority, platform-contracts, diagnostic-report-restart, renderer-recovery, document-review, development-performance, terminal-presentation, terminal-lifecycle, legacy-workflow, capacity',
+        'pty-native, viewer-position, viewer-content, git-workflow, workspace-remote, web-pane, renderer-authority, platform-contracts, diagnostic-report-restart, renderer-recovery, sessions-projection, document-review, development-performance, terminal-presentation, terminal-lifecycle, legacy-workflow, capacity',
     )
   })
 
@@ -744,13 +744,13 @@ describe('Electron smoke command contracts', () => {
   it('separates correctness, hosted evidence, and controlled performance commands', () => {
     expect(packageJson.scripts.smoke).toContain('node scripts/run-smoke-scenarios.mts')
     expect(packageJson.scripts.smoke).toContain(
-      'viewer-position viewer-content git-workflow workspace-remote web-pane renderer-authority renderer-recovery document-review terminal-presentation terminal-lifecycle legacy-workflow',
+      'viewer-position viewer-content git-workflow workspace-remote web-pane renderer-authority renderer-recovery sessions-projection document-review terminal-presentation terminal-lifecycle legacy-workflow',
     )
     expect(packageJson.scripts['smoke:macos']).toContain(
-      'node scripts/run-smoke-scenarios.mts pty-native viewer-position viewer-content git-workflow workspace-remote web-pane renderer-authority platform-contracts renderer-recovery document-review terminal-presentation terminal-lifecycle',
+      'node scripts/run-smoke-scenarios.mts pty-native viewer-position viewer-content git-workflow workspace-remote web-pane renderer-authority platform-contracts renderer-recovery sessions-projection document-review terminal-presentation terminal-lifecycle',
     )
     expect(packageJson.scripts['smoke:macos:ci']).toContain(
-      'node scripts/run-smoke-scenarios.mts pty-native viewer-position viewer-content git-workflow workspace-remote web-pane renderer-authority platform-contracts renderer-recovery document-review',
+      'node scripts/run-smoke-scenarios.mts pty-native viewer-position viewer-content git-workflow workspace-remote web-pane renderer-authority platform-contracts renderer-recovery sessions-projection document-review',
     )
     expect(packageJson.scripts['smoke:macos:ci']).not.toContain('terminal-presentation')
     expect(packageJson.scripts['smoke:macos:ci']).not.toContain('terminal-lifecycle')
@@ -879,9 +879,7 @@ describe('Electron smoke command contracts', () => {
     expect(layoutFocusScenario).toContain(
       "input.__hvirTerminalDelivery?.presentation === 'visible'",
     )
-    expect(layoutFocusScenario).toContain(
-      '!engine.__hvirTerminalPerformance?.paused',
-    )
+    expect(layoutFocusScenario).toContain('!engine.__hvirTerminalPerformance?.paused')
     expect(layoutFocusScenario).toContain('!document.hasFocus()')
     expect(layoutFocusScenario).toContain('input.focus()')
     expect(layoutFocusScenario).not.toContain('app.focus(')

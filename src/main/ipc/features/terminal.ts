@@ -253,6 +253,7 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
         return {
           outcome: 'started',
           id: retained.id,
+          instanceId: retained.instanceId,
           pid: retained.pid,
           harnessSessionId: retained.harnessSessionId,
           identityStatus: retained.identityStatus,
@@ -382,6 +383,7 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
     return {
       outcome: 'started',
       id: managed.id,
+      instanceId: managed.instanceId,
       pid: managed.pid,
       harnessSessionId: managed.harnessSessionId,
       identityStatus: managed.identityStatus,

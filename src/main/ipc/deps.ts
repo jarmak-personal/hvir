@@ -35,6 +35,8 @@ import type {
   DocumentReviewCoordinator,
   DocumentReviewDeliveryCoordinator,
 } from '../document-review'
+import type { SessionsObservationPort } from '../sessions/sessions-observation-port'
+import type { SessionsUsageObservationPort } from '../sessions/sessions-usage-observation-port'
 
 export type EmitRendererEvent = <E extends IpcEventChannel>(
   channel: E,
@@ -154,6 +156,14 @@ export interface IpcDeps {
   ) => void
   readonly ptySupervisor: PtySupervisor
   readonly terminalSessions: TerminalSessionStore
+  readonly sessionsObservation: Pick<
+    SessionsObservationPort,
+    'acquire' | 'snapshot' | 'release' | 'resolveOpen'
+  >
+  readonly sessionsUsage: Pick<
+    SessionsUsageObservationPort,
+    'acquire' | 'snapshot' | 'release'
+  >
   readonly terminalMoves: Pick<TerminalWorkspaceMoveCoordinator, 'plan' | 'move'>
   readonly harnessProfiles: HarnessProfileStoreContract
   readonly harnessProbes: HarnessProbeManager

@@ -14,6 +14,10 @@
   background: #0f1115;
 }
 
+.workbench[hidden] {
+  display: none;
+}
+
 .workbench.terminal-focused {
   grid-template-rows: 0 1px minmax(0, 1fr);
 }
@@ -126,42 +130,4 @@
   height: 28px;
   flex-basis: 28px;
   background: #15181e;
-}
-
-.harness-placeholder {
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  text-align: center;
-}
-
-.harness-placeholder-copy {
-  max-width: 190px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 7px;
-}
-
-.harness-placeholder-copy strong {
-  color: var(--text-strong);
-  font-size: calc(12px * var(--hvir-interface-scale));
-}
-
-.harness-placeholder-copy span {
-  padding: 2px 7px;
-  border: 1px solid var(--border-strong);
-  border-radius: 999px;
-  color: var(--text-muted);
-  font-size: calc(8px * var(--hvir-interface-scale));
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.harness-placeholder-copy p {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: calc(10px * var(--hvir-interface-scale));
-  line-height: 1.45;
 }

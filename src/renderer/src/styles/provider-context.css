@@ -1,0 +1,56 @@
+.provider-context {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  color: #7f8996;
+  font-size: calc(9px * var(--hvir-interface-scale));
+  font-variant-numeric: tabular-nums;
+}
+
+.provider-context.count-display {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.provider-context-track {
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: #303641;
+}
+
+.provider-context-fill {
+  height: 100%;
+  display: block;
+  border-radius: inherit;
+  background: #7f93aa;
+}
+
+.provider-context.count-only .provider-context-track {
+  opacity: 0.45;
+}
+
+.provider-context.warning {
+  color: #d4a84f;
+}
+
+.provider-context.warning .provider-context-fill {
+  background: #d4a84f;
+}
+
+.provider-context.unavailable,
+.provider-context.critical {
+  color: #dc6b78;
+}
+
+.provider-context.critical .provider-context-fill {
+  background: #dc6b78;
+}
+
+.provider-context-value {
+  text-align: right;
+  white-space: nowrap;
+}

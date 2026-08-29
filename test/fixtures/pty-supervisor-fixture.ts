@@ -210,6 +210,7 @@ function testHarnessProvider(): HarnessProvider {
     manifest: {
       id: asHarnessProviderId('test'),
       displayName: 'Test',
+      sessionKind: 'agent',
       contextPresentation: 'none',
     },
     profile: {

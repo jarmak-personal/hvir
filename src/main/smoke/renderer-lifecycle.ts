@@ -1,23 +1,16 @@
 import type { BrowserWindow } from 'electron'
 
-import {
-  asHarnessProfileId,
-  type HarnessProviderId,
-  type TerminalRecoverySession,
-} from '../../shared'
+import type { TerminalRecoverySession } from '../../shared'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import { runCleanupTaskWithinDeadline } from './cleanup'
 import type { PtySupervisor } from '../pty/pty-supervisor'
-import type { HostPath } from '../../shared'
 
 export async function verifyRendererRolloverRecovery(options: {
   readonly win: BrowserWindow
   readonly supervisor: PtySupervisor
-  readonly root: HostPath
-  readonly providerId: HarnessProviderId
   readonly setRecoverySessions: (sessions: readonly TerminalRecoverySession[]) => void
 }): Promise<string> {
-  const { win, supervisor, root, providerId, setRecoverySessions } = options
+  const { win, supervisor, setRecoverySessions } = options
   const previousRecoveryMode = (await win.webContents.executeJavaScript(
     `localStorage.getItem('hvir:terminal-recovery-mode')`,
   )) as string | null
@@ -28,34 +21,24 @@ export async function verifyRendererRolloverRecovery(options: {
     await win.webContents.executeJavaScript(
       `localStorage.setItem('hvir:terminal-recovery-mode', 'prompt'); localStorage.setItem('hvir:settings:v1', JSON.stringify({ terminalRecoveryMode: 'prompt' }))`,
     )
-    const retainedStart = (await win.webContents.executeJavaScript(`
-      window.hvir.invoke('pty:start', {
-        sessionId: 'smoke-recovery-shell',
-        profileId: 'plain-shell-default',
-        launchRevision: 1,
-        cwd: ${JSON.stringify(root)},
-        cols: 80,
-        rows: 24,
-        title: 'Recovered smoke shell',
-        position: 0,
-        active: true,
-        composerSubmitMode: 'enter',
-        resume: false
-      })
-    `)) as { outcome: string; pid?: number }
-    if (retainedStart.outcome !== 'started' || retainedStart.pid === undefined) {
-      throw new Error('renderer rollover PTY fixture did not start')
+    const activeRuntimeId = (await win.webContents.executeJavaScript(`
+      document.querySelector('.terminal-surface.active')
+        ?.getAttribute('data-terminal-session')
+    `)) as string | null
+    const retained = activeRuntimeId ? supervisor.get(activeRuntimeId) : undefined
+    if (!retained?.profileId || retained.launchRevision === undefined) {
+      throw new Error('renderer rollover lacked an active runtime-owned PTY')
     }
-    const retainedPid = retainedStart.pid
     setRecoverySessions([
       {
-        id: 'smoke-recovery-shell',
-        providerId,
-        profileId: asHarnessProfileId('plain-shell-default'),
-        launchRevision: 1,
+        id: retained.id,
+        providerId: retained.providerId,
+        profileId: retained.profileId,
+        launchRevision: retained.launchRevision,
         recoverySkipCount: 0,
-        hostId: root.hostId,
-        cwd: root,
+        harnessSessionId: retained.harnessSessionId,
+        hostId: retained.hostId,
+        cwd: retained.cwd,
         title: 'Recovered smoke shell',
         position: 0,
         active: true,
@@ -109,10 +92,15 @@ export async function verifyRendererRolloverRecovery(options: {
           waitForDialog();
         })
       `)) as string
-    if (supervisor.get('smoke-recovery-shell')?.pid !== retainedPid) {
-      throw new Error('renderer reload replaced the retained PTY process')
+    const recovered = supervisor.get(retained.id)
+    if (
+      recovered?.pid !== retained.pid ||
+      recovered.instanceId !== retained.instanceId ||
+      recovered.ownerGeneration <= retained.ownerGeneration
+    ) {
+      throw new Error('renderer reload replaced the active runtime PTY')
     }
-    return recoveryStatus
+    return `${recoveryStatus} · active runtime retained PTY ${retained.id}`
   } finally {
     await restoreStorage(win, 'hvir:terminal-recovery-mode', previousRecoveryMode)
     await restoreStorage(win, 'hvir:settings:v1', previousSettings)

@@ -6,7 +6,12 @@ import { createProjectFileOperationCoordinator } from '../project-file-operation
 import { ProjectFolderPickerCoordinator } from '../project-folder-picker'
 import { createDocumentReviewRuntime } from '../document-review'
 import { HarnessProfileStore } from '../harness/harness-profile-store'
-import { harnessProviderCatalog, harnessProviders } from '../harness/harness-provider'
+import {
+  HarnessProviderRegistry,
+  harnessProviderCatalog,
+  harnessProviders,
+} from '../harness/harness-provider'
+import { HarnessUsageDemandController } from '../harness/harness-usage-demand-controller'
 import type { HarnessProbeManager } from '../harness/harness-probe'
 import type { HtmlPreviewProtocol } from '../html-preview-protocol'
 import type { RuntimeDiagnostics } from '../diagnostics/runtime-diagnostics'
@@ -15,6 +20,8 @@ import { registerIpcHandlers } from '../ipc'
 import type { RendererOwner, RendererResourceScopes } from '../renderer-resource-scopes'
 import { LocalHost } from '../project-host'
 import { PtySupervisor } from '../pty/pty-supervisor'
+import { SessionsObservationPort } from '../sessions/sessions-observation-port'
+import { SessionsUsageObservationPort } from '../sessions/sessions-usage-observation-port'
 import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
 import { createWorkerClient, workerPath } from '../worker-host'
 import { createWorkspaceCleanup } from '../workspace-cleanup'
@@ -52,6 +59,8 @@ import { verifyFocusedViewer } from './viewer-position'
 import { verifyViewerContent } from './viewer-content'
 import { verifyWorkbenchHealthFault } from './workbench-health'
 import { verifyRendererProcessRecovery } from './renderer-recovery'
+import { verifySessionsProjectionSmoke } from './sessions-projection'
+import { sessionsUsageSmokeProvider } from './sessions-usage-provider'
 import type { ElectronSmokeMode } from './scenario-selection.mts'
 import { createTerminalMoveSmokeHarness, verifyTerminalMoveSmoke } from './terminal-move'
 import { createSmokeTerminalSessionStore } from './terminal-session-store'
@@ -348,6 +357,81 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       },
     ],
   })
+  const smokeSessionsProjectionState = (): ProjectState => ({
+    revision: smokeProjectRevision,
+    root: smokeRoot,
+    connectionState: 'connected',
+    watchTier: host.watchTier,
+    activeProjectId: `project:${smokeRoot.hostId}:${smokeRoot.path}`,
+    activeWorkspaceId: `workspace:${smokeRoot.hostId}:${smokeRoot.path}`,
+    projects: [
+      {
+        id: `project:${smokeRoot.hostId}:${smokeRoot.path}`,
+        registeredRoot: smokeRoot,
+        displayName: 'Primary project',
+        connectionState: 'connected',
+        watchTier: host.watchTier,
+        activeWorkspaceId: `workspace:${smokeRoot.hostId}:${smokeRoot.path}`,
+        workspaces: [
+          {
+            ...smokeProjectState().projects[0]!.workspaces[0]!,
+            id: `workspace:${smokeRoot.hostId}:${smokeRoot.path}`,
+            name: 'main',
+          },
+          {
+            id: `workspace:${smokeWebSwitchRoot.hostId}:${smokeWebSwitchRoot.path}`,
+            root: smokeWebSwitchRoot,
+            name: 'feature/sessions',
+            main: false,
+            closed: false,
+            missing: false,
+            repository: true,
+            changedFiles: 0,
+          },
+        ],
+      },
+      {
+        id: `project:${smokeCloseableRoot.hostId}:${smokeCloseableRoot.path}`,
+        registeredRoot: smokeCloseableRoot,
+        displayName: 'Secondary project',
+        connectionState: 'connected',
+        watchTier: host.watchTier,
+        activeWorkspaceId: `workspace:${smokeCloseableRoot.hostId}:${smokeCloseableRoot.path}`,
+        workspaces: [
+          {
+            id: `workspace:${smokeCloseableRoot.hostId}:${smokeCloseableRoot.path}`,
+            root: smokeCloseableRoot,
+            name: 'main',
+            main: true,
+            closed: false,
+            missing: false,
+            repository: true,
+            changedFiles: 0,
+          },
+        ],
+      },
+      {
+        id: `project:${smokeRemoteRoot.hostId}:${smokeRemoteRoot.path}`,
+        registeredRoot: smokeRemoteRoot,
+        displayName: 'Disconnected project',
+        connectionState: 'disconnected',
+        watchTier: 'polling',
+        activeWorkspaceId: `workspace:${smokeRemoteRoot.hostId}:${smokeRemoteRoot.path}`,
+        workspaces: [
+          {
+            id: `workspace:${smokeRemoteRoot.hostId}:${smokeRemoteRoot.path}`,
+            root: smokeRemoteRoot,
+            name: 'remote-main',
+            main: true,
+            closed: false,
+            missing: false,
+            repository: true,
+            changedFiles: 0,
+          },
+        ],
+      },
+    ],
+  })
   const smokeRemoteFileProjectState = (): ProjectState => ({
     revision: smokeProjectRevision,
     root: smokeRemoteRoot,
@@ -523,6 +607,10 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     }
     const smokeTerminalSessionHarness = createSmokeTerminalSessionStore(smokeRoot)
     const smokeTerminalSessions = smokeTerminalSessionHarness.store
+    const smokeSessionsProviders = new HarnessProviderRegistry([
+      ...harnessProviders.all(),
+      sessionsUsageSmokeProvider,
+    ])
     const smokeHarnessProfiles = await HarnessProfileStore.load(host, harnessProfilesPath)
     await host.removeFile(documentReviewPath, { ignoreMissing: true })
     cleanup.defer('document review draft', () =>
@@ -545,11 +633,74 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         ? smokeProjectReturnState('smoke-project')
         : smokeProjectState(),
     )
+    const smokeProjectObservationListeners = new Set<() => void>()
     const setSmokeProjectState = (state: ProjectState): ProjectState => {
       const committed = commitSmokeProjectState(state)
       smokeIpcProjectState = committed
+      for (const listener of smokeProjectObservationListeners) listener()
       return committed
     }
+    const smokeHostOptions = () => [
+      {
+        hostId: host.hostId,
+        label: 'Local',
+        kind: 'local' as const,
+        connectionState: host.connectionState,
+        watchTier: host.watchTier,
+      },
+      {
+        hostId: smokeRemoteHost.hostId,
+        label: 'Smoke SSH',
+        kind: 'ssh' as const,
+        connectionState: smokeRemoteHost.connectionState,
+        watchTier: smokeRemoteHost.watchTier,
+      },
+    ]
+    const sessionsObservation = new SessionsObservationPort({
+      projectState: () => smokeIpcProjectState,
+      hosts: smokeHostOptions,
+      providers: () =>
+        smokeSessionsProviders.all().map((provider) => ({
+          id: provider.manifest.id,
+          displayName: provider.manifest.displayName,
+          telemetrySupported: Boolean(provider.telemetry),
+          usageSupported: Boolean(provider.usageTelemetry),
+          sessionKind: provider.manifest.sessionKind,
+        })),
+      sessions: smokeTerminalSessions,
+      ptys: supervisor,
+      observeProjects: (listener) => {
+        smokeProjectObservationListeners.add(listener)
+        return () => {
+          smokeProjectObservationListeners.delete(listener)
+        }
+      },
+      emit: (owner, change) => {
+        if (
+          smokeWindow?.webContents.id === owner.id &&
+          rendererResources.isCurrent(owner)
+        ) {
+          sendRendererEvent(smokeWindow.webContents, 'sessions:changed', change)
+        }
+      },
+    })
+    cleanup.defer('Sessions observation', () => sessionsObservation.dispose())
+    const sessionsUsageDemand = new HarnessUsageDemandController(smokeSessionsProviders)
+    cleanup.defer('Sessions usage demand', () => sessionsUsageDemand.dispose())
+    const sessionsUsage = new SessionsUsageObservationPort({
+      sessions: sessionsObservation,
+      ptys: supervisor,
+      usage: sessionsUsageDemand,
+      emit: (owner, change) => {
+        if (
+          smokeWindow?.webContents.id === owner.id &&
+          rendererResources.isCurrent(owner)
+        ) {
+          sendRendererEvent(smokeWindow.webContents, 'sessions:usage-changed', change)
+        }
+      },
+    })
+    cleanup.defer('Sessions usage observation', () => sessionsUsage.dispose())
     const openedFolderSelections: Array<{ hostId: string; path: string }> = []
     const revealedEntries: HostPath[] = []
     const terminalMoveSmoke = createTerminalMoveSmokeHarness({
@@ -622,15 +773,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
           : undefined,
       revealLocalEntry: (path) => revealedEntries.push(path),
       getProjectState: () => smokeIpcProjectState,
-      listHosts: () => [
-        {
-          hostId: host.hostId,
-          label: 'Local',
-          kind: 'local',
-          connectionState: host.connectionState,
-          watchTier: host.watchTier,
-        },
-      ],
+      listHosts: smokeHostOptions,
       connectHost: () =>
         Promise.resolve({
           host: {
@@ -657,9 +800,11 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       },
       switchWorkspace: (projectId) => {
         const state = setSmokeProjectState(
-          mode === 'terminal-presentation' || mode === 'document-review'
-            ? smokeProjectReturnState(projectId)
-            : smokeProjectState(),
+          mode === 'sessions-projection'
+            ? smokeIpcProjectState
+            : mode === 'terminal-presentation' || mode === 'document-review'
+              ? smokeProjectReturnState(projectId)
+              : smokeProjectState(),
         )
         if (mode === 'terminal-presentation' || mode === 'document-review') {
           emit('project:state', state)
@@ -719,6 +864,8 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       recordRenderContainment: () => undefined,
       ptySupervisor: supervisor,
       terminalSessions: smokeTerminalSessions,
+      sessionsObservation,
+      sessionsUsage,
       terminalMoves: terminalMoveSmoke.coordinator,
       harnessProfiles: smokeHarnessProfiles,
       harnessProbes: harnessProbeManager,
@@ -826,6 +973,44 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         )
       }
       console.log(`[smoke] renderer recovery OK (${result})`)
+      console.log('HVIR_SMOKE_OK')
+      return 0
+    }
+    if (mode === 'sessions-projection') {
+      const replacementReady = new Promise<RendererOwner>((resolve) => {
+        acceptedRendererReadySink = (owner) => {
+          if (
+            owner.id === win.webContents.id &&
+            owner.generation === initialRendererGeneration
+          ) {
+            return
+          }
+          resolve(owner)
+        }
+      })
+      let result: string
+      try {
+        result = await verifySessionsProjectionSmoke({
+          win,
+          initialOwner: rendererResources.currentOwner(win.webContents.id),
+          resources: rendererResources,
+          replacementReady,
+          state: smokeSessionsProjectionState(),
+          publishState: (state) => emit('project:state', setSmokeProjectState(state)),
+          providerId: defaultHarnessProviderId,
+          roots: [smokeWebSwitchRoot, smokeCloseableRoot, smokeRemoteRoot],
+          addRetained: smokeTerminalSessionHarness.add,
+          supervisor,
+          usageHost: host,
+          usageProvider: sessionsUsageSmokeProvider,
+          captureDirectory: process.env.HVIR_SESSIONS_CAPTURE_DIR
+            ? localPath(process.env.HVIR_SESSIONS_CAPTURE_DIR)
+            : undefined,
+        })
+      } finally {
+        acceptedRendererReadySink = undefined
+      }
+      console.log(`[smoke] Sessions projection OK (${result})`)
       console.log('HVIR_SMOKE_OK')
       return 0
     }
@@ -1018,8 +1203,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       const recoveryStatus = await verifyRendererRolloverRecovery({
         win,
         supervisor,
-        root: smokeRoot,
-        providerId: defaultHarnessProviderId,
         setRecoverySessions: (sessions) => {
           smokeTerminalSessionHarness.set(sessions)
         },
@@ -1233,31 +1416,35 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
           const byLabel = (label) =>
             railButtons.find((node) => node.textContent?.trim().startsWith(label));
           const files = byLabel('Files');
-          const harness = byLabel('Harness');
+          const sessions = document.querySelector('.sessions-destination');
           const directory = [...document.querySelectorAll('[aria-label="Files"] .tree-directory')]
             .find((node) => node.querySelector(':scope > .directory-row')
               ?.getAttribute('title')?.endsWith('/src'));
-          if (!files || !harness || !directory) {
+          if (!files || !(sessions instanceof HTMLButtonElement) || !directory) {
             return reject(new Error('stable rail navigation controls missing'));
           }
           const directoryRow = directory.querySelector(':scope > .directory-row');
           if (directoryRow?.getAttribute('aria-expanded') !== 'true') directoryRow?.click();
           const tabsBefore = document.querySelectorAll('.viewer-tab').length;
-          harness.click();
-          const waitForHarness = () => {
-            const placeholder = document.querySelector('.harness-placeholder');
+          sessions.click();
+          const waitForSessions = () => {
+            const overview = document.querySelector('.sessions-overview');
+            const workbench = document.querySelector('.workbench');
             if (
-              harness.disabled ||
-              !harness.classList.contains('active') ||
-              harness.getAttribute('aria-current') !== 'page' ||
-              !placeholder ||
-              placeholder.hidden ||
-              !placeholder.textContent?.includes('Coming soon')
+              sessions.disabled ||
+              !sessions.classList.contains('active') ||
+              sessions.getAttribute('aria-current') !== 'page' ||
+              !overview ||
+              !(workbench instanceof HTMLElement) ||
+              !workbench.hidden
             ) {
-
-              return setTimeout(waitForHarness, 25);
+              return setTimeout(waitForSessions, 25);
             }
-            files.click();
+            const project = document.querySelector('.project-tab-main');
+            if (!(project instanceof HTMLButtonElement)) {
+              return reject(new Error('project navigation control missing'));
+            }
+            project.click();
             const waitForFiles = () => {
               const currentFiles = [...document.querySelectorAll('.rail-nav button')]
                 .find((node) => node.textContent?.trim().startsWith('Files'));
@@ -1265,10 +1452,11 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
                 directoryRow?.getAttribute('aria-expanded') === 'true' &&
                 document.querySelectorAll('.viewer-tab').length === tabsBefore &&
                 currentFiles?.classList.contains('active') &&
-                !harness.disabled;
+                !sessions.disabled &&
+                !document.querySelector('.sessions-overview');
               if (ready) {
                 return resolve(
-                  'stable tabs · Files state preserved · Harness coming soon'
+                  'stable tabs · Files state preserved · Sessions full-page round trip'
                 );
               }
 
@@ -1276,7 +1464,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
             };
             waitForFiles();
           };
-          waitForHarness();
+          waitForSessions();
         })
       `)) as string
     console.log(`[smoke] rail navigation OK (${railNavigationStatus})`)

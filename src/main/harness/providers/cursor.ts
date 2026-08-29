@@ -5,6 +5,7 @@ export const cursorProvider: HarnessProvider = {
   manifest: {
     id: asHarnessProviderId('cursor-cli'),
     displayName: 'Cursor CLI',
+    sessionKind: 'agent',
     contextPresentation: 'none',
   },
   profile: {

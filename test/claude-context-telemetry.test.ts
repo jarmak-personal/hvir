@@ -5,13 +5,18 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  MAX_CLAUDE_CUMULATIVE_USAGE_RECORDS,
   observeClaudeContext,
+  observeClaudeUsage,
   parseClaudeUsage,
   snapshotClaudeUsage,
 } from '../src/main/harness/claude-context-telemetry'
 import { calculateHarnessUsageDelta } from '../src/main/harness/agent-work-usage'
 import { claudeProjectDirectoryName } from '../src/main/harness/claude-session-artifact'
-import { HARNESS_USAGE_RECORD_BYTE_LIMIT } from '../src/main/harness/harness-usage-artifact'
+import {
+  HARNESS_USAGE_ARTIFACT_BYTE_LIMIT,
+  HARNESS_USAGE_RECORD_BYTE_LIMIT,
+} from '../src/main/harness/harness-usage-artifact'
 import type { ProjectHost } from '../src/main/project-host'
 import { LocalHost } from '../src/main/project-host/local-host'
 import { LOCAL_HOST_ID, localPath, type HarnessTelemetry } from '../src/shared'
@@ -21,6 +26,242 @@ const SESSION_ID = '092bd463-4567-4890-abcd-ef0123456789'
 afterEach(() => vi.unstubAllEnvs())
 
 describe('Claude Code context telemetry', () => {
+  it('retries transient artifact resolution and folds live records without per-record rescans', async () => {
+    const configDirectory = await mkdtemp(join(tmpdir(), 'hvir-claude-retry-usage-'))
+    const cwd = join(configDirectory, 'workspace')
+    await mkdir(cwd)
+    const projectDirectory = join(
+      configDirectory,
+      'projects',
+      claudeProjectDirectoryName(await realpath(cwd)),
+    )
+    const transcript = join(projectDirectory, `${SESSION_ID}.jsonl`)
+    await mkdir(projectDirectory, { recursive: true })
+    await writeFile(
+      transcript,
+      `${claudeUsageRecord('request-1', 'message-1', {
+        input: 1,
+        cacheWrite: 1,
+        cacheRead: 1,
+        output: 1,
+      })}\n`,
+    )
+    const host = new LocalHost()
+    const controller = new AbortController()
+    const emitted: HarnessTelemetry[] = []
+    await host.connect()
+    const realExec = host.exec.bind(host)
+    const exec = vi
+      .spyOn(host, 'exec')
+      .mockRejectedValueOnce(new Error('temporary transport failure'))
+      .mockImplementation(realExec)
+    const readFileChunks = vi.spyOn(host.fileTransfer, 'readFileChunks')
+    let stop: (() => void | Promise<void>) | undefined
+    try {
+      stop = await observeClaudeUsage(host, {
+        subscriptionId: SESSION_ID,
+        sessionId: SESSION_ID,
+        cwd: localPath(cwd),
+        artifact: {
+          identity: 'test',
+          environment: { CLAUDE_CONFIG_DIR: configDirectory },
+          unsetEnvironment: [],
+        },
+        signal: controller.signal,
+        emit: (telemetry) => {
+          if (telemetry) emitted.push(telemetry)
+        },
+      })
+      expect(exec).toHaveBeenCalledTimes(2)
+      expect(exactUsageTotal(emitted.at(-1))).toBe(4)
+      expect(readFileChunks).toHaveBeenCalledOnce()
+
+      await appendFile(
+        transcript,
+        [
+          claudeUsageRecord('request-2', 'message-2', {
+            input: 2,
+            cacheWrite: 2,
+            cacheRead: 2,
+            output: 2,
+          }),
+          claudeUsageRecord('request-3', 'message-3', {
+            input: 3,
+            cacheWrite: 3,
+            cacheRead: 3,
+            output: 3,
+          }),
+        ].join('\n') + '\n',
+      )
+      await vi.waitFor(() => expect(exactUsageTotal(emitted.at(-1))).toBe(24), {
+        timeout: 900,
+      })
+      expect(readFileChunks).toHaveBeenCalledOnce()
+      await new Promise((resolve) => setTimeout(resolve, 1_200))
+      expect(readFileChunks).toHaveBeenCalledOnce()
+    } finally {
+      await stop?.()
+      await host.dispose()
+      await rm(configDirectory, { recursive: true, force: true })
+    }
+  })
+
+  it('publishes demanded cumulative usage and detects transcript replacement', async () => {
+    const configDirectory = await mkdtemp(join(tmpdir(), 'hvir-claude-live-usage-'))
+    const cwd = join(configDirectory, 'workspace')
+    await mkdir(cwd)
+    const projectDirectory = join(
+      configDirectory,
+      'projects',
+      claudeProjectDirectoryName(await realpath(cwd)),
+    )
+    const transcript = join(projectDirectory, `${SESSION_ID}.jsonl`)
+    await mkdir(projectDirectory, { recursive: true })
+    await writeFile(
+      transcript,
+      `${claudeUsageRecord('request-1', 'message-1', {
+        input: 10,
+        cacheWrite: 20,
+        cacheRead: 30,
+        output: 4,
+      })}\n`,
+    )
+    const host = new LocalHost()
+    const controller = new AbortController()
+    const emitted: HarnessTelemetry[] = []
+    await host.connect()
+    let stop: (() => void | Promise<void>) | undefined
+    try {
+      stop = await observeClaudeUsage(host, {
+        subscriptionId: SESSION_ID,
+        sessionId: SESSION_ID,
+        cwd: localPath(cwd),
+        artifact: {
+          identity: 'test',
+          environment: { CLAUDE_CONFIG_DIR: configDirectory },
+          unsetEnvironment: [],
+        },
+        signal: controller.signal,
+        emit: (telemetry) => {
+          if (telemetry) emitted.push(telemetry)
+        },
+      })
+      await vi.waitFor(() => expect(exactUsageTotal(emitted.at(-1))).toBe(64), {
+        timeout: 4_000,
+      })
+      expect(JSON.stringify(emitted.at(-1))).not.toContain(SESSION_ID)
+      await appendFile(
+        transcript,
+        `${claudeUsageRecord('request-2', 'message-2', {
+          input: 2,
+          cacheWrite: 3,
+          cacheRead: 40,
+          output: 5,
+        })}\n`,
+      )
+      await vi.waitFor(() => expect(exactUsageTotal(emitted.at(-1))).toBe(114), {
+        timeout: 4_000,
+      })
+
+      await writeFile(
+        transcript,
+        `${claudeUsageRecord('request-new', 'message-new', {
+          input: 1,
+          cacheWrite: 2,
+          cacheRead: 3,
+          output: 4,
+        })}\n`,
+      )
+      await vi.waitFor(() => expect(emitted.at(-1)?.facets.usage.status).toBe('reset'), {
+        timeout: 4_000,
+      })
+      await appendFile(
+        transcript,
+        `${claudeUsageRecord('request-new-2', 'message-new-2', {
+          input: 1,
+          cacheWrite: 1,
+          cacheRead: 1,
+          output: 1,
+        })}\n`,
+      )
+      await vi.waitFor(() => expect(exactUsageTotal(emitted.at(-1))).toBe(14), {
+        timeout: 4_000,
+      })
+    } finally {
+      await stop?.()
+      await host.dispose()
+      await rm(configDirectory, { recursive: true, force: true })
+    }
+  })
+
+  it('fails closed when exact Claude duplicate tracking exceeds its record bound', async () => {
+    const configDirectory = await mkdtemp(join(tmpdir(), 'hvir-claude-bound-usage-'))
+    const cwd = join(configDirectory, 'workspace')
+    await mkdir(cwd)
+    const projectDirectory = join(
+      configDirectory,
+      'projects',
+      claudeProjectDirectoryName(await realpath(cwd)),
+    )
+    await mkdir(projectDirectory, { recursive: true })
+    const transcript = join(projectDirectory, `${SESSION_ID}.jsonl`)
+    await writeFile(
+      transcript,
+      Array.from({ length: MAX_CLAUDE_CUMULATIVE_USAGE_RECORDS + 1 }, (_, index) =>
+        claudeUsageRecord(`request-${index}`, `message-${index}`, {
+          input: 1,
+          cacheWrite: 1,
+          cacheRead: 1,
+          output: 1,
+        }),
+      ).join('\n') + '\n',
+    )
+    const host = new LocalHost()
+    await host.connect()
+    try {
+      await expect(
+        snapshotClaudeUsage(host, {
+          sessionId: SESSION_ID,
+          cwd: localPath(cwd),
+          artifact: {
+            identity: 'test',
+            environment: { CLAUDE_CONFIG_DIR: configDirectory },
+            unsetEnvironment: [],
+          },
+          signal: new AbortController().signal,
+        }),
+      ).resolves.toMatchObject({
+        status: 'unavailable',
+        reason: 'usage-unavailable',
+      })
+
+      const execStream = vi.spyOn(host, 'execStream')
+      const emitted: HarnessTelemetry[] = []
+      await observeClaudeUsage(host, {
+        subscriptionId: SESSION_ID,
+        sessionId: SESSION_ID,
+        cwd: localPath(cwd),
+        artifact: {
+          identity: 'test',
+          environment: { CLAUDE_CONFIG_DIR: configDirectory },
+          unsetEnvironment: [],
+        },
+        signal: new AbortController().signal,
+        emit: (telemetry) => {
+          if (telemetry) emitted.push(telemetry)
+        },
+      })
+      expect(emitted.at(-1)?.facets.usage).toEqual({
+        status: 'unavailable',
+        reason: 'usage-unavailable',
+      })
+      expect(execStream).not.toHaveBeenCalled()
+    } finally {
+      await host.dispose()
+      await rm(configDirectory, { recursive: true, force: true })
+    }
+  })
+
   it('deduplicates provider records and calculates exact-session cumulative deltas', async () => {
     const configDirectory = await mkdtemp(join(tmpdir(), 'hvir-claude-usage-'))
     const cwd = join(configDirectory, 'workspace')
@@ -107,7 +348,7 @@ describe('Claude Code context telemetry', () => {
     }
   })
 
-  it('reads exact cumulative counters after a transcript grows beyond 8 MiB', async () => {
+  it('fails closed when a transcript grows beyond the cumulative artifact bound', async () => {
     const configDirectory = await mkdtemp(join(tmpdir(), 'hvir-claude-large-usage-'))
     const cwd = join(configDirectory, 'workspace')
     await mkdir(cwd)
@@ -121,7 +362,9 @@ describe('Claude Code context telemetry', () => {
       type: 'user',
       message: { content: 'x'.repeat(1024) },
     })}\n`
-    const repetitions = Math.ceil((8 * 1024 * 1024 + 1) / ignoredRecord.length)
+    const repetitions = Math.ceil(
+      (HARNESS_USAGE_ARTIFACT_BYTE_LIMIT + 1) / ignoredRecord.length,
+    )
     await mkdir(projectDirectory, { recursive: true })
     await writeFile(transcript, ignoredRecord.repeat(repetitions))
     await appendFile(
@@ -148,14 +391,9 @@ describe('Claude Code context telemetry', () => {
           signal: new AbortController().signal,
         }),
       ).resolves.toMatchObject({
-        status: 'available',
-        route: { modelId: 'claude-test', reasoningEffort: 'high' },
-        counters: {
-          freshInputTokens: 10,
-          cacheReadInputTokens: 30,
-          cacheWriteInputTokens: 20,
-          outputTokens: 4,
-        },
+        status: 'unavailable',
+        providerId: 'claude-code',
+        reason: 'artifact-too-large',
       })
     } finally {
       await host.dispose()
@@ -686,4 +924,9 @@ function claudeUsageRecord(
       },
     },
   })
+}
+
+function exactUsageTotal(telemetry: HarnessTelemetry | undefined): number | undefined {
+  const usage = telemetry?.facets.usage
+  return usage?.status === 'exact' ? usage.value.normalizedTokenTotal : undefined
 }

@@ -70,6 +70,17 @@ import type {
   HarnessProfileInput,
 } from './harness-profile'
 import type { RegisteredProjectState } from './workspace-types'
+import type {
+  SessionsDemandRequest,
+  SessionsOpenRequest,
+  SessionsOpenResponse,
+  SessionsObservationSnapshot,
+  SessionsProjectionChange,
+  SessionsTerminalResolutionResponse,
+  SessionsUsageChange,
+  SessionsUsageDemandRequest,
+  SessionsUsageSnapshot,
+} from './sessions-projection'
 import type { KeybindingAction, KeybindingMap } from './keybindings'
 import type { WebPaneDiagnosticEvent } from './web-pane'
 import type {
@@ -413,6 +424,8 @@ export type StartPtyResponse =
   | {
       readonly outcome: 'started'
       readonly id: string
+      /** Exact live spawn identity, distinct from the retained terminal id. */
+      readonly instanceId: string
       readonly pid: number
       readonly resumed: boolean
       readonly reattached: boolean
@@ -865,6 +878,29 @@ export interface IpcInvokeMap {
     request: RebindTerminalProfileRequest
     response: TerminalRecoverySession
   }
+  'sessions:observe': {
+    request: SessionsDemandRequest
+    response: SessionsObservationSnapshot
+  }
+  'sessions:snapshot': {
+    request: SessionsDemandRequest
+    response: SessionsObservationSnapshot
+  }
+  'sessions:release': { request: SessionsDemandRequest; response: void }
+  'sessions:usage-observe': {
+    request: SessionsUsageDemandRequest
+    response: SessionsUsageSnapshot
+  }
+  'sessions:usage-snapshot': {
+    request: SessionsDemandRequest
+    response: SessionsUsageSnapshot
+  }
+  'sessions:usage-release': { request: SessionsDemandRequest; response: void }
+  'sessions:open': { request: SessionsOpenRequest; response: SessionsOpenResponse }
+  'sessions:resolve-terminal': {
+    request: SessionsOpenRequest
+    response: SessionsTerminalResolutionResponse
+  }
   'terminal:resolve-file-clipboard': {
     request: Record<string, never>
     response: string | undefined
@@ -912,6 +948,8 @@ export interface IpcEventMap {
   'workbench-health:state': WorkbenchHealthSnapshot
   'project:watch': WatchEvent
   'project:state': ProjectState
+  'sessions:changed': SessionsProjectionChange
+  'sessions:usage-changed': SessionsUsageChange
   'fs:project-file-operation': ProjectFileOperationProgress
   'ssh:prompt': SshPromptRequest
   'ssh:prompt-cancel': { readonly hostId: string }
@@ -1079,6 +1117,14 @@ export const INVOKE_CHANNELS = [
   'terminal:plan-move',
   'terminal:move',
   'terminal:rebind-profile',
+  'sessions:observe',
+  'sessions:snapshot',
+  'sessions:release',
+  'sessions:usage-observe',
+  'sessions:usage-snapshot',
+  'sessions:usage-release',
+  'sessions:open',
+  'sessions:resolve-terminal',
   'terminal:resolve-file-clipboard',
   'pty:start',
   'web-pane:open',
@@ -1116,6 +1162,8 @@ export const EVENT_CHANNELS = [
   'workbench-health:state',
   'project:watch',
   'project:state',
+  'sessions:changed',
+  'sessions:usage-changed',
   'fs:project-file-operation',
   'ssh:prompt',
   'ssh:prompt-cancel',

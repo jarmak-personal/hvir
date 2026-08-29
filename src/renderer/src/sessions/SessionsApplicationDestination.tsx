@@ -1,0 +1,44 @@
+import type { ReactElement } from 'react'
+
+import type {
+  ProjectState,
+  SessionsLivePtyQualifier,
+  SessionsTerminalHandle,
+  SessionsWorkspaceQualifier,
+} from '../../../shared'
+import type { SessionsRendererObservationPort } from './sessions-renderer-observation'
+import type { SessionsTerminalSurfacePort } from './sessions-terminal-surface'
+import { SessionsOverview } from './SessionsOverview'
+
+interface SessionsDestinationRuntime {
+  readonly sessionsObservation: SessionsRendererObservationPort
+  readonly sessionsSurface: SessionsTerminalSurfacePort
+  readonly focusProjectedSession: (
+    handle: SessionsTerminalHandle,
+    workspaceQualifier: SessionsWorkspaceQualifier,
+    livePty: SessionsLivePtyQualifier,
+  ) => Promise<boolean>
+}
+
+export function SessionsApplicationDestination({
+  active,
+  runtime,
+  onOpened,
+  onError,
+}: {
+  readonly active: boolean
+  readonly runtime: SessionsDestinationRuntime
+  readonly onOpened: (state: ProjectState) => void
+  readonly onError: (message: string) => void
+}): ReactElement | null {
+  if (!active) return null
+  return (
+    <SessionsOverview
+      observation={runtime.sessionsObservation}
+      surface={runtime.sessionsSurface}
+      onOpened={onOpened}
+      onFocusOpened={runtime.focusProjectedSession}
+      onOpenFailed={onError}
+    />
+  )
+}

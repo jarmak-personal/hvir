@@ -22,11 +22,19 @@ import {
   type HostPath,
 } from '../../shared'
 import type { Disposer, ProjectHost } from '../project-host'
-import type { HarnessUsageSnapshotProvider } from './agent-work-usage'
+import type { HarnessUsageSnapshotProvider } from './harness-usage'
 import { configureClaudeComposerSubmit } from './claude-keybindings'
-import { observeClaudeContext, snapshotClaudeUsage } from './claude-context-telemetry'
+import {
+  observeClaudeContext,
+  observeClaudeUsage,
+  snapshotClaudeUsage,
+} from './claude-context-telemetry'
 import { claudeResumeAvailability } from './claude-session-recovery'
-import { observeCodexContext, snapshotCodexUsage } from './codex-context-telemetry'
+import {
+  observeCodexContext,
+  observeCodexUsage,
+  snapshotCodexUsage,
+} from './codex-context-telemetry'
 import { codexSessionDiscovery } from './codex-session-discovery'
 import { piProvider } from './providers/pi'
 import { geminiProvider } from './providers/gemini'
@@ -180,6 +188,8 @@ export interface HarnessResumeValidation {
 export interface HarnessManifest {
   readonly id: HarnessProviderId
   readonly displayName: string
+  /** Product-neutral presentation kind; provider behavior stays behind this registry. */
+  readonly sessionKind: 'agent' | 'shell'
   readonly default?: boolean
   readonly contextPresentation: HarnessContextPresentation
   readonly contextPressure?: HarnessContextPressurePolicy
@@ -235,6 +245,8 @@ export interface HarnessProvider {
   readonly sessionDiscovery?: HarnessSessionDiscovery
   /** Optional structured, read-only operational state for this harness. */
   readonly telemetry?: HarnessTelemetryObserver
+  /** Demand-scoped cumulative usage observation for an exact live session. */
+  readonly usageTelemetry?: HarnessTelemetryObserver
   /** Content-free cumulative counters for bounded lifecycle phase snapshots. */
   readonly usageSnapshots?: HarnessUsageSnapshotProvider
   /** Fail-closed check that the exact provider artifact can actually resume. */
@@ -270,6 +282,7 @@ export const plainShellProvider: HarnessProvider = {
   manifest: {
     id: asHarnessProviderId('plain-shell'),
     displayName: 'Shell',
+    sessionKind: 'shell',
     default: true,
     contextPresentation: 'none',
   },
@@ -306,6 +319,7 @@ export const claudeCodeProvider: HarnessProvider = {
   manifest: {
     id: asHarnessProviderId('claude-code'),
     displayName: 'Claude Code',
+    sessionKind: 'agent',
     contextPresentation: 'pressure',
     contextPressure: CLAUDE_CONTEXT_PRESSURE,
     modifiedKeyProtocol: 'modify-other-keys',
@@ -328,6 +342,7 @@ export const claudeCodeProvider: HarnessProvider = {
   supportsResume: true,
   sessionIdentity: 'preassigned',
   telemetry: { observe: observeClaudeContext },
+  usageTelemetry: { observe: observeClaudeUsage },
   usageSnapshots: { snapshot: snapshotClaudeUsage },
   resumeValidation: { availability: claudeResumeAvailability },
   probe: versionProbe('preassigned', true, 'pressure', {
@@ -365,6 +380,7 @@ export const codexProvider: HarnessProvider = {
   manifest: {
     id: asHarnessProviderId('codex'),
     displayName: 'Codex',
+    sessionKind: 'agent',
     contextPresentation: 'pressure',
     modifiedKeyProtocol: 'csi-u',
     metaEnterAliasesControl: true,
@@ -397,6 +413,7 @@ export const codexProvider: HarnessProvider = {
   sessionIdentity: 'discovered',
   sessionDiscovery: codexSessionDiscovery,
   telemetry: { observe: observeCodexContext },
+  usageTelemetry: { observe: observeCodexUsage },
   usageSnapshots: { snapshot: snapshotCodexUsage },
   probe: versionProbe('discovered', true, 'pressure', {
     reviewInsert: codexReviewInsert,
@@ -434,6 +451,7 @@ export const customCommandProvider: HarnessProvider = {
   manifest: {
     id: asHarnessProviderId('custom'),
     displayName: 'Custom',
+    sessionKind: 'shell',
     contextPresentation: 'none',
   },
   profile: {
@@ -521,7 +539,7 @@ export class HarnessProviderRegistry {
       throw new Error(`Harness provider '${id}' validates resume without supporting it`)
     }
     if (
-      (provider.sessionDiscovery || provider.telemetry) &&
+      (provider.sessionDiscovery || provider.telemetry || provider.usageTelemetry) &&
       provider.profile.reservedEnvironmentKeys.some(
         (key) => !provider.profile.artifactEnvironmentKeys.includes(key),
       )
