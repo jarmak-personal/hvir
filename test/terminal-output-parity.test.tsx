@@ -7,7 +7,10 @@ import type {
   TerminalEventRoute,
   TerminalEventRouter,
 } from '../src/renderer/src/terminal/terminal-event-router'
-import type { TerminalPane } from '../src/renderer/src/terminal/terminal-pane'
+import type {
+  TerminalPane,
+  TerminalPaneDataSource,
+} from '../src/renderer/src/terminal/terminal-pane'
 import { TerminalRuntime } from '../src/renderer/src/terminal/terminal-runtime'
 import type { TerminalRuntimeOptions } from '../src/renderer/src/terminal/terminal-runtime-options'
 import { terminalThemeForAppearance } from '../src/renderer/src/terminal/terminal-palette'
@@ -32,7 +35,7 @@ const paneState = vi.hoisted(() => ({
     themes: unknown[]
     cursorDefaults: unknown[]
     ligatures: boolean[]
-    emitData(data: string): void
+    emitData(data: string, source: TerminalPaneDataSource): void
     disposed: boolean
   }>,
 }))
@@ -309,7 +312,7 @@ function createPane(
     themes: [theme],
     cursorDefaults: [cursorDefaults],
     ligatures: [ligatures],
-    emitData: (_data: string): void => undefined,
+    emitData: (_data: string, _source: TerminalPaneDataSource): void => undefined,
     disposed: false,
   }
   paneState.panes.push(state)
@@ -352,7 +355,7 @@ function createPane(
     getSelection: () => '',
     paste: (data) => {
       state.pastes.push(data)
-      state.emitData(data)
+      state.emitData(data, 'user')
     },
     selectAll: () => void state.terminalActions.push('select-all'),
     clear: () => void state.terminalActions.push('clear'),

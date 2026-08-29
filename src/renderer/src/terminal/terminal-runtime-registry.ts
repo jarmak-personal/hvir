@@ -1,11 +1,9 @@
-import {
-  hostPathEquals,
-  TerminalStartAdmission,
-  type HostPath,
-} from '../../../shared'
+import { hostPathEquals, TerminalStartAdmission, type HostPath } from '../../../shared'
 import { TerminalEventRouter } from './terminal-event-router'
 import { TerminalRuntime } from './terminal-runtime'
 import type { TerminalRuntimeOptions } from './terminal-runtime-options'
+import type { TerminalRuntimeSnapshot } from './terminal-runtime-presentation'
+import type { SessionsTerminalSurfaceRequest } from '../sessions/sessions-terminal-surface'
 
 export class TerminalRuntimeRegistry {
   private readonly runtimes = new Map<string, TerminalRuntime>()
@@ -62,8 +60,36 @@ export class TerminalRuntimeRegistry {
     return false
   }
 
+  sessionSnapshot(id: string): TerminalRuntimeSnapshot | undefined {
+    return this.runtimes.get(id)?.snapshot()
+  }
+
+  focusLiveInstance(id: string, instanceId: string): boolean {
+    return this.runtimes.get(id)?.focusLiveInstance(instanceId) === true
+  }
+
+  acquireSessionsSurface(
+    request: SessionsTerminalSurfaceRequest,
+  ): ReturnType<TerminalRuntime['acquireSessionsSurface']> {
+    return (
+      this.runtimes.get(request.handle)?.acquireSessionsSurface(request) ?? {
+        outcome: 'unavailable',
+        reason: 'runtime-not-ready',
+      }
+    )
+  }
+
   dispose(): void {
     for (const runtime of this.runtimes.values()) runtime.dispose()
+    this.disposeRendererResources()
+  }
+
+  disposeForRendererRollover(): void {
+    for (const runtime of this.runtimes.values()) runtime.disposeForRendererRollover()
+    this.disposeRendererResources()
+  }
+
+  private disposeRendererResources(): void {
     this.runtimes.clear()
     this.eventRouter?.dispose()
     this.eventRouter = undefined

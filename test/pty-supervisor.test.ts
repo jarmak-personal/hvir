@@ -39,6 +39,39 @@ const FakePty = TestPtyProcess
 const fixture = createPtySupervisorFixture
 
 describe('PtySupervisor', () => {
+  it('publishes bounded lifecycle observations without subscribing to PTY output', async () => {
+    const { supervisor, pty, spawn } = fixture({ provider: plainShellProvider })
+    const listener = vi.fn()
+    const release = supervisor.observe(listener)
+
+    const info = await spawn({ sessionId: 'observed-shell' })
+    expect(listener).toHaveBeenCalledOnce()
+    expect(supervisor.observationSnapshot()).toEqual([{ info, telemetry: undefined }])
+    expect(pty.dataListeners.size).toBe(1)
+
+    pty.emitData('terminal content must not reach observation')
+    expect(listener).toHaveBeenCalledOnce()
+    pty.emitExit({ exitCode: 0, signal: undefined })
+    expect(listener).toHaveBeenCalledTimes(2)
+    expect(supervisor.observationSnapshot()).toEqual([])
+
+    await release()
+    expect(supervisor.observationSnapshot()).toEqual([])
+  })
+
+  it('publishes one observation when a live PTY lease is explicitly disposed', async () => {
+    const { supervisor, spawn } = fixture({ provider: plainShellProvider })
+    const listener = vi.fn()
+    const release = supervisor.observe(listener)
+
+    const info = await spawn({ sessionId: 'disposed-shell' })
+    supervisor.disposeSession(info.id, info.ownerId, info.ownerGeneration)
+
+    expect(listener).toHaveBeenCalledTimes(2)
+    expect(supervisor.observationSnapshot()).toEqual([])
+    await release()
+  })
+
   it('launches a plain shell resolved by the owning host', async () => {
     const { supervisor, host, spawnPty, defaultShell } = fixture()
     await supervisor.spawn({
@@ -267,11 +300,7 @@ describe('PtySupervisor', () => {
       ownerId: OWNER_ID,
       sessionId: 'late-confirmed-write',
     })
-    const writing = late.supervisor.writeConfirmed(
-      lateInfo.id,
-      OWNER_ID,
-      'payload',
-    )
+    const writing = late.supervisor.writeConfirmed(lateInfo.id, OWNER_ID, 'payload')
     late.pty.emitExit({ exitCode: 255, signal: undefined })
     finish()
     await expect(writing).rejects.toBeInstanceOf(PtyWriteIndeterminateError)

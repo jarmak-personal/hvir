@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   buildTelemetryHubScript,
+  HEALTHY_HARNESS_TELEMETRY_RECORD,
   HarnessTelemetryHub,
   type HarnessTelemetrySubscription,
 } from '../src/main/harness/harness-telemetry-hub'
@@ -144,6 +145,129 @@ describe('HarnessTelemetryHub', () => {
     void stopSecond()
   })
 
+  it('lets a session-specific lifecycle mapper suppress the adapter default', async () => {
+    const stream = fakeStream()
+    const execStream = vi.fn<ProjectHost['execStream']>(() => stream.handle)
+    const hub = telemetryHub(execStream, true)
+    const emit = vi.fn<(value: HarnessTelemetry | undefined) => void>()
+    const followerHealth = vi.fn(() => undefined)
+    const live = { ...subscription(30, emit), followerHealth }
+    const stop = hub.subscribe(live)
+    await vi.waitFor(() => expect(stream.writes).toHaveLength(2))
+    const epoch = execStream.mock.calls[0]?.[1].at(-1)
+    if (!epoch) throw new Error('Expected telemetry hub epoch argument')
+
+    stream.stdout(
+      healthFrame(
+        epoch,
+        '1',
+        live.subscriptionId,
+        live.sessionId,
+        'pending',
+        'awaiting-source',
+      ),
+    )
+
+    expect(followerHealth).toHaveBeenCalledWith({
+      status: 'pending',
+      reason: 'awaiting-source',
+    })
+    expect(emit).not.toHaveBeenCalled()
+    void stop()
+  })
+
+  it('uses the session lifecycle mapper when the shared helper fails', async () => {
+    const streams = [fakeStream(), fakeStream()]
+    const execStream = vi
+      .fn<ProjectHost['execStream']>()
+      .mockReturnValueOnce(streams[0]!.handle)
+      .mockReturnValueOnce(streams[1]!.handle)
+    const hub = telemetryHub(execStream, true)
+    const emit = vi.fn<(value: HarnessTelemetry | undefined) => void>()
+    const followerHealth = vi.fn(() => undefined)
+    const live = {
+      ...subscription(31, emit),
+      exposeSessionIdentity: false,
+      followerHealth,
+    }
+    const stop = hub.subscribe(live)
+    await vi.waitFor(() => expect(streams[0]!.writes).toHaveLength(2))
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    streams[0]!.fail(new Error('transport lost'))
+
+    expect(followerHealth).toHaveBeenCalledWith({
+      status: 'unavailable',
+      reason: 'helper-exited',
+    })
+    expect(emit).not.toHaveBeenCalled()
+    await vi.waitFor(() => expect(execStream).toHaveBeenCalledTimes(2), {
+      timeout: 1_000,
+    })
+    void stop()
+    warning.mockRestore()
+  })
+
+  it('replenishes follower restart budget after accepted provider traffic', async () => {
+    const stream = fakeStream()
+    const execStream = vi.fn<ProjectHost['execStream']>(() => stream.handle)
+    const hub = telemetryHub(execStream, true)
+    const live = {
+      ...subscription(32),
+      parse: (): typeof HEALTHY_HARNESS_TELEMETRY_RECORD =>
+        HEALTHY_HARNESS_TELEMETRY_RECORD,
+    }
+    const stop = hub.subscribe(live)
+    await vi.waitFor(() => expect(stream.writes).toHaveLength(2))
+    const epoch = execStream.mock.calls[0]?.[1].at(-1)
+    if (!epoch) throw new Error('Expected telemetry hub epoch argument')
+
+    for (const [failureGeneration, replacementGeneration] of [
+      ['1', 3],
+      ['3', 5],
+      ['5', 7],
+    ] as const) {
+      stream.stdout(
+        healthFrame(
+          epoch,
+          failureGeneration,
+          live.subscriptionId,
+          live.sessionId,
+          'unavailable',
+          'follower-exited',
+        ),
+      )
+      await vi.waitFor(
+        () =>
+          expect(stream.writes.filter((value) => value.startsWith('R\t')).at(-1)).toBe(
+            `R\t${replacementGeneration}\t1\n`,
+          ),
+        { timeout: 1_500 },
+      )
+    }
+
+    stream.stdout(frame(epoch, '7', live.subscriptionId, live.sessionId, 1))
+    stream.stdout(
+      healthFrame(
+        epoch,
+        '7',
+        live.subscriptionId,
+        live.sessionId,
+        'unavailable',
+        'follower-exited',
+      ),
+    )
+    await vi.waitFor(
+      () =>
+        expect(stream.writes.filter((value) => value.startsWith('R\t')).at(-1)).toBe(
+          'R\t9\t1\n',
+        ),
+      { timeout: 1_000 },
+    )
+
+    void stop()
+  })
+
   it('reconciles one failed follower out before a bounded replacement', async () => {
     const stream = fakeStream()
     const execStream = vi.fn<ProjectHost['execStream']>(() => stream.handle)
@@ -213,15 +337,17 @@ describe('HarnessTelemetryHub', () => {
     releaseSecondReconcile?.()
 
     await vi.waitFor(
-      () => expect(stream.writes.filter((value) => value.startsWith('R\t'))[2]).toBe(
-        'R\t3\t1\n',
-      ),
+      () =>
+        expect(stream.writes.filter((value) => value.startsWith('R\t'))[2]).toBe(
+          'R\t3\t1\n',
+        ),
       { timeout: 1_000 },
     )
     await vi.waitFor(
-      () => expect(stream.writes.filter((value) => value.startsWith('R\t'))[3]).toBe(
-        'R\t4\t2\n',
-      ),
+      () =>
+        expect(stream.writes.filter((value) => value.startsWith('R\t'))[3]).toBe(
+          'R\t4\t2\n',
+        ),
       { timeout: 1_000 },
     )
 

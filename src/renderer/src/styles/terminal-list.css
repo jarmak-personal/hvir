@@ -114,66 +114,6 @@
   font-size: calc(9px * var(--hvir-interface-scale));
 }
 
-.terminal-context {
-  width: 100%;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 36px;
-  align-items: center;
-  gap: 6px;
-  margin-top: 2px;
-  color: #7f8996;
-  font-size: calc(9px * var(--hvir-interface-scale));
-  font-variant-numeric: tabular-nums;
-}
-
-.terminal-context.count-display {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.terminal-context-track {
-  height: 3px;
-  overflow: hidden;
-  border-radius: 2px;
-  background: #303641;
-}
-
-.terminal-context-fill {
-  height: 100%;
-  display: block;
-  border-radius: inherit;
-  background: #7f93aa;
-}
-
-.terminal-context.count-only .terminal-context-track {
-  opacity: 0.45;
-}
-
-.terminal-context.warning {
-  color: #d4a84f;
-}
-
-.terminal-context.warning .terminal-context-fill {
-  background: #d4a84f;
-}
-
-.terminal-context.unavailable {
-  color: #dc6b78;
-}
-
-.terminal-context.critical {
-  color: #dc6b78;
-}
-
-.terminal-context.critical .terminal-context-fill {
-  background: #dc6b78;
-}
-
-.terminal-context-value {
-  text-align: right;
-  white-space: nowrap;
-}
-
 .terminal-close-button {
   align-self: center;
   flex: 0 0 26px;

@@ -6,6 +6,10 @@ import { describe, expect, it } from 'vitest'
 const expectedOrder = [
   'base.css',
   'projects.css',
+  'provider-context.css',
+  'sessions-overview.css',
+  'sessions-collection.css',
+  'sessions-terminal-detail.css',
   'health.css',
   'diagnostic-report.css',
   'shell.css',
@@ -86,12 +90,49 @@ describe('renderer style ownership', () => {
       'utf8',
     )
 
-    expect(projects).toContain('animation: project-name-working-sweep 6.5s linear infinite')
+    expect(projects).toContain(
+      'animation: project-name-working-sweep 6.5s linear infinite',
+    )
     expect(projects).toContain('92.3076923077%,\n  100%')
     expect(projects).toContain('@media (prefers-reduced-motion: reduce)')
     expect(projects).toMatch(
       /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.project-name-working \{[\s\S]*?animation: none;[\s\S]*?text-decoration-style: dashed;[\s\S]*?\n {2}\}\n\}/u,
     )
+  })
+
+  it('bounds the Sessions detail reveal and disables it for reduced motion', () => {
+    const detail = readFileSync(
+      join(process.cwd(), 'src/renderer/src/styles/sessions-terminal-detail.css'),
+      'utf8',
+    )
+
+    expect(detail).toContain(
+      'animation: sessions-detail-reveal 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both',
+    )
+    expect(detail).toContain(
+      'animation: sessions-detail-panel-arrive 240ms 40ms ease-out both',
+    )
+    expect(detail).toMatch(
+      /\.sessions-detail-terminal > \.sessions-detail-terminal-container \{\n[ ]{2}position: absolute;\n[ ]{2}inset: 0;/u,
+    )
+    expect(detail).toMatch(
+      /\.sessions-detail-terminal \{[\s\S]*?min-width: 0;\n[ ]{2}min-height: 0;/u,
+    )
+    expect(detail).toMatch(
+      /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.sessions-detail-backdrop,[\s\S]*?\.sessions-terminal-detail \{[\s\S]*?animation: none;/u,
+    )
+  })
+
+  it('keeps Sessions workspace groups dense instead of stretching sparse columns', () => {
+    const overview = readFileSync(
+      join(process.cwd(), 'src/renderer/src/styles/sessions-overview.css'),
+      'utf8',
+    )
+
+    expect(overview).toContain(
+      'grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 420px))',
+    )
+    expect(overview).toContain('justify-content: start')
   })
 
   it('routes renderer typography through the owned font and scale tokens', () => {

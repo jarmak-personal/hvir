@@ -1,7 +1,6 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "allowImportingTsExtensions": true,
     "composite": false,
     "lib": ["ES2023"],
     "types": ["node"]

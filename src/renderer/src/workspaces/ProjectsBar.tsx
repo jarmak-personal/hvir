@@ -54,6 +54,8 @@ interface ProjectsBarProps {
   readonly theme: AppTheme
   readonly onTheme: (theme: AppTheme) => void
   readonly onSettings: () => void
+  readonly sessionsActive: boolean
+  readonly onSessions: () => void
 }
 
 export function ProjectsBar({
@@ -77,6 +79,8 @@ export function ProjectsBar({
   theme,
   onTheme,
   onSettings,
+  sessionsActive,
+  onSessions,
 }: ProjectsBarProps): ReactElement {
   const [pruneProjectId, setPruneProjectId] = useState<string>()
   const [closeProjectId, setCloseProjectId] = useState<string>()
@@ -183,8 +187,16 @@ export function ProjectsBar({
           aria-label="Projects"
           data-diagnostic-capture="project-navigation"
         >
+          <button
+            type="button"
+            className={`sessions-destination${sessionsActive ? ' active' : ''}`}
+            aria-current={sessionsActive ? 'page' : undefined}
+            onClick={onSessions}
+          >
+            Sessions
+          </button>
           {state.projects.map((project) => {
-            const active = project.id === state.activeProjectId
+            const active = !sessionsActive && project.id === state.activeProjectId
             const remote = project.registeredRoot.hostId !== 'local'
             const workspaceIds = project.workspaces.map((workspace) => workspace.id)
             const actionable = aggregateActionableWorkspaceAttention(
@@ -302,7 +314,7 @@ export function ProjectsBar({
           </button>
           <span className="projects-bar-spacer" />
         </nav>
-        {activeProject && showWorkspacesBar ? (
+        {activeProject && showWorkspacesBar && !sessionsActive ? (
           <nav
             className="workspaces-bar"
             aria-label="Workspaces"
@@ -310,7 +322,7 @@ export function ProjectsBar({
           >
             {openWorkspaces.map((workspace) => (
               <div
-                className={`workspace-tab${workspace.id === state.activeWorkspaceId ? ' active' : ''}${workspace.missing ? ' missing' : ''}`}
+                className={`workspace-tab${!sessionsActive && workspace.id === state.activeWorkspaceId ? ' active' : ''}${workspace.missing ? ' missing' : ''}`}
                 key={workspace.id}
                 title={workspaceStatusTitle(workspace)}
                 onMouseDown={(event) => {

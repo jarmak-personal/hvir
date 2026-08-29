@@ -1,6 +1,6 @@
 import type { ComponentProps, ReactElement } from 'react'
 
-import type { ProjectState } from '../../../shared'
+import { sessionsWorkspaceQualifier, type ProjectState } from '../../../shared'
 import { TerminalWorkspace } from './TerminalWorkspace'
 import type { useTerminalWorkspaceRuntime } from './use-terminal-workspace-runtime'
 
@@ -42,39 +42,42 @@ export function TerminalWorkspaceCollection({
   const materialized = new Set(runtime.materializedWorkspaceIds)
   return (
     <>
-      {state?.projects.flatMap((project) =>
-        project.workspaces
-          .filter(
-            (workspace) =>
-              !workspace.closed &&
-              (workspace.id === state.activeWorkspaceId ||
-                materialized.has(workspace.id)),
-          )
-          .map((workspace) => (
-            <TerminalWorkspace
-              key={workspace.id}
-              workspaceId={workspace.id}
-              cwd={workspace.root}
-              label={workspace.name}
-              available={!workspace.missing}
-              visible={workspace.id === state.activeWorkspaceId}
-              presentationVisible={
-                terminalPresented && workspace.id === state.activeWorkspaceId
-              }
-              railCompact={railCompact}
-              onRailCompact={onRailCompact}
-              connectionState={project.connectionState}
-              {...runtime.moveProps(project, workspace)}
-              onRollup={onRollup}
-              onOpenPath={onOpenPath}
-              onOpenWebLink={onOpenWebLink}
-              preferences={preferences}
-              onOpenSettings={onOpenSettings}
-              onOpenTerminalSettings={onOpenTerminalSettings}
-              onOpenHarnessSettings={onOpenHarnessSettings}
-              onAddHarness={onAddHarness}
-            />
-          )),
+      {state?.projects.flatMap((project, projectIndex) =>
+        project.workspaces.flatMap((workspace, workspaceIndex) =>
+          !workspace.closed &&
+          (workspace.id === state.activeWorkspaceId || materialized.has(workspace.id))
+            ? [
+                <TerminalWorkspace
+                  key={workspace.id}
+                  workspaceId={workspace.id}
+                  sessionsWorkspaceQualifier={sessionsWorkspaceQualifier(
+                    state.revision,
+                    projectIndex,
+                    workspaceIndex,
+                  )}
+                  cwd={workspace.root}
+                  label={workspace.name}
+                  available={!workspace.missing}
+                  visible={workspace.id === state.activeWorkspaceId}
+                  presentationVisible={
+                    terminalPresented && workspace.id === state.activeWorkspaceId
+                  }
+                  railCompact={railCompact}
+                  onRailCompact={onRailCompact}
+                  connectionState={project.connectionState}
+                  {...runtime.moveProps(project, workspace)}
+                  onRollup={onRollup}
+                  onOpenPath={onOpenPath}
+                  onOpenWebLink={onOpenWebLink}
+                  preferences={preferences}
+                  onOpenSettings={onOpenSettings}
+                  onOpenTerminalSettings={onOpenTerminalSettings}
+                  onOpenHarnessSettings={onOpenHarnessSettings}
+                  onAddHarness={onAddHarness}
+                />,
+              ]
+            : [],
+        ),
       )}
     </>
   )

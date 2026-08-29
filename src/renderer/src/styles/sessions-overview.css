@@ -1,0 +1,213 @@
+.sessions-destination {
+  position: sticky;
+  z-index: 3;
+  left: 0;
+  height: 31px;
+  flex: 0 0 auto;
+  align-self: end;
+  padding: 0 13px;
+  border: 1px solid var(--border-strong);
+  border-bottom-color: var(--border-strong);
+  border-radius: 5px 5px 0 0;
+  background: #101318;
+  color: #aab2be;
+  font-size: calc(11px * var(--hvir-interface-scale));
+  font-weight: 680;
+}
+
+.sessions-destination:hover,
+.sessions-destination:focus-visible {
+  background: #1b2028;
+  color: #eef1f5;
+}
+
+.sessions-destination:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.sessions-destination.active {
+  border-bottom-color: #111419;
+  background: #111419;
+  color: #eef1f5;
+}
+
+.sessions-overview {
+  --sessions-content-width: 1800px;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: clamp(12px, 2vw, 24px);
+  background:
+    radial-gradient(circle at 15% 0%, rgb(51 83 122 / 16%), transparent 34%), #0f1115;
+  color: var(--text);
+}
+
+.sessions-detail-actions button,
+.sessions-controls button,
+.sessions-controls select,
+.sessions-notice button,
+.session-card header button {
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: #181c23;
+  color: #c5ccd6;
+  font: inherit;
+}
+
+.sessions-controls,
+.sessions-policy,
+.sessions-feedback,
+.sessions-pagination,
+.sessions-groups,
+.sessions-notice {
+  max-width: var(--sessions-content-width);
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.sessions-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  padding: 0 0 7px;
+}
+
+.sessions-controls fieldset {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+}
+
+.sessions-controls legend,
+.sessions-controls label {
+  color: var(--text-muted);
+  font-size: calc(9px * var(--hvir-interface-scale));
+}
+
+.sessions-controls legend {
+  width: 100%;
+  margin-bottom: 4px;
+}
+
+.sessions-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sessions-controls button,
+.sessions-controls select {
+  height: 29px;
+  padding: 0 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
+}
+
+.sessions-controls button[aria-pressed='true'] {
+  border-color: #4a6a8d;
+  background: #223247;
+  color: #eef4fb;
+}
+
+.sessions-policy,
+.sessions-feedback {
+  margin-top: 0;
+  margin-bottom: 10px;
+  color: var(--text-muted);
+  font-size: calc(9px * var(--hvir-interface-scale));
+}
+
+.sessions-feedback {
+  min-height: 1.35em;
+  color: #c8a76d;
+}
+
+.sessions-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 420px));
+  align-items: start;
+  justify-content: start;
+  gap: 10px;
+}
+
+.sessions-pagination {
+  margin-top: 8px;
+  margin-bottom: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  color: var(--text-muted);
+  font-size: calc(9px * var(--hvir-interface-scale));
+}
+
+.sessions-pagination p {
+  margin: 0;
+}
+
+.sessions-pagination div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sessions-pagination button {
+  padding: 5px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: #181c23;
+  color: #c5ccd6;
+  font: inherit;
+}
+
+.sessions-notice button {
+  padding: 5px 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
+}
+
+.sessions-overview button:hover:not(:disabled),
+.sessions-detail-actions button:hover:not(:disabled),
+.sessions-detail-actions button:focus-visible {
+  border-color: #506a87;
+  background: #233044;
+  color: #f0f4f9;
+}
+
+.sessions-notice {
+  margin-top: 30px;
+  padding: 30px;
+  border: 1px dashed #343d49;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.sessions-notice h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: calc(15px * var(--hvir-interface-scale));
+}
+
+.sessions-notice p {
+  margin: 7px 0 13px;
+  color: var(--text-muted);
+  font-size: calc(10px * var(--hvir-interface-scale));
+}
+
+@media (max-width: 680px) {
+  .sessions-overview-header {
+    flex-direction: column;
+  }
+
+  .sessions-controls {
+    align-items: stretch;
+  }
+
+  .sessions-controls label {
+    flex: 1 1 130px;
+  }
+}

@@ -270,13 +270,13 @@ not launch Electron, require a display, or access the network.
 
 `npm run smoke` runs the focused `pty-native`, `viewer-position`, `viewer-content`,
 `git-workflow`, `workspace-remote`, `web-pane`, `renderer-authority`, `renderer-recovery`,
-`document-review`, `terminal-presentation`, and `terminal-lifecycle` groups plus the transitional
+`sessions-projection`, `document-review`, `terminal-presentation`, and `terminal-lifecycle` groups plus the transitional
 `legacy-workflow` group in separate Electron processes with fresh project and user-data roots, then
 reports a result for every scheduled group. Select one group locally with
 `HVIR_SMOKE_SCENARIO=<name> npm run
 smoke`; the complete name set is `pty-native`, `viewer-position`, `viewer-content`,
 `git-workflow`, `workspace-remote`, `web-pane`, `renderer-authority`, `platform-contracts`,
-`diagnostic-report-restart`, `renderer-recovery`, `document-review`, `development-performance`,
+`diagnostic-report-restart`, `renderer-recovery`, `sessions-projection`, `document-review`, `development-performance`,
 `terminal-presentation`, `terminal-lifecycle`, `legacy-workflow`, and `capacity`. The
 development-performance group starts a development renderer and is run separately with `npm run
 smoke:development-performance`; the restart scenario is reserved for the packaged multi-launch

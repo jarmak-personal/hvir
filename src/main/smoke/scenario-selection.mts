@@ -9,6 +9,7 @@ export const ELECTRON_SMOKE_SCENARIOS = [
   'platform-contracts',
   'diagnostic-report-restart',
   'renderer-recovery',
+  'sessions-projection',
   'document-review',
   'development-performance',
   'terminal-presentation',
@@ -28,6 +29,7 @@ export type ElectronSmokeMode =
   | 'renderer-authority'
   | 'platform-contracts'
   | 'renderer-recovery'
+  | 'sessions-projection'
   | 'document-review'
   | 'development-performance'
   | 'terminal-presentation'

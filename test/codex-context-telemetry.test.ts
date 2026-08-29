@@ -14,12 +14,16 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   observeCodexContext,
+  observeCodexUsage,
   parseCodexTokenCount,
   snapshotCodexUsage,
 } from '../src/main/harness/codex-context-telemetry'
 import { calculateHarnessUsageDelta } from '../src/main/harness/agent-work-usage'
 import { BoundedLineReader } from '../src/main/harness/bounded-line-reader'
-import { HARNESS_USAGE_RECORD_BYTE_LIMIT } from '../src/main/harness/harness-usage-artifact'
+import {
+  HARNESS_USAGE_ARTIFACT_BYTE_LIMIT,
+  HARNESS_USAGE_RECORD_BYTE_LIMIT,
+} from '../src/main/harness/harness-usage-artifact'
 import type { ExecStreamHandle, ProjectHost } from '../src/main/project-host'
 import { LocalHost } from '../src/main/project-host/local-host'
 import { localPath, type HarnessTelemetry } from '../src/shared'
@@ -27,6 +31,131 @@ import { localPath, type HarnessTelemetry } from '../src/shared'
 const SESSION_ID = '019ab123-4567-7890-abcd-ef0123456789'
 
 describe('Codex context telemetry', () => {
+  it('keeps a qualified rollout pending until cumulative counters arrive', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'hvir-codex-pending-usage-'))
+    const canonicalDirectory = await realpath(directory)
+    const path = localPath(join(directory, `rollout-session-${SESSION_ID}.jsonl`))
+    const host = new LocalHost()
+    const controller = new AbortController()
+    const emitted: HarnessTelemetry[] = []
+    await writeFile(path.path, `${sessionMeta(canonicalDirectory)}\n`)
+    await host.connect()
+    let stop: (() => void | Promise<void>) | undefined
+    try {
+      stop = await observeCodexUsage(host, {
+        subscriptionId: SESSION_ID,
+        sessionId: SESSION_ID,
+        cwd: localPath(directory),
+        sessionData: { rolloutPath: path },
+        artifact: { identity: 'test', environment: {}, unsetEnvironment: [] },
+        signal: controller.signal,
+        emit: (telemetry) => {
+          if (telemetry) emitted.push(telemetry)
+        },
+      })
+      expect(emitted.at(-1)?.facets.usage.status).toBe('pending')
+      expect(emitted.some(({ facets }) => facets.usage.status === 'unavailable')).toBe(
+        false,
+      )
+
+      await appendFile(path.path, `${cumulativeCodexUsage(8, 3, 1, 2, 1)}\n`)
+      await vi.waitFor(() => expect(exactUsageTotal(emitted.at(-1))).toBe(10), {
+        timeout: 4_000,
+      })
+    } finally {
+      await stop?.()
+      await host.dispose()
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('retries a transient rollout read while usage demand remains active', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'hvir-codex-late-usage-'))
+    const canonicalDirectory = await realpath(directory)
+    const path = localPath(join(directory, `rollout-session-${SESSION_ID}.jsonl`))
+    const host = new LocalHost()
+    const controller = new AbortController()
+    const emitted: HarnessTelemetry[] = []
+    await host.connect()
+    let stop: (() => void | Promise<void>) | undefined
+    try {
+      stop = await observeCodexUsage(host, {
+        subscriptionId: SESSION_ID,
+        sessionId: SESSION_ID,
+        cwd: localPath(directory),
+        sessionData: { rolloutPath: path },
+        artifact: { identity: 'test', environment: {}, unsetEnvironment: [] },
+        signal: controller.signal,
+        emit: (telemetry) => {
+          if (telemetry) emitted.push(telemetry)
+        },
+      })
+      expect(emitted.at(-1)?.facets.usage.status).toBe('pending')
+
+      await writeFile(
+        path.path,
+        `${sessionMeta(canonicalDirectory)}\n${cumulativeCodexUsage(8, 3, 1, 2, 1)}\n`,
+      )
+      await vi.waitFor(() => expect(exactUsageTotal(emitted.at(-1))).toBe(10), {
+        timeout: 4_000,
+      })
+    } finally {
+      await stop?.()
+      await host.dispose()
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('publishes demanded cumulative usage and marks counter resets without negative deltas', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'hvir-codex-live-usage-'))
+    const canonicalDirectory = await realpath(directory)
+    const path = localPath(join(directory, `rollout-session-${SESSION_ID}.jsonl`))
+    const host = new LocalHost()
+    const controller = new AbortController()
+    const emitted: HarnessTelemetry[] = []
+    await writeFile(
+      path.path,
+      `${sessionMeta(canonicalDirectory)}\n${cumulativeCodexUsage(40, 20, 5, 10, 3)}\n`,
+    )
+    await host.connect()
+    let stop: (() => void | Promise<void>) | undefined
+    try {
+      stop = await observeCodexUsage(host, {
+        subscriptionId: SESSION_ID,
+        sessionId: SESSION_ID,
+        cwd: localPath(directory),
+        sessionData: { rolloutPath: path },
+        artifact: { identity: 'test', environment: {}, unsetEnvironment: [] },
+        signal: controller.signal,
+        emit: (telemetry) => {
+          if (telemetry) emitted.push(telemetry)
+        },
+      })
+      await vi.waitFor(() => expect(exactUsageTotal(emitted.at(-1))).toBe(50), {
+        timeout: 4_000,
+      })
+      expect(JSON.stringify(emitted.at(-1))).not.toContain(SESSION_ID)
+
+      await appendFile(path.path, `${cumulativeCodexUsage(70, 30, 10, 20, 7)}\n`)
+      await vi.waitFor(() => expect(exactUsageTotal(emitted.at(-1))).toBe(90), {
+        timeout: 4_000,
+      })
+
+      await appendFile(path.path, `${cumulativeCodexUsage(8, 3, 1, 2, 1)}\n`)
+      await vi.waitFor(() => expect(emitted.at(-1)?.facets.usage.status).toBe('reset'), {
+        timeout: 4_000,
+      })
+      await appendFile(path.path, `${cumulativeCodexUsage(12, 4, 1, 3, 1)}\n`)
+      await vi.waitFor(() => expect(exactUsageTotal(emitted.at(-1))).toBe(15), {
+        timeout: 4_000,
+      })
+    } finally {
+      await stop?.()
+      await host.dispose()
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
   it('takes exact-session cumulative snapshots and calculates a real counter delta', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'hvir-codex-usage-'))
     const canonicalDirectory = await realpath(directory)
@@ -95,7 +224,7 @@ describe('Codex context telemetry', () => {
     }
   })
 
-  it('reads exact cumulative counters after a rollout grows beyond 8 MiB', async () => {
+  it('fails closed when a rollout grows beyond the cumulative artifact bound', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'hvir-codex-large-usage-'))
     const canonicalDirectory = await realpath(directory)
     const path = localPath(join(directory, `rollout-session-${SESSION_ID}.jsonl`))
@@ -104,7 +233,9 @@ describe('Codex context telemetry', () => {
       type: 'response_item',
       payload: { opaque: 'x'.repeat(1024) },
     })}\n`
-    const repetitions = Math.ceil((8 * 1024 * 1024 + 1) / ignoredRecord.length)
+    const repetitions = Math.ceil(
+      (HARNESS_USAGE_ARTIFACT_BYTE_LIMIT + 1) / ignoredRecord.length,
+    )
     await writeFile(
       path.path,
       `${JSON.stringify({
@@ -123,14 +254,9 @@ describe('Codex context telemetry', () => {
       await expect(
         snapshotCodexUsage(host, usageContext(directory, path)),
       ).resolves.toMatchObject({
-        status: 'available',
-        counters: {
-          freshInputTokens: 35,
-          cacheReadInputTokens: 120,
-          cacheWriteInputTokens: 15,
-          outputTokens: 40,
-          reasoningTokens: 8,
-        },
+        status: 'unavailable',
+        providerId: 'codex',
+        reason: 'artifact-too-large',
       })
     } finally {
       await host.dispose()
@@ -714,6 +840,11 @@ function contextPercent(telemetry: HarnessTelemetry | undefined): number | undef
   return context?.status === 'available' || context?.status === 'stale'
     ? context.value.usedPercent
     : undefined
+}
+
+function exactUsageTotal(telemetry: HarnessTelemetry | undefined): number | undefined {
+  const usage = telemetry?.facets.usage
+  return usage?.status === 'exact' ? usage.value.normalizedTokenTotal : undefined
 }
 
 function expectContextSnapshot(

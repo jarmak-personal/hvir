@@ -43,11 +43,11 @@ describe('TerminalContextMeter', () => {
 
     expect(absent).toContain('aria-label="Context usage unavailable"')
     expect(absent).toContain('>--</span>')
-    expect(pending).toContain('class="terminal-context pending count-display"')
+    expect(pending).toContain('class="provider-context pending count-display"')
     expect(pending).toContain('title="Waiting for Claude context telemetry"')
     expect(pending).toContain('aria-label="Waiting for Claude context telemetry"')
     expect(pending).toContain('>…</span>')
-    expect(unavailable).toContain('class="terminal-context unavailable count-display"')
+    expect(unavailable).toContain('class="provider-context unavailable count-display"')
     expect(unavailable).toContain('title="Claude context follower unavailable"')
     expect(unavailable).toContain('aria-label="Claude context follower unavailable"')
     expect(unavailable).toContain('>!</span>')
@@ -76,7 +76,7 @@ describe('TerminalContextMeter', () => {
         }),
       )
 
-      expect(claude).toContain(`class="terminal-context ${pressure}`)
+      expect(claude).toContain(`class="provider-context ${pressure}`)
       expect(claude).toContain(`aria-valuenow="${Math.floor(usedTokens / 10_000)}"`)
       expect(claude).toContain(`>${display}</span>`)
       expect(claude).toContain(`${usedLabel} / 1m context used (assumed capacity)`)
@@ -104,7 +104,7 @@ describe('TerminalContextMeter', () => {
           }),
         }),
       )
-      expect(codex).toContain(`class="terminal-context ${pressure}`)
+      expect(codex).toContain(`class="provider-context ${pressure}`)
       expect(codex).toContain(`aria-valuenow="${Math.floor(usedPercent)}"`)
       expect(codex).toContain(`>${display}</span>`)
       expect(codex).not.toContain('assumed capacity')

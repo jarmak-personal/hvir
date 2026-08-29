@@ -1,20 +1,16 @@
-/** Closed, content-free measurement vocabulary shared by providers and repository tooling. */
+/** Closed, content-free contributor-measurement vocabulary. */
 
-export const AGENT_WORK_TOKEN_COUNTER_NAMES = [
-  'freshInputTokens',
-  'cacheReadInputTokens',
-  'cacheWriteInputTokens',
-  'outputTokens',
-  'reasoningTokens',
-] as const
-export type AgentWorkTokenCounterName = (typeof AGENT_WORK_TOKEN_COUNTER_NAMES)[number]
+import {
+  HARNESS_USAGE_ADDITIVE_TOKEN_COUNTER_NAMES,
+  HARNESS_USAGE_TOKEN_COUNTER_NAMES,
+  type HarnessUsageCounterName,
+} from './harness-usage.ts'
 
-export const AGENT_WORK_ADDITIVE_TOKEN_COUNTER_NAMES = [
-  AGENT_WORK_TOKEN_COUNTER_NAMES[0],
-  AGENT_WORK_TOKEN_COUNTER_NAMES[1],
-  AGENT_WORK_TOKEN_COUNTER_NAMES[2],
-  AGENT_WORK_TOKEN_COUNTER_NAMES[3],
-] as const
+export const AGENT_WORK_TOKEN_COUNTER_NAMES = HARNESS_USAGE_TOKEN_COUNTER_NAMES
+export type AgentWorkTokenCounterName = HarnessUsageCounterName
+
+export const AGENT_WORK_ADDITIVE_TOKEN_COUNTER_NAMES =
+  HARNESS_USAGE_ADDITIVE_TOKEN_COUNTER_NAMES
 
 export const HARNESS_USAGE_UNAVAILABLE_REASONS = [
   'invalid-session-identity',

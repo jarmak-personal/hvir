@@ -48,7 +48,11 @@ export function useTerminalWorkspaceRuntime({
   })
   useNewWorktreeMoveBadge({ projectState, acknowledgeWorkspaces, onError })
 
-  useEffect(() => () => owner.dispose(), [owner])
+  useEffect(() => {
+    const dispose = (): void => owner.disposeForRendererRollover()
+    window.addEventListener('pagehide', dispose, { once: true })
+    return () => window.removeEventListener('pagehide', dispose)
+  }, [owner])
   useEffect(() => {
     owner.pruneWorkspaces(eligibleWorkspaceIds.current)
     owner.runtimes.disposeMissingWorkspaces(
@@ -62,6 +66,9 @@ export function useTerminalWorkspaceRuntime({
 
   return {
     materializedWorkspaceIds,
+    sessionsObservation: owner.sessionsObservation,
+    sessionsSurface: owner.sessionsSurface,
+    focusProjectedSession: owner.focusProjectedSession.bind(owner),
     openTerminalSearch: () => owner.runtimes.openSearch(),
     moveProps: (project: RegisteredProjectState, workspace: WorkspaceState) => ({
       runtimes: owner.runtimes,
@@ -69,6 +76,8 @@ export function useTerminalWorkspaceRuntime({
         (target) => target.id !== workspace.id && !target.missing && !target.closed,
       ),
       onMaterializationChange: owner.retainWorkspace,
+      onSessionsSource: owner.registerSessionsSource,
+      onSessionsChanged: owner.sessionsChanged,
       onController: transfer.register,
       onPrepareMoveTarget: transfer.prepare,
       onReleaseMoveTarget: transfer.release,

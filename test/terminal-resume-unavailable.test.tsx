@@ -511,6 +511,7 @@ describe('terminal resume unavailable state', () => {
     resolveFresh?.({
       outcome: 'started',
       id: 'd33b09dd-bf6a-4fab-b198-446017d5f8c9',
+      instanceId: 'fresh-instance-1',
       pid: 4321,
       resumed: false,
       reattached: false,
@@ -547,6 +548,7 @@ describe('terminal resume unavailable state', () => {
     resolveFresh?.({
       outcome: 'started',
       id: 'd33b09dd-bf6a-4fab-b198-446017d5f8c9',
+      instanceId: 'fresh-instance-2',
       pid: 4321,
       resumed: false,
       reattached: false,
@@ -725,6 +727,7 @@ function startedResponse(): StartPtyResponse {
   return {
     outcome: 'started',
     id: 'terminal-1',
+    instanceId: 'terminal-instance-1',
     pid: 4321,
     resumed: false,
     reattached: false,
