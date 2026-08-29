@@ -350,7 +350,7 @@ async function verifySessionsHiddenRelease(win: BrowserWindow): Promise<string> 
         const card = overview
           ? [...overview.querySelectorAll('.session-card')]
             .find((candidate) =>
-              candidate.querySelector('h3')?.textContent?.trim() === 'Shell terminal' &&
+              candidate.querySelector('.session-kind.shell') &&
               [...candidate.querySelectorAll('button')]
                 .some((button) => button.textContent?.trim() === 'Interact')
             )
@@ -552,7 +552,7 @@ async function verifySessionsOverview(
             );
             const retained = [...(primaryGroup?.querySelectorAll('.session-card') ?? [])]
               .find((card) =>
-                card.querySelector('h3')?.textContent?.trim() === 'Shell terminal' &&
+                card.querySelector('.session-kind.shell') &&
                 !button('Interact', card)
               );
             if (!(retained instanceof HTMLElement)) {
@@ -561,11 +561,11 @@ async function verifySessionsOverview(
             if (button('Open', retained)) {
               return reject(new Error('Sessions overview offered Open for a retained session'));
             }
-            if (
-              overview.textContent?.includes('Retained smoke session') ||
-              overview.textContent?.includes('plain-shell-default')
-            ) {
-              return reject(new Error('Sessions overview exposed a source title or profile identity'));
+            if (!retained.textContent?.includes('Retained smoke session')) {
+              return reject(new Error('Sessions overview omitted the safe retained terminal title'));
+            }
+            if (overview.textContent?.includes('plain-shell-default')) {
+              return reject(new Error('Sessions overview exposed a profile identity'));
             }
               button('Working', overview)?.click();
               const filtered = () => {
@@ -579,7 +579,7 @@ async function verifySessionsOverview(
                     ? [...currentOverview.querySelectorAll('.session-card')]
                     : [];
                   const live = filteredCards.find((card) =>
-                    card.querySelector('h3')?.textContent?.trim() === 'Shell terminal' &&
+                    card.querySelector('.session-kind.shell') &&
                     button('Interact', card)
                   );
                   if (!(live instanceof HTMLElement)) return wait(enterDetail, 'live card');
@@ -654,7 +654,7 @@ async function verifySessionsOverview(
                       }
                       const currentLive = [...returnedOverview.querySelectorAll('.session-card')]
                         .find((card) =>
-                          card.querySelector('h3')?.textContent?.trim() === 'Shell terminal' &&
+                          card.querySelector('.session-kind.shell') &&
                           button('Interact', card)
                         );
                       if (!(currentLive instanceof HTMLElement)) {
@@ -707,7 +707,7 @@ async function verifySessionsOverview(
                     ) {
                       return wait(focused, 'exact terminal focus');
                     }
-                    resolve('application-wide overview + filters + retained action withheld + private card identity omitted + exact interactive detail/input/restore + collapsed terminal restored before exact detail workspace/focus');
+                    resolve('application-wide overview + filters + safe terminal titles + retained action withheld + exact interactive detail/input/restore + collapsed terminal restored before exact detail workspace/focus');
                   };
                   attached();
                 };

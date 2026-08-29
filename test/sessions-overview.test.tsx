@@ -82,12 +82,12 @@ describe('SessionsOverview', () => {
     expect(host.textContent).not.toContain('Quiet state')
     expect(host.textContent).not.toContain('Unsupported')
     expect(host.textContent).not.toContain('Unavailable · Not materialized')
-    expect(host.textContent).not.toContain('Private agent title')
-    expect(host.textContent).not.toContain('Private shell title')
+    expect(host.textContent).toContain('Review release notes')
+    expect(host.textContent).toContain('Deploy preview shell')
     expect(host.textContent).not.toContain('codex-default')
     expect(host.textContent).not.toContain('plain-shell-default')
     const shellCard = [...host.querySelectorAll<HTMLElement>('.session-card')].find(
-      (card) => card.textContent?.includes('Shell terminal'),
+      (card) => card.textContent?.includes('Deploy preview shell'),
     )!
     expect(shellCard.querySelectorAll('.session-fact')).toHaveLength(0)
     expect(shellCard.querySelector('.session-fact-summary')).toBeNull()
@@ -98,7 +98,7 @@ describe('SessionsOverview', () => {
     ).toEqual([])
 
     const agentCard = [...host.querySelectorAll<HTMLElement>('.session-card')].find(
-      (card) => card.textContent?.includes('Codex session'),
+      (card) => card.textContent?.includes('Review release notes'),
     )!
     expect(
       [...agentCard.querySelectorAll<HTMLButtonElement>('button')].map((action) =>
@@ -122,7 +122,7 @@ describe('SessionsOverview', () => {
 
     act(() => button('Shells').click())
     expect(host.querySelectorAll('.session-card')).toHaveLength(1)
-    expect(host.textContent).toContain('Shell terminal')
+    expect(host.textContent).toContain('Deploy preview shell')
     act(() => button('Working').click())
     expect(host.textContent).toContain('No sessions match')
     expect(host.textContent).toContain('Working · Grouped by workspace')
@@ -163,7 +163,7 @@ describe('SessionsOverview', () => {
     await renderOverview()
 
     const agentCard = [...host.querySelectorAll<HTMLElement>('.session-card')].find(
-      (card) => card.textContent?.includes('Codex session'),
+      (card) => card.textContent?.includes('Review release notes'),
     )!
     expect(agentCard.querySelectorAll('button')).toHaveLength(0)
   })
@@ -185,7 +185,7 @@ describe('SessionsOverview', () => {
 
     expect(host.querySelector('.sessions-group h2')).toBeNull()
     expect(host.querySelector('.session-card h3')?.textContent).toBe(
-      'Codex session · Project One / main',
+      'Review release notes · Project One / main',
     )
   })
 
@@ -309,7 +309,7 @@ describe('SessionsOverview', () => {
       },
     })
     expect(host.querySelector('.sessions-terminal-detail h1')?.textContent).toBe(
-      'Private agent title',
+      'Review release notes',
     )
     expect(host.querySelector('.sessions-terminal-detail')?.getAttribute('role')).toBe(
       'dialog',
@@ -752,7 +752,7 @@ function rendererSessions() {
       workspaceQualifier,
       providerId: asHarnessProviderId('codex'),
       profileId: asHarnessProfileId('codex-default'),
-      title: 'Private agent title',
+      title: 'Review release notes',
       dormant: false,
       resumeOnStart: false,
       exited: false,
@@ -764,7 +764,7 @@ function rendererSessions() {
       workspaceQualifier,
       providerId: asHarnessProviderId('plain-shell'),
       profileId: asHarnessProfileId('plain-shell-default'),
-      title: 'Private shell title',
+      title: 'Deploy preview shell',
       dormant: false,
       resumeOnStart: false,
       exited: false,
@@ -824,7 +824,7 @@ function snapshot(demandGeneration: number): SessionsObservationSnapshot {
           status: 'available',
           value: { id: asHarnessProfileId('codex-default') },
         },
-        title: 'Private agent title',
+        title: 'Review release notes',
         lifecycle: 'live',
         livePty: {
           handle: asSessionsPtyHandle('live-instance-agent'),
@@ -846,7 +846,7 @@ function snapshot(demandGeneration: number): SessionsObservationSnapshot {
           status: 'available',
           value: { id: asHarnessProfileId('plain-shell-default') },
         },
-        title: 'Private shell title',
+        title: 'Deploy preview shell',
         lifecycle: 'retained',
         telemetry: {
           model: unsupported,

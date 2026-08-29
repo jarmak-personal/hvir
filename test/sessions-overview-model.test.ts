@@ -159,18 +159,29 @@ describe('Sessions overview policy', () => {
     )
   })
 
-  it('derives card titles from safe catalog facts instead of projected terminal titles', () => {
-    const fixture = row('private-handle', {
-      title: 'Provider-derived private conversation title',
+  it('prefers the renderer-safe projected title while preserving group context', () => {
+    const fixture = row('safe-handle', {
+      title: 'Review release notes',
       project: 'Project One',
       workspace: 'feature',
     })
 
-    expect(sessionsOverviewCardTitle(fixture, 'workspace')).toBe('Codex session')
-    expect(sessionsOverviewCardTitle(fixture, 'project')).toBe('Codex session · feature')
-    expect(sessionsOverviewCardTitle(fixture, 'none')).toBe(
-      'Codex session · Project One / feature',
+    expect(sessionsOverviewCardTitle(fixture, 'workspace')).toBe('Review release notes')
+    expect(sessionsOverviewCardTitle(fixture, 'project')).toBe(
+      'Review release notes · feature',
     )
+    expect(sessionsOverviewCardTitle(fixture, 'none')).toBe(
+      'Review release notes · Project One / feature',
+    )
+  })
+
+  it('uses a generic provider label when the projected title is unavailable', () => {
+    expect(sessionsOverviewCardTitle(row('agent', { title: '' }), 'workspace')).toBe(
+      'Codex session',
+    )
+    expect(
+      sessionsOverviewCardTitle(row('shell', { title: '', kind: 'shell' }), 'workspace'),
+    ).toBe('Shell terminal')
   })
 })
 
