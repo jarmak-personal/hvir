@@ -46,27 +46,58 @@ export interface SessionsOverviewCardFacts {
   readonly facts: readonly SessionsOverviewCardFact[]
 }
 
+export interface SessionsOverviewCardIdentity {
+  readonly label: string
+  readonly title: string
+  readonly accessibleName: string
+}
+
 export const DEFAULT_SESSIONS_OVERVIEW_POLICY: SessionsOverviewPolicy = {
   filter: 'all',
   group: 'workspace',
   sort: 'priority',
 }
 
-/** Uses the projection's renderer-safe title with a generic catalog fallback. */
-export function sessionsOverviewCardTitle(
+/** Combines projected provider and title facts without duplicating an existing prefix. */
+export function sessionsOverviewCardIdentity(
   row: SessionsProjectionRow,
   group: SessionsOverviewGroup,
-): string {
+): SessionsOverviewCardIdentity {
   const kind = row.provider.kind === 'agent' ? 'session' : 'terminal'
-  const identity = row.title.trim() || `${row.provider.name} ${kind}`
-  switch (group) {
-    case 'workspace':
-      return identity
-    case 'project':
-      return `${identity} · ${row.workspace.name}`
-    case 'none':
-      return `${identity} · ${row.project.name} / ${row.workspace.name}`
+  const sourceTitle = row.title.trim() || `${row.provider.name} ${kind}`
+  const title =
+    group === 'workspace'
+      ? sourceTitle
+      : group === 'project'
+        ? `${sourceTitle} · ${row.workspace.name}`
+        : `${sourceTitle} · ${row.project.name} / ${row.workspace.name}`
+  const label =
+    row.provider.kind === 'agent'
+      ? row.provider.name
+      : row.provider.kind === 'shell'
+        ? 'Shell'
+        : 'Terminal'
+  return {
+    label,
+    title,
+    accessibleName: titleCarriesIdentity(title, label) ? title : `${label} · ${title}`,
   }
+}
+
+function titleCarriesIdentity(title: string, identity: string): boolean {
+  const normalizedTitle = title.trim().toLowerCase()
+  const normalizedIdentity = identity.trim().toLowerCase()
+  if (normalizedTitle === normalizedIdentity) return true
+  if (!normalizedTitle.startsWith(normalizedIdentity)) return false
+  const boundary = normalizedTitle.at(normalizedIdentity.length)
+  return (
+    boundary === ' ' ||
+    boundary === '·' ||
+    boundary === ':' ||
+    boundary === '—' ||
+    boundary === '–' ||
+    boundary === '-'
+  )
 }
 
 export function sessionsOverviewCardFacts(

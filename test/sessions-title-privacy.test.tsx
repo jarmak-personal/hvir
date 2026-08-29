@@ -58,8 +58,10 @@ describe('Sessions title privacy', () => {
     })
 
     const card = host.querySelector<HTMLElement>('.session-card')!
+    expect(card.querySelector('.session-kind')?.textContent).toBe('Codex')
     expect(card.querySelector('h3')?.textContent).toBe('Codex · main')
     expect(card.getAttribute('aria-label')).toBe('Codex · main')
+    expect(card.getAttribute('aria-label')).not.toContain('Codex · Codex')
     expect(host.innerHTML).not.toContain(privateHandle)
     expect(host.innerHTML).not.toContain(privatePath)
 
