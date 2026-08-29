@@ -52,13 +52,13 @@ export const DEFAULT_SESSIONS_OVERVIEW_POLICY: SessionsOverviewPolicy = {
   sort: 'priority',
 }
 
-/** Derives card identity only from the projection's renderer-safe catalog facts. */
+/** Uses the projection's renderer-safe title with a generic catalog fallback. */
 export function sessionsOverviewCardTitle(
   row: SessionsProjectionRow,
   group: SessionsOverviewGroup,
 ): string {
   const kind = row.provider.kind === 'agent' ? 'session' : 'terminal'
-  const identity = `${row.provider.name} ${kind}`
+  const identity = row.title.trim() || `${row.provider.name} ${kind}`
   switch (group) {
     case 'workspace':
       return identity

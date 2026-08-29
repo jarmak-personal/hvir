@@ -190,7 +190,7 @@ async function interactWithLiveSession(win: BrowserWindow): Promise<void> {
       const overview = document.querySelector('.sessions-overview');
       const card = overview && [...overview.querySelectorAll('.session-card')].find(
         (candidate) =>
-          candidate.querySelector('h3')?.textContent?.trim() === 'Shell terminal' &&
+          candidate.querySelector('.session-kind.shell') &&
           [...candidate.querySelectorAll('button')].some(
             (button) => button.textContent?.trim() === 'Interact'
           )
