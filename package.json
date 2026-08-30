@@ -70,7 +70,6 @@
     "project:measure": "node scripts/project-management/measure-agent-work.ts",
     "issue:context": "node scripts/project-management/read-issue-context.ts",
     "issue:start": "node scripts/project-management/start-issue.ts",
-    "issue:merge": "node scripts/project-management/merge-ordinary-pull-request.ts",
     "verify": "npm run check-seams && npm run check-adrs && npm run architecture:check && npm run lint && npm run typecheck && npm test",
     "smoke": "npm run build:smoke && node scripts/run-smoke-scenarios.mts pty-native viewer-position viewer-content git-workflow workspace-remote web-pane renderer-authority renderer-recovery sessions-projection document-review terminal-presentation terminal-lifecycle legacy-workflow",
     "smoke:macos": "npm run build:smoke && node scripts/run-smoke-scenarios.mts pty-native viewer-position viewer-content git-workflow workspace-remote web-pane renderer-authority platform-contracts renderer-recovery sessions-projection document-review terminal-presentation terminal-lifecycle",

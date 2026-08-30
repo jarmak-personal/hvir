@@ -20,14 +20,9 @@ execution is a new run. Capture a provider start snapshot only when the exact cu
 session can be qualified; otherwise retain the truthful fixed unavailable reason. Measurement
 failure never blocks coordination or changes delivery authority.
 
-This skill has two authorized entry paths. A maintainer may invoke it directly to coordinate an
-aligned epic and its direct children. Alternatively, `hvir-merge-pr` may transfer one resolved
-pull-request number and exact candidate identity after its repository-owned dry run found no
-diagnostic except `issue-not-ordinary`. That transfer carries the maintainer's explicit acceptance
-of the candidate, but it does not carry classification authority: open the new resumed cleanup run,
-then follow **Accept and clean an exact cumulative candidate** below and freshly prove every fact
-before mutation. Do not delegate children or repeat cumulative implementation and review in this
-entry path.
+This skill starts only when a maintainer invokes it to coordinate an aligned epic and its direct
+children. A later explicitly resumed invocation may perform bounded post-merge cleanup, but final
+pull-request acceptance remains the small GitHub-owned workflow in `hvir-merge-pr`.
 
 ## Establish authority and scope
 
@@ -199,37 +194,14 @@ the maintainer. Include the parent `epic-coordination` record, Own projection, a
 Rollup availability and value/known-subtotal state. Stop before the final merge; cumulative
 acceptance belongs to the maintainer through `$hvir-merge-pr`.
 
-## Accept and clean an exact cumulative candidate
+## Resume bounded post-merge cleanup
 
-On the internal `$hvir-merge-pr` transfer, first confirm the transferred pull-request number and
-candidate SHA exactly match the latest cumulative handoff in the active interaction. Fetch/prune,
-then use repository-owned read-only context and bounded GitHub metadata to freshly revalidate all
-of these facts before any mutation:
+Final cumulative acceptance belongs to `$hvir-merge-pr`, which uses GitHub's protected merge path
+and reconciles the root issue's Project fields. Cleanup is not part of merge admission. Perform it
+only when a maintainer later invokes this skill for cleanup after the cumulative pull request is
+already merged.
 
-- the pull request is open, non-draft, same-repository, targets `main`, and closes exactly the
-  resolved open root `kind:epic`;
-- its current head equals the transferred full candidate SHA and its head branch is the one
-  unambiguous `epic/<epic-number>-*` branch;
-- every required check for that exact head is present, completed, and successful, with no
-  unresolved review decision or merge conflict;
-- every native direct child is closed and its exact completing pull request is integrated into
-  the epic branch; and
-- the deterministic epic worktree is registered on that branch, clean, and at the exact
-  candidate, with compatible local and remote refs.
-
-A changed head, failed or pending check, root or child relationship mismatch, unexpected open
-pull request, branch mismatch, worktree mismatch, or cleanup conflict stops before the merge and
-remains visible. Never accept an epic-child pull request or repair the branch, relationship,
-candidate, Project state, or worktree to make validation pass.
-
-Only after all facts pass, merge the exact candidate to `main` through GitHub's normal merge API
-with an exact-head guard and without bypassing branch protection. Reread GitHub and confirm the
-recorded pull-request head and merge commit, root issue closure, every direct child's closed state,
-and canonical Project `Done` convergence. Reconcile the epic's existing implementation,
-implementation-review, and coordination measurement projection and Rollup through their named
-owners; do not invent merge-phase or review usage.
-
-Then perform bounded cleanup. Confirm all of these facts before removing anything:
+Confirm all of these facts before removing anything:
 
 - the final pull request is merged into `main` and records the handed-off epic head;
 - current GitHub state contains no open pull request targeting the epic branch;
@@ -238,14 +210,11 @@ Then perform bounded cleanup. Confirm all of these facts before removing anythin
 - the remote epic branch is absent, or still points to the exact handed-off head and can be
   deleted with an exact lease.
 
-If the remote branch remains at the exact expected head, delete only that remote ref with a
-lease, then fetch/prune and confirm its absence. Remove the registered epic worktree without
-force and compare-and-delete the local branch only at its expected head. Never recursively delete
-the path. Retain uncertain or changed state for maintainer action and report the exact reason.
-
-If a maintainer reports that the exact cumulative pull request was already merged, the same path
-skips a proven merge and resumes closure, Project, measurement, or cleanup reconciliation from
-the pull request's recorded identity. It never substitutes a different candidate.
+If the remote branch remains at the exact expected head, delete only that remote ref with a lease,
+then fetch/prune and confirm its absence. Remove the registered epic worktree without force and
+compare-and-delete the local branch only at its expected head. Never recursively delete the path.
+Retain uncertain or changed state for maintainer action and report the exact reason. This resumed
+run performs no merge, Project correction, or review work.
 
 ## Finalize epic coordination measurement
 

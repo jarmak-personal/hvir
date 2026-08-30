@@ -32,11 +32,12 @@ reviewable child issues.
 
 **Final acceptance is separately authorized.** `hvir-implement-issue` and
 `hvir-implement-epic` stop at verified, pushed pull-request handoffs. A maintainer invokes
-`hvir-merge-pr` for one exact final candidate; an explicit pull-request number wins, while an
-omitted number may reuse only one exact candidate from the latest verified lifecycle handoff in
-the active interaction. Repository-owned read-only policy freshly classifies the pull request
-before ordinary mutation or an internal cumulative-epic transfer. Epic-child integration and
-cumulative epic acceptance remain owned by `hvir-implement-epic`.
+`hvir-merge-pr` to approve one final pull request; an explicit pull-request number wins, while an
+omitted number may reuse only one pull request from the latest verified lifecycle handoff in the
+active interaction. The skill requests GitHub's protected merge directly, then uses the focused
+Project owners to converge the native closing issue. Epic-child integration remains owned by
+`hvir-implement-epic`; ordinary and cumulative final pull requests share the small acceptance
+path.
 
 **Do not spend effort drafting or creating an issue without the user's go-ahead.** An agent may
 briefly propose using `hvir-create-issue`, but must wait for explicit approval before invoking
@@ -49,7 +50,9 @@ membership and Status, `project:kind` for label-derived Kind reconciliation, and
 for PR relationships and lifecycle reconciliation. Before implementation, use `issue:context` to
 read the normalized issue, parent, base, branch, worktree, planning state, open PRs, and conflicts.
 Mutating commands default to dry-run; review the plan before passing `--apply`. Invoke only the
-capability the task needs, not every command ceremonially.
+capability the task needs, not every command ceremonially. Final pull-request acceptance is the
+deliberate exception: explicit `hvir-merge-pr` invocation is the approval, so it uses GitHub's
+normal merge/auto-merge path without a second repository dry run.
 
 **Do not publish a pull request that fails locally runnable checks.** After the final changes,
 run `npm run verify` before committing. Push without `--no-verify` so `.githooks/pre-push` runs;
