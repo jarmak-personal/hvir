@@ -10,6 +10,7 @@ export const ghosttyState = {
     readonly fontSizes: number[]
     readonly presentationPausedValues: boolean[]
     readonly resizes: Array<{ readonly cols: number; readonly rows: number }>
+    readonly scrollToLineCalls: number[]
     readonly scrollbackBytes: number | undefined
     readonly scrollbackLines: number | undefined
     readonly themes: unknown[]
@@ -90,6 +91,7 @@ class MockTerminal {
       fontSizes: [options.fontSize ?? 0],
       presentationPausedValues: [],
       resizes: [],
+      scrollToLineCalls: [],
       scrollbackBytes: options.scrollbackBytes,
       scrollbackLines: options.scrollback,
       themes: [options.theme],
@@ -207,7 +209,9 @@ class MockTerminal {
     return this.state.scrollbackByteLimit
   }
 
-  scrollToLine(): void {}
+  scrollToLine(line: number): void {
+    this.state.scrollToLineCalls.push(line)
+  }
 
   requestRender(): void {
     if (!this.presentationPaused) this.state.renders += 1

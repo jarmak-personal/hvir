@@ -98,6 +98,22 @@ describe('GhosttyTerminalPane lifecycle', () => {
       ).retainedByteLimit,
     ).toBe(0)
   })
+  it('writes output once without taking ownership of the engine viewport', async () => {
+    const pane = await createGhosttyTerminalPane(theme(), typography(), {
+      cursorDefaults: cursorDefaults(),
+      ligatures: true,
+      modifiedKeyProtocol: 'modify-other-keys',
+      metaEnterAliasesControl: true,
+      composerSubmitMode: 'enter',
+    })
+    const state = ghosttyState.instances[0]!
+
+    pane.write('agent output')
+
+    expect(state.writes).toEqual(['agent output'])
+    expect(state.scrollToLineCalls).toEqual([])
+    pane.dispose()
+  })
   it('uses only structured parser events and releases their source on disposal', async () => {
     const pane = await createGhosttyTerminalPane(theme(), typography(), {
       cursorDefaults: cursorDefaults(),
