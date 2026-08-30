@@ -87,9 +87,9 @@ The repository provides four lifecycle skills, one test-design skill, and two fo
   and prepares a discussion-ready issue.
 - `hvir-implement-issue` performs architecture reconnaissance, raises design concerns before
   editing, and implements an aligned issue with verification.
-- `hvir-merge-pr` accepts one explicitly authorized ordinary pull-request number, resolves and
-  verifies its native issue and exact head, then confirms and reconciles closure, Project, and
-  measurement state.
+- `hvir-merge-pr` accepts one explicit final candidate, resolves and verifies its native issue
+  and exact head, then merges ordinary delivery or transfers cumulative epic acceptance to the
+  epic coordinator.
 - `hvir-implement-epic` privately coordinates an authorized epic's direct children through the
   single-issue workflow, coherence review, staged integration, cumulative handoff, and cleanup.
 - `write-hvir-tests` selects the behavior owner and lowest real test altitude for test changes,
@@ -148,12 +148,16 @@ capability.
 This lifecycle belongs only to repository contributor tooling. The hvir application continues
 to discover worktrees without creating, moving, repairing, merging, or removing them.
 
-## Accept ordinary delivery
+## Accept final delivery
 
 `hvir-implement-issue` ends after it has verified, committed, pushed, audited, and handed off one
 ordinary candidate pull request. It does not infer acceptance or merge authority. When the
-maintainer accepts that pull request, invoke `hvir-merge-pr` with only its pull-request number.
-The repository operation, not the maintainer, resolves the native issue and exact head.
+maintainer accepts that pull request, invoke `hvir-merge-pr`. An explicit pull-request number wins;
+when it is omitted, the skill may reuse one only when the latest verified lifecycle handoff in
+the active interaction identifies exactly one final candidate. It never searches repository state
+for an arbitrary open pull request. Missing or ambiguous candidates require the number from the
+maintainer. Repository-owned read-only policy, not the handoff, resolves the native issue, exact
+current head, and delivery kind before mutation.
 
 The skill plans and applies one repository-owned operation:
 
@@ -179,7 +183,14 @@ A repeated run with the same pull-request number rereads current state. It skips
 and resumes closure, Project, ledger, or projection reconciliation using the identity recorded by
 the merged pull request. A post-merge failure does not rewrite GitHub history. Changed candidates
 return through `hvir-implement-issue`.
-Epic-child and cumulative epic pull requests remain exclusively owned by `hvir-implement-epic`.
+An epic-child or ambiguous non-ordinary pull request remains blocked. When the read-only ordinary
+plan resolves one exact root-epic candidate to `main` and rejects it only because it is not
+ordinary, `hvir-merge-pr` transfers the exact candidate internally to `hvir-implement-epic`.
+That coordinator freshly revalidates the root, every direct child, exact head, required checks,
+branch, and worktree before it merges, confirms closure and Project state, reconciles measurement,
+and performs bounded cleanup. The maintainer does not invoke a second skill. Ordinary acceptance
+creates no measurement run; cumulative acceptance records only the resumed cleanup run owned by
+the epic coordinator.
 
 ## Stage epic delivery
 
@@ -223,8 +234,9 @@ validation keeps the child open. Reopen the child for an in-scope correction and
 
 After every authorized child closes, the coordinator merges current `main` into the epic branch,
 verifies and externally reviews the complete `main...epic` candidate, passes the pre-push gate,
-and opens one final PR to `main` with `Closes #<epic>`. The maintainer owns cumulative acceptance
-and the final merge. After the maintainer reports that merge, the coordinator cleans the epic
+and opens one final PR to `main` with `Closes #<epic>`. The maintainer accepts that exact candidate
+through `hvir-merge-pr`; it transfers internally back to the coordinator for exact-head merge,
+closure and Project reconciliation, measurement, and cleanup. The coordinator cleans the epic
 branch and worktree only after exact head, upstream, pull-request, and worktree safety checks.
 Retain uncertain state for maintainer action.
 
