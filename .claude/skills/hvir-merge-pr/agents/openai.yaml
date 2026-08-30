@@ -1,6 +1,6 @@
 interface:
   display_name: 'hvir Merge PR'
-  short_description: 'Accept one exact final hvir PR'
-  default_prompt: 'Use $hvir-merge-pr to merge and reconcile one explicitly authorized final hvir pull-request candidate.'
+  short_description: 'Merge one approved hvir PR'
+  default_prompt: 'Use $hvir-merge-pr to merge one explicitly approved hvir pull request through GitHub and reconcile its Project fields.'
 policy:
   allow_implicit_invocation: false
