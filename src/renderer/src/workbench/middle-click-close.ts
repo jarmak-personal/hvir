@@ -3,8 +3,10 @@ interface MiddleButtonEvent {
   preventDefault(): void
 }
 
-export function suppressMiddleClickDefault(event: MiddleButtonEvent): void {
-  if (event.button === 1) event.preventDefault()
+export function guardMiddleClickClosePointerDown(event: MiddleButtonEvent): void {
+  if (event.button !== 1) return
+  event.preventDefault()
+  if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
 }
 
 export function closeOnMiddleClick(event: MiddleButtonEvent, close: () => void): void {

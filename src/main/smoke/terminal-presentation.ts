@@ -10,6 +10,7 @@ import { verifyTerminalCursorPresentation } from './terminal-cursor-presentation
 import { verifyTerminalHorizonPresentation } from './terminal-horizon-presentation'
 import { verifyHiddenTerminalReveal } from './terminal-hidden-reveal'
 import { verifyTerminalLigaturePresentation } from './terminal-ligature-presentation'
+import { verifyTerminalMiddleClickCloseGuard } from './terminal-middle-click-close'
 import { verifyNegotiatedTerminalKeyboard } from './terminal-keyboard-negotiation'
 import { verifyTerminalPalettePresentation } from './terminal-palette-presentation'
 import { verifyTerminalProjectReturn } from './terminal-project-return'
@@ -27,6 +28,15 @@ export async function verifyTerminalPresentationLifecycle(
   checkpoint('terminal-presentation-explicit-launch-awaiting')
   const explicitLaunch = await ensureExplicitBareShellLaunch(win, supervisor)
   checkpoint('terminal-presentation-explicit-launch-ready')
+  checkpoint('terminal-presentation-middle-click-close-awaiting')
+  const middleClickCloseStatus = launchMenuOverflowRoot
+    ? await verifyTerminalMiddleClickCloseGuard(
+        win,
+        supervisor,
+        launchMenuOverflowRoot,
+      )
+    : undefined
+  checkpoint('terminal-presentation-middle-click-close-ready')
   checkpoint('terminal-presentation-keyboard-awaiting')
   await verifyNegotiatedTerminalKeyboard(win, supervisor)
   checkpoint('terminal-presentation-keyboard-ready')
@@ -227,6 +237,7 @@ export async function verifyTerminalPresentationLifecycle(
   checkpoint('terminal-presentation-theme-gallery-ready')
   return [
     explicitLaunch,
+    middleClickCloseStatus,
     paletteStatus,
     semanticStatus,
     searchStatus,

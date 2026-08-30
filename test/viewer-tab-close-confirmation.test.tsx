@@ -79,6 +79,41 @@ describe('dirty viewer tab close confirmation', () => {
 })
 
 describe('viewer tab middle-click close', () => {
+  it('revokes a focused input before paste can be delivered during the gesture', () => {
+    const onClose = vi.fn()
+    const onPaste = vi.fn()
+    renderStrip(tab(false), onClose)
+    const terminalInput = document.createElement('textarea')
+    terminalInput.addEventListener('paste', onPaste)
+    document.body.append(terminalInput)
+    terminalInput.focus()
+
+    const target = viewerTab()
+    const mouseDown = new MouseEvent('mousedown', {
+      button: 1,
+      bubbles: true,
+      cancelable: true,
+    })
+    const auxClick = new MouseEvent('auxclick', {
+      button: 1,
+      bubbles: true,
+      cancelable: true,
+    })
+    act(() => {
+      target.dispatchEvent(mouseDown)
+      document.activeElement?.dispatchEvent(
+        new Event('paste', { bubbles: true, cancelable: true }),
+      )
+      target.dispatchEvent(auxClick)
+    })
+
+    expect(mouseDown.defaultPrevented).toBe(true)
+    expect(document.activeElement).not.toBe(terminalInput)
+    expect(onPaste).not.toHaveBeenCalled()
+    expect(onClose).toHaveBeenCalledWith('tab-notes')
+    terminalInput.remove()
+  })
+
   it('closes an inactive clean file tab without activating it and suppresses auxiliary defaults', () => {
     const onActivate = vi.fn()
     const onClose = vi.fn()

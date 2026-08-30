@@ -6,7 +6,7 @@ import { usePathCopyMenu } from '../path-copy/use-path-copy-menu'
 import { ConfirmationDialog } from '../workbench/ConfirmationDialog'
 import {
   closeOnMiddleClick,
-  suppressMiddleClickDefault,
+  guardMiddleClickClosePointerDown,
 } from '../workbench/middle-click-close'
 import type { ViewerPaneId, ViewerTab } from './tab-state'
 
@@ -117,7 +117,7 @@ export function TabStrip({
             onDoubleClick={(event) => {
               if (event.button === 0) onPin(tab.id)
             }}
-            onMouseDown={suppressMiddleClickDefault}
+            onMouseDown={guardMiddleClickClosePointerDown}
             onAuxClick={(event) => closeOnMiddleClick(event, () => requestClose(tab))}
           >
             <button
@@ -155,7 +155,7 @@ export function TabStrip({
             className={`viewer-tab git-graph-tab${graphActive ? ' active' : ''}`}
             role="tab"
             aria-selected={graphActive}
-            onMouseDown={suppressMiddleClickDefault}
+            onMouseDown={guardMiddleClickClosePointerDown}
             onAuxClick={(event) => closeOnMiddleClick(event, onCloseGraph)}
           >
             <button
@@ -185,7 +185,7 @@ export function TabStrip({
             key={webTab.id}
             role="tab"
             aria-selected={webTab.id === activeWebId}
-            onMouseDown={suppressMiddleClickDefault}
+            onMouseDown={guardMiddleClickClosePointerDown}
             onAuxClick={(event) =>
               closeOnMiddleClick(event, () => onCloseWeb?.(webTab.id))
             }

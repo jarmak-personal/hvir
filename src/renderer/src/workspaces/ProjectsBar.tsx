@@ -20,7 +20,7 @@ import type { AppTheme } from '../theme'
 import { ConfirmationDialog } from '../workbench/ConfirmationDialog'
 import {
   closeOnMiddleClick,
-  suppressMiddleClickDefault,
+  guardMiddleClickClosePointerDown,
 } from '../workbench/middle-click-close'
 import { WorkbenchHealthControl } from '../health/WorkbenchHealthControl'
 import { ClosedWorktreesDialog, CloseWorkspaceDialog } from './WorkspaceCatalogDialogs'
@@ -326,7 +326,9 @@ export function ProjectsBar({
                 key={workspace.id}
                 title={workspaceStatusTitle(workspace)}
                 onMouseDown={(event) => {
-                  if (canCloseWorkspace(workspace)) suppressMiddleClickDefault(event)
+                  if (canCloseWorkspace(workspace)) {
+                    guardMiddleClickClosePointerDown(event)
+                  }
                 }}
                 onAuxClick={(event) => {
                   if (!canCloseWorkspace(workspace)) return

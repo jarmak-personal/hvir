@@ -80,6 +80,8 @@ export const SMOKE_FAILURE_CHECKPOINTS = [
   'project-files-workspace-switch-ready',
   'terminal-presentation-explicit-launch-awaiting',
   'terminal-presentation-explicit-launch-ready',
+  'terminal-presentation-middle-click-close-awaiting',
+  'terminal-presentation-middle-click-close-ready',
   'terminal-presentation-keyboard-awaiting',
   'terminal-presentation-keyboard-ready',
   'terminal-presentation-file-paste-awaiting',
