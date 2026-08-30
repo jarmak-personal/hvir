@@ -48,7 +48,6 @@ import {
   ghosttyClipboardPasteFallback,
   ghosttyKeyboardOverride,
 } from './ghostty-terminal-keyboard'
-import { writePreservingViewport } from './terminal-viewport'
 import { TerminalWheelController } from './terminal-wheel'
 
 let initializeGhostty: Promise<void> | undefined
@@ -311,7 +310,7 @@ class GhosttyTerminalPane implements TerminalPane {
     if (this.disposed) return
     this.processingPtyOutput += 1
     try {
-      writePreservingViewport(this.terminal, data)
+      this.terminal.write(data)
       this.renderSearchHighlight()
     } finally {
       this.processingPtyOutput -= 1
