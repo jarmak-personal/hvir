@@ -4,6 +4,20 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 source_checkout=$PWD
 
+if [[ "$#" -gt 1 ]]; then
+  echo 'Usage: run-linux-package-smoke.sh [--software-rendering]' >&2
+  exit 2
+fi
+software_rendering=0
+case "${1:-}" in
+'') ;;
+--software-rendering) software_rendering=1 ;;
+*)
+  echo 'Usage: run-linux-package-smoke.sh [--software-rendering]' >&2
+  exit 2
+  ;;
+esac
+
 if [[ "${HVIR_LINUX_PACKAGE_ACCEPTANCE:-}" != '1' ]]; then
   echo 'Set HVIR_LINUX_PACKAGE_ACCEPTANCE=1 on a disposable compatible Linux host.' >&2
   exit 2
@@ -294,8 +308,12 @@ assert_packaged_runtime() {
 run_installed_startup() {
   stage=$1
   harness_probe_args=()
+  rendering_probe_args=()
   if [[ "$stage" == 'current' ]]; then
     harness_probe_args+=(--exercise-harness-dialogs)
+  fi
+  if [[ "$software_rendering" -eq 1 ]]; then
+    rendering_probe_args+=(--disable-gpu)
   fi
   node scripts/installed-startup-probe.mts \
     --command /usr/bin/hvir \
@@ -303,6 +321,7 @@ run_installed_startup() {
     --project-root "$project_root" \
     --runtime-root "$invocation_root/runtime-$stage" \
     --path "$blocked_tools_root:/usr/sbin:/usr/bin:/sbin:/bin" \
+    "${rendering_probe_args[@]}" \
     "${harness_probe_args[@]}"
 }
 
