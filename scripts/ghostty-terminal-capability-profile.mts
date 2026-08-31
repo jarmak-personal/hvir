@@ -5,14 +5,14 @@
 export const GHOSTTY_TERMINAL_CAPABILITY_PROFILE = {
   schemaVersion: 1,
   artifact: {
-    url: 'https://github.com/jarmak-personal/ghostty-web/releases/download/hvir-v0.4.0-18/ghostty-web-0.4.0-hvir-g09b2307bc3cb.tgz',
+    url: 'https://github.com/jarmak-personal/ghostty-web/releases/download/hvir-v0.4.0-19/ghostty-web-0.4.0-hvir-g30b96a57de4c.tgz',
     // Release-recorded digest; package installation is pinned by npm's SHA-512 lock integrity.
-    sha256: '98c63dc90bcdf8d0333353f0727d4bbe7c84e1ece864862c76164a33d032baf1',
+    sha256: 'b035ac2b60b0c359be51e90d3a490ac1691ea5e925e020b8ec7c37c4139041e2',
     npmIntegrity:
-      'sha512-rQgUbuGstgTJXryydqNLxMunHL0GCK6FsZGa3CFh28caxJWkHjyCCccD5U4nGzrnqzqj7aS/XaLgCgbIULfS9g==',
-    sourceCommit: '09b2307bc3cbf8151b01d7e2a960bf3fdb3c2f72',
+      'sha512-agjdDVQsRH6nlxKxjstazJJRx47nBfsU1Sd0x6Z2G7a9sJ4DYP2bRiApT+F/3FPF9MoqAl+D2xFm3rV8nrKeaw==',
+    sourceCommit: '30b96a57de4c776ee564ec1d04771c19940c1b1c',
     ghosttyCommit: '332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28',
-    wasmBytes: 527_422,
+    wasmBytes: 528_150,
   },
   identity: {
     term: 'xterm-256color',
