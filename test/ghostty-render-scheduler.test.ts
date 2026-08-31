@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CanvasRenderer, Terminal, type TerminalRenderStats } from 'ghostty-web'
 
 type FrameCallback = (timestamp: number) => void
+type ScrollbackProvider = NonNullable<Parameters<CanvasRenderer['render']>[3]>
 
 interface SchedulerHarness {
   isDisposed: boolean
@@ -33,6 +34,7 @@ interface SchedulerHarness {
     resetCursorBlink: ReturnType<typeof vi.fn>
     setRenderPaused: ReturnType<typeof vi.fn>
   }
+  rendererScrollbackProvider: ScrollbackProvider
   wasmTerm: {
     getCursor(): { y: number }
     isAlternateScreen(): boolean
@@ -55,6 +57,13 @@ interface CursorBlinkHarness {
 }
 
 function createHarness(): SchedulerHarness {
+  const rendererScrollbackProvider: ScrollbackProvider = {
+    getScrollbackLine: () => null,
+    getScrollbackLength: () => 0,
+    getScrollbackGeneration: () => 0,
+    getScrollbackGraphemeString: () => ' ',
+    getScrollbackViewport: () => null,
+  }
   return Object.assign(Object.create(Terminal.prototype) as object, {
     isDisposed: false,
     isOpen: true,
@@ -81,6 +90,7 @@ function createHarness(): SchedulerHarness {
       resetCursorBlink: vi.fn(),
       setRenderPaused: vi.fn(),
     },
+    rendererScrollbackProvider,
     wasmTerm: {
       getCursor: () => ({ y: 0 }),
       isAlternateScreen: () => false,
@@ -169,6 +179,8 @@ describe('ghostty demand render scheduler contract', () => {
       synchronizedOutputRecoveries: 0,
       lastFrame: {
         renderedRows: 0,
+        materializedRows: 0,
+        materializedCells: 0,
         textRuns: 0,
         textMeasurements: 0,
         shapedRuns: 0,
@@ -186,7 +198,7 @@ describe('ghostty demand render scheduler contract', () => {
       terminal.wasmTerm,
       true,
       0,
-      terminal,
+      terminal.rendererScrollbackProvider,
       0,
     )
     expect(terminal.getRenderStats().renderFrames).toBe(1)
@@ -233,7 +245,7 @@ describe('ghostty demand render scheduler contract', () => {
       terminal.wasmTerm,
       true,
       0,
-      terminal,
+      terminal.rendererScrollbackProvider,
       0,
     )
     expect(terminal.getRenderStats()).toMatchObject({
