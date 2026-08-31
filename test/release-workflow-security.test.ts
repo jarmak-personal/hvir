@@ -377,6 +377,12 @@ describe('native release automation', () => {
     }
     const debianCommands = (debian?.steps ?? []).map((step) => step.run ?? '').join('\n')
     expect(debianCommands).not.toMatch(/\bgit (?:rev-parse|checkout|status|show)\b/)
+    expect(debianCommands).toContain(
+      'xvfb-run -a npm run smoke:linux:installed -- --software-rendering',
+    )
+    expect(debianCommands).not.toContain('--no-sandbox')
+    const ubuntuCommands = (ubuntu?.steps ?? []).map((step) => step.run ?? '').join('\n')
+    expect(ubuntuCommands).not.toContain('--software-rendering')
   })
 
   it('joins only current release artifacts after every native acceptance succeeds', () => {

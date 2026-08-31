@@ -372,7 +372,7 @@ jobs:
             HOME=/home/hvir-acceptance \
             HVIR_LINUX_PACKAGE_ACCEPTANCE=1 \
             PATH=/usr/local/bin:/usr/bin:/bin \
-            xvfb-run -a npm run smoke:linux:installed
+            xvfb-run -a npm run smoke:linux:installed -- --software-rendering
 
   build-macos:
     name: Build and accept macOS arm64
