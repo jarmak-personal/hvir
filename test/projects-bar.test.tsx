@@ -281,11 +281,16 @@ describe('ProjectsBar middle-click close', () => {
       const callbacks = renderProjectsBar(state, {})
       callbacks.plan.mockResolvedValueOnce({ terminalCount: 0 })
       const workspace = requiredElement('.workspace-tab:not(.active)')
+      const pasteProbe = focusedPasteProbe()
 
-      const events = await middleClick(workspace)
+      const events = await middleClick(workspace, {
+        duringGesture: pasteProbe.dispatch,
+      })
 
       expect(events.mouseDown.defaultPrevented).toBe(true)
       expect(events.auxClick.defaultPrevented).toBe(true)
+      expect(document.activeElement).not.toBe(pasteProbe.input)
+      expect(pasteProbe.onPaste).not.toHaveBeenCalled()
       const project = state.projects[0]!
       const inactive = project.workspaces.find(
         (candidate) => candidate.id !== state.activeWorkspaceId,
@@ -304,13 +309,25 @@ describe('ProjectsBar middle-click close', () => {
   it('opens the existing destructive confirmation for retained terminals', async () => {
     const callbacks = renderProjectsBar(projectState(0, 0), {})
     callbacks.plan.mockResolvedValueOnce({ terminalCount: 2 })
+    const pasteProbe = focusedPasteProbe()
 
-    await middleClick(requiredElement('.workspace-tab:not(.active)'))
+    await middleClick(requiredElement('.workspace-tab:not(.active)'), {
+      duringGesture: pasteProbe.dispatch,
+    })
 
+    expect(document.activeElement).not.toBe(pasteProbe.input)
+    expect(pasteProbe.onPaste).not.toHaveBeenCalled()
     expect(callbacks.close).not.toHaveBeenCalled()
     expect(host.querySelector('.close-workspace-dialog')?.textContent).toContain(
       '2 hvir terminals will be terminated',
     )
+    const cancel = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent === 'Cancel',
+    )
+    expect(cancel).toBeDefined()
+    act(() => cancel?.click())
+    expect(host.querySelector('.close-workspace-dialog')).toBeNull()
+    expect(callbacks.close).not.toHaveBeenCalled()
   })
 
   it('leaves active, missing, busy, and already-planning workspaces open', async () => {
@@ -350,8 +367,8 @@ describe('ProjectsBar middle-click close', () => {
         }),
     )
     const planningTab = requiredElement('.workspace-tab:not(.active)')
-    await middleClick(planningTab, false)
-    const repeatedEvents = await middleClick(planningTab, false)
+    await middleClick(planningTab, { settle: false })
+    const repeatedEvents = await middleClick(planningTab, { settle: false })
     expect(repeatedEvents.auxClick.defaultPrevented).toBe(false)
     expect(planningCallbacks.plan).toHaveBeenCalledOnce()
     await act(async () => {
@@ -558,7 +575,10 @@ function requiredElement<T extends Element = HTMLDivElement>(selector: string): 
 
 async function middleClick(
   target: Element,
-  settle = true,
+  options: {
+    readonly settle?: boolean
+    readonly duringGesture?: () => void
+  } = {},
 ): Promise<{ readonly mouseDown: MouseEvent; readonly auxClick: MouseEvent }> {
   const mouseDown = new MouseEvent('mousedown', {
     button: 1,
@@ -572,8 +592,26 @@ async function middleClick(
   })
   await act(async () => {
     target.dispatchEvent(mouseDown)
+    options.duringGesture?.()
     target.dispatchEvent(auxClick)
-    if (settle) await Promise.resolve()
+    if (options.settle ?? true) await Promise.resolve()
   })
   return { mouseDown, auxClick }
+}
+
+function focusedPasteProbe() {
+  const input = document.createElement('textarea')
+  const onPaste = vi.fn()
+  input.addEventListener('paste', onPaste)
+  host.append(input)
+  input.focus()
+  return {
+    input,
+    onPaste,
+    dispatch: () => {
+      document.activeElement?.dispatchEvent(
+        new Event('paste', { bubbles: true, cancelable: true }),
+      )
+    },
+  }
 }
