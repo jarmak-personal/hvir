@@ -87,9 +87,8 @@ The repository provides four lifecycle skills, one test-design skill, and two fo
   and prepares a discussion-ready issue.
 - `hvir-implement-issue` performs architecture reconnaissance, raises design concerns before
   editing, and implements an aligned issue with verification.
-- `hvir-merge-pr` accepts one explicit final candidate, resolves and verifies its native issue
-  and exact head, then merges ordinary delivery or transfers cumulative epic acceptance to the
-  epic coordinator.
+- `hvir-merge-pr` requests GitHub's protected merge for one explicitly approved final pull
+  request, then reconciles its native closing issue's Project fields.
 - `hvir-implement-epic` privately coordinates an authorized epic's direct children through the
   single-issue workflow, coherence review, staged integration, cumulative handoff, and cleanup.
 - `write-hvir-tests` selects the behavior owner and lowest real test altitude for test changes,
@@ -156,41 +155,23 @@ maintainer accepts that pull request, invoke `hvir-merge-pr`. An explicit pull-r
 when it is omitted, the skill may reuse one only when the latest verified lifecycle handoff in
 the active interaction identifies exactly one final candidate. It never searches repository state
 for an arbitrary open pull request. Missing or ambiguous candidates require the number from the
-maintainer. Repository-owned read-only policy, not the handoff, resolves the native issue, exact
-current head, and delivery kind before mutation.
+maintainer.
 
-The skill plans and applies one repository-owned operation:
+The invocation itself is approval. The skill calls `gh pr merge <pr> --merge --auto` and never
+uses `--admin`. GitHub's ruleset, required checks, review state, base freshness, and mergeability
+remain authoritative. Auto-merge allows a candidate to wait for those requirements without a
+second maintainer turn or a repository-owned dry-run classifier.
 
-```sh
-npm run issue:merge -- --pull-request 190 --json
-npm run issue:merge -- --pull-request 190 --apply --json
-```
+After GitHub records the merge, the skill reads the native closing relationship and converges the
+one issue through the existing `project:record` and `project:measure` owners. A strict-base refresh
+or changed final head does not prevent that post-merge Project reconciliation. The skill creates
+no merge-phase measurement and infers no review usage. A Project failure never rolls back a
+successful merge; retry only the failed focused reconciliation operation.
 
-The operation admits only an ordinary issue pull request to `main`. It derives exactly one
-same-repository native closing issue and snapshots the full pull-request head, then verifies that
-identity, mergeability, resolved review state, and every required check attached to that head
-before using GitHub's ordinary merge API with the derived SHA guard. Branch protection remains
-authoritative.
-
-After a merge, the same operation confirms the recorded head and merge commit, native issue
-closure, and canonical Project `Done` state. It then reconciles only existing agent-work evidence:
-a pending first candidate may become accepted through append-only supersession when that exact
-candidate merged without a later implementation run; rework remains sticky; missing evidence
-stays unavailable; and review values come only from existing review records. The named Project
-projection follows the ledger. No merge-phase measurement or inferred review usage is created.
-
-A repeated run with the same pull-request number rereads current state. It skips a proven merge
-and resumes closure, Project, ledger, or projection reconciliation using the identity recorded by
-the merged pull request. A post-merge failure does not rewrite GitHub history. Changed candidates
-return through `hvir-implement-issue`.
-An epic-child or ambiguous non-ordinary pull request remains blocked. When the read-only ordinary
-plan resolves one exact root-epic candidate to `main` and rejects it only because it is not
-ordinary, `hvir-merge-pr` transfers the exact candidate internally to `hvir-implement-epic`.
-That coordinator freshly revalidates the root, every direct child, exact head, required checks,
-branch, and worktree before it merges, confirms closure and Project state, reconciles measurement,
-and performs bounded cleanup. The maintainer does not invoke a second skill. Ordinary acceptance
-creates no measurement run; cumulative acceptance records only the resumed cleanup run owned by
-the epic coordinator.
+Ordinary and cumulative root-epic pull requests use the same final-acceptance path. Epic-child
+pull requests remain integrated only by the epic coordinator. Branch and worktree cleanup is not
+merge admission and may be performed later by its existing lifecycle owner under explicit
+maintainer authority.
 
 ## Stage epic delivery
 
@@ -235,10 +216,9 @@ validation keeps the child open. Reopen the child for an in-scope correction and
 After every authorized child closes, the coordinator merges current `main` into the epic branch,
 verifies and externally reviews the complete `main...epic` candidate, passes the pre-push gate,
 and opens one final PR to `main` with `Closes #<epic>`. The maintainer accepts that exact candidate
-through `hvir-merge-pr`; it transfers internally back to the coordinator for exact-head merge,
-closure and Project reconciliation, measurement, and cleanup. The coordinator cleans the epic
-branch and worktree only after exact head, upstream, pull-request, and worktree safety checks.
-Retain uncertain state for maintainer action.
+through `hvir-merge-pr`, which requests GitHub's protected merge and reconciles the root Project
+fields. Optional epic branch and worktree cleanup remains a later coordinator operation and never
+blocks acceptance. Retain uncertain cleanup state for maintainer action.
 
 ## Develop locally
 
