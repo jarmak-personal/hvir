@@ -105,6 +105,8 @@ describe('Linux native package contract', () => {
     expect(installedSmoke).toContain('"$current_installer" 2>&1 | tee "$update_log"')
     expect(installedSmoke).toContain('assert_packaged_runtime')
     expect(installedSmoke).toContain('--exercise-harness-dialogs')
+    expect(installedSmoke).toContain('--software-rendering')
+    expect(installedSmoke).toContain('rendering_probe_args+=(--disable-gpu)')
     expect(installedSmoke).toContain('run_installed_startup previous')
     expect(installedSmoke).toContain('run_installed_startup current')
     expect(installedSmoke).not.toContain('run_installed_smoke')
@@ -130,6 +132,9 @@ describe('Linux native package contract', () => {
     expect(installedSmoke).toContain('"build/icons-linux/${icon_size}x${icon_size}.png"')
     expect(installedSmoke).toContain('test -d "$project_root/.git"')
     expect(installedSmoke).not.toContain('--no-sandbox')
+    expect(releaseWorkflow).toContain(
+      'npm run smoke:linux:installed -- --software-rendering',
+    )
     expect(packagedRuntimeInspection).toContain("'/out/main/echo-worker.js'")
     expect(packagedRuntimeInspection).toContain("'/out/main/git-worker.js'")
     expect(packagedRuntimeInspection).toContain(
@@ -138,6 +143,7 @@ describe('Linux native package contract', () => {
     expect(packagedRuntimeInspection).toContain("'HVIR_SMOKE'")
     expect(installedStartupProbe).toContain("process.command.includes('--type=renderer')")
     expect(installedStartupProbe).toContain("await stopProcessGroup(child, 'SIGTERM'")
+    expect(installedStartupProbe).toContain('runWithInstalledStartupLiveness')
     expect(installedStartupProbe).toContain("HVIR_SMOKE: '1'")
     expect(releaseWorkflow).toContain(
       'Build and accept Linux package (${{ matrix.name }})',
@@ -145,9 +151,7 @@ describe('Linux native package contract', () => {
     expect(releaseWorkflow).toContain('ubuntu-22.04-arm')
     expect(releaseWorkflow).toContain('ubuntu-24.04-arm')
     expect(releaseWorkflow).toContain('node:24-trixie')
-    expect(releaseWorkflow).toContain(
-      'xvfb-run -a npm run smoke:linux:installed',
-    )
+    expect(releaseWorkflow).toContain('xvfb-run -a npm run smoke:linux:installed')
     expect(ciWorkflow).toContain('xvfb-run -a npm run smoke')
   })
 })

@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 
 import {
   installedStartupReady,
+  observeInstalledStartup,
   parseProcessTable,
   processDescendants,
+  runWithInstalledStartupLiveness,
   type ProcessRecord,
 } from '../scripts/installed-startup-probe.mts'
 import { parseDevToolsActivePort } from '../scripts/installed-harness-dialog-probe.mts'
@@ -72,5 +74,63 @@ describe('installed startup process evidence', () => {
       ),
     ).toBe(false)
     expect(installedStartupReady(ready.slice(0, 2), 100, expectedMain)).toBe(false)
+  })
+
+  it('fails when a renderer that satisfied readiness disappears during acceptance', async () => {
+    const ready = [
+      processRecord(100, 1, expectedMain),
+      processRecord(102, 100, 'renderer --type=renderer'),
+    ]
+    const observations = [ready, ready.slice(0, 1)]
+    let index = 0
+
+    await expect(
+      runWithInstalledStartupLiveness(
+        () => new Promise<string>(() => undefined),
+        () => {
+          const observation = observeInstalledStartup(
+            observations[Math.min(index++, observations.length - 1)]!,
+            100,
+            expectedMain,
+          )
+          if (!observation.ready) {
+            throw new Error(
+              `Installed hvir lost ordinary startup liveness (main ${observation.main}; renderer ${observation.renderer})`,
+            )
+          }
+          return Promise.resolve()
+        },
+        0,
+      ),
+    ).rejects.toThrow('lost ordinary startup liveness (main live; renderer missing)')
+  })
+
+  it('preserves a CDP target failure while the installed process is live', async () => {
+    await expect(
+      runWithInstalledStartupLiveness(
+        () => Promise.reject(new Error('Target crashed')),
+        () => Promise.resolve(),
+        0,
+      ),
+    ).rejects.toThrow('Target crashed')
+  })
+
+  it('stops liveness polling after a successful exercise begins deliberate shutdown', async () => {
+    let observations = 0
+    await expect(
+      runWithInstalledStartupLiveness(
+        () => Promise.resolve('dialog evidence'),
+        () => {
+          observations += 1
+          return Promise.resolve()
+        },
+        0,
+      ),
+    ).resolves.toBe('dialog evidence')
+    const completedObservations = observations
+
+    await new Promise<void>((resolveWait) => setTimeout(resolveWait, 10))
+    expect(observations).toBe(completedObservations)
+    expect(observations).toBeGreaterThanOrEqual(1)
   })
 })

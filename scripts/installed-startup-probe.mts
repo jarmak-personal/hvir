@@ -23,6 +23,12 @@ export interface ProcessRecord {
   readonly command: string
 }
 
+export interface InstalledStartupObservation {
+  readonly ready: boolean
+  readonly main: 'live' | 'missing' | 'unexpected' | 'zombie'
+  readonly renderer: 'live' | 'missing'
+}
+
 export function parseProcessTable(output: string): readonly ProcessRecord[] {
   return output
     .split('\n')
@@ -62,18 +68,33 @@ export function installedStartupReady(
   rootPid: number,
   expectedMain: string,
 ): boolean {
+  return observeInstalledStartup(processes, rootPid, expectedMain).ready
+}
+
+export function observeInstalledStartup(
+  processes: readonly ProcessRecord[],
+  rootPid: number,
+  expectedMain: string,
+): InstalledStartupObservation {
   const main = processes.find((process) => process.pid === rootPid)
-  if (
-    !main ||
-    main.state.includes('Z') ||
-    (main.command !== expectedMain && !main.command.startsWith(`${expectedMain} `))
-  ) {
-    return false
-  }
-  return processDescendants(processes, rootPid).some(
+  const mainState = !main
+    ? 'missing'
+    : main.state.includes('Z')
+      ? 'zombie'
+      : main.command !== expectedMain && !main.command.startsWith(`${expectedMain} `)
+        ? 'unexpected'
+        : 'live'
+  const rendererState = processDescendants(processes, rootPid).some(
     (process) =>
       !process.state.includes('Z') && process.command.includes('--type=renderer'),
   )
+    ? 'live'
+    : 'missing'
+  return {
+    ready: mainState === 'live' && rendererState === 'live',
+    main: mainState,
+    renderer: rendererState,
+  }
 }
 
 async function processTable(): Promise<readonly ProcessRecord[]> {
@@ -96,11 +117,47 @@ async function waitFor(
   return false
 }
 
-function signalProcessGroup(pid: number, signal: NodeJS.Signals): void {
+export async function runWithInstalledStartupLiveness<T>(
+  operation: () => Promise<T>,
+  assertAlive: () => Promise<void>,
+  pollMs = OBSERVATION_POLL_MS,
+): Promise<T> {
+  await assertAlive()
+  return await new Promise<T>((resolveOperation, rejectOperation) => {
+    let settled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const settle = (complete: () => void): void => {
+      if (settled) return
+      settled = true
+      if (timer) clearTimeout(timer)
+      complete()
+    }
+    const observe = async (): Promise<void> => {
+      try {
+        await assertAlive()
+      } catch (error) {
+        settle(() => rejectOperation(probeError(error)))
+        return
+      }
+      if (!settled) timer = setTimeout(() => void observe(), pollMs)
+    }
+    timer = setTimeout(() => void observe(), pollMs)
+    void Promise.resolve()
+      .then(operation)
+      .then(
+        (result) => settle(() => resolveOperation(result)),
+        (error: unknown) => settle(() => rejectOperation(probeError(error))),
+      )
+  })
+}
+
+function signalProcessGroup(pid: number, signal: NodeJS.Signals): boolean {
   try {
     process.kill(-pid, signal)
+    return true
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
+    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false
+    throw error
   }
 }
 
@@ -120,9 +177,23 @@ async function stopProcessGroup(
   child: ChildProcess,
   signal: NodeJS.Signals,
   timeoutMs: number,
+  requireLiveGroup = false,
+  onSignalled?: () => void,
 ): Promise<void> {
-  if (!child.pid) return
-  signalProcessGroup(child.pid, signal)
+  if (!child.pid) {
+    if (requireLiveGroup) {
+      throw new Error(`Installed hvir did not remain live for deliberate ${signal}`)
+    }
+    return
+  }
+  const signalled = signalProcessGroup(child.pid, signal)
+  if (!signalled) {
+    if (requireLiveGroup) {
+      throw new Error(`Installed hvir exited before deliberate ${signal}`)
+    }
+    return
+  }
+  onSignalled?.()
   if (
     !(await waitFor(
       () => processGroupExists(child.pid!).then((exists) => !exists),
@@ -140,6 +211,31 @@ interface StartupProbeOptions {
   readonly runtimeRoot: string
   readonly path: string
   readonly exerciseHarnessDialogs: boolean
+  readonly disableGpu: boolean
+}
+
+interface ChildExit {
+  readonly code: number | null
+  readonly signal: NodeJS.Signals | null
+}
+
+function observedChildExit(
+  child: ChildProcess,
+  exit: ChildExit | null,
+): ChildExit | null {
+  if (exit) return exit
+  if (child.exitCode === null && child.signalCode === null) return null
+  return { code: child.exitCode, signal: child.signalCode }
+}
+
+function describeChildExit(exit: ChildExit | null): string {
+  if (!exit) return 'child running'
+  if (exit.code !== null) return `child exited with code ${exit.code}`
+  return `child exited from ${exit.signal ?? 'an unknown signal'}`
+}
+
+function describeObservation(observation: InstalledStartupObservation): string {
+  return `main ${observation.main}; renderer ${observation.renderer}`
 }
 
 async function runInstalledStartupProbe(options: StartupProbeOptions): Promise<void> {
@@ -182,6 +278,7 @@ async function runInstalledStartupProbe(options: StartupProbeOptions): Promise<v
     [
       '.',
       `--user-data-dir=${userDataRoot}`,
+      ...(options.disableGpu ? ['--disable-gpu'] : []),
       ...(options.exerciseHarnessDialogs
         ? ['--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0']
         : []),
@@ -194,10 +291,7 @@ async function runInstalledStartupProbe(options: StartupProbeOptions): Promise<v
     },
   )
   let appOutput = ''
-  let childExit: {
-    readonly code: number | null
-    readonly signal: NodeJS.Signals | null
-  } | null = null
+  let childExit: ChildExit | null = null
   let spawnFailure: Error | undefined
   child.once('error', (error) => {
     spawnFailure = error
@@ -209,7 +303,7 @@ async function runInstalledStartupProbe(options: StartupProbeOptions): Promise<v
   }
   child.stdout?.on('data', observe)
   child.stderr?.on('data', observe)
-  child.once('close', (code, signal) => {
+  child.once('exit', (code, signal) => {
     childExit = { code, signal }
   })
   let interruptedBy: NodeJS.Signals | null = null
@@ -217,39 +311,75 @@ async function runInstalledStartupProbe(options: StartupProbeOptions): Promise<v
   for (const signal of ['SIGHUP', 'SIGINT', 'SIGTERM'] as const) {
     const handler = (): void => {
       interruptedBy = signal
-      if (child.pid) signalProcessGroup(child.pid, 'SIGTERM')
+      if (child.pid) void signalProcessGroup(child.pid, 'SIGTERM')
     }
     interruptHandlers.set(signal, handler)
     process.once(signal, handler)
   }
 
   let failure: Error | undefined
+  let deliberateShutdownStarted = false
   try {
     if (!child.pid) throw new Error('Installed hvir did not expose a process id')
+    let lastObservation: InstalledStartupObservation | undefined
+    const observeInstalledProcess = async (): Promise<InstalledStartupObservation> => {
+      lastObservation = observeInstalledStartup(
+        await processTable(),
+        child.pid!,
+        options.expectedMain,
+      )
+      return lastObservation
+    }
+    const assertInstalledProcessAlive = async (): Promise<void> => {
+      if (interruptedBy) {
+        throw new Error(`Installed startup interrupted by ${interruptedBy}`)
+      }
+      if (spawnFailure) throw spawnFailure
+      const exit = observedChildExit(child, childExit)
+      if (exit) {
+        throw new Error(
+          `Installed hvir ${describeChildExit(exit)} before deliberate shutdown`,
+        )
+      }
+      const observation = await observeInstalledProcess()
+      if (!observation.ready) {
+        throw new Error(
+          `Installed hvir lost ordinary startup liveness before deliberate shutdown (${describeObservation(observation)})`,
+        )
+      }
+    }
     const ready = await waitFor(async () => {
       if (interruptedBy)
         throw new Error(`Installed startup interrupted by ${interruptedBy}`)
       if (spawnFailure) throw spawnFailure
       if (childExit) return false
-      return installedStartupReady(await processTable(), child.pid!, options.expectedMain)
+      return (await observeInstalledProcess()).ready
     }, STARTUP_TIMEOUT_MS)
     if (!ready) {
-      const observedExit = childExit as {
-        readonly code: number | null
-        readonly signal: NodeJS.Signals | null
-      } | null
-      const outcome = observedExit
-        ? `exited (${observedExit.code ?? observedExit.signal ?? 'unknown'})`
-        : 'did not expose a live renderer'
+      const exit = observedChildExit(child, childExit)
+      const outcome = exit
+        ? describeChildExit(exit)
+        : `did not expose a live renderer (${describeObservation(
+            lastObservation ?? (await observeInstalledProcess()),
+          )})`
       throw new Error(`Installed hvir ordinary startup ${outcome}`)
     }
     if (options.exerciseHarnessDialogs) {
-      const evidence = await exerciseInstalledHarnessDialogs(() =>
-        Promise.resolve(readFileSync(join(userDataRoot, 'DevToolsActivePort'), 'utf8')),
+      const evidence = await runWithInstalledStartupLiveness(
+        () =>
+          exerciseInstalledHarnessDialogs(() =>
+            Promise.resolve(
+              readFileSync(join(userDataRoot, 'DevToolsActivePort'), 'utf8'),
+            ),
+          ),
+        assertInstalledProcessAlive,
       )
       console.log(`Installed harness dialogs OK (${evidence})`)
     }
-    await stopProcessGroup(child, 'SIGTERM', SHUTDOWN_TIMEOUT_MS)
+    await assertInstalledProcessAlive()
+    await stopProcessGroup(child, 'SIGTERM', SHUTDOWN_TIMEOUT_MS, true, () => {
+      deliberateShutdownStarted = true
+    })
     if (appOutput.includes('HVIR_SMOKE_OK')) {
       throw new Error('Installed hvir entered the smoke runner')
     }
@@ -263,7 +393,21 @@ async function runInstalledStartupProbe(options: StartupProbeOptions): Promise<v
       'Observed package-owned main + live renderer; smoke activation stayed absent; process group stopped.',
     )
   } catch (error) {
-    failure = probeError(error)
+    const original = probeError(error)
+    let diagnostic = describeChildExit(observedChildExit(child, childExit))
+    if (child.pid) {
+      try {
+        diagnostic = `${diagnostic}; ${describeObservation(
+          observeInstalledStartup(await processTable(), child.pid, options.expectedMain),
+        )}`
+      } catch {
+        diagnostic = `${diagnostic}; process table unavailable`
+      }
+    }
+    failure = new Error(
+      `${original.message}; installed process status ${deliberateShutdownStarted ? 'after' : 'before'} deliberate shutdown began: ${diagnostic}`,
+      { cause: original },
+    )
   } finally {
     for (const [signal, handler] of interruptHandlers) {
       process.off(signal, handler)
@@ -292,6 +436,7 @@ async function main(): Promise<void> {
       'runtime-root': { type: 'string' },
       path: { type: 'string' },
       'exercise-harness-dialogs': { type: 'boolean' },
+      'disable-gpu': { type: 'boolean' },
     },
     strict: true,
   })
@@ -313,6 +458,7 @@ async function main(): Promise<void> {
     runtimeRoot: resolve(values['runtime-root']),
     path: values.path,
     exerciseHarnessDialogs: values['exercise-harness-dialogs'] === true,
+    disableGpu: values['disable-gpu'] === true,
   })
 }
 
