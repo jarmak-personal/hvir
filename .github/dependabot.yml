@@ -1,7 +1,8 @@
 version: 2
 
-multi-ecosystem-groups:
-  all-dependency-updates:
+updates:
+  - package-ecosystem: npm
+    directory: /
     schedule:
       interval: daily
       time: '09:00'
@@ -9,13 +10,6 @@ multi-ecosystem-groups:
     open-pull-requests-limit: 10
     commit-message:
       prefix: deps
-
-updates:
-  - package-ecosystem: npm
-    directory: /
-    patterns:
-      - '*'
-    multi-ecosystem-group: all-dependency-updates
     ignore:
       # A dedicated provenance-validating workflow owns this immutable release artifact.
       - dependency-name: 'ghostty-web'
@@ -38,6 +32,13 @@ updates:
         update-types:
           - version-update:semver-major
     groups:
+      npm-minor-and-patch-updates:
+        applies-to: version-updates
+        patterns:
+          - '*'
+        update-types:
+          - minor
+          - patch
       npm-security-updates:
         applies-to: security-updates
         patterns:
@@ -45,6 +46,18 @@ updates:
 
   - package-ecosystem: github-actions
     directory: /
-    patterns:
-      - '*'
-    multi-ecosystem-group: all-dependency-updates
+    schedule:
+      interval: daily
+      time: '09:00'
+      timezone: America/New_York
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: deps
+    groups:
+      github-actions-minor-and-patch-updates:
+        applies-to: version-updates
+        patterns:
+          - '*'
+        update-types:
+          - minor
+          - patch
