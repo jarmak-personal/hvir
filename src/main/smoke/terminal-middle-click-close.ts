@@ -7,6 +7,7 @@ const SELECTION_TEXT = '__HVIR_PRIMARY_SELECTION_INPUT__'
 const READY_MARKER = '__HVIR_MIDDLE_CLICK_READY__'
 const PASTE_MARKER = '__HVIR_MIDDLE_CLICK_PASTE_OK__'
 const GUARDED_MARKER = '__HVIR_MIDDLE_CLICK_GUARD_OK__'
+const GUARD_COMPLETE_INPUT = '__HVIR_MIDDLE_CLICK_GUARD_COMPLETE__'
 const FAILURE_MARKER = '__HVIR_MIDDLE_CLICK_FAIL__'
 const CLOSED_MARKER = '__HVIR_MIDDLE_CLICK_CLOSED__'
 const SHELL_READY_MARKER = '__HVIR_MIDDLE_CLICK_SHELL_READY__'
@@ -14,13 +15,12 @@ const SHELL_READY_MARKER = '__HVIR_MIDDLE_CLICK_SHELL_READY__'
 const PRIMARY_SELECTION_PROBE_SOURCE = `
 const expected = Buffer.from(process.argv[2], 'base64');
 const mode = process.argv[3];
+const guardComplete = Buffer.from(process.argv[4], 'base64');
 let buffered = Buffer.alloc(0);
 let finished = false;
-let timeout;
 const finish = (marker) => {
   if (finished) return;
   finished = true;
-  clearTimeout(timeout);
   process.stdin.pause();
   try { process.stdin.setRawMode(false); } catch { marker = '${FAILURE_MARKER}:tty-restore'; }
   process.stdout.write('\\r\\n' + marker + '\\r\\n${CLOSED_MARKER}\\r\\n', () => process.exit(0));
@@ -32,14 +32,22 @@ if (!process.stdin.isTTY || typeof process.stdin.setRawMode !== 'function') {
   process.stdin.setRawMode(true);
   process.stdin.resume();
   process.stdin.on('data', (chunk) => {
+    if (chunk.includes(3)) return finish('${FAILURE_MARKER}:aborted');
     buffered = Buffer.concat([buffered, chunk]);
-    if (mode === 'guard') return finish('${FAILURE_MARKER}:unexpected-input');
+    if (mode === 'guard') {
+      const compared = Math.min(buffered.length, guardComplete.length);
+      if (!buffered.subarray(0, compared).equals(guardComplete.subarray(0, compared))) {
+        return finish('${FAILURE_MARKER}:unexpected-input');
+      }
+      if (buffered.length > guardComplete.length) {
+        return finish('${FAILURE_MARKER}:duplicate-input');
+      }
+      if (buffered.length === guardComplete.length) return finish('${GUARDED_MARKER}');
+      return;
+    }
     if (buffered.includes(expected)) return finish('${PASTE_MARKER}');
   });
   process.stdout.write('${READY_MARKER}\\r\\n');
-  timeout = setTimeout(() => finish(
-    mode === 'guard' ? '${GUARDED_MARKER}' : '${FAILURE_MARKER}:missing-input'
-  ), 600);
 }
 `
 
@@ -95,6 +103,7 @@ async function runProbe(
   let output = ''
   let exit: string | undefined
   let failure: Error | undefined
+  let probeStarted = false
   const detach = supervisor.attach(terminal.id, terminal.ownerId, {
     onData: (data) => {
       output = (output + data).slice(-4_096)
@@ -109,8 +118,12 @@ async function runProbe(
       terminal.ownerId,
       probeLaunchCommand(mode),
     )
+    probeStarted = true
     await waitForMarker(() => output, () => exit, READY_MARKER)
     await act()
+    if (mode === 'guard') {
+      supervisor.write(terminal.id, terminal.ownerId, GUARD_COMPLETE_INPUT)
+    }
     await waitForMarker(
       () => output,
       () => exit,
@@ -124,6 +137,23 @@ async function runProbe(
   } catch (error) {
     failure = error instanceof Error ? error : new Error(String(error))
   } finally {
+    if (probeStarted && !output.includes(SHELL_READY_MARKER)) {
+      if (!output.includes(CLOSED_MARKER)) {
+        try {
+          const retained = supervisor.get(terminal.id)
+          if (retained?.instanceId === terminal.instanceId) {
+            supervisor.write(terminal.id, terminal.ownerId, '\x03')
+          }
+        } catch {
+          // Preserve the original failure; scenario teardown owns an unresponsive PTY.
+        }
+      }
+      try {
+        await waitForMarker(() => output, () => exit, SHELL_READY_MARKER)
+      } catch {
+        // Preserve the original failure; scenario teardown owns an unresponsive PTY.
+      }
+    }
     await detach()
   }
   if (failure) throw failure
@@ -136,7 +166,8 @@ async function runProbe(
 function probeLaunchCommand(mode: 'paste' | 'guard'): string {
   const source = Buffer.from(PRIMARY_SELECTION_PROBE_SOURCE).toString('base64')
   const expected = Buffer.from(SELECTION_TEXT).toString('base64')
-  return `node -e "eval(Buffer.from(process.argv[1],'base64').toString())" '${source}' '${expected}' '${mode}'; printf '\n%s%s\n' '__HVIR_MIDDLE_CLICK_' 'SHELL_READY__'\n`
+  const guardComplete = Buffer.from(GUARD_COMPLETE_INPUT).toString('base64')
+  return `node -e "eval(Buffer.from(process.argv[1],'base64').toString())" '${source}' '${expected}' '${mode}' '${guardComplete}'; printf '\n%s%s\n' '__HVIR_MIDDLE_CLICK_' 'SHELL_READY__'\n`
 }
 
 function captureSelectionRestore(): () => void {
