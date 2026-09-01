@@ -1,72 +1,98 @@
-# ADR-039: Let one native fork authorize one exact preserved-conversation resume
+# ADR-039: Let one native fork authorize one exact sibling branch
 
 ## Context
 
-A native harness fork leaves two conversations that can both remain meaningful: the fork that the
-current terminal enters and the original that the gesture preserves. Keeping both available in
-hvir can remove a repetitive recovery step, but automatically starting another harness normally
-requires a separate explicit user gesture. Treating any apparent conversation change as authority
-would instead make hvir an ambient session orchestrator and would weaken exact recovery.
+A native harness fork leaves two useful continuations that share the conversation before the
+fork. Keeping both available in adjacent hvir terminals removes a repetitive launch-and-selection
+step. Automatically starting another harness still requires narrow authority: an apparent
+identity change, a recent artifact, or a terminal command-shaped string is not enough.
 
-The native provider is the only valid owner of fork semantics. Terminal input and output, artifact
-recency, cwd and timestamp proximity, and an identity change without an exact fork relationship do
-not establish either what the user requested or which conversation was preserved. Some providers
-may also prevent the preserved conversation from being resumed while the fork remains live.
+Preserving the provider's original identity is preferable, but it is not the product invariant.
+Some providers prevent the original from being resumed while the native fork remains live, yet
+can create another exact child from the same provider-owned history boundary. The user outcome is
+two exact, independently writable continuations, not a particular identity graph.
+
+No single evidence source has to prove the complete relation. The terminal engine can know what
+the user submitted without knowing provider identities. Provider artifacts and native commands
+can know identities and ancestry without knowing which hvir PTY received the gesture. PTY and
+host owners can bind those facts to one launch lifetime without owning provider semantics.
 
 ## Decision
 
-One explicit native conversation-fork gesture in a current hvir-owned live terminal may authorize
-exactly one automatic exact resume of the conversation preserved by that gesture. This authority
-exists only when a trusted bundled provider supplies one content-free, provider-owned, committed
-original-to-fork transition and qualifies the preserved original for concurrent exact resume.
-The two live conversations must retain independent provider artifacts and cannot interleave
-messages.
+One explicit supported native conversation-fork gesture in a current hvir-owned live terminal
+may authorize exactly one automatic exact provider branch that shares the same provider-owned
+pre-fork history. The additional branch may be the preserved original or an equivalent sibling
+created from the same exact history boundary. The existing terminal remains on the provider's
+native result. Both terminals must have exact recovery identities, accept independent later
+messages, and never interleave conversation writes.
 
-The transition must belong to the terminal's current PTY lifetime and exact host-qualified
-workspace, cwd, provider, launch profile, and launch revision. The existing terminal remains with
-the fork. The one automatic action targets only the transition's preserved original, through the
-provider's exact native recovery mechanism. Failure is visible and closed: hvir does not choose a
-nearby or recent conversation, open a picker, or substitute a fresh launch.
+Authority requires three separately qualified facts:
 
-The provider owns transition semantics and exact provider identities. The PTY supervisor owns the
-bounded and revocable observation lifetime, exact recovery identity, and structured-observation
-relocation behind `ProjectHost`. `TerminalPane` remains provider-blind. Late, duplicated,
-replayed, malformed, out-of-order, and stale-lifetime evidence cannot grant authority for another
-action.
+1. **User intent.** A terminal-engine contract may establish only that direct user input submitted
+   the exact supported fork gesture in one current PTY generation. It may compare the already
+   forwarded input with one bounded command matcher, but must retain only constant-size progress
+   and origin state, discard every nonmatching byte immediately, and publish no command,
+   composer, screen, or general terminal text. Paste, composition, editing, completion, replay,
+   repeated submission, ambiguous startup state, and an engine that cannot distinguish direct
+   keys fail closed. Input is observed, never intercepted, suppressed, rewritten, or replayed.
+2. **Provider identity and ancestry.** A trusted bundled provider must establish every
+   conversation identity and the exact shared-history relationship from provider-owned metadata,
+   a structured provider status, or an exact native command result. Terminal evidence, titles,
+   cwd, timing, filenames, and recency never establish identity or ancestry.
+3. **PTY association.** The PTY supervisor and `ProjectHost` bind the admitted gesture and
+   provider result to the exact host-qualified workspace, provider/profile launch revision,
+   registered current identity, descendant process or launch-scoped status source, and PTY
+   generation. Exactly one qualifying result may consume the authority. Missing, competing,
+   malformed, oversized, late, replayed, or stale-lifetime evidence revokes it.
 
-This exception does not authorize ambient agent dispatch, reactions to unrelated provider
-activity, inferred slash commands, prompt delivery, conversation graphs, general lifecycle
-control, or session orchestration. Side chats, subagents, rewind, resume, clear, and unrelated
-identity transitions are outside it.
+The one automatic action uses only the provider's picker-free exact resume or fork mechanism. It
+never chooses a recent conversation, opens a picker, uses an ambient latest session, or substitutes
+a fresh launch. Each provider version, artifact configuration, terminal engine, and host condition
+is a separately versioned capability. Local qualification does not imply SSH qualification.
+
+`TerminalPane` remains provider-blind and may expose only engine-neutral input-origin categories;
+the main-owned provider performs the bounded gesture match. Observation, candidate parsing, and
+process association remain off the renderer thread, use `ProjectHost`, and end with the PTY or
+host lifetime. The provider's configured artifact root and existing observer ownership are reused;
+no daemon, installed remote helper, or persistent hidden provider configuration is introduced.
+
+This is a narrow exception to the prior blanket rejection of terminal input inference: terminal
+input may prove the exact submitted fork gesture and nothing else. It does not authorize ambient
+agent dispatch, general slash-command interpretation, prompt delivery, conversation graphs,
+automatic terminal teardown, or general session orchestration. Side chats, subagents, rewind,
+resume, clear, and unrelated identity transitions remain outside it.
 
 ## Consequences
 
-The native fork gesture can be the complete user intent for one preserved-conversation terminal;
-hvir need not require a second gesture when every exact provider condition qualifies. The scope is
-small enough to preserve hvir's view-first terminal ergonomics rather than introduce a general
-conversation manager.
+One native fork gesture can be the complete user intent for two adjacent exact continuations when
+all three evidence owners qualify. A provider that blocks concurrent resume of the original may
+still qualify through an exact equivalent sibling, so exact A/B identity preservation is no longer
+the gate.
 
-Provider support is conditional, versioned capability rather than a claim implied by this record.
-If no provider condition supplies both an exact fork transition and concurrent exact resume, this
-decision enables no runtime behavior. Provider qualification methods and results remain in a
-separate evaluation document rather than this durable decision.
+Provider support remains conditional rather than implied by this record. The volatile provider,
+artifact, engine, and host matrix belongs in the evaluation document. Unsupported input forms or
+host conditions continue normal native behavior and create no extra terminal.
 
-A later implementation must update recovery identity and structured observation as one
-generation-aware PTY transition. It must retain the existing local/SSH, provider, terminal, and
-host ownership seams and add no detection daemon or persistent provider configuration.
+A runtime implementation must keep one bounded, revocable authority per PTY generation and update
+the source terminal's recovery identity and observer atomically after the provider transition. The
+additional terminal then starts through ordinary provider/profile and PTY-supervisor composition.
+Failure is visible and leaves the native terminal untouched.
 
 ## Rejected alternatives
 
-- Always require a second hvir gesture: safe but needlessly repeats intent when the provider can
-  establish the exact fork and preserved conversation.
-- Treat any conversation-identity change as a fork: unrelated transitions would start terminals
-  without the user's qualifying intent.
-- Infer the slash command from terminal input, output, history, titles, or notifications: terminal
-  presentation is neither provider authority nor an exact structured recovery boundary.
-- Select an artifact by cwd, path, creation time, or recency: concurrent sessions make those
-  relationships ambiguous.
-- Add an App Server, helper daemon, or persistent provider configuration solely for detection:
-  that would enlarge launch, transport, authentication, and cleanup lifecycles for one ergonomic
-  feature.
+- Require concurrent exact resume of the original identity: this rejects providers that can
+  produce two exact equivalent children from the same history.
+- Treat any identity change or newly created child artifact as a fork: neither proves the user's
+  gesture or the current PTY relation.
+- Parse terminal cells, retained ranges, titles, or output: those sources contain presentation or
+  conversation content and do not own provider identity.
+- Retain a command buffer or interpret arbitrary slash commands: the authority is one constant-size
+  matcher for one provider-qualified gesture, not a terminal activity log.
+- Select by cwd, filename, timestamp, or recency: concurrent sessions and external forks make
+  proximity ambiguous.
+- Add Codex App Server, `codex --remote`, a helper daemon, or persistent provider configuration:
+  those enlarge transport, authentication, and cleanup lifecycles for one ergonomic action.
+- Automatically terminate or restart the source terminal: that requires separate user authority
+  and lossless state proof.
 - Model a conversation tree or general provider transition graph: the product need is one bounded
-  sibling recovery, not session orchestration.
+  sibling continuation per explicit gesture.

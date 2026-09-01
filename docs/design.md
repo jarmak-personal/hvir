@@ -281,10 +281,11 @@ while native certification moves to Release and capacity evidence moves to contr
 One complete workflow attempt may certify an exact candidate after approval or an explicit full
 rerun, while partial reruns and cross-attempt job assembly remain ineligible.
 
-### [ADR-039 — Let one native fork authorize one exact preserved-conversation resume](adr/ADR-039-native-conversation-fork-resume.md)
+### [ADR-039 — Let one native fork authorize one exact sibling branch](adr/ADR-039-native-conversation-fork-resume.md)
 
-One exact native fork may authorize one automatic exact resume of its preserved conversation only
-when a trusted provider qualifies both the committed transition and concurrent recovery.
+One exact native fork may authorize one additional exact branch only when bounded intent,
+provider-owned identity and ancestry, and exact PTY association all qualify; the sibling may be
+the preserved original or an equivalent branch from the same provider history.
 
 ## 5. Architecture
 
