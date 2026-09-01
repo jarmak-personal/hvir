@@ -8,19 +8,20 @@ be B/C when exact A/B preservation is unavailable. It makes no runtime change.
 
 ## Broader-outcome extension — 2026-09-01
 
-The gate is **open for downstream runtime design**. One exact Codex condition qualifies through an
-equivalent sibling: native `A → B`, then picker-free exact `codex fork A → C`. One exact Claude
-condition qualifies through identity preservation: native `A → B`, then exact resume A. Both
-conditions require direct physical-key gesture provenance from ghostty-web 0.4 and are limited to
-the proved local macOS host condition. Paste, IME, editing/completion, unsupported terminal
-engines, unproved provider versions, Linux, and SSH remain fail-closed conditions rather than
-implicit support.
+The gate is **open for downstream runtime design only for one exact Codex condition**. It qualifies
+through an equivalent sibling: native `A → B`, then picker-free exact `codex fork A → C`. That
+condition requires direct physical-key gesture provenance from ghostty-web 0.4 and is limited to
+the proved local macOS host condition. Claude's status identity change has no provider-owned
+branch kind, parent, or shared-history boundary, so every evaluated Claude condition remains
+unsupported. Paste, IME, editing/completion, unsupported terminal engines, unproved provider
+versions, Linux, and SSH remain fail-closed conditions rather than implicit support.
 
 `Supported` means the complete evidence composition qualifies for the exact provider, artifact,
 terminal-engine, input-origin, and host condition. Unsupported results use the four reasons already
 owned by evaluated results:
 
-- `transition-kind-unqualified`: the condition cannot prove one exact submitted native fork action.
+- `transition-kind-unqualified`: the condition cannot prove that one exact submitted native fork
+  action produced the provider transition.
 - `current-terminal-unqualified`: the provider result cannot be bound to one exact current hvir PTY
   generation.
 - `concurrent-resume-unavailable`: the preserved original cannot be resumed while the native fork
@@ -37,10 +38,11 @@ owned by evaluated results:
 | Codex CLI 0.151.0 with an engine lacking exact direct-key provenance | Raw PTY bytes cannot distinguish direct typing from paste or composition | Exact metadata remains identity-only evidence | Artifact or process proximity cannot replace the missing gesture | **Unsupported:** `transition-kind-unqualified` |
 | Codex CLI 0.151.0, local Linux | The direct-key and provider contracts are host-independent | `/proc/<pid>/fd` is a bounded candidate association mechanism, but no real Linux lifecycle proof was available | No Linux support claim is made until exact PID/file ownership and cleanup run in that host condition | **Unsupported:** `host-unqualified` |
 | Codex CLI 0.151.0, SSH | Direct-key intent can remain scoped to the remote PTY generation | The remote artifact could be parsed through `ProjectHost` | `SshHost` exposes a synthetic PTY PID, not an exact remote provider PID; a same-parent external fork therefore cannot be excluded | **Unsupported:** `current-terminal-unqualified`, `host-unqualified` |
-| Claude Code 2.1.251, default local artifact, ghostty-web 0.4, direct physical typing, macOS | The same bounded matcher can qualify exact direct-key `/branch` plus Enter | The provider's launch-scoped status line supplies exact current identity B and transcript path after the documented branch action; exact resume A and the prior live proof establish shared history and independent writes | A unique per-PTY status sink binds the one identity change to the current PTY; exact resume A opens without a picker | **Supported:** identity-preserving A/B branches |
-| Claude Code 2.1.251, exact `CLAUDE_CONFIG_DIR`, same engine/input/host | Same exact gesture condition | The prior custom-root proof retained exact status identity and transcript resolution | The launch-scoped sink and cleanup stay inside the exact configured root | **Supported:** identity-preserving A/B branches |
+| Claude Code 2.1.251, default local artifact, ghostty-web 0.4, direct physical typing, macOS | The bounded matcher can qualify user intent for exact direct-key `/branch` plus Enter | The launch-scoped status line supplies exact current identity B and transcript path, but no branch kind, parent, or shared-history boundary | A unique per-PTY status sink binds the identity change to the current PTY, but ordering after the gesture cannot establish provider-owned ancestry; exact resume A proves availability and independent writes only | **Unsupported:** `transition-kind-unqualified` |
+| Claude Code 2.1.251, exact `CLAUDE_CONFIG_DIR`, same engine/input/host | Same exact gesture condition | The prior custom-root proof retained exact status identity and transcript resolution but supplied no parent or branch-kind field | Launch-scoped placement and cleanup do not make timing evidence authoritative for ancestry | **Unsupported:** `transition-kind-unqualified` |
 | Claude Code 2.1.251, paste/edit/IME or unsupported engine | No exact direct-key gesture is admitted | A status identity change alone does not prove `/branch` | No observation window is armed | **Unsupported:** `transition-kind-unqualified` |
-| Claude Code 2.1.251, SSH | The matcher is host-independent | A remote launch-scoped status sink is feasible, but no real-host proof or accepted no-helper cleanup was available | Local success does not qualify remote lifecycle behavior | **Unsupported:** `host-unqualified` |
+| Claude Code 2.1.251, local Linux | The direct-key matcher contract is host-independent | The status source still lacks branch kind, parent, and shared-history boundary | No real Linux status-sink, exact-resume, independent-write, and cleanup lifecycle proof was available | **Unsupported:** `transition-kind-unqualified`, `host-unqualified` |
+| Claude Code 2.1.251, SSH | The matcher is host-independent | A remote launch-scoped status sink remains identity-only and has no provider-owned ancestry | No real-host proof or accepted no-helper cleanup was available | **Unsupported:** `transition-kind-unqualified`, `host-unqualified` |
 
 The matrix is exact-version evidence, not a semantic-version promise. A provider or terminal update
 must requalify its private metadata, input ordering, native command, and cleanup contract before
@@ -82,6 +84,26 @@ already-authoritative transport boundary; no command, composer text, terminal ou
 range, or screen content is emitted, logged, or persisted. `TerminalPane` remains provider-blind,
 and returning `false` from the raw-key observer preserves ghostty-web's native handling.
 
+#### Evidence method and exercise boundary
+
+The terminal-engine evidence came from line-by-line static inspection of the installed
+ghostty-web 0.4.0 `dist/ghostty-web.js` input handler (`handleKeyDown`, `handlePaste`,
+`handleBeforeInput`, composition handlers, and `emitPasteData`) plus hvir's current
+`ghostty-terminal-pane.ts` registrations. Those paths established the `onKey`-before-encoder
+ordering, synchronous ordinary printable and unmodified-Enter `onData`, the separate
+paste/`beforeinput`/composition paths, editing and navigation encoding, alternate-screen use of
+the same input handler, and hvir's current collapse to `user` versus `terminal-response`. The
+version and engine-replacement conditions are therefore source-qualified, not inferred from
+provider behavior.
+
+The disposable live exercise did not instrument ghostty-web or claim browser-level paste, IME,
+editing, completion, or replacement coverage. It submitted the exact direct `/fork` bytes to a
+native Codex TUI through a disposable node-pty, discarded terminal output, and observed only the
+content-free A→B→C artifact, process, command, write-isolation, and cleanup facts reported below.
+Thus the input-origin classifications above are source-inspected; the native fork, exact sibling
+command, concurrent PTYs, independent writes, and cleanup were live-exercised. No proposed hvir
+runtime implementation was used.
+
 ### Codex provider identity and ancestry
 
 The [Codex developer command documentation](https://learn.chatgpt.com/docs/developer-commands?surface=cli)
@@ -94,13 +116,16 @@ complete `session_meta` record with all of these consistent facts:
 - `forked_from_ordinal_exclusive` is a bounded integer;
 - `history_base.thread_id` equals A;
 - `history_base.end_ordinal_exclusive` equals `forked_from_ordinal_exclusive`;
-- `history_base.end_byte_offset` is positive, inside the configured cap and existing parent file;
+- `history_base.end_byte_offset` is a positive safe integer no larger than the actual parent file;
   and
 - the byte immediately before that offset terminates one complete parent JSONL record.
 
-The parser reads one bounded child metadata prefix and one boundary byte. It does not read, copy,
-hash, compare, or materialize inherited transcript bodies. The field names and shapes remain
-private to the exact provider version and are not shared hvir vocabulary.
+The parser reads one bounded child metadata prefix, stats the exact parent, and performs at most
+one positional one-byte structural-delimiter read at `end_byte_offset - 1`. The offset value is
+not a byte-read cap: long conversations remain eligible when the safe-integer offset is within the
+actual parent size. The parser does not read, copy, hash, compare, or materialize inherited
+transcript bodies. The field names and shapes remain private to the exact provider version and are
+not shared hvir vocabulary.
 
 A content-free live proof established native `A → B`, then launched exact positional
 `codex fork A` while B remained live. The command created exactly one C without a picker even
@@ -155,15 +180,18 @@ respective transcripts.
 
 The documented [status line](https://code.claude.com/docs/en/statusline) is launch-scoped and
 reports exact `session_id`, `transcript_path`, cwd, and version to a unique per-PTY sink. It does not
-carry a branch kind or parent field, which is why the original evaluation rejected it alone. The
-new direct-key contract supplies only the missing explicit `/branch` action; the provider status
-still owns exact B. Exactly one A-to-B status identity transition after the admitted gesture binds
-the documented branch result to that PTY, while exact resume A provides the sibling. No transcript
-body or `local_command` text is inspected.
+carry a branch kind, parent field, or shared-history boundary. The new direct-key contract proves
+only that the user submitted `/branch`; it cannot turn the later identity B into provider-owned
+proof that B is the committed result or child of A. Ordering or timing after the gesture cannot
+establish that ancestry when another identity transition remains possible. Exact resume A proves
+that A can be opened concurrently, and the prior independent-write proof establishes isolation,
+but neither supplies B's missing relation to A. The direct-key A/B route is therefore unsupported
+with `transition-kind-unqualified`.
 
-Claude hooks still provide no branch event, and a status identity change without the admitted
-gesture remains `transition-kind-unqualified`. The proof used launch-scoped inline settings, did
-not persist hooks or settings, and removed the temporary status sink and synthetic project state.
+Claude hooks still provide no branch event. Neither an admitted gesture nor a status identity
+change closes the missing provider-owned transition kind and ancestry. The proof used launch-scoped
+inline settings, did not persist hooks or settings, inspected no transcript body or `local_command`
+text, and removed the temporary status sink and synthetic project state.
 
 ## Original narrow-result preservation
 
@@ -183,9 +211,10 @@ The earlier passive candidates also retain their original limits:
 | Launch arguments, environment, title, cwd, time, or recency | Do not change with the displayed conversation or are proximity evidence | Rejection predicates only |
 | Privileged OS audit | Platform-specific and still observes low-level operations | Not required; the narrow owned-process file query is sufficient locally |
 
-The prior Claude finding is also preserved: the status line alone identifies a transition but not
-its kind, while exact concurrent resume and independent transcript ownership already qualify. The
-bounded gesture supplies the missing kind only for the direct-key condition.
+The prior Claude finding is also preserved: the status line identifies a transition but not its
+kind or parent. Exact concurrent resume and independent transcript ownership prove useful
+lifecycle facts, while the bounded gesture proves user intent; none is provider-owned ancestry.
+The direct-key route therefore remains `transition-kind-unqualified`.
 
 Codex App Server and `codex --remote` remain rejected. They would replace the accepted native TUI
 topology and add transport, authentication, reconnection, and cleanup lifecycles. No route in this
@@ -196,30 +225,37 @@ evaluation depends on them.
 Admission captures exact A, host-qualified workspace and cwd, provider/profile and launch
 revision, PTY instance and generation, descendant process identity or unique status sink, and one
 monotonic input sequence. The provider observer then considers only candidates created after that
-sequence. An external fork, simultaneous fork, same-workspace session, or internal provider child
-cannot cross-correlate: wrong process/status source, wrong parent, provider child classification,
-more than one candidate, or a different boundary rejects the whole window. Sequential native
-forks are new gestures with new generations and authority; an old event cannot consume them.
+sequence. External or simultaneous forks and same-workspace sessions cannot cross-correlate: a
+wrong process or status source, wrong parent, missing or inconsistent boundary fields, more than
+one candidate, or a different boundary rejects the whole window. Sequential native forks are new
+gestures with new generations and authority; an old event cannot consume them.
 
-The target algorithm reuses Codex session discovery, Claude artifact resolution, and the
-host-multiplexed telemetry owner where their existing semantics fit. One PTY owns at most one
-matcher and one armed window. The evaluated bound is four newly created candidates, one 256 KiB
-metadata prefix per candidate, one 2 MiB maximum parent boundary with a one-byte completion check,
-32 queued filesystem/status events, two read/stat retries per candidate, and one timer. Exceeding
-any cap fails closed. Local cost is constant in store size. An eventual SSH implementation would
-use the same candidate and operation caps through `ProjectHost`, never reconnect or prompt solely
-for observation, and install no remote helper; no current SSH condition qualifies.
+The target algorithm reuses Codex session discovery and the host-multiplexed telemetry owner where
+their existing semantics fit. One PTY owns at most one matcher and one armed window. The evaluated
+bound is four newly created candidates, one 256 KiB metadata prefix per candidate, one parent stat
+and one positional one-byte parent-boundary read per candidate, 32 queued filesystem/status events,
+two read/stat retries per candidate, and one timer. The boundary offset must be a safe integer
+within the actual parent size but is not itself capped by the byte budget. Exceeding any operation
+or byte cap fails closed. Local cost is constant in store size and parent conversation length. An
+eventual SSH implementation would use the same candidate and operation caps through `ProjectHost`,
+never reconnect or prompt solely for observation, and install no remote helper; no current SSH
+condition qualifies.
 
-The source observer is relocated only after exact B is accepted: abort and dispose A's subscription,
-install exact B and its recovery identity, and reject late A-generation records. Starting C uses
-ordinary provider/profile composition through the PTY supervisor; C must independently qualify its
-exact recovery identity and ancestry. PTY exit, terminal deletion, pane replacement, provider or
-profile change, host disconnect, or launch revision change revokes input state, candidate reads,
-timers, status sinks, and sibling authority. Reconnect never replays it.
+The current limiting owner must change before implementation: `HarnessTelemetryContext` keeps its
+identity and artifact immutable, and telemetry starts only once per terminal entry. A downstream
+runtime change must move the atomic, generation-aware identity/artifact transition into that owner
+rather than pretending the current context can relocate.
+
+After that owner changes, the source observer is relocated only when exact B is accepted: abort and
+dispose A's subscription, install exact B and its recovery identity, and reject late A-generation
+records. Starting C uses ordinary provider/profile composition through the PTY supervisor; C must
+independently qualify its exact recovery identity and ancestry. PTY exit, terminal deletion, pane
+replacement, provider or profile change, host disconnect, or launch revision change revokes input
+state, candidate reads, timers, status sinks, and sibling authority. Reconnect never replays it.
 
 ## Controlled restart and upstream signals
 
-Controlled restart is not needed for either supported local route and remains evaluation-only.
+Controlled restart is not needed for the supported local Codex route and remains evaluation-only.
 Automatic teardown would need separate user confirmation, proof of no in-flight turn, and lossless
 input, output, artifact, and terminal-state transfer. Those facts are not available, so this issue
 authorizes no termination or restart.
@@ -236,8 +272,8 @@ not create it. The exact owners are:
 
 - ghostty-web adapter and `TerminalPane`: engine-neutral direct-key versus non-key input origin,
   with no provider match or text publication;
-- main-owned Codex and Claude providers: constant-state gesture matchers, version gates, exact
-  provider metadata/status parsing, and exact resume/fork launch profiles;
+- main-owned Codex provider: a constant-state gesture matcher, exact version gates, bounded private
+  metadata parsing, and exact fork launch profiles; Claude remains evaluation-only and unqualified;
 - PTY supervisor: one generation-bound authority, candidate-window lifecycle, atomic source
   recovery/observer relocation, and one sibling start request;
 - `ProjectHost`: bounded candidate observation and exact local process-owned-file association; and

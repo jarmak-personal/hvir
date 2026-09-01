@@ -38,7 +38,9 @@ Authority requires three separately qualified facts:
 2. **Provider identity and ancestry.** A trusted bundled provider must establish every
    conversation identity and the exact shared-history relationship from provider-owned metadata,
    a structured provider status, or an exact native command result. Terminal evidence, titles,
-   cwd, timing, filenames, and recency never establish identity or ancestry.
+   cwd, timing, filenames, and recency never establish identity or ancestry. Qualification may
+   read only bounded structured metadata; it never reads, hashes, compares, copies, or retains
+   prompts, responses, reasoning, or any other conversation body.
 3. **PTY association.** The PTY supervisor and `ProjectHost` bind the admitted gesture and
    provider result to the exact host-qualified workspace, provider/profile launch revision,
    registered current identity, descendant process or launch-scoped status source, and PTY
