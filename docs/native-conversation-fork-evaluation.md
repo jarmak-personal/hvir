@@ -20,16 +20,8 @@ configuration, and host condition. Unsupported results use these fixed reasons:
   hvir PTY and launch lifetime without an ambient or proximity inference.
 - `concurrent-resume-unavailable`: the exact preserved conversation cannot be resumed while the
   fork remains live.
-- `artifact-unavailable`: the exact committed fork artifact cannot be found and qualified.
 - `host-unqualified`: the claimed host condition lacks equivalent exact source or lifecycle
   evidence.
-- `version-unqualified`: the provider version does not expose the required source semantics.
-- `stale-generation`: evidence does not distinguish the current PTY/observer generation from
-  replay, duplication, or late delivery.
-- `resource-unavailable`: the observation resource cannot be bounded and revoked with its owner.
-
-The first three reasons are decisive in this evaluation. The remaining vocabulary fixes how a
-future provider condition must fail closed rather than imply partial support.
 
 ## Qualification matrix
 
@@ -37,7 +29,7 @@ future provider condition must fail closed rather than imply partial support.
 | --- | --- | --- | --- | --- |
 | Codex CLI 0.151.0, default local artifact | The committed fork artifact records exact parent and fork identities, but the artifact alone does not correlate the transition to one simultaneously active hvir PTY | The native TUI keeps an active-writer claim on the preserved original, so an exact concurrent resume is rejected | The complete fork `session_meta` is authoritative and the existing Codex observer can read its exact artifact after a qualified relocation | **Unsupported:** `concurrent-resume-unavailable`, `current-terminal-unqualified` |
 | Codex CLI 0.151.0, custom artifact root, local | The provider metadata semantics remain exact once the artifact is known, but no launch-scoped current-PTY transition source was qualified | The provider's active-writer behavior is unchanged by artifact-root placement | hvir can resolve configured roots only after an exact identity and transition are known | **Unsupported:** `concurrent-resume-unavailable`, `current-terminal-unqualified` |
-| Codex CLI 0.151.0, SSH | The same provider metadata exists remotely, but no real-host PTY correlation proof was available | The provider contract still rejects the required concurrent resume | An exact remote artifact would be readable through `ProjectHost`; that does not cure either decisive defect | **Unsupported:** `concurrent-resume-unavailable`, `host-unqualified` |
+| Codex CLI 0.151.0, SSH | The provider metadata has the same host-independent current-PTY contract defect as local: it has no launch-scoped relation between the exact artifact transition and its owning PTY | The provider contract still rejects the required concurrent resume | An exact remote artifact would be readable through `ProjectHost`, but no real-host lifecycle proof was available | **Unsupported:** `concurrent-resume-unavailable`, `current-terminal-unqualified`, `host-unqualified` |
 | Claude Code 2.1.251, default local artifact | A launch-scoped status line reports the exact current identity, transcript path, cwd, and version, but not whether an identity change was `/branch`; hooks emit no branch event | Exact resume succeeds while the fork is live, and post-fork messages remain in independent transcripts | The reported exact transcript is readable after the identity change, but the change lacks a qualifying fork discriminator | **Unsupported:** `transition-kind-unqualified` |
 | Claude Code 2.1.251, custom `CLAUDE_CONFIG_DIR`, local | Launch-scoped status reporting and exact artifact resolution respect the configured root, but the transition remains semantically ambiguous | Concurrent resume and transcript independence qualify | The exact configured transcript can be observed only after an unqualified transition | **Unsupported:** `transition-kind-unqualified` |
 | Claude Code 2.1.251, SSH | The status-line mechanism runs with the remote provider, but no real-host lifecycle proof was available and its payload still lacks fork kind | Provider semantics permit concurrent exact resume, but the full host condition is not qualified | A future sink would have to be bounded through `ProjectHost` and removed with the PTY; none was accepted here | **Unsupported:** `transition-kind-unqualified`, `host-unqualified` |
