@@ -17,6 +17,7 @@ import {
   type ComposerSubmitMode,
   type HarnessTelemetry,
   type HarnessProfileId,
+  type HarnessLaunchMode,
   type HarnessProviderId,
   type HarnessProviderCapabilities,
   type HostId,
@@ -66,6 +67,10 @@ export interface PtySpawnRequest {
   readonly harnessSessionId?: string
   /** Resume `harnessSessionId` via the provider rather than launching fresh. */
   readonly resume?: boolean
+  /** Provider-neutral launch path. Omitted only by legacy fresh/resume callers. */
+  readonly launchMode?: HarnessLaunchMode
+  /** Exact provider-owned identity from which a fork is derived. */
+  readonly parentHarnessSessionId?: string
   /** Only explicit bulk recovery enters the bounded per-host admission queue. */
   readonly admission?: 'interactive' | 'bulk'
   readonly cols?: number
@@ -191,12 +196,12 @@ export type PtySupervisorDiagnostic =
   | {
       readonly kind: 'pty-spawned' | 'pty-spawn-failed'
       readonly hostKind: 'local' | 'ssh'
-      readonly launchMode: 'fresh' | 'resume'
+      readonly launchMode: HarnessLaunchMode
     }
   | {
       readonly kind: 'pty-exited'
       readonly hostKind: 'local' | 'ssh'
-      readonly launchMode: 'fresh' | 'resume'
+      readonly launchMode: HarnessLaunchMode
       readonly exitKind: 'clean' | 'error' | 'signal'
       readonly lifetime: 'under-30s' | 'under-5m' | '5m-or-more'
     }
@@ -249,10 +254,25 @@ export class PtySupervisor {
     const sessionId = req.sessionId ?? randomUUID()
     const effectiveCapabilities =
       req.effectiveCapabilities ?? harnessProviderCapabilities(req.provider)
-    const resumed = req.resume === true && effectiveCapabilities.exactResume
+    const requestedLaunchMode = req.launchMode ?? (req.resume === true ? 'resume' : 'fresh')
+    const resumed = requestedLaunchMode === 'resume' && effectiveCapabilities.exactResume
+    const forked = requestedLaunchMode === 'fork'
+    if (
+      forked &&
+      (effectiveCapabilities.exactFork !== true ||
+        !req.provider.fork ||
+        !req.parentHarnessSessionId)
+    ) {
+      throw new Error(`Harness '${req.provider.manifest.id}' fork is not available`)
+    }
+    const launchMode: HarnessLaunchMode = forked
+      ? 'fork'
+      : resumed
+        ? 'resume'
+        : 'fresh'
     const diagnosticContext = {
       hostKind: req.host.hostId === LOCAL_HOST_ID ? ('local' as const) : ('ssh' as const),
-      launchMode: resumed ? ('resume' as const) : ('fresh' as const),
+      launchMode,
     }
     if (this.entries.has(sessionId) || this.pendingIds.has(sessionId)) {
       this.reportDiagnostic({ kind: 'pty-spawn-failed', ...diagnosticContext })
@@ -329,9 +349,15 @@ export class PtySupervisor {
         defaultShell,
         composerSubmitMode: req.composerSubmitMode,
         effectiveCapabilities,
+        parentSessionId: req.parentHarnessSessionId,
       }
       const spec =
-        req.launchSpec ?? (resumed ? req.provider.resume(ctx) : req.provider.launch(ctx))
+        req.launchSpec ??
+        (launchMode === 'resume'
+          ? req.provider.resume(ctx)
+          : launchMode === 'fork'
+            ? req.provider.fork!(ctx)
+            : req.provider.launch(ctx))
       const launch = spec.shellEnvironment
         ? {
             file: defaultShell,

@@ -8,7 +8,7 @@ import {
 import type { WindowHealthDiagnostic } from '../health/workbench-health-events'
 
 export type DiagnosticHostKind = 'local' | 'ssh'
-export type DiagnosticLaunchMode = 'fresh' | 'resume'
+export type DiagnosticLaunchMode = 'fresh' | 'resume' | 'fork'
 export type ApplicationDiagnosticKind =
   | 'application-starting'
   | 'application-ready'
@@ -375,7 +375,7 @@ function exactFields(actual: ReadonlySet<string>, expected: readonly string[]): 
 function isPtyFields(value: Record<string, unknown>): boolean {
   return (
     isHostKind(value['hostKind']) &&
-    ['fresh', 'resume'].includes(String(value['launchMode']))
+    ['fresh', 'resume', 'fork'].includes(String(value['launchMode']))
   )
 }
 

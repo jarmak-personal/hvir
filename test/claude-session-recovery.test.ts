@@ -79,6 +79,29 @@ describe('Claude Code session recovery', () => {
     ).resolves.toEqual({ outcome: 'launch', mode: 'fresh' })
   })
 
+  it('validates the exact parent artifact before a supported fork', async () => {
+    const transcript = transcriptPath(configDirectory, canonicalCwd)
+    await mkdir(dirname(transcript), { recursive: true })
+    const supported = {
+      ...claudeCodeProvider.probe.effectiveCapabilities('2.1.258'),
+    }
+
+    await expect(
+      selectHarnessLaunch(host, claudeCodeProvider, 'fork', context, supported),
+    ).resolves.toEqual({ outcome: 'resume-unavailable', reason: 'artifact-missing' })
+
+    await writeFile(transcript, '{}\n')
+    await expect(
+      selectHarnessLaunch(host, claudeCodeProvider, 'fork', context, supported),
+    ).resolves.toEqual({ outcome: 'launch', mode: 'fork' })
+  })
+
+  it('rejects a fork without supported probe evidence', async () => {
+    await expect(
+      selectHarnessLaunch(host, claudeCodeProvider, 'fork', context),
+    ).rejects.toThrow(/does not support exact forks/)
+  })
+
   it('fails closed while the profile-qualified artifact root is absent', async () => {
     expect(await claudeResumeAvailability(host, context)).toBe('unknown')
     await expect(
