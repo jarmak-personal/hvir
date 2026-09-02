@@ -47,6 +47,8 @@ export interface HarnessProviderDescriptor {
   readonly id: HarnessProviderId
   readonly displayName: string
   readonly default: boolean
+  /** The bundled provider has an exact fork contract; a probe still decides version support. */
+  readonly exactForkLaunch?: true
   readonly capabilities: HarnessProviderCapabilities
   readonly terminalInput: HarnessTerminalInputCapabilities
   /** Data-only suggestion; catalog membership never materializes a launch profile. */

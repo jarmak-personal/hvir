@@ -100,6 +100,8 @@ export interface ManagedPty {
   readonly resumed: boolean
   readonly harnessSessionId?: string
   readonly identityStatus: HarnessSessionIdentityStatus
+  /** Sticky once provider-owned observation contradicts the registered identity. */
+  readonly identityDiverged?: true
 }
 
 export interface ObservedManagedPty {
@@ -1151,6 +1153,19 @@ export class PtySupervisor {
       for (const cb of entry.telemetryListeners) cb(telemetry)
       this.publishObservation()
     }
+    const publishIdentityDivergence = (): void => {
+      if (
+        controller.signal.aborted ||
+        entry.exited ||
+        this.entries.get(entry.info.id) !== entry ||
+        entry.info.identityDiverged
+      ) {
+        return
+      }
+      entry.info = { ...entry.info, identityDiverged: true }
+      for (const cb of this.identityListeners) cb(entry.info)
+      this.publishObservation()
+    }
     void Promise.resolve()
       .then(() =>
         observer.observe(host, {
@@ -1161,6 +1176,7 @@ export class PtySupervisor {
           artifact,
           signal: controller.signal,
           emit: publishTelemetry,
+          identityDiverged: publishIdentityDivergence,
         }),
       )
       .then(

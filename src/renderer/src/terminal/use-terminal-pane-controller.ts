@@ -61,6 +61,7 @@ export function useTerminalPaneController(
 
   return {
     workspaceRoot: options.workspaceRoot,
+    live: runtime.live,
     containerRef,
     ...snapshot,
     ...paneEventSnapshot,

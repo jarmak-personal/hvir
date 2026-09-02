@@ -767,6 +767,7 @@ describe('Claude Code context telemetry', () => {
     const transcript = join(projectDirectory, `${SESSION_ID}.jsonl`)
     const host = new LocalHost()
     const emitted: HarnessTelemetry[] = []
+    const identityDiverged = vi.fn()
     const controller = new AbortController()
     await mkdir(projectDirectory, { recursive: true })
     await host.connect()
@@ -782,6 +783,7 @@ describe('Claude Code context telemetry', () => {
           unsetEnvironment: [],
         },
         signal: controller.signal,
+        identityDiverged,
         emit: (telemetry) => {
           if (telemetry) emitted.push(telemetry)
         },
@@ -819,6 +821,20 @@ describe('Claude Code context telemetry', () => {
       expect(
         emitted.filter((telemetry) => telemetry.facets.context.status === 'pending'),
       ).toHaveLength(1)
+      await appendFile(
+        transcript,
+        `${JSON.stringify({
+          type: 'assistant',
+          sessionId: '192bd463-4567-4890-abcd-ef0123456789',
+          message: {
+            role: 'assistant',
+            usage: { input_tokens: 1, output_tokens: 1 },
+          },
+        })}\n`,
+      )
+      await vi.waitFor(() => expect(identityDiverged).toHaveBeenCalledOnce(), {
+        timeout: 4_000,
+      })
     } finally {
       await stop?.()
       await host.dispose()

@@ -747,6 +747,7 @@ describe('Codex context telemetry', () => {
     const path = localPath(join(directory, `rollout-session-${SESSION_ID}.jsonl`))
     const host = new LocalHost()
     const emitted: HarnessTelemetry[] = []
+    const identityDiverged = vi.fn()
     const controller = new AbortController()
     const record = (used: number): string =>
       JSON.stringify({
@@ -774,6 +775,7 @@ describe('Codex context telemetry', () => {
         sessionData: { rolloutPath: path },
         artifact: { identity: 'test', environment: {}, unsetEnvironment: [] },
         signal: controller.signal,
+        identityDiverged,
         emit: (telemetry) => {
           if (telemetry) emitted.push(telemetry)
         },
@@ -784,6 +786,16 @@ describe('Codex context telemetry', () => {
 
       await appendFile(path.path, `${record(30_000)}\n`)
       await vi.waitFor(() => expect(contextPercent(emitted.at(-1))).toBe(15), {
+        timeout: 4_000,
+      })
+      await appendFile(
+        path.path,
+        `${JSON.stringify({
+          type: 'session_meta',
+          payload: { id: '119ab123-4567-7890-abcd-ef0123456789' },
+        })}\n`,
+      )
+      await vi.waitFor(() => expect(identityDiverged).toHaveBeenCalledOnce(), {
         timeout: 4_000,
       })
     } finally {

@@ -19,7 +19,7 @@ export function useTerminalPersistence({
   const modelRef = useRef(model)
   modelRef.current = model
   const layoutKey = JSON.stringify(
-    model.sessions.map((session, position) => ({
+    model.sessions.filter((session) => !session.forkRequest).map((session, position) => ({
       id: session.id,
       title: session.title,
       position,
@@ -32,7 +32,7 @@ export function useTerminalPersistence({
   useEffect(() => {
     if (!ready) return
     const current = modelRef.current
-    const sessions = current.sessions.map((session, position) => ({
+    const sessions = current.sessions.filter((session) => !session.forkRequest).map((session, position) => ({
       id: session.id,
       title: session.title,
       position,
@@ -49,7 +49,7 @@ export function useTerminalPersistence({
     writeTerminalSplitLayout(root, {
       ...readTerminalSplitLayout(root),
       secondaryIds: modelRef.current.sessions
-        .filter((session) => session.pane === 'secondary')
+        .filter((session) => session.pane === 'secondary' && !session.forkRequest)
         .map((session) => session.id),
       activeByPane: modelRef.current.activeByPane,
     })

@@ -13,6 +13,7 @@ import {
 import type { TerminalPane } from '../src/renderer/src/terminal/terminal-pane'
 import { TerminalRuntimeInteractions } from '../src/renderer/src/terminal/terminal-runtime-interactions'
 import { useTerminalContextMenu } from '../src/renderer/src/terminal/use-terminal-context-menu'
+import type { TerminalForkAvailability } from '../src/renderer/src/terminal/terminal-fork-policy'
 
 let host: HTMLDivElement
 let root: Root
@@ -247,6 +248,62 @@ describe('terminal context menu ownership', () => {
     expect(onOpenSettings).toHaveBeenCalledOnce()
   })
 
+  it('invokes one exact-target conversation fork and dismisses the menu', async () => {
+    const fixture = targetFixture('')
+    const onFork = vi.fn()
+    renderMenu(fixture.target, {
+      onFork,
+      forkAvailability: { available: true },
+    })
+
+    openFromPointer(terminalTarget())
+    const action = menuButton('Fork Conversation to New Terminal')
+    await clickMenuButton('Fork Conversation to New Terminal')
+    action.click()
+
+    expect(onFork).toHaveBeenCalledOnce()
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+  })
+
+  it.each([
+    'This harness provider does not support exact conversation forks.',
+    'The probed harness version does not support exact conversation forks.',
+    'This terminal does not have an exact current conversation identity.',
+    'The observed conversation identity diverged from this terminal.',
+    'This terminal is no longer live.',
+  ])('states a disabled fork reason: %s', (reason) => {
+    const fixture = targetFixture('')
+    const onFork = vi.fn()
+    renderMenu(fixture.target, {
+      onFork,
+      forkAvailability: { available: false, reason },
+    })
+
+    openFromPointer(terminalTarget())
+    const action = menuButton('Fork Conversation to New Terminal')
+
+    expect(action.disabled).toBe(true)
+    expect(action.title).toBe(reason)
+    expect(action.textContent).toContain(reason)
+    action.click()
+    expect(onFork).not.toHaveBeenCalled()
+  })
+
+  it('revokes the exact fork target before a stale action can run', () => {
+    const fixture = targetFixture('')
+    const onFork = vi.fn()
+    renderMenu(fixture.target, {
+      onFork,
+      forkAvailability: { available: true },
+    })
+
+    openFromPointer(terminalTarget())
+    act(() => fixture.revoke())
+
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+    expect(onFork).not.toHaveBeenCalled()
+  })
+
   it('keeps menu clicks from reaching terminal-owned document selection handlers', async () => {
     const fixture = targetFixture('')
     const documentClick = vi.fn()
@@ -303,6 +360,8 @@ function renderMenu(
     readonly onSplit?: () => void
     readonly onSearch?: () => void
     readonly onOpenSettings?: () => void
+    readonly onFork?: () => void
+    readonly forkAvailability?: TerminalForkAvailability
     readonly readText?: () => Promise<string>
     readonly writeText?: (value: string) => Promise<void>
   } = {},
@@ -313,6 +372,8 @@ function renderMenu(
         target={target}
         onSearch={options.onSearch ?? vi.fn()}
         onSplit={options.onSplit ?? vi.fn()}
+        onFork={options.onFork}
+        forkAvailability={options.forkAvailability}
         onOpenSettings={options.onOpenSettings ?? vi.fn()}
         readText={options.readText}
         writeText={options.writeText}
@@ -326,6 +387,8 @@ function MenuHarness({
   onSearch,
   onSplit,
   onOpenSettings,
+  onFork,
+  forkAvailability,
   readText,
   writeText,
 }: {
@@ -333,6 +396,8 @@ function MenuHarness({
   readonly onSearch: () => void
   readonly onSplit: () => void
   readonly onOpenSettings: () => void
+  readonly onFork?: () => void
+  readonly forkAvailability?: TerminalForkAvailability
   readonly readText?: () => Promise<string>
   readonly writeText?: (value: string) => Promise<void>
 }): ReactElement {
@@ -349,6 +414,8 @@ function MenuHarness({
         controller={controller}
         onSearch={onSearch}
         onSplit={onSplit}
+        onFork={onFork}
+        forkAvailability={forkAvailability}
         onOpenSettings={onOpenSettings}
         readText={readText}
         writeText={writeText}
@@ -487,7 +554,7 @@ function dismissOutside(target: HTMLElement = document.body): void {
 function menuButton(label: string): HTMLButtonElement {
   const button = [
     ...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
-  ].find((candidate) => candidate.textContent === label)
+  ].find((candidate) => candidate.textContent?.startsWith(label))
   if (!button) throw new Error(`Missing menu action '${label}'`)
   return button
 }

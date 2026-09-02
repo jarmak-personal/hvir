@@ -203,6 +203,45 @@ export async function verifyTerminalContextMenu(
     }
     await waitForClipboard((value) => value.includes(READY))
 
+    const forkUnavailable = (await win.webContents.executeJavaScript(`
+      new Promise((resolve, reject) => {
+        const engine = window.__hvirSmokeContextMenu?.engine;
+        if (!(engine instanceof HTMLElement)) {
+          return reject(new Error('retained terminal menu owner missing'));
+        }
+        engine.dispatchEvent(new MouseEvent('contextmenu', {
+          bubbles: true,
+          cancelable: true,
+          clientX: 24,
+          clientY: 24,
+          button: 2
+        }));
+        const poll = () => {
+          const action = [...document.querySelectorAll(
+            '.terminal-context-menu [role="menuitem"]'
+          )].find((entry) => entry.textContent?.trim().startsWith(
+            'Fork Conversation to New Terminal'
+          ));
+          if (!(action instanceof HTMLButtonElement)) {
+            return setTimeout(poll, 20);
+          }
+          if (
+            !action.disabled ||
+            !action.textContent?.includes('does not support exact conversation forks')
+          ) {
+            return reject(new Error('unsupported fork action did not state its reason'));
+          }
+          document.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'Escape',
+            bubbles: true,
+            cancelable: true
+          }));
+          resolve('stated unsupported-provider fork reason');
+        };
+        poll();
+      })
+    `)) as string
+
     const settings = (await win.webContents.executeJavaScript(
       menuActionScript(
         'Terminal Settings…',
@@ -302,7 +341,7 @@ export async function verifyTerminalContextMenu(
       throw new Error('terminal menu actions replaced or restarted the owning PTY')
     }
 
-    return `${pointerAndKeyboard} · no PTY menu bytes · ${settings} · ${paste} · ${split} · retained Canvas and PTY`
+    return `${pointerAndKeyboard} · no PTY menu bytes · ${forkUnavailable} · ${settings} · ${paste} · ${split} · retained Canvas and PTY`
   } finally {
     void detach()
   }

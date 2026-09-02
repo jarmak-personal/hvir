@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   initialTerminalWorkspaceModel,
+  createTerminalForkSession,
   nextTerminalSplitPane,
   terminalPaneActiveId,
   terminalWorkspaceReducer,
@@ -185,6 +186,96 @@ describe('terminal workspace model', () => {
         session: session('changed', 'primary'),
       }),
     ).toBe(true)
+  })
+
+  it('stages one adjacent unfocused fork and settles it without changing pane focus', () => {
+    const source = {
+      ...session('source', 'secondary'),
+      harnessSessionId: '019ab123-4567-7890-abcd-ef0123456789',
+      identityStatus: 'identified' as const,
+    }
+    let model = reduce(initialTerminalWorkspaceModel, {
+      type: 'sessions-replaced',
+      sessions: [session('before', 'primary'), source, session('after', 'secondary')],
+      activeId: source.id,
+    })
+    const fork = createTerminalForkSession('fork', source)
+    if (!fork) throw new Error('fork fixture unavailable')
+
+    model = reduce(model, {
+      type: 'session-fork-requested',
+      sourceId: source.id,
+      session: fork,
+    })
+
+    expect(model.sessions.map(({ id }) => id)).toEqual([
+      'before',
+      'source',
+      'fork',
+      'after',
+    ])
+    expect(model.activeId).toBe(source.id)
+    expect(model.activeByPane.secondary).toBe(source.id)
+    expect(model.sessions[1]?.forkPending).toBe(true)
+    expect(model.sessions[2]).toMatchObject({
+      pane: 'secondary',
+      cwd: source.cwd,
+      profileId: source.profileId,
+      forkRequest: {
+        sourceSessionId: source.id,
+        parentHarnessSessionId: source.harnessSessionId,
+      },
+    })
+    expect(
+      reduce(model, {
+        type: 'session-fork-requested',
+        sourceId: source.id,
+        session: { ...fork, id: 'duplicate' },
+      }),
+    ).toBe(model)
+
+    model = reduce(model, {
+      type: 'session-fork-succeeded',
+      sourceId: source.id,
+      session: {
+        ...fork,
+        harnessSessionId: '129ab123-4567-7890-abcd-ef0123456789',
+        identityStatus: 'identified',
+        forkRequest: undefined,
+      },
+    })
+    expect(model.sessions[1]?.forkPending).toBeUndefined()
+    expect(model.sessions[2]?.forkRequest).toBeUndefined()
+    expect(model.activeId).toBe(source.id)
+  })
+
+  it('removes a failed hidden fork and releases its source for another request', () => {
+    const source = {
+      ...session('source', 'primary'),
+      harnessSessionId: '019ab123-4567-7890-abcd-ef0123456789',
+      identityStatus: 'identified' as const,
+    }
+    const fork = createTerminalForkSession('fork', source)
+    if (!fork) throw new Error('fork fixture unavailable')
+    const pending = reduce(
+      reduce(initialTerminalWorkspaceModel, {
+        type: 'sessions-replaced',
+        sessions: [source],
+        activeId: source.id,
+      }),
+      { type: 'session-fork-requested', sourceId: source.id, session: fork },
+    )
+
+    const failed = reduce(pending, {
+      type: 'session-fork-failed',
+      sourceId: source.id,
+      id: fork.id,
+    })
+
+    expect(failed.sessions).toHaveLength(1)
+    expect(failed.sessions[0]?.id).toBe(source.id)
+    expect(failed.sessions[0]?.forkPending).toBeUndefined()
+    expect(failed.activeId).toBe(source.id)
   })
 })
 

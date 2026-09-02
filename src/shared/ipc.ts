@@ -436,6 +436,7 @@ export type StartPtyResponse =
       readonly reattached: boolean
       readonly harnessSessionId?: string
       readonly identityStatus: TerminalIdentityStatus
+      readonly identityDiverged?: true
       readonly capabilities: import('./harness-provider').HarnessProviderCapabilities
     }
   | {
@@ -968,6 +969,7 @@ export interface IpcEventMap {
     readonly id: string
     readonly harnessSessionId?: string
     readonly identityStatus: TerminalIdentityStatus
+    readonly identityDiverged?: true
   }
   'web-pane:navigation-blocked': WebPaneBlockedNavigation
   'web-pane:command': {

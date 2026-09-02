@@ -88,7 +88,7 @@ export function TerminalWorkspaceControls({
         moveTargets={moving.moveTargets}
         launchMenuEntries={launchMenuEntries}
         split={terminalWorkspaceSplit(model)}
-        sessions={sessions}
+        sessions={sessions.filter((session) => !session.forkRequest)}
         activeId={activeId}
         providers={providers}
         profiles={profiles}

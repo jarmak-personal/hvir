@@ -2,7 +2,7 @@
   z-index: 42;
   position: fixed;
   display: flex;
-  width: 232px;
+  width: 280px;
   flex-direction: column;
   padding: 4px;
   border: 1px solid var(--border-strong);
@@ -31,6 +31,18 @@
 
 .terminal-context-menu button:disabled {
   color: var(--text-muted);
+}
+
+.terminal-context-menu-explained {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.terminal-context-menu-reason {
+  color: var(--text-muted);
+  font-size: calc(10px * var(--hvir-interface-scale));
+  line-height: 1.25;
 }
 
 .terminal-context-menu-separator {

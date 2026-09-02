@@ -173,7 +173,7 @@ export function TerminalWorkspace({
   modelRef.current = model
   useEffect(() => {
     onSessionsSource(workspaceId, () =>
-      modelRef.current.sessions.map((session) => {
+      modelRef.current.sessions.filter((session) => !session.forkRequest).map((session) => {
         const runtime = runtimes.sessionSnapshot(session.id)
         const handle = asSessionsTerminalHandle(session.id)
         const providerName =
@@ -266,6 +266,7 @@ export function TerminalWorkspace({
     focusAttention: focusAttentionSession,
     forgetAttention: forgetAttentionSession,
     runtimes,
+    onError,
   })
   const moving = useTerminalWorkspaceMove({
     workspaceId,
@@ -345,6 +346,9 @@ export function TerminalWorkspace({
         onCreateDefault={defaultProfile ? commands.startDefault : undefined}
         onUpdateSession={updateSession}
         onFreshStarted={commands.acceptFreshStart}
+        onForkIdentity={commands.acceptForkIdentity}
+        onForkStartFailed={commands.failForkStart}
+        onExit={commands.handleExit}
         onInput={recordInput}
         onOutput={recordOutput}
         onBell={(id) => raiseAttention(id, 'bell')}
@@ -359,6 +363,7 @@ export function TerminalWorkspace({
           if (url) onOpenWebLink({ terminalId: session.id, workspaceRoot, url })
         }}
         onSplit={commands.split}
+        onFork={commands.fork}
         onOpenTerminalSettings={onOpenTerminalSettings}
         onSetPrimaryWidth={setTerminalPrimaryWidth}
         onResetPrimaryWidth={resetTerminalPrimaryWidth}
