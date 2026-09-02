@@ -43,6 +43,12 @@ import { githubCopilotProvider } from './providers/github-copilot'
 import { cursorProvider } from './providers/cursor'
 
 const CODEX_THREAD_TITLE_CONFIG = 'tui.terminal_title=["thread-title"]'
+const CODEX_SUBCOMMAND_BY_LAUNCH_MODE: Readonly<
+  Partial<Record<HarnessLaunchMode, 'resume' | 'fork'>>
+> = {
+  resume: 'resume',
+  fork: 'fork',
+}
 const CLAUDE_CONTEXT_PRESSURE: HarnessContextPressurePolicy = {
   assumedWindowTokens: 1_000_000,
   warningPercent: 20,
@@ -419,8 +425,9 @@ export const codexProvider: HarnessProvider = {
     artifactExecutable: true,
     artifactPathBindings: [],
     applyArgs: (mode, providerArgs, profileArgs) => {
-      if (mode === 'fresh') return [...providerArgs, ...profileArgs]
-      const subcommandAt = providerArgs.indexOf(mode)
+      const subcommand = CODEX_SUBCOMMAND_BY_LAUNCH_MODE[mode]
+      if (!subcommand) return [...providerArgs, ...profileArgs]
+      const subcommandAt = providerArgs.indexOf(subcommand)
       return subcommandAt < 0
         ? [...providerArgs, ...profileArgs]
         : [
@@ -865,10 +872,9 @@ function versionProbe(
 }
 
 function supportsCodexReviewSendNowVersion(version: string | undefined): boolean {
-  const match = /^codex-cli\s+(\d+)\.(\d+)\.(\d+)(?:\b|[-+])/.exec(version ?? '')
-  if (!match) return false
-  const parts = match.slice(1).map(Number)
-  return parts[0]! > 0 || parts[1]! > 146 || (parts[1] === 146 && parts[2]! >= 0)
+  const parts = codexVersion(version)
+  if (!parts) return false
+  return parts[0] > 0 || parts[1] > 146 || (parts[1] === 146 && parts[2] >= 0)
 }
 
 function supportsCodexExactForkVersion(version: string | undefined): boolean {

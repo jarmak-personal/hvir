@@ -238,6 +238,56 @@ describe('terminal exact-resume IPC', () => {
     expect(fixture.register).not.toHaveBeenCalled()
   })
 
+  it.each([
+    [
+      'fresh launch carrying fork identifiers',
+      {
+        launchMode: 'fresh' as const,
+        resume: false,
+        harnessSessionId: undefined,
+        forkSourceSessionId: 'terminal-1',
+        parentHarnessSessionId: HARNESS_SESSION_ID,
+      },
+    ],
+    [
+      'resume carrying fork identifiers',
+      {
+        launchMode: 'resume' as const,
+        resume: true,
+        forkSourceSessionId: 'terminal-1',
+        parentHarnessSessionId: HARNESS_SESSION_ID,
+      },
+    ],
+    [
+      'fork also marked as resume',
+      {
+        launchMode: 'fork' as const,
+        resume: true,
+        harnessSessionId: undefined,
+        forkSourceSessionId: 'terminal-1',
+        parentHarnessSessionId: HARNESS_SESSION_ID,
+      },
+    ],
+  ])('rejects an invalid %s without spawning', async (_name, overrides) => {
+    const fixture = resumeFixture(LOCAL_HOST_ID, 'available')
+
+    await expect(
+      fixture.start(
+        {
+          ...fixture.request,
+          sessionId: 'terminal-2',
+          ...overrides,
+        },
+        fixture.context,
+      ),
+    ).rejects.toThrow(/Invalid (?:harness launch mode|terminal fork request)/)
+    expect(fixture.exec).not.toHaveBeenCalled()
+    expect(fixture.defaultShell).not.toHaveBeenCalled()
+    expect(fixture.spawn).not.toHaveBeenCalled()
+    expect(fixture.register).not.toHaveBeenCalled()
+    expect(fixture.recordSpawn).not.toHaveBeenCalled()
+  })
+
   it('fails a disconnected SSH parent check without spawning or changing the source', async () => {
     const fixture = resumeFixture(asHostId('ssh-fork-disconnect'), 'available')
     fixture.effectiveLaunchCapabilities.mockReturnValue({

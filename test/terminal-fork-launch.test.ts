@@ -4,6 +4,11 @@ import { join } from 'node:path'
 
 import { expect, it, onTestFinished, vi } from 'vitest'
 
+import {
+  codexProvider,
+  type HarnessSessionDiscovery,
+  type HarnessSessionDiscoveryResult,
+} from '../src/main/harness/harness-provider'
 import { LocalHost } from '../src/main/project-host/local-host'
 import { TerminalSessionRegistry } from '../src/main/terminal/session-registry'
 import {
@@ -43,6 +48,84 @@ it('spawns an exact provider fork as a distinct non-resumed session', async () =
   expect(fixture.snapshot().spawns).toEqual([
     expect.objectContaining({ args: ['fork', 'fork-parent'] }),
   ])
+})
+
+it('snapshots and binds the discovered child identity for a Codex fork', async () => {
+  const baseline = { entries: ['before-fork'] }
+  const snapshot = vi.fn(() => Promise.resolve(baseline))
+  let finishIdentification: (() => void) | undefined
+  const identify = vi.fn(
+    () =>
+      new Promise<HarnessSessionDiscoveryResult>((resolve) => {
+        finishIdentification = () =>
+          resolve({
+            status: 'identified',
+            sessionId: 'codex-fork-child-id',
+          })
+      }),
+  )
+  const discovery: HarnessSessionDiscovery = {
+    snapshot,
+    identify,
+  }
+  const provider = {
+    ...codexProvider,
+    sessionDiscovery: discovery,
+    telemetry: undefined,
+  }
+  const registerSessionIdentity = vi.fn(() => Promise.resolve(true))
+  const fixture = createPtySupervisorFixture({
+    provider,
+    supervisor: { registerSessionIdentity },
+  })
+  const { host, root, spawn, spawnPty, supervisor } = fixture
+  const artifact = {
+    identity: 'codex-fork-artifact',
+    environment: {},
+    unsetEnvironment: [],
+  }
+
+  const initial = await spawn({
+    provider,
+    artifact,
+    effectiveCapabilities: codexProvider.probe.effectiveCapabilities(
+      'codex-cli 0.151.0',
+    ),
+    sessionId: 'codex-fork-terminal',
+    launchMode: 'fork',
+    parentHarnessSessionId: 'codex-fork-parent-id',
+  })
+
+  expect(initial).toMatchObject({
+    id: 'codex-fork-terminal',
+    resumed: false,
+    harnessSessionId: undefined,
+    identityStatus: 'discovering',
+  })
+  expect(snapshot).toHaveBeenCalledExactlyOnceWith(host, artifact)
+  expect(snapshot.mock.invocationCallOrder[0]).toBeLessThan(
+    spawnPty.mock.invocationCallOrder[0]!,
+  )
+  expect(spawnPty.mock.calls[0]?.[0].args?.[1]).toContain(
+    "'fork' 'codex-fork-parent-id'",
+  )
+  expect(identify).toHaveBeenCalledWith(
+    host,
+    baseline,
+    expect.objectContaining({ cwd: root, artifact }),
+  )
+
+  finishIdentification?.()
+  await vi.waitFor(() =>
+    expect(registerSessionIdentity).toHaveBeenCalledExactlyOnceWith(
+      'codex-fork-terminal',
+      'codex-fork-child-id',
+    ),
+  )
+  expect(supervisor.get('codex-fork-terminal')).toMatchObject({
+    harnessSessionId: 'codex-fork-child-id',
+    identityStatus: 'identified',
+  })
 })
 
 it('fails closed before PTY spawn without provider support and an exact parent', async () => {
