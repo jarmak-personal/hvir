@@ -14,6 +14,7 @@ import {
   type HarnessModifiedKeyProtocol,
   type HarnessProfile,
   type HarnessProfileId,
+  type HarnessLaunchMode,
   type HarnessProviderCapabilities,
   type HarnessProviderDescriptor,
   type HarnessProviderId,
@@ -51,6 +52,8 @@ const CLAUDE_CONTEXT_PRESSURE: HarnessContextPressurePolicy = {
 export interface HarnessLaunchContext {
   /** Exact harness id for pre-assigned launches and resume commands. */
   readonly sessionId: string
+  /** Exact registered parent identity for a provider-derived fork. */
+  readonly parentSessionId?: string
   readonly cwd: HostPath
   readonly cols?: number
   readonly rows?: number
@@ -215,7 +218,7 @@ export interface HarnessProfileContract {
   readonly artifactExecutable: boolean
   readonly artifactPathBindings: readonly string[]
   applyArgs(
-    mode: 'fresh' | 'resume',
+    mode: HarnessLaunchMode,
     providerArgs: readonly string[],
     profileArgs: readonly string[],
   ): readonly string[]
@@ -261,6 +264,8 @@ export interface HarnessProvider {
   launch(ctx: HarnessLaunchContext): HarnessLaunchSpec
   /** Command to resume `ctx.sessionId`. */
   resume(ctx: HarnessLaunchContext): HarnessLaunchSpec
+  /** Command to derive `ctx.sessionId` from the exact `ctx.parentSessionId`. */
+  fork?(ctx: HarnessLaunchContext): HarnessLaunchSpec
 }
 
 export function harnessProviderCapabilities(
@@ -326,13 +331,13 @@ export const claudeCodeProvider: HarnessProvider = {
     metaEnterAliasesControl: true,
   },
   profile: {
-    version: 2,
+    version: 3,
     defaultProfile: {
       id: asHarnessProfileId('claude-code-default'),
       displayName: 'Claude Code',
       description: 'Claude Code with exact hvir-managed session recovery.',
     },
-    reservedArguments: ['--session-id', '--resume', '--continue'],
+    reservedArguments: ['--session-id', '--resume', '--continue', '--fork-session'],
     reservedEnvironmentKeys: ['CLAUDE_CONFIG_DIR'],
     artifactEnvironmentKeys: ['CLAUDE_CONFIG_DIR'],
     artifactExecutable: true,
@@ -348,6 +353,7 @@ export const claudeCodeProvider: HarnessProvider = {
   probe: versionProbe('preassigned', true, 'pressure', {
     contextPressure: CLAUDE_CONTEXT_PRESSURE,
     reviewInsert: claudeCodeReviewInsert,
+    supportsExactForkVersion: supportsClaudeExactForkVersion,
   }),
   composerConfiguration: { configure: configureClaudeComposerSubmit },
   remoteImagePaste: pathImagePasteContract(),
@@ -365,6 +371,21 @@ export const claudeCodeProvider: HarnessProvider = {
     return {
       file: 'claude',
       args: ['--resume', ctx.sessionId],
+      shellEnvironment: true,
+    }
+  },
+
+  fork(ctx): HarnessLaunchSpec {
+    if (!ctx.parentSessionId) throw new Error('Claude Code fork requires an exact parent id')
+    return {
+      file: 'claude',
+      args: [
+        '--session-id',
+        ctx.sessionId,
+        '--resume',
+        ctx.parentSessionId,
+        '--fork-session',
+      ],
       shellEnvironment: true,
     }
   },
@@ -386,26 +407,26 @@ export const codexProvider: HarnessProvider = {
     metaEnterAliasesControl: true,
   },
   profile: {
-    version: 1,
+    version: 2,
     defaultProfile: {
       id: asHarnessProfileId('codex-default'),
       displayName: 'Codex',
       description: 'Codex with exact rollout discovery and recovery.',
     },
-    reservedArguments: ['resume'],
+    reservedArguments: ['resume', 'fork'],
     reservedEnvironmentKeys: ['CODEX_HOME'],
     artifactEnvironmentKeys: ['CODEX_HOME'],
     artifactExecutable: true,
     artifactPathBindings: [],
     applyArgs: (mode, providerArgs, profileArgs) => {
-      if (mode !== 'resume') return [...providerArgs, ...profileArgs]
-      const resumeAt = providerArgs.indexOf('resume')
-      return resumeAt < 0
+      if (mode === 'fresh') return [...providerArgs, ...profileArgs]
+      const subcommandAt = providerArgs.indexOf(mode)
+      return subcommandAt < 0
         ? [...providerArgs, ...profileArgs]
         : [
-            ...providerArgs.slice(0, resumeAt),
+            ...providerArgs.slice(0, subcommandAt),
             ...profileArgs,
-            ...providerArgs.slice(resumeAt),
+            ...providerArgs.slice(subcommandAt),
           ]
     },
   },
@@ -419,6 +440,7 @@ export const codexProvider: HarnessProvider = {
     reviewInsert: codexReviewInsert,
     reviewSendNow: codexReviewSendNow,
     supportsReviewSendNowVersion: supportsCodexReviewSendNowVersion,
+    supportsExactForkVersion: supportsCodexExactForkVersion,
   }),
   remoteImagePaste: pathImagePasteContract(),
   documentReviewInsert: codexReviewInsert,
@@ -441,6 +463,21 @@ export const codexProvider: HarnessProvider = {
         ...codexComposerArgs(ctx),
         'resume',
         ctx.sessionId,
+      ],
+      shellEnvironment: true,
+    }
+  },
+
+  fork(ctx): HarnessLaunchSpec {
+    if (!ctx.parentSessionId) throw new Error('Codex fork requires an exact parent id')
+    return {
+      file: 'codex',
+      args: [
+        '--config',
+        CODEX_THREAD_TITLE_CONFIG,
+        ...codexComposerArgs(ctx),
+        'fork',
+        ctx.parentSessionId,
       ],
       shellEnvironment: true,
     }
@@ -583,6 +620,7 @@ export function harnessLaunchCapabilities(
     sessionIdentity: probed.sessionIdentity,
     exactResume: probed.exactResume,
     contextPresentation: probed.contextPresentation,
+    ...(probed.exactFork === true ? { exactFork: true as const } : {}),
   }
   if (launch && insert && insert.revision === probed.reviewInsertContractRevision) {
     const candidate = { ...base, reviewInsertContractRevision: insert.revision }
@@ -622,20 +660,27 @@ export async function configureHarnessComposerSubmit(
 }
 
 export type HarnessLaunchDecision =
-  | { readonly outcome: 'launch'; readonly mode: 'fresh' | 'resume' }
+  | { readonly outcome: 'launch'; readonly mode: HarnessLaunchMode }
   | { readonly outcome: 'resume-unavailable'; readonly reason: 'artifact-missing' }
 
 export async function selectHarnessLaunch(
   host: ProjectHost,
   provider: HarnessProvider,
-  requestedMode: 'fresh' | 'resume',
+  requestedMode: HarnessLaunchMode,
   context: HarnessResumeValidationContext,
+  effectiveCapabilities: HarnessProviderCapabilities = harnessProviderCapabilities(provider),
 ): Promise<HarnessLaunchDecision> {
+  if (requestedMode === 'fork') {
+    if (!provider.fork || effectiveCapabilities.exactFork !== true) {
+      throw new Error(`${provider.manifest.displayName} does not support exact forks`)
+    }
+    if (!provider.resumeValidation) return { outcome: 'launch', mode: 'fork' }
+  }
   if (requestedMode === 'fresh' || !provider.resumeValidation) {
     return { outcome: 'launch', mode: requestedMode }
   }
   const availability = await provider.resumeValidation.availability(host, context)
-  if (availability === 'available') return { outcome: 'launch', mode: 'resume' }
+  if (availability === 'available') return { outcome: 'launch', mode: requestedMode }
   if (availability === 'missing') {
     return { outcome: 'resume-unavailable', reason: 'artifact-missing' }
   }
@@ -791,6 +836,7 @@ function versionProbe(
     readonly reviewInsert?: HarnessDocumentReviewInsertContract
     readonly reviewSendNow?: HarnessDocumentReviewSendNowContract
     readonly supportsReviewSendNowVersion?: (version: string | undefined) => boolean
+    readonly supportsExactForkVersion?: (version: string | undefined) => boolean
   } = {},
 ): HarnessProbeContract {
   return {
@@ -806,6 +852,9 @@ function versionProbe(
       exactResume,
       contextPresentation,
       contextPressure: capabilities.contextPressure,
+      ...(capabilities.supportsExactForkVersion?.(version)
+        ? { exactFork: true as const }
+        : {}),
       reviewInsertContractRevision: capabilities.reviewInsert?.revision,
       reviewSendNowContractRevision:
         capabilities.reviewSendNow && capabilities.supportsReviewSendNowVersion?.(version)
@@ -820,6 +869,31 @@ function supportsCodexReviewSendNowVersion(version: string | undefined): boolean
   if (!match) return false
   const parts = match.slice(1).map(Number)
   return parts[0]! > 0 || parts[1]! > 146 || (parts[1] === 146 && parts[2]! >= 0)
+}
+
+function supportsCodexExactForkVersion(version: string | undefined): boolean {
+  const parts = codexVersion(version)
+  return Boolean(
+    parts && (parts[0] > 0 || parts[1] > 151 || (parts[1] === 151 && parts[2] >= 0)),
+  )
+}
+
+function supportsClaudeExactForkVersion(version: string | undefined): boolean {
+  const match = /(?:^|\s)(\d+)\.(\d+)\.(\d+)(?:\b|[-+])/.exec(version ?? '')
+  if (!match) return false
+  const parts = match.slice(1).map(Number)
+  return (
+    parts[0]! > 2 ||
+    (parts[0] === 2 &&
+      (parts[1]! > 1 || (parts[1] === 1 && parts[2]! >= 258)))
+  )
+}
+
+function codexVersion(version: string | undefined): readonly [number, number, number] | undefined {
+  const match = /^codex-cli\s+(\d+)\.(\d+)\.(\d+)(?:\b|[-+])/.exec(version ?? '')
+  return match
+    ? [Number(match[1]), Number(match[2]), Number(match[3])]
+    : undefined
 }
 
 function hasControlCharacter(value: string): boolean {

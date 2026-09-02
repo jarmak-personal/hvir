@@ -85,11 +85,14 @@ export interface HarnessCommandPreviewEnvironment {
   readonly redacted: boolean
 }
 
+/** Exhaustive provider-owned ways hvir may start a harness conversation. */
+export type HarnessLaunchMode = 'fresh' | 'resume' | 'fork'
+
 export interface HarnessCommandPreview {
   readonly profileId: HarnessProfileId
   readonly launchRevision: number
   readonly providerId: HarnessProviderId
-  readonly mode: 'fresh' | 'resume'
+  readonly mode: HarnessLaunchMode
   readonly executable: string
   readonly args: readonly string[]
   readonly environment: readonly HarnessCommandPreviewEnvironment[]

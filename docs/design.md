@@ -281,6 +281,11 @@ while native certification moves to Release and capacity evidence moves to contr
 One complete workflow attempt may certify an exact candidate after approval or an explicit full
 rerun, while partial reruns and cross-attempt job assembly remain ineligible.
 
+### [ADR-039 — Exact provider-derived session forks](adr/ADR-039-exact-provider-derived-session-forks.md)
+
+Harness sessions start only as fresh launches, exact resumes of registered identities, or explicit
+provider-derived branches of registered identities; ambient transitions are never inferred.
+
 ## 5. Architecture
 
 ### Process model

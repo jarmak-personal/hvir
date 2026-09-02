@@ -334,8 +334,13 @@ export interface StartPtyRequest {
   readonly composerSubmitMode: ComposerSubmitMode
   /** Explicit bulk recovery is admitted through the bounded per-host start queue. */
   readonly admission?: 'interactive' | 'bulk'
+  /** Omitted by legacy fresh/resume callers; new provider-derived starts name the mode. */
+  readonly launchMode?: import('./harness-profile').HarnessLaunchMode
   readonly resume?: boolean
   readonly harnessSessionId?: string
+  /** Exact registered source terminal and provider-owned parent identity for a fork. */
+  readonly forkSourceSessionId?: string
+  readonly parentHarnessSessionId?: string
 }
 
 export interface HarnessProfilesRequest {

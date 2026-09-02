@@ -412,7 +412,6 @@ describe('TerminalSessionRegistry', () => {
         cwd: root,
       }),
     ).toBe(false)
-
     await registry.forget(root, SESSION_ID)
     expect(registry.list(root)).toEqual([])
   })

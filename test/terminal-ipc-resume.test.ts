@@ -150,6 +150,142 @@ describe('terminal exact-resume IPC', () => {
     )
   })
 
+  it.each([
+    ['local', LOCAL_HOST_ID],
+    ['SSH', asHostId('ssh-fork-test')],
+  ])(
+    'validates and launches an exact Claude fork through a %s ProjectHost',
+    async (_kind, hostId) => {
+      const fixture = resumeFixture(hostId, 'available')
+      fixture.effectiveLaunchCapabilities.mockReturnValue({
+        ...fixture.managed.capabilities,
+        exactFork: true,
+      })
+      fixture.get.mockReturnValue(fixture.managed)
+      const request: StartPtyRequest = {
+        ...fixture.request,
+        sessionId: 'terminal-2',
+        launchMode: 'fork',
+        resume: false,
+        harnessSessionId: undefined,
+        forkSourceSessionId: 'terminal-1',
+        parentHarnessSessionId: HARNESS_SESSION_ID,
+      }
+
+      const result = await fixture.start(request, fixture.context)
+
+      expect(result).toMatchObject({
+        outcome: 'started',
+        id: 'terminal-2',
+        resumed: false,
+        harnessSessionId: 'terminal-2',
+      })
+      expect(fixture.authorizeFork).toHaveBeenCalledWith({
+        sourceId: 'terminal-1',
+        childId: 'terminal-2',
+        providerId: 'claude-code',
+        profileId: request.profileId,
+        launchRevision: request.launchRevision,
+        parentHarnessSessionId: HARNESS_SESSION_ID,
+        workspaceRoot: fixture.root,
+        cwd: fixture.root,
+      })
+      expect(fixture.spawn.mock.calls[0]?.[0]).toMatchObject({
+        launchMode: 'fork',
+        parentHarnessSessionId: HARNESS_SESSION_ID,
+        launchSpec: {
+          file: 'claude',
+          args: [
+            '--session-id',
+            'terminal-2',
+            '--resume',
+            HARNESS_SESSION_ID,
+            '--fork-session',
+          ],
+        },
+      })
+      expect(fixture.recordSpawn).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'terminal-2', harnessSessionId: 'terminal-2' }),
+      )
+      expect(fixture.recordReplacement).not.toHaveBeenCalled()
+    },
+  )
+
+  it('rejects an unregistered fork parent without allocating a PTY', async () => {
+    const fixture = resumeFixture(LOCAL_HOST_ID, 'available')
+    fixture.effectiveLaunchCapabilities.mockReturnValue({
+      ...fixture.managed.capabilities,
+      exactFork: true,
+    })
+    fixture.get.mockReturnValue(fixture.managed)
+    fixture.authorizeFork.mockReturnValue(false)
+
+    await expect(
+      fixture.start(
+        {
+          ...fixture.request,
+          sessionId: 'terminal-2',
+          launchMode: 'fork',
+          resume: false,
+          harnessSessionId: undefined,
+          forkSourceSessionId: 'terminal-1',
+          parentHarnessSessionId: HARNESS_SESSION_ID,
+        },
+        fixture.context,
+      ),
+    ).rejects.toThrow(/fork is not authorized/)
+    expect(fixture.spawn).not.toHaveBeenCalled()
+    expect(fixture.register).not.toHaveBeenCalled()
+  })
+
+  it('fails a disconnected SSH parent check without spawning or changing the source', async () => {
+    const fixture = resumeFixture(asHostId('ssh-fork-disconnect'), 'available')
+    fixture.effectiveLaunchCapabilities.mockReturnValue({
+      ...fixture.managed.capabilities,
+      exactFork: true,
+    })
+    fixture.get.mockReturnValue(fixture.managed)
+    fixture.exec.mockReset().mockRejectedValue(new Error('SSH disconnected'))
+
+    await expect(
+      fixture.start(
+        {
+          ...fixture.request,
+          sessionId: 'terminal-2',
+          launchMode: 'fork',
+          resume: false,
+          harnessSessionId: undefined,
+          forkSourceSessionId: 'terminal-1',
+          parentHarnessSessionId: HARNESS_SESSION_ID,
+        },
+        fixture.context,
+      ),
+    ).rejects.toThrow(/could not be verified/)
+    expect(fixture.spawn).not.toHaveBeenCalled()
+    expect(fixture.recordSpawn).not.toHaveBeenCalled()
+    expect(fixture.recordReplacement).not.toHaveBeenCalled()
+  })
+
+  it('rejects a cross-host fork cwd before provider resolution', async () => {
+    const fixture = resumeFixture(LOCAL_HOST_ID, 'available')
+    await expect(
+      fixture.start(
+        {
+          ...fixture.request,
+          sessionId: 'terminal-2',
+          launchMode: 'fork',
+          resume: false,
+          harnessSessionId: undefined,
+          forkSourceSessionId: 'terminal-1',
+          parentHarnessSessionId: HARNESS_SESSION_ID,
+          cwd: hostPath(asHostId('ssh-other'), '/repo'),
+        },
+        fixture.context,
+      ),
+    ).rejects.toThrow(/another project/)
+    expect(fixture.spawn).not.toHaveBeenCalled()
+  })
+
   it('binds supported Codex probe, profile, and submit-mode capabilities to spawn', async () => {
     const fixture = resumeFixture(LOCAL_HOST_ID, 'available', 'codex')
 
@@ -556,6 +692,7 @@ function resumeFixture(
   } as unknown as ProjectHost
   const authorizeReattach = vi.fn(() => true)
   const authorizeResume = vi.fn(() => true)
+  const authorizeFork = vi.fn(() => true)
   const authorizeReplacement = vi.fn(() => true)
   const persistRecoveryDecision = vi.fn(() => Promise.resolve())
   const recordSpawn = vi.fn(() => Promise.resolve())
@@ -670,6 +807,7 @@ function resumeFixture(
     terminalSessions: {
       authorizeReattach,
       authorizeResume,
+      authorizeFork,
       authorizeReplacement,
       recordRecoveryDecision: persistRecoveryDecision,
       recordSpawn,
@@ -759,6 +897,7 @@ function resumeFixture(
     defaultShell,
     authorizeReattach,
     authorizeResume,
+    authorizeFork,
     authorizeReplacement,
     recordSpawn,
     recordReplacement,

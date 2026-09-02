@@ -9,7 +9,12 @@ import {
 } from '../src/main/harness/harness-launch'
 import { HarnessProfileStore } from '../src/main/harness/harness-profile-store'
 import { LocalHost } from '../src/main/project-host/local-host'
-import { asHarnessProviderId, localPath, type HarnessProfile } from '../src/shared'
+import {
+  asHarnessProviderId,
+  localPath,
+  type HarnessLaunchMode,
+  type HarnessProfile,
+} from '../src/shared'
 import {
   createHarnessProfileFixture,
   type HarnessProfileFixture,
@@ -26,9 +31,10 @@ describe('harness launch composition', () => {
   let literal: HarnessProfileFixture['literal']
   let resolve: (
     profile: HarnessProfile,
-    mode: 'fresh' | 'resume',
+    mode: HarnessLaunchMode,
     workspaceRoot?: ReturnType<typeof localPath>,
     composerSubmitMode?: 'enter' | 'ctrl-enter',
+    parentSessionId?: string,
   ) => Promise<ResolvedHarnessLaunch>
 
   beforeEach(async () => {
@@ -85,6 +91,65 @@ describe('harness launch composition', () => {
       'resume',
       'test-session-id',
     ])
+  })
+
+  it('places Codex profile flags before the fork subcommand', async () => {
+    const profile = await store.save({
+      input: input({ args: [literal('--sandbox'), literal('read-only')] }),
+    })
+    const resolved = await resolve(
+      profile,
+      'fork',
+      localPath(project),
+      undefined,
+      'parent-session-id',
+    )
+    expect(resolved.spec.args).toEqual([
+      '--config',
+      'tui.terminal_title=["thread-title"]',
+      '--sandbox',
+      'read-only',
+      'fork',
+      'parent-session-id',
+    ])
+  })
+
+  it('composes Claude fork identity flags before profile arguments', async () => {
+    const profile = await store.save({
+      input: input({
+        providerId: asHarnessProviderId('claude-code'),
+        args: [literal('--dangerously-skip-permissions')],
+      }),
+    })
+    const resolved = await resolve(
+      profile,
+      'fork',
+      localPath(project),
+      undefined,
+      'parent-session-id',
+    )
+    expect(resolved.spec.args).toEqual([
+      '--session-id',
+      'test-session-id',
+      '--resume',
+      'parent-session-id',
+      '--fork-session',
+      '--dangerously-skip-permissions',
+    ])
+  })
+
+  it('reserves provider fork arguments from profile configuration', () => {
+    expect(() =>
+      store.save({ input: input({ args: [literal('fork')] }) }),
+    ).toThrow(/owned by the harness provider/)
+    expect(() =>
+      store.save({
+        input: input({
+          providerId: asHarnessProviderId('claude-code'),
+          args: [literal('--fork-session')],
+        }),
+      }),
+    ).toThrow(/owned by the harness provider/)
   })
 
   it('applies intentional submit through the Codex provider on fresh and resume', async () => {

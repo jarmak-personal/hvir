@@ -55,6 +55,7 @@ export function createSmokeTerminalSessionStore(defaultRoot: HostPath) {
       )
     },
     authorizeResume: () => false,
+    authorizeFork: () => false,
     authorizeReplacement: () => false,
     flush: () => Promise.resolve(),
   }

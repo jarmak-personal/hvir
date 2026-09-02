@@ -74,19 +74,19 @@ describe('HarnessProfileStore', () => {
       {
         providerId: asHarnessProviderId('claude-code'),
         profileId: asHarnessProfileId('claude-code-default'),
-        launchRevision: 2,
+        launchRevision: 3,
       },
       {
         providerId: asHarnessProviderId('codex'),
         profileId: asHarnessProfileId('codex-default'),
-        launchRevision: 2,
+        launchRevision: 1,
       },
     ])
     expect(imported).toHaveLength(1)
     expect(imported[0]).toMatchObject({
       id: 'claude-code-default',
       providerId: 'claude-code',
-      launchRevision: 2,
+      launchRevision: 3,
       builtIn: false,
     })
     expect(store.get(asHarnessProfileId('codex-default'))).toBeUndefined()
@@ -154,7 +154,7 @@ describe('HarnessProfileStore', () => {
             id: legacyId,
             launchRevision: 4,
             metadataRevision: 2,
-            providerContractVersion: 1,
+            providerContractVersion: 2,
             builtIn: false,
             risk: 'elevated',
             riskAcknowledgedRevision: 4,
@@ -171,7 +171,7 @@ describe('HarnessProfileStore', () => {
       id: legacyId,
       launchRevision: 4,
       metadataRevision: 2,
-      providerContractVersion: 1,
+      providerContractVersion: 2,
     })
     expect(restored).not.toHaveProperty('risk')
     expect(restored).not.toHaveProperty('riskAcknowledgedRevision')
@@ -238,13 +238,13 @@ describe('HarnessProfileStore', () => {
 
     const migrated = await HarnessProfileStore.load(host, profileFile)
     expect(migrated.get(claudeId)).toMatchObject({
-      providerContractVersion: 2,
+      providerContractVersion: 3,
       launchRevision: 5,
       metadataRevision: 2,
     })
     expect(migrated.get(codexId)).toMatchObject({
-      providerContractVersion: 1,
-      launchRevision: 7,
+      providerContractVersion: 2,
+      launchRevision: 8,
       metadataRevision: 3,
     })
     expect(migrated.get(claudeId)).not.toHaveProperty('risk')
