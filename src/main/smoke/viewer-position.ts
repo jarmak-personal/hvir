@@ -7,7 +7,12 @@ import {
   type HostPath,
 } from '../../shared'
 import type { ProjectHost } from '../project-host'
+import type { SmokeFailureCheckpoint } from './failure-evidence.mts'
 import { verifyViewerFind } from './viewer-find'
+import {
+  collectViewerPositionFailureState,
+  runViewerPositionOperation,
+} from './viewer-position-operation'
 
 export async function verifyFocusedViewer(
   win: BrowserWindow,
@@ -15,34 +20,54 @@ export async function verifyFocusedViewer(
   sourcePath: HostPath,
   renderedPath: HostPath,
   invalidateGit: () => void,
+  checkpoint: (checkpoint: SmokeFailureCheckpoint) => void,
 ): Promise<string> {
   try {
-    const diffRefresh = await prepareDiffRefreshIndex(host, sourcePath)
-    const virtualized = await verifySourceDiffPosition(win, sourcePath)
-    const commands = await verifyViewerPositions(win, renderedPath)
+    const virtualized = await runViewerPositionOperation({
+      awaiting: 'viewer-position-virtualization-awaiting',
+      ready: 'viewer-position-virtualization-ready',
+      checkpoint,
+      execute: () => verifySourceDiffPosition(win, sourcePath),
+    })
+    const commands = await runViewerPositionOperation({
+      awaiting: 'viewer-position-commands-awaiting',
+      ready: 'viewer-position-commands-ready',
+      checkpoint,
+      execute: () => verifyViewerPositions(win, renderedPath),
+    })
     const root = dirnameHostPath(sourcePath)
-    const find = await verifyViewerFind(
-      win,
-      sourcePath,
-      joinHostPath(root, 'test/fixtures/rendered.md'),
-      joinHostPath(root, '.hvir-smoke-large.txt'),
-      joinHostPath(root, 'test/fixtures/viewer-find-collapsed.txt'),
-      joinHostPath(root, 'package.json'),
-    )
-    const stableRefresh = await verifyDiffRefreshStability(
-      win,
-      sourcePath,
-      invalidateGit,
-      diffRefresh,
-    )
+    const find = await runViewerPositionOperation({
+      awaiting: 'viewer-position-find-awaiting',
+      ready: 'viewer-position-find-ready',
+      checkpoint,
+      execute: () =>
+        verifyViewerFind(
+          win,
+          sourcePath,
+          joinHostPath(root, 'test/fixtures/rendered.md'),
+          joinHostPath(root, '.hvir-smoke-large.txt'),
+          joinHostPath(root, 'test/fixtures/viewer-find-collapsed.txt'),
+          joinHostPath(root, 'package.json'),
+        ),
+    })
+    const diffRefresh = await runViewerPositionOperation({
+      awaiting: 'viewer-position-refresh-index-awaiting',
+      ready: 'viewer-position-refresh-index-ready',
+      checkpoint,
+      execute: () => prepareDiffRefreshIndex(host, sourcePath),
+    })
+    const stableRefresh = await runViewerPositionOperation({
+      awaiting: 'viewer-position-refresh-awaiting',
+      ready: 'viewer-position-refresh-ready',
+      checkpoint,
+      execute: () =>
+        verifyDiffRefreshStability(win, sourcePath, invalidateGit, diffRefresh),
+    })
     return `${virtualized} · ${commands} · ${find} · ${stableRefresh}`
   } catch (error) {
-    let state: unknown = { unavailable: true }
-    try {
-      state = await readViewerPositionState(win)
-    } catch {
-      // Preserve the original failure when the renderer is no longer inspectable.
-    }
+    const state = await collectViewerPositionFailureState(() =>
+      readViewerPositionState(win),
+    )
     throw new Error(
       `Viewer position failed: ${
         error instanceof Error ? error.message : String(error)

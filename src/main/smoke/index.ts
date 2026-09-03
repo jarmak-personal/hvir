@@ -1156,6 +1156,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
             type: 'change',
             path: joinHostPath(smokeRoot, '.git/index'),
           }),
+        recordSmokeCheckpoint,
       )
       console.log(`[smoke] source/diff viewer positions OK (${result})`)
       console.log('HVIR_SMOKE_OK')
