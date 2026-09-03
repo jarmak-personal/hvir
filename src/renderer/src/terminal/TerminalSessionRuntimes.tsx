@@ -5,6 +5,7 @@ import type {
   HarnessProviderDescriptor,
   HostConnectionState,
   HostPath,
+  TerminalIdentityStatus,
 } from '../../../shared'
 import type { TerminalThemeOverride } from '../settings/settings'
 import type {
@@ -39,12 +40,21 @@ export interface TerminalSessionRuntimesProps {
     update: (session: TerminalSession) => TerminalSession,
   ) => void
   readonly onFreshStarted: (id: string, started: FreshTerminalStart) => void
+  readonly onForkIdentity: (
+    id: string,
+    harnessSessionId: string | undefined,
+    identityStatus: TerminalIdentityStatus,
+    identityDiverged?: true,
+  ) => void
+  readonly onForkStartFailed: (id: string, reason: string) => void
+  readonly onExit: (id: string, exitCode: number) => void
   readonly onInput: (id: string, data: string) => void
   readonly onOutput: (id: string) => void
   readonly onBell: (id: string) => void
   readonly onFocus: (id: string) => void
   readonly onLink: (session: TerminalSession, activation: TerminalLinkActivation) => void
   readonly onSplit: () => void
+  readonly onFork: (id: string) => void
   readonly onOpenTerminalSettings: () => void
   readonly runtimes: TerminalRuntimeRegistry
 }
@@ -69,12 +79,16 @@ export function TerminalSessionRuntimes({
   connectionState,
   onUpdateSession,
   onFreshStarted,
+  onForkIdentity,
+  onForkStartFailed,
+  onExit,
   onInput,
   onOutput,
   onBell,
   onFocus,
   onLink,
   onSplit,
+  onFork,
   onOpenTerminalSettings,
   runtimes,
 }: TerminalSessionRuntimesProps): ReactElement {
@@ -93,8 +107,14 @@ export function TerminalSessionRuntimes({
             profileId={session.profileId}
             launchRevision={session.launchRevision}
             supportsResume={session.capabilities.exactResume}
+            capabilities={session.capabilities}
+            exactForkLaunch={provider.exactForkLaunch}
             fallbackTitle={session.fallbackTitle}
             harnessSessionId={session.harnessSessionId}
+            identityStatus={session.identityStatus}
+            identityDiverged={session.identityDiverged}
+            forkRequest={session.forkRequest}
+            forkPending={session.forkPending}
             resumeOnStart={session.resumeOnStart}
             startMode={session.startMode ?? 'interactive'}
             position={position}
@@ -131,13 +151,24 @@ export function TerminalSessionRuntimes({
                 current.telemetry === telemetry ? current : { ...current, telemetry },
               )
             }
-            onIdentity={(harnessSessionId, identityStatus) =>
+            onIdentity={(harnessSessionId, identityStatus, identityDiverged) => {
               onUpdateSession(session.id, (current) => ({
                 ...current,
                 harnessSessionId: harnessSessionId ?? current.harnessSessionId,
                 identityStatus,
+                ...(identityDiverged || current.identityDiverged
+                  ? { identityDiverged: true as const }
+                  : {}),
               }))
-            }
+              onForkIdentity(
+                session.id,
+                harnessSessionId,
+                identityStatus,
+                identityDiverged,
+              )
+            }}
+            onStartFailed={(reason) => onForkStartFailed(session.id, reason)}
+            onExit={(exitCode) => onExit(session.id, exitCode)}
             onStarted={() =>
               onUpdateSession(session.id, (current) =>
                 current.resumeOnStart || current.startMode === 'bulk'
@@ -161,6 +192,7 @@ export function TerminalSessionRuntimes({
             onFocus={() => onFocus(session.id)}
             onLink={(activation) => onLink(session, activation)}
             onSplit={onSplit}
+            onFork={onFork}
             onOpenTerminalSettings={onOpenTerminalSettings}
           />
         )

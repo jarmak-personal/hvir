@@ -42,6 +42,7 @@ export function isAuthorizedTerminalFork(input: {
     source.providerId !== profile.providerId ||
     source.profileId !== profile.id ||
     source.launchRevision !== profile.launchRevision ||
+    source.identityDiverged === true ||
     source.harnessSessionId !== request.parentHarnessSessionId ||
     !hostPathEquals(source.workspaceRoot, workspaceRoot) ||
     !hostPathEquals(source.cwd, cwd)

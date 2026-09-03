@@ -13,6 +13,7 @@ import {
   isTerminalId,
   terminalLaunchMode,
 } from '../../terminal/terminal-launch-admission'
+import { terminalStartedResponse } from '../../terminal/terminal-start-response'
 import { PtyStartUnavailableError } from '../../pty/pty-supervisor'
 import type { IpcRegistrar } from '../authority-router'
 import type { IpcDeps } from '../deps'
@@ -274,17 +275,7 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
         // If a concurrent rollover has already transferred this lease again,
         // attachment fails closed without disposing the newer owner's PTY.
         attachRendererPty(deps, retained, ptyLease, owner, context.sender)
-        return {
-          outcome: 'started',
-          id: retained.id,
-          instanceId: retained.instanceId,
-          pid: retained.pid,
-          harnessSessionId: retained.harnessSessionId,
-          identityStatus: retained.identityStatus,
-          capabilities: retained.capabilities,
-          resumed: retained.resumed,
-          reattached: true,
-        }
+        return terminalStartedResponse(retained, true)
       }
       // The PTY exited after rollover but before recovery was accepted. Retire
       // its transferred lease and continue through the existing exact-resume path.
@@ -413,17 +404,7 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       await ptyLease.dispose()
       throw error
     }
-    return {
-      outcome: 'started',
-      id: managed.id,
-      instanceId: managed.instanceId,
-      pid: managed.pid,
-      harnessSessionId: managed.harnessSessionId,
-      identityStatus: managed.identityStatus,
-      capabilities: managed.capabilities,
-      resumed: managed.resumed,
-      reattached: false,
-    }
+    return terminalStartedResponse(managed, false)
   })
 
   ipc.handleSend('pty:write', ({ id, data }, context) => {

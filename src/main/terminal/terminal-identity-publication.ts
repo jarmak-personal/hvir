@@ -18,6 +18,7 @@ export function installTerminalIdentityPublication(
           id: info.id,
           harnessSessionId: info.harnessSessionId,
           identityStatus: info.identityStatus,
+          ...(info.identityDiverged ? { identityDiverged: true as const } : {}),
         },
       )
     }),

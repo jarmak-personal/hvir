@@ -17,6 +17,18 @@ export function terminalRecoveryFailureEquals(
   return left?.kind === right?.kind && left?.reason === right?.reason
 }
 
+export function terminalStartFailureSnapshot(
+  current: TerminalRuntimeSnapshot,
+  status: string,
+  recoveryFailure?: TerminalRecoveryFailure,
+): TerminalRuntimeSnapshot {
+  return { ...current, status, exited: true, recoveryFailure }
+}
+
+export function pendingForkExitStatus(exitCode: number): string {
+  return `The sibling terminal exited before its conversation was identified (${exitCode}).`
+}
+
 export function resumeUnavailableStatus(reason: 'artifact-missing'): string {
   switch (reason) {
     case 'artifact-missing':

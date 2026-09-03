@@ -64,6 +64,10 @@ export class TerminalRuntimeRegistry {
     return this.runtimes.get(id)?.snapshot()
   }
 
+  isSessionLive(id: string): boolean {
+    return this.runtimes.get(id)?.live === true
+  }
+
   focusLiveInstance(id: string, instanceId: string): boolean {
     return this.runtimes.get(id)?.focusLiveInstance(instanceId) === true
   }

@@ -29,6 +29,7 @@ import type { HarnessTelemetryContext } from './harness-provider'
 import { canonicalCodexCwd } from './codex-session-discovery'
 import {
   buildTelemetryHubScript,
+  HEALTHY_HARNESS_TELEMETRY_RECORD,
   HarnessTelemetryHubRegistry,
 } from './harness-telemetry-hub'
 import type { HarnessTelemetryFollowerHealth } from './harness-telemetry-protocol'
@@ -47,6 +48,7 @@ const FOLLOW_TOKEN_COUNTS_SCRIPT = buildTelemetryHubScript({
   `,
   acceptRecord: `
       case "$line" in
+        *'"type":"session_meta"'*) emit_frame "$line" ;;
         *'"type":"event_msg"'*)
           case "$line" in
             *'"type":"token_count"'*) emit_frame "$line" ;;
@@ -200,6 +202,19 @@ export async function observeCodexContext(
     resource: rolloutPath.path,
     signal: context.signal,
     emit: context.emit,
+    parse: (record) => {
+      const envelope = parseCodexUsageEnvelope(record)
+      if (envelope?.type === 'session_meta') {
+        if (
+          typeof envelope.payload?.id === 'string' &&
+          envelope.payload.id !== context.sessionId
+        ) {
+          context.identityDiverged?.()
+        }
+        return HEALTHY_HARNESS_TELEMETRY_RECORD
+      }
+      return parseCodexTokenCount(record)
+    },
   })
 }
 
@@ -242,10 +257,7 @@ export async function observeCodexUsage(
   const scheduleRetry = (): void => {
     if (stopped || context.signal.aborted || retryTimer || hubStop) return
     const delay = retryMilliseconds
-    retryMilliseconds = Math.min(
-      MAX_USAGE_ARTIFACT_RETRY_MS,
-      retryMilliseconds * 2,
-    )
+    retryMilliseconds = Math.min(MAX_USAGE_ARTIFACT_RETRY_MS, retryMilliseconds * 2)
     retryTimer = setTimeout(() => {
       retryTimer = undefined
       void resolveAndSubscribe().catch(() => scheduleRetry())
@@ -320,6 +332,15 @@ export async function observeCodexUsage(
         exposeSessionIdentity: false,
         parse: (record) => {
           const envelope = parseCodexUsageEnvelope(record)
+          if (envelope?.type === 'session_meta') {
+            if (
+              typeof envelope.payload?.id === 'string' &&
+              envelope.payload.id !== context.sessionId
+            ) {
+              context.identityDiverged?.()
+            }
+            return HEALTHY_HARNESS_TELEMETRY_RECORD
+          }
           if (
             envelope?.type !== 'event_msg' ||
             envelope.payload?.type !== 'token_count'

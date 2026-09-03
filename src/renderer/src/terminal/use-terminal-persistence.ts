@@ -5,7 +5,10 @@ import {
   readTerminalSplitLayout,
   writeTerminalSplitLayout,
 } from './terminal-split-persistence'
-import type { TerminalWorkspaceModel } from './terminal-workspace-model'
+import {
+  settledTerminalSessions,
+  type TerminalWorkspaceModel,
+} from './terminal-workspace-model'
 
 export function useTerminalPersistence({
   root,
@@ -19,7 +22,7 @@ export function useTerminalPersistence({
   const modelRef = useRef(model)
   modelRef.current = model
   const layoutKey = JSON.stringify(
-    model.sessions.map((session, position) => ({
+    settledTerminalSessions(model.sessions).map((session, position) => ({
       id: session.id,
       title: session.title,
       position,
@@ -32,7 +35,7 @@ export function useTerminalPersistence({
   useEffect(() => {
     if (!ready) return
     const current = modelRef.current
-    const sessions = current.sessions.map((session, position) => ({
+    const sessions = settledTerminalSessions(current.sessions).map((session, position) => ({
       id: session.id,
       title: session.title,
       position,
@@ -48,7 +51,7 @@ export function useTerminalPersistence({
     if (!ready) return
     writeTerminalSplitLayout(root, {
       ...readTerminalSplitLayout(root),
-      secondaryIds: modelRef.current.sessions
+      secondaryIds: settledTerminalSessions(modelRef.current.sessions)
         .filter((session) => session.pane === 'secondary')
         .map((session) => session.id),
       activeByPane: modelRef.current.activeByPane,

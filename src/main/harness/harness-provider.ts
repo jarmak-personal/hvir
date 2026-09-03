@@ -170,6 +170,8 @@ export interface HarnessTelemetryContext {
   readonly artifact: HarnessArtifactContext
   readonly signal: AbortSignal
   readonly emit: (telemetry: HarnessTelemetry | undefined) => void
+  /** Sticky terminal-scoped signal; the observer still discards the mismatched record. */
+  readonly identityDiverged?: () => void
 }
 
 export interface HarnessTelemetryObserver {
@@ -538,6 +540,7 @@ export class HarnessProviderRegistry {
       id: provider.manifest.id,
       displayName: provider.manifest.displayName,
       default: provider.manifest.default === true,
+      ...(provider.fork ? { exactForkLaunch: true as const } : {}),
       capabilities: harnessProviderCapabilities(provider),
       terminalInput: {
         modifiedKeyProtocol: provider.manifest.modifiedKeyProtocol ?? 'none',

@@ -326,6 +326,11 @@ function viewProps(registry: TerminalRuntimeRegistry) {
     profileId: asHarnessProfileId('shell'),
     launchRevision: 1,
     supportsResume: false,
+    capabilities: {
+      sessionIdentity: 'none' as const,
+      exactResume: false,
+      contextPresentation: 'none' as const,
+    },
     fallbackTitle: 'Shell · repo',
     harnessSessionId: undefined,
     resumeOnStart: false,
@@ -361,6 +366,7 @@ function viewProps(registry: TerminalRuntimeRegistry) {
     onFocus: vi.fn(),
     onLink: vi.fn(),
     onSplit: vi.fn(),
+    onFork: vi.fn(),
     onOpenTerminalSettings: vi.fn(),
   }
 }
