@@ -95,7 +95,7 @@ describe('Sessions terminal detail over deterministic SSH', () => {
         host,
         provider: plainShellProvider,
         cwd: request.cwd as ReturnType<typeof hostPath>,
-        workspaceRoot: request.cwd as ReturnType<typeof hostPath>,
+        workspaceRoot: request.workspaceRoot as ReturnType<typeof hostPath>,
         ownerId: 7,
         ownerGeneration: 2,
         sessionId: String(request.sessionId),

@@ -335,6 +335,7 @@ export class TerminalRuntime {
         replacesSessionId: replacement?.replacesSessionId,
         profileId: this.options.profileId,
         launchRevision: this.options.launchRevision,
+        workspaceRoot: this.options.workspaceRoot,
         cwd: this.options.cwd,
         cols: this.terminalSize.cols,
         rows: this.terminalSize.rows,

@@ -14,7 +14,7 @@ import { operationResult } from '../operation-result'
 
 type TerminalIpcDeps = Pick<
   IpcDeps,
-  | 'getProject'
+  | 'getHost'
   | 'terminalSessions'
   | 'harnessProfiles'
   | 'harnessProbes'
@@ -131,7 +131,7 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       throw new Error('Invalid terminal replacement request')
     }
     const owner = context.owner()
-    const { root, host } = deps.getProject()
+    const root = ipc.authority.workspaceRoot(req.workspaceRoot)
     const projectRoot = ipc.authority.projectRoot(root)
     const cwd = ipc.authority.workspaceRoot(req.cwd)
     if (
@@ -140,6 +140,8 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
     ) {
       throw new Error('Terminal launch context belongs to another project')
     }
+    const host = deps.getHost(root.hostId)
+    if (!host) throw new Error('Terminal launch host is unavailable')
     const cols = terminalDimension(req.cols)
     const rows = terminalDimension(req.rows)
     const profile = deps.harnessProfiles.get(req.profileId)
