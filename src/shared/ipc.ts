@@ -325,6 +325,8 @@ export interface StartPtyRequest {
   readonly replacesSessionId?: string
   readonly profileId: HarnessProfileId
   readonly launchRevision: number
+  /** Mutable terminal ownership, distinct from its immutable provider launch context. */
+  readonly workspaceRoot: HostPath
   readonly cwd: HostPath
   readonly cols: number
   readonly rows: number

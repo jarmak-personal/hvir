@@ -426,6 +426,7 @@ describe('terminal resume unavailable state', () => {
       replacesSessionId: 'terminal-1',
       profileId: runtimeOptions.profileId,
       launchRevision: runtimeOptions.launchRevision,
+      workspaceRoot: runtimeOptions.workspaceRoot,
       cwd: runtimeOptions.cwd,
       cols: 80,
       rows: 24,
