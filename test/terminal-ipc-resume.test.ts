@@ -93,6 +93,20 @@ describe('terminal exact-resume IPC', () => {
     },
   )
 
+  it('rejects a registered launch when its owning host is unavailable', async () => {
+    const hostId = asHostId('ssh-unavailable-host')
+    const fixture = resumeFixture(hostId, 'available')
+    fixture.getHost.mockReturnValue(undefined)
+
+    await expect(fixture.start(fixture.request, fixture.context)).rejects.toThrow(
+      'Terminal launch host is unavailable',
+    )
+
+    expect(fixture.getHost).toHaveBeenCalledWith(hostId)
+    expect(fixture.register).not.toHaveBeenCalled()
+    expect(fixture.spawn).not.toHaveBeenCalled()
+  })
+
   it('returns provider-neutral retryable launch unavailability without a PTY', async () => {
     const fixture = resumeFixture(LOCAL_HOST_ID, 'available')
     fixture.spawn.mockRejectedValueOnce(
@@ -746,10 +760,12 @@ function resumeFixture(
   const probeProfiles = vi.fn()
   const refreshProfile = vi.fn()
   const recordSuccessfulLaunch = vi.fn()
+  const getHost = vi.fn((candidateHostId: string) =>
+    candidateHostId === host.hostId ? host : undefined,
+  )
   const deps = {
     getProject: () => ({ root: activeRoot, host: activeHost }),
-    getHost: (candidateHostId: string) =>
-      candidateHostId === host.hostId ? host : undefined,
+    getHost,
     terminalSessions: {
       authorizeReattach,
       authorizeResume,
@@ -839,6 +855,7 @@ function resumeFixture(
     root,
     cwd,
     host,
+    getHost,
     profile,
     exec,
     defaultShell,
