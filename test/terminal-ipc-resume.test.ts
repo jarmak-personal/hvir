@@ -214,6 +214,43 @@ describe('terminal exact-resume IPC', () => {
     },
   )
 
+  it.each([
+    ['local', LOCAL_HOST_ID],
+    ['SSH', asHostId('ssh-missing-fork-parent-test')],
+  ])(
+    'reports a missing %s fork parent without claiming resume failure or allocating a PTY',
+    async (_kind, hostId) => {
+      const fixture = resumeFixture(hostId, 'missing')
+      fixture.effectiveLaunchCapabilities.mockReturnValue({
+        ...fixture.managed.capabilities,
+        exactFork: true,
+      })
+      fixture.get.mockReturnValue(fixture.managed)
+
+      const result = await fixture.start(
+        {
+          ...fixture.request,
+          sessionId: 'terminal-2',
+          launchMode: 'fork',
+          resume: false,
+          harnessSessionId: undefined,
+          forkSourceSessionId: 'terminal-1',
+          parentHarnessSessionId: HARNESS_SESSION_ID,
+        },
+        fixture.context,
+      )
+
+      expect(result).toEqual({
+        outcome: 'fork-unavailable',
+        reason: 'parent-artifact-missing',
+      })
+      expect(fixture.authorizeFork).toHaveBeenCalledOnce()
+      expect(fixture.spawn).not.toHaveBeenCalled()
+      expect(fixture.register).not.toHaveBeenCalled()
+      expect(fixture.recordSpawn).not.toHaveBeenCalled()
+    },
+  )
+
   it('rejects an unregistered fork parent without allocating a PTY', async () => {
     const fixture = resumeFixture(LOCAL_HOST_ID, 'available')
     fixture.effectiveLaunchCapabilities.mockReturnValue({

@@ -9,11 +9,10 @@ import {
   synchronizePanePresentationOptions,
 } from './terminal-runtime-live-settings'
 import {
-  launchUnavailableStatus,
   pendingForkExitStatus,
-  resumeUnavailableStatus,
   terminalRecoveryFailureEquals,
   terminalStartFailureSnapshot,
+  terminalUnavailablePresentation,
   type TerminalRuntimeSnapshot,
 } from './terminal-runtime-presentation'
 import type { TerminalRuntimeOptions } from './terminal-runtime-options'
@@ -352,17 +351,9 @@ export class TerminalRuntime {
         }
         return
       }
-      if (result.outcome === 'launch-unavailable') {
-        const status = launchUnavailableStatus(result.reason)
-        this.failStart(status)
-        return
-      }
-      if (result.outcome === 'resume-unavailable') {
-        const status = resumeUnavailableStatus(result.reason)
-        this.failStart(status, {
-          kind: 'resume-unavailable',
-          reason: result.reason,
-        })
+      if (result.outcome !== 'started') {
+        const failure = terminalUnavailablePresentation(result)
+        this.failStart(failure.status, failure.recoveryFailure)
         return
       }
       this.started = true

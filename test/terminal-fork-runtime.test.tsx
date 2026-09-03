@@ -126,6 +126,69 @@ describe('terminal fork runtime', () => {
     })
   })
 
+  it('reports a missing fork parent without presenting a resume recovery failure', async () => {
+    const invoke = vi.fn(() =>
+      Promise.resolve({
+        outcome: 'fork-unavailable' as const,
+        reason: 'parent-artifact-missing' as const,
+      }),
+    )
+    Object.defineProperty(window, 'hvir', {
+      configurable: true,
+      value: {
+        invoke,
+        send: vi.fn(),
+        on: vi.fn(() => () => undefined),
+      },
+    })
+    const registry = new TerminalRuntimeRegistry()
+    const host = document.createElement('div')
+    document.body.append(host)
+    const root = createRoot(host)
+    const onStatus = vi.fn()
+    const onStartFailed = vi.fn()
+    act(() => {
+      root.render(
+        <TerminalView
+          {...runtimeOptions()}
+          sessionId="fork-child"
+          harnessSessionId={undefined}
+          resumeOnStart={false}
+          active={false}
+          visible={false}
+          slot="primary"
+          forkRequest={{
+            sourceSessionId: 'fork-source',
+            parentHarnessSessionId: '019ab123-4567-7890-abcd-ef0123456789',
+          }}
+          themeOverride="app"
+          runtimes={registry}
+          onStatus={onStatus}
+          onStartFailed={onStartFailed}
+        />,
+      )
+    })
+
+    await act(async () => {
+      await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce())
+    })
+
+    const status = 'Fork unavailable · source conversation data is missing'
+    expect(onStatus).toHaveBeenCalledWith(status)
+    expect(onStartFailed).toHaveBeenCalledWith(status)
+    expect(registry.sessionSnapshot('fork-child')).toEqual({
+      title: 'Claude Code · repo',
+      status,
+      exited: true,
+      recoveryFailure: undefined,
+    })
+
+    act(() => {
+      root.unmount()
+      registry.dispose()
+    })
+  })
+
   it('publishes later identity events through the current TerminalRuntime callback', async () => {
     let emitIdentity:
       | ((event: {

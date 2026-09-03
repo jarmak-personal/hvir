@@ -314,9 +314,7 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       cwd,
       artifact: resolved.artifact,
     }, effectiveCapabilities)
-    if (launchDecision.outcome === 'resume-unavailable') {
-      return { outcome: 'resume-unavailable', reason: launchDecision.reason }
-    }
+    if (launchDecision.outcome !== 'launch') return launchDecision
     const launchMode = launchDecision.mode
     const refreshAfterClassifiedLaunchFailure = (): void =>
       deps.harnessProbes.refreshProfile(availabilityRequest, profile)

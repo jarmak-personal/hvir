@@ -88,7 +88,10 @@ describe('Claude Code session recovery', () => {
 
     await expect(
       selectHarnessLaunch(host, claudeCodeProvider, 'fork', context, supported),
-    ).resolves.toEqual({ outcome: 'resume-unavailable', reason: 'artifact-missing' })
+    ).resolves.toEqual({
+      outcome: 'fork-unavailable',
+      reason: 'parent-artifact-missing',
+    })
 
     await writeFile(transcript, '{}\n')
     await expect(
