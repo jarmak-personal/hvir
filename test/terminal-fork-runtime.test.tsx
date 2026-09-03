@@ -71,10 +71,11 @@ describe('terminal fork runtime', () => {
     const onIdentity = vi.fn()
     const onFocus = vi.fn()
     const onStartFailed = vi.fn()
+    const launchOptions = runtimeOptions()
     act(() => {
       root.render(
         <TerminalView
-          {...runtimeOptions()}
+          {...launchOptions}
           sessionId="fork-child"
           harnessSessionId={undefined}
           resumeOnStart={false}
@@ -102,6 +103,7 @@ describe('terminal fork runtime', () => {
       'pty:start',
       expect.objectContaining({
         sessionId: 'fork-child',
+        workspaceRoot: launchOptions.workspaceRoot,
         launchMode: 'fork',
         forkSourceSessionId: 'fork-source',
         parentHarnessSessionId: '019ab123-4567-7890-abcd-ef0123456789',

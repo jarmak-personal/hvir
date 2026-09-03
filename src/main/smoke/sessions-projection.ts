@@ -583,23 +583,23 @@ async function verifySessionsOverview(
                     button('Interact', card)
                   );
                   if (!(live instanceof HTMLElement)) return wait(enterDetail, 'live card');
-                  const workspaceSurface = [...document.querySelectorAll('.workbench .terminal-surface')]
-                    .find((surface) =>
-                      surface.querySelector('.terminal-engine-host') &&
+                  const workspaceTerminals = [...document.querySelectorAll('.workbench .terminal-surface')]
+                    .filter((surface) =>
                       (surface.getAttribute('data-terminal-status') || '').startsWith('pid ')
+                    )
+                    .map((surface) => ({
+                      input: surface.querySelector('.terminal-container'),
+                      engine: surface.querySelector('.terminal-engine-host'),
+                      sessionId: surface.getAttribute('data-terminal-session')
+                    }))
+                    .filter((terminal) =>
+                      terminal.input instanceof HTMLElement &&
+                      terminal.engine instanceof HTMLElement &&
+                      Boolean(terminal.sessionId)
                     );
-                  const workspaceInput = workspaceSurface?.querySelector('.terminal-container');
-                  const workspaceEngine = workspaceInput?.querySelector('.terminal-engine-host');
                   const engineCount = document.querySelectorAll('.terminal-engine-host').length;
-                  if (
-                    !(workspaceInput instanceof HTMLElement) ||
-                    !(workspaceEngine instanceof HTMLElement)
-                  ) {
-                    return reject(new Error('live card lacked its exact workspace terminal surface'));
-                  }
-                  const sessionId = workspaceSurface?.getAttribute('data-terminal-session');
-                  if (!sessionId) {
-                    return reject(new Error('live terminal surface lacked its existing session identity'));
+                  if (workspaceTerminals.length < 1) {
+                    return reject(new Error('live cards lacked an existing workspace terminal surface'));
                   }
                   button('Interact', live)?.click();
                   const attached = () => {
@@ -609,6 +609,9 @@ async function verifySessionsOverview(
                     const delivery = input?.__hvirTerminalDelivery;
                     const performance = engine?.__hvirTerminalPerformance;
                     const background = document.querySelector('.sessions-overview');
+                    const workspaceTerminal = workspaceTerminals.find(
+                      (terminal) => terminal.engine === engine
+                    );
                     if (
                       !(detail instanceof HTMLElement) ||
                       !(background instanceof HTMLElement) ||
@@ -616,7 +619,7 @@ async function verifySessionsOverview(
                       background.getAttribute('aria-hidden') !== 'true' ||
                       !(input instanceof HTMLElement) ||
                       !(engine instanceof HTMLElement) ||
-                      engine !== workspaceEngine ||
+                      !workspaceTerminal ||
                       document.querySelectorAll('.terminal-engine-host').length !== engineCount ||
                       delivery?.presentation !== 'visible' ||
                       performance?.paused ||
@@ -624,6 +627,9 @@ async function verifySessionsOverview(
                     ) {
                       return wait(attached, 'exact detail attachment');
                     }
+                    const workspaceInput = workspaceTerminal.input;
+                    const workspaceEngine = workspaceTerminal.engine;
+                    const sessionId = workspaceTerminal.sessionId;
                     window.__hvirSessionsDetailProbe = { sessionId };
                     const proof = () => {
                       if (window.__hvirSessionsDetailProbeFailure) {

@@ -6,7 +6,11 @@ import {
 } from '../src/main/harness/harness-provider'
 import { providerTemplateProfiles } from '../src/main/harness/harness-profile-store'
 import { registerTerminalIpc } from '../src/main/ipc/features/terminal'
-import type { IpcInvokeContext, IpcRegistrar } from '../src/main/ipc/authority-router'
+import {
+  IpcAuthority,
+  type IpcInvokeContext,
+  type IpcRegistrar,
+} from '../src/main/ipc/authority-router'
 import type { ProjectHost } from '../src/main/project-host'
 import {
   PtyStartUnavailableError,
@@ -18,7 +22,9 @@ import {
   asHarnessProfileId,
   asHostId,
   hostPath,
+  hostPathEquals,
   type HostPath,
+  type ProjectState,
   type RebindTerminalProfileRequest,
   type StartPtyRequest,
   type StartPtyResponse,
@@ -28,6 +34,82 @@ import {
 const HARNESS_SESSION_ID = '05ea41ff-026f-4ab6-b930-64eb3b497806'
 
 describe('terminal exact-resume IPC', () => {
+  it.each([
+    ['local', 'fresh', LOCAL_HOST_ID, false],
+    ['local', 'resume', LOCAL_HOST_ID, true],
+    ['SSH', 'fresh', asHostId('ssh-background-fresh'), false],
+    ['SSH', 'resume', asHostId('ssh-background-resume'), true],
+  ])(
+    'starts a %s %s session through its owning background project',
+    async (_kind, _mode, hostId, resume) => {
+      const activeRoot = hostPath(LOCAL_HOST_ID, '/focused-project')
+      const fixture = resumeFixture(hostId, 'available', 'claude-code', {
+        activeRoot,
+        cwd: hostPath(hostId, '/repo-launch'),
+      })
+
+      const result = await fixture.start(
+        {
+          ...fixture.request,
+          resume,
+          harnessSessionId: resume ? HARNESS_SESSION_ID : undefined,
+        },
+        fixture.context,
+      )
+
+      expect(result).toMatchObject({ outcome: 'started', resumed: resume })
+      expect(fixture.spawn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          host: fixture.host,
+          workspaceRoot: fixture.root,
+          cwd: fixture.cwd,
+        }),
+      )
+      expect(fixture.recordSuccessfulLaunch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          host: fixture.host,
+          projectRoot: fixture.root,
+          workspaceRoot: fixture.cwd,
+        }),
+        fixture.profile,
+        expect.any(Object),
+      )
+    },
+  )
+
+  it.each([
+    ['same host', LOCAL_HOST_ID],
+    ['another host', asHostId('ssh-background-mismatch')],
+  ])(
+    'rejects a registered launch context owned by another project on %s',
+    async (_kind, hostId) => {
+      const activeRoot = hostPath(LOCAL_HOST_ID, '/focused-project')
+      const fixture = resumeFixture(hostId, 'available', 'claude-code', {
+        activeRoot,
+      })
+
+      await expect(
+        fixture.start({ ...fixture.request, cwd: activeRoot }, fixture.context),
+      ).rejects.toThrow('Terminal launch context belongs to another project')
+
+      expect(fixture.spawn).not.toHaveBeenCalled()
+    },
+  )
+
+  it('rejects a registered launch when its owning host is unavailable', async () => {
+    const hostId = asHostId('ssh-unavailable-host')
+    const fixture = resumeFixture(hostId, 'available')
+    fixture.getHost.mockReturnValue(undefined)
+
+    await expect(fixture.start(fixture.request, fixture.context)).rejects.toThrow(
+      'Terminal launch host is unavailable',
+    )
+
+    expect(fixture.getHost).toHaveBeenCalledWith(hostId)
+    expect(fixture.register).not.toHaveBeenCalled()
+    expect(fixture.spawn).not.toHaveBeenCalled()
+  })
+
   it('returns provider-neutral retryable launch unavailability without a PTY', async () => {
     const fixture = resumeFixture(LOCAL_HOST_ID, 'available')
     fixture.spawn.mockRejectedValueOnce(
@@ -165,15 +247,7 @@ describe('terminal exact-resume IPC', () => {
         exactFork: true,
       })
       fixture.get.mockReturnValue(fixture.managed)
-      const request: StartPtyRequest = {
-        ...fixture.request,
-        sessionId: 'terminal-2',
-        launchMode: 'fork',
-        resume: false,
-        harnessSessionId: undefined,
-        forkSourceSessionId: 'terminal-1',
-        parentHarnessSessionId: HARNESS_SESSION_ID,
-      }
+      const request = exactForkRequest(fixture.request)
 
       const result = await fixture.start(request, fixture.context)
 
@@ -228,15 +302,7 @@ describe('terminal exact-resume IPC', () => {
       fixture.get.mockReturnValue(fixture.managed)
 
       const result = await fixture.start(
-        {
-          ...fixture.request,
-          sessionId: 'terminal-2',
-          launchMode: 'fork',
-          resume: false,
-          harnessSessionId: undefined,
-          forkSourceSessionId: 'terminal-1',
-          parentHarnessSessionId: HARNESS_SESSION_ID,
-        },
+        exactForkRequest(fixture.request),
         fixture.context,
       )
 
@@ -262,15 +328,7 @@ describe('terminal exact-resume IPC', () => {
 
     await expect(
       fixture.start(
-        {
-          ...fixture.request,
-          sessionId: 'terminal-2',
-          launchMode: 'fork',
-          resume: false,
-          harnessSessionId: undefined,
-          forkSourceSessionId: 'terminal-1',
-          parentHarnessSessionId: HARNESS_SESSION_ID,
-        },
+        exactForkRequest(fixture.request),
         fixture.context,
       ),
     ).rejects.toThrow(/fork is not authorized/)
@@ -293,15 +351,7 @@ describe('terminal exact-resume IPC', () => {
 
       await expect(
         fixture.start(
-          {
-            ...fixture.request,
-            sessionId: 'terminal-2',
-            launchMode: 'fork',
-            resume: false,
-            harnessSessionId: undefined,
-            forkSourceSessionId: 'terminal-1',
-            parentHarnessSessionId: HARNESS_SESSION_ID,
-          },
+          exactForkRequest(fixture.request),
           fixture.context,
         ),
       ).rejects.toThrow(/fork is not authorized/)
@@ -372,15 +422,7 @@ describe('terminal exact-resume IPC', () => {
 
     await expect(
       fixture.start(
-        {
-          ...fixture.request,
-          sessionId: 'terminal-2',
-          launchMode: 'fork',
-          resume: false,
-          harnessSessionId: undefined,
-          forkSourceSessionId: 'terminal-1',
-          parentHarnessSessionId: HARNESS_SESSION_ID,
-        },
+        exactForkRequest(fixture.request),
         fixture.context,
       ),
     ).rejects.toThrow(/could not be verified/)
@@ -393,16 +435,9 @@ describe('terminal exact-resume IPC', () => {
     const fixture = resumeFixture(LOCAL_HOST_ID, 'available')
     await expect(
       fixture.start(
-        {
-          ...fixture.request,
-          sessionId: 'terminal-2',
-          launchMode: 'fork',
-          resume: false,
-          harnessSessionId: undefined,
-          forkSourceSessionId: 'terminal-1',
-          parentHarnessSessionId: HARNESS_SESSION_ID,
+        exactForkRequest(fixture.request, {
           cwd: hostPath(asHostId('ssh-other'), '/repo'),
-        },
+        }),
         fixture.context,
       ),
     ).rejects.toThrow(/another project/)
@@ -772,8 +807,11 @@ function resumeFixture(
   hostId: HostPath['hostId'],
   availability: 'available' | 'missing',
   providerId: 'claude-code' | 'codex' = 'claude-code',
+  options: { readonly activeRoot?: HostPath; readonly cwd?: HostPath } = {},
 ) {
   const root = hostPath(hostId, '/repo')
+  const cwd = options.cwd ?? root
+  const activeRoot = options.activeRoot ?? root
   const template = providerTemplateProfiles().find(
     (candidate) => candidate.providerId === providerId,
   )!
@@ -795,7 +833,7 @@ function resumeFixture(
     .mockResolvedValueOnce({
       code: 0,
       signal: null,
-      stdout: `${root.path}\n\0/config/claude`,
+      stdout: `${cwd.path}\n\0/config/claude`,
       stderr: '',
     })
     .mockResolvedValueOnce({
@@ -813,6 +851,10 @@ function resumeFixture(
     realpath: vi.fn((path) => Promise.resolve(path)),
     exec,
   } as unknown as ProjectHost
+  const activeHost =
+    activeRoot.hostId === host.hostId
+      ? host
+      : ({ hostId: activeRoot.hostId } as unknown as ProjectHost)
   const authorizeReattach = vi.fn(() => true)
   const authorizeResume = vi.fn(() => true)
   const authorizeFork = vi.fn(() => true)
@@ -830,7 +872,7 @@ function resumeFixture(
     recoverySkipCount: 0,
     harnessSessionId: HARNESS_SESSION_ID,
     hostId,
-    cwd: root,
+    cwd,
     title: 'Retained conversation',
     position: 0,
     active: true,
@@ -854,7 +896,7 @@ function resumeFixture(
     ownerId: 7,
     ownerGeneration: 1,
     hostId,
-    cwd: root,
+    cwd,
     workspaceRoot: root,
     providerId: profile.providerId,
     profileId: profile.id,
@@ -893,11 +935,17 @@ function resumeFixture(
     string,
     (request: unknown, context: IpcInvokeContext) => unknown
   >()
+  const projectState = terminalProjectState(activeRoot, root, cwd)
+  const authority = new IpcAuthority({
+    getProject: () => ({ root: activeRoot, host: activeHost }),
+    getProjectState: () => projectState,
+    getRegisteredWorkspaceRoot: (candidate) =>
+      [activeRoot, root, cwd].find((registered) =>
+        hostPathEquals(registered, candidate),
+      ),
+  })
   const ipc = {
-    authority: {
-      workspaceRoot: vi.fn((path: HostPath): HostPath => path),
-      projectRoot: vi.fn(() => root),
-    },
+    authority,
     handle: (
       channel: string,
       handler: (request: unknown, context: IpcInvokeContext) => unknown,
@@ -927,8 +975,12 @@ function resumeFixture(
   const probeProfiles = vi.fn()
   const refreshProfile = vi.fn()
   const recordSuccessfulLaunch = vi.fn()
+  const getHost = vi.fn((candidateHostId: string) =>
+    candidateHostId === host.hostId ? host : undefined,
+  )
   const deps = {
-    getProject: () => ({ root, host }),
+    getProject: () => ({ root: activeRoot, host: activeHost }),
+    getHost,
     terminalSessions: {
       authorizeReattach,
       authorizeResume,
@@ -992,7 +1044,8 @@ function resumeFixture(
     sessionId: 'terminal-1',
     profileId: profile.id,
     launchRevision: profile.launchRevision,
-    cwd: root,
+    workspaceRoot: root,
+    cwd,
     cols: 80,
     rows: 24,
     title: 'Retained conversation',
@@ -1016,7 +1069,9 @@ function resumeFixture(
   } as unknown as IpcInvokeContext
   return {
     root,
+    cwd,
     host,
+    getHost,
     profile,
     exec,
     defaultShell,
@@ -1049,5 +1104,78 @@ function resumeFixture(
     rebind,
     request,
     context,
+  }
+}
+
+function terminalProjectState(
+  activeRoot: HostPath,
+  targetRoot: HostPath,
+  targetCwd: HostPath,
+): ProjectState {
+  const targetIsFocusedProject = hostPathEquals(activeRoot, targetRoot)
+  const projects = [
+    terminalProject(
+      'focused-project',
+      activeRoot,
+      targetIsFocusedProject ? [activeRoot, targetCwd] : [activeRoot],
+    ),
+    ...(targetIsFocusedProject
+      ? []
+      : [terminalProject('target-project', targetRoot, [targetRoot, targetCwd])]),
+  ]
+  return {
+    revision: 1,
+    root: activeRoot,
+    connectionState: 'connected',
+    watchTier: 'native',
+    activeProjectId: 'focused-project',
+    activeWorkspaceId: 'focused-project-workspace-0',
+    projects,
+  }
+}
+
+function terminalProject(
+  id: string,
+  root: HostPath,
+  workspaceRoots: readonly HostPath[],
+): ProjectState['projects'][number] {
+  return {
+    id,
+    registeredRoot: root,
+    displayName: id,
+    connectionState: 'connected',
+    watchTier: root.hostId === LOCAL_HOST_ID ? 'native' : 'polling',
+    activeWorkspaceId: `${id}-workspace-0`,
+    workspaces: workspaceRoots
+      .filter(
+        (candidate, index) =>
+          workspaceRoots.findIndex((root) => hostPathEquals(root, candidate)) === index,
+      )
+      .map((workspaceRoot, index) => ({
+        id: `${id}-workspace-${index}`,
+        root: workspaceRoot,
+        name: id,
+        main: index === 0,
+        closed: false,
+        missing: false,
+        repository: true,
+        changedFiles: 0,
+      })),
+  }
+}
+
+function exactForkRequest(
+  request: StartPtyRequest,
+  overrides: Partial<StartPtyRequest> = {},
+): StartPtyRequest {
+  return {
+    ...request,
+    sessionId: 'terminal-2',
+    launchMode: 'fork',
+    resume: false,
+    harnessSessionId: undefined,
+    forkSourceSessionId: 'terminal-1',
+    parentHarnessSessionId: HARNESS_SESSION_ID,
+    ...overrides,
   }
 }
