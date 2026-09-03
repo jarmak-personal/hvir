@@ -72,7 +72,6 @@ export function useDiffInputs(request: DiffInputsRequest): DiffInputsState {
             })
             if (
               owner.disposed ||
-              owner.queued ||
               owner.generation !== generation ||
               requestRef.current.contextKey !== requestKey
             ) {

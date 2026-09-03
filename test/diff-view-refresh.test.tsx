@@ -43,40 +43,43 @@ afterEach(() => {
 })
 
 describe('DiffView refresh lifecycle', () => {
-  it.each([
-    ['local native-watch', localPath('/repo/design.md')],
-    ['SSH polling', hostPath(asHostId('ssh-diff'), '/repo/design.md')],
-  ])(
-    'coalesces %s invalidations while retaining the interactive merge view',
-    async (_source, path) => {
-      const active = deferred<GitDiffResponse>()
-      invoke
-        .mockResolvedValueOnce(diffResponse(path, 'settled'))
-        .mockReturnValueOnce(active.promise)
-        .mockResolvedValueOnce(diffResponse(path, 'latest'))
+  it('applies a settled result before draining a coalesced refresh', async () => {
+    const path = localPath('/repo/design.md')
+    const active = deferred<GitDiffResponse>()
+    const trailing = deferred<GitDiffResponse>()
+    invoke
+      .mockResolvedValueOnce(diffResponse(path, 'settled'))
+      .mockReturnValueOnce(active.promise)
+      .mockReturnValueOnce(trailing.promise)
 
-      await renderDiff({ path, gitRefreshVersion: 0 })
-      const settledMerge = mergeElement()
-      expect(currentDocument()).toBe('settled\n')
+    await renderDiff({ path, gitRefreshVersion: 0 })
+    const settledMerge = mergeElement()
+    expect(currentDocument()).toBe('settled\n')
 
-      await renderDiff({ path, gitRefreshVersion: 1 })
-      for (let gitRefreshVersion = 2; gitRefreshVersion <= 40; gitRefreshVersion += 1) {
-        await renderDiff({ path, gitRefreshVersion })
-      }
-      expect(invoke).toHaveBeenCalledTimes(2)
-      expect(mergeElement()).toBe(settledMerge)
-      expect(container.textContent).not.toContain('Preparing diff')
-      expect(currentDocument()).toBe('settled\n')
+    await renderDiff({ path, gitRefreshVersion: 1 })
+    for (let gitRefreshVersion = 2; gitRefreshVersion <= 40; gitRefreshVersion += 1) {
+      await renderDiff({ path, gitRefreshVersion })
+    }
+    expect(invoke).toHaveBeenCalledTimes(2)
+    expect(mergeElement()).toBe(settledMerge)
+    expect(container.textContent).not.toContain('Preparing diff')
+    expect(currentDocument()).toBe('settled\n')
 
-      await act(async () => {
-        active.resolve(diffResponse(path, 'intermediate'))
-        await settleEffects()
-      })
-      expect(invoke).toHaveBeenCalledTimes(3)
-      expect(mergeElement()).toBe(settledMerge)
-      expect(currentDocument()).toBe('latest\n')
-    },
-  )
+    await act(async () => {
+      active.resolve(diffResponse(path, 'intermediate'))
+      await settleEffects()
+    })
+    expect(invoke).toHaveBeenCalledTimes(3)
+    expect(mergeElement()).toBe(settledMerge)
+    expect(currentDocument()).toBe('intermediate\n')
+
+    await act(async () => {
+      trailing.resolve(diffResponse(path, 'latest'))
+      await settleEffects()
+    })
+    expect(mergeElement()).toBe(settledMerge)
+    expect(currentDocument()).toBe('latest\n')
+  })
 
   it('retains settled inputs and reports only the final burst failure', async () => {
     const path = localPath('/repo/design.md')

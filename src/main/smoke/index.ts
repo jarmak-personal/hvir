@@ -1148,6 +1148,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     if (mode === 'viewer-position') {
       const result = await verifyFocusedViewer(
         win,
+        host,
         liveReloadPath,
         viewerPositionPath,
         () =>

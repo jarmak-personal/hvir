@@ -1,10 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react'
 
-import type {
-  GitChanges,
-  HostConnectionState,
-  HostPath,
-} from '../../../shared'
+import type { GitChanges, HostConnectionState, HostPath } from '../../../shared'
 import {
   gitAutoFetchDelay,
   gitChangeCountLabel,
@@ -230,7 +226,6 @@ export function useGitRailController(options: GitRailControllerOptions) {
             })
             const latest = optionsRef.current
             if (
-              control.queued ||
               syncCoordinator.current.generation() !== generation ||
               hostPathKey(latest.root) !== requestKey ||
               latest.connectionState !== 'connected'

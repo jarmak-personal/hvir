@@ -184,10 +184,11 @@ describe('Git rail branch refresh controller', () => {
 describe('Git rail history refresh controller', () => {
   it('coalesces an invalidation burst while retaining settled rows', async () => {
     const active = deferred<GitHistoryPage>()
+    const trailing = deferred<GitHistoryPage>()
     history
       .mockResolvedValueOnce(historyPage('settled'))
       .mockReturnValueOnce(active.promise)
-      .mockResolvedValueOnce(historyPage('latest'))
+      .mockReturnValueOnce(trailing.promise)
 
     await renderController({ gitVersion: 0 })
     await selectHistory()
@@ -207,6 +208,12 @@ describe('Git rail history refresh controller', () => {
       await settleEffects()
     })
     expect(history).toHaveBeenCalledTimes(3)
+    expect(controller?.model.commits.map(({ hash }) => hash)).toEqual(['intermediate'])
+
+    await act(async () => {
+      trailing.resolve(historyPage('latest'))
+      await settleEffects()
+    })
     expect(controller?.model.commits.map(({ hash }) => hash)).toEqual(['latest'])
   })
 

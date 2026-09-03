@@ -100,7 +100,7 @@ export function DiffView({
   }
   return (
     <InteractiveDiff
-      contextKey={contextKey}
+      key={contextKey}
       baseLabel={inputs.baseLabel}
       currentLabel={`${inputs.currentLabel}${showUnsaved ? ' (unsaved)' : ''}`}
       baseContent={inputs.baseInput.content}
@@ -115,7 +115,6 @@ export function DiffView({
 }
 
 function InteractiveDiff({
-  contextKey,
   baseLabel,
   currentLabel,
   baseContent,
@@ -126,7 +125,6 @@ function InteractiveDiff({
   positionCapture,
   registerFindTarget,
 }: {
-  readonly contextKey: string
   readonly baseLabel: string
   readonly currentLabel: string
   readonly baseContent: string
@@ -139,9 +137,10 @@ function InteractiveDiff({
 }): ReactElement {
   const host = useRef<HTMLDivElement>(null)
   const mergeRef = useRef<MergeView | undefined>(undefined)
-  const initialContent = useRef({ base: baseContent, current: currentContent })
+  const contentRef = useRef({ base: baseContent, current: currentContent })
   const positionRef = useRef(position)
   const onPositionRef = useRef(onPosition)
+  contentRef.current = { base: baseContent, current: currentContent }
   positionRef.current = position
   onPositionRef.current = onPosition
 
@@ -157,9 +156,9 @@ function InteractiveDiff({
     ]
     const merge = new MergeView({
       parent,
-      a: { doc: initialContent.current.base, extensions },
+      a: { doc: contentRef.current.base, extensions },
       b: {
-        doc: initialContent.current.current,
+        doc: contentRef.current.current,
         extensions,
       },
       collapseUnchanged: { margin: 3, minSize: 8 },
@@ -218,7 +217,7 @@ function InteractiveDiff({
       mergeRef.current = undefined
       merge.destroy()
     }
-  }, [contextKey, positionCapture, registerFindTarget])
+  }, [positionCapture, registerFindTarget])
 
   useEffect(() => {
     const merge = mergeRef.current
