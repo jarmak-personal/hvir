@@ -1146,7 +1146,16 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       return 0
     }
     if (mode === 'viewer-position') {
-      const result = await verifyFocusedViewer(win, liveReloadPath, viewerPositionPath)
+      const result = await verifyFocusedViewer(
+        win,
+        liveReloadPath,
+        viewerPositionPath,
+        () =>
+          emit('project:watch', {
+            type: 'change',
+            path: joinHostPath(smokeRoot, '.git/index'),
+          }),
+      )
       console.log(`[smoke] source/diff viewer positions OK (${result})`)
       console.log('HVIR_SMOKE_OK')
       return 0

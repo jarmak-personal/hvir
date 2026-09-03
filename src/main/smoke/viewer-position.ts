@@ -7,6 +7,7 @@ export async function verifyFocusedViewer(
   win: BrowserWindow,
   sourcePath: HostPath,
   renderedPath: HostPath,
+  invalidateGit: () => void,
 ): Promise<string> {
   try {
     const virtualized = await verifySourceDiffPosition(win, sourcePath)
@@ -20,7 +21,8 @@ export async function verifyFocusedViewer(
       joinHostPath(root, 'test/fixtures/viewer-find-collapsed.txt'),
       joinHostPath(root, 'package.json'),
     )
-    return `${virtualized} · ${commands} · ${find}`
+    const stableRefresh = await verifyDiffRefreshStability(win, sourcePath, invalidateGit)
+    return `${virtualized} · ${commands} · ${find} · ${stableRefresh}`
   } catch (error) {
     let state: unknown = { unavailable: true }
     try {
@@ -35,6 +37,108 @@ export async function verifyFocusedViewer(
       { cause: error },
     )
   }
+}
+
+async function verifyDiffRefreshStability(
+  win: BrowserWindow,
+  path: HostPath,
+  invalidateGit: () => void,
+): Promise<string> {
+  const verification = win.webContents.executeJavaScript(`
+    (() => {
+      window.__hvirDiffRefreshReady = false;
+      window.__hvirDiffRefreshComplete = false;
+      return (async () => {
+        const waitFor = async (test, message) => {
+          for (;;) {
+            const value = test();
+            if (value) return value;
+            await new Promise((painted) => requestAnimationFrame(painted));
+          }
+        };
+        const modeButton = (mode) => [...document.querySelectorAll('.mode-control button')]
+          .find((node) => node.textContent?.trim() === mode);
+        const file = await waitFor(
+          () => [...document.querySelectorAll('.file-row')]
+            .find((node) => node.getAttribute('title') === ${JSON.stringify(path.path)}),
+          'diff refresh fixture missing'
+        );
+        file.click();
+        await waitFor(
+          () => document.querySelector('.viewer-tab.active .tab-main')
+            ?.getAttribute('title') === ${JSON.stringify(path.path)},
+          'diff refresh fixture did not activate'
+        );
+        modeButton('diff')?.click();
+        const settled = await waitFor(
+          () => document.querySelector('.cm-mergeView'),
+          'settled diff missing before refresh burst'
+        );
+        settled.dispatchEvent(new WheelEvent('wheel', { deltaY: 800, bubbles: true }));
+        settled.scrollTop = Math.min(
+          Math.max(0, settled.scrollHeight - settled.clientHeight),
+          800
+        );
+        settled.dispatchEvent(new Event('scroll'));
+        const scrollTop = settled.scrollTop;
+        let preparingObserved = false;
+        let replacementObserved = false;
+        const inspect = () => {
+          const empty = document.querySelector('.viewer-empty');
+          if (empty?.textContent?.includes('Preparing diff')) preparingObserved = true;
+          if (!settled.isConnected || document.querySelector('.cm-mergeView') !== settled) {
+            replacementObserved = true;
+          }
+        };
+        const observer = new MutationObserver(inspect);
+        observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+        window.__hvirDiffRefreshReady = true;
+        while (!window.__hvirDiffRefreshComplete) {
+          inspect();
+          await new Promise((painted) => requestAnimationFrame(painted));
+        }
+        await new Promise((painted) => requestAnimationFrame(painted));
+        inspect();
+        observer.disconnect();
+        delete window.__hvirDiffRefreshReady;
+        delete window.__hvirDiffRefreshComplete;
+        if (preparingObserved) throw new Error('diff displayed Preparing diff during refresh');
+        if (replacementObserved) throw new Error('diff MergeView was replaced during refresh');
+        if (Math.abs(settled.scrollTop - scrollTop) > 2) {
+          throw new Error('diff scroll position changed during refresh');
+        }
+        return 'metadata refresh burst retained diff at scroll ' + Math.round(scrollTop);
+      })();
+    })()
+  `) as Promise<string>
+  let failure: unknown
+  void verification.catch((reason) => {
+    failure = reason
+  })
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (failure) {
+      throw failure instanceof Error
+        ? failure
+        : new Error('Diff refresh verifier failed', { cause: failure })
+    }
+    const ready = (await win.webContents.executeJavaScript(
+      'Boolean(window.__hvirDiffRefreshReady)',
+    )) as boolean
+    if (ready) break
+    if (attempt === 199) throw new Error('diff refresh verifier did not become ready')
+    await delay(25)
+  }
+  for (let invalidation = 0; invalidation < 5; invalidation += 1) {
+    invalidateGit()
+    await delay(300)
+  }
+  await delay(350)
+  await win.webContents.executeJavaScript('window.__hvirDiffRefreshComplete = true')
+  return verification
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds))
 }
 
 function readViewerPositionState(win: BrowserWindow): Promise<unknown> {

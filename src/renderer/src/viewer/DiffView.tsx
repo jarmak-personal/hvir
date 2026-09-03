@@ -1,17 +1,17 @@
 import { EditorState } from '@codemirror/state'
 import { EditorView, lineNumbers } from '@codemirror/view'
 import { MergeView } from '@codemirror/merge'
-import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
+import { useEffect, useMemo, useRef, type ReactElement } from 'react'
 
 import {
   textLineCount,
   type DiffBase,
-  type GitDiffResponse,
   type HostPath,
   type TextWorkload,
 } from '../../../shared'
 import { captureTopLine, restoreCodePosition } from './code-scroll-anchor'
 import { CodeMirrorFindTarget, viewerFindDecorations } from './codemirror-find-target'
+import { diffInputContextKey, useDiffInputs } from './use-diff-inputs'
 import { shouldPublishDiffPosition, usesUnsavedContent } from './diff-policy'
 import type { ViewerDocumentPosition } from './tab-state'
 import type { RegisterViewerFindTarget } from './viewer-find'
@@ -51,11 +51,15 @@ export function DiffView({
   positionCapture,
   registerFindTarget,
 }: DiffViewProps): ReactElement {
-  const host = useRef<HTMLDivElement>(null)
-  const positionRef = useRef(position)
-  const onPositionRef = useRef(onPosition)
-  const [inputs, setInputs] = useState<GitDiffResponse>()
-  const [error, setError] = useState<string>()
+  const contextKey = diffInputContextKey(path, base, revision)
+  const { inputs, error } = useDiffInputs({
+    contextKey,
+    path,
+    base,
+    revision,
+    documentRefreshVersion,
+    gitRefreshVersion,
+  })
   const showUnsaved = usesUnsavedContent(dirty, base, revision)
   const currentInput = useMemo(
     () =>
@@ -70,30 +74,80 @@ export function DiffView({
     inputs && currentInput
       ? selectDiffWorkload(inputs.baseInput, currentInput)
       : undefined
+  if (!inputs || !currentInput || !workload) {
+    return (
+      <div className={`viewer-empty${error ? ' error' : ''}`}>
+        {error ?? 'Preparing diff…'}
+      </div>
+    )
+  }
+  if (workload.kind === 'fallback') {
+    return (
+      <div className="diff-shell">
+        <DiffRefreshError error={error} />
+        <DiffFallback
+          path={path}
+          base={base}
+          revision={revision}
+          baseLabel={inputs.baseLabel}
+          currentLabel={`${inputs.currentLabel}${showUnsaved ? ' (unsaved)' : ''}`}
+          baseInput={inputs.baseInput}
+          currentInput={currentInput}
+          workload={workload}
+        />
+      </div>
+    )
+  }
+  return (
+    <InteractiveDiff
+      contextKey={contextKey}
+      baseLabel={inputs.baseLabel}
+      currentLabel={`${inputs.currentLabel}${showUnsaved ? ' (unsaved)' : ''}`}
+      baseContent={inputs.baseInput.content}
+      currentContent={currentInput.content}
+      error={error}
+      position={position}
+      onPosition={onPosition}
+      positionCapture={positionCapture}
+      registerFindTarget={registerFindTarget}
+    />
+  )
+}
+
+function InteractiveDiff({
+  contextKey,
+  baseLabel,
+  currentLabel,
+  baseContent,
+  currentContent,
+  error,
+  position,
+  onPosition,
+  positionCapture,
+  registerFindTarget,
+}: {
+  readonly contextKey: string
+  readonly baseLabel: string
+  readonly currentLabel: string
+  readonly baseContent: string
+  readonly currentContent: string
+  readonly error?: string
+  readonly position: ViewerDocumentPosition
+  readonly onPosition: (position: ViewerDocumentPosition) => void
+  readonly positionCapture: ViewerPositionCapture
+  readonly registerFindTarget: RegisterViewerFindTarget
+}): ReactElement {
+  const host = useRef<HTMLDivElement>(null)
+  const mergeRef = useRef<MergeView | undefined>(undefined)
+  const initialContent = useRef({ base: baseContent, current: currentContent })
+  const positionRef = useRef(position)
+  const onPositionRef = useRef(onPosition)
   positionRef.current = position
   onPositionRef.current = onPosition
 
   useEffect(() => {
-    let cancelled = false
-    setInputs(undefined)
-    setError(undefined)
-    void window.hvir.invoke('git:diff-inputs', { path, base, revision }).then(
-      (result) => {
-        if (!cancelled) setInputs(result)
-      },
-      (reason: unknown) => {
-        if (!cancelled)
-          setError(reason instanceof Error ? reason.message : String(reason))
-      },
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [base, documentRefreshVersion, gitRefreshVersion, path, revision])
-
-  useEffect(() => {
     const parent = host.current
-    if (!parent || !inputs || !currentInput || workload?.kind !== 'interactive') return
+    if (!parent) return
     const extensions = [
       EditorState.readOnly.of(true),
       EditorView.editable.of(false),
@@ -103,15 +157,16 @@ export function DiffView({
     ]
     const merge = new MergeView({
       parent,
-      a: { doc: inputs.baseInput.content, extensions },
+      a: { doc: initialContent.current.base, extensions },
       b: {
-        doc: currentInput.content,
+        doc: initialContent.current.current,
         extensions,
       },
       collapseUnchanged: { margin: 3, minSize: 8 },
       highlightChanges: true,
       gutter: true,
     })
+    mergeRef.current = merge
     const findTarget = new CodeMirrorFindTarget(
       [
         { view: merge.a, side: 'base' },
@@ -121,7 +176,6 @@ export function DiffView({
     )
     const unregisterFind = registerFindTarget(findTarget)
     const restorePosition = positionRef.current
-    const hasChanges = merge.chunks.length > 0
     let userNavigated = false
     const captureVisiblePosition = (): ViewerDocumentPosition => ({
       mode: 'diff',
@@ -129,12 +183,12 @@ export function DiffView({
       scrollTop: merge.dom.scrollTop,
     })
     const capturePosition = (): ViewerDocumentPosition =>
-      shouldPublishDiffPosition(hasChanges, userNavigated)
+      shouldPublishDiffPosition(merge.chunks.length > 0, userNavigated)
         ? captureVisiblePosition()
         : positionRef.current
     positionCapture.current = capturePosition
     const captureScroll = (): void => {
-      if (shouldPublishDiffPosition(hasChanges, userNavigated)) {
+      if (shouldPublishDiffPosition(merge.chunks.length > 0, userNavigated)) {
         onPositionRef.current(captureVisiblePosition())
       }
     }
@@ -161,40 +215,41 @@ export function DiffView({
       }
       unregisterFind()
       findTarget.clear()
+      mergeRef.current = undefined
       merge.destroy()
     }
-  }, [currentInput, inputs, positionCapture, registerFindTarget, workload?.kind])
+  }, [contextKey, positionCapture, registerFindTarget])
 
-  if (error) return <div className="viewer-empty error">{error}</div>
-  if (!inputs || !currentInput || !workload) {
-    return <div className="viewer-empty">Preparing diff…</div>
-  }
-  if (workload.kind === 'fallback') {
-    return (
-      <DiffFallback
-        path={path}
-        base={base}
-        revision={revision}
-        baseLabel={inputs.baseLabel}
-        currentLabel={`${inputs.currentLabel}${showUnsaved ? ' (unsaved)' : ''}`}
-        baseInput={inputs.baseInput}
-        currentInput={currentInput}
-        workload={workload}
-      />
-    )
-  }
+  useEffect(() => {
+    const merge = mergeRef.current
+    if (!merge) return
+    replaceDocument(merge.a, baseContent)
+    replaceDocument(merge.b, currentContent)
+  }, [baseContent, currentContent])
+
   return (
     <div className="diff-shell">
+      <DiffRefreshError error={error} />
       <div className="diff-labels">
-        <span>{inputs.baseLabel}</span>
-        <span>
-          {inputs.currentLabel}
-          {showUnsaved ? ' (unsaved)' : ''}
-        </span>
+        <span>{baseLabel}</span>
+        <span>{currentLabel}</span>
       </div>
       <div className="diff-host" ref={host} />
     </div>
   )
+}
+
+function replaceDocument(view: EditorView, content: string): void {
+  if (view.state.doc.toString() === content) return
+  view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: content } })
+}
+
+function DiffRefreshError({ error }: { readonly error?: string }): ReactElement | null {
+  return error ? (
+    <div className="diff-refresh-error" role="alert">
+      Diff refresh failed: {error}
+    </div>
+  ) : null
 }
 
 function liveInput(content: string, byteLength: number): TextWorkload {
