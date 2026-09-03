@@ -672,6 +672,10 @@ export async function configureHarnessComposerSubmit(
 export type HarnessLaunchDecision =
   | { readonly outcome: 'launch'; readonly mode: HarnessLaunchMode }
   | { readonly outcome: 'resume-unavailable'; readonly reason: 'artifact-missing' }
+  | {
+      readonly outcome: 'fork-unavailable'
+      readonly reason: 'parent-artifact-missing'
+    }
 
 export async function selectHarnessLaunch(
   host: ProjectHost,
@@ -692,6 +696,9 @@ export async function selectHarnessLaunch(
   const availability = await provider.resumeValidation.availability(host, context)
   if (availability === 'available') return { outcome: 'launch', mode: requestedMode }
   if (availability === 'missing') {
+    if (requestedMode === 'fork') {
+      return { outcome: 'fork-unavailable', reason: 'parent-artifact-missing' }
+    }
     return { outcome: 'resume-unavailable', reason: 'artifact-missing' }
   }
   throw new Error(
