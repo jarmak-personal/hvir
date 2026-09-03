@@ -8,6 +8,11 @@
   color: #c9ced7;
 }
 
+.diff-shell > .diff-fallback {
+  flex: 1;
+  height: auto;
+}
+
 .diff-fallback > header {
   flex: 0 0 auto;
   display: grid;

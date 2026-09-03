@@ -60,6 +60,15 @@
   min-height: 0;
 }
 
+.diff-refresh-error {
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  border-bottom: 1px solid #4b2d32;
+  background: #24191c;
+  color: #dc7b82;
+  font-size: calc(11px * var(--hvir-interface-scale));
+}
+
 .diff-host,
 .diff-host .cm-mergeView {
   height: 100%;

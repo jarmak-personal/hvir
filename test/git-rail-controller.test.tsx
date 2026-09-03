@@ -12,6 +12,8 @@ import {
   localPath,
   type GitBranchModel,
   type GitChanges,
+  type GitCommitSummary,
+  type GitHistoryPage,
   type HostPath,
 } from '../src/shared'
 
@@ -19,6 +21,7 @@ let container: HTMLDivElement
 let reactRoot: Root
 let controller: ReturnType<typeof useGitRailController> | undefined
 let branches: Mock<(root: HostPath) => Promise<GitBranchModel>>
+let history: Mock<(root: HostPath) => Promise<GitHistoryPage>>
 let invoke: ReturnType<typeof vi.fn>
 
 beforeEach(() => {
@@ -27,9 +30,11 @@ beforeEach(() => {
   document.body.append(container)
   reactRoot = createRoot(container)
   branches = vi.fn()
+  history = vi.fn()
   invoke = vi.fn((channel: string, request: { readonly root: HostPath }) => {
     if (channel === 'git:branches') return branches(request.root)
     if (channel === 'git:changes') return Promise.resolve(changes())
+    if (channel === 'git:history') return history(request.root)
     return Promise.reject(new Error(`Unexpected IPC ${channel}`))
   })
   Object.defineProperty(window, 'hvir', {
@@ -176,6 +181,102 @@ describe('Git rail branch refresh controller', () => {
   })
 })
 
+describe('Git rail history refresh controller', () => {
+  it('coalesces an invalidation burst while retaining settled rows', async () => {
+    const active = deferred<GitHistoryPage>()
+    const trailing = deferred<GitHistoryPage>()
+    history
+      .mockResolvedValueOnce(historyPage('settled'))
+      .mockReturnValueOnce(active.promise)
+      .mockReturnValueOnce(trailing.promise)
+
+    await renderController({ gitVersion: 0 })
+    await selectHistory()
+    expect(history).toHaveBeenCalledOnce()
+    expect(controller?.model.commits.map(({ hash }) => hash)).toEqual(['settled'])
+
+    await renderController({ gitVersion: 1 })
+    for (let gitVersion = 2; gitVersion <= 40; gitVersion += 1) {
+      await renderController({ gitVersion })
+    }
+    expect(history).toHaveBeenCalledTimes(2)
+    expect(controller?.model.commits.map(({ hash }) => hash)).toEqual(['settled'])
+    expect(controller?.model.historyInitialLoading).toBe(false)
+
+    await act(async () => {
+      active.resolve(historyPage('intermediate'))
+      await settleEffects()
+    })
+    expect(history).toHaveBeenCalledTimes(3)
+    expect(controller?.model.commits.map(({ hash }) => hash)).toEqual(['intermediate'])
+
+    await act(async () => {
+      trailing.resolve(historyPage('latest'))
+      await settleEffects()
+    })
+    expect(controller?.model.commits.map(({ hash }) => hash)).toEqual(['latest'])
+  })
+
+  it('clears on a host-qualified context change and rejects late completion', async () => {
+    const oldContext = deferred<GitHistoryPage>()
+    const newContext = deferred<GitHistoryPage>()
+    const sshRoot = hostPath(asHostId('ssh-history'), '/repo')
+    history
+      .mockResolvedValueOnce(historyPage('settled'))
+      .mockReturnValueOnce(oldContext.promise)
+      .mockReturnValueOnce(newContext.promise)
+
+    await renderController({ gitVersion: 0 })
+    await selectHistory()
+    await renderController({ gitVersion: 1 })
+    expect(controller?.model.commits.map(({ hash }) => hash)).toEqual(['settled'])
+
+    await renderController({ gitVersion: 1, root: sshRoot })
+    expect(controller?.model.commits).toEqual([])
+    expect(controller?.model.historyInitialLoading).toBe(false)
+
+    await act(async () => {
+      oldContext.resolve(historyPage('stale'))
+      await settleEffects()
+    })
+    expect(history).toHaveBeenCalledTimes(3)
+    expect(history).toHaveBeenLastCalledWith(sshRoot)
+    expect(controller?.model.commits).toEqual([])
+
+    await act(async () => {
+      newContext.resolve(historyPage('remote'))
+      await settleEffects()
+    })
+    expect(controller?.model.commits.map(({ hash }) => hash)).toEqual(['remote'])
+  })
+
+  it('reports only the final burst failure while retaining settled rows', async () => {
+    const active = deferred<GitHistoryPage>()
+    history
+      .mockResolvedValueOnce(historyPage('settled'))
+      .mockReturnValueOnce(active.promise)
+      .mockRejectedValueOnce(new Error('latest history refresh failed'))
+
+    await renderController({ gitVersion: 0 })
+    await selectHistory()
+    await renderController({ gitVersion: 1 })
+    for (let gitVersion = 2; gitVersion <= 20; gitVersion += 1) {
+      await renderController({ gitVersion })
+    }
+
+    await act(async () => {
+      active.reject(new Error('superseded history refresh failed'))
+      await settleEffects()
+    })
+
+    expect(history).toHaveBeenCalledTimes(3)
+    expect(controller?.model.commits.map(({ hash }) => hash)).toEqual(['settled'])
+    expect(controller?.model.historyError).toBe('latest history refresh failed')
+    await act(settleEffects)
+    expect(history).toHaveBeenCalledTimes(3)
+  })
+})
+
 async function renderController({
   gitVersion,
   root = localPath('/repo'),
@@ -251,6 +352,33 @@ function changes(): GitChanges {
     branchPoint: [],
     branchPointAvailable: true,
   }
+}
+
+function historyPage(hash: string): GitHistoryPage {
+  return {
+    repositoryState: 'ready',
+    commits: [commit(hash)],
+    hasMore: false,
+  }
+}
+
+function commit(hash: string): GitCommitSummary {
+  return {
+    hash,
+    shortHash: hash,
+    parents: [],
+    refs: [],
+    author: 'Agent',
+    authoredAt: '2026-09-02T00:00:00Z',
+    subject: hash,
+  }
+}
+
+async function selectHistory(): Promise<void> {
+  await act(async () => {
+    controller?.selectView('history')
+    await settleEffects()
+  })
 }
 
 function branchModel(current: string): GitBranchModel {

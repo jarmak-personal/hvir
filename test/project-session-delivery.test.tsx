@@ -5,7 +5,13 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useProjectSession } from '../src/renderer/src/workspaces/project-session'
-import { localPath, type ProjectState } from '../src/shared'
+import {
+  asHostId,
+  hostPath,
+  localPath,
+  type HostPath,
+  type ProjectState,
+} from '../src/shared'
 
 let host: HTMLDivElement
 let reactRoot: Root
@@ -45,6 +51,46 @@ afterEach(() => {
 })
 
 describe('project session state delivery', () => {
+  it.each([
+    ['local native-watch', localPath('/repo/.git/index')],
+    ['SSH polling', hostPath(asHostId('ssh-session'), '/repo/.git/index')],
+  ])('classifies %s Git metadata events identically', async (_source, path) => {
+    vi.useFakeTimers()
+    try {
+      const initial = projectState(0, 'workspace-main')
+      invoke.mockImplementation((channel: string) => {
+        if (channel === 'project:root') return Promise.resolve(initial)
+        if (channel === 'harness:configure-composer-submit') {
+          return Promise.resolve(undefined)
+        }
+        return Promise.reject(new Error(`Unexpected IPC channel: ${channel}`))
+      })
+
+      await act(async () => {
+        reactRoot.render(<ProjectSessionHarness onProjectState={vi.fn()} />)
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+      const before = session.versions
+
+      act(() => {
+        handlers.get('project:watch')?.(gitMetadataChange(path))
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(250)
+      })
+
+      expect(session.versions).toEqual({
+        watch: before.watch + 1,
+        ignored: before.ignored,
+        content: before.content + 1,
+        git: before.git + 1,
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it.each(['event-first', 'response-first'] as const)(
     'fans a switch state out once with %s delivery',
     async (arrivalOrder) => {
@@ -133,6 +179,10 @@ function createInvokeMock() {
   return vi.fn((_channel: string, _request?: unknown): Promise<unknown> =>
     Promise.resolve(undefined),
   )
+}
+
+function gitMetadataChange(path: HostPath) {
+  return { type: 'change' as const, path }
 }
 
 function projectState(revision: number, activeWorkspaceId: string): ProjectState {
