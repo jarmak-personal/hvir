@@ -98,6 +98,12 @@ export function terminalWorkspaceActionAffectsSessionsProjection(
   return action.type !== 'primary-width-changed'
 }
 
+export function settledTerminalSessions(
+  sessions: readonly TerminalSession[],
+): readonly TerminalSession[] {
+  return sessions.filter((session) => !session.forkRequest)
+}
+
 export const initialTerminalWorkspaceModel: TerminalWorkspaceModel = {
   sessions: [],
   activePane: 'primary',

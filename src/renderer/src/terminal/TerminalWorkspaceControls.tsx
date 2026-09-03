@@ -7,6 +7,7 @@ import { profileProbe } from './terminal-probe-policy'
 import { TerminalRail } from './TerminalRail'
 import { TerminalWorkspaceDialogs } from './TerminalWorkspaceDialogs'
 import {
+  settledTerminalSessions,
   terminalWorkspaceSplit,
   type TerminalWorkspaceModel,
 } from './terminal-workspace-model'
@@ -88,7 +89,7 @@ export function TerminalWorkspaceControls({
         moveTargets={moving.moveTargets}
         launchMenuEntries={launchMenuEntries}
         split={terminalWorkspaceSplit(model)}
-        sessions={sessions.filter((session) => !session.forkRequest)}
+        sessions={settledTerminalSessions(sessions)}
         activeId={activeId}
         providers={providers}
         profiles={profiles}

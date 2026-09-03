@@ -1,8 +1,4 @@
-import type {
-  StartPtyRequest,
-  StartPtyResponse,
-  TerminalIdentityStatus,
-} from '../../../shared'
+import type { StartPtyRequest, StartPtyResponse } from '../../../shared'
 import type { TerminalRuntimeOptions } from './terminal-runtime-options'
 
 interface TerminalReplacement {
@@ -59,35 +55,4 @@ export function terminalStartedStatus(
   if (context.manualRestart) return `Restarted · pid ${result.pid}`
   if (context.reconnect) return `New shell · pid ${result.pid}`
   return `pid ${result.pid}`
-}
-
-export function publishTerminalIdentity(
-  options: TerminalRuntimeOptions,
-  harnessSessionId: string | undefined,
-  identityStatus: TerminalIdentityStatus,
-  identityDiverged?: true,
-): void {
-  if (identityDiverged) options.onIdentity(harnessSessionId, identityStatus, true)
-  else options.onIdentity(harnessSessionId, identityStatus)
-}
-
-export function publishStartedTerminalIdentity(
-  options: TerminalRuntimeOptions,
-  result: Extract<StartPtyResponse, { outcome: 'started' }>,
-): void {
-  publishTerminalIdentity(
-    options,
-    result.harnessSessionId,
-    result.identityStatus,
-    result.identityDiverged,
-  )
-}
-
-export function terminalIdentityHandler(options: TerminalRuntimeOptions) {
-  return (
-    harnessSessionId: string | undefined,
-    identityStatus: TerminalIdentityStatus,
-    identityDiverged?: true,
-  ): void =>
-    publishTerminalIdentity(options, harnessSessionId, identityStatus, identityDiverged)
 }

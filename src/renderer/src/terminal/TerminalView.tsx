@@ -32,7 +32,7 @@ interface TerminalViewProps {
   readonly profileId: HarnessProfileId
   readonly launchRevision: number
   readonly supportsResume: boolean
-  readonly capabilities?: HarnessProviderCapabilities
+  readonly capabilities: HarnessProviderCapabilities
   readonly exactForkLaunch?: true
   readonly fallbackTitle: string
   readonly harnessSessionId?: string
@@ -79,7 +79,7 @@ interface TerminalViewProps {
   readonly onFocus: () => void
   readonly onLink: (activation: TerminalLinkActivation) => void
   readonly onSplit: () => void
-  readonly onFork?: (sessionId: string) => void
+  readonly onFork: (sessionId: string) => void
   readonly onOpenTerminalSettings: () => void
 }
 
@@ -128,11 +128,7 @@ export function TerminalView(props: TerminalViewProps): ReactElement | null {
   const contextMenu = useTerminalContextMenu(getContextMenuTarget, visible)
   const forkAvailability = terminalForkAvailability(
     {
-      capabilities: props.capabilities ?? {
-        sessionIdentity: 'none',
-        exactResume: false,
-        contextPresentation: 'none',
-      },
+      capabilities: props.capabilities,
       harnessSessionId: props.harnessSessionId,
       identityStatus: props.identityStatus,
       identityDiverged: props.identityDiverged,
@@ -234,7 +230,7 @@ export function TerminalView(props: TerminalViewProps): ReactElement | null {
         controller={contextMenu}
         onSearch={openSearch}
         onSplit={props.onSplit}
-        onFork={() => props.onFork?.(sessionId)}
+        onFork={() => props.onFork(sessionId)}
         forkAvailability={forkAvailability}
         onOpenSettings={props.onOpenTerminalSettings}
       />

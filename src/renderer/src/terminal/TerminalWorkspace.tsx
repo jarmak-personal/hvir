@@ -31,6 +31,7 @@ import {
 } from './terminal-split-persistence'
 import {
   initialTerminalWorkspaceModel,
+  settledTerminalSessions,
   terminalPaneActiveId,
   terminalWorkspaceReducer,
   terminalWorkspaceActionAffectsSessionsProjection,
@@ -173,7 +174,7 @@ export function TerminalWorkspace({
   modelRef.current = model
   useEffect(() => {
     onSessionsSource(workspaceId, () =>
-      modelRef.current.sessions.filter((session) => !session.forkRequest).map((session) => {
+      settledTerminalSessions(modelRef.current.sessions).map((session) => {
         const runtime = runtimes.sessionSnapshot(session.id)
         const handle = asSessionsTerminalHandle(session.id)
         const providerName =

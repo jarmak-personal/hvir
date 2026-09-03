@@ -10,8 +10,10 @@ import {
 } from './terminal-runtime-live-settings'
 import {
   launchUnavailableStatus,
+  pendingForkExitStatus,
   resumeUnavailableStatus,
   terminalRecoveryFailureEquals,
+  terminalStartFailureSnapshot,
   type TerminalRuntimeSnapshot,
 } from './terminal-runtime-presentation'
 import type { TerminalRuntimeOptions } from './terminal-runtime-options'
@@ -22,12 +24,7 @@ import type {
   SessionsTerminalSurfaceRevocationReason,
 } from '../sessions/sessions-terminal-surface'
 import { TerminalSessionsSurfaceOwner } from './terminal-sessions-surface-owner'
-import {
-  publishStartedTerminalIdentity,
-  terminalIdentityHandler,
-  terminalStartedStatus,
-  terminalStartRequest,
-} from './terminal-runtime-launch'
+import { terminalStartedStatus, terminalStartRequest } from './terminal-runtime-launch'
 
 const PTY_RESIZE_DEBOUNCE_MS = 75
 
@@ -102,10 +99,7 @@ export class TerminalRuntime {
     return this.options.workspaceRoot
   }
 
-  get live(): boolean {
-    return !this.disposed && this.started && Boolean(this.activePtyId)
-  }
-
+  get live(): boolean { return !this.disposed && this.started && Boolean(this.activePtyId) }
   snapshot = (): TerminalRuntimeSnapshot => this.currentSnapshot
 
   subscribe = (listener: () => void): (() => void) => {
@@ -406,7 +400,11 @@ export class TerminalRuntime {
           capabilities: result.capabilities,
         })
       } else {
-        publishStartedTerminalIdentity(this.options, result)
+        this.publishIdentity(
+          result.harnessSessionId,
+          result.identityStatus,
+          result.identityDiverged,
+        )
         this.options.onCapabilities(result.capabilities)
         this.options.onStarted()
       }
@@ -515,13 +513,12 @@ export class TerminalRuntime {
           })
           this.options.onExit?.(exitCode)
           if (this.options.forkRequest) {
-            this.options.onStartFailed?.(
-              `The sibling terminal exited before its conversation was identified (${exitCode}).`,
-            )
+            this.options.onStartFailed?.(pendingForkExitStatus(exitCode))
           }
         },
         onTelemetry: (telemetry) => this.options.onTelemetry(telemetry),
-        onIdentity: terminalIdentityHandler(this.options),
+        onIdentity: (harnessSessionId, identityStatus, identityDiverged) =>
+          this.publishIdentity(harnessSessionId, identityStatus, identityDiverged),
       },
     )
     this.surface.installRoute(this.eventRoute)
@@ -567,13 +564,17 @@ export class TerminalRuntime {
     status: string,
     recoveryFailure?: TerminalRuntimeSnapshot['recoveryFailure'],
   ): void {
-    this.updateSnapshot({
-      ...this.currentSnapshot,
-      status,
-      exited: true,
-      recoveryFailure,
-    })
+    this.updateSnapshot(terminalStartFailureSnapshot(this.currentSnapshot, status, recoveryFailure))
     if (this.options.forkRequest) this.options.onStartFailed?.(status)
+  }
+
+  private publishIdentity(
+    harnessSessionId: string | undefined,
+    identityStatus: Parameters<TerminalRuntimeOptions['onIdentity']>[1],
+    identityDiverged?: true,
+  ): void {
+    if (identityDiverged) this.options.onIdentity(harnessSessionId, identityStatus, true)
+    else this.options.onIdentity(harnessSessionId, identityStatus)
   }
 
   private updateSnapshot(snapshot: TerminalRuntimeSnapshot): void {

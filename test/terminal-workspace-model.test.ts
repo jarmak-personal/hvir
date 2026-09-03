@@ -4,6 +4,7 @@ import {
   initialTerminalWorkspaceModel,
   createTerminalForkSession,
   nextTerminalSplitPane,
+  settledTerminalSessions,
   terminalPaneActiveId,
   terminalWorkspaceReducer,
   terminalWorkspaceActionAffectsSessionsProjection,
@@ -276,6 +277,21 @@ describe('terminal workspace model', () => {
     expect(failed.sessions[0]?.id).toBe(source.id)
     expect(failed.sessions[0]?.forkPending).toBeUndefined()
     expect(failed.activeId).toBe(source.id)
+  })
+
+  it('exposes only settled sessions to persistence and workspace projections', () => {
+    const source = {
+      ...session('source', 'primary'),
+      harnessSessionId: '019ab123-4567-7890-abcd-ef0123456789',
+      identityStatus: 'identified' as const,
+    }
+    const fork = createTerminalForkSession('pending-fork', source)
+    if (!fork) throw new Error('fork fixture unavailable')
+
+    expect(settledTerminalSessions([source, fork, session('settled', 'secondary')])).toEqual([
+      source,
+      session('settled', 'secondary'),
+    ])
   })
 })
 

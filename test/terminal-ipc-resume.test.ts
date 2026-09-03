@@ -8,7 +8,10 @@ import { providerTemplateProfiles } from '../src/main/harness/harness-profile-st
 import { registerTerminalIpc } from '../src/main/ipc/features/terminal'
 import type { IpcInvokeContext, IpcRegistrar } from '../src/main/ipc/authority-router'
 import type { ProjectHost } from '../src/main/project-host'
-import { PtyStartUnavailableError } from '../src/main/pty/pty-supervisor'
+import {
+  PtyStartUnavailableError,
+  type ManagedPty,
+} from '../src/main/pty/pty-supervisor'
 import type { RecordTerminalReplacement } from '../src/main/terminal/session-registry'
 import {
   LOCAL_HOST_ID,
@@ -237,6 +240,39 @@ describe('terminal exact-resume IPC', () => {
     expect(fixture.spawn).not.toHaveBeenCalled()
     expect(fixture.register).not.toHaveBeenCalled()
   })
+
+  it.each([
+    ['local', LOCAL_HOST_ID],
+    ['SSH', asHostId('ssh-diverged-fork-test')],
+  ])(
+    'rejects a %s fork after the main-owned source identity diverges',
+    async (_kind, hostId) => {
+      const fixture = resumeFixture(hostId, 'available')
+      fixture.effectiveLaunchCapabilities.mockReturnValue({
+        ...fixture.managed.capabilities,
+        exactFork: true,
+      })
+      fixture.get.mockReturnValue({ ...fixture.managed, identityDiverged: true })
+
+      await expect(
+        fixture.start(
+          {
+            ...fixture.request,
+            sessionId: 'terminal-2',
+            launchMode: 'fork',
+            resume: false,
+            harnessSessionId: undefined,
+            forkSourceSessionId: 'terminal-1',
+            parentHarnessSessionId: HARNESS_SESSION_ID,
+          },
+          fixture.context,
+        ),
+      ).rejects.toThrow(/fork is not authorized/)
+      expect(fixture.authorizeFork).not.toHaveBeenCalled()
+      expect(fixture.spawn).not.toHaveBeenCalled()
+      expect(fixture.register).not.toHaveBeenCalled()
+    },
+  )
 
   it.each([
     [
@@ -847,7 +883,9 @@ function resumeFixture(
   const hasTransferredResource = vi.fn(() => false)
   const disposeResource = vi.fn(() => Promise.resolve(true))
   const claimTransferredResource = vi.fn(() => lease)
-  const get = vi.fn(() => undefined as typeof managed | undefined)
+  const get = vi.fn<
+    () => (typeof managed & Pick<ManagedPty, 'identityDiverged'>) | undefined
+  >(() => undefined)
   const invalidateProbe = vi.fn()
   const probeProfiles = vi.fn()
   const refreshProfile = vi.fn()

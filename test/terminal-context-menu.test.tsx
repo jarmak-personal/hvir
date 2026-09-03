@@ -414,8 +414,13 @@ function MenuHarness({
         controller={controller}
         onSearch={onSearch}
         onSplit={onSplit}
-        onFork={onFork}
-        forkAvailability={forkAvailability}
+        onFork={onFork ?? (() => undefined)}
+        forkAvailability={
+          forkAvailability ?? {
+            available: false,
+            reason: 'This terminal does not support exact conversation forks.',
+          }
+        }
         onOpenSettings={onOpenSettings}
         readText={readText}
         writeText={writeText}

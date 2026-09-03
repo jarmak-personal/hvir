@@ -21,8 +21,8 @@ type TerminalMenuAction = 'copy' | 'paste' | 'select-all' | 'clear' | 'reset'
 interface TerminalContextMenuProps {
   readonly controller: TerminalContextMenuController
   readonly onSplit: () => void
-  readonly onFork?: () => void
-  readonly forkAvailability?: TerminalForkAvailability
+  readonly onFork: () => void
+  readonly forkAvailability: TerminalForkAvailability
   readonly onSearch: () => void
   readonly onOpenSettings: () => void
   readonly readText?: () => Promise<string>
@@ -32,11 +32,8 @@ interface TerminalContextMenuProps {
 export function TerminalContextMenu({
   controller,
   onSplit,
-  onFork = () => undefined,
-  forkAvailability = {
-    available: false,
-    reason: 'This terminal does not support exact conversation forks.',
-  },
+  onFork,
+  forkAvailability,
   onSearch,
   onOpenSettings,
   readText = readApplicationClipboard,
