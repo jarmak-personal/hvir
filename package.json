@@ -121,7 +121,7 @@
     "eslint-config-prettier": "^10.1.0",
     "eslint-plugin-react-hooks": "^7.1.0",
     "eslint-plugin-react-refresh": "^0.5.5",
-    "happy-dom": "^20.11.15",
+    "happy-dom": "^20.12.0",
     "node-gyp": "^13.0.1",
     "prettier": "^3.9.6",
     "proper-lockfile": "^4.1.2",
