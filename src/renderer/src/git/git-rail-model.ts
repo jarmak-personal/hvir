@@ -211,13 +211,7 @@ export function gitRailReducer(model: GitRailModel, action: GitRailAction): GitR
     case 'history-requested':
       return {
         ...model,
-        commits: action.append ? model.commits : [],
-        hasMore: action.append ? model.hasMore : false,
-        historyCursor: action.append ? model.historyCursor : undefined,
-        historyRepositoryState: action.append
-          ? model.historyRepositoryState
-          : undefined,
-        historyInitialLoading: !action.append,
+        historyInitialLoading: !action.append && model.commits.length === 0,
         historyError: undefined,
         historyRequestId: action.requestId,
       }
@@ -240,8 +234,6 @@ export function gitRailReducer(model: GitRailModel, action: GitRailAction): GitR
       if (action.requestId !== model.historyRequestId) return model
       return {
         ...model,
-        hasMore: action.append ? model.hasMore : false,
-        historyCursor: action.append ? model.historyCursor : undefined,
         historyInitialLoading: false,
         historyError: action.error,
       }

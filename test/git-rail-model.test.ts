@@ -116,6 +116,48 @@ describe('Git rail model', () => {
     expect(model.commits.map(({ hash }) => hash)).toEqual(['a', 'b', 'c'])
   })
 
+  it('retains settled history during refresh and refresh failure', () => {
+    let model = reduce(initialGitRailModel, { type: 'context-reset', generation: 4 })
+    model = reduce(model, {
+      type: 'history-requested',
+      generation: 4,
+      requestId: 1,
+      append: false,
+    })
+    model = reduce(model, {
+      type: 'history-loaded',
+      generation: 4,
+      requestId: 1,
+      append: false,
+      page: page([commit('settled')], 'next'),
+    })
+
+    model = reduce(model, {
+      type: 'history-requested',
+      generation: 4,
+      requestId: 2,
+      append: false,
+    })
+    expect(model.commits.map(({ hash }) => hash)).toEqual(['settled'])
+    expect(model.historyCursor).toBe('next')
+    expect(model.historyInitialLoading).toBe(false)
+
+    model = reduce(model, {
+      type: 'history-failed',
+      generation: 4,
+      requestId: 2,
+      append: false,
+      error: 'refresh failed',
+    })
+    expect(model.commits.map(({ hash }) => hash)).toEqual(['settled'])
+    expect(model.historyCursor).toBe('next')
+    expect(model.historyError).toBe('refresh failed')
+
+    model = reduce(model, { type: 'context-reset', generation: 5 })
+    expect(model.commits).toEqual([])
+    expect(model.historyCursor).toBeUndefined()
+  })
+
   it('makes mutation failure retryable while blocking failed automatic fetches', () => {
     let model = reduce(initialGitRailModel, { type: 'context-reset', generation: 5 })
     model = reduce(model, {

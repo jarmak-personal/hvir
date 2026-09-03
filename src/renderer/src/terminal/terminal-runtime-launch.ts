@@ -28,6 +28,7 @@ export function terminalStartRequest(
     replacesSessionId: replacement?.replacesSessionId,
     profileId: options.profileId,
     launchRevision: options.launchRevision,
+    workspaceRoot: options.workspaceRoot,
     cwd: options.cwd,
     ...size,
     title,

@@ -1,33 +1,73 @@
 import type { BrowserWindow } from 'electron'
 
-import { dirnameHostPath, joinHostPath, type HostPath } from '../../shared'
+import {
+  basenameHostPath,
+  dirnameHostPath,
+  joinHostPath,
+  type HostPath,
+} from '../../shared'
+import type { ProjectHost } from '../project-host'
+import type { SmokeFailureCheckpoint } from './failure-evidence.mts'
 import { verifyViewerFind } from './viewer-find'
+import {
+  collectViewerPositionFailureState,
+  runViewerPositionOperation,
+} from './viewer-position-operation'
 
 export async function verifyFocusedViewer(
   win: BrowserWindow,
+  host: ProjectHost,
   sourcePath: HostPath,
   renderedPath: HostPath,
+  invalidateGit: () => void,
+  checkpoint: (checkpoint: SmokeFailureCheckpoint) => void,
 ): Promise<string> {
   try {
-    const virtualized = await verifySourceDiffPosition(win, sourcePath)
-    const commands = await verifyViewerPositions(win, renderedPath)
+    const virtualized = await runViewerPositionOperation({
+      awaiting: 'viewer-position-virtualization-awaiting',
+      ready: 'viewer-position-virtualization-ready',
+      checkpoint,
+      execute: () => verifySourceDiffPosition(win, sourcePath),
+    })
+    const commands = await runViewerPositionOperation({
+      awaiting: 'viewer-position-commands-awaiting',
+      ready: 'viewer-position-commands-ready',
+      checkpoint,
+      execute: () => verifyViewerPositions(win, renderedPath),
+    })
     const root = dirnameHostPath(sourcePath)
-    const find = await verifyViewerFind(
-      win,
-      sourcePath,
-      joinHostPath(root, 'test/fixtures/rendered.md'),
-      joinHostPath(root, '.hvir-smoke-large.txt'),
-      joinHostPath(root, 'test/fixtures/viewer-find-collapsed.txt'),
-      joinHostPath(root, 'package.json'),
-    )
-    return `${virtualized} · ${commands} · ${find}`
+    const find = await runViewerPositionOperation({
+      awaiting: 'viewer-position-find-awaiting',
+      ready: 'viewer-position-find-ready',
+      checkpoint,
+      execute: () =>
+        verifyViewerFind(
+          win,
+          sourcePath,
+          joinHostPath(root, 'test/fixtures/rendered.md'),
+          joinHostPath(root, '.hvir-smoke-large.txt'),
+          joinHostPath(root, 'test/fixtures/viewer-find-collapsed.txt'),
+          joinHostPath(root, 'package.json'),
+        ),
+    })
+    const diffRefresh = await runViewerPositionOperation({
+      awaiting: 'viewer-position-refresh-index-awaiting',
+      ready: 'viewer-position-refresh-index-ready',
+      checkpoint,
+      execute: () => prepareDiffRefreshIndex(host, sourcePath),
+    })
+    const stableRefresh = await runViewerPositionOperation({
+      awaiting: 'viewer-position-refresh-awaiting',
+      ready: 'viewer-position-refresh-ready',
+      checkpoint,
+      execute: () =>
+        verifyDiffRefreshStability(win, sourcePath, invalidateGit, diffRefresh),
+    })
+    return `${virtualized} · ${commands} · ${find} · ${stableRefresh}`
   } catch (error) {
-    let state: unknown = { unavailable: true }
-    try {
-      state = await readViewerPositionState(win)
-    } catch {
-      // Preserve the original failure when the renderer is no longer inspectable.
-    }
+    const state = await collectViewerPositionFailureState(() =>
+      readViewerPositionState(win),
+    )
     throw new Error(
       `Viewer position failed: ${
         error instanceof Error ? error.message : String(error)
@@ -35,6 +75,213 @@ export async function verifyFocusedViewer(
       { cause: error },
     )
   }
+}
+
+async function verifyDiffRefreshStability(
+  win: BrowserWindow,
+  path: HostPath,
+  invalidateGit: () => void,
+  indexRefresh: DiffRefreshIndex,
+): Promise<string> {
+  const verification = win.webContents.executeJavaScript(`
+    (() => {
+      window.__hvirDiffRefreshReady = false;
+      window.__hvirDiffRefreshComplete = false;
+      return (async () => {
+        const waitFor = async (test, message) => {
+          for (;;) {
+            const value = test();
+            if (value) return value;
+            await new Promise((painted) => requestAnimationFrame(painted));
+          }
+        };
+        const modeButton = (mode) => [...document.querySelectorAll('.mode-control button')]
+          .find((node) => node.textContent?.trim() === mode);
+        const file = await waitFor(
+          () => [...document.querySelectorAll('.file-row')]
+            .find((node) => node.getAttribute('title') === ${JSON.stringify(path.path)}),
+          'diff refresh fixture missing'
+        );
+        file.click();
+        await waitFor(
+          () => document.querySelector('.viewer-tab.active .tab-main')
+            ?.getAttribute('title') === ${JSON.stringify(path.path)},
+          'diff refresh fixture did not activate'
+        );
+        modeButton('diff')?.click();
+        const baseSelect = await waitFor(
+          () => document.querySelector('[aria-label="Diff base"]'),
+          'diff base control missing'
+        );
+        baseSelect.value = 'working-tree';
+        baseSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        const settled = await waitFor(
+          () => {
+            const merge = document.querySelector('.cm-mergeView');
+            const base = document.querySelector('.cm-editor.cm-merge-a .cm-content');
+            return merge && base?.textContent?.includes(
+              ${JSON.stringify(indexRefresh.initialMarker)}
+            ) ? merge : undefined;
+          },
+          'settled diff missing before refresh burst'
+        );
+        settled.dispatchEvent(new WheelEvent('wheel', { deltaY: 800, bubbles: true }));
+        settled.scrollTop = Math.min(
+          Math.max(0, settled.scrollHeight - settled.clientHeight),
+          800
+        );
+        settled.dispatchEvent(new Event('scroll'));
+        const scrollTop = settled.scrollTop;
+        let preparingObserved = false;
+        let replacementObserved = false;
+        let refreshObserved = false;
+        const inspect = () => {
+          const empty = document.querySelector('.viewer-empty');
+          if (empty?.textContent?.includes('Preparing diff')) preparingObserved = true;
+          if (!settled.isConnected || document.querySelector('.cm-mergeView') !== settled) {
+            replacementObserved = true;
+          }
+          const base = document.querySelector('.cm-editor.cm-merge-a .cm-content');
+          if (base?.textContent?.includes(${JSON.stringify(indexRefresh.nextMarker)})) {
+            refreshObserved = true;
+            window.__hvirDiffRefreshObserved = true;
+          }
+        };
+        const observer = new MutationObserver(inspect);
+        observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+        window.__hvirDiffRefreshReady = true;
+        while (!window.__hvirDiffRefreshComplete) {
+          inspect();
+          await new Promise((painted) => requestAnimationFrame(painted));
+        }
+        await new Promise((painted) => requestAnimationFrame(painted));
+        inspect();
+        observer.disconnect();
+        delete window.__hvirDiffRefreshReady;
+        delete window.__hvirDiffRefreshComplete;
+        delete window.__hvirDiffRefreshObserved;
+        if (preparingObserved) throw new Error('diff displayed Preparing diff during refresh');
+        if (replacementObserved) throw new Error('diff MergeView was replaced during refresh');
+        if (!refreshObserved) throw new Error('diff did not apply refreshed Git inputs');
+        if (Math.abs(settled.scrollTop - scrollTop) > 2) {
+          throw new Error('diff scroll position changed during refresh');
+        }
+        return 'metadata refresh burst applied Git inputs and retained diff at scroll ' +
+          Math.round(scrollTop);
+      })();
+    })()
+  `) as Promise<string>
+  let failure: unknown
+  void verification.catch((reason) => {
+    failure = reason
+  })
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (failure) {
+      throw failure instanceof Error
+        ? failure
+        : new Error('Diff refresh verifier failed', { cause: failure })
+    }
+    const ready = (await win.webContents.executeJavaScript(
+      'Boolean(window.__hvirDiffRefreshReady)',
+    )) as boolean
+    if (ready) break
+    if (attempt === 199) throw new Error('diff refresh verifier did not become ready')
+    await delay(25)
+  }
+  for (let invalidation = 0; invalidation < 5; invalidation += 1) {
+    if (invalidation === 0) await indexRefresh.advance()
+    invalidateGit()
+    await delay(300)
+  }
+  let refreshObserved = false
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (failure) break
+    refreshObserved = (await win.webContents.executeJavaScript(
+      'Boolean(window.__hvirDiffRefreshObserved)',
+    )) as boolean
+    if (refreshObserved) break
+    await delay(25)
+  }
+  await win.webContents.executeJavaScript('window.__hvirDiffRefreshComplete = true')
+  if (failure) {
+    throw failure instanceof Error
+      ? failure
+      : new Error('Diff refresh verifier failed', { cause: failure })
+  }
+  if (!refreshObserved)
+    throw new Error('diff refresh did not reach the visible merge view')
+  return verification
+}
+
+interface DiffRefreshIndex {
+  readonly initialMarker: string
+  readonly nextMarker: string
+  readonly advance: () => Promise<void>
+}
+
+async function prepareDiffRefreshIndex(
+  host: ProjectHost,
+  path: HostPath,
+): Promise<DiffRefreshIndex> {
+  const root = dirnameHostPath(path)
+  const source = await host.readTextFile(path)
+  const initialMarker = 'hvir index before refresh'
+  const nextMarker = 'hvir index after refresh!'
+  await writeIndexContent(
+    host,
+    root,
+    path,
+    diffRefreshIndexContent(source, initialMarker),
+  )
+  return {
+    initialMarker,
+    nextMarker,
+    advance: () =>
+      writeIndexContent(host, root, path, diffRefreshIndexContent(source, nextMarker)),
+  }
+}
+
+async function writeIndexContent(
+  host: ProjectHost,
+  root: HostPath,
+  path: HostPath,
+  content: string,
+): Promise<void> {
+  const object = await host.exec(
+    'git',
+    ['-C', root.path, 'hash-object', '-w', '--stdin'],
+    { input: content },
+  )
+  const hash = object.stdout.trim()
+  if (object.code !== 0 || !/^[a-f0-9]{40,64}$/.test(hash)) {
+    throw new Error('diff refresh fixture could not create an index object')
+  }
+  const update = await host.exec('git', [
+    '-C',
+    root.path,
+    'update-index',
+    '--add',
+    '--cacheinfo',
+    `100644,${hash},${basenameHostPath(path)}`,
+  ])
+  if (update.code !== 0) {
+    throw new Error('diff refresh fixture could not update the index')
+  }
+}
+
+function diffRefreshIndexContent(content: string, firstLine: string): string {
+  const lines = content.split('\n')
+  return lines
+    .map((line, index) => {
+      if (index === 0) return firstLine
+      if (index === lines.length - 1 && line === '') return ''
+      return `hvir index line ${index}`
+    })
+    .join('\n')
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds))
 }
 
 function readViewerPositionState(win: BrowserWindow): Promise<unknown> {
