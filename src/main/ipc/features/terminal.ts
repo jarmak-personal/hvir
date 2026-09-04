@@ -185,11 +185,18 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       profiles: [profile],
       store: deps.harnessProfiles,
     } as const
-    const effectiveCapabilities = deps.harnessProbes.effectiveLaunchCapabilities(
-      availabilityRequest,
-      profile,
-      req.composerSubmitMode,
-    )
+    let effectiveCapabilities =
+      requestedMode === 'fork'
+        ? await deps.harnessProbes.resolveLaunchCapabilities(
+            availabilityRequest,
+            profile,
+            req.composerSubmitMode,
+          )
+        : deps.harnessProbes.effectiveLaunchCapabilities(
+            availabilityRequest,
+            profile,
+            req.composerSubmitMode,
+          )
     if (requestedMode === 'resume') {
       if (
         !effectiveCapabilities.exactResume ||
@@ -284,6 +291,13 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       const ptyLease = deps.rendererResources.claimTransferredResource(owner, qualifier)
       if (!ptyLease) throw new Error('Retained terminal was already reattached')
       ptyLease.release()
+    }
+    if (requestedMode !== 'fork') {
+      effectiveCapabilities = await deps.harnessProbes.resolveLaunchCapabilities(
+        availabilityRequest,
+        profile,
+        req.composerSubmitMode,
+      )
     }
     const defaultShell = await host.defaultShell()
     const resolved = await resolveHarnessLaunch({
