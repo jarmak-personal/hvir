@@ -258,6 +258,15 @@ export async function observeClaudeContext(
       suppressInitialFollowerPending = false
       context.emit(telemetry)
     },
+    parse: (record) => {
+      const envelope = parseClaudeUsageEnvelope(record)
+      if (!envelope || !isClaudeAssistantUsage(envelope)) return null
+      if (claudeIdentityDiverged(envelope, context.sessionId)) {
+        context.identityDiverged?.()
+        return null
+      }
+      return parseClaudeUsage(record)
+    },
   })
 }
 
@@ -475,6 +484,7 @@ export async function observeClaudeUsage(
         sessionIds.length === 0 ||
         sessionIds.some((sessionId) => sessionId !== context.sessionId)
       ) {
+        context.identityDiverged?.()
         identityInvalid = true
         current = {
           snapshot: unavailableHarnessUsageSnapshot(
@@ -599,10 +609,7 @@ async function waitForClaudeUsageLocation(
     const location = await resolveClaudeSessionArtifact(host, context, context.signal)
     if (location || context.signal.aborted) return location
     await abortableDelay(retryMilliseconds, context.signal)
-    retryMilliseconds = Math.min(
-      MAX_USAGE_ARTIFACT_RETRY_MS,
-      retryMilliseconds * 2,
-    )
+    retryMilliseconds = Math.min(MAX_USAGE_ARTIFACT_RETRY_MS, retryMilliseconds * 2)
   }
   return undefined
 }
@@ -693,6 +700,16 @@ export function parseClaudeUsage(value: string): HarnessTelemetry | null {
     },
     modelId: boundedHarnessUsageString(envelope.message?.model),
   })
+}
+
+function claudeIdentityDiverged(
+  envelope: ClaudeUsageEnvelope,
+  expectedSessionId: string,
+): boolean {
+  const sessionIds = [envelope.sessionId, envelope.session_id].filter(
+    (value): value is string => typeof value === 'string',
+  )
+  return sessionIds.some((sessionId) => sessionId !== expectedSessionId)
 }
 
 function parseClaudeUsageEnvelope(value: string): ClaudeUsageEnvelope | undefined {

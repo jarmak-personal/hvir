@@ -9,8 +9,16 @@ export function ghosttyLifecycleRuntimeOptions() {
     profileId: asHarnessProfileId('claude-code-default'),
     launchRevision: 2,
     supportsResume: true,
+    capabilities: {
+      sessionIdentity: 'preassigned',
+      exactResume: true,
+      exactFork: true,
+      contextPresentation: 'pressure',
+    },
+    exactForkLaunch: true,
     fallbackTitle: 'Claude Code · repo',
     harnessSessionId: '05ea41ff-026f-4ab6-b930-64eb3b497806',
+    identityStatus: 'identified',
     resumeOnStart: true,
     startMode: 'interactive',
     position: 0,
@@ -42,6 +50,7 @@ export function ghosttyLifecycleRuntimeOptions() {
     onFocus: vi.fn(),
     onLink: vi.fn(),
     onSplit: vi.fn(),
+    onFork: vi.fn(),
     onOpenTerminalSettings: vi.fn(),
   } as const
 }

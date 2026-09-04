@@ -9,9 +9,10 @@ import {
   synchronizePanePresentationOptions,
 } from './terminal-runtime-live-settings'
 import {
-  launchUnavailableStatus,
-  resumeUnavailableStatus,
+  pendingForkExitStatus,
   terminalRecoveryFailureEquals,
+  terminalStartFailureSnapshot,
+  terminalUnavailablePresentation,
   type TerminalRuntimeSnapshot,
 } from './terminal-runtime-presentation'
 import type { TerminalRuntimeOptions } from './terminal-runtime-options'
@@ -22,6 +23,7 @@ import type {
   SessionsTerminalSurfaceRevocationReason,
 } from '../sessions/sessions-terminal-surface'
 import { TerminalSessionsSurfaceOwner } from './terminal-sessions-surface-owner'
+import { terminalStartedStatus, terminalStartRequest } from './terminal-runtime-launch'
 
 const PTY_RESIZE_DEBOUNCE_MS = 75
 
@@ -96,6 +98,7 @@ export class TerminalRuntime {
     return this.options.workspaceRoot
   }
 
+  get live(): boolean { return !this.disposed && this.started && Boolean(this.activePtyId) }
   snapshot = (): TerminalRuntimeSnapshot => this.currentSnapshot
 
   subscribe = (listener: () => void): (() => void) => {
@@ -330,48 +333,27 @@ export class TerminalRuntime {
         this.options.supportsResume &&
         Boolean(this.options.harnessSessionId) &&
         (this.options.resumeOnStart || reconnect || manualRestart)
-      const result = await window.hvir.invoke('pty:start', {
-        sessionId,
-        replacesSessionId: replacement?.replacesSessionId,
-        profileId: this.options.profileId,
-        launchRevision: this.options.launchRevision,
-        workspaceRoot: this.options.workspaceRoot,
-        cwd: this.options.cwd,
-        cols: this.terminalSize.cols,
-        rows: this.terminalSize.rows,
-        title: this.currentSnapshot.title,
-        position: this.options.position,
-        active: this.options.active,
-        composerSubmitMode: this.options.composerSubmitMode,
-        admission: this.options.startMode,
-        resume,
-        harnessSessionId: resume ? this.options.harnessSessionId : undefined,
-      })
+      const fork = !replacement && !resume ? this.options.forkRequest : undefined
+      const result = await window.hvir.invoke(
+        'pty:start',
+        terminalStartRequest(
+          this.options,
+          sessionId,
+          replacement,
+          this.terminalSize,
+          this.currentSnapshot.title,
+          resume,
+        ),
+      )
       if (!this.isCurrent(generation)) {
         if (this.terminateLateStart && result.outcome === 'started') {
           window.hvir.send('pty:kill', { id: result.id })
         }
         return
       }
-      if (result.outcome === 'launch-unavailable') {
-        this.updateSnapshot({
-          ...this.currentSnapshot,
-          status: launchUnavailableStatus(result.reason),
-          exited: true,
-          recoveryFailure: undefined,
-        })
-        return
-      }
-      if (result.outcome === 'resume-unavailable') {
-        this.updateSnapshot({
-          ...this.currentSnapshot,
-          status: resumeUnavailableStatus(result.reason),
-          exited: true,
-          recoveryFailure: {
-            kind: 'resume-unavailable',
-            reason: result.reason,
-          },
-        })
+      if (result.outcome !== 'started') {
+        const failure = terminalUnavailablePresentation(result)
+        this.failStart(failure.status, failure.recoveryFailure)
         return
       }
       this.started = true
@@ -379,19 +361,13 @@ export class TerminalRuntime {
       this.activePtyId = result.id
       this.activePtyInstanceId = result.instanceId
       this.interactions.bind(pane, result.id)
-      const status = result.reattached
-        ? `Reattached · pid ${result.pid}`
-        : result.resumed
-          ? `Resumed · pid ${result.pid}`
-          : replacement
-            ? `New session · pid ${result.pid}`
-            : resume
-              ? `New session · pid ${result.pid}`
-              : manualRestart
-                ? `Restarted · pid ${result.pid}`
-                : reconnect
-                  ? `New shell · pid ${result.pid}`
-                  : `pid ${result.pid}`
+      const status = terminalStartedStatus(result, {
+        replacement,
+        fork: Boolean(fork),
+        resume,
+        manualRestart,
+        reconnect,
+      })
       if (this.pendingInput) {
         window.hvir.send('pty:write', {
           id: result.id,
@@ -415,19 +391,19 @@ export class TerminalRuntime {
           capabilities: result.capabilities,
         })
       } else {
-        this.options.onIdentity(result.harnessSessionId, result.identityStatus)
+        this.publishIdentity(
+          result.harnessSessionId,
+          result.identityStatus,
+          result.identityDiverged,
+        )
         this.options.onCapabilities(result.capabilities)
         this.options.onStarted()
       }
       if (this.options.active) this.focus()
     } catch (error) {
       if (this.isCurrent(generation)) {
-        this.updateSnapshot({
-          ...this.currentSnapshot,
-          status: error instanceof Error ? error.message : String(error),
-          exited: true,
-          recoveryFailure: undefined,
-        })
+        const status = error instanceof Error ? error.message : String(error)
+        this.failStart(status)
       }
     } finally {
       releaseAdmission?.()
@@ -526,11 +502,14 @@ export class TerminalRuntime {
             exited: true,
             recoveryFailure: undefined,
           })
+          this.options.onExit?.(exitCode)
+          if (this.options.forkRequest) {
+            this.options.onStartFailed?.(pendingForkExitStatus(exitCode))
+          }
         },
         onTelemetry: (telemetry) => this.options.onTelemetry(telemetry),
-        onIdentity: (harnessSessionId, identityStatus) => {
-          this.options.onIdentity(harnessSessionId, identityStatus)
-        },
+        onIdentity: (harnessSessionId, identityStatus, identityDiverged) =>
+          this.publishIdentity(harnessSessionId, identityStatus, identityDiverged),
       },
     )
     this.surface.installRoute(this.eventRoute)
@@ -570,6 +549,23 @@ export class TerminalRuntime {
 
   private revokeSessionsSurface(reason: SessionsTerminalSurfaceRevocationReason): void {
     this.sessionsSurface.revoke(reason)
+  }
+
+  private failStart(
+    status: string,
+    recoveryFailure?: TerminalRuntimeSnapshot['recoveryFailure'],
+  ): void {
+    this.updateSnapshot(terminalStartFailureSnapshot(this.currentSnapshot, status, recoveryFailure))
+    if (this.options.forkRequest) this.options.onStartFailed?.(status)
+  }
+
+  private publishIdentity(
+    harnessSessionId: string | undefined,
+    identityStatus: Parameters<TerminalRuntimeOptions['onIdentity']>[1],
+    identityDiverged?: true,
+  ): void {
+    if (identityDiverged) this.options.onIdentity(harnessSessionId, identityStatus, true)
+    else this.options.onIdentity(harnessSessionId, identityStatus)
   }
 
   private updateSnapshot(snapshot: TerminalRuntimeSnapshot): void {

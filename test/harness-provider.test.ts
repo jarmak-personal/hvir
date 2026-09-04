@@ -19,6 +19,7 @@ const context = {
   cwd: localPath('/tmp/project'),
   defaultShell: '/bin/zsh',
 }
+const forkContext = { ...context, parentSessionId: 'parent-session-id' }
 
 describe('Harness providers', () => {
   it('launches and recreates Bare Shell as the host login shell', () => {
@@ -44,6 +45,20 @@ describe('Harness providers', () => {
     expect(claudeCodeProvider.usageTelemetry).toBeDefined()
   })
 
+  it('forks Claude Code with exact preassigned parent and child identities', () => {
+    expect(claudeCodeProvider.fork?.(forkContext)).toEqual({
+      file: 'claude',
+      args: [
+        '--session-id',
+        context.sessionId,
+        '--resume',
+        'parent-session-id',
+        '--fork-session',
+      ],
+      shellEnvironment: true,
+    })
+  })
+
   it('resumes an exactly discovered Codex session id', () => {
     expect(codexProvider.launch(context)).toEqual({
       file: 'codex',
@@ -64,6 +79,38 @@ describe('Harness providers', () => {
     expect(codexProvider.sessionIdentity).toBe('discovered')
     expect(codexProvider.sessionDiscovery).toBeDefined()
     expect(codexProvider.usageTelemetry).toBeDefined()
+  })
+
+  it('forks Codex from an exact parent and leaves child discovery unchanged', () => {
+    expect(codexProvider.fork?.(forkContext)).toEqual({
+      file: 'codex',
+      args: [
+        '--config',
+        'tui.terminal_title=["thread-title"]',
+        'fork',
+        'parent-session-id',
+      ],
+      shellEnvironment: true,
+    })
+    expect(codexProvider.sessionDiscovery).toBeDefined()
+  })
+
+  it('derives exact-fork capability only from supported probed versions', () => {
+    expect(claudeCodeProvider.probe.effectiveCapabilities('2.1.258')).toMatchObject({
+      exactFork: true,
+    })
+    expect(codexProvider.probe.effectiveCapabilities('codex-cli 0.151.0')).toMatchObject({
+      exactFork: true,
+    })
+    for (const capabilities of [
+      claudeCodeProvider.probe.effectiveCapabilities('2.1.257'),
+      claudeCodeProvider.probe.effectiveCapabilities(undefined),
+      codexProvider.probe.effectiveCapabilities('codex-cli 0.150.9'),
+      codexProvider.probe.effectiveCapabilities(undefined),
+      plainShellProvider.probe.effectiveCapabilities(undefined),
+    ]) {
+      expect(capabilities).not.toHaveProperty('exactFork')
+    }
   })
 
   it('lets Codex own intentional-submit behavior inside its composer', () => {

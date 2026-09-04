@@ -7,11 +7,17 @@ import {
   registerRendererPty,
   rendererPtyQualifier,
 } from '../../terminal/renderer-pty-lifecycle'
+import {
+  isAuthorizedTerminalFork,
+  isHarnessSessionId,
+  isTerminalId,
+  terminalLaunchMode,
+} from '../../terminal/terminal-launch-admission'
+import { terminalStartedResponse } from '../../terminal/terminal-start-response'
 import { PtyStartUnavailableError } from '../../pty/pty-supervisor'
 import type { IpcRegistrar } from '../authority-router'
 import type { IpcDeps } from '../deps'
 import { operationResult } from '../operation-result'
-
 type TerminalIpcDeps = Pick<
   IpcDeps,
   | 'getHost'
@@ -52,7 +58,6 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       }
     }
   })
-
   ipc.handle('terminal:update-layout', async (req) => {
     const root = ipc.authority.workspaceRoot(req.root)
     const rawSessions: unknown = req.sessions
@@ -82,13 +87,11 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
     })
     await deps.terminalSessions.updateLayout(root, sessions)
   })
-
   ipc.handle('terminal:forget', async (req) => {
     const root = ipc.authority.workspaceRoot(req.root)
     if (!isTerminalId(req.id)) throw new Error('Invalid terminal session id')
     await deps.terminalSessions.forget(root, req.id)
   })
-
   ipc.handle('terminal:plan-move', (req, context) =>
     operationResult(() => Promise.resolve(deps.terminalMoves.plan(req, context.owner()))),
   )
@@ -122,11 +125,12 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
 
   ipc.handle('pty:start', async (req, context) => {
     if (!isTerminalId(req.sessionId)) throw new Error('Invalid PTY session id')
+    const requestedMode = terminalLaunchMode(req)
     if (
       req.replacesSessionId !== undefined &&
       (!isTerminalId(req.replacesSessionId) ||
         req.replacesSessionId === req.sessionId ||
-        req.resume === true)
+        requestedMode !== 'fresh')
     ) {
       throw new Error('Invalid terminal replacement request')
     }
@@ -181,12 +185,19 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       profiles: [profile],
       store: deps.harnessProfiles,
     } as const
-    const effectiveCapabilities = deps.harnessProbes.effectiveLaunchCapabilities(
-      availabilityRequest,
-      profile,
-      req.composerSubmitMode,
-    )
-    if (req.resume) {
+    let effectiveCapabilities =
+      requestedMode === 'fork'
+        ? await deps.harnessProbes.resolveLaunchCapabilities(
+            availabilityRequest,
+            profile,
+            req.composerSubmitMode,
+          )
+        : deps.harnessProbes.effectiveLaunchCapabilities(
+            availabilityRequest,
+            profile,
+            req.composerSubmitMode,
+          )
+    if (requestedMode === 'resume') {
       if (
         !effectiveCapabilities.exactResume ||
         !isHarnessSessionId(req.harnessSessionId) ||
@@ -202,6 +213,27 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       ) {
         throw new Error('Terminal resume is not authorized for this project')
       }
+    }
+    if (requestedMode === 'fork') {
+      if (!isAuthorizedTerminalFork({
+        request: req,
+        capabilities: effectiveCapabilities,
+        providerSupportsFork: provider.fork !== undefined,
+        source: isTerminalId(req.forkSourceSessionId)
+          ? deps.ptySupervisor.get(req.forkSourceSessionId)
+          : undefined,
+        profile,
+        sessions: deps.terminalSessions,
+        workspaceRoot: root,
+        cwd,
+      })) {
+        throw new Error('Terminal fork is not authorized for this project')
+      }
+    } else if (
+      req.forkSourceSessionId !== undefined ||
+      req.parentHarnessSessionId !== undefined
+    ) {
+      throw new Error('Invalid terminal fork request')
     }
     if (
       req.replacesSessionId &&
@@ -252,17 +284,7 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
         // If a concurrent rollover has already transferred this lease again,
         // attachment fails closed without disposing the newer owner's PTY.
         attachRendererPty(deps, retained, ptyLease, owner, context.sender)
-        return {
-          outcome: 'started',
-          id: retained.id,
-          instanceId: retained.instanceId,
-          pid: retained.pid,
-          harnessSessionId: retained.harnessSessionId,
-          identityStatus: retained.identityStatus,
-          capabilities: retained.capabilities,
-          resumed: retained.resumed,
-          reattached: true,
-        }
+        return terminalStartedResponse(retained, true)
       }
       // The PTY exited after rollover but before recovery was accepted. Retire
       // its transferred lease and continue through the existing exact-resume path.
@@ -270,8 +292,14 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       if (!ptyLease) throw new Error('Retained terminal was already reattached')
       ptyLease.release()
     }
+    if (requestedMode !== 'fork') {
+      effectiveCapabilities = await deps.harnessProbes.resolveLaunchCapabilities(
+        availabilityRequest,
+        profile,
+        req.composerSubmitMode,
+      )
+    }
     const defaultShell = await host.defaultShell()
-    const requestedMode = req.resume ? 'resume' : 'fresh'
     const resolved = await resolveHarnessLaunch({
       profile,
       expectedLaunchRevision: req.launchRevision,
@@ -281,7 +309,9 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       store: deps.harnessProfiles,
       mode: requestedMode,
       context: {
-        sessionId: req.resume ? req.harnessSessionId! : req.sessionId,
+        sessionId: requestedMode === 'resume' ? req.harnessSessionId! : req.sessionId,
+        parentSessionId:
+          requestedMode === 'fork' ? req.parentHarnessSessionId : undefined,
         cwd,
         cols,
         rows,
@@ -291,13 +321,16 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       },
     })
     const launchDecision = await selectHarnessLaunch(host, provider, requestedMode, {
-      sessionId: req.resume ? req.harnessSessionId! : req.sessionId,
+      sessionId:
+        requestedMode === 'fork'
+          ? req.parentHarnessSessionId!
+          : requestedMode === 'resume'
+            ? req.harnessSessionId!
+            : req.sessionId,
       cwd,
       artifact: resolved.artifact,
-    })
-    if (launchDecision.outcome === 'resume-unavailable') {
-      return { outcome: 'resume-unavailable', reason: launchDecision.reason }
-    }
+    }, effectiveCapabilities)
+    if (launchDecision.outcome !== 'launch') return launchDecision
     const launchMode = launchDecision.mode
     const refreshAfterClassifiedLaunchFailure = (): void =>
       deps.harnessProbes.refreshProfile(availabilityRequest, profile)
@@ -321,6 +354,9 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
         ownerGeneration: owner.generation,
         sessionId: req.sessionId,
         harnessSessionId: launchMode === 'resume' ? req.harnessSessionId : undefined,
+        launchMode,
+        parentHarnessSessionId:
+          launchMode === 'fork' ? req.parentHarnessSessionId : undefined,
         resume: launchMode === 'resume',
         admission: req.admission,
         cols,
@@ -382,17 +418,7 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       await ptyLease.dispose()
       throw error
     }
-    return {
-      outcome: 'started',
-      id: managed.id,
-      instanceId: managed.instanceId,
-      pid: managed.pid,
-      harnessSessionId: managed.harnessSessionId,
-      identityStatus: managed.identityStatus,
-      capabilities: managed.capabilities,
-      resumed: managed.resumed,
-      reattached: false,
-    }
+    return terminalStartedResponse(managed, false)
   })
 
   ipc.handleSend('pty:write', ({ id, data }, context) => {
@@ -421,10 +447,6 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
   })
 }
 
-function isTerminalId(value: unknown): value is string {
-  return typeof value === 'string' && /^[a-zA-Z0-9-]{1,80}$/.test(value)
-}
-
 function recoveryDecisionIds(value: unknown): readonly string[] {
   if (!Array.isArray(value) || value.length > 500) {
     throw new Error('Invalid terminal recovery decision')
@@ -447,16 +469,6 @@ function isTerminalTitle(value: unknown): value is string {
 
 function isTerminalAttention(value: unknown): value is 'working' | 'bell' | 'idle' {
   return value === 'working' || value === 'bell' || value === 'idle'
-}
-
-function isHarnessSessionId(value: unknown): value is string {
-  return (
-    typeof value === 'string' &&
-    value.length > 0 &&
-    value.length <= 240 &&
-    !/\s/.test(value) &&
-    !hasControlCharacter(value)
-  )
 }
 
 function hasControlCharacter(value: string): boolean {

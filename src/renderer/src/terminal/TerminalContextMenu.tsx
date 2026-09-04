@@ -9,20 +9,20 @@ import {
 import { createPortal } from 'react-dom'
 
 import { boundTerminalContextMenuPosition } from './terminal-context-menu-position'
-import {
-  readApplicationClipboard,
-  writeApplicationClipboard,
-} from './terminal-clipboard'
+import { readApplicationClipboard, writeApplicationClipboard } from './terminal-clipboard'
 import type {
   TerminalContextMenuController,
   TerminalContextMenuRequest,
 } from './use-terminal-context-menu'
+import type { TerminalForkAvailability } from './terminal-fork-policy'
 
 type TerminalMenuAction = 'copy' | 'paste' | 'select-all' | 'clear' | 'reset'
 
 interface TerminalContextMenuProps {
   readonly controller: TerminalContextMenuController
   readonly onSplit: () => void
+  readonly onFork: () => void
+  readonly forkAvailability: TerminalForkAvailability
   readonly onSearch: () => void
   readonly onOpenSettings: () => void
   readonly readText?: () => Promise<string>
@@ -32,6 +32,8 @@ interface TerminalContextMenuProps {
 export function TerminalContextMenu({
   controller,
   onSplit,
+  onFork,
+  forkAvailability,
   onSearch,
   onOpenSettings,
   readText = readApplicationClipboard,
@@ -245,6 +247,22 @@ export function TerminalContextMenu({
             onClick={() => runWorkspaceAction(onSplit)}
           >
             Split Terminal
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="terminal-context-menu-explained"
+            disabled={!forkAvailability.available || pending !== undefined}
+            title={forkAvailability.available ? undefined : forkAvailability.reason}
+            onPointerDown={retainTerminalFocus}
+            onClick={() => runWorkspaceAction(onFork)}
+          >
+            <span>Fork Conversation to New Terminal</span>
+            {!forkAvailability.available ? (
+              <span className="terminal-context-menu-reason">
+                {forkAvailability.reason}
+              </span>
+            ) : null}
           </button>
           <button
             type="button"

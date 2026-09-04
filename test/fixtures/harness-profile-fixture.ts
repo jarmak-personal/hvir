@@ -14,6 +14,7 @@ import {
   asHarnessProviderId,
   localPath,
   type HarnessProfile,
+  type HarnessLaunchMode,
   type HarnessProfileArgument,
   type HarnessProfileInput,
   type HostPath,
@@ -33,9 +34,10 @@ export interface HarnessProfileFixture {
   readonly literal: (value: string) => HarnessProfileArgument
   readonly resolve: (
     profile: HarnessProfile,
-    mode: 'fresh' | 'resume',
+    mode: HarnessLaunchMode,
     workspaceRoot?: HostPath,
     composerSubmitMode?: 'enter' | 'ctrl-enter',
+    parentSessionId?: string,
   ) => Promise<ResolvedHarnessLaunch>
   readonly dispose: () => Promise<void>
 }
@@ -85,7 +87,13 @@ export async function createHarnessProfileFixture(): Promise<HarnessProfileFixtu
       store,
       input: harnessProfileInput,
       literal: harnessLiteralArgument,
-      resolve: (profile, mode, launchWorkspace = projectRoot, composerSubmitMode) =>
+      resolve: (
+        profile,
+        mode,
+        launchWorkspace = projectRoot,
+        composerSubmitMode,
+        parentSessionId,
+      ) =>
         resolveHarnessLaunch({
           profile,
           expectedLaunchRevision: profile.launchRevision,
@@ -99,6 +107,11 @@ export async function createHarnessProfileFixture(): Promise<HarnessProfileFixtu
             cwd: launchWorkspace,
             defaultShell: '/bin/zsh',
             composerSubmitMode,
+            parentSessionId,
+            effectiveCapabilities:
+              mode === 'fork'
+                ? { ...profileForkCapabilities(profile.providerId), exactFork: true }
+                : undefined,
           },
         }),
       dispose,
@@ -110,6 +123,20 @@ export async function createHarnessProfileFixture(): Promise<HarnessProfileFixtu
     await rm(directory, { recursive: true, force: true })
     throw error
   }
+}
+
+function profileForkCapabilities(providerId: HarnessProfile['providerId']) {
+  return providerId === asHarnessProviderId('claude-code')
+    ? {
+        sessionIdentity: 'preassigned' as const,
+        exactResume: true,
+        contextPresentation: 'pressure' as const,
+      }
+    : {
+        sessionIdentity: 'discovered' as const,
+        exactResume: true,
+        contextPresentation: 'pressure' as const,
+      }
 }
 
 export function harnessLiteralArgument(value: string): HarnessProfileArgument {

@@ -16,7 +16,10 @@ import type {
 import type { TerminalSession } from './terminal-workspace-model'
 import type { FreshTerminalStart } from './terminal-runtime-options'
 import type { TerminalRuntimeRegistry } from './terminal-runtime-registry'
-import { TerminalSessionRuntimes } from './TerminalSessionRuntimes'
+import {
+  TerminalSessionRuntimes,
+  type TerminalSessionRuntimesProps,
+} from './TerminalSessionRuntimes'
 
 export function TerminalDeck({
   deckRef,
@@ -44,12 +47,16 @@ export function TerminalDeck({
   onCreateDefault,
   onUpdateSession,
   onFreshStarted,
+  onForkIdentity,
+  onForkStartFailed,
+  onExit,
   onInput,
   onOutput,
   onBell,
   onFocus,
   onLink,
   onSplit,
+  onFork,
   onOpenTerminalSettings,
   onSetPrimaryWidth,
   onResetPrimaryWidth,
@@ -83,12 +90,16 @@ export function TerminalDeck({
     update: (session: TerminalSession) => TerminalSession,
   ) => void
   readonly onFreshStarted: (id: string, started: FreshTerminalStart) => void
+  readonly onForkIdentity: TerminalSessionRuntimesProps['onForkIdentity']
+  readonly onForkStartFailed: TerminalSessionRuntimesProps['onForkStartFailed']
+  readonly onExit: TerminalSessionRuntimesProps['onExit']
   readonly onInput: (id: string, data: string) => void
   readonly onOutput: (id: string) => void
   readonly onBell: (id: string) => void
   readonly onFocus: (id: string) => void
   readonly onLink: (session: TerminalSession, activation: TerminalLinkActivation) => void
   readonly onSplit: () => void
+  readonly onFork: (id: string) => void
   readonly onOpenTerminalSettings: () => void
   readonly onSetPrimaryWidth: (width: number) => void
   readonly onResetPrimaryWidth: () => void
@@ -117,12 +128,16 @@ export function TerminalDeck({
       connectionState={connectionState}
       onUpdateSession={onUpdateSession}
       onFreshStarted={onFreshStarted}
+      onForkIdentity={onForkIdentity}
+      onForkStartFailed={onForkStartFailed}
+      onExit={onExit}
       onInput={onInput}
       onOutput={onOutput}
       onBell={onBell}
       onFocus={onFocus}
       onLink={onLink}
       onSplit={onSplit}
+      onFork={onFork}
       onOpenTerminalSettings={onOpenTerminalSettings}
       runtimes={runtimes}
     />

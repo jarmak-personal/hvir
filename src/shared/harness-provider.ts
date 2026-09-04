@@ -23,6 +23,8 @@ export interface HarnessContextPressurePolicy {
 export interface HarnessProviderCapabilities {
   readonly sessionIdentity: HarnessSessionIdentity
   readonly exactResume: boolean
+  /** Present only when the probed provider version supports an exact native fork. */
+  readonly exactFork?: true
   readonly contextPresentation: HarnessContextPresentation
   readonly contextPressure?: HarnessContextPressurePolicy
   /** Trusted effective launch contract; absent means document review is Copy-only. */
@@ -45,6 +47,8 @@ export interface HarnessProviderDescriptor {
   readonly id: HarnessProviderId
   readonly displayName: string
   readonly default: boolean
+  /** The bundled provider has an exact fork contract; a probe still decides version support. */
+  readonly exactForkLaunch?: true
   readonly capabilities: HarnessProviderCapabilities
   readonly terminalInput: HarnessTerminalInputCapabilities
   /** Data-only suggestion; catalog membership never materializes a launch profile. */

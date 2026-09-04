@@ -101,6 +101,26 @@ export class HarnessProbeManager {
     })
   }
 
+  /** Runs the bounded exact-profile probe before binding a new launch capability set. */
+  async resolveLaunchCapabilities(
+    request: ProbeHarnessProfilesRequest,
+    profile: HarnessProfile,
+    composerSubmitMode: ComposerSubmitMode,
+  ): Promise<HarnessProviderCapabilities> {
+    const provider = harnessProvider(profile.providerId)
+    const current = this.snapshotProfiles(request).find(
+      (probe) =>
+        probe.profileId === profile.id && probe.launchRevision === profile.launchRevision,
+    )
+    if (
+      (provider.probe.versionArgs || provider.probe.capabilityArgs) &&
+      (!current?.expiresAt || current.expiresAt <= Date.now())
+    ) {
+      await this.probeProfiles({ ...request, profiles: [profile] })
+    }
+    return this.effectiveLaunchCapabilities(request, profile, composerSubmitMode)
+  }
+
   /** A supervised process start is useful advisory evidence without another probe. */
   recordSuccessfulLaunch(
     request: HarnessProfileAvailabilityContext,

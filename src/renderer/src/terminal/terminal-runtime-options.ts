@@ -15,6 +15,7 @@ import type {
   TerminalPresentation,
   TerminalTypography,
 } from './terminal-pane'
+import type { TerminalForkRequest } from './terminal-workspace-model'
 
 export interface FreshTerminalStart {
   readonly sessionId: string
@@ -31,6 +32,7 @@ export interface TerminalRuntimeOptions {
   readonly supportsResume: boolean
   readonly fallbackTitle: string
   readonly harnessSessionId?: string
+  readonly forkRequest?: TerminalForkRequest
   readonly resumeOnStart: boolean
   readonly startMode: 'interactive' | 'bulk'
   readonly position: number
@@ -52,7 +54,10 @@ export interface TerminalRuntimeOptions {
   readonly onIdentity: (
     harnessSessionId: string | undefined,
     status: TerminalIdentityStatus,
+    identityDiverged?: true,
   ) => void
+  readonly onStartFailed?: (reason: string) => void
+  readonly onExit?: (exitCode: number) => void
   readonly onStarted: () => void
   readonly onFreshStarted: (started: FreshTerminalStart) => void
   readonly onCapabilities: (capabilities: HarnessProviderCapabilities) => void

@@ -336,8 +336,13 @@ export interface StartPtyRequest {
   readonly composerSubmitMode: ComposerSubmitMode
   /** Explicit bulk recovery is admitted through the bounded per-host start queue. */
   readonly admission?: 'interactive' | 'bulk'
+  /** Omitted by legacy fresh/resume callers; new provider-derived starts name the mode. */
+  readonly launchMode?: import('./harness-profile').HarnessLaunchMode
   readonly resume?: boolean
   readonly harnessSessionId?: string
+  /** Exact registered source terminal and provider-owned parent identity for a fork. */
+  readonly forkSourceSessionId?: string
+  readonly parentHarnessSessionId?: string
 }
 
 export interface HarnessProfilesRequest {
@@ -433,11 +438,16 @@ export type StartPtyResponse =
       readonly reattached: boolean
       readonly harnessSessionId?: string
       readonly identityStatus: TerminalIdentityStatus
+      readonly identityDiverged?: true
       readonly capabilities: import('./harness-provider').HarnessProviderCapabilities
     }
   | {
       readonly outcome: 'resume-unavailable'
       readonly reason: 'artifact-missing'
+    }
+  | {
+      readonly outcome: 'fork-unavailable'
+      readonly reason: 'parent-artifact-missing'
     }
   | {
       readonly outcome: 'launch-unavailable'
@@ -965,6 +975,7 @@ export interface IpcEventMap {
     readonly id: string
     readonly harnessSessionId?: string
     readonly identityStatus: TerminalIdentityStatus
+    readonly identityDiverged?: true
   }
   'web-pane:navigation-blocked': WebPaneBlockedNavigation
   'web-pane:command': {

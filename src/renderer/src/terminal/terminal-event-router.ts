@@ -29,6 +29,7 @@ export interface TerminalEventHandlers {
   readonly onIdentity: (
     harnessSessionId: string | undefined,
     identityStatus: TerminalIdentityStatus,
+    identityDiverged?: true,
   ) => void
 }
 
@@ -98,11 +99,14 @@ export class TerminalEventRouter {
         if (route) route.telemetry(telemetry)
         else this.unroutedEvents += 1
       }),
-      api.on('pty:identity', ({ id, harnessSessionId, identityStatus }) => {
-        const route = this.routes.get(id)
-        if (route) route.identity(harnessSessionId, identityStatus)
-        else this.unroutedEvents += 1
-      }),
+      api.on(
+        'pty:identity',
+        ({ id, harnessSessionId, identityStatus, identityDiverged }) => {
+          const route = this.routes.get(id)
+          if (route) route.identity(harnessSessionId, identityStatus, identityDiverged)
+          else this.unroutedEvents += 1
+        },
+      ),
     ]
   }
 
@@ -205,8 +209,11 @@ class TerminalEventRouteState implements TerminalEventRoute {
   identity(
     harnessSessionId: string | undefined,
     identityStatus: TerminalIdentityStatus,
+    identityDiverged?: true,
   ): void {
-    if (!this.disposed) this.handlers.onIdentity(harnessSessionId, identityStatus)
+    if (!this.disposed) {
+      this.handlers.onIdentity(harnessSessionId, identityStatus, identityDiverged)
+    }
   }
 
   setPresentation(presentation: TerminalPresentation): void {
