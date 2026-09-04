@@ -997,6 +997,7 @@ function resumeFixture(
     },
     harnessProbes: {
       effectiveLaunchCapabilities,
+      resolveLaunchCapabilities: effectiveLaunchCapabilities,
       invalidate: invalidateProbe,
       probeProfiles,
       refreshProfile,
