@@ -286,6 +286,12 @@ rerun, while partial reruns and cross-attempt job assembly remain ineligible.
 Harness sessions start only as fresh launches, exact resumes of registered identities, or explicit
 provider-derived branches of registered identities; ambient transitions are never inferred.
 
+### [ADR-040 — Complete source budgets and dependency policy](adr/ADR-040-complete-source-budgets-and-dependency-policy.md)
+
+Every maintained source file has a blocking budget, with a 500-line comfort signal, a 1,000-line
+default, exact prior authorization for exceptions, and distinct runtime-cycle and type-direction
+enforcement; ADR-014's ownership discipline remains accepted.
+
 ## 5. Architecture
 
 ### Process model
