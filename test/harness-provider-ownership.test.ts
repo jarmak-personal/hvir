@@ -60,11 +60,18 @@ describe('harness provider dependency direction', () => {
     }
   })
 
-  it('keeps provider implementations off the compatibility facade', async () => {
-    for (const source of references('../harness-provider')) {
-      expect(await messages('src/main/harness/providers/pi.ts', source)).toEqual([
-        expect.objectContaining({ severity: 2 }),
-      ])
+  it('keeps provider implementations off the facade and bundled assembly', async () => {
+    for (const path of [
+      '../harness-provider',
+      '../harness-provider.ts',
+      '../bundled-harness-providers',
+      '../bundled-harness-providers.ts',
+    ]) {
+      for (const source of references(path)) {
+        expect(await messages('src/main/harness/providers/pi.ts', source)).toEqual([
+          expect.objectContaining({ severity: 2 }),
+        ])
+      }
     }
   })
 

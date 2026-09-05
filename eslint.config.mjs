@@ -63,8 +63,10 @@ const SHARED_CONTRACT_EXPRESSION_SELECTOR = SHARED_CONTRACT_IMPORT_BAN.replaceAl
 )
 
 const HARNESS_FACADE_IMPORT_BAN = '(^|/)(?<!shared/)harness-provider(\\.[cm]?[jt]sx?)?$'
+const HARNESS_ASSEMBLY_IMPORT_BAN =
+  '(^|/)(?<!shared/)(bundled-harness-providers|harness-provider)(\\.[cm]?[jt]sx?)?$'
 const HARNESS_IMPLEMENTATION_IMPORT_BAN =
-  '(^|/)(?<!shared/)(bundled-harness-providers|harness-provider)(\\.[cm]?[jt]sx?)?$|(^|/)providers(/|$)|(^|/)(claude|codex)-'
+  HARNESS_ASSEMBLY_IMPORT_BAN + '|(^|/)providers(/|$)|(^|/)(claude|codex)-'
 const HARNESS_DIRECTION_MESSAGE =
   'Harness contracts and neutral policy depend inward, never on bundled assembly, concrete providers, or their observation implementations.'
 
@@ -149,6 +151,10 @@ export default tseslint.config(
     files: ['src/main/harness/**/*.{ts,tsx,mts,cts}'],
     ignores: ['src/main/harness/harness-provider.ts'],
     rules: harnessDirectionRules(HARNESS_FACADE_IMPORT_BAN),
+  },
+  {
+    files: ['src/main/harness/providers/**/*.{ts,tsx,mts,cts}'],
+    rules: harnessDirectionRules(HARNESS_ASSEMBLY_IMPORT_BAN),
   },
   {
     files: [

@@ -13,13 +13,6 @@ import {
   type HarnessUsageValue,
 } from '../../shared'
 import type { HarnessUsageSnapshot } from './harness-provider-contract'
-export type {
-  HarnessUsageSnapshotContext,
-  HarnessUsageRoute,
-  HarnessUsageTiming,
-  HarnessUsageSnapshot,
-  HarnessUsageSnapshotProvider,
-} from './harness-provider-contract'
 
 export type { HarnessUsageUnavailableReason } from '../../shared'
 
