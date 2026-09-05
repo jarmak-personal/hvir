@@ -20,6 +20,7 @@ export const HTML_PREVIEW_CSP = [
 ].join('; ')
 
 export interface CreateHtmlPreviewRequest {
+  readonly workspaceRoot?: HostPath
   readonly path: HostPath
   readonly content: string
 }

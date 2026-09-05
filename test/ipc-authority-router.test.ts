@@ -577,7 +577,9 @@ describe('IpcAuthorityRouter', () => {
     expect(source).not.toMatch(/\.realpath\(/)
     expect(source).not.toMatch(/getRegisteredWorkspaceRoot/)
     for (const channel of AUTHORITY_SCOPED_INVOKE_CHANNELS) {
-      expect(registrationBlock(source, 'handle', channel)).toMatch(/ipc\.authority\./)
+      expect(registrationBlock(source, 'handle', channel)).toMatch(
+        /ipc\.authority\.|authorizeDocumentRead\(ipc\.authority,/,
+      )
     }
     for (const channel of OWNER_SCOPED_INVOKE_CHANNELS) {
       expect(registrationBlock(source, 'handle', channel)).toMatch(/\.owner\(\)/)

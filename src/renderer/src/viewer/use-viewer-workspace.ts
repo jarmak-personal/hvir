@@ -1,5 +1,5 @@
+import { viewerReadRequest, retainWorkspaceDocuments } from './temporary-document-tabs'
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react'
-
 import {
   hostPathEquals,
   unwrapOperation,
@@ -39,7 +39,6 @@ import {
 } from './viewer-workspace-persistence'
 import { ViewerCommandTargets, type ViewerCommandTarget } from './viewer-command-targets'
 import { RetainedViewerWorkspaceCache } from './retained-viewer-workspace-cache'
-
 interface UseViewerWorkspaceOptions {
   readonly onActivateFile: () => void
 }
@@ -91,7 +90,7 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
         readGeneration,
       })
       void window.hvir
-        .invoke('fs:read', { path })
+        .invoke('fs:read', viewerReadRequest(path, modelRef.current.root))
         .then(unwrapOperation)
         .then(
           (file) =>
@@ -116,17 +115,19 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
   )
 
   const switchWorkspace = useCallback(
-    (root: HostPath): void => {
+    (root: HostPath, connected = true): void => {
+      if (!connected) {
+        for (const tab of modelRef.current.tabs) {
+          if (tab.temporaryWorkspaceRoot) send({ type: 'close', id: tab.id })
+        }
+      }
       flushPendingPositions()
       const current = modelRef.current
       if (sameViewerWorkspace(current, root)) return
       if (current.root) {
         persistViewerTabs(current.root, current.tabs, current.activeId)
         warmWorkspaces.current.set(viewerStorageKey(current.root), {
-          tabs: current.tabs.map((tab) => ({
-            ...tab,
-            renderedDependencies: undefined,
-          })),
+          tabs: retainWorkspaceDocuments(current.tabs),
           activeId: current.activeId,
         })
       }
@@ -279,7 +280,8 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
   const saveTab = useCallback(
     (id: string): void => {
       const tab = modelRef.current.tabs.find((candidate) => candidate.id === id)
-      if (!tab?.file || tab.file.binary || tab.conflict) return
+      if (!tab?.file || tab.file.binary || tab.conflict || tab.temporaryWorkspaceRoot)
+        return
       const savedContent = tab.file.content
       send({ type: 'save-started', id })
       void window.hvir

@@ -48,9 +48,7 @@ describe('terminal file links', () => {
     for (const link of links) {
       expect(text.slice(link.start, link.end + 1)).toBe(link.target)
     }
-    expect(
-      links.map(({ target }) => resolveTerminalFileTarget(target, root)),
-    ).toEqual([
+    expect(links.map(({ target }) => resolveTerminalFileTarget(target, root))).toEqual([
       {
         path: hostPath(asHostId('remote'), '/srv/project/src/main.ts'),
         line: 12,
@@ -148,4 +146,17 @@ describe('terminal web links', () => {
     expect(normalizeTerminalWebTarget('src/main.ts:9')).toBeUndefined()
     expect(normalizeTerminalWebTarget('example.com:8080/x')).toBeUndefined()
   })
+})
+
+it('retains the terminal host for temporary documents and excludes arbitrary external files', () => {
+  const root = hostPath(asHostId('ssh-dev'), '/repo')
+  expect(resolveTerminalFileTarget('/tmp/plan.md', root)?.path).toEqual(
+    hostPath(root.hostId, '/tmp/plan.md'),
+  )
+  expect(resolveTerminalFileTarget('/private/tmp/plan.html', root)?.path.hostId).toBe(
+    root.hostId,
+  )
+  expect(resolveTerminalFileTarget('/tmp/code.ts', root)).toBeUndefined()
+  expect(resolveTerminalFileTarget('/tmp-lookalike/plan.md', root)).toBeUndefined()
+  expect(resolveTerminalFileTarget('/tmp/../etc/plan.md', root)).toBeUndefined()
 })

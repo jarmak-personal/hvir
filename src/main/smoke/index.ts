@@ -57,6 +57,7 @@ import {
 } from './project-file-operations'
 import { verifyFocusedViewer } from './viewer-position'
 import { verifyViewerContent } from './viewer-content'
+import { verifyTemporaryDocuments } from './temporary-documents'
 import { verifyWorkbenchHealthFault } from './workbench-health'
 import { verifyRendererProcessRecovery } from './renderer-recovery'
 import { verifySessionsProjectionSmoke } from './sessions-projection'
@@ -1171,6 +1172,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         largeTextPath,
         liveReloadBefore,
       })
+      await verifyTemporaryDocuments(win, host, supervisor)
       console.log(`[smoke] viewer content OK (${result})`)
       console.log('HVIR_SMOKE_OK')
       return 0

@@ -1,3 +1,4 @@
+import { isTemporaryDocument } from '../../../shared/temporary-document'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
@@ -43,8 +44,16 @@ export class TerminalPathActivationCoordinator {
 
   async activate(target: ResolvedTerminalFileTarget): Promise<void> {
     const root = this.root
-    if (!root || !containsHostPath(root, target.path)) return
+    if (!root || target.path.hostId !== root.hostId) return
+    const temporary =
+      !containsHostPath(root, target.path) && isTemporaryDocument(target.path)
+    if (!containsHostPath(root, target.path) && !temporary) return
     const generation = (this.generation += 1)
+    // Opening first lets the viewer show missing/unreadable document errors.
+    if (temporary) {
+      this.ports.openFile(target.path, targetPosition(target))
+      return
+    }
     const resolveEntry = this.ports.resolveEntry
     let entry: ResolveEntryResponse
     try {
