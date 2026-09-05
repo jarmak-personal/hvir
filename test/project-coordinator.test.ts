@@ -1,7 +1,9 @@
 /* eslint-disable @typescript-eslint/unbound-method -- assertions inspect typed Vitest port mocks */
 
 import { describe, expect, it, vi } from 'vitest'
-import { homedir } from 'node:os'
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { homedir, tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import {
   ProjectCoordinator,
@@ -10,7 +12,8 @@ import {
   type ProjectRegistryPort,
   type ProjectWorkspacePort,
 } from '../src/main/project-coordinator'
-import type { ProjectHost } from '../src/main/project-host'
+import { ProjectHostCatalog, type ProjectHost } from '../src/main/project-host'
+import { ProjectRegistry } from '../src/main/project-registry'
 import type { WorkspaceRemovalPort } from '../src/main/workspace-removal-coordinator'
 import {
   asHostId,
@@ -270,6 +273,65 @@ function fixture() {
 }
 
 describe('ProjectCoordinator', () => {
+  it('connects and browses through the real local catalog and filesystem', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hvir-coordinator-local-'))
+    let catalog: ProjectHostCatalog | undefined
+    let registry: ProjectRegistry | undefined
+    try {
+      await mkdir(join(root, 'zeta'))
+      await mkdir(join(root, 'alpha'))
+      await writeFile(join(root, 'file.txt'), 'not a directory')
+      catalog = await ProjectHostCatalog.create({
+        prompter: { prompt: () => Promise.resolve(undefined) },
+        trustFile: localPath(join(root, 'known-hosts.json')),
+        home: root,
+        agentSocket: '',
+      })
+      registry = await ProjectRegistry.create(
+        localPath(root),
+        catalog,
+        join(root, 'projects.json'),
+        () => undefined,
+      )
+      const { workspaces, cleanup, removal } = fixture()
+      const coordinator = new ProjectCoordinator({
+        registry,
+        hosts: catalog,
+        workspaces,
+        cleanup,
+        removal,
+      })
+      const canonicalRoot = await realpath(root)
+
+      await expect(coordinator.connectHost('local')).resolves.toMatchObject({
+        host: { hostId: 'local', connectionState: 'connected' },
+        suggestedPath: canonicalRoot,
+      })
+      await expect(coordinator.browseHost('local', root)).resolves.toEqual({
+        path: localPath(canonicalRoot),
+        directories: [
+          { name: 'alpha', type: 'dir' },
+          { name: 'zeta', type: 'dir' },
+        ],
+      })
+      const missing = join(root, 'missing')
+      await expect(coordinator.browseHost('local', missing)).rejects.toMatchObject({
+        message: `Folder not found: ${missing}`,
+        cause: { code: 'ENOENT' },
+      })
+    } finally {
+      try {
+        await registry?.dispose()
+      } finally {
+        try {
+          await catalog?.dispose()
+        } finally {
+          await rm(root, { recursive: true, force: true })
+        }
+      }
+    }
+  })
+
   it('suggests the active local root or local home without running a remote pwd', async () => {
     const { coordinator, localHost } = fixture()
     await expect(coordinator.connectHost('local')).resolves.toMatchObject({
