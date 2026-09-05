@@ -1,5 +1,9 @@
 # ADR-027: Demand-driven Git workspace activity
 
+> Lifecycle: Active
+> Supersedes: [ADR-008](ADR-008-project-worktree-workspaces.md) | partial | Periodic Git work refreshing activity for every open workspace.
+> Supersedes: [ADR-023](ADR-023-closed-workspace-lifecycle.md) | partial | Fixed per-worktree periodic status cadence.
+
 ## Context
 
 The workspace coordinator historically ran porcelain status for every present worktree every

@@ -1,5 +1,8 @@
 # ADR-005: System Git behind an off-thread engine
 
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-021](ADR-021-system-git-dirty-navigation-safety.md) | partial | Clean-worktree navigation prerequisite and handing every dirty branch switch or pull to the terminal.
+
 ## Context
 
 hvir must present truthful Git state for ordinary repositories, worktrees, remote hosts,

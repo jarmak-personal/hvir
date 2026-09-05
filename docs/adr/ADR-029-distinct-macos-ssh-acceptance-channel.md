@@ -1,5 +1,7 @@
 # ADR-029: Distinct signed macOS SSH acceptance channel
 
+> Lifecycle: Active
+
 ## Context
 
 macOS Local Network Privacy attributes network access using code identity that includes the code

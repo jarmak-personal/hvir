@@ -1,5 +1,8 @@
 # ADR-015: Missing resume artifacts block implicit fresh launches
 
+> Lifecycle: Active
+> Supersedes: [ADR-012](ADR-012-harness-providers-launch-profiles.md) | partial | Definitely absent or empty resume artifacts implicitly starting a fresh harness.
+
 ## Context
 
 Exact harness recovery may determine that the provider-owned artifact for a retained

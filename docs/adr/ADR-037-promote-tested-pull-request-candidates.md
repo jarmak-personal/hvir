@@ -1,5 +1,8 @@
 # ADR-037: Promote tested pull-request candidates
 
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-038](ADR-038-coherent-ci-attempts.md) | partial | First-attempt-only and rerun restrictions on otherwise exact candidate CI evidence.
+
 ## Context
 
 The same accepted change currently runs hvir's complete CI portfolio once as a pull-request

@@ -1,8 +1,7 @@
 # ADR-009: Focus clears attention and parents aggregate
 
-> [ADR-019](ADR-019-working-output-is-not-actionable-attention.md) supersedes only
-> the treatment of ongoing post-submission output as new attention and its inclusion
-> in workspace and project rollups. The remaining decisions still apply.
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-019](ADR-019-working-output-is-not-actionable-attention.md) | partial | Classifying ongoing post-submission output as actionable new-output attention.
 
 ## Context
 
