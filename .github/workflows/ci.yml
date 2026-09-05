@@ -62,12 +62,17 @@ jobs:
     if: always() && needs.release-version-integrity.result == 'skipped'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+      issues: read
+      pull-requests: read
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
         with:
-          # The architecture ratchet compares against its named baseline commit.
+          # Architecture validates the exact event base/head and accepted epic history.
           fetch-depth: 0
 
       - name: Set up Node.js
@@ -80,6 +85,8 @@ jobs:
         run: npm ci
 
       - name: Run policy, type, and test verification
+        env:
+          HVIR_REPO_TOKEN: ${{ github.token }}
         run: npm run verify
 
   electron-smoke:

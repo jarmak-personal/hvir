@@ -1,132 +1,97 @@
 #!/usr/bin/env node
-
-import { execFileSync } from 'node:child_process'
 import console from 'node:console'
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
-import { extname, join, relative, resolve, sep } from 'node:path'
 import process from 'node:process'
+import { readFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import { fileURLToPath, URL } from 'node:url'
+import { POLICY_PATH, evaluateInventory, validatePolicy } from './architecture-policy.mjs'
+import {
+  collectInventory,
+  comparisonCounts,
+  fullCommit,
+} from './architecture-inventory.mjs'
+import { authorizeCandidate } from './architecture-authorization.mjs'
+import {
+  githubAdapter,
+  loadArchitectureIntegration,
+  requireCurrentRemovalIssues,
+  resolveArchitectureContext,
+} from './architecture-github.mjs'
 
 const repositoryRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
 
 export function collectArchitectureHotspots(root = repositoryRoot) {
-  const policy = JSON.parse(
-    readFileSync(join(root, 'scripts', 'architecture-hotspots.json'), 'utf8'),
+  const policy = validatePolicy(JSON.parse(readFileSync(join(root, POLICY_PATH), 'utf8')))
+  const inventory = collectInventory(root, policy)
+  const head = fullCommit(root, 'HEAD')
+  const rows = evaluateInventory(
+    policy,
+    inventory,
+    comparisonCounts(root, inventory, [head]),
   )
-  const extensions = new Set(policy.extensions)
-  const scanRoots = [...policy.productionRoots, ...policy.testRoots]
-    .map((path) => join(root, path))
-    .filter((path) => existsSync(path))
-  const files = [...new Set(scanRoots.flatMap((path) => walk(path)))]
-    .filter((path) => extensions.has(extname(path)))
-    .map((path) => relative(root, path).split(sep).join('/'))
-    .sort()
-  const hotspotByPath = new Map(policy.legacyHotspots.map((entry) => [entry.path, entry]))
-  const generated = new Set(policy.generatedFiles)
-  const rows = files.map((path) => {
-    const lines = lineCount(readFileSync(join(root, path), 'utf8'))
-    const hotspot = hotspotByPath.get(path)
-    const category = generated.has(path)
-      ? 'generated'
-      : policy.testRoots.some(
-            (testRoot) => path === testRoot || path.startsWith(`${testRoot}/`),
-          )
-        ? 'test'
-        : 'production'
-    const existedAtBaseline = gitPathExists(root, policy.baselineCommit, path)
-    const limit =
-      hotspot?.maxLines ??
-      (category === 'generated'
-        ? policy.limits.generatedModule
-        : category === 'test'
-          ? policy.limits.testModule
-          : !existedAtBaseline
-            ? policy.limits.newProductionModule
-            : undefined)
-    return {
-      path,
-      lines,
-      category,
-      baseline: existedAtBaseline ? 'existing' : 'new',
-      limit,
-      status: limit !== undefined && lines > limit ? 'over' : 'ok',
-      exception: hotspot
-        ? {
-            owner: hotspot.owner,
-            rationale: hotspot.rationale,
-            removalIssue: hotspot.removalIssue,
-            expiresOn: hotspot.expiresOn,
-            permanent: hotspot.permanent === true,
-          }
-        : undefined,
-    }
-  })
   return {
-    version: policy.version,
-    baselineCommit: policy.baselineCommit,
-    mode: process.argv.includes('--enforce') ? 'enforce' : 'report',
-    limits: policy.limits,
+    version: 2,
+    mode: 'provisional-report',
+    head,
+    evidence:
+      'No authorization claimed; architecture:check resolves the current target and acceptance evidence.',
     rows,
     violations: rows.filter((row) => row.status === 'over'),
   }
 }
 
-function walk(path) {
-  if (!statSync(path).isDirectory()) return [path]
-  return readdirSync(path, { withFileTypes: true }).flatMap((entry) => {
-    const child = join(path, entry.name)
-    return entry.isDirectory() ? walk(child) : [child]
-  })
-}
-
-function lineCount(source) {
-  if (source.length === 0) return 0
-  const newlines = source.match(/\n/g)?.length ?? 0
-  return newlines + (source.endsWith('\n') ? 0 : 1)
-}
-
-function gitPathExists(root, revision, path) {
-  try {
-    execFileSync('git', ['cat-file', '-e', `${revision}:${path}`], {
-      cwd: root,
-      stdio: 'ignore',
-    })
-    return true
-  } catch {
-    return false
-  }
-}
-
-function printReport(report) {
-  const named = report.rows.filter((row) => row.exception)
-  console.log(`architecture hotspot report (baseline ${report.baselineCommit})`)
-  for (const row of named) {
-    const marker = row.status === 'over' ? '!' : '·'
-    console.log(`${marker} ${row.path}: ${row.lines}/${row.limit} lines`)
-  }
-  const newModules = report.rows.filter(
-    (row) => row.baseline === 'new' && !row.exception && row.lines > 0,
-  )
-  if (newModules.length > 0) {
-    console.log(`new modules since baseline: ${newModules.length}`)
-    for (const row of newModules.filter((candidate) => candidate.status === 'over')) {
-      console.log(`! ${row.path}: ${row.lines}/${row.limit} lines (${row.category})`)
-    }
-  }
-  if (report.violations.length === 0) {
-    console.log('architecture hotspot policy has no violations')
-  } else {
-    console.log(
-      `${report.violations.length} architecture hotspot violation(s) ${report.mode === 'enforce' ? 'block verification' : 'reported only'}`,
+export function formatReport(report) {
+  const lines = [
+    `architecture budgets (${report.mode})`,
+    `${report.rows.length} maintained source files; every file has one governing rule`,
+  ]
+  if (report.context)
+    lines.push(
+      `candidate ${report.context.head}; ${report.context.target} base ${report.context.base}; ${report.admission.kind}`,
+    )
+  if (report.evidence) lines.push(report.evidence)
+  for (const row of report.rows.filter(
+    (row) => row.aboveComfort || row.exception || row.status === 'over',
+  )) {
+    lines.push(
+      `${row.status === 'over' ? '!' : '·'} ${row.path}: ${row.lines}/${row.effectiveLimit} lines (${row.category}, ${row.governingRule}${row.aboveComfort ? ', above comfort' : ''})`,
     )
   }
+  lines.push(`${report.violations.length} budget violation(s)`)
+  return lines.join('\n')
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const report = collectArchitectureHotspots()
-  if (process.argv.includes('--json')) console.log(JSON.stringify(report, null, 2))
-  else printReport(report)
-  if (process.argv.includes('--enforce') && report.violations.length > 0) {
+  try {
+    const enforce = process.argv.includes('--enforce')
+    let report
+    if (enforce) {
+      const api = githubAdapter(process.env.HVIR_REPO_TOKEN)
+      const context = await resolveArchitectureContext(repositoryRoot, api)
+      report = await authorizeCandidate({
+        root: repositoryRoot,
+        context,
+        loadIntegration: (merge, epic) =>
+          loadArchitectureIntegration(repositoryRoot, api, merge, epic),
+      })
+      await requireCurrentRemovalIssues(
+        api,
+        validatePolicy(
+          JSON.parse(readFileSync(join(repositoryRoot, POLICY_PATH), 'utf8')),
+        ),
+      )
+      const current = await resolveArchitectureContext(repositoryRoot, api)
+      if (current.base !== context.base || current.head !== context.head)
+        throw new Error('Architecture target changed during verification; reverify')
+    } else report = collectArchitectureHotspots()
+    console.log(
+      process.argv.includes('--json')
+        ? JSON.stringify(report, null, 2)
+        : formatReport(report),
+    )
+    if (enforce && report.violations.length) process.exitCode = 1
+  } catch (error) {
+    console.error(`Architecture verification failed: ${error.message}`)
     process.exitCode = 1
   }
 }

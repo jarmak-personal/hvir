@@ -1,100 +1,285 @@
 {
-  "version": 1,
-  "baselineCommit": "ea1c157",
-  "extensions": [".ts", ".tsx", ".mts", ".css"],
-  "productionRoots": [
-    "src/main",
-    "src/preload",
-    "src/renderer/src",
-    "src/shared",
-    "src/workers"
+  "version": 2,
+  "comfortLines": 500,
+  "defaultMaximum": 1000,
+  "roots": [
+    "src",
+    "test",
+    "scripts",
+    "packages",
+    "build",
+    ".github",
+    ".githooks",
+    ".agents",
+    ".claude"
   ],
-  "testRoots": ["test", "src/main/smoke"],
-  "generatedFiles": ["src/renderer/src/terminal/generated-terminal-theme-catalog.ts"],
-  "limits": {
-    "newProductionModule": 500,
-    "testModule": 1200,
-    "generatedModule": 5000
-  },
-  "legacyHotspots": [
+  "extensions": [
+    ".ts",
+    ".tsx",
+    ".mts",
+    ".cts",
+    ".js",
+    ".jsx",
+    ".mjs",
+    ".cjs",
+    ".css",
+    ".sh",
+    ".bash",
+    ".zsh",
+    ".c",
+    ".h"
+  ],
+  "budgets": [
     {
-      "path": "src/main/index.ts",
-      "maxLines": 520,
-      "owner": "architecture epic #33",
-      "rationale": "The composition root wires runtime owners, window presentation, coordinators, worker adapters, and IPC; this strict cap prevents product workflows from returning.",
-      "removalIssue": "#35-#40",
-      "expiresOn": "2026-09-30"
-    },
-    {
-      "path": "src/renderer/src/App.tsx",
-      "maxLines": 686,
-      "owner": "architecture epic #33",
-      "rationale": "The renderer root is now a composition shell for feature-owned models and views; this strict cap prevents it from reabsorbing feature state and policy.",
-      "removalIssue": "#43-#45",
-      "expiresOn": "2026-09-30"
-    },
-    {
-      "path": "src/main/project-host/ssh-host.ts",
-      "maxLines": 1192,
-      "owner": "architecture epic #33",
-      "rationale": "The public SshHost owns one authentication, connection, cache, and capacity policy while delegating file, watch, and transport-pool mechanics to private collaborators.",
-      "removalIssue": "#41",
-      "expiresOn": "2026-09-30"
-    },
-    {
-      "path": "src/renderer/src/terminal/TerminalWorkspace.tsx",
-      "maxLines": 422,
-      "owner": "architecture epic #33",
-      "rationale": "TerminalWorkspace is now the feature composition view over extracted policy, effects, persistence, recovery, and presentation modules; the named cap preserves that boundary.",
-      "removalIssue": "#46",
-      "expiresOn": "2026-09-30"
-    },
-    {
-      "path": "src/renderer/src/settings/HarnessProfilesSettings.tsx",
-      "maxLines": 220,
-      "owner": "architecture epic #33",
-      "rationale": "HarnessProfilesSettings composes extracted profile policy, controller, fields, and dialogs; the named cap prevents those responsibilities from moving back into the view.",
-      "removalIssue": "#48",
-      "expiresOn": "2026-09-30"
+      "path": "scripts/project-management/agent-work-ledger.ts",
+      "kind": "durable",
+      "maxLines": 1041,
+      "owner": "agent-work ledger schema and normalization",
+      "rationale": "The closed record schema and deterministic normalization form one validation boundary; splitting field checks from their cross-field invariants would distribute acceptance authority.",
+      "reconsiderWhen": "The agent-work ledger schema and normalization gains an independently owned capability or a separate resource lifetime; reassess this exact ceiling before expanding it."
     },
     {
       "path": "src/main/git/git-engine.ts",
+      "kind": "stricter",
       "maxLines": 128,
-      "owner": "architecture epic #33",
+      "owner": "GitEngine facade",
       "rationale": "GitEngine is the stable facade over capability modules and the shared command context; its lower named cap prevents the facade from reabsorbing capability implementations.",
-      "removalIssue": "#42",
-      "expiresOn": "2026-09-30"
+      "reconsiderWhen": "A separately accepted change moves this owner's public composition or lifecycle responsibility."
     },
     {
-      "path": "src/renderer/src/styles.css",
-      "maxLines": 100,
-      "owner": "architecture epic #33",
-      "rationale": "The root stylesheet is an explicit ordered import manifest; its lower named cap prevents feature rules from returning to the global composition surface.",
-      "removalIssue": "#49",
-      "expiresOn": "2026-09-30"
+      "path": "src/main/index.ts",
+      "kind": "stricter",
+      "maxLines": 520,
+      "owner": "main composition root",
+      "rationale": "The composition root wires runtime owners, window presentation, coordinators, worker adapters, and IPC; this strict cap prevents product workflows from returning.",
+      "reconsiderWhen": "A separately accepted change moves this owner's public composition or lifecycle responsibility."
     },
     {
-      "path": "test/ssh-host.test.ts",
-      "maxLines": 1685,
-      "owner": "architecture epic #33",
-      "rationale": "Legacy end-to-end SshHost adapter characterization remains in one test module while new collaborator policy is tested in focused modules.",
-      "removalIssue": "#41",
-      "expiresOn": "2026-09-30"
+      "path": "src/main/project-host/ssh-host.ts",
+      "kind": "durable",
+      "maxLines": 1171,
+      "owner": "SshHost connection and authentication adapter",
+      "rationale": "One public host adapter owns authentication, connection state, cached capabilities, and capacity admission while private collaborators own file, watch, and pool mechanics.",
+      "reconsiderWhen": "The SshHost connection and authentication adapter gains an independently owned capability or a separate resource lifetime; reassess this exact ceiling before expanding it."
+    },
+    {
+      "path": "src/main/project-registry.ts",
+      "kind": "transitional",
+      "maxLines": 1076,
+      "owner": "ProjectRegistry workspace lifecycle",
+      "rationale": "Registered-project persistence and workspace transitions currently share one authority; the planned workspace lifecycle extraction gives them separate owners.",
+      "reconsiderWhen": "The responsibility extraction in #435 is accepted; remove this exception or tighten to the resulting owner.",
+      "removalIssue": "#435"
+    },
+    {
+      "path": "src/main/pty/pty-supervisor.ts",
+      "kind": "transitional",
+      "maxLines": 1264,
+      "owner": "PTY supervisor authority",
+      "rationale": "Spawn, recovery, and session lifecycle currently share the supervisor's authority; lifecycle decomposition must preserve that public seam.",
+      "reconsiderWhen": "The responsibility extraction in #738 is accepted; remove this exception or tighten to the resulting owner.",
+      "removalIssue": "#738"
+    },
+    {
+      "path": "src/main/smoke/capacity-terminals.ts",
+      "kind": "durable",
+      "maxLines": 1137,
+      "owner": "terminal capacity acceptance scenario",
+      "rationale": "The scenario owns one capacity setup, workload, measurement, and cleanup lifetime across real terminals.",
+      "reconsiderWhen": "The terminal capacity acceptance scenario gains an independently owned capability or a separate resource lifetime; reassess this exact ceiling before expanding it."
+    },
+    {
+      "path": "src/main/smoke/document-review.ts",
+      "kind": "durable",
+      "maxLines": 1111,
+      "owner": "document review Electron acceptance",
+      "rationale": "One production-composed review workflow proves anchors, explicit handoff, persistence, and cleanup in its real renderer environment.",
+      "reconsiderWhen": "The document review Electron acceptance gains an independently owned capability or a separate resource lifetime; reassess this exact ceiling before expanding it."
     },
     {
       "path": "src/main/smoke/index.ts",
-      "maxLines": 2868,
-      "owner": "testing epic #72",
-      "rationale": "The remaining transitional renderer workflow stays production-composed while focused PTY, viewer-position, and packaged platform contracts run independently.",
-      "removalIssue": "#115 and #116",
-      "expiresOn": "2026-09-30"
+      "kind": "transitional",
+      "maxLines": 2107,
+      "owner": "legacy renderer workflow smoke root",
+      "rationale": "The remaining production-composed scenario mixes feature workflows; the authorized smoke decomposition will retain real Electron coverage at named seams.",
+      "reconsiderWhen": "The responsibility extraction in #743 is accepted; remove this exception or tighten to the resulting owner.",
+      "removalIssue": "#743"
+    },
+    {
+      "path": "src/main/smoke/project-file-operations.ts",
+      "kind": "durable",
+      "maxLines": 1173,
+      "owner": "project file operations Electron acceptance",
+      "rationale": "One scenario owns disposable source and destination roots and the cross-process operation lifecycle through production authority.",
+      "reconsiderWhen": "The project file operations Electron acceptance gains an independently owned capability or a separate resource lifetime; reassess this exact ceiling before expanding it."
+    },
+    {
+      "path": "src/main/smoke/sessions-projection.ts",
+      "kind": "durable",
+      "maxLines": 1198,
+      "owner": "Sessions projection Electron acceptance",
+      "rationale": "The scenario follows one live session surface lease across workspace and global projections, preserving a shared real-process lifetime.",
+      "reconsiderWhen": "The Sessions projection Electron acceptance gains an independently owned capability or a separate resource lifetime; reassess this exact ceiling before expanding it."
+    },
+    {
+      "path": "src/renderer/src/App.tsx",
+      "kind": "stricter",
+      "maxLines": 686,
+      "owner": "renderer composition shell",
+      "rationale": "The renderer root is now a composition shell for feature-owned models and views; this strict cap prevents it from reabsorbing feature state and policy.",
+      "reconsiderWhen": "A separately accepted change moves this owner's public composition or lifecycle responsibility."
+    },
+    {
+      "path": "src/renderer/src/settings/HarnessProfilesSettings.tsx",
+      "kind": "stricter",
+      "maxLines": 220,
+      "owner": "harness profile settings composition view",
+      "rationale": "HarnessProfilesSettings composes extracted profile policy, controller, fields, and dialogs; the named cap prevents those responsibilities from moving back into the view.",
+      "reconsiderWhen": "A separately accepted change moves this owner's public composition or lifecycle responsibility."
+    },
+    {
+      "path": "src/renderer/src/styles.css",
+      "kind": "stricter",
+      "maxLines": 100,
+      "owner": "stylesheet import manifest",
+      "rationale": "The root stylesheet is an explicit ordered import manifest; its lower named cap prevents feature rules from returning to the global composition surface.",
+      "reconsiderWhen": "A separately accepted change moves this owner's public composition or lifecycle responsibility."
     },
     {
       "path": "src/renderer/src/terminal/terminal-runtime.ts",
+      "kind": "stricter",
       "maxLines": 600,
       "owner": "terminal runtime",
       "rationale": "The runtime intentionally owns pane listener wiring and live PTY lifecycle authority. Terminal event effects may evolve inside that owner without forcing false extraction seams, while the named cap remains a blocking non-growth ratchet.",
-      "permanent": true
+      "reconsiderWhen": "A separately accepted change moves this owner's public composition or lifecycle responsibility."
+    },
+    {
+      "path": "src/renderer/src/terminal/TerminalWorkspace.tsx",
+      "kind": "stricter",
+      "maxLines": 422,
+      "owner": "terminal workspace composition view",
+      "rationale": "TerminalWorkspace is now the feature composition view over extracted policy, effects, persistence, recovery, and presentation modules; the named cap preserves that boundary.",
+      "reconsiderWhen": "A separately accepted change moves this owner's public composition or lifecycle responsibility."
+    },
+    {
+      "path": "src/renderer/src/viewer/FileViewer.tsx",
+      "kind": "transitional",
+      "maxLines": 1036,
+      "owner": "FileViewer view composition",
+      "rationale": "The view currently composes several viewer workflows that the accepted viewer child will move to explicit owners.",
+      "reconsiderWhen": "The responsibility extraction in #741 is accepted; remove this exception or tighten to the resulting owner.",
+      "removalIssue": "#741"
+    },
+    {
+      "path": "src/shared/ipc.ts",
+      "kind": "transitional",
+      "maxLines": 1209,
+      "owner": "IPC contract manifest",
+      "rationale": "The current shared manifest centralizes capability contracts pending their relocation to capability-owned leaves.",
+      "reconsiderWhen": "The responsibility extraction in #739 is accepted; remove this exception or tighten to the resulting owner.",
+      "removalIssue": "#739"
+    },
+    {
+      "path": "test/file-create-actions.test.tsx",
+      "kind": "durable",
+      "maxLines": 1154,
+      "owner": "file creation actions interaction tests",
+      "rationale": "The suite covers one creation workflow's targeting, collision, and user confirmation semantics through narrow file-operation ports.",
+      "reconsiderWhen": "The file creation actions interaction tests gains an independently owned capability or a separate resource lifetime; reassess this exact ceiling before expanding it."
+    },
+    {
+      "path": "test/ghostty-terminal-pane-lifecycle.test.tsx",
+      "kind": "durable",
+      "maxLines": 1195,
+      "owner": "Ghostty terminal pane lifecycle tests",
+      "rationale": "The suite exercises the pane's single listener and resource lifetime through its immediate runtime boundary.",
+      "reconsiderWhen": "The Ghostty terminal pane lifecycle tests gains an independently owned capability or a separate resource lifetime; reassess this exact ceiling before expanding it."
+    },
+    {
+      "path": "test/git-engine.test.ts",
+      "kind": "durable",
+      "maxLines": 1172,
+      "owner": "GitEngine public facade contract tests",
+      "rationale": "The suite preserves public Git facade behavior over its immediate command boundary while capability parsing policy is tested separately.",
+      "reconsiderWhen": "The GitEngine public facade contract tests gains an independently owned capability or a separate resource lifetime; reassess this exact ceiling before expanding it."
+    },
+    {
+      "path": "test/harness-profiles-settings.test.tsx",
+      "kind": "durable",
+      "maxLines": 1160,
+      "owner": "harness profile settings interaction tests",
+      "rationale": "The suite proves the settings feature's user interaction and state lifecycle using one renderer environment and provider catalog.",
+      "reconsiderWhen": "The harness profile settings interaction tests gains an independently owned capability or a separate resource lifetime; reassess this exact ceiling before expanding it."
+    },
+    {
+      "path": "test/project-file-operation-coordinator.test.ts",
+      "kind": "durable",
+      "maxLines": 1107,
+      "owner": "project file operation coordinator tests",
+      "rationale": "The suite proves one operation-scoped authority and cleanup lifecycle across host-qualified source and destination ports.",
+      "reconsiderWhen": "The project file operation coordinator tests gains an independently owned capability or a separate resource lifetime; reassess this exact ceiling before expanding it."
+    },
+    {
+      "path": "test/pty-supervisor.test.ts",
+      "kind": "transitional",
+      "maxLines": 1193,
+      "owner": "PTY supervisor public authority tests",
+      "rationale": "The suite currently characterizes supervisor authority and lifecycle together; assertions move only with the owning responsibility in the supervisor decomposition.",
+      "reconsiderWhen": "The responsibility extraction in #738 is accepted; remove this exception or tighten to the resulting owner.",
+      "removalIssue": "#738"
+    },
+    {
+      "path": "test/smoke-scenario-runner.test.ts",
+      "kind": "durable",
+      "maxLines": 1159,
+      "owner": "smoke process runner tests",
+      "rationale": "The suite proves process ownership, interruption, and cleanup through the launcher's immediate child-process boundary.",
+      "reconsiderWhen": "The smoke process runner tests gains an independently owned capability or a separate resource lifetime; reassess this exact ceiling before expanding it."
+    },
+    {
+      "path": "test/ssh-host.test.ts",
+      "kind": "durable",
+      "maxLines": 1621,
+      "owner": "SshHost immediate transport adapter tests",
+      "rationale": "The suite characterizes the single public host adapter using its immediate SSH boundary; authentication, reconnect, and teardown assertions share the adapter's lifecycle fixture.",
+      "reconsiderWhen": "The SshHost immediate transport adapter tests gains an independently owned capability or a separate resource lifetime; reassess this exact ceiling before expanding it."
+    },
+    {
+      "path": "test/terminal-ipc-resume.test.ts",
+      "kind": "durable",
+      "maxLines": 1182,
+      "owner": "terminal resume IPC authority tests",
+      "rationale": "The suite checks one transport authority boundary for exact resume, missing artifacts, and late lifecycle completion.",
+      "reconsiderWhen": "The terminal resume IPC authority tests gains an independently owned capability or a separate resource lifetime; reassess this exact ceiling before expanding it."
+    },
+    {
+      "path": "test/terminal-session-registry.test.ts",
+      "kind": "durable",
+      "maxLines": 1192,
+      "owner": "terminal session registry tests",
+      "rationale": "The suite owns deterministic registry transitions, retained identity, and lifecycle invariants over the same narrow ports.",
+      "reconsiderWhen": "The terminal session registry tests gains an independently owned capability or a separate resource lifetime; reassess this exact ceiling before expanding it."
+    }
+  ],
+  "generated": [
+    {
+      "path": "src/renderer/src/terminal/generated-terminal-theme-catalog.ts",
+      "maxLines": 5000,
+      "owner": "terminal theme catalog generator",
+      "rationale": "The deterministic catalog is emitted from the pinned Ghostty/iTerm2 theme source tree; theme data is not manually maintained.",
+      "reconsiderWhen": "The output format, pinned theme input, or reproducible generator changes.",
+      "generator": "scripts/generate-terminal-theme-catalog.mts",
+      "inputs": [
+        {
+          "path": "scripts/generate-terminal-theme-catalog.mts",
+          "sha256": "a7721aa27836926b452ab3756322614b0771518ed2e3171d8e43d0ff387c109e"
+        },
+        {
+          "path": "src/renderer/src/terminal/terminal-color-schema.mts",
+          "sha256": "94919f83b1b4876ff99f2d6957f27ddb6701a3ecfc399adb7d0cbe464d6483fe"
+        }
+      ],
+      "command": "npm run generate:terminal-themes -- --source <verified-ghostty-theme-tree>"
     }
   ]
 }

@@ -7,7 +7,7 @@ export default defineConfig({
     environment: 'node',
     // Node's experimental global shadows happy-dom's renderer-owned storage.
     execArgv: ['--no-experimental-webstorage'],
-    include: ['test/**/*.test.{ts,tsx}'],
+    include: ['test/**/*.test.{ts,tsx}', 'test/architecture-*.test.js'],
     setupFiles: ['./test/test-console-output-policy.ts'],
   },
 })
