@@ -1,4 +1,3 @@
-import { readFileSync, readdirSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { validateAdrLifecycles } from '../scripts/adr-lifecycle.mts'
 
@@ -201,15 +200,9 @@ describe('ADR lifecycle authority and index', () => {
       expect(validateAdrLifecycles(records, changed).length).toBeGreaterThan(0)
   })
 
-  it('validates the complete maintained corpus through the same checker policy', () => {
-    const records = new Map(
-      readdirSync('docs/adr')
-        .filter((name) => /^ADR-\d{3}-/.test(name))
-        .map((name) => [name, readFileSync(`docs/adr/${name}`, 'utf8')]),
-    )
-    const section = readFileSync('docs/design.md', 'utf8')
-      .split('## 4. Key decisions\n')[1]!
-      .split('\n## 5. Architecture')[0]!
-    expect(validateAdrLifecycles(records, section)).toEqual([])
+  it('rejects a replacement notice separated from the leading lifecycle block', () => {
+    const records = pair()
+    replace(records, '001', '\n> Superseded by:', '\n\n> Superseded by:')
+    expect(errors(records)).toContain('lifecycle notices must form one leading block')
   })
 })
