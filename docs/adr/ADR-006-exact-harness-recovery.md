@@ -1,11 +1,8 @@
 # ADR-006: Exact harness recovery instead of a PTY daemon
 
-> [ADR-020](ADR-020-two-explicit-recovery-skips-forget-record.md) supersedes only the
-> retention-until-explicit-close rule in this record. The remaining decisions still apply.
->
-> [ADR-031](ADR-031-transparent-provider-context-assumptions.md) supersedes only the
-> authoritative-window and universal pressure-threshold rules in this record. The remaining
-> decisions still apply.
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-020](ADR-020-two-explicit-recovery-skips-forget-record.md) | partial | Indefinite recovery-record retention until explicit close.
+> Superseded by: [ADR-031](ADR-031-transparent-provider-context-assumptions.md) | partial | Requiring an authoritative context window for pressure presentation and one universal threshold pair.
 
 ## Context
 

@@ -1,5 +1,7 @@
 # ADR-013: User-activated loopback web panes over ProjectHost routes
 
+> Lifecycle: Active
+
 ## Context
 
 Live local web applications are valuable agent output, especially when tied to the exact

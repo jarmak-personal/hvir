@@ -1,5 +1,7 @@
 # ADR-NNN: Short decision title
 
+> Lifecycle: Active
+
 ## Context
 
 Describe the durable problem and the constraints that make a decision necessary.

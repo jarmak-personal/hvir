@@ -17,7 +17,9 @@ between them.
 
 **Read [`docs/design.md`](docs/design.md) before doing substantive work** — it holds the
 product philosophy, guardrails, architecture, risk posture, and the linked ADR index.
-Read the relevant canonical decision records under [`docs/adr/`](docs/adr/README.md).
+Start with the index's [read-first constraints](docs/design.md#read-first-constraints), then
+read the relevant feature decisions under [`docs/adr/`](docs/adr/README.md). Follow lifecycle
+notices and replacement scopes: partial supersession leaves unaffected rules authoritative.
 
 **Implementation and acceptance work is tracked in GitHub issues, commits, and pull
 requests.** Do not add progress checklists, status logs, or test-run evidence to ADRs.

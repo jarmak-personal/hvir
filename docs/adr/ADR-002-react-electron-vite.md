@@ -1,5 +1,7 @@
 # ADR-002: React on electron-vite for the render layer
 
+> Lifecycle: Active
+
 ## Context
 
 The renderer must assemble a polished viewer, tree, Git surfaces, terminals, dialogs,

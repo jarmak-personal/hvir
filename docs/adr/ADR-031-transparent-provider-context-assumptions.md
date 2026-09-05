@@ -1,5 +1,8 @@
 # ADR-031: Transparent provider context assumptions
 
+> Lifecycle: Active
+> Supersedes: [ADR-006](ADR-006-exact-harness-recovery.md) | partial | Requiring an authoritative context window for pressure presentation and one universal threshold pair.
+
 ## Context
 
 Harnesses do not expose context capacity uniformly. Claude Code transcripts provide measured

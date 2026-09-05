@@ -1,5 +1,8 @@
 # ADR-040: Complete source budgets and dependency policy
 
+> Lifecycle: Active
+> Supersedes: [ADR-014](ADR-014-modular-monolith-ownership.md) | partial | Architecture hotspot budgets paragraph: complete source budgets and extended dependency enforcement; authority/seam checks stay blocking.
+
 ## Context
 
 ADR-014 makes ownership, dependency direction, and blocking architecture checks part of hvir's

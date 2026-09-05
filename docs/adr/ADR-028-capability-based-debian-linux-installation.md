@@ -1,5 +1,8 @@
 # ADR-028: Capability-based Debian Linux installation
 
+> Lifecycle: Active
+> Supersedes: [ADR-022](ADR-022-platform-native-github-release-installation.md) | partial | Linux support matrix and unconditional Ubuntu AppArmor integration.
+
 ## Context
 
 ADR-022 selected one release-owned installer and verified native artifacts, but its Linux

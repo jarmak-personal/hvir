@@ -1,5 +1,8 @@
 # ADR-011: One npm launcher with native payloads
 
+> Lifecycle: Superseded
+> Superseded by: [ADR-022](ADR-022-platform-native-github-release-installation.md) | full | Entire decision.
+
 ## Context
 
 hvir needs one install, update, and removal story while Electron and `node-pty` payloads
