@@ -70,14 +70,14 @@ const HARNESS_IMPLEMENTATION_IMPORT_BAN =
 const HARNESS_DIRECTION_MESSAGE =
   'Harness contracts and neutral policy depend inward, never on bundled assembly, concrete providers, or their observation implementations.'
 
-function harnessDirectionRules(pattern) {
+function harnessDirectionRules(pattern, message = HARNESS_DIRECTION_MESSAGE) {
   const selector = pattern.replaceAll('/', '\\/')
   return {
     'no-restricted-imports': [
       'error',
       {
         paths: [...HOST_PRIMITIVE_BANS, IPC_RENDERER_BAN],
-        patterns: [{ regex: pattern, message: HARNESS_DIRECTION_MESSAGE }],
+        patterns: [{ regex: pattern, message }],
       },
     ],
     'no-restricted-syntax': [
@@ -86,7 +86,7 @@ function harnessDirectionRules(pattern) {
       ...DYNAMIC_HOST_IMPORT_BANS,
       {
         selector: `ImportExpression[source.value=/${selector}/], TSImportType[source.value=/${selector}/], CallExpression[callee.name='require'] > Literal.arguments[value=/${selector}/]`,
-        message: HARNESS_DIRECTION_MESSAGE,
+        message,
       },
     ],
   }
@@ -171,6 +171,17 @@ export default tseslint.config(
       'src/main/harness/bounded-line-reader.ts',
     ],
     rules: harnessDirectionRules(HARNESS_IMPLEMENTATION_IMPORT_BAN),
+  },
+
+  // PTY internals depend on leaf contracts, never their facade or sibling owners.
+  {
+    files: ['src/main/pty/**/*.{ts,tsx,mts,cts}'],
+    ignores: ['src/main/pty/pty-supervisor.ts'],
+    rules: harnessDirectionRules(
+      HARNESS_IMPLEMENTATION_IMPORT_BAN +
+        '|(^|/)pty-supervisor(\\.[cm]?[jt]sx?)?$|(^|/)pty-(launch-admission|session-lifetime|session-observation|stream-attachment)(\\.[cm]?[jt]sx?)?$',
+      'PTY internal owners import leaf contracts, never the supervisor, sibling owners, or concrete harness implementations.',
+    ),
   },
 
   // Project state and workflows consume the host contract, never concrete host owners.

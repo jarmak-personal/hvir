@@ -63,15 +63,6 @@
       "reconsiderWhen": "Authentication/reconnect or transport capacity moves into an independently owned coordinator shared by multiple ProjectHost adapters."
     },
     {
-      "path": "src/main/pty/pty-supervisor.ts",
-      "kind": "transitional",
-      "maxLines": 1264,
-      "owner": "PTY supervisor authority",
-      "rationale": "Spawn, recovery, and session lifecycle currently share the supervisor's authority; lifecycle decomposition must preserve that public seam.",
-      "reconsiderWhen": "The responsibility extraction in #738 is accepted; remove this exception or tighten to the resulting owner.",
-      "removalIssue": "#738"
-    },
-    {
       "path": "src/main/smoke/capacity-terminals.ts",
       "kind": "durable",
       "maxLines": 1137,
@@ -200,15 +191,6 @@
       "owner": "project file operation coordinator tests",
       "rationale": "The suite proves one operation-scoped authority and cleanup lifecycle across host-qualified source and destination ports.",
       "reconsiderWhen": "External-source grants and host-to-host execution move into independently owned coordinators with separate revocation lifetimes."
-    },
-    {
-      "path": "test/pty-supervisor.test.ts",
-      "kind": "transitional",
-      "maxLines": 1193,
-      "owner": "PTY supervisor public authority tests",
-      "rationale": "The suite currently characterizes supervisor authority and lifecycle together; assertions move only with the owning responsibility in the supervisor decomposition.",
-      "reconsiderWhen": "The responsibility extraction in #738 is accepted; remove this exception or tighten to the resulting owner.",
-      "removalIssue": "#738"
     },
     {
       "path": "test/smoke-scenario-runner.test.ts",
