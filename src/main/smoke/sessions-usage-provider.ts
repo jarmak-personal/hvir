@@ -1,5 +1,5 @@
 import { asHarnessProfileId, asHarnessProviderId } from '../../shared'
-import type { HarnessProvider } from '../harness/harness-provider'
+import type { HarnessProvider } from '../harness/harness-provider-contract'
 import { usageObservationHarnessTelemetry } from '../harness/harness-usage'
 
 export const SESSIONS_USAGE_SMOKE_TOTAL = 123_456

@@ -12,7 +12,8 @@ import type {
   RendererResourceLease,
   RendererResourceScopes,
 } from '../renderer-resource-scopes'
-import { harnessProvider, type HarnessRemoteImagePasteContract } from './harness-provider'
+import { harnessProvider } from './bundled-harness-providers'
+import type { HarnessRemoteImagePasteContract } from './harness-provider-contract'
 import {
   RemoteImagePasteStorage,
   type RemoteImagePasteStoragePort,

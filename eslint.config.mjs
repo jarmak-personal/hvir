@@ -62,6 +62,34 @@ const SHARED_CONTRACT_EXPRESSION_SELECTOR = SHARED_CONTRACT_IMPORT_BAN.replaceAl
   '\\/',
 )
 
+const HARNESS_FACADE_IMPORT_BAN = '(^|/)(?<!shared/)harness-provider(\\.[cm]?[jt]sx?)?$'
+const HARNESS_IMPLEMENTATION_IMPORT_BAN =
+  '(^|/)(?<!shared/)(bundled-harness-providers|harness-provider)(\\.[cm]?[jt]sx?)?$|(^|/)providers(/|$)|(^|/)(claude|codex)-'
+const HARNESS_DIRECTION_MESSAGE =
+  'Harness contracts and neutral policy depend inward, never on bundled assembly, concrete providers, or their observation implementations.'
+
+function harnessDirectionRules(pattern) {
+  const selector = pattern.replaceAll('/', '\\/')
+  return {
+    'no-restricted-imports': [
+      'error',
+      {
+        paths: [...HOST_PRIMITIVE_BANS, IPC_RENDERER_BAN],
+        patterns: [{ regex: pattern, message: HARNESS_DIRECTION_MESSAGE }],
+      },
+    ],
+    'no-restricted-syntax': [
+      'error',
+      SPAWN_PTY_BAN,
+      ...DYNAMIC_HOST_IMPORT_BANS,
+      {
+        selector: `ImportExpression[source.value=/${selector}/], TSImportType[source.value=/${selector}/], CallExpression[callee.name='require'] > Literal.arguments[value=/${selector}/]`,
+        message: HARNESS_DIRECTION_MESSAGE,
+      },
+    ],
+  }
+}
+
 export default tseslint.config(
   { ignores: ['out/**', 'dist/**', 'node_modules/**', 'coverage/**'] },
 
@@ -114,6 +142,29 @@ export default tseslint.config(
         },
       ],
     },
+  },
+
+  // The facade is for application compatibility, not an internal contract owner.
+  {
+    files: ['src/main/harness/**/*.{ts,tsx,mts,cts}'],
+    ignores: ['src/main/harness/harness-provider.ts'],
+    rules: harnessDirectionRules(HARNESS_FACADE_IMPORT_BAN),
+  },
+  {
+    files: [
+      'src/main/harness/harness-provider-contract.ts',
+      'src/main/harness/harness-provider-registry.ts',
+      'src/main/harness/harness-provider-capabilities.ts',
+      'src/main/harness/harness-provider-probes.ts',
+      'src/main/harness/harness-launch-selection.ts',
+      'src/main/harness/harness-composer-contracts.ts',
+      'src/main/harness/harness-text-validation.ts',
+      'src/main/harness/harness-usage*.ts',
+      'src/main/harness/agent-work-usage.ts',
+      'src/main/harness/harness-telemetry*.ts',
+      'src/main/harness/bounded-line-reader.ts',
+    ],
+    rules: harnessDirectionRules(HARNESS_IMPLEMENTATION_IMPORT_BAN),
   },
 
   // Project state and workflows consume the host contract, never concrete host owners.
@@ -185,6 +236,7 @@ export default tseslint.config(
     files: ['src/renderer/**/*.{ts,tsx}'],
     plugins: { 'react-hooks': reactHooks, 'react-refresh': reactRefresh },
     rules: {
+      ...harnessDirectionRules('(^|/)main/harness(/|$)'),
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],

@@ -32,13 +32,13 @@ import {
   type PtyExit,
   type PtyProcess,
 } from '../project-host'
-import {
-  harnessProviderCapabilities,
-  type HarnessArtifactContext,
-  type HarnessLaunchSpec,
-  type HarnessProvider,
-  type HarnessSessionDiscovery,
-} from '../harness/harness-provider'
+import { harnessProviderCapabilities } from '../harness/harness-provider-capabilities'
+import type {
+  HarnessArtifactContext,
+  HarnessLaunchSpec,
+  HarnessProvider,
+  HarnessSessionDiscovery,
+} from '../harness/harness-provider-contract'
 import { harnessShellCommandArgs } from '../harness/harness-shell-environment'
 
 export interface PtySpawnRequest {

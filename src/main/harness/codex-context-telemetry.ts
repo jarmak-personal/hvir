@@ -17,15 +17,17 @@ import {
   usageCountersEqual,
   usageObservationHarnessTelemetry,
   usageStatusHarnessTelemetry,
-  type HarnessUsageSnapshot,
-  type HarnessUsageSnapshotContext,
 } from './harness-usage'
 import type { HarnessUsageCounters } from '../../shared'
 import {
   boundedHarnessUsageString,
   scanHarnessUsageArtifactLines,
 } from './harness-usage-artifact'
-import type { HarnessTelemetryContext } from './harness-provider'
+import type {
+  HarnessTelemetryContext,
+  HarnessUsageSnapshot,
+  HarnessUsageSnapshotContext,
+} from './harness-provider-contract'
 import { canonicalCodexCwd } from './codex-session-discovery'
 import {
   buildTelemetryHubScript,

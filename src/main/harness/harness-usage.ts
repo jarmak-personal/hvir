@@ -11,54 +11,17 @@ import {
   type HarnessUsageFacet,
   type HarnessUsageUnavailableReason,
   type HarnessUsageValue,
-  type HostPath,
 } from '../../shared'
-import type { ProjectHost } from '../project-host'
-import type { HarnessArtifactContext } from './harness-provider'
-
-export interface HarnessUsageSnapshotContext {
-  readonly sessionId: string
-  readonly cwd: HostPath
-  readonly sessionData?: unknown
-  readonly artifact: HarnessArtifactContext
-  readonly signal: AbortSignal
-}
-
-export interface HarnessUsageRoute {
-  readonly modelId?: string
-  readonly reasoningEffort?: string
-}
-
-export interface HarnessUsageTiming {
-  readonly modelOrApiMilliseconds?: number
-}
+import type { HarnessUsageSnapshot } from './harness-provider-contract'
+export type {
+  HarnessUsageSnapshotContext,
+  HarnessUsageRoute,
+  HarnessUsageTiming,
+  HarnessUsageSnapshot,
+  HarnessUsageSnapshotProvider,
+} from './harness-provider-contract'
 
 export type { HarnessUsageUnavailableReason } from '../../shared'
-
-export type HarnessUsageSnapshot =
-  | {
-      readonly version: 1
-      readonly status: 'available'
-      readonly providerId: HarnessProviderId
-      readonly observedAt: number
-      readonly route: HarnessUsageRoute
-      readonly counters: HarnessUsageCounters
-      readonly timing: HarnessUsageTiming
-    }
-  | {
-      readonly version: 1
-      readonly status: 'unavailable'
-      readonly providerId: HarnessProviderId
-      readonly observedAt: number
-      readonly reason: HarnessUsageUnavailableReason
-    }
-
-export interface HarnessUsageSnapshotProvider {
-  snapshot(
-    host: ProjectHost,
-    context: HarnessUsageSnapshotContext,
-  ): Promise<HarnessUsageSnapshot>
-}
 
 export function unavailableHarnessUsageSnapshot(
   providerId: HarnessProviderId,

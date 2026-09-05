@@ -9,10 +9,8 @@ import {
 import type { Disposer, ProjectHost } from '../project-host'
 import { resolveHarnessLaunch } from './harness-launch'
 import type { HarnessProfileStoreContract } from './harness-profile-store'
-import {
-  harnessLaunchCapabilities,
-  harnessProvider,
-} from './harness-provider'
+import { harnessLaunchCapabilities } from './harness-provider-capabilities'
+import { harnessProvider } from './bundled-harness-providers'
 import {
   harnessShellProbeCommandArgs,
   harnessShellProbeOutput,
