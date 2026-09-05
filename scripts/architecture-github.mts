@@ -8,35 +8,53 @@ import {
   RELEASE_REPOSITORY,
 } from './require-release-ci-evidence.mts'
 import { parseCompletingChildTrailer } from './project-management/pull-request-relationships.ts'
-import { fullCommit, git, requireAncestor } from './architecture-inventory.mjs'
+import { fullCommit, git, requireAncestor } from './architecture-inventory.mts'
+
+import type { ArchitecturePolicy } from './architecture-policy.mts'
+import type {
+  ArchitectureContext,
+  ArchitectureIntegration,
+} from './architecture-authorization.mts'
+
+interface GitHubIssue {
+  number: number
+  state: string
+  repository_url?: string
+  labels?: Array<{ name: string }>
+  parent?: GitHubIssue | null
+  pull_request?: unknown
+}
+interface GitHubRef {
+  ref: string
+  sha: string
+  repo?: { full_name: string } | null
+}
+interface GitHubPullRequest {
+  number: number
+  body?: string | null
+  base: GitHubRef
+  head: GitHubRef
+}
+interface PullRequestEvent {
+  number: number
+  pull_request: GitHubPullRequest
+}
 
 const reader = new ReleaseGitHubEvidenceReader('Architecture GitHub evidence')
-export function githubAdapter(token) {
+export function githubAdapter(token: string | undefined) {
   if (!token)
     throw new Error(
       'HVIR_REPO_TOKEN is required for enforcing architecture provenance; offline architecture:report remains available',
     )
-  const request = (path) =>
-    reader.requestJson(
+  const request = <T,>(path: string): Promise<T> =>
+    reader.requestJson<T>(
       new URL(`https://api.github.com/repos/${RELEASE_REPOSITORY}/${path}`),
       token,
     )
-  async function pages(path) {
-    const items = []
-    for (let page = 1; page <= 10; page++) {
-      const result = await request(
-        `${path}${path.includes('?') ? '&' : '?'}per_page=100&page=${page}`,
-      )
-      if (!Array.isArray(result)) throw new Error('Incomplete architecture evidence page')
-      items.push(...result)
-      if (result.length < 100) return items
-    }
-    throw new Error('Architecture evidence exceeds bounded pagination')
-  }
-  async function issue(number) {
+  async function issue(number: string | number): Promise<GitHubIssue> {
     // Native parent is read from the documented issue relationship endpoint, never PR prose.
-    const record = await request(`issues/${number}`)
-    let parent = null
+    const record = await request<GitHubIssue>(`issues/${number}`)
+    let parent: GitHubIssue | null = null
     const response = await globalThis.fetch(
       `https://api.github.com/repos/${RELEASE_REPOSITORY}/issues/${number}/parent`,
       {
@@ -50,16 +68,18 @@ export function githubAdapter(token) {
     if (response.status !== 404) {
       if (!response.ok)
         throw new Error(`Native parent evidence failed (${response.status})`)
-      parent = await response.json()
+      parent = (await response.json()) as GitHubIssue
       if (parent.repository_url !== `https://api.github.com/repos/${RELEASE_REPOSITORY}`)
         throw new Error('Cross-repository native parent')
     }
     return { ...record, parent }
   }
-  return { request, pages, issue, token }
+  return { request, issue, token }
 }
 
-async function epicBranch(api, issue) {
+type ArchitectureGitHub = ReturnType<typeof githubAdapter>
+
+async function epicBranch(api: ArchitectureGitHub, issue: GitHubIssue): Promise<string> {
   const record = Object.hasOwn(issue, 'parent') ? issue : await api.issue(issue.number)
   if (record.state !== 'open' || record.parent)
     throw new Error('Native epic is closed or nested')
@@ -68,13 +88,19 @@ async function epicBranch(api, issue) {
     record.labels.filter((label) => label.name.startsWith('kind:')).length !== 1
   )
     throw new Error('Native parent is not one valid epic')
-  const branches = await api.request(`git/matching-refs/heads/epic/${issue.number}-`)
+  const branches = await api.request<Array<{ ref: string }>>(
+    `git/matching-refs/heads/epic/${issue.number}-`,
+  )
   if (!Array.isArray(branches) || branches.length !== 1)
     throw new Error('Missing or ambiguous exact epic branch')
-  return branches[0].ref.replace('refs/heads/', '')
+  return branches[0]!.ref.replace('refs/heads/', '')
 }
 
-export async function resolveArchitectureContext(root, api, environment = process.env) {
+export async function resolveArchitectureContext(
+  root: string,
+  api: ArchitectureGitHub,
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<ArchitectureContext> {
   const tested = fullCommit(root, 'HEAD')
   let head = tested
   const origin = git(root, ['remote', 'get-url', 'origin'])
@@ -86,18 +112,21 @@ export async function resolveArchitectureContext(root, api, environment = proces
     ].includes(origin)
   )
     throw new Error('Architecture evidence requires the canonical repository')
-  let target = 'main',
-    epic = null,
-    kind = 'ordinary'
-  let eventBase = null
+  let target = 'main'
+  let epic: string | null = null
+  let kind: ArchitectureContext['kind'] = 'ordinary'
+  let eventBase: string | null = null
   if (environment.GITHUB_ACTIONS === 'true') {
     if (
       environment.GITHUB_EVENT_NAME !== 'pull_request' ||
       environment.GITHUB_REPOSITORY !== RELEASE_REPOSITORY
     )
       throw new Error('Architecture CI requires the canonical pull_request event')
-    const event = JSON.parse(readFileSync(environment.GITHUB_EVENT_PATH, 'utf8'))
-    const pr = await api.request(`pulls/${event.number}`)
+    if (!environment.GITHUB_EVENT_PATH) throw new Error('Missing PR event file')
+    const event = JSON.parse(
+      readFileSync(environment.GITHUB_EVENT_PATH, 'utf8'),
+    ) as PullRequestEvent
+    const pr = await api.request<GitHubPullRequest>(`pulls/${event.number}`)
     head = event.pull_request?.head.sha
     if (
       pr.head.repo?.full_name !== RELEASE_REPOSITORY ||
@@ -145,7 +174,7 @@ export async function resolveArchitectureContext(root, api, environment = proces
     const branch = git(root, ['branch', '--show-current'])
     const match = /^agent\/issue-([1-9]\d*)$/.exec(branch)
     if (match) {
-      const child = await api.issue(match[1])
+      const child = await api.issue(match[1]!)
       if (child.state !== 'open') throw new Error('Local delivery issue is closed')
       if (child.parent) {
         target = await epicBranch(api, child.parent)
@@ -163,7 +192,7 @@ export async function resolveArchitectureContext(root, api, environment = proces
         'Unresolved local delivery context; use the issue worktree or exact epic branch',
       )
   }
-  const ref = await api.request(`git/ref/heads/${target}`)
+  const ref = await api.request<{ object?: { sha?: string } }>(`git/ref/heads/${target}`)
   const base = reader.requiredString(ref.object?.sha)
   if (eventBase && base !== eventBase)
     throw new Error('Live target changed from the tested PR event; refresh and reverify')
@@ -171,17 +200,23 @@ export async function resolveArchitectureContext(root, api, environment = proces
   return { kind, target, epic, base, head, tested }
 }
 
-export async function loadArchitectureIntegration(root, api, merge, epic) {
+export async function loadArchitectureIntegration(
+  root: string,
+  api: ArchitectureGitHub,
+  merge: string,
+  epic: string,
+): Promise<ArchitectureIntegration> {
   const evidence = await loadReleaseCiEvidence(RELEASE_REPOSITORY, epic, merge, api.token)
   // This shares the exact-head/tree and coherent-attempt policy, with the epic as the
   // reachability target. The result confers architecture policy authority only.
   const decision = evaluateReleaseCiEvidence(evidence)
   if (!decision.accepted || decision.kind !== 'ordinary')
     throw new Error(
-      `Missing accepted epic CI evidence: ${merge} (${decision.rejection ?? decision.kind})`,
+      `Missing accepted epic CI evidence: ${merge} (${decision.accepted ? decision.kind : decision.rejection})`,
     )
   const pr = evidence.pullRequests.find((pr) => pr.mergeCommitSha === merge)
-  const detail = await api.request(`pulls/${pr.number}`)
+  if (!pr || !evidence.sourceCommit) throw new Error('Missing accepted PR identities')
+  const detail = await api.request<GitHubPullRequest>(`pulls/${pr.number}`)
   const trailer = parseCompletingChildTrailer(detail.body ?? '', pr.number)
   if (!trailer.issueNumber || trailer.errors.length)
     throw new Error('Accepted PR lacks exact completing-child relationship')
@@ -194,16 +229,19 @@ export async function loadArchitectureIntegration(root, api, merge, epic) {
   return { epic, pullRequest: pr.number, base: pr.base.sha, head: pr.head.sha, merge }
 }
 
-export async function requireCurrentRemovalIssues(api, policy) {
+export async function requireCurrentRemovalIssues(
+  api: ArchitectureGitHub,
+  policy: ArchitecturePolicy,
+): Promise<void> {
   const numbers = [
     ...new Set(
       policy.budgets
         .filter((e) => e.kind === 'transitional')
-        .map((e) => e.removalIssue.slice(1)),
+        .map((e) => e.removalIssue!.slice(1)),
     ),
   ]
   for (const number of numbers) {
-    const issue = await api.request(`issues/${number}`)
+    const issue = await api.request<GitHubIssue>(`issues/${number}`)
     if (issue.state !== 'open' || issue.pull_request)
       throw new Error(
         `Transitional removal issue #${number} is completed or invalid; remove its exception or accept a current disposition`,

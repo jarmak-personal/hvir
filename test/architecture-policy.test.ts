@@ -1,26 +1,28 @@
 import { Buffer } from 'node:buffer'
+import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { symlinkSync } from 'node:fs'
+import { chmodSync, symlinkSync } from 'node:fs'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   evaluateInventory,
   isRelaxation,
   physicalLines,
   validatePolicy,
-} from '../scripts/architecture-policy.mjs'
+} from '../scripts/architecture-policy.mts'
 import {
   collectInventory,
+  createArchitectureInventory,
   validateGeneratedOwnership,
-} from '../scripts/architecture-inventory.mjs'
-import { formatReport } from '../scripts/architecture-hotspots.mjs'
-import {
-  budget,
-  ordinaryPolicy,
-  repository,
-} from './fixtures/architecture/repository.mjs'
+} from '../scripts/architecture-inventory.mts'
+import { formatReport } from '../scripts/architecture-hotspots.mts'
+import { budget, ordinaryPolicy, repository } from './fixtures/architecture/repository.ts'
 
-const fixtures = []
+const fixtures: ReturnType<typeof repository>[] = []
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>()
+  return { ...actual, execFileSync: vi.fn(actual.execFileSync) }
+})
 function repo() {
   const r = repository()
   fixtures.push(r)
@@ -31,6 +33,55 @@ afterEach(() => {
 })
 
 describe('complete architecture budget policy', () => {
+  it('disposes inventory caches between evaluations and never prefetches historical data bodies', () => {
+    const r = repo(),
+      policy = ordinaryPolicy()
+    r.source(10)
+    r.write('build/asset.png', 'binary fixture')
+    const head = r.commit()
+    const asset = r.git('rev-parse', `${head}:build/asset.png`)
+    const count = () =>
+      vi
+        .mocked(execFileSync)
+        .mock.calls.filter((call) => Array.isArray(call[1]) && call[1][0] === 'cat-file')
+        .length
+    const before = count(),
+      first = createArchitectureInventory(r.root)
+    first.collectInventory(policy, head)
+    first.collectInventory(policy, head)
+    expect(count() - before).toBe(1)
+    createArchitectureInventory(r.root).collectInventory(policy, head)
+    expect(count() - before).toBe(2)
+    for (const call of vi.mocked(execFileSync).mock.calls) {
+      if (Array.isArray(call[1]) && call[1][0] === 'cat-file') {
+        const input = call[2]?.input
+        if (typeof input !== 'string')
+          throw new Error('Expected textual Git object selectors')
+        expect(input).not.toContain(asset)
+      }
+    }
+  })
+  it('gives local artifacts narrow dispositions without hiding maintained or executable source', () => {
+    const r = repo(),
+      policy = ordinaryPolicy()
+    for (const path of ['build.log', 'tsconfig.tsbuildinfo', '.env.local'])
+      r.write(path, 'local artifact')
+    r.write('.gitignore', 'src/ignored.ts\n')
+    r.source(1001, 'src/ignored.ts')
+    r.write('scripts/hook.log', '#!/bin/sh\necho check\n')
+    chmodSync(join(r.root, 'scripts/hook.log'), 0o755)
+    const files = collectInventory(r.root, policy)
+    expect([...files.keys()]).toEqual(['scripts/hook.log', 'src/ignored.ts'])
+    const head = r.commit()
+    expect([...collectInventory(r.root, policy, head).keys()]).toEqual([
+      'scripts/hook.log',
+    ])
+    r.write('scripts/unknown.py', 'print(1)')
+    expect(() => collectInventory(r.root, policy)).toThrow(/Unclassified source language/)
+    r.remove('scripts/unknown.py')
+    policy.extensions.push('.log')
+    expect(collectInventory(r.root, policy).has('build.log')).toBe(true)
+  })
   it.each([
     [500, false, 'ok'],
     [501, true, 'ok'],
@@ -81,16 +132,18 @@ describe('complete architecture budget policy', () => {
     'unknown',
     'wildcard',
   ])('rejects malformed or conflicting %s', (defect) => {
-    const policy = ordinaryPolicy()
-    policy.budgets.push(budget())
+    const policy = {
+      ...ordinaryPolicy(),
+      budgets: [{ ...budget() } as Record<string, unknown>],
+    }
     if (defect === 'root') policy.roots.pop()
     if (defect === 'extension') policy.extensions.pop()
-    if (defect === 'duplicate') policy.budgets.push(budget())
-    if (defect === 'kind') policy.budgets[0].kind = 'unlimited'
-    if (defect === 'maximum') policy.budgets[0].maxLines = 1.5
-    if (defect === 'metadata') delete policy.budgets[0].removalIssue
-    if (defect === 'unknown') policy.exclusions = ['src']
-    if (defect === 'wildcard') policy.budgets[0].path = 'src/*'
+    if (defect === 'duplicate') policy.budgets.push({ ...budget() })
+    if (defect === 'kind') policy.budgets[0]!.kind = 'unlimited'
+    if (defect === 'maximum') policy.budgets[0]!.maxLines = 1.5
+    if (defect === 'metadata') delete policy.budgets[0]!.removalIssue
+    if (defect === 'unknown') (policy as Record<string, unknown>).exclusions = ['src']
+    if (defect === 'wildcard') policy.budgets[0]!.path = 'src/*'
     expect(() => validatePolicy(policy)).toThrow()
   })
   it('covers roots, all source families, shell hooks, local additions, and one owned alias target', () => {
@@ -108,7 +161,7 @@ describe('complete architecture budget policy', () => {
     expect(inventory.size).toBe(policy.roots.length + policy.extensions.length + 2)
     expect(inventory.has('.agents/alias/module.ts')).toBe(false)
     expect(
-      evaluateInventory(policy, inventory).find((e) => e.path === 'scripts/new.mjs')
+      evaluateInventory(policy, inventory).find((e) => e.path === 'scripts/new.mjs')!
         .status,
     ).toBe('over')
     r.commit()
@@ -138,7 +191,7 @@ describe('complete architecture budget policy', () => {
       evaluateInventory(
         ordinaryPolicy(),
         collectInventory(r.root, ordinaryPolicy()),
-      ).find((e) => e.path === 'src/hidden.ts').status,
+      ).find((e) => e.path === 'src/hidden.ts')!.status,
     ).toBe('over')
   })
   it('fails when source disappears while an inventory is being read', () => {
@@ -172,23 +225,23 @@ describe('complete architecture budget policy', () => {
       governingRule: 'generated',
       effectiveLimit: 1500,
     })
-    expect(rows.find((r) => r.path === 'scripts/generate.mjs').governingRule).toBe(
+    expect(rows.find((r) => r.path === 'scripts/generate.mjs')!.governingRule).toBe(
       'ordinary',
     )
     r.source(1501, 'src/generated.ts')
     expect(
       evaluateInventory(policy, collectInventory(r.root, policy)).find(
         (r) => r.path === 'src/generated.ts',
-      ).status,
+      )!.status,
     ).toBe('over')
     r.write('scripts/generate.mjs', '// changed\n')
     expect(() => validateGeneratedOwnership(policy, r.read)).toThrow(/identity mismatch/)
     const updated = {
-      ...policy.generated[0],
-      kind: 'generated',
+      ...policy.generated[0]!,
+      kind: 'generated' as const,
       inputs: [{ path: 'scripts/generate.mjs', sha256: 'f'.repeat(64) }],
     }
-    expect(isRelaxation({ ...policy.generated[0], kind: 'generated' }, updated)).toBe(
+    expect(isRelaxation({ ...policy.generated[0]!, kind: 'generated' }, updated)).toBe(
       false,
     )
     expect(isRelaxation(updated, { ...updated, generator: 'scripts/other.mjs' })).toBe(

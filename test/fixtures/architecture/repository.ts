@@ -6,10 +6,16 @@ import {
   POLICY_PATH,
   SOURCE_EXTENSIONS,
   SOURCE_ROOTS,
-} from '../../../scripts/architecture-policy.mjs'
-import { authorizeCandidate } from '../../../scripts/architecture-authorization.mjs'
+  type ArchitecturePolicy,
+  type ArchitectureBudget,
+} from '../../../scripts/architecture-policy.mts'
+import {
+  authorizeCandidate,
+  type ArchitectureContext,
+  type ArchitectureIntegration,
+} from '../../../scripts/architecture-authorization.mts'
 
-export function ordinaryPolicy() {
+export function ordinaryPolicy(): ArchitecturePolicy {
   return {
     version: 2,
     comfortLines: 500,
@@ -20,7 +26,11 @@ export function ordinaryPolicy() {
     generated: [],
   }
 }
-export function budget(kind = 'transitional', maxLines = 1400, path = 'src/owner.ts') {
+export function budget(
+  kind: ArchitectureBudget['kind'] = 'transitional',
+  maxLines = 1400,
+  path = 'src/owner.ts',
+): ArchitectureBudget {
   return {
     path,
     kind,
@@ -33,7 +43,7 @@ export function budget(kind = 'transitional', maxLines = 1400, path = 'src/owner
 }
 export function repository() {
   const root = mkdtempSync(join(tmpdir(), 'hvir-architecture-'))
-  const git = (...args) =>
+  const git = (...args: string[]) =>
     execFileSync('git', args, {
       cwd: root,
       encoding: 'utf8',
@@ -42,7 +52,7 @@ export function repository() {
   git('init', '-b', 'main')
   git('config', 'user.name', 'Architecture fixture')
   git('config', 'user.email', 'architecture@example.invalid')
-  const write = (path, content) => {
+  const write = (path: string, content: string) => {
     mkdirSync(dirname(join(root, path)), { recursive: true })
     writeFileSync(join(root, path), content)
   }
@@ -51,10 +61,10 @@ export function repository() {
     git('commit', '-m', 'fixture')
     return git('rev-parse', 'HEAD')
   }
-  const policy = (value) => write(POLICY_PATH, JSON.stringify(value))
+  const policy = (value: unknown) => write(POLICY_PATH, JSON.stringify(value))
   policy(ordinaryPolicy())
   const initial = commit()
-  const evidence = new Map()
+  const evidence = new Map<string, ArchitectureIntegration>()
   return {
     root,
     git,
@@ -63,10 +73,11 @@ export function repository() {
     commit,
     initial,
     evidence,
-    read: (path) => readFileSync(join(root, path)),
-    source: (lines, path = 'src/owner.ts') => write(path, '// fixture\n'.repeat(lines)),
-    remove: (path) => rmSync(join(root, path)),
-    integrate: (branch, base) => {
+    read: (path: string) => readFileSync(join(root, path)),
+    source: (lines: number, path = 'src/owner.ts') =>
+      write(path, '// fixture\n'.repeat(lines)),
+    remove: (path: string) => rmSync(join(root, path)),
+    integrate: (branch: string, base: string) => {
       const head = git('rev-parse', branch)
       git('switch', 'epic/733-fixture')
       git('merge', '--no-ff', branch, '-m', 'accepted fixture')
@@ -80,7 +91,11 @@ export function repository() {
       })
       return merge
     },
-    check: (base, kind = 'ordinary', overrides = {}) =>
+    check: (
+      base: string,
+      kind: ArchitectureContext['kind'] = 'ordinary',
+      overrides: Partial<Parameters<typeof authorizeCandidate>[0]> = {},
+    ) =>
       authorizeCandidate({
         root,
         context: {

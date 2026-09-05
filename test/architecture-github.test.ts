@@ -5,15 +5,11 @@ import {
   loadArchitectureIntegration,
   requireCurrentRemovalIssues,
   resolveArchitectureContext,
-} from '../scripts/architecture-github.mjs'
+} from '../scripts/architecture-github.mts'
 import { REQUIRED_CI_JOBS } from '../scripts/ci-attempt-evidence.mts'
-import {
-  budget,
-  ordinaryPolicy,
-  repository,
-} from './fixtures/architecture/repository.mjs'
+import { budget, ordinaryPolicy, repository } from './fixtures/architecture/repository.ts'
 
-const fixtures = []
+const fixtures: ReturnType<typeof repository>[] = []
 function repo() {
   const r = repository()
   fixtures.push(r)
@@ -33,26 +29,30 @@ const parent = {
   repository_url: apiRoot.slice(0, -1),
   labels: [{ name: 'kind:epic' }],
 }
-const ref = (name, sha) => ({ ref: name, sha, repo: { full_name: canonical } })
-function mockRequests(responses) {
+const ref = (name: string, sha: string) => ({
+  ref: name,
+  sha,
+  repo: { full_name: canonical },
+})
+function mockRequests(responses: Map<string, unknown>) {
   if (!responses.has('issues/733')) responses.set('issues/733', parent)
   if (!responses.has('issues/733/parent')) responses.set('issues/733/parent', null)
   if (!responses.has('issues/999'))
     responses.set('issues/999', { ...parent, number: 999 })
   if (!responses.has('issues/999/parent')) responses.set('issues/999/parent', null)
-  const requests = []
+  const requests: string[] = []
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (url) => {
+    vi.fn((url: string | URL) => {
       const key = String(url).replace(apiRoot, '')
       requests.push(key)
       if (!responses.has(key)) throw new Error(`Unexpected fixture request: ${key}`)
       const value = responses.get(key)
-      return {
+      return Promise.resolve({
         ok: value !== null,
         status: value === null ? 404 : 200,
-        json: async () => value,
-      }
+        json: () => Promise.resolve(value),
+      })
     }),
   )
   return requests
@@ -66,7 +66,7 @@ describe('architecture GitHub evidence boundary', () => {
     const r = repo()
     r.git('switch', '-c', 'agent/issue-409')
     mockRequests(
-      new Map([
+      new Map<string, unknown>([
         ['issues/409', { number: 409, state: 'open' }],
         ['issues/409/parent', parent],
         ['git/matching-refs/heads/epic/733-', [{ ref: `refs/heads/${epic}` }]],
@@ -87,7 +87,7 @@ describe('architecture GitHub evidence boundary', () => {
     const r = repo()
     r.git('switch', '-c', 'agent/issue-409')
     mockRequests(
-      new Map([
+      new Map<string, unknown>([
         ['issues/409', { state: 'open' }],
         ['issues/409/parent', null],
         ['git/ref/heads/main', { object: { sha: r.initial } }],
@@ -129,7 +129,7 @@ describe('architecture GitHub evidence boundary', () => {
     const event = { number: 20, pull_request: globalThis.structuredClone(pr) }
     if (defect === 'changed-head') pr.head.sha = base
     if (defect === 'changed-base') pr.base.sha = head
-    const responses = new Map([
+    const responses = new Map<string, unknown>([
       ['pulls/20', pr],
       ['issues/409', { state: 'open' }],
       [
@@ -167,7 +167,7 @@ describe('architecture GitHub evidence boundary', () => {
   it('rejects a completed removal issue instead of retaining stale transitional metadata', async () => {
     const policy = ordinaryPolicy()
     policy.budgets.push(budget())
-    mockRequests(new Map([['issues/435', { state: 'closed' }]]))
+    mockRequests(new Map<string, unknown>([['issues/435', { state: 'closed' }]]))
     await expect(
       requireCurrentRemovalIssues(githubAdapter('fixture'), policy),
     ).rejects.toThrow(/completed or invalid/)
@@ -202,7 +202,7 @@ describe('architecture GitHub evidence boundary', () => {
         { name: 'Merge acceptance', status: 'completed', conclusion: 'success' },
       ]
       if (defect === 'partial-attempt') jobs.splice(1, 1)
-      const responses = new Map([
+      const responses = new Map<string, unknown>([
         [`commits/${merge}/pulls?per_page=100&page=1`, [pr]],
         [
           `actions/workflows/ci.yml/runs?event=pull_request&head_sha=${head}&per_page=100&page=1`,

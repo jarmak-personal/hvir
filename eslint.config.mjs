@@ -131,6 +131,12 @@ export default tseslint.config(
   {
     files: [
       'scripts/run-smoke-scenarios.mts',
+      'scripts/architecture-hotspots.mts',
+      'scripts/architecture-policy.mts',
+      'scripts/architecture-inventory.mts',
+      'scripts/architecture-authorization.mts',
+      'scripts/architecture-github.mts',
+      'scripts/architecture-wiring.mts',
       'scripts/run-smoke-interruption.mts',
       'scripts/smoke-failure-artifact.mts',
       'scripts/inspect-packaged-runtime.mts',

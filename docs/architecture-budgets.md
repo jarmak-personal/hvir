@@ -1,10 +1,12 @@
 # Architecture budgets
 
 ADR-040 owns the policy. `scripts/architecture-hotspots.json` records exact budgets;
-`architecture-policy.mjs` validates and evaluates them, `architecture-inventory.mjs` owns
-filesystem/Git reads, and `architecture-authorization.mjs` owns proposal and integration
+`architecture-policy.mts` owns source/data/disposable classification and budget evaluation,
+`architecture-inventory.mts` owns filesystem/Git reads, and `architecture-authorization.mts` owns proposal and integration
 admission. The GitHub adapter supplies bounded, read-only delivery and acceptance evidence.
-It reuses the release evidence owner's exact candidate/tree checks and coherent CI-attempt
+The substantive checker and dedicated fixtures are typechecked TypeScript; the existing `.mjs`
+command is a thin CLI entry. `architecture-wiring.mts` restricts proposals to exact checker/test
+identities and necessary package, CI, and lint wiring. The GitHub adapter reuses the release evidence owner's exact candidate/tree checks and coherent CI-attempt
 policy with the epic as its reachability target; this grants no release or merge authority.
 
 Run an offline, explicitly provisional inventory with:
@@ -41,10 +43,15 @@ or non-shell executable shebang requires an explicit language disposition. JSON/
 HTML templates, build manifests, and binary/image assets are data rather than these source
 families. Renaming code to an unsupported source extension fails inventory; data files are
 not an alternate home for executable source. Added local files, even ignored maintained
-source, count. Repository-owned aliases resolve once to their target; broken or escaping
+source, count. Local `.log`, `.tsbuildinfo`, and `.env`/`.env.*` artifacts have explicit data
+dispositions; untracked status alone never excludes an unknown source language. Configured source
+extensions take precedence, and executable shell shebangs remain source even with a data suffix.
+Repository-owned aliases resolve once to their target; broken or escaping
 aliases fail. Installed `node_modules`, Git internals, `out`, `dist`, coverage, and native
 `packages/*/build` output are excluded by their disposable role. A tracked file under one of
-those roles is an error, never a silent exemption.
+those roles is an error, never a silent exemption. Git caches belong to one bounded evaluation;
+historical reads select source, alias, executable, and policy inputs without loading unrelated
+binary/data bodies. Every applicable accepted historical ratchet remains included.
 
 The ordinary ceiling is 1,000 physical lines; 500 is a comfort signal. LF bytes are counted,
 with one additional line for a nonempty unterminated final line. Blank/comment lines count;
@@ -62,7 +69,9 @@ but the reserving policy PR cannot add that source itself.
 
 A relaxation requires a separate policy-only PR. Its complete diff may touch only architecture
 policy/checker modules, dedicated architecture tests/fixtures, this usage guide, and the exact
-package/CI/Vitest verification wiring. Newly authorized existing consuming files must be
+package/CI/lint verification wiring. Whole-file eligibility does not authorize arbitrary changes:
+dependency/product-script changes, unrelated jobs, weakened CI, and invented checker/fixture
+names are rejected. Normal Vitest discovery remains unchanged. Newly authorized consuming files must be
 byte-identical to the comparison base. Changed checker and fixture source must obey prior
 budgets or the ordinary default. This admission reports `policy-proposal`; it becomes usable
 by consumers only after separate acceptance. Splitting policy and source into commits in one
@@ -72,7 +81,8 @@ Cumulative delivery reads accepted integrations in first-parent order. Every chi
 must have matching canonical GitHub PR, native parent, exact epic target, base/head/merge
 identities, unchanged tested merge tree, and one coherent successful CI attempt. Policy
 relaxations are replayed only from separately accepted policy-only children. Main's independently
-changed rule cannot be weakened by older epic approval. Transitional/stricter reductions in
+stricter rule must be adopted by the cumulative candidate; older epic approval cannot become a
+new cumulative policy proposal against it. Transitional/stricter reductions in
 accepted children remain binding in the cumulative result. Missing/contradictory GitHub evidence,
 direct policy commits, and candidate-authored evidence files confer no authority.
 
@@ -85,5 +95,5 @@ input digests. A new generated classification, generator authority, or larger ma
 separate acceptance. Generator source always retains ordinary maintained-source treatment.
 
 Focused policy, real temporary Git-history, and immediate GitHub-boundary fixtures run through
-`npx vitest run test/architecture-*.test.js`; they need no network credentials. Normal
+`npx vitest run test/architecture-*.test.ts`; they need no network credentials. Normal
 `npm run verify` retains its blocking architecture gate.

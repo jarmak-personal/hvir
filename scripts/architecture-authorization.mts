@@ -10,30 +10,39 @@ import {
   relaxedPaths,
   ruleFor,
   validatePolicy,
-} from './architecture-policy.mjs'
+  type ArchitecturePolicy,
+  type ArchitectureRule,
+  type SourceInventory,
+} from './architecture-policy.mts'
 import {
-  acceptedRatchetCounts,
-  blob,
-  collectInventory,
-  comparisonCounts,
+  createArchitectureInventory,
   git,
   requireAncestor,
   validateGeneratedOwnership,
-} from './architecture-inventory.mjs'
-
-// Closed admission surface: no application, general tests, smoke scenarios, or unrelated tooling.
-export function policyOnlyPath(path) {
-  return (
-    path === POLICY_PATH ||
-    /^scripts\/architecture-[a-z-]+\.mjs$/.test(path) ||
-    /^test\/architecture-[a-z-]+\.test\.(?:ts|js)$/.test(path) ||
-    path.startsWith('test/fixtures/architecture/') ||
-    path === 'docs/architecture-budgets.md' ||
-    ['package.json', '.github/workflows/ci.yml', 'vitest.config.ts'].includes(path)
-  )
+  type ArchitectureInventory,
+} from './architecture-inventory.mts'
+import { policyOnlyPath, admitArchitectureWiring } from './architecture-wiring.mts'
+export interface ArchitectureContext {
+  kind: 'ordinary' | 'epic-child' | 'cumulative'
+  target: string
+  epic: string | null
+  base: string
+  head: string
+  tested?: string
+}
+export interface ArchitectureIntegration {
+  epic: string
+  pullRequest: number
+  base: string
+  head: string
+  merge: string
 }
 
-export function changedPaths(root, base, head = null) {
+export function changedPaths(
+  root: string,
+  base: string,
+  head: string | null = null,
+): string[] {
   const changed = git(root, [
     'diff',
     '--name-only',
@@ -60,6 +69,15 @@ export function admitPolicyProposal({
   before,
   after,
   inventory,
+  source = createArchitectureInventory(root),
+}: {
+  root: string
+  base: string
+  head?: string | null
+  before: ArchitecturePolicy
+  after: ArchitecturePolicy
+  inventory: SourceInventory
+  source?: ArchitectureInventory
 }) {
   const changes = changedPaths(root, base, head)
   if (!changes.length || changes.some((path) => !policyOnlyPath(path))) {
@@ -68,9 +86,9 @@ export function admitPolicyProposal({
     )
   }
   assertCoverageNotReduced(before, after)
-  const read = (path) =>
+  const read = (path: string) =>
     head
-      ? blob(root, head, path)
+      ? source.blob(head, path)
       : (() => {
           try {
             return readFileSync(join(root, path))
@@ -78,13 +96,15 @@ export function admitPolicyProposal({
             return null
           }
         })()
+  for (const path of changes)
+    admitArchitectureWiring(path, source.blob(base, path), read(path))
   for (const path of relaxedPaths(
     before,
     after,
     inventory.keys(),
-    comparisonCounts(root, inventory, [base]),
+    source.comparisonCounts(inventory, [base]),
   )) {
-    const oldBytes = blob(root, base, path)
+    const oldBytes = source.blob(base, path)
     const newBytes = read(path)
     if (oldBytes === null && newBytes === null && ruleFor(after, path).kind === 'durable')
       continue
@@ -96,7 +116,7 @@ export function admitPolicyProposal({
   const priorRows = evaluateInventory(
     before,
     changedSource,
-    comparisonCounts(root, changedSource, [base]),
+    source.comparisonCounts(changedSource, [base]),
   )
   if (priorRows.some((row) => row.status === 'over'))
     throw new Error(
@@ -106,11 +126,15 @@ export function admitPolicyProposal({
   return { kind: 'policy-proposal', paths: changes }
 }
 
-function sameRule(a, b) {
+function sameRule(a: ArchitectureRule, b: ArchitectureRule) {
   return isDeepStrictEqual(a, b)
 }
 
-export function replayPolicyDelta(current, before, after) {
+export function replayPolicyDelta(
+  current: ArchitecturePolicy,
+  before: ArchitecturePolicy,
+  after: ArchitecturePolicy,
+): ArchitecturePolicy {
   assertCoverageNotReduced(before, after)
   if (
     before.defaultMaximum !== after.defaultMaximum &&
@@ -134,6 +158,14 @@ export function replayPolicyDelta(current, before, after) {
       proposed = ruleFor(after, path),
       existing = ruleFor(current, path)
     if (sameRule(prior, proposed)) continue
+    // Preserve an independently stricter main rule before classifying the older
+    // epic delta. The final candidate must adopt main's rule to pass admission.
+    if (
+      !sameRule(existing, prior) &&
+      !sameRule(existing, proposed) &&
+      !isRelaxation(proposed, existing)
+    )
+      continue
     if (
       !sameRule(existing, prior) &&
       !sameRule(existing, proposed) &&
@@ -143,35 +175,37 @@ export function replayPolicyDelta(current, before, after) {
         `Accepted epic rule conflicts with independently changed main policy: ${path}`,
       )
     }
-    // A stricter independent main decision wins even when the old epic rule had a different kind.
-    if (
-      !sameRule(existing, prior) &&
-      !sameRule(existing, proposed) &&
-      existing.maxLines < proposed.maxLines
-    )
-      continue
     next.budgets = next.budgets.filter((e) => e.path !== path)
     next.generated = next.generated.filter((e) => e.path !== path)
     if (proposed.kind === 'generated') {
-      const entry = { ...proposed }
-      delete entry.kind
+      const { kind: _kind, ...entry } = proposed
       next.generated.push(entry)
     } else if (proposed.kind !== 'ordinary') next.budgets.push(proposed)
   }
   return next
 }
 
-export async function authorizeCandidate({ root, context, loadIntegration }) {
+export async function authorizeCandidate({
+  root,
+  context,
+  loadIntegration,
+}: {
+  root: string
+  context: ArchitectureContext
+  loadIntegration: (merge: string, epic: string) => Promise<ArchitectureIntegration>
+}) {
+  const source = createArchitectureInventory(root)
   const { base, head, epic } = context
   requireAncestor(root, base, head)
-  let accepted = readAcceptedPolicy(blob(root, base, POLICY_PATH))
+  let accepted = readAcceptedPolicy(source.blob(base, POLICY_PATH))
   const candidate = validatePolicy(
     JSON.parse(readFileSync(join(root, POLICY_PATH), 'utf8')),
   )
-  const inventory = collectInventory(root, candidate)
+  const inventory = source.collectInventory(candidate)
   const revisions = [base]
   const integrations = []
   if (context.kind === 'cumulative') {
+    if (!epic) throw new Error('Missing cumulative epic identity')
     const commits = git(root, [
       'rev-list',
       '--first-parent',
@@ -185,7 +219,9 @@ export async function authorizeCandidate({ root, context, loadIntegration }) {
       if (parents.length < 2) {
         if (
           parents[0] &&
-          !blob(root, parents[0], POLICY_PATH)?.equals(blob(root, merge, POLICY_PATH))
+          !source
+            .blob(parents[0], POLICY_PATH)
+            ?.equals(source.blob(merge, POLICY_PATH) ?? new Uint8Array())
         ) {
           throw new Error(`Policy commit lacks separately accepted PR evidence: ${merge}`)
         }
@@ -193,7 +229,7 @@ export async function authorizeCandidate({ root, context, loadIntegration }) {
       }
       // Integrating current main is already represented by B; it supplies no epic authorization.
       try {
-        requireAncestor(root, parents[1], base)
+        requireAncestor(root, parents[1]!, base)
         continue
       } catch {
         /* child integration */
@@ -214,18 +250,19 @@ export async function authorizeCandidate({ root, context, loadIntegration }) {
         git(root, ['rev-parse', `${evidence.head}^{tree}`])
       )
         throw new Error('Accepted integration changed the tested tree')
-      const before = readAcceptedPolicy(blob(root, evidence.base, POLICY_PATH))
-      const afterBytes = blob(root, evidence.head, POLICY_PATH)
-      if (!blob(root, evidence.base, POLICY_PATH).equals(afterBytes)) {
+      const before = readAcceptedPolicy(source.blob(evidence.base, POLICY_PATH))
+      const afterBytes = source.blob(evidence.head, POLICY_PATH)
+      if (!afterBytes) throw new Error('Missing integrated policy')
+      if (!source.blob(evidence.base, POLICY_PATH)?.equals(afterBytes)) {
         const after = validatePolicy(JSON.parse(afterBytes.toString()))
-        const integratedInventory = collectInventory(root, after, evidence.head)
+        const integratedInventory = source.collectInventory(after, evidence.head)
         if (
           after.defaultMaximum > before.defaultMaximum ||
           relaxedPaths(
             before,
             after,
             integratedInventory.keys(),
-            comparisonCounts(root, integratedInventory, [evidence.base]),
+            source.comparisonCounts(integratedInventory, [evidence.base]),
           ).length
         ) {
           admitPolicyProposal({
@@ -235,6 +272,7 @@ export async function authorizeCandidate({ root, context, loadIntegration }) {
             before,
             after,
             inventory: integratedInventory,
+            source,
           })
         }
         accepted = replayPolicyDelta(accepted, before, after)
@@ -249,23 +287,27 @@ export async function authorizeCandidate({ root, context, loadIntegration }) {
     }
   }
   assertCoverageNotReduced(accepted, candidate)
-  const counts = acceptedRatchetCounts(
-    root,
+  const counts = source.acceptedRatchetCounts(
     accepted,
     base,
-    comparisonCounts(root, inventory, revisions),
+    source.comparisonCounts(inventory, revisions),
   )
-  let admission = { kind: 'accepted-policy' }
+  let admission: { kind: string; paths?: string[] } = { kind: 'accepted-policy' }
   if (
     candidate.defaultMaximum > accepted.defaultMaximum ||
     relaxedPaths(accepted, candidate, inventory.keys(), counts).length
   ) {
+    if (context.kind === 'cumulative')
+      throw new Error(
+        'Cumulative policy conflicts with independently changed main policy or lacks separately accepted authorization',
+      )
     admission = admitPolicyProposal({
       root,
       base,
       before: accepted,
       after: candidate,
       inventory,
+      source,
     })
   }
   validateGeneratedOwnership(candidate, (path) => {

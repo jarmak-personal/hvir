@@ -1,11 +1,9 @@
+import type { ArchitectureBudget } from '../scripts/architecture-policy.mts'
+import type { authorizeCandidate } from '../scripts/architecture-authorization.mts'
 import { afterEach, describe, expect, it } from 'vitest'
-import {
-  budget,
-  ordinaryPolicy,
-  repository,
-} from './fixtures/architecture/repository.mjs'
+import { budget, ordinaryPolicy, repository } from './fixtures/architecture/repository.ts'
 
-const fixtures = []
+const fixtures: ReturnType<typeof repository>[] = []
 function repo() {
   const r = repository()
   fixtures.push(r)
@@ -15,7 +13,11 @@ afterEach(() => {
   for (const r of fixtures.splice(0)) r.dispose()
 })
 
-function bootstrap(r, kind = 'transitional', maximum = 1400) {
+function bootstrap(
+  r: ReturnType<typeof repository>,
+  kind: ArchitectureBudget['kind'] = 'transitional',
+  maximum = 1400,
+) {
   r.source(1400)
   const base = r.commit()
   const policy = ordinaryPolicy()
@@ -23,12 +25,43 @@ function bootstrap(r, kind = 'transitional', maximum = 1400) {
   r.policy(policy)
   return { base, policy }
 }
-function row(report) {
-  return report.rows.find((e) => e.path === 'src/owner.ts')
+function row(report: Awaited<ReturnType<typeof authorizeCandidate>>) {
+  return report.rows.find((e) => e.path === 'src/owner.ts')!
 }
 
 describe('architecture accepted Git history', () => {
-  it.each(['ordinary', 'epic-child'])(
+  it('adopts stricter main policy during cumulative replay and rejects the superseded epic ceiling', async () => {
+    const r = repo(),
+      initial = ordinaryPolicy()
+    initial.budgets.push(budget('durable', 1400))
+    r.policy(initial)
+    r.source(900)
+    const main = r.commit()
+    r.git('switch', '-c', 'epic/733-fixture')
+    r.git('switch', '-c', 'policy-child')
+    const epicPolicy = ordinaryPolicy()
+    epicPolicy.budgets.push(budget('durable', 1500))
+    r.policy(epicPolicy)
+    r.commit()
+    r.integrate('policy-child', main)
+    r.git('switch', 'main')
+    const tighter = ordinaryPolicy()
+    tighter.budgets.push(budget('stricter', 900))
+    r.policy(tighter)
+    const freshMain = r.commit()
+    r.git('switch', 'epic/733-fixture')
+    r.git('merge', '-s', 'ours', '--no-ff', 'main', '-m', 'fixture main integration')
+    await expect(r.check(freshMain, 'cumulative')).rejects.toThrow(
+      /independently changed main/,
+    )
+    r.policy(tighter)
+    expect(row(await r.check(freshMain, 'cumulative'))).toMatchObject({
+      status: 'ok',
+      effectiveLimit: 900,
+      governingRule: 'stricter',
+    })
+  })
+  it.each(['ordinary', 'epic-child'] as const)(
     'admits the unchanged bootstrap only as a %s policy proposal',
     async (kind) => {
       const r = repo(),
@@ -60,15 +93,15 @@ describe('architecture accepted Git history', () => {
   )
   it('rejects a checker authorizing its own exception even in the policy-only surface', async () => {
     const r = repo()
-    r.source(1100, 'scripts/architecture-checker.mjs')
+    r.source(1100, 'scripts/architecture-inventory.mts')
     const base = r.commit()
     const policy = ordinaryPolicy()
-    policy.budgets.push(budget('durable', 1200, 'scripts/architecture-checker.mjs'))
+    policy.budgets.push(budget('durable', 1200, 'scripts/architecture-inventory.mts'))
     r.policy(policy)
-    r.source(1150, 'scripts/architecture-checker.mjs')
+    r.source(1150, 'scripts/architecture-inventory.mts')
     await expect(r.check(base)).rejects.toThrow(/newly authorized source/)
   })
-  it.each(['ordinary', 'epic-child'])(
+  it.each(['ordinary', 'epic-child'] as const)(
     'ratchets a sequential accepted %s refactor and rejects regrowth',
     async (kind) => {
       const r = repo()
@@ -106,7 +139,7 @@ describe('architecture accepted Git history', () => {
     expect(row(await r.check(base)).status).toBe('ok')
     r.source(1601)
     expect(row(await r.check(base)).status).toBe('over')
-    policy.budgets[0].maxLines = 1700
+    policy.budgets[0]!.maxLines = 1700
     r.policy(policy)
     await expect(r.check(base)).rejects.toThrow(/policy-only/)
   })
@@ -233,7 +266,7 @@ describe('architecture accepted Git history', () => {
       r.commit()
       if (defect !== 'direct-policy') {
         const merge = r.integrate('policy-child', main),
-          evidence = r.evidence.get(merge)
+          evidence = r.evidence.get(merge)!
         if (defect === 'wrong-epic') evidence.epic = 'epic/999-other'
         else evidence.head = main
       }
