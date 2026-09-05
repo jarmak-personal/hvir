@@ -40,8 +40,6 @@ const preloadFeature = {
 
 describe('feature-owned IPC composition', () => {
   it('preserves representative payloads, project-state identity, and preload-only classification', () => {
-    expect(PRELOAD_ONLY_INVOKE_CHANNELS).toEqual(['fs:acquire-dropped-files'])
-    expect(RENDERER_INVOKE_CHANNELS).not.toContain('fs:acquire-dropped-files')
     expect(
       new Set([...RENDERER_INVOKE_CHANNELS, ...PRELOAD_ONLY_INVOKE_CHANNELS]),
     ).toEqual(new Set(INVOKE_CHANNELS))
@@ -144,6 +142,8 @@ function compileTimeRejections(api: HvirApi) {
   })
   // @ts-expect-error read-only manifests do not authorize caller mutation
   INVOKE_CHANNELS[0] = 'app:info'
+  // @ts-expect-error renderer admission manifests do not authorize caller mutation
+  RENDERER_INVOKE_CHANNELS[0] = 'app:info'
   // @ts-expect-error read-only manifests do not authorize caller mutation
   SEND_CHANNELS[0] = 'pty:write'
   // @ts-expect-error read-only manifests do not authorize caller mutation

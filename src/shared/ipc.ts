@@ -181,7 +181,8 @@ export const PRELOAD_ONLY_INVOKE_CHANNELS: readonly PreloadOnlyIpcInvokeChannel[
     (channel): channel is PreloadOnlyIpcInvokeChannel =>
       contract.invoke[channel].access === 'preload',
   )
-export const RENDERER_INVOKE_CHANNELS = INVOKE_CHANNELS.filter(
-  (channel): channel is RendererIpcInvokeChannel =>
-    contract.invoke[channel].access === 'renderer',
-)
+export const RENDERER_INVOKE_CHANNELS: readonly RendererIpcInvokeChannel[] =
+  INVOKE_CHANNELS.filter(
+    (channel): channel is RendererIpcInvokeChannel =>
+      contract.invoke[channel].access === 'renderer',
+  )
