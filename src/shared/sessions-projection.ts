@@ -2,7 +2,7 @@ import type { HostConnectionState } from './fs-types'
 import type { HarnessProfileId } from './harness-profile'
 import type { HarnessContextPressurePolicy, HarnessProviderId } from './harness-provider'
 import type { HarnessUsageValue } from './harness-usage'
-import type { ProjectState } from './ipc'
+import type { ProjectState } from './workspace-types'
 
 export const SESSIONS_PROJECTION_VERSION = 1
 export const MAX_SESSIONS_PROJECTION_ROWS = 500

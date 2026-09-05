@@ -1,1005 +1,142 @@
-/**
- * The typed IPC contract (renderer <-> main).
- *
- * This is the *single* source of truth for channel names and their
- * request/response shapes. Nothing outside this module and the preload bridge
- * may name a raw channel string; the renderer calls `window.hvir.invoke(...)`,
- * which is typed entirely against the maps below. Adding an IPC surface means
- * adding an entry here first.
- */
-
+/** One typed preload API and explicit composition of feature-owned wire contracts. */
 import type { Disposer } from './disposer'
-import type { ComposerSubmitMode } from './composer-submit'
-import type { DirEntry, FileType, WatchEvent } from './fs-types'
-import type { FilenameSearchRequest, FilenameSearchResponse } from './filename-search'
-import type { HostPath } from './host-path'
-import type {
-  ExternalFileGrantResult,
-  ExternalMoveGrantResult,
-  ExternalMoveGrantReleaseRequest,
-  ProjectFileExternalMoveAcquireRequest,
-  ProjectFileExternalMoveDisclosure,
-  ProjectFileExternalMoveRequest,
-  ProjectFileCreateRequest,
-  ProjectFileDeleteRequest,
-  ProjectFileDeletionDisclosure,
-  ProjectFileDeletionDisclosureRequest,
-  ProjectFileCancelRequest,
-  ProjectFileExternalCopyRequest,
-  ProjectFileOrganizationRequest,
-  ProjectFileOperationProgress,
-  ProjectFileOperationResult,
-  ProjectFileOperationStartResult,
-} from './project-file-operations'
-import type {
-  CreateHtmlPreviewRequest,
-  CreateHtmlPreviewResponse,
-  ReleaseHtmlPreviewRequest,
-} from './html-preview'
-import type {
-  GitDiffRequest,
-  GitDiffResponse,
-  WriteFileRequest,
-  WriteFileResponse,
-} from './viewer-types'
-import type {
-  GitBlameRun,
-  GitBlameRequest,
-  GitChanges,
-  GitChangesRequest,
-  GitCommitDetail,
-  GitCommitDetailRequest,
-  GitHistoryPage,
-  GitHistoryRequest,
-  GitIgnoredEntriesRequest,
-  GitIgnoredEntriesResponse,
-  GitBranchModel,
-  GitFetchRequest,
-  GitPullRequest,
-  GitSwitchBranchRequest,
-} from './git-types'
-import type { HostConnectionState, HostWatchTier } from './fs-types'
-import type { HarnessTelemetry } from './harness-telemetry'
-import type { HarnessProviderDescriptor, HarnessProviderId } from './harness-provider'
-import type { HarnessProfileProbe } from './harness-provider'
-import type {
-  HarnessCommandPreview,
-  HarnessPathGrant,
-  HarnessProfile,
-  HarnessProfileId,
-  HarnessProfileInput,
-} from './harness-profile'
-import type { RegisteredProjectState } from './workspace-types'
-import type {
-  SessionsDemandRequest,
-  SessionsOpenRequest,
-  SessionsOpenResponse,
-  SessionsObservationSnapshot,
-  SessionsProjectionChange,
-  SessionsTerminalResolutionResponse,
-  SessionsUsageChange,
-  SessionsUsageDemandRequest,
-  SessionsUsageSnapshot,
-} from './sessions-projection'
-import type { KeybindingAction, KeybindingMap } from './keybindings'
-import type { WebPaneDiagnosticEvent } from './web-pane'
-import type {
-  RenderContainmentDiagnosticBatch,
-  RendererDiagnosticSession,
-} from './diagnostics'
-import type { WorkbenchHealthSnapshot } from './workbench-health'
-import type {
-  DiagnosticEvidenceDeleteResult,
-  DiagnosticEvidenceState,
-} from './diagnostic-evidence'
-import type {
-  CaptureDiagnosticReportRequest,
-  CreateDiagnosticReportRequest,
-  DiagnosticReportActionResult,
-  DiagnosticReportIdRequest,
-  DiagnosticReportStateResult,
-} from './diagnostic-report'
-import type {
-  DocumentReviewRestoreRequest,
-  DocumentReviewDeliveryDestination,
-  DocumentReviewDeliveryPayload,
-  DocumentReviewDeliveryScopeRequest,
-  DocumentReviewInsertRequest,
-  DocumentReviewInsertResult,
-  DocumentReviewPrepareRequest,
-  DocumentReviewPreviewRequest,
-  DocumentReviewRevalidateRequest,
-  DocumentReviewRevalidation,
-  DocumentReviewSaveRequest,
-  DocumentReviewSendNowRequest,
-  DocumentReviewSendNowResult,
-  DocumentReviewWorkspaceSnapshot,
-  PreparedDocumentReviewDelivery,
-} from './document-review'
-
-export type WebPaneCommandAction =
-  KeybindingAction | 'closeWebPane' | 'escapeWebPaneFocus'
-
-/** Basic app/runtime info — the trivial round-trip that proves the contract. */
-export interface AppInfo {
-  readonly appVersion: string
-  readonly electronVersion: string
-  readonly chromeVersion: string
-  readonly nodeVersion: string
-  readonly platform: string
-}
-
-export interface EchoRequest {
-  readonly text: string
-}
-
-export interface EchoResponse {
-  readonly text: string
-  readonly workerPid: number
-}
-
-export interface ProjectRootResponse {
-  readonly root: HostPath
-}
-
-export const MAX_PROJECT_WATCH_INTERESTS = 128
-
-export interface ProjectWatchInterestsRequest {
-  readonly root: HostPath
-  readonly paths: readonly HostPath[]
-}
-
-export interface ProjectWatchInterestsResponse {
-  readonly accepted: number
-  readonly limited: boolean
-}
-
-export interface ProjectHostOption {
-  readonly hostId: string
-  readonly label: string
-  readonly kind: 'local' | 'ssh'
-  readonly connectionState: HostConnectionState
-  readonly watchTier: HostWatchTier
-}
-
-export interface ProjectState extends ProjectRootResponse {
-  /** Main-owned identity for ordering and deduplicating authoritative state. */
-  readonly revision: number
-  readonly connectionState: HostConnectionState
-  readonly watchTier: HostWatchTier
-  readonly projects: readonly RegisteredProjectState[]
-  readonly activeProjectId: string
-  readonly activeWorkspaceId: string
-}
-
-export interface OpenProjectRequest {
-  readonly hostId: string
-  readonly path: string
-}
-
-export interface SwitchWorkspaceRequest {
-  readonly projectId: string
-  readonly workspaceId: string
-}
-
-export interface RefreshProjectRequest {
-  readonly projectId: string
-}
-
-export type CloseProjectRequest = RefreshProjectRequest
-export type PruneProjectWorktreesRequest = RefreshProjectRequest
-export type DismissWorkspaceRequest = SwitchWorkspaceRequest
-export type AcknowledgeWorkspaceRequest = SwitchWorkspaceRequest
-
-export type PlanWorkspaceCloseRequest = SwitchWorkspaceRequest
-
-export interface WorkspaceClosePlan {
-  readonly terminalCount: number
-}
-
-export interface CloseWorkspaceRequest extends SwitchWorkspaceRequest {
-  readonly expectedTerminalCount: number
-  readonly terminateTerminals: boolean
-}
-
-export type ReopenWorkspaceRequest = SwitchWorkspaceRequest
-
-export interface ConnectHostRequest {
-  readonly hostId: string
-}
-
-export interface DisconnectHostRequest {
-  readonly hostId: string
-}
-
-export interface ConnectedHost {
-  readonly host: ProjectHostOption
-  readonly suggestedPath: string
-}
-
-export interface BrowseHostRequest {
-  readonly hostId: string
-  readonly path: string
-}
-
-export interface BrowseHostResponse {
-  readonly path: HostPath
-  readonly directories: readonly DirEntry[]
-}
-
-export interface ProjectFolderPickerStartRequest {
-  readonly hostId: string
-}
-
-export interface ProjectFolderPickerLease {
-  readonly pickerId: string
-}
-
-export interface ProjectFolderPickerBrowseRequest {
-  readonly pickerId: string
-  readonly path: string
-}
-
-export interface ProjectFolderPickerCreateDirectoryRequest {
-  readonly pickerId: string
-  readonly destinationParent: HostPath
-  readonly name: string
-}
-
-export interface ProjectFolderPickerCloseRequest {
-  readonly pickerId: string
-}
-
-export type OperationResult<T> =
-  | { readonly ok: true; readonly value: T }
-  | { readonly ok: false; readonly error: string }
-
-export function unwrapOperation<T>(result: OperationResult<T>): T {
-  if (!result.ok) throw new Error(result.error)
-  return result.value
-}
-
-export interface SshPromptRequest {
-  readonly id: number
-  readonly hostId: string
-  readonly kind:
-    'password' | 'passphrase' | 'keyboard-interactive' | 'host-key' | 'host-key-changed'
-  readonly title: string
-  readonly instructions?: string
-  readonly fingerprint?: string
-  readonly previousFingerprint?: string
-  readonly prompts: readonly { readonly text: string; readonly echo: boolean }[]
-}
-
-export interface SshPromptResponse {
-  readonly id: number
-  readonly answers?: readonly string[]
-}
-
-export interface ReadDirectoryRequest {
-  readonly path: HostPath
-}
-
-export interface ReadFileRequest {
-  readonly path: HostPath
-}
-
-export interface RevealProjectEntryRequest {
-  readonly workspaceRoot: HostPath
-  readonly path: HostPath
-}
-
-/** Preload-only payload populated through Electron's disk-backed File bridge. */
-export interface AcquireDroppedFilesRequest {
-  readonly paths: readonly string[]
-}
-
-export interface ResolveEntryResponse {
-  /** The renderer-facing link path, not the canonical target path. */
-  readonly path: HostPath
-  /** Target kind after canonical confinement and symlink resolution. */
-  readonly type: FileType
-}
-
-export interface ReadFileResponse {
-  readonly path: HostPath
-  readonly content: string
-  readonly size: number
-  readonly mtimeMs: number
-  readonly binary: boolean
-}
-
-export interface ReadAssetResponse {
-  readonly path: HostPath
-  readonly data: Uint8Array
-  readonly size: number
-  readonly mimeType: string
-}
-
-export interface StartPtyRequest {
-  readonly sessionId: string
-  /**
-   * Retained recovery record retired only after this fresh session starts and
-   * its replacement record is durably committed.
-   */
-  readonly replacesSessionId?: string
-  readonly profileId: HarnessProfileId
-  readonly launchRevision: number
-  /** Mutable terminal ownership, distinct from its immutable provider launch context. */
-  readonly workspaceRoot: HostPath
-  readonly cwd: HostPath
-  readonly cols: number
-  readonly rows: number
-  readonly title: string
-  readonly position: number
-  readonly active: boolean
-  readonly composerSubmitMode: ComposerSubmitMode
-  /** Explicit bulk recovery is admitted through the bounded per-host start queue. */
-  readonly admission?: 'interactive' | 'bulk'
-  /** Omitted by legacy fresh/resume callers; new provider-derived starts name the mode. */
-  readonly launchMode?: import('./harness-profile').HarnessLaunchMode
-  readonly resume?: boolean
-  readonly harnessSessionId?: string
-  /** Exact registered source terminal and provider-owned parent identity for a fork. */
-  readonly forkSourceSessionId?: string
-  readonly parentHarnessSessionId?: string
-}
-
-export interface HarnessProfilesRequest {
-  readonly root: HostPath
-}
-
-export interface HarnessProbeProfilesRequest {
-  readonly root: HostPath
-  readonly profileIds?: readonly HarnessProfileId[]
-  readonly force?: boolean
-}
-
-export interface HarnessProbeTemplatesRequest {
-  readonly root: HostPath
-  readonly providerIds?: readonly HarnessProviderId[]
-  readonly force?: boolean
-}
-
-export interface MaterializeHarnessProfilesRequest {
-  readonly root: HostPath
-  readonly providerIds: readonly HarnessProviderId[]
-}
-
-interface SaveHarnessProfileRequestBase {
-  readonly root: HostPath
-  readonly input: HarnessProfileInput
-}
-
-export type SaveHarnessProfileRequest = SaveHarnessProfileRequestBase &
-  (
-    | {
-        readonly id?: never
-        readonly expectedLaunchRevision?: never
-        readonly expectedMetadataRevision?: never
-      }
-    | {
-        readonly id: HarnessProfileId
-        readonly expectedLaunchRevision: number
-        readonly expectedMetadataRevision: number
-      }
-  )
-
-export interface HarnessProfileRequest {
-  readonly id: HarnessProfileId
-}
-
-interface HarnessPreviewRequestBase {
-  readonly root: HostPath
-  readonly cwd: HostPath
-  readonly mode: 'fresh' | 'resume'
-  readonly harnessSessionId?: string
-}
-
-export type HarnessPreviewRequest = HarnessPreviewRequestBase &
-  (
-    | {
-        readonly profileId: HarnessProfileId
-        readonly launchRevision: number
-        readonly input?: never
-      }
-    | {
-        readonly input: HarnessProfileInput
-        readonly profileId?: HarnessProfileId
-        readonly launchRevision?: never
-      }
-  )
-
-export interface AuthorizeHarnessPathRequest {
-  readonly root: HostPath
-  readonly path: HostPath
-}
-
-export type ConfigureComposerSubmitRequest =
-  | {
-      readonly scope: 'host'
-      readonly hostId: string
-      readonly mode: ComposerSubmitMode
-    }
-  | {
-      readonly scope: 'all-connected'
-      readonly mode: ComposerSubmitMode
-      readonly previousMode: ComposerSubmitMode
-    }
-
-export type StartPtyResponse =
-  | {
-      readonly outcome: 'started'
-      readonly id: string
-      /** Exact live spawn identity, distinct from the retained terminal id. */
-      readonly instanceId: string
-      readonly pid: number
-      readonly resumed: boolean
-      readonly reattached: boolean
-      readonly harnessSessionId?: string
-      readonly identityStatus: TerminalIdentityStatus
-      readonly identityDiverged?: true
-      readonly capabilities: import('./harness-provider').HarnessProviderCapabilities
-    }
-  | {
-      readonly outcome: 'resume-unavailable'
-      readonly reason: 'artifact-missing'
-    }
-  | {
-      readonly outcome: 'fork-unavailable'
-      readonly reason: 'parent-artifact-missing'
-    }
-  | {
-      readonly outcome: 'launch-unavailable'
-      readonly reason: 'identity-baseline-unavailable'
-      readonly retryable: true
-    }
-
-export type TerminalIdentityStatus =
-  'none' | 'discovering' | 'identified' | 'ambiguous' | 'unavailable'
-
-export type TerminalAttentionState = 'working' | 'bell' | 'idle'
-
-export interface TerminalRecoverySession {
-  readonly id: string
-  readonly providerId: HarnessProviderId
-  readonly profileId: HarnessProfileId
-  readonly launchRevision: number
-  readonly recoverySkipCount: 0 | 1
-  readonly artifactIdentity?: string
-  readonly harnessSessionId?: string
-  readonly hostId: string
-  readonly cwd: HostPath
-  readonly title: string
-  readonly position: number
-  readonly active: boolean
-  readonly attention?: TerminalAttentionState
-  readonly updatedAt: number
-}
-
-export interface TerminalLayoutEntry {
-  readonly id: string
-  readonly title: string
-  readonly position: number
-  readonly active: boolean
-  readonly attention?: TerminalAttentionState
-}
-
-export interface TerminalRecoveryRequest {
-  readonly root: HostPath
-}
-
-export interface RecordTerminalRecoveryDecisionRequest {
-  readonly root: HostPath
-  readonly restoredIds: readonly string[]
-  readonly skippedIds: readonly string[]
-}
-
-export interface TerminalLayoutRequest {
-  readonly root: HostPath
-  readonly sessions: readonly TerminalLayoutEntry[]
-}
-
-export interface ForgetTerminalRequest {
-  readonly root: HostPath
-  readonly id: string
-}
-
-export interface PlanTerminalMoveRequest {
-  readonly terminalId: string
-  readonly sourceWorkspaceId: string
-  readonly targetWorkspaceId: string
-}
-
-export interface TerminalMovePlan {
-  readonly terminalId: string
-  readonly terminalTitle: string
-  readonly sourceProjectId: string
-  readonly sourceWorkspaceId: string
-  readonly sourceWorkspaceName: string
-  readonly sourceRoot: HostPath
-  readonly targetWorkspaceId: string
-  readonly targetWorkspaceName: string
-  readonly targetRoot: HostPath
-  readonly webPaneIds: readonly string[]
-}
-
-export interface MoveTerminalRequest extends PlanTerminalMoveRequest {
-  /** Exact route set shown in the confirmation dialog. */
-  readonly expectedWebPaneIds: readonly string[]
-}
-
-export interface MoveTerminalResponse {
-  readonly state: ProjectState
-  readonly workspaceRoot: HostPath
-}
-
-export type OpenWebPaneRequest =
-  | {
-      readonly source: 'terminal'
-      readonly root: HostPath
-      readonly terminalId: string
-      readonly url: string
-    }
-  | {
-      readonly source: 'pane'
-      readonly paneId: string
-      readonly url: string
-    }
-
-export interface OpenWebPaneResponse {
-  readonly paneId: string
-  readonly partition: string
-  readonly url: string
-  readonly origin: string
-}
-
-export interface CloseWebPaneRequest {
-  readonly paneId: string
-}
-
-export interface OpenWebPaneExternalRequest {
-  readonly paneId: string
-  readonly url: string
-}
-
-export type OpenWebPaneBrowserRequest = OpenWebPaneExternalRequest
-
-export interface WebPaneBlockedNavigation {
-  readonly paneId: string
-  readonly kind: 'loopback' | 'external'
-  readonly url: string
-}
-
-export interface RebindTerminalProfileRequest {
-  readonly root: HostPath
-  readonly id: string
-  readonly profileId: HarnessProfileId
-  readonly launchRevision: number
-}
-
-/**
- * Request/response channels (renderer invokes, main handles). Add a channel by
- * adding a key here; `IpcInvokeChannel` and the preload bridge follow from it.
- */
-export interface IpcInvokeMap {
-  'app:info': { request: void; response: AppInfo }
-  'workbench-health:get': { request: void; response: WorkbenchHealthSnapshot }
-  'workbench-health:acknowledge': {
-    request: { readonly occurrenceId: string }
-    response: WorkbenchHealthSnapshot
-  }
-  'diagnostic-evidence:get': {
-    request: void
-    response: DiagnosticEvidenceState
-  }
-  'diagnostic-evidence:delete': {
-    request: void
-    response: DiagnosticEvidenceDeleteResult
-  }
-  'diagnostic-report:create': {
-    request: CreateDiagnosticReportRequest
-    response: DiagnosticReportStateResult
-  }
-  'diagnostic-report:capture': {
-    request: CaptureDiagnosticReportRequest
-    response: DiagnosticReportStateResult
-  }
-  'diagnostic-report:copy': {
-    request: DiagnosticReportIdRequest
-    response: DiagnosticReportActionResult
-  }
-  'diagnostic-report:save': {
-    request: DiagnosticReportIdRequest
-    response: DiagnosticReportActionResult
-  }
-  'diagnostic-report:cancel': {
-    request: DiagnosticReportIdRequest
-    response: DiagnosticReportActionResult
-  }
-  'diagnostic-report:delete': {
-    request: DiagnosticReportIdRequest
-    response: DiagnosticReportActionResult
-  }
-  /** Round-trips text through the echo utility process (renderer→main→worker). */
-  'demo:echo': { request: EchoRequest; response: EchoResponse }
-  'project:root': { request: void; response: ProjectState }
-  'project:hosts': { request: void; response: readonly ProjectHostOption[] }
-  'project:connect-host': {
-    request: ConnectHostRequest
-    response: OperationResult<ConnectedHost>
-  }
-  'project:disconnect-host': {
-    request: DisconnectHostRequest
-    response: OperationResult<ProjectHostOption>
-  }
-  'project:browse-host': {
-    request: BrowseHostRequest
-    response: OperationResult<BrowseHostResponse>
-  }
-  'project:folder-picker-start': {
-    request: ProjectFolderPickerStartRequest
-    response: OperationResult<ProjectFolderPickerLease>
-  }
-  'project:folder-picker-browse': {
-    request: ProjectFolderPickerBrowseRequest
-    response: OperationResult<BrowseHostResponse>
-  }
-  'project:folder-picker-create-directory': {
-    request: ProjectFolderPickerCreateDirectoryRequest
-    response: OperationResult<HostPath>
-  }
-  'project:folder-picker-close': {
-    request: ProjectFolderPickerCloseRequest
-    response: OperationResult<void>
-  }
-  'project:open': {
-    request: OpenProjectRequest
-    response: OperationResult<ProjectState>
-  }
-  'project:switch': {
-    request: SwitchWorkspaceRequest
-    response: OperationResult<ProjectState>
-  }
-  'project:refresh': {
-    request: RefreshProjectRequest
-    response: OperationResult<ProjectState>
-  }
-  'project:watch-interests': {
-    request: ProjectWatchInterestsRequest
-    response: OperationResult<ProjectWatchInterestsResponse>
-  }
-  'document-review:restore': {
-    request: DocumentReviewRestoreRequest
-    response: OperationResult<DocumentReviewWorkspaceSnapshot>
-  }
-  'document-review:save': {
-    request: DocumentReviewSaveRequest
-    response: OperationResult<DocumentReviewWorkspaceSnapshot>
-  }
-  'document-review:revalidate': {
-    request: DocumentReviewRevalidateRequest
-    response: OperationResult<DocumentReviewRevalidation>
-  }
-  'document-review:delivery-destinations': {
-    request: DocumentReviewDeliveryScopeRequest
-    response: OperationResult<readonly DocumentReviewDeliveryDestination[]>
-  }
-  'document-review:preview-delivery': {
-    request: DocumentReviewPreviewRequest
-    response: OperationResult<DocumentReviewDeliveryPayload>
-  }
-  'document-review:prepare-delivery': {
-    request: DocumentReviewPrepareRequest
-    response: OperationResult<PreparedDocumentReviewDelivery>
-  }
-  'document-review:insert-delivery': {
-    request: DocumentReviewInsertRequest
-    response: OperationResult<DocumentReviewInsertResult>
-  }
-  'document-review:send-now-delivery': {
-    request: DocumentReviewSendNowRequest
-    response: OperationResult<DocumentReviewSendNowResult>
-  }
-  'project:close': {
-    request: CloseProjectRequest
-    response: OperationResult<ProjectState>
-  }
-  'workspace:prune': {
-    request: PruneProjectWorktreesRequest
-    response: OperationResult<ProjectState>
-  }
-  'workspace:dismiss': {
-    request: DismissWorkspaceRequest
-    response: OperationResult<ProjectState>
-  }
-  'workspace:plan-close': {
-    request: PlanWorkspaceCloseRequest
-    response: OperationResult<WorkspaceClosePlan>
-  }
-  'workspace:close': {
-    request: CloseWorkspaceRequest
-    response: OperationResult<ProjectState>
-  }
-  'workspace:reopen': {
-    request: ReopenWorkspaceRequest
-    response: OperationResult<ProjectState>
-  }
-  'workspace:acknowledge': {
-    request: AcknowledgeWorkspaceRequest
-    response: OperationResult<ProjectState>
-  }
-  'ssh:prompt-response': { request: SshPromptResponse; response: void }
-  'fs:readdir': {
-    request: ReadDirectoryRequest
-    response: OperationResult<readonly DirEntry[]>
-  }
-  'fs:filename-search': {
-    request: FilenameSearchRequest
-    response: OperationResult<FilenameSearchResponse>
-  }
-  'fs:resolve-entry': {
-    request: ReadFileRequest
-    response: OperationResult<ResolveEntryResponse>
-  }
-  'fs:reveal-entry': {
-    request: RevealProjectEntryRequest
-    response: OperationResult<void>
-  }
-  'fs:read': { request: ReadFileRequest; response: OperationResult<ReadFileResponse> }
-  'fs:read-asset': {
-    request: ReadFileRequest
-    response: OperationResult<ReadAssetResponse>
-  }
-  'fs:write': { request: WriteFileRequest; response: OperationResult<WriteFileResponse> }
-  'fs:create-entry': {
-    request: ProjectFileCreateRequest
-    response: OperationResult<ProjectFileOperationResult>
-  }
-  'fs:acquire-clipboard-files': {
-    request: void
-    response: OperationResult<ExternalFileGrantResult>
-  }
-  'fs:acquire-dropped-files': {
-    request: AcquireDroppedFilesRequest
-    response: OperationResult<ExternalFileGrantResult>
-  }
-  'fs:copy-external': {
-    request: ProjectFileExternalCopyRequest
-    response: OperationResult<ProjectFileOperationStartResult>
-  }
-  'fs:external-move-disclosure': {
-    request: void
-    response: OperationResult<ProjectFileExternalMoveDisclosure>
-  }
-  'fs:acquire-external-move-files': {
-    request: ProjectFileExternalMoveAcquireRequest
-    response: OperationResult<ExternalMoveGrantResult>
-  }
-  'fs:release-external-move-grant': {
-    request: ExternalMoveGrantReleaseRequest
-    response: OperationResult<boolean>
-  }
-  'fs:move-external': {
-    request: ProjectFileExternalMoveRequest
-    response: OperationResult<ProjectFileOperationStartResult>
-  }
-  'fs:organize-entry': {
-    request: ProjectFileOrganizationRequest
-    response: OperationResult<ProjectFileOperationStartResult>
-  }
-  'fs:deletion-disclosure': {
-    request: ProjectFileDeletionDisclosureRequest
-    response: OperationResult<ProjectFileDeletionDisclosure>
-  }
-  'fs:delete-entry': {
-    request: ProjectFileDeleteRequest
-    response: OperationResult<ProjectFileOperationStartResult>
-  }
-  'fs:cancel-file-operation': {
-    request: ProjectFileCancelRequest
-    response: OperationResult<boolean>
-  }
-  'git:diff-inputs': { request: GitDiffRequest; response: GitDiffResponse }
-  'git:changes': { request: GitChangesRequest; response: GitChanges }
-  'git:history': { request: GitHistoryRequest; response: GitHistoryPage }
-  'git:ignored-entries': {
-    request: GitIgnoredEntriesRequest
-    response: GitIgnoredEntriesResponse
-  }
-  'git:commit-detail': { request: GitCommitDetailRequest; response: GitCommitDetail }
-  'git:blame': { request: GitBlameRequest; response: readonly GitBlameRun[] }
-  'git:branches': { request: GitChangesRequest; response: GitBranchModel }
-  'git:fetch': {
-    request: GitFetchRequest
-    response: OperationResult<ProjectState>
-  }
-  'git:pull': {
-    request: GitPullRequest
-    response: OperationResult<ProjectState>
-  }
-  'git:switch-branch': {
-    request: GitSwitchBranchRequest
-    response: OperationResult<ProjectState>
-  }
-  'html-preview:create': {
-    request: CreateHtmlPreviewRequest
-    response: CreateHtmlPreviewResponse
-  }
-  'harness:catalog': { request: void; response: readonly HarnessProviderDescriptor[] }
-  'harness:profiles': {
-    request: HarnessProfilesRequest
-    response: readonly HarnessProfile[]
-  }
-  'harness:probe-snapshot': {
-    request: HarnessProfilesRequest
-    response: readonly HarnessProfileProbe[]
-  }
-  'harness:probe-profiles': {
-    request: HarnessProbeProfilesRequest
-    response: readonly HarnessProfileProbe[]
-  }
-  'harness:probe-templates': {
-    request: HarnessProbeTemplatesRequest
-    response: readonly HarnessProfileProbe[]
-  }
-  'harness:profile-materialize': {
-    request: MaterializeHarnessProfilesRequest
-    response: readonly HarnessProfile[]
-  }
-  'harness:profile-save': {
-    request: SaveHarnessProfileRequest
-    response: HarnessProfile
-  }
-  'harness:profile-duplicate': {
-    request: HarnessProfileRequest
-    response: HarnessProfile
-  }
-  'harness:profile-delete': { request: HarnessProfileRequest; response: void }
-  'harness:preview': {
-    request: HarnessPreviewRequest
-    response: HarnessCommandPreview
-  }
-  'harness:authorize-path': {
-    request: AuthorizeHarnessPathRequest
-    response: HarnessPathGrant
-  }
-  'harness:configure-composer-submit': {
-    request: ConfigureComposerSubmitRequest
-    response: void
-  }
-  'terminal:recovery': {
-    request: TerminalRecoveryRequest
-    response: readonly TerminalRecoverySession[]
-  }
-  'terminal:record-recovery-decision': {
-    request: RecordTerminalRecoveryDecisionRequest
-    response: void
-  }
-  'terminal:update-layout': { request: TerminalLayoutRequest; response: void }
-  'terminal:forget': { request: ForgetTerminalRequest; response: void }
-  'terminal:plan-move': {
-    request: PlanTerminalMoveRequest
-    response: OperationResult<TerminalMovePlan>
-  }
-  'terminal:move': {
-    request: MoveTerminalRequest
-    response: OperationResult<MoveTerminalResponse>
-  }
-  'terminal:rebind-profile': {
-    request: RebindTerminalProfileRequest
-    response: TerminalRecoverySession
-  }
-  'sessions:observe': {
-    request: SessionsDemandRequest
-    response: SessionsObservationSnapshot
-  }
-  'sessions:snapshot': {
-    request: SessionsDemandRequest
-    response: SessionsObservationSnapshot
-  }
-  'sessions:release': { request: SessionsDemandRequest; response: void }
-  'sessions:usage-observe': {
-    request: SessionsUsageDemandRequest
-    response: SessionsUsageSnapshot
-  }
-  'sessions:usage-snapshot': {
-    request: SessionsDemandRequest
-    response: SessionsUsageSnapshot
-  }
-  'sessions:usage-release': { request: SessionsDemandRequest; response: void }
-  'sessions:open': { request: SessionsOpenRequest; response: SessionsOpenResponse }
-  'sessions:resolve-terminal': {
-    request: SessionsOpenRequest
-    response: SessionsTerminalResolutionResponse
-  }
-  'terminal:resolve-file-clipboard': {
-    request: Record<string, never>
-    response: string | undefined
-  }
-  'pty:start': { request: StartPtyRequest; response: StartPtyResponse }
-  'web-pane:open': {
-    request: OpenWebPaneRequest
-    response: OperationResult<OpenWebPaneResponse>
-  }
-  'web-pane:close': { request: CloseWebPaneRequest; response: void }
-  'web-pane:open-external': { request: OpenWebPaneExternalRequest; response: void }
-  'web-pane:open-browser': { request: OpenWebPaneBrowserRequest; response: void }
-}
-
-/**
- * Upper UTF-8 byte bound on text a terminal may place on the application host's
- * clipboard. ghostty-web bounds the encoded OSC payload it parses; this is the
- * independent bound main applies to decoded text that crosses IPC.
- */
-export const MAX_CLIPBOARD_WRITE_BYTES = 64 * 1024
-
-/**
- * Fire-and-forget renderer -> main channels. PTY input uses this path so a
- * round trip is never inserted into the typing hot path.
- */
-export interface IpcSendMap {
-  'app:renderer-ready': { readonly ownerGeneration: number }
-  'diagnostics:render-containment': RenderContainmentDiagnosticBatch
-  'fs:filename-search-cancel': { readonly requestId: number }
-  'html-preview:release': ReleaseHtmlPreviewRequest
-  'pty:write': { readonly id: string; readonly data: string }
-  'pty:resize': { readonly id: string; readonly cols: number; readonly rows: number }
-  'pty:kill': { readonly id: string }
-  'terminal:paste-image': { readonly id: string; readonly fallbackData: string }
-  /** Decoded, bounded OSC 52 text the terminal asked to place on the clipboard. */
-  'terminal:clipboard-write': { readonly text: string }
-  'app:attention': { readonly count: number }
-  'web-pane:reserved-bindings': KeybindingMap
-  'web-pane:full-page': { readonly paneId?: string }
-}
-
-/** Main -> renderer push channels. */
-export interface IpcEventMap {
-  'diagnostics:session': RendererDiagnosticSession
-  'workbench-health:state': WorkbenchHealthSnapshot
-  'project:watch': WatchEvent
-  'project:state': ProjectState
-  'sessions:changed': SessionsProjectionChange
-  'sessions:usage-changed': SessionsUsageChange
-  'fs:project-file-operation': ProjectFileOperationProgress
-  'ssh:prompt': SshPromptRequest
-  'ssh:prompt-cancel': { readonly hostId: string }
-  'pty:data': { readonly id: string; readonly data: string }
-  'pty:exit': { readonly id: string; readonly exitCode: number; readonly signal?: number }
-  'pty:telemetry': {
-    readonly id: string
-    readonly telemetry: HarnessTelemetry | undefined
-  }
-  'pty:identity': {
-    readonly id: string
-    readonly harnessSessionId?: string
-    readonly identityStatus: TerminalIdentityStatus
-    readonly identityDiverged?: true
-  }
-  'web-pane:navigation-blocked': WebPaneBlockedNavigation
-  'web-pane:command': {
-    readonly paneId: string
-    readonly action: WebPaneCommandAction
-  }
-  'web-pane:diagnostic': {
-    readonly paneId: string
-    readonly event: WebPaneDiagnosticEvent
-  }
-}
-
+import type { OperationResult } from './operation-result'
+import type { ExternalFileGrantResult } from './project-file-operations'
+import {
+  composeIpcContracts,
+  ipcChannels,
+  type InvokeMap,
+  type SendMap,
+  type EventMap,
+  type PreloadOnlyChannel,
+} from './ipc-contract'
+import { appIpc } from './ipc/app'
+import { diagnosticsIpc } from './ipc/diagnostics'
+import { projectIpc } from './ipc/project'
+import { filesystemIpc } from './ipc/filesystem'
+import { gitIpc } from './ipc/git'
+import { previewIpc } from './ipc/preview'
+import { harnessIpc } from './ipc/harness'
+import { terminalIpc } from './ipc/terminal'
+import { sessionsIpc } from './ipc/sessions'
+import { webPaneIpc } from './ipc/web-pane'
+import { documentReviewIpc } from './ipc/document-review'
+
+// Compatibility only: domain contracts import their named owners directly.
+export { type AppInfo, type EchoRequest, type EchoResponse } from './ipc/app'
+export {
+  MAX_PROJECT_WATCH_INTERESTS,
+  type ProjectWatchInterestsRequest,
+  type ProjectWatchInterestsResponse,
+  type ProjectHostOption,
+  type OpenProjectRequest,
+  type SwitchWorkspaceRequest,
+  type RefreshProjectRequest,
+  type CloseProjectRequest,
+  type PruneProjectWorktreesRequest,
+  type DismissWorkspaceRequest,
+  type AcknowledgeWorkspaceRequest,
+  type PlanWorkspaceCloseRequest,
+  type WorkspaceClosePlan,
+  type CloseWorkspaceRequest,
+  type ReopenWorkspaceRequest,
+  type ConnectHostRequest,
+  type DisconnectHostRequest,
+  type ConnectedHost,
+  type BrowseHostRequest,
+  type BrowseHostResponse,
+  type ProjectFolderPickerStartRequest,
+  type ProjectFolderPickerLease,
+  type ProjectFolderPickerBrowseRequest,
+  type ProjectFolderPickerCreateDirectoryRequest,
+  type ProjectFolderPickerCloseRequest,
+  type SshPromptRequest,
+  type SshPromptResponse,
+} from './ipc/project'
+export {
+  type ReadDirectoryRequest,
+  type ReadFileRequest,
+  type RevealProjectEntryRequest,
+  type AcquireDroppedFilesRequest,
+  type ResolveEntryResponse,
+  type ReadFileResponse,
+  type ReadAssetResponse,
+} from './ipc/filesystem'
+export {
+  type HarnessProfilesRequest,
+  type HarnessProbeProfilesRequest,
+  type HarnessProbeTemplatesRequest,
+  type MaterializeHarnessProfilesRequest,
+  type SaveHarnessProfileRequest,
+  type HarnessProfileRequest,
+  type HarnessPreviewRequest,
+  type AuthorizeHarnessPathRequest,
+  type ConfigureComposerSubmitRequest,
+} from './ipc/harness'
+export {
+  type StartPtyRequest,
+  type StartPtyResponse,
+  type TerminalIdentityStatus,
+  type TerminalRecoverySession,
+  type TerminalLayoutEntry,
+  type TerminalRecoveryRequest,
+  type RecordTerminalRecoveryDecisionRequest,
+  type TerminalLayoutRequest,
+  type ForgetTerminalRequest,
+  type PlanTerminalMoveRequest,
+  type TerminalMovePlan,
+  type MoveTerminalRequest,
+  type MoveTerminalResponse,
+  type RebindTerminalProfileRequest,
+  MAX_CLIPBOARD_WRITE_BYTES,
+} from './ipc/terminal'
+export {
+  type WebPaneCommandAction,
+  type OpenWebPaneRequest,
+  type OpenWebPaneResponse,
+  type CloseWebPaneRequest,
+  type OpenWebPaneExternalRequest,
+  type OpenWebPaneBrowserRequest,
+  type WebPaneBlockedNavigation,
+} from './ipc/web-pane'
+export { type ProjectRootResponse, type ProjectState } from './workspace-types'
+export { type OperationResult, unwrapOperation } from './operation-result'
+export type { TerminalAttentionState } from './terminal-attention'
+
+const contract = composeIpcContracts(
+  appIpc,
+  diagnosticsIpc,
+  projectIpc,
+  filesystemIpc,
+  gitIpc,
+  previewIpc,
+  harnessIpc,
+  terminalIpc,
+  sessionsIpc,
+  webPaneIpc,
+  documentReviewIpc,
+)
+
+export type IpcInvokeMap = InvokeMap<typeof contract>
+export type IpcSendMap = SendMap<typeof contract>
+export type IpcEventMap = EventMap<typeof contract>
 export type IpcInvokeChannel = keyof IpcInvokeMap
-export type PreloadOnlyIpcInvokeChannel = 'fs:acquire-dropped-files'
+
 export type RendererIpcInvokeChannel = Exclude<
   IpcInvokeChannel,
   PreloadOnlyIpcInvokeChannel
 >
+
 export type IpcSendChannel = keyof IpcSendMap
+
 export type IpcEventChannel = keyof IpcEventMap
 
 export type IpcRequest<C extends IpcInvokeChannel> = IpcInvokeMap[C]['request']
+
 export type IpcResponse<C extends IpcInvokeChannel> = IpcInvokeMap[C]['response']
+
 export type IpcSendPayload<C extends IpcSendChannel> = IpcSendMap[C]
+
 export type IpcEventPayload<E extends IpcEventChannel> = IpcEventMap[E]
 
 /**
@@ -1035,175 +172,16 @@ export interface HvirApi {
   }
 }
 
-/**
- * Runtime allow-list of invokable channels. The preload bridge validates
- * against this so the renderer can never reach an un-declared channel.
- */
-export const INVOKE_CHANNELS = [
-  'app:info',
-  'workbench-health:get',
-  'workbench-health:acknowledge',
-  'diagnostic-evidence:get',
-  'diagnostic-evidence:delete',
-  'diagnostic-report:create',
-  'diagnostic-report:capture',
-  'diagnostic-report:copy',
-  'diagnostic-report:save',
-  'diagnostic-report:cancel',
-  'diagnostic-report:delete',
-  'demo:echo',
-  'project:root',
-  'project:hosts',
-  'project:connect-host',
-  'project:disconnect-host',
-  'project:browse-host',
-  'project:folder-picker-start',
-  'project:folder-picker-browse',
-  'project:folder-picker-create-directory',
-  'project:folder-picker-close',
-  'project:open',
-  'project:switch',
-  'project:refresh',
-  'project:watch-interests',
-  'document-review:restore',
-  'document-review:save',
-  'document-review:revalidate',
-  'document-review:delivery-destinations',
-  'document-review:preview-delivery',
-  'document-review:prepare-delivery',
-  'document-review:insert-delivery',
-  'document-review:send-now-delivery',
-  'project:close',
-  'workspace:prune',
-  'workspace:dismiss',
-  'workspace:plan-close',
-  'workspace:close',
-  'workspace:reopen',
-  'workspace:acknowledge',
-  'ssh:prompt-response',
-  'fs:readdir',
-  'fs:filename-search',
-  'fs:resolve-entry',
-  'fs:reveal-entry',
-  'fs:read',
-  'fs:read-asset',
-  'fs:write',
-  'fs:create-entry',
-  'fs:acquire-clipboard-files',
-  'fs:acquire-dropped-files',
-  'fs:copy-external',
-  'fs:external-move-disclosure',
-  'fs:acquire-external-move-files',
-  'fs:release-external-move-grant',
-  'fs:move-external',
-  'fs:organize-entry',
-  'fs:deletion-disclosure',
-  'fs:delete-entry',
-  'fs:cancel-file-operation',
-  'git:diff-inputs',
-  'git:changes',
-  'git:history',
-  'git:ignored-entries',
-  'git:commit-detail',
-  'git:blame',
-  'git:branches',
-  'git:fetch',
-  'git:pull',
-  'git:switch-branch',
-  'html-preview:create',
-  'harness:catalog',
-  'harness:profiles',
-  'harness:probe-snapshot',
-  'harness:probe-profiles',
-  'harness:probe-templates',
-  'harness:profile-materialize',
-  'harness:profile-save',
-  'harness:profile-duplicate',
-  'harness:profile-delete',
-  'harness:preview',
-  'harness:authorize-path',
-  'harness:configure-composer-submit',
-  'terminal:recovery',
-  'terminal:record-recovery-decision',
-  'terminal:update-layout',
-  'terminal:forget',
-  'terminal:plan-move',
-  'terminal:move',
-  'terminal:rebind-profile',
-  'sessions:observe',
-  'sessions:snapshot',
-  'sessions:release',
-  'sessions:usage-observe',
-  'sessions:usage-snapshot',
-  'sessions:usage-release',
-  'sessions:open',
-  'sessions:resolve-terminal',
-  'terminal:resolve-file-clipboard',
-  'pty:start',
-  'web-pane:open',
-  'web-pane:close',
-  'web-pane:open-external',
-  'web-pane:open-browser',
-] as const satisfies readonly IpcInvokeChannel[]
-
-export const PRELOAD_ONLY_INVOKE_CHANNELS = [
-  'fs:acquire-dropped-files',
-] as const satisfies readonly PreloadOnlyIpcInvokeChannel[]
-
+export type PreloadOnlyIpcInvokeChannel = PreloadOnlyChannel<typeof contract>
+export const INVOKE_CHANNELS = ipcChannels(contract.invoke)
+export const SEND_CHANNELS = ipcChannels(contract.send)
+export const EVENT_CHANNELS = ipcChannels(contract.event)
+export const PRELOAD_ONLY_INVOKE_CHANNELS: readonly PreloadOnlyIpcInvokeChannel[] =
+  INVOKE_CHANNELS.filter(
+    (channel): channel is PreloadOnlyIpcInvokeChannel =>
+      contract.invoke[channel].access === 'preload',
+  )
 export const RENDERER_INVOKE_CHANNELS = INVOKE_CHANNELS.filter(
   (channel): channel is RendererIpcInvokeChannel =>
-    !(PRELOAD_ONLY_INVOKE_CHANNELS as readonly IpcInvokeChannel[]).includes(channel),
+    contract.invoke[channel].access === 'renderer',
 )
-
-export const SEND_CHANNELS = [
-  'app:renderer-ready',
-  'diagnostics:render-containment',
-  'fs:filename-search-cancel',
-  'html-preview:release',
-  'pty:write',
-  'pty:resize',
-  'pty:kill',
-  'terminal:paste-image',
-  'terminal:clipboard-write',
-  'app:attention',
-  'web-pane:reserved-bindings',
-  'web-pane:full-page',
-] as const satisfies readonly IpcSendChannel[]
-
-export const EVENT_CHANNELS = [
-  'diagnostics:session',
-  'workbench-health:state',
-  'project:watch',
-  'project:state',
-  'sessions:changed',
-  'sessions:usage-changed',
-  'fs:project-file-operation',
-  'ssh:prompt',
-  'ssh:prompt-cancel',
-  'pty:data',
-  'pty:exit',
-  'pty:telemetry',
-  'pty:identity',
-  'web-pane:navigation-blocked',
-  'web-pane:command',
-  'web-pane:diagnostic',
-] as const satisfies readonly IpcEventChannel[]
-
-// Compile-time proof that INVOKE_CHANNELS stays in sync with IpcInvokeMap.
-type _AssertChannelsCover = IpcInvokeChannel extends (typeof INVOKE_CHANNELS)[number]
-  ? true
-  : ['INVOKE_CHANNELS is missing a channel declared in IpcInvokeMap']
-const _channelsCover: _AssertChannelsCover = true
-void _channelsCover
-
-type _AssertSendChannelsCover = IpcSendChannel extends (typeof SEND_CHANNELS)[number]
-  ? true
-  : ['SEND_CHANNELS is missing a channel declared in IpcSendMap']
-const _sendChannelsCover: _AssertSendChannelsCover = true
-void _sendChannelsCover
-
-type _AssertEventChannelsCover = IpcEventChannel extends (typeof EVENT_CHANNELS)[number]
-  ? true
-  : ['EVENT_CHANNELS is missing a channel declared in IpcEventMap']
-const _eventChannelsCover: _AssertEventChannelsCover = true
-void _eventChannelsCover

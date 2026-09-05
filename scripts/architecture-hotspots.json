@@ -162,15 +162,6 @@
       "removalIssue": "#741"
     },
     {
-      "path": "src/shared/ipc.ts",
-      "kind": "transitional",
-      "maxLines": 1209,
-      "owner": "IPC contract manifest",
-      "rationale": "The current shared manifest centralizes capability contracts pending their relocation to capability-owned leaves.",
-      "reconsiderWhen": "The responsibility extraction in #739 is accepted; remove this exception or tighten to the resulting owner.",
-      "removalIssue": "#739"
-    },
-    {
       "path": "test/file-create-actions.test.tsx",
       "kind": "durable",
       "maxLines": 1154,

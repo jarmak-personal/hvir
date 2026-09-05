@@ -51,6 +51,17 @@ const SPAWN_PTY_BAN = {
     'host.spawnPty outside src/main/pty/pty-supervisor.ts.',
 }
 
+// Both erased and runtime contract dependencies point inward. The two barrels
+// are compatibility/composition surfaces, never domain dependencies.
+const SHARED_CONTRACT_IMPORT_BAN =
+  '(^|/)(ipc|index|shared)(\\.[cm]?[jt]sx?)?$|(^|/)(main|preload|renderer|workers)(/|$)|^\\.\\.?$|^electron$'
+const SHARED_CONTRACT_MESSAGE =
+  'Shared capability contracts import named shared leaves, not the IPC aggregate, barrels, or process implementations.'
+const SHARED_CONTRACT_EXPRESSION_SELECTOR = SHARED_CONTRACT_IMPORT_BAN.replaceAll(
+  '/',
+  '\\/',
+)
+
 export default tseslint.config(
   { ignores: ['out/**', 'dist/**', 'node_modules/**', 'coverage/**'] },
 
@@ -76,6 +87,31 @@ export default tseslint.config(
       '@typescript-eslint/no-unused-vars': [
         'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+      ],
+    },
+  },
+
+  {
+    files: ['src/shared/**/*.{ts,tsx,mts,cts}'],
+    ignores: ['src/shared/ipc.ts', 'src/shared/index.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [...HOST_PRIMITIVE_BANS],
+          patterns: [
+            { regex: SHARED_CONTRACT_IMPORT_BAN, message: SHARED_CONTRACT_MESSAGE },
+          ],
+        },
+      ],
+      'no-restricted-syntax': [
+        'error',
+        SPAWN_PTY_BAN,
+        ...DYNAMIC_HOST_IMPORT_BANS,
+        {
+          selector: `ImportExpression[source.value=/${SHARED_CONTRACT_EXPRESSION_SELECTOR}/], TSImportType[source.value=/${SHARED_CONTRACT_EXPRESSION_SELECTOR}/], CallExpression[callee.name='require'] > Literal.arguments[value=/${SHARED_CONTRACT_EXPRESSION_SELECTOR}/]`,
+          message: SHARED_CONTRACT_MESSAGE,
+        },
       ],
     },
   },

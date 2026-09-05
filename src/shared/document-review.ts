@@ -208,7 +208,7 @@ export interface DocumentReviewDeliveryDestination {
   readonly providerName: string
   readonly lifecycle: 'live'
   readonly connection: 'connected'
-  readonly attention?: import('./ipc').TerminalAttentionState
+  readonly attention?: import('./terminal-attention').TerminalAttentionState
   readonly capability: DocumentReviewDeliveryCapability
 }
 
