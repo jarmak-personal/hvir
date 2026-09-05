@@ -724,8 +724,8 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       }),
     })
     const projectFiles = createProjectFileOperationCoordinator(
+      { state: () => smokeIpcProjectState },
       {
-        state: () => smokeIpcProjectState,
         hostById: (hostId) =>
           hostId === smokeRemoteHost.hostId ? smokeRemoteHost : host,
       },
@@ -745,8 +745,8 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       {
         hostById: (hostId) =>
           hostId === smokeRemoteHost.hostId ? smokeRemoteHost : host,
-        browseHost: browseSmokeHost,
       },
+      { browseHost: browseSmokeHost },
       rendererResources,
     )
     let acceptedRendererReadySink: ((owner: RendererOwner) => void) | undefined
