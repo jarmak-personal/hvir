@@ -1,5 +1,7 @@
 # ADR-039: Exact provider-derived session forks
 
+> Lifecycle: Active
+
 ## Context
 
 hvir can start a harness conversation freshly or recover one exact registered identity. Bundled

@@ -1,8 +1,8 @@
 # ADR-023: Closed workspaces unload and resurface on bounded Git activity
 
-> [ADR-027](ADR-027-demand-driven-workspace-activity.md) supersedes only the fixed
-> per-worktree status cadence in this record. The bounded activity schema, comparison,
-> resurfacing, and manual-reopen decisions remain in force.
+> Lifecycle: Partially superseded
+> Supersedes: [ADR-008](ADR-008-project-worktree-workspaces.md) | partial | Every present discovered worktree remaining open and visible.
+> Superseded by: [ADR-027](ADR-027-demand-driven-workspace-activity.md) | partial | Fixed per-worktree periodic status cadence.
 
 ## Context
 

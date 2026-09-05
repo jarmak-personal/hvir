@@ -1,13 +1,8 @@
 # ADR-017: Defer direct diagnostic report delivery to harnesses
 
-> [ADR-026](ADR-026-explicit-ssh-image-paste.md) narrowly supersedes this record's
-> rejection of remote image staging and generic PTY injection only for an explicit
-> image-paste gesture in a focused terminal. Diagnostic-report delivery remains deferred.
->
-> [ADR-032](ADR-032-explicit-document-review-handoff.md) narrowly supersedes this record's
-> rejection of generic PTY text delivery only for an explicit, visibly prepared
-> document-review payload using a revisioned atomic bracketed-paste provider contract and
-> exact PTY ownership. Diagnostic-report delivery and generic prompt injection remain deferred.
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-026](ADR-026-explicit-ssh-image-paste.md) | partial | Remote image staging and PTY injection prohibition only for explicit image paste in an exact supported focused terminal.
+> Superseded by: [ADR-032](ADR-032-explicit-document-review-handoff.md) | partial | PTY text delivery prohibition only for explicit prepared document-review payloads through revisioned atomic bracketed paste and exact PTY authority.
 
 ## Context
 

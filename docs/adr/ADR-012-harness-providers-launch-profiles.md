@@ -1,15 +1,9 @@
 # ADR-012: Harness providers and launch profiles, not an extension host
 
-> [ADR-015](ADR-015-missing-resume-artifact-blocks-fresh-launch.md) supersedes only the
-> missing-artifact fresh-launch fallback in this record. The remaining decisions still apply.
->
-> [ADR-024](ADR-024-demand-driven-terminal-workspace-lifecycle.md) supersedes only the
-> interpretation that Bare Shell being the default choice for an empty workspace or split starts
-> a session automatically. Bare Shell remains the default for an explicit launch.
->
-> [ADR-036](ADR-036-retire-static-harness-risk-classification.md) supersedes only launch-risk
-> rules in the trusted provider registry, derived risk as part of profile launch revision, and
-> launch-risk classification and acknowledgment. The remaining decisions still apply.
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-015](ADR-015-missing-resume-artifact-blocks-fresh-launch.md) | partial | Definitely absent or empty resume artifacts implicitly starting a fresh harness.
+> Superseded by: [ADR-024](ADR-024-demand-driven-terminal-workspace-lifecycle.md) | partial | Bare Shell defaults implicitly launching a session in an empty workspace.
+> Superseded by: [ADR-036](ADR-036-retire-static-harness-risk-classification.md) | partial | Provider launch-risk rules, derived risk in profile launch revision, and risk classification and acknowledgment.
 
 ## Context
 
