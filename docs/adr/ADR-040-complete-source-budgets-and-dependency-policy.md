@@ -21,7 +21,10 @@ This record amends and replaces only ADR-014's paragraph beginning “Architectu
 and authority/seam checks are blocking in normal verification.” It specifies complete source
 budgets and extends dependency enforcement. ADR-014's modular-monolith, capability ownership,
 inward dependency direction, process boundaries, resource lifetimes, style order, public seams,
-and test discipline remain accepted. Passing these checks never establishes healthy ownership.
+and test discipline remain accepted. Authority/seam checks remain blocking in normal verification.
+ADR-035 previously amended only the expiry/removal metadata requirement for `terminal-runtime.ts`;
+its named 600-line non-growth cap remains accepted. Passing these checks never establishes healthy
+ownership.
 
 ### Complete maintained-source coverage
 
@@ -147,9 +150,13 @@ through read-only repository access, using credentials only through the existing
 convention. CI binds these inputs to its actual PR event and tested candidate; local verification
 binds them to its resolved delivery context. Caller-supplied SHAs or metadata are selectors to
 validate against GitHub and Git, not trust assertions. Do not execute policy from an unvalidated
-evidence location. The architecture checker owns this narrow evidence comparison; it does not
-introduce a general evidence service, persistent authorization registry, merge bypass, or new
-GitHub governance owner. Offline reporting may show provisional counts, but missing evidence
+evidence location. The architecture checker owns architecture authorization comparison through
+narrow evidence adapters. It reuses the existing coherent-CI-attempt and release-evidence policy
+where those owners supply the same facts, rather than duplicating ADR-037/038 job selection,
+attempt completeness, or candidate-identity rules. Architecture-specific epic and policy-diff
+admission stays with the checker; reuse does not turn an epic acceptance into release authority.
+This introduces no general evidence service, persistent authorization registry, merge bypass, or
+new GitHub governance owner. Offline reporting may show provisional counts, but missing evidence
 cannot produce a successful enforcing `npm run verify`.
 
 #### Worked examples
