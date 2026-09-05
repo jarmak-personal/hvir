@@ -1,4 +1,12 @@
-import { useEffect, useRef, useState, type ReactElement, type RefObject } from 'react'
+import { TemporaryDocumentWorkspace } from './temporary-document-context'
+import {
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+  type RefObject,
+} from 'react'
 
 import {
   HTML_SANDBOX,
@@ -247,6 +255,7 @@ function HtmlPreview({
   readonly content: string
   readonly renderGeneration: number
 }): ReactElement {
+  const workspaceRoot = useContext(TemporaryDocumentWorkspace)
   const [preview, setPreview] = useState<CreateHtmlPreviewResponse>()
   const [error, setError] = useState<string>()
 
@@ -255,7 +264,7 @@ function HtmlPreview({
     let previewId: string | undefined
     setPreview(undefined)
     setError(undefined)
-    void window.hvir.invoke('html-preview:create', { path, content }).then(
+    void window.hvir.invoke('html-preview:create', { path, content, workspaceRoot }).then(
       (created) => {
         previewId = created.id
         if (cancelled) {
@@ -273,7 +282,7 @@ function HtmlPreview({
       cancelled = true
       if (previewId) window.hvir.send('html-preview:release', { id: previewId })
     }
-  }, [content, path, renderGeneration])
+  }, [content, path, renderGeneration, workspaceRoot])
 
   if (error) return <div className="viewer-empty error">{error}</div>
   if (!preview) return <div className="viewer-empty">Preparing HTML preview…</div>
@@ -307,6 +316,7 @@ function MarkdownView({
 }): ReactElement {
   const container = useRef<HTMLDivElement>(null)
   const registerReviewInlineHost = useDocumentReviewInlineHostRegistration()
+  const workspaceRoot = useContext(TemporaryDocumentWorkspace)
   const repositoryImages = useRef<MarkdownRepositoryImages>(undefined)
   const refreshRef = useRef(refresh)
   const appliedRefreshVersion = useRef(refresh?.version ?? 0)
@@ -341,7 +351,7 @@ function MarkdownView({
     root.innerHTML = html
     appliedRefreshVersion.current = refreshRef.current?.version ?? 0
     let cancelled = false
-    const images = new MarkdownRepositoryImages(path)
+    const images = new MarkdownRepositoryImages(path, workspaceRoot)
     repositoryImages.current = images
     onDependencies(images.hydrate(root))
     void renderMermaidNodes(root, () => cancelled, theme)
@@ -351,7 +361,7 @@ function MarkdownView({
       images.dispose()
       if (repositoryImages.current === images) repositoryImages.current = undefined
     }
-  }, [html, onDependencies, path, theme])
+  }, [html, onDependencies, path, theme, workspaceRoot])
 
   useEffect(() => {
     if (!refresh || refresh.version === appliedRefreshVersion.current) return
@@ -389,7 +399,7 @@ function MarkdownView({
     <div
       className="rendered-scroll markdown-body"
       ref={container}
-      onClick={(event) => handleRenderedLinkClick(event, path, onOpenPath)}
+      onClick={(event) => handleRenderedLinkClick(event, path, onOpenPath, workspaceRoot)}
     />
   )
 }

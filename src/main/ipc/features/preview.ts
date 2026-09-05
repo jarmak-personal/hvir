@@ -1,3 +1,4 @@
+import { authorizeDocumentRead } from '../../viewer/document-read-authority'
 import type { IpcRegistrar } from '../authority-router'
 import type { IpcDeps } from '../deps'
 
@@ -6,8 +7,9 @@ type PreviewIpcDeps = Pick<IpcDeps, 'getProject' | 'rendererResources' | 'htmlPr
 export function registerPreviewIpc(ipc: IpcRegistrar, deps: PreviewIpcDeps): void {
   ipc.handle('html-preview:create', async (req, context) => {
     const owner = context.owner()
-    const { root, host } = deps.getProject()
-    await ipc.authority.projectPath(req.path, root, host)
+    const access = await authorizeDocumentRead(ipc.authority, req)
+    const { root } = access
+    access.assertCurrent()
     deps.rendererResources.assertCurrent(owner)
     const preview = deps.htmlPreviews.create(req.content, owner, root)
     try {

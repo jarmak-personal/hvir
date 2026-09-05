@@ -15,6 +15,7 @@ export interface ViewerWatchPaths {
 }
 
 export function collectViewerWatchPaths(tabs: readonly ViewerTab[]): ViewerWatchPaths {
+  tabs = tabs.filter((tab) => !tab.temporaryWorkspaceRoot)
   return {
     openPaths: tabs.map((tab) => tab.path),
     dependencyPaths: tabs.flatMap((tab) => tab.renderedDependencies ?? []),

@@ -281,6 +281,8 @@ export interface ReadDirectoryRequest {
 }
 
 export interface ReadFileRequest {
+  /** Required for the bounded temporary-document read exception. */
+  readonly workspaceRoot?: HostPath
   readonly path: HostPath
 }
 

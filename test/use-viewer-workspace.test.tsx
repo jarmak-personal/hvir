@@ -371,3 +371,61 @@ async function settle(): Promise<void> {
 function nextAnimationFrame(): Promise<void> {
   return new Promise((resolve) => window.requestAnimationFrame(() => resolve()))
 }
+
+describe('temporary document tabs', () => {
+  it.each(['local', 'ssh-dev'])(
+    'keeps %s documents read-only and without watch or persistence interests',
+    async (id) => {
+      const root = hostPath(asHostId(id), '/project')
+      const path = hostPath(root.hostId, '/tmp/plan.md')
+      invoke.mockResolvedValue({ ok: true, value: file(path, '# Plan', 6) })
+      act(() => workspace.switchWorkspace(root))
+      await act(async () => {
+        workspace.openFile(path, true)
+        await settle()
+      })
+      const tab = workspace.activeTab!
+      expect(invoke).toHaveBeenCalledWith('fs:read', { path, workspaceRoot: root })
+      expect(tab.temporaryWorkspaceRoot).toEqual(root)
+      expect(workspace.openWatchPaths).toEqual([])
+      act(() => {
+        workspace.setContent(tab.id, 'changed')
+        workspace.saveTab(tab.id)
+        workspace.setRenderedDependencies(tab.id, [
+          hostPath(root.hostId, '/tmp/image.png'),
+        ])
+        workspace.setMode(tab.id, 'diff')
+      })
+      expect(workspace.activeTab?.dirty).toBe(false)
+      expect(workspace.activeTab?.file?.content).toBe('# Plan')
+      expect(workspace.activeTab?.mode).toBe('rendered')
+      expect(workspace.renderedWatchPaths).toEqual([])
+      expect(invoke.mock.calls.some(([channel]) => channel === 'fs:write')).toBe(false)
+      act(() => workspace.cycleActiveMode())
+      expect(workspace.activeTab?.mode).toBe('source')
+      act(() => workspace.cycleActiveMode())
+      expect(workspace.activeTab?.mode).toBe('rendered')
+      act(() => workspace.switchWorkspace(hostPath(root.hostId, '/other')))
+      act(() => workspace.switchWorkspace(root))
+      expect(workspace.tabs).toEqual([])
+      expect(localStorage.getItem(`hvir:tabs:${root.hostId}:${root.path}`)).not.toContain(
+        '/tmp/plan.md',
+      )
+    },
+  )
+
+  it('closes temporary tabs on host disconnect and drops late content', async () => {
+    const root = hostPath(asHostId('ssh-dev'), '/project')
+    const path = hostPath(root.hostId, '/tmp/plan.html')
+    const pending = deferred<{ ok: true; value: ReadFileResponse }>()
+    invoke.mockReturnValue(pending.promise)
+    act(() => workspace.switchWorkspace(root))
+    act(() => workspace.openFile(path, true))
+    act(() => workspace.switchWorkspace(root, false))
+    await act(async () => {
+      pending.resolve({ ok: true, value: file(path, '<h1>Late</h1>', 13) })
+      await settle()
+    })
+    expect(workspace.tabs).toEqual([])
+  })
+})

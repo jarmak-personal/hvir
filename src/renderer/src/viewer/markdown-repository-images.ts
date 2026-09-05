@@ -1,3 +1,4 @@
+import { temporaryDocumentRoot } from '../../../shared/temporary-document'
 import {
   hostPathEquals,
   resolveRenderedLink,
@@ -12,7 +13,10 @@ export class MarkdownRepositoryImages {
   private readonly unavailableMessages = new Map<HTMLImageElement, HTMLElement>()
   private disposed = false
 
-  constructor(private readonly documentPath: HostPath) {}
+  constructor(
+    private readonly documentPath: HostPath,
+    private readonly workspaceRoot?: HostPath,
+  ) {}
 
   hydrate(root: HTMLElement): readonly HostPath[] {
     const dependencies = new Map<string, HostPath>()
@@ -69,7 +73,15 @@ export class MarkdownRepositoryImages {
       image.classList.add('markdown-image-loading')
     }
     try {
-      const asset = unwrapOperation(await window.hvir.invoke('fs:read-asset', { path }))
+      if (this.workspaceRoot && !temporaryDocumentRoot(path)) {
+        throw new Error('Image escapes the temporary document roots')
+      }
+      const asset = unwrapOperation(
+        await window.hvir.invoke('fs:read-asset', {
+          path,
+          ...(this.workspaceRoot ? { workspaceRoot: this.workspaceRoot } : {}),
+        }),
+      )
       const objectUrl = URL.createObjectURL(
         new Blob([new Uint8Array(asset.data)], { type: asset.mimeType }),
       )

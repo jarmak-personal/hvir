@@ -52,3 +52,23 @@ claiming PTY survival.
 - Letting control work borrow terminal transports or opening one telemetry follower per
   terminal.
 - Caching OTP answers, retrying failed prompts automatically, or scraping terminal output.
+
+## Addendum: temporary document viewing
+
+Explicit terminal-link activation may open Markdown or HTML outside registered roots under
+the terminal host's `/tmp`, including `/private/tmp` when it is that host's canonical `/tmp`
+alias. Host-specific `$TMPDIR` locations are excluded. Main validates the originating active
+workspace, host identity, and both lexical and canonical containment through `ProjectHost`.
+Escaping symlinks and prefix lookalikes receive no exception.
+
+This is read-only document authority: source and rendered modes remain available, while
+editing, Git, file operations, and PTY authority remain confined to their existing owners.
+Markdown's existing relative document links and image reads remain within the temporary
+roots on the same host. HTML retains its existing self-contained opaque sandbox and CSP;
+this exception adds no HTML navigation or external-resource capability. Existing document
+and image size limits apply.
+
+Temporary tabs retain their originating workspace context, without registering temporary
+directories as projects. They do not persist across workspace departure or restart and create
+no watch or polling interests. Tab cleanup releases preview and image resources; workspace
+departure and host disconnect revoke associated work, and late completions cannot restore it.
