@@ -63,15 +63,6 @@
       "reconsiderWhen": "Authentication/reconnect or transport capacity moves into an independently owned coordinator shared by multiple ProjectHost adapters."
     },
     {
-      "path": "src/main/project-registry.ts",
-      "kind": "transitional",
-      "maxLines": 1076,
-      "owner": "ProjectRegistry workspace lifecycle",
-      "rationale": "Registered-project persistence and workspace transitions currently share one authority; the planned workspace lifecycle extraction gives them separate owners.",
-      "reconsiderWhen": "The responsibility extraction in #435 is accepted; remove this exception or tighten to the resulting owner.",
-      "removalIssue": "#435"
-    },
-    {
       "path": "src/main/pty/pty-supervisor.ts",
       "kind": "transitional",
       "maxLines": 1264,

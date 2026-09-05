@@ -80,6 +80,70 @@ export default tseslint.config(
     },
   },
 
+  // Project state and workflows consume the host contract, never concrete host owners.
+  {
+    files: [
+      'src/main/project-registry.ts',
+      'src/main/project-coordinator.ts',
+      'src/main/project-host/project-host.ts',
+    ],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            ...HOST_PRIMITIVE_BANS,
+            IPC_RENDERER_BAN,
+            {
+              name: './project-host',
+              message:
+                'Import the ProjectHost contract directly, not concrete catalog exports.',
+            },
+          ],
+          patterns: [
+            {
+              group: [
+                '**/project-registry',
+                '**/project-coordinator',
+                '**/project-host/index',
+                '**/project-host/ssh-*',
+                '**/project-host/renderer-ssh-prompter',
+                '**/project-host/project-host-catalog',
+                '**/project-host/local-host',
+                './ssh-*',
+                './renderer-ssh-prompter',
+                './project-host-catalog',
+                './local-host',
+              ],
+              message:
+                'Project state and workflows depend only on the ProjectHost contract and consumer-owned ports.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  // Concrete catalogs implement host capabilities without project persistence/workflows.
+  // The ProjectHost contract cannot depend on any concrete owner it describes.
+  {
+    files: ['src/main/project-host/project-host-catalog.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [...HOST_PRIMITIVE_BANS, IPC_RENDERER_BAN],
+          patterns: [
+            {
+              group: ['**/project-registry', '**/project-coordinator'],
+              message:
+                'Host capabilities cannot depend on project persistence or project workflows.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
   // Renderer: React-specific rules.
   {
     files: ['src/renderer/**/*.{ts,tsx}'],

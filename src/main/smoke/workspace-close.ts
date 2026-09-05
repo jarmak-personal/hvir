@@ -83,6 +83,13 @@ export function workspaceCloseSmokeCommands({
   }
   const coordinator = new ProjectCoordinator({
     registry,
+    hosts: {
+      materializeHost: () => Promise.resolve(host),
+      hostById: () => host,
+      listHosts: () => [],
+      disconnectHost: () =>
+        Promise.reject(new Error('Host control is unavailable in close smoke')),
+    },
     workspaces,
     cleanup,
     removal: {

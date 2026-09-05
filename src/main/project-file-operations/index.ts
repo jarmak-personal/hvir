@@ -1,5 +1,10 @@
-import { hostPathEquals, LOCAL_HOST_ID, type HostPath } from '../../shared'
-import type { ProjectRegistry } from '../project-registry'
+import {
+  hostPathEquals,
+  LOCAL_HOST_ID,
+  type HostPath,
+  type ProjectState,
+} from '../../shared'
+import type { ProjectHost } from '../project-host/project-host'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import {
   ProjectFileOperationCoordinator,
@@ -22,7 +27,8 @@ export * from './delete-project-entry'
 export * from './staging-cleanup'
 
 export function createProjectFileOperationCoordinator(
-  projects: Pick<ProjectRegistry, 'state' | 'hostById'>,
+  projects: { state(): ProjectState },
+  hosts: { hostById(hostId: string): ProjectHost | undefined },
   resources: RendererResourceScopes,
   externalMovePicker?: ExternalMovePickerPort,
 ): ProjectFileOperationCoordinator {
@@ -43,7 +49,7 @@ export function createProjectFileOperationCoordinator(
       )
     if (matches.length !== 1) return undefined
     const match = matches[0]!
-    const host = projects.hostById(root.hostId)
+    const host = hosts.hostById(root.hostId)
     return host
       ? {
           projectId: match.project.id,
@@ -53,7 +59,7 @@ export function createProjectFileOperationCoordinator(
         }
       : undefined
   }
-  const sourceHost = projects.hostById(LOCAL_HOST_ID)
+  const sourceHost = hosts.hostById(LOCAL_HOST_ID)
   if (!sourceHost?.fileTransfer) {
     throw new Error('The application host cannot provide external file streaming')
   }

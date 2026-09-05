@@ -1,6 +1,7 @@
 import { harnessProviders } from '../harness/harness-provider'
 import { HarnessUsageDemandController } from '../harness/harness-usage-demand-controller'
-import type { ProjectRegistry } from '../project-registry'
+import type { ProjectState, ProjectHostOption } from '../../shared'
+import type { Disposer } from '../project-host/project-host'
 import type {
   PtyObservationSource,
   PtyUsageObservationSource,
@@ -19,7 +20,8 @@ export interface ApplicationSessionsObservation {
 /** Feature-owned application composition for demand-scoped Sessions observation. */
 export function installApplicationSessionsObservation(
   runtime: Pick<WorkbenchRuntime, 'own'>,
-  projects: Pick<ProjectRegistry, 'state' | 'listHosts' | 'observe'>,
+  projects: { state(): ProjectState; observe(listener: () => void): Disposer },
+  hosts: { listHosts(): readonly ProjectHostOption[] },
   sessions: TerminalSessionObservationSource,
   ptys: PtyObservationSource & PtyUsageObservationSource,
   events: Pick<RendererEventPublisher, 'toRenderer'>,
@@ -28,7 +30,7 @@ export function installApplicationSessionsObservation(
     'Sessions observation port',
     new SessionsObservationPort({
       projectState: () => projects.state(),
-      hosts: () => projects.listHosts(),
+      hosts: () => hosts.listHosts(),
       providers: () =>
         harnessProviders.all().map((provider) => ({
           id: provider.manifest.id,
