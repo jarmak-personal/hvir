@@ -48,12 +48,12 @@ export class TerminalPathActivationCoordinator {
     const temporary =
       !containsHostPath(root, target.path) && isTemporaryDocument(target.path)
     if (!containsHostPath(root, target.path) && !temporary) return
+    const generation = (this.generation += 1)
     // Opening first lets the viewer show missing/unreadable document errors.
     if (temporary) {
       this.ports.openFile(target.path, targetPosition(target))
       return
     }
-    const generation = (this.generation += 1)
     const resolveEntry = this.ports.resolveEntry
     let entry: ResolveEntryResponse
     try {

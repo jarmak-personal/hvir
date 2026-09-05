@@ -154,3 +154,17 @@ it.each(['local', 'ssh-dev'])(
     expect(ports.openFile).not.toHaveBeenCalled()
   },
 )
+
+it('invalidates a pending project classification when a temporary document is activated', async () => {
+  const root = localPath('/repo')
+  const pending = deferred<ResolveEntryResponse>()
+  const ports = fixturePorts('file')
+  ports.resolveEntry.mockReturnValueOnce(pending.promise)
+  const coordinator = coordinatorAt(root, ports)
+  const first = coordinator.activate({ path: localPath('/repo/old.md') })
+  await coordinator.activate({ path: localPath('/tmp/plan.md') })
+  pending.resolve({ path: localPath('/repo/old.md'), type: 'file' })
+  await first
+  expect(ports.openFile).toHaveBeenCalledOnce()
+  expect(ports.openFile).toHaveBeenCalledWith(localPath('/tmp/plan.md'), undefined)
+})
