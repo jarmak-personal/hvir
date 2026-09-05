@@ -16,9 +16,6 @@ import {
   usageCountersDecreased,
   usageCountersEqual,
   usageStatusHarnessTelemetry,
-  type HarnessUsageRoute,
-  type HarnessUsageSnapshot,
-  type HarnessUsageSnapshotContext,
 } from './harness-usage'
 import type { HarnessUsageCounters } from '../../shared'
 import {
@@ -27,7 +24,12 @@ import {
 } from './harness-usage-artifact'
 import { resolveClaudeSessionArtifact } from './claude-session-artifact'
 import type { ClaudeSessionArtifactLocation } from './claude-session-artifact'
-import type { HarnessTelemetryContext } from './harness-provider'
+import type {
+  HarnessTelemetryContext,
+  HarnessUsageRoute,
+  HarnessUsageSnapshot,
+  HarnessUsageSnapshotContext,
+} from './harness-provider-contract'
 import {
   buildTelemetryHubScript,
   HEALTHY_HARNESS_TELEMETRY_RECORD,

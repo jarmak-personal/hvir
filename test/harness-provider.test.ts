@@ -7,10 +7,10 @@ import {
   harnessProvider,
   harnessProviderCatalog,
   harnessProviders,
-  HarnessProviderRegistry,
   plainShellProvider,
   type HarnessProvider,
 } from '../src/main/harness/harness-provider'
+import { HarnessProviderRegistry } from '../src/main/harness/harness-provider-registry'
 import { providerTemplateProfiles } from '../src/main/harness/harness-profile-store'
 import { asHarnessProviderId, asHostId, hostPath, localPath } from '../src/shared'
 
@@ -516,6 +516,47 @@ describe('Harness providers', () => {
       resume: () => ({ file: 'test', args: [] }),
     }
     expect(() => new HarnessProviderRegistry([base, base])).toThrow(/Duplicate/)
+    expect(() => new HarnessProviderRegistry([])).toThrow(/exactly one default/)
+    expect(
+      () =>
+        new HarnessProviderRegistry([
+          { ...base, manifest: { ...base.manifest, default: false } },
+        ]),
+    ).toThrow(/exactly one default/)
+    expect(
+      () =>
+        new HarnessProviderRegistry([
+          base,
+          { ...base, manifest: { ...base.manifest, id: asHarnessProviderId('second') } },
+        ]),
+    ).toThrow(/exactly one default/)
+    expect(
+      () =>
+        new HarnessProviderRegistry([
+          { ...base, manifest: { ...base.manifest, displayName: ' ' } },
+        ]),
+    ).toThrow(/Invalid display name/)
+    expect(
+      () =>
+        new HarnessProviderRegistry([
+          {
+            ...base,
+            sessionDiscovery: {
+              snapshot: () => Promise.resolve(undefined),
+              identify: () => Promise.resolve({ status: 'unavailable' }),
+            },
+          },
+        ]),
+    ).toThrow(/unexpected session discovery/)
+    expect(
+      () =>
+        new HarnessProviderRegistry([
+          {
+            ...base,
+            resumeValidation: { availability: () => Promise.resolve('missing') },
+          },
+        ]),
+    ).toThrow(/validates resume without supporting it/)
     expect(
       () => new HarnessProviderRegistry([{ ...base, sessionIdentity: 'discovered' }]),
     ).toThrow(/missing session discovery/)

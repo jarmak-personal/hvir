@@ -17,8 +17,8 @@ import type {
   HarnessDocumentReviewInsertContract,
   HarnessDocumentReviewSendNowContract,
   HarnessDocumentReviewSendNowLaunch,
-  HarnessProviderRegistry,
-} from '../harness/harness-provider'
+} from '../harness/harness-provider-contract'
+import type { HarnessProviderRegistry } from '../harness/harness-provider-registry'
 import type { HarnessProfileStoreContract } from '../harness/harness-profile-store'
 import { isPtyWriteIndeterminateError } from '../project-host'
 import type { ManagedPty, PtySupervisor } from '../pty/pty-supervisor'

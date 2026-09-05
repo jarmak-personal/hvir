@@ -11,7 +11,7 @@
 
 import { hostPath, type HostPath } from '../../shared'
 import type { ProjectHost } from '../project-host'
-import type { HarnessArtifactContext } from './harness-provider'
+import type { HarnessArtifactContext } from './harness-provider-contract'
 
 const LIST_SESSION_FILES_SCRIPT = `
 root="\${CODEX_HOME:-\${HOME}/.codex}/sessions"

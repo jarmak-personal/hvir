@@ -2,7 +2,7 @@
 
 import { hostPath, joinHostPath, type HostPath } from '../../shared'
 import type { ProjectHost } from '../project-host'
-import type { HarnessArtifactContext } from './harness-provider'
+import type { HarnessArtifactContext } from './harness-provider-contract'
 
 const CLAUDE_SESSION_ID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i

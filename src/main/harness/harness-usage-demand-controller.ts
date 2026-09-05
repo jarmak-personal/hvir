@@ -2,11 +2,8 @@ import { randomUUID } from 'node:crypto'
 
 import type { HarnessProviderId, HarnessTelemetry, HostPath } from '../../shared'
 import type { Disposer, ProjectHost } from '../project-host'
-import type {
-  HarnessArtifactContext,
-  HarnessProvider,
-  HarnessProviderRegistry,
-} from './harness-provider'
+import type { HarnessArtifactContext, HarnessProvider } from './harness-provider-contract'
+import type { HarnessProviderRegistry } from './harness-provider-registry'
 import { usageStatusHarnessTelemetry } from './harness-usage'
 
 // Reserve shared telemetry-hub capacity for context and other provider facets.

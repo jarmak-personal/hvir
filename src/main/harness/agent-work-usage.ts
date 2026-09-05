@@ -11,22 +11,26 @@ import {
 import {
   nonNegativeUsageCounter,
   normalizedHarnessUsageTotal,
-  type HarnessUsageRoute,
-  type HarnessUsageSnapshot,
-  type HarnessUsageTiming,
 } from './harness-usage'
+import type {
+  HarnessUsageRoute,
+  HarnessUsageSnapshot,
+  HarnessUsageTiming,
+} from './harness-provider-contract'
 
 export {
   nonNegativeUsageCounter,
   sumNonNegativeUsageCounters,
   unavailableHarnessUsageSnapshot,
-  type HarnessUsageRoute,
-  type HarnessUsageSnapshot,
-  type HarnessUsageSnapshotContext,
-  type HarnessUsageSnapshotProvider,
-  type HarnessUsageTiming,
   type HarnessUsageUnavailableReason,
 } from './harness-usage'
+export type {
+  HarnessUsageRoute,
+  HarnessUsageSnapshot,
+  HarnessUsageSnapshotContext,
+  HarnessUsageSnapshotProvider,
+  HarnessUsageTiming,
+} from './harness-provider-contract'
 
 export type { HarnessUsageCounters } from '../../shared'
 export type { HarnessUsageCounterName } from '../../shared'

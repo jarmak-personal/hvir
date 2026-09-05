@@ -1,5 +1,5 @@
 import { asHarnessProfileId, asHarnessProviderId } from '../../../shared'
-import type { HarnessProvider } from '../harness-provider'
+import type { HarnessProvider } from '../harness-provider-contract'
 
 export const piProvider: HarnessProvider = {
   manifest: {

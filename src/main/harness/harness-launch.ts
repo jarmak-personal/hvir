@@ -11,13 +11,13 @@ import {
 } from '../../shared'
 import type { ProjectHost } from '../project-host'
 import type { HarnessProfileStoreContract } from './harness-profile-store'
-import {
-  harnessProvider,
-  type HarnessLaunchContext,
-  type HarnessLaunchSpec,
-  type HarnessProvider,
-  type HarnessArtifactContext,
-} from './harness-provider'
+import { harnessProvider } from './bundled-harness-providers'
+import type {
+  HarnessLaunchContext,
+  HarnessLaunchSpec,
+  HarnessProvider,
+  HarnessArtifactContext,
+} from './harness-provider-contract'
 
 const PROTECTED_ENVIRONMENT = new Set(['TERM', 'COLORTERM', 'TERM_PROGRAM'])
 

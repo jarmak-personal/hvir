@@ -1,6 +1,6 @@
 import { localPath } from '../../shared'
 import { applicationUserDataPath } from '../application-runtime'
-import type { HarnessProviderRegistry } from '../harness/harness-provider'
+import type { HarnessProviderRegistry } from '../harness/harness-provider-registry'
 import type { HarnessProfileStoreContract } from '../harness/harness-profile-store'
 import type { ProjectHost } from '../project-host'
 import type { PtySupervisor } from '../pty/pty-supervisor'
