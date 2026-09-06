@@ -37,6 +37,8 @@ export function collectArchitectureHotspots(root = repositoryRoot) {
     source.comparisonCounts(inventory, [head]),
   )
   return {
+    policy,
+    inventory,
     version: 2,
     mode: 'provisional-report',
     head,
@@ -75,40 +77,27 @@ export function formatReport(report: {
   return lines.join('\n')
 }
 
-export async function runArchitectureCommand(): Promise<void> {
+export async function runArchitectureCommand(root = repositoryRoot): Promise<void> {
   try {
     const enforce = process.argv.includes('--enforce')
-    let report
+    let collected
     if (enforce) {
       const api = githubAdapter(process.env.HVIR_REPO_TOKEN)
-      const context = await resolveArchitectureContext(repositoryRoot, api)
-      report = await authorizeCandidate({
-        root: repositoryRoot,
+      const context = await resolveArchitectureContext(root, api)
+      collected = await authorizeCandidate({
+        root,
         context,
         loadIntegration: (merge, epic) =>
-          loadArchitectureIntegration(repositoryRoot, api, merge, epic),
+          loadArchitectureIntegration(root, api, merge, epic),
       })
-      await requireCurrentRemovalIssues(
-        api,
-        validatePolicy(
-          JSON.parse(readFileSync(join(repositoryRoot, POLICY_PATH), 'utf8')),
-        ),
-      )
-      const current = await resolveArchitectureContext(repositoryRoot, api)
+      await requireCurrentRemovalIssues(api, collected.policy)
+      const current = await resolveArchitectureContext(root, api)
       if (current.base !== context.base || current.head !== context.head)
         throw new Error('Architecture target changed during verification; reverify')
-    } else report = collectArchitectureHotspots()
-    const policy = validatePolicy(
-      JSON.parse(readFileSync(join(repositoryRoot, POLICY_PATH), 'utf8')),
-    )
-    const dependencies = collectModuleGraph(
-      repositoryRoot,
-      createArchitectureInventory(repositoryRoot).collectInventory(policy),
-      policy,
-    )
-    dependencies.violations.push(
-      ...(await checkModuleDirections(dependencies, repositoryRoot)),
-    )
+    } else collected = collectArchitectureHotspots(root)
+    const { policy, inventory, ...report } = collected
+    const dependencies = collectModuleGraph(root, inventory, policy)
+    dependencies.violations.push(...(await checkModuleDirections(dependencies, root)))
     console.log(
       process.argv.includes('--json')
         ? JSON.stringify({ ...report, dependencies }, null, 2)

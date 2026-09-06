@@ -61,8 +61,10 @@ to govern them. A report of zero runtime module cycles is not a claim of univers
 
 The contributor wrappers' Vite `ssrLoadModule` calls identify maintained entrypoints but execute
 through a separate module runner, so they remain visible discovery rows outside native-module
-cycle proof. Electron `utilityProcess.fork` likewise exposes the process-loading boundary; its
-computed entry path is not inferred from runtime values. These named loading forms do not imply
+cycle proof. Literal Electron `utilityProcess.fork` targets must resolve to maintained
+implementation source and receive the same direction checks as Worker loading rows, outside
+same-module cycle proof. Its computed entry path remains visible but is not inferred from runtime
+values. These named loading forms do not imply
 that arbitrary library APIs or reflective alias chains can be statically resolved.
 
 ## One direction-policy owner

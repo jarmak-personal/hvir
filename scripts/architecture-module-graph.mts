@@ -152,12 +152,22 @@ export function collectModuleGraph(
         loading.push({ ...ref, from, target, disposition: 'discovery' })
         continue
       }
-      if (ref.form === 'utility-process') {
-        loading.push({ ...ref, from, disposition: 'discovery' })
-        continue
-      }
       const resolved = resolver.resolveReference(from, ref.specifier)
       let target = resolved.target
+      if (ref.form === 'worker' || ref.form === 'utility-process') {
+        if (target && DECLARATION_EXTENSION.test(target))
+          target = resolver.runtimeCompanion(from, ref.specifier, target)
+        if (!target || !included.has(target))
+          violations.push({
+            rule: target ? 'unclassified-process-entry' : 'unresolved-process-entry',
+            from,
+            to: target ?? resolver.asset(from, ref.specifier),
+            line: ref.line,
+            detail: 'Process entry must resolve to maintained implementation source',
+          })
+        loading.push({ ...ref, from, target, disposition: 'process-entry' })
+        continue
+      }
       if (resolved.external || (!target && !resolved.local)) {
         loading.push({ ...ref, from, disposition: 'external' })
         continue
@@ -221,17 +231,7 @@ export function collectModuleGraph(
           continue
         }
       }
-      if (ref.form === 'worker') {
-        if (!included.has(target))
-          violations.push({
-            rule: 'unclassified-process-entry',
-            from,
-            to: target,
-            line: ref.line,
-            detail: 'Worker entry must be maintained source',
-          })
-        loading.push({ ...ref, from, target, disposition: 'process-entry' })
-      } else if (target.endsWith('.json')) {
+      if (target.endsWith('.json')) {
         loading.push({ ...ref, from, target, disposition: 'asset' })
       } else if (!included.has(target)) {
         violations.push({
@@ -258,7 +258,7 @@ export function collectModuleGraph(
         'Installed dependencies and builtins are external module leaves.',
         'Git internals and disposable output retain the maintained inventory exclusions.',
         'Non-code assets and exact native build output are explicit loading rows.',
-        'Worker process entries and nonliteral discovery are outside same-module cycle proof.',
+        'Worker and utility-process entries and nonliteral discovery are outside same-module cycle proof.',
       ],
     },
     modules,

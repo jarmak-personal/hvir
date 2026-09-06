@@ -293,6 +293,55 @@ describe('maintained module graph', () => {
     )
   })
 
+  it.each(['worker', 'utility-process'] as const)(
+    'resolves literal %s implementation entries without inventing module cycles',
+    (form) => {
+      const repo = fixture()
+      const load = (target: string) =>
+        form === 'worker'
+          ? `new Worker(new URL('${target}', import.meta.url))`
+          : `utilityProcess.fork('${target}')`
+      repo.write('src/owner.ts', load('./entry.mjs'))
+      repo.write('src/entry.d.mts', 'export declare const value: number')
+      repo.write('src/entry.mjs', "import './owner'; export const value = 1")
+      const graph = repo.graph()
+      expect(graph.loading).toContainEqual(
+        expect.objectContaining({
+          from: 'src/owner.ts',
+          form,
+          target: 'src/entry.mjs',
+          disposition: 'process-entry',
+        }),
+      )
+      expect(graph.edges.map((edge) => [edge.from, edge.to])).toEqual([
+        ['src/entry.mjs', 'src/owner.ts'],
+      ])
+      expect(graph.runtimeComponents).toEqual([])
+      expect(graph.violations).toEqual([])
+
+      repo.remove('src/entry.mjs')
+      expect(repo.graph().violations).toContainEqual(
+        expect.objectContaining({ rule: 'unresolved-process-entry' }),
+      )
+      const outside = fixture()
+      outside.write('src/entry.ts', 'export const value = 1')
+      repo.write('src/owner.ts', load(join(outside.root, 'src/entry.ts')))
+      expect(repo.graph().violations).toContainEqual(
+        expect.objectContaining({
+          rule: 'unclassified-process-entry',
+        }),
+      )
+      expect(repo.graph().violations[0]?.to).toContain('/src/entry.ts')
+      repo.write('src/owner.ts', load('./missing.ts'))
+      expect(repo.graph().violations).toContainEqual(
+        expect.objectContaining({
+          rule: 'unresolved-process-entry',
+          to: 'src/missing.ts',
+        }),
+      )
+    },
+  )
+
   it('fails missing and malformed configuration and syntax', () => {
     const repo = fixture()
     repo.write('src/owner.ts', 'export const =')
