@@ -64,7 +64,6 @@ describe('viewer dependency direction', () => {
 
   it.each([
     ['FileViewer.tsx', './SourceView'],
-    ['ViewerArea.tsx', './FileViewer'],
     ['SourceView.tsx', './source-highlighting'],
     ['highlight-request.ts', './highlight-protocol'],
     ['highlight.worker.ts', './highlight-protocol'],

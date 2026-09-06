@@ -70,6 +70,9 @@ const HARNESS_IMPLEMENTATION_IMPORT_BAN =
 const HARNESS_DIRECTION_MESSAGE =
   'Harness contracts and neutral policy depend inward, never on bundled assembly, concrete providers, or their observation implementations.'
 
+const VIEWER_PRESENTATION_IMPORT_BAN =
+  '(^|/)[A-Z][^/]*$|(^|/)(highlight-worker|highlight-request|source-highlighting|source-blame-gutter|use-[^/]+)(\\.[cm]?[jt]sx?)?$|^react(/|$)|^electron$'
+
 function dependencyDirectionRules(
   pattern,
   message = HARNESS_DIRECTION_MESSAGE,
@@ -276,10 +279,7 @@ export default tseslint.config(
   // Viewer presentation and effects depend inward, including erased imports.
   {
     files: ['src/renderer/src/viewer/**/*.{ts,tsx}'],
-    ignores: [
-      'src/renderer/src/viewer/FileViewer.tsx',
-      'src/renderer/src/viewer/ViewerArea.tsx',
-    ],
+    ignores: ['src/renderer/src/viewer/FileViewer.tsx'],
     rules: dependencyDirectionRules(
       '(^|/)FileViewer(\\.[cm]?[jt]sx?)?$',
       'Viewer presentation and effect owners cannot depend on FileViewer orchestration or harness implementation.',
@@ -294,7 +294,7 @@ export default tseslint.config(
       'src/renderer/src/viewer/viewer-position.ts',
     ],
     rules: dependencyDirectionRules(
-      '(^|/)(main|preload|workers)(/|$)|(^|/)[A-Z][^/]*$|(^|/)(highlight-worker|highlight-request|source-highlighting|source-blame-gutter|use-[^/]+)(\\.[cm]?[jt]sx?)?$|^react(/|$)|^electron$',
+      '(^|/)(main|preload|workers)(/|$)|' + VIEWER_PRESENTATION_IMPORT_BAN,
       'Pure viewer policy and highlight contracts cannot import presentation, effect, or process implementations.',
       true,
     ),
@@ -302,7 +302,7 @@ export default tseslint.config(
   {
     files: ['src/renderer/src/viewer/*.worker.ts'],
     rules: dependencyDirectionRules(
-      '(^|/)(main|preload)(/|$)|(^|/)[A-Z][^/]*$|(^|/)(highlight-worker|highlight-request|source-highlighting|source-blame-gutter|use-[^/]+)(\\.[cm]?[jt]sx?)?$|^react(/|$)|^electron$',
+      '(^|/)(main|preload)(/|$)|' + VIEWER_PRESENTATION_IMPORT_BAN,
       'Viewer workers consume policy and protocols, never renderer components or their effects.',
       true,
     ),
