@@ -193,6 +193,7 @@ describe('PTY supervisor observation composition', () => {
     })
 
     await vi.waitFor(() => expect(firstTelemetry).toHaveBeenCalledWith(pending))
+    expect(supervisor.observationSnapshot()[0]?.telemetry).toBe(pending)
     expect(observe.mock.calls[0]?.[1].cwd).toEqual(localPath('/tmp/project'))
 
     void detach()
@@ -202,6 +203,14 @@ describe('PTY supervisor observation composition', () => {
 
     expect(reattachedTelemetry).toHaveBeenCalledOnce()
     expect(reattachedTelemetry).toHaveBeenCalledWith(unavailable)
+    expect(supervisor.observationSnapshot()[0]?.telemetry).toBe(
+      reattachedTelemetry.mock.calls[0]?.[0],
+    )
+    emitTelemetry?.(undefined)
+    expect(supervisor.observationSnapshot()[0]?.telemetry).toBeUndefined()
+    const clearedReplay = vi.fn()
+    supervisor.attach(info.id, OWNER_ID, { onTelemetry: clearedReplay })
+    expect(clearedReplay).not.toHaveBeenCalled()
     supervisor.disposeOwner(OWNER_ID)
     await vi.waitFor(() => expect(disposeTelemetry).toHaveBeenCalledOnce())
   })

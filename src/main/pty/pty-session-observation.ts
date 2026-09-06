@@ -23,9 +23,12 @@ interface ObservationContext {
 
 interface ObservationAuthority {
   readonly isCurrent: () => boolean
+  readonly identityStatus: () => TerminalIdentityStatus
   /** Registry acceptance and live identity publication belong to the supervisor. */
   readonly acceptCandidate: (sessionId: string) => Promise<boolean>
-  readonly setIdentityStatus: (status: TerminalIdentityStatus) => void
+  readonly setDiscoveryStatus: (
+    status: Extract<TerminalIdentityStatus, 'discovering' | 'ambiguous' | 'unavailable'>,
+  ) => void
   readonly identityChanged: () => void
   readonly publishTelemetry: (telemetry: HarnessTelemetry | undefined) => void
   readonly identityDiverged: () => void
@@ -47,8 +50,6 @@ export class PtySessionObservation {
   private discoveryActive = false
   private retryPending = false
   private retry?: DiscoveryRetry
-  private identityStatus: TerminalIdentityStatus = 'unavailable'
-  private currentTelemetry?: HarnessTelemetry
   private currentSessionData?: unknown
 
   constructor(
@@ -56,9 +57,6 @@ export class PtySessionObservation {
     private readonly authority: ObservationAuthority,
   ) {}
 
-  get telemetry(): HarnessTelemetry | undefined {
-    return this.currentTelemetry
-  }
   get sessionData(): unknown {
     return this.currentSessionData
   }
@@ -66,20 +64,20 @@ export class PtySessionObservation {
   discover(identify: DiscoveryRetry['identify'], launchedAtMs: number): void {
     if (!this.isCurrent()) return
     this.retry = { identify, launchedAtMs }
-    this.identityStatus = 'discovering'
     this.discoveryActive = true
     void this.identify(this.retry, launchedAtMs)
   }
 
   retryAfterInput(): void {
     const retry = this.retry
-    if (!retry || !this.isCurrent() || this.identityStatus === 'identified') return
+    if (!retry || !this.isCurrent() || this.authority.identityStatus() === 'identified')
+      return
     if (this.discoveryActive) {
       this.retryPending = true
       return
     }
     this.discoveryActive = true
-    this.setIdentityStatus('discovering')
+    this.authority.setDiscoveryStatus('discovering')
     this.authority.identityChanged()
     void this.identify(retry, Date.now())
   }
@@ -91,7 +89,6 @@ export class PtySessionObservation {
     const controller = this.controller()
     const publishTelemetry = (telemetry: HarnessTelemetry | undefined): void => {
       if (controller.signal.aborted || !this.isCurrent()) return
-      this.currentTelemetry = telemetry
       this.authority.publishTelemetry(telemetry)
     }
     void Promise.resolve()
@@ -154,11 +151,6 @@ export class PtySessionObservation {
     return controller
   }
 
-  private setIdentityStatus(status: TerminalIdentityStatus): void {
-    this.identityStatus = status
-    this.authority.setIdentityStatus(status)
-  }
-
   private async identify(
     retry: DiscoveryRetry,
     discoveryStartedAtMs: number,
@@ -181,23 +173,20 @@ export class PtySessionObservation {
         } catch {
           // The registry owns persistence diagnostics. Publication stays unavailable.
         }
-        if (this.isCurrent()) {
-          this.setIdentityStatus(accepted ? 'identified' : 'unavailable')
-          if (accepted) {
-            this.retry = undefined
-            this.retryPending = false
-            this.startTelemetry(result.sessionId, result.sessionData)
-          }
+        if (this.isCurrent() && accepted) {
+          this.retry = undefined
+          this.retryPending = false
+          this.startTelemetry(result.sessionId, result.sessionData)
         }
       } else {
-        this.setIdentityStatus(result.status)
+        this.authority.setDiscoveryStatus(result.status)
         if (result.status === 'ambiguous') {
           this.retry = undefined
           this.retryPending = false
         }
       }
     } catch (error) {
-      if (this.isCurrent()) this.setIdentityStatus('unavailable')
+      if (this.isCurrent()) this.authority.setDiscoveryStatus('unavailable')
       if (!controller.signal.aborted)
         console.warn(
           `[pty] ${this.context.providerId} session discovery unavailable`,
@@ -209,7 +198,11 @@ export class PtySessionObservation {
     }
     if (!this.isCurrent()) return
     this.authority.identityChanged()
-    if (this.retryPending && this.identityStatus === 'unavailable' && this.retry) {
+    if (
+      this.retryPending &&
+      this.authority.identityStatus() === 'unavailable' &&
+      this.retry
+    ) {
       this.retryPending = false
       this.retryAfterInput()
     }

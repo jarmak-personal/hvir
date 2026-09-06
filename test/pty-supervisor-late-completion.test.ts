@@ -14,6 +14,71 @@ import {
 describe.each([LOCAL_HOST_ID, asHostId('deterministic-ssh')])(
   'PTY late completion on %s',
   (hostId) => {
+    it('keeps snapshot, attachment replay, and retry coherent across rejected identity acceptance', async () => {
+      const registerSessionIdentity = vi
+        .fn()
+        .mockResolvedValueOnce(false)
+        .mockResolvedValue(true)
+      const f = createPtySupervisorFixture({
+        hostId,
+        supervisor: { registerSessionIdentity },
+      })
+      const identify = vi.fn(() =>
+        Promise.resolve({ status: 'identified', sessionId: 'exact-identity' }),
+      )
+      const telemetry = contextStatusHarnessSnapshot({
+        providerId: f.provider.manifest.id,
+        sessionId: 'exact-identity',
+        provenance: 'fixture',
+        context: { status: 'pending', reason: 'fixture' },
+      })
+      const observe = vi.fn((_host: unknown, context: HarnessTelemetryContext) => {
+        context.emit(telemetry)
+        return () => undefined
+      })
+      Object.assign(f.provider, {
+        sessionIdentity: 'discovered',
+        sessionDiscovery: { snapshot: () => Promise.resolve([]), identify },
+        telemetry: { observe },
+      })
+      const identities: Array<{ status: string; sessionId?: string }> = []
+      f.supervisor.onSessionIdentity((info) => {
+        identities.push({ status: info.identityStatus, sessionId: info.harnessSessionId })
+      })
+      const info = await f.spawn()
+      await vi.waitFor(() =>
+        expect(identities).toEqual([{ status: 'unavailable', sessionId: undefined }]),
+      )
+      expect(f.supervisor.observationSnapshot()[0]?.info.identityStatus).toBe(
+        'unavailable',
+      )
+      expect(observe).not.toHaveBeenCalled()
+
+      f.supervisor.write(info.id, info.ownerId, 'retry')
+      expect(f.supervisor.observationSnapshot()[0]?.info.identityStatus).toBe(
+        'discovering',
+      )
+      await vi.waitFor(() =>
+        expect(identities).toEqual([
+          { status: 'unavailable', sessionId: undefined },
+          { status: 'discovering', sessionId: undefined },
+          { status: 'identified', sessionId: 'exact-identity' },
+        ]),
+      )
+      expect(f.supervisor.observationSnapshot()[0]).toMatchObject({
+        info: { identityStatus: 'identified', harnessSessionId: 'exact-identity' },
+        telemetry,
+      })
+      const replay = vi.fn()
+      f.supervisor.attach(info.id, info.ownerId, { onTelemetry: replay })
+      expect(replay).toHaveBeenCalledExactlyOnceWith(
+        f.supervisor.observationSnapshot()[0]?.telemetry,
+      )
+      f.supervisor.write(info.id, info.ownerId, 'accepted input')
+      expect(identify).toHaveBeenCalledTimes(2)
+      expect(observe).toHaveBeenCalledOnce()
+    })
+
     it.each(['discovered', 'preassigned'] as const)(
       'drains a synchronous exit before starting %s identity observation',
       async (sessionIdentity) => {

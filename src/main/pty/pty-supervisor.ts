@@ -250,6 +250,7 @@ export class PtySupervisor {
       },
       {
         isCurrent,
+        identityStatus: () => entry.info.identityStatus,
         acceptCandidate: async (harnessSessionId) => {
           let accepted = false
           try {
@@ -265,7 +266,7 @@ export class PtySupervisor {
           }
           return accepted && isCurrent()
         },
-        setIdentityStatus: (identityStatus) => {
+        setDiscoveryStatus: (identityStatus) => {
           if (isCurrent()) entry.info = { ...entry.info, identityStatus }
         },
         identityChanged,
@@ -497,7 +498,7 @@ export class PtySupervisor {
   observationSnapshot(): readonly ObservedManagedPty[] {
     return [...this.entries.values()].map((entry) => ({
       info: entry.info,
-      telemetry: entry.observation.telemetry,
+      telemetry: entry.stream.telemetry,
     }))
   }
 

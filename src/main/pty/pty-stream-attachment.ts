@@ -14,12 +14,16 @@ export class PtyStreamAttachment {
   private readonly replay: string[] = []
   private replayLength = 0
   private replayPending = true
-  private telemetry?: HarnessTelemetry
+  private currentTelemetry?: HarnessTelemetry
   private disposeData?: Disposer
   private disposed = false
 
   get attached(): boolean {
     return this.dataListeners.size > 0
+  }
+
+  get telemetry(): HarnessTelemetry | undefined {
+    return this.currentTelemetry
   }
 
   start(
@@ -59,7 +63,7 @@ export class PtyStreamAttachment {
   }
 
   publishTelemetry(telemetry: HarnessTelemetry | undefined): void {
-    this.telemetry = telemetry
+    this.currentTelemetry = telemetry
     for (const listener of this.telemetryListeners) listener(telemetry)
   }
 
