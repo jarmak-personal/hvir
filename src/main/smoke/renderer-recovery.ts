@@ -139,16 +139,22 @@ export async function verifyRendererProcessRecovery(options: {
       )
     }
     checkpoint('renderer-recovery-readiness-ready')
+    checkpoint('renderer-recovery-observer-awaiting')
     await installReplacementDeliveryObserver(
       win.webContents,
       liveReloadPath,
       RECOVERY_HEALTH_OCCURRENCE_ID,
     )
+    checkpoint('renderer-recovery-observer-ready')
+    checkpoint('renderer-recovery-reattach-awaiting')
     reattachRecoveryPty(resources, supervisor, localPty, replacement, win.webContents)
     reattachRecoveryPty(resources, supervisor, remotePty, replacement, win.webContents)
+    checkpoint('renderer-recovery-reattach-ready')
     // Continuous output spans the crash and ownership transfer. Return both live
     // shells to their prompts before asking them to execute replacement commands.
+    checkpoint('renderer-recovery-producer-stop-awaiting')
     for (const stopProducer of [...producerDisposers].reverse()) await stopProducer()
+    checkpoint('renderer-recovery-producer-stop-ready')
     supervisor.write(
       localPty.terminal.id,
       replacement.id,
@@ -175,7 +181,9 @@ export async function verifyRendererProcessRecovery(options: {
       occurrenceId: RECOVERY_HEALTH_OCCURRENCE_ID,
       outcome: 'responsive',
     })
+    checkpoint('renderer-recovery-deliveries-awaiting')
     await waitForReplacementDeliveries(win.webContents)
+    checkpoint('renderer-recovery-deliveries-ready')
 
     checkpoint('renderer-recovery-replacement-ipc-awaiting')
     const replacementElectronVersion = (await win.webContents.executeJavaScript(
