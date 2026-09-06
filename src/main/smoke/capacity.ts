@@ -11,6 +11,7 @@ import {
 import { LocalHost } from '../project-host'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import { startCapacityOutputFixtures } from './capacity-output-fixtures'
+import { verifyCapacityLivePresentationUpdate } from './capacity-live-presentation'
 import {
   activateCapacityTerminal,
   addCapacityTerminals,
@@ -20,7 +21,6 @@ import {
   verifyCapacityTerminalSearch,
   verifyCapacitySessionsTerminalDetail,
   verifyCapacityPaletteUpdate,
-  verifyCapacityLivePresentationUpdate,
   verifyTerminalActivity,
   type TerminalActivityReport,
   type TerminalReadinessSampleReport,
