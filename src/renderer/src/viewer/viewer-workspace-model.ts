@@ -19,17 +19,8 @@ import { rebindViewerPath } from './viewer-path-rebind'
 import { isCurrentViewerRead } from './viewer-read-policy'
 import * as documentRefresh from './viewer-document-refresh'
 
-export interface ViewerWorkspaceModel {
-  readonly root?: HostPath
-  readonly generation: number
-  readonly tabs: readonly ViewerTab[]
-  readonly activeId?: string
-  readonly activePane: ViewerPaneId
-  readonly activeByPane: Readonly<Record<ViewerPaneId, string | undefined>>
-  readonly split: boolean
-  readonly restored: boolean
-  readonly readGenerations: Readonly<Record<string, number>>
-}
+import type { ViewerWorkspaceModel } from './viewer-workspace-state'
+export type { ViewerWorkspaceModel } from './viewer-workspace-state'
 
 export interface ViewerOpenRequest {
   readonly path: HostPath

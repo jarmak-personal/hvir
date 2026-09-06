@@ -1,6 +1,9 @@
 # Architecture budgets
 
-ADR-040 owns the policy. `scripts/architecture-hotspots.json` records exact budgets;
+ADR-040 owns the policy. `scripts/architecture-hotspots.json` records exact budgets.
+The companion [dependency guide](architecture-dependencies.md) describes the same commands'
+complete module graph, resolution/loading limits, and reused direction checks.
+
 `architecture-policy.mts` owns source/data/disposable classification and budget evaluation,
 `architecture-inventory.mts` owns filesystem/Git reads, and `architecture-authorization.mts` owns proposal and integration
 admission. The GitHub adapter supplies bounded, read-only delivery and acceptance evidence.

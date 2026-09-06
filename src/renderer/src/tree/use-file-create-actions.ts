@@ -41,16 +41,8 @@ import type { ViewerPathRemovalCapability } from '../viewer/viewer-path-removal'
 import { useFileManagerReveal } from './use-file-manager-reveal'
 import { usePathCopyAction } from './use-path-copy-action'
 
-export interface FileActionMenuRequest {
-  readonly id: number
-  readonly target: HostPath
-  readonly targetType: FileType
-  readonly label: string
-  readonly x: number
-  readonly y: number
-  readonly focusMenu: boolean
-  readonly returnFocus?: HTMLElement
-}
+import type { FileActionMenuRequest } from './file-action-menu'
+export type { FileActionMenuRequest } from './file-action-menu'
 
 export interface FileCreateDialogRequest {
   readonly id: number

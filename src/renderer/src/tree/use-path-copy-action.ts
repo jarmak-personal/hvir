@@ -9,7 +9,7 @@ import {
 } from '../path-copy/path-copy'
 import type { FileActionFeedback } from './file-operation-feedback'
 import { projectFileOwnerKey } from './project-file-owner-key'
-import type { FileActionMenuRequest } from './use-file-create-actions'
+import type { FileActionMenuRequest } from './file-action-menu'
 
 /** Own path-copy completion and focus restoration across workspace changes. */
 export function usePathCopyAction(

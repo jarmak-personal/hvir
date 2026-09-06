@@ -5,15 +5,13 @@ import {
 import type {
   DiagnosticDroppedCount,
   DiagnosticRecentSnapshot,
-} from './diagnostic-intake'
+  DurableDiagnosticEvidence,
+} from './diagnostic-evidence'
 import type { StoredDiagnosticEvent } from './diagnostic-event'
 
 export type DiagnosticReportScopeAvailability = 'included' | 'partial' | 'unavailable'
 
-export interface DurableDiagnosticEvidence {
-  readonly availability: 'available' | 'partial' | 'unavailable'
-  readonly events: readonly StoredDiagnosticEvent[]
-}
+export type { DurableDiagnosticEvidence } from './diagnostic-evidence'
 
 export interface DiagnosticLifetimeStart {
   readonly correlation: string

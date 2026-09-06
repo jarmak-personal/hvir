@@ -4,33 +4,24 @@ import {
   hostPathEquals,
   renderedFileType,
   type DocumentReviewRevalidation,
-  type DocumentReviewWorkspaceSnapshot,
   type HostPath,
 } from '../../../shared'
 import { createDocumentReviewCapture } from './document-review-capture'
 import { selectDocumentReviewComments } from './document-review-selectors'
 import type {
   DocumentReviewAction,
-  DocumentReviewActionResult,
   DocumentReviewComment,
   ReviewAnchorCapture,
   ReviewSourceRange,
 } from './document-review-types'
-import type { DocumentReviewWorkspaceState } from './document-review-workspace-controller'
+import type { DocumentReviewWorkspaceBinding } from './document-review-workspace'
+export type { DocumentReviewWorkspaceBinding } from './document-review-workspace'
 import {
   useDocumentReviewDelivery,
   type DocumentReviewDeliveryInteraction,
 } from './use-document-review-delivery'
 
 const ACTIVE_BATCH_ID = 'active-review'
-
-export interface DocumentReviewWorkspaceBinding {
-  readonly state: DocumentReviewWorkspaceState
-  readonly apply: (action: DocumentReviewAction) => DocumentReviewActionResult
-  readonly readDocument: (document: HostPath) => Promise<DocumentReviewRevalidation>
-  readonly flush: () => Promise<void>
-  readonly adoptAuthoritative: (snapshot: DocumentReviewWorkspaceSnapshot) => boolean
-}
 
 interface DocumentReviewDocumentInput {
   readonly path: HostPath
