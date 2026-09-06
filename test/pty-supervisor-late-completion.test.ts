@@ -14,6 +14,48 @@ import {
 describe.each([LOCAL_HOST_ID, asHostId('deterministic-ssh')])(
   'PTY late completion on %s',
   (hostId) => {
+    it.each(['discovered', 'preassigned'] as const)(
+      'drains a synchronous exit before starting %s identity observation',
+      async (sessionIdentity) => {
+        const registerSessionIdentity = vi.fn(() => Promise.resolve(true))
+        const f = createPtySupervisorFixture({
+          hostId,
+          supervisor: { registerSessionIdentity },
+        })
+        const disposeExit = vi.fn()
+        const exit = { exitCode: 0, signal: undefined }
+        vi.spyOn(f.pty, 'onExit').mockImplementation((listener) => {
+          listener(exit)
+          return disposeExit
+        })
+        const snapshot = vi.fn(() => Promise.resolve([]))
+        const identify = vi.fn(() => Promise.resolve({ status: 'unavailable' }))
+        const observe = vi.fn(() => () => undefined)
+        Object.assign(f.provider, {
+          sessionIdentity,
+          sessionDiscovery: { snapshot, identify },
+          telemetry: { observe },
+        })
+        const onExit = vi.fn()
+        f.supervisor.onExit(onExit)
+
+        const info = await f.spawn()
+
+        expect(onExit).toHaveBeenCalledExactlyOnceWith(info, exit)
+        expect(disposeExit).toHaveBeenCalledOnce()
+        expect(f.supervisor.get(info.id)).toBeUndefined()
+        expect(f.supervisor.observationSnapshot()).toEqual([])
+        expect(f.pty.dataListeners.size).toBe(0)
+        expect(snapshot).toHaveBeenCalledTimes(sessionIdentity === 'discovered' ? 1 : 0)
+        expect(identify).not.toHaveBeenCalled()
+        expect(observe).not.toHaveBeenCalled()
+        expect(registerSessionIdentity).not.toHaveBeenCalled()
+        f.supervisor.disposeAll()
+        expect(disposeExit).toHaveBeenCalledOnce()
+        expect(f.pty.kill).not.toHaveBeenCalled()
+      },
+    )
+
     it('releases a cancelled discovery reservation before a replacement launch', async () => {
       const f = createPtySupervisorFixture({ hostId })
       const { spawnPty } = f
