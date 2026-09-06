@@ -319,6 +319,9 @@ export async function authorizeCandidate({
   })
   const rows = evaluateInventory(candidate, inventory, counts)
   return {
+    // Internal current-tree inputs for graph/removal checks; never report source bytes.
+    policy: candidate,
+    inventory,
     version: 2,
     mode: 'enforce',
     context,

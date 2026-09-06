@@ -3,7 +3,15 @@ import {
   type SerializedDiagnosticEvent,
   type StoredDiagnosticEvent,
 } from './diagnostic-event'
-import type { DurableDiagnosticEvidence } from './diagnostic-report-evidence'
+import {
+  DIAGNOSTIC_EVENT_BYTES,
+  type DiagnosticJournalStatus,
+  type DurableDiagnosticEvidence,
+} from './diagnostic-evidence'
+export {
+  DIAGNOSTIC_EVENT_BYTES,
+  type DiagnosticJournalStatus,
+} from './diagnostic-evidence'
 
 export type {
   ApplicationDiagnosticKind,
@@ -15,7 +23,6 @@ export type {
 export const DIAGNOSTIC_SEGMENT_BYTES = 1024 * 1024
 export const DIAGNOSTIC_SEGMENT_COUNT = 4
 export const DIAGNOSTIC_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
-export const DIAGNOSTIC_EVENT_BYTES = 1024
 
 const DIAGNOSTIC_QUEUE_EVENTS = 64
 const STORAGE_TIMEOUT_MS = 250
@@ -32,15 +39,6 @@ export interface DiagnosticJournalStorage {
   readSegment(index: number, maxBytes: number): Promise<string | undefined>
   writeSegment(index: number, content: string): Promise<void>
   removeSegment(index: number): Promise<void>
-}
-
-export interface DiagnosticJournalStatus {
-  readonly location: string
-  readonly sink: 'available' | 'failed'
-  readonly dropped: Readonly<{
-    queue: number
-    storage: number
-  }>
 }
 
 export interface DiagnosticJournalOptions {

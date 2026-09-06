@@ -20,7 +20,7 @@ import {
   insertedReviewNotice,
   sentReviewNotice,
 } from './document-review-delivery-feedback'
-import type { DocumentReviewWorkspaceBinding } from './use-document-review-interaction'
+import type { DocumentReviewWorkspaceBinding } from './document-review-workspace'
 
 export interface DocumentReviewDeliveryInteraction {
   readonly open: boolean

@@ -4,7 +4,7 @@ import { unwrapOperation, type FileType, type HostPath } from '../../../shared'
 import { canRevealInFileManager } from './file-manager-reveal'
 import type { FileActionFeedback } from './file-operation-feedback'
 import { projectFileOwnerKey } from './project-file-owner-key'
-import type { FileActionMenuRequest } from './use-file-create-actions'
+import type { FileActionMenuRequest } from './file-action-menu'
 
 interface RevealRequest {
   readonly target: HostPath

@@ -21,6 +21,8 @@ import {
   requireCurrentRemovalIssues,
   resolveArchitectureContext,
 } from './architecture-github.mts'
+import { collectModuleGraph, type ModuleGraph } from './architecture-module-graph.mts'
+import { checkModuleDirections } from './architecture-module-directions.mts'
 
 const repositoryRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
 
@@ -35,6 +37,8 @@ export function collectArchitectureHotspots(root = repositoryRoot) {
     source.comparisonCounts(inventory, [head]),
   )
   return {
+    policy,
+    inventory,
     version: 2,
     mode: 'provisional-report',
     head,
@@ -73,39 +77,67 @@ export function formatReport(report: {
   return lines.join('\n')
 }
 
-export async function runArchitectureCommand(): Promise<void> {
+export async function runArchitectureCommand(root = repositoryRoot): Promise<void> {
   try {
     const enforce = process.argv.includes('--enforce')
-    let report
+    let collected
     if (enforce) {
       const api = githubAdapter(process.env.HVIR_REPO_TOKEN)
-      const context = await resolveArchitectureContext(repositoryRoot, api)
-      report = await authorizeCandidate({
-        root: repositoryRoot,
+      const context = await resolveArchitectureContext(root, api)
+      collected = await authorizeCandidate({
+        root,
         context,
         loadIntegration: (merge, epic) =>
-          loadArchitectureIntegration(repositoryRoot, api, merge, epic),
+          loadArchitectureIntegration(root, api, merge, epic),
       })
-      await requireCurrentRemovalIssues(
-        api,
-        validatePolicy(
-          JSON.parse(readFileSync(join(repositoryRoot, POLICY_PATH), 'utf8')),
-        ),
-      )
-      const current = await resolveArchitectureContext(repositoryRoot, api)
+      await requireCurrentRemovalIssues(api, collected.policy)
+      const current = await resolveArchitectureContext(root, api)
       if (current.base !== context.base || current.head !== context.head)
         throw new Error('Architecture target changed during verification; reverify')
-    } else report = collectArchitectureHotspots()
+    } else collected = collectArchitectureHotspots(root)
+    const { policy, inventory, ...report } = collected
+    const dependencies = collectModuleGraph(root, inventory, policy)
+    dependencies.violations.push(...(await checkModuleDirections(dependencies, root)))
     console.log(
       process.argv.includes('--json')
-        ? JSON.stringify(report, null, 2)
-        : formatReport(report),
+        ? JSON.stringify({ ...report, dependencies }, null, 2)
+        : `${formatReport(report)}\n${formatModuleGraph(dependencies)}`,
     )
-    if (enforce && report.violations.length) process.exitCode = 1
+    if (enforce && (report.violations.length || dependencies.violations.length))
+      process.exitCode = 1
   } catch (error) {
     console.error(
       `Architecture verification failed: ${error instanceof Error ? error.message : 'Unknown failure'}`,
     )
     process.exitCode = 1
   }
+}
+
+export function formatModuleGraph(graph: ModuleGraph): string {
+  return [
+    `module graph: ${graph.modules.length} maintained TS/JS modules; ${graph.edges.length} internal edges`,
+    `roots: ${graph.scope.roots.join(', ')}; resolution: ${graph.scope.configs.join(', ')}`,
+    ...graph.scope.exclusions,
+    `${graph.runtimeComponents.length} runtime cycle(s); ${graph.staticComponents.length} static component(s)`,
+    ...graph.staticComponents.flatMap((members) => [
+      `component: ${members.join(', ')}`,
+      ...graph.edges
+        .filter((edge) => members.includes(edge.from) && members.includes(edge.to))
+        .map(
+          (edge) =>
+            `  ${edge.from}:${edge.line} --${edge.kind}/${edge.form}--> ${edge.to}`,
+        ),
+    ]),
+    ...graph.loading
+      .filter((entry) => entry.disposition !== 'external')
+      .map(
+        (entry) =>
+          `loading: ${entry.from}:${entry.line} ${entry.form} ${entry.disposition}${entry.target ? ` -> ${entry.target}` : ''}`,
+      ),
+    ...graph.violations.map(
+      (issue) =>
+        `! ${issue.rule}: ${issue.from ?? ''}${issue.line ? `:${issue.line}` : ''}${issue.to ? ` -> ${issue.to}` : ''}: ${issue.detail}`,
+    ),
+    `${graph.violations.length} dependency violation(s)`,
+  ].join('\n')
 }

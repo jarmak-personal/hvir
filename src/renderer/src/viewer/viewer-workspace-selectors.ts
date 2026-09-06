@@ -1,6 +1,6 @@
 import { hostPathEquals, type HostPath } from '../../../shared'
 import type { ViewerPaneId, ViewerTab } from './tab-state'
-import type { ViewerWorkspaceModel } from './viewer-workspace-model'
+import type { ViewerWorkspaceModel } from './viewer-workspace-state'
 
 export function selectActiveTab(model: ViewerWorkspaceModel): ViewerTab | undefined {
   return model.tabs.find((tab) => tab.id === model.activeId)

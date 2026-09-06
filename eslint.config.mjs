@@ -314,6 +314,109 @@ export default tseslint.config(
     ),
   },
 
+  // Contracts extracted from concrete consumers remain inward across all import forms.
+  {
+    files: ['src/main/diagnostics/diagnostic-journal.ts'],
+    rules: dependencyDirectionRules(
+      '(^|/)(diagnostic-intake|diagnostic-report[^/]*|runtime-diagnostics)(\\.[cm]?[jt]sx?)?$',
+      'The journal consumes closed evidence contracts rather than report preparation or runtime consumers.',
+    ),
+  },
+  {
+    files: ['src/main/diagnostics/diagnostic-evidence.ts'],
+    rules: dependencyDirectionRules(
+      '(^|/)(diagnostic-intake|diagnostic-journal|diagnostic-report[^/]*|runtime-diagnostics|authority-router|deps)(\\.[cm]?[jt]sx?)?$',
+      'Closed diagnostic evidence and writer contracts cannot depend on their concrete consumers.',
+    ),
+  },
+  {
+    files: [
+      'src/main/diagnostics/diagnostic-intake.ts',
+      'src/main/diagnostics/diagnostic-report-evidence.ts',
+    ],
+    rules: dependencyDirectionRules(
+      '(^|/)(diagnostic-intake|diagnostic-journal|diagnostic-report-coordinator|runtime-diagnostics)(\\.[cm]?[jt]sx?)?$',
+      'Diagnostic admission and evidence policy consume closed evidence contracts, never concrete consumers.',
+    ),
+  },
+  {
+    files: ['src/main/ipc/authority-router.ts'],
+    rules: dependencyDirectionRules(
+      '(^|/)(deps|runtime-diagnostics)(\\.[cm]?[jt]sx?)?$',
+      'IPC authority consumes its own narrow port, never the feature dependency aggregate or diagnostic runtime.',
+    ),
+  },
+  {
+    files: [
+      'src/main/ipc/authority-port.ts',
+      'src/main/diagnostics/runtime-diagnostics.ts',
+    ],
+    rules: dependencyDirectionRules(
+      '(^|/)(authority-router|deps|runtime-diagnostics)(\\.[cm]?[jt]sx?)?$',
+      'IPC diagnostic consumers use the closed authority port rather than the concrete router.',
+    ),
+  },
+  {
+    files: [
+      'src/renderer/src/viewer/viewer-workspace-state.ts',
+      'src/renderer/src/viewer/viewer-read-policy.ts',
+      'src/renderer/src/viewer/viewer-path-rebind.ts',
+      'src/renderer/src/viewer/viewer-path-removal.ts',
+      'src/renderer/src/viewer/viewer-workspace-selectors.ts',
+    ],
+    rules: dependencyDirectionRules(
+      '(^|/)(main|preload|workers)(/|$)|(^|/)viewer-workspace-model(\\.[cm]?[jt]sx?)?$|' +
+        VIEWER_PRESENTATION_IMPORT_BAN,
+      'Viewer state and policy depend inward, never on the workspace reducer, presentation, or effects.',
+      true,
+    ),
+  },
+  {
+    files: [
+      'src/renderer/src/tree/use-file-manager-reveal.ts',
+      'src/renderer/src/tree/use-path-copy-action.ts',
+    ],
+    rules: dependencyDirectionRules(
+      '(^|/)main/harness(/|$)|(^|/)use-file-create-actions(\\.[cm]?[jt]sx?)?$',
+      'Tree action contracts and effects cannot depend on creation orchestration.',
+    ),
+  },
+  {
+    files: ['src/renderer/src/tree/file-action-menu.ts'],
+    rules: dependencyDirectionRules(
+      '(^|/)main/harness(/|$)|(^|/)(use-[^/]+|DirectoryTree)(\\.[cm]?[jt]sx?)?$|^react(/|$)',
+      'The tree action request contract cannot depend on its concrete hooks or views.',
+    ),
+  },
+  {
+    files: ['src/renderer/src/document-review/use-document-review-delivery.ts'],
+    rules: dependencyDirectionRules(
+      '(^|/)main/harness(/|$)|(^|/)use-document-review-interaction(\\.[cm]?[jt]sx?)?$',
+      'Review workspace contracts and delivery cannot depend on interaction orchestration.',
+    ),
+  },
+  {
+    files: ['src/renderer/src/document-review/document-review-workspace.ts'],
+    rules: dependencyDirectionRules(
+      '(^|/)main/harness(/|$)|(^|/)(use-[^/]+|document-review-workspace-controller)(\\.[cm]?[jt]sx?)?$|^react(/|$)',
+      'Review workspace contracts cannot depend on effect hooks or the concrete workspace controller.',
+    ),
+  },
+  {
+    files: ['scripts/project-management/github-agent-work-project.ts'],
+    rules: dependencyDirectionRules(
+      '(^|/)canonical-project(\\.[cm]?[jt]sx?)?$',
+      'Canonical Project item contracts and field adapters cannot depend on the concrete Project client.',
+    ),
+  },
+  {
+    files: ['scripts/project-management/canonical-project-item.ts'],
+    rules: dependencyDirectionRules(
+      '(^|/)(canonical-project|github-agent-work-project)(\\.[cm]?[jt]sx?)?$',
+      'The canonical Project item contract cannot depend on its concrete client or field adapter.',
+    ),
+  },
+
   // Seam exemption: LocalHost owns the host primitives (but still not ipcRenderer).
   {
     files: ['src/main/project-host/local-host.ts'],
@@ -360,6 +463,8 @@ export default tseslint.config(
       'scripts/architecture-authorization.mts',
       'scripts/architecture-github.mts',
       'scripts/architecture-wiring.mts',
+      'scripts/architecture-module-resolution.mts',
+      'scripts/architecture-module-graph.mts',
       'scripts/run-smoke-interruption.mts',
       'scripts/smoke-failure-artifact.mts',
       'scripts/inspect-packaged-runtime.mts',

@@ -1,7 +1,6 @@
 import {
   hostPathEquals,
   type DocumentReviewRevalidation,
-  type DocumentReviewStoreNotice,
   type DocumentReviewWorkspaceSnapshot,
   type HostPath,
   type ReviewWorkspaceIdentity,
@@ -33,16 +32,8 @@ export interface DocumentReviewWorkspacePort {
   }): Promise<DocumentReviewRevalidation>
 }
 
-export interface DocumentReviewWorkspaceState {
-  readonly status: 'idle' | 'loading' | 'ready' | 'error'
-  readonly localGeneration: number
-  readonly workspace?: ReviewWorkspaceIdentity
-  readonly workspaceGeneration?: number
-  readonly revision: number
-  readonly model?: DocumentReviewModel
-  readonly notice?: DocumentReviewStoreNotice
-  readonly error?: string
-}
+import type { DocumentReviewWorkspaceState } from './document-review-workspace'
+export type { DocumentReviewWorkspaceState } from './document-review-workspace'
 
 /** Renderer effect owner for restore, serialized writes, watch reads, and revocation. */
 export class DocumentReviewWorkspaceController {

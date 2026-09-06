@@ -18,7 +18,7 @@ import type { ProjectHostControlDiagnostic } from '../project-coordinator'
 import type { PtySupervisorDiagnostic } from '../pty/pty-supervisor'
 import type { TerminalSessionRegistryDiagnostic } from '../terminal/session-registry'
 import type { RendererOwner } from '../renderer-resource-scopes'
-import type { IpcContractDiagnostic } from '../ipc/authority-router'
+import type { IpcContractDiagnostic } from '../ipc/authority-port'
 import {
   DiagnosticIntake,
   MAX_RECENT_DIAGNOSTIC_BYTES,

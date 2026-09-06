@@ -6,7 +6,7 @@ import {
   type AgentWorkProjectValue,
   type AgentWorkProjectValues,
 } from './agent-work-project-fields.ts'
-import type { CanonicalProjectItem } from './canonical-project.ts'
+import type { CanonicalProjectItem } from './canonical-project-item.ts'
 import {
   CanonicalProjectSchemaError,
   clearCanonicalField,

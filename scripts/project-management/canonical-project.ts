@@ -23,14 +23,8 @@ import { nextPageCursor, type PageInfo } from './github-pagination.ts'
 import { KIND_DEFINITIONS, type KindOption } from './kind-policy.ts'
 import { PROJECT_STATUS_OPTIONS, type ProjectStatus } from './planning-fields.ts'
 
-export interface CanonicalProjectItem {
-  id: string
-  archived: boolean
-  repository: string
-  issueNumber: number
-  kind: string | null
-  status: string | null
-}
+import type { CanonicalProjectItem } from './canonical-project-item.ts'
+export type { CanonicalProjectItem } from './canonical-project-item.ts'
 
 export interface GitHubCanonicalProjectOptions {
   owner: string
