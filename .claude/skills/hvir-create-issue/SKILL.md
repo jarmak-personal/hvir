@@ -122,6 +122,18 @@ the relevant platform or host type. For refactors, name the behavior that must r
 and the ownership or dependency problem being corrected. Do not use line count alone as the
 reason for a refactor.
 
+When the outcome creates or changes an owner, seam, dependency direction, or exceptional budget,
+record the [architecture constraints](../../../CONTRIBUTING.md#record-architecture-constraints-when-structure-changes)
+before implementation. Record the facts in a conditional Architecture constraints section or
+reference their exact accepted location; keep unresolved choices in Design and architecture
+questions. Apply the structural trigger to bugs too; a new file alone does not trigger it.
+An epic records common constraints, and its
+structural children record their focused boundaries with references to accepted common constraints.
+Use the linked budget and dependency policy and [worked examples](../../../CONTRIBUTING.md#worked-examples)
+to select existing enforcement or justify focused evidence. Required policy relaxations remain
+separate proposals awaiting independent acceptance. This step changes neither review selection
+nor the separate drafting and publication approvals.
+
 Acceptance criteria must test the outcome. They must not require a file-by-file design. Include
 local and SSH parity, responsiveness, resource cleanup, and security behavior when the affected
 capability creates those risks. Do not add criteria that are unrelated to the identified risks.

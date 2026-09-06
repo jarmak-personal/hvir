@@ -82,6 +82,18 @@ Give the user a compact pre-implementation assessment: proposed owner, dependenc
 reuse opportunities, lifecycle implications, test altitude, and any concern that needs a
 decision. Do this before substantive edits.
 
+Apply the [structural trigger and architecture constraints](../../../CONTRIBUTING.md#record-architecture-constraints-when-structure-changes)
+to the actual implementation shape. For triggered work, compare the aligned issue's owner, seam,
+runtime/type-only directions, enforcement, budget classification, and acceptance evidence with
+reconnaissance. A structural child also consumes its epic's accepted common constraints. Missing
+constraints or a changed owner, direction, or required exception return to issue alignment before
+the affected work proceeds. Do not add an independent review or publish an issue automatically.
+Use [ADR-040](../../../docs/adr/ADR-040-complete-source-budgets-and-dependency-policy.md) and the
+[budget](../../../docs/architecture-budgets.md) and [dependency](../../../docs/architecture-dependencies.md)
+guides for the existing policy and enforcement commands. New exceptional budgets or other
+relaxations require the separate accepted policy path; implementation prose and commit ordering
+cannot authorize them. Work without a structural change needs no extra architecture section.
+
 ## Design the smallest coherent change
 
 Follow ADR-014 and the public seams in `AGENTS.md`:
@@ -149,7 +161,12 @@ Before handing off:
    missing cleanup, and accidental scope growth.
 2. Re-run `npm run architecture:report`; explain intentional growth even when it is below a
    blocking threshold.
-3. Check every acceptance criterion against code and evidence.
+3. Check every acceptance criterion against code and evidence. For structurally triggered work,
+   verify the accepted issue constraints against the final owners, seams, runtime/type-only
+   directions, governing budget, and focused enforcement/behavior evidence. Reuse existing rules
+   where sufficient; retain the accepted reason and ownership evidence when no meaningful new
+   automated direction rule was needed. Passing a source budget does not replace direction or
+   ownership review, and neither can waive a blocking check.
 4. Confirm that the mandatory pre-commit verification and pre-push gates passed after the final
    changes.
 5. Prepare a concise pull-request summary with the relationship selected by the delivery path,

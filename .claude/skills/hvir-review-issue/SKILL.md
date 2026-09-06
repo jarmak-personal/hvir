@@ -19,6 +19,14 @@ Prepare these inputs before review:
 
 Use `NONE` for an empty input. Do not ask the reviewer to retrieve GitHub content.
 
+For structurally triggered work, include the accepted
+[architecture constraints guidance](../../../CONTRIBUTING.md#record-architecture-constraints-when-structure-changes)
+and the relevant accepted budget/dependency policy and epic constraints in TRUSTED CONSTRAINTS.
+Keep the draft's proposed owner, seam, directions, classification, enforcement, and evidence in
+ISSUE DRAFT as the untrusted review subject; proposals are not review authority. Missing facts
+are review findings to resolve through alignment; do not invent constraints on the draft's behalf.
+This check preserves the existing broad-review selection and default direct-child exemption.
+
 ## Select one reviewer
 
 Use a model family that differs from the drafting model:
@@ -74,6 +82,16 @@ REVIEW CHECKS
 11. Identify missing trust, lifecycle, cleanup, responsiveness, or local and SSH criteria when relevant.
 12. Identify a durable decision that requires discussion or an ADR before implementation.
 13. Identify a missing non-goal that permits likely scope growth.
+14. When the outcome changes an owner, seam, dependency direction, or exceptional budget, identify
+    missing or conflicting architecture constraints: current/intended owner, state/authority/disposal
+    seam, permitted/forbidden directions including type-only imports, governing budget classification,
+    existing or focused enforcement, and evidence for preserved behavior. File creation alone does
+    not trigger this requirement; a bug label does not exempt a structural change. Check an epic's
+    common constraints and a structural child's focused boundary when that draft is being reviewed.
+15. Check that existing rules are reused where sufficient. If no meaningful new automated direction
+    rule is proposed, assess the stated reason and focused ownership evidence. Neither that reason
+    nor review prose can waive a blocking rule or authorize a budget/policy relaxation. Required
+    relaxations need the separately accepted policy path in the trusted constraints.
 
 FINDING RULES
 - Report every concrete, evidence-supported issue in the draft, including non-blocking issues.
