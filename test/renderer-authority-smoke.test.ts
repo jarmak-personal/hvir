@@ -24,6 +24,14 @@ const smokeCompositionSource = readFileSync(
   new URL('../src/main/smoke/index.ts', import.meta.url),
   'utf8',
 )
+const readinessObserverSource = readFileSync(
+  new URL('../src/main/smoke/renderer-readiness-observer.ts', import.meta.url),
+  'utf8',
+)
+const recoveryScenarioSource = readFileSync(
+  new URL('../src/main/smoke/renderer-recovery-scenario.ts', import.meta.url),
+  'utf8',
+)
 
 describe('renderer-authority smoke boundaries', () => {
   it('accepts slow semantic readiness without an operation deadline', async () => {
@@ -86,13 +94,10 @@ describe('renderer-authority smoke boundaries', () => {
       rendererRecoverySource.indexOf("checkpoint('renderer-recovery-route-opened')"),
     )
     expect(rendererRecoverySource).toContain('replacement = await replacementReady')
-    expect(smokeCompositionSource).toContain(
-      'if (accepted) acceptedRendererReadySink?.(owner)',
-    )
-    expect(smokeCompositionSource).toContain(
-      'owner.generation === initialRendererGeneration',
-    )
-    expect(smokeCompositionSource).toContain('replacementReady,')
+    expect(smokeCompositionSource).toContain('if (accepted) readiness.accept(owner)')
+    expect(readinessObserverSource).toContain('owner.generation !== initial.generation')
+    expect(recoveryScenarioSource).toContain('replacementReady')
+    expect(recoveryScenarioSource).toContain('readiness.withReplacement(')
     expect(rendererRecoverySource).toContain("window.hvir.invoke('app:info'")
     expect(rendererRecoverySource).toContain(
       "'renderer-recovery-replacement-ipc-awaiting'",

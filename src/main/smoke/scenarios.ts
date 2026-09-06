@@ -1,4 +1,5 @@
-import { runSmoke, type ElectronSmokeDependencies } from '.'
+import { runSmoke } from '.'
+import type { ElectronSmokeDependencies } from './bootstrap-contract'
 import { runNativePtySmoke } from './native-pty'
 import { SmokeInterruptionCheckpoint } from './interruption-checkpoint'
 import {
@@ -42,19 +43,5 @@ export async function runElectronSmokeScenario(
 function rendererMode(
   scenario: Exclude<ElectronSmokeScenario, 'pty-native'>,
 ): ElectronSmokeMode {
-  if (scenario === 'capacity') return 'capacity'
-  if (scenario === 'platform-contracts' || scenario === 'diagnostic-report-restart')
-    return 'platform-contracts'
-  if (scenario === 'terminal-presentation') return 'terminal-presentation'
-  if (scenario === 'terminal-lifecycle') return 'terminal-lifecycle'
-  if (scenario === 'viewer-content') return 'viewer-content'
-  if (scenario === 'git-workflow') return 'git-workflow'
-  if (scenario === 'workspace-remote') return 'workspace-remote'
-  if (scenario === 'web-pane') return 'web-pane'
-  if (scenario === 'renderer-authority') return 'renderer-authority'
-  if (scenario === 'renderer-recovery') return 'renderer-recovery'
-  if (scenario === 'sessions-projection') return 'sessions-projection'
-  if (scenario === 'document-review') return 'document-review'
-  if (scenario === 'development-performance') return 'development-performance'
-  return scenario === 'viewer-position' ? 'viewer-position' : 'workflow'
+  return scenario === 'diagnostic-report-restart' ? 'platform-contracts' : scenario
 }

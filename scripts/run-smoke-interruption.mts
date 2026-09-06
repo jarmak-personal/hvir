@@ -233,11 +233,15 @@ async function main(): Promise<void> {
     observedRoots.add(interruptedGit.root)
     assertOutcome(interruptedGit, 143, null)
     assertTailContains(interruptedGit, 'Smoke interrupted by SIGTERM')
+    // The renderer is acquired after its IPC/watch prerequisites. Destruction
+    // revokes its generation first; workers must release before their host.
     assertOrderedResources(interruptedGit.disposed, [
-      'IPC authority router',
       'smoke window',
-      'supervised terminals',
       'project watch',
+      'IPC authority router',
+      'supervised terminals',
+      'Git worker',
+      'echo worker',
       'local host',
     ])
     await waitForMissing(interruptedGit.root)
