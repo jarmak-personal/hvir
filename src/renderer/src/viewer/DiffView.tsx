@@ -1,6 +1,7 @@
 import { EditorState } from '@codemirror/state'
 import { EditorView, lineNumbers } from '@codemirror/view'
 import { MergeView } from '@codemirror/merge'
+import { formatViewerBytes } from './viewer-byte-format'
 import { useEffect, useMemo, useRef, type ReactElement } from 'react'
 
 import {
@@ -311,7 +312,7 @@ function DiffFallbackInput({
         <span>
           {input.complete ? 'complete input' : 'partial input'}
           {' · '}
-          {formatBytes(input.byteLength)} included
+          {formatViewerBytes(input.byteLength)} included
           {' · '}
           {input.lineCount.toLocaleString()} included lines
           {previewBounded ? ' · preview bounded' : ''}
@@ -339,12 +340,6 @@ function requestedComparison(base: DiffBase, revision?: string): string {
   if (base === 'working-tree') return 'Index → Working tree'
   if (base === 'branch-point') return 'Branch point → HEAD'
   return 'HEAD → Working tree'
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`
 }
 
 const diffTheme = EditorView.theme({

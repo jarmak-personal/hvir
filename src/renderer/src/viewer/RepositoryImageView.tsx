@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 
 import { unwrapOperation, type HostPath } from '../../../shared'
+import { formatViewerBytes } from './viewer-byte-format'
 
 interface RepositoryImage {
   readonly url: string
@@ -85,14 +86,8 @@ export function RepositoryImageView({
       <figcaption>
         <span>{dimensions ?? 'Image'}</span>
         <span>{image.mimeType}</span>
-        <span>{formatAssetBytes(image.size)}</span>
+        <span>{formatViewerBytes(image.size)}</span>
       </figcaption>
     </figure>
   )
-}
-
-function formatAssetBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`
 }

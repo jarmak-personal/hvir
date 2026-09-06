@@ -70,14 +70,30 @@ const HARNESS_IMPLEMENTATION_IMPORT_BAN =
 const HARNESS_DIRECTION_MESSAGE =
   'Harness contracts and neutral policy depend inward, never on bundled assembly, concrete providers, or their observation implementations.'
 
-function harnessDirectionRules(pattern, message = HARNESS_DIRECTION_MESSAGE) {
-  const selector = pattern.replaceAll('/', '\\/')
+const VIEWER_PRESENTATION_IMPORT_BAN =
+  '(^|/)[A-Z][^/]*$|(^|/)(highlight-worker|highlight-request|source-highlighting|source-blame-gutter|use-[^/]+)(\\.[cm]?[jt]sx?)?$|^react(/|$)|^electron$'
+
+function dependencyDirectionRules(
+  pattern,
+  message = HARNESS_DIRECTION_MESSAGE,
+  caseSensitive = false,
+) {
+  const selector = (
+    caseSensitive ? '(^|/)main/harness(/|$)|' + pattern : pattern
+  ).replaceAll('/', '\\/')
   return {
     'no-restricted-imports': [
       'error',
       {
         paths: [...HOST_PRIMITIVE_BANS, IPC_RENDERER_BAN],
-        patterns: [{ regex: pattern, message }],
+        patterns: [
+          { regex: pattern, message, caseSensitive },
+          // Viewer component names are case-sensitive. Preserve the inherited
+          // renderer harness ban with its original case-insensitive semantics.
+          ...(caseSensitive
+            ? [{ regex: '(^|/)main/harness(/|$)', message: HARNESS_DIRECTION_MESSAGE }]
+            : []),
+        ],
       },
     ],
     'no-restricted-syntax': [
@@ -150,11 +166,11 @@ export default tseslint.config(
   {
     files: ['src/main/harness/**/*.{ts,tsx,mts,cts}'],
     ignores: ['src/main/harness/harness-provider.ts'],
-    rules: harnessDirectionRules(HARNESS_FACADE_IMPORT_BAN),
+    rules: dependencyDirectionRules(HARNESS_FACADE_IMPORT_BAN),
   },
   {
     files: ['src/main/harness/providers/**/*.{ts,tsx,mts,cts}'],
-    rules: harnessDirectionRules(HARNESS_ASSEMBLY_IMPORT_BAN),
+    rules: dependencyDirectionRules(HARNESS_ASSEMBLY_IMPORT_BAN),
   },
   {
     files: [
@@ -170,14 +186,14 @@ export default tseslint.config(
       'src/main/harness/harness-telemetry*.ts',
       'src/main/harness/bounded-line-reader.ts',
     ],
-    rules: harnessDirectionRules(HARNESS_IMPLEMENTATION_IMPORT_BAN),
+    rules: dependencyDirectionRules(HARNESS_IMPLEMENTATION_IMPORT_BAN),
   },
 
   // PTY internals depend on leaf contracts, never their facade or sibling owners.
   {
     files: ['src/main/pty/**/*.{ts,tsx,mts,cts}'],
     ignores: ['src/main/pty/pty-supervisor.ts'],
-    rules: harnessDirectionRules(
+    rules: dependencyDirectionRules(
       HARNESS_IMPLEMENTATION_IMPORT_BAN +
         '|(^|/)pty-supervisor(\\.[cm]?[jt]sx?)?$|(^|/)pty-(launch-admission|session-lifetime|session-observation|stream-attachment)(\\.[cm]?[jt]sx?)?$',
       'PTY internal owners import leaf contracts, never the supervisor, sibling owners, or concrete harness implementations.',
@@ -253,11 +269,43 @@ export default tseslint.config(
     files: ['src/renderer/**/*.{ts,tsx}'],
     plugins: { 'react-hooks': reactHooks, 'react-refresh': reactRefresh },
     rules: {
-      ...harnessDirectionRules('(^|/)main/harness(/|$)'),
+      ...dependencyDirectionRules('(^|/)main/harness(/|$)'),
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
     },
+  },
+
+  // Viewer presentation and effects depend inward, including erased imports.
+  {
+    files: ['src/renderer/src/viewer/**/*.{ts,tsx}'],
+    ignores: ['src/renderer/src/viewer/FileViewer.tsx'],
+    rules: dependencyDirectionRules(
+      '(^|/)FileViewer(\\.[cm]?[jt]sx?)?$',
+      'Viewer presentation and effect owners cannot depend on FileViewer orchestration or harness implementation.',
+      true,
+    ),
+  },
+  {
+    files: [
+      'src/renderer/src/viewer/highlight-protocol.ts',
+      'src/renderer/src/viewer/viewer-workload-policy.ts',
+      'src/renderer/src/viewer/source-coordinate.ts',
+      'src/renderer/src/viewer/viewer-position.ts',
+    ],
+    rules: dependencyDirectionRules(
+      '(^|/)(main|preload|workers)(/|$)|' + VIEWER_PRESENTATION_IMPORT_BAN,
+      'Pure viewer policy and highlight contracts cannot import presentation, effect, or process implementations.',
+      true,
+    ),
+  },
+  {
+    files: ['src/renderer/src/viewer/*.worker.ts'],
+    rules: dependencyDirectionRules(
+      '(^|/)(main|preload)(/|$)|' + VIEWER_PRESENTATION_IMPORT_BAN,
+      'Viewer workers consume policy and protocols, never renderer components or their effects.',
+      true,
+    ),
   },
 
   // Seam exemption: LocalHost owns the host primitives (but still not ipcRenderer).
