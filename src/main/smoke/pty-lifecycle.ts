@@ -31,13 +31,13 @@ export async function waitForPtyOutput(
 ): Promise<string> {
   const { supervisor, terminal, expected, scenario, trigger } = options
   let retainedOutput = ''
+  let settled = false
   let disposeOutput: Disposer = () => undefined
   let primaryFailure: unknown
   let hasPrimaryFailure = false
 
   try {
     const outputEvent = new Promise<void>((resolve, reject) => {
-      let settled = false
       disposeOutput = supervisor.attach(
         terminal.id,
         terminal.ownerId,
@@ -59,7 +59,7 @@ export async function waitForPtyOutput(
                 `${scenario} exited before expected output (` +
                   `terminalId=${terminal.id}, pid=${terminal.pid}, ` +
                   `exitCode=${exit.exitCode}, signal=${exit.signal ?? 'none'}, ` +
-                  `retainedOutput=${JSON.stringify(retainedOutput)})`,
+                  `retainedCharacters=${retainedOutput.length})`,
               ),
             )
           },
@@ -68,7 +68,7 @@ export async function waitForPtyOutput(
       )
     })
 
-    trigger()
+    if (!settled) trigger()
     await outputEvent
   } catch (reason) {
     hasPrimaryFailure = true

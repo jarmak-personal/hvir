@@ -6,71 +6,18 @@ import { join } from 'node:path'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 
 import {
-  DEFAULT_SMOKE_SCENARIOS,
   classifySmokeAttempt,
   formatSmokeScenarioResults,
   invokeSmokeScenario,
   parseSmokeRepetitionCount,
   registerSmokeLauncherSignals,
   runSmokeScenarioGroups,
-  selectedSmokeScenarios,
   smokeScenarioEnvironment,
   smokeAttemptTimeoutMs,
   writeSmokeFailureArtifactWithinDeadline,
   type SmokeScenarioName,
 } from '../scripts/run-smoke-scenarios.mts'
-import {
-  ELECTRON_SMOKE_SCENARIOS,
-  parseElectronSmokeScenario,
-} from '../src/main/smoke/scenario-selection.mts'
-
-describe('Electron smoke scenario selection', () => {
-  it('keeps bare direct Electron smoke compatible with the legacy workflow', () => {
-    expect(parseElectronSmokeScenario(undefined)).toBe('legacy-workflow')
-    expect(parseElectronSmokeScenario('')).toBe('legacy-workflow')
-  })
-
-  it.each(ELECTRON_SMOKE_SCENARIOS)('selects the named %s group', (scenario) => {
-    expect(parseElectronSmokeScenario(scenario)).toBe(scenario)
-    expect(selectedSmokeScenarios(scenario)).toEqual([scenario])
-  })
-
-  it('rejects unknown groups with the complete reproducible name set', () => {
-    expect(() => parseElectronSmokeScenario('unknown')).toThrow(
-      "Unknown Electron smoke scenario 'unknown'. Expected one of: " +
-        'pty-native, viewer-position, viewer-content, git-workflow, workspace-remote, web-pane, renderer-authority, platform-contracts, diagnostic-report-restart, renderer-recovery, sessions-projection, document-review, development-performance, terminal-presentation, terminal-lifecycle, legacy-workflow, capacity',
-    )
-    expect(() => selectedSmokeScenarios('unknown')).toThrow(
-      "Unknown Electron smoke scenario 'unknown'. Expected one of: " +
-        'pty-native, viewer-position, viewer-content, git-workflow, workspace-remote, web-pane, renderer-authority, platform-contracts, diagnostic-report-restart, renderer-recovery, sessions-projection, document-review, development-performance, terminal-presentation, terminal-lifecycle, legacy-workflow, capacity',
-    )
-  })
-
-  it('selects an explicit ordered scenario set without replacing the single-name API', () => {
-    expect(
-      selectedSmokeScenarios(undefined, [
-        'pty-native',
-        'viewer-position',
-        'platform-contracts',
-      ]),
-    ).toEqual(['pty-native', 'viewer-position', 'platform-contracts'])
-    expect(() => selectedSmokeScenarios('pty-native', ['viewer-position'])).toThrow(
-      'positional names or HVIR_SMOKE_SCENARIO, not both',
-    )
-    expect(() => selectedSmokeScenarios(undefined, ['unknown'])).toThrow(
-      "Unknown Electron smoke scenario 'unknown'",
-    )
-  })
-
-  it('schedules the focused native and viewer groups with the legacy workflow', () => {
-    expect(selectedSmokeScenarios(undefined)).toEqual(DEFAULT_SMOKE_SCENARIOS)
-    expect(DEFAULT_SMOKE_SCENARIOS).toEqual([
-      'pty-native',
-      'viewer-position',
-      'legacy-workflow',
-    ])
-  })
-})
+import { ELECTRON_SMOKE_SCENARIOS } from '../src/main/smoke/scenario-selection.mts'
 
 describe('Electron smoke result aggregation', () => {
   it('requires exit zero and the semantic success sentinel', () => {
@@ -126,15 +73,19 @@ describe('Electron smoke result aggregation', () => {
       },
     )
 
-    const results = await runSmokeScenarioGroups(DEFAULT_SMOKE_SCENARIOS, 2, invoke)
+    const results = await runSmokeScenarioGroups(
+      ['pty-native', 'viewer-position', 'app-settings'],
+      2,
+      invoke,
+    )
 
     expect(invoked).toEqual([
       ['pty-native', 1, 2],
       ['viewer-position', 1, 2],
-      ['legacy-workflow', 1, 2],
+      ['app-settings', 1, 2],
       ['pty-native', 2, 2],
       ['viewer-position', 2, 2],
-      ['legacy-workflow', 2, 2],
+      ['app-settings', 2, 2],
     ])
     expect(results).toEqual([
       {
@@ -152,7 +103,7 @@ describe('Electron smoke result aggregation', () => {
         exitCode: 0,
       },
       {
-        scenario: 'legacy-workflow',
+        scenario: 'app-settings',
         iteration: 1,
         repetitionCount: 2,
         status: 'passed',
@@ -173,7 +124,7 @@ describe('Electron smoke result aggregation', () => {
         exitCode: 2,
       },
       {
-        scenario: 'legacy-workflow',
+        scenario: 'app-settings',
         iteration: 2,
         repetitionCount: 2,
         status: 'passed',
@@ -184,10 +135,10 @@ describe('Electron smoke result aggregation', () => {
       '[smoke:summary] attempts=6 iterations=2\n' +
         '- pty-native iteration 1/2: failed (native load failed)\n' +
         '- viewer-position iteration 1/2: passed (exit 0)\n' +
-        '- legacy-workflow iteration 1/2: passed (exit 0)\n' +
+        '- app-settings iteration 1/2: passed (exit 0)\n' +
         '- pty-native iteration 2/2: passed (exit 0)\n' +
         '- viewer-position iteration 2/2: failed (exit 2)\n' +
-        '- legacy-workflow iteration 2/2: passed (exit 0)',
+        '- app-settings iteration 2/2: passed (exit 0)',
     )
   })
 
@@ -260,7 +211,7 @@ describe('Electron smoke result aggregation', () => {
       smokeScenarioEnvironment(
         {
           HVIR_SMOKE_REPEAT: '20',
-          HVIR_SMOKE_SCENARIO: 'legacy-workflow',
+          HVIR_SMOKE_SCENARIO: 'app-settings',
           KEEP_ME: 'yes',
         },
         'pty-native',
@@ -744,7 +695,7 @@ describe('Electron smoke command contracts', () => {
   it('separates correctness, hosted evidence, and controlled performance commands', () => {
     expect(packageJson.scripts.smoke).toContain('node scripts/run-smoke-scenarios.mts')
     expect(packageJson.scripts.smoke).toContain(
-      'viewer-position viewer-content git-workflow workspace-remote web-pane renderer-authority renderer-recovery sessions-projection document-review terminal-presentation terminal-lifecycle legacy-workflow',
+      'viewer-position viewer-content git-workflow workspace-remote web-pane renderer-authority renderer-recovery sessions-projection document-review terminal-presentation terminal-lifecycle native-host-worker workbench-health platform-contracts terminal-theme terminal-move workbench-layout terminal-split app-settings harness-profiles',
     )
     expect(packageJson.scripts['smoke:macos']).toContain(
       'node scripts/run-smoke-scenarios.mts pty-native viewer-position viewer-content git-workflow workspace-remote web-pane renderer-authority platform-contracts renderer-recovery sessions-projection document-review terminal-presentation terminal-lifecycle',
@@ -779,9 +730,7 @@ describe('Electron smoke command contracts', () => {
   })
 
   it('passes one selected name into each hermetic unpackaged invocation', () => {
-    expect(invocationScript).toContain(
-      'HVIR_SMOKE_SCENARIO="${HVIR_SMOKE_SCENARIO:-legacy-workflow}"',
-    )
+    expect(invocationScript).toContain('HVIR_SMOKE_SCENARIO="${HVIR_SMOKE_SCENARIO}"')
     expect(invocationScript).toContain('HVIR_SMOKE_SOURCE_COMMIT="$source_commit"')
     expect(invocationScript).toContain('HVIR_SMOKE_SOURCE_DIRTY="$source_dirty"')
     expect(invocationScript).toContain('create-smoke-repository.sh')
@@ -821,24 +770,27 @@ describe('Electron smoke command contracts', () => {
     expect(interruptionScript).toContain('const successors = await Promise.all(')
   })
 
-  it('enters capacity before unrelated legacy profile and viewer assertions', () => {
-    const branch = smokeWorkflow.indexOf("if (mode === 'capacity')")
-    const recoveryRecords = smokeWorkflow.indexOf(
-      'capacityRecoverySessions(supervisor, defaultHarnessProviderId)',
-      branch,
+  it('owns load disposal before recovery in the focused capacity composition', () => {
+    const capacityComposition = readFileSync(
+      new URL('../src/main/smoke/capacity-scenario.ts', import.meta.url),
+      'utf8',
     )
-    const resetLoadFixtures = smokeWorkflow.indexOf(
+    const branch = smokeWorkflow.indexOf("if (mode === 'capacity')")
+    const recoveryRecords = capacityComposition.indexOf(
+      'capacityRecoverySessions(supervisor, providerId)',
+    )
+    const resetLoadFixtures = capacityComposition.indexOf(
       'supervisor.disposeSessions()',
       recoveryRecords,
     )
-    const recovery = smokeWorkflow.indexOf(
+    const recovery = capacityComposition.indexOf(
       'await runCapacityRecoverySmoke',
       resetLoadFixtures,
     )
     expect(branch).toBeGreaterThan(-1)
-    expect(branch).toBeLessThan(smokeWorkflow.indexOf('const profileSmoke'))
+    expect(smokeWorkflow).not.toContain('const profileSmoke')
     expect(smokeWorkflow.indexOf("if (mode === 'capacity')", branch + 1)).toBe(-1)
-    expect(recoveryRecords).toBeGreaterThan(branch)
+    expect(recoveryRecords).toBeGreaterThan(-1)
     expect(resetLoadFixtures).toBeGreaterThan(recoveryRecords)
     expect(recovery).toBeGreaterThan(resetLoadFixtures)
     expect(capacityScenario).toContain('const CPU_SAMPLE_COUNT = 3')
@@ -972,18 +924,8 @@ describe('Electron smoke command contracts', () => {
 
   it('owns reconnect, recovery, and destruction in a focused renderer lifecycle group', () => {
     const branch = smokeWorkflow.indexOf("if (mode === 'terminal-lifecycle')")
-    const legacyWorkflow = smokeWorkflow.indexOf('const profileSmoke')
     expect(branch).toBeGreaterThan(-1)
-    expect(branch).toBeLessThan(smokeWorkflow.indexOf('const profileSmoke'))
-    expect(smokeWorkflow.slice(legacyWorkflow)).not.toContain(
-      'verifyTerminalReconnectRemount',
-    )
-    expect(smokeWorkflow.slice(legacyWorkflow)).not.toContain(
-      'verifyTerminalPresentationLifecycle',
-    )
-    expect(smokeWorkflow.slice(legacyWorkflow)).not.toContain(
-      'verifyRendererRolloverRecovery',
-    )
+    expect(smokeWorkflow).not.toContain('const profileSmoke')
     expect(terminalRendererLifecycleScenario.indexOf('supervisor.attach')).toBeLessThan(
       terminalRendererLifecycleScenario.indexOf('supervisor.write'),
     )
@@ -998,13 +940,13 @@ describe('Electron smoke command contracts', () => {
     expect(rendererLifecycleScenario).not.toContain('routes.open')
   })
 
-  it('enters the viewer group before legacy work with semantic diagnostics', () => {
+  it('enters the viewer group as a focused owner with semantic diagnostics', () => {
     const branch = smokeWorkflow.indexOf("if (mode === 'viewer-position')")
     const focusedScenario = viewerPositionScenario.slice(
       viewerPositionScenario.indexOf('export function verifySourceDiffPosition'),
     )
     expect(branch).toBeGreaterThan(-1)
-    expect(branch).toBeLessThan(smokeWorkflow.indexOf('const profileSmoke'))
+    expect(smokeWorkflow).not.toContain('const profileSmoke')
     expect(focusedScenario).toContain('JSON.stringify(snapshot())')
     expect(focusedScenario).toContain('requestAnimationFrame(painted)')
     expect(focusedScenario).toContain('root.isConnected')
@@ -1014,12 +956,8 @@ describe('Electron smoke command contracts', () => {
   it('runs viewer content and Git workflows independently with semantic diagnostics', () => {
     const viewerBranch = smokeWorkflow.indexOf("if (mode === 'viewer-content')")
     const gitBranch = smokeWorkflow.indexOf("if (mode === 'git-workflow')")
-    const legacyWorkflow = smokeWorkflow.indexOf('const profileSmoke')
     expect(viewerBranch).toBeGreaterThan(-1)
     expect(gitBranch).toBeGreaterThan(viewerBranch)
-    expect(gitBranch).toBeLessThan(legacyWorkflow)
-    expect(smokeWorkflow.slice(legacyWorkflow)).not.toContain('verifyViewerContent')
-    expect(smokeWorkflow.slice(legacyWorkflow)).not.toContain('verifyGitWorkflow')
     expect(viewerContentScenario).toContain('state=${JSON.stringify(state)}')
     expect(gitWorkflowScenario).toContain('state=${JSON.stringify(state)}')
     expect(viewerContentScenario).not.toContain(
@@ -1042,22 +980,13 @@ describe('Electron smoke command contracts', () => {
     )
   })
 
-  it('runs workspace, web-pane, and renderer authority independently of legacy work', () => {
+  it('runs workspace, web-pane, and renderer authority with explicit selection', () => {
     const workspaceBranch = smokeWorkflow.indexOf("if (mode === 'workspace-remote')")
     const webPaneBranch = smokeWorkflow.indexOf("if (mode === 'web-pane')")
     const authorityBranch = smokeWorkflow.indexOf("if (mode === 'renderer-authority')")
-    const legacyWorkflow = smokeWorkflow.indexOf('const profileSmoke')
     expect(workspaceBranch).toBeGreaterThan(-1)
     expect(webPaneBranch).toBeGreaterThan(workspaceBranch)
     expect(authorityBranch).toBeGreaterThan(webPaneBranch)
-    expect(authorityBranch).toBeLessThan(legacyWorkflow)
-    expect(smokeWorkflow.slice(legacyWorkflow)).not.toContain(
-      'verifyWorkspaceRemoteWorkflow',
-    )
-    expect(smokeWorkflow.slice(legacyWorkflow)).not.toContain('verifyWebPaneWorkflow')
-    expect(smokeWorkflow.slice(legacyWorkflow)).not.toContain(
-      'verifyRendererAuthorityLifecycle',
-    )
 
     expect(workspaceRemoteScenario).toContain('state=${JSON.stringify(state)}')
     expect(workspaceRemoteScenario).toContain('no PTY materialized')
@@ -1135,14 +1064,14 @@ describe('Electron smoke command contracts', () => {
     )
   })
 
-  it('enters platform contracts before legacy work with bounded semantic snapshots', () => {
+  it('enters platform contracts with bounded semantic snapshots', () => {
     const branch = smokeWorkflow.indexOf("mode === 'platform-contracts'")
     const platformScenario = readFileSync(
       new URL('../src/main/smoke/platform-contracts.ts', import.meta.url),
       'utf8',
     )
     expect(branch).toBeGreaterThan(-1)
-    expect(branch).toBeLessThan(smokeWorkflow.indexOf('const profileSmoke'))
+    expect(smokeWorkflow).not.toContain('const profileSmoke')
     expect(platformScenario).toContain('JSON.stringify(lastSnapshot)')
     expect(platformScenario).toContain('protocol.isProtocolHandled')
     expect(platformScenario).toContain('net.fetch(preview.url)')

@@ -1,9 +1,7 @@
 import type { BrowserWindow } from 'electron'
 
-/** Retain broad terminal presentation assertions only in the legacy workflow. */
-export async function verifyLegacyTerminalPresentation(
-  win: BrowserWindow,
-): Promise<string> {
+/** Real terminal chrome conformance beside the palette/canvas scenario. */
+export async function verifyTerminalChrome(win: BrowserWindow): Promise<string> {
   return (await win.webContents.executeJavaScript(`
     (() => {
       const host = document.querySelector('.terminal-container');

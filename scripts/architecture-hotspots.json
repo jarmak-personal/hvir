@@ -80,12 +80,11 @@
     },
     {
       "path": "src/main/smoke/index.ts",
-      "kind": "transitional",
-      "maxLines": 2107,
-      "owner": "legacy renderer workflow smoke root",
-      "rationale": "The remaining production-composed scenario mixes feature workflows; the authorized smoke decomposition will retain real Electron coverage at named seams.",
-      "reconsiderWhen": "The responsibility extraction in #743 is accepted; remove this exception or tighten to the resulting owner.",
-      "removalIssue": "#743"
+      "kind": "stricter",
+      "maxLines": 850,
+      "owner": "Electron smoke composition root",
+      "rationale": "The root constructs production resources, wires narrow project ports and named scenario calls, and reports and disposes the selected lifetime. Scenario assertions and fixture policy remain in their named owners.",
+      "reconsiderWhen": "The root reabsorbs scenario assertions or feature fixture policy instead of wiring the owning modules."
     },
     {
       "path": "src/main/smoke/project-file-operations.ts",

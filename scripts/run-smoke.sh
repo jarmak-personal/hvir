@@ -4,6 +4,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 source_checkout=$PWD
 
+: "${HVIR_SMOKE_SCENARIO:?Select one Electron smoke scenario with HVIR_SMOKE_SCENARIO; use npm run smoke for the aggregate suite}"
+
 # A smoke launched by a Git hook must not inherit the invoking repository as
 # implicit authority. Every Git process below must discover the temp project.
 while IFS= read -r variable; do
@@ -89,7 +91,7 @@ mkdir -p "$user_data_root"
   "$project_root"
 
 cd "$project_root"
-if [[ "${HVIR_SMOKE_SCENARIO:-legacy-workflow}" == 'development-performance' ]]; then
+if [[ "${HVIR_SMOKE_SCENARIO}" == 'development-performance' ]]; then
   cd "$source_checkout"
   development_smoke_log="$user_data_root/development-performance.log"
   HVIR_SMOKE=1 \
@@ -112,7 +114,7 @@ else
   HVIR_SMOKE=1 \
     HVIR_SMOKE_SOURCE_COMMIT="$source_commit" \
     HVIR_SMOKE_SOURCE_DIRTY="$source_dirty" \
-    HVIR_SMOKE_SCENARIO="${HVIR_SMOKE_SCENARIO:-legacy-workflow}" \
+    HVIR_SMOKE_SCENARIO="${HVIR_SMOKE_SCENARIO}" \
     "$source_checkout/node_modules/.bin/electron" "$source_checkout" \
     --project-root="$project_root" \
     --no-sandbox \

@@ -3,6 +3,7 @@ import tseslint from 'typescript-eslint'
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 import prettier from 'eslint-config-prettier'
+import { smokeImportBoundary } from './scripts/smoke-import-boundary.mjs'
 
 // --- Seam enforcement (AGENTS.md "Respect the seams") ---------------------
 //
@@ -112,6 +113,11 @@ export default tseslint.config(
   { ignores: ['out/**', 'dist/**', 'node_modules/**', 'coverage/**'] },
 
   js.configs.recommended,
+  {
+    files: ['src/**/*.{ts,tsx,mts,cts}'],
+    plugins: { 'smoke-ownership': { rules: { inward: smokeImportBoundary } } },
+    rules: { 'smoke-ownership/inward': 'error' },
+  },
 
   // Type-aware linting for all TypeScript source.
   {

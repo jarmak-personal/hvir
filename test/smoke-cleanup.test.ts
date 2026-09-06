@@ -3,6 +3,34 @@ import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { SmokeCleanup } from '../src/main/smoke/cleanup'
 
 describe('SmokeCleanup', () => {
+  it('releases each acquired worker when a later worker fails to start', async () => {
+    const cleanup = new SmokeCleanup()
+    const release = vi.fn<() => void>()
+    const failedRelease = vi.fn<() => void>()
+    cleanup.acquire(
+      'echo worker',
+      () => ({ dispose: release }),
+      (worker) => worker.dispose(),
+    )
+    expect(() =>
+      cleanup.acquire(
+        'Git worker',
+        () => {
+          throw new Error('worker start failed')
+        },
+        failedRelease,
+      ),
+    ).toThrow('worker start failed')
+    await cleanup.run()
+    expect(release).toHaveBeenCalledOnce()
+    expect(failedRelease).not.toHaveBeenCalled()
+    const lateCreate = vi.fn<() => void>()
+    expect(() => cleanup.acquire('late worker', lateCreate, release)).toThrow(
+      'already run',
+    )
+    expect(lateCreate).not.toHaveBeenCalled()
+  })
+
   it('disposes in reverse order and is idempotent', async () => {
     const order: string[] = []
     const cleanup = new SmokeCleanup()
