@@ -1,15 +1,4 @@
-import { Compartment, EditorState, StateEffect, StateField } from '@codemirror/state'
-import {
-  Decoration,
-  EditorView,
-  GutterMarker,
-  gutter,
-  keymap,
-  lineNumbers,
-  type DecorationSet,
-} from '@codemirror/view'
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
-
 import {
   basenameHostPath,
   canRender,
@@ -22,16 +11,12 @@ import {
 import { DiffView } from './DiffView'
 import { FindControl } from './FindControl'
 import { GoToLineControl } from './GoToLineControl'
-import { CodeMirrorFindTarget, viewerFindDecorations } from './codemirror-find-target'
-import { DomFindTarget } from './dom-find-target'
-import { captureTopLine, restoreCodePosition } from './code-scroll-anchor'
-import {
-  languageForPath,
-  type HighlightResponse,
-  type HighlightToken,
-} from './highlight-protocol'
 import { RenderedView } from './RenderedView'
-import { resolveSourceCoordinate, type SourceCoordinate } from './source-coordinate'
+import { SourceView } from './SourceView'
+import { LargeFileView } from './LargeFileView'
+import { useSourceBlame } from './use-source-blame'
+import { formatViewerBytes } from './viewer-byte-format'
+import type { SourceCoordinate } from './source-coordinate'
 import type {
   ViewerDocumentPosition,
   ViewerNavigationPosition,
@@ -43,81 +28,22 @@ import {
   type RegisterViewerFindTarget,
   type ViewerFindTarget,
 } from './viewer-find'
+import type { ViewerPositionCapture } from './viewer-position'
 import {
-  approximateLineAtScroll,
-  approximateScrollForLine,
-  documentLineCount,
-  type ViewerPositionCapture,
-} from './viewer-position'
-import {
-  canHighlightSource,
   canUseInteractiveSource,
   sourcePreview,
   SOURCE_INTERACTIVE_BYTE_LIMIT,
 } from './viewer-workload-policy'
-import { useAppTheme } from '../theme'
 import {
   DocumentReviewChrome,
   DocumentReviewToolbar,
 } from '../document-review/DocumentReviewControls'
 import { DocumentReviewInlineProvider } from '../document-review/DocumentReviewInlineSurface'
-import { useDocumentReviewInlineHostRegistration } from '../document-review/document-review-inline'
 import {
   useDocumentReviewInteraction,
   type DocumentReviewDocumentProjection,
   type DocumentReviewWorkspaceBinding,
 } from '../document-review/use-document-review-interaction'
-import {
-  createDocumentReviewSourceExtensions,
-  sourceReviewSelection,
-} from '../document-review/document-review-source'
-
-let sharedHighlightWorker: Worker | undefined
-let nextHighlightRequestId = 0
-
-function getHighlightWorker(): Worker {
-  sharedHighlightWorker ??= new Worker(
-    new URL('./highlight.worker.ts', import.meta.url),
-    { type: 'module' },
-  )
-  return sharedHighlightWorker
-}
-
-if (import.meta.hot) {
-  import.meta.hot.dispose(() => {
-    sharedHighlightWorker?.terminate()
-    sharedHighlightWorker = undefined
-  })
-}
-
-const addTokens = StateEffect.define<readonly HighlightToken[]>()
-const resetTokens = StateEffect.define<null>()
-const tokenDecorations = StateField.define<DecorationSet>({
-  create: () => Decoration.none,
-  update(value, transaction) {
-    let next = value.map(transaction.changes)
-    for (const effect of transaction.effects) {
-      if (effect.is(resetTokens)) next = Decoration.none
-      if (!effect.is(addTokens)) continue
-      const additions = effect.value
-        .filter(
-          (token) =>
-            token.from >= 0 &&
-            token.to > token.from &&
-            token.to <= transaction.state.doc.length,
-        )
-        .map((token) =>
-          Decoration.mark({ attributes: { style: tokenStyle(token) } }).range(
-            token.from,
-            token.to,
-          ),
-        )
-      next = next.update({ add: additions, sort: true })
-    }
-    return next
-  },
-  provide: (field) => EditorView.decorations.from(field),
-})
 
 interface FileViewerProps {
   readonly tab?: ViewerTab
@@ -151,8 +77,6 @@ export function FileViewer({
   documentReview,
 }: FileViewerProps): ReactElement {
   const [showBlame, setShowBlame] = useState(false)
-  const [blame, setBlame] = useState<readonly GitBlameRun[]>([])
-  const [blameStatus, setBlameStatus] = useState('')
   const [modeControlExpanded, setModeControlExpanded] = useState(false)
   const [manualNavigation, setManualNavigation] = useState<ViewerNavigationPosition>()
   const [findTarget, setFindTarget] = useState<ViewerFindTarget>()
@@ -176,6 +100,13 @@ export function FileViewer({
         : tab.file.content
       : undefined
   const documentRefreshVersion = tab?.refresh?.version ?? 0
+  const { blame, blameStatus } = useSourceBlame(
+    currentPath,
+    blameMode,
+    showBlame,
+    documentRefreshVersion,
+    gitRefreshVersion,
+  )
 
   const registerFindTarget: RegisterViewerFindTarget = useCallback((target) => {
     setFindTarget(target)
@@ -234,34 +165,6 @@ export function FileViewer({
       goToLine: () => setGoToLineRequest((commandSerial.current += 1)),
     })
   }, [registerCommands, tabId])
-
-  useEffect(() => {
-    if (!showBlame || !currentPath || blameMode !== 'source') return
-    let cancelled = false
-    setBlame([])
-    setBlameStatus('blame loading…')
-    void window.hvir.invoke('git:blame', { path: currentPath }).then(
-      (runs) => {
-        if (!cancelled) {
-          setBlame(runs)
-          setBlameStatus(
-            `${runs.reduce((total, run) => total + run.lineCount, 0)} blamed lines · ${runs.length} runs`,
-          )
-        }
-      },
-      (reason: unknown) => {
-        if (!cancelled) {
-          setBlame([])
-          setBlameStatus(
-            `blame unavailable: ${reason instanceof Error ? reason.message : String(reason)}`,
-          )
-        }
-      },
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [blameMode, currentPath, documentRefreshVersion, gitRefreshVersion, showBlame])
 
   useEffect(() => {
     if (!modeControlExpanded) return
@@ -454,7 +357,7 @@ function BinaryFileView({
   return (
     <div className="viewer-empty binary-file-summary">
       <strong>{extension ? `${extension} binary file` : 'Binary file'}</strong>
-      <span>{formatBytes(size)}</span>
+      <span>{formatViewerBytes(size)}</span>
       <span>Source and diff views are unavailable.</span>
     </div>
   )
@@ -546,7 +449,7 @@ function ActiveView({
   }
   return (
     <SourceView
-      pathKey={`${tab.path.hostId}:${tab.path.path}`}
+      path={tab.path}
       content={file.content}
       size={file.size}
       position={tab.position}
@@ -564,428 +467,6 @@ function ActiveView({
   )
 }
 
-function LargeFileView({
-  content,
-  size,
-  mode,
-  position,
-  onPosition,
-  positionCapture,
-  navigation,
-  onNavigationHandled,
-  registerFindTarget,
-}: {
-  readonly content: string
-  readonly size: number
-  readonly mode: ViewMode
-  readonly position: ViewerDocumentPosition
-  readonly onPosition: (position: ViewerDocumentPosition) => void
-  readonly positionCapture: ViewerPositionCapture
-  readonly navigation?: ViewerNavigationPosition
-  readonly onNavigationHandled: (serial: number) => void
-  readonly registerFindTarget: RegisterViewerFindTarget
-}): ReactElement {
-  const container = useRef<HTMLPreElement>(null)
-  const positionRef = useRef(position)
-  const onPositionRef = useRef(onPosition)
-  const preview = sourcePreview(content)
-  const lines = documentLineCount(preview)
-  positionRef.current = position
-  onPositionRef.current = onPosition
-  useEffect(() => {
-    const root = container.current
-    if (!root) return
-    const capture = (): ViewerDocumentPosition => ({
-      mode,
-      line: approximateLineAtScroll(
-        root.scrollTop,
-        root.scrollHeight,
-        root.clientHeight,
-        lines,
-      ),
-      scrollTop: root.scrollTop,
-    })
-    const handleScroll = (): void => onPositionRef.current(capture())
-    positionCapture.current = capture
-    root.addEventListener('scroll', handleScroll, { passive: true })
-    const restoreFrame = requestAnimationFrame(() => {
-      const restorePosition = positionRef.current
-      root.scrollTop =
-        restorePosition.mode === mode
-          ? restorePosition.scrollTop
-          : approximateScrollForLine(
-              restorePosition.line,
-              root.scrollHeight,
-              root.clientHeight,
-              lines,
-            )
-    })
-    return () => {
-      cancelAnimationFrame(restoreFrame)
-      root.removeEventListener('scroll', handleScroll)
-      if (positionCapture.current === capture) positionCapture.current = undefined
-    }
-  }, [lines, mode, positionCapture])
-
-  useEffect(() => {
-    if (!navigation) return
-    const frame = requestAnimationFrame(() => {
-      const root = container.current
-      if (!root) return
-      const resolved = resolveSourceCoordinate(preview, navigation)
-      if (resolved.valid) {
-        const lineHeight = Number.parseFloat(getComputedStyle(root).lineHeight)
-        if (Number.isFinite(lineHeight)) {
-          root.scrollTop = Math.max(
-            0,
-            (resolved.coordinate.line - 1) * lineHeight - root.clientHeight / 2,
-          )
-        } else {
-          root.scrollTop = approximateScrollForLine(
-            resolved.coordinate.line,
-            root.scrollHeight,
-            root.clientHeight,
-            lines,
-          )
-        }
-        const text = root.firstChild
-        if (text instanceof Text && resolved.offset <= text.length) {
-          const range = document.createRange()
-          range.setStart(text, resolved.offset)
-          range.collapse(true)
-          const selection = window.getSelection()
-          selection?.removeAllRanges()
-          selection?.addRange(range)
-        }
-        if (navigation.focus) root.focus()
-      }
-      onNavigationHandled(navigation.serial)
-    })
-    return () => cancelAnimationFrame(frame)
-  }, [lines, navigation, onNavigationHandled, preview])
-
-  useEffect(() => {
-    const root = container.current
-    if (!root) return
-    const target = new DomFindTarget(root)
-    const unregister = registerFindTarget(target)
-    return () => {
-      unregister()
-      target.dispose()
-    }
-  }, [preview, registerFindTarget])
-  return (
-    <div className="large-file-shell">
-      <div className="source-meta">
-        <span>{formatBytes(size)}</span>
-        <span>read-only preview · first {formatBytes(preview.length)}</span>
-      </div>
-      <pre ref={container} className="large-file-preview" tabIndex={-1}>
-        {preview}
-      </pre>
-    </div>
-  )
-}
-
-function SourceView({
-  pathKey,
-  content,
-  size,
-  position,
-  onContent,
-  onSave,
-  onPosition,
-  blame,
-  blameStatus,
-  positionCapture,
-  navigation,
-  onNavigationHandled,
-  registerFindTarget,
-  documentReview,
-}: {
-  readonly pathKey: string
-  readonly content: string
-  readonly size: number
-  readonly position: ViewerDocumentPosition
-  readonly onContent: (content: string) => void
-  readonly onSave: () => void
-  readonly onPosition: (position: ViewerDocumentPosition) => void
-  readonly blame: readonly GitBlameRun[]
-  readonly blameStatus: string
-  readonly positionCapture: ViewerPositionCapture
-  readonly navigation?: ViewerTab['navigation']
-  readonly onNavigationHandled: (serial: number) => void
-  readonly registerFindTarget: RegisterViewerFindTarget
-  readonly documentReview?: DocumentReviewDocumentProjection
-}): ReactElement {
-  const theme = useAppTheme()
-  const container = useRef<HTMLDivElement>(null)
-  const view = useRef<EditorView | undefined>(undefined)
-  const applyingExternal = useRef(false)
-  const lastUserContent = useRef<string | undefined>(undefined)
-  const callbacks = useRef({ onContent, onSave, onPosition })
-  const [highlightStatus, setHighlightStatus] = useState('')
-  const blameCompartment = useRef(new Compartment())
-  const reviewCompartment = useRef(new Compartment())
-  const reviewProjection = useRef(documentReview)
-  const registerReviewInlineHost = useDocumentReviewInlineHostRegistration()
-  callbacks.current = { onContent, onSave, onPosition }
-  reviewProjection.current = documentReview
-
-  useEffect(() => {
-    const parent = container.current
-    if (!parent) return
-    const targetRef: { current?: CodeMirrorFindTarget } = {}
-    const editor = new EditorView({
-      parent,
-      state: EditorState.create({
-        doc: content,
-        extensions: [
-          lineNumbers({
-            domEventHandlers: {
-              mousedown(view, block, event) {
-                const review = reviewProjection.current
-                if (
-                  !review?.active ||
-                  review.dirty ||
-                  !(event instanceof MouseEvent) ||
-                  event.button !== 0
-                ) {
-                  return false
-                }
-                event.preventDefault()
-                const line = view.state.doc.lineAt(block.from).number
-                review.onCapture({ startLine: line, endLine: line })
-                return true
-              },
-            },
-          }),
-          blameCompartment.current.of(blameGutter(blame)),
-          reviewCompartment.current.of([]),
-          tokenDecorations,
-          viewerFindDecorations,
-          keymap.of([
-            {
-              key: 'Mod-s',
-              preventDefault: true,
-              run: () => {
-                callbacks.current.onSave()
-                return true
-              },
-            },
-          ]),
-          EditorView.updateListener.of((update) => {
-            if (update.docChanged) targetRef.current?.contentChanged()
-            if (update.docChanged && !applyingExternal.current) {
-              const next = update.state.doc.toString()
-              lastUserContent.current = next
-              callbacks.current.onContent(next)
-            }
-          }),
-          sourceTheme,
-        ],
-      }),
-    })
-    const target = new CodeMirrorFindTarget([{ view: editor }])
-    targetRef.current = target
-    const unregisterFind = registerFindTarget(target)
-    const restorePosition = position
-    const capturePosition = (): ViewerDocumentPosition => ({
-      mode: 'source',
-      line: captureTopLine(editor, editor.scrollDOM),
-      scrollTop: editor.scrollDOM.scrollTop,
-    })
-    positionCapture.current = capturePosition
-    const captureScroll = (): void => {
-      callbacks.current.onPosition(capturePosition())
-    }
-    editor.scrollDOM.addEventListener('scroll', captureScroll, { passive: true })
-    view.current = editor
-    restoreCodePosition(editor, editor.scrollDOM, restorePosition, 'source')
-    return () => {
-      editor.scrollDOM.removeEventListener('scroll', captureScroll)
-      if (positionCapture.current === capturePosition) {
-        positionCapture.current = undefined
-      }
-      view.current = undefined
-      unregisterFind()
-      target.clear()
-      targetRef.current = undefined
-      editor.destroy()
-    }
-    // A path change is a new editor. Content synchronization is handled below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathKey])
-
-  useEffect(() => {
-    if (!navigation) return
-    const frame = requestAnimationFrame(() => {
-      const editor = view.current
-      if (!editor) return
-      const resolved = resolveSourceCoordinate(editor.state.doc.toString(), navigation)
-      if (!resolved.valid) {
-        onNavigationHandled(navigation.serial)
-        return
-      }
-      editor.dispatch({
-        selection: { anchor: resolved.offset },
-        effects: EditorView.scrollIntoView(resolved.offset, { y: 'center' }),
-      })
-      if (navigation.focus) editor.focus()
-      onNavigationHandled(navigation.serial)
-    })
-    return () => cancelAnimationFrame(frame)
-  }, [navigation, onNavigationHandled])
-
-  useEffect(() => {
-    view.current?.dispatch({
-      effects: blameCompartment.current.reconfigure(blameGutter(blame)),
-    })
-  }, [blame])
-
-  useEffect(() => {
-    const editor = view.current
-    if (!editor) return
-    editor.dispatch({
-      effects: reviewCompartment.current.reconfigure(
-        createDocumentReviewSourceExtensions(
-          documentReview
-            ? {
-                active: documentReview.active,
-                dirty: documentReview.dirty,
-                comments: documentReview.comments,
-                inlineRange: documentReview.inlineRange,
-                onInlineHost: registerReviewInlineHost,
-                onRange: documentReview.onSourceRange,
-                onCapture: documentReview.onCapture,
-                onOpenComment: documentReview.onOpenComment,
-                onExit: documentReview.onExit,
-              }
-            : undefined,
-        ),
-      ),
-    })
-    documentReview?.onSourceRange(
-      documentReview.active ? sourceReviewSelection(editor.state) : undefined,
-    )
-  }, [documentReview, registerReviewInlineHost])
-
-  useEffect(() => {
-    const editor = view.current
-    if (!editor) return
-    const current = editor.state.doc.toString()
-    const userAuthored = lastUserContent.current === content
-    if (current !== content) {
-      applyingExternal.current = true
-      editor.dispatch({
-        changes: { from: 0, to: current.length, insert: content },
-        effects: [resetTokens.of(null), editor.scrollSnapshot()],
-      })
-      applyingExternal.current = false
-    }
-    if (userAuthored) return
-    return highlight(editor, pathKey, content, size, theme, setHighlightStatus)
-  }, [content, pathKey, size, theme])
-
-  return (
-    <div className="source-shell">
-      <div className="source-meta">
-        <span>{formatBytes(size)}</span>
-        <span>{highlightStatus}</span>
-        <span>{blameStatus}</span>
-      </div>
-      <div ref={container} className="codemirror-host" />
-    </div>
-  )
-}
-
-class BlameMarker extends GutterMarker {
-  constructor(private readonly run: GitBlameRun) {
-    super()
-  }
-  override toDOM(): HTMLElement {
-    const element = document.createElement('span')
-    element.className = 'cm-blame-marker'
-    element.textContent = `${this.run.hash.slice(0, 7)} ${this.run.author}`
-    element.title = `${this.run.author} · ${this.run.summary}`
-    return element
-  }
-}
-
-function blameGutter(runs: readonly GitBlameRun[]) {
-  if (runs.length === 0) return []
-  return gutter({
-    class: 'cm-blame-gutter',
-    lineMarker(view, block) {
-      const run = findBlameRun(runs, view.state.doc.lineAt(block.from).number)
-      return run ? new BlameMarker(run) : null
-    },
-  })
-}
-
-function findBlameRun(
-  runs: readonly GitBlameRun[],
-  line: number,
-): GitBlameRun | undefined {
-  let low = 0
-  let high = runs.length - 1
-  while (low <= high) {
-    const middle = (low + high) >> 1
-    const run = runs[middle]
-    if (!run) return undefined
-    if (line < run.startLine) high = middle - 1
-    else if (line >= run.startLine + run.lineCount) low = middle + 1
-    else return run
-  }
-  return undefined
-}
-
-function highlight(
-  view: EditorView,
-  path: string,
-  content: string,
-  size: number,
-  theme: 'dark' | 'light',
-  setStatus: (status: string) => void,
-): () => void {
-  view.dispatch({ effects: resetTokens.of(null) })
-  if (!canHighlightSource(size)) {
-    setStatus('large file · highlighting off')
-    return () => undefined
-  }
-  const language = languageForPath(path)
-  if (!language) {
-    setStatus('plain text')
-    return () => undefined
-  }
-  setStatus('highlighting…')
-  const worker = getHighlightWorker()
-  const requestId = ++nextHighlightRequestId
-  const onMessage = (event: MessageEvent<HighlightResponse>): void => {
-    const message = event.data
-    if (message.id !== requestId) return
-    if (message.type === 'batch') {
-      view.dispatch({ effects: addTokens.of(message.tokens) })
-    } else if (message.type === 'done') {
-      setStatus(message.language)
-    } else if (message.type === 'plain') {
-      setStatus('plain text')
-    } else {
-      setStatus(`highlight failed: ${message.message}`)
-    }
-  }
-  const onError = (event: ErrorEvent): void => {
-    setStatus(`highlight worker failed: ${event.message}`)
-  }
-  worker.addEventListener('message', onMessage)
-  worker.addEventListener('error', onError)
-  worker.postMessage({ id: requestId, code: content, language, theme })
-  return () => {
-    worker.removeEventListener('message', onMessage)
-    worker.removeEventListener('error', onError)
-  }
-}
-
 function EmptyViewer({
   text,
   error = false,
@@ -995,42 +476,3 @@ function EmptyViewer({
 }): ReactElement {
   return <div className={`viewer-empty${error ? ' error' : ''}`}>{text}</div>
 }
-
-function tokenStyle(token: HighlightToken): string {
-  const declarations: string[] = []
-  if (token.color) declarations.push(`color:${token.color}`)
-  if (token.backgroundColor)
-    declarations.push(`background-color:${token.backgroundColor}`)
-  if (token.fontStyle) {
-    if ((token.fontStyle & 1) !== 0) declarations.push('font-style:italic')
-    if ((token.fontStyle & 2) !== 0) declarations.push('font-weight:700')
-    const lines: string[] = []
-    if ((token.fontStyle & 4) !== 0) lines.push('underline')
-    if ((token.fontStyle & 8) !== 0) lines.push('line-through')
-    if (lines.length > 0) declarations.push(`text-decoration:${lines.join(' ')}`)
-  }
-  return declarations.join(';')
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`
-}
-
-const sourceTheme = EditorView.theme({
-  '&': { height: '100%', backgroundColor: 'var(--viewer-bg)', color: 'var(--text)' },
-  '.cm-scroller': {
-    overflow: 'auto',
-    fontFamily: 'var(--hvir-monospace-font)',
-    fontSize: 'calc(13px * var(--hvir-interface-scale))',
-    lineHeight: '1.55',
-  },
-  '.cm-content': { padding: '12px 0', caretColor: 'var(--text)' },
-  '.cm-gutters': {
-    backgroundColor: 'var(--viewer-gutter)',
-    borderRight: '1px solid var(--code-border)',
-    color: 'var(--viewer-gutter-text)',
-  },
-  '&.cm-focused': { outline: 'none' },
-})

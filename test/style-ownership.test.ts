@@ -144,7 +144,7 @@ describe('renderer style ownership', () => {
       .join('\n')
     const base = readFileSync(join(styleRoot, 'base.css'), 'utf8')
     const sourceView = readFileSync(
-      join(root, 'src/renderer/src/viewer/FileViewer.tsx'),
+      join(root, 'src/renderer/src/viewer/SourceView.tsx'),
       'utf8',
     )
     const diffView = readFileSync(

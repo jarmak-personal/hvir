@@ -144,15 +144,6 @@
       "reconsiderWhen": "Session recovery, split persistence, or terminal lifecycle policy returns to the workspace composition view."
     },
     {
-      "path": "src/renderer/src/viewer/FileViewer.tsx",
-      "kind": "transitional",
-      "maxLines": 1036,
-      "owner": "FileViewer view composition",
-      "rationale": "The view currently composes several viewer workflows that the accepted viewer child will move to explicit owners.",
-      "reconsiderWhen": "The responsibility extraction in #741 is accepted; remove this exception or tighten to the resulting owner.",
-      "removalIssue": "#741"
-    },
-    {
       "path": "test/file-create-actions.test.tsx",
       "kind": "durable",
       "maxLines": 1154,
