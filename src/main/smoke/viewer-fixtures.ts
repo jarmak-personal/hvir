@@ -2,12 +2,19 @@ import { joinHostPath, type HostPath } from '../../shared'
 import type { ProjectHost } from '../project-host'
 import type { SmokeCleanup } from './cleanup'
 
+interface ViewerFixtureRequirements {
+  readonly positionDocument: boolean
+  readonly largeJson: boolean
+  readonly largeText: boolean
+  readonly oversizedDiff: boolean
+}
+
 /** Files read through the real viewer/worker/watch seams; each acquisition owns cleanup. */
 export async function createViewerFixtures(
-  host: ProjectHost,
+  host: Pick<ProjectHost, 'writeFile' | 'exec'>,
   smokeRoot: HostPath,
   cleanup: SmokeCleanup,
-  mode: string,
+  requirements: ViewerFixtureRequirements,
 ) {
   const liveReloadPath = joinHostPath(smokeRoot, '.hvir-smoke-live.txt')
   const viewerPositionPath = joinHostPath(smokeRoot, '.hvir-smoke-position.md')
@@ -31,7 +38,7 @@ export async function createViewerFixtures(
   )
   const liveReloadBefore = `${Array.from({ length: 240 }, (_, index) => `line ${index}`).join('\n')}\n`
   await host.writeFile(liveReloadPath, liveReloadBefore)
-  if (mode === 'viewer-position') {
+  if (requirements.positionDocument) {
     await host.writeFile(
       viewerPositionPath,
       Array.from(
@@ -40,7 +47,7 @@ export async function createViewerFixtures(
       ).join('\n'),
     )
   }
-  if (mode === 'viewer-content') {
+  if (requirements.largeJson) {
     await host.writeFile(
       largeJsonPath,
       JSON.stringify(
@@ -51,13 +58,13 @@ export async function createViewerFixtures(
       ),
     )
   }
-  if (mode === 'viewer-position' || mode === 'viewer-content') {
+  if (requirements.largeText) {
     await host.writeFile(
       largeTextPath,
       `${'large file responsiveness fixture 0123456789\n'.repeat(135_000)}end\n`,
     )
   }
-  if (mode === 'terminal-presentation') {
+  if (requirements.oversizedDiff) {
     await host.writeFile(
       oversizedDiffPath,
       `${'oversized diff fixture '.padEnd(255, 'x')}\n`.repeat(8_200),

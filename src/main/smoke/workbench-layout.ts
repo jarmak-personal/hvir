@@ -1,6 +1,65 @@
 import type { BrowserWindow } from 'electron'
 
 export async function verifyWorkbenchLayout(win: BrowserWindow): Promise<void> {
+  const railNavigationStatus = (await win.webContents.executeJavaScript(`
+      new Promise((resolve, reject) => {
+        const railButtons = [...document.querySelectorAll('.rail-nav button')];
+        const byLabel = (label) =>
+          railButtons.find((node) => node.textContent?.trim().startsWith(label));
+        const files = byLabel('Files');
+        const sessions = document.querySelector('.sessions-destination');
+        const directory = [...document.querySelectorAll('[aria-label="Files"] .tree-directory')]
+          .find((node) => node.querySelector(':scope > .directory-row')
+            ?.getAttribute('title')?.endsWith('/src'));
+        if (!files || !(sessions instanceof HTMLButtonElement) || !directory) {
+          return reject(new Error('stable rail navigation controls missing'));
+        }
+        const directoryRow = directory.querySelector(':scope > .directory-row');
+        if (directoryRow?.getAttribute('aria-expanded') !== 'true') directoryRow?.click();
+        const tabsBefore = document.querySelectorAll('.viewer-tab').length;
+        sessions.click();
+        const waitForSessions = () => {
+          const overview = document.querySelector('.sessions-overview');
+          const workbench = document.querySelector('.workbench');
+          if (
+            sessions.disabled ||
+            !sessions.classList.contains('active') ||
+            sessions.getAttribute('aria-current') !== 'page' ||
+            !overview ||
+            !(workbench instanceof HTMLElement) ||
+            !workbench.hidden
+          ) {
+            return setTimeout(waitForSessions, 25);
+          }
+          const project = document.querySelector('.project-tab-main');
+          if (!(project instanceof HTMLButtonElement)) {
+            return reject(new Error('project navigation control missing'));
+          }
+          project.click();
+          const waitForFiles = () => {
+            const currentFiles = [...document.querySelectorAll('.rail-nav button')]
+              .find((node) => node.textContent?.trim().startsWith('Files'));
+            const ready = directory.isConnected &&
+              directoryRow?.getAttribute('aria-expanded') === 'true' &&
+              document.querySelectorAll('.viewer-tab').length === tabsBefore &&
+              currentFiles?.classList.contains('active') &&
+              !sessions.disabled &&
+              !document.querySelector('.sessions-overview');
+            if (ready) {
+              return resolve(
+                'stable tabs · Files state preserved · Sessions full-page round trip'
+              );
+            }
+
+            setTimeout(waitForFiles, 25);
+          };
+          waitForFiles();
+        };
+        waitForSessions();
+      })
+    `)) as string
+  console.log(`[smoke] rail navigation OK (${railNavigationStatus})`)
+
   const resizeStatus = (await win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
         const tree = document.querySelector('.tree-panel');

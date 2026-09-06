@@ -6,6 +6,22 @@ type PtyOutputSupervisor = Pick<PtySupervisor, 'attach'>
 
 const MAX_RETAINED_OUTPUT = 4_096
 
+/** Finite progress observations, never terminal content or a readiness substitute. */
+export interface PtyOutputWaitProgress {
+  readonly phase:
+    | 'attach-awaiting'
+    | 'attach-returned'
+    | 'trigger-awaiting'
+    | 'trigger-returned'
+    | 'first-output'
+    | 'output-cap'
+    | 'matched'
+    | 'exited'
+  /** Received character count, saturated at the existing retention bound. */
+  readonly receivedCharacters: number
+  readonly matched: boolean
+}
+
 export interface StopPtyOptions {
   readonly supervisor: PtyLifecycleSupervisor
   readonly terminal: ManagedPty
@@ -23,6 +39,7 @@ export interface WaitForPtyOutputOptions {
   readonly scenario: string
   /** Synchronous action that causes the expected output after attachment. */
   readonly trigger: () => void
+  readonly onProgress?: (progress: PtyOutputWaitProgress) => void
 }
 
 /** Await semantic PTY output through the production stream and retain bounded diagnostics. */
@@ -32,12 +49,17 @@ export async function waitForPtyOutput(
   const { supervisor, terminal, expected, scenario, trigger } = options
   let retainedOutput = ''
   let settled = false
+  let receivedCharacters = 0
+  let matchedOutput = false
+  const report = (phase: PtyOutputWaitProgress['phase']) =>
+    options.onProgress?.({ phase, receivedCharacters, matched: matchedOutput })
   let disposeOutput: Disposer = () => undefined
   let primaryFailure: unknown
   let hasPrimaryFailure = false
 
   try {
     const outputEvent = new Promise<void>((resolve, reject) => {
+      report('attach-awaiting')
       disposeOutput = supervisor.attach(
         terminal.id,
         terminal.ownerId,
@@ -46,14 +68,31 @@ export async function waitForPtyOutput(
             const combined = `${retainedOutput}${data}`
             const matched = combined.includes(expected)
             retainedOutput = combined.slice(-MAX_RETAINED_OUTPUT)
+            if (!settled) {
+              const previousCharacters = receivedCharacters
+              receivedCharacters = Math.min(
+                MAX_RETAINED_OUTPUT,
+                receivedCharacters + data.length,
+              )
+              if (previousCharacters === 0 && receivedCharacters > 0)
+                report('first-output')
+              if (
+                previousCharacters < MAX_RETAINED_OUTPUT &&
+                receivedCharacters === MAX_RETAINED_OUTPUT
+              )
+                report('output-cap')
+            }
             if (matched && !settled) {
               settled = true
+              matchedOutput = true
+              report('matched')
               resolve()
             }
           },
           onExit: (exit) => {
             if (settled) return
             settled = true
+            report('exited')
             reject(
               new Error(
                 `${scenario} exited before expected output (` +
@@ -66,9 +105,14 @@ export async function waitForPtyOutput(
         },
         terminal.ownerGeneration,
       )
+      report('attach-returned')
     })
 
-    if (!settled) trigger()
+    if (!settled) {
+      report('trigger-awaiting')
+      trigger()
+      report('trigger-returned')
+    }
     await outputEvent
   } catch (reason) {
     hasPrimaryFailure = true

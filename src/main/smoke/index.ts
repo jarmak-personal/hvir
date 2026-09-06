@@ -236,7 +236,12 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       viewerPositionPath,
       largeJsonPath,
       largeTextPath,
-    } = await createViewerFixtures(host, smokeRoot, cleanup, mode)
+    } = await createViewerFixtures(host, smokeRoot, cleanup, {
+      positionDocument: mode === 'viewer-position',
+      largeJson: mode === 'viewer-content',
+      largeText: mode === 'viewer-position' || mode === 'viewer-content',
+      oversizedDiff: mode === 'terminal-presentation',
+    })
     const {
       documentReviewFixturePath,
       documentReviewFixtureContents,
@@ -717,11 +722,12 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       return 0
     }
     if (mode === 'workbench-health') {
-      await verifyWorkbenchHealthScenario(
+      const result = await verifyWorkbenchHealthScenario(
         win,
         rendererResources,
         dependencies.rendererReady,
       )
+      console.log(`[smoke] workbench health fault injection OK (${result})`)
       console.log('HVIR_SMOKE_OK')
       return 0
     }

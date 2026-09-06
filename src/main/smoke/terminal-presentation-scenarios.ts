@@ -19,7 +19,8 @@ export async function verifyTerminalThemeScenario(
   supervisor: PtySupervisor,
 ): Promise<void> {
   await prepareTerminalScenario(win, supervisor)
-  await verifyTerminalChrome(win)
+  const chrome = await verifyTerminalChrome(win)
+  console.log(`[smoke] terminal chrome OK (${chrome})`)
   await verifyWorkbenchChrome(win)
 }
 export async function verifyWorkbenchLayoutScenario(
@@ -55,7 +56,8 @@ export async function verifyHarnessProfilesScenario(
 }
 export async function verifyTerminalMoveScenario(
   options: Parameters<typeof verifyTerminalMoveSmoke>[0],
-): Promise<string> {
+): Promise<void> {
   await prepareTerminalScenario(options.win, options.supervisor)
-  return verifyTerminalMoveSmoke(options)
+  const result = await verifyTerminalMoveSmoke(options)
+  console.log(`[smoke] terminal move OK (${result})`)
 }

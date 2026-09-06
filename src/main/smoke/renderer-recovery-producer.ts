@@ -1,5 +1,5 @@
 import type { ManagedPty, PtySupervisor } from '../pty/pty-supervisor'
-import { waitForPtyOutput } from './pty-lifecycle'
+import { waitForPtyOutput, type PtyOutputWaitProgress } from './pty-lifecycle'
 
 /** Readiness/stopped evidence must be emitted by the shell, never its echoed command. */
 export async function startPtyProducer(
@@ -7,12 +7,19 @@ export async function startPtyProducer(
   fixture: { readonly terminal: ManagedPty },
   label: 'local' | 'ssh',
 ): Promise<() => Promise<void>> {
+  // At most eight scalar-only lines per wait, regardless of output volume.
+  // These progress logs are not part of the failure-artifact allowlist.
+  const report = (operation: 'start' | 'stop', progress: PtyOutputWaitProgress) =>
+    console.log(
+      `[smoke:producer-progress] ${JSON.stringify({ producer: label, operation, ...progress })}`,
+    )
   const marker = `hvir-${label}-producer-ready`
   await waitForPtyOutput({
     supervisor,
     terminal: fixture.terminal,
     expected: marker,
     scenario: `renderer recovery ${label} producer`,
+    onProgress: (progress) => report('start', progress),
     trigger: () =>
       supervisor.write(
         fixture.terminal.id,
@@ -33,6 +40,7 @@ export async function startPtyProducer(
       terminal,
       expected: stopped,
       scenario: `renderer recovery ${label} producer cleanup`,
+      onProgress: (progress) => report('stop', progress),
       trigger: () =>
         supervisor.write(
           terminal.id,

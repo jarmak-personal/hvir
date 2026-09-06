@@ -103,8 +103,12 @@ export async function verifyRendererProcessRecovery(options: {
     })
     checkpoint('renderer-recovery-remote-pty-ready')
     checkpoint('renderer-recovery-producers-awaiting')
+    checkpoint('renderer-recovery-local-producer-awaiting')
     producerDisposers.push(await startPtyProducer(supervisor, localPty, 'local'))
+    checkpoint('renderer-recovery-local-producer-ready')
+    checkpoint('renderer-recovery-remote-producer-awaiting')
     producerDisposers.push(await startPtyProducer(supervisor, remotePty, 'ssh'))
+    checkpoint('renderer-recovery-remote-producer-ready')
     checkpoint('renderer-recovery-producers-ready')
     const loaded = new Promise<void>((resolve) =>
       win.webContents.once('did-finish-load', () => resolve()),

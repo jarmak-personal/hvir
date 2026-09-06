@@ -3,7 +3,11 @@ import { execFileSync } from 'node:child_process'
 import { startPtyProducer } from '../src/main/smoke/renderer-recovery-producer'
 
 import type { PtyExit } from '../src/main/project-host'
-import { stopPtyAndWaitForExit, waitForPtyOutput } from '../src/main/smoke/pty-lifecycle'
+import {
+  stopPtyAndWaitForExit,
+  waitForPtyOutput,
+  type PtyOutputWaitProgress,
+} from '../src/main/smoke/pty-lifecycle'
 import type { ManagedPty, PtySupervisor } from '../src/main/pty/pty-supervisor'
 import { asHarnessProviderId, asHostId, localPath } from '../src/shared'
 
@@ -17,6 +21,7 @@ describe('smoke PTY output', () => {
     async (kind) => {
       const fixture = outputFixture()
       const trigger = vi.fn()
+      const progress: PtyOutputWaitProgress[] = []
       fixture.attach.mockImplementation((_id, _owner, handlers) => {
         if (kind === 'replay') handlers.onData?.('already-ready')
         else handlers.onExit?.({ exitCode: 127, signal: undefined })
@@ -28,11 +33,18 @@ describe('smoke PTY output', () => {
         expected: 'already-ready',
         scenario: 'synchronous attachment',
         trigger,
+        onProgress: (state) => progress.push(state),
       })
       if (kind === 'replay') await expect(result).resolves.toBe('already-ready')
       else await expect(result).rejects.toThrow('exited before expected output')
       expect(trigger).not.toHaveBeenCalled()
       expect(fixture.disposeOutput).toHaveBeenCalledOnce()
+      expect(progress.map((state) => state.phase)).toEqual(
+        kind === 'replay'
+          ? ['attach-awaiting', 'first-output', 'matched', 'attach-returned']
+          : ['attach-awaiting', 'exited', 'attach-returned'],
+      )
+      expect(progress.at(-1)?.matched).toBe(kind === 'replay')
     },
   )
 
@@ -81,6 +93,53 @@ describe('smoke PTY output', () => {
 
   beforeEach(() => {
     vi.useRealTimers()
+  })
+
+  it('bounds content-free progress while keeping attachment and trigger boundaries distinct', async () => {
+    const fixture = outputFixture()
+    const progress: PtyOutputWaitProgress[] = []
+    const pending = waitForPtyOutput({
+      supervisor: fixture.supervisor,
+      terminal: fixture.terminal,
+      expected: 'ready-marker',
+      scenario: 'bounded progress',
+      trigger: vi.fn(),
+      onProgress: (state) => progress.push(state),
+    })
+    expect(progress.map((state) => state.phase)).toEqual([
+      'attach-awaiting',
+      'attach-returned',
+      'trigger-awaiting',
+      'trigger-returned',
+    ])
+    fixture.emitData('private terminal content')
+    for (let index = 0; index < 100; index++) fixture.emitData('x'.repeat(1_000))
+    fixture.emitData('ready-')
+    fixture.emitData('marker')
+    await pending
+    expect(progress.map((state) => state.phase)).toEqual([
+      'attach-awaiting',
+      'attach-returned',
+      'trigger-awaiting',
+      'trigger-returned',
+      'first-output',
+      'output-cap',
+      'matched',
+    ])
+    expect(progress.at(-1)).toEqual({
+      phase: 'matched',
+      receivedCharacters: 4_096,
+      matched: true,
+    })
+    expect(progress.every((state) => state.receivedCharacters <= 4_096)).toBe(true)
+    expect(
+      progress.every(
+        (state) =>
+          Object.keys(state).sort().join() === 'matched,phase,receivedCharacters',
+      ),
+    ).toBe(true)
+    expect(JSON.stringify(progress)).not.toContain('private terminal content')
+    expect(JSON.stringify(progress)).not.toContain('ready-marker')
   })
 
   it('matches semantic output across chunks and releases its production attachment', async () => {
