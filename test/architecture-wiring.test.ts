@@ -156,11 +156,65 @@ describe('architecture verification and bounded proposal wiring', () => {
   })
   it.each([
     'scripts/architecture-product.mts',
+    'scripts/architecture-module-product.mts',
     'test/architecture-unrelated.test.ts',
+    'test/architecture-module-product.test.ts',
     'test/fixtures/architecture/product.ts',
     'vitest.config.ts',
   ])('rejects invented policy-only identity %s', (path) => {
     expect(policyOnlyPath(path)).toBe(false)
+  })
+  it('admits current checker owners and deleted bootstrap tests in a complete policy proposal', async () => {
+    const r = repository()
+    fixtures.push(r)
+    r.source(1400)
+    const base = r.commit()
+    const policy = ordinaryPolicy()
+    policy.budgets.push(budget())
+    r.policy(policy)
+    for (const path of [
+      'scripts/architecture-module-graph.mts',
+      'scripts/architecture-module-resolution.mts',
+      'scripts/architecture-module-directions.mts',
+      'test/architecture-module-graph.test.ts',
+      'test/architecture-module-directions.test.ts',
+      'test/architecture-command.test.ts',
+      'test/architecture-hotspots.test.ts',
+    ])
+      r.source(1, path)
+    const report = await r.check(base)
+    expect(report.admission.kind).toBe('policy-proposal')
+    expect(report.violations).toEqual([])
+  })
+  it('preserves the exact bootstrap lint insertion without extending native authority to current graph owners', () => {
+    const marker = "      'scripts/run-smoke-scenarios.mts',\n"
+    const before = Buffer.from(`export default [\n${marker}]\n`)
+    const bootstrap = [
+      'scripts/architecture-hotspots.mts',
+      'scripts/architecture-policy.mts',
+      'scripts/architecture-inventory.mts',
+      'scripts/architecture-authorization.mts',
+      'scripts/architecture-github.mts',
+      'scripts/architecture-wiring.mts',
+    ]
+      .map((path) => `      '${path}',\n`)
+      .join('')
+    const after = Buffer.from(before.toString().replace(marker, marker + bootstrap))
+    expect(() =>
+      admitArchitectureWiring('eslint.config.mjs', before, after),
+    ).not.toThrow()
+    for (const path of [
+      'scripts/architecture-module-graph.mts',
+      'scripts/architecture-module-resolution.mts',
+      'scripts/architecture-module-directions.mts',
+    ]) {
+      const widened = Buffer.from(
+        after.toString().replace(marker, `${marker}      '${path}',\n`),
+      )
+      expect(() => admitArchitectureWiring('eslint.config.mjs', before, widened)).toThrow(
+        /unrelated verification wiring/,
+      )
+    }
   })
   it('rejects unrelated package work through complete Git proposal admission', async () => {
     const r = repository()
