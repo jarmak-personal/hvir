@@ -2,7 +2,8 @@ import { isDeepStrictEqual } from 'node:util'
 import { parse } from 'yaml'
 import type { Buffer } from 'node:buffer'
 
-export const ARCHITECTURE_MODULES = [
+// Historical bootstrap owners also define its exact accepted lint insertion.
+const BOOTSTRAP_ARCHITECTURE_MODULES = [
   'scripts/architecture-hotspots.mjs',
   'scripts/architecture-hotspots.mts',
   'scripts/architecture-policy.mts',
@@ -11,13 +12,23 @@ export const ARCHITECTURE_MODULES = [
   'scripts/architecture-github.mts',
   'scripts/architecture-wiring.mts',
 ] as const
+export const ARCHITECTURE_MODULES = [
+  ...BOOTSTRAP_ARCHITECTURE_MODULES,
+  'scripts/architecture-module-graph.mts',
+  'scripts/architecture-module-resolution.mts',
+  'scripts/architecture-module-directions.mts',
+] as const
 export const ARCHITECTURE_TESTS = [
+  // Retain deleted bootstrap identities for accepted historical proposal replay.
   'test/architecture-hotspots.test.ts',
   'test/architecture-policy.test.ts',
   'test/architecture-history.test.ts',
   'test/architecture-github.test.ts',
   'test/architecture-wiring.test.ts',
   'test/fixtures/architecture/repository.ts',
+  'test/architecture-module-graph.test.ts',
+  'test/architecture-module-directions.test.ts',
+  'test/architecture-command.test.ts',
 ] as const
 const WIRING_PATHS = ['package.json', '.github/workflows/ci.yml', 'eslint.config.mjs']
 export function policyOnlyPath(path: string): boolean {
@@ -145,7 +156,7 @@ function admitEslint(before: Buffer, after: Buffer): void {
   // The only lint adapter change is adding these exact contributor owners to the
   // established native-primitive exemption list. No rule or other file can change.
   const marker = "      'scripts/run-smoke-scenarios.mts',\n"
-  const added = ARCHITECTURE_MODULES.filter((path) => path.endsWith('.mts'))
+  const added = BOOTSTRAP_ARCHITECTURE_MODULES.filter((path) => path.endsWith('.mts'))
     .map((path) => `      '${path}',\n`)
     .join('')
   const oldText = before.toString(),
