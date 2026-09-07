@@ -170,6 +170,8 @@ async function readClaudeUsageObservation(
         oversizedRecord = true
       },
     },
+    undefined,
+    context.purpose === 'contributor' ? Infinity : undefined,
   )
   if (context.signal.aborted) {
     return {

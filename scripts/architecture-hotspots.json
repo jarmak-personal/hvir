@@ -31,14 +31,6 @@
   ],
   "budgets": [
     {
-      "path": "scripts/project-management/agent-work-ledger.ts",
-      "kind": "durable",
-      "maxLines": 1041,
-      "owner": "agent-work ledger schema and normalization",
-      "rationale": "The closed record schema and deterministic normalization form one validation boundary; splitting field checks from their cross-field invariants would distribute acceptance authority.",
-      "reconsiderWhen": "Record admission and ledger aggregation acquire different consumers or inclusion rules, requiring separate schema-validation and aggregation owners."
-    },
-    {
       "path": "src/main/git/git-engine.ts",
       "kind": "stricter",
       "maxLines": 128,

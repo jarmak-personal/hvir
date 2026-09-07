@@ -16,14 +16,10 @@ and acceptance criteria. If no governing issue exists, stop and use `hvir-create
 before implementation. Run a large epic through `hvir-implement-epic`, which coordinates
 independently deliverable child issues instead of producing one giant implementation pull request.
 
-Read [`references/agent-work-recording.md`](references/agent-work-recording.md) completely. Open
-one `implementation` measurement run at this skill's start observation, before delivery setup or
-reconnaissance. Capture a provider start snapshot when the exact current supported session can be
-qualified; otherwise retain the truthful fixed unavailable reason. Measurement failure never
-blocks the implementation workflow.
-
-Read `AGENTS.md`, `CONTRIBUTING.md`, `docs/design.md`, the relevant ADRs, and the governing
-issue. Resolve these questions before changing files:
+Read `AGENTS.md`, `docs/design.md`, the relevant `CONTRIBUTING.md` sections and ADRs, and the
+governing issue. Reuse unchanged context already read in this interaction; a correction needs
+the changed requirement, source, and evidence, not repeated onboarding. Resolve these questions
+before changing files:
 
 - What user or contributor outcome is being implemented?
 - Is the issue aligned with the current product boundaries and accepted decisions?
@@ -48,7 +44,8 @@ The command refreshes/prunes remote refs, reads the normalized issue, parent, ex
 deterministic branch and worktree, planning state, and open PRs, conservatively reconciles prior
 workflow-owned issue worktrees, creates or reuses the selected worktree, and prepares locked
 dependencies. Planning changes only remote-tracking refs. Apply retains partial or ambiguous state
-with reasons and never mutates Project membership, Kind, or Status.
+with reasons and never mutates Project membership or Kind. Successful apply sets Status to
+In Progress through its existing owner.
 
 - Use `origin/main` when context selects ordinary delivery with base `main`. Target `main`. Add
   `Closes #<number>` to the PR.
@@ -58,7 +55,8 @@ with reasons and never mutates Project membership, Kind, or Status.
 
 Stop on context conflicts. Only an authorized `hvir-implement-epic` coordinator may create the
 first epic branch; a child returns that missing-branch blocker instead of creating it. The startup
-command itself never creates or pushes an epic branch. Record the returned issue, parent, PR base,
+command itself never creates or pushes an epic branch. Successful apply sets the selected issue
+In Progress through the existing Status owner. Record the returned issue, parent, PR base,
 start ref, branch, worktree, selected HEAD, and delivery path before work begins. After selection,
 perform all reconnaissance, edits, checks, commits, and push operations from that worktree.
 
@@ -141,12 +139,8 @@ Use the capacity, real-host, packaged, or full gauntlet checks when the issue's 
 criteria require those environments. Report exact results and any unverified environment
 honestly.
 
-A successful normal push after final verification, commit, and the pre-push gate establishes the
-candidate identity and observable outcome. It does not stop implementation measurement. Keep the
-active-wall accumulator—and, for the earliest candidate, time to first candidate—running through
-the complete diff audit, architecture and acceptance rechecks, pull-request creation or update,
-and handoff preparation below. Apply the canonical first-pass and correction rules from the
-measurement contract; review-driven changes always belong to a new `implementation` run.
+A successful normal push establishes candidate identity, not acceptance. Complete the audit and
+handoff below. Corrections use the same implementation and verification gates.
 
 ## Publish and hand off
 
@@ -174,24 +168,18 @@ Before handing off:
 Open or update a pull request when the user requests it or an authorized epic coordinator launches
 the child. Report unresolved architecture or validation concerns as blockers.
 
-Only after every preceding audit and the complete implementation handoff are stable, take the
-final provider snapshot and stop the active-wall and applicable time-to-first-candidate
-accumulators. Use the pushed commit SHA as the bounded candidate reference. Then append the record
-and reconcile its named Project projection using `references/agent-work-recording.md`. Partial,
-unavailable, or failed measurement is reported but does not suppress the handoff.
+Read [`references/contributor-status.md`](references/contributor-status.md) and obtain the compact
+status once the candidate and PR are stable. Optional capture owns its own bookkeeping.
 
 Return a compact implementation handoff for both ordinary and epic-child work. Include:
 
 - issue number and native parent, if any;
-- completing model family for review selection, plus the exact observed initial model and
-  requested/effective reasoning effort when available;
+- completing model family for review selection;
 - exact start base and candidate commit SHAs;
 - pull-request number, base, head branch, and recorded head SHA;
 - changed product owners, authoritative seams, and actual write set;
 - final `npm run verify` and pre-push evidence;
-- implementation measurement availability, route changes/escalation, append/idempotency state,
-  projected Implementation/Own and applicable parent Rollup state, unavailable counters, active
-  time, first-candidate time, and first-pass outcome without private provider identity;
+- the tool's Tokens, Project, and Acceptance summaries;
 - CI and external-review state;
 - deviations from the issue or expected architecture; and
 - blockers or unresolved concerns.

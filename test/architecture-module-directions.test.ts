@@ -184,12 +184,12 @@ describe('resolved adapter for existing dependency direction policy', () => {
       'src/renderer/src/document-review/document-review-workspace-controller.ts',
     ],
     [
-      'scripts/project-management/github-agent-work-project.ts',
+      'scripts/project-management/project-token-fields.ts',
       'scripts/project-management/canonical-project.ts',
     ],
     [
       'scripts/project-management/canonical-project-item.ts',
-      'scripts/project-management/github-agent-work-project.ts',
+      'scripts/project-management/project-token-fields.ts',
     ],
   ])(
     'blocks both runtime and erased ownership inversions from %s',

@@ -62,6 +62,20 @@ describe('issue start CLI', () => {
 })
 
 describe('issue start coordination', () => {
+  it('sets In Progress only after successful apply, preserving failed setup and dry-run', async () => {
+    const repository = fakeRepository()
+    const ports = fakePorts(repository)
+    ports.context.markInProgress = vi.fn().mockResolvedValue(undefined)
+    await runIssueStart(ports, input(false))
+    expect(ports.context.markInProgress).not.toHaveBeenCalled()
+    await runIssueStart(ports, input(true))
+    expect(ports.context.markInProgress).toHaveBeenCalledExactlyOnceWith(442)
+    repository.prepareDependencies = vi
+      .fn()
+      .mockResolvedValue({ ready: false, failure: 'npm-ci' })
+    await runIssueStart(ports, input(true))
+    expect(ports.context.markInProgress).toHaveBeenCalledTimes(1)
+  })
   it('refreshes before context and prints the complete ordinary plan without mutation', async () => {
     const calls: string[] = []
     const repository = fakeRepository({
@@ -85,6 +99,7 @@ describe('issue start coordination', () => {
         calls.push('context')
         return Promise.resolve(deliveryContext())
       }),
+      markInProgress: vi.fn().mockResolvedValue(undefined),
       readExpectedBase: vi.fn().mockResolvedValue('main'),
     })
 
@@ -110,6 +125,7 @@ describe('issue start coordination', () => {
     ).toEqual([
       ['fetch-prune', 'completed'],
       ['select-worktree', 'would-create'],
+      ['set-status', 'would-update'],
       ['prepare-dependencies', 'would-run'],
     ])
     expect(repository.createWorktree).not.toHaveBeenCalled()
@@ -132,6 +148,7 @@ describe('issue start coordination', () => {
     const report = await runIssueStart(
       fakePorts(repository, {
         readIssueContext: vi.fn().mockResolvedValue(blocked),
+        markInProgress: vi.fn().mockResolvedValue(undefined),
         readExpectedBase: vi.fn().mockResolvedValue('main'),
       }),
       input(true),
@@ -357,6 +374,7 @@ function fakePorts(
   repository: IssueStartRepositoryPort,
   context: IssueStartPorts['context'] = {
     readIssueContext: vi.fn().mockResolvedValue(deliveryContext()),
+    markInProgress: vi.fn().mockResolvedValue(undefined),
     readExpectedBase: vi.fn().mockResolvedValue('main'),
   },
   metadata: IssueStartPorts['metadata'] = {

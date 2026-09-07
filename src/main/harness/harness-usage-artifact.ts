@@ -54,6 +54,7 @@ export async function scanHarnessUsageArtifactLines(
     readonly oversized: () => void
   },
   maxRecordBytes = HARNESS_USAGE_RECORD_BYTE_LIMIT,
+  maxArtifactBytes = HARNESS_USAGE_ARTIFACT_BYTE_LIMIT,
 ): Promise<HarnessUsageArtifactResult> {
   const transfer = host.fileTransfer
   if (!transfer) return { status: 'unavailable', reason: 'artifact-unavailable' }
@@ -70,7 +71,7 @@ export async function scanHarnessUsageArtifactLines(
     for await (const chunk of transfer.readFileChunks(path, { signal })) {
       signal.throwIfAborted()
       const value = Buffer.from(chunk)
-      if (value.byteLength > HARNESS_USAGE_ARTIFACT_BYTE_LIMIT - artifactBytes) {
+      if (value.byteLength > maxArtifactBytes - artifactBytes) {
         return { status: 'unavailable', reason: 'artifact-too-large' }
       }
       artifactBytes += value.byteLength

@@ -10,6 +10,7 @@ export interface GitHubDeliveryAdapters {
   repositoryName: string
   issueContext: IssueContextPort
   pullRequests: GitHubPullRequestRepository
+  markInProgress: (issueNumber: number) => Promise<void>
 }
 
 export function createGitHubDeliveryAdapters(
@@ -44,6 +45,15 @@ export function createGitHubDeliveryAdapters(
   })
 
   return {
+    markInProgress: async (issueNumber) => {
+      await reconcilePlanningRecord(issues, project, {
+        issueNumber,
+        ensureProject: false,
+        status: 'In Progress',
+        openOnly: true,
+        apply: true,
+      })
+    },
     repositoryName,
     issueContext: {
       inspectIssue: (number) =>

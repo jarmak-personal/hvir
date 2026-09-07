@@ -192,6 +192,7 @@ async function runNative(
     {
       context: {
         readIssueContext: vi.fn().mockResolvedValue(context),
+        markInProgress: vi.fn().mockResolvedValue(undefined),
         readExpectedBase: vi.fn().mockResolvedValue('main'),
       },
       metadata,

@@ -188,7 +188,6 @@ export default tseslint.config(
       'src/main/harness/harness-composer-contracts.ts',
       'src/main/harness/harness-text-validation.ts',
       'src/main/harness/harness-usage*.ts',
-      'src/main/harness/agent-work-usage.ts',
       'src/main/harness/harness-telemetry*.ts',
       'src/main/harness/bounded-line-reader.ts',
     ],
@@ -403,7 +402,7 @@ export default tseslint.config(
     ),
   },
   {
-    files: ['scripts/project-management/github-agent-work-project.ts'],
+    files: ['scripts/project-management/project-token-fields.ts'],
     rules: dependencyDirectionRules(
       '(^|/)canonical-project(\\.[cm]?[jt]sx?)?$',
       'Canonical Project item contracts and field adapters cannot depend on the concrete Project client.',
@@ -412,7 +411,7 @@ export default tseslint.config(
   {
     files: ['scripts/project-management/canonical-project-item.ts'],
     rules: dependencyDirectionRules(
-      '(^|/)(canonical-project|github-agent-work-project)(\\.[cm]?[jt]sx?)?$',
+      '(^|/)(canonical-project|project-token-fields)(\\.[cm]?[jt]sx?)?$',
       'The canonical Project item contract cannot depend on its concrete client or field adapter.',
     ),
   },
