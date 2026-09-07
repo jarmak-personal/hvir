@@ -98,7 +98,7 @@ export async function readGitHubAcceptance(
       }
       after = nextPageCursor(contexts.pageInfo)
     } while (after !== null)
-    checksAvailable = checks.length > 0
+    checksAvailable = true
   } catch {
     checks = []
   }

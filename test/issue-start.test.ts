@@ -62,10 +62,38 @@ describe('issue start CLI', () => {
 })
 
 describe('issue start coordination', () => {
+  it('retains the ready worktree after Status failure and reports idempotent retry truthfully', async () => {
+    const repository = fakeRepository()
+    const ports = fakePorts(repository)
+    ports.context.markInProgress = vi
+      .fn()
+      .mockRejectedValue(new Error('Status unavailable'))
+    const failed = await runIssueStart(ports, input(true))
+    expect(failed.outcome).toBe('failed')
+    expect(failed.retained).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          worktree: WORKTREE,
+          reasons: ['status-update-failed'],
+        }),
+      ]),
+    )
+    expect(
+      failed.operations.some((operation) => operation.operation === 'set-status'),
+    ).toBe(false)
+    ports.context.markInProgress = vi.fn().mockResolvedValue('unchanged')
+    const retried = await runIssueStart(ports, input(true))
+    expect(retried.outcome).toBe('ready')
+    expect(retried.operations).toContainEqual({
+      operation: 'set-status',
+      outcome: 'unchanged',
+      issueNumber: 442,
+    })
+  })
   it('sets In Progress only after successful apply, preserving failed setup and dry-run', async () => {
     const repository = fakeRepository()
     const ports = fakePorts(repository)
-    ports.context.markInProgress = vi.fn().mockResolvedValue(undefined)
+    ports.context.markInProgress = vi.fn().mockResolvedValue('updated')
     await runIssueStart(ports, input(false))
     expect(ports.context.markInProgress).not.toHaveBeenCalled()
     await runIssueStart(ports, input(true))
@@ -99,7 +127,7 @@ describe('issue start coordination', () => {
         calls.push('context')
         return Promise.resolve(deliveryContext())
       }),
-      markInProgress: vi.fn().mockResolvedValue(undefined),
+      markInProgress: vi.fn().mockResolvedValue('updated'),
       readExpectedBase: vi.fn().mockResolvedValue('main'),
     })
 
@@ -148,7 +176,7 @@ describe('issue start coordination', () => {
     const report = await runIssueStart(
       fakePorts(repository, {
         readIssueContext: vi.fn().mockResolvedValue(blocked),
-        markInProgress: vi.fn().mockResolvedValue(undefined),
+        markInProgress: vi.fn().mockResolvedValue('updated'),
         readExpectedBase: vi.fn().mockResolvedValue('main'),
       }),
       input(true),
@@ -374,7 +402,7 @@ function fakePorts(
   repository: IssueStartRepositoryPort,
   context: IssueStartPorts['context'] = {
     readIssueContext: vi.fn().mockResolvedValue(deliveryContext()),
-    markInProgress: vi.fn().mockResolvedValue(undefined),
+    markInProgress: vi.fn().mockResolvedValue('updated'),
     readExpectedBase: vi.fn().mockResolvedValue('main'),
   },
   metadata: IssueStartPorts['metadata'] = {

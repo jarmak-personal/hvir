@@ -3,14 +3,18 @@ import { GitHubClient } from './github-client.ts'
 import { GitHubIssueRepository } from './github-issues.ts'
 import { GitHubPullRequestRepository } from './github-pull-requests.ts'
 import type { IssueContextPort } from './issue-context.ts'
-import { reconcilePlanningRecord } from './planning-record.ts'
+import {
+  reconcilePlanningRecord,
+  type IssuePlanningPort,
+  type ProjectPlanningPort,
+} from './planning-record.ts'
 import { parseProjectNumber, parseProjectRepository } from './project-config.ts'
 
 export interface GitHubDeliveryAdapters {
   repositoryName: string
   issueContext: IssueContextPort
   pullRequests: GitHubPullRequestRepository
-  markInProgress: (issueNumber: number) => Promise<void>
+  markInProgress: (issueNumber: number) => Promise<'updated' | 'unchanged'>
 }
 
 export function createGitHubDeliveryAdapters(
@@ -45,15 +49,7 @@ export function createGitHubDeliveryAdapters(
   })
 
   return {
-    markInProgress: async (issueNumber) => {
-      await reconcilePlanningRecord(issues, project, {
-        issueNumber,
-        ensureProject: false,
-        status: 'In Progress',
-        openOnly: true,
-        apply: true,
-      })
-    },
+    markInProgress: (issueNumber) => markIssueInProgress(issues, project, issueNumber),
     repositoryName,
     issueContext: {
       inspectIssue: (number) =>
@@ -67,4 +63,30 @@ export function createGitHubDeliveryAdapters(
     },
     pullRequests,
   }
+}
+
+/** A skipped or unconverged write cannot claim successful implementation startup. */
+export async function markIssueInProgress(
+  issues: IssuePlanningPort,
+  project: ProjectPlanningPort,
+  issueNumber: number,
+): Promise<'updated' | 'unchanged'> {
+  const result = await reconcilePlanningRecord(issues, project, {
+    issueNumber,
+    ensureProject: false,
+    status: 'In Progress',
+    openOnly: true,
+    apply: true,
+  })
+  const status = result.operations.find(
+    (operation) => operation.operation === 'set-status',
+  )
+  if (
+    result.record.issue.state !== 'OPEN' ||
+    result.record.project.membership !== 'present' ||
+    result.record.project.status !== 'In Progress' ||
+    (status?.outcome !== 'updated' && status?.outcome !== 'unchanged')
+  )
+    throw new Error('Issue startup Status did not converge to OPEN / In Progress.')
+  return status.outcome
 }

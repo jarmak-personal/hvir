@@ -73,15 +73,16 @@ async function main(): Promise<void> {
     },
     tokens: new GitHubSessionTokens(repositoryClient, owner, name),
     pullRequest: (number) => readGitHubAcceptance(repositoryClient, owner, name, number),
-    relatedPullRequest: async (number, selected) => {
-      const issue = await readIssue(number)
-      const pr = await prs.getPullRequest(selected)
-      if (pr.baseRefName === 'main' || !issue.parent)
-        return contributorPullRequestRelationship(issue, pr)
-      const parent = await readIssue(issue.parent.number)
-      const branches = await prs.listEpicBranches(parent.number)
-      return contributorPullRequestRelationship(issue, pr, parent, branches)
-    },
+    relatedPullRequest: (number, selected) =>
+      contributorPullRequestRelationship(
+        {
+          issue: readIssue,
+          pullRequest: (pr) => prs.getPullRequest(pr),
+          listEpicBranches: (parent) => prs.listEpicBranches(parent),
+        },
+        number,
+        selected,
+      ),
   }
   let captured: Awaited<ReturnType<typeof captureSessionTokens>> | undefined
   if (options.capture) {

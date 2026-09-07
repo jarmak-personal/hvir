@@ -14,7 +14,7 @@ export interface SessionTokenCapturePorts extends Pick<
 > {
   observe: () => Promise<{ tokens: number } | { unavailable: string }>
   assign: (apply: boolean) => Promise<{ issue: number; receipt: string } | undefined>
-  project: (issue: number, tokens: number | null) => Promise<void>
+  project: (issue: number, tokens: number) => Promise<void>
 }
 
 /** One operation owns capture and every retained derived write. Failures stay independent. */

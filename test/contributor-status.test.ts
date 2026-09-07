@@ -7,6 +7,7 @@ import {
   type ContributorStatusPorts,
   type PullRequestStatus,
 } from '../scripts/project-management/contributor-status.ts'
+import type { PullRequestSnapshot } from '../scripts/project-management/pull-request-relationships.ts'
 import type { PlanningIssueSnapshot } from '../scripts/project-management/issue-planning.ts'
 
 const pr: PullRequestStatus = {
@@ -41,71 +42,103 @@ const issue = (number = 757): PlanningIssueSnapshot => ({
     },
   ],
 })
-const ports = (): ContributorStatusPorts => ({
-  issue: vi.fn<ContributorStatusPorts['issue']>((number) =>
-    Promise.resolve(issue(number)),
-  ),
-  project: vi.fn<ContributorStatusPorts['project']>(() =>
-    Promise.resolve({
-      membership: 'present',
-      kind: 'Refactor',
-      status: 'Done',
-    }),
-  ),
-  pullRequest: vi.fn<ContributorStatusPorts['pullRequest']>(() =>
-    Promise.resolve({ ...pr }),
-  ),
-  tokens: {
-    read: vi.fn(() => Promise.resolve({ receipts: [], legacy: true, diagnostics: [] })),
-    append: vi.fn(),
-  },
+const ports = (): ContributorStatusPorts => {
+  const p: ContributorStatusPorts = {
+    issue: vi.fn<ContributorStatusPorts['issue']>((number) =>
+      Promise.resolve(issue(number)),
+    ),
+    project: vi.fn<ContributorStatusPorts['project']>(() =>
+      Promise.resolve({
+        membership: 'present',
+        kind: 'Refactor',
+        status: 'Done',
+      }),
+    ),
+    pullRequest: vi.fn<ContributorStatusPorts['pullRequest']>(() =>
+      Promise.resolve({ ...pr }),
+    ),
+    relatedPullRequest: (number, selected) =>
+      contributorPullRequestRelationship(
+        {
+          issue: (n) => p.issue(n),
+          pullRequest: () => Promise.resolve(nativePr()),
+          listEpicBranches: () => Promise.resolve(['epic/733-refactor']),
+        },
+        number,
+        selected,
+      ),
+    tokens: {
+      read: vi.fn(() => Promise.resolve({ receipts: [], legacy: true, diagnostics: [] })),
+      append: vi.fn(),
+    },
+  }
+  return p
+}
+
+const nativePr = (): PullRequestSnapshot => ({
+  repository: 'owner/repo',
+  number: 900,
+  state: 'OPEN',
+  isDraft: false,
+  baseRefName: 'main',
+  headRefName: 'agent/issue-757',
+  body: 'Closes #757',
+  closingIssues: [{ number: 757, repository: 'owner/repo', state: 'OPEN' }],
 })
 
 describe('deterministic contributor status', () => {
-  it('proves child completion without native closing links and rejects unrelated bases', () => {
+  it('uses delivery policy for historical child reports without Project credentials or native closing links', async () => {
     const child = {
       ...issue(),
-      parent: { number: 733, repository: 'owner/repo', state: 'OPEN' as const },
+      parent: { number: 733, repository: 'owner/repo', state: 'CLOSED' as const },
       linkedPullRequests: [],
     }
-    const parent = { ...issue(733), labels: ['kind:epic'] }
+    const parent = { ...issue(733), state: 'CLOSED' as const, labels: ['kind:epic'] }
     const pull = {
-      repository: 'owner/repo',
-      number: 900,
+      ...nativePr(),
       state: 'MERGED' as const,
-      isDraft: false,
       baseRefName: 'epic/733-refactor',
-      headRefName: 'agent/issue-757',
       body: 'Completes-child: #757',
       closingIssues: [],
     }
-    expect(
-      contributorPullRequestRelationship(child, pull, parent, ['epic/733-refactor']),
-    ).toBe('child')
-    expect(
+    const p = ports()
+    p.issue = (number) => Promise.resolve(number === 733 ? parent : child)
+    p.project = vi.fn().mockRejectedValue(new Error('Project unavailable'))
+    p.pullRequest = () =>
+      Promise.resolve({ ...pr, base: pull.baseRefName, state: pull.state })
+    const relationship = (
+      selectedPull = pull,
+      selectedParent: PlanningIssueSnapshot = parent,
+      branches = ['epic/733-refactor'],
+    ) =>
       contributorPullRequestRelationship(
-        child,
-        { ...pull, baseRefName: 'other' },
-        parent,
-        ['epic/733-refactor'],
-      ),
+        {
+          issue: (number) => Promise.resolve(number === 733 ? selectedParent : child),
+          pullRequest: () => Promise.resolve(selectedPull),
+          listEpicBranches: () => Promise.resolve(branches),
+        },
+        757,
+        900,
+      )
+    p.relatedPullRequest = () => relationship()
+    expect((await readContributorStatus(p, 757, 900)).acceptance).toBe('integrated-child')
+    expect(await relationship({ ...pull, baseRefName: 'other' })).toBeNull()
+    expect(
+      await relationship(pull, parent, ['epic/733-refactor', 'epic/733-duplicate']),
+    ).toBeNull()
+    expect(await relationship({ ...pull, body: 'Fixes #757' })).toBeNull()
+    expect(await relationship(pull, { ...parent, labels: [] })).toBeNull()
+    expect(
+      await relationship(pull, { ...parent, labels: ['kind:epic', 'kind:bug'] }),
     ).toBeNull()
     expect(
-      contributorPullRequestRelationship(child, pull, parent, [
-        'epic/733-refactor',
-        'epic/733-duplicate',
-      ]),
+      await relationship(pull, {
+        ...parent,
+        parent: { number: 1, repository: 'owner/repo', state: 'OPEN' },
+      }),
     ).toBeNull()
-    expect(
-      contributorPullRequestRelationship(child, { ...pull, body: 'Fixes #757' }, parent, [
-        'epic/733-refactor',
-      ]),
-    ).toBeNull()
-    expect(
-      contributorPullRequestRelationship(child, pull, { ...parent, labels: [] }, [
-        'epic/733-refactor',
-      ]),
-    ).toBeNull()
+    p.relatedPullRequest = () => relationship({ ...pull, baseRefName: 'other' })
+    expect((await readContributorStatus(p, 757, 900)).acceptance).toBe('unknown')
   })
   it('keeps a known subtotal when another child or unrelated receipt is unavailable', async () => {
     const p = ports()
@@ -180,27 +213,6 @@ describe('deterministic contributor status', () => {
       }),
     )
     expect((await readContributorStatus(p, 757)).acceptance).toBe('merged-to-main')
-    p.issue = vi.fn<ContributorStatusPorts['issue']>(() =>
-      Promise.resolve({
-        ...issue(),
-        linkedPullRequests: [],
-      }),
-    )
-    p.pullRequest = vi.fn<ContributorStatusPorts['pullRequest']>(() =>
-      Promise.resolve({
-        ...pr,
-        base: 'epic/733-refactor',
-        state: 'MERGED',
-      }),
-    )
-    p.relatedPullRequest = vi.fn<
-      NonNullable<ContributorStatusPorts['relatedPullRequest']>
-    >(() => Promise.resolve('child'))
-    expect((await readContributorStatus(p, 757, 900)).acceptance).toBe('integrated-child')
-    p.relatedPullRequest = vi.fn<
-      NonNullable<ContributorStatusPorts['relatedPullRequest']>
-    >(() => Promise.resolve(null))
-    expect((await readContributorStatus(p, 757, 900)).acceptance).toBe('unknown')
   })
   it('keeps ambiguous relationships, failed optional reads, and stale checks explicit', async () => {
     const p = ports()

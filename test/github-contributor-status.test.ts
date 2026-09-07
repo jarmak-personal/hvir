@@ -41,6 +41,45 @@ const client = (fetchImplementation: typeof fetch) =>
   new GitHubClient({ token: 'private-token', purpose: 'test', fetchImplementation })
 
 describe('immediate GitHub contributor adapters', () => {
+  it('reports a complete rollup with zero observed required checks as known', async () => {
+    const github = client((_url, init) =>
+      Promise.resolve(
+        response({
+          repository: {
+            pullRequest: request(init).query.includes('ContributorAcceptance')
+              ? pr
+              : {
+                  commits: {
+                    nodes: [
+                      {
+                        commit: {
+                          oid: 'a'.repeat(40),
+                          statusCheckRollup: {
+                            contexts: {
+                              nodes: [
+                                {
+                                  __typename: 'CheckRun',
+                                  name: 'optional',
+                                  isRequired: false,
+                                },
+                              ],
+                              pageInfo: { endCursor: null, hasNextPage: false },
+                            },
+                          },
+                        },
+                      },
+                    ],
+                  },
+                },
+          },
+        }),
+      ),
+    )
+    expect(await readGitHubAcceptance(github, 'owner', 'repo', 900)).toMatchObject({
+      checksAvailable: true,
+      checks: [],
+    })
+  })
   it('reads native required flags, paginates and detects candidate movement', async () => {
     let reads = 0
     const queries: string[] = []

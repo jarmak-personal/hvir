@@ -1,6 +1,5 @@
 import type { CanonicalProjectItem } from './canonical-project-item.ts'
 import {
-  clearCanonicalField,
   requireCanonicalValueField,
   setCanonicalNumber,
   setCanonicalText,
@@ -13,7 +12,7 @@ export async function projectRecordedTokens(input: {
   client: GitHubClient
   schema: CanonicalProjectSchema
   item: CanonicalProjectItem | undefined
-  tokens: number | null
+  tokens: number
 }): Promise<void> {
   if (!input.item || input.item.archived)
     throw new Error('Token Project item unavailable.')
@@ -29,7 +28,7 @@ export async function projectRecordedTokens(input: {
     'text',
     'contributor tokens',
   )
-  if (input.tokens !== null && (!Number.isSafeInteger(input.tokens) || input.tokens < 0))
+  if (!Number.isSafeInteger(input.tokens) || input.tokens < 0)
     throw new Error('Invalid tokens.')
   // Read before writing so a repeated capture converges without redundant mutations.
   const data: {
@@ -55,14 +54,11 @@ export async function projectRecordedTokens(input: {
     )
   }
   if ((data.node.tokens?.number ?? null) === input.tokens) return
-  if (input.tokens === null)
-    await clearCanonicalField(input.client, input.schema.id, input.item.id, tokens.id)
-  else
-    await setCanonicalNumber(
-      input.client,
-      input.schema.id,
-      input.item.id,
-      tokens.id,
-      input.tokens,
-    )
+  await setCanonicalNumber(
+    input.client,
+    input.schema.id,
+    input.item.id,
+    tokens.id,
+    input.tokens,
+  )
 }

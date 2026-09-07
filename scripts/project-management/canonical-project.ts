@@ -170,7 +170,7 @@ export class GitHubCanonicalProject {
     }
   }
 
-  async setRecordedTokens(issueNumber: number, tokens: number | null): Promise<void> {
+  async setRecordedTokens(issueNumber: number, tokens: number): Promise<void> {
     await projectRecordedTokens({
       client: this.#client,
       schema: this.#getSchemaContext(),

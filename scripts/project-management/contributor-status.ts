@@ -1,5 +1,9 @@
 import type { PlanningIssueSnapshot } from './issue-planning.ts'
-import type { NormalizedPlanningRecord } from './planning-record.ts'
+import {
+  normalizePlanningRecord,
+  type NormalizedPlanningRecord,
+} from './planning-record.ts'
+import { resolveIssueDelivery } from './issue-delivery.ts'
 import {
   parseCompletingChildTrailer,
   type PullRequestSnapshot,
@@ -28,7 +32,7 @@ export interface ContributorStatusPorts {
   issue: (number: number) => Promise<PlanningIssueSnapshot>
   project: (number: number) => Promise<NormalizedPlanningRecord['project']>
   pullRequest: (number: number) => Promise<PullRequestStatus>
-  relatedPullRequest?: (issue: number, pr: number) => Promise<'final' | 'child' | null>
+  relatedPullRequest: (issue: number, pr: number) => Promise<'final' | 'child' | null>
   tokens: TokenReceiptPort
 }
 
@@ -42,12 +46,18 @@ export interface TokenSummary {
 }
 
 /** Exact native relationships and the owned child trailer, never prose/status inference. */
-export function contributorPullRequestRelationship(
-  issue: PlanningIssueSnapshot,
-  pr: PullRequestSnapshot,
-  parent?: PlanningIssueSnapshot,
-  epicBranches: string[] = [],
-): 'final' | 'child' | null {
+export async function contributorPullRequestRelationship(
+  ports: Pick<ContributorStatusPorts, 'issue'> & {
+    pullRequest: (number: number) => Promise<PullRequestSnapshot>
+    listEpicBranches: (parent: number) => Promise<string[]>
+  },
+  issueNumber: number,
+  prNumber: number,
+): Promise<'final' | 'child' | null> {
+  const [issue, pr] = await Promise.all([
+    ports.issue(issueNumber),
+    ports.pullRequest(prNumber),
+  ])
   if (pr.repository !== issue.repository) return null
   if (pr.baseRefName === 'main')
     return pr.closingIssues.length === 1 &&
@@ -55,16 +65,26 @@ export function contributorPullRequestRelationship(
       pr.closingIssues[0].repository === issue.repository
       ? 'final'
       : null
-  if (!issue.parent || !parent) return null
+  const delivery = await resolveIssueDelivery(
+    {
+      inspectIssue: async (number) => ({
+        apply: false,
+        applied: false,
+        operations: [],
+        record: normalizePlanningRecord(
+          number === issue.number ? issue : await ports.issue(number),
+          undefined,
+        ),
+      }),
+      listEpicBranches: ports.listEpicBranches,
+    },
+    issueNumber,
+  )
   const completing = parseCompletingChildTrailer(pr.body, pr.number)
   return completing.issueNumber === issue.number &&
-    parent.number === issue.parent.number &&
-    parent.repository === issue.repository &&
-    parent.labels.includes('kind:epic') &&
-    parent.parent === null &&
-    issue.parent.repository === issue.repository &&
-    epicBranches.length === 1 &&
-    epicBranches[0] === pr.baseRefName
+    delivery.path === 'epic-child' &&
+    delivery.base === pr.baseRefName &&
+    delivery.conflicts.every((conflict) => conflict.code === 'parent-closed')
     ? 'child'
     : null
 }
@@ -199,11 +219,7 @@ export async function readContributorStatus(
   try {
     const pr = await ports.pullRequest(matches[0]!.number)
     report.pullRequest = pr
-    const relation = ports.relatedPullRequest
-      ? await ports.relatedPullRequest(number, pr.number)
-      : matches[0]!.relationship === 'closing' && pr.base === 'main'
-        ? 'final'
-        : null
+    const relation = await ports.relatedPullRequest(number, pr.number)
     if (!relation) report.diagnostics.push('pull-request-relationship-unproven')
     else
       report.acceptance =
