@@ -161,6 +161,8 @@ export async function snapshotCodexUsage(
         counters = undefined
       },
     },
+    undefined,
+    context.purpose === 'contributor' ? Infinity : undefined,
   )
   if (context.signal.aborted) {
     return unavailableHarnessUsageSnapshot(providerId, 'artifact-unavailable')

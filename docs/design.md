@@ -437,6 +437,13 @@ Every maintained source file has a blocking budget, with a 500-line comfort sign
 default, exact prior authorization for exceptions, and distinct runtime-cycle and type-direction
 enforcement; ADR-014's ownership discipline remains accepted.
 
+### [ADR-041 — Deterministic contributor status](adr/ADR-041-deterministic-contributor-status.md)
+
+> Lifecycle: Active
+
+Contributor tools report token, Project, and acceptance facts. Approximate session-attributed
+totals replace phase accounting; protected merge remains the separate completion boundary.
+
 ## 5. Architecture
 
 ### Process model

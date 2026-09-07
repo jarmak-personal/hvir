@@ -20,8 +20,8 @@ Never search branches, issues, the Project, or the open pull-request list to gue
 request the maintainer meant. The accepted pull-request number is the complete merge authority
 input; do not request a separate issue number or candidate SHA.
 
-Read `AGENTS.md`, `CONTRIBUTING.md`, `docs/project-management.md`, and ADR-037 before acting. Do
-not invoke `hvir-review-code`, open a measurement run, or invent review or usage evidence. Review
+Read the acceptance rules in `AGENTS.md` and `CONTRIBUTING.md`; reuse unchanged context already
+read in this interaction. Do not invoke `hvir-review-code` or invent review or usage evidence. Review
 and implementation already ended at the verified handoff.
 
 ## Request the protected merge
@@ -73,26 +73,16 @@ HVIR_PROJECT_TOKEN="$(gh auth token)" \
 npm run project:record -- --issue <issue> --ensure-project --status Done --apply
 ```
 
-Then reproject the issue's existing measurement ledger through its named owner:
+Read the compact facts without inventing merge-phase usage:
 
 ```sh
 HVIR_REPO_TOKEN="$(gh auth token)" \
 HVIR_PROJECT_TOKEN="$(gh auth token)" \
-npm run project:measure -- --issue <issue> --project --apply
+npm run --silent project:status -- --issue <issue> --pr <pr>
 ```
 
-For a root epic, also apply its existing non-recursive Rollup projection:
-
-```sh
-HVIR_REPO_TOKEN="$(gh auth token)" \
-HVIR_PROJECT_TOKEN="$(gh auth token)" \
-npm run project:measure -- --issue <issue> --rollup --apply
-```
-
-Ordinary issues run no Rollup. These operations reconcile existing facts only; they do not create
-merge-phase work, review usage, or candidate corrections. A Project or projection failure never
-rolls back a successful GitHub merge. Retry only the failed focused reconciliation command from
-current state.
+These operations reconcile existing facts only. A Project failure never rolls back a successful
+GitHub merge. Retry only the failed focused reconciliation command from current state.
 
 Branch and worktree cleanup is not merge admission and does not block acceptance. If cumulative
 epic state later needs cleanup, its existing `hvir-implement-epic` owner may perform that work
@@ -101,7 +91,7 @@ under separate explicit authority.
 ## Hand off
 
 Return the pull request, base and head branch, GitHub-recorded head and merge commit SHA, required
-check outcome, native closing issue, issue closure, Project Status, measurement projection and
-applicable Rollup outcome. Say whether GitHub merged immediately or auto-merge waited, identify
-any post-merge reconciliation failure, and confirm that no review usage or merge-phase
-measurement was invented.
+check outcome, native closing issue, issue closure, and compact status. Explicitly report approval
+granted by this invocation separately from GitHub's pending/failed/merged outcome. The read-only
+status tool reports private approval provenance as unknown; this invocation supplies that fact
+directly, not through a parallel ledger. Identify any post-merge reconciliation failure.

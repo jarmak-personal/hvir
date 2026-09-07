@@ -6,6 +6,7 @@ import type { IssueDeliveryContext } from './issue-context.ts'
 export const ISSUE_START_DEPENDENCY_TIMEOUT_MS = 15 * 60 * 1_000
 
 export interface IssueStartContextPort {
+  markInProgress: (issueNumber: number) => Promise<'updated' | 'unchanged'>
   readIssueContext: (
     issueNumber: number,
     primaryRoot: string,
@@ -79,6 +80,11 @@ export interface IssueStartInput {
 }
 
 export type IssueStartOperation =
+  | {
+      operation: 'set-status'
+      outcome: 'would-update' | 'updated' | 'unchanged'
+      issueNumber: number
+    }
   | { operation: 'fetch-prune'; outcome: 'completed' }
   | {
       operation: 'remove-worktree'
@@ -120,6 +126,7 @@ export type IssueStartRetentionReason =
   | 'branch-missing'
   | 'cleanup-operation-failed'
   | 'dependency-preparation-failed'
+  | 'status-update-failed'
   | 'expected-base-unproven'
   | 'locked'
   | 'metadata-incomplete'
@@ -146,6 +153,7 @@ export interface IssueStartFailure {
     | 'cleanup-worktree'
     | 'create-worktree'
     | 'prepare-dependencies'
+    | 'set-status'
   code: string
   message: string
 }
@@ -303,6 +311,11 @@ export async function runIssueStart(
 
   if (!input.apply) {
     report.operations.push({
+      operation: 'set-status',
+      outcome: 'would-update',
+      issueNumber: input.issueNumber,
+    })
+    report.operations.push({
       operation: 'prepare-dependencies',
       outcome: 'would-run',
       issueNumber: input.issueNumber,
@@ -344,6 +357,24 @@ export async function runIssueStart(
     report.retained.push(selectedRetention(context, 'dependency-preparation-failed'))
   }
   report.outcome = report.failures.length === 0 ? 'ready' : 'failed'
+  if (report.outcome === 'ready') {
+    try {
+      const outcome = await ports.context.markInProgress(input.issueNumber)
+      report.operations.push({
+        operation: 'set-status',
+        outcome,
+        issueNumber: input.issueNumber,
+      })
+    } catch {
+      report.failures.push({
+        operation: 'set-status',
+        code: 'project-status-unavailable',
+        message: 'Worktree ready; Project Status could not be updated.',
+      })
+      report.outcome = 'failed'
+      report.retained.push(selectedRetention(context, 'status-update-failed'))
+    }
+  }
   return report
 }
 

@@ -114,9 +114,9 @@ The review skills normally run only when a maintainer invokes them. Explicit inv
 candidate. `hvir-create-issue`, `hvir-implement-issue`, and `hvir-merge-pr` do not independently
 invoke or suggest review.
 
-The canonical [agent-work measurement contract](docs/agent-work-measurements.md) defines the
-forecast rubric, phase boundaries, provider-neutral usage vocabulary, append-only correction
-rules, and Own/Rollup semantics shared by those lifecycle skills and repository tooling.
+Contributor reporting is deterministic: [Tokens, Project, and Acceptance](docs/project-management.md#contributor-status).
+Session-attributed totals are observed estimates, not exact phase effort. Tools own deduplication
+and projection; agents do not construct accounting records or manage checkpoints.
 
 ## Isolate issue implementation
 
@@ -132,7 +132,8 @@ local branch, worktree, dependency tree, or Project value. Apply recomputes the 
 creates or reuses `agent/issue-N` at `<primary-repository>-worktrees/issue-N` from the exact
 resolved start ref, and runs locked dependency preparation there. All implementation, testing,
 verification, commits, pre-push checks, and pushes then happen in that selected worktree; the
-invoking checkout and unrelated worktrees stay untouched.
+invoking checkout and unrelated worktrees stay untouched. Successful authorized setup sets the
+selected issue In Progress through its existing Status owner; dry-run and failed setup do not.
 
 The command composes the read-only delivery context with ordinary native Git status, worktree,
 and ref operations plus bounded content-free PR evidence. Cleanup requires an inactive, unlocked
@@ -163,7 +164,7 @@ remain authoritative. Auto-merge allows a candidate to wait for those requiremen
 second maintainer turn or a repository-owned dry-run classifier.
 
 After GitHub records the merge, the skill reads the native closing relationship and converges the
-one issue through the existing `project:record` and `project:measure` owners. A strict-base refresh
+one issue through the existing `project:record` owner, then reads `project:status`. A strict-base refresh
 or changed final head does not prevent that post-merge Project reconciliation. The skill creates
 no merge-phase measurement and infers no review usage. A Project failure never rolls back a
 successful merge; retry only the failed focused reconciliation operation.

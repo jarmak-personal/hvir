@@ -12,14 +12,6 @@ notes, agent messages, and review transcripts inside the agent run; GitHub recei
 issues, focused pull requests, required relationships, lifecycle results, and maintainer-facing
 summaries.
 
-Read
-[`../hvir-implement-issue/references/agent-work-recording.md`](../hvir-implement-issue/references/agent-work-recording.md)
-completely. Open one parent-owned `epic-coordination` measurement run at this skill's start
-observation, before authority checks, branch work, or delegation. A resumed correction or cleanup
-execution is a new run. Capture a provider start snapshot only when the exact current supported
-session can be qualified; otherwise retain the truthful fixed unavailable reason. Measurement
-failure never blocks coordination or changes delivery authority.
-
 This skill starts only when a maintainer invokes it to coordinate an aligned epic and its direct
 children. A later explicitly resumed invocation may perform bounded post-merge cleanup, but final
 pull-request acceptance remains the small GitHub-owned workflow in `hvir-merge-pr`.
@@ -121,7 +113,7 @@ Require this compact private handoff from every child:
 - pull-request number, base, head branch, and recorded head SHA;
 - changed product owners, authoritative seams, and actual write set;
 - final `npm run verify` and pre-push evidence;
-- implementation measurement, issue projection, and parent Rollup state;
+- the compact Tokens, Project, and Acceptance summaries;
 - CI and external-review state;
 - deviations from the issue or predicted graph; and
 - blockers or unresolved concerns.
@@ -130,13 +122,6 @@ Cross-check the handoff instead of trusting prose. Inspect the candidate worktre
 the complete base-to-candidate diff, current issue and parent records, pull-request base/head/state
 and completing relationship, and required checks. Reconcile the actual write set and changed
 owners against the graph and every already-integrated child.
-
-After a child's ledger and issue projection reach a reportable outcome, dry-run its parent epic's
-Rollup reconciliation and apply a freshly recomputed plan when needed. Repeat this reconciliation
-after review measurement, correction, reopened work, or any other new child-owned record. The
-operation reads the child's active ledger but writes only the parent epic's Rollup field; never
-edit child comments or Project values from the coordinator. Rollup measurement or Project failure
-is reported evidence and does not replace the candidate's normal delivery gates.
 
 Invoke `$hvir-review-code` once when its selection policy marks a child nontrivial or high-risk.
 Supply the child's completing model family so the review uses a different family. Keep the review
@@ -190,8 +175,9 @@ After any correction or newly integrated child, restart cumulative checks from c
 When the cumulative candidate is unchanged and clean after review, push normally so the
 pre-push hook runs. Open or update one final pull request to `main` with `Closes #<epic>`. Confirm
 its exact head and base, then return the exact candidate SHA and curated acceptance evidence to
-the maintainer. Include the parent `epic-coordination` record, Own projection, and direct-child
-Rollup availability and value/known-subtotal state. Stop before the final merge; cumulative
+the maintainer. Include the compact status from
+[`../hvir-implement-issue/references/contributor-status.md`](../hvir-implement-issue/references/contributor-status.md).
+The coordinator session belongs to the epic; capture never substitutes for child usage. Stop before the final merge; cumulative
 acceptance belongs to the maintainer through `$hvir-merge-pr`.
 
 ## Resume bounded post-merge cleanup
@@ -215,15 +201,3 @@ then fetch/prune and confirm its absence. Remove the registered epic worktree wi
 compare-and-delete the local branch only at its expected head. Never recursively delete the path.
 Retain uncertain or changed state for maintainer action and report the exact reason. This resumed
 run performs no merge, Project correction, or review work.
-
-## Finalize epic coordination measurement
-
-Immediately before returning a cumulative candidate handoff, explicit terminal blocker, or
-bounded cleanup result, make the complete handoff facts stable and take this run's final provider
-observation. Stop active time, append exactly one parent-owned `epic-coordination` record, then
-reconcile the epic's named Project projection and its non-recursive Rollup through the shared
-recording procedure. The Rollup must read the current Own ledgers of the epic and every native
-direct child exactly once, include closed and reopened children alike, and never traverse or
-project a child Rollup. Report complete, partial, unavailable, duplicate, failed, or uncertain
-measurement and Rollup state without private provider identity. Do not suppress the coordination
-handoff when this optional evidence is unavailable.

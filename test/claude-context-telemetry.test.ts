@@ -11,7 +11,6 @@ import {
   parseClaudeUsage,
   snapshotClaudeUsage,
 } from '../src/main/harness/claude-context-telemetry'
-import { calculateHarnessUsageDelta } from '../src/main/harness/agent-work-usage'
 import { claudeProjectDirectoryName } from '../src/main/harness/claude-session-artifact'
 import {
   HARNESS_USAGE_ARTIFACT_BYTE_LIMIT,
@@ -262,7 +261,7 @@ describe('Claude Code context telemetry', () => {
     }
   })
 
-  it('deduplicates provider records and calculates exact-session cumulative deltas', async () => {
+  it('deduplicates provider records and reports exact-session cumulative counters', async () => {
     const configDirectory = await mkdtemp(join(tmpdir(), 'hvir-claude-usage-'))
     const cwd = join(configDirectory, 'workspace')
     await mkdir(cwd)
@@ -332,15 +331,14 @@ describe('Claude Code context telemetry', () => {
         status: 'available',
         route: { modelId: 'claude-test', reasoningEffort: 'high' },
       })
-      expect(calculateHarnessUsageDelta(start, end)).toMatchObject({
-        status: 'complete',
+      expect(end).toMatchObject({
+        status: 'available',
         counters: {
-          freshInputTokens: 2,
-          cacheReadInputTokens: 40,
-          cacheWriteInputTokens: 3,
-          outputTokens: 5,
+          freshInputTokens: 12,
+          cacheReadInputTokens: 70,
+          cacheWriteInputTokens: 23,
+          outputTokens: 9,
         },
-        normalizedTokenTotal: 50,
       })
     } finally {
       await host.dispose()
@@ -395,6 +393,19 @@ describe('Claude Code context telemetry', () => {
         providerId: 'claude-code',
         reason: 'artifact-too-large',
       })
+      await expect(
+        snapshotClaudeUsage(host, {
+          sessionId: SESSION_ID,
+          cwd: localPath(cwd),
+          purpose: 'contributor',
+          artifact: {
+            identity: 'test',
+            environment: { CLAUDE_CONFIG_DIR: configDirectory },
+            unsetEnvironment: [],
+          },
+          signal: AbortSignal.timeout(30_000),
+        }),
+      ).resolves.toMatchObject({ status: 'available', counters: { outputTokens: 4 } })
     } finally {
       await host.dispose()
       await rm(configDirectory, { recursive: true, force: true })

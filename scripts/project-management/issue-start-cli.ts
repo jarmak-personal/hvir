@@ -110,6 +110,8 @@ export function formatIssueStartOperationalFailure(json: boolean): string {
 
 function formatOperation(operation: IssueStartOperation): string {
   switch (operation.operation) {
+    case 'set-status':
+      return `${operation.outcome} issue #${operation.issueNumber} Status to In Progress`
     case 'fetch-prune':
       return 'fetch/prune completed'
     case 'remove-worktree':

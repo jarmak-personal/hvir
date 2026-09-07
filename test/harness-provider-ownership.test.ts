@@ -40,7 +40,6 @@ describe('harness provider dependency direction', () => {
     'harness-launch-selection',
     'harness-usage',
     'harness-usage-demand-controller',
-    'agent-work-usage',
     'harness-telemetry-hub',
   ])('keeps %s independent of bundled implementations', async (owner) => {
     for (const path of [

@@ -18,7 +18,6 @@ import {
   parseCodexTokenCount,
   snapshotCodexUsage,
 } from '../src/main/harness/codex-context-telemetry'
-import { calculateHarnessUsageDelta } from '../src/main/harness/agent-work-usage'
 import { BoundedLineReader } from '../src/main/harness/bounded-line-reader'
 import {
   HARNESS_USAGE_ARTIFACT_BYTE_LIMIT,
@@ -207,16 +206,15 @@ describe('Codex context telemetry', () => {
 
       await appendFile(path.path, `${cumulativeCodexUsage(170, 120, 15, 40, 8)}\n`)
       const end = await snapshotCodexUsage(host, context)
-      expect(calculateHarnessUsageDelta(start, end)).toMatchObject({
-        status: 'complete',
+      expect(end).toMatchObject({
+        status: 'available',
         counters: {
-          freshInputTokens: 15,
-          cacheReadInputTokens: 20,
-          cacheWriteInputTokens: 5,
-          outputTokens: 10,
-          reasoningTokens: 3,
+          freshInputTokens: 35,
+          cacheReadInputTokens: 120,
+          cacheWriteInputTokens: 15,
+          outputTokens: 40,
+          reasoningTokens: 8,
         },
-        normalizedTokenTotal: 50,
       })
     } finally {
       await host.dispose()
@@ -258,6 +256,12 @@ describe('Codex context telemetry', () => {
         providerId: 'codex',
         reason: 'artifact-too-large',
       })
+      await expect(
+        snapshotCodexUsage(host, {
+          ...usageContext(directory, path),
+          purpose: 'contributor',
+        }),
+      ).resolves.toMatchObject({ status: 'available', counters: { outputTokens: 40 } })
     } finally {
       await host.dispose()
       await rm(directory, { recursive: true, force: true })

@@ -25,12 +25,6 @@ Treat drafting and publishing as separate approvals:
 Do not infer either approval from silence, the usefulness of the finding, a general preference
 for issue-first development, or permission granted for a different issue.
 
-After the first approval, read
-[`references/issue-planning-measurement.md`](references/issue-planning-measurement.md) completely
-and follow it for the authorized planning run, forecast, exact preview, publication, measurement,
-recovery, and handoff. Missing measurement evidence never blocks issue work. Do not capture or
-reconstruct usage for brainstorming that happened before authorization.
-
 ## Establish context
 
 1. Read `AGENTS.md`, `CONTRIBUTING.md`, `docs/design.md`, and the ADR index.
@@ -141,13 +135,17 @@ capability creates those risks. Do not add criteria that are unrelated to the id
 ## Preview and create
 
 Present the exact title, body, and applicable repository labels. List assumptions and open
-questions separately. Include the forecast and intended Project values required by the planning
-measurement reference.
+questions separately. Do not create a forecast rubric or accounting record.
 
 Stop after the preview and request explicit publication approval. Once the user approves the
 exact draft, create it in `jarmak-personal/hvir` when GitHub issue tooling is available;
 otherwise return the approved, copy-ready draft. Never publish a materially changed title,
 body, or label set without previewing it again.
+
+After publication, use `project:record --issue <issue> --ensure-project` to plan and apply
+membership when needed; normal automation owns Kind and Status. Read
+[`../hvir-implement-issue/references/contributor-status.md`](../hvir-implement-issue/references/contributor-status.md)
+for the compact handoff. Omit `--pr` when none exists. Optional usage never blocks publication.
 
 Never start implementation as part of this skill; the issue discussion is where alignment
 happens.

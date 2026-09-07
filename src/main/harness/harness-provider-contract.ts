@@ -240,6 +240,8 @@ export interface HarnessProvider {
 }
 
 export interface HarnessUsageSnapshotContext {
+  /** One-shot contributor reads retain record/memory bounds but use their deadline for I/O. */
+  readonly purpose?: 'contributor'
   readonly sessionId: string
   readonly cwd: HostPath
   readonly sessionData?: unknown
