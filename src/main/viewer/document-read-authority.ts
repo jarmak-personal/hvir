@@ -2,6 +2,7 @@ import {
   containsHostPath,
   hostPath,
   hostPathEquals,
+  joinHostPath,
   repositoryImageMimeType,
   type HostPath,
   type ReadFileRequest,
@@ -15,6 +16,7 @@ import type { ProjectHost } from '../project-host'
 export interface DocumentReadAuthority {
   activeProject(): { readonly root: HostPath; readonly host: ProjectHost }
   reconstructHostPath(path: HostPath): HostPath
+  canonicalRoot(root: HostPath, host: ProjectHost): Promise<HostPath>
   projectPath(
     path: HostPath,
     root: HostPath,
@@ -69,7 +71,8 @@ export async function authorizeDocumentRead(
     throw new Error('Only temporary Markdown, HTML, and image assets can be viewed')
   }
   assertCurrent()
-  const canonicalRoot = await host.realpath(hostPath(root.hostId, '/tmp'))
+  const temporaryBase = hostPath(root.hostId, '/tmp')
+  const canonicalRoot = await authority.canonicalRoot(temporaryBase, host)
   // /private/tmp is accepted only when it is the host's canonical /tmp alias.
   if (
     !['/tmp', '/private/tmp'].includes(canonicalRoot.path) ||
@@ -78,8 +81,15 @@ export async function authorizeDocumentRead(
   ) {
     throw new Error('Host temporary root is not supported')
   }
-  const path = await host.realpath(candidate)
-  if (!containsHostPath(canonicalRoot, path) || hostPathEquals(canonicalRoot, path)) {
+  // Both accepted spellings use the same root authority and cached canonical identity.
+  const aliasedCandidate = joinHostPath(
+    temporaryBase,
+    candidate.path.slice(temporaryRoot.path.length + 1),
+  )
+  const path = await authority.projectPath(aliasedCandidate, temporaryBase, host, {
+    returnCanonical: true,
+  })
+  if (hostPathEquals(canonicalRoot, path)) {
     throw new Error('Path escapes the temporary root through a symlink')
   }
   assertCurrent()

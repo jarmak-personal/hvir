@@ -67,6 +67,53 @@ describe('temporary document read authority', () => {
     },
   )
 
+  it.each(['/tmp', '/private/tmp'])(
+    'shares one cached root for concurrent %s documents and images',
+    async (canonicalRoot) => {
+      const f = fixture('ssh-documents', canonicalRoot)
+      const paths = [
+        `${canonicalRoot}/plan.md`,
+        '/tmp/report.html',
+        `${canonicalRoot}/image.png`,
+      ]
+      const access = await Promise.all(
+        paths.map((path, index) =>
+          authorizeDocumentRead(
+            f.authority,
+            {
+              path: f.qualify(path),
+              workspaceRoot: f.root,
+            },
+            index === 2 ? 'asset' : 'document',
+          ),
+        ),
+      )
+      expect(access.map((item) => item.path.path)).toEqual([
+        `${canonicalRoot}/plan.md`,
+        `${canonicalRoot}/report.html`,
+        `${canonicalRoot}/image.png`,
+      ])
+      expect(
+        f.realpath.mock.calls
+          .map(([path]) => path.path)
+          .filter((path) => path === '/tmp'),
+      ).toHaveLength(1)
+      expect(f.realpath).toHaveBeenCalledTimes(4)
+    },
+  )
+
+  it('does not cache a failed root lookup or admit a document symlink to the root itself', async () => {
+    const f = fixture()
+    const request = { path: f.qualify('/tmp/plan.md'), workspaceRoot: f.root }
+    f.realpath.mockRejectedValueOnce(new Error('Temporary root unavailable'))
+    await expect(authorizeDocumentRead(f.authority, request)).rejects.toThrow(
+      'Temporary root unavailable',
+    )
+    expect((await authorizeDocumentRead(f.authority, request)).path).toEqual(request.path)
+    f.realpath.mockResolvedValueOnce(f.qualify('/tmp'))
+    await expect(authorizeDocumentRead(f.authority, request)).rejects.toThrow(/symlink/)
+  })
+
   it.each([
     '/tmp-lookalike/plan.md',
     '/etc/plan.md',

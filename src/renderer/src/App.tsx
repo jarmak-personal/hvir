@@ -125,8 +125,8 @@ export function App(): ReactElement {
     : changedCount.toLocaleString()
   const applyProjectViewState = useCallback(
     (state: ProjectState): void => {
-      if (!applyWebProjectState(state, rootRef.current)) return
       switchViewerWorkspace(state.root, state.connectionState === 'connected')
+      if (!applyWebProjectState(state, rootRef.current)) return
       resetGitGraphRef.current()
       setGitChanges(undefined)
     },

@@ -315,6 +315,23 @@ export class IpcAuthority {
     return host.realpath(hostPath(asHostId(candidate.hostId), candidate.path))
   }
 
+  /** Cache canonical root identity for path authority; eligibility stays with the caller. */
+  canonicalRoot(root: HostPath, host: ProjectHost): Promise<HostPath> {
+    let roots = this.canonicalRoots.get(host)
+    if (!roots) {
+      roots = new Map()
+      this.canonicalRoots.set(host, roots)
+    }
+    const rootKey = `${root.hostId}:${root.path}`
+    let canonicalRootPromise = roots.get(rootKey)
+    if (!canonicalRootPromise) {
+      canonicalRootPromise = host.realpath(root)
+      roots.set(rootKey, canonicalRootPromise)
+      void canonicalRootPromise.catch(() => roots?.delete(rootKey))
+    }
+    return canonicalRootPromise
+  }
+
   /** Rebuild the opaque path at the IPC trust boundary and keep it in-project. */
   async projectPath(
     candidate: HostPath,
@@ -343,19 +360,7 @@ export class IpcAuthority {
     if (decoded.path !== projectRoot.path && !decoded.path.startsWith(prefix)) {
       throw new Error('Path escapes the project root')
     }
-    let roots = this.canonicalRoots.get(projectHost)
-    if (!roots) {
-      roots = new Map()
-      this.canonicalRoots.set(projectHost, roots)
-    }
-    const rootKey = `${projectRoot.hostId}:${projectRoot.path}`
-    let canonicalRootPromise = roots.get(rootKey)
-    if (!canonicalRootPromise) {
-      canonicalRootPromise = projectHost.realpath(projectRoot)
-      roots.set(rootKey, canonicalRootPromise)
-      void canonicalRootPromise.catch(() => roots?.delete(rootKey))
-    }
-    const canonicalRoot = await canonicalRootPromise
+    const canonicalRoot = await this.canonicalRoot(projectRoot, projectHost)
     let canonicalPath: HostPath
     try {
       canonicalPath = await projectHost.realpath(decoded)

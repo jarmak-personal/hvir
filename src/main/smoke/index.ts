@@ -657,6 +657,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     if (mode === 'viewer-content') {
       await verifyViewerContent({
         win,
+        projectState: projectFixture,
         supervisor,
         host,
         liveReloadPath,
@@ -664,7 +665,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         largeTextPath,
         liveReloadBefore,
       })
-      console.log('HVIR_SMOKE_OK')
       return 0
     }
     if (mode === 'git-workflow') {

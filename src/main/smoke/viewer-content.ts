@@ -2,7 +2,10 @@ import type { BrowserWindow } from 'electron'
 
 import { HTML_PREVIEW_SCHEME, type HostPath } from '../../shared'
 import type { ProjectHost } from '../project-host'
-import { verifyTemporaryDocuments } from './temporary-documents'
+import {
+  verifyTemporaryDocuments,
+  type TemporaryDocumentProjectState,
+} from './temporary-documents'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import { verifyFilenameSearch } from './filename-search'
 
@@ -10,6 +13,7 @@ import { verifyFilenameSearch } from './filename-search'
 export async function verifyViewerContent(options: {
   readonly win: BrowserWindow
   readonly supervisor: PtySupervisor
+  readonly projectState: TemporaryDocumentProjectState
   readonly host: ProjectHost
   readonly liveReloadPath: HostPath
   readonly largeJsonPath: HostPath
@@ -656,7 +660,7 @@ export async function verifyViewerContent(options: {
       }
     })()
     console.log('[smoke] source edit + Ctrl+S save OK')
-    await verifyTemporaryDocuments(win, host, options.supervisor)
+    await verifyTemporaryDocuments(win, host, options.supervisor, options.projectState)
 
     const result = [
       viewerStatus,
@@ -672,6 +676,7 @@ export async function verifyViewerContent(options: {
       'minor save',
     ].join(' · ')
     console.log(`[smoke] viewer content OK (${result})`)
+    console.log('HVIR_SMOKE_OK')
     return result
   } catch (error) {
     let state: unknown = { unavailable: true }
