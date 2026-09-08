@@ -104,6 +104,8 @@ export function encodeViewerTabs(
   activeId?: string,
   includeDrafts = true,
 ): string {
+  tabs = tabs.filter((tab) => !tab.temporaryWorkspaceRoot)
+  if (!tabs.some((tab) => tab.id === activeId)) activeId = tabs[0]?.id
   let remainingDraftCharacters = includeDrafts ? DRAFT_STORAGE_CHARACTER_LIMIT : 0
   const stored: StoredTabs = {
     version: TAB_STORAGE_VERSION,

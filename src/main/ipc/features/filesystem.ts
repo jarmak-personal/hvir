@@ -1,3 +1,4 @@
+import { authorizeDocumentRead } from '../../viewer/document-read-authority'
 import {
   MAX_EXTERNAL_FILE_SOURCES,
   LOCAL_HOST_ID,
@@ -119,19 +120,20 @@ export function registerFilesystemIpc(ipc: IpcRegistrar, deps: FilesystemIpcDeps
 
   ipc.handle('fs:read', (req) =>
     operationResult(async () => {
-      const { root, host } = deps.getProject()
-      const canonical = await ipc.authority.projectPath(req.path, root, host, {
-        returnCanonical: true,
-      })
+      const access = await authorizeDocumentRead(ipc.authority, req)
+      const { path: canonical, host } = access
       const path = hostPath(canonical.hostId, req.path.path)
       const stat = await host.stat(canonical)
       if (stat.type !== 'file') throw new Error(`Not a regular file: ${path.path}`)
       if (stat.size > 64 * 1024 * 1024) {
         throw new Error('Files larger than 64 MiB are not opened by the viewer spike')
       }
-      const data = await host.readFile(canonical, { pollingInterest: true })
+      const data = await host.readFile(canonical, { pollingInterest: !access.temporary })
+      if (data.byteLength > 64 * 1024 * 1024)
+        throw new Error('Files larger than 64 MiB are not opened by the viewer')
       const sample = data.subarray(0, Math.min(data.length, 8192))
       const binary = sample.includes(0)
+      access.assertCurrent()
       return {
         path,
         content: binary ? '' : data.toString('utf8'),
@@ -144,10 +146,8 @@ export function registerFilesystemIpc(ipc: IpcRegistrar, deps: FilesystemIpcDeps
 
   ipc.handle('fs:read-asset', (req) =>
     operationResult(async () => {
-      const { root, host } = deps.getProject()
-      const canonical = await ipc.authority.projectPath(req.path, root, host, {
-        returnCanonical: true,
-      })
+      const access = await authorizeDocumentRead(ipc.authority, req, 'asset')
+      const { path: canonical, host } = access
       const path = hostPath(canonical.hostId, req.path.path)
       const mimeType = repositoryImageMimeType(path.path)
       if (!mimeType) throw new Error('Only repository image assets can be previewed')
@@ -156,10 +156,11 @@ export function registerFilesystemIpc(ipc: IpcRegistrar, deps: FilesystemIpcDeps
       if (stat.size > 16 * 1024 * 1024) {
         throw new Error('Repository images larger than 16 MiB are not previewed')
       }
-      const data = await host.readFile(canonical, { pollingInterest: true })
+      const data = await host.readFile(canonical, { pollingInterest: !access.temporary })
       if (data.byteLength > 16 * 1024 * 1024) {
         throw new Error('Repository images larger than 16 MiB are not previewed')
       }
+      access.assertCurrent()
       return {
         path,
         data: new Uint8Array(data),

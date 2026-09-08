@@ -1,3 +1,4 @@
+import { TemporaryDocumentWorkspace } from './temporary-document-context'
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import {
   basenameHostPath,
@@ -87,7 +88,7 @@ export function FileViewer({
   const modeControlRef = useRef<HTMLDivElement>(null)
   const tabId = tab?.id
   const currentPath = tab?.path
-  const blameMode = tab?.mode
+  const blameMode = tab?.temporaryWorkspaceRoot ? undefined : tab?.mode
   const positionCapture = useRef<(() => ViewerDocumentPosition) | undefined>(undefined)
   const binaryImage = Boolean(tab?.file?.binary && renderedFileType(tab.path) === 'image')
   const boundedPreview = Boolean(
@@ -141,7 +142,7 @@ export function FileViewer({
     [navigate],
   )
   const reviewInteraction = useDocumentReviewInteraction(
-    tab?.file && !tab.file.binary
+    tab?.file && !tab.file.binary && !tab.temporaryWorkspaceRoot
       ? {
           path: tab.path,
           content: tab.file.content,
@@ -195,6 +196,9 @@ export function FileViewer({
             </span>
           ) : null}
           <div className="view-controls">
+            {tab.temporaryWorkspaceRoot ? (
+              <span>Read-only · temporary document</span>
+            ) : null}
             <DocumentReviewToolbar interaction={reviewInteraction} mode={tab.mode} />
             <FindControl
               key={`${tab.id}:${tab.pane}:${tab.mode}`}
@@ -229,7 +233,7 @@ export function FileViewer({
                 <option value="branch-point">Branch point</option>
               </select>
             ) : null}
-            {tab.mode === 'source' ? (
+            {tab.mode === 'source' && !tab.temporaryWorkspaceRoot ? (
               <button
                 type="button"
                 className={`blame-toggle${showBlame ? ' active' : ''}`}
@@ -276,7 +280,10 @@ export function FileViewer({
                           ? 'Choose view mode · Ctrl/Cmd+Shift+M cycles modes'
                           : `${mode} view · Ctrl/Cmd+Shift+M cycles modes`
                   }
-                  disabled={Boolean(tab.file?.binary && mode !== 'rendered')}
+                  disabled={Boolean(
+                    (tab.file?.binary && mode !== 'rendered') ||
+                    (tab.temporaryWorkspaceRoot && mode === 'diff'),
+                  )}
                   key={mode}
                   onClick={() => {
                     if (tab.mode === mode && !modeControlExpanded) {
@@ -302,7 +309,10 @@ export function FileViewer({
               {(['rendered', 'source', 'diff'] as const).map((mode) => (
                 <option
                   value={mode}
-                  disabled={Boolean(tab.file?.binary && mode !== 'rendered')}
+                  disabled={Boolean(
+                    (tab.file?.binary && mode !== 'rendered') ||
+                    (tab.temporaryWorkspaceRoot && mode === 'diff'),
+                  )}
                   key={mode}
                 >
                   {mode[0]?.toUpperCase()}
@@ -400,18 +410,20 @@ function ActiveView({
 }): ReactElement {
   if (tab.mode === 'rendered') {
     return (
-      <RenderedView
-        path={tab.path}
-        content={file.content}
-        position={tab.position}
-        onPosition={onPosition}
-        positionCapture={positionCapture}
-        onOpenPath={onOpenPath}
-        refresh={refresh}
-        onDependencies={onRenderedDependencies}
-        registerFindTarget={registerFindTarget}
-        documentReview={documentReview}
-      />
+      <TemporaryDocumentWorkspace.Provider value={tab.temporaryWorkspaceRoot}>
+        <RenderedView
+          path={tab.path}
+          content={file.content}
+          position={tab.position}
+          onPosition={onPosition}
+          positionCapture={positionCapture}
+          onOpenPath={onOpenPath}
+          refresh={refresh}
+          onDependencies={onRenderedDependencies}
+          registerFindTarget={registerFindTarget}
+          documentReview={documentReview}
+        />
+      </TemporaryDocumentWorkspace.Provider>
     )
   }
   if (tab.mode === 'diff') {
@@ -449,6 +461,7 @@ function ActiveView({
   }
   return (
     <SourceView
+      readOnly={Boolean(tab.temporaryWorkspaceRoot)}
       path={tab.path}
       content={file.content}
       size={file.size}

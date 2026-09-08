@@ -27,6 +27,8 @@ export interface ViewerDocumentRefreshChange {
 }
 
 export interface ViewerTab {
+  /** Temporary read-only document origin; never a registered file root. */
+  readonly temporaryWorkspaceRoot?: HostPath
   readonly id: string
   readonly path: HostPath
   readonly pane: ViewerPaneId

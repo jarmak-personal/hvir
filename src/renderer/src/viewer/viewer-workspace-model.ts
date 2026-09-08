@@ -1,3 +1,4 @@
+import { temporaryWorkspaceRoot, nextDocumentMode } from './temporary-document-tabs'
 import {
   defaultViewMode,
   type DiffBase,
@@ -14,7 +15,7 @@ import type {
   ViewerTab,
 } from './tab-state'
 import { viewerTabId } from './viewer-workspace-persistence'
-import { initialViewerPosition, nextViewerMode } from './viewer-position'
+import { initialViewerPosition } from './viewer-position'
 import { rebindViewerPath } from './viewer-path-rebind'
 import { isCurrentViewerRead } from './viewer-read-policy'
 import * as documentRefresh from './viewer-document-refresh'
@@ -154,6 +155,10 @@ export function viewerWorkspaceReducer(
         : openNewTab(model.tabs, {
             id,
             path: action.request.path,
+            temporaryWorkspaceRoot: temporaryWorkspaceRoot(
+              model.root,
+              action.request.path,
+            ),
             pane,
             pinned: action.request.pinned,
             mode: action.request.position
@@ -196,14 +201,15 @@ export function viewerWorkspaceReducer(
     case 'set-mode':
       return mapTab(model, action.id, (tab) => ({
         ...tab,
-        mode: action.mode,
+        mode:
+          tab.temporaryWorkspaceRoot && action.mode === 'diff' ? tab.mode : action.mode,
         position: action.position ?? tab.position,
       }))
     case 'cycle-active-mode':
       return model.activeId
         ? mapTab(model, model.activeId, (tab) => ({
             ...tab,
-            mode: nextViewerMode(tab.mode),
+            mode: nextDocumentMode(tab),
           }))
         : model
     case 'set-diff-base':
@@ -213,7 +219,7 @@ export function viewerWorkspaceReducer(
       }))
     case 'set-content':
       return mapTab(model, action.id, (tab) =>
-        tab.file
+        tab.file && !tab.temporaryWorkspaceRoot
           ? {
               ...tab,
               pinned: true,
