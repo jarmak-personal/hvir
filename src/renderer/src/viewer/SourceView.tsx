@@ -20,6 +20,7 @@ import { highlightSource, resetTokens, tokenDecorations } from './source-highlig
 import { formatViewerBytes } from './viewer-byte-format'
 
 export function SourceView({
+  readOnly = false,
   path,
   content,
   size,
@@ -35,6 +36,7 @@ export function SourceView({
   registerFindTarget,
   documentReview,
 }: {
+  readonly readOnly?: boolean
   readonly path: HostPath
   readonly content: string
   readonly size: number
@@ -78,6 +80,8 @@ export function SourceView({
       state: EditorState.create({
         doc: content,
         extensions: [
+          EditorState.readOnly.of(readOnly),
+          EditorView.editable.of(!readOnly),
           lineNumbers({
             domEventHandlers: {
               mousedown(view, block, event) {
@@ -106,14 +110,14 @@ export function SourceView({
               key: 'Mod-s',
               preventDefault: true,
               run: () => {
-                callbacks.current.onSave()
+                if (!readOnly) callbacks.current.onSave()
                 return true
               },
             },
           ]),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) targetRef.current?.contentChanged()
-            if (update.docChanged && !applyingExternal.current) {
+            if (update.docChanged && !applyingExternal.current && !readOnly) {
               const next = update.state.doc.toString()
               lastUserContent.current = next
               callbacks.current.onContent(next)
@@ -152,7 +156,7 @@ export function SourceView({
     }
     // A path change is a new editor. Content synchronization is handled below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathKey])
+  }, [pathKey, readOnly])
 
   useEffect(() => {
     if (!navigation) return

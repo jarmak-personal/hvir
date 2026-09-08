@@ -31,6 +31,7 @@ export interface ReadDirectoryRequest {
 }
 
 export interface ReadFileRequest {
+  readonly workspaceRoot?: HostPath
   readonly path: HostPath
 }
 

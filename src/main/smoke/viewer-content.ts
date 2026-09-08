@@ -2,11 +2,14 @@ import type { BrowserWindow } from 'electron'
 
 import { HTML_PREVIEW_SCHEME, type HostPath } from '../../shared'
 import type { ProjectHost } from '../project-host'
+import { verifyTemporaryDocuments } from './temporary-documents'
+import type { PtySupervisor } from '../pty/pty-supervisor'
 import { verifyFilenameSearch } from './filename-search'
 
 /** Exercise real renderer, worker, CodeMirror, and Chromium viewer contracts in isolation. */
 export async function verifyViewerContent(options: {
   readonly win: BrowserWindow
+  readonly supervisor: PtySupervisor
   readonly host: ProjectHost
   readonly liveReloadPath: HostPath
   readonly largeJsonPath: HostPath
@@ -653,8 +656,9 @@ export async function verifyViewerContent(options: {
       }
     })()
     console.log('[smoke] source edit + Ctrl+S save OK')
+    await verifyTemporaryDocuments(win, host, options.supervisor)
 
-    return [
+    const result = [
       viewerStatus,
       filenameSearchStatus,
       renderedFixture,
@@ -667,6 +671,8 @@ export async function verifyViewerContent(options: {
       `reload ${scrollBefore}→${scrollAfter}px`,
       'minor save',
     ].join(' · ')
+    console.log(`[smoke] viewer content OK (${result})`)
+    return result
   } catch (error) {
     let state: unknown = { unavailable: true }
     try {

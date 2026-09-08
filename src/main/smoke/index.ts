@@ -655,15 +655,15 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       return 0
     }
     if (mode === 'viewer-content') {
-      const result = await verifyViewerContent({
+      await verifyViewerContent({
         win,
+        supervisor,
         host,
         liveReloadPath,
         largeJsonPath,
         largeTextPath,
         liveReloadBefore,
       })
-      console.log(`[smoke] viewer content OK (${result})`)
       console.log('HVIR_SMOKE_OK')
       return 0
     }

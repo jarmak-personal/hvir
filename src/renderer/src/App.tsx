@@ -126,7 +126,7 @@ export function App(): ReactElement {
   const applyProjectViewState = useCallback(
     (state: ProjectState): void => {
       if (!applyWebProjectState(state, rootRef.current)) return
-      switchViewerWorkspace(state.root)
+      switchViewerWorkspace(state.root, state.connectionState === 'connected')
       resetGitGraphRef.current()
       setGitChanges(undefined)
     },

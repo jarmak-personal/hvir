@@ -1,3 +1,4 @@
+import { isTemporaryDocument } from '../../../shared/temporary-document'
 import {
   containsHostPath,
   hostPath,
@@ -87,7 +88,7 @@ export function parseTerminalFileTarget(
   }
 }
 
-/** Resolve a terminal target inside the terminal's authorized workspace only. */
+/** Keep the terminal host; main separately validates project or temporary reads. */
 export function resolveTerminalFileTarget(
   rawTarget: string,
   workspaceRoot: HostPath,
@@ -102,7 +103,9 @@ export function resolveTerminalFileTarget(
     ...(parsed.line === undefined ? {} : { line: parsed.line }),
     ...(parsed.column === undefined ? {} : { column: parsed.column }),
   }
-  return containsHostPath(workspaceRoot, candidate) ? resolved : undefined
+  return containsHostPath(workspaceRoot, candidate) || isTemporaryDocument(candidate)
+    ? resolved
+    : undefined
 }
 
 export function isFileUri(target: string): boolean {

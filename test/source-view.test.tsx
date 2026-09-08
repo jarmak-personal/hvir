@@ -39,10 +39,15 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-function render(content: string, path = localPath('/repo/example.ts')): EditorView {
+function render(
+  content: string,
+  path = localPath('/repo/example.ts'),
+  readOnly = false,
+): EditorView {
   act(() =>
     root.render(
       <SourceView
+        readOnly={readOnly}
         path={path}
         content={content}
         size={new TextEncoder().encode(content).byteLength}
@@ -63,6 +68,27 @@ function render(content: string, path = localPath('/repo/example.ts')): EditorVi
 }
 
 describe('source presentation content and resource lifetime', () => {
+  it('keeps temporary source read-only, suppresses save, and restores editing for a project file', () => {
+    const temporary = localPath('/tmp/plan.md')
+    const editor = render('# Temporary plan', temporary, true)
+    expect(editor.state.readOnly).toBe(true)
+    expect(editor.contentDOM.getAttribute('contenteditable')).toBe('false')
+    act(() => {
+      runScopeHandlers(
+        editor,
+        new KeyboardEvent('keydown', { key: 's', ctrlKey: true }),
+        'editor',
+      )
+    })
+    expect(onSave).not.toHaveBeenCalled()
+    render('# Updated plan', temporary, true)
+    expect(editor.state.doc.toString()).toBe('# Updated plan')
+    expect(onContent).not.toHaveBeenCalled()
+    const project = render('project content')
+    expect(project.state.readOnly).toBe(false)
+    expect(project.contentDOM.getAttribute('contenteditable')).toBe('true')
+  })
+
   it('reports edits and save, consumes the parent echo with its updated UTF-8 size, and keeps external reload silent', () => {
     const editor = render('const value = 1')
     expect(worker.requests).toHaveLength(1)

@@ -358,6 +358,7 @@ export default tseslint.config(
   {
     files: [
       'src/renderer/src/viewer/viewer-workspace-state.ts',
+      'src/renderer/src/viewer/temporary-document-tabs.ts',
       'src/renderer/src/viewer/viewer-read-policy.ts',
       'src/renderer/src/viewer/viewer-path-rebind.ts',
       'src/renderer/src/viewer/viewer-path-removal.ts',
