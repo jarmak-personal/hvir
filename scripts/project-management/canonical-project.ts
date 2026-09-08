@@ -10,27 +10,13 @@ import {
   type CanonicalProjectField,
   type CanonicalProjectSchema,
 } from './canonical-project-fields.ts'
-import {
-  type AgentWorkProjectFieldName,
-  type AgentWorkProjectValue,
-  type AgentWorkProjectValues,
-} from './agent-work-project-fields.ts'
-import {
-  readAgentWorkProjectValues,
-  setAgentWorkProjectValue,
-} from './github-agent-work-project.ts'
+import { projectRecordedTokens } from './project-token-fields.ts'
 import { nextPageCursor, type PageInfo } from './github-pagination.ts'
 import { KIND_DEFINITIONS, type KindOption } from './kind-policy.ts'
 import { PROJECT_STATUS_OPTIONS, type ProjectStatus } from './planning-fields.ts'
 
-export interface CanonicalProjectItem {
-  id: string
-  archived: boolean
-  repository: string
-  issueNumber: number
-  kind: string | null
-  status: string | null
-}
+import type { CanonicalProjectItem } from './canonical-project-item.ts'
+export type { CanonicalProjectItem } from './canonical-project-item.ts'
 
 export interface GitHubCanonicalProjectOptions {
   owner: string
@@ -184,29 +170,12 @@ export class GitHubCanonicalProject {
     }
   }
 
-  async readAgentWorkProjection(issueNumber: number): Promise<AgentWorkProjectValues> {
-    const context = this.#getSchemaContext()
-    return readAgentWorkProjectValues({
+  async setRecordedTokens(issueNumber: number, tokens: number): Promise<void> {
+    await projectRecordedTokens({
       client: this.#client,
-      schema: context,
+      schema: this.#getSchemaContext(),
       item: await this.#getIssueItem(issueNumber),
-      issueNumber,
-    })
-  }
-
-  async setAgentWorkProjectionField(
-    issueNumber: number,
-    name: AgentWorkProjectFieldName,
-    value: AgentWorkProjectValue | undefined,
-  ): Promise<void> {
-    const context = this.#getSchemaContext()
-    await setAgentWorkProjectValue({
-      client: this.#client,
-      schema: context,
-      item: await this.#getIssueItem(issueNumber),
-      issueNumber,
-      name,
-      value,
+      tokens,
     })
   }
 

@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { AGENT_WORK_PROJECT_FIELDS } from '../scripts/project-management/agent-work-project-fields.ts'
 import { GitHubCanonicalProject } from '../scripts/project-management/canonical-project.ts'
 import {
   CANONICAL_PROJECT_CONFIGURATION,
@@ -11,11 +10,7 @@ import { GitHubClient } from '../scripts/project-management/github-client.ts'
 describe('canonical Project public configuration', () => {
   it('stores one complete deployment contract for planning and measurement fields', () => {
     const names = CANONICAL_PROJECT_CONFIGURATION.fields.map((field) => field.name)
-    expect(names).toEqual([
-      'Status',
-      'Kind',
-      ...AGENT_WORK_PROJECT_FIELDS.map((field) => field.name),
-    ])
+    expect(names).toEqual(['Status', 'Kind', 'Recorded tokens', 'Token scope'])
     expect(
       new Set(CANONICAL_PROJECT_CONFIGURATION.fields.map((field) => field.id)).size,
     ).toBe(CANONICAL_PROJECT_CONFIGURATION.fields.length)
@@ -23,14 +18,14 @@ describe('canonical Project public configuration', () => {
       CANONICAL_PROJECT_CONFIGURATION.fields.flatMap(
         (field) => field.options?.map((option) => option.id) ?? [],
       ),
-    ).toHaveLength(24)
+    ).toHaveLength(10)
   })
 
   it('audits the exact Project, fields, and options through the named live path', async () => {
     const queries: string[] = []
     const project = canonicalProject(
       auditFetch(CANONICAL_PROJECT_CONFIGURATION, {
-        paginateAt: 8,
+        paginateAt: 2,
         queries,
       }),
     )
@@ -80,27 +75,29 @@ describe('canonical Project public configuration', () => {
       mutate: (configuration: CanonicalProjectConfiguration) => ({
         ...configuration,
         fields: configuration.fields.map((field) =>
-          field.name === 'Agent difficulty' ? { ...field, dataType: 'TEXT' } : field,
+          field.name === 'Recorded tokens' ? { ...field, dataType: 'TEXT' } : field,
         ),
       }),
-      diagnostic: 'Agent difficulty" no longer has its configured type',
+      diagnostic: 'Recorded tokens" no longer has its configured type',
     },
     {
       label: 'option ID set',
       mutate: (configuration: CanonicalProjectConfiguration) => ({
         ...configuration,
         fields: configuration.fields.map((field) =>
-          field.name === 'Risk' ? { ...field, options: field.options?.slice(1) } : field,
+          field.name === 'Status'
+            ? { ...field, options: field.options?.slice(1) }
+            : field,
         ),
       }),
-      diagnostic: 'stored node ID for Project option "Risk / Low"',
+      diagnostic: 'stored node ID for Project option "Status / Todo"',
     },
     {
       label: 'option name',
       mutate: (configuration: CanonicalProjectConfiguration) => ({
         ...configuration,
         fields: configuration.fields.map((field) =>
-          field.name === 'Risk'
+          field.name === 'Status'
             ? {
                 ...field,
                 options: field.options?.map((option, index) =>
@@ -110,7 +107,7 @@ describe('canonical Project public configuration', () => {
             : field,
         ),
       }),
-      diagnostic: 'Risk / Low" was renamed',
+      diagnostic: 'Status / Todo" was renamed',
     },
   ])('reports actionable $label drift', async ({ mutate, diagnostic }) => {
     const live = mutate(CANONICAL_PROJECT_CONFIGURATION)

@@ -3,6 +3,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { validateAdrLifecycles } from './adr-lifecycle.mts'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const adrDirectory = join(root, 'docs', 'adr')
@@ -31,10 +32,12 @@ for (const name of unexpected) {
 }
 
 const recordIds = new Map()
+const recordSources = new Map()
 for (const name of records) {
   const id = recordName.exec(name)[1]
   const path = join(adrDirectory, name)
   const source = readFileSync(path, 'utf8')
+  recordSources.set(name, source)
   const previous = recordIds.get(id)
   if (previous) {
     errors.push(`ADR-${id} is duplicated by ${previous} and ${name}`)
@@ -77,6 +80,7 @@ const indexSection = design.match(/## 4\. Key decisions\n([\s\S]*?)\n## 5\. Arch
 if (!indexSection) {
   errors.push('docs/design.md: missing bounded section 4 ADR index')
 } else {
+  errors.push(...validateAdrLifecycles(recordSources, indexSection[1]))
   const indexed = [
     ...indexSection[1].matchAll(
       /^### \[ADR-(\d{3}) — [^\]]+\]\(adr\/(ADR-(\d{3})-[a-z0-9]+(?:-[a-z0-9]+)*\.md)\)$/gm,

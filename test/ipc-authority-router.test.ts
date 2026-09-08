@@ -416,6 +416,24 @@ describe('IpcAuthorityRouter', () => {
     expect(assertCurrent).toHaveBeenCalledExactlyOnceWith(owner)
   })
 
+  it('rejects undeclared channels and incomplete registration', () => {
+    const { deps, transport } = fixture()
+    const router = new IpcAuthorityRouter(deps, transport)
+    expect(() =>
+      router.handle('unknown:invoke' as IpcInvokeChannel, () => undefined as never),
+    ).toThrow('undeclared invoke channel')
+    expect(() =>
+      router.handleSend('unknown:send' as IpcSendChannel, () => undefined),
+    ).toThrow('undeclared send channel')
+    expect(() => router.assertComplete()).toThrow('invoke')
+    for (const channel of INVOKE_CHANNELS)
+      router.handle(channel, () => undefined as never)
+    expect(() => router.assertComplete()).toThrow('send')
+    router.dispose()
+    expect(transport.invokes.size).toBe(0)
+    expect(() => router.handle('app:info', () => undefined as never)).toThrow('disposed')
+  })
+
   it('rejects duplicate registration and removes every handler on dispose', () => {
     const { deps, transport } = fixture()
     const router = registerIpcHandlers(deps, transport)

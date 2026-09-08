@@ -1,5 +1,8 @@
 # ADR-036: Retire static harness risk classification
 
+> Lifecycle: Active
+> Supersedes: [ADR-012](ADR-012-harness-providers-launch-profiles.md) | partial | Provider launch-risk rules, derived risk in profile launch revision, and risk classification and acknowledgment.
+
 ## Context
 
 ADR-012 made providers classify a resolved launch as `standard`, `elevated`, or

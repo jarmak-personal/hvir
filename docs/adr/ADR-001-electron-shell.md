@@ -1,5 +1,7 @@
 # ADR-001: Electron as the shell
 
+> Lifecycle: Active
+
 ## Context
 
 hvir needs a cross-platform desktop shell with mature support for application chrome,

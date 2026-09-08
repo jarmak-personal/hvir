@@ -1,5 +1,7 @@
 # ADR-030: Bounded project file operations and explicit external-source authority
 
+> Lifecycle: Active
+
 ## Context
 
 hvir's Files rail can browse project entries and save an already-open regular file, but it

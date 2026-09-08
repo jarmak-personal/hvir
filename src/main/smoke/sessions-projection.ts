@@ -10,7 +10,7 @@ import {
 } from '../../shared'
 import { SessionsProjectionCoordinator } from '../../renderer/src/sessions/sessions-projection-coordinator'
 import type { SessionsRendererSession } from '../../renderer/src/sessions/sessions-renderer-observation'
-import type { HarnessProvider } from '../harness/harness-provider'
+import type { HarnessProvider } from '../harness/harness-provider-contract'
 import type { ProjectHost } from '../project-host'
 import type { RendererOwner, RendererResourceScopes } from '../renderer-resource-scopes'
 import type { PtySupervisor } from '../pty/pty-supervisor'

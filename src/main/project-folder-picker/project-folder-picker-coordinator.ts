@@ -21,8 +21,11 @@ import type {
   RendererResourceScopes,
 } from '../renderer-resource-scopes'
 
-export interface ProjectFolderPickerProjects {
+export interface ProjectFolderPickerHosts {
   hostById(hostId: string): ProjectHost | undefined
+}
+
+export interface ProjectFolderPickerBrowse {
   browseHost(hostId: string, path: string): Promise<BrowseHostResponse>
 }
 
@@ -43,19 +46,20 @@ export class ProjectFolderPickerCoordinator {
   private readonly activeByOwner = new Map<string, PickerRecord>()
 
   constructor(
-    private readonly projects: ProjectFolderPickerProjects,
+    private readonly hosts: ProjectFolderPickerHosts,
+    private readonly folders: ProjectFolderPickerBrowse,
     private readonly resources: RendererResourceScopes,
   ) {}
 
   async start(owner: RendererOwner, hostId: string): Promise<ProjectFolderPickerLease> {
     this.resources.assertCurrent(owner)
-    const host = this.projects.hostById(hostId)
+    const host = this.hosts.hostById(hostId)
     if (!host || host.connectionState !== 'connected') {
       throw new Error(`Connect to ${hostId} before choosing a project folder`)
     }
     await this.closeCurrent(owner)
     this.resources.assertCurrent(owner)
-    if (this.projects.hostById(hostId) !== host || host.connectionState !== 'connected') {
+    if (this.hosts.hostById(hostId) !== host || host.connectionState !== 'connected') {
       throw stalePickerError()
     }
 
@@ -96,13 +100,10 @@ export class ProjectFolderPickerCoordinator {
     if (record.createAbort) throw new Error('A folder is already being created')
     const selectionGeneration = (record.selectionGeneration += 1)
     record.selectedParent = undefined
-    const result = await this.projects.browseHost(record.host.hostId, path)
+    const result = await this.folders.browseHost(record.host.hostId, path)
     this.assertStillCurrent(record)
     if (result.path.hostId !== record.host.hostId) throw stalePickerError()
-    if (
-      record.selectionGeneration !== selectionGeneration ||
-      record.createAbort
-    ) {
+    if (record.selectionGeneration !== selectionGeneration || record.createAbort) {
       throw new Error('Select the destination folder again')
     }
     record.selectedParent = result.path
@@ -189,7 +190,7 @@ export class ProjectFolderPickerCoordinator {
       !record.active ||
       !this.resources.isCurrent(record.owner) ||
       this.activeByOwner.get(ownerKey(record.owner)) !== record ||
-      this.projects.hostById(record.host.hostId) !== record.host ||
+      this.hosts.hostById(record.host.hostId) !== record.host ||
       record.host.connectionState !== 'connected'
     ) {
       throw stalePickerError()

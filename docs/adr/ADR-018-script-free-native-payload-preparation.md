@@ -1,5 +1,8 @@
 # ADR-018: Script-free first-use native payload preparation
 
+> Lifecycle: Superseded
+> Superseded by: [ADR-022](ADR-022-platform-native-github-release-installation.md) | full | Entire decision.
+
 ## Context
 
 ADR-011 gives hvir one npm installation surface backed by platform-selected native payloads.

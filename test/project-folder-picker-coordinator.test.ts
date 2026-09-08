@@ -271,7 +271,7 @@ function pickerFixture(hostId: string) {
     owner,
     host,
     projects,
-    coordinator: new ProjectFolderPickerCoordinator(projects, resources),
+    coordinator: new ProjectFolderPickerCoordinator(projects, projects, resources),
   }
 }
 
@@ -347,9 +347,7 @@ function aborted(signal: AbortSignal | undefined): Promise<never> {
 }
 
 function abortReason(signal: AbortSignal): Error {
-  return signal.reason instanceof Error
-    ? signal.reason
-    : new Error('Create was aborted')
+  return signal.reason instanceof Error ? signal.reason : new Error('Create was aborted')
 }
 
 function path(hostId: string, value: string): HostPath {

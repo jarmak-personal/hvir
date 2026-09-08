@@ -99,7 +99,7 @@ function createWorkbenchEntry(): void {
   let documentReview: DocumentReviewRuntime | null = null
   let attentionBadge: AttentionBadge | null = null
   let workspaceCoordinator: WorkspaceCoordinator | null = null
-  let projectCoordinator: ProjectCoordinator | null = null
+  let hostCatalog: ProjectHostCatalog | null = null
   const installRendererPresentation = createRendererPresentationInstaller({
     scopes: rendererScopes,
     reports: diagnosticReports,
@@ -157,7 +157,7 @@ function createWorkbenchEntry(): void {
       ),
       (prompter) => prompter.cancelAll(),
     )
-    const hostCatalog = runtime.own(
+    hostCatalog = runtime.own(
       'project host catalog',
       await ProjectHostCatalog.create({
         prompter: sshPrompter,
@@ -184,9 +184,7 @@ function createWorkbenchEntry(): void {
       },
     )
     if (!registry) return app.quit()
-    projectRegistry = runtime.own('project registry', registry, (ownedRegistry) =>
-      ownedRegistry.dispose(),
-    )
+    projectRegistry = runtime.own('project registry', registry, (item) => item.dispose())
     terminalSessionRegistry = runtime.own(
       'terminal session registry',
       await TerminalSessionRegistry.load(
@@ -234,7 +232,7 @@ function createWorkbenchEntry(): void {
     )
     const projectFiles = runtime.own(
       'project file operations',
-      createProjectFileOperationCoordinator(projectRegistry, rendererScopes),
+      createProjectFileOperationCoordinator(registry, hostCatalog, rendererScopes),
       (operations) => operations.dispose(),
     )
     ptySupervisor = runtime.own(
@@ -251,6 +249,7 @@ function createWorkbenchEntry(): void {
     const sessionsPorts = installApplicationSessionsObservation(
       runtime,
       projectRegistry,
+      hostCatalog,
       terminalSessionRegistry,
       ptySupervisor,
       rendererEvents,
@@ -269,7 +268,7 @@ function createWorkbenchEntry(): void {
       createElectronRemoteImagePasteCoordinator({
         ptys: ptySupervisor,
         resources: rendererScopes,
-        getHost: (hostId) => projectRegistry?.hostById(hostId),
+        getHost: (hostId) => hostCatalog?.hostById(hostId),
       }),
       (coordinator) => coordinator.dispose(),
     )
@@ -302,8 +301,9 @@ function createWorkbenchEntry(): void {
       }),
       (coordinator) => coordinator.dispose(),
     )
-    projectCoordinator = new ProjectCoordinator({
+    const projects = new ProjectCoordinator({
       registry: projectRegistry,
+      hosts: hostCatalog,
       workspaces: workspaceCoordinator,
       cleanup: workspaceCleanup,
       removal,
@@ -352,7 +352,7 @@ function createWorkbenchEntry(): void {
       return sshPrompter.runForOwner(owner, operation)
     }
     const projectCommands = createProjectCommands({
-      projects: projectCoordinator,
+      projects,
       workspaces: workspaceCoordinator,
       git: gitMutations,
       withSshPresentation,
@@ -364,17 +364,16 @@ function createWorkbenchEntry(): void {
         gitWorker,
         filenameSearch,
         projectFiles,
-        projectFolderPicker: new FolderPicker(projectRegistry, rendererScopes),
+        projectFolderPicker: new FolderPicker(hostCatalog, projects, rendererScopes),
         documentReview: documentReview.coordinator,
         documentReviewDelivery: documentReview.delivery,
         getProject: () => registry.active,
-        getHost: (hostId) => projectRegistry?.hostById(hostId),
-        connectedHosts: () => projectRegistry?.connectedHosts() ?? [],
-        getRegisteredWorkspaceRoot: (root) =>
-          projectRegistry?.registeredWorkspaceRoot(root),
+        getHost: (hostId) => hostCatalog?.hostById(hostId),
+        connectedHosts: () => hostCatalog?.connectedHosts() ?? [],
+        getRegisteredWorkspaceRoot: (root) => registry.registeredWorkspaceRoot(root),
         revealLocalEntry: electronReveal(shell),
         getProjectState: () => registry.state(),
-        listHosts: () => projectRegistry?.listHosts() ?? [],
+        listHosts: () => hostCatalog?.listHosts() ?? [],
         ...projectCommands,
         respondSshPrompt: (owner, id, answers) =>
           sshPrompter?.respond(owner, id, answers),
@@ -506,7 +505,7 @@ function createWorkbenchEntry(): void {
     await terminalSessionRegistry?.flush()
     await harnessProfileStore?.flush()
     await documentReview?.flush()
-    await projectRegistry?.disconnectSshHosts()
+    await hostCatalog?.disconnectSshHosts()
   }
   async function shutdown(): Promise<void> {
     workspaceCoordinator?.stopPolling()

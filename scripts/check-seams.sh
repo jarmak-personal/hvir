@@ -82,12 +82,17 @@ hits=$(grep -nE 'Ssh(FileAccess|TransportPool|WatchService|AuthenticationLifecyc
 report "only SshHost is exported as the remote host façade" "$hits"
 
 # 11. The project-host catalog is the only main-process owner allowed to
-# construct SSH hosts. Project persistence cannot import the moved SSH owners.
+# construct SSH hosts. Project persistence/workflows cannot import concrete host
+# owners, and the catalog cannot depend on project persistence/workflows.
 hits=$({
   grep -rnE '\bnew SshHost\(' src/main --include='*.ts' --include='*.mts' \
     | grep -v '^src/main/project-host/project-host-catalog.ts' || true
   grep -nE "RendererSshPrompter|SshHostTrustStore|LocalSshIdentitySource|parseSshConfig|known-hosts|identityFileCandidates|from ['\"]\./project-host/(ssh-host|ssh-host-trust|ssh-identity-source|renderer-ssh-prompter|project-host-catalog)['\"]" \
-    src/main/project-registry.ts || true
+    src/main/project-registry.ts src/main/project-coordinator.ts || true
+  grep -nE "from ['\"][^'\"]*(project-registry|project-coordinator)['\"]" \
+    src/main/project-host/project-host-catalog.ts src/main/project-host/project-host.ts || true
+  sed -n '/^export class ProjectRegistry/,$p' src/main/project-registry.ts \
+    | grep -nE '^  (public )?(async )?(listHosts|hostById|connectedHosts|connectHost|disconnectHost|disconnectSshHosts|browseHost)[(:=]' || true
 })
 report "SSH construction and implementation owners stay in the host catalog" "$hits"
 

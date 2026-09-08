@@ -1,5 +1,3 @@
-import { homedir } from 'node:os'
-
 import {
   asHostId,
   basenameHostPath,
@@ -7,9 +5,6 @@ import {
   hostPath,
   localPath,
   type HostPath,
-  type BrowseHostResponse,
-  type ConnectedHost,
-  type ProjectHostOption,
   type ProjectState,
   type RegisteredProjectState,
   type WorktreeDiscovery,
@@ -17,7 +12,7 @@ import {
   type WorkspaceActivitySnapshot,
   type WorkspaceState,
 } from '../shared'
-import type { Disposer, ProjectHost } from './project-host'
+import type { Disposer, ProjectHost } from './project-host/project-host'
 import {
   comparableWorkspaceActivity,
   validActivitySnapshot,
@@ -35,12 +30,8 @@ export interface ActiveProject {
 /** ProjectRegistry's consumer-owned view of the live host catalog. */
 export interface ProjectRegistryHostCatalog {
   readonly local: ProjectHost
-  listHosts(): readonly ProjectHostOption[]
   hostById(hostId: string): ProjectHost | undefined
-  connectedHosts(): readonly ProjectHost[]
   materializeHost(hostId: string): Promise<ProjectHost>
-  disconnectHost(hostId: string): Promise<ProjectHostOption>
-  disconnectSshHosts(): Promise<void>
   onHostStateChange(listener: () => void): Disposer
 }
 
@@ -259,76 +250,6 @@ export class ProjectRegistry {
       root: match.root,
       projectId: match.project.id,
       workspaceId: workspace.id,
-    }
-  }
-
-  listHosts(): readonly ProjectHostOption[] {
-    return this.hostCatalog.listHosts()
-  }
-
-  hostById(hostId: string): ProjectHost | undefined {
-    return this.hostCatalog.hostById(hostId)
-  }
-
-  connectedHosts(): readonly ProjectHost[] {
-    return this.hostCatalog.connectedHosts()
-  }
-
-  async connectHost(hostId: string): Promise<ConnectedHost> {
-    const host = await this.host(hostId)
-    await host.connect()
-    let suggestedPath =
-      this.activeProject.host.hostId === host.hostId ? this.activeProject.root.path : '/'
-    if (host.hostId === this.hostCatalog.local.hostId) {
-      suggestedPath =
-        this.activeProject.host.hostId === host.hostId
-          ? this.activeProject.root.path
-          : homedir()
-    } else {
-      const pwd = await host.exec('pwd', [])
-      if (pwd.code === 0 && pwd.stdout.trim().startsWith('/')) {
-        suggestedPath = pwd.stdout.trim()
-      }
-    }
-    const option = this.hostCatalog
-      .listHosts()
-      .find((candidate) => candidate.hostId === hostId)
-    if (!option) throw new Error(`Unknown project host: ${hostId}`)
-    return {
-      host: option,
-      suggestedPath,
-    }
-  }
-
-  async disconnectHost(hostId: string): Promise<ProjectHostOption> {
-    return this.hostCatalog.disconnectHost(hostId)
-  }
-
-  async disconnectSshHosts(): Promise<void> {
-    await this.hostCatalog.disconnectSshHosts()
-  }
-
-  async browseHost(hostId: string, rawPath: string): Promise<BrowseHostResponse> {
-    const host = this.hostCatalog.hostById(hostId)
-    if (!host || host.connectionState !== 'connected') {
-      throw new Error(`Connect to ${hostId} before browsing folders`)
-    }
-    if (!rawPath.startsWith('/')) throw new Error('Folder path must be absolute')
-    try {
-      const path = await host.realpath(hostPath(asHostId(hostId), rawPath))
-      const stat = await host.stat(path)
-      if (stat.type !== 'dir') throw new Error(`Not a directory: ${rawPath}`)
-      const directories = (await host.readdir(path))
-        .filter((entry) => entry.type === 'dir')
-        .sort((left, right) => left.name.localeCompare(right.name))
-      return { path, directories }
-    } catch (reason) {
-      const code = (reason as { code?: unknown } | undefined)?.code
-      if (code === 2 || code === 'ENOENT')
-        throw new Error(`Folder not found: ${rawPath}`, { cause: reason })
-      if (code === 3 || code === 'EACCES')
-        throw new Error(`Cannot access folder: ${rawPath}`, { cause: reason })
-      throw reason
     }
   }
 

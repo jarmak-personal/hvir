@@ -1,5 +1,7 @@
 # ADR-010: ProjectHost, host-qualified paths, and no remote server
 
+> Lifecycle: Active
+
 ## Context
 
 Remote projects need filesystem, Git, PTY, watch, and loopback-stream behavior without an

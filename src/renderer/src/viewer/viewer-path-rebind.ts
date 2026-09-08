@@ -5,7 +5,7 @@ import {
   type HostPath,
 } from '../../../shared'
 import type { ViewerPaneId, ViewerTab } from './tab-state'
-import type { ViewerWorkspaceModel } from './viewer-workspace-model'
+import type { ViewerWorkspaceModel } from './viewer-workspace-state'
 import { viewerTabId } from './viewer-workspace-persistence'
 
 export interface ViewerPathRebindCapability {

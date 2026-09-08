@@ -114,9 +114,9 @@ The review skills normally run only when a maintainer invokes them. Explicit inv
 candidate. `hvir-create-issue`, `hvir-implement-issue`, and `hvir-merge-pr` do not independently
 invoke or suggest review.
 
-The canonical [agent-work measurement contract](docs/agent-work-measurements.md) defines the
-forecast rubric, phase boundaries, provider-neutral usage vocabulary, append-only correction
-rules, and Own/Rollup semantics shared by those lifecycle skills and repository tooling.
+Contributor reporting is deterministic: [Tokens, Project, and Acceptance](docs/project-management.md#contributor-status).
+Session-attributed totals are observed estimates, not exact phase effort. Tools own deduplication
+and projection; agents do not construct accounting records or manage checkpoints.
 
 ## Isolate issue implementation
 
@@ -132,7 +132,8 @@ local branch, worktree, dependency tree, or Project value. Apply recomputes the 
 creates or reuses `agent/issue-N` at `<primary-repository>-worktrees/issue-N` from the exact
 resolved start ref, and runs locked dependency preparation there. All implementation, testing,
 verification, commits, pre-push checks, and pushes then happen in that selected worktree; the
-invoking checkout and unrelated worktrees stay untouched.
+invoking checkout and unrelated worktrees stay untouched. Successful authorized setup sets the
+selected issue In Progress through its existing Status owner; dry-run and failed setup do not.
 
 The command composes the read-only delivery context with ordinary native Git status, worktree,
 and ref operations plus bounded content-free PR evidence. Cleanup requires an inactive, unlocked
@@ -163,7 +164,7 @@ remain authoritative. Auto-merge allows a candidate to wait for those requiremen
 second maintainer turn or a repository-owned dry-run classifier.
 
 After GitHub records the merge, the skill reads the native closing relationship and converges the
-one issue through the existing `project:record` and `project:measure` owners. A strict-base refresh
+one issue through the existing `project:record` owner, then reads `project:status`. A strict-base refresh
 or changed final head does not prevent that post-merge Project reconciliation. The skill creates
 no merge-phase measurement and infers no review usage. A Project failure never rolls back a
 successful merge; retry only the failed focused reconciliation operation.
@@ -262,14 +263,17 @@ not launch Electron, require a display, or access the network.
 
 `npm run smoke` runs the focused `pty-native`, `viewer-position`, `viewer-content`,
 `git-workflow`, `workspace-remote`, `web-pane`, `renderer-authority`, `renderer-recovery`,
-`sessions-projection`, `document-review`, `terminal-presentation`, and `terminal-lifecycle` groups plus the transitional
-`legacy-workflow` group in separate Electron processes with fresh project and user-data roots, then
-reports a result for every scheduled group. Select one group locally with
-`HVIR_SMOKE_SCENARIO=<name> npm run
-smoke`; the complete name set is `pty-native`, `viewer-position`, `viewer-content`,
+`sessions-projection`, `document-review`, `terminal-presentation`, and `terminal-lifecycle` groups plus the focused
+`native-host-worker`, `workbench-health`, `platform-contracts`, `terminal-theme`,
+`terminal-move`, `workbench-layout`, `terminal-split`, `app-settings`, and `harness-profiles` groups in separate Electron processes with fresh project and user-data roots, then
+reports a result for every scheduled group. Direct single-process invocations require
+`HVIR_SMOKE_SCENARIO`; missing and invalid names fail with a selection diagnostic. Select one group locally with
+`npm run smoke:scenario -- <name>`; the complete name set is `pty-native`, `viewer-position`, `viewer-content`,
 `git-workflow`, `workspace-remote`, `web-pane`, `renderer-authority`, `platform-contracts`,
 `diagnostic-report-restart`, `renderer-recovery`, `sessions-projection`, `document-review`, `development-performance`,
-`terminal-presentation`, `terminal-lifecycle`, `legacy-workflow`, and `capacity`. The
+`terminal-presentation`, `terminal-lifecycle`, `native-host-worker`, `workbench-health`,
+`terminal-theme`, `terminal-move`, `workbench-layout`, `terminal-split`, `app-settings`,
+`harness-profiles`, and `capacity`. The
 development-performance group starts a development renderer and is run separately with `npm run
 smoke:development-performance`; the restart scenario is reserved for the packaged multi-launch
 fixture. `npm run smoke:macos` runs the focused PTY, viewer, Git, workspace/remote, web-pane,
@@ -452,9 +456,87 @@ coordination belongs in a named coordinator with narrow ports. Resource ownershi
 must be explicit, late async completion must be rejected after revocation, and paths remain
 host-qualified through `ProjectHost`.
 
-Run `npm run architecture:report` before and after structural work. The hotspot budgets are
-blocking non-growth ratchets and review signals, not targets and not a substitute for judging
-ownership. Extract responsibilities rather than moving arbitrary blocks into smaller files.
+Source budgets and dependency constraints protect different properties; passing either does
+not establish sound ownership. [ADR-040](docs/adr/ADR-040-complete-source-budgets-and-dependency-policy.md)
+owns the accepted policy. The [budget guide](docs/architecture-budgets.md) explains the
+informational comfort target, default and stricter limits, transitional ratchets, durable
+ceilings, generated treatment, and separate policy authorization. The
+[dependency guide](docs/architecture-dependencies.md) explains runtime cycles, erased type
+relationships, and the existing direction checks. Extract responsibilities along ownership
+boundaries.
+
+Run `npm run architecture:report` before and after structural work to inspect both controls.
+The report is provisional; `npm run architecture:check` enforces the accepted policy and is
+part of `npm run verify`. Use the credential and delivery-context instructions in the budget
+guide for enforcing commands.
+
+### Record architecture constraints when structure changes
+
+An issue records architecture constraints before implementation when its outcome creates or
+changes a capability owner, public seam, dependency direction, or exceptional budget. Use the
+actual structural effect: a new file under an unchanged owner does not trigger this requirement,
+and a bug label does not exempt an authority-boundary change. Localized bugs, maintenance,
+tests, and documentation need no additional architecture section when their structure is unchanged.
+
+For triggered work, record these facts together in an Architecture constraints section or link
+to their exact accepted location without duplicating them:
+
+- Current owner and intended ownership change.
+- Public seam and affected state, authority, or disposal boundary.
+- Permitted and forbidden dependency directions, including relevant type-only imports.
+- Existing enforcement that covers the boundary, or the focused direction check to add.
+- Governing source-budget classification and any separately accepted exception required.
+- Focused acceptance evidence for the constraint and the behavior that must remain stable.
+
+Reuse an existing rule that already protects the boundary. If a new automated direction rule
+would express no meaningful invariant, explain why and name the focused ownership evidence
+instead. That explanation cannot waive an existing blocking rule. Assess any new static
+component's ownership under the dependency guide, including components that require erased edges.
+
+`hvir-create-issue` records proposed constraints during authorized drafting.
+`hvir-review-issue` assesses the owner, directions, enforcement, budget classification, and
+evidence when its existing selection and invocation rules apply. Review does not set a private
+budget or authorize a relaxation through accepted prose. New or increased exceptional budgets
+and other policy relaxations use the separately accepted policy-only path in the budget guide.
+
+An epic records common constraints; each structural child records the focused constraints for
+its changed boundaries and may reference the accepted epic constraints. This adds no mandatory
+independent review to direct children. `hvir-implement-issue` checks the accepted constraints
+against reconnaissance and final evidence. Missing constraints or a different owner, direction,
+or required exception return to issue alignment before the affected implementation proceeds.
+Alignment does not authorize automatic issue publication, a new reviewer loop, or an
+implementing agent's own policy relaxation. Preserve the separate drafting and publication
+approvals above. Durable decisions belong in ADRs; implementation evidence belongs in issues
+and pull requests.
+
+### Worked examples
+
+1. **Localized fix.** A Git parser corrects an empty-result case through its existing command
+   contract. The owner and dependency directions stay unchanged. Record the bug and a direct
+   parser regression test; no additional architecture section is needed.
+2. **New file, unchanged owner.** A viewer moves a private formatting function to another file
+   under the same capability, with the same dependencies and no new public or disposal seam.
+   File creation alone adds no architecture section or custom budget. The source receives its
+   governing classification through the existing inventory and budget check.
+3. **Structural change, existing rule.** A feature IPC registrar delegates sibling-feature
+   coordination to a named application coordinator with narrow ports. Record the old and new
+   owners, preserved IPC authority/disposal, allowed registrar-to-coordinator direction, and
+   forbidden sibling registrar imports, including type-only imports. Reuse the existing IPC
+   direction rules consumed by the architecture check. Name the governing budget classifications
+   and focused coordinator/IPC tests that prove behavior and late-completion rejection.
+4. **New seam, focused check.** A viewer adds a pure selection policy consumed by an effect hook.
+   Record that the hook retains subscription/disposal authority and the policy owns only selection.
+   Permit hook-to-policy imports; forbid policy-to-React/preload imports, including type-only
+   references. If existing rules do not cover the new seam, require a focused rule in the existing
+   direction-policy owner and a fixture proving forbidden imports fail. Record the ordinary
+   budget classification, direct selection tests, and hook cleanup evidence.
+5. **Exceptional budget.** A coherent owner needs to exceed its accepted ceiling. Record the
+   exact path, owner, preserved seam and directions, existing direction enforcement, proposed
+   budget classification, and focused behavior evidence. Link the required separate policy-only
+   proposal with the rationale and reconsideration condition required by ADR-040. Review of the
+   consuming issue does not grant that budget. The consuming implementation waits for independent
+   policy acceptance and then verifies against that accepted policy; splitting policy and source
+   into commits in one consuming PR does not supply authorization.
 
 ## Verify at the owning seam
 

@@ -17,7 +17,12 @@ import {
 } from '../../shared'
 import type { ProjectHost } from '../project-host'
 import type { RendererOwner } from '../renderer-resource-scopes'
-import type { IpcDeps } from './deps'
+import type {
+  IpcContractDiagnostic,
+  IpcProjectAuthorityPort,
+  IpcRouterAuthorityPort,
+} from './authority-port'
+export type { IpcContractDiagnostic } from './authority-port'
 import { reconstructIpcHostPath } from './host-path-authority'
 import {
   OWNER_SCOPED_INVOKE_CHANNELS,
@@ -38,11 +43,6 @@ export interface IpcSendContext {
   readonly sender: Electron.WebContents
   readonly authority: IpcAuthority
   owner(): RendererOwner
-}
-export interface IpcContractDiagnostic {
-  readonly channel: IpcInvokeChannel | IpcSendChannel
-  readonly outcome: 'non-main-frame' | 'renderer-revoked'
-  readonly timing: 'under-1ms' | 'under-10ms' | '10ms-or-more'
 }
 export type IpcInvokeHandler<C extends IpcInvokeChannel> = (
   req: IpcRequest<C>,
@@ -91,14 +91,7 @@ export class IpcAuthorityRouter {
   private disposed = false
 
   constructor(
-    private readonly deps: Pick<
-      IpcDeps,
-      | 'getProject'
-      | 'getProjectState'
-      | 'getRegisteredWorkspaceRoot'
-      | 'rendererResources'
-      | 'recordIpcContractDiagnostic'
-    >,
+    private readonly deps: IpcRouterAuthorityPort,
     private readonly transport: IpcMainRegistrationPort = electronIpcMainPort,
   ) {
     this.authority = new IpcAuthority(deps)
@@ -246,12 +239,7 @@ export class IpcAuthority {
     Map<string, Promise<HostPath>>
   >()
 
-  constructor(
-    private readonly deps: Pick<
-      IpcDeps,
-      'getProject' | 'getProjectState' | 'getRegisteredWorkspaceRoot'
-    >,
-  ) {}
+  constructor(private readonly deps: IpcProjectAuthorityPort) {}
 
   workspaceRoot(candidate: HostPath): HostPath {
     if (

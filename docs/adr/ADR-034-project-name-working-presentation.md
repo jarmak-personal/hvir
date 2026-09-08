@@ -1,5 +1,8 @@
 # ADR-034: Project names present low-salience Working state
 
+> Lifecycle: Active
+> Supersedes: [ADR-019](ADR-019-working-output-is-not-actionable-attention.md) | partial | Working presentation being confined to the terminal row.
+
 ## Context
 
 ADR-019 made ongoing output after a submitted turn a provider-independent Working state and

@@ -14,7 +14,15 @@ import {
 export const DEFAULT_SMOKE_SCENARIOS = [
   'pty-native',
   'viewer-position',
-  'legacy-workflow',
+  'native-host-worker',
+  'workbench-health',
+  'platform-contracts',
+  'terminal-theme',
+  'terminal-move',
+  'workbench-layout',
+  'terminal-split',
+  'app-settings',
+  'harness-profiles',
 ] as const satisfies readonly ElectronSmokeScenario[]
 
 export type SmokeScenarioName = ElectronSmokeScenario

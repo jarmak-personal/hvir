@@ -1,9 +1,9 @@
 # ADR-022: Platform-native installation from immutable GitHub Releases
 
-> **Superseded in part:** [ADR-028](ADR-028-capability-based-debian-linux-installation.md)
-> replaces this record's Ubuntu 24.04-only Linux support matrix and unconditional AppArmor
-> framing with capability-based Debian package compatibility. The release, trust, privilege,
-> lifecycle, and atomicity decisions below remain in force.
+> Lifecycle: Partially superseded
+> Supersedes: [ADR-011](ADR-011-npm-native-payload-distribution.md) | full | Entire decision.
+> Supersedes: [ADR-018](ADR-018-script-free-native-payload-preparation.md) | full | Entire decision.
+> Superseded by: [ADR-028](ADR-028-capability-based-debian-linux-installation.md) | partial | Linux support matrix and unconditional Ubuntu AppArmor integration.
 
 ## Context
 

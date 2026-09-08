@@ -1,5 +1,7 @@
 # ADR-003: Terminal is a swappable pane, not the foundation
 
+> Lifecycle: Active
+
 ## Context
 
 The terminal is central to hvir's workflow, but Ghostty's native embedding API is still a

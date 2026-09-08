@@ -32,6 +32,7 @@ async function main(): Promise<void> {
     const report = await runIssueStart(
       {
         context: {
+          markInProgress: adapters.markInProgress,
           readIssueContext: (number, root) =>
             readIssueDeliveryContext(adapters.issueContext, {
               issueNumber: number,

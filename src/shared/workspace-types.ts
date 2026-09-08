@@ -1,6 +1,20 @@
 import type { HostConnectionState, HostWatchTier } from './fs-types'
 import type { HostPath } from './host-path'
 
+export interface ProjectRootResponse {
+  readonly root: HostPath
+}
+
+export interface ProjectState extends ProjectRootResponse {
+  /** Main-owned identity for ordering and deduplicating authoritative state. */
+  readonly revision: number
+  readonly connectionState: HostConnectionState
+  readonly watchTier: HostWatchTier
+  readonly projects: readonly RegisteredProjectState[]
+  readonly activeProjectId: string
+  readonly activeWorkspaceId: string
+}
+
 export const WORKSPACE_ACTIVITY_SCHEMA = 1
 export const WORKSPACE_ACTIVITY_STATUS_LIMIT = 2_000
 export const WORKSPACE_ACTIVITY_FIELDS = 'head-branch-porcelain-v2-path-state' as const

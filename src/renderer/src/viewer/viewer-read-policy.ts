@@ -1,4 +1,4 @@
-import type { ViewerWorkspaceModel } from './viewer-workspace-model'
+import type { ViewerWorkspaceModel } from './viewer-workspace-state'
 
 export function isCurrentViewerRead(
   model: ViewerWorkspaceModel,

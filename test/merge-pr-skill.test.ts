@@ -48,9 +48,9 @@ describe('hvir pull-request merge skill', () => {
   it('reconciles only focused Project owners after GitHub records the merge', () => {
     expect(skill).toContain('native closing relationships')
     expect(skill).toContain('npm run project:record -- --issue <issue>')
-    expect(skill).toContain('npm run project:measure -- --issue <issue> --project --apply')
-    expect(skill).toContain('For a root epic, also apply its existing non-recursive Rollup')
-    expect(skill).toContain('merge-phase work, review usage')
+    expect(skill).toContain('project:status -- --issue <issue> --pr <pr>')
+    expect(skill).not.toContain('project:measure')
+    expect(skill).toContain('granted by this invocation separately from GitHub')
     expect(skill).toContain('cleanup is not merge admission')
   })
 

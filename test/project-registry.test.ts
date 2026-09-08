@@ -194,13 +194,11 @@ describe('ProjectRegistry session flow', () => {
     await restored.dispose()
   })
 
-  it('connects before browsing and opens a selected local folder', async () => {
+  it('opens a selected local folder and publishes registered project state', async () => {
     const root = await mkdtemp(join(tmpdir(), 'hvir-registry-'))
     const canonicalRoot = await realpath(root)
     cleanups.push(root)
     await mkdir(join(root, 'alpha'))
-    await mkdir(join(root, 'zeta'))
-    await writeFile(join(root, 'file.txt'), 'not a folder')
     const states: ProjectState[] = []
     const registry = await createRegistry(
       localPath(root),
@@ -210,16 +208,6 @@ describe('ProjectRegistry session flow', () => {
       (state) => states.push(state),
     )
     expect(registry.state().revision).toBe(0)
-
-    const connected = await registry.connectHost('local')
-    expect(connected.host.connectionState).toBe('connected')
-    expect(connected.suggestedPath).toBe(canonicalRoot)
-
-    const listing = await registry.browseHost('local', root)
-    expect(listing.directories.map((entry) => entry.name)).toEqual(['alpha', 'zeta'])
-    await expect(registry.browseHost('local', join(root, 'missing'))).rejects.toThrow(
-      `Folder not found: ${join(root, 'missing')}`,
-    )
 
     const opened = await registry.open('local', join(root, 'alpha'))
     expect(opened.root.path).toBe(join(canonicalRoot, 'alpha'))
@@ -277,40 +265,6 @@ describe('ProjectRegistry session flow', () => {
     await restored.dispose()
   })
 
-  it('rejects browsing a host that has not connected', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'hvir-registry-'))
-    cleanups.push(root)
-    const registry = await createRegistry(
-      localPath(root),
-      { prompt: () => Promise.resolve(undefined) },
-      join(root, 'known-hosts.json'),
-      join(root, 'projects.json'),
-      () => undefined,
-    )
-
-    await expect(registry.browseHost('missing', '/')).rejects.toThrow(
-      'Connect to missing before browsing folders',
-    )
-    await registry.dispose()
-  })
-
-  it('does not allow the local host to disconnect', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'hvir-registry-'))
-    cleanups.push(root)
-    const registry = await createRegistry(
-      localPath(root),
-      { prompt: () => Promise.resolve(undefined) },
-      join(root, 'known-hosts.json'),
-      join(root, 'projects.json'),
-      () => undefined,
-    )
-
-    await expect(registry.disconnectHost('local')).rejects.toThrow(
-      'The local host cannot disconnect',
-    )
-    await registry.dispose()
-  })
-
   it('authorizes persisted workspace roots without instantiating their SSH host', async () => {
     const root = await mkdtemp(join(tmpdir(), 'hvir-registry-'))
     const canonicalRoot = await realpath(root)
@@ -365,7 +319,7 @@ describe('ProjectRegistry session flow', () => {
     )
     const remoteRoot = hostPath(asHostId('example'), '/srv/repo-linked')
 
-    expect(registry.hostById('example')).toBeUndefined()
+    expect(catalogs.at(-1)?.hostById('example')).toBeUndefined()
     expect(registry.registeredWorkspaceRoot(remoteRoot)).toEqual(remoteRoot)
     expect(
       registry.registeredWorkspaceRoot(

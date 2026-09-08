@@ -25,3 +25,11 @@ export interface HarnessUsageValue extends HarnessUsageCounters {
   /** Present only when every additive category has an exact safe-integer value. */
   readonly normalizedTokenTotal?: number
 }
+export const HARNESS_USAGE_UNAVAILABLE_REASONS = [
+  'invalid-session-identity',
+  'artifact-unavailable',
+  'artifact-too-large',
+  'usage-unavailable',
+] as const
+export type HarnessUsageUnavailableReason =
+  (typeof HARNESS_USAGE_UNAVAILABLE_REASONS)[number]

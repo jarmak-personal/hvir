@@ -1,5 +1,8 @@
 # ADR-033: Successful discovery dismisses missing workspaces
 
+> Lifecycle: Active
+> Supersedes: [ADR-008](ADR-008-project-worktree-workspaces.md) | partial | Missing worktrees remaining visible until explicit dismissal.
+
 ## Context
 
 ADR-008 retained missing worktrees until explicit dismissal so their workspace and session

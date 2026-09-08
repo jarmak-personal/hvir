@@ -45,6 +45,9 @@ describe('ProjectHostCatalog', () => {
       expect.objectContaining({ hostId: 'local', kind: 'local' }),
       expect.objectContaining({ hostId: 'work', kind: 'ssh' }),
     ])
+    await expect(catalog.disconnectHost('local')).rejects.toThrow(
+      'The local host cannot disconnect',
+    )
     const first = await catalog.materializeHost('work')
     const second = await catalog.materializeHost('work')
 

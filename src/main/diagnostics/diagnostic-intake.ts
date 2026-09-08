@@ -11,9 +11,12 @@ import {
 import type { RendererOwner } from '../renderer-resource-scopes'
 import {
   DIAGNOSTIC_EVENT_BYTES,
-  type DiagnosticJournal,
+  type DiagnosticEvidenceWriter,
   type DiagnosticJournalStatus,
-} from './diagnostic-journal'
+  type DiagnosticDropReason,
+  type DiagnosticDroppedCount,
+  type DiagnosticRecentSnapshot,
+} from './diagnostic-evidence'
 import {
   diagnosticSource,
   materializeDiagnosticEvent,
@@ -30,29 +33,11 @@ const SOURCE_RATE_PER_SECOND = 4
 const SOURCE_RATE_BURST = 16
 const SATURATING_COUNT = Number.MAX_SAFE_INTEGER
 
-export type DiagnosticDropReason =
-  | 'invalid'
-  | 'rate'
-  | 'recent-capacity'
-  | 'renderer-session'
-  | 'renderer-invalid'
-  | 'renderer-queue'
-  | 'renderer-rate'
-  | 'renderer-unavailable'
-  | 'writer-queue'
-  | 'writer-storage'
-
-export interface DiagnosticDroppedCount {
-  readonly source: DiagnosticSource | 'diagnostic-writer'
-  readonly reason: DiagnosticDropReason
-  readonly count: number
-}
-
-export interface DiagnosticRecentSnapshot {
-  readonly version: 1
-  readonly events: readonly StoredDiagnosticEvent[]
-  readonly dropped: readonly DiagnosticDroppedCount[]
-}
+export type {
+  DiagnosticDropReason,
+  DiagnosticDroppedCount,
+  DiagnosticRecentSnapshot,
+} from './diagnostic-evidence'
 
 interface RecentEvent {
   readonly event: StoredDiagnosticEvent
@@ -66,7 +51,7 @@ interface RateState {
 }
 
 export interface DiagnosticIntakeOptions {
-  readonly writer?: Pick<DiagnosticJournal, 'record' | 'status'>
+  readonly writer?: DiagnosticEvidenceWriter
   readonly now?: () => number
   readonly correlation?: () => string
   readonly onAccepted?: (event: StoredDiagnosticEvent) => void

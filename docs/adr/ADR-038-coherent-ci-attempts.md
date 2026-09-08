@@ -1,5 +1,8 @@
 # ADR-038: Trust one coherent CI attempt per candidate
 
+> Lifecycle: Active
+> Supersedes: [ADR-037](ADR-037-promote-tested-pull-request-candidates.md) | partial | First-attempt-only and rerun restrictions on otherwise exact candidate CI evidence.
+
 ## Context
 
 ADR-037 made workflow attempt one the only merge- and release-authoritative execution for a pull

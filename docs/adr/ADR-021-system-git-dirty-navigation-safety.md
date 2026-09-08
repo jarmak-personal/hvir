@@ -1,5 +1,8 @@
 # ADR-021: System Git decides dirty navigation safety
 
+> Lifecycle: Active
+> Supersedes: [ADR-005](ADR-005-system-git-engine.md) | partial | Clean-worktree navigation prerequisite and handing every dirty branch switch or pull to the terminal.
+
 ## Context
 
 ADR-005 permits only branch switches and fast-forward pulls from a clean worktree.

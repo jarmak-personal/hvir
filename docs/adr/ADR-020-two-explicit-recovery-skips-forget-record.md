@@ -1,5 +1,8 @@
 # ADR-020: Two explicit recovery skips forget the hvir record
 
+> Lifecycle: Active
+> Supersedes: [ADR-006](ADR-006-exact-harness-recovery.md) | partial | Indefinite recovery-record retention until explicit close.
+
 ## Context
 
 ADR-006 retained terminal recovery metadata across restarts until the terminal was explicitly

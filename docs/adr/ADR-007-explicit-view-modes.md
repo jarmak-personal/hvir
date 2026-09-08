@@ -1,5 +1,7 @@
 # ADR-007: Explicit rendered, source, and diff view modes
 
+> Lifecycle: Active
+
 ## Context
 
 Different files and entry points have useful default representations, but invisible

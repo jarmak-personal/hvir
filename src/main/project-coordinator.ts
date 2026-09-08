@@ -1,5 +1,9 @@
+import { homedir } from 'node:os'
+
 import {
   LOCAL_HOST_ID,
+  asHostId,
+  hostPath,
   type BrowseHostResponse,
   type ConnectedHost,
   type HostPath,
@@ -8,6 +12,7 @@ import {
   type RegisteredProjectState,
   type WorkspaceClosePlan,
 } from '../shared'
+import type { ProjectHost } from './project-host/project-host'
 import type { ProjectWatchTarget } from './project-watch'
 import type { WorkspaceRemovalPort } from './workspace-removal-coordinator'
 
@@ -15,9 +20,6 @@ export interface ProjectRegistryPort {
   readonly active: ProjectWatchTarget & { readonly workspaceId: string }
   state(): ProjectState
   projectById(projectId: string): RegisteredProjectState | undefined
-  connectHost(hostId: string): Promise<ConnectedHost>
-  disconnectHost(hostId: string): Promise<ProjectHostOption>
-  browseHost(hostId: string, path: string): Promise<BrowseHostResponse>
   open(hostId: string, path: string): Promise<ProjectState>
   activate(projectId: string, workspaceId: string): Promise<ProjectState>
   closeProject(projectId: string): Promise<ProjectState>
@@ -28,6 +30,14 @@ export interface ProjectRegistryPort {
   ): Promise<ProjectState>
   reopenWorkspace(projectId: string, workspaceId: string): Promise<ProjectState>
   acknowledgeWorkspace(projectId: string, workspaceId: string): Promise<ProjectState>
+}
+
+/** Host control is independent of registered project state and persistence. */
+export interface ProjectHostControlPort {
+  materializeHost(hostId: string): Promise<ProjectHost>
+  hostById(hostId: string): ProjectHost | undefined
+  listHosts(): readonly ProjectHostOption[]
+  disconnectHost(hostId: string): Promise<ProjectHostOption>
 }
 
 export interface ProjectWorkspacePort {
@@ -53,6 +63,7 @@ export interface ProjectHostControlDiagnostic {
 
 export interface ProjectCoordinatorOptions {
   readonly registry: ProjectRegistryPort
+  readonly hosts: ProjectHostControlPort
   readonly workspaces: ProjectWorkspacePort
   readonly cleanup: ProjectCleanupPort
   readonly removal: WorkspaceRemovalPort
@@ -78,7 +89,7 @@ export class ProjectCoordinator {
       await this.settleTransition(transition)
       this.assertCurrent(transition)
       const connected = await this.controlHost('connect', hostId, () =>
-        this.options.registry.connectHost(hostId),
+        this.connectAndSuggestPath(hostId),
       )
       this.assertCurrent(transition)
       if (this.options.registry.active.host.hostId === hostId) {
@@ -116,7 +127,7 @@ export class ProjectCoordinator {
         await Promise.all(roots.map((root) => this.options.cleanup.revokeWorkspace(root)))
         this.assertCurrent(transition)
         const disconnected = await this.controlHost('disconnect', hostId, () =>
-          this.options.registry.disconnectHost(hostId),
+          this.options.hosts.disconnectHost(hostId),
         )
         this.assertCurrent(transition)
         return disconnected
@@ -132,11 +143,30 @@ export class ProjectCoordinator {
     })
   }
 
-  async browseHost(hostId: string, path: string): Promise<BrowseHostResponse> {
+  async browseHost(hostId: string, rawPath: string): Promise<BrowseHostResponse> {
     const generation = this.transitionGeneration
-    const result = await this.options.registry.browseHost(hostId, path)
-    if (generation !== this.transitionGeneration) throw staleTransitionError()
-    return result
+    const host = this.options.hosts.hostById(hostId)
+    if (!host || host.connectionState !== 'connected') {
+      throw new Error(`Connect to ${hostId} before browsing folders`)
+    }
+    if (!rawPath.startsWith('/')) throw new Error('Folder path must be absolute')
+    try {
+      const path = await host.realpath(hostPath(asHostId(hostId), rawPath))
+      const stat = await host.stat(path)
+      if (stat.type !== 'dir') throw new Error(`Not a directory: ${rawPath}`)
+      const directories = (await host.readdir(path))
+        .filter((entry) => entry.type === 'dir')
+        .sort((left, right) => left.name.localeCompare(right.name))
+      if (generation !== this.transitionGeneration) throw staleTransitionError()
+      return { path, directories }
+    } catch (reason) {
+      const code = (reason as { code?: unknown } | undefined)?.code
+      if (code === 2 || code === 'ENOENT')
+        throw new Error(`Folder not found: ${rawPath}`, { cause: reason })
+      if (code === 3 || code === 'EACCES')
+        throw new Error(`Cannot access folder: ${rawPath}`, { cause: reason })
+      throw reason
+    }
   }
 
   openProject(hostId: string, path: string): Promise<ProjectState> {
@@ -308,6 +338,26 @@ export class ProjectCoordinator {
     return this.options.workspaces.serialize(() =>
       this.options.registry.acknowledgeWorkspace(projectId, workspaceId),
     )
+  }
+
+  private async connectAndSuggestPath(hostId: string): Promise<ConnectedHost> {
+    const host = await this.options.hosts.materializeHost(hostId)
+    await host.connect()
+    const active = this.options.registry.active
+    let suggestedPath = active.host.hostId === host.hostId ? active.root.path : '/'
+    if (host.hostId === LOCAL_HOST_ID) {
+      suggestedPath = active.host.hostId === host.hostId ? active.root.path : homedir()
+    } else {
+      const pwd = await host.exec('pwd', [])
+      if (pwd.code === 0 && pwd.stdout.trim().startsWith('/')) {
+        suggestedPath = pwd.stdout.trim()
+      }
+    }
+    const option = this.options.hosts
+      .listHosts()
+      .find((candidate) => candidate.hostId === hostId)
+    if (!option) throw new Error(`Unknown project host: ${hostId}`)
+    return { host: option, suggestedPath }
   }
 
   private beginTransition(): Transition {

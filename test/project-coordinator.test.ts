@@ -1,14 +1,19 @@
 /* eslint-disable @typescript-eslint/unbound-method -- assertions inspect typed Vitest port mocks */
 
 import { describe, expect, it, vi } from 'vitest'
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { homedir, tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import {
   ProjectCoordinator,
   type ProjectCleanupPort,
+  type ProjectHostControlPort,
   type ProjectRegistryPort,
   type ProjectWorkspacePort,
 } from '../src/main/project-coordinator'
-import type { ProjectHost } from '../src/main/project-host'
+import { ProjectHostCatalog, type ProjectHost } from '../src/main/project-host'
+import { ProjectRegistry } from '../src/main/project-registry'
 import type { WorkspaceRemovalPort } from '../src/main/workspace-removal-coordinator'
 import {
   asHostId,
@@ -92,11 +97,22 @@ function fixture() {
     hostId: remoteRoot.hostId,
     connectionState: 'connected',
     watchTier: 'polling',
+    connect: vi.fn(() => Promise.resolve()),
+    exec: vi.fn<ProjectHost['exec']>(() =>
+      Promise.resolve({ code: 0, signal: null, stdout: '/project\n', stderr: '' }),
+    ),
+    realpath: vi.fn<ProjectHost['realpath']>((path) => Promise.resolve(path)),
+    stat: vi.fn<ProjectHost['stat']>(() =>
+      Promise.resolve({ type: 'dir', size: 0, mtimeMs: 0, mode: 0o755 }),
+    ),
+    readdir: vi.fn<ProjectHost['readdir']>(() => Promise.resolve([])),
   } as unknown as ProjectHost
   const localHost = {
     hostId: localRoot.hostId,
     connectionState: 'connected',
     watchTier: 'native',
+    connect: vi.fn(() => Promise.resolve()),
+    exec: vi.fn<ProjectHost['exec']>(),
   } as unknown as ProjectHost
   let active = {
     host: remoteHost,
@@ -114,25 +130,36 @@ function fixture() {
     } as ProjectHostOption,
     suggestedPath: '/project',
   }
-  const registry: ProjectRegistryPort = {
-    get active() {
-      return active
-    },
-    state: () => state,
-    projectById: (id) => state.projects.find((project) => project.id === id),
-    connectHost: vi.fn<ProjectRegistryPort['connectHost']>(() =>
-      Promise.resolve(connected),
+  const hosts: ProjectHostControlPort = {
+    materializeHost: vi.fn<ProjectHostControlPort['materializeHost']>((id) =>
+      Promise.resolve(id === 'local' ? localHost : remoteHost),
     ),
-    disconnectHost: vi.fn<ProjectRegistryPort['disconnectHost']>(() => {
+    hostById: (id) =>
+      id === 'dev' ? remoteHost : id === 'local' ? localHost : undefined,
+    listHosts: () => [
+      connected.host,
+      {
+        hostId: 'local',
+        label: 'Local',
+        kind: 'local',
+        connectionState: 'connected',
+        watchTier: 'native',
+      },
+    ],
+    disconnectHost: vi.fn<ProjectHostControlPort['disconnectHost']>(() => {
       Object.assign(remoteHost, { connectionState: 'disconnected' })
       return Promise.resolve({
         ...connected.host,
         connectionState: 'disconnected' as const,
       })
     }),
-    browseHost: vi.fn<ProjectRegistryPort['browseHost']>(() =>
-      Promise.resolve({ path: remoteRoot, directories: [] }),
-    ),
+  }
+  const registry: ProjectRegistryPort = {
+    get active() {
+      return active
+    },
+    state: () => state,
+    projectById: (id) => state.projects.find((project) => project.id === id),
     open: vi.fn<ProjectRegistryPort['open']>(() => Promise.resolve(state)),
     activate: vi.fn<ProjectRegistryPort['activate']>((projectId, workspaceId) => {
       const remote = projectId === 'project-1'
@@ -179,10 +206,16 @@ function fixture() {
     ),
   }
   let serializeCalls = 0
+  let serialized = Promise.resolve()
   const workspaces: ProjectWorkspacePort = {
     serialize: <T>(operation: () => Promise<T>): Promise<T> => {
       serializeCalls++
-      return operation()
+      const result = serialized.then(operation)
+      serialized = result.then(
+        () => undefined,
+        () => undefined,
+      )
+      return result
     },
     refresh: vi.fn<ProjectWorkspacePort['refresh']>(() => Promise.resolve(state)),
     replaceWatch: vi.fn<ProjectWorkspacePort['replaceWatch']>(() => Promise.resolve()),
@@ -212,6 +245,7 @@ function fixture() {
   }> = []
   const coordinator = new ProjectCoordinator({
     registry,
+    hosts,
     workspaces,
     cleanup,
     removal,
@@ -221,10 +255,12 @@ function fixture() {
   return {
     coordinator,
     registry,
+    hosts,
     workspaces,
     cleanup,
     removal,
     remoteHost,
+    localHost,
     get active() {
       return active
     },
@@ -237,6 +273,246 @@ function fixture() {
 }
 
 describe('ProjectCoordinator', () => {
+  it('connects and browses through the real local catalog and filesystem', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hvir-coordinator-local-'))
+    let catalog: ProjectHostCatalog | undefined
+    let registry: ProjectRegistry | undefined
+    try {
+      await mkdir(join(root, 'zeta'))
+      await mkdir(join(root, 'alpha'))
+      await writeFile(join(root, 'file.txt'), 'not a directory')
+      catalog = await ProjectHostCatalog.create({
+        prompter: { prompt: () => Promise.resolve(undefined) },
+        trustFile: localPath(join(root, 'known-hosts.json')),
+        home: root,
+        agentSocket: '',
+      })
+      registry = await ProjectRegistry.create(
+        localPath(root),
+        catalog,
+        join(root, 'projects.json'),
+        () => undefined,
+      )
+      const { workspaces, cleanup, removal } = fixture()
+      const coordinator = new ProjectCoordinator({
+        registry,
+        hosts: catalog,
+        workspaces,
+        cleanup,
+        removal,
+      })
+      const canonicalRoot = await realpath(root)
+
+      await expect(coordinator.connectHost('local')).resolves.toMatchObject({
+        host: { hostId: 'local', connectionState: 'connected' },
+        suggestedPath: canonicalRoot,
+      })
+      await expect(coordinator.browseHost('local', root)).resolves.toEqual({
+        path: localPath(canonicalRoot),
+        directories: [
+          { name: 'alpha', type: 'dir' },
+          { name: 'zeta', type: 'dir' },
+        ],
+      })
+      const missing = join(root, 'missing')
+      await expect(coordinator.browseHost('local', missing)).rejects.toMatchObject({
+        message: `Folder not found: ${missing}`,
+        cause: { code: 'ENOENT' },
+      })
+    } finally {
+      try {
+        await registry?.dispose()
+      } finally {
+        try {
+          await catalog?.dispose()
+        } finally {
+          await rm(root, { recursive: true, force: true })
+        }
+      }
+    }
+  })
+
+  it('suggests the active local root or local home without running a remote pwd', async () => {
+    const { coordinator, localHost } = fixture()
+    await expect(coordinator.connectHost('local')).resolves.toMatchObject({
+      suggestedPath: homedir(),
+      host: { hostId: 'local', connectionState: 'connected' },
+    })
+    await coordinator.switchWorkspace('project-2', 'workspace-2')
+    await expect(coordinator.connectHost('local')).resolves.toMatchObject({
+      suggestedPath: '/other',
+    })
+    expect(localHost.exec).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { code: 0, stdout: '  /home/remote\n', expected: '/home/remote' },
+    { code: 0, stdout: 'relative\n', expected: '/project' },
+    { code: 0, stdout: '', expected: '/project' },
+    { code: 1, stdout: '/ignored', expected: '/project' },
+  ])(
+    'preserves remote pwd suggestion rules for $code/$stdout',
+    async ({ code, stdout, expected }) => {
+      const { coordinator, remoteHost } = fixture()
+      vi.mocked(remoteHost.exec).mockResolvedValueOnce({
+        code,
+        stdout,
+        signal: null,
+        stderr: '',
+      })
+      await expect(coordinator.connectHost('dev')).resolves.toMatchObject({
+        suggestedPath: expected,
+      })
+      expect(remoteHost.exec).toHaveBeenCalledWith('pwd', [])
+    },
+  )
+
+  it('falls back to the remote filesystem root when no project on that host is active', async () => {
+    const { coordinator, remoteHost, workspaces } = fixture()
+    await coordinator.switchWorkspace('project-2', 'workspace-2')
+    vi.mocked(workspaces.replaceWatch).mockClear()
+    vi.mocked(remoteHost.exec).mockResolvedValueOnce({
+      code: 1,
+      stdout: '',
+      signal: null,
+      stderr: '',
+    })
+    await expect(coordinator.connectHost('dev')).resolves.toMatchObject({
+      suggestedPath: '/',
+    })
+    expect(workspaces.replaceWatch).not.toHaveBeenCalled()
+    expect(workspaces.refresh).toHaveBeenCalledWith('project-1')
+  })
+
+  it('preserves materialization, pwd, and presentation lookup failures', async () => {
+    const { coordinator, hosts, remoteHost, hostDiagnostics } = fixture()
+    vi.mocked(hosts.materializeHost).mockRejectedValueOnce(
+      new Error('Unknown SSH host alias: absent'),
+    )
+    await expect(coordinator.connectHost('absent')).rejects.toThrow(
+      'Unknown SSH host alias: absent',
+    )
+    vi.mocked(remoteHost.exec).mockRejectedValueOnce(new Error('remote pwd failed'))
+    await expect(coordinator.connectHost('dev')).rejects.toThrow('remote pwd failed')
+    hosts.listHosts = () => []
+    await expect(coordinator.connectHost('dev')).rejects.toThrow(
+      'Unknown project host: dev',
+    )
+    expect(hostDiagnostics).toEqual(
+      Array.from({ length: 3 }, () => ({ operation: 'connect', hostKind: 'ssh' })),
+    )
+  })
+
+  it('browses canonical host-qualified directories in name order', async () => {
+    const { coordinator, remoteHost } = fixture()
+    vi.mocked(remoteHost.realpath).mockResolvedValueOnce(remoteRoot)
+    vi.mocked(remoteHost.readdir).mockResolvedValueOnce([
+      { name: 'zeta', type: 'dir' },
+      { name: 'file.txt', type: 'file' },
+      { name: 'linked-dir', type: 'symlink' },
+      { name: 'alpha', type: 'dir' },
+    ])
+    await expect(coordinator.browseHost('dev', '/alias')).resolves.toEqual({
+      path: remoteRoot,
+      directories: [
+        { name: 'alpha', type: 'dir' },
+        { name: 'zeta', type: 'dir' },
+      ],
+    })
+    expect(remoteHost.realpath).toHaveBeenCalledWith(hostPath(asHostId('dev'), '/alias'))
+    expect(remoteHost.stat).toHaveBeenCalledWith(remoteRoot)
+    expect(remoteHost.readdir).toHaveBeenCalledWith(remoteRoot)
+  })
+
+  it('rejects missing/disconnected hosts and relative paths before browsing', async () => {
+    const { coordinator, remoteHost } = fixture()
+    await expect(coordinator.browseHost('absent', '/')).rejects.toThrow(
+      'Connect to absent before browsing folders',
+    )
+    await expect(coordinator.browseHost('dev', 'relative')).rejects.toThrow(
+      'Folder path must be absolute',
+    )
+    Object.assign(remoteHost, { connectionState: 'disconnected' })
+    await expect(coordinator.browseHost('dev', '/')).rejects.toThrow(
+      'Connect to dev before browsing folders',
+    )
+    expect(remoteHost.realpath).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    [2, 'Folder not found'],
+    ['ENOENT', 'Folder not found'],
+    [3, 'Cannot access folder'],
+    ['EACCES', 'Cannot access folder'],
+  ])('maps browse error %s at the host boundary', async (code, message) => {
+    const { coordinator, remoteHost } = fixture()
+    const reason = Object.assign(new Error('host detail'), { code })
+    vi.mocked(remoteHost.realpath).mockRejectedValueOnce(reason)
+    await expect(coordinator.browseHost('dev', '/project')).rejects.toMatchObject({
+      message: `${message}: /project`,
+      cause: reason,
+    })
+  })
+
+  it('rejects non-directories and preserves unmapped browse failures', async () => {
+    const { coordinator, remoteHost } = fixture()
+    vi.mocked(remoteHost.stat).mockResolvedValueOnce({
+      type: 'file',
+      size: 0,
+      mtimeMs: 0,
+      mode: 0o644,
+    })
+    await expect(coordinator.browseHost('dev', '/project')).rejects.toThrow(
+      'Not a directory: /project',
+    )
+    expect(remoteHost.readdir).not.toHaveBeenCalled()
+    const error = new Error('directory read failed')
+    vi.mocked(remoteHost.readdir).mockRejectedValueOnce(error)
+    await expect(coordinator.browseHost('dev', '/project')).rejects.toBe(error)
+  })
+
+  it('restores the active watch after disconnect or cleanup failure while the transition owns it', async () => {
+    const { coordinator, hosts, cleanup, workspaces, hostDiagnostics } = fixture()
+    vi.mocked(hosts.disconnectHost).mockRejectedValueOnce(new Error('disconnect failed'))
+    await expect(coordinator.disconnectHost('dev')).rejects.toThrow('disconnect failed')
+    expect(vi.mocked(workspaces.replaceWatch).mock.calls).toEqual([
+      [],
+      [expect.objectContaining({ root: remoteRoot })],
+    ])
+    vi.mocked(workspaces.replaceWatch).mockClear()
+    vi.mocked(hosts.disconnectHost).mockClear()
+    vi.mocked(cleanup.revokeWorkspace).mockRejectedValueOnce(new Error('cleanup failed'))
+    await expect(coordinator.disconnectHost('dev')).rejects.toThrow('cleanup failed')
+    expect(vi.mocked(workspaces.replaceWatch).mock.calls).toEqual([
+      [],
+      [expect.objectContaining({ root: remoteRoot })],
+    ])
+    expect(hosts.disconnectHost).not.toHaveBeenCalled()
+    expect(hostDiagnostics).toEqual([{ operation: 'disconnect', hostKind: 'ssh' }])
+  })
+
+  it('does not restore a stale watch when disconnect is superseded during cleanup', async () => {
+    const { coordinator, hosts, cleanup, workspaces } = fixture()
+    let finish!: () => void
+    vi.mocked(cleanup.revokeWorkspace).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve
+        }),
+    )
+    const disconnect = coordinator.disconnectHost('dev')
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
+    const switchWorkspace = coordinator.switchWorkspace('project-2', 'workspace-2')
+    finish()
+    await expect(disconnect).rejects.toThrow('superseded')
+    await switchWorkspace
+    expect(hosts.disconnectHost).not.toHaveBeenCalled()
+    expect(vi.mocked(workspaces.replaceWatch).mock.calls).toEqual([
+      [],
+      [expect.objectContaining({ root: localRoot })],
+    ])
+  })
+
   it('opens through one serialized transition and installs the discovered watch', async () => {
     const result = fixture()
     const { coordinator, registry, workspaces } = result
@@ -253,11 +529,12 @@ describe('ProjectCoordinator', () => {
   })
 
   it('reconnects the active host, replaces its watch, and refreshes only that host', async () => {
-    const { coordinator, registry, workspaces } = fixture()
+    const { coordinator, hosts, remoteHost, workspaces } = fixture()
 
     await coordinator.connectHost('dev')
 
-    expect(registry.connectHost).toHaveBeenCalledWith('dev')
+    expect(hosts.materializeHost).toHaveBeenCalledWith('dev')
+    expect(remoteHost.connect).toHaveBeenCalledOnce()
     expect(workspaces.replaceWatch).toHaveBeenCalledWith(
       expect.objectContaining({ root: remoteRoot }),
     )
@@ -277,19 +554,19 @@ describe('ProjectCoordinator', () => {
   })
 
   it('disconnects after stale work settles and revokes host-qualified workspaces', async () => {
-    const { coordinator, registry, workspaces, cleanup } = fixture()
+    const { coordinator, hosts, workspaces, cleanup } = fixture()
 
     await coordinator.disconnectHost('dev')
 
     expect(workspaces.replaceWatch).toHaveBeenCalledWith()
-    expect(registry.disconnectHost).toHaveBeenCalledWith('dev')
+    expect(hosts.disconnectHost).toHaveBeenCalledWith('dev')
     expect(cleanup.revokeWorkspace).toHaveBeenCalledWith(remoteRoot)
     expect(cleanup.revokeWorkspace).toHaveBeenCalledWith(remoteOtherRoot)
   })
 
   it('reports closed host-control diagnostics while preserving connect failures', async () => {
-    const { coordinator, registry, hostDiagnostics } = fixture()
-    vi.mocked(registry.connectHost).mockRejectedValueOnce(
+    const { coordinator, remoteHost, hostDiagnostics } = fixture()
+    vi.mocked(remoteHost.connect).mockRejectedValueOnce(
       new Error('ssh password TOKEN=hvir-private rejected'),
     )
 
@@ -299,8 +576,8 @@ describe('ProjectCoordinator', () => {
   })
 
   it('reports disconnect control failure separately from cleanup', async () => {
-    const { coordinator, registry, hostDiagnostics } = fixture()
-    vi.mocked(registry.disconnectHost).mockRejectedValueOnce(
+    const { coordinator, hosts, hostDiagnostics } = fixture()
+    vi.mocked(hosts.disconnectHost).mockRejectedValueOnce(
       new Error('remote control failed'),
     )
 
@@ -411,22 +688,12 @@ describe('ProjectCoordinator', () => {
   })
 
   it('rejects a delayed connect after a newer switch and leaks no stale watch', async () => {
-    const { coordinator, registry, workspaces } = fixture()
+    const { coordinator, remoteHost, workspaces } = fixture()
     let finishConnect: (() => void) | undefined
-    vi.mocked(registry.connectHost).mockImplementationOnce(
+    vi.mocked(remoteHost.connect).mockImplementationOnce(
       () =>
         new Promise((resolve) => {
-          finishConnect = () =>
-            resolve({
-              host: {
-                hostId: 'dev',
-                label: 'dev',
-                kind: 'ssh',
-                connectionState: 'connected',
-                watchTier: 'polling',
-              },
-              suggestedPath: '/project',
-            })
+          finishConnect = resolve
         }),
     )
     const connect = coordinator.connectHost('dev')
@@ -462,12 +729,12 @@ describe('ProjectCoordinator', () => {
   })
 
   it('rejects a browse result completed after a lifecycle transition', async () => {
-    const { coordinator, registry } = fixture()
+    const { coordinator, remoteHost } = fixture()
     let finishBrowse: (() => void) | undefined
-    vi.mocked(registry.browseHost).mockImplementationOnce(
+    vi.mocked(remoteHost.realpath).mockImplementationOnce(
       () =>
         new Promise((resolve) => {
-          finishBrowse = () => resolve({ path: remoteRoot, directories: [] })
+          finishBrowse = () => resolve(remoteRoot)
         }),
     )
     const browse = coordinator.browseHost('dev', '/project')

@@ -33,6 +33,17 @@ export class SmokeCleanup {
     this.tasks.push({ name, task })
   }
 
+  acquire<T>(
+    name: string,
+    create: () => T,
+    dispose: (resource: T) => void | Promise<void>,
+  ): T {
+    if (this.completed) throw new Error('Smoke cleanup has already run')
+    const resource = create()
+    this.defer(name, () => dispose(resource))
+    return resource
+  }
+
   async run(): Promise<void> {
     if (this.completed) return
     this.completed = true

@@ -20,11 +20,8 @@ import {
   type HostPath,
 } from '../../shared'
 import type { ProjectHost } from '../project-host'
-import {
-  harnessProvider,
-  harnessProviders,
-  type HarnessProvider,
-} from './harness-provider'
+import { harnessProvider, harnessProviders } from './bundled-harness-providers'
+import type { HarnessProvider } from './harness-provider-contract'
 
 const FILE_VERSION = 1
 const MAX_PROFILES = 200

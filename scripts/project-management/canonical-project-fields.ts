@@ -29,7 +29,7 @@ export function requireCanonicalSingleSelectField(
   context: CanonicalProjectSchema,
   name: string,
   expectedOptions: readonly string[],
-  missingSchema: 'single-select' | 'agent-work measurement',
+  missingSchema: 'single-select' | 'contributor tokens',
 ): CanonicalSingleSelectField {
   const field = requireUniqueField(context, name, missingSchema)
   if (field.typename !== 'ProjectV2SingleSelectField' || field.options === undefined) {
@@ -52,7 +52,7 @@ export function requireCanonicalValueField(
   context: CanonicalProjectSchema,
   name: string,
   type: 'number' | 'text',
-  missingSchema: 'agent-work measurement',
+  missingSchema: 'contributor tokens',
 ): { id: string } {
   const field = requireUniqueField(context, name, missingSchema)
   const expectedDataType = type === 'number' ? 'NUMBER' : 'TEXT'
@@ -151,7 +151,7 @@ export async function clearCanonicalField(
 function requireUniqueField(
   context: CanonicalProjectSchema,
   name: string,
-  missingSchema: 'single-select' | 'agent-work measurement',
+  missingSchema: 'single-select' | 'contributor tokens',
 ): CanonicalProjectField & { id: string } {
   const matches = context.fields.filter((field) => field.name === name)
   if (matches.length === 0) {

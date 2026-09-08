@@ -1,5 +1,8 @@
 # ADR-035: Bounded OSC 52 clipboard write
 
+> Lifecycle: Active
+> Supersedes: [ADR-014](ADR-014-modular-monolith-ownership.md) | partial | Expiry and removal metadata requirement for the named terminal-runtime.ts 600-line non-growth cap.
+
 ## Context
 
 OSC 52 lets a program attached to a terminal request access to the application-host clipboard.

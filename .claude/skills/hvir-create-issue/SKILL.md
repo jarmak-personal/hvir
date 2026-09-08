@@ -25,12 +25,6 @@ Treat drafting and publishing as separate approvals:
 Do not infer either approval from silence, the usefulness of the finding, a general preference
 for issue-first development, or permission granted for a different issue.
 
-After the first approval, read
-[`references/issue-planning-measurement.md`](references/issue-planning-measurement.md) completely
-and follow it for the authorized planning run, forecast, exact preview, publication, measurement,
-recovery, and handoff. Missing measurement evidence never blocks issue work. Do not capture or
-reconstruct usage for brainstorming that happened before authorization.
-
 ## Establish context
 
 1. Read `AGENTS.md`, `CONTRIBUTING.md`, `docs/design.md`, and the ADR index.
@@ -122,6 +116,18 @@ the relevant platform or host type. For refactors, name the behavior that must r
 and the ownership or dependency problem being corrected. Do not use line count alone as the
 reason for a refactor.
 
+When the outcome creates or changes an owner, seam, dependency direction, or exceptional budget,
+record the [architecture constraints](../../../CONTRIBUTING.md#record-architecture-constraints-when-structure-changes)
+before implementation. Record the facts in a conditional Architecture constraints section or
+reference their exact accepted location; keep unresolved choices in Design and architecture
+questions. Apply the structural trigger to bugs too; a new file alone does not trigger it.
+An epic records common constraints, and its
+structural children record their focused boundaries with references to accepted common constraints.
+Use the linked budget and dependency policy and [worked examples](../../../CONTRIBUTING.md#worked-examples)
+to select existing enforcement or justify focused evidence. Required policy relaxations remain
+separate proposals awaiting independent acceptance. This step changes neither review selection
+nor the separate drafting and publication approvals.
+
 Acceptance criteria must test the outcome. They must not require a file-by-file design. Include
 local and SSH parity, responsiveness, resource cleanup, and security behavior when the affected
 capability creates those risks. Do not add criteria that are unrelated to the identified risks.
@@ -129,13 +135,17 @@ capability creates those risks. Do not add criteria that are unrelated to the id
 ## Preview and create
 
 Present the exact title, body, and applicable repository labels. List assumptions and open
-questions separately. Include the forecast and intended Project values required by the planning
-measurement reference.
+questions separately. Do not create a forecast rubric or accounting record.
 
 Stop after the preview and request explicit publication approval. Once the user approves the
 exact draft, create it in `jarmak-personal/hvir` when GitHub issue tooling is available;
 otherwise return the approved, copy-ready draft. Never publish a materially changed title,
 body, or label set without previewing it again.
+
+After publication, use `project:record --issue <issue> --ensure-project` to plan and apply
+membership when needed; normal automation owns Kind and Status. Read
+[`../hvir-implement-issue/references/contributor-status.md`](../hvir-implement-issue/references/contributor-status.md)
+for the compact handoff. Omit `--pr` when none exists. Optional usage never blocks publication.
 
 Never start implementation as part of this skill; the issue discussion is where alignment
 happens.

@@ -1,5 +1,7 @@
 # ADR-004: CodeMirror 6 and Shiki for the code viewer
 
+> Lifecycle: Active
+
 ## Context
 
 hvir is a read-first workbench that must render source beautifully while supporting only

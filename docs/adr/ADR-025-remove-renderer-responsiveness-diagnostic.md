@@ -1,5 +1,8 @@
 # ADR-025: Remove the renderer-responsiveness diagnostic
 
+> Lifecycle: Active
+> Supersedes: [ADR-016](ADR-016-bounded-local-runtime-diagnostics.md) | partial | Responsiveness episode candidate and its opt-in renderer diagnostic experiment.
+
 ## Context
 
 ADR-016 admitted one low-confidence exception to hvir's bounded runtime diagnostics: an

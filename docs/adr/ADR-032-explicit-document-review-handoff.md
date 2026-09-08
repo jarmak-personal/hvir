@@ -1,5 +1,8 @@
 # ADR-032: Explicit document review anchors and provider-safe handoff
 
+> Lifecycle: Active
+> Supersedes: [ADR-017](ADR-017-defer-direct-diagnostic-report-delivery.md) | partial | PTY text delivery prohibition only for explicit prepared document-review payloads through revisioned atomic bracketed paste and exact PTY authority.
+
 ## Context
 
 hvir users review agent-authored Markdown in the viewer and respond through native harness

@@ -2,7 +2,7 @@ import type { ProjectHost } from '../project-host'
 import type {
   HarnessResumeAvailability,
   HarnessResumeValidationContext,
-} from './harness-provider'
+} from './harness-provider-contract'
 import { resolveClaudeSessionArtifact } from './claude-session-artifact'
 
 const CLAUDE_RESUME_AVAILABILITY_SCRIPT = `

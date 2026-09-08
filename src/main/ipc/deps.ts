@@ -20,12 +20,12 @@ import type { RemoteImagePasteCoordinator } from '../harness/remote-image-paste'
 import type { HtmlPreviewProtocol } from '../html-preview-protocol'
 import type { ProjectHost } from '../project-host'
 import type { PtySupervisor } from '../pty/pty-supervisor'
-import type { RendererOwner, RendererResourceScopes } from '../renderer-resource-scopes'
+import type { RendererOwner } from '../renderer-resource-scopes'
 import type { TerminalSessionStore } from '../terminal/session-registry'
 import type { TerminalWorkspaceMoveCoordinator } from '../terminal/terminal-workspace-move-coordinator'
 import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
 import type { WorkerClient } from '../worker-host'
-import type { IpcContractDiagnostic } from './authority-router'
+import type { IpcRouterAuthorityPort } from './authority-port'
 import type { DiagnosticReportCoordinator } from '../diagnostics/diagnostic-report-coordinator'
 import type { RuntimeDiagnostics } from '../diagnostics/runtime-diagnostics'
 import type { FilenameSearchCoordinator } from '../filename-search/filename-search-coordinator'
@@ -48,7 +48,7 @@ export interface SystemClipboardPort {
   writeText(text: string): void
 }
 
-export interface IpcDeps {
+export interface IpcDeps extends IpcRouterAuthorityPort {
   readonly echoWorker: WorkerClient<EchoWorkerProtocol>
   readonly gitWorker: WorkerClient<GitWorkerProtocol>
   readonly filenameSearch: Pick<FilenameSearchCoordinator, 'search' | 'cancel' | 'revoke'>
@@ -79,12 +79,9 @@ export interface IpcDeps {
     DocumentReviewDeliveryCoordinator,
     'preview' | 'destinations' | 'prepare' | 'insert' | 'sendNow'
   >
-  readonly getProject: () => { readonly host: ProjectHost; readonly root: HostPath }
   readonly getHost: (hostId: string) => ProjectHost | undefined
   readonly connectedHosts: () => readonly ProjectHost[]
-  readonly getRegisteredWorkspaceRoot: (root: HostPath) => HostPath | undefined
   readonly revealLocalEntry: (path: HostPath) => void
-  readonly getProjectState: () => ProjectState
   readonly listHosts: () => readonly ProjectHostOption[]
   readonly connectHost: (hostId: string, owner: RendererOwner) => Promise<ConnectedHost>
   readonly disconnectHost: (hostId: string) => Promise<ProjectHostOption>
@@ -138,7 +135,6 @@ export interface IpcDeps {
     id: number,
     answers?: readonly string[],
   ) => void
-  readonly rendererResources: RendererResourceScopes
   readonly rendererReady: (owner: RendererOwner, reportedGeneration: number) => void
   readonly getWorkbenchHealth: () => WorkbenchHealthSnapshot
   readonly acknowledgeWorkbenchHealth: (occurrenceId: string) => WorkbenchHealthSnapshot
@@ -149,7 +145,6 @@ export interface IpcDeps {
     >
     readonly evidence: Pick<RuntimeDiagnostics, 'evidenceState' | 'deleteEvidence'>
   }
-  readonly recordIpcContractDiagnostic: (event: IpcContractDiagnostic) => void
   readonly recordRenderContainment: (
     owner: RendererOwner,
     batch: RenderContainmentDiagnosticBatch,
