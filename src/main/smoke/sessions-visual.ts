@@ -90,7 +90,8 @@ async function assertOverviewGeometry(win: BrowserWindow): Promise<void> {
         const footer = card.querySelector('footer');
         const title = card.querySelector('h3');
         const buttons = [...footer.querySelectorAll('button')];
-        if (!inside(card, card.closest('.sessions-group')) ||
+        if (!footer.querySelector('.session-fact.activity dd')?.textContent ||
+            !inside(card, card.closest('.sessions-group')) ||
             ![title, footer, ...footer.querySelectorAll('dd'), ...buttons].every(child => inside(child, card)) ||
             card.scrollWidth > card.clientWidth + 2 ||
             title.getBoundingClientRect().bottom > footer.getBoundingClientRect().top ||

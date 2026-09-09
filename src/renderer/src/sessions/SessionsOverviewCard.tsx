@@ -64,7 +64,7 @@ export function SessionsOverviewCard({
 function Fact({ fact }: { readonly fact: SessionsOverviewCardFact }): ReactElement {
   return (
     <div
-      className={`session-fact ${fact.tone}${fact.label === 'Attention' || fact.label === 'Working' ? ' activity' : ''}`}
+      className={`session-fact ${fact.tone}${fact.label === 'Status' ? ' status activity' : fact.label === 'Attention' || fact.label === 'Working' ? ' activity' : ''}`}
     >
       <dt>{fact.label}</dt>
       <dd>{fact.value}</dd>

@@ -103,7 +103,7 @@ function titleCarriesIdentity(title: string, identity: string): boolean {
 export function sessionsOverviewCardFacts(
   row: SessionsProjectionRow,
 ): SessionsOverviewCardFacts {
-  const candidates = [
+  const activity = [
     fact(
       'Attention',
       row.attention,
@@ -118,6 +118,14 @@ export function sessionsOverviewCardFacts(
       () => false,
       Boolean,
     ),
+  ].filter((candidate): candidate is SessionsOverviewCardFact => candidate !== undefined)
+  const candidates = [
+    ...(activity.length === 0 ||
+    row.lifecycle !== 'live' ||
+    row.connectionState !== 'connected'
+      ? [sessionLifecycleFact(row)]
+      : []),
+    ...activity,
     fact(
       'Provider turn',
       row.turn,
@@ -129,6 +137,19 @@ export function sessionsOverviewCardFacts(
     fact('Model', row.model, (value) => value.displayName ?? value.id),
   ].filter((candidate): candidate is SessionsOverviewCardFact => candidate !== undefined)
   return { facts: candidates }
+}
+
+/** Neutral presence/availability is not actionable attention or provider readiness. */
+function sessionLifecycleFact(row: SessionsProjectionRow): SessionsOverviewCardFact {
+  const value =
+    row.connectionState !== 'connected'
+      ? row.connectionState === 'failed'
+        ? 'Connection failed'
+        : sentenceCase(row.connectionState)
+      : row.lifecycle === 'retained'
+        ? 'Saved'
+        : sentenceCase(row.lifecycle)
+  return { label: 'Status', value, tone: 'available' }
 }
 
 function fact<T>(

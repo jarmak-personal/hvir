@@ -183,23 +183,87 @@ describe('Sessions overview policy', () => {
     })
 
     expect(presentation.facts).toEqual([
+      { label: 'Status', value: 'Saved', tone: 'available' },
       { label: 'Model', value: 'Stale · model-safe', tone: 'stale' },
     ])
   })
 
-  it('omits neutral activity without hiding non-neutral action', () => {
+  it('fills quiet footers without hiding non-neutral action', () => {
     const quiet = sessionsOverviewCardFacts(row('quiet'))
     const attention = sessionsOverviewCardFacts(
       row('attention', { attention: 'bell', working: true }),
     )
 
-    expect(quiet.facts).toEqual([])
+    expect(quiet.facts).toEqual([{ label: 'Status', value: 'Saved', tone: 'available' }])
     expect(attention.facts).toEqual(
       expect.arrayContaining([
         { label: 'Attention', value: 'Bell', tone: 'actionable' },
         { label: 'Working', value: 'Working', tone: 'available' },
       ]),
     )
+  })
+
+  it.each([
+    ['retained', 'Saved'],
+    ['live', 'Live'],
+    ['starting', 'Starting'],
+    ['resuming', 'Resuming'],
+    ['stopped', 'Stopped'],
+    ['unavailable', 'Unavailable'],
+  ] as const)(
+    'shows %s as a quiet %s badge without asserting readiness',
+    (lifecycle, value) => {
+      const fixture = row('quiet', { lifecycle })
+      expect(sessionsOverviewCardFacts(fixture).facts).toEqual([
+        { label: 'Status', value, tone: 'available' },
+      ])
+      expect(filtered([fixture], 'attention')).toEqual([])
+      expect(filtered([fixture], 'working')).toEqual([])
+    },
+  )
+
+  it.each([
+    ['disconnected', 'Disconnected'],
+    ['connecting', 'Connecting'],
+    ['reconnecting', 'Reconnecting'],
+    ['failed', 'Connection failed'],
+  ] as const)(
+    'shows %s instead of suggesting the terminal is live',
+    (connectionState, value) => {
+      const fixture = {
+        ...row('remote', { lifecycle: 'live', attention: 'bell' }),
+        connectionState,
+      }
+      expect(sessionsOverviewCardFacts(fixture).facts).toEqual([
+        { label: 'Status', value, tone: 'available' },
+        { label: 'Attention', value: 'Bell', tone: 'actionable' },
+      ])
+    },
+  )
+
+  it('keeps current attention/activity first for live sessions and labels missing facts honestly', () => {
+    for (const attention of ['ready', 'bell'] as const) {
+      expect(
+        sessionsOverviewCardFacts(row('active', { lifecycle: 'live', attention })).facts,
+      ).toEqual([
+        {
+          label: 'Attention',
+          value: attention === 'ready' ? 'Ready' : 'Bell',
+          tone: 'actionable',
+        },
+      ])
+    }
+    expect(
+      sessionsOverviewCardFacts(row('working', { lifecycle: 'live', working: true }))
+        .facts,
+    ).toEqual([{ label: 'Working', value: 'Working', tone: 'available' }])
+    expect(
+      sessionsOverviewCardFacts({
+        ...row('unknown', { lifecycle: 'live' }),
+        attention: { status: 'unavailable', reason: 'not-materialized' },
+        working: { status: 'unavailable', reason: 'not-materialized' },
+      }).facts,
+    ).toEqual([{ label: 'Status', value: 'Live', tone: 'available' }])
   })
 
   it('prefers the renderer-safe projected title while preserving group context', () => {
