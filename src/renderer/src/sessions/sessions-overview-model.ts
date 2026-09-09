@@ -147,7 +147,7 @@ function sessionLifecycleFact(row: SessionsProjectionRow): SessionsOverviewCardF
         ? 'Connection failed'
         : sentenceCase(row.connectionState)
       : row.lifecycle === 'retained'
-        ? 'Saved'
+        ? 'Inactive'
         : sentenceCase(row.lifecycle)
   return { label: 'Status', value, tone: 'available' }
 }

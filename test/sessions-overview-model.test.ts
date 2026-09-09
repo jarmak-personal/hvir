@@ -183,7 +183,7 @@ describe('Sessions overview policy', () => {
     })
 
     expect(presentation.facts).toEqual([
-      { label: 'Status', value: 'Saved', tone: 'available' },
+      { label: 'Status', value: 'Inactive', tone: 'available' },
       { label: 'Model', value: 'Stale · model-safe', tone: 'stale' },
     ])
   })
@@ -194,7 +194,9 @@ describe('Sessions overview policy', () => {
       row('attention', { attention: 'bell', working: true }),
     )
 
-    expect(quiet.facts).toEqual([{ label: 'Status', value: 'Saved', tone: 'available' }])
+    expect(quiet.facts).toEqual([
+      { label: 'Status', value: 'Inactive', tone: 'available' },
+    ])
     expect(attention.facts).toEqual(
       expect.arrayContaining([
         { label: 'Attention', value: 'Bell', tone: 'actionable' },
@@ -204,7 +206,7 @@ describe('Sessions overview policy', () => {
   })
 
   it.each([
-    ['retained', 'Saved'],
+    ['retained', 'Inactive'],
     ['live', 'Live'],
     ['starting', 'Starting'],
     ['resuming', 'Resuming'],

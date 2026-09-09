@@ -90,7 +90,7 @@ describe('SessionsOverview', () => {
     expect(shellCard.querySelector('.session-kind')?.textContent).toBe('Shell')
     expect(shellCard.getAttribute('aria-label')).toBe('Shell · Deploy preview shell')
     expect(shellCard.querySelector('.session-fact.status')?.textContent).toBe(
-      'StatusSaved',
+      'StatusInactive',
     )
     expect(shellCard.querySelector('.session-fact-summary')).toBeNull()
     expect(
