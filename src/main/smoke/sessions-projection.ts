@@ -1015,7 +1015,7 @@ function recovery(
     recoverySkipCount: 0,
     hostId: root.hostId,
     cwd: root,
-    title: 'Retained smoke session',
+    title: 'Retained smoke session · Review hierarchy and integrated footer across multiple worktrees and narrow windows',
     position: 0,
     active: true,
     updatedAt: Date.now(),

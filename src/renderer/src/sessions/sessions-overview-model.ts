@@ -103,7 +103,7 @@ function titleCarriesIdentity(title: string, identity: string): boolean {
 export function sessionsOverviewCardFacts(
   row: SessionsProjectionRow,
 ): SessionsOverviewCardFacts {
-  const candidates = [
+  const activity = [
     fact(
       'Attention',
       row.attention,
@@ -111,7 +111,21 @@ export function sessionsOverviewCardFacts(
       (value) => value !== 'none',
       (value) => value !== 'none',
     ),
-    fact('Working', row.working, () => 'Working', Boolean, Boolean),
+    fact(
+      'Working',
+      row.working,
+      () => 'Working',
+      () => false,
+      Boolean,
+    ),
+  ].filter((candidate): candidate is SessionsOverviewCardFact => candidate !== undefined)
+  const candidates = [
+    ...(activity.length === 0 ||
+    row.lifecycle !== 'live' ||
+    row.connectionState !== 'connected'
+      ? [sessionLifecycleFact(row)]
+      : []),
+    ...activity,
     fact(
       'Provider turn',
       row.turn,
@@ -123,6 +137,19 @@ export function sessionsOverviewCardFacts(
     fact('Model', row.model, (value) => value.displayName ?? value.id),
   ].filter((candidate): candidate is SessionsOverviewCardFact => candidate !== undefined)
   return { facts: candidates }
+}
+
+/** Neutral presence/availability is not actionable attention or provider readiness. */
+function sessionLifecycleFact(row: SessionsProjectionRow): SessionsOverviewCardFact {
+  const value =
+    row.connectionState !== 'connected'
+      ? row.connectionState === 'failed'
+        ? 'Connection failed'
+        : sentenceCase(row.connectionState)
+      : row.lifecycle === 'retained'
+        ? 'Inactive'
+        : sentenceCase(row.lifecycle)
+  return { label: 'Status', value, tone: 'available' }
 }
 
 function fact<T>(
@@ -169,10 +196,7 @@ export function sessionsOverviewGroups(
   if (policy.group === 'none') return [{ key: 'all', rows: ordered }]
   const groups = new Map<string, SessionsOverviewGroupModel>()
   for (const row of ordered) {
-    const key =
-      policy.group === 'project'
-        ? `project:${row.project.id}`
-        : `workspace:${row.workspace.id}`
+    const key = `project:${row.project.id}`
     const current = groups.get(key)
     if (current) {
       groups.set(key, { ...current, rows: [...current.rows, row] })
@@ -180,14 +204,32 @@ export function sessionsOverviewGroups(
     }
     groups.set(key, {
       key,
-      label:
-        policy.group === 'project'
-          ? row.project.name
-          : `${row.project.name} / ${row.workspace.name}`,
+      label: row.project.name,
       rows: [row],
     })
   }
-  return [...groups.values()]
+  return [...groups.values()].map((group) =>
+    policy.group === 'workspace'
+      ? { ...group, rows: sessionsOverviewRows(sessionsOverviewWorkspaces(group.rows)) }
+      : group,
+  )
+}
+
+/** Workspace order follows the first matching session, within its owning project. */
+export function sessionsOverviewWorkspaces(
+  rows: readonly SessionsProjectionRow[],
+): readonly SessionsOverviewGroupModel[] {
+  const workspaces = new Map<string, SessionsOverviewGroupModel>()
+  for (const row of rows) {
+    const key = row.workspace.id
+    const current = workspaces.get(key)
+    workspaces.set(key, {
+      key,
+      label: row.workspace.name,
+      rows: [...(current?.rows ?? []), row],
+    })
+  }
+  return [...workspaces.values()]
 }
 
 export function sessionsOverviewRows(
@@ -256,7 +298,7 @@ function groupLabel(group: SessionsOverviewGroup): string {
     case 'project':
       return 'project'
     case 'workspace':
-      return 'workspace'
+      return 'project → worktree'
     case 'none':
       return 'none'
   }

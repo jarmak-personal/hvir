@@ -43,6 +43,7 @@ import {
   sessionsOverviewPage,
   sessionsOverviewPolicyLabel,
   sessionsOverviewRows,
+  sessionsOverviewWorkspaces,
   type SessionsOverviewPolicy,
 } from './sessions-overview-model'
 
@@ -373,68 +374,108 @@ export function SessionsOverview({
             <div className="sessions-groups" role="list" aria-label="hvir sessions">
               {page.groups.map((group, groupIndex) => {
                 const headingId = group.label ? `sessions-group-${groupIndex}` : undefined
+                const sections =
+                  policy.group === 'workspace'
+                    ? sessionsOverviewWorkspaces(group.rows)
+                    : [{ key: group.key, rows: group.rows }]
                 return (
                   <section
                     className={`sessions-group${group.label ? '' : ' ungrouped'}`}
                     key={group.key}
                     aria-labelledby={headingId}
                   >
-                    {group.label ? <h2 id={headingId}>{group.label}</h2> : null}
-                    <div className="sessions-grid">
-                      {group.rows.map((row) => {
-                        const isSelected = selected === row.handle
-                        const liveTerminal = sessionsTerminalSurfaceEligible(row)
-                        const cardIdentity = sessionsOverviewCardIdentity(
-                          row,
-                          policy.group,
-                        )
-                        return (
-                          <article
-                            key={row.handle}
-                            className={`session-card${isSelected ? ' selected' : ''}`}
-                            role="listitem"
-                            aria-current={isSelected ? 'true' : undefined}
-                            aria-label={cardIdentity.accessibleName}
-                            tabIndex={isSelected ? 0 : -1}
-                            ref={(element) => {
-                              if (element) rowElements.current.set(row.handle, element)
-                              else rowElements.current.delete(row.handle)
-                            }}
-                            onFocus={() => setSelected(row.handle)}
-                            onClick={() => setSelected(row.handle)}
-                            onKeyDown={(event) => {
-                              if (
-                                event.key === 'Enter' &&
-                                event.target === event.currentTarget
-                              ) {
-                                event.preventDefault()
-                                if (liveTerminal) void open(row)
-                                return
-                              }
-                              moveFocus(event, row)
-                            }}
+                    {group.label ? (
+                      <header className="sessions-project-header">
+                        <h2 id={headingId}>{group.label}</h2>
+                        <span>
+                          {group.rows.length}{' '}
+                          {group.rows.length === 1 ? 'session' : 'sessions'}
+                        </span>
+                        {group.rows[0]?.host.kind === 'ssh' ? (
+                          <span
+                            className="sessions-project-host"
+                            title={group.rows[0].host.label}
                           >
-                            <SessionsOverviewCard
-                              row={row}
-                              group={policy.group}
-                              opening={opening === row.handle}
-                              onOpen={liveTerminal ? () => void open(row) : undefined}
-                              onInteract={
-                                liveTerminal
-                                  ? () => {
-                                      detailOrigin.current =
-                                        sessionsTerminalOverlayOrigin(
-                                          rowElements.current.get(row.handle),
-                                        )
-                                      detail.open(row, source.snapshot(), foreground)
-                                    }
-                                  : undefined
-                              }
-                            />
-                          </article>
-                        )
-                      })}
-                    </div>
+                            SSH
+                          </span>
+                        ) : null}
+                      </header>
+                    ) : null}
+                    {sections.map((section) => (
+                      <div className="sessions-workspace" key={section.key}>
+                        {'label' in section ? (
+                          <h3 className="sessions-worktree-heading">
+                            <svg
+                              className="sessions-branch-icon"
+                              viewBox="0 0 24 24"
+                              aria-hidden="true"
+                            >
+                              <circle cx="6" cy="4" r="2" />
+                              <circle cx="6" cy="20" r="2" />
+                              <circle cx="18" cy="6" r="2" />
+                              <path d="M6 6v12M18 8v2a6 6 0 0 1-6 6H6" />
+                            </svg>
+                            {section.label}
+                          </h3>
+                        ) : null}
+                        <div className="sessions-grid">
+                          {section.rows.map((row) => {
+                            const isSelected = selected === row.handle
+                            const liveTerminal = sessionsTerminalSurfaceEligible(row)
+                            const cardIdentity = sessionsOverviewCardIdentity(
+                              row,
+                              policy.group,
+                            )
+                            return (
+                              <article
+                                key={row.handle}
+                                className={`session-card${isSelected ? ' selected' : ''}`}
+                                role="listitem"
+                                aria-current={isSelected ? 'true' : undefined}
+                                aria-label={cardIdentity.accessibleName}
+                                tabIndex={isSelected ? 0 : -1}
+                                ref={(element) => {
+                                  if (element)
+                                    rowElements.current.set(row.handle, element)
+                                  else rowElements.current.delete(row.handle)
+                                }}
+                                onFocus={() => setSelected(row.handle)}
+                                onClick={() => setSelected(row.handle)}
+                                onKeyDown={(event) => {
+                                  if (
+                                    event.key === 'Enter' &&
+                                    event.target === event.currentTarget
+                                  ) {
+                                    event.preventDefault()
+                                    if (liveTerminal) void open(row)
+                                    return
+                                  }
+                                  moveFocus(event, row)
+                                }}
+                              >
+                                <SessionsOverviewCard
+                                  row={row}
+                                  group={policy.group}
+                                  opening={opening === row.handle}
+                                  onOpen={liveTerminal ? () => void open(row) : undefined}
+                                  onInteract={
+                                    liveTerminal
+                                      ? () => {
+                                          detailOrigin.current =
+                                            sessionsTerminalOverlayOrigin(
+                                              rowElements.current.get(row.handle),
+                                            )
+                                          detail.open(row, source.snapshot(), foreground)
+                                        }
+                                      : undefined
+                                  }
+                                />
+                              </article>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    ))}
                   </section>
                 )
               })}

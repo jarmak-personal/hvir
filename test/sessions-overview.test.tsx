@@ -60,12 +60,10 @@ describe('SessionsOverview', () => {
     expect(host.textContent).not.toContain('Usage')
     expect(api.usageObserve).not.toHaveBeenCalled()
     expect(host.querySelectorAll('.session-card')).toHaveLength(2)
-    expect(host.querySelector('.sessions-group h2')?.textContent).toBe(
-      'Project One / main',
-    )
+    expect(host.querySelector('.sessions-group h2')?.textContent).toBe('Project One')
     expect(host.querySelector('.sessions-pagination div')).toBeNull()
     expect(host.textContent).toContain(
-      'All sessions · Grouped by workspace · Sorted by attention and activity',
+      'All sessions · Grouped by project → worktree · Sorted by attention and activity',
     )
     expect(host.innerHTML).not.toContain('terminal-private-agent')
     expect(host.innerHTML).not.toContain('terminal-private-shell')
@@ -91,7 +89,9 @@ describe('SessionsOverview', () => {
     )!
     expect(shellCard.querySelector('.session-kind')?.textContent).toBe('Shell')
     expect(shellCard.getAttribute('aria-label')).toBe('Shell · Deploy preview shell')
-    expect(shellCard.querySelectorAll('.session-fact')).toHaveLength(0)
+    expect(shellCard.querySelector('.session-fact.status')?.textContent).toBe(
+      'StatusInactive',
+    )
     expect(shellCard.querySelector('.session-fact-summary')).toBeNull()
     expect(
       [...shellCard.querySelectorAll<HTMLButtonElement>('button')].map((action) =>
@@ -129,7 +129,7 @@ describe('SessionsOverview', () => {
     expect(host.textContent).toContain('Deploy preview shell')
     act(() => button('Working').click())
     expect(host.textContent).toContain('No sessions match')
-    expect(host.textContent).toContain('Working · Grouped by workspace')
+    expect(host.textContent).toContain('Working · Grouped by project → worktree')
     act(() => button('Reset filters').click())
     expect(host.querySelectorAll('.session-card')).toHaveLength(2)
 
@@ -172,29 +172,79 @@ describe('SessionsOverview', () => {
     expect(agentCard.querySelectorAll('button')).toHaveLength(0)
   })
 
-  it('offers project grouping and restores project identity when cards are ungrouped', async () => {
-    installApi()
-    await renderOverview()
-    const group = host.querySelector<HTMLSelectElement>('.sessions-controls select')!
+  it.each(['local', 'ssh'] as const)(
+    'groups %s worktrees and preserves focused actions on updates',
+    async (kind) => {
+      let revision = 7
+      const api = installApi({
+        snapshot: (generation) => {
+          const current = snapshot(generation)
+          const workspace = current.workspaces[0]!
+          return {
+            ...current,
+            revision,
+            workspaces: [
+              { ...workspace, host: { ...workspace.host, kind } },
+              {
+                ...workspace,
+                workspaceId: asSessionsWorkspaceHandle('second-workspace'),
+                workspaceName: 'feature',
+                host: { ...workspace.host, kind },
+              },
+            ],
+            sessions: [
+              ...current.sessions,
+              {
+                ...current.sessions[1]!,
+                handle: asSessionsTerminalHandle('second-shell'),
+                workspaceId: asSessionsWorkspaceHandle('second-workspace'),
+              },
+            ],
+          }
+        },
+      })
+      await renderOverview()
+      const group = host.querySelector<HTMLSelectElement>('.sessions-controls select')!
 
-    expect([...group.options].map((option) => option.textContent)).toEqual([
-      'Workspace',
-      'Project',
-      'None',
-    ])
-    act(() => {
-      group.value = 'none'
-      group.dispatchEvent(new Event('change', { bubbles: true }))
-    })
+      expect(host.querySelectorAll('.sessions-group')).toHaveLength(1)
+      expect(
+        [...host.querySelectorAll('.sessions-worktree-heading')].map(
+          (heading) => heading.textContent,
+        ),
+      ).toEqual(['main', 'feature'])
+      expect(host.querySelector('.sessions-project-header')?.textContent).toContain(
+        '3 sessions',
+      )
+      expect(host.querySelectorAll('.sessions-project-host')).toHaveLength(
+        kind === 'ssh' ? 1 : 0,
+      )
+      const open = button('Open')
+      act(() => open.focus())
+      await act(async () => {
+        revision += 1
+        api.emit({ demandGeneration: 1, revision })
+        await settle()
+      })
+      expect(document.activeElement).toBe(open)
+      expect([...group.options].map((option) => option.textContent)).toEqual([
+        'Project → worktree',
+        'Project',
+        'None',
+      ])
+      act(() => {
+        group.value = 'none'
+        group.dispatchEvent(new Event('change', { bubbles: true }))
+      })
 
-    expect(host.querySelector('.sessions-group h2')).toBeNull()
-    expect(host.querySelector('.session-card h3')?.textContent).toBe(
-      'Review release notes · Project One / main',
-    )
-    expect(host.querySelector('.session-card')?.getAttribute('aria-label')).toBe(
-      'Codex · Review release notes · Project One / main',
-    )
-  })
+      expect(host.querySelector('.sessions-group h2')).toBeNull()
+      expect(host.querySelector('.session-card h3')?.textContent).toBe(
+        'Review release notes · Project One / main',
+      )
+      expect(host.querySelector('.session-card')?.getAttribute('aria-label')).toBe(
+        'Codex · Review release notes · Project One / main',
+      )
+    },
+  )
 
   it('preserves collection policy, page, and opaque selection across foreground release', async () => {
     const api = installApi({ snapshot: capacitySnapshot })
