@@ -209,7 +209,7 @@ describe('SessionsOverview', () => {
         [...host.querySelectorAll('.sessions-worktree-heading')].map(
           (heading) => heading.textContent,
         ),
-      ).toEqual(['▱ main', '▱ feature'])
+      ).toEqual(['main', 'feature'])
       expect(host.querySelector('.sessions-project-header')?.textContent).toContain(
         '3 sessions',
       )

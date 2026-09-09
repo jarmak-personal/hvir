@@ -6,6 +6,7 @@ import type { ProjectHost } from '../project-host'
 const CAPTURES = [
   { name: 'sessions-workspace-start.png', label: '1 · Workspace' },
   { name: 'sessions-overview.png', label: '2 · Sessions' },
+  { name: 'sessions-overview-packed.png', label: 'Sessions · Balanced columns' },
   { name: 'sessions-overview-narrow.png', label: 'Sessions · Narrow' },
   { name: 'sessions-interact.png', label: '3 · Interact' },
   { name: 'sessions-workspace-return.png', label: '4 · Workspace' },
@@ -34,20 +35,39 @@ export async function captureSessionsVisuals(
     await openSessions(win)
     await assertOverviewGeometry(win)
     await capture(win, host, outputDirectory, CAPTURES[1], written)
+    win.setContentSize(1000, 800)
+    await assertOverviewGeometry(win)
+    await assertPackedProjects(win)
+    await capture(win, host, outputDirectory, CAPTURES[2], written)
     win.setContentSize(360, 800)
     await assertOverviewGeometry(win)
-    await capture(win, host, outputDirectory, CAPTURES[2], written)
+    await capture(win, host, outputDirectory, CAPTURES[3], written)
     win.setContentSize(1280, 800)
     await interactWithLiveSession(win)
-    await capture(win, host, outputDirectory, CAPTURES[3], written)
-    await returnToWorkspace(win)
     await capture(win, host, outputDirectory, CAPTURES[4], written)
+    await returnToWorkspace(win)
+    await capture(win, host, outputDirectory, CAPTURES[5], written)
   } finally {
     await restoreWorkspace(win).catch(() => undefined)
     await removePrivacyTreatment(win).catch(() => undefined)
     win.setContentSize(originalSize[0]!, originalSize[1]!)
   }
   return written
+}
+
+/** The tall first project must not force the two shorter projects onto separate rows. */
+async function assertPackedProjects(win: BrowserWindow): Promise<void> {
+  await win.webContents.executeJavaScript(`
+    (() => {
+      const groups = [...document.querySelectorAll('.sessions-group')];
+      const [tall, short, next] = groups.map(group => group.getBoundingClientRect());
+      if (!next || Math.abs(next.left - short.left) > 1 ||
+          next.top < short.bottom || next.top >= tall.bottom ||
+          groups.some(group => group.getClientRects().length !== 1)) {
+        throw new Error('Sessions short projects did not pack beneath one another');
+      }
+    })()
+  `)
 }
 
 async function assertOverviewGeometry(win: BrowserWindow): Promise<void> {

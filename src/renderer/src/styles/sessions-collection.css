@@ -38,7 +38,22 @@
   font-weight: 550;
 }
 
+.sessions-branch-icon {
+  width: 1em;
+  height: 1em;
+  margin-right: 5px;
+  vertical-align: -0.12em;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .sessions-group {
+  break-inside: avoid;
+  max-width: 420px;
+  margin-bottom: 10px;
   min-width: 0;
   overflow: hidden;
   border: 1px solid #2b323d;
@@ -47,7 +62,8 @@
 }
 
 .sessions-group.ungrouped {
-  grid-column: 1 / -1;
+  column-span: all;
+  max-width: none;
   overflow: visible;
   border: 0;
   background: transparent;

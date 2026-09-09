@@ -405,7 +405,16 @@ export function SessionsOverview({
                       <div className="sessions-workspace" key={section.key}>
                         {'label' in section ? (
                           <h3 className="sessions-worktree-heading">
-                            <span aria-hidden="true">▱ </span>
+                            <svg
+                              className="sessions-branch-icon"
+                              viewBox="0 0 24 24"
+                              aria-hidden="true"
+                            >
+                              <circle cx="6" cy="4" r="2" />
+                              <circle cx="6" cy="20" r="2" />
+                              <circle cx="18" cy="6" r="2" />
+                              <path d="M6 6v12M18 8v2a6 6 0 0 1-6 6H6" />
+                            </svg>
                             {section.label}
                           </h3>
                         ) : null}

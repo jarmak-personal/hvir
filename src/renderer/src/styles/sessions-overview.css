@@ -126,11 +126,8 @@
 }
 
 .sessions-groups {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 420px));
-  align-items: start;
-  justify-content: start;
-  gap: 10px;
+  columns: 340px;
+  column-gap: 10px;
 }
 
 .sessions-pagination {
