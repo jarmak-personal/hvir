@@ -6,6 +6,7 @@ import type { ProjectHost } from '../project-host'
 const CAPTURES = [
   { name: 'sessions-workspace-start.png', label: '1 · Workspace' },
   { name: 'sessions-overview.png', label: '2 · Sessions' },
+  { name: 'sessions-overview-narrow.png', label: 'Sessions · Narrow' },
   { name: 'sessions-interact.png', label: '3 · Interact' },
   { name: 'sessions-workspace-return.png', label: '4 · Workspace' },
 ] as const
@@ -31,17 +32,55 @@ export async function captureSessionsVisuals(
     await installPrivacyTreatment(win)
     await capture(win, host, outputDirectory, CAPTURES[0], written)
     await openSessions(win)
+    await assertOverviewGeometry(win)
     await capture(win, host, outputDirectory, CAPTURES[1], written)
-    await interactWithLiveSession(win)
+    win.setContentSize(360, 800)
+    await assertOverviewGeometry(win)
     await capture(win, host, outputDirectory, CAPTURES[2], written)
-    await returnToWorkspace(win)
+    win.setContentSize(1280, 800)
+    await interactWithLiveSession(win)
     await capture(win, host, outputDirectory, CAPTURES[3], written)
+    await returnToWorkspace(win)
+    await capture(win, host, outputDirectory, CAPTURES[4], written)
   } finally {
     await restoreWorkspace(win).catch(() => undefined)
     await removePrivacyTreatment(win).catch(() => undefined)
     win.setContentSize(originalSize[0]!, originalSize[1]!)
   }
   return written
+}
+
+async function assertOverviewGeometry(win: BrowserWindow): Promise<void> {
+  await win.webContents.executeJavaScript(`
+    new Promise((resolve, reject) => requestAnimationFrame(() => {
+      const groups = [...document.querySelectorAll('.sessions-group')];
+      const cards = [...document.querySelectorAll('.session-card')];
+      const headings = groups.map(group => group.querySelector('h2')?.textContent);
+      const inside = (child, parent) => {
+        const c = child.getBoundingClientRect(), p = parent.getBoundingClientRect();
+        return c.left >= p.left - 1 && c.right <= p.right + 1;
+      };
+      if (new Set(headings).size !== groups.length ||
+          !groups.some(group => group.querySelectorAll('.sessions-worktree-heading').length > 1) ||
+          !groups.some(group => group.querySelectorAll('.sessions-worktree-heading').length === 1)) {
+        return reject(new Error('Sessions project/worktree hierarchy was lost'));
+      }
+      for (const card of cards) {
+        card.style.contentVisibility = 'visible';
+        const footer = card.querySelector('footer');
+        const title = card.querySelector('h3');
+        const buttons = [...footer.querySelectorAll('button')];
+        if (!inside(card, card.closest('.sessions-group')) ||
+            ![title, footer, ...footer.querySelectorAll('dd'), ...buttons].every(child => inside(child, card)) ||
+            card.scrollWidth > card.clientWidth + 2 ||
+            title.getBoundingClientRect().bottom > footer.getBoundingClientRect().top ||
+            (buttons.length === 2 && Math.abs(buttons[0].getBoundingClientRect().width - buttons[1].getBoundingClientRect().width) > 1)) {
+          return reject(new Error('Sessions card title, facts, or footer overflowed'));
+        }
+      }
+      requestAnimationFrame(resolve);
+    }))
+  `)
 }
 
 async function capture(
@@ -135,13 +174,6 @@ async function installPrivacyTreatment(win: BrowserWindow): Promise<void> {
         html[data-hvir-sessions-capture='true'] .session-kind.agent::after {
           content: 'Agent';
           font-size: calc(7px * var(--hvir-interface-scale));
-        }
-        html[data-hvir-sessions-capture='true'] .session-kind.agent + h3 {
-          font-size: 0 !important;
-        }
-        html[data-hvir-sessions-capture='true'] .session-kind.agent + h3::after {
-          content: 'Agent session';
-          font-size: calc(11px * var(--hvir-interface-scale));
         }
         #hvir-sessions-capture-label {
           position: fixed;

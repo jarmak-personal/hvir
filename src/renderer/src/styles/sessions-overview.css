@@ -46,8 +46,7 @@
 .sessions-detail-actions button,
 .sessions-controls button,
 .sessions-controls select,
-.sessions-notice button,
-.session-card header button {
+.sessions-notice button {
   border: 1px solid var(--border-strong);
   border-radius: 5px;
   background: #181c23;

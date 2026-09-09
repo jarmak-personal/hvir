@@ -31,6 +31,19 @@ export function SessionsOverviewCard({
           <span className={`session-kind ${row.provider.kind}`}>{identity.label}</span>
           <h3>{identity.title}</h3>
         </div>
+      </header>
+      {row.context.status === 'available' || row.context.status === 'stale' ? (
+        <ProviderContextMeter
+          contextFacet={row.context}
+          pressurePolicy={row.provider.contextPressure}
+        />
+      ) : null}
+      <footer className="session-card-footer">
+        <dl className="session-facts">
+          {presentation.facts.map((fact) => (
+            <Fact key={fact.label} fact={fact} />
+          ))}
+        </dl>
         <div className="session-card-actions">
           {onInteract ? (
             <button type="button" onClick={onInteract}>
@@ -43,25 +56,16 @@ export function SessionsOverviewCard({
             </button>
           ) : null}
         </div>
-      </header>
-      {row.context.status === 'available' || row.context.status === 'stale' ? (
-        <ProviderContextMeter
-          contextFacet={row.context}
-          pressurePolicy={row.provider.contextPressure}
-        />
-      ) : null}
-      <dl className="session-facts">
-        {presentation.facts.map((fact) => (
-          <Fact key={fact.label} fact={fact} />
-        ))}
-      </dl>
+      </footer>
     </>
   )
 }
 
 function Fact({ fact }: { readonly fact: SessionsOverviewCardFact }): ReactElement {
   return (
-    <div className={`session-fact ${fact.tone}`}>
+    <div
+      className={`session-fact ${fact.tone}${fact.label === 'Attention' || fact.label === 'Working' ? ' activity' : ''}`}
+    >
       <dt>{fact.label}</dt>
       <dd>{fact.value}</dd>
     </div>

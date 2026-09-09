@@ -49,7 +49,7 @@ export function SessionsCollectionToolbar({
               onGroup(event.currentTarget.value as SessionsOverviewGroup)
             }
           >
-            <option value="workspace">Workspace</option>
+            <option value="workspace">Project → worktree</option>
             <option value="project">Project</option>
             <option value="none">None</option>
           </select>

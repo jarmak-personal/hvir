@@ -9,6 +9,7 @@ import {
   sessionsOverviewGroups,
   sessionsOverviewPage,
   sessionsOverviewRows,
+  sessionsOverviewWorkspaces,
 } from '../src/renderer/src/sessions/sessions-overview-model'
 import {
   MAX_SESSIONS_PROJECTION_ROWS,
@@ -58,6 +59,48 @@ describe('Sessions overview policy', () => {
     expect(
       groups.flatMap((group) => group.rows.map((candidate) => candidate.handle)),
     ).toEqual(['a-ready', 'a-working', 'b'])
+  })
+
+  it('keeps each project together and repeats workspace headings across filtered pages', () => {
+    const rows = Array.from({ length: 95 }, (_, index) =>
+      row(`session-${index}`, {
+        project: index < 90 ? 'Multi-worktree' : 'Single-workspace',
+        workspace: index < 45 ? 'main' : 'feature',
+        attention: index % 3 === 0 ? 'bell' : 'none',
+      }),
+    )
+    for (const filter of ['all', 'attention'] as const) {
+      const groups = sessionsOverviewGroups(rows, {
+        ...DEFAULT_SESSIONS_OVERVIEW_POLICY,
+        filter,
+      })
+      const pages = Array.from(
+        { length: sessionsOverviewPage(groups, 0).pageCount },
+        (_, index) => sessionsOverviewPage(groups, index),
+      )
+      const handles = pages.flatMap((page) => page.rows.map((row) => row.handle))
+      expect(new Set(handles).size).toBe(handles.length)
+      expect(handles.length).toBe(filter === 'all' ? 95 : 32)
+      for (const page of pages) {
+        expect(new Set(page.groups.map((group) => group.key)).size).toBe(
+          page.groups.length,
+        )
+        expect(page.rows.length).toBeLessThanOrEqual(SESSIONS_OVERVIEW_PAGE_SIZE)
+        expect(
+          page.groups.flatMap((group) =>
+            sessionsOverviewWorkspaces(group.rows).flatMap((workspace) => workspace.rows),
+          ),
+        ).toEqual(page.rows)
+      }
+      if (filter === 'all') {
+        expect(pages[1]?.groups[0]?.label).toBe('Multi-worktree')
+        expect(
+          sessionsOverviewWorkspaces(pages[1]!.groups[0]!.rows).map(
+            (workspace) => workspace.label,
+          ),
+        ).toEqual(['feature', 'main'])
+      }
+    }
   })
 
   it('places live sessions ahead of retained sessions when neither needs attention', () => {
@@ -154,7 +197,7 @@ describe('Sessions overview policy', () => {
     expect(attention.facts).toEqual(
       expect.arrayContaining([
         { label: 'Attention', value: 'Bell', tone: 'actionable' },
-        { label: 'Working', value: 'Working', tone: 'actionable' },
+        { label: 'Working', value: 'Working', tone: 'available' },
       ]),
     )
   })
