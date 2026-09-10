@@ -1,7 +1,8 @@
 # ADR-028: Capability-based Debian Linux installation
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
 > Supersedes: [ADR-022](ADR-022-platform-native-github-release-installation.md) | partial | Linux support matrix and unconditional Ubuntu AppArmor integration.
+> Superseded by: [ADR-042](ADR-042-manual-native-package-installation.md) | partial | Retained single-installer authority for user preparation and lifecycle invocation.
 
 ## Context
 

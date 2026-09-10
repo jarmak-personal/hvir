@@ -4,6 +4,7 @@
 > Supersedes: [ADR-011](ADR-011-npm-native-payload-distribution.md) | full | Entire decision.
 > Supersedes: [ADR-018](ADR-018-script-free-native-payload-preparation.md) | full | Entire decision.
 > Superseded by: [ADR-028](ADR-028-capability-based-debian-linux-installation.md) | partial | Linux support matrix and unconditional Ubuntu AppArmor integration.
+> Superseded by: [ADR-042](ADR-042-manual-native-package-installation.md) | partial | Script-only installation, update, and removal surface and exclusion of direct native package installation.
 
 ## Context
 

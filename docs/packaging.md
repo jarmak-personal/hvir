@@ -1,6 +1,6 @@
 # Packaging and GitHub Releases
 
-hvir has one supported installation path:
+The release installer provides automatic package selection and lifecycle handling:
 
 ```sh
 curl -fsSL https://github.com/jarmak-personal/hvir/releases/latest/download/install.sh | bash
@@ -15,9 +15,14 @@ bash install.sh
 ```
 
 The release-owned installer selects and verifies the native package for the current supported
-platform. Native packages are installer payloads and release evidence, not separate supported
-installation methods. [ADR-022](adr/ADR-022-platform-native-github-release-installation.md) owns
-the durable distribution, trust, privilege, update, removal, and migration boundaries.
+platform. Users may also [install the existing packages manually](manual-installation.md) with
+macOS Installer or Linux `apt`, after explicit preparation and verification. That path supports
+clean native installs, native updates, and package-owned removal; legacy npm migration and purge
+remain with the release installer. [ADR-042](adr/ADR-042-manual-native-package-installation.md)
+owns this narrow support-policy change. Unaffected distribution, trust, privilege, lifecycle,
+and migration rules in [ADR-022](adr/ADR-022-platform-native-github-release-installation.md) and
+Linux capability rules in [ADR-028](adr/ADR-028-capability-based-debian-linux-installation.md)
+remain authoritative.
 
 Pull-request CI runs verification, Linux Electron smoke, CodeQL analysis, and temporarily
 `npm run smoke:macos:ci` against the unpackaged build on Apple silicon,
@@ -43,12 +48,12 @@ smoke owns those behavioral contracts.
 | --- | --- | --- | --- |
 | Linux | x64 | `.deb` | Debian package tools, glibc 2.35+, GCC 12 libstdc++6+, required libraries, production Chromium sandbox |
 | Linux | arm64 | `.deb` | Debian package tools, glibc 2.35+, GCC 12 libstdc++6+, required libraries, production Chromium sandbox |
-| modern macOS | Apple silicon (`arm64`) | flat `.pkg` | `/usr/sbin/installer` |
+| modern macOS | Apple silicon (`arm64`) | flat `.pkg` | macOS Installer or `/usr/sbin/installer` |
 
 Linux support is capability-based, not an `ID`, `ID_LIKE`, or `VERSION_ID` allowlist. The
 continuing matrix exercises Ubuntu 22.04 LTS, Ubuntu 24.04 LTS, and current Debian stable on both
 released architectures. Compatible Debian-package derivatives and future versions do not need an
-identity exception. Non-Debian package managers, Intel macOS, Windows, direct package
+identity exception. Non-Debian package managers, Intel macOS, Windows, drag-and-drop
 installation, DMG, ZIP, AppImage, Homebrew, Snap, Flatpak, and other package formats are not
 release targets.
 
@@ -111,7 +116,8 @@ carries a stapled ticket. The package owns:
 - `/usr/local/bin/hvir`
 
 After digest verification, the installer asks `/usr/sbin/installer` to install the package
-noninteractively. The supported flow does not open Finder or Installer.app.
+noninteractively. The manual path opens the verified `.pkg` in Installer.app and uses the same
+package scripts and system destinations; it does not copy an extracted app into Applications.
 
 The protected signed-package workflow is the reusable macOS builder owned by Release. It accepts
 only the exact merged source selected by Release and uses the `native-release-signing`
@@ -148,8 +154,9 @@ the installed version. An unsuccessful operation reports the failed stage and ei
 previous working installation or leaves an explicitly recoverable native package-manager state;
 it never reports a launchable partial version as success.
 
-The installer also owns explicit uninstall and purge modes. Default uninstall removes
-package-owned application, command, and system-integration files while preserving:
+The [manual guide](manual-installation.md#remove-hvir) documents native removal with user data
+preserved. The installer also owns automatic uninstall and explicit purge modes. Default uninstall
+removes package-owned application, command, and system-integration files while preserving:
 
 - application settings;
 - registered-project metadata;

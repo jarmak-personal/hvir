@@ -278,6 +278,7 @@ decides whether it can preserve them while hvir retains its bounded mutation and
 > Supersedes: [ADR-011](adr/ADR-011-npm-native-payload-distribution.md) | full | Entire decision.
 > Supersedes: [ADR-018](adr/ADR-018-script-free-native-payload-preparation.md) | full | Entire decision.
 > Superseded by: [ADR-028](adr/ADR-028-capability-based-debian-linux-installation.md) | partial | Linux support matrix and unconditional Ubuntu AppArmor integration.
+> Superseded by: [ADR-042](adr/ADR-042-manual-native-package-installation.md) | partial | Script-only installation, update, and removal surface and exclusion of direct native package installation.
 
 One release-owned installer selects and verifies platform-native packages from an immutable
 GitHub Release; native package managers own privileged installation and removal, while npm
@@ -331,8 +332,9 @@ form an unbounded passive write loop.
 
 ### [ADR-028 — Capability-based Debian Linux installation](adr/ADR-028-capability-based-debian-linux-installation.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
 > Supersedes: [ADR-022](adr/ADR-022-platform-native-github-release-installation.md) | partial | Linux support matrix and unconditional Ubuntu AppArmor integration.
+> Superseded by: [ADR-042](adr/ADR-042-manual-native-package-installation.md) | partial | Retained single-installer authority for user preparation and lifecycle invocation.
 
 Linux installation depends on Debian package tools, runtime ABI, libraries, and a production
 Chromium sandbox rather than distribution identity; Ubuntu 24.04 remains the conditional
@@ -443,6 +445,15 @@ enforcement; ADR-014's ownership discipline remains accepted.
 
 Contributor tools report token, Project, and acceptance facts. Approximate session-attributed
 totals replace phase accounting; protected merge remains the separate completion boundary.
+
+### [ADR-042 — Manual installation of existing native packages](adr/ADR-042-manual-native-package-installation.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-022](adr/ADR-022-platform-native-github-release-installation.md) | partial | Script-only installation, update, and removal surface and exclusion of direct native package installation.
+> Supersedes: [ADR-028](adr/ADR-028-capability-based-debian-linux-installation.md) | partial | Retained single-installer authority for user preparation and lifecycle invocation.
+
+Users may prepare and verify existing release packages for macOS Installer or Linux `apt`,
+including native updates and package-owned removal; legacy npm migration remains installer-owned.
 
 ## 5. Architecture
 
