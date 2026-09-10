@@ -68,11 +68,47 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Start temporary Linux native-stack sampler
+        if: runner.os == 'Linux' && inputs.scenario == 'renderer-recovery'
+        run: |
+          command -v gdb
+          cat > "$RUNNER_TEMP/hvir-native-sampler.sh" <<'SAMPLER'
+          #!/usr/bin/env bash
+          set -u
+          declare -A sampled=()
+          while sleep 5; do
+            for candidate_pid in $(pgrep -f '^.*/node_modules/electron/dist/electron .*--project-root=' || true); do
+              elapsed=$(ps -p "$candidate_pid" -o etimes= 2>/dev/null) || continue
+              if (( elapsed < 20 )) || [[ -n "${sampled[$candidate_pid]:-}" ]]; then continue; fi
+              sampled[$candidate_pid]=1
+              echo '[smoke:native-diagnosis] overdue main-thread stack; arguments omitted'
+              sudo -n timeout -k 5s 15s gdb -q -batch \
+                -iex 'set debuginfod enabled off' \
+                -iex 'set print frame-arguments none' \
+                -iex 'set print thread-events off' \
+                -ex 'thread 1' -ex 'bt 32' -ex 'detach' \
+                -p "$candidate_pid" || true
+            done
+          done
+          SAMPLER
+          nohup bash "$RUNNER_TEMP/hvir-native-sampler.sh" > "$RUNNER_TEMP/hvir-native-stack.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/hvir-native-sampler.pid"
+
       - name: Run Linux stress attempts
         if: runner.os == 'Linux'
         env:
           HVIR_SMOKE_ARTIFACT_DIR: ${{ runner.temp }}/hvir-smoke-artifacts
         run: xvfb-run -a npm run smoke:scenario
+
+      - name: Read temporary native diagnosis
+        if: always() && runner.os == 'Linux' && inputs.scenario == 'renderer-recovery'
+        run: |
+          if [[ -f "$RUNNER_TEMP/hvir-native-sampler.pid" ]]; then
+            kill "$(cat "$RUNNER_TEMP/hvir-native-sampler.pid")" 2>/dev/null || true
+          fi
+          if [[ -f "$RUNNER_TEMP/hvir-native-stack.log" ]]; then
+            cat "$RUNNER_TEMP/hvir-native-stack.log"
+          fi
 
       - name: Run macOS ARM64 stress attempts
         if: runner.os == 'macOS'

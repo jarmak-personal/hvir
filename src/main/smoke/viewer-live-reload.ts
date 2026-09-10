@@ -54,9 +54,12 @@ export async function verifyLiveReloadScroll(options: {
           .find(node => node.textContent?.trim() === 'source')?.click();
         return false;
       }, 'live-reload source document did not materialize');
-      // Let the pending CodeMirror measurement restore the opened document before
-      // supplying a user scroll. Readiness still requires the actual viewport below.
-      await new Promise(resolve => requestIdleCallback(resolve));
+      // Flush the open document's CodeMirror measurement before supplying a user
+      // scroll, using the same paint boundary as the viewer-position fixture.
+      // Idle callbacks may starve even while the renderer remains responsive.
+      for (let frame = 0; frame < 2; frame++) {
+        await new Promise(resolve => requestAnimationFrame(resolve));
+      }
       const viewport = scroller();
       if (viewport.scrollHeight - viewport.clientHeight < 220) throw new Error('live-reload fixture lacks scroll extent');
       viewport.scrollTop = 220;
