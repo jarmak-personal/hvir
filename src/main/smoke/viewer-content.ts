@@ -1,3 +1,5 @@
+import { verifyLiveReloadScroll } from './viewer-live-reload'
+import type { SmokeFailureCheckpoint } from './failure-evidence.mts'
 import type { BrowserWindow } from 'electron'
 
 import { HTML_PREVIEW_SCHEME, type HostPath } from '../../shared'
@@ -11,6 +13,7 @@ import { verifyFilenameSearch } from './filename-search'
 
 /** Exercise real renderer, worker, CodeMirror, and Chromium viewer contracts in isolation. */
 export async function verifyViewerContent(options: {
+  readonly checkpoint: (checkpoint: SmokeFailureCheckpoint) => void
   readonly win: BrowserWindow
   readonly supervisor: PtySupervisor
   readonly projectState: ExternalDocumentProjectState
@@ -569,66 +572,18 @@ export async function verifyViewerContent(options: {
       `)) as string
     console.log(`[smoke] bounded large-file view OK (${largeFileStatus})`)
 
-    const scrollBefore = (await win.webContents.executeJavaScript(`
-        new Promise((resolve, reject) => {
-          const open = () => {
-            const discard = [...document.querySelectorAll('.dirty-tab-close-dialog button')]
-              .find((node) => node.textContent?.trim() === 'Close without saving');
-            if (discard) {
-              discard.click();
-              return setTimeout(open, 50);
-            }
-            const staleTab = [...document.querySelectorAll('.viewer-tab')].find((node) =>
-              node.querySelector('.tab-main')?.getAttribute('title') === ${JSON.stringify(liveReloadPath.path)} && node.querySelector('.tab-status')?.textContent?.includes('●')
-            );
-            if (staleTab) {
-              staleTab.querySelector('.tab-close')?.click();
-              return setTimeout(open, 50);
-            }
-            const file = [...document.querySelectorAll('.file-row')]
-              .find((node) => node.getAttribute('title') === ${JSON.stringify(liveReloadPath.path)});
-            if (!file) {
-              return setTimeout(open, 50);
-            }
-            file.click();
-            const waitForSource = () => {
-              const scroller = document.querySelector('.cm-scroller');
-              if (scroller) {
-                scroller.scrollTop = 220;
-                return resolve(scroller.scrollTop);
-              }
-              const source = [...document.querySelectorAll('.mode-control button')]
-                .find((node) => node.textContent?.trim() === 'source');
-              source?.click();
-              setTimeout(waitForSource, 50);
-            };
-            waitForSource();
-          };
-          open();
-        })
-      `)) as number
-    await host.writeFile(
-      liveReloadPath,
-      liveReloadBefore.replace('line 20\n', 'line 20 external marker\n'),
-    )
-    const scrollAfter = (await win.webContents.executeJavaScript(`
-        new Promise((resolve, reject) => {
-          const poll = () => {
-            const content = document.querySelector('.cm-content')?.textContent || '';
-            const scroller = document.querySelector('.cm-scroller');
-            if (content.includes('external marker') && scroller) return resolve(scroller.scrollTop);
-            setTimeout(poll, 50);
-          };
-          poll();
-        })
-      `)) as number
-    if (Math.abs(scrollAfter - scrollBefore) > 2) {
-      throw new Error(`live reload jumped scroll (${scrollBefore}→${scrollAfter})`)
-    }
+    const { before: scrollBefore, after: scrollAfter } = await verifyLiveReloadScroll({
+      win,
+      host,
+      path: liveReloadPath,
+      contents: liveReloadBefore,
+      checkpoint: options.checkpoint,
+    })
     console.log(`[smoke] clean tab live-reload preserved scroll (${scrollAfter}px)`)
 
     await win.webContents.executeJavaScript(`
-      document.querySelector('.cm-content')?.focus();
+      [...document.querySelectorAll('[data-viewer-pane]')].find(node =>
+        node.querySelector('.viewer-tab.active .tab-main')?.getAttribute('title') === ${JSON.stringify(liveReloadPath.path)})?.querySelector('.cm-content')?.focus();
     `)
     await win.webContents.insertText('saved marker\n')
     await win.webContents.executeJavaScript(`

@@ -142,11 +142,13 @@ export function createElectronWindowManager(
 
   const handleLogin = (
     event: Electron.Event,
-    contents: WebContents,
+    contents: WebContents | null | undefined,
     _details: Electron.AuthenticationResponseDetails,
     authInfo: Electron.AuthInfo,
     callback: (username?: string, password?: string) => void,
   ): void => {
+    // Background Chromium requests have no live guest authority; keep default denial.
+    if (!contents || contents.isDestroyed()) return
     const credentials = webPaneRoutes.proxyCredentials(contents.id, authInfo)
     if (credentials) {
       event.preventDefault()

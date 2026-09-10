@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { execFileSync } from 'node:child_process'
 import { startPtyProducer } from '../src/main/smoke/renderer-recovery-producer'
 
 import type { PtyExit } from '../src/main/project-host'
@@ -16,6 +15,38 @@ type LifecycleSupervisor = Pick<PtySupervisor, 'get' | 'kill' | 'onExit'>
 type OutputSupervisor = Pick<PtySupervisor, 'attach' | 'get'>
 
 describe('smoke PTY output', () => {
+  it.each(['deadline', 'interrupt'] as const)(
+    'releases an unacknowledged output wait on %s',
+    async (kind) => {
+      const fixture = outputFixture()
+      const controller = new AbortController()
+      const progress: PtyOutputWaitProgress[] = []
+      const pending = waitForPtyOutput({
+        supervisor: fixture.supervisor,
+        terminal: fixture.terminal,
+        expected: 'never-emitted',
+        scenario: 'capture readiness',
+        trigger: vi.fn(),
+        timeoutMs: 20,
+        signal: controller.signal,
+        onProgress: (state) => progress.push(state),
+      })
+      const rejected = expect(pending).rejects.toThrow(
+        kind === 'deadline'
+          ? 'timed out awaiting PTY acknowledgement'
+          : 'output wait interrupted',
+      )
+      if (kind === 'interrupt') controller.abort()
+      await rejected
+      expect(fixture.disposeOutput).toHaveBeenCalledOnce()
+      expect(progress.slice(-3).map((state) => state.phase)).toEqual([
+        kind === 'deadline' ? 'timed-out' : 'interrupted',
+        'detach-awaiting',
+        'detach-returned',
+      ])
+    },
+  )
+
   it.each(['replay', 'exit'] as const)(
     'does not trigger after synchronous attach %s settlement',
     async (kind) => {
@@ -41,8 +72,21 @@ describe('smoke PTY output', () => {
       expect(fixture.disposeOutput).toHaveBeenCalledOnce()
       expect(progress.map((state) => state.phase)).toEqual(
         kind === 'replay'
-          ? ['attach-awaiting', 'first-output', 'matched', 'attach-returned']
-          : ['attach-awaiting', 'exited', 'attach-returned'],
+          ? [
+              'attach-awaiting',
+              'first-output',
+              'matched',
+              'attach-returned',
+              'detach-awaiting',
+              'detach-returned',
+            ]
+          : [
+              'attach-awaiting',
+              'exited',
+              'attach-returned',
+              'detach-awaiting',
+              'detach-returned',
+            ],
       )
       expect(progress.at(-1)?.matched).toBe(kind === 'replay')
     },
@@ -67,11 +111,7 @@ describe('smoke PTY output', () => {
       fixture.emitData(command)
       await Promise.resolve()
       expect(ready).toBe(false)
-      fixture.emitData(
-        execFileSync('/bin/sh', ['-c', command.slice(0, command.indexOf('; while'))], {
-          encoding: 'utf8',
-        }),
-      )
+      fixture.emitData(`hvir-${label}-producer-ready\r\n`)
       const dispose = await pending
       let stopped = false
       const stopping = dispose().then(() => {
@@ -81,9 +121,8 @@ describe('smoke PTY output', () => {
       fixture.emitData(stopCommand)
       await Promise.resolve()
       expect(stopped).toBe(false)
-      fixture.emitData(
-        execFileSync('/bin/sh', ['-c', stopCommand.slice(1)], { encoding: 'utf8' }),
-      )
+      expect(stopCommand).toBe('\u0003')
+      fixture.emitData(`hvir-${label}-producer-stopped\r\n`)
       await stopping
       expect(fixture.disposeOutput).toHaveBeenCalledTimes(2)
       await dispose()
@@ -125,9 +164,11 @@ describe('smoke PTY output', () => {
       'first-output',
       'output-cap',
       'matched',
+      'detach-awaiting',
+      'detach-returned',
     ])
     expect(progress.at(-1)).toEqual({
-      phase: 'matched',
+      phase: 'detach-returned',
       receivedCharacters: 4_096,
       matched: true,
     })
