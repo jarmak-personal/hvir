@@ -24,7 +24,7 @@ export interface ReviewWorkspaceIdentity {
 }
 
 export type DocumentReviewDocumentIssue =
-  'foreign-document' | 'document-outside-workspace' | 'unsupported-document'
+  'foreign-document' | 'document-outside-workspace'
 
 export function documentReviewWorkspaceEquals(
   left: ReviewWorkspaceIdentity,
@@ -44,7 +44,7 @@ export function documentReviewDocumentIssue(
   ) {
     return 'document-outside-workspace'
   }
-  return /\.(?:md|markdown)$/i.test(document.path) ? undefined : 'unsupported-document'
+  return undefined
 }
 
 export function isDocumentReviewDocument(

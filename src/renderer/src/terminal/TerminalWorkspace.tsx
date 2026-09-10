@@ -20,7 +20,7 @@ import { fitSplitPrimaryWidth } from '../layout/split-layout-policy'
 import type { TerminalPreferences } from '../settings/settings'
 import {
   normalizeTerminalWebTarget,
-  resolveTerminalFileTarget,
+  activateTerminalFileTarget,
   type ResolvedTerminalFileTarget,
 } from './terminal-file-link'
 import { TerminalDeck } from './TerminalDeck'
@@ -356,8 +356,7 @@ export function TerminalWorkspace({
         onFocus={commands.focus}
         onLink={(session, activation) => {
           if (activation.kind === 'file') {
-            const resolved = resolveTerminalFileTarget(activation.target, workspaceRoot)
-            if (resolved) onOpenPath(resolved)
+            activateTerminalFileTarget(activation.target, workspaceRoot, onOpenPath)
             return
           }
           const url = normalizeTerminalWebTarget(activation.target)

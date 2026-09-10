@@ -1,3 +1,4 @@
+import { renderMarkdownDocument } from '../src/renderer/src/viewer/markdown-renderer'
 import MarkdownIt from 'markdown-it'
 import { describe, expect, it } from 'vitest'
 
@@ -81,4 +82,22 @@ describe('workbench navigation policy', () => {
     expect(isSafeExternalUrl('file:///etc/passwd')).toBe(false)
     expect(isSafeExternalUrl('javascript:alert(1)')).toBe(false)
   })
+})
+
+it('renders explicit file URIs and resolves them without switching the document host', async () => {
+  const html = await renderMarkdownDocument(
+    '[next](file://localhost/scratch/code.ts)',
+    'dark',
+    { load: () => Promise.resolve(undefined) },
+  )
+  expect(html).toContain('href="file://localhost/scratch/code.ts"')
+  for (const uri of ['file:///scratch/code.ts', 'file://localhost/scratch/code.ts']) {
+    expect(resolveRenderedLink(localPath('/scratch/report.md'), uri)).toEqual({
+      kind: 'file',
+      path: localPath('/scratch/code.ts'),
+    })
+  }
+  expect(
+    resolveRenderedLink(localPath('/scratch/report.md'), 'file://other/scratch/code.ts'),
+  ).toEqual({ kind: 'blocked' })
 })

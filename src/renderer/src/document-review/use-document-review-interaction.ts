@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   hostPathEquals,
+  isDocumentReviewDocument,
   renderedFileType,
   type DocumentReviewRevalidation,
   type HostPath,
@@ -94,9 +95,10 @@ export function useDocumentReviewInteraction(
   const model = binding?.state.status === 'ready' ? binding.state.model : undefined
   const available = Boolean(
     document &&
-    document.mode !== 'diff' &&
-    renderedFileType(document.path) === 'markdown' &&
-    model,
+    (document.mode === 'source' ||
+      (document.mode === 'rendered' && renderedFileType(document.path) === 'markdown')) &&
+    model &&
+    isDocumentReviewDocument(model.workspace, document.path),
   )
   const comments = useMemo(() => {
     if (!available || !document || !model) return []
@@ -191,7 +193,7 @@ export function useDocumentReviewInteraction(
       const target = snapshot.document
       const workspace = snapshot.binding?.state.model?.workspace
       if (!target || !workspace || target.dirty) {
-        setError('Save or reload this Markdown document before capturing a location')
+        setError('Save or reload this document before capturing a location')
         return
       }
       const content = target.content
@@ -227,7 +229,7 @@ export function useDocumentReviewInteraction(
       }
       if (!hostPathEquals(read.document, path) || read.content !== content) {
         setError(
-          'The on-disk Markdown changed before capture. Reload it and choose the location again.',
+          'The on-disk document changed before capture. Reload it and choose the location again.',
         )
         return
       }
@@ -256,7 +258,7 @@ export function useDocumentReviewInteraction(
 
   const requestCapture = useCallback((range: ReviewSourceRange): void => {
     if (current.current.document?.dirty) {
-      setError('Save or reload this Markdown document before capturing a location')
+      setError('Save or reload this document before capturing a location')
       return
     }
     setPendingRange(range)
@@ -423,12 +425,12 @@ function captureReadError(
 ): string {
   switch (reason) {
     case 'deleted':
-      return 'The on-disk Markdown document no longer exists'
+      return 'The on-disk document no longer exists'
     case 'host-unavailable':
       return 'The document host is unavailable for review capture'
     case 'incomplete-read':
-      return 'The on-disk Markdown document exceeds the review read limit'
+      return 'The on-disk document exceeds the review read limit'
     case 'invalid-text':
-      return 'The on-disk document is not valid reviewable Markdown text'
+      return 'The on-disk document is not valid UTF-8 text'
   }
 }

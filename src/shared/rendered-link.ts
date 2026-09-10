@@ -1,3 +1,4 @@
+import { fileUriPath } from './file-uri'
 import { dirnameHostPath, hostPath, joinHostPath, type HostPath } from './host-path'
 
 export type RenderedLinkTarget =
@@ -36,6 +37,12 @@ export function resolveRenderedLink(
   }
   if (/^(https?:|mailto:)/i.test(href)) return { kind: 'external', url: href }
   if (href.startsWith('//')) return { kind: 'external', url: `https:${href}` }
+  if (href.startsWith('file://')) {
+    const path = fileUriPath(href)
+    return path
+      ? { kind: 'file', path: hostPath(documentPath.hostId, path) }
+      : { kind: 'blocked' }
+  }
   if (/^[a-z][a-z\d+.-]*:/i.test(href)) return { kind: 'blocked' }
 
   const hashAt = href.indexOf('#')

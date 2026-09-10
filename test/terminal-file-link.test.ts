@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { asHostId, hostPath } from '../src/shared'
 import {
+  activateTerminalFileTarget,
   detectTerminalFileLinks,
   detectTerminalWebLinks,
   normalizeTerminalWebTarget,
@@ -72,7 +73,7 @@ describe('terminal file links', () => {
     })
   })
 
-  it('keeps relative and absolute targets inside the active workspace', () => {
+  it('resolves relative paths and retains the host for absolute outside paths', () => {
     expect(resolveTerminalFileTarget('src/main.ts:9', root)).toEqual({
       path: hostPath(asHostId('remote'), '/srv/project/src/main.ts'),
       line: 9,
@@ -80,8 +81,12 @@ describe('terminal file links', () => {
     expect(resolveTerminalFileTarget('/srv/project/README.md', root)?.path.path).toBe(
       '/srv/project/README.md',
     )
-    expect(resolveTerminalFileTarget('../secret', root)).toBeUndefined()
-    expect(resolveTerminalFileTarget('/etc/passwd', root)).toBeUndefined()
+    expect(resolveTerminalFileTarget('../secret', root)?.path).toEqual(
+      hostPath(root.hostId, '/srv/secret'),
+    )
+    expect(resolveTerminalFileTarget('/etc/passwd', root)?.path).toEqual(
+      hostPath(root.hostId, '/etc/passwd'),
+    )
   })
 
   it('rejects non-file protocols and home expansion', () => {
@@ -148,15 +153,42 @@ describe('terminal web links', () => {
   })
 })
 
-it('retains the terminal host for temporary documents and excludes arbitrary external files', () => {
-  const root = hostPath(asHostId('ssh-dev'), '/repo')
-  expect(resolveTerminalFileTarget('/tmp/plan.md', root)?.path).toEqual(
-    hostPath(root.hostId, '/tmp/plan.md'),
-  )
-  expect(resolveTerminalFileTarget('/private/tmp/plan.html', root)?.path.hostId).toBe(
-    root.hostId,
-  )
-  expect(resolveTerminalFileTarget('/tmp/code.ts', root)).toBeUndefined()
-  expect(resolveTerminalFileTarget('/tmp-lookalike/plan.md', root)).toBeUndefined()
-  expect(resolveTerminalFileTarget('/tmp/../etc/plan.md', root)).toBeUndefined()
+it.each([
+  '/tmp/code.ts',
+  '/tmp-lookalike/plan.md',
+  '/agents/report.json',
+  '/sibling/main.ts',
+  '/scratch/plan.md',
+])('retains the host for %s', (path) => {
+  expect(resolveTerminalFileTarget(path, root)?.path).toEqual(hostPath(root.hostId, path))
+})
+it.each(['file:///scratch/report.md', 'file://localhost/scratch/report.md'])(
+  'keeps the terminal host for %s',
+  (uri) => {
+    expect(resolveTerminalFileTarget(uri, root)?.path).toEqual(
+      hostPath(root.hostId, '/scratch/report.md'),
+    )
+  },
+)
+it.each(['file://other/scratch/report.md', 'file://127.0.0.1/scratch/report.md'])(
+  'claims but rejects foreign URI %s on activation',
+  (uri) => {
+    expect(detectTerminalFileLinks(uri)).toHaveLength(1)
+    expect(resolveTerminalFileTarget(uri, root)).toBeUndefined()
+  },
+)
+
+it('reports rejected URI activation visibly without opening a file or reading printed paths', () => {
+  const alert = vi.fn()
+  const open = vi.fn()
+  vi.stubGlobal('window', { alert })
+  try {
+    detectTerminalFileLinks('file://other/scratch/report.md')
+    expect(alert).not.toHaveBeenCalled()
+    activateTerminalFileTarget('file://other/scratch/report.md', root, open)
+    expect(alert).toHaveBeenCalledOnce()
+    expect(open).not.toHaveBeenCalled()
+  } finally {
+    vi.unstubAllGlobals()
+  }
 })

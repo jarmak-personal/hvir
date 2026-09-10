@@ -1,4 +1,3 @@
-import { temporaryDocumentRoot } from '../../../shared/temporary-document'
 import {
   hostPathEquals,
   resolveRenderedLink,
@@ -18,11 +17,31 @@ export class MarkdownRepositoryImages {
     private readonly workspaceRoot?: HostPath,
   ) {}
 
+  /** Stage external markup inertly so the browser cannot fetch images before admission. */
+  mount(root: HTMLElement, html: string): void {
+    if (!this.workspaceRoot) {
+      root.innerHTML = html
+      return
+    }
+    const template = document.createElement('template')
+    template.innerHTML = html
+    for (const image of template.content.querySelectorAll<HTMLImageElement>('img[src]')) {
+      image.dataset['hvirRepositorySrc'] = image.getAttribute('src')!
+      image.removeAttribute('src')
+    }
+    root.replaceChildren(template.content)
+  }
+
   hydrate(root: HTMLElement): readonly HostPath[] {
     const dependencies = new Map<string, HostPath>()
-    for (const image of root.querySelectorAll<HTMLImageElement>('img[src]')) {
+    for (const image of root.querySelectorAll<HTMLImageElement>(
+      'img[src], img[data-hvir-repository-src]',
+    )) {
       const dependency = this.dependency(image)
-      if (!dependency) continue
+      if (!dependency) {
+        if (this.workspaceRoot) void this.hydrateImage(image, undefined, false)
+        continue
+      }
       dependencies.set(`${dependency.hostId}:${dependency.path}`, dependency)
       void this.hydrateImage(image, dependency, false)
     }
@@ -63,7 +82,7 @@ export class MarkdownRepositoryImages {
 
   private async hydrateImage(
     image: HTMLImageElement,
-    path: HostPath,
+    path: HostPath | undefined,
     preserveCurrent: boolean,
   ): Promise<void> {
     const generation = (this.generations.get(image) ?? 0) + 1
@@ -73,13 +92,13 @@ export class MarkdownRepositoryImages {
       image.classList.add('markdown-image-loading')
     }
     try {
-      if (this.workspaceRoot && !temporaryDocumentRoot(path)) {
-        throw new Error('Image escapes the temporary document roots')
-      }
+      if (!path) throw new Error('Image must be a file on the document host')
       const asset = unwrapOperation(
         await window.hvir.invoke('fs:read-asset', {
           path,
-          ...(this.workspaceRoot ? { workspaceRoot: this.workspaceRoot } : {}),
+          ...(this.workspaceRoot
+            ? { workspaceRoot: this.workspaceRoot, documentPath: this.documentPath }
+            : {}),
         }),
       )
       const objectUrl = URL.createObjectURL(

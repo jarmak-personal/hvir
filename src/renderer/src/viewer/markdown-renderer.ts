@@ -22,6 +22,8 @@ export async function renderMarkdownDocument(
   const markdown = enableSourceLineAnchors(
     enableTaskLists(new MarkdownIt(MARKDOWN_OPTIONS)),
   )
+  const validateLink = markdown.validateLink.bind(markdown)
+  markdown.validateLink = (url) => url.startsWith('file://') || validateLink(url)
   const env: Record<string, unknown> = {}
   const tokens = markdown.parse(source, env)
   const loaded = await loadFenceGrammars(

@@ -31,6 +31,8 @@ export interface ReadDirectoryRequest {
 }
 
 export interface ReadFileRequest {
+  /** Source document for automatic image reads; main validates its canonical directory. */
+  readonly documentPath?: HostPath
   readonly workspaceRoot?: HostPath
   readonly path: HostPath
 }
@@ -53,6 +55,8 @@ export interface ResolveEntryResponse {
 }
 
 export interface ReadFileResponse {
+  readonly resolvedPath?: HostPath
+  readonly externalWorkspaceRoot?: HostPath
   readonly path: HostPath
   readonly content: string
   readonly size: number

@@ -1,4 +1,3 @@
-import { isTemporaryDocument } from '../../../shared/temporary-document'
 import type { MouseEvent } from 'react'
 
 import { resolveRenderedLink, type HostPath } from '../../../shared'
@@ -7,7 +6,6 @@ export function handleRenderedLinkClick(
   event: MouseEvent<HTMLDivElement>,
   documentPath: HostPath,
   onOpenPath?: (path: HostPath) => void,
-  temporaryWorkspaceRoot?: HostPath,
 ): void {
   if (!(event.target instanceof Element)) return
   const anchor = event.target.closest<HTMLAnchorElement>('a[href]')
@@ -18,8 +16,9 @@ export function handleRenderedLinkClick(
   const target = resolveRenderedLink(documentPath, href)
   event.preventDefault()
   if (target.kind === 'file') {
-    if (temporaryWorkspaceRoot && !isTemporaryDocument(target.path)) return
     onOpenPath?.(target.path)
+  } else if (target.kind === 'blocked') {
+    window.alert('Cannot open document link: invalid path or another host')
   } else if (target.kind === 'external') {
     window.open(target.url, '_blank', 'noopener,noreferrer')
   } else if (target.kind === 'anchor') {

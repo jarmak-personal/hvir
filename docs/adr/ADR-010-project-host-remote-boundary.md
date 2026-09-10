@@ -1,6 +1,7 @@
 # ADR-010: ProjectHost, host-qualified paths, and no remote server
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-045](ADR-045-explicit-outside-project-viewing.md) | partial | Temporary document viewing addendum: location, document-type, and automatic image-read scope.
 
 ## Context
 

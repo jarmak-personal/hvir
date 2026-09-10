@@ -1,4 +1,4 @@
-import { TemporaryDocumentWorkspace } from './temporary-document-context'
+import { ExternalDocumentWorkspace } from './external-document-context'
 import {
   useContext,
   useEffect,
@@ -255,7 +255,7 @@ function HtmlPreview({
   readonly content: string
   readonly renderGeneration: number
 }): ReactElement {
-  const workspaceRoot = useContext(TemporaryDocumentWorkspace)
+  const workspaceRoot = useContext(ExternalDocumentWorkspace)
   const [preview, setPreview] = useState<CreateHtmlPreviewResponse>()
   const [error, setError] = useState<string>()
 
@@ -316,7 +316,7 @@ function MarkdownView({
 }): ReactElement {
   const container = useRef<HTMLDivElement>(null)
   const registerReviewInlineHost = useDocumentReviewInlineHostRegistration()
-  const workspaceRoot = useContext(TemporaryDocumentWorkspace)
+  const workspaceRoot = useContext(ExternalDocumentWorkspace)
   const repositoryImages = useRef<MarkdownRepositoryImages>(undefined)
   const refreshRef = useRef(refresh)
   const appliedRefreshVersion = useRef(refresh?.version ?? 0)
@@ -348,10 +348,10 @@ function MarkdownView({
   useEffect(() => {
     const root = container.current
     if (!root || !html) return
-    root.innerHTML = html
     appliedRefreshVersion.current = refreshRef.current?.version ?? 0
     let cancelled = false
     const images = new MarkdownRepositoryImages(path, workspaceRoot)
+    images.mount(root, html)
     repositoryImages.current = images
     onDependencies(images.hydrate(root))
     void renderMermaidNodes(root, () => cancelled, theme)
@@ -388,7 +388,17 @@ function MarkdownView({
       onOpenComment: documentReview.onOpenComment,
       onExit: documentReview.onExit,
     })
-  }, [documentReview, html, registerReviewInlineHost])
+    // Rebind whenever the image/markup effect above replaces the document nodes,
+    // including a new canonical path object from a workspace reload.
+  }, [
+    documentReview,
+    html,
+    onDependencies,
+    path,
+    registerReviewInlineHost,
+    theme,
+    workspaceRoot,
+  ])
 
   useRenderedPosition(container, content, position, onPosition, positionCapture, html)
   useRenderedFindTarget(container, html || undefined, registerFindTarget)
@@ -399,7 +409,7 @@ function MarkdownView({
     <div
       className="rendered-scroll markdown-body"
       ref={container}
-      onClick={(event) => handleRenderedLinkClick(event, path, onOpenPath, workspaceRoot)}
+      onClick={(event) => handleRenderedLinkClick(event, path, onOpenPath)}
     />
   )
 }

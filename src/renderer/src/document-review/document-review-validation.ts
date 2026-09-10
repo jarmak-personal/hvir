@@ -43,7 +43,6 @@ export function validateReviewDocument(
     const message = {
       'foreign-document': 'The document belongs to another host',
       'document-outside-workspace': 'The document is outside the exact review workspace',
-      'unsupported-document': 'Document review supports Markdown only',
     }[issue]
     return reviewPolicyError(issue, message)
   }

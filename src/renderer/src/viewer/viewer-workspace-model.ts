@@ -1,4 +1,4 @@
-import { temporaryWorkspaceRoot, nextDocumentMode } from './temporary-document-tabs'
+import { externalWorkspaceRoot, nextDocumentMode } from './external-document-tabs'
 import {
   defaultViewMode,
   type DiffBase,
@@ -155,10 +155,7 @@ export function viewerWorkspaceReducer(
         : openNewTab(model.tabs, {
             id,
             path: action.request.path,
-            temporaryWorkspaceRoot: temporaryWorkspaceRoot(
-              model.root,
-              action.request.path,
-            ),
+            externalWorkspaceRoot: externalWorkspaceRoot(model.root, action.request.path),
             pane,
             pinned: action.request.pinned,
             mode: action.request.position
@@ -202,7 +199,7 @@ export function viewerWorkspaceReducer(
       return mapTab(model, action.id, (tab) => ({
         ...tab,
         mode:
-          tab.temporaryWorkspaceRoot && action.mode === 'diff' ? tab.mode : action.mode,
+          tab.externalWorkspaceRoot && action.mode === 'diff' ? tab.mode : action.mode,
         position: action.position ?? tab.position,
       }))
     case 'cycle-active-mode':
@@ -219,7 +216,7 @@ export function viewerWorkspaceReducer(
       }))
     case 'set-content':
       return mapTab(model, action.id, (tab) =>
-        tab.file && !tab.temporaryWorkspaceRoot
+        tab.file && !tab.externalWorkspaceRoot
           ? {
               ...tab,
               pinned: true,
@@ -274,6 +271,14 @@ export function viewerWorkspaceReducer(
           : {
               ...tab,
               file: action.file,
+              externalWorkspaceRoot: action.file.resolvedPath
+                ? action.file.externalWorkspaceRoot
+                : tab.externalWorkspaceRoot,
+              mode:
+                (action.file.externalWorkspaceRoot || tab.externalWorkspaceRoot) &&
+                tab.mode === 'diff'
+                  ? 'source'
+                  : tab.mode,
               loading: false,
               error: undefined,
               conflict: false,

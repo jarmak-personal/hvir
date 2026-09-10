@@ -43,9 +43,9 @@ describe('viewer dependency direction', () => {
     ['highlight-protocol.ts', '../../../main/project-host/local-host'],
     ['viewer-workload-policy.ts', '../../../preload/index'],
     ['viewer-position.ts', 'react'],
-    ['temporary-document-tabs.ts', 'react'],
-    ['temporary-document-tabs.ts', './viewer-workspace-model'],
-    ['temporary-document-tabs.ts', './RenderedView'],
+    ['external-document-tabs.ts', 'react'],
+    ['external-document-tabs.ts', './viewer-workspace-model'],
+    ['external-document-tabs.ts', './RenderedView'],
     ['source-coordinate.ts', './highlight-request'],
     ['highlight.worker.ts', './SourceView'],
     ['highlight.worker.ts', './source-highlighting'],
@@ -72,7 +72,7 @@ describe('viewer dependency direction', () => {
     ['highlight.worker.ts', './highlight-protocol'],
     ['highlight.worker.ts', './shiki-grammar-registry'],
     ['viewer-position.ts', './tab-state'],
-    ['temporary-document-tabs.ts', './tab-state'],
+    ['external-document-tabs.ts', './tab-state'],
     ['viewer-workload-policy.ts', '../../../shared'],
   ])('admits %s importing its lower owner %s', async (owner, path) => {
     expect(await messages(owner, `import type { Contract } from '${path}'`)).toEqual([])

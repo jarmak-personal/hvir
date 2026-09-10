@@ -19,8 +19,8 @@ describe('document review delivery policy', () => {
     const model = {
       ...modelWith([
         comment('third', '/repo/docs/z.md', 3, 'third quote', 'Third\r\ncomment'),
-        comment('second', '/repo/docs/a.md', 9, 'second quote', 'Second comment'),
-        comment('first', '/repo/docs/a.md', 2, 'first\r\nquote', 'First comment'),
+        comment('second', '/repo/docs/a.ts', 9, 'second quote', 'Second comment'),
+        comment('first', '/repo/docs/a.ts', 2, 'first\r\nquote', 'First comment'),
         comment(
           'excluded',
           '/repo/docs/other.md',
@@ -46,9 +46,9 @@ describe('document review delivery policy', () => {
       ok: true,
       value: {
         body:
-          'User feedback/review on document docs/a.md\n\n' +
-          'docs/a.md:2\nQuote:\nfirst\nquote\nComment:\nFirst comment\n\n' +
-          'docs/a.md:9\nQuote:\nsecond quote\nComment:\nSecond comment\n\n' +
+          'User feedback/review on document docs/a.ts\n\n' +
+          'docs/a.ts:2\nQuote:\nfirst\nquote\nComment:\nFirst comment\n\n' +
+          'docs/a.ts:9\nQuote:\nsecond quote\nComment:\nSecond comment\n\n' +
           'User feedback/review on document docs/z.md\n\n' +
           'docs/z.md:3\nQuote:\nthird quote\nComment:\nThird\ncomment',
         commentIds: ['first', 'second', 'third'],
@@ -62,7 +62,7 @@ describe('document review delivery policy', () => {
       prepared.value.body,
     )
     expect(prepared.value.body).not.toContain('clipboard-secret')
-    expect(prepared.value.body).not.toContain('/repo/docs/a.md')
+    expect(prepared.value.body).not.toContain('/repo/docs/a.ts')
   })
 
   it('uses the same batch-of-one contract and visibly truncates only the quote', () => {

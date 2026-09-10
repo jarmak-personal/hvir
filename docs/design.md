@@ -113,7 +113,8 @@ work stay outside the renderer root.
 
 ### [ADR-003 — Terminal is a swappable pane, not the foundation](adr/ADR-003-swappable-terminal-pane.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-045](adr/ADR-045-explicit-outside-project-viewing.md) | partial | Terminal file-link location restriction to the active workspace.
 
 `TerminalPane` isolates engine choice, terminal-focused layout, and typed file-link
 activation from the rest of the workbench.
@@ -170,7 +171,8 @@ the appropriate unseen child attention.
 
 ### [ADR-010 — Remote projects: `ProjectHost` seam, host-qualified paths, no remote server](adr/ADR-010-project-host-remote-boundary.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-045](adr/ADR-045-explicit-outside-project-viewing.md) | partial | Temporary document viewing addendum: location, document-type, and automatic image-read scope.
 
 All project operations and paths are host-qualified behind `ProjectHost`; SSH remains a
 bounded transport owned by one logical host, not an installed remote service.
@@ -278,6 +280,7 @@ decides whether it can preserve them while hvir retains its bounded mutation and
 > Supersedes: [ADR-011](adr/ADR-011-npm-native-payload-distribution.md) | full | Entire decision.
 > Supersedes: [ADR-018](adr/ADR-018-script-free-native-payload-preparation.md) | full | Entire decision.
 > Superseded by: [ADR-028](adr/ADR-028-capability-based-debian-linux-installation.md) | partial | Linux support matrix and unconditional Ubuntu AppArmor integration.
+> Superseded by: [ADR-044](adr/ADR-044-manual-native-package-installation.md) | partial | Script-only installation, update, and removal surface and exclusion of direct native package installation.
 
 One release-owned installer selects and verifies platform-native packages from an immutable
 GitHub Release; native package managers own privileged installation and removal, while npm
@@ -331,8 +334,9 @@ form an unbounded passive write loop.
 
 ### [ADR-028 — Capability-based Debian Linux installation](adr/ADR-028-capability-based-debian-linux-installation.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
 > Supersedes: [ADR-022](adr/ADR-022-platform-native-github-release-installation.md) | partial | Linux support matrix and unconditional Ubuntu AppArmor integration.
+> Superseded by: [ADR-044](adr/ADR-044-manual-native-package-installation.md) | partial | Retained single-installer authority for user preparation and lifecycle invocation.
 
 Linux installation depends on Debian package tools, runtime ABI, libraries, and a production
 Chromium sandbox rather than distribution identity; Ubuntu 24.04 remains the conditional
@@ -366,7 +370,8 @@ renderer remains provider-neutral and reported windows retain precedence.
 
 ### [ADR-032 — Explicit document review anchors and provider-safe handoff](adr/ADR-032-explicit-document-review-handoff.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-043](adr/ADR-043-source-review-for-text-files.md) | partial | Markdown-only document, source-anchor, and batch scope; rendered capture remains Markdown-only.
 > Supersedes: [ADR-017](adr/ADR-017-defer-direct-diagnostic-report-delivery.md) | partial | PTY text delivery prohibition only for explicit prepared document-review payloads through revisioned atomic bracketed paste and exact PTY authority.
 
 Host-qualified Markdown review uses exact on-disk anchors, bounded local persistence, explicit
@@ -452,6 +457,33 @@ separate completion boundary.
 
 Deterministic contributor tooling allocates planning batches and subsequent counter differences,
 retains unknown phase totals, and reconciles preserved historical evidence before deleting fields.
+
+### [ADR-043 — Source review for workspace text files](adr/ADR-043-source-review-for-text-files.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-032](adr/ADR-032-explicit-document-review-handoff.md) | partial | Markdown-only document, source-anchor, and batch scope; rendered capture remains Markdown-only.
+
+Source review accepts workspace UTF-8 text regardless of extension through the existing
+anchor, persistence, and delivery contracts; rendered capture remains Markdown-only.
+
+### [ADR-044 — Manual installation of existing native packages](adr/ADR-044-manual-native-package-installation.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-022](adr/ADR-022-platform-native-github-release-installation.md) | partial | Script-only installation, update, and removal surface and exclusion of direct native package installation.
+> Supersedes: [ADR-028](adr/ADR-028-capability-based-debian-linux-installation.md) | partial | Retained single-installer authority for user preparation and lifecycle invocation.
+
+Users may prepare and verify existing release packages for macOS Installer or Linux `apt`,
+including native updates and package-owned removal; legacy npm migration remains installer-owned.
+
+### [ADR-045 — Explicit outside-project file viewing](adr/ADR-045-explicit-outside-project-viewing.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-003](adr/ADR-003-swappable-terminal-pane.md) | partial | Terminal file-link location restriction to the active workspace.
+> Supersedes: [ADR-010](adr/ADR-010-project-host-remote-boundary.md) | partial | Temporary document viewing addendum: location, document-type, and automatic image-read scope.
+
+
+Explicit same-host file activation opens ephemeral read-only outside-project tabs; automatic
+Markdown images remain within the canonical document directory and descendants.
 
 ## 5. Architecture
 

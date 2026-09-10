@@ -19,11 +19,11 @@ export function DocumentReviewToolbar({
         type="button"
         className={interaction.active ? 'active' : ''}
         aria-label={
-          interaction.active ? 'Exit Markdown review mode' : 'Enter Markdown review mode'
+          interaction.active ? 'Exit Document review mode' : 'Enter Document review mode'
         }
         aria-pressed={interaction.active}
         disabled={!interaction.available}
-        title="Markdown review mode"
+        title="Document review mode"
         onClick={interaction.toggle}
       >
         Review{interaction.comments.length > 0 ? ` ${interaction.comments.length}` : ''}
@@ -70,7 +70,7 @@ export function DocumentReviewChrome({
     interaction.delivery.error,
   )
   return (
-    <aside className="document-review-chrome" aria-label="Markdown review comments">
+    <aside className="document-review-chrome" aria-label="Document review comments">
       {showTray ? (
         <div className="document-review-tray">
           {interaction.dirty ? (

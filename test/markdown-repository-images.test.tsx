@@ -152,3 +152,32 @@ async function settle(): Promise<void> {
   await Promise.resolve()
   await Promise.resolve()
 }
+
+it('stages external images inertly and sends document context only for same-host files', async () => {
+  const documentPath = localPath('/scratch/report.md')
+  const workspaceRoot = localPath('/project')
+  const dependency = localPath('/scratch/assets/chart.png')
+  const pending = deferred<AssetResult>()
+  invoke.mockReturnValue(pending.promise)
+  createObjectUrl.mockReturnValue('blob:late-external')
+  const root = document.createElement('div')
+  const images = new MarkdownRepositoryImages(documentPath, workspaceRoot)
+  images.mount(
+    root,
+    '<img src="assets/chart.png"><img src="https://other.invalid/chart.png"><img src="file://foreign/chart.png">',
+  )
+  expect(root.querySelectorAll('img[src]')).toHaveLength(0)
+  expect(images.hydrate(root)).toEqual([dependency])
+  expect(invoke).toHaveBeenCalledExactlyOnceWith('fs:read-asset', {
+    path: dependency,
+    workspaceRoot,
+    documentPath,
+  })
+  await settle()
+  expect(root.querySelectorAll('.markdown-image-unavailable')).toHaveLength(2)
+  images.dispose()
+  pending.resolve(asset(dependency, 1))
+  await settle()
+  expect(revokeObjectUrl).toHaveBeenCalledWith('blob:late-external')
+  expect(root.querySelectorAll('img[src]')).toHaveLength(0)
+})

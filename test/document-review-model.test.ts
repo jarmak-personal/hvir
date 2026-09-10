@@ -24,25 +24,29 @@ const document = localPath('/repo/docs/review.md')
 const original = 'intro\nTarget statement\noutro\n'
 
 describe('document review model', () => {
-  it('captures a representation-independent source anchor', () => {
-    const model = apply(
-      emptyModel(),
-      add('source', 'Source note', capture(document, original, 2)),
-    )
+  it.each(['review.md', 'code.ts', 'config.json', 'notes.txt', '.env', 'Makefile'])(
+    'captures a representation-independent source anchor in %s',
+    (name) => {
+      const document = localPath(`/repo/${name}`)
+      const model = apply(
+        emptyModel(),
+        add('source', 'Source note', capture(document, original, 2)),
+      )
 
-    expect(model.comments[0]).toMatchObject({
-      workspace,
-      document,
-      lifecycle: 'draft',
-      anchor: {
-        range: { startLine: 2, endLine: 2 },
-        excerpt: 'Target statement',
-        contextBefore: 'intro\n',
-        contextAfter: '\noutro',
-        state: { status: 'current' },
-      },
-    })
-  })
+      expect(model.comments[0]).toMatchObject({
+        workspace,
+        document,
+        lifecycle: 'draft',
+        anchor: {
+          range: { startLine: 2, endLine: 2 },
+          excerpt: 'Target statement',
+          contextBefore: 'intro\n',
+          contextAfter: '\noutro',
+          state: { status: 'current' },
+        },
+      })
+    },
+  )
 
   it('atomically adds each new comment to the pending review batch', () => {
     let model = apply(emptyModel(), {
@@ -124,12 +128,6 @@ describe('document review model', () => {
       model,
       error: { code: 'document-outside-workspace' },
     })
-    expect(
-      applyDocumentReviewAction(
-        model,
-        add('not-markdown', 'No', capture(localPath('/repo/readme.txt'), 'text\n', 1)),
-      ),
-    ).toMatchObject({ ok: false, model, error: { code: 'unsupported-document' } })
 
     const sshWorkspace: ReviewWorkspaceIdentity = {
       id: 'project-ssh:worktree-main',
@@ -148,32 +146,36 @@ describe('document review model', () => {
     })
   })
 
-  it('moves only one exact excerpt-and-context match and retains the prior location', () => {
-    let model = apply(
-      emptyModel(),
-      add('move', 'Check this', capture(document, original, 2)),
-    )
-    const movedContent = `preface\n${original}`
-    model = apply(model, {
-      type: 'revalidate-document',
-      workspace,
-      document,
-      snapshot: snapshot(movedContent),
-      content: movedContent,
-    })
+  it.each(['review.md', 'code.ts', '.env', 'Makefile'])(
+    'revalidates %s by exact excerpt and context while retaining the prior location',
+    (name) => {
+      const document = localPath(`/repo/${name}`)
+      let model = apply(
+        emptyModel(),
+        add('move', 'Check this', capture(document, original, 2)),
+      )
+      const movedContent = `preface\n${original}`
+      model = apply(model, {
+        type: 'revalidate-document',
+        workspace,
+        document,
+        snapshot: snapshot(movedContent),
+        content: movedContent,
+      })
 
-    expect(model.comments[0]?.anchor).toMatchObject({
-      snapshot: snapshot(movedContent),
-      range: { startLine: 3, endLine: 3 },
-      state: {
-        status: 'moved',
-        previous: {
-          snapshot: snapshot(original),
-          range: { startLine: 2, endLine: 2 },
+      expect(model.comments[0]?.anchor).toMatchObject({
+        snapshot: snapshot(movedContent),
+        range: { startLine: 3, endLine: 3 },
+        state: {
+          status: 'moved',
+          previous: {
+            snapshot: snapshot(original),
+            range: { startLine: 2, endLine: 2 },
+          },
         },
-      },
-    })
-  })
+      })
+    },
+  )
 
   it('marks missing and ambiguous exact matches stale without guessing', () => {
     const baseline = apply(
