@@ -2,7 +2,7 @@ import {
   installReplacementDeliveryObserver,
   waitForReplacementDeliveries,
 } from './renderer-recovery-delivery'
-import type { BrowserWindow } from 'electron'
+import { app, type BrowserWindow } from 'electron'
 
 import { asHostId, hostPath, type HostPath } from '../../shared'
 import type { RuntimeDiagnostics } from '../diagnostics/runtime-diagnostics'
@@ -57,6 +57,7 @@ export async function verifyRendererProcessRecovery(options: {
     throw new Error('empty renderer-recovery fixture started a PTY before user action')
   }
   checkpoint('renderer-recovery-route-opening')
+  verifyGuestlessProxyAuthentication()
   const route = await routes.open({
     ownerId: initialOwner.id,
     ownerGeneration: initialOwner.generation,
@@ -314,6 +315,40 @@ export async function verifyRendererProcessRecovery(options: {
   if (hasPrimaryFailure) throw primaryFailure
   if (!result) throw new Error('renderer recovery completed without evidence')
   return result
+}
+
+/** Background Chromium authentication has no guest authority and must stay cancelled. */
+function verifyGuestlessProxyAuthentication(): void {
+  for (const contents of [undefined, null]) {
+    let claimed = false
+    app.emit(
+      'login',
+      {
+        preventDefault: () => {
+          claimed = true
+        },
+      },
+      contents,
+      {
+        url: 'http://localhost:61337/renderer-recovery',
+        pid: process.pid,
+        isRequestForNavigation: false,
+        firstAuthAttempt: true,
+      },
+      {
+        isProxy: true,
+        scheme: 'basic',
+        host: '127.0.0.1',
+        port: 61337,
+        realm: 'hvir-smoke-unowned',
+      },
+      () => {
+        claimed = true
+      },
+    )
+    if (claimed)
+      throw new Error('background proxy authentication claimed guest authority')
+  }
 }
 
 /**
