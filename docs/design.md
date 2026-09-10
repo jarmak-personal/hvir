@@ -280,6 +280,7 @@ decides whether it can preserve them while hvir retains its bounded mutation and
 > Supersedes: [ADR-011](adr/ADR-011-npm-native-payload-distribution.md) | full | Entire decision.
 > Supersedes: [ADR-018](adr/ADR-018-script-free-native-payload-preparation.md) | full | Entire decision.
 > Superseded by: [ADR-028](adr/ADR-028-capability-based-debian-linux-installation.md) | partial | Linux support matrix and unconditional Ubuntu AppArmor integration.
+> Superseded by: [ADR-044](adr/ADR-044-manual-native-package-installation.md) | partial | Script-only installation, update, and removal surface and exclusion of direct native package installation.
 
 One release-owned installer selects and verifies platform-native packages from an immutable
 GitHub Release; native package managers own privileged installation and removal, while npm
@@ -333,8 +334,9 @@ form an unbounded passive write loop.
 
 ### [ADR-028 — Capability-based Debian Linux installation](adr/ADR-028-capability-based-debian-linux-installation.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
 > Supersedes: [ADR-022](adr/ADR-022-platform-native-github-release-installation.md) | partial | Linux support matrix and unconditional Ubuntu AppArmor integration.
+> Superseded by: [ADR-044](adr/ADR-044-manual-native-package-installation.md) | partial | Retained single-installer authority for user preparation and lifecycle invocation.
 
 Linux installation depends on Debian package tools, runtime ABI, libraries, and a production
 Chromium sandbox rather than distribution identity; Ubuntu 24.04 remains the conditional
@@ -368,7 +370,8 @@ renderer remains provider-neutral and reported windows retain precedence.
 
 ### [ADR-032 — Explicit document review anchors and provider-safe handoff](adr/ADR-032-explicit-document-review-handoff.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-043](adr/ADR-043-source-review-for-text-files.md) | partial | Markdown-only document, source-anchor, and batch scope; rendered capture remains Markdown-only.
 > Supersedes: [ADR-017](adr/ADR-017-defer-direct-diagnostic-report-delivery.md) | partial | PTY text delivery prohibition only for explicit prepared document-review payloads through revisioned atomic bracketed paste and exact PTY authority.
 
 Host-qualified Markdown review uses exact on-disk anchors, bounded local persistence, explicit
@@ -441,10 +444,36 @@ enforcement; ADR-014's ownership discipline remains accepted.
 
 ### [ADR-041 — Deterministic contributor status](adr/ADR-041-deterministic-contributor-status.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-042](adr/ADR-042-contributor-token-allocation-and-migration.md) | partial | Single-issue session assignments, cumulative-only attribution, historical exclusion, optional planning capture, and Recorded tokens/Token scope field retirement policy.
 
-Contributor tools report token, Project, and acceptance facts. Approximate session-attributed
-totals replace phase accounting; protected merge remains the separate completion boundary.
+Contributor tools report token, Project, and acceptance facts; protected merge remains the
+separate completion boundary.
+
+### [ADR-042 — Contributor token allocation and historical reconciliation](adr/ADR-042-contributor-token-allocation-and-migration.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-041](adr/ADR-041-deterministic-contributor-status.md) | partial | Single-issue session assignments, cumulative-only attribution, historical exclusion, optional planning capture, and Recorded tokens/Token scope field retirement policy.
+
+Deterministic contributor tooling allocates planning batches and subsequent counter differences,
+retains unknown phase totals, and reconciles preserved historical evidence before deleting fields.
+
+### [ADR-043 — Source review for workspace text files](adr/ADR-043-source-review-for-text-files.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-032](adr/ADR-032-explicit-document-review-handoff.md) | partial | Markdown-only document, source-anchor, and batch scope; rendered capture remains Markdown-only.
+
+Source review accepts workspace UTF-8 text regardless of extension through the existing
+anchor, persistence, and delivery contracts; rendered capture remains Markdown-only.
+
+### [ADR-044 — Manual installation of existing native packages](adr/ADR-044-manual-native-package-installation.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-022](adr/ADR-022-platform-native-github-release-installation.md) | partial | Script-only installation, update, and removal surface and exclusion of direct native package installation.
+> Supersedes: [ADR-028](adr/ADR-028-capability-based-debian-linux-installation.md) | partial | Retained single-installer authority for user preparation and lifecycle invocation.
+
+Users may prepare and verify existing release packages for macOS Installer or Linux `apt`,
+including native updates and package-owned removal; legacy npm migration remains installer-owned.
 
 ### [ADR-042 — Explicit outside-project file viewing](adr/ADR-042-explicit-outside-project-viewing.md)
 

@@ -45,6 +45,8 @@ hvir .
 The installer selects and verifies the release's native package for Linux x64, Linux arm64,
 or Apple-silicon macOS before invoking the platform installation step.
 
+Want to manage the installation yourself? [Follow these steps.](docs/manual-installation.md)
+
 hvir does expect the system `git` binary. Claude Code and Codex launch options use those CLIs
 from the selected host's login-shell environment; plain shells work without either.
 

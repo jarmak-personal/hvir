@@ -1,6 +1,7 @@
 # ADR-041: Deterministic contributor status and approximate session totals
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-042](ADR-042-contributor-token-allocation-and-migration.md) | partial | Single-issue session assignments, cumulative-only attribution, historical exclusion, optional planning capture, and Recorded tokens/Token scope field retirement policy.
 
 ## Context
 

@@ -2,6 +2,7 @@ import type { BrowserWindow } from 'electron'
 
 import type { HostPath } from '../../shared'
 import type { ProjectHost } from '../project-host'
+import { verifyGitChangesLayout } from './git-changes-layout'
 import { verifyGitDiffBases } from './git-diff'
 import { verifyDirtyBranchSwitch } from './git-dirty-navigation'
 
@@ -118,6 +119,8 @@ export async function verifyGitWorkflow(options: {
         })
       `)) as string
     console.log(`[smoke] mounted Git panel OK (${gitPanelStatus})`)
+    const changesLayout = await verifyGitChangesLayout(win, host, root)
+    console.log(`[smoke] Git Changes layout OK (${changesLayout})`)
     const dirtyBranch = await verifyDirtyBranchSwitch(win)
     const [activeBranch, dirtyStatus] = await Promise.all([
       host.exec('git', ['-C', root.path, 'branch', '--show-current']),

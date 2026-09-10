@@ -145,7 +145,10 @@ body, or label set without previewing it again.
 After publication, use `project:record --issue <issue> --ensure-project` to plan and apply
 membership when needed; normal automation owns Kind and Status. Read
 [`../hvir-implement-issue/references/contributor-status.md`](../hvir-implement-issue/references/contributor-status.md)
-for the compact handoff. Omit `--pr` when none exists. Optional usage never blocks publication.
+for every planning handoff. Request planning capture for the issue or batch, or report the
+explicit reason counters or published issue identities are unavailable. Omit `--pr` when none
+exists. Capture unavailability never blocks publication. End the planning session after the
+issue-creation handoff; tooling owns any later counter-difference attribution.
 
 Never start implementation as part of this skill; the issue discussion is where alignment
 happens.

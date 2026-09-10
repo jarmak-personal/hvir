@@ -3,11 +3,6 @@ import { readGitHubAcceptance } from '../scripts/project-management/github-contr
 import { GitHubClient } from '../scripts/project-management/github-client.ts'
 import { GitHubSessionTokens } from '../scripts/project-management/github-session-tokens.ts'
 import { serializeTokenReceipt } from '../scripts/project-management/session-token-receipts.ts'
-import { LEGACY_PROJECT_FIELDS } from '../scripts/project-management/canonical-project-config.ts'
-import {
-  planMeasurementRetirement,
-  retireProjectMeasurements,
-} from '../scripts/project-management/retire-project-measurements.ts'
 
 const receipt = {
   schema: 2 as const,
@@ -215,59 +210,5 @@ describe('immediate GitHub contributor adapters', () => {
       new GitHubSessionTokens(client(fetcher), 'owner', 'repo').append(receipt),
     ).rejects.toThrow('append uncertain')
     expect(fetcher).toHaveBeenCalledTimes(1)
-  })
-  it('plans only exact legacy renames and preserves already transitioned fields', () => {
-    const fields = LEGACY_PROJECT_FIELDS.map((field) => ({
-      id: field.id!,
-      name: field.name!,
-    }))
-    expect(planMeasurementRetirement(fields).diagnostics).toEqual([])
-    expect(planMeasurementRetirement(fields).changes).toHaveLength(13)
-    expect(
-      planMeasurementRetirement(
-        fields.map((row) => ({ ...row, name: `Legacy: ${row.name}` })),
-      ).changes,
-    ).toEqual([])
-    expect(
-      planMeasurementRetirement([
-        ...fields,
-        { id: 'other', name: `Legacy: ${fields[0]!.name}` },
-      ]).diagnostics,
-    ).not.toEqual([])
-  })
-  it('dry-runs without mutations and retries a partial field rename without touching values', async () => {
-    const fields = LEGACY_PROJECT_FIELDS.map((field) => ({
-      id: field.id!,
-      name: field.name!,
-    }))
-    let fail = true
-    const fetcher = vi.fn((_url: string | URL | Request, init?: RequestInit) =>
-      Promise.resolve().then(() => {
-        const { query, variables } = request(init)
-        if (query.includes('query RetiredProjectFields'))
-          return response({
-            node: {
-              fields: {
-                nodes: fields,
-                pageInfo: { hasNextPage: false, endCursor: null },
-              },
-            },
-          })
-        expect(query).not.toMatch(/delete|updateProjectV2ItemFieldValue/)
-        if (fail && variables.id === fields[1]!.id) throw new Error('offline')
-        if (typeof variables.name !== 'string') throw new Error('Missing name')
-        fields.find((row) => row.id === variables.id)!.name = variables.name
-        return response({ updateProjectV2Field: {} })
-      }),
-    )
-    const github = client(fetcher)
-    const plan = await retireProjectMeasurements(github, false)
-    expect(plan.operations).toHaveLength(13)
-    expect(fetcher).toHaveBeenCalledTimes(1)
-    // GitHubClient transport retries are tested by their own owner; avoid delays here.
-    const first = await retireProjectMeasurements(github, true)
-    expect(first.operations).toHaveLength(1)
-    fail = false
-    expect((await retireProjectMeasurements(github, true)).operations).toHaveLength(12)
   })
 })

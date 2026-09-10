@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from 'react'
+import { useEffect, useRef, useState, type ReactElement } from 'react'
 
 import {
   basenameHostPath,
@@ -96,10 +96,10 @@ export function GitChangesView({
   }
 
   return (
-    <>
+    <div className="git-changes">
       {error ? <div className="tree-error">Changes unavailable: {error}</div> : null}
       {content}
-    </>
+    </div>
   )
 }
 
@@ -180,7 +180,20 @@ function VirtualChangeFiles({
   readonly onOpen: (path: HostPath, base: DiffBase, untracked?: boolean) => void
 }): ReactElement {
   const [scrollTop, setScrollTop] = useState(0)
-  const height = Math.min(280, files.length * DETAIL_ROW_HEIGHT)
+  const viewport = useRef<HTMLDivElement>(null)
+  const [height, setHeight] = useState(0)
+  useEffect(() => {
+    const element = viewport.current
+    if (!element) return
+    const update = (): void => {
+      setHeight(element.clientHeight)
+      setScrollTop(element.scrollTop)
+    }
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
   const { start, end } = virtualRange(
     files.length,
     DETAIL_ROW_HEIGHT,
@@ -190,8 +203,9 @@ function VirtualChangeFiles({
   )
   return (
     <div
+      ref={viewport}
       className="git-change-files"
-      style={{ height }}
+      style={{ height: files.length * DETAIL_ROW_HEIGHT }}
       onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
     >
       <div

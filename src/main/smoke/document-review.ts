@@ -59,10 +59,10 @@ export async function verifyDocumentReviewWorkflow(options: {
 
   try {
     await openFixtureAndProveAmbientSelectionIsInert(win, document)
-    await activateControl(win, '[aria-label="Enter Markdown review mode"]')
+    await activateControl(win, '[aria-label="Enter Document review mode"]')
     await waitForRenderer(
       win,
-      `document.querySelector('[aria-label="Markdown review comments"]')`,
+      `document.querySelector('[aria-label="Document review comments"]')`,
       'review mode did not open from its focused control',
     )
     await proveRenderedControlsUseLeftGutter(win)
@@ -84,7 +84,7 @@ export async function verifyDocumentReviewWorkflow(options: {
       `document.querySelector('.review-block-badge') instanceof HTMLButtonElement`,
       'rendered note badge did not project after comment submission',
     )
-    await activateControl(win, '[aria-label="Exit Markdown review mode"]')
+    await activateControl(win, '[aria-label="Exit Document review mode"]')
     await waitForRenderer(
       win,
       `document.querySelector('.review-block-badge') instanceof HTMLButtonElement`,
@@ -93,7 +93,7 @@ export async function verifyDocumentReviewWorkflow(options: {
     await activateControl(win, '.review-block-badge')
     await waitForRenderer(
       win,
-      `document.querySelector('[aria-label="Markdown review comments"]') && ` +
+      `document.querySelector('[aria-label="Document review comments"]') && ` +
         `document.activeElement?.classList.contains('document-review-comment')`,
       'rendered note badge did not reopen review mode and focus its comment',
     )
@@ -118,7 +118,7 @@ export async function verifyDocumentReviewWorkflow(options: {
       win,
       `document.querySelector('.cm-review-marker') && ` +
         `document.querySelectorAll('.document-review-comment').length === 1 && ` +
-        `document.querySelector('.cm-content')?.getAttribute('aria-label') === 'Markdown source review'`,
+        `document.querySelector('.cm-content')?.getAttribute('aria-label') === 'Source review'`,
       'source view did not project the rendered anchor with accessible review semantics',
     )
     await proveSourceInlineFollowsLine(win)
@@ -430,7 +430,7 @@ async function openFixtureAndProveAmbientSelectionIsInert(
   await waitForRenderer(
     win,
     `document.querySelector('.markdown-body [data-source-line]') && ` +
-      `!document.querySelector('[aria-label="Enter Markdown review mode"]')?.disabled`,
+      `!document.querySelector('[aria-label="Enter Document review mode"]')?.disabled`,
     'rendered review block or enabled review control was missing',
   )
   await evaluateRenderer<void>(
@@ -449,7 +449,7 @@ async function openFixtureAndProveAmbientSelectionIsInert(
           if (document.querySelector('.document-review-comment')) {
             throw new Error('ambient rendered selection created review state');
           }
-          const review = document.querySelector('[aria-label="Enter Markdown review mode"]');
+          const review = document.querySelector('[aria-label="Enter Document review mode"]');
           if (!(review instanceof HTMLButtonElement)) {
             throw new Error('labeled review entry control was missing');
           }
@@ -855,11 +855,11 @@ async function ensureReviewMode(win: DocumentReviewDriver): Promise<void> {
     `
       (() => {
 
-          if (document.querySelector('[aria-label="Markdown review comments"]')) {
+          if (document.querySelector('[aria-label="Document review comments"]')) {
             return ({ ok: true });
           }
           const entry = document.querySelector(
-            '[aria-label="Enter Markdown review mode"]'
+            '[aria-label="Enter Document review mode"]'
           );
           if (entry instanceof HTMLButtonElement && !entry.disabled) {
             entry.focus();
