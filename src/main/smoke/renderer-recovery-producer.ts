@@ -14,6 +14,9 @@ export async function startPtyProducer(
       `[smoke:producer-progress] ${JSON.stringify({ producer: label, operation, ...progress })}`,
     )
   const marker = `hvir-${label}-producer-ready`
+  // Install the foreground child's interrupt handler before acknowledging readiness.
+  // Its trap acknowledges shutdown, without queuing input during Ctrl-C's flush.
+  const script = `trap 'printf "hvir-%s-producer-stopped\\n" "${label}"; exit 0' INT; printf 'hvir-%s-producer-ready\\n' '${label}'; while :; do printf 'hvir-${label}-active\\n'; sleep 0.01; done`
   await waitForPtyOutput({
     supervisor,
     terminal: fixture.terminal,
@@ -24,7 +27,7 @@ export async function startPtyProducer(
       supervisor.write(
         fixture.terminal.id,
         fixture.terminal.ownerId,
-        `printf 'hvir-%s-producer-ready\\n' '${label}'; while :; do printf 'hvir-${label}-active\\n'; sleep 0.01; done\n`,
+        `/bin/sh -c '${script.replaceAll("'", "'\\''")}'\n`,
         fixture.terminal.ownerGeneration,
       ),
   })
@@ -45,7 +48,7 @@ export async function startPtyProducer(
         supervisor.write(
           terminal.id,
           terminal.ownerId,
-          `\u0003printf 'hvir-%s-producer-stopped\\n' '${label}'\n`,
+          '\u0003',
           terminal.ownerGeneration,
         ),
     })

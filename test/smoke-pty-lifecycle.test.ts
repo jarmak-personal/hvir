@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { execFileSync } from 'node:child_process'
 import { startPtyProducer } from '../src/main/smoke/renderer-recovery-producer'
 
 import type { PtyExit } from '../src/main/project-host'
@@ -16,6 +15,31 @@ type LifecycleSupervisor = Pick<PtySupervisor, 'get' | 'kill' | 'onExit'>
 type OutputSupervisor = Pick<PtySupervisor, 'attach' | 'get'>
 
 describe('smoke PTY output', () => {
+  it.each(['deadline', 'interrupt'] as const)(
+    'releases an unacknowledged output wait on %s',
+    async (kind) => {
+      const fixture = outputFixture()
+      const controller = new AbortController()
+      const pending = waitForPtyOutput({
+        supervisor: fixture.supervisor,
+        terminal: fixture.terminal,
+        expected: 'never-emitted',
+        scenario: 'capture readiness',
+        trigger: vi.fn(),
+        timeoutMs: 20,
+        signal: controller.signal,
+      })
+      const rejected = expect(pending).rejects.toThrow(
+        kind === 'deadline'
+          ? 'timed out awaiting PTY acknowledgement'
+          : 'output wait interrupted',
+      )
+      if (kind === 'interrupt') controller.abort()
+      await rejected
+      expect(fixture.disposeOutput).toHaveBeenCalledOnce()
+    },
+  )
+
   it.each(['replay', 'exit'] as const)(
     'does not trigger after synchronous attach %s settlement',
     async (kind) => {
@@ -67,11 +91,7 @@ describe('smoke PTY output', () => {
       fixture.emitData(command)
       await Promise.resolve()
       expect(ready).toBe(false)
-      fixture.emitData(
-        execFileSync('/bin/sh', ['-c', command.slice(0, command.indexOf('; while'))], {
-          encoding: 'utf8',
-        }),
-      )
+      fixture.emitData(`hvir-${label}-producer-ready\r\n`)
       const dispose = await pending
       let stopped = false
       const stopping = dispose().then(() => {
@@ -81,9 +101,8 @@ describe('smoke PTY output', () => {
       fixture.emitData(stopCommand)
       await Promise.resolve()
       expect(stopped).toBe(false)
-      fixture.emitData(
-        execFileSync('/bin/sh', ['-c', stopCommand.slice(1)], { encoding: 'utf8' }),
-      )
+      expect(stopCommand).toBe('\u0003')
+      fixture.emitData(`hvir-${label}-producer-stopped\r\n`)
       await stopping
       expect(fixture.disposeOutput).toHaveBeenCalledTimes(2)
       await dispose()

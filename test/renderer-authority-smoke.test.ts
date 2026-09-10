@@ -93,7 +93,9 @@ describe('renderer-authority smoke boundaries', () => {
     ).toBeGreaterThan(
       rendererRecoverySource.indexOf("checkpoint('renderer-recovery-route-opened')"),
     )
-    expect(rendererRecoverySource).toContain('replacement = await replacementReady')
+    expect(rendererRecoverySource).toContain(
+      'waitForReplacementReadiness(replacementReady, win)',
+    )
     expect(smokeCompositionSource).toContain('if (accepted) readiness.accept(owner)')
     expect(readinessObserverSource).toContain('owner.generation !== initial.generation')
     expect(recoveryScenarioSource).toContain('replacementReady')

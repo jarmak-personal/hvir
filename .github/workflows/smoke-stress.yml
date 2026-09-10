@@ -10,6 +10,10 @@ on:
         type: choice
         options:
           - pty-native
+          - document-review
+          - viewer-content
+          - viewer-position
+          - git-workflow
           - renderer-recovery
           - renderer-authority
           - web-pane

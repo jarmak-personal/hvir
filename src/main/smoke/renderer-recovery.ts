@@ -133,7 +133,7 @@ export async function verifyRendererProcessRecovery(options: {
     checkpoint('renderer-recovery-reload-loaded')
 
     checkpoint('renderer-recovery-readiness-awaiting')
-    const replacement = await replacementReady
+    const replacement = await waitForReplacementReadiness(replacementReady, win)
     if (
       replacement.id !== initialOwner.id ||
       replacement.generation !== initialOwner.generation + 1
@@ -410,5 +410,49 @@ async function waitForRecoveryEvidence(
       return
     }
     await new Promise<void>((resolve) => setTimeout(resolve, 25))
+  }
+}
+
+/** Keep a missing production readiness acknowledgement out of the outer three-minute guard. */
+async function waitForReplacementReadiness(
+  ready: Promise<RendererOwner>,
+  win: BrowserWindow,
+): Promise<RendererOwner> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      ready,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () =>
+            reject(new Error('replacement renderer readiness acknowledgement missing')),
+          15_000,
+        )
+      }),
+    ])
+  } catch (error) {
+    // Read only reviewed booleans, and bound diagnosis independently of renderer health.
+    let probeTimer: ReturnType<typeof setTimeout> | undefined
+    try {
+      const state: unknown = await Promise.race([
+        win.webContents.executeJavaScript(`({
+          loaded: document.readyState === 'complete',
+          visible: !document.hidden,
+          workbench: Boolean(document.querySelector('.workbench')),
+          project: Boolean(document.querySelector('.project-tab.active'))
+        })`),
+        new Promise<null>((resolve) => {
+          probeTimer = setTimeout(() => resolve(null), 250)
+        }),
+      ])
+      console.error('[smoke:recovery-readiness]', state)
+    } catch {
+      console.error('[smoke:recovery-readiness] unavailable')
+    } finally {
+      if (probeTimer) clearTimeout(probeTimer)
+    }
+    throw error
+  } finally {
+    if (timer) clearTimeout(timer)
   }
 }
