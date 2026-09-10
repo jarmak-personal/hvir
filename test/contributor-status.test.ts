@@ -168,7 +168,7 @@ describe('deterministic contributor status', () => {
     )
     expect(await readIssueTokenSummary(p, 733)).toMatchObject({
       tokens: 42,
-      sessions: 1,
+      contributions: 1,
       diagnostics: ['child-evidence-unavailable:#757', 'invalid-receipt'],
     })
   })
@@ -192,7 +192,9 @@ describe('deterministic contributor status', () => {
         .slice(0, 3)
         .map((line) => line.split(':')[0]),
     ).toEqual(['Tokens', 'Project', 'Acceptance'])
-    expect(formatContributorStatus(report)).toContain('legacy excluded')
+    expect(formatContributorStatus(report)).toContain(
+      'missing phase evidence remains unknown',
+    )
   })
   it('distinguishes pending native merge requests, final merge and child integration', async () => {
     const p = ports()
@@ -284,7 +286,7 @@ describe('deterministic contributor status', () => {
     )
     expect(await readIssueTokenSummary(p, 733)).toMatchObject({
       tokens: 120,
-      sessions: 2,
+      contributions: 2,
       participants: [733, 757],
     })
     expect(p.project).not.toHaveBeenCalled()
