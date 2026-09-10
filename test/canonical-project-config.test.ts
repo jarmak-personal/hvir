@@ -10,7 +10,13 @@ import { GitHubClient } from '../scripts/project-management/github-client.ts'
 describe('canonical Project public configuration', () => {
   it('stores one complete deployment contract for planning and measurement fields', () => {
     const names = CANONICAL_PROJECT_CONFIGURATION.fields.map((field) => field.name)
-    expect(names).toEqual(['Status', 'Kind', 'Recorded tokens', 'Token scope'])
+    expect(names).toEqual([
+      'Status',
+      'Kind',
+      'Planning tokens',
+      'Implementation tokens',
+      'Total tokens',
+    ])
     expect(
       new Set(CANONICAL_PROJECT_CONFIGURATION.fields.map((field) => field.id)).size,
     ).toBe(CANONICAL_PROJECT_CONFIGURATION.fields.length)
@@ -39,6 +45,21 @@ describe('canonical Project public configuration', () => {
     expect(queries.filter((query) => query.includes('ProjectFields'))).toHaveLength(2)
     expect(queries.some((query) => query.includes('IssueProjectItems'))).toBe(false)
     expect(queries.some((query) => query.includes('query ProjectItems'))).toBe(false)
+  })
+
+  it('refuses token writes until the live token schema has migrated', async () => {
+    const queries: string[] = []
+    const live = {
+      ...CANONICAL_PROJECT_CONFIGURATION,
+      fields: CANONICAL_PROJECT_CONFIGURATION.fields.map((field) =>
+        field.name === 'Total tokens' ? { ...field, name: 'Recorded tokens' } : field,
+      ),
+    }
+    const project = canonicalProject(auditFetch(live, { queries }))
+    await expect(
+      project.setRecordedTokens(776, { tokens: 100, planning: 0, implementation: 100 }),
+    ).rejects.toThrow('migration is incomplete')
+    expect(queries.every((query) => !query.includes('mutation'))).toBe(true)
   })
 
   it.each([
@@ -75,10 +96,10 @@ describe('canonical Project public configuration', () => {
       mutate: (configuration: CanonicalProjectConfiguration) => ({
         ...configuration,
         fields: configuration.fields.map((field) =>
-          field.name === 'Recorded tokens' ? { ...field, dataType: 'TEXT' } : field,
+          field.name === 'Total tokens' ? { ...field, dataType: 'TEXT' } : field,
         ),
       }),
-      diagnostic: 'Recorded tokens" no longer has its configured type',
+      diagnostic: 'Total tokens" no longer has its configured type',
     },
     {
       label: 'option ID set',

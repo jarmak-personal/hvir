@@ -17,7 +17,7 @@ import {
   CONTRIBUTOR_STATUS_HELP,
   parseContributorStatusOptions,
 } from './contributor-status-cli.ts'
-import { assignSession } from '../agent-work-checkpoint-store.mts'
+import { assignSession, allocateSessionUsage } from '../agent-work-checkpoint-store.mts'
 import { reconcilePlanningRecord } from './planning-record.ts'
 import { parseProjectNumber, parseProjectRepository } from './project-config.ts'
 import { captureSessionTokens } from './session-token-capture.ts'
@@ -105,6 +105,12 @@ async function main(): Promise<void> {
               session,
               issue: issueNumber,
               apply,
+              shared: true,
+            }),
+          allocate: (input) =>
+            allocateSessionUsage({
+              ...input,
+              root: join(homedir(), '.local', 'state', 'hvir', 'contributor-tokens'),
             }),
           observe: async () => {
             const { createServer } = await import('vite')
@@ -134,11 +140,18 @@ async function main(): Promise<void> {
             await project.setRecordedTokens(number, tokens)
           },
         },
-        { issue: issueNumber, provider, apply: options.apply },
+        {
+          issue: issueNumber,
+          issues: options.issues,
+          phase: options.phase!,
+          provider,
+          apply: options.apply,
+        },
       )
   }
   const report = await readContributorStatus(ports, issueNumber, options.pr)
   if (captured) {
+    report.allocations = captured.shares
     report.capture = `${captured.capture}${captured.observedTokens === undefined ? '' : `; ${captured.observedTokens.toLocaleString('en-US')} observed session tokens`}`
     report.diagnostics.push(...captured.diagnostics)
   }

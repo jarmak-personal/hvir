@@ -3,6 +3,12 @@ import { constants } from 'node:fs'
 import { link, lstat, mkdir, open, unlink } from 'node:fs/promises'
 import { createHash, randomBytes } from 'node:crypto'
 import { join } from 'node:path'
+import {
+  allocationIssues,
+  isSessionAllocation,
+  type SessionAllocation,
+  type TokenPhase,
+} from './project-management/session-token-allocation.ts'
 
 export interface SessionAssignment {
   issue: number
@@ -16,6 +22,7 @@ export async function assignSession(input: {
   session: string
   issue: number
   apply: boolean
+  shared?: boolean
 }): Promise<SessionAssignment | undefined> {
   if (!input.session || !Number.isSafeInteger(input.issue) || input.issue <= 0) {
     throw new Error('Session assignment identity is unavailable.')
@@ -69,7 +76,7 @@ export async function assignSession(input: {
         !/^[a-f0-9]{64}$/.test(row.receipt)
       )
         throw new Error()
-      if (row.issue !== input.issue)
+      if (row.issue !== input.issue && !input.shared)
         throw new Error('Session already belongs to another issue.')
       return { issue: row.issue, receipt: row.receipt }
     } catch (error) {
@@ -121,4 +128,95 @@ function isMissing(error: unknown): boolean {
   return (
     !!error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT'
   )
+}
+
+/** Immutable counter intervals are committed before publishing any of their shares.
+ * A numbered exclusive link arbitrates concurrent captures. Losing writers retry;
+ * a process interruption needs no stale-lock guessing or agent-managed checkpoint.
+ */
+export async function allocateSessionUsage(input: {
+  root: string
+  assignment: SessionAssignment
+  issues: number[]
+  phase: TokenPhase
+  observed: number
+  legacyFloor: number
+  apply: boolean
+}): Promise<SessionAllocation[]> {
+  const issues = allocationIssues(input.issues)
+  const allocations: SessionAllocation[] = []
+  let cursor = input.legacyFloor
+  if (!Number.isSafeInteger(cursor) || cursor < 0)
+    throw new Error('Invalid legacy observation.')
+  for (let sequence = 0; sequence < 10000; sequence++) {
+    const path = join(input.root, `${input.assignment.receipt}-${sequence}.json`)
+    let file
+    try {
+      file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+    } catch (error) {
+      if (!isMissing(error)) throw error
+    }
+    if (file) {
+      try {
+        const stat = await file.stat()
+        if (
+          !stat.isFile() ||
+          stat.size > 4096 ||
+          (stat.mode & 0o077) !== 0 ||
+          (process.getuid && stat.uid !== process.getuid())
+        )
+          throw new Error('Unsafe allocation storage.')
+        const value: unknown = JSON.parse(await file.readFile('utf8'))
+        if (!isSessionAllocation(value) || value.from !== cursor)
+          throw new Error('Invalid allocation history.')
+        allocations.push(value)
+        cursor = value.to
+      } finally {
+        await file.close()
+      }
+      continue
+    }
+    if (input.observed < cursor)
+      throw new Error('Provider counters decreased; allocation unavailable.')
+    if (input.observed === cursor && allocations.length) return allocations
+    const allocation: SessionAllocation = {
+      key: randomBytes(32).toString('hex'),
+      from: cursor,
+      to: input.observed,
+      phase: input.phase,
+      issues,
+    }
+    if (!isSessionAllocation(allocation)) throw new Error('Invalid allocation request.')
+    if (input.apply) {
+      const temporary = join(input.root, `.pending-${randomBytes(16).toString('hex')}`)
+      const output = await open(
+        temporary,
+        constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+        0o600,
+      )
+      try {
+        try {
+          await output.writeFile(JSON.stringify(allocation))
+          await output.sync()
+        } finally {
+          await output.close()
+        }
+        try {
+          await link(temporary, path)
+        } catch {
+          throw new Error('Concurrent allocation; retry capture.')
+        }
+        const directory = await open(input.root, constants.O_RDONLY)
+        try {
+          await directory.sync()
+        } finally {
+          await directory.close()
+        }
+      } finally {
+        await unlink(temporary)
+      }
+    }
+    return [...allocations, allocation]
+  }
+  throw new Error('Session allocation history limit reached.')
 }

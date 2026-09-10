@@ -1,118 +1,237 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { mkdtemp, rm, readdir } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import {
+  assignSession,
+  allocateSessionUsage,
+} from '../scripts/agent-work-checkpoint-store.mts'
 import {
   captureSessionTokens,
   type SessionTokenCapturePorts,
 } from '../scripts/project-management/session-token-capture.ts'
-import type { SessionTokenReceipt } from '../scripts/project-management/session-token-receipts.ts'
+import {
+  phasedTokenReceipts,
+  type SessionTokenReceipt,
+} from '../scripts/project-management/session-token-receipts.ts'
 
-function fixture() {
+const roots: string[] = []
+afterEach(async () => {
+  await Promise.all(
+    roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
+  )
+})
+async function fixture() {
+  const temporary = await mkdtemp(join(tmpdir(), 'hvir-allocation-'))
+  roots.push(temporary)
+  const root = join(temporary, 'private')
   const receipts: SessionTokenReceipt[] = []
+  let observed = 1000
   const ports: SessionTokenCapturePorts = {
-    issue: vi.fn<SessionTokenCapturePorts['issue']>((number) =>
+    issue: (number) =>
       Promise.resolve({
         id: 'unused',
         number,
         repository: 'owner/repo',
         state: 'OPEN',
         updatedAt: 'now',
-        labels: number === 733 ? ['kind:epic'] : ['kind:refactor'],
+        labels: number === 733 ? ['kind:epic'] : ['kind:maintenance'],
         parent:
           number === 733
             ? null
             : { number: 733, repository: 'owner/repo', state: 'OPEN' },
         subIssues:
           number === 733
-            ? [{ number: 757, repository: 'owner/repo', state: 'OPEN' }]
+            ? [757, 758, 759].map((number) => ({
+                number,
+                repository: 'owner/repo',
+                state: 'OPEN' as const,
+              }))
             : [],
         linkedPullRequests: [],
       }),
-    ),
     tokens: {
-      read: vi.fn((issue) =>
+      read: (issue) =>
         Promise.resolve({
           receipts: receipts.filter((row) => row.issue === issue),
           legacy: false,
           diagnostics: [],
         }),
-      ),
-      append: vi.fn((receipt: SessionTokenReceipt) =>
+      append: vi.fn((row: SessionTokenReceipt) =>
         Promise.resolve().then(() => {
-          receipts.push(receipt)
+          receipts.push(row)
         }),
       ),
     },
-    observe: vi.fn<SessionTokenCapturePorts['observe']>(() =>
-      Promise.resolve({ tokens: 100 }),
-    ),
-    assign: vi.fn<SessionTokenCapturePorts['assign']>(() =>
-      Promise.resolve({
+    assign: (apply) =>
+      assignSession({
+        root,
+        repository: 'owner/repo',
+        provider: 'codex',
+        session: 'private-session',
         issue: 757,
-        receipt: 'a'.repeat(64),
+        shared: true,
+        apply,
       }),
-    ),
-    project: vi.fn<SessionTokenCapturePorts['project']>().mockResolvedValue(undefined),
+    allocate: (input) => allocateSessionUsage({ ...input, root }),
+    observe: vi.fn(() => Promise.resolve({ tokens: observed })),
+    project: vi.fn(() => Promise.resolve()),
   }
-  return { ports, receipts }
+  return {
+    ports,
+    receipts,
+    root,
+    temporary,
+    observe: (value: number) => {
+      observed = value
+    },
+  }
 }
-const input = { issue: 757, provider: 'codex' as const, apply: true }
+const input = {
+  issue: 757,
+  provider: 'codex' as const,
+  phase: 'planning' as const,
+  apply: true,
+}
 
-describe('one deterministic token capture operation', () => {
-  it('dry-runs with no assignment, receipt or Project mutation', async () => {
-    const { ports } = fixture()
-    ports.assign = vi.fn(() => Promise.resolve(undefined))
-    expect(await captureSessionTokens(ports, { ...input, apply: false })).toEqual({
-      capture: 'would-assign-and-record',
-      observedTokens: 100,
-      diagnostics: [],
+describe('durable session allocation and capture', () => {
+  it('previews equal shares without creating private state or publishing', async () => {
+    const f = await fixture()
+    expect(
+      await captureSessionTokens(f.ports, { ...input, issues: [758, 757], apply: false }),
+    ).toMatchObject({
+      capture: 'would-record',
+      shares: [
+        { issue: 757, tokens: 500 },
+        { issue: 758, tokens: 500 },
+      ],
     })
-    expect(ports.assign).toHaveBeenCalledExactlyOnceWith(false)
-    expect(ports.tokens.append).not.toHaveBeenCalled()
-    expect(ports.project).not.toHaveBeenCalled()
+    expect(await readdir(f.temporary)).toEqual([])
+    expect(f.receipts).toEqual([])
+    expect(f.ports.project).not.toHaveBeenCalled()
   })
-  it('captures once and retries selected issue and native parent projection without reappending', async () => {
-    const { ports, receipts } = fixture()
-    ports.project = vi
+  it('preserves uneven shares and allocates a later issue only the new counter difference', async () => {
+    const f = await fixture()
+    f.observe(1001)
+    await captureSessionTokens(f.ports, { ...input, issues: [758, 757] })
+    expect(f.receipts.map((row) => [row.issue, row.tokens])).toEqual([
+      [757, 501],
+      [758, 500],
+    ])
+    expect(
+      (await captureSessionTokens(f.ports, { ...input, issues: [757, 758] })).capture,
+    ).toBe('unchanged')
+    f.observe(1201)
+    await captureSessionTokens(f.ports, { ...input, issue: 759 })
+    expect(f.receipts.map((row) => [row.issue, row.tokens])).toEqual([
+      [757, 501],
+      [758, 500],
+      [759, 200],
+    ])
+    expect(f.ports.project).toHaveBeenLastCalledWith(
+      733,
+      expect.objectContaining({ tokens: 1201, planning: 1201, implementation: 0 }),
+    )
+  })
+  it('replays interrupted batch publication before adding new usage and retries Project failure', async () => {
+    const f = await fixture()
+    let fail = true
+    f.ports.tokens.append = vi.fn((row: SessionTokenReceipt) =>
+      Promise.resolve().then(() => {
+        f.receipts.push(row)
+        if (fail) {
+          fail = false
+          throw new Error('lost response')
+        }
+      }),
+    )
+    expect(
+      (await captureSessionTokens(f.ports, { ...input, issues: [757, 758] })).capture,
+    ).toBe('unavailable-or-append-uncertain')
+    f.observe(1100)
+    f.ports.project = vi
       .fn()
-      .mockRejectedValueOnce(new Error('transport'))
+      .mockRejectedValueOnce(new Error('offline'))
       .mockResolvedValue(undefined)
-    const first = await captureSessionTokens(ports, input)
-    expect(first).toEqual({
-      capture: 'recorded',
-      observedTokens: 100,
-      diagnostics: ['token-projection-unavailable:#757'],
-    })
-    expect(ports.project).toHaveBeenCalledWith(733, 100)
-    expect((await captureSessionTokens(ports, input)).capture).toBe('unchanged')
-    expect(receipts).toHaveLength(1)
-    expect(ports.tokens.append).toHaveBeenCalledTimes(1)
-  })
-  it('keeps existing totals when current usage is unavailable, without unavailable receipts', async () => {
-    const { ports, receipts } = fixture()
-    await captureSessionTokens(ports, input)
-    ports.observe = vi.fn(() => Promise.resolve({ unavailable: 'usage-unavailable' }))
-    expect((await captureSessionTokens(ports, input)).capture).toContain(
-      'usage-unavailable',
-    )
-    expect(receipts).toHaveLength(1)
-    expect(ports.project).toHaveBeenLastCalledWith(733, 100)
-  })
-  it('stops a cross-issue assignment before inspecting private provider data or mutating', async () => {
-    const { ports } = fixture()
-    ports.assign = vi
-      .fn()
-      .mockRejectedValue(new Error('Session already belongs to another issue.'))
-    expect((await captureSessionTokens(ports, input)).capture).toBe(
-      'session-already-assigned-to-another-issue',
-    )
-    expect(ports.observe).not.toHaveBeenCalled()
-    expect(ports.project).not.toHaveBeenCalled()
-  })
-  it('does not clear an existing Project total when all token history is unavailable', async () => {
-    const { ports } = fixture()
-    ports.observe = vi.fn(() => Promise.resolve({ unavailable: 'usage-unavailable' }))
-    ports.tokens.read = vi.fn().mockRejectedValue(new Error('transport'))
-    const result = await captureSessionTokens(ports, input)
+    const result = await captureSessionTokens(f.ports, { ...input, issue: 759 })
     expect(result.diagnostics).toContain('token-projection-unavailable:#757')
-    expect(ports.project).not.toHaveBeenCalled()
+    expect(f.receipts.map((row) => [row.issue, row.tokens])).toEqual([
+      [757, 500],
+      [758, 500],
+      [759, 100],
+    ])
+    expect((await captureSessionTokens(f.ports, { ...input, issue: 759 })).capture).toBe(
+      'unchanged',
+    )
+    expect(f.receipts).toHaveLength(3)
+  })
+  it('attributes non-planning work and preserves totals for mixed sessions', async () => {
+    const f = await fixture()
+    await captureSessionTokens(f.ports, { ...input, phase: 'implementation' })
+    expect(phasedTokenReceipts(f.receipts)).toMatchObject({
+      planning: 0,
+      implementation: 1000,
+      tokens: 1000,
+    })
+    const mixed = await fixture()
+    await captureSessionTokens(mixed.ports, { ...input, phase: 'unknown' })
+    expect(phasedTokenReceipts(mixed.receipts)).toMatchObject({
+      planning: null,
+      implementation: null,
+      tokens: 1000,
+    })
+  })
+  it('keeps unavailable observations and decreasing counters from changing attribution', async () => {
+    const f = await fixture()
+    await captureSessionTokens(f.ports, input)
+    f.observe(500)
+    expect((await captureSessionTokens(f.ports, input)).capture).toBe(
+      'unavailable (provider-counter-reset)',
+    )
+    f.ports.observe = () => Promise.resolve({ unavailable: 'run-identity-unproven' })
+    expect((await captureSessionTokens(f.ports, input)).capture).toContain(
+      'run-identity-unproven',
+    )
+    expect(f.receipts).toHaveLength(1)
+  })
+  it('excludes old cumulative receipts before assigning a newly observed delta', async () => {
+    const f = await fixture()
+    const anchor = await f.ports.assign(true)
+    f.receipts.push({
+      schema: 2,
+      issue: 757,
+      receipt: anchor!.receipt,
+      provider: 'codex',
+      tokens: 800,
+    })
+    await captureSessionTokens(f.ports, { ...input, issue: 759 })
+    expect(f.receipts.map((row) => row.tokens)).toEqual([800, 200])
+    expect(phasedTokenReceipts(f.receipts).tokens).toBe(1000)
+  })
+  it('arbitrates concurrent interval creation without allocating the same range twice', async () => {
+    const f = await fixture()
+    const assignment = (await f.ports.assign(true))!
+    const request = {
+      assignment,
+      root: f.root,
+      issues: [757],
+      phase: 'planning' as const,
+      observed: 1000,
+      legacyFloor: 0,
+      apply: true,
+    }
+    const results = await Promise.allSettled(
+      Array.from({ length: 8 }, () => allocateSessionUsage(request)),
+    )
+    expect(results.some((row) => row.status === 'fulfilled')).toBe(true)
+    const history = await allocateSessionUsage({
+      ...request,
+      issues: [758],
+      observed: 1100,
+    })
+    expect(history.map((row) => [row.from, row.to])).toEqual([
+      [0, 1000],
+      [1000, 1100],
+    ])
   })
 })
