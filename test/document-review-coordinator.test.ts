@@ -42,7 +42,7 @@ describe('document review coordinator', () => {
       expect(fixture.store.retryLoad).toHaveBeenCalledOnce()
       expect(fixture.store.sweepExpiredDrafts).toHaveBeenCalledOnce()
       expect(fixture.store.sweepExpiredDrafts).toHaveBeenCalledWith([])
-      const document = hostPath(id, `${root.path}/review.md`)
+      const document = hostPath(id, `${root.path}/Makefile`)
 
       await expect(
         fixture.coordinator.revalidate(
@@ -117,11 +117,12 @@ describe('document review coordinator', () => {
 
   it('classifies incomplete, invalid, and deleted reads without losing the draft', async () => {
     const root = localPath('/repo')
-    const document = localPath('/repo/review.md')
+    const document = localPath('/repo/config.json')
     const read = vi
       .fn()
       .mockResolvedValueOnce({ content: 'partial', byteLength: 7, complete: false })
       .mockResolvedValueOnce(workload('bad\0text'))
+      .mockResolvedValueOnce({ ...workload('invalid'), validUtf8: false })
       .mockRejectedValueOnce(Object.assign(new Error('gone'), { code: 'ENOENT' }))
     const fixture = createFixture(root.hostId, root, read)
     const restored = await fixture.coordinator.activate(
@@ -137,6 +138,7 @@ describe('document review coordinator', () => {
       )
 
     await expect(revalidate()).resolves.toMatchObject({ reason: 'incomplete-read' })
+    await expect(revalidate()).resolves.toMatchObject({ reason: 'invalid-text' })
     await expect(revalidate()).resolves.toMatchObject({ reason: 'invalid-text' })
     await expect(revalidate()).resolves.toMatchObject({ reason: 'deleted' })
     expect(fixture.store.read().model).toBe(fixture.model)
@@ -258,7 +260,7 @@ describe('document review coordinator', () => {
       fixture.workspace,
       fixture.host,
     )
-    const document = localPath('/repo/review.md')
+    const document = localPath('/repo/config.json')
     const reading = fixture.coordinator.revalidate(
       fixture.owner,
       request(fixture.workspace, restored.workspaceGeneration, document),
