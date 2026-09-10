@@ -346,7 +346,9 @@ diagnosis. It is stress evidence, not a reliability-percentage claim, pull-reque
 loop. On failure, the launcher writes one JSON artifact per failed attempt when
 `HVIR_SMOKE_ARTIFACT_DIR` is set. The
 closed artifact contains the scenario and iteration, expected outcome, duration, process exit,
-last safe semantic phase, owned-resource counts/flags, and reviewed log-event booleans. It never
+last safe semantic phase, named unmet condition, owned-resource counts/flags, and reviewed
+log-event booleans. The launcher repeats that closed evidence in the job summary and preserves
+the original scenario condition if subsequent cleanup also fails. It never
 retains raw logs, environment values, terminal transcripts, source/diff/file bodies, requests,
 cookies, headers, form values, console contents, or screenshots.
 

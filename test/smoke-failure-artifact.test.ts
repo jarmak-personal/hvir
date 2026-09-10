@@ -6,12 +6,51 @@ import { describe, expect, it, onTestFinished, vi } from 'vitest'
 
 import {
   SmokeAttemptEvidenceCollector,
+  formatSmokeFailureEvidence,
   createSmokeFailureArtifact,
   writeSmokeFailureArtifact,
 } from '../scripts/smoke-failure-artifact.mts'
 import { reportSmokeFailureEvidence } from '../src/main/smoke/failure-evidence.mts'
 
 describe('bounded smoke failure evidence', () => {
+  it('retains the failed condition when cleanup fails later and renders only closed evidence', () => {
+    const collector = new SmokeAttemptEvidenceCollector()
+    const owners = {
+      windowCount: 1,
+      ptyCount: 2,
+      watcherActive: true,
+      rendererOwnerActive: true,
+      rendererGeneration: 2,
+    }
+    const emit = (
+      phase: 'scenario-active' | 'cleanup',
+      checkpoint: 'document-review: capture-pty-ready' | null,
+      cleanupResource: 'supervised terminals' | null,
+    ) =>
+      collector.observe(
+        'stderr',
+        '[smoke:failure-evidence] ' +
+          JSON.stringify({ schema: 1, phase, checkpoint, cleanupResource, owners }) +
+          '\n',
+      )
+    emit('scenario-active', 'document-review: capture-pty-ready', null)
+    collector.observe('stderr', 'HVIR_SMOKE_FAIL /private/review.txt\n')
+    emit('cleanup', null, 'supervised terminals')
+    collector.observe('stderr', 'HVIR_SMOKE_CLEANUP_FAIL secret\n')
+    const snapshot = collector.evidence().snapshot
+    expect(snapshot?.checkpoint).toBe('document-review: capture-pty-ready')
+    expect(collector.evidence().logs.cleanupFailure).toBe(true)
+    expect(formatSmokeFailureEvidence(snapshot)).toBe(
+      'condition=document-review: capture-pty-ready · phase=scenario-active · windows=1 · PTYs=2 · watch=true · renderer=true · generation=2',
+    )
+    expect(() =>
+      formatSmokeFailureEvidence({
+        ...snapshot!,
+        checkpoint: '/private/review',
+      } as never),
+    ).toThrow()
+  })
+
   it('recognizes the success sentinel across stdout chunk boundaries', () => {
     const collector = new SmokeAttemptEvidenceCollector()
     collector.observe('stdout', 'HVIR_SM')
