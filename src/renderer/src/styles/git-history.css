@@ -242,7 +242,35 @@
   height: 100%;
 }
 
+.git-changes {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.git-changes > :not(.git-group) {
+  flex-shrink: 0;
+}
+
+.git-changes .git-group {
+  display: flex;
+  flex-direction: column;
+  /* Keep the header and a file row reachable even in a short sidebar. */
+  min-height: 64px;
+}
+
+.git-changes .git-group:not(:has(.git-change-files)) {
+  min-height: auto;
+  flex-shrink: 0;
+}
+
+.git-changes .git-group h3 {
+  flex-shrink: 0;
+}
+
 .git-change-files {
+  min-height: 28px;
   position: relative;
   overflow: auto;
 }
