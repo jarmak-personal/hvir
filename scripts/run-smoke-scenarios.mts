@@ -1,8 +1,11 @@
+import { appendFile } from 'node:fs/promises'
+import type { SmokeFailureEvidence } from '../src/main/smoke/failure-evidence.mts'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname, join, resolve } from 'node:path'
 import {
   SmokeAttemptEvidenceCollector,
+  formatSmokeFailureEvidence,
   createSmokeFailureArtifact,
   writeSmokeFailureArtifact,
 } from './smoke-failure-artifact.mts'
@@ -35,6 +38,7 @@ export interface SmokeScenarioResult {
   readonly exitCode?: number
   readonly signal?: NodeJS.Signals
   readonly error?: string
+  readonly failureEvidence?: SmokeFailureEvidence | null
   readonly durationMs?: number
 }
 
@@ -254,6 +258,7 @@ export function invokeSmokeScenario(
       collector.finish()
       const durationMs = performance.now() - startedAt
       const result = {
+        failureEvidence: collector.evidence().snapshot,
         status: 'failed',
         ...(exitCode === null ? {} : { exitCode }),
         ...(signal === null ? {} : { signal }),
@@ -344,7 +349,12 @@ export function invokeSmokeScenario(
         },
         options.artifactDirectory,
       ).finally(() =>
-        resolveResult({ status: 'failed', error: 'process spawn failed', durationMs }),
+        resolveResult({
+          status: 'failed',
+          error: 'process spawn failed',
+          durationMs,
+          failureEvidence: collector.evidence().snapshot,
+        }),
       )
     })
     child.once('close', (exitCode, signal) => {
@@ -382,7 +392,9 @@ export function invokeSmokeScenario(
           collector,
         },
         options.artifactDirectory,
-      ).finally(() => resolveResult(result))
+      ).finally(() =>
+        resolveResult({ ...result, failureEvidence: collector.evidence().snapshot }),
+      )
     })
   })
 }
@@ -454,7 +466,7 @@ export function formatSmokeScenarioResults(
           : `exit ${result.exitCode ?? 'unknown'}`)
       const duration =
         result.durationMs === undefined ? '' : ` · ${Math.round(result.durationMs)}ms`
-      return `- ${result.scenario} iteration ${result.iteration}/${result.repetitionCount}: ${result.status} (${detail}${duration})`
+      return `- ${result.scenario} iteration ${result.iteration}/${result.repetitionCount}: ${result.status} (${detail}${duration})${result.status === 'failed' ? ` · ${formatSmokeFailureEvidence(result.failureEvidence ?? null)}` : ''}`
     }),
   ].join('\n')
 }
@@ -487,6 +499,25 @@ async function main(): Promise<void> {
       interruption.signal,
     )
     console.log(formatSmokeScenarioResults(results))
+    try {
+      if (process.env.GITHUB_STEP_SUMMARY) {
+        const summary = results
+          .map(
+            (result) =>
+              `- ${result.scenario} iteration ${result.iteration}/${result.repetitionCount}: ${result.status}` +
+              (result.status === 'failed'
+                ? ` · ${formatSmokeFailureEvidence(result.failureEvidence ?? null)}`
+                : ''),
+          )
+          .join('\n')
+        await appendFile(
+          process.env.GITHUB_STEP_SUMMARY,
+          `\nElectron smoke: ${results.length} scheduled results\n\n${summary}\n`,
+        )
+      }
+    } catch {
+      console.error('[smoke:summary] failed to write bounded job summary')
+    }
     if (results.some((result) => result.status === 'failed')) process.exitCode = 1
   } finally {
     removeSignalHandlers()

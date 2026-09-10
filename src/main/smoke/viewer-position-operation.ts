@@ -13,10 +13,7 @@ export const DEFAULT_VIEWER_POSITION_OPERATION_TIMING: ViewerPositionOperationTi
   diagnosisTimeoutMs: DIAGNOSIS_TIMEOUT_MS,
 }
 
-type ViewerPositionCheckpoint = Extract<
-  SmokeFailureCheckpoint,
-  `viewer-position-${string}`
->
+type ViewerPositionCheckpoint = Extract<SmokeFailureCheckpoint, `viewer-${string}`>
 
 /** Bound one real-renderer operation while retaining its last semantic checkpoint. */
 export async function runViewerPositionOperation<T>(options: {
