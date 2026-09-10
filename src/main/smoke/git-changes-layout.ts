@@ -25,8 +25,14 @@ export async function verifyGitChangesLayout(
       [...document.querySelectorAll('.git-tabs button')]
         .find(node => node.textContent?.trim().startsWith('Changes'))?.click();
     `)
-    const inspect = async (expanded: boolean): Promise<number> => {
+    const inspect = async (
+      expanded: boolean,
+      previous?: { viewport: number; content: number },
+    ): Promise<{ viewport: number; content: number }> => {
       const expectedHeight = win.getContentBounds().height
+      const expectedViewport = previous
+        ? previous.viewport + expectedHeight - previous.content
+        : undefined
       return win.webContents.executeJavaScript(`
         (async () => {
           const waitFor = async (test, message) => {
@@ -51,6 +57,10 @@ export async function verifyGitChangesLayout(
             'Branch-point toggle did not settle');
           const list = group.querySelector('.git-change-files');
           await waitFor(() => list.clientHeight > 280, 'Changes list still capped');
+          if (${expectedViewport !== undefined}) {
+            await waitFor(() => Math.abs(list.clientHeight - ${expectedViewport ?? 0}) <= 2,
+              'Changes viewport did not follow observed content-height delta');
+          }
           const checkCoverage = async (viewport) => {
             await waitFor(() => {
               const rows = [...viewport.querySelectorAll('.git-file')];
@@ -95,16 +105,24 @@ export async function verifyGitChangesLayout(
               document.querySelector('.diff-base-select')?.value === 'branch-point',
               'Branch-point file activation lost its diff base');
           }
-          return list.clientHeight;
+          return { viewport: list.clientHeight, content: window.innerHeight };
         })()
-      `) as Promise<number>
+      `) as Promise<{ viewport: number; content: number }>
     }
     win.setSize(bounds.width, 640)
     const shorter = await inspect(false)
     win.setSize(bounds.width, 1040)
-    const taller = await inspect(false)
-    if (taller <= shorter + 80) {
-      throw new Error(`Changes viewport did not grow on resize (${shorter} → ${taller})`)
+    const taller = await inspect(false, shorter)
+    if (taller.content <= shorter.content) {
+      throw new Error(
+        `Display supplied no content-height growth (${shorter.content} → ${taller.content})`,
+      )
+    }
+    if (
+      Math.abs(taller.viewport - shorter.viewport - (taller.content - shorter.content)) >
+      2
+    ) {
+      throw new Error('Changes viewport growth disagreed with observed content geometry')
     }
     await inspect(true)
     win.setSize(bounds.width, 640)
