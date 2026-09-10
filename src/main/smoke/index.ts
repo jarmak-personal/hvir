@@ -22,7 +22,6 @@ import { createViewerFixtures } from './viewer-fixtures'
 import { createSmokeProjectState } from './project-state-fixture'
 import { createSessionsProjectState } from './sessions-project-fixture'
 import type { BrowserWindow } from 'electron'
-
 import { dispatchWorkerHostCall } from '../git/worker-host-broker'
 import { createFilenameSearchCoordinator } from '../filename-search'
 import { createProjectFileOperationCoordinator } from '../project-file-operations'
@@ -226,7 +225,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       smokeRoot,
       '.hvir-smoke-document-review-drafts.json',
     )
-    // Exercise the real renderer → main → worker path.
     await host.connect()
     recordSmokePhase('host-connected')
     await host.exec('rm', ['-f', '--', harnessProfilesPath.path])
@@ -619,6 +617,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     }
     if (mode === 'document-review') {
       const result = await verifyDocumentReviewWorkflow({
+        checkpoint: recordSmokeCheckpoint,
         win,
         host,
         root: smokeRoot,
@@ -656,6 +655,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     }
     if (mode === 'viewer-content') {
       await verifyViewerContent({
+        checkpoint: recordSmokeCheckpoint,
         win,
         projectState: projectFixture,
         supervisor,

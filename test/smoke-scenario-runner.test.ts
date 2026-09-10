@@ -133,11 +133,11 @@ describe('Electron smoke result aggregation', () => {
     ])
     expect(formatSmokeScenarioResults(results)).toBe(
       '[smoke:summary] attempts=6 iterations=2\n' +
-        '- pty-native iteration 1/2: failed (native load failed)\n' +
+        '- pty-native iteration 1/2: failed (native load failed) · condition=unavailable · phase=unavailable · resources=unavailable\n' +
         '- viewer-position iteration 1/2: passed (exit 0)\n' +
         '- app-settings iteration 1/2: passed (exit 0)\n' +
         '- pty-native iteration 2/2: passed (exit 0)\n' +
-        '- viewer-position iteration 2/2: failed (exit 2)\n' +
+        '- viewer-position iteration 2/2: failed (exit 2) · condition=unavailable · phase=unavailable · resources=unavailable\n' +
         '- app-settings iteration 2/2: passed (exit 0)',
     )
   })
@@ -886,11 +886,8 @@ describe('Electron smoke command contracts', () => {
   })
 
   it('serializes document review closure before direct top-terminal send', () => {
-    expect(documentReviewScenario.match(/webContents\.executeJavaScript/g)).toHaveLength(
-      1,
-    )
-    expect(documentReviewScenario).toContain('function isRendererOutcome')
-    expect(documentReviewScenario).toContain('returned an invalid outcome')
+    expect(documentReviewScenario).not.toContain('webContents.executeJavaScript')
+    expect(documentReviewScenario).toContain('win.evaluate<T>(stage, script)')
     const directSend = documentReviewScenario.slice(
       documentReviewScenario.indexOf("runStage('close preview before direct send'"),
       documentReviewScenario.indexOf('const sentTransport'),

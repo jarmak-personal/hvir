@@ -17,6 +17,10 @@ export interface PtyOutputWaitProgress {
     | 'output-cap'
     | 'matched'
     | 'exited'
+    | 'timed-out'
+    | 'interrupted'
+    | 'detach-awaiting'
+    | 'detach-returned'
   /** Received character count, saturated at the existing retention bound. */
   readonly receivedCharacters: number
   readonly matched: boolean
@@ -40,6 +44,8 @@ export interface WaitForPtyOutputOptions {
   /** Synchronous action that causes the expected output after attachment. */
   readonly trigger: () => void
   readonly onProgress?: (progress: PtyOutputWaitProgress) => void
+  readonly timeoutMs?: number
+  readonly signal?: AbortSignal
 }
 
 /** Await semantic PTY output through the production stream and retain bounded diagnostics. */
@@ -51,6 +57,13 @@ export async function waitForPtyOutput(
   let settled = false
   let receivedCharacters = 0
   let matchedOutput = false
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let rejectWait: (reason: Error) => void = () => undefined
+  const abort = () => {
+    if (settled) return
+    report('interrupted')
+    rejectWait(new Error(`${scenario} output wait interrupted`))
+  }
   const report = (phase: PtyOutputWaitProgress['phase']) =>
     options.onProgress?.({ phase, receivedCharacters, matched: matchedOutput })
   let disposeOutput: Disposer = () => undefined
@@ -59,6 +72,25 @@ export async function waitForPtyOutput(
 
   try {
     const outputEvent = new Promise<void>((resolve, reject) => {
+      rejectWait = (reason) => {
+        if (settled) return
+        settled = true
+        reject(reason)
+      }
+      timer = setTimeout(() => {
+        if (settled) return
+        report('timed-out')
+        rejectWait(
+          new Error(
+            `${scenario} timed out awaiting PTY acknowledgement (receivedCharacters=${receivedCharacters})`,
+          ),
+        )
+      }, options.timeoutMs ?? 10_000)
+      options.signal?.addEventListener('abort', abort, { once: true })
+      if (options.signal?.aborted) {
+        abort()
+        return
+      }
       report('attach-awaiting')
       disposeOutput = supervisor.attach(
         terminal.id,
@@ -117,11 +149,16 @@ export async function waitForPtyOutput(
   } catch (reason) {
     hasPrimaryFailure = true
     primaryFailure = reason
+  } finally {
+    if (timer) clearTimeout(timer)
+    options.signal?.removeEventListener('abort', abort)
   }
 
   let cleanupFailure: unknown
   try {
+    report('detach-awaiting')
     await disposeOutput()
+    report('detach-returned')
   } catch (reason) {
     cleanupFailure = reason
   }

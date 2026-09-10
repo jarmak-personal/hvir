@@ -41,9 +41,9 @@ describe('smoke repository fixture', () => {
     expect(git(repository, 'check-ignore', '.hvir-smoke-ignored.log')).toBe(
       '.hvir-smoke-ignored.log',
     )
-    expect(git(repository, 'blame', '--porcelain', 'package-lock.json')).toContain(
-      'author hvir smoke',
-    )
+    expect(
+      git(repository, 'blame', '--porcelain', '-L', '1,1', '--', 'package-lock.json'),
+    ).toContain('author hvir smoke')
     expect(await readFile(join(repository, 'package.json'), 'utf8')).toBe(
       gitRaw(sourceCheckout, 'show', 'HEAD:package.json'),
     )
