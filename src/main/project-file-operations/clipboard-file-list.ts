@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url'
 
-import bplistParser from 'bplist-parser'
+import { parseBuffer as parseBinaryPlist } from 'bplist-parser'
 import { parse as parsePlist } from 'plist'
 
 import { MAX_EXTERNAL_FILE_SOURCES } from '../../shared'
@@ -84,7 +84,7 @@ function parseLegacyMacFilenames(payload: Buffer): readonly string[] {
   try {
     decoded =
       payload.subarray(0, 8).toString('ascii') === 'bplist00'
-        ? bplistParser.parseBuffer(payload)[0]
+        ? parseBinaryPlist<unknown>(payload)[0]
         : parsePlist(payload.toString('utf8'))
   } catch {
     return []
