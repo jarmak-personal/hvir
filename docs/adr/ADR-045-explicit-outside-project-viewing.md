@@ -1,4 +1,4 @@
-# ADR-042: Explicit outside-project file viewing
+# ADR-045: Explicit outside-project file viewing
 
 > Lifecycle: Active
 > Supersedes: [ADR-003](ADR-003-swappable-terminal-pane.md) | partial | Terminal file-link location restriction to the active workspace.

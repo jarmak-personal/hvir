@@ -114,7 +114,7 @@ work stay outside the renderer root.
 ### [ADR-003 — Terminal is a swappable pane, not the foundation](adr/ADR-003-swappable-terminal-pane.md)
 
 > Lifecycle: Partially superseded
-> Superseded by: [ADR-042](adr/ADR-042-explicit-outside-project-viewing.md) | partial | Terminal file-link location restriction to the active workspace.
+> Superseded by: [ADR-045](adr/ADR-045-explicit-outside-project-viewing.md) | partial | Terminal file-link location restriction to the active workspace.
 
 `TerminalPane` isolates engine choice, terminal-focused layout, and typed file-link
 activation from the rest of the workbench.
@@ -172,7 +172,7 @@ the appropriate unseen child attention.
 ### [ADR-010 — Remote projects: `ProjectHost` seam, host-qualified paths, no remote server](adr/ADR-010-project-host-remote-boundary.md)
 
 > Lifecycle: Partially superseded
-> Superseded by: [ADR-042](adr/ADR-042-explicit-outside-project-viewing.md) | partial | Temporary document viewing addendum: location, document-type, and automatic image-read scope.
+> Superseded by: [ADR-045](adr/ADR-045-explicit-outside-project-viewing.md) | partial | Temporary document viewing addendum: location, document-type, and automatic image-read scope.
 
 All project operations and paths are host-qualified behind `ProjectHost`; SSH remains a
 bounded transport owned by one logical host, not an installed remote service.
@@ -475,7 +475,7 @@ anchor, persistence, and delivery contracts; rendered capture remains Markdown-o
 Users may prepare and verify existing release packages for macOS Installer or Linux `apt`,
 including native updates and package-owned removal; legacy npm migration remains installer-owned.
 
-### [ADR-042 — Explicit outside-project file viewing](adr/ADR-042-explicit-outside-project-viewing.md)
+### [ADR-045 — Explicit outside-project file viewing](adr/ADR-045-explicit-outside-project-viewing.md)
 
 > Lifecycle: Active
 > Supersedes: [ADR-003](adr/ADR-003-swappable-terminal-pane.md) | partial | Terminal file-link location restriction to the active workspace.

@@ -388,7 +388,17 @@ function MarkdownView({
       onOpenComment: documentReview.onOpenComment,
       onExit: documentReview.onExit,
     })
-  }, [documentReview, html, registerReviewInlineHost])
+    // Rebind whenever the image/markup effect above replaces the document nodes,
+    // including a new canonical path object from a workspace reload.
+  }, [
+    documentReview,
+    html,
+    onDependencies,
+    path,
+    registerReviewInlineHost,
+    theme,
+    workspaceRoot,
+  ])
 
   useRenderedPosition(container, content, position, onPosition, positionCapture, html)
   useRenderedFindTarget(container, html || undefined, registerFindTarget)
