@@ -1,16 +1,11 @@
 import {
   containsHostPath,
-  hostPath,
+  dirnameHostPath,
   hostPathEquals,
-  joinHostPath,
   repositoryImageMimeType,
   type HostPath,
   type ReadFileRequest,
 } from '../../shared'
-import {
-  isTemporaryDocument,
-  temporaryDocumentRoot,
-} from '../../shared/temporary-document'
 import type { ProjectHost } from '../project-host'
 
 export interface DocumentReadAuthority {
@@ -25,7 +20,7 @@ export interface DocumentReadAuthority {
   ): Promise<HostPath>
 }
 
-/** Read-only exception; project mutation authority never calls this owner. */
+/** Explicit viewing authority; project mutations never call this owner. */
 export async function authorizeDocumentRead(
   authority: DocumentReadAuthority,
   request: ReadFileRequest,
@@ -34,12 +29,12 @@ export async function authorizeDocumentRead(
   readonly path: HostPath
   readonly root: HostPath
   readonly host: ProjectHost
-  readonly temporary: boolean
+  readonly external: boolean
   readonly assertCurrent: () => void
 }> {
   const { root, host } = authority.activeProject()
   const candidate = authority.reconstructHostPath(request.path)
-  const temporary = !containsHostPath(root, candidate)
+  if (candidate.hostId !== root.hostId) throw new Error('Path belongs to another host')
   const assertCurrent = (): void => {
     const active = authority.activeProject()
     if (active.host !== host || !hostPathEquals(active.root, root)) {
@@ -48,50 +43,46 @@ export async function authorizeDocumentRead(
     if (host.connectionState !== 'connected')
       throw new Error('Document host is disconnected')
   }
-  if (!temporary) {
+  const contextual = request.workspaceRoot !== undefined
+  if (
+    contextual &&
+    !hostPathEquals(authority.reconstructHostPath(request.workspaceRoot), root)
+  ) {
+    throw new Error('Document requires its originating active workspace')
+  }
+  assertCurrent()
+  // Existing project-only callers retain their confined authority. Explicit viewer
+  // reads carry their origin even for lexical project paths that may be symlinks.
+  if (!contextual) {
     const path = await authority.projectPath(candidate, root, host, {
       returnCanonical: true,
     })
-    return { path, root, host, temporary, assertCurrent }
+    assertCurrent()
+    return { path, root, host, external: false, assertCurrent }
   }
-  if (
-    !request.workspaceRoot ||
-    !hostPathEquals(authority.reconstructHostPath(request.workspaceRoot), root)
-  ) {
-    throw new Error('Temporary document requires its originating active workspace')
-  }
-  if (candidate.hostId !== root.hostId) throw new Error('Path belongs to another host')
-  const temporaryRoot = temporaryDocumentRoot(candidate)
-  if (
-    !temporaryRoot ||
-    (kind === 'document'
-      ? !isTemporaryDocument(candidate)
-      : !repositoryImageMimeType(candidate.path))
-  ) {
-    throw new Error('Only temporary Markdown, HTML, and image assets can be viewed')
-  }
-  assertCurrent()
-  const temporaryBase = hostPath(root.hostId, '/tmp')
-  const canonicalRoot = await authority.canonicalRoot(temporaryBase, host)
-  // /private/tmp is accepted only when it is the host's canonical /tmp alias.
-  if (
-    !['/tmp', '/private/tmp'].includes(canonicalRoot.path) ||
-    canonicalRoot.hostId !== root.hostId ||
-    (temporaryRoot.path === '/private/tmp' && canonicalRoot.path !== '/private/tmp')
-  ) {
-    throw new Error('Host temporary root is not supported')
-  }
-  // Both accepted spellings use the same root authority and cached canonical identity.
-  const aliasedCandidate = joinHostPath(
-    temporaryBase,
-    candidate.path.slice(temporaryRoot.path.length + 1),
-  )
-  const path = await authority.projectPath(aliasedCandidate, temporaryBase, host, {
-    returnCanonical: true,
-  })
-  if (hostPathEquals(canonicalRoot, path)) {
-    throw new Error('Path escapes the temporary root through a symlink')
+  const canonicalRoot = await authority.canonicalRoot(root, host)
+  const path = authority.reconstructHostPath(await host.realpath(candidate))
+  if (path.hostId !== root.hostId)
+    throw new Error('Resolved path belongs to another host')
+  let external =
+    !containsHostPath(canonicalRoot, path) || !containsHostPath(root, candidate)
+  if (kind === 'asset') {
+    if (!repositoryImageMimeType(path.path))
+      throw new Error('Only image assets can be previewed')
+    if (!request.documentPath) throw new Error('Image read requires its source document')
+    const document = authority.reconstructHostPath(request.documentPath)
+    if (document.hostId !== root.hostId)
+      throw new Error('Document belongs to another host')
+    const canonicalDocument = authority.reconstructHostPath(await host.realpath(document))
+    if (canonicalDocument.hostId !== root.hostId)
+      throw new Error('Document belongs to another host')
+    // Contextual assets belong to ephemeral viewers, even if an alias resolves
+    // inside the project. They never create project polling interests.
+    external = true
+    const assetRoot = dirnameHostPath(canonicalDocument)
+    if (!containsHostPath(assetRoot, path))
+      throw new Error('Image escapes the document asset directory')
   }
   assertCurrent()
-  return { path, root, host, temporary, assertCurrent }
+  return { path, root, host, external, assertCurrent }
 }

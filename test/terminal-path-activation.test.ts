@@ -46,7 +46,7 @@ describe('terminal path activation', () => {
     expect(ports.revealDirectory).not.toHaveBeenCalled()
   })
 
-  it('silently ignores lexical, foreign-host, symlink, and unsupported targets', async () => {
+  it('routes external, symlink, and special-file failures to the viewer, ignoring foreign hosts', async () => {
     const root = localPath('/repo')
     const ports = fixturePorts('dir')
     const coordinator = coordinatorAt(root, ports)
@@ -67,7 +67,10 @@ describe('terminal path activation', () => {
     })
     await coordinator.activate({ path: localPath('/repo/socket') })
 
-    expect(ports.openFile).not.toHaveBeenCalled()
+    expect(ports.openFile).toHaveBeenCalledTimes(3)
+    for (const path of ['/outside', '/repo/linked-outside', '/repo/socket']) {
+      expect(ports.openFile).toHaveBeenCalledWith(localPath(path), undefined)
+    }
     expect(ports.revealDirectory).not.toHaveBeenCalled()
   })
 

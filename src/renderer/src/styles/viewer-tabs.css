@@ -441,3 +441,16 @@
     display: block;
   }
 }
+
+.external-document-status {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.external-document-location {
+  max-width: min(30vw, 28em);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

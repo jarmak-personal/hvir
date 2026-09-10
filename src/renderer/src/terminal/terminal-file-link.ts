@@ -1,6 +1,5 @@
-import { isTemporaryDocument } from '../../../shared/temporary-document'
+import { fileUriPath } from '../../../shared/file-uri'
 import {
-  containsHostPath,
   hostPath,
   joinHostPath,
   parseLoopbackHttpTarget,
@@ -47,7 +46,7 @@ export function detectTerminalFileLinks(text: string): readonly TerminalFileLink
       continue
     }
     const parsed = parseTerminalFileTarget(target)
-    if (parsed && isPlainPathCandidate(parsed.path)) {
+    if (isFileUri(target) || (parsed && isPlainPathCandidate(parsed.path))) {
       const start = match.index + leading
       links.push({ target, start, end: start + target.length - 1 })
     }
@@ -64,13 +63,9 @@ export function parseTerminalFileTarget(
   if (!target) return undefined
 
   if (target.startsWith('file://')) {
-    try {
-      const uri = new URL(target)
-      if (uri.protocol !== 'file:') return undefined
-      target = decodeURIComponent(uri.pathname)
-    } catch {
-      return undefined
-    }
+    const path = fileUriPath(target)
+    if (!path) return undefined
+    target = path
   } else if (/^[a-z][a-z0-9+.-]*:/i.test(target) && !LINE_POSITION.test(target)) {
     return undefined
   }
@@ -88,7 +83,7 @@ export function parseTerminalFileTarget(
   }
 }
 
-/** Keep the terminal host; main separately validates project or temporary reads. */
+/** Keep the terminal host; main separately validates document reads. */
 export function resolveTerminalFileTarget(
   rawTarget: string,
   workspaceRoot: HostPath,
@@ -103,9 +98,7 @@ export function resolveTerminalFileTarget(
     ...(parsed.line === undefined ? {} : { line: parsed.line }),
     ...(parsed.column === undefined ? {} : { column: parsed.column }),
   }
-  return containsHostPath(workspaceRoot, candidate) || isTemporaryDocument(candidate)
-    ? resolved
-    : undefined
+  return resolved
 }
 
 export function isFileUri(target: string): boolean {
@@ -179,4 +172,15 @@ function isPlainPathCandidate(path: string): boolean {
     path.includes('/') ||
     FILE_NAME.test(path)
   )
+}
+
+/** Surface invalid explicit links at activation, never while scanning output. */
+export function activateTerminalFileTarget(
+  target: string,
+  root: HostPath,
+  open: (target: ResolvedTerminalFileTarget) => void,
+): void {
+  const resolved = resolveTerminalFileTarget(target, root)
+  if (resolved) open(resolved)
+  else window.alert('Cannot open file link: invalid path or another host')
 }

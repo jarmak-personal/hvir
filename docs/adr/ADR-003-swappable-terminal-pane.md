@@ -1,6 +1,7 @@
 # ADR-003: Terminal is a swappable pane, not the foundation
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-042](ADR-042-explicit-outside-project-viewing.md) | partial | Terminal file-link location restriction to the active workspace.
 
 ## Context
 

@@ -1,4 +1,4 @@
-import { viewerReadRequest, retainWorkspaceDocuments } from './temporary-document-tabs'
+import { viewerReadRequest, retainWorkspaceDocuments } from './external-document-tabs'
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react'
 import {
   hostPathEquals,
@@ -52,6 +52,7 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
   const optionsRef = useRef(options)
   const warmWorkspaces = useRef(new RetainedViewerWorkspaceCache())
   const workspaceGeneration = useRef(0)
+  const readLifetime = useRef(0)
   const readGenerations = useRef(new Map<string, number>())
   const navigationSerial = useRef(0)
   const commandTargets = useRef(new ViewerCommandTargets())
@@ -80,6 +81,7 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
 
   const loadFileAt = useCallback(
     (path: HostPath, generation = modelRef.current.generation): void => {
+      const lifetime = readLifetime.current
       const id = viewerTabId(path)
       const readGeneration = (readGenerations.current.get(id) ?? 0) + 1
       readGenerations.current.set(id, readGeneration)
@@ -94,6 +96,7 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
         .then(unwrapOperation)
         .then(
           (file) =>
+            lifetime === readLifetime.current &&
             send({
               type: 'read-succeeded',
               id,
@@ -102,6 +105,7 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
               file,
             }),
           (reason: unknown) =>
+            lifetime === readLifetime.current &&
             send({
               type: 'read-failed',
               id,
@@ -117,8 +121,10 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
   const switchWorkspace = useCallback(
     (root: HostPath, connected = true): void => {
       if (!connected) {
+        readLifetime.current += 1
         for (const tab of modelRef.current.tabs) {
-          if (tab.temporaryWorkspaceRoot) send({ type: 'close', id: tab.id })
+          if (tab.externalWorkspaceRoot || (tab.loading && !tab.file))
+            send({ type: 'close', id: tab.id })
         }
       }
       flushPendingPositions()
@@ -280,7 +286,7 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
   const saveTab = useCallback(
     (id: string): void => {
       const tab = modelRef.current.tabs.find((candidate) => candidate.id === id)
-      if (!tab?.file || tab.file.binary || tab.conflict || tab.temporaryWorkspaceRoot)
+      if (!tab?.file || tab.file.binary || tab.conflict || tab.externalWorkspaceRoot)
         return
       const savedContent = tab.file.content
       send({ type: 'save-started', id })
@@ -304,6 +310,7 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
     (event: WatchEvent): void => {
       if (event.synthetic === 'refresh') return
       for (const tab of modelRef.current.tabs) {
+        if (tab.externalWorkspaceRoot) continue
         if (hostPathEquals(tab.path, event.path)) {
           if (tab.dirty) {
             send({ type: 'watch-conflict', id: tab.id })
@@ -441,6 +448,7 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
     window.addEventListener('pagehide', flushPersistence)
     window.addEventListener('beforeunload', protectDirtyBuffers)
     return () => {
+      readLifetime.current += 1
       window.removeEventListener('pagehide', flushPersistence)
       window.removeEventListener('beforeunload', protectDirtyBuffers)
       if (scrollFrame.current !== undefined) {

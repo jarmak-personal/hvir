@@ -113,7 +113,8 @@ work stay outside the renderer root.
 
 ### [ADR-003 — Terminal is a swappable pane, not the foundation](adr/ADR-003-swappable-terminal-pane.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-042](adr/ADR-042-explicit-outside-project-viewing.md) | partial | Terminal file-link location restriction to the active workspace.
 
 `TerminalPane` isolates engine choice, terminal-focused layout, and typed file-link
 activation from the rest of the workbench.
@@ -170,7 +171,8 @@ the appropriate unseen child attention.
 
 ### [ADR-010 — Remote projects: `ProjectHost` seam, host-qualified paths, no remote server](adr/ADR-010-project-host-remote-boundary.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-042](adr/ADR-042-explicit-outside-project-viewing.md) | partial | Temporary document viewing addendum: location, document-type, and automatic image-read scope.
 
 All project operations and paths are host-qualified behind `ProjectHost`; SSH remains a
 bounded transport owned by one logical host, not an installed remote service.
@@ -443,6 +445,16 @@ enforcement; ADR-014's ownership discipline remains accepted.
 
 Contributor tools report token, Project, and acceptance facts. Approximate session-attributed
 totals replace phase accounting; protected merge remains the separate completion boundary.
+
+### [ADR-042 — Explicit outside-project file viewing](adr/ADR-042-explicit-outside-project-viewing.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-003](adr/ADR-003-swappable-terminal-pane.md) | partial | Terminal file-link location restriction to the active workspace.
+> Supersedes: [ADR-010](adr/ADR-010-project-host-remote-boundary.md) | partial | Temporary document viewing addendum: location, document-type, and automatic image-read scope.
+
+
+Explicit same-host file activation opens ephemeral read-only outside-project tabs; automatic
+Markdown images remain within the canonical document directory and descendants.
 
 ## 5. Architecture
 
