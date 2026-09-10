@@ -1,6 +1,11 @@
 import type { ManagedPty, PtySupervisor } from '../pty/pty-supervisor'
 import { waitForPtyOutput, type PtyOutputWaitProgress } from './pty-lifecycle'
 
+// Temporary native-hang diagnosis: preserve frames without exception text or arguments.
+process.once('uncaughtExceptionMonitor', (error) => {
+  console.error('[smoke:native-exception-stack]', error.stack?.split('\n').slice(1, 9))
+})
+
 /** Start only after attachment; interrupt acknowledges before replacing the producer. */
 export function recoveryProducerLaunch(label: 'local' | 'ssh') {
   const script = `IFS= read -r request; [ "$request" = start ] || exit 64; trap 'printf "hvir-%s-producer-stopped\\n" "${label}"; exec /bin/sh -s' INT; printf 'hvir-%s-producer-ready\\n' '${label}'; while :; do printf 'hvir-${label}-active\\n'; sleep 0.01; done`

@@ -71,6 +71,8 @@ jobs:
       - name: Start temporary Linux native-stack sampler
         if: runner.os == 'Linux' && inputs.scenario == 'renderer-recovery'
         run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y gdb
           command -v gdb
           cat > "$RUNNER_TEMP/hvir-native-sampler.sh" <<'SAMPLER'
           #!/usr/bin/env bash
