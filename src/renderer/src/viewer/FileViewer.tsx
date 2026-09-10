@@ -368,7 +368,7 @@ function BinaryFileView({
     <div className="viewer-empty binary-file-summary">
       <strong>{extension ? `${extension} binary file` : 'Binary file'}</strong>
       <span>{formatViewerBytes(size)}</span>
-      <span>Source and diff views are unavailable.</span>
+      <span>Source, diff, and review capture are unavailable.</span>
     </div>
   )
 }

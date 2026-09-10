@@ -42,14 +42,10 @@ describe('document review store', () => {
       'project:remote',
       hostPath(asHostId('ssh:review'), '/srv/repo'),
     )
-    await store.save(0, model(localWorkspace, localPath('/repo/local.md'), 'local'))
+    await store.save(0, model(localWorkspace, localPath('/repo/local.ts'), 'local'))
     await store.save(
       0,
-      model(
-        sshWorkspace,
-        hostPath(asHostId('ssh:review'), '/srv/repo/remote.md'),
-        'remote',
-      ),
+      model(sshWorkspace, hostPath(asHostId('ssh:review'), '/srv/repo/.env'), 'remote'),
     )
     await store.flush()
 

@@ -115,8 +115,10 @@ candidate. `hvir-create-issue`, `hvir-implement-issue`, and `hvir-merge-pr` do n
 invoke or suggest review.
 
 Contributor reporting is deterministic: [Tokens, Project, and Acceptance](docs/project-management.md#contributor-status).
-Session-attributed totals are observed estimates, not exact phase effort. Tools own deduplication
-and projection; agents do not construct accounting records or manage checkpoints.
+Planning handoffs request usage capture or report its unavailability reason. Tools allocate shared
+planning batches and later counter differences, aggregate all non-planning usage as implementation,
+and retain totals with unknown phase splits. Agents do not calculate shares, construct accounting
+records, or manage checkpoints.
 
 ## Isolate issue implementation
 

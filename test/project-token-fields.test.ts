@@ -1,91 +1,88 @@
 import { describe, expect, it } from 'vitest'
 import { GitHubClient } from '../scripts/project-management/github-client.ts'
 import { projectRecordedTokens } from '../scripts/project-management/project-token-fields.ts'
-import { TOKEN_SCOPE } from '../scripts/project-management/session-token-receipts.ts'
 
-describe('recorded token Project projection', () => {
-  it('labels before publishing, retries partial writes, and converges without duplicate mutations', async () => {
-    let scope: string | null = null
-    let tokens: number | null = null
+describe('three-field token Project projection', () => {
+  it('retries partial writes, clears unknown phases, supports archived items, and avoids redundant mutations', async () => {
+    const values: Record<string, number | null> = {
+      planning: null,
+      implementation: null,
+      tokens: null,
+    }
     let fail = true
     const writes: string[] = []
     const client = new GitHubClient({
       token: 'private',
       purpose: 'test',
-      fetchImplementation: (_url, init) => {
-        if (typeof init?.body !== 'string') throw new Error('Expected JSON request')
-        const body = JSON.parse(init.body) as {
-          query: string
-          variables: { value?: string | number }
-        }
-        if (body.query.includes('RecordedTokenFields'))
-          return Promise.resolve(
-            new Response(
+      fetchImplementation: (_url, init) =>
+        Promise.resolve().then(() => {
+          if (typeof init?.body !== 'string') throw new Error('Expected JSON request')
+          const body = JSON.parse(init.body) as {
+            query: string
+            variables: { value?: number; fieldId: string }
+          }
+          if (body.query.includes('RecordedTokenFields'))
+            return new Response(
               JSON.stringify({
                 data: {
-                  node: {
-                    tokens: tokens === null ? null : { number: tokens },
-                    scope: scope === null ? null : { text: scope },
-                  },
+                  node: Object.fromEntries(
+                    Object.entries(values).map(([key, value]) => [
+                      key,
+                      value === null ? null : { number: value },
+                    ]),
+                  ),
                 },
               }),
-            ),
-          )
-        if (body.query.includes('SetProjectText')) {
-          scope = TOKEN_SCOPE
-          writes.push('scope')
-        } else {
-          writes.push('tokens')
-          if (fail)
-            return Promise.resolve(
-              new Response(JSON.stringify({ errors: [{ message: 'unavailable' }] })),
             )
-          tokens = 100
-        }
-        return Promise.resolve(new Response(JSON.stringify({ data: {} })))
-      },
+          const key = body.variables.fieldId
+          writes.push(key)
+          if (key === 'tokens' && fail)
+            return new Response(JSON.stringify({ errors: [{ message: 'unavailable' }] }))
+          values[key] = body.variables.value ?? null
+          return new Response(JSON.stringify({ data: {} }))
+        }),
     })
     const input = {
       client,
       schema: {
         id: 'project',
         fields: [
-          {
-            typename: 'ProjectV2Field',
-            id: 'tokens',
-            name: 'Recorded tokens',
-            dataType: 'NUMBER',
-          },
-          {
-            typename: 'ProjectV2Field',
-            id: 'scope',
-            name: 'Token scope',
-            dataType: 'TEXT',
-          },
-        ],
+          ['Planning tokens', 'planning'],
+          ['Implementation tokens', 'implementation'],
+          ['Total tokens', 'tokens'],
+        ].map(([name, id]) => ({
+          typename: 'ProjectV2Field',
+          id: id!,
+          name: name!,
+          dataType: 'NUMBER',
+        })),
       },
       item: {
         id: 'item',
-        archived: false,
+        archived: true,
         repository: 'owner/repo',
         issueNumber: 757,
         kind: null,
         status: null,
       },
-      tokens: 100,
+      tokens: { planning: 40, implementation: 60, tokens: 100 },
     }
     await expect(projectRecordedTokens(input)).rejects.toThrow()
-    expect(scope).toBe(TOKEN_SCOPE)
-    expect(tokens).toBeNull()
+    expect(values).toEqual({ planning: 40, implementation: 60, tokens: null })
     fail = false
     await projectRecordedTokens(input)
     await projectRecordedTokens(input)
-    expect(writes).toEqual(['scope', 'tokens', 'tokens'])
-    await expect(projectRecordedTokens({ ...input, tokens: -1 })).rejects.toThrow(
-      'Invalid tokens',
-    )
+    expect(writes).toEqual(['planning', 'implementation', 'tokens', 'tokens'])
+    await projectRecordedTokens({
+      ...input,
+      tokens: { planning: null, implementation: null, tokens: 120 },
+    })
+    expect(values).toEqual({ planning: null, implementation: null, tokens: 120 })
     await expect(
-      projectRecordedTokens({ ...input, item: { ...input.item, archived: true } }),
-    ).rejects.toThrow('unavailable')
+      projectRecordedTokens({
+        ...input,
+        tokens: { planning: 40, implementation: 60, tokens: -1 },
+      }),
+    ).rejects.toThrow('Invalid tokens')
   })
 })

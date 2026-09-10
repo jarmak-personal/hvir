@@ -59,53 +59,60 @@ afterEach(() => {
 })
 
 describe('Markdown document review interaction', () => {
-  it('keeps ambient source selection and copying inert until explicit comment submission', async () => {
-    const readDocument = vi.fn(authoritativeRead)
-    const apply = vi.fn<DocumentReviewWorkspaceBinding['apply']>((_action) => ({
-      ok: true,
-      model: emptyModel(),
-    }))
-    renderViewer(sourceTab(), binding(emptyModel(), apply, readDocument))
-    click('Enter Markdown review mode')
+  it.each(['review.md', 'example.ts', 'config.json', 'notes.txt', '.env', 'Makefile'])(
+    'captures %s only after explicit comment submission',
+    async (name) => {
+      const documentPath = localPath(`/repo/${name}`)
+      const readDocument = vi.fn(authoritativeRead)
+      const apply = vi.fn<DocumentReviewWorkspaceBinding['apply']>((_action) => ({
+        ok: true,
+        model: emptyModel(),
+      }))
+      renderViewer(
+        sourceTab({ path: documentPath }),
+        binding(emptyModel(), apply, readDocument),
+      )
+      click('Enter Document review mode')
 
-    act(() => {
-      editorView().dispatch({ selection: { anchor: 0, head: 8 } })
-      host
-        .querySelector('.cm-content')
-        ?.dispatchEvent(new Event('copy', { bubbles: true, cancelable: true }))
-    })
-    expect(apply).not.toHaveBeenCalled()
+      act(() => {
+        editorView().dispatch({ selection: { anchor: 0, head: 8 } })
+        host
+          .querySelector('.cm-content')
+          ?.dispatchEvent(new Event('copy', { bubbles: true, cancelable: true }))
+      })
+      expect(apply).not.toHaveBeenCalled()
 
-    click('Add comment for selected source lines')
-    expect(apply).not.toHaveBeenCalled()
-    setTextArea('New review comment', 'Explain this heading')
-    await act(async () => {
-      host
-        .querySelector<HTMLTextAreaElement>('[aria-label="New review comment"]')
-        ?.form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
-      await settle()
-      await new Promise<void>((resolve) => setTimeout(resolve, 0))
-    })
+      click('Add comment for selected source lines')
+      expect(apply).not.toHaveBeenCalled()
+      setTextArea('New review comment', 'Explain this heading')
+      await act(async () => {
+        host
+          .querySelector<HTMLTextAreaElement>('[aria-label="New review comment"]')
+          ?.form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+        await settle()
+        await new Promise<void>((resolve) => setTimeout(resolve, 0))
+      })
 
-    expect(apply).toHaveBeenCalledOnce()
-    expect(readDocument).toHaveBeenCalledExactlyOnceWith(documentPath)
-    expect(apply.mock.calls[0]?.[0]).toMatchObject({
-      type: 'add-comment',
-      workspace,
-      body: 'Explain this heading',
-      batchId: 'active-review',
-      capture: {
-        document: documentPath,
-        range: { startLine: 1, endLine: 1 },
-        snapshot: { algorithm: 'sha256', digest: 'd'.repeat(64) },
-        content: '# Heading\n\nParagraph\n',
-      },
-    })
-  })
+      expect(apply).toHaveBeenCalledOnce()
+      expect(readDocument).toHaveBeenCalledExactlyOnceWith(documentPath)
+      expect(apply.mock.calls[0]?.[0]).toMatchObject({
+        type: 'add-comment',
+        workspace,
+        body: 'Explain this heading',
+        batchId: 'active-review',
+        capture: {
+          document: documentPath,
+          range: { startLine: 1, endLine: 1 },
+          snapshot: { algorithm: 'sha256', digest: 'd'.repeat(64) },
+          content: '# Heading\n\nParagraph\n',
+        },
+      })
+    },
+  )
 
   it('starts a single-line source comment directly from the line-number gutter', () => {
     renderViewer(sourceTab(), binding(emptyModel(), vi.fn()))
-    click('Enter Markdown review mode')
+    click('Enter Document review mode')
 
     const lineOne = [
       ...host.querySelectorAll<HTMLElement>('.cm-lineNumbers .cm-gutterElement'),
@@ -129,13 +136,13 @@ describe('Markdown document review interaction', () => {
         ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     })
     expect(host.querySelector('.document-review-inline')).toBeNull()
-    expect(button('Exit Markdown review mode')).toBeTruthy()
+    expect(button('Exit Document review mode')).toBeTruthy()
   })
 
   it('preserves typed review text while the source projection remounts', () => {
     const review = binding(emptyModel(), vi.fn())
     renderViewer(sourceTab(), review)
-    click('Enter Markdown review mode')
+    click('Enter Document review mode')
     click('Add comment for selected source lines')
     setTextArea('New review comment', 'Keep this unfinished thought')
 
@@ -160,7 +167,7 @@ describe('Markdown document review interaction', () => {
       sourceTab(),
       binding(emptyModel(), apply, () => read.promise),
     )
-    click('Enter Markdown review mode')
+    click('Enter Document review mode')
     act(() => editorView().dispatch({ selection: { anchor: 0, head: 8 } }))
     click('Add comment for selected source lines')
     setTextArea('New review comment', 'Late feedback')
@@ -186,14 +193,14 @@ describe('Markdown document review interaction', () => {
         Promise.resolve(readResult(document, '# Changed on disk\n')),
       ),
     )
-    click('Enter Markdown review mode')
+    click('Enter Document review mode')
     act(() => editorView().dispatch({ selection: { anchor: 0, head: 8 } }))
     click('Add comment for selected source lines')
     setTextArea('New review comment', 'Must match what I reviewed')
     await submitNewComment()
 
     expect(host.querySelector('[role="alert"]')?.textContent).toContain(
-      'on-disk Markdown changed before capture',
+      'on-disk document changed before capture',
     )
     expect(apply).not.toHaveBeenCalled()
   })
@@ -210,6 +217,16 @@ describe('Markdown document review interaction', () => {
       'exceeds the review read limit',
     ],
     [
+      'invalid UTF-8 or binary text',
+      () =>
+        Promise.resolve({
+          status: 'stale' as const,
+          document: documentPath,
+          reason: 'invalid-text' as const,
+        }),
+      'not valid UTF-8 text',
+    ],
+    [
       'a failed host read',
       () => Promise.reject(new Error('ProjectHost read failed')),
       'ProjectHost read failed',
@@ -217,7 +234,7 @@ describe('Markdown document review interaction', () => {
   ])('refuses capture after %s without writing', async (_case, readDocument, message) => {
     const apply = vi.fn<DocumentReviewWorkspaceBinding['apply']>()
     renderViewer(sourceTab(), binding(emptyModel(), apply, readDocument))
-    click('Enter Markdown review mode')
+    click('Enter Document review mode')
     act(() => editorView().dispatch({ selection: { anchor: 0, head: 8 } }))
     click('Add comment for selected source lines')
     setTextArea('New review comment', 'Feedback')
@@ -232,7 +249,7 @@ describe('Markdown document review interaction', () => {
     const apply = vi.fn<DocumentReviewWorkspaceBinding['apply']>()
     const review = binding(emptyModel(), apply, () => read.promise)
     renderViewer(sourceTab(), review)
-    click('Enter Markdown review mode')
+    click('Enter Document review mode')
     act(() => editorView().dispatch({ selection: { anchor: 0, head: 8 } }))
     click('Add comment for selected source lines')
     setTextArea('New review comment', 'Late feedback')
@@ -257,7 +274,7 @@ describe('Markdown document review interaction', () => {
       model,
     }))
     renderViewer(sourceTab({ dirty: true }), binding(model, apply))
-    click('Enter Markdown review mode')
+    click('Enter Document review mode')
     clickSourceReviewMarker()
 
     expect(
@@ -283,7 +300,7 @@ describe('Markdown document review interaction', () => {
       ],
     }
     renderViewer(sourceTab(), binding(model, vi.fn()))
-    click('Enter Markdown review mode')
+    click('Enter Document review mode')
     clickSourceReviewMarker()
 
     expect(host.querySelector('.review-state')).toBeNull()
@@ -330,8 +347,8 @@ describe('Markdown document review interaction', () => {
     renderViewer(sourceTab(), binding(model, vi.fn()))
 
     expect(host.querySelector('.cm-review-marker')).toBeTruthy()
-    expect(host.querySelector('[aria-label="Markdown review comments"]')).toBeNull()
-    expect(button('Enter Markdown review mode')).toBeTruthy()
+    expect(host.querySelector('[aria-label="Document review comments"]')).toBeNull()
+    expect(button('Enter Document review mode')).toBeTruthy()
   })
 
   it('keeps an out-of-range stale comment reachable after the document shrinks', () => {
@@ -344,7 +361,7 @@ describe('Markdown document review interaction', () => {
       },
     }
     renderViewer(sourceTab(), binding({ ...emptyModel(), comments: [orphaned] }, vi.fn()))
-    click('Enter Markdown review mode')
+    click('Enter Document review mode')
 
     click('Open unplaced comment · Line 99')
 
@@ -368,7 +385,7 @@ describe('Markdown document review interaction', () => {
     }
 
     renderViewer(sourceTab(), binding(reviewModel, vi.fn()))
-    click('Enter Markdown review mode')
+    click('Enter Document review mode')
     expect(button('Open unplaced comment · Line 99')).toBeTruthy()
     expect(host.querySelectorAll('.document-review-orphan')).toHaveLength(1)
 
@@ -384,12 +401,12 @@ describe('Markdown document review interaction', () => {
     renderViewer(sourceTab(), binding(model, vi.fn()))
 
     clickSourceReviewMarker()
-    expect(button('Exit Markdown review mode')).toBeTruthy()
+    expect(button('Exit Document review mode')).toBeTruthy()
     expect(document.activeElement?.getAttribute('aria-label')).toBe(
       'Review comment at Line 1',
     )
 
-    click('Exit Markdown review mode')
+    click('Exit Document review mode')
     expect(host.querySelector('.document-review-inline')).toBeNull()
     clickSourceReviewMarker()
     expect(host.textContent).toContain('source-marker-note')
@@ -406,10 +423,10 @@ describe('Markdown document review interaction', () => {
     renderViewer(renderedTab(), binding(model, vi.fn()))
     await act(async () => settle())
 
-    expect(button('Enter Markdown review mode')).toBeTruthy()
+    expect(button('Enter Document review mode')).toBeTruthy()
     click('Open 1 review note at line 1; current')
 
-    expect(button('Exit Markdown review mode')).toBeTruthy()
+    expect(button('Exit Document review mode')).toBeTruthy()
     expect(document.activeElement?.getAttribute('aria-label')).toBe(
       'Review comment at Line 1',
     )
@@ -422,7 +439,7 @@ describe('Markdown document review interaction', () => {
     )
     const reviewBinding = binding(model, vi.fn())
     renderViewer(sourceTab(), reviewBinding)
-    click('Enter Markdown review mode')
+    click('Enter Document review mode')
     expect(host.querySelector('.cm-review-marker')).toBeTruthy()
     clickSourceReviewMarker()
     expect(host.textContent).toContain('same-note')
@@ -430,7 +447,7 @@ describe('Markdown document review interaction', () => {
     renderViewer(renderedTab(), reviewBinding)
     await act(async () => settle())
 
-    expect(button('Exit Markdown review mode')).toBeTruthy()
+    expect(button('Exit Document review mode')).toBeTruthy()
     expect(host.querySelector('.review-block-badge')).toBeTruthy()
     expect(host.textContent).toContain('same-note')
   })
@@ -444,7 +461,7 @@ describe('Markdown document review interaction', () => {
     )
     renderViewer(renderedTab(), binding(emptyModel(), vi.fn()))
     await act(async () => settle())
-    click('Enter Markdown review mode')
+    click('Enter Document review mode')
     await act(async () => settle())
     const blocks = [...host.querySelectorAll<HTMLElement>('.review-block-active')]
     expect(blocks).toHaveLength(2)
@@ -471,13 +488,13 @@ describe('Markdown document review interaction', () => {
         ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     })
     expect(host.querySelector('.document-review-inline')).toBeNull()
-    expect(button('Exit Markdown review mode')).toBeTruthy()
+    expect(button('Exit Document review mode')).toBeTruthy()
     act(() => {
       blocks[1]?.dispatchEvent(
         new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
       )
     })
-    expect(button('Enter Markdown review mode')).toBeTruthy()
+    expect(button('Enter Document review mode')).toBeTruthy()
   })
 
   it('uses the same authoritative read for rendered capture as source capture', async () => {
@@ -491,7 +508,7 @@ describe('Markdown document review interaction', () => {
     }))
     renderViewer(renderedTab(), binding(emptyModel(), apply, readDocument))
     await act(async () => settle())
-    click('Enter Markdown review mode')
+    click('Enter Document review mode')
     await act(async () => settle())
     click('Add comment for line 1')
     setTextArea('New review comment', 'Rendered feedback')
@@ -521,14 +538,14 @@ describe('Markdown document review interaction', () => {
       model,
     }))
     renderViewer(sourceTab(), binding(model, apply))
-    const entry = button('Enter Markdown review mode')
+    const entry = button('Enter Document review mode')
     expect(entry?.getAttribute('type')).toBe('button')
-    expect(entry?.getAttribute('title')).toBe('Markdown review mode')
-    click('Enter Markdown review mode')
-    expect(button('Exit Markdown review mode')).toBeTruthy()
-    expect(host.querySelector('[aria-label="Markdown review comments"]')).toBeTruthy()
+    expect(entry?.getAttribute('title')).toBe('Document review mode')
+    click('Enter Document review mode')
+    expect(button('Exit Document review mode')).toBeTruthy()
+    expect(host.querySelector('[aria-label="Document review comments"]')).toBeTruthy()
     expect(host.querySelector('.cm-content')?.getAttribute('aria-label')).toBe(
-      'Markdown source review',
+      'Source review',
     )
     clickSourceReviewMarker()
 
@@ -545,8 +562,8 @@ describe('Markdown document review interaction', () => {
       'remove-comment',
     ])
 
-    click('Exit Markdown review mode')
-    expect(button('Enter Markdown review mode')).toBeTruthy()
+    click('Exit Document review mode')
+    expect(button('Enter Document review mode')).toBeTruthy()
   })
 
   it('confirms and discards a multi-comment active review', () => {
@@ -570,7 +587,7 @@ describe('Markdown document review interaction', () => {
       return result
     })
     renderViewer(sourceTab(), binding(model, apply))
-    click('Enter Markdown review mode')
+    click('Enter Document review mode')
 
     click('Discard 2 draft review comments')
     expect(host.querySelector('[role="dialog"]')?.textContent).toContain(
@@ -598,7 +615,7 @@ describe('Markdown document review interaction', () => {
       applyDocumentReviewAction(model, action),
     )
     renderViewer(sourceTab(), binding(model, apply))
-    click('Enter Markdown review mode')
+    click('Enter Document review mode')
 
     click('Discard 1 draft review comment')
 
@@ -626,7 +643,7 @@ describe('Markdown document review interaction', () => {
       return result
     })
     renderViewer(sourceTab(), binding(model, apply))
-    click('Enter Markdown review mode')
+    click('Enter Document review mode')
 
     const clear = button('Clear 2 sent and resolved review comments from this workspace')
     expect(clear?.getAttribute('type')).toBe('button')
@@ -660,13 +677,13 @@ describe('Markdown document review interaction', () => {
       return result
     })
     renderViewer(sourceTab(), binding(model, apply))
-    click('Enter Markdown review mode')
+    click('Enter Document review mode')
     click('Clear 1 sent and resolved review comment from this workspace')
     renderViewer(sourceTab(), binding(cleared, apply))
 
     expect(host.querySelector('.document-review-inline')).toBeNull()
     expect(host.querySelector('.cm-review-marker')).toBeNull()
-    expect(button('Exit Markdown review mode')?.textContent).toBe('Review')
+    expect(button('Exit Document review mode')?.textContent).toBe('Review')
   })
 
   it('does not project Markdown review controls onto diff mode', () => {
@@ -683,18 +700,21 @@ describe('Markdown document review interaction', () => {
     renderViewer(diffTab, binding(model, vi.fn()))
 
     expect(host.querySelector('[aria-label="Document review"]')).toBeNull()
-    expect(host.querySelector('[aria-label="Markdown review comments"]')).toBeNull()
+    expect(host.querySelector('[aria-label="Document review comments"]')).toBeNull()
   })
 
-  it('does not install Markdown review chrome in a non-Markdown source viewer', () => {
-    const source = sourceTab({ path: localPath('/repo/example.ts') })
-    renderViewer(source, binding(emptyModel(), vi.fn()))
-
-    expect(host.querySelector('[aria-label="Document review"]')).toBeNull()
-    expect(host.querySelector('.cm-review-gutter')).toBeNull()
-    expect(host.querySelector('.cm-content')?.getAttribute('aria-label')).not.toBe(
-      'Source viewer',
+  it('keeps non-Markdown rendered views and workspace escapes outside review', () => {
+    const source = sourceTab({ path: localPath('/repo/config.json') })
+    renderViewer(
+      { ...source, mode: 'rendered', loading: true },
+      binding(emptyModel(), vi.fn()),
     )
+    expect(button('Enter Document review mode')).toBeUndefined()
+    renderViewer(
+      sourceTab({ path: localPath('/outside/code.ts') }),
+      binding(emptyModel(), vi.fn()),
+    )
+    expect(button('Enter Document review mode')).toBeUndefined()
   })
 })
 
