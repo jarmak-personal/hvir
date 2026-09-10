@@ -62,7 +62,7 @@ describe('viewer workspace retention', () => {
       file: undefined,
       loading: true,
     })
-    expect(invoke).toHaveBeenLastCalledWith('fs:read', { path })
+    expect(invoke).toHaveBeenLastCalledWith('fs:read', { path, workspaceRoot: project })
 
     await act(async () => {
       pending.resolve({ ok: true, value: file(path, 'reloaded', 8) })
@@ -262,7 +262,7 @@ describe('viewer document refresh', () => {
       changes: [{ version: 1, path }],
     })
     expect(invoke).toHaveBeenCalledOnce()
-    expect(invoke).toHaveBeenCalledWith('fs:read', { path })
+    expect(invoke).toHaveBeenCalledWith('fs:read', { path, workspaceRoot: project })
   })
 
   it('retains two matching declared dependency events from one React batch', async () => {
@@ -372,12 +372,12 @@ function nextAnimationFrame(): Promise<void> {
   return new Promise((resolve) => window.requestAnimationFrame(() => resolve()))
 }
 
-describe('temporary document tabs', () => {
+describe('outside-project document tabs', () => {
   it.each(['local', 'ssh-dev'])(
     'keeps %s documents read-only and without watch or persistence interests',
     async (id) => {
       const root = hostPath(asHostId(id), '/project')
-      const path = hostPath(root.hostId, '/tmp/plan.md')
+      const path = hostPath(root.hostId, '/scratch/plan.md')
       invoke.mockResolvedValue({ ok: true, value: file(path, '# Plan', 6) })
       act(() => workspace.switchWorkspace(root))
       await act(async () => {
@@ -386,13 +386,13 @@ describe('temporary document tabs', () => {
       })
       const tab = workspace.activeTab!
       expect(invoke).toHaveBeenCalledWith('fs:read', { path, workspaceRoot: root })
-      expect(tab.temporaryWorkspaceRoot).toEqual(root)
+      expect(tab.externalWorkspaceRoot).toEqual(root)
       expect(workspace.openWatchPaths).toEqual([])
       act(() => {
         workspace.setContent(tab.id, 'changed')
         workspace.saveTab(tab.id)
         workspace.setRenderedDependencies(tab.id, [
-          hostPath(root.hostId, '/tmp/image.png'),
+          hostPath(root.hostId, '/scratch/image.png'),
         ])
         workspace.setMode(tab.id, 'diff')
       })
@@ -409,12 +409,12 @@ describe('temporary document tabs', () => {
       act(() => workspace.switchWorkspace(root))
       expect(workspace.tabs).toEqual([])
       expect(localStorage.getItem(`hvir:tabs:${root.hostId}:${root.path}`)).not.toContain(
-        '/tmp/plan.md',
+        '/scratch/plan.md',
       )
     },
   )
 
-  it('closes temporary tabs on host disconnect and drops late content', async () => {
+  it('closes external tabs on host disconnect and drops late content', async () => {
     const root = hostPath(asHostId('ssh-dev'), '/project')
     const path = hostPath(root.hostId, '/tmp/plan.html')
     const pending = deferred<{ ok: true; value: ReadFileResponse }>()
@@ -428,4 +428,58 @@ describe('temporary document tabs', () => {
     })
     expect(workspace.tabs).toEqual([])
   })
+})
+
+it('uses main canonical classification for a symlink and retains its originating workspace', async () => {
+  const root = localPath('/project')
+  const path = localPath('/project/link.ts')
+  const resolvedPath = localPath('/sibling/main.ts')
+  invoke.mockResolvedValue({
+    ok: true,
+    value: { ...file(path, 'source', 6), resolvedPath, externalWorkspaceRoot: root },
+  })
+  act(() => workspace.switchWorkspace(root))
+  await act(async () => {
+    workspace.openFile(path, true, 'file-tree', 'head', undefined, { line: 2, column: 3 })
+    await settle()
+  })
+  expect(workspace.model.root).toEqual(root)
+  expect(workspace.activeTab?.file?.resolvedPath).toEqual(resolvedPath)
+  expect(workspace.activeTab?.externalWorkspaceRoot).toEqual(root)
+  expect(workspace.activeTab?.navigation).toMatchObject({ line: 2, column: 3 })
+  expect(workspace.openWatchPaths).toEqual([])
+  act(() => {
+    workspace.setContent(workspace.activeId!, 'changed')
+    workspace.saveTab(workspace.activeId!)
+  })
+  expect(workspace.activeTab?.dirty).toBe(false)
+  expect(invoke.mock.calls.some(([channel]) => channel === 'fs:write')).toBe(false)
+})
+
+it('does not acquire watches or accept late symlink content across disconnect/reconnect', async () => {
+  const root = localPath('/project')
+  const path = localPath('/project/link.md')
+  const pending = deferred<{ ok: true; value: ReadFileResponse }>()
+  invoke.mockReturnValue(pending.promise)
+  act(() => {
+    workspace.switchWorkspace(root)
+    workspace.openFile(path, true)
+  })
+  expect(workspace.openWatchPaths).toEqual([])
+  act(() => {
+    workspace.switchWorkspace(root, false)
+    workspace.switchWorkspace(root, true)
+  })
+  await act(async () => {
+    pending.resolve({
+      ok: true,
+      value: {
+        ...file(path, 'late', 4),
+        resolvedPath: localPath('/scratch/report.md'),
+        externalWorkspaceRoot: root,
+      },
+    })
+    await settle()
+  })
+  expect(workspace.activeTab?.file).toBeUndefined()
 })

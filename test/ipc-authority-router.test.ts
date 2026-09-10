@@ -471,6 +471,8 @@ describe('IpcAuthorityRouter', () => {
         'document-review:insert-delivery',
         'document-review:send-now-delivery',
         'ssh:prompt-response',
+        'fs:read',
+        'fs:read-asset',
         'fs:filename-search',
         'fs:reveal-entry',
         'fs:create-entry',

@@ -9,10 +9,10 @@ import { renderMarkdownDocument } from '../src/renderer/src/viewer/markdown-rend
 import { hostPath, localPath, type ProjectState } from '../src/shared'
 import { createTestSshHost } from './ssh-host-test-fixture'
 
-it('renders the SSH terminal document through SshHost and its SFTP boundary, never application-host /tmp', async () => {
+it('renders the SSH terminal document through SshHost and its SFTP boundary, never the application host', async () => {
   const remoteRead = vi.fn(
     (path: string, done: (error: Error | undefined, value: Buffer) => void) => {
-      if (path !== '/tmp/plan.md') throw new Error('Unexpected remote read')
+      if (path !== '/agents/plan.md') throw new Error('Unexpected remote read')
       done(undefined, Buffer.from('# Remote plan'))
     },
   )
@@ -82,10 +82,10 @@ it('renders the SSH terminal document through SshHost and its SFTP boundary, nev
     }
     const activation = new TerminalPathActivationCoordinator(ports)
     activation.update(root, ports)
-    await activation.activate(resolveTerminalFileTarget('/tmp/plan.md', root)!)
+    await activation.activate(resolveTerminalFileTarget('/agents/plan.md', root)!)
     expect(await rendered).toContain('Remote plan</h1>')
-    expect(remoteRead).toHaveBeenCalledWith('/tmp/plan.md', expect.any(Function))
-    await expect(host.readFile(localPath('/tmp/plan.md'))).rejects.toThrow(/expected/)
+    expect(remoteRead).toHaveBeenCalledWith('/agents/plan.md', expect.any(Function))
+    await expect(host.readFile(localPath('/agents/plan.md'))).rejects.toThrow(/expected/)
     expect(remoteRead).toHaveBeenCalledTimes(1)
   } finally {
     await host.dispose()

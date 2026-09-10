@@ -6,29 +6,33 @@ import type { PtySupervisor } from '../pty/pty-supervisor'
 import { ensureExplicitBareShellLaunch } from './terminal-explicit-launch'
 import { sendRendererEvent } from '../renderer-event-delivery'
 
-export interface TemporaryDocumentProjectState {
+export interface ExternalDocumentProjectState {
   get(): ProjectState
   set(state: ProjectState): ProjectState
 }
 
 /** Real terminal activation → preload/main/ProjectHost → worker and Chromium display. */
-export async function verifyTemporaryDocuments(
+export async function verifyExternalDocuments(
   win: BrowserWindow,
   host: ProjectHost,
   supervisor: PtySupervisor,
-  projectState: TemporaryDocumentProjectState,
+  projectState: ExternalDocumentProjectState,
 ): Promise<void> {
-  // Plain file links are single-line: keep every fixture path short in narrow windows.
-  const root = hostPath(host.hostId, `/tmp/hvir-${randomBytes(8).toString('hex')}`)
+  // The fixture lives outside temporary roots; OSC links fit narrow terminal panes.
+  const home = await host.exec('sh', ['-c', 'printf %s "$HOME"'])
+  const root = hostPath(
+    host.hostId,
+    `${home.stdout}/.hvir-${randomBytes(8).toString('hex')}`,
+  )
   await host.exec('mkdir', ['--', root.path])
   try {
     await host.writeFile(
       hostPath(host.hostId, `${root.path}/plan.md`),
-      '# Temporary plan\n\n[HTML report](report.html)\n\n![pixel](pixel.png)',
+      '# External plan\n\n[HTML report](report.html)\n\n![pixel](pixel.png)\n\n![denied](../private/chart.png)',
     )
     await host.writeFile(
       hostPath(host.hostId, `${root.path}/report.html`),
-      '<h1>Temporary HTML</h1>',
+      '<h1>External HTML</h1>',
     )
     await host.writeFile(
       hostPath(host.hostId, `${root.path}/pixel.png`),
@@ -37,20 +41,24 @@ export async function verifyTemporaryDocuments(
         'base64',
       ),
     )
+    await host.writeFile(
+      hostPath(host.hostId, `${root.path}/code.ts`),
+      'const first = 1\nconst second = 2\n',
+    )
     win.setContentSize(800, 800)
     await ensureExplicitBareShellLaunch(win, supervisor)
-    console.log('[smoke] temporary document terminal ready')
+    console.log('[smoke] external document terminal ready')
     const terminal = supervisor
       .list()
       .find((entry) => entry.ownerId === win.webContents.id)
-    if (!terminal) throw new Error('Temporary document source terminal missing')
+    if (!terminal) throw new Error('External document source terminal missing')
     await activateTerminalDocument(
       win,
       supervisor,
       terminal,
       hostPath(host.hostId, `${root.path}/plan.md`),
     )
-    console.log('[smoke] temporary Markdown activated')
+    console.log('[smoke] external Markdown activated')
     await win.webContents
       .executeJavaScript(
         `
@@ -59,23 +67,25 @@ export async function verifyTemporaryDocuments(
           const deadline = Date.now() + 15000;
           const poll = () => {
             if (read()) return resolve();
-            if (Date.now() > deadline) return reject(new Error('Temporary document ' + phase + ' unavailable'));
+            if (Date.now() > deadline) return reject(new Error('External document ' + phase + ' unavailable'));
             setTimeout(poll, 25);
           }; poll();
         });
-        await wait(() => document.querySelector('.markdown-body h1')?.textContent === 'Temporary plan' && document.querySelector('.markdown-body img')?.naturalWidth === 1, 'Markdown/image');
+        await wait(() => document.querySelector('.markdown-body h1')?.textContent === 'External plan' && document.querySelector('.markdown-body img')?.naturalWidth === 1, 'Markdown/image');
+        await wait(() => document.querySelector('.markdown-image-unavailable'), 'denied image');
+        if (!document.querySelector('.view-controls')?.textContent.includes('outside project')) throw new Error('External location status missing');
         const source = [...document.querySelectorAll('.mode-control button')].find((button) => button.textContent === 'source');
         source.click();
         await wait(() => document.querySelector('.cm-content')?.getAttribute('contenteditable') === 'false', 'read-only source');
         const diff = [...document.querySelectorAll('.mode-control button')].find((button) => button.textContent === 'diff');
-        if (!diff?.disabled || document.querySelector('.blame-toggle')) throw new Error('Temporary source exposed Git controls');
+        if (!diff?.disabled || document.querySelector('.blame-toggle')) throw new Error('External source exposed Git controls');
         const rendered = [...document.querySelectorAll('.mode-control button')].find((button) => button.textContent === 'rendered');
         rendered.click();
         await wait(() => document.querySelector('.markdown-body a'), 'rendered link');
         document.querySelector('.markdown-body a').click();
         await wait(() => document.querySelector('iframe.html-preview'), 'HTML preview');
         const preview = document.querySelector('iframe.html-preview');
-        if (preview.getAttribute('sandbox') !== 'allow-scripts') throw new Error('Temporary HTML sandbox changed');
+        if (preview.getAttribute('sandbox') !== 'allow-scripts') throw new Error('External HTML sandbox changed');
         return preview.src;
       })()
     `,
@@ -89,7 +99,7 @@ export async function verifyTemporaryDocuments(
             )
             if (found) resolve(found)
             else if (Date.now() > deadline)
-              reject(new Error('Temporary HTML frame unavailable'))
+              reject(new Error('External HTML frame unavailable'))
             else setTimeout(poll, 25)
           }
           poll()
@@ -97,9 +107,9 @@ export async function verifyTemporaryDocuments(
         await frame.executeJavaScript(`new Promise((resolve, reject) => {
         const deadline = Date.now() + 15000;
         const poll = () => {
-          if (Date.now() > deadline) return reject(new Error('Temporary HTML content unavailable'));
-          if (document.querySelector('h1')?.textContent !== 'Temporary HTML') return setTimeout(poll, 25);
-          if (typeof require !== 'undefined' || typeof window.hvir !== 'undefined') return reject(new Error('Temporary preview acquired workbench authority'));
+          if (Date.now() > deadline) return reject(new Error('External HTML content unavailable'));
+          if (document.querySelector('h1')?.textContent !== 'External HTML') return setTimeout(poll, 25);
+          if (typeof require !== 'undefined' || typeof window.hvir !== 'undefined') return reject(new Error('External preview acquired workbench authority'));
           resolve();
         }; poll();
       })`)
@@ -108,7 +118,36 @@ export async function verifyTemporaryDocuments(
         )
         await requireReleasedPreview(win, url)
       })
-    console.log('[smoke] temporary HTML released; activating missing document')
+    await activateTerminalDocument(
+      win,
+      supervisor,
+      terminal,
+      hostPath(host.hostId, `${root.path}/code.ts`),
+    )
+    await win.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+      const deadline = Date.now() + 15000;
+      const poll = () => {
+        const code = document.querySelector('.cm-content');
+        if (code?.textContent.includes('const second') && code.getAttribute('contenteditable') === 'false') return resolve();
+        if (Date.now() > deadline) return reject(new Error('Outside-project code source unavailable'));
+        setTimeout(poll, 25);
+      }; poll();
+    })`)
+    await activateTerminalDocument(
+      win,
+      supervisor,
+      terminal,
+      hostPath(host.hostId, `${root.path}/pixel.png`),
+    )
+    await win.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+      const deadline = Date.now() + 15000;
+      const poll = () => {
+        if (document.querySelector('.image-view img')?.naturalWidth === 1) return resolve();
+        if (Date.now() > deadline) return reject(new Error('Outside-project image viewer unavailable'));
+        setTimeout(poll, 25);
+      }; poll();
+    })`)
+    console.log('[smoke] external HTML released; activating missing document')
     await activateTerminalDocument(
       win,
       supervisor,
@@ -119,7 +158,7 @@ export async function verifyTemporaryDocuments(
       const deadline = Date.now() + 15000;
       const poll = () => {
         if (document.querySelector('.viewer-empty.error')) return resolve();
-        if (Date.now() > deadline) return reject(new Error('Temporary missing-file error unavailable'));
+        if (Date.now() > deadline) return reject(new Error('External missing-file error unavailable'));
         setTimeout(poll, 25);
       }; poll();
     })`)
@@ -137,7 +176,7 @@ export async function verifyTemporaryDocuments(
       const poll = () => {
         const preview = document.querySelector('iframe.html-preview');
         if (preview) return resolve(preview.src);
-        if (Date.now() > deadline) return reject(new Error('Temporary disconnect preview unavailable'));
+        if (Date.now() > deadline) return reject(new Error('External disconnect preview unavailable'));
         setTimeout(poll, 25);
       }; poll();
     })`)) as string
@@ -157,10 +196,10 @@ export async function verifyTemporaryDocuments(
       await win.webContents.executeJavaScript(`new Promise((resolve, reject) => {
         const deadline = Date.now() + 15000;
         const poll = () => {
-          const temporaryTabs = [...document.querySelectorAll('.viewer-tab .tab-main')]
+          const externalTabs = [...document.querySelectorAll('.viewer-tab .tab-main')]
             .some((tab) => tab.getAttribute('title')?.startsWith(${JSON.stringify(root.path + '/')}));
-          if (!temporaryTabs && !document.querySelector('iframe.html-preview')) return resolve();
-          if (Date.now() > deadline) return reject(new Error('Same-root disconnect retained temporary viewer state'));
+          if (!externalTabs && !document.querySelector('iframe.html-preview')) return resolve();
+          if (Date.now() > deadline) return reject(new Error('Same-root disconnect retained external viewer state'));
           setTimeout(poll, 25);
         }; poll();
       })`)
@@ -169,7 +208,7 @@ export async function verifyTemporaryDocuments(
       publishState(connected)
     }
     console.log(
-      '[smoke] temporary documents OK (terminal activation, Markdown/image, read-only source, HTML sandbox/release, missing file, same-root disconnect)',
+      '[smoke] external documents OK (terminal activation, Markdown/image, read-only source, HTML sandbox/release, missing file, same-root disconnect)',
     )
   } finally {
     await host.exec('rm', ['-rf', '--', root.path])
@@ -183,16 +222,16 @@ async function activateTerminalDocument(
   path: HostPath,
 ): Promise<void> {
   // The path is generated by this fixture; shell quoting still remains explicit.
-  const quoted = `'${path.path.replaceAll("'", "'\\''")}'`
+  const quoted = `'${('file://' + path.path).replaceAll("'", "'\\''")}'`
   supervisor.write(
     terminal.id,
     terminal.ownerId,
-    `printf '\\033[2J\\033[H%s\\n' ${quoted}\r`,
+    `printf '\\033[2J\\033[H\\033]8;;%s\\007document\\033]8;;\\007\\n' ${quoted}\r`,
   )
   await win.webContents.executeJavaScript(`new Promise((resolve, reject) => {
     const deadline = Date.now() + 15000;
     const poll = () => {
-      if (Date.now() > deadline) return reject(new Error('Temporary terminal link activation unavailable'));
+      if (Date.now() > deadline) return reject(new Error('External terminal link activation unavailable'));
       const title = document.querySelector('.viewer-tab.active .tab-name')?.textContent;
       if (title === ${JSON.stringify(path.path.split('/').at(-1))}) return resolve();
       const canvas = document.querySelector('.terminal-deck:not([hidden]) .terminal-surface.active canvas');
@@ -218,5 +257,5 @@ async function requireReleasedPreview(win: BrowserWindow, url: string): Promise<
     if (response.status === 404) return
     await new Promise<void>((resolve) => setTimeout(resolve, 25))
   }
-  throw new Error('Temporary preview retained content after revocation')
+  throw new Error('External preview retained content after revocation')
 }

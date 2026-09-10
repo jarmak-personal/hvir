@@ -5,9 +5,9 @@ import type { BrowserWindow } from 'electron'
 import { HTML_PREVIEW_SCHEME, type HostPath } from '../../shared'
 import type { ProjectHost } from '../project-host'
 import {
-  verifyTemporaryDocuments,
-  type TemporaryDocumentProjectState,
-} from './temporary-documents'
+  verifyExternalDocuments,
+  type ExternalDocumentProjectState,
+} from './external-documents'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import { verifyFilenameSearch } from './filename-search'
 
@@ -16,7 +16,7 @@ export async function verifyViewerContent(options: {
   readonly checkpoint: (checkpoint: SmokeFailureCheckpoint) => void
   readonly win: BrowserWindow
   readonly supervisor: PtySupervisor
-  readonly projectState: TemporaryDocumentProjectState
+  readonly projectState: ExternalDocumentProjectState
   readonly host: ProjectHost
   readonly liveReloadPath: HostPath
   readonly largeJsonPath: HostPath
@@ -615,7 +615,7 @@ export async function verifyViewerContent(options: {
       }
     })()
     console.log('[smoke] source edit + Ctrl+S save OK')
-    await verifyTemporaryDocuments(win, host, options.supervisor, options.projectState)
+    await verifyExternalDocuments(win, host, options.supervisor, options.projectState)
 
     const result = [
       viewerStatus,

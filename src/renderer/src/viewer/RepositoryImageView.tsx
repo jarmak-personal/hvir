@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type ReactElement } from 'react'
+import { ExternalDocumentWorkspace } from './external-document-context'
+import { useContext, useEffect, useRef, useState, type ReactElement } from 'react'
 
 import { unwrapOperation, type HostPath } from '../../../shared'
 import { formatViewerBytes } from './viewer-byte-format'
@@ -16,6 +17,7 @@ export function RepositoryImageView({
   readonly path: HostPath
   readonly refreshVersion: number
 }): ReactElement {
+  const workspaceRoot = useContext(ExternalDocumentWorkspace)
   const [image, setImage] = useState<RepositoryImage>()
   const imageRef = useRef<RepositoryImage>(undefined)
   const requestGeneration = useRef(0)
@@ -25,41 +27,46 @@ export function RepositoryImageView({
   useEffect(() => {
     const generation = (requestGeneration.current += 1)
     setError(undefined)
-    void window.hvir.invoke('fs:read-asset', { path }).then(
-      (result) => {
-        try {
-          const asset = unwrapOperation(result)
-          const objectUrl = URL.createObjectURL(
-            new Blob([new Uint8Array(asset.data)], { type: asset.mimeType }),
-          )
-          if (requestGeneration.current !== generation) {
-            URL.revokeObjectURL(objectUrl)
-            return
+    void window.hvir
+      .invoke('fs:read-asset', {
+        path,
+        ...(workspaceRoot ? { workspaceRoot, documentPath: path } : {}),
+      })
+      .then(
+        (result) => {
+          try {
+            const asset = unwrapOperation(result)
+            const objectUrl = URL.createObjectURL(
+              new Blob([new Uint8Array(asset.data)], { type: asset.mimeType }),
+            )
+            if (requestGeneration.current !== generation) {
+              URL.revokeObjectURL(objectUrl)
+              return
+            }
+            const previous = imageRef.current
+            const replacement = {
+              url: objectUrl,
+              size: asset.size,
+              mimeType: asset.mimeType,
+            }
+            imageRef.current = replacement
+            setImage(replacement)
+            setDimensions(undefined)
+            if (previous) URL.revokeObjectURL(previous.url)
+          } catch (reason) {
+            if (requestGeneration.current === generation && !imageRef.current)
+              setError(reason instanceof Error ? reason.message : String(reason))
           }
-          const previous = imageRef.current
-          const replacement = {
-            url: objectUrl,
-            size: asset.size,
-            mimeType: asset.mimeType,
-          }
-          imageRef.current = replacement
-          setImage(replacement)
-          setDimensions(undefined)
-          if (previous) URL.revokeObjectURL(previous.url)
-        } catch (reason) {
+        },
+        (reason: unknown) => {
           if (requestGeneration.current === generation && !imageRef.current)
             setError(reason instanceof Error ? reason.message : String(reason))
-        }
-      },
-      (reason: unknown) => {
-        if (requestGeneration.current === generation && !imageRef.current)
-          setError(reason instanceof Error ? reason.message : String(reason))
-      },
-    )
+        },
+      )
     return () => {
       if (requestGeneration.current === generation) requestGeneration.current += 1
     }
-  }, [path, refreshVersion])
+  }, [path, refreshVersion, workspaceRoot])
 
   useEffect(
     () => () => {

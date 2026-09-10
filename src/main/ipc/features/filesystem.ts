@@ -118,8 +118,9 @@ export function registerFilesystemIpc(ipc: IpcRegistrar, deps: FilesystemIpcDeps
     }),
   )
 
-  ipc.handle('fs:read', (req) =>
+  ipc.handle('fs:read', (req, context) =>
     operationResult(async () => {
+      context.owner()
       const access = await authorizeDocumentRead(ipc.authority, req)
       const { path: canonical, host } = access
       const path = hostPath(canonical.hostId, req.path.path)
@@ -128,14 +129,17 @@ export function registerFilesystemIpc(ipc: IpcRegistrar, deps: FilesystemIpcDeps
       if (stat.size > 64 * 1024 * 1024) {
         throw new Error('Files larger than 64 MiB are not opened by the viewer spike')
       }
-      const data = await host.readFile(canonical, { pollingInterest: !access.temporary })
+      const data = await host.readFile(canonical, { pollingInterest: !access.external })
       if (data.byteLength > 64 * 1024 * 1024)
         throw new Error('Files larger than 64 MiB are not opened by the viewer')
       const sample = data.subarray(0, Math.min(data.length, 8192))
       const binary = sample.includes(0)
       access.assertCurrent()
+      context.owner()
       return {
         path,
+        resolvedPath: canonical,
+        ...(access.external ? { externalWorkspaceRoot: access.root } : {}),
         content: binary ? '' : data.toString('utf8'),
         size: stat.size,
         mtimeMs: stat.mtimeMs,
@@ -144,8 +148,9 @@ export function registerFilesystemIpc(ipc: IpcRegistrar, deps: FilesystemIpcDeps
     }),
   )
 
-  ipc.handle('fs:read-asset', (req) =>
+  ipc.handle('fs:read-asset', (req, context) =>
     operationResult(async () => {
+      context.owner()
       const access = await authorizeDocumentRead(ipc.authority, req, 'asset')
       const { path: canonical, host } = access
       const path = hostPath(canonical.hostId, req.path.path)
@@ -156,11 +161,12 @@ export function registerFilesystemIpc(ipc: IpcRegistrar, deps: FilesystemIpcDeps
       if (stat.size > 16 * 1024 * 1024) {
         throw new Error('Repository images larger than 16 MiB are not previewed')
       }
-      const data = await host.readFile(canonical, { pollingInterest: !access.temporary })
+      const data = await host.readFile(canonical, { pollingInterest: !access.external })
       if (data.byteLength > 16 * 1024 * 1024) {
         throw new Error('Repository images larger than 16 MiB are not previewed')
       }
       access.assertCurrent()
+      context.owner()
       return {
         path,
         data: new Uint8Array(data),

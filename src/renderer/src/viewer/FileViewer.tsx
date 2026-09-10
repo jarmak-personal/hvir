@@ -1,4 +1,4 @@
-import { TemporaryDocumentWorkspace } from './temporary-document-context'
+import { ExternalDocumentWorkspace } from './external-document-context'
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import {
   basenameHostPath,
@@ -88,7 +88,7 @@ export function FileViewer({
   const modeControlRef = useRef<HTMLDivElement>(null)
   const tabId = tab?.id
   const currentPath = tab?.path
-  const blameMode = tab?.temporaryWorkspaceRoot ? undefined : tab?.mode
+  const blameMode = tab?.externalWorkspaceRoot ? undefined : tab?.mode
   const positionCapture = useRef<(() => ViewerDocumentPosition) | undefined>(undefined)
   const binaryImage = Boolean(tab?.file?.binary && renderedFileType(tab.path) === 'image')
   const boundedPreview = Boolean(
@@ -142,7 +142,7 @@ export function FileViewer({
     [navigate],
   )
   const reviewInteraction = useDocumentReviewInteraction(
-    tab?.file && !tab.file.binary && !tab.temporaryWorkspaceRoot
+    tab?.file && !tab.file.binary && !tab.externalWorkspaceRoot
       ? {
           path: tab.path,
           content: tab.file.content,
@@ -196,8 +196,17 @@ export function FileViewer({
             </span>
           ) : null}
           <div className="view-controls">
-            {tab.temporaryWorkspaceRoot ? (
-              <span>Read-only · temporary document</span>
+            {tab.externalWorkspaceRoot ? (
+              <span className="external-document-status">
+                Read-only · outside project
+                <span
+                  className="external-document-location"
+                  title={`${tab.file?.resolvedPath?.hostId ?? tab.path.hostId}:${tab.file?.resolvedPath?.path ?? tab.path.path}`}
+                >
+                  {tab.file?.resolvedPath?.hostId ?? tab.path.hostId}:
+                  {tab.file?.resolvedPath?.path ?? tab.path.path}
+                </span>
+              </span>
             ) : null}
             <DocumentReviewToolbar interaction={reviewInteraction} mode={tab.mode} />
             <FindControl
@@ -233,7 +242,7 @@ export function FileViewer({
                 <option value="branch-point">Branch point</option>
               </select>
             ) : null}
-            {tab.mode === 'source' && !tab.temporaryWorkspaceRoot ? (
+            {tab.mode === 'source' && !tab.externalWorkspaceRoot ? (
               <button
                 type="button"
                 className={`blame-toggle${showBlame ? ' active' : ''}`}
@@ -282,7 +291,7 @@ export function FileViewer({
                   }
                   disabled={Boolean(
                     (tab.file?.binary && mode !== 'rendered') ||
-                    (tab.temporaryWorkspaceRoot && mode === 'diff'),
+                    (tab.externalWorkspaceRoot && mode === 'diff'),
                   )}
                   key={mode}
                   onClick={() => {
@@ -311,7 +320,7 @@ export function FileViewer({
                   value={mode}
                   disabled={Boolean(
                     (tab.file?.binary && mode !== 'rendered') ||
-                    (tab.temporaryWorkspaceRoot && mode === 'diff'),
+                    (tab.externalWorkspaceRoot && mode === 'diff'),
                   )}
                   key={mode}
                 >
@@ -410,9 +419,9 @@ function ActiveView({
 }): ReactElement {
   if (tab.mode === 'rendered') {
     return (
-      <TemporaryDocumentWorkspace.Provider value={tab.temporaryWorkspaceRoot}>
+      <ExternalDocumentWorkspace.Provider value={tab.externalWorkspaceRoot}>
         <RenderedView
-          path={tab.path}
+          path={file.resolvedPath ?? tab.path}
           content={file.content}
           position={tab.position}
           onPosition={onPosition}
@@ -423,7 +432,7 @@ function ActiveView({
           registerFindTarget={registerFindTarget}
           documentReview={documentReview}
         />
-      </TemporaryDocumentWorkspace.Provider>
+      </ExternalDocumentWorkspace.Provider>
     )
   }
   if (tab.mode === 'diff') {
@@ -461,7 +470,7 @@ function ActiveView({
   }
   return (
     <SourceView
-      readOnly={Boolean(tab.temporaryWorkspaceRoot)}
+      readOnly={Boolean(tab.externalWorkspaceRoot)}
       path={tab.path}
       content={file.content}
       size={file.size}

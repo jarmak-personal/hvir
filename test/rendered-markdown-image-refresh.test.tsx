@@ -192,3 +192,43 @@ async function settle(): Promise<void> {
   await Promise.resolve()
   await Promise.resolve()
 }
+
+it('restores review controls when a refreshed path object replaces the Markdown DOM', async () => {
+  vi.mocked(renderMarkdown).mockResolvedValue(
+    '<p data-source-line="1" data-source-end-line="1">Review this line</p>',
+  )
+  const onCapture = vi.fn()
+  const review = {
+    active: true,
+    dirty: false,
+    comments: [],
+    onCapture,
+    onOpenComment: vi.fn(),
+    onSourceRange: vi.fn(),
+    onExit: vi.fn(),
+  }
+  const props = {
+    path: localPath('/repo/review.md'),
+    content: 'Review this line',
+    position: { mode: 'rendered' as const, line: 1, scrollTop: 0 },
+    onPosition: vi.fn(),
+    positionCapture: { current: undefined },
+    onOpenPath: vi.fn(),
+    onDependencies: vi.fn(),
+    registerFindTarget: () => () => undefined,
+    documentReview: review,
+  }
+  render(<RenderedView {...props} />)
+  await act(async () => settle())
+  await vi.waitFor(() =>
+    expect(host.querySelector('[data-review-capture]')).not.toBeNull(),
+  )
+  const previous = host.querySelector('p')
+  render(<RenderedView {...props} path={localPath('/repo/review.md')} />)
+  expect(host.querySelector('p')).not.toBe(previous)
+  await vi.waitFor(() =>
+    expect(host.querySelector('[data-review-capture]')).not.toBeNull(),
+  )
+  host.querySelector<HTMLButtonElement>('[data-review-capture]')!.click()
+  expect(onCapture).toHaveBeenCalledExactlyOnceWith({ startLine: 1, endLine: 1 })
+})

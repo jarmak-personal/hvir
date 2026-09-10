@@ -16,6 +16,7 @@ function fixture() {
     readFile: vi.fn(() => Promise.resolve(Buffer.from('# Plan'))),
     writeFile: vi.fn(),
   }
+  const owner = vi.fn(() => ({ id: 1, generation: 1 }))
   const createPreview = vi.fn(() => ({ id: 'preview', url: 'preview-url' }))
   const registerResource = vi.fn()
   const deps = {
@@ -44,48 +45,52 @@ function fixture() {
   registerPreviewIpc(ipc, deps)
   return {
     root,
+    owner,
     host,
     deps,
     createPreview,
     registerResource,
     invoke: (channel: string, request: unknown) =>
-      handlers.get(channel)!(request, { owner: () => ({ id: 1, generation: 1 }) }),
+      handlers.get(channel)!(request, { owner }),
   }
 }
 
-describe('temporary document IPC', () => {
+describe('outside-project document IPC', () => {
   it('reads bounded text and images without creating polling interests', async () => {
     const f = fixture()
     expect(
       await f.invoke('fs:read', {
-        path: localPath('/tmp/plan.md'),
+        path: localPath('/scratch/plan.md'),
         workspaceRoot: f.root,
       }),
     ).toMatchObject({ ok: true, value: { content: '# Plan' } })
-    expect(f.host.readFile).toHaveBeenLastCalledWith(localPath('/tmp/plan.md'), {
+    expect(f.host.readFile).toHaveBeenLastCalledWith(localPath('/scratch/plan.md'), {
       pollingInterest: false,
     })
     expect(
       await f.invoke('fs:read-asset', {
-        path: localPath('/tmp/image.png'),
+        path: localPath('/scratch/image.png'),
+        documentPath: localPath('/scratch/plan.md'),
         workspaceRoot: f.root,
       }),
     ).toMatchObject({ ok: true })
-    expect(f.host.readFile).toHaveBeenLastCalledWith(localPath('/tmp/image.png'), {
+    expect(f.host.readFile).toHaveBeenLastCalledWith(localPath('/scratch/image.png'), {
       pollingInterest: false,
     })
   })
 
   it('returns clear missing/unreadable, non-file, and size failures', async () => {
     const f = fixture()
-    const request = { path: localPath('/tmp/plan.md'), workspaceRoot: f.root }
+    const request = { path: localPath('/scratch/plan.md'), workspaceRoot: f.root }
     f.host.stat.mockRejectedValueOnce(new Error('Permission denied'))
     expect(await f.invoke('fs:read', request)).toMatchObject({
       ok: false,
       error: 'Permission denied',
     })
-    f.host.stat.mockResolvedValueOnce({ type: 'dir', size: 0, mtimeMs: 1 })
-    expect(await f.invoke('fs:read', request)).toMatchObject({ ok: false })
+    for (const type of ['dir', 'other']) {
+      f.host.stat.mockResolvedValueOnce({ type, size: 0, mtimeMs: 1 })
+      expect(await f.invoke('fs:read', request)).toMatchObject({ ok: false })
+    }
     f.host.stat.mockResolvedValueOnce({
       type: 'file',
       size: 65 * 1024 * 1024,
@@ -100,7 +105,7 @@ describe('temporary document IPC', () => {
   it('preserves project-only writes and directory authority', async () => {
     const f = fixture()
     const request = {
-      path: localPath('/tmp/plan.md'),
+      path: localPath('/scratch/plan.md'),
       workspaceRoot: f.root,
       content: 'changed',
     }
@@ -110,10 +115,10 @@ describe('temporary document IPC', () => {
     expect(f.host.writeFile).not.toHaveBeenCalled()
   })
 
-  it('owns temporary HTML previews under the originating workspace', async () => {
+  it('owns outside-project HTML previews under the originating workspace', async () => {
     const f = fixture()
     await f.invoke('html-preview:create', {
-      path: localPath('/tmp/plan.html'),
+      path: localPath('/scratch/plan.html'),
       workspaceRoot: f.root,
       content: '<h1>Plan</h1>',
     })
@@ -137,9 +142,57 @@ describe('temporary document IPC', () => {
     })
     expect(
       await f.invoke('fs:read', {
-        path: localPath('/tmp/plan.md'),
+        path: localPath('/scratch/plan.md'),
         workspaceRoot: f.root,
       }),
     ).toMatchObject({ ok: false })
+  })
+})
+
+it('rejects late content after renderer revocation', async () => {
+  const f = fixture()
+  f.host.readFile.mockImplementationOnce(() => {
+    f.owner.mockImplementation(() => {
+      throw new Error('Renderer revoked')
+    })
+    return Promise.resolve(Buffer.from('late'))
+  })
+  expect(
+    await f.invoke('fs:read', {
+      path: localPath('/scratch/code.ts'),
+      workspaceRoot: f.root,
+    }),
+  ).toMatchObject({ ok: false, error: 'Renderer revoked' })
+})
+it('returns canonical external classification for an in-project symlink', async () => {
+  const f = fixture()
+  f.host.realpath.mockImplementation((path) =>
+    Promise.resolve(path.path === '/repo/link.ts' ? localPath('/sibling/main.ts') : path),
+  )
+  expect(
+    await f.invoke('fs:read', {
+      path: localPath('/repo/link.ts'),
+      workspaceRoot: f.root,
+    }),
+  ).toMatchObject({
+    ok: true,
+    value: { resolvedPath: localPath('/sibling/main.ts'), externalWorkspaceRoot: f.root },
+  })
+  expect(f.host.readFile).toHaveBeenCalledWith(localPath('/sibling/main.ts'), {
+    pollingInterest: false,
+  })
+})
+
+it('keeps the existing binary fallback for external files', async () => {
+  const f = fixture()
+  f.host.readFile.mockResolvedValueOnce(Buffer.from([0, 1, 2]))
+  expect(
+    await f.invoke('fs:read', {
+      path: localPath('/scratch/data.bin'),
+      workspaceRoot: f.root,
+    }),
+  ).toMatchObject({
+    ok: true,
+    value: { binary: true, content: '', externalWorkspaceRoot: f.root },
   })
 })
