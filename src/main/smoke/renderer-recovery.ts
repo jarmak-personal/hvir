@@ -18,7 +18,7 @@ import {
 } from '../terminal/renderer-pty-lifecycle'
 import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
 import type { SmokeFailureCheckpoint } from './failure-evidence.mts'
-import { startPtyProducer } from './renderer-recovery-producer'
+import { recoveryProducerLaunch, startPtyProducer } from './renderer-recovery-producer'
 
 const SYNTHETIC_REMOTE_HOST_ID = asHostId('smoke-renderer-recovery-ssh')
 const RECOVERY_HEALTH_OCCURRENCE_ID = '019c0000-0000-7000-8000-000000000287'
@@ -79,6 +79,7 @@ export async function verifyRendererProcessRecovery(options: {
     host,
     root,
     id: 'renderer-recovery-local',
+    label: 'local',
     owner: initialOwner,
     resources,
     supervisor,
@@ -96,6 +97,7 @@ export async function verifyRendererProcessRecovery(options: {
       host: syntheticRemoteHost,
       root: hostPath(SYNTHETIC_REMOTE_HOST_ID, root.path),
       id: 'renderer-recovery-ssh',
+      label: 'ssh',
       owner: initialOwner,
       resources,
       supervisor,
@@ -327,6 +329,7 @@ async function startRecoveryPty(options: {
   readonly host: ProjectHost
   readonly root: HostPath
   readonly id: string
+  readonly label: 'local' | 'ssh'
   readonly owner: RendererOwner
   readonly resources: RendererResourceScopes
   readonly supervisor: PtySupervisor
@@ -342,6 +345,7 @@ async function startRecoveryPty(options: {
     const terminal = await supervisor.spawn({
       host,
       provider: plainShellProvider,
+      launchSpec: recoveryProducerLaunch(options.label),
       cwd: root,
       workspaceRoot: root,
       ownerId: owner.id,

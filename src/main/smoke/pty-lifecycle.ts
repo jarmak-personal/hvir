@@ -17,6 +17,10 @@ export interface PtyOutputWaitProgress {
     | 'output-cap'
     | 'matched'
     | 'exited'
+    | 'timed-out'
+    | 'interrupted'
+    | 'detach-awaiting'
+    | 'detach-returned'
   /** Received character count, saturated at the existing retention bound. */
   readonly receivedCharacters: number
   readonly matched: boolean
@@ -55,7 +59,11 @@ export async function waitForPtyOutput(
   let matchedOutput = false
   let timer: ReturnType<typeof setTimeout> | undefined
   let rejectWait: (reason: Error) => void = () => undefined
-  const abort = () => rejectWait(new Error(`${scenario} output wait interrupted`))
+  const abort = () => {
+    if (settled) return
+    report('interrupted')
+    rejectWait(new Error(`${scenario} output wait interrupted`))
+  }
   const report = (phase: PtyOutputWaitProgress['phase']) =>
     options.onProgress?.({ phase, receivedCharacters, matched: matchedOutput })
   let disposeOutput: Disposer = () => undefined
@@ -69,15 +77,15 @@ export async function waitForPtyOutput(
         settled = true
         reject(reason)
       }
-      timer = setTimeout(
-        () =>
-          rejectWait(
-            new Error(
-              `${scenario} timed out awaiting PTY acknowledgement (receivedCharacters=${receivedCharacters})`,
-            ),
+      timer = setTimeout(() => {
+        if (settled) return
+        report('timed-out')
+        rejectWait(
+          new Error(
+            `${scenario} timed out awaiting PTY acknowledgement (receivedCharacters=${receivedCharacters})`,
           ),
-        options.timeoutMs ?? 10_000,
-      )
+        )
+      }, options.timeoutMs ?? 10_000)
       options.signal?.addEventListener('abort', abort, { once: true })
       if (options.signal?.aborted) {
         abort()
@@ -148,7 +156,9 @@ export async function waitForPtyOutput(
 
   let cleanupFailure: unknown
   try {
+    report('detach-awaiting')
     await disposeOutput()
+    report('detach-returned')
   } catch (reason) {
     cleanupFailure = reason
   }

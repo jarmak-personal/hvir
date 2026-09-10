@@ -20,6 +20,7 @@ describe('smoke PTY output', () => {
     async (kind) => {
       const fixture = outputFixture()
       const controller = new AbortController()
+      const progress: PtyOutputWaitProgress[] = []
       const pending = waitForPtyOutput({
         supervisor: fixture.supervisor,
         terminal: fixture.terminal,
@@ -28,6 +29,7 @@ describe('smoke PTY output', () => {
         trigger: vi.fn(),
         timeoutMs: 20,
         signal: controller.signal,
+        onProgress: (state) => progress.push(state),
       })
       const rejected = expect(pending).rejects.toThrow(
         kind === 'deadline'
@@ -37,6 +39,11 @@ describe('smoke PTY output', () => {
       if (kind === 'interrupt') controller.abort()
       await rejected
       expect(fixture.disposeOutput).toHaveBeenCalledOnce()
+      expect(progress.slice(-3).map((state) => state.phase)).toEqual([
+        kind === 'deadline' ? 'timed-out' : 'interrupted',
+        'detach-awaiting',
+        'detach-returned',
+      ])
     },
   )
 
@@ -65,8 +72,21 @@ describe('smoke PTY output', () => {
       expect(fixture.disposeOutput).toHaveBeenCalledOnce()
       expect(progress.map((state) => state.phase)).toEqual(
         kind === 'replay'
-          ? ['attach-awaiting', 'first-output', 'matched', 'attach-returned']
-          : ['attach-awaiting', 'exited', 'attach-returned'],
+          ? [
+              'attach-awaiting',
+              'first-output',
+              'matched',
+              'attach-returned',
+              'detach-awaiting',
+              'detach-returned',
+            ]
+          : [
+              'attach-awaiting',
+              'exited',
+              'attach-returned',
+              'detach-awaiting',
+              'detach-returned',
+            ],
       )
       expect(progress.at(-1)?.matched).toBe(kind === 'replay')
     },
@@ -144,9 +164,11 @@ describe('smoke PTY output', () => {
       'first-output',
       'output-cap',
       'matched',
+      'detach-awaiting',
+      'detach-returned',
     ])
     expect(progress.at(-1)).toEqual({
-      phase: 'matched',
+      phase: 'detach-returned',
       receivedCharacters: 4_096,
       matched: true,
     })
