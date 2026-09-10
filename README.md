@@ -2,36 +2,36 @@
 
 **h**arness · **v**iew · **i**nteract · **r**espond
 
-A lightweight, view-first workbench for agentic development: a polished code and Git
-explorer wrapped around the terminals where Claude Code, Codex, and your shell do the
-work.
+**For those who like to stay in the loop.**
+
+hvir is a lightweight code and Git explorer wrapped around the terminals where
+Claude Code, Codex, and your shell do the work. Follow your sessions, explore the
+codebase, and review what your agents changed, all in one window.
 
 ![hvir showing the file tree, a working Codex session, and live terminal status](docs/screenshots/workbench-agents.png)
 
 ## Why hvir?
 
-hvir is not an IDE and not an editor. It serves one workflow: _“I hand work to agents
-frequently, but I want to stay in the loop.”_ tmux is too hands-off for exploring a
-codebase and its history; a full IDE is more than this workflow needs. hvir sits between
-them.
+Hand work to your agents, then read the code, inspect their changes, and respond when
+they need you. hvir is built around viewing and reviewing, with your terminals always
+close at hand.
 
-- Local and SSH projects, with auto discovered Git worktrees as workspaces.
-- View files, rendered Markdown, source, diffs, blame, changes, history, or the commit graph
-- Multiple shell, Claude Code, and Codex sessions split, recover, resume, and report
-  attention without a daemon.
-- Small ui elements try to keep the viewer focused on content instead of chrome.
-- Dark/light themes, viewer and terminal splits, three-state pane controls, and
-  configurable core shortcuts.
-- Lightweight is a feel: heavy filesystem, Git, watching, and telemetry work stays off the render
-  thread.
+- **Review what changed.** Explore working-tree and branch-point diffs, blame, history,
+  and the commit graph.
+- **Read what your agents produce.** View source, rendered Markdown, and interactive
+  HTML beside the terminal that produced it.
+- **Keep up with your sessions.** See which agents need attention, split terminals,
+  and resume your Claude Code and Codex conversations when you return.
+- **Work across projects.** Open local and SSH projects, with Git worktrees
+  automatically discovered as workspaces.
 
 ## Sessions across every workspace
 
-Sessions is an application-wide view of every hvir-owned harness and shell across projects
-and worktrees. See where work needs attention, choose **Interact** for the exact live
-terminal, then return to its workspace without losing the surrounding workbench.
+Sessions brings together the agents and shells you've opened in hvir across projects
+and worktrees. See what's working and what needs you, choose **Interact** to jump into
+a live terminal, then return to its workspace to explore the code.
 
-![Moving from a workspace to Sessions, interacting with a live terminal, and returning to the workspace](docs/screenshots/sessions-flow.gif)
+[![hvir showing ten agent and shell sessions grouped by project and worktree, with session status, context usage, and live terminal controls](docs/screenshots/sessions-overview.png)](docs/screenshots/sessions-overview.png)
 
 ## Install
 
@@ -50,8 +50,9 @@ from the selected host's login-shell environment; plain shells work without eith
 
 ## One window, many views
 
-The same workspace can move from reading to review to a terminal-focused handoff without
-turning the workbench into an IDE.
+Give the terminal room while an agent works, then open a diff, read a document, or
+explore an HTML page it created. Split viewers and terminals to keep related work
+side by side.
 
 | | |
 | --- | --- |
@@ -60,72 +61,26 @@ turning the workbench into an IDE.
 | [![hvir with a Codex terminal maximized across the workbench](docs/screenshots/terminal-focus.png)](docs/screenshots/terminal-focus.png) | [![hvir rendering an interactive HTML page above its originating agent terminal](docs/screenshots/live-html-viewer.png)](docs/screenshots/live-html-viewer.png) |
 | **Terminal focus** | **Live HTML beside the harness** |
 
-
 ## Feedback and contributions
 
-hvir's maintainer-authored issue pipeline began as a security boundary: public text is untrusted
-input to an agent. It is now also a deliberate contribution model. Public contribution ends with
-defining worthwhile problems and outcomes through discussion; maintainers decide product fit and
-readiness, author every canonical GitHub Issue, and own implementation. Outside issues and pull
-requests are not accepted contribution paths, even if future tooling provides stronger
-prompt-injection defenses.
+Found a bug, have an idea, or want to share how you use hvir? Start in
+[GitHub Discussions](https://github.com/jarmak-personal/hvir/discussions).
 
-Start in the Discussion category that best fits:
-
-- [Bug reports](https://github.com/jarmak-personal/hvir/discussions/categories/bug-reports) for
-  broken or incorrect hvir behavior.
-- [Feature requests](https://github.com/jarmak-personal/hvir/discussions/categories/feature-requests)
-  for a specific proposed product change.
-- [Documentation](https://github.com/jarmak-personal/hvir/discussions/categories/documentation) for
-  missing, incorrect, or unclear project documentation.
-- [Q&A](https://github.com/jarmak-personal/hvir/discussions/categories/q-a) for usage and support
-  questions.
-- [General](https://github.com/jarmak-personal/hvir/discussions/categories/general) for workflows,
-  show-and-tell, and other hvir-related conversation.
-
-[Announcements](https://github.com/jarmak-personal/hvir/discussions/categories/announcements) is
-the maintainer-to-user surface for updates and requests for feedback. GitHub Releases remains the
-canonical release surface; an announcement may discuss or link to a release, but does not replace
-it.
+Public contributions happen through discussion. Maintainers author issues and own
+implementation; outside issues and pull requests aren't accepted. See the
+[contributor guide](CONTRIBUTING.md) for the contribution model and workflow.
 
 ## Development
 
-Development requires Node 24 or newer; release CI uses Node 24.
-
-Start with the [contributor guide](CONTRIBUTING.md). It separates public product discussion from
-the maintainer development workflow. Substantive implementation is aligned in a governing issue
-before code or a pull request; the repository also includes optional, contributor-only agent
-skills for creating and implementing issues.
+To run from source, install Node 24 or newer:
 
 ```sh
 npm ci
-npm run verify
-npm run smoke
-npm run smoke:capacity
-npm run performance:capacity  # controlled machine only
 npm run dev
 ```
 
-`npm ci` downloads Electron and rebuilds native dependencies for Electron's ABI. On a
-headless Linux machine, run the Electron smoke under `xvfb-run`.
-Raw `npm run dev` and unsigned `npm run build:dir` are not the macOS LAN SSH acceptance identity;
-use the
-[signed coexistence workflow](docs/macos-ssh-acceptance.md) for that boundary.
-
-See the [performance gauntlet](docs/phase8-performance-gauntlet.md) and
-[packaging guide](docs/packaging.md) for release acceptance.
-
-## Project documents
-
-| Document | Purpose |
-| --- | --- |
-| [Design and ADR index](docs/design.md) | Product philosophy, hard boundaries, architecture, and decision index |
-| [Architecture decisions](docs/adr/README.md) | Canonical decision-only ADR records and template |
-| [Historical implementation plan](docs/plan/00-overview.md) | Frozen early implementation context; active work lives in GitHub issues |
-| [Contributor guide](CONTRIBUTING.md) | Issue-first workflow, architecture discipline, and verification |
-| [GitHub project management](docs/project-management.md) | Canonical labels, normalized planning records, and Project automation commands |
-| [AGENTS.md](AGENTS.md) | Repository rules for AI collaborators |
-| [CLAUDE.md](CLAUDE.md) | Claude entrypoint for the shared repository instructions |
+See the [contributor guide](CONTRIBUTING.md) for verification and development workflows,
+and [design and architecture](docs/design.md) for the product philosophy and decisions.
 
 ## License
 
