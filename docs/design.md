@@ -440,10 +440,19 @@ enforcement; ADR-014's ownership discipline remains accepted.
 
 ### [ADR-041 — Deterministic contributor status](adr/ADR-041-deterministic-contributor-status.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-042](adr/ADR-042-contributor-token-allocation-and-migration.md) | partial | Single-issue session assignments, cumulative-only attribution, historical exclusion, optional planning capture, and Recorded tokens/Token scope field retirement policy.
 
-Contributor tools report token, Project, and acceptance facts. Approximate session-attributed
-totals replace phase accounting; protected merge remains the separate completion boundary.
+Contributor tools report token, Project, and acceptance facts; protected merge remains the
+separate completion boundary.
+
+### [ADR-042 — Contributor token allocation and historical reconciliation](adr/ADR-042-contributor-token-allocation-and-migration.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-041](adr/ADR-041-deterministic-contributor-status.md) | partial | Single-issue session assignments, cumulative-only attribution, historical exclusion, optional planning capture, and Recorded tokens/Token scope field retirement policy.
+
+Deterministic contributor tooling allocates planning batches and subsequent counter differences,
+retains unknown phase totals, and reconciles preserved historical evidence before deleting fields.
 
 ### [ADR-042 — Source review for workspace text files](adr/ADR-042-source-review-for-text-files.md)
 

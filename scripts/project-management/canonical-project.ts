@@ -1,3 +1,4 @@
+import type { TokenTotals } from './session-token-allocation.ts'
 import { GitHubClient } from './github-client.ts'
 import {
   CANONICAL_PROJECT_CONFIGURATION,
@@ -170,10 +171,13 @@ export class GitHubCanonicalProject {
     }
   }
 
-  async setRecordedTokens(issueNumber: number, tokens: number): Promise<void> {
+  async setRecordedTokens(issueNumber: number, tokens: TokenTotals): Promise<void> {
+    const schema = await this.#loadLiveSchemaContext()
+    if (auditConfiguredSchema(this.#schemaContext, schema).length)
+      throw new Error('Token schema migration is incomplete.')
     await projectRecordedTokens({
       client: this.#client,
-      schema: this.#getSchemaContext(),
+      schema,
       item: await this.#getIssueItem(issueNumber),
       tokens,
     })

@@ -1,3 +1,4 @@
+import { sumTokenTotals, type TokenPhase } from './session-token-allocation.ts'
 import type { PlanningIssueSnapshot } from './issue-planning.ts'
 import {
   normalizePlanningRecord,
@@ -11,6 +12,7 @@ import {
 import {
   TOKEN_SCOPE,
   totalTokenReceipts,
+  migratedTokenHistory,
   type TokenReceiptPort,
 } from './session-token-receipts.ts'
 
@@ -37,8 +39,10 @@ export interface ContributorStatusPorts {
 }
 
 export interface TokenSummary {
+  planning: number | null
+  implementation: number | null
   tokens: number | null
-  sessions: number
+  contributions: number
   participants: number[]
   legacy: boolean
   scope: string
@@ -130,7 +134,27 @@ export async function readIssueTokenSummary(
       }
     }),
   )
-  const total = totalTokenReceipts(histories.flatMap((history) => history.receipts))
+  const identity = totalTokenReceipts(histories.flatMap((history) => history.receipts))
+  const contributions = histories.map(migratedTokenHistory)
+  let totals
+  const aggregationDiagnostics: string[] = []
+  try {
+    totals = sumTokenTotals(contributions)
+  } catch {
+    totals = { tokens: null, planning: null, implementation: null }
+    aggregationDiagnostics.push('token-total-overflow')
+  }
+  const total = {
+    ...totals,
+    contributions: identity.contributions,
+    diagnostics: [
+      ...identity.diagnostics,
+      ...aggregationDiagnostics,
+      ...contributions.flatMap((row) => row.diagnostics),
+    ],
+  }
+  if (identity.diagnostics.length)
+    total.tokens = total.planning = total.implementation = null
   const diagnostics = [
     ...new Set([
       ...total.diagnostics,
@@ -160,6 +184,7 @@ export interface ContributorStatusReport {
     'pending' | 'merged-to-main' | 'integrated-child' | 'closed-unmerged' | 'unknown'
   diagnostics: string[]
   capture?: string
+  allocations?: { issue: number; tokens: number; phase: TokenPhase }[]
 }
 
 export async function readContributorStatus(
@@ -244,7 +269,7 @@ export function formatContributorStatus(report: ContributorStatusReport): string
   const tokenLine =
     tokens?.tokens === null || !tokens
       ? 'unavailable'
-      : `${tokens.tokens.toLocaleString('en-US')} observed; ${tokens.sessions} session(s)`
+      : `planning ${tokens.planning?.toLocaleString('en-US') ?? 'unknown'}; implementation ${tokens.implementation?.toLocaleString('en-US') ?? 'unknown'}; total ${tokens.tokens.toLocaleString('en-US')}`
   const project = report.project
   const checkSummary = !pr?.checksAvailable
     ? 'unavailable'
@@ -262,6 +287,10 @@ export function formatContributorStatus(report: ContributorStatusReport): string
     `Acceptance: ${report.acceptance}; approval unknown; observed required checks ${checkSummary}${pr ? `; merge request ${pr.mergeRequest ? 'enabled' : 'not enabled'}; review ${pr.review}` : ''}.`,
   ]
   if (report.capture) lines.push(`Capture: ${report.capture}.`)
+  if (report.allocations?.length)
+    lines.push(
+      `Allocations: ${report.allocations.map((row) => `#${row.issue} ${row.phase} ${row.tokens.toLocaleString('en-US')}`).join('; ')}.`,
+    )
   if (report.diagnostics.length)
     lines.push(`Exceptions: ${[...new Set(report.diagnostics)].join(', ')}.`)
   return `${lines.join('\n')}\n`

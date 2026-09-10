@@ -37,12 +37,13 @@ export const CANONICAL_PROJECT_CONFIGURATION = {
       ['Maintenance', 'ef3d5b07'],
       ['Enhancement', 'b1c96c87'],
     ]),
-    valueField('Recorded tokens', 'PVTF_lAHOBkzMzc4Bdudrzhhh8xo', 'NUMBER'),
-    valueField('Token scope', 'PVTF_lAHOBkzMzc4Bdudrzhhh8xw', 'TEXT'),
+    valueField('Planning tokens', 'PVTF_lAHOBkzMzc4BdudrzhfitOk', 'NUMBER'),
+    valueField('Implementation tokens', 'PVTF_lAHOBkzMzc4BdudrzhfitOo', 'NUMBER'),
+    valueField('Total tokens', 'PVTF_lAHOBkzMzc4Bdudrzhhh8xo', 'NUMBER'),
   ],
 } as const satisfies CanonicalProjectConfiguration
 
-/** Exact one-off retirement targets; values are preserved, never reprojected. */
+/** Original deployment identities retained for evidence-preserving token migration. */
 export const LEGACY_PROJECT_FIELDS = [
   valueField('Agent difficulty', 'PVTF_lAHOBkzMzc4BdudrzhfitMc', 'NUMBER'),
   singleSelectField('Risk', 'PVTSSF_lAHOBkzMzc4BdudrzhfitNY', [

@@ -17,6 +17,25 @@ describe('native contributor-status command', () => {
     expect(result.stdout).toContain('Usage: npm run project:status')
     expect(result.stdout).not.toContain('checkpoint')
   })
+  it('rejects incomplete batch selectors before capture', () => {
+    for (const args of [
+      ['--issues'],
+      ['--issues', '757,757'],
+      ['--issues', '758'],
+      ['--issues', '757,0'],
+    ])
+      expect(() =>
+        parseContributorStatusOptions([
+          '--issue',
+          '757',
+          '--capture',
+          'codex',
+          '--phase',
+          'planning',
+          ...args,
+        ]),
+      ).toThrow()
+  })
   it('defaults to read-only and requires explicit capture for mutation', () => {
     expect(parseContributorStatusOptions(['--issue', '757'])).toMatchObject({
       issue: 757,
@@ -30,7 +49,15 @@ describe('native contributor-status command', () => {
       parseContributorStatusOptions(['--issue', '757', '--issue', '758']),
     ).toThrow('Duplicate')
     expect(
-      parseContributorStatusOptions(['--issue', '757', '--capture', 'codex', '--apply']),
+      parseContributorStatusOptions([
+        '--issue',
+        '757',
+        '--capture',
+        'codex',
+        '--phase',
+        'implementation',
+        '--apply',
+      ]),
     ).toMatchObject({ capture: 'codex', apply: true })
   })
 })

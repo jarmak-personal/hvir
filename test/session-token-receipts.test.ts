@@ -37,7 +37,7 @@ describe('observed session token receipts', () => {
         receipt(75),
         receipt(30, { receipt: 'b'.repeat(64), issue: 758 }),
       ]),
-    ).toEqual({ tokens: 180, sessions: 2, diagnostics: [] })
+    ).toEqual({ tokens: 180, contributions: 2, diagnostics: [] })
   })
   it('keeps absence unknown, real zero zero, and rejects unsafe aggregate arithmetic', () => {
     expect(totalTokenReceipts([]).tokens).toBeNull()
@@ -76,6 +76,7 @@ describe('observed session token receipts', () => {
     expect(history).toEqual({
       receipts: [receipt()],
       legacy: true,
+      legacyDiagnostics: ['legacy-evidence-needs-review'],
       diagnostics: ['invalid-token-receipt'],
     })
     expect(readTokenReceipts(758, 'owner', [comment(body)]).receipts).toEqual([])

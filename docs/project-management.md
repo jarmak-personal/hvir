@@ -163,56 +163,114 @@ alone is not issue acceptance. A deleted epic branch may leave historical integr
 
 ### Session token capture
 
-One session belongs to one issue. Add `--capture codex` or `--capture claude-code`, inspect the
-dry run, then repeat with `--apply`. The single operation observes provider counters, assigns
-private local identity, appends a small immutable receipt if its total increased, and reconciles
-the selected issue and exact direct parent. No manual records, keys, baseline, pause, release,
-or separate projection/rollup operation remains.
+The canonical Project has three numeric token fields:
 
-Codex uses its exact current `CODEX_THREAD_ID`; Claude requires the explicitly supplied
-`HVIR_USAGE_SESSION_ID`. `HVIR_USAGE_CWD` privately identifies the exact launch directory when
-different from the worktree. Never substitute coordinator identity for a delegated session.
-Unavailable usage is reported once and creates no recovery task or unavailable comment.
+- **Planning tokens:** observed drafting, refinement, and planning-review usage.
+- **Implementation tokens:** all observed non-planning usage, including testing, code review,
+  corrections, coordination, and acceptance work.
+- **Total tokens:** all recorded usage, including contributions whose phase is unknown.
 
-Each random receipt key contributes its maximum provider-observed cumulative total once.
-Repeated/concurrent captures cannot add the same whole session again. Assignment to another
-issue is rejected. Private assignments stay under the application user's
-`.local/state/hvir/contributor-tokens` directory with private permissions. Keep them when
-recapturing. Lost assignments or cross-machine copied sessions lose automatic deduplication
-identity; no ambient recovery scanner or cross-machine attribution feature is provided.
-
-Only unedited closed-schema receipts authored by the configured repository owner participate.
-The marker is `<!-- hvir-session-tokens:v2 -->`; fields are schema, issue, random receipt key,
-provider, and numeric tokens. Native missing counters remain unknown. Retry uncertain capture
-with the same local assignment: receipt maxima prevent duplicate additions. Project failure
-leaves receipts intact; the same capture operation retries derived writes.
-
-`Recorded tokens` is the observed session-attributed subtotal **since migration**, not exact
-issue effort or all-time usage. `Token scope` labels that scope and excludes old phase records.
-Ordinary issues and children use their own receipts; root epics include their own and every
-native direct child's receipts once. Never sum child rows with their already aggregated epic.
-Unrecorded work stays unknown. Incomplete evidence retains labeled known contributions; ambiguous
-ownership of the same receipt and unsafe arithmetic are not guessed.
-
-### Historical measurement retirement
-
-V1 comments and existing Project values remain historical evidence, excluded from new totals.
-Retired phases, forecasts, routes, timing, and first-pass policies have no active writers.
-Before deployment renames, old field names already denote historical values; the new report
-does not treat them as current.
-
-At the deliberate deployment boundary, inspect and apply the exact one-off rename:
+Planning handoffs must request capture or report the explicit reason it is unavailable. For
+one issue, plan and apply:
 
 ```sh
-HVIR_PROJECT_TOKEN="$(gh auth token)" npm run project:retire-measurements
-HVIR_PROJECT_TOKEN="$(gh auth token)" npm run project:retire-measurements -- --apply
+HVIR_REPO_TOKEN="$(gh auth token)" HVIR_PROJECT_TOKEN="$(gh auth token)" \
+npm run --silent project:status -- --issue 776 --capture codex --phase planning
+
+HVIR_REPO_TOKEN="$(gh auth token)" HVIR_PROJECT_TOKEN="$(gh auth token)" \
+npm run --silent project:status -- --issue 776 --capture codex --phase planning --apply
 ```
 
-The command renames 13 stored field IDs to `Legacy: <old name>`, preserving every value. It
-refuses missing targets, unexpected names, and collisions. Partial failure is retryable and
-already renamed targets are unchanged. It never deletes fields, values, or comments. Old
-measurement commands are unsupported after deployment; Kind and Status are unaffected. Legacy
-fields may be hidden from ordinary views without deleting evidence.
+For issues produced together, add `--issues 776,777` once and select one of those issues with
+`--issue`. The tool divides the newly observed integer count equally; ascending issue numbers
+receive rounding remainders. A 1,000-token session gives two issues 500 each. Repeated captures
+allocate only new usage. End the planning session at the issue-creation handoff, including a
+batch. If the session continues and produces another issue, the later issue receives the new
+counter difference; existing allocations remain unchanged.
+
+For non-planning work, use `--phase implementation`. Such capture remains optional. If the
+session mixes planning and implementation without a reliable split, use `--phase unknown`:
+the total survives and both phase fields remain empty. Never infer a whole session's phase
+from its latest activity. Missing provider counters remain unknown, not zero. A fully
+attributed total equals Planning tokens plus Implementation tokens.
+
+Codex uses the exact current `CODEX_THREAD_ID`; Claude requires `HVIR_USAGE_SESSION_ID` and
+`--capture claude-code`. `HVIR_USAGE_CWD` privately identifies the launch directory when it differs
+from the worktree. Never substitute a coordinator's identity for a delegate. Unavailable counters
+or unpublished issue identities produce a reason rather than fabricated records or a recovery task.
+
+Private assignment and immutable allocation intervals live under the application user's
+`.local/state/hvir/contributor-tokens` with private permissions. Tooling commits each interval
+before publishing any shares; uncertain appends replay the same opaque contribution identities.
+Concurrent allocation claims fail visibly and can be retried. Counter decreases fail closed.
+Keep this private state for recapture; cross-machine deduplication recovery is unsupported.
+No provider identity, transcript, artifact path, or private lookup digest is published.
+
+Unedited closed-schema receipts authored by the repository owner provide public token evidence.
+V3 receipts record allocated phase contributions; V2 cumulative receipts remain readable with
+unknown phases, and later observations exclude their already recorded range. Migration evidence
+preserves historical contributions and exact covered receipt maxima. Later captures add only
+uncovered counts. An epic aggregates its own contributions and every native direct child's once;
+never add child Project rows to an already aggregated epic row. Unrecorded work stays unknown.
+
+### Historical token migration
+
+The migration replaces the retired rename-only command. It inventories all Project items using
+both archived states, without excluding closed issues. It preserves original measurement values
+in durable migration receipts before changing fields. Lifecycle tokens is the authoritative
+historical rollup: never add its component phases to it. Recoverable non-planning counts combine
+implementation, review, and coordination evidence. Trusted V1 counter records provide additional
+recovery, with exact supersession and additive-counter semantics. Missing splits remain unknown;
+individually known historical phase values can be retained when the other phase is missing.
+
+Use the verified tooling at deployment, with old token writers quiescent. Capture and retain the
+original evidence file, then inspect the offline dry run:
+
+```sh
+HVIR_REPO_TOKEN="$(gh auth token)" HVIR_PROJECT_TOKEN="$(gh auth token)" \
+npm run --silent project:migrate-tokens -- --snapshot > token-migration-evidence.json
+
+npm run --silent project:migrate-tokens < token-migration-evidence.json
+```
+
+The plan lists transfers, unresolved discrepancies, field renames, and exact deletion IDs/names.
+It makes no writes. Historical/receipt overlap is never guessed. Where evidence cannot prove
+ownership or a split, the snapshot's `corrections` array accepts an explicit migration exception:
+
+```json
+{
+  "issue": 776,
+  "totals": { "planning": null, "implementation": null, "tokens": 1050 },
+  "evidence": "Cite the original field/receipt evidence and explain the overlap correction."
+}
+```
+
+Correction totals are the issue's reconciled **own** baseline, including the snapshot's covered
+receipts. For an epic they exclude all direct-child contributions. Missing values are `null`.
+Do not edit original source values or receipt histories to make a discrepancy disappear. Repeat
+the dry run after documenting corrections. Preserve the original evidence for retries and review.
+
+Once the complete plan reconciles, apply transfers; source comparison is recomputed against
+GitHub, and changed membership, relationships, fields, or values fail visibly:
+
+```sh
+HVIR_REPO_TOKEN="$(gh auth token)" HVIR_PROJECT_TOKEN="$(gh auth token)" \
+npm run --silent project:migrate-tokens -- --apply < token-migration-evidence.json
+```
+
+After reviewing the exact deletion targets and successful reconciliation, repeat with `--delete`:
+
+```sh
+HVIR_REPO_TOKEN="$(gh auth token)" HVIR_PROJECT_TOKEN="$(gh auth token)" \
+npm run --silent project:migrate-tokens -- --apply --delete < token-migration-evidence.json
+```
+
+The tool rechecks durable evidence and replacement values before deleting only the named retired
+fields. Planning tokens and Implementation tokens retain their existing numeric field IDs;
+Recorded tokens becomes Total tokens. Kind, Status, and native fields remain. No new numeric fields
+are provisioned. Interrupted transfers and deletions retry against the same saved evidence without
+adding totals twice. Preserve evidence even after deletion. Current capture refuses an unmigrated
+schema rather than overwriting legacy phase fields. Run `project:audit` after deployment.
 
 ### Delivery context
 
@@ -430,17 +488,9 @@ contain `Todo`, `In Progress`, and `Done`; it does not create or rename those op
 Duplicate items for one repository issue fail both planning-record and kind commands visibly
 rather than allowing an arbitrary item to win.
 
-Provision only the two active token fields when absent, then store their public IDs in the
-canonical configuration and run `project:audit`:
-
-```sh
-gh project field-create 1 --owner jarmak-personal --name 'Recorded tokens' --data-type NUMBER
-gh project field-create 1 --owner jarmak-personal --name 'Token scope' --data-type TEXT
-```
-
-Do not repeat creation when a matching field exists. Provisioning is separate from Legacy
-renaming so default-branch tools remain usable during staged deployment. Planning owners
-validate only their Kind/Status contract; optional token fields cannot block ordinary delivery.
+The three token fields reuse existing configured IDs through the reviewed historical migration
+above. Do not create replacement fields or run the retired rename-only command. Kind and Status
+owners validate only their own planning contract; token migration does not change their authority.
 
 ## Actions authentication and usage
 

@@ -7,21 +7,32 @@ HVIR_REPO_TOKEN="$(gh auth token)" HVIR_PROJECT_TOKEN="$(gh auth token)" \
 npm run --silent project:status -- --issue <issue> --pr <pr>
 ```
 
-If the exact current supported session is available, add `--capture codex` or
-`--capture claude-code`. Review its dry-run result, then repeat with `--apply`.
-That operation records the session's observed total once and synchronizes the issue and
-its direct parent's token fields. Repeated capture contributes only the increased total.
-One session belongs to one issue; the coordinator session belongs to the epic.
+At every planning handoff, request capture with `--capture codex --phase planning` (or
+`--capture claude-code --phase planning`). For a batch of issues created together, pass
+`--issue <one-selected-issue> --issues <comma-separated-issue-numbers>` once. The tool
+allocates equal integer shares and deterministic remainders. Review the dry run, then repeat
+with `--apply`. If counters or issue identities are unavailable, report the explicit reason;
+missing evidence remains unknown and does not block issue publication. End the planning session
+at the issue-creation handoff, including a batch. If it continues, later capture assigns only
+the newly observed counter difference and preserves previous shares.
 
-Codex uses its exact current `CODEX_THREAD_ID`; Claude uses the explicitly supplied
-`HVIR_USAGE_SESSION_ID`. Set `HVIR_USAGE_CWD` privately to the exact launch directory when
-different from the current worktree. Never use inherited coordinator identity for a delegate,
-scan neighboring sessions, construct receipts, or manage keys/checkpoints. Missing identity,
-an assignment mismatch, or unavailable usage is one fact, not a recovery assignment.
+For all non-planning work, use `--phase implementation`: implementation, testing, reviews,
+corrections, coordination, and acceptance all belong here. Use `--phase unknown` when the
+session mixes planning and implementation without a reliable split; its total is preserved
+and phase fields remain empty. Implementation capture remains optional. Never classify a
+whole mixed session as implementation merely because its latest activity was implementation.
 
-Totals are observed session-attributed estimates since migration, not exact effort or all-time
-usage. Keep the private local assignment when recapturing; cross-machine identity recovery is
-unsupported. Historical phase records stay separate. Use `--json` only for needed details.
+Codex uses its exact current `CODEX_THREAD_ID`; Claude uses `HVIR_USAGE_SESSION_ID`.
+Set `HVIR_USAGE_CWD` privately to the exact launch directory when different from the current
+worktree. Never use inherited coordinator identity for a delegate, scan neighboring sessions,
+construct receipts, calculate shares, or manage keys/checkpoints. Unavailable usage is a fact,
+not a recovery assignment. Keep private local attribution state for recaptures; automatic
+cross-machine recovery is unsupported.
+
+The tool reports Planning tokens, Implementation tokens, and Total tokens. Historical
+contributions survive through migration evidence, and epics aggregate their own and direct
+children's allocated contributions once. These are observed counts, not proof of unrecorded
+work. Use `--json` only when detailed evidence is needed.
 
 Report Tokens, Project, and Acceptance from the tool, plus implementation evidence and actionable
 blockers. Do not infer acceptance from green checks or Done. Handoff is readiness; explicit
