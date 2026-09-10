@@ -1,4 +1,4 @@
-# ADR-042: Manual installation of existing native packages
+# ADR-044: Manual installation of existing native packages
 
 > Lifecycle: Active
 > Supersedes: [ADR-022](ADR-022-platform-native-github-release-installation.md) | partial | Script-only installation, update, and removal surface and exclusion of direct native package installation.

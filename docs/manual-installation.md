@@ -311,5 +311,5 @@ Only the script performs the existing ownership-proven npm migration, derived le
 cleanup after successful native installation, inventory-checked automatic macOS removal, and
 explicit current-user purge. Neither Installer nor APT supplies those script workflows.
 The [packaging guide](packaging.md) and
-[ADR-042](adr/ADR-042-manual-native-package-installation.md) define the shared release and native
+[ADR-044](adr/ADR-044-manual-native-package-installation.md) define the shared release and native
 package ownership behind both paths.

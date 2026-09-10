@@ -18,7 +18,7 @@ The release-owned installer selects and verifies the native package for the curr
 platform. Users may also [install the existing packages manually](manual-installation.md) with
 macOS Installer or Linux `apt`, after explicit preparation and verification. That path supports
 clean native installs, native updates, and package-owned removal; legacy npm migration and purge
-remain with the release installer. [ADR-042](adr/ADR-042-manual-native-package-installation.md)
+remain with the release installer. [ADR-044](adr/ADR-044-manual-native-package-installation.md)
 owns this narrow support-policy change. Unaffected distribution, trust, privilege, lifecycle,
 and migration rules in [ADR-022](adr/ADR-022-platform-native-github-release-installation.md) and
 Linux capability rules in [ADR-028](adr/ADR-028-capability-based-debian-linux-installation.md)
