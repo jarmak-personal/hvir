@@ -61,8 +61,8 @@ export function createDocumentReviewSourceExtensions(
     EditorView.contentAttributes.of({
       'aria-label': projection.active
         ? projection.dirty
-          ? 'Markdown source review, capture unavailable until saved or reloaded'
-          : 'Markdown source review'
+          ? 'Source review, capture unavailable until saved or reloaded'
+          : 'Source review'
         : 'Source viewer',
     }),
   ]

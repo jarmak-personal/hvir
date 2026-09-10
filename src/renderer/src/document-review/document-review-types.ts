@@ -102,7 +102,6 @@ export interface ReviewPolicyError {
     | 'text-too-large'
     | 'unknown-batch'
     | 'unknown-comment'
-    | 'unsupported-document'
     | 'workspace-mismatch'
   readonly message: string
 }

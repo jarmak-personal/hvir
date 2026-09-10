@@ -254,7 +254,7 @@ describe('source Markdown review projection', () => {
     view.contentDOM.dispatchEvent(new Event('copy', { bubbles: true }))
     expect(onRange).toHaveBeenCalledOnce()
     expect(onRange).toHaveBeenCalledWith({ startLine: 1, endLine: 2 })
-    expect(view.contentDOM.getAttribute('aria-label')).toBe('Markdown source review')
+    expect(view.contentDOM.getAttribute('aria-label')).toBe('Source review')
     view.contentDOM.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
     )
