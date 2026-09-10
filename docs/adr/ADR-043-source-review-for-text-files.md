@@ -1,4 +1,4 @@
-# ADR-042: Source review for workspace text files
+# ADR-043: Source review for workspace text files
 
 > Lifecycle: Active
 > Supersedes: [ADR-032](ADR-032-explicit-document-review-handoff.md) | partial | Markdown-only document, source-anchor, and batch scope; rendered capture remains Markdown-only.

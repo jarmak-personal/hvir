@@ -367,7 +367,7 @@ renderer remains provider-neutral and reported windows retain precedence.
 ### [ADR-032 — Explicit document review anchors and provider-safe handoff](adr/ADR-032-explicit-document-review-handoff.md)
 
 > Lifecycle: Partially superseded
-> Superseded by: [ADR-042](adr/ADR-042-source-review-for-text-files.md) | partial | Markdown-only document, source-anchor, and batch scope; rendered capture remains Markdown-only.
+> Superseded by: [ADR-043](adr/ADR-043-source-review-for-text-files.md) | partial | Markdown-only document, source-anchor, and batch scope; rendered capture remains Markdown-only.
 > Supersedes: [ADR-017](adr/ADR-017-defer-direct-diagnostic-report-delivery.md) | partial | PTY text delivery prohibition only for explicit prepared document-review payloads through revisioned atomic bracketed paste and exact PTY authority.
 
 Host-qualified Markdown review uses exact on-disk anchors, bounded local persistence, explicit
@@ -454,7 +454,7 @@ separate completion boundary.
 Deterministic contributor tooling allocates planning batches and subsequent counter differences,
 retains unknown phase totals, and reconciles preserved historical evidence before deleting fields.
 
-### [ADR-042 — Source review for workspace text files](adr/ADR-042-source-review-for-text-files.md)
+### [ADR-043 — Source review for workspace text files](adr/ADR-043-source-review-for-text-files.md)
 
 > Lifecycle: Active
 > Supersedes: [ADR-032](adr/ADR-032-explicit-document-review-handoff.md) | partial | Markdown-only document, source-anchor, and batch scope; rendered capture remains Markdown-only.

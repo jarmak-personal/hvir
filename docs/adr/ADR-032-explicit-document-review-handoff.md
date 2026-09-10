@@ -1,7 +1,7 @@
 # ADR-032: Explicit document review anchors and provider-safe handoff
 
 > Lifecycle: Partially superseded
-> Superseded by: [ADR-042](ADR-042-source-review-for-text-files.md) | partial | Markdown-only document, source-anchor, and batch scope; rendered capture remains Markdown-only.
+> Superseded by: [ADR-043](ADR-043-source-review-for-text-files.md) | partial | Markdown-only document, source-anchor, and batch scope; rendered capture remains Markdown-only.
 > Supersedes: [ADR-017](ADR-017-defer-direct-diagnostic-report-delivery.md) | partial | PTY text delivery prohibition only for explicit prepared document-review payloads through revisioned atomic bracketed paste and exact PTY authority.
 
 ## Context
