@@ -47,7 +47,20 @@ describe('Electron smoke stress workflow', () => {
     expect(parsed.on.workflow_dispatch.inputs.scenario.options).toContain(
       'renderer-authority',
     )
-    expect(parsed.on.workflow_dispatch.inputs.repeat.options).toEqual(['5', '10', '20', '50'])
+    expect(parsed.on.workflow_dispatch.inputs.scenario.options).toEqual(
+      expect.arrayContaining([
+        'renderer-recovery',
+        'document-review',
+        'viewer-content',
+        'git-workflow',
+      ]),
+    )
+    expect(parsed.on.workflow_dispatch.inputs.repeat.options).toEqual([
+      '5',
+      '10',
+      '20',
+      '50',
+    ])
     expect(parsed.permissions).toEqual({ contents: 'read' })
     expect(parsed.jobs.stress.strategy['fail-fast']).toBe(false)
     expect(parsed.jobs.stress.strategy.matrix.os).toEqual(['ubuntu-24.04', 'macos-15'])

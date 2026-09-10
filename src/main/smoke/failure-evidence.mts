@@ -1,3 +1,5 @@
+import { DOCUMENT_REVIEW_CHECKPOINTS } from './document-review-evidence.mts'
+
 export const SMOKE_FAILURE_PHASES = [
   'resources-created',
   'host-connected',
@@ -13,6 +15,11 @@ export const SMOKE_FAILURE_PHASES = [
 export type SmokeFailurePhase = (typeof SMOKE_FAILURE_PHASES)[number]
 
 export const SMOKE_FAILURE_CHECKPOINTS = [
+  ...DOCUMENT_REVIEW_CHECKPOINTS,
+  'viewer-content-reload-position-awaiting',
+  'viewer-content-reload-position-ready',
+  'viewer-content-reload-restoration-awaiting',
+  'viewer-content-reload-restoration-ready',
   'web-pane-terminal-launch-awaiting',
   'web-pane-terminal-launch-ready',
   'web-pane-dashboard-listen-awaiting',

@@ -86,9 +86,11 @@ export class SmokeAttemptEvidenceCollector {
     if (line.startsWith('HVIR_SMOKE_CLEANUP_FAIL')) this.logs.cleanupFailure = true
     if (line.startsWith(FAILURE_EVIDENCE_PREFIX)) {
       try {
-        this.snapshot = parseSmokeFailureEvidence(
+        const snapshot = parseSmokeFailureEvidence(
           line.slice(FAILURE_EVIDENCE_PREFIX.length),
         )
+        // Keep the unmet scenario condition when later cleanup also fails.
+        if (!this.logs.failureSentinel || !this.snapshot) this.snapshot = snapshot
       } catch {
         this.logs.evidenceRejected = true
       }
@@ -319,4 +321,19 @@ function requireExactKeys(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/** Render only validated semantic names and scalar resource state in job summaries. */
+export function formatSmokeFailureEvidence(
+  evidence: SmokeFailureEvidence | null,
+): string {
+  if (!evidence)
+    return 'condition=unavailable · phase=unavailable · resources=unavailable'
+  validateSmokeFailureEvidence(evidence)
+  const { owners } = evidence
+  return (
+    `condition=${evidence.checkpoint ?? evidence.cleanupResource ?? 'unavailable'} · ` +
+    `phase=${evidence.phase} · windows=${owners.windowCount} · PTYs=${owners.ptyCount} · ` +
+    `watch=${owners.watcherActive} · renderer=${owners.rendererOwnerActive} · generation=${owners.rendererGeneration ?? 'none'}`
+  )
 }

@@ -2,7 +2,7 @@ import {
   installReplacementDeliveryObserver,
   waitForReplacementDeliveries,
 } from './renderer-recovery-delivery'
-import type { BrowserWindow } from 'electron'
+import { app, type BrowserWindow } from 'electron'
 
 import { asHostId, hostPath, type HostPath } from '../../shared'
 import type { RuntimeDiagnostics } from '../diagnostics/runtime-diagnostics'
@@ -18,7 +18,7 @@ import {
 } from '../terminal/renderer-pty-lifecycle'
 import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
 import type { SmokeFailureCheckpoint } from './failure-evidence.mts'
-import { startPtyProducer } from './renderer-recovery-producer'
+import { recoveryProducerLaunch, startPtyProducer } from './renderer-recovery-producer'
 
 const SYNTHETIC_REMOTE_HOST_ID = asHostId('smoke-renderer-recovery-ssh')
 const RECOVERY_HEALTH_OCCURRENCE_ID = '019c0000-0000-7000-8000-000000000287'
@@ -57,6 +57,7 @@ export async function verifyRendererProcessRecovery(options: {
     throw new Error('empty renderer-recovery fixture started a PTY before user action')
   }
   checkpoint('renderer-recovery-route-opening')
+  verifyGuestlessProxyAuthentication()
   const route = await routes.open({
     ownerId: initialOwner.id,
     ownerGeneration: initialOwner.generation,
@@ -79,6 +80,7 @@ export async function verifyRendererProcessRecovery(options: {
     host,
     root,
     id: 'renderer-recovery-local',
+    label: 'local',
     owner: initialOwner,
     resources,
     supervisor,
@@ -96,6 +98,7 @@ export async function verifyRendererProcessRecovery(options: {
       host: syntheticRemoteHost,
       root: hostPath(SYNTHETIC_REMOTE_HOST_ID, root.path),
       id: 'renderer-recovery-ssh',
+      label: 'ssh',
       owner: initialOwner,
       resources,
       supervisor,
@@ -133,7 +136,7 @@ export async function verifyRendererProcessRecovery(options: {
     checkpoint('renderer-recovery-reload-loaded')
 
     checkpoint('renderer-recovery-readiness-awaiting')
-    const replacement = await replacementReady
+    const replacement = await waitForReplacementReadiness(replacementReady, win)
     if (
       replacement.id !== initialOwner.id ||
       replacement.generation !== initialOwner.generation + 1
@@ -314,6 +317,40 @@ export async function verifyRendererProcessRecovery(options: {
   return result
 }
 
+/** Background Chromium authentication has no guest authority and must stay cancelled. */
+function verifyGuestlessProxyAuthentication(): void {
+  for (const contents of [undefined, null]) {
+    let claimed = false
+    app.emit(
+      'login',
+      {
+        preventDefault: () => {
+          claimed = true
+        },
+      },
+      contents,
+      {
+        url: 'http://localhost:61337/renderer-recovery',
+        pid: process.pid,
+        isRequestForNavigation: false,
+        firstAuthAttempt: true,
+      },
+      {
+        isProxy: true,
+        scheme: 'basic',
+        host: '127.0.0.1',
+        port: 61337,
+        realm: 'hvir-smoke-unowned',
+      },
+      () => {
+        claimed = true
+      },
+    )
+    if (claimed)
+      throw new Error('background proxy authentication claimed guest authority')
+  }
+}
+
 /**
  * Supplies a host-qualified remote producer after the transport boundary. The renderer
  * delivery contract is host-neutral; deterministic SshHost transport remains at its own seam.
@@ -327,6 +364,7 @@ async function startRecoveryPty(options: {
   readonly host: ProjectHost
   readonly root: HostPath
   readonly id: string
+  readonly label: 'local' | 'ssh'
   readonly owner: RendererOwner
   readonly resources: RendererResourceScopes
   readonly supervisor: PtySupervisor
@@ -342,6 +380,7 @@ async function startRecoveryPty(options: {
     const terminal = await supervisor.spawn({
       host,
       provider: plainShellProvider,
+      launchSpec: recoveryProducerLaunch(options.label),
       cwd: root,
       workspaceRoot: root,
       ownerId: owner.id,
@@ -410,5 +449,49 @@ async function waitForRecoveryEvidence(
       return
     }
     await new Promise<void>((resolve) => setTimeout(resolve, 25))
+  }
+}
+
+/** Keep a missing production readiness acknowledgement out of the outer three-minute guard. */
+async function waitForReplacementReadiness(
+  ready: Promise<RendererOwner>,
+  win: BrowserWindow,
+): Promise<RendererOwner> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      ready,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () =>
+            reject(new Error('replacement renderer readiness acknowledgement missing')),
+          15_000,
+        )
+      }),
+    ])
+  } catch (error) {
+    // Read only reviewed booleans, and bound diagnosis independently of renderer health.
+    let probeTimer: ReturnType<typeof setTimeout> | undefined
+    try {
+      const state: unknown = await Promise.race([
+        win.webContents.executeJavaScript(`({
+          loaded: document.readyState === 'complete',
+          visible: !document.hidden,
+          workbench: Boolean(document.querySelector('.workbench')),
+          project: Boolean(document.querySelector('.project-tab.active'))
+        })`),
+        new Promise<null>((resolve) => {
+          probeTimer = setTimeout(() => resolve(null), 250)
+        }),
+      ])
+      console.error('[smoke:recovery-readiness]', state)
+    } catch {
+      console.error('[smoke:recovery-readiness] unavailable')
+    } finally {
+      if (probeTimer) clearTimeout(probeTimer)
+    }
+    throw error
+  } finally {
+    if (timer) clearTimeout(timer)
   }
 }
