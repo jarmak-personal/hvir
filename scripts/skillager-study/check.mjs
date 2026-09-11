@@ -15,16 +15,24 @@ const root = resolve(process.argv[2] || '/tmp/hvir-skillager-study')
 const chromePath =
   process.env.HVIR_STUDY_CHROME ||
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-for (const connected of [false, true])
-  for (const viewer of ['skills', 'history']) {
-    for (const visible of [false, true])
-      for (const focused of [false, true]) {
-        nodeAssert.equal(
-          automaticRefreshAllowed({ connected, viewer }, visible, focused),
-          connected && viewer === 'skills' && visible && focused,
-        )
-      }
-  }
+for (const enabled of [false, true])
+  for (const connected of [false, true])
+    for (const railMode of ['skills', 'files'])
+      for (const viewer of ['skills', 'history'])
+        for (const visible of [false, true])
+          for (const focused of [false, true])
+            nodeAssert.equal(
+              automaticRefreshAllowed(
+                { enabled, connected, railMode, viewer },
+                visible,
+                focused,
+              ),
+              enabled &&
+                connected &&
+                (railMode === 'skills' || viewer === 'skills') &&
+                visible &&
+                focused,
+            )
 const profile = await mkdtemp(join(tmpdir(), 'hvir-skillager-browser-'))
 const chrome = spawn(
   chromePath,
@@ -65,7 +73,7 @@ const errors = [],
   checks = []
 const deadline = setTimeout(() => chrome.kill('SIGKILL'), 45_000)
 checks.push(
-  'Automatic refresh eligibility: all 16 connection/viewer/visibility/focus combinations at the pure gate',
+  'Automatic refresh eligibility: all 64 enable/connection/sidebar/viewer/visibility/focus combinations at the pure gate',
 )
 const limitations = [
   'Periodic eligibility is checked at its pure owner; browser checks exercise visibility/focus/viewer events, not a real 60-second wall-clock wait.',
@@ -156,34 +164,109 @@ try {
     deviceScaleFactor: 1,
     mobile: false,
   })
+  // Observe actual study timers without advancing its clock; retain one canceled search callback.
+  await call('Page.addScriptToEvaluateOnNewDocument', {
+    source: `
+    window.studyTimers={intervals:new Set(),search:null};
+    const interval=window.setInterval,clear=window.clearInterval,timeout=window.setTimeout;
+    window.setInterval=(fn,ms,...args)=>{const id=interval(fn,ms,...args);if(ms===60000)studyTimers.intervals.add(id);return id};
+    window.clearInterval=id=>{studyTimers.intervals.delete(id);return clear(id)};
+    window.setTimeout=(fn,ms,...args)=>{if(ms===500)studyTimers.search=fn;return timeout(fn,ms,...args)};
+  `,
+  })
+  const capture = async (name) => {
+    const shot = await call('Page.captureScreenshot', { format: 'png' })
+    await writeFile(join(root, name + '.png'), Buffer.from(shot.data, 'base64'))
+  }
+  const absent = `!document.querySelector('#skills-nav') && !document.querySelector('[data-viewer="skills"]') && !document.querySelector('#destination') && !document.querySelector('#connection-label') && !document.querySelector('[data-skill]') && document.querySelector('#skills-view').innerHTML==='' && document.querySelector('#skills-rail').innerHTML==='' && studyTimers.intervals.size===0`
   await call('Page.navigate', { url: pathToFileURL(join(root, 'index.html')).href })
   await waitFor(
-    `document.querySelector('#content')?.textContent.includes('Connect Skillager')`,
+    `document.querySelector('#document-view') && !document.querySelector('#document-view').hidden`,
   )
+  await call('Page.bringToFront')
+  await waitFor(`document.hasFocus()`)
   await assert(
-    `!document.querySelector('[data-skill]')`,
-    'Integration defaults off without metadata rows',
+    absent +
+      ` && !/Skills|Skillager|Accepted ≠|Open Skills/.test(document.querySelector('.frame').innerText)`,
+    'Initial off state has no feature surface, placeholder, command, status or periodic demand',
   )
+  await capture('initial-off')
   await click('#settings')
+  await assert(
+    `!!document.querySelector('#enabled') && !document.querySelector('[data-action="connect"]') && !document.querySelector('[data-action="change-library"]') && !document.querySelector('#dialog').textContent.includes('executable')`,
+    'Disabled Settings retains only the enable switch for this feature',
+  )
   await click('#enabled')
   await assert(
-    `document.querySelector('#dialog').textContent.includes('/home/example/.local/bin/skillager') && document.querySelector('#dialog').textContent.includes('/home/example/.skillager/library')`,
-    'Connection displays exact local executable and library',
+    `document.querySelector('#dialog').textContent.includes('/home/example/.local/bin/skillager') && document.querySelector('#dialog').textContent.includes('/home/example/.skillager/library') && !document.querySelector('[data-viewer="skills"]') && studyTimers.intervals.size===0`,
+    'Enable reveals connection settings without connecting or reopening a feature viewer',
   )
-  await click('[data-action="connect"]')
-  await assert(
-    `document.querySelectorAll('[data-skill]').length===6`,
-    'Explicit connection reveals metadata including pending drafts',
-  )
-  const terminal = await run(
-    `JSON.stringify(document.querySelector('#terminal-pane').getBoundingClientRect().toJSON())`,
-  )
-  await click('[data-viewer="history"]')
-  await click('#close-skills')
+  await click('[data-action="close"]')
   await click('#skills-nav')
   await assert(
-    `JSON.stringify(document.querySelector('#terminal-pane').getBoundingClientRect().toJSON())===${JSON.stringify(terminal)} && !document.querySelector('#skills-view').hidden`,
-    'Switching, closing and reopening viewer tabs preserves terminal geometry',
+    `document.querySelector('#skills-rail').textContent.includes('Connect Skillager') && !document.querySelector('#document-view').hidden`,
+    'Skills is a Files/Git sidebar peer; disconnected navigation preserves the document viewer',
+  )
+  await click('#settings')
+  await click('[data-action="connect"]')
+  await assert(
+    `document.querySelectorAll('#skills-rail [data-skill]').length===6 && !document.querySelector('[data-viewer="skills"]') && studyTimers.intervals.size===1`,
+    'Connection reveals sidebar metadata including pending drafts without opening a detail tab',
+  )
+  const terminal = await run(
+    `JSON.stringify([document.querySelector('#terminal-pane').innerHTML,document.querySelector('.sessions').innerHTML,document.querySelector('#terminal-pane').getBoundingClientRect().toJSON(),document.querySelector('.sessions').getBoundingClientRect().toJSON()])`,
+  )
+  await click('[data-select="migration-review"]')
+  await assert(
+    `!!document.querySelector('#skills-rail #search') && !!document.querySelector('#skills-view #details') && !document.querySelector('#skills-view').textContent.includes('sample instructions')`,
+    'Sidebar selection opens metadata in the main viewer without reading a body',
+  )
+  await capture('sidebar-details')
+  await click('#details [data-action="read"]')
+  await assert(
+    `document.querySelector('#skills-view').textContent.includes('SKILL.md · sample instructions') && !document.querySelector('#dialog').open`,
+    'Explicit Review content opens the selected snapshot in the main viewer',
+  )
+  await capture('explicit-review')
+  await run(
+    `document.querySelector('[data-skill="deploy-checklist"]').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}))`,
+  )
+  await assert(
+    `!document.querySelector('#skills-view').textContent.includes('sample instructions') && document.querySelector('#dialog-title').textContent.includes('deploy-checklist') && !document.querySelector('#dialog').textContent.includes('sample instructions')`,
+    'Opening another skill action menu revokes prior body review and reveals metadata only',
+  )
+  await click('#dialog [data-action="read"]')
+  await assert(
+    `document.querySelector('#skills-view').textContent.includes('Review content · deploy-checklist') && document.querySelector('#skills-view').textContent.includes('sample instructions')`,
+    'The newly selected skill body requires its own explicit Review content',
+  )
+  await assert(
+    `document.querySelector('#review-count').textContent==='1 library review' && document.querySelector('#updates-count').textContent==='1 workspace update'`,
+    'Enabled sidebar distinguishes library review from workspace update badges',
+  )
+  await click('[data-rail="git"]')
+  await assert(
+    `!document.querySelector('#git-rail').hidden && document.querySelector('#skills-view').textContent.includes('sample instructions') && studyTimers.intervals.size===1`,
+    'Changing sidebar preserves the open feature review and its refresh demand',
+  )
+  await click('[data-viewer="history"]')
+  await assert(
+    `studyTimers.intervals.size===0 && !!document.querySelector('[data-viewer="skills"]')`,
+    'Hiding both feature surfaces releases periodic demand without closing its tab',
+  )
+  await click('#skills-nav')
+  await assert(
+    `!document.querySelector('#history-view').hidden && studyTimers.intervals.size===1`,
+    'Returning to Skills sidebar preserves an ordinary viewer and resumes sidebar demand',
+  )
+  await click('[data-action="close-skills"]')
+  await assert(
+    `!document.querySelector('[data-viewer="skills"]') && !!document.querySelector('#skills-rail #search') && studyTimers.intervals.size===1`,
+    'Closing one feature tab releases its content while the visible sidebar remains usable',
+  )
+  await assert(
+    `JSON.stringify([document.querySelector('#terminal-pane').innerHTML,document.querySelector('.sessions').innerHTML,document.querySelector('#terminal-pane').getBoundingClientRect().toJSON(),document.querySelector('.sessions').getBoundingClientRect().toJSON()])===${JSON.stringify(terminal)}`,
+    'Sidebar and viewer navigation preserve terminal/session content and geometry',
   )
   await assert(
     `document.querySelector('.sessions').getBoundingClientRect().top>=document.querySelector('.main').getBoundingClientRect().bottom`,
@@ -231,8 +314,13 @@ try {
     'Submitted query has explicit cancellation',
   )
   await flow('search')
+  await click('[data-rail="files"]')
+  await run('studyTimers.search()')
+  await assert(
+    `!document.querySelector('#skills-view').hidden && !document.querySelector('#search-status').textContent.includes('results returned')`,
+    'Leaving the sidebar cancels search publication while preserving a visible feature viewer',
+  )
   await click('[data-viewer="history"]')
-  await run('new Promise(resolve=>setTimeout(resolve,600))')
   await assert(
     `document.querySelector('#skills-view').hidden && !document.querySelector('#history-view').hidden`,
     'Late search cannot reopen departed viewer',
@@ -323,6 +411,10 @@ try {
   )
   await flow('remote')
   await assert(
+    `document.querySelector('#active-workspace').textContent.includes('SSH · build-host')`,
+    'Ordinary workspace bar names the same active workspace as Skills observation and management',
+  )
+  await assert(
     `document.querySelector('#add-mode option[value="stub"]').disabled`,
     'Remote Stub is unavailable',
   )
@@ -373,13 +465,14 @@ try {
   }
   await call('Target.closeTarget', { targetId: other.targetId })
   await click('[data-viewer="history"]')
+  await click('[data-rail="files"]')
   const hiddenFreshness = await run(`document.querySelector('#freshness').textContent`)
   await run(
     `document.dispatchEvent(new Event('visibilitychange'));window.dispatchEvent(new Event('focus'))`,
   )
   await assert(
     `document.querySelector('#freshness').textContent===${JSON.stringify(hiddenFreshness)}`,
-    'Focus/visibility signals do not refresh while another viewer tab is active',
+    'Focus/visibility signals do not refresh while both feature surfaces are hidden',
   )
   await click('#skills-nav')
   await assert(
@@ -404,12 +497,14 @@ try {
     'Changing library identity/location revokes metadata and requires reconnecting',
   )
   await click('[data-action="connect"]')
+  await click('#skills-nav')
+  await click('[data-select="migration-review"]')
   await click('#details [data-action="read"]')
   await assert(
-    `document.querySelector('#dialog').textContent.includes('/library-new/skills/migration-review')`,
+    `document.querySelector('#skills-view').textContent.includes('/library-new/skills/migration-review')`,
     'Reconnected content review names the selected library location',
   )
-  await click('[data-action="close"]')
+  await click('[data-action="metadata"]')
   await click('[data-select="deploy-checklist"]')
   await click('#details [data-action="accept"]')
   await assert(
@@ -429,8 +524,62 @@ try {
   await click('#enabled')
   await click('[data-action="close"]')
   await assert(
-    `document.querySelector('#connection-label').textContent==='Skillager disabled'`,
-    'Disabling revokes the library connection',
+    absent,
+    'Disabling removes feature content and revokes the library connection',
+  )
+  await flow('search')
+  await click('[data-viewer="history"]')
+  await click('#settings')
+  await click('#enabled')
+  await click('[data-action="close"]')
+  await run(
+    `studyTimers.search();document.dispatchEvent(new KeyboardEvent('keydown',{key:'/',bubbles:true}));document.dispatchEvent(new Event('visibilitychange'));window.dispatchEvent(new Event('focus'))`,
+  )
+  await assert(
+    absent +
+      ` && !document.querySelector('#files-rail').hidden && !document.querySelector('#history-view').hidden && document.querySelector('#toast').hidden`,
+    'Disable during search rejects its actual late callback and shortcut/focus events, preserving the ordinary viewer',
+  )
+  await capture('disabled-after-search')
+  await click('#settings')
+  await click('#enabled')
+  await click('[data-action="close"]')
+  await run('studyTimers.search()')
+  await assert(
+    `!document.querySelector('[data-viewer="skills"]') && !document.querySelector('#history-view').hidden && !document.querySelector('[data-skill]') && studyTimers.intervals.size===0`,
+    'Re-enable does not reconnect, reopen prior content, or accept old search publication',
+  )
+  await click('#settings')
+  await click('[data-action="connect"]')
+  await click('#skills-nav')
+  await run('studyTimers.search()')
+  await assert(
+    `document.querySelectorAll('[data-skill]').length===6 && !document.querySelector('#search-status').textContent.includes('results returned') && !document.querySelector('[data-viewer="skills"]')`,
+    'A fresh connection also rejects the prior generation search callback',
+  )
+  await flow('update')
+  await click('#settings')
+  await click('#enabled')
+  await click('[data-action="close"]')
+  await assert(
+    absent +
+      ` && !document.querySelector('#dialog').open && document.querySelector('#dialog').innerHTML==='' && document.querySelector('#toast').textContent===''`,
+    'Disable during a prepared mutation removes the preview and notification content',
+  )
+  await flow('add')
+  await click('[data-action="preview-add"]')
+  await click('[data-action="apply"]')
+  await assert(
+    `!document.querySelector('#toast').hidden`,
+    'A completed sample action publishes its feature notification',
+  )
+  await click('#settings')
+  await click('#enabled')
+  await click('[data-action="close"]')
+  await assert(
+    absent +
+      ` && document.querySelector('#toast').hidden && document.querySelector('#toast').textContent===''`,
+    'Disable clears a visible feature notification',
   )
   await flow('browse')
   await call('Emulation.setDeviceMetricsOverride', {
@@ -442,6 +591,10 @@ try {
   await assert(
     `document.documentElement.scrollWidth<=900`,
     'Compact viewport has no horizontal document overflow',
+  )
+  await assert(
+    `(()=>{const rows=Array.from(document.querySelectorAll('#skill-list [data-skill]')).slice(0,2);return rows.length===2 && rows.every(row=>{const bounds=row.getBoundingClientRect(),rail=document.querySelector('#skills-rail').getBoundingClientRect();return bounds.top>=rail.top && bounds.bottom<=rail.bottom})})()`,
+    'Compact sidebar keeps its first two metadata rows visible without scrolling',
   )
   const screenshot = await call('Page.captureScreenshot', { format: 'png' })
   await writeFile(join(root, 'compact.png'), Buffer.from(screenshot.data, 'base64'))
@@ -472,7 +625,7 @@ try {
   const proof = await call(
     'Runtime.evaluate',
     {
-      expression: `document.querySelector('#content')?.textContent.includes('Connect Skillager')`,
+      expression: `!!document.querySelector('#document-view') && !document.querySelector('#document-view').hidden && !document.querySelector('#skills-nav')`,
       ...(contextId ? { contextId } : {}),
       returnByValue: true,
     },

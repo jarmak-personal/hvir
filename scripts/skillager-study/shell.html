@@ -40,67 +40,49 @@
     <div class="frame">
       <header class="titlebar">● ● ● <span>hvir — workbench</span></header>
       <div class="projects">
-        <strong>hvir</strong><span>diabot</span><span>skillager</span
+        <strong>hvir</strong><span>diabot</span><span>atlas</span
         ><button id="settings">Settings</button>
       </div>
-      <div class="workspaces">
-        <label
-          >Destination
-          <select id="destination"></select></label
-        ><label
-          >Agent
-          <select id="agent">
-            <option value="codex">Codex</option>
-            <option value="claude">Claude Code</option>
-          </select></label
-        >
-      </div>
+      <div class="workspaces" id="active-workspace">Local · hvir / main</div>
       <div class="workbench">
         <aside class="left">
-          <div class="rail-tabs">Files　 Git</div>
-          <div class="file-tree">
+          <nav class="rail-tabs" aria-label="Project views">
+            <button data-rail="files">Files</button><button data-rail="git">Git</button>
+            <span id="skills-nav-container"></span>
+          </nav>
+          <div class="file-tree" id="files-rail">
             <p>▾ hvir</p>
             <p>　▸ src</p>
             <p>　▾ docs</p>
-            <p>　　design.md</p>
+            <button data-viewer="document">　design.md</button>
             <p>　package.json</p>
-            <hr />
-            <small>WORKSPACE VIEWS</small><button id="skills-nav">▤ Open Skills</button
-            ><button data-viewer="history">⑂ Git history</button>
           </div>
-          <div class="rail-foot" id="connection-label"></div>
+          <div class="file-tree" id="git-rail" hidden>
+            <h3>Changes · main</h3>
+            <p>Working tree clean</p>
+            <button data-viewer="history">Git history</button>
+          </div>
+          <section id="skills-rail" hidden></section>
         </aside>
         <main class="main">
           <nav class="viewer-tabs" aria-label="Viewer tabs">
             <button data-viewer="document">design.md</button
             ><button data-viewer="history">Git history</button
-            ><span id="skills-tab-container"
-              ><button data-viewer="skills">Skills</button
-              ><button id="close-skills" aria-label="Close Skills">×</button></span
-            >
+            ><span id="skills-tab-container"></span>
           </nav>
-          <section id="skills-view">
-            <div class="skills-scope">
-              <button id="library-nav">Personal library</button
-              ><button id="workspace-nav">This workspace</button
-              ><span id="updates-count"></span>
-            </div>
-            <div class="content" id="content"></div>
-          </section>
+          <section id="skills-view" class="content" hidden></section>
           <section id="document-view" class="static-document" hidden>
             <small>docs/design.md · Rendered</small>
             <h1>hvir — Design &amp; Architecture</h1>
             <p>A lightweight, view-first workbench for agentic development.</p>
             <h2>Stay in the loop</h2>
             <p>Read the code, inspect changes, and keep your agent terminals close.</p>
-            <button data-viewer="skills">Open Skills tab</button>
           </section>
           <section id="history-view" class="static-document" hidden>
             <small>Git history · main</small>
             <h1>History</h1>
             <p>● 7acbf88 · Refine workbench workflows</p>
             <p>│ Earlier commits</p>
-            <button data-viewer="skills">Open Skills tab</button>
           </section>
         </main>
         <div class="terminal" id="terminal-pane">
@@ -124,9 +106,7 @@ The review is ready in the viewer above.
           <small>zsh · main · Idle</small>
         </aside>
       </div>
-      <footer class="statusbar">
-        Design prototype · no filesystem changes <span>Accepted ≠ exposed ≠ loaded</span>
-      </footer>
+      <footer class="statusbar">Local · main <span>Ready</span></footer>
     </div>
     <dialog id="dialog" aria-labelledby="dialog-title"></dialog>
     <div id="toast" role="status" hidden></div>

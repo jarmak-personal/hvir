@@ -22,9 +22,17 @@ ADR-030's no-replace transfer primitives do not supply managed-exposure replacem
 ### Product surface and grants
 
 Provide an optional built-in Skillager integration, disabled by default, with a dedicated
-settings section. Open Skills from the sidebar's workspace views as a closable viewer tab beside
-documents and Git history. Switching, closing, and reopening it preserves the terminal pane and
-session rail. Personal library and This workspace are perspectives within that tab.
+settings section. Skills is a peer sidebar mode beside Files and Git, following the existing
+workbench rail-mode convention. Personal library and This workspace metadata browsing and
+submitted search live on the left. Selecting metadata opens a closable skill detail tab in the
+normal main viewer beside documents and Git history. Bodies and diffs require explicit Review
+content. Sidebar switches preserve open viewer tabs, the terminal pane, and the session rail.
+There is no separate Workspace views launcher.
+
+While disabled, the only discovery control is Enable Skillager in Settings. Skills navigation,
+commands and shortcuts, destination/agent controls, badges, status text, disconnected placeholders,
+and retained feature-owned content are absent. Executable, library, and connection settings appear
+only after enabling. Enabling does not connect or reopen prior feature tabs.
 
 Enabling reveals the resolved local executable and exact registered library location. Connecting
 grants metadata access to that one local library identity and location; it does not approve any
@@ -32,7 +40,11 @@ content. Library identity or location changes require reconnecting, not silent a
 content edits follow refresh and explicit review without reconnecting. Explicit Review content
 grants confined content/diff access for the selected identity and version. Accept library changes
 is a separate confirmation of the exact reviewed version through Skillager. Disabling revokes
-the connection, content resources, and outstanding requests. The library remains external to
+the connection, content resources, outstanding requests, search and periodic demand. It closes
+feature-owned tabs, dialogs, and toasts, clears feature notifications, and rejects stale callbacks.
+If Skills was selected, return the sidebar to Files and the viewer to its last remaining ordinary
+tab or normal empty state. Preserve unrelated viewer and terminal/session state. Neither restart
+nor re-enabling silently restores feature surfaces. The library remains external to
 project registration; this grant is not general renderer filesystem access.
 
 Main validates local host identity, canonical library/skill roots, and relative entries through
@@ -60,8 +72,10 @@ remain authoritative; new feature invariants belong in that same policy owner. H
 and composition roots gain no Skillager workflow state. Ordinary source budgets apply.
 
 Connection, renderer generation, originating workspace, content tab, and individual request are
-distinct scopes. A request snapshots the selected local source, host-qualified destination,
-agent, mode, source version, and existing target state. Selection changes cannot retarget it.
+distinct scopes. Leaving the Skills sidebar releases its search demand; closing a skill detail
+tab releases that tab's content without canceling an independently visible sidebar. Hiding every
+feature surface releases periodic metadata demand. A request snapshots the selected local source,
+host-qualified destination, agent, mode, source version, and existing target state. Selection changes cannot retarget it.
 Workspace/project closure, renderer replacement, connection revocation, host replacement/loss,
 and shutdown cancel descendants and reject late publication. Disposal is idempotent in reverse
 ownership order. A mutation already beyond its commit point reports its actual or uncertain
@@ -82,17 +96,18 @@ to Personal library and disable All available until a truthful remote catalog co
 Never execute an SSH path as a local cwd. A local source and SSH destination stay separately
 named throughout browsing, review, preview, and results.
 
-Refresh on Skills visibility, after management actions, and every 60 seconds only while Skills
-is visible and the app foregrounded. Observe only the active workspace. Expose last-check time
-and stale/unavailable state; do not infer current status from a library-only result. Refresh is
+Refresh on Skills visibility and after management actions. Periodic refresh runs every 60
+seconds only while connected, the app is foregrounded, and either the Skills sidebar or a
+Skillager-owned viewer is visible. Hidden and disabled feature surfaces own no periodic demand.
+Observe only the active workspace. Expose last-check time and stale/unavailable state; do not infer current status from a library-only result. Refresh is
 metadata work: it neither opens bodies nor accepts, exposes, updates, restarts sessions, or
 creates terminal attention. Library-review badges and workspace-update badges remain distinct.
 
 Execution stays off paint with abortable processes, bounded stdout/stderr, finite deadlines,
 and bounded concurrency without an unbounded queue. Initial submitted search admits 1,000
 UTF-8 query bytes, 50 rows, a 4 MiB JSON response, 64 KiB stderr, and a 30-second deadline;
-there is one search per viewer generation and at most two Skillager processes application-wide.
-A replacement query cancels the previous one. Index construction has visible loading while
+there is one search per sidebar request generation and at most two Skillager processes
+application-wide. A replacement query cancels the previous one. Index construction has visible loading while
 input and terminal remain usable. Bounds fail visibly instead of presenting truncated JSON as
 complete. Other commands retain independently explicit response/deadline limits appropriate to
 metadata, content, or transfer; metadata refresh cannot silently inherit bulk content authority.

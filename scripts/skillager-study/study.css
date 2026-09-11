@@ -147,7 +147,7 @@ hr {
   min-height: 0;
   flex: 1;
   display: grid;
-  grid-template-columns: 190px minmax(0, 1fr) 180px;
+  grid-template-columns: 340px minmax(0, 1fr) 180px;
   grid-template-rows: minmax(0, 1fr) 230px;
 }
 .left {
@@ -159,7 +159,9 @@ hr {
   flex-direction: column;
 }
 .rail-tabs {
-  padding: 13px;
+  display: flex;
+  gap: 4px;
+  padding: 8px;
   border-bottom: 1px solid var(--border);
 }
 .file-tree {
@@ -173,12 +175,64 @@ hr {
   margin-top: 10px;
   background: none;
 }
-.rail-foot {
-  margin-top: auto;
-  padding: 16px;
-  border-top: 1px solid var(--border);
+#skills-rail {
+  overflow: auto;
+  min-height: 0;
+}
+#skills-rail #content,
+.rail-controls {
+  padding: 12px;
+}
+.rail-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 98px;
+  gap: 8px;
+}
+.rail-controls label {
+  display: grid;
+  gap: 4px;
   font-size: 11px;
-  color: var(--muted);
+}
+.rail-controls select {
+  width: 100%;
+}
+.rail-tabs button.active {
+  background: #243142;
+}
+#skills-rail h1 {
+  font-size: 17px;
+}
+#skills-rail .empty {
+  padding: 16px;
+}
+#skills-rail .heading {
+  flex-wrap: wrap;
+}
+#skills-rail .search-bar {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+#skills-rail .search-bar input,
+#skills-rail .search-bar select {
+  grid-column: 1 / -1;
+  width: 100%;
+}
+#skills-rail .toolbar {
+  display: flex;
+  gap: 8px;
+}
+#skills-rail #freshness {
+  font-size: 10px;
+}
+.search-caption summary {
+  cursor: pointer;
+}
+.search-caption p {
+  margin-top: 8px;
+}
+#skills-rail .skills-scope {
+  padding: 8px;
+  gap: 4px;
 }
 .main {
   grid-column: 2 / 4;
@@ -229,6 +283,13 @@ hr {
 #updates-count {
   margin-left: auto;
   color: #a6caf4;
+  font-size: 11px;
+}
+.feature-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 12px;
   font-size: 11px;
 }
 .content,
@@ -294,7 +355,7 @@ hr {
 .search-bar {
   display: flex;
   gap: 8px;
-  margin: 18px 0 8px;
+  margin: 0 0 8px;
 }
 .search-bar input {
   flex: 1;
@@ -314,11 +375,6 @@ hr {
   justify-content: space-between;
   margin: 13px 0;
   font-size: 11px;
-}
-.catalog-layout {
-  display: grid;
-  grid-template-columns: minmax(270px, 1.3fr) minmax(250px, 1fr);
-  gap: 20px;
 }
 .skill-row {
   display: flex;
@@ -364,6 +420,9 @@ hr {
   margin: 4px 0;
 }
 .details {
+  max-width: 760px;
+  width: 100%;
+  flex: none;
   background: var(--s0);
   border: 1px solid var(--border);
   border-radius: 7px;
@@ -481,10 +540,7 @@ dialog label.inline {
 }
 @media (max-width: 1000px) {
   .workbench {
-    grid-template-columns: 150px minmax(0, 1fr) 150px;
-  }
-  .catalog-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: 300px minmax(0, 1fr) 150px;
   }
   .search-bar {
     flex-wrap: wrap;
@@ -502,7 +558,7 @@ dialog label.inline {
     gap: 8px;
   }
   .workbench {
-    grid-template-columns: 115px minmax(0, 1fr) 115px;
+    grid-template-columns: 260px minmax(0, 1fr) 115px;
   }
   .search-bar select {
     max-width: 100%;
