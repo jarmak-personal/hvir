@@ -19,6 +19,11 @@ function fixture(
     hostId: localPath('/').hostId,
     defaultShell: () => Promise.resolve('/bin/sh'),
     realpath: (path: ReturnType<typeof localPath>) => Promise.resolve(path),
+    stat: vi.fn(() => Promise.reject(new Error('Unexpected review stat'))),
+    readdir: vi.fn(() => Promise.reject(new Error('Unexpected review directory read'))),
+    createDirectoryExclusive: vi.fn(() =>
+      Promise.reject(new Error('Unexpected review directory creation')),
+    ),
     exec: vi.fn(
       (
         command: string,
@@ -170,9 +175,9 @@ describe('Skillager local executable and explicit authority probe', () => {
       return run(command, args, options)
     })
     try {
-        const pending = cli.inventory(selection, signal)
-        await expect(pending).rejects.toMatchObject({ reason })
-        await expect(pending).rejects.toThrow('Temporary state cleanup also failed.')
+      const pending = cli.inventory(selection, signal)
+      await expect(pending).rejects.toMatchObject({ reason })
+      await expect(pending).rejects.toThrow('Temporary state cleanup also failed.')
     } finally {
       host.exec.mockImplementation(run)
       await cli.dispose()

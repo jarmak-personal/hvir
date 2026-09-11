@@ -1,3 +1,12 @@
+import type {
+  SkillagerSkillRequest,
+  SkillagerReviewRequest,
+} from '../../shared/skillager-review'
+import { SkillagerReviewOwner } from './skillager-review-owner'
+import type {
+  SkillagerReviewCliPort,
+  SkillagerReviewPreviewPort,
+} from './skillager-review-port'
 import { randomUUID } from 'node:crypto'
 import type { HostPath } from '../../shared/host-path'
 import {
@@ -39,6 +48,7 @@ export class SkillagerCapability {
   private readonly owners = new Map<string, OwnerState>()
   private readonly jobs = new Map<Promise<unknown>, string>()
   private disposed = false
+  private readonly reviews: SkillagerReviewOwner
 
   constructor(
     private readonly cli: SkillagerCliPort,
@@ -47,7 +57,13 @@ export class SkillagerCapability {
       'assertCurrent' | 'isCurrent' | 'register'
     >,
     private readonly workspaceAvailable: (root: HostPath) => boolean,
-  ) {}
+    review: {
+      readonly cli: SkillagerReviewCliPort
+      readonly previews: SkillagerReviewPreviewPort
+    },
+  ) {
+    this.reviews = new SkillagerReviewOwner(review.cli, resources, review.previews)
+  }
 
   configure(owner: RendererOwner, enabled: boolean): void {
     this.resources.assertCurrent(owner)
@@ -148,6 +164,7 @@ export class SkillagerCapability {
     const state = this.owners.get(key(owner))
     if (!state) return
     state.generation++
+    void this.track(owner, this.reviews.revoke(owner))
     state.probe?.abort()
     this.cancelLane(state.lanes.search)
     this.cancelLane(state.lanes.inventory)
@@ -222,7 +239,78 @@ export class SkillagerCapability {
       this.cancelLane(state.lanes.inventory)
     }
     this.owners.clear()
+    await this.reviews.revoke()
     await Promise.allSettled([...this.jobs.keys()])
+  }
+
+  review(owner: RendererOwner, request: SkillagerSkillRequest) {
+    return this.track(
+      owner,
+      result(() => this.reviews.review(owner, request, this.reviewGrant(owner, request))),
+    )
+  }
+  history(owner: RendererOwner, request: SkillagerSkillRequest) {
+    return this.track(
+      owner,
+      result(() =>
+        this.reviews.history(owner, request, this.reviewGrant(owner, request)),
+      ),
+    )
+  }
+  reviewContent(
+    owner: RendererOwner,
+    request: SkillagerReviewRequest & {
+      readonly entry: string
+      readonly documentEntry?: string
+    },
+  ) {
+    return result(() => Promise.resolve(this.reviews.content(owner, request)))
+  }
+  reviewDiff(
+    owner: RendererOwner,
+    request: SkillagerReviewRequest & { readonly fromHash?: string },
+  ) {
+    return this.track(
+      owner,
+      result(() => this.reviews.diff(owner, request)),
+    )
+  }
+  acceptReview(owner: RendererOwner, request: SkillagerReviewRequest) {
+    return this.track(
+      owner,
+      result(() => this.reviews.accept(owner, request)),
+    )
+  }
+  cancelReview(owner: RendererOwner, requestId: number): Promise<void> {
+    return this.reviews.cancel(owner, requestId)
+  }
+  releaseReview(owner: RendererOwner, reviewId: string): Promise<void> {
+    return this.reviews.release(owner, reviewId)
+  }
+  private reviewGrant(owner: RendererOwner, request: SkillagerRequest) {
+    const state = this.state(owner),
+      generation = state.generation
+    if (
+      !state.selection ||
+      !state.connectionId ||
+      request.connectionId !== state.connectionId ||
+      !Number.isSafeInteger(request.requestId) ||
+      request.requestId < 1 ||
+      !SKILLAGER_AGENTS.some((agent) => agent.id === request.agent) ||
+      !this.workspaceAvailable(request.workspaceRoot)
+    )
+      throw new SkillagerError(
+        'invalid-request',
+        'The connected skill workspace is unavailable.',
+      )
+    return {
+      selection: state.selection,
+      assertCurrent: () => {
+        this.current(owner, state, generation)
+        if (!this.workspaceAvailable(request.workspaceRoot))
+          throw new SkillagerError('cancelled', 'The skill workspace changed.')
+      },
+    }
   }
 
   private track<T>(owner: RendererOwner, job: Promise<T>): Promise<T> {

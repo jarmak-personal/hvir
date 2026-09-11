@@ -1,4 +1,5 @@
 import { BufferedExecOutput } from './buffered-exec-output'
+import { readLocalFileChunksNoFollow } from './local-confined-file-read'
 /**
  * `LocalHost` — the default `ProjectHost` (ADR-010).
  *
@@ -92,6 +93,12 @@ export class LocalHost implements ProjectHost {
   readonly connectionState: HostConnectionState = 'connected'
   readonly watchTier: HostWatchTier = 'native'
   readonly fileTransfer: ProjectFileTransferPort = {
+    readFileChunksNoFollow: (path, opts) =>
+      readLocalFileChunksNoFollow(
+        this.resolve(path),
+        { open: fsp.open, flags: constants },
+        opts,
+      ),
     readFileChunks: (path, opts) => this.readFileChunks(path, opts),
     writeFileChunksExclusive: (path, chunks, opts) =>
       this.writeFileChunksExclusive(path, chunks, opts),

@@ -1,5 +1,5 @@
 import { verifySkillagerScenario } from './skillager'
-import { createSkillagerSmoke } from './skillager-fixture'
+import { createSkillagerSmoke as createSkills } from './skillager-fixture'
 import {
   verifyTerminalThemeScenario,
   verifyTerminalMoveScenario,
@@ -391,7 +391,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       echoWorker: worker,
       gitWorker: git,
       filenameSearch,
-      skillager: createSkillagerSmoke(rendererResources, smokeRoot, cleanup, host),
+      skillager: createSkills(rendererResources, smokeRoot, cleanup, host, htmlPreviews),
       projectFiles,
       projectFolderPicker,
       documentReview: documentReview.coordinator,

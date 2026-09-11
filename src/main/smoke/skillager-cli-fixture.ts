@@ -1,3 +1,4 @@
+import type { SkillagerReviewCliPort } from '../skillager/skillager-review-port'
 import { randomUUID } from 'node:crypto'
 import { joinHostPath, localPath } from '../../shared/host-path'
 import type { ProjectHost } from '../project-host'
@@ -10,7 +11,7 @@ import { skillagerFixtureEnvironment } from './skillager-fixture-environment'
 export function realSkillagerSmokePort(
   host: ProjectHost,
   cleanup: SmokeCleanup,
-): SkillagerCliPort | undefined {
+): (SkillagerCliPort & SkillagerReviewCliPort) | undefined {
   const fixture = process.env.HVIR_SKILLAGER_SMOKE_FIXTURE
   const release = process.env.HVIR_SKILLAGER_RELEASE
   if (!fixture || !release) return undefined
@@ -27,6 +28,11 @@ export function realSkillagerSmokePort(
       hostId: host.hostId,
       defaultShell: () => Promise.resolve('/bin/sh'),
       realpath: (value) => host.realpath(value),
+      stat: (value) => host.stat(value),
+      readdir: (value) => host.readdir(value),
+      fileTransfer: host.fileTransfer,
+      createDirectoryExclusive: (value, options) =>
+        host.createDirectoryExclusive(value, options),
       exec: (command, args, options) =>
         host.exec(command, args, {
           ...options,
@@ -38,6 +44,11 @@ export function realSkillagerSmokePort(
   )
   cleanup.defer('real Skillager CLI', () => cli.dispose())
   return {
+    review: (selection, skillId, signal) => cli.review(selection, skillId, signal),
+    history: (selection, skillId, signal) => cli.history(selection, skillId, signal),
+    diff: (selection, snapshot, fromHash, signal) =>
+      cli.diff(selection, snapshot, fromHash, signal),
+    accept: (selection, snapshot, signal) => cli.accept(selection, snapshot, signal),
     probe: (executable, signal) =>
       cli.probe(
         executable ?? joinHostPath(localPath(release), '.venv/bin/skillager'),

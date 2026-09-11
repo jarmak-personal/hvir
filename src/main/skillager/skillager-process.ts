@@ -1,4 +1,5 @@
 import { SkillagerError, SKILLAGER_REQUEST_DEADLINE_MS } from './skillager-port'
+import type { ExecResult } from '../../shared/fs-types'
 import type { ExecOptions, ProjectHost } from '../project-host/project-host'
 
 export interface SkillagerProcessLimits {
@@ -28,7 +29,7 @@ export class SkillagerProcess {
   private active = 0
   private disposed = false
   private readonly controllers = new Set<AbortController>()
-  private readonly pending = new Set<Promise<string>>()
+  private readonly pending = new Set<Promise<ExecResult>>()
 
   constructor(private readonly host: Pick<ProjectHost, 'exec'>) {}
 
@@ -38,6 +39,23 @@ export class SkillagerProcess {
     options: ExecOptions,
     limits: SkillagerProcessLimits,
   ): Promise<string> {
+    return this.runResult(command, args, options, limits).then((output) => {
+      if (output.code !== 0)
+        throw new SkillagerError(
+          'command-failed',
+          'Skillager command failed. Check it in your local terminal.',
+        )
+      return output.stdout
+    })
+  }
+
+  /** Preserves bounded exit evidence for the feature-owned mutation classifier. */
+  runResult(
+    command: string,
+    args: readonly string[],
+    options: ExecOptions,
+    limits: SkillagerProcessLimits,
+  ): Promise<ExecResult> {
     const task = this.perform(command, args, options, limits)
     this.pending.add(task)
     void task.then(
@@ -58,7 +76,7 @@ export class SkillagerProcess {
     args: readonly string[],
     options: ExecOptions,
     limits: SkillagerProcessLimits,
-  ): Promise<string> {
+  ): Promise<ExecResult> {
     if (this.disposed || options.signal?.aborted)
       throw new SkillagerError('cancelled', 'Skillager request cancelled.')
     if (this.active >= 2)
@@ -81,12 +99,7 @@ export class SkillagerProcess {
         maxStdoutBytes: limits.stdout,
         maxStderrBytes: limits.stderr,
       })
-      if (output.code !== 0)
-        throw new SkillagerError(
-          'command-failed',
-          'Skillager command failed. Check it in your local terminal.',
-        )
-      return output.stdout
+      return output
     } catch (error) {
       if (timedOut)
         throw new SkillagerError('timeout', 'Skillager took too long. Try again.')

@@ -1,11 +1,18 @@
+import { SkillagerReview } from './SkillagerReview'
+import type { SkillagerDetailTab } from './skillager-model'
+import type { SkillagerReviewController } from './use-skillager-review'
 import type { ReactElement } from 'react'
 import type { SkillagerMetadata } from '../../../shared/skillager'
 import { trustLabel } from './skillager-model'
 
 export function SkillagerDetails({
   metadata,
+  tab,
+  reviews,
 }: {
   readonly metadata: SkillagerMetadata
+  readonly tab?: SkillagerDetailTab
+  readonly reviews?: SkillagerReviewController
 }): ReactElement {
   return (
     <article className="skillager-details" aria-label={`Skill details: ${metadata.name}`}>
@@ -69,7 +76,8 @@ export function SkillagerDetails({
           </>
         )}
       </dl>
-      <p className="skillager-hint">Content is not loaded in this metadata view.</p>
+      <p className="skillager-hint">Content loads only after explicit review.</p>
+      {tab && reviews ? <SkillagerReview tab={tab} controller={reviews} /> : null}
     </article>
   )
 }

@@ -21,7 +21,10 @@ const selection = {
   },
 }
 
-function fixture(overrides: Partial<SkillagerCliPort> = {}) {
+function fixture(
+  overrides: Partial<SkillagerCliPort> = {},
+  review?: ConstructorParameters<typeof SkillagerCapability>[3],
+) {
   const resources = createRendererResourceFixture()
   const owner = resources.activateOwner()
   const calls = {
@@ -33,7 +36,25 @@ function fixture(overrides: Partial<SkillagerCliPort> = {}) {
   }
   const cli: SkillagerCliPort = { ...calls, ...overrides }
   let available = true
-  const capability = new SkillagerCapability(cli, resources.scopes, () => available)
+  const capability = new SkillagerCapability(
+    cli,
+    resources.scopes,
+    () => available,
+    review ?? {
+      cli: {
+        review: vi.fn(() => Promise.reject(new Error('Unexpected content review'))),
+        history: vi.fn(() => Promise.reject(new Error('Unexpected version history'))),
+        diff: vi.fn(() => Promise.reject(new Error('Unexpected content diff'))),
+        accept: vi.fn(() => Promise.reject(new Error('Unexpected acceptance'))),
+      },
+      previews: {
+        create: vi.fn(() => {
+          throw new Error('Unexpected HTML preview')
+        }),
+        release: vi.fn(),
+      },
+    },
+  )
   onTestFinished(() => capability.dispose())
   async function connect() {
     capability.configure(owner, true)
@@ -96,6 +117,58 @@ function closingProcesses() {
 }
 
 describe('Skillager capability authority and demand', () => {
+  it('awaits retained review cleanup when the renderer capability is revoked', async () => {
+    let finish!: () => void
+    const f = fixture(
+      {},
+      {
+        cli: {
+          review: () =>
+            Promise.resolve({
+              detail: {
+                skillId: 'lib/example',
+                root: localPath('/library/skills/example'),
+                hash: 'a'.repeat(64),
+                canAccept: true,
+                files: [],
+                findings: [],
+                scanRisk: 'low',
+                lintStatus: 'ok',
+                history: { available: false, versions: [] },
+              },
+              bytes: new Map(),
+              confirmationToken: 'private',
+              dispose: () =>
+                new Promise<void>((resolve) => {
+                  finish = resolve
+                }),
+            }),
+          history: () => Promise.resolve({ available: false, versions: [] }),
+          diff: () => Promise.resolve({ toHash: 'a'.repeat(64), text: '' }),
+          accept: () => Promise.resolve({ status: 'accepted', hash: 'a'.repeat(64) }),
+        },
+        previews: {
+          create: () => ({ id: 'html', url: 'hvir-preview://document/html/index.html' }),
+          release: () => undefined,
+        },
+      },
+    )
+    const request = await f.connect()
+    const review = await f.capability.review(f.owner, {
+      ...request,
+      skillId: 'lib/example',
+    })
+    expect(review.ok).toBe(true)
+    let completed = false
+    const closing = f.capability.revoke(f.owner).then(() => {
+      completed = true
+    })
+    await settle()
+    expect(completed).toBe(false)
+    finish()
+    await closing
+    expect(completed).toBe(true)
+  })
   it('does no work while disabled or before explicit connection', async () => {
     const f = fixture()
     expect(await f.capability.probe(f.owner)).toMatchObject({

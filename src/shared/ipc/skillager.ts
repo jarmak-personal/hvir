@@ -1,3 +1,12 @@
+import type {
+  SkillagerAcceptance,
+  SkillagerHistory,
+  SkillagerReview,
+  SkillagerReviewContent,
+  SkillagerReviewDiff,
+  SkillagerReviewRequest,
+  SkillagerSkillRequest,
+} from '../skillager-review'
 import type { HostPath } from '../host-path'
 import { invoke, type IpcFeatureContract } from '../ipc-contract'
 import type {
@@ -11,6 +20,28 @@ import type {
 
 export const skillagerIpc = {
   invoke: {
+    'skillager:cancel-review': invoke<{ readonly requestId: number }, void>(),
+    'skillager:review': invoke<SkillagerSkillRequest, SkillagerResult<SkillagerReview>>(),
+    'skillager:history': invoke<
+      SkillagerSkillRequest,
+      SkillagerResult<SkillagerHistory>
+    >(),
+    'skillager:review-content': invoke<
+      SkillagerReviewRequest & {
+        readonly entry: string
+        readonly documentEntry?: string
+      },
+      SkillagerResult<SkillagerReviewContent>
+    >(),
+    'skillager:review-diff': invoke<
+      SkillagerReviewRequest & { readonly fromHash?: string },
+      SkillagerResult<SkillagerReviewDiff>
+    >(),
+    'skillager:accept-review': invoke<
+      SkillagerReviewRequest,
+      SkillagerResult<SkillagerAcceptance>
+    >(),
+    'skillager:release-review': invoke<{ readonly reviewId: string }, void>(),
     'skillager:configure': invoke<{ readonly enabled: boolean }, void>(),
     'skillager:probe': invoke<
       { readonly executable?: HostPath },

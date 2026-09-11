@@ -1,3 +1,5 @@
+import { skillagerReviewFixture } from './skillager-review-fixture'
+import type { HtmlPreviewProtocol } from '../html-preview-protocol'
 import { realSkillagerSmokePort } from './skillager-cli-fixture'
 import type { ProjectHost } from '../project-host'
 import type { SmokeCleanup } from './cleanup'
@@ -13,6 +15,7 @@ export function createSkillagerSmoke(
   root: HostPath,
   cleanup: SmokeCleanup,
   host: ProjectHost,
+  previews: Pick<HtmlPreviewProtocol, 'create' | 'release'>,
 ) {
   const library = {
     id: 'smoke-library',
@@ -43,8 +46,9 @@ export function createSkillagerSmoke(
     exposure: 'unknown',
   }))
   const calls: string[] = []
+  const real = realSkillagerSmokePort(host, cleanup)
   const capability = new SkillagerCapability(
-    realSkillagerSmokePort(host, cleanup) ?? {
+    real ?? {
       probe(executable) {
         calls.push('probe')
         if (executable?.path === '/missing')
@@ -88,6 +92,18 @@ export function createSkillagerSmoke(
     },
     resources,
     (candidate) => candidate.hostId === root.hostId && candidate.path === root.path,
+    {
+      cli:
+        real ??
+        skillagerReviewFixture(library.skillsRoot, (id) => {
+          const row = rows.findIndex((item) => item.id === id)
+          if (row >= 0) rows[row] = { ...rows[row]!, trust: 'reviewed' }
+        }),
+      previews: {
+        create: (content, at) => previews.create(content, undefined, at),
+        release: (id) => previews.release(id),
+      },
+    },
   )
   cleanup.defer('Skillager capability', () => capability.dispose())
   return capability

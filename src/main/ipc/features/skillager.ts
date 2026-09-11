@@ -5,6 +5,51 @@ import type { IpcDeps } from '../deps'
 type SkillagerIpcDeps = Pick<IpcDeps, 'skillager'>
 
 export function registerSkillagerIpc(ipc: IpcRegistrar, deps: SkillagerIpcDeps): void {
+  ipc.handle('skillager:cancel-review', (request, context) => {
+    if (!request || !Number.isSafeInteger(request.requestId) || request.requestId < 1)
+      throw new Error('Invalid review cancellation.')
+    return deps.skillager.cancelReview(context.owner(), request.requestId)
+  })
+  ipc.handle('skillager:review', (request, context) =>
+    deps.skillager.review(context.owner(), {
+      ...qualifySkillagerRequest(ipc.authority, request),
+      skillId: boundedText(request.skillId),
+    }),
+  )
+  ipc.handle('skillager:history', (request, context) =>
+    deps.skillager.history(context.owner(), {
+      ...qualifySkillagerRequest(ipc.authority, request),
+      skillId: boundedText(request.skillId),
+    }),
+  )
+  ipc.handle('skillager:review-content', (request, context) =>
+    deps.skillager.reviewContent(context.owner(), {
+      ...qualifySkillagerRequest(ipc.authority, request),
+      reviewId: boundedText(request.reviewId),
+      entry: boundedText(request.entry),
+      documentEntry:
+        request.documentEntry === undefined
+          ? undefined
+          : boundedText(request.documentEntry),
+    }),
+  )
+  ipc.handle('skillager:review-diff', (request, context) =>
+    deps.skillager.reviewDiff(context.owner(), {
+      ...qualifySkillagerRequest(ipc.authority, request),
+      reviewId: boundedText(request.reviewId),
+      fromHash:
+        request.fromHash === undefined ? undefined : boundedText(request.fromHash),
+    }),
+  )
+  ipc.handle('skillager:accept-review', (request, context) =>
+    deps.skillager.acceptReview(context.owner(), {
+      ...qualifySkillagerRequest(ipc.authority, request),
+      reviewId: boundedText(request.reviewId),
+    }),
+  )
+  ipc.handle('skillager:release-review', (request, context) =>
+    deps.skillager.releaseReview(context.owner(), boundedText(request?.reviewId)),
+  )
   ipc.handle('skillager:configure', (request, context) => {
     if (!request || typeof request.enabled !== 'boolean')
       throw new Error('Invalid Skillager setting.')
@@ -66,4 +111,10 @@ function qualifySkillagerRequest(
       authority.reconstructHostPath(request.workspaceRoot),
     ),
   }
+}
+
+function boundedText(value: unknown): string {
+  if (typeof value !== 'string' || !value || value.length > 16384 || value.includes('\0'))
+    throw new Error('Invalid Skillager review selection.')
+  return value
 }

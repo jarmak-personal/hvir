@@ -1,3 +1,4 @@
+import { useSkillagerReview } from './use-skillager-review'
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { localPath, type HostPath } from '../../../shared/host-path'
 import {
@@ -183,38 +184,42 @@ export function useSkillagerWorkspace(options: Options) {
     }
   }, [agent, disconnect])
 
-  const submit = useCallback(async () => {
-    const current = connectionRef.current
-    const root = optionsRef.current.root
-    if (!current || !root || !query.trim() || !optionsRef.current.sidebarVisible) return
-    const requestId = ++requests.current.search
-    const at = generation.current
-    setSubmitted(query.trim())
-    setSearch({ loading: true })
-    try {
-      const result = await window.hvir.invoke('skillager:search', {
-        connectionId: current.connectionId,
-        requestId,
-        workspaceRoot: root,
-        agent,
-        scope,
-        query: query.trim(),
-      })
-      if (requestId !== requests.current.search || at !== generation.current) return
-      setSearch({ loading: false, result })
-      if (!result.ok && result.reason === 'library-changed') disconnect()
-    } catch {
-      if (requestId === requests.current.search && at === generation.current)
-        setSearch({
-          loading: false,
-          result: {
-            ok: false,
-            reason: 'unavailable',
-            message: 'Search is unavailable. Try again.',
-          },
+  const submit = useCallback(
+    async (submittedQuery = query.trim()) => {
+      const current = connectionRef.current
+      const root = optionsRef.current.root
+      if (!current || !root || !submittedQuery || !optionsRef.current.sidebarVisible)
+        return
+      const requestId = ++requests.current.search
+      const at = generation.current
+      setSubmitted(submittedQuery)
+      setSearch({ loading: true })
+      try {
+        const result = await window.hvir.invoke('skillager:search', {
+          connectionId: current.connectionId,
+          requestId,
+          workspaceRoot: root,
+          agent,
+          scope,
+          query: submittedQuery,
         })
-    }
-  }, [agent, scope, query, disconnect])
+        if (requestId !== requests.current.search || at !== generation.current) return
+        setSearch({ loading: false, result })
+        if (!result.ok && result.reason === 'library-changed') disconnect()
+      } catch {
+        if (requestId === requests.current.search && at === generation.current)
+          setSearch({
+            loading: false,
+            result: {
+              ok: false,
+              reason: 'unavailable',
+              message: 'Search is unavailable. Try again.',
+            },
+          })
+      }
+    },
+    [agent, scope, query, disconnect],
+  )
 
   useEffect(() => {
     cancel('search')
@@ -296,7 +301,22 @@ export function useSkillagerWorkspace(options: Options) {
     setSearch(emptyRead)
   }, [cancel])
 
+  const afterAcceptance = useCallback(() => {
+    cancel('search')
+    setSearch(emptyRead)
+    void refresh()
+    if (submitted) void submit(submitted)
+  }, [cancel, refresh, submit, submitted])
+  const reviews = useSkillagerReview({
+    connection,
+    root: options.root,
+    agent,
+    tabs: tabs.tabs,
+    onAccepted: afterAcceptance,
+  })
+
   return {
+    reviews,
     enabled: options.enabled,
     probe,
     probing,

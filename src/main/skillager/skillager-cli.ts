@@ -1,3 +1,6 @@
+import { SkillagerReviewCommands } from './skillager-review-commands'
+import type { SkillagerSnapshotHost } from './skillager-review-snapshot'
+import type { SkillagerReviewSnapshot } from './skillager-review-port'
 import { SkillagerError } from './skillager-port'
 import { randomUUID } from 'node:crypto'
 import {
@@ -46,10 +49,7 @@ export class SkillagerCli implements SkillagerCliPort {
   private disposal?: Promise<void>
 
   constructor(
-    private readonly host: Pick<
-      ProjectHost,
-      'hostId' | 'exec' | 'realpath' | 'defaultShell'
-    >,
+    private readonly host: SkillagerSnapshotHost & Pick<ProjectHost, 'defaultShell'>,
     stateParent: HostPath,
   ) {
     if (host.hostId !== 'local' || stateParent.hostId !== 'local')
@@ -86,6 +86,38 @@ export class SkillagerCli implements SkillagerCliPort {
     signal: AbortSignal,
   ): Promise<readonly SkillagerWorkspaceExposure[] | undefined> {
     return this.operate(() => this.exposuresLocal(selection, request, signal))
+  }
+
+  review(selection: SkillagerCliSelection, skillId: string, signal: AbortSignal) {
+    return this.operate(() => this.reviewCommands().review(selection, skillId, signal))
+  }
+  history(selection: SkillagerCliSelection, skillId: string, signal: AbortSignal) {
+    return this.operate(() => this.reviewCommands().history(selection, skillId, signal))
+  }
+  diff(
+    selection: SkillagerCliSelection,
+    snapshot: SkillagerReviewSnapshot,
+    fromHash: string | undefined,
+    signal: AbortSignal,
+  ) {
+    return this.operate(() =>
+      this.reviewCommands().diff(selection, snapshot, fromHash, signal),
+    )
+  }
+  accept(
+    selection: SkillagerCliSelection,
+    snapshot: SkillagerReviewSnapshot,
+    signal: AbortSignal,
+  ) {
+    return this.operate(() => this.reviewCommands().accept(selection, snapshot, signal))
+  }
+  private reviewCommands(): SkillagerReviewCommands {
+    return new SkillagerReviewCommands(
+      this.host,
+      this.process,
+      this.context,
+      (selection, signal) => this.validateLocal(selection, signal),
+    )
   }
 
   private operate<T>(operation: () => Promise<T>): Promise<T> {

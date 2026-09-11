@@ -1,3 +1,4 @@
+import type { HtmlPreviewProtocol } from '../html-preview-protocol'
 import { hostPathEquals, localPath } from '../../shared/host-path'
 import { applicationUserDataPath } from '../application-runtime'
 import type { ProjectRegistry } from '../project-registry'
@@ -13,6 +14,7 @@ export function installSkillager(
   host: ProjectHost,
   resources: RendererResourceScopes,
   projects: Pick<ProjectRegistry, 'active' | 'registeredWorkspaceRoot'>,
+  previews: Pick<HtmlPreviewProtocol, 'create' | 'release'>,
 ): SkillagerCapability {
   const cli = runtime.own(
     'Skillager CLI',
@@ -27,6 +29,13 @@ export function installSkillager(
       (root) =>
         Boolean(projects.registeredWorkspaceRoot(root)) &&
         hostPathEquals(projects.active.root, root),
+      {
+        cli,
+        previews: {
+          create: (content, root) => previews.create(content, undefined, root),
+          release: (id) => previews.release(id),
+        },
+      },
     ),
     (owned) => owned.dispose(),
   )
