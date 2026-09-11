@@ -56,7 +56,7 @@ export function catalogView(state) {
       (state.perspective === 'library' || current[s.id] || unmanagedFor(state, s.id)) &&
       (state.filter !== 'pending' || !s.accepted),
   )
-  return `${remote ? `<details class="search-caption"><summary>Local library → ${escapeHtml(destinationFor(state).label)}</summary><p>Full skill files only · no remote Skillager. Remote management here is simulated; production awaits its portable package and compare/apply contracts.</p></details>` : ''}
+  return `${remote ? `<details class="search-caption"><summary>Local library → ${escapeHtml(destinationFor(state).label)}</summary><p>hvir manages this SSH workspace with the same Add, Update, and Remove actions. Full skill files only; no Skillager installation is needed on this host.</p></details>` : ''}
     <form id="search-form" class="search-bar"><input id="search" aria-label="Search skill metadata and accepted body" placeholder="Search titles, descriptions, tags and accepted bodies…" maxlength="1000" value="${escapeHtml(state.query)}"><select id="search-scope" aria-label="Search scope"><option value="personal" ${state.scope === 'personal' ? 'selected' : ''}>Personal library</option><option value="available" ${state.scope === 'available' ? 'selected' : ''} ${remote ? 'disabled' : ''}>All available to this workspace</option></select><button class="primary" type="submit">Search</button>${button('cancel-search', 'Cancel search', !state.searching)}</form>
     <details class="search-caption"><summary>Search coverage · first 50,000 body characters</summary><p>Enter/Search submits up to 50 ranked metadata results. No total or pagination. Only accepted bodies are searched; pending drafts remain in metadata browsing. Refresh runs every 60 seconds while this sidebar or a skill viewer is visible and the app is foregrounded, for the active workspace only.</p></details>
     <div id="search-status" role="status">${state.searching ? `Searching Skillager for “${escapeHtml(state.submittedQuery)}”… Initial indexing may take several seconds.` : state.results ? `${rows.length} results returned for “${escapeHtml(state.submittedQuery)}” · ${state.scope === 'personal' ? 'Personal library · workspace exposure unknown in search' : 'All available to this workspace'}` : 'Metadata only · Review content opens bodies/diffs.'}</div>
@@ -70,7 +70,7 @@ export function detailView(state) {
   const blocked = !!e?.protected || unmanaged || !!s.blocked || !s.accepted || !!s.source
   return `<h2>${s.id}</h2><p>${s.description}</p><dl><dt>Source</dt><dd>${s.source || 'Local personal library'}</dd><dt>Library review</dt><dd>${s.accepted ? 'Accepted' : 'Needs review'}</dd><dt>Source status</dt><dd>${s.blocked ? 'Blocked by library policy' : 'Available for review'}</dd><dt>Accepted version</dt><dd>${s.accepted ? s.version : s.acceptedVersion}</dd></dl>
     <hr><h3>${escapeHtml(destinationFor(state).label)} · ${agentLabel(state.agent)}</h3><p class="pill">${unmanaged ? 'Unmanaged target' : statusFor(s, e)}</p>${e ? `<dl><dt>Exposure</dt><dd>${modeLabel(e.mode)}</dd><dt>Exposed version</dt><dd>${e.version}</dd></dl>` : ''}
-    ${unmanaged ? '<p>No recorded Skillager exposure mode or version. Existing files are preserved.</p>' : ''}
+    ${unmanaged ? `<p>No recorded ${destinationFor(state).host === 'local' ? 'Skillager exposure' : 'hvir deployment'} mode or version. Existing files are preserved.</p>` : ''}
     ${s.source ? '<div class="notice">External ownership is preserved. Search does not import this skill.</div>' : ''}
     ${button('read', 'Review content…')}${button('history', 'Version history')}
     ${!s.accepted ? button('accept', 'Review library changes…', !!s.blocked) : ''}
@@ -105,14 +105,18 @@ export function previewView(state, preview) {
     (!accepting &&
       (unmanagedFor(state, s.id) || e?.protected || (preview.action === 'add' && e)))
   const target = targetPath(state, s)
+  const remote = destinationFor(state).host !== 'local'
+  const recordEffect = remote
+    ? `${removing ? 'Remove' : e ? 'Update' : 'Create'} hvir’s deployment record for this workspace and agent.`
+    : `${removing ? 'Remove' : e ? 'Replace' : 'Create'} ${target}/skillager.materialized.yaml`
   return `<h2 id="dialog-title">${label} · ${s.id}</h2><p>Review the exact version and every sample file effect before confirming.</p>
     <div class="target">Source<code>Local · ${state.library.path}/skills/${s.id}</code><p>Version ${s.version}</p></div>
     ${accepting ? `<div class="notice">This accepts the exact reviewed library version. Workspace copies stay unchanged.</div>${sampleDiff}<p>Scan: low · Lint: passed · No override requested</p>` : `<div class="target">Destination: ${escapeHtml(destinationFor(state).label)} · ${agentLabel(state.agent)}<code>${target}</code><p>${modeLabel(preview.mode)} · existing ${e?.version || 'absent'}</p></div>`}
     ${!accepting && ['update', 'switch'].includes(preview.action) ? sampleDiff : ''}
-    <h3>All file effects · sample manifest</h3><ul>${accepting ? `<li>Record exact library approval and content history.</li><li>No workspace file writes.</li>` : removing ? `<li>Remove ${target}/SKILL.md and the managed exposure receipt.</li><li>No library or other workspace writes.</li>` : `<li>${e ? 'Replace unchanged managed' : 'Create'} ${target}/SKILL.md</li><li>${e ? 'Replace' : 'Create'} ${target}/skillager.materialized.yaml</li><li>Supporting instructions: none in this sample package.</li>`}</ul>
-    ${destinationFor(state).host !== 'local' && !accepting ? '<div class="notice">Stage and verify every Full skill file, then compare and publish the exact managed target. Remote Stub, Working skill, router and remote executable are absent. Runtime dependencies: none in this sample.</div>' : ''}
+    <h3>Changes in this preview</h3><ul>${accepting ? `<li>Record exact library approval and content history.</li><li>No workspace file writes.</li>` : removing ? `<li>Remove ${target}/SKILL.md</li><li>${recordEffect}</li><li>No library or other workspace writes.</li>` : `<li>${e ? 'Replace unchanged managed' : 'Create'} ${target}/SKILL.md</li><li>${recordEffect}</li><li>Supporting instructions: none in this sample package.</li>`}</ul>
+    ${remote && !accepting ? '<div class="notice">hvir checks this workspace before applying changes and preserves files changed here. Full skill only; no remote Skillager installation. Runtime requirements: none in this sample.</div>' : ''}
     ${protectedTarget ? `<div class="notice">${typeof protectedTarget === 'string' ? protectedTarget : 'Already added'}: preserve this target. Ordinary replacement and removal are unavailable.</div>` : ''}
-    <small>The study simulates the accepted contract. Production actions require actual CLI-bound preview/apply and complete effects.</small>
+    <small>Sample preview · no real files will change in this study.</small>
     <footer>${button('close', 'Cancel')}${button('apply', label, !!protectedTarget)}</footer>`
 }
 

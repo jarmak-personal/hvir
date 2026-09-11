@@ -355,7 +355,7 @@ installation.
 ### [ADR-030 — Bounded project file operations and explicit external-source authority](adr/ADR-030-bounded-project-file-operations.md)
 
 > Lifecycle: Partially superseded
-> Superseded by: [ADR-046](adr/ADR-046-explicit-skillager-library-and-exposure-authority.md) | partial | No-replacement rule only for explicitly confirmed, verified unchanged Skillager-managed workspace exposures.
+> Superseded by: [ADR-046](adr/ADR-046-explicit-skillager-library-and-exposure-authority.md) | partial | No-replacement rule only for explicitly confirmed, verified unchanged Skillager-managed local exposures and hvir-managed SSH deployments.
 
 One main-owned coordinator applies fixed targeting, confinement, collision, transfer,
 verification, deletion, and lifecycle policy over immediate `ProjectHost` primitives; explicit
@@ -491,7 +491,7 @@ Markdown images remain within the canonical document directory and descendants.
 
 > Lifecycle: Active
 > Supersedes: [ADR-010](adr/ADR-010-project-host-remote-boundary.md) | partial | Registered-project confinement for the named local personal-library metadata, review, and acceptance capability.
-> Supersedes: [ADR-030](adr/ADR-030-bounded-project-file-operations.md) | partial | No-replacement rule only for explicitly confirmed, verified unchanged Skillager-managed workspace exposures.
+> Supersedes: [ADR-030](adr/ADR-030-bounded-project-file-operations.md) | partial | No-replacement rule only for explicitly confirmed, verified unchanged Skillager-managed local exposures and hvir-managed SSH deployments.
 
 An explicit local-library grant and exact reviewed workspace operations keep Skillager approval
 authority separate from hvir viewing, transport, and ordinary Files behavior.

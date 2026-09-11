@@ -2,7 +2,7 @@
 
 > Lifecycle: Active
 > Supersedes: [ADR-010](ADR-010-project-host-remote-boundary.md) | partial | Registered-project confinement for the named local personal-library metadata, review, and acceptance capability.
-> Supersedes: [ADR-030](ADR-030-bounded-project-file-operations.md) | partial | No-replacement rule only for explicitly confirmed, verified unchanged Skillager-managed workspace exposures.
+> Supersedes: [ADR-030](ADR-030-bounded-project-file-operations.md) | partial | No-replacement rule only for explicitly confirmed, verified unchanged Skillager-managed local exposures and hvir-managed SSH deployments.
 
 ## Context
 
@@ -74,8 +74,10 @@ document activation and originating-workspace lifetimes remain unchanged.
 One named main-owned Skillager capability coordinates connection, metadata, explicit review,
 and exposure requests through narrow execution, registered-workspace, and content-review ports.
 Skillager owns discovery, canonical identity, approval hashes, scanner/linter decisions, history,
-search indexes, and local projection writes. hvir consumes public CLI contracts. It never reads
-Skillager SQLite, indexes bodies, recreates trust/hashing policy, or treats Git history as approval.
+search indexes, local projection writes, and transport-neutral approved Full skill exports. hvir
+consumes public CLI contracts. It never reads Skillager SQLite, indexes bodies, recreates
+Skillager trust/approval hashing, or treats Git history as approval. hvir owns remote deployment
+records and file fingerprints separately from Skillager library identity and approval.
 
 ProjectHost supplies host execution and file/transfer mechanics. Bootstrap constructs and
 disposes owners; feature IPC rebuilds validated requests through existing renderer authority and
@@ -133,11 +135,15 @@ Local Full skill copies reviewed files; local Stub installs an activation handle
 requires Skillager on that agent's host. Exposure is workspace state, never proof that a running
 agent loaded the instructions.
 
-Preview add, mode change, update, removal, and library acceptance before confirming. The CLI
-must bind apply to the previewed source identity/version, destination, agent, mode, and target
-state under mutation authority. Every affected file, including Working/router/supporting
-instructions, must be disclosed. hvir validates versioned schemas and per-item outcomes;
-successful process exit alone does not establish success. Skillager must bind the reviewed
+Preview add, mode change, update, removal, and library acceptance before confirming. Each
+mutation owner must bind apply to the previewed source identity/version, destination, agent,
+mode, and target state under its mutation authority. Skillager owns library acceptance and local
+projection mutations through public CLI contracts. For SSH deployments, hvir binds the verified
+approved export to the exact remote destination and unchanged target, and owns safe publish,
+update, and removal through ProjectHost. Every affected file, including supporting instructions,
+and each deployment-record effect must be disclosed. hvir validates versioned CLI schemas and
+per-item outcomes for Skillager-owned actions and observes the actual outcome of its own remote
+operations; successful process exit alone does not establish success. Skillager must bind the reviewed
 content bytes or complete tree to the source version, including pending drafts without Git
 history. A confined read or matching metadata before and after a mutable read is not that proof;
 hvir must not recreate the CLI hash algorithm to manufacture it. Unknown schemas, refused/skipped
@@ -151,26 +157,45 @@ other workspace copy. Updates compare locally available accepted versions, not i
 
 ### Local source to SSH destination
 
-SSH supports Full skill files only. Skillager must provide a portable approved package contract
-with canonical identity/version, complete relative file manifest, normalized modes, integrity
-evidence, all projected supporting effects, and explicit runtime prerequisites. It must provide
-remote observation/receipt and compare/apply semantics for managed targets without relying on
-a temporary local catalog path as an activation path. No remote Skillager executable, Working
-skill, router, listener, installed helper, or activation RPC is required or introduced.
+SSH supports Full skill files only, using the same Add, Update, and Remove flow as local
+workspaces. Destination identity and actual connection/failure state remain visible. Users do
+not configure a remote Skillager installation or library. Skillager owns the local library's
+approval and canonical identity/version and must supply a supported transport-neutral approved
+Full skill export: exact relative files, normalized modes, integrity evidence, all supporting
+file effects, and declared runtime prerequisites, verifiably bound to the approved source/version.
+Skillager needs no SSH awareness, credentials, remote paths, observation APIs, or remote mutation
+commands. No remote Skillager executable, Working skill, router, listener, installed helper, or
+activation RPC is required or introduced. Remote Stub activation remains outside scope.
 
-hvir owns bounded transport and request lifetime, reusing ProjectHost streams and transfer
-verification rather than creating a second filesystem authority. Stage on the destination,
-verify the complete manifest, revalidate both source approval and exact unchanged managed target,
-then publish through narrowly owned compare/apply mechanics. Never weaken ordinary Files
-no-overwrite behavior or assume no-replace rename implements atomic replacement. Remote update
-and removal require exact managed identity and unchanged-state proof; changed, pinned, blocked,
-unmanaged, or unverifiable targets remain protected. Disconnect prevents later publication;
-cleanup can remove only exact coordinator-created staging entries when reachable, and retained
-or uncertain effects are visible.
+hvir owns all SSH connection and host authority through ProjectHost, remote target observation,
+deployment records and file fingerprints, transport, staging and verification, stale-target
+protection, safe publish/update/removal, cancellation, reconnect reconciliation, and cleanup.
+It reuses ProjectHost streams and file/transfer mechanics without creating a second filesystem
+authority. hvir stages on the destination, verifies the complete exported file set, revalidates
+source approval through the supported local contract and the exact unchanged managed target,
+then publishes through narrowly owned compare/apply mechanics. Existing no-replace transfer
+operations do not prove safe managed replacement; that must be implemented and validated in hvir.
+Ordinary Files retains its no-overwrite policy.
 
-A missing CLI contract disables its affected action; design acceptance is not evidence of CLI
-support. Portable packaging, remote receipts, or safe replacement may require upstream changes
-before SSH management becomes available. Remote Stub activation remains outside scope.
+hvir's deployment records bind its own completed delivery to the exact host, workspace, agent,
+exported source identity/version, and deployed file fingerprints. These records and destination
+observations distinguish hvir-managed delivery from modified, unmanaged, or unverifiable targets.
+They neither mint library approval nor recreate Skillager trust hashing, private state, or
+sidecars. A Skillager-looking file at a remote target is not evidence of hvir ownership. Fingerprints
+prove destination state for hvir's operations; Skillager's public export supplies source approval
+and integrity evidence. Record effects remain separate from the exported workspace files.
+
+Remote update/removal requires exact managed identity and unchanged-state proof. Changed, pinned,
+blocked, unmanaged, or unverifiable targets remain protected. Disconnect prevents late publication;
+reconnection reconciles hvir's recorded and observed state before another action. Cleanup removes
+only exact coordinator-created staging entries when reachable; retained or uncertain effects are
+visible and never license blind retry.
+
+A missing local export contract disables the affected SSH delivery action. The upstream
+prerequisite is the transport-neutral approved Full skill export with verifiable source/version
+binding. Remote observation, records, safe destination mutation, and reconciliation are hvir
+implementation and acceptance obligations, not upstream Skillager remote APIs. Design acceptance
+is not evidence that either the export contract or hvir's safe destination management exists.
 
 ## Consequences
 
