@@ -92,6 +92,8 @@ export function initialState() {
     enabled: false,
     connected: false,
     missing: false,
+    // External CLI availability is fixture input, never changed by Check again.
+    sampleCliAvailable: true,
     empty: false,
     library: libraries[0],
     railMode: 'files',

@@ -30,6 +30,10 @@ and CSS; no source-policy exception or production dependency is introduced.
 - Start disabled: the app shows no Skills navigation, placeholder, controls, badges, or retained
   content. Only Settings offers Enable Skillager. Enabling reveals connection settings without
   granting access or reopening a prior feature viewer.
+- Select Missing CLI to see selectable `uv tool install skillager` guidance in enabled Skills
+  and Settings. Check again preserves that missing sample. The separate “CLI available externally”
+  study scenario supplies a successful probe fixture; Check again then returns to explicit library
+  connection without connecting automatically. The study never installs anything.
 - Enable Skillager in Settings and connect the exact displayed local library. Changing its
   identity/location requires reconnecting; review, acceptance, and exposure then name that selected
   source. Ordinary content review does not require reconnecting.
@@ -52,6 +56,15 @@ and CSS; no source-policy exception or production dependency is introduced.
   as a separate action. Remove a copy and confirm its library row remains.
 - Select SSH: Personal library is the default; workspace catalog search and Stub are unavailable.
   Full-skill staging and management are simulations of the accepted future contract.
+
+Skillager is user-installed and user-managed, as documented by its
+[quickstart](https://github.com/jarmak-personal/skillager#quickstart) and
+[PyPI project](https://pypi.org/project/skillager/). hvir does not bundle or manage the CLI as a
+dependency, install/upgrade it, bootstrap Python/uv, change PATH or package environments, execute
+package managers, or inject terminal input. Missing, selected-path, unsupported-contract, and
+command-failure states remain distinct design contracts; this sample illustrates missing and
+externally available CLI states only. Existing opt-in contributor fixtures do not grant application
+installation authority.
 
 Run the focused real Chromium check after generating the artifact:
 
