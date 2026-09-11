@@ -170,6 +170,13 @@ function action(name) {
   if (name === 'close') return closeDialog()
   if (name === 'settings') return modal(connectionView(state))
   if (!state.enabled) return
+  if (name === 'check-again') {
+    // Simulate a read-only probe of externally controlled fixture availability.
+    state.missing = !state.sampleCliAvailable
+    render()
+    if ($('#dialog').open) modal(connectionView(state))
+    return
+  }
   if (name === 'close-skills') {
     state.skillsOpen = false
     state.reviewOpen = false
@@ -260,9 +267,12 @@ function scenario(name) {
     state.skillsOpen = true
     state.lastChecked = 'Just checked · active workspace'
   }
-  if (name === 'missing') {
+  if (['missing', 'cli-available'].includes(name)) {
     state.missing = true
+    state.sampleCliAvailable = name === 'cli-available'
     state.connected = false
+    state.skillsOpen = false
+    state.viewer = state.lastOrdinaryViewer
   }
   if (name === 'empty') state.empty = true
   if (name === 'unavailable')

@@ -480,9 +480,45 @@ try {
     'Refresh events leave terminal/session content, attention and geometry unchanged',
   )
   await flow('missing')
+  const terminalBeforeProbe = await run(
+    `document.querySelector('#terminal-pane').innerHTML`,
+  )
   await assert(
-    `document.querySelector('#content').textContent.includes('Skillager unavailable')`,
-    'Missing CLI is distinct from empty library',
+    `document.querySelector('#content').textContent.includes('Skillager wasn’t found.') && document.querySelector('#content code').textContent==='uv tool install skillager' && getComputedStyle(document.querySelector('#content code')).userSelect!=='none' && Array.from(document.querySelectorAll('#content button')).every(b=>b.textContent==='Check again')`,
+    'Missing CLI provides selectable local-terminal guidance and only a probe action',
+  )
+  await click('#content [data-action="check-again"]')
+  await assert(
+    `document.querySelector('#content').textContent.includes('Skillager wasn’t found.') && !document.querySelector('[data-skill]') && studyTimers.intervals.size===0 && document.querySelector('#terminal-pane').innerHTML===${JSON.stringify(terminalBeforeProbe)}`,
+    'Check again preserves a missing fixture without connecting, periodic demand or terminal injection',
+  )
+  await capture('missing-cli')
+  await click('#settings')
+  await assert(
+    `document.querySelector('#dialog code').textContent==='uv tool install skillager' && !document.querySelector('#dialog').textContent.includes('Resolved executable') && !document.querySelector('#dialog').textContent.includes('0.9.0') && !document.querySelector('[data-action="connect"]')`,
+    'Missing Settings does not invent a resolved executable or version',
+  )
+  await click('#dialog [data-action="check-again"]')
+  await assert(
+    `document.querySelector('#dialog').textContent.includes('Skillager wasn’t found.')`,
+    'Settings Check again also preserves unavailable fixture state',
+  )
+  await click('#enabled')
+  await assert(
+    `!!document.querySelector('#enabled') && !document.querySelector('#dialog code') && !document.querySelector('[data-action="check-again"]')`,
+    'Disabled Settings removes installation guidance and retains only the enable switch',
+  )
+  await flow('cli-available')
+  await click('#settings')
+  await click('#dialog [data-action="check-again"]')
+  await assert(
+    `document.querySelector('#dialog').textContent.includes('Resolved executable') && !document.querySelector('[data-action="connect"]').disabled && !document.querySelector('[data-skill]') && !document.querySelector('[data-viewer="skills"]') && studyTimers.intervals.size===0`,
+    'An externally available CLI probe returns to explicit connection without auto-connect or reopening a feature viewer',
+  )
+  await click('[data-action="close"]')
+  await assert(
+    `document.querySelector('#content').textContent.includes('Connect Skillager')`,
+    'Successful probe updates the enabled sidebar to the normal connection step',
   )
   await flow('empty')
   await assert(

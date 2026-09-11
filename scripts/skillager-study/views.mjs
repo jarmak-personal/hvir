@@ -16,12 +16,17 @@ export const escapeHtml = (value) =>
   )
 const button = (action, label, disabled = false) =>
   `<button data-action="${action}" ${disabled ? 'disabled' : ''}>${label}</button>`
+function missingCliView() {
+  return `<div class="notice"><h2>Skillager wasn’t found.</h2><p>Install Skillager in your local terminal:</p><code>uv tool install skillager</code><p>Then choose Check again.</p>${button('check-again', 'Check again')}</div>`
+}
 export function connectionView(state) {
   return `<h2 id="dialog-title">Settings</h2>
     <label class="inline"><input type="checkbox" id="enabled" ${state.enabled ? 'checked' : ''}>Enable Skillager</label>
     ${
       state.enabled
-        ? `<div class="target">Resolved executable<code>Local · /home/example/.local/bin/skillager · 0.9.0</code></div>
+        ? state.missing
+          ? missingCliView()
+          : `<div class="target">Resolved executable<code>Local · /home/example/.local/bin/skillager · 0.9.0</code></div>
       <div class="target">Registered personal library<code>Local · ${state.library.path}</code><small>Sample identity: ${state.library.id}</small></div>
       <p>Connecting grants metadata access. Review content opens selected bodies or diffs. Accept library changes is a separate confirmation.</p>
       ${button('change-library', 'Change library (sample)')}
@@ -32,11 +37,12 @@ export function connectionView(state) {
 }
 export function catalogView(state) {
   if (!state.enabled) return ''
+  if (state.missing) return missingCliView()
   const heading = `<div class="heading"><div><h1>${state.perspective === 'library' ? 'Personal library' : 'Workspace skills'}</h1><p>Review instructions and choose when workspace copies change.</p></div>${button('refresh', '↻ Refresh', !state.connected)}</div>`
   if (!state.connected)
     return (
       heading +
-      `<div class="empty"><h2>${state.missing ? 'Skillager unavailable' : 'Connect Skillager'}</h2><p>${state.missing ? 'The selected executable could not be found. Check Settings and retry.' : 'Connect the displayed personal library in Settings to browse metadata. Enabling alone grants no access.'}</p>${button('settings', 'Open Skillager settings')}</div>`
+      `<div class="empty"><h2>Connect Skillager</h2><p>Connect the displayed personal library in Settings to browse metadata. Enabling alone grants no access.</p>${button('settings', 'Open Skillager settings')}</div>`
     )
   if (state.empty)
     return (

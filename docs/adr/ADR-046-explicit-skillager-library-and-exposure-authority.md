@@ -34,6 +34,20 @@ commands and shortcuts, destination/agent controls, badges, status text, disconn
 and retained feature-owned content are absent. Executable, library, and connection settings appear
 only after enabling. Enabling does not connect or reopen prior feature tabs.
 
+Skillager remains user-installed and user-managed. hvir neither bundles it nor manages it as an
+application/runtime dependency. It does not install or upgrade Skillager, bootstrap Python or uv,
+change package environments or PATH, execute package-manager commands, or inject terminal input.
+A managed-installation capability requires a separately accepted scope change. Isolated
+contributor contract fixtures grant no application installation authority.
+
+When enabled and the local executable is missing, show “Skillager wasn’t found. Install Skillager
+in your local terminal:” with selectable `uv tool install skillager` guidance and Check again.
+Check again performs only the bounded local executable/version/contract probe. Finding the CLI
+returns to explicit library connection; it does not connect or mutate anything. Missing Settings
+must not claim a resolved executable or version. Distinguish missing executable, selected-path
+problems, unsupported versions/contracts, and command failures; incompatible installations receive
+truthful compatibility guidance and user-managed remediation, never silent fallback or upgrades.
+
 Enabling reveals the resolved local executable and exact registered library location. Connecting
 grants metadata access to that one local library identity and location; it does not approve any
 content. Library identity or location changes require reconnecting, not silent adoption. Ordinary
