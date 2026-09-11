@@ -1,3 +1,4 @@
+import type { HostPath } from '../../../shared/host-path'
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 import {
   containsHostPath,
@@ -19,12 +20,14 @@ export function SkillagerReviewContent({
   content,
   source,
   diff,
+  diffPath,
   controller,
 }: {
   readonly id: string
   readonly content?: Content
   readonly source: boolean
   readonly diff?: string
+  readonly diffPath?: HostPath
   readonly controller: SkillagerReviewController
 }): ReactElement {
   const capture = useRef<(() => ReturnType<typeof initialViewerPosition>) | undefined>(
@@ -42,15 +45,14 @@ export function SkillagerReviewContent({
     setImageUrl(url)
     return () => URL.revokeObjectURL(url)
   }, [content])
-  if (!content)
-    return <p className="skillager-hint">Choose a file in the verified tree.</p>
-  if (source || diff !== undefined)
+  const path = diff !== undefined ? (diffPath ?? content?.path) : content?.path
+  if (path && ((source && content) || diff !== undefined))
     return (
       <SourceView
         readOnly
-        path={content.path}
-        content={diff ?? content.text ?? ''}
-        size={diff?.length ?? content.size}
+        path={path}
+        content={diff ?? content?.text ?? ''}
+        size={diff?.length ?? content?.size ?? 0}
         position={initialViewerPosition('source')}
         onContent={ignore}
         onSave={ignore}
@@ -62,6 +64,8 @@ export function SkillagerReviewContent({
         registerFindTarget={() => ignore}
       />
     )
+  if (!content)
+    return <p className="skillager-hint">Choose a file in the verified tree.</p>
   if (content.image)
     return imageUrl ? (
       <img className="skillager-review-image" src={imageUrl} alt={content.entry} />

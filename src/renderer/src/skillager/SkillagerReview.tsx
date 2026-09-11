@@ -1,3 +1,6 @@
+import { joinHostPath } from '../../../shared/host-path'
+import { eligibleSkillagerUpdate } from './skillager-exposure-model'
+import type { SkillagerExposureController } from './use-skillager-exposure'
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 import type { SkillagerDetailTab } from './skillager-model'
 import type { SkillagerReviewController } from './use-skillager-review'
@@ -6,9 +9,11 @@ import { SkillagerReviewContent } from './SkillagerReviewContent'
 export function SkillagerReview({
   tab,
   controller,
+  exposures,
 }: {
   readonly tab: SkillagerDetailTab
   readonly controller: SkillagerReviewController
+  readonly exposures?: SkillagerExposureController
 }): ReactElement | null {
   const state = controller.states[tab.id]
   const detail = state?.detail
@@ -17,7 +22,7 @@ export function SkillagerReview({
   const [confirming, setConfirming] = useState(false)
   useEffect(() => setConfirming(false), [tab.id, detail?.reviewId])
   useEffect(() => {
-    if (detail && opened.current !== detail.reviewId) {
+    if (detail && !detail.update && opened.current !== detail.reviewId) {
       opened.current = detail.reviewId
       void loadContent(tab.id, 'SKILL.md')
     }
@@ -37,6 +42,14 @@ export function SkillagerReview({
         >
           Review content
         </button>
+        {eligibleSkillagerUpdate(tab.metadata) ? (
+          <button
+            onClick={() => void controller.review(tab, true)}
+            disabled={state?.loading || state?.accepting}
+          >
+            Review workspace update
+          </button>
+        ) : null}
         <button
           onClick={() => void controller.history(tab)}
           disabled={state?.loading || state?.accepting}
@@ -143,9 +156,24 @@ export function SkillagerReview({
               content={state.content}
               source={state.mode === 'source'}
               diff={state.mode === 'diff' ? state.diff?.text : undefined}
+              diffPath={joinHostPath(detail.root, 'SKILL.md')}
               controller={controller}
             />
           </div>
+          {detail.update && exposures ? (
+            <div>
+              <p>
+                Reviewed workspace version <code>{detail.update.diff.fromHash}</code> →
+                accepted version <code>{detail.update.diff.toHash}</code>.
+              </p>
+              <button
+                disabled={state.loading || !eligibleSkillagerUpdate(tab.metadata)}
+                onClick={() => exposures.start(tab.metadata, 'update', detail.reviewId)}
+              >
+                Preview workspace update…
+              </button>
+            </div>
+          ) : null}
           {detail.canAccept && !state.used ? (
             <button onClick={() => setConfirming(true)} disabled={state.loading}>
               Accept library changes…

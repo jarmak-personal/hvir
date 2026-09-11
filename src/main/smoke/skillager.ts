@@ -1,3 +1,4 @@
+import { verifySkillagerUpdate } from './skillager-update'
 import { verifySkillagerExposure } from './skillager-exposure'
 import { verifySkillagerReview } from './skillager-review'
 import { app, type BrowserWindow } from 'electron'
@@ -127,7 +128,10 @@ export async function verifySkillagerScenario(
     if (!output.toLowerCase().includes('hvirwarm'))
       throw new Error('Terminal did not accept input during warm search')
     await verifySkillagerReview(win)
-    if (!process.env.HVIR_SKILLAGER_SMOKE_FIXTURE) await verifySkillagerExposure(win)
+    if (!process.env.HVIR_SKILLAGER_SMOKE_FIXTURE) {
+      await verifySkillagerUpdate(win)
+      await verifySkillagerExposure(win)
+    }
     await evaluate(`
       const field = document.querySelector('#skillager-search-query'); setInput(field, 'obsolete');
       await new Promise(requestAnimationFrame); document.querySelector('.skillager-search').requestSubmit();

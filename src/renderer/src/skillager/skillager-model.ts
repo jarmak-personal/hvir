@@ -14,6 +14,10 @@ export interface SkillagerTabs {
 export type SkillagerTabAction =
   | { readonly type: 'select'; readonly metadata: SkillagerMetadata }
   | { readonly type: 'observe'; readonly result: SkillagerMetadataResult }
+  | {
+      readonly type: 'invalidate'
+      readonly freshness: 'checking' | 'stale' | 'unavailable'
+    }
   | { readonly type: 'activate'; readonly id: string }
   | { readonly type: 'close'; readonly id: string }
   | { readonly type: 'deactivate' | 'clear' }
@@ -35,6 +39,14 @@ export function skillagerTabs(
         activeId: id,
       }
     }
+    case 'invalidate':
+      return {
+        ...state,
+        tabs: state.tabs.map((tab) => ({
+          ...tab,
+          metadata: { ...tab.metadata, workspaceFreshness: action.freshness },
+        })),
+      }
     case 'observe': {
       const rows = new Map(
         skillagerWorkspaceMetadata(action.result).map((row) => [row.id, row]),
@@ -50,6 +62,7 @@ export function skillagerTabs(
             metadata: {
               ...tab.metadata,
               trust: 'unknown',
+              workspaceFreshness: 'unavailable',
               contentHash: undefined,
               description: 'This skill is no longer in the personal library.',
             },
@@ -106,6 +119,8 @@ export function skillagerWorkspaceMetadata(
   return data.rows.map((row) => ({
     ...row,
     workspace: exposures.get(row.id),
+    workspaceCheckedAt: data.checkedAt,
+    workspaceFreshness: data.exposures ? 'fresh' : 'unavailable',
     exposure: data.exposures ? (exposures.get(row.id)?.mode ?? 'hidden') : row.exposure,
   }))
 }

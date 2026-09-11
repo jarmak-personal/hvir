@@ -29,7 +29,7 @@ function fixture(overrides: Partial<SkillagerExposureCliPort> = {}) {
     previewExposure: vi.fn(() => Promise.resolve(snapshot)),
     applyExposure: vi.fn(() => Promise.resolve(result)),
     ...overrides,
-  } satisfies SkillagerExposureCliPort
+  } satisfies Pick<SkillagerExposureCliPort, 'previewExposure' | 'applyExposure'>
   const exposures = new SkillagerExposureOwner(cli, resources.scopes)
   const grant = { selection, assertCurrent: vi.fn() }
   return { resources, owner, snapshot, result, cli, exposures, grant }

@@ -11,7 +11,8 @@ export interface SkillagerExposureRequest extends SkillagerRequest {
   readonly destination: SkillagerDestination
   readonly skillId: string
   readonly mode: SkillagerExposureMode
-  readonly action: 'add' | 'change' | 'remove'
+  readonly action: 'add' | 'change' | 'remove' | 'update'
+  readonly reviewId?: string
   readonly exposure?: SkillagerWorkspaceExposure
 }
 export interface SkillagerExposureEntry {

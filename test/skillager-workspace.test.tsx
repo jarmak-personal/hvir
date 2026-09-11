@@ -13,6 +13,7 @@ import { SkillagerTabs } from '../src/renderer/src/skillager/SkillagerTabs'
 import { SkillagerDetails } from '../src/renderer/src/skillager/SkillagerDetails'
 import {
   skillagerObservationDemand,
+  skillagerWorkspaceMetadata,
   skillagerTabs,
   type SkillagerTabs as Tabs,
 } from '../src/renderer/src/skillager/skillager-model'
@@ -74,16 +75,21 @@ function metadata(selected = rows): SkillagerResult<SkillagerMetadataResult> {
 function Harness({
   initial = true,
   visible = true,
+  connected = true,
   root = localPath('/workspace'),
 }: {
   initial?: boolean
   visible?: boolean
+  connected?: boolean
   root?: HostPath
 }) {
   const [enabled, setEnabled] = useState(initial)
   current = useSkillagerWorkspace({
     enabled,
-    projectState: projectState(root),
+    projectState: {
+      ...projectState(root),
+      connectionState: connected ? 'connected' : 'disconnected',
+    },
     sidebarVisible: visible,
     viewerVisible: true,
     onActivate: () => undefined,
@@ -145,6 +151,7 @@ afterEach(() => {
   act(() => reactRoot.unmount())
   mount.remove()
   vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 describe('Skills renderer demand and metadata views', () => {
@@ -214,6 +221,190 @@ describe('Skills renderer demand and metadata views', () => {
           (request as { kind?: string }).kind === 'search',
       ),
     ).toBe(true)
+  })
+  it('observes badge arrival on the one 60-second foreground schedule and stops hidden/background/disabled demand', async () => {
+    vi.useFakeTimers()
+    const original = invoke.getMockImplementation()!
+    const accepted = { ...rows[1]!, contentHash: 'b'.repeat(64) }
+    const exposure = {
+      id: 'lib-skill-1',
+      skillId: accepted.id,
+      mode: 'stub',
+      status: 'current',
+      target: localPath('/workspace/.claude/skills/lib-skill-1'),
+      expectedSourceHash: 'b'.repeat(64),
+    }
+    let drift = 'current'
+    invoke.mockImplementation((channel, request) =>
+      channel === 'skillager:inventory'
+        ? Promise.resolve({
+            ok: true,
+            value: {
+              rows: [accepted],
+              exposures: [{ ...exposure, status: drift }],
+              checkedAt: Date.now(),
+              durationMs: 1,
+            },
+          })
+        : original(channel, request),
+    )
+    await render()
+    await connect()
+    const count = () =>
+      invoke.mock.calls.filter(([channel]) => channel === 'skillager:inventory').length
+    const initial = count()
+    act(() =>
+      current.select(
+        skillagerWorkspaceMetadata(
+          current.inventory.result!.ok
+            ? current.inventory.result!.value
+            : { rows: [], checkedAt: 1, durationMs: 1 },
+        )[0]!,
+      ),
+    )
+    drift = 'source_update'
+    await act(async () => vi.advanceTimersByTimeAsync(59_999))
+    expect(count()).toBe(initial)
+    await act(async () => vi.advanceTimersByTimeAsync(1))
+    expect(count()).toBe(initial + 1)
+    expect(mount.querySelector('.skillager-details')?.textContent).toContain(
+      'Workspace copy behind',
+    )
+    vi.spyOn(document, 'hasFocus').mockReturnValue(false)
+    act(() => {
+      window.dispatchEvent(new Event('blur'))
+    })
+    await act(async () => vi.advanceTimersByTimeAsync(120_000))
+    expect(count()).toBe(initial + 1)
+    expect(current.active?.metadata.workspaceFreshness).toBe('stale')
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true)
+    act(() => {
+      window.dispatchEvent(new Event('focus'))
+    })
+    await settle()
+    expect(count()).toBe(initial + 2)
+    await render({ connected: false })
+    await act(async () => vi.advanceTimersByTimeAsync(120_000))
+    expect(count()).toBe(initial + 2)
+    expect(current.active?.metadata.workspaceFreshness).toBe('stale')
+    await act(async () => current.refresh())
+    expect(count()).toBe(initial + 2)
+    await render({ connected: true })
+    await settle()
+    expect(count()).toBe(initial + 3)
+    act(() => current.deactivate())
+    await render({ visible: false })
+    await act(async () => vi.advanceTimersByTimeAsync(120_000))
+    expect(count()).toBe(initial + 3)
+    await render({ visible: true })
+    await settle()
+    const visible = count()
+    act(() =>
+      (mount.querySelector('.skillager-settings input') as HTMLInputElement).click(),
+    )
+    await settle()
+    await act(async () => vi.advanceTimersByTimeAsync(120_000))
+    expect(count()).toBe(visible)
+    expect(current.tabs).toEqual([])
+    expect(mount.textContent).not.toContain('Workspace copy')
+    expect(
+      invoke.mock.calls.some(([channel]) =>
+        [
+          'skillager:accept-review',
+          'skillager:preview-exposure',
+          'skillager:apply-exposure',
+        ].includes(channel),
+      ),
+    ).toBe(false)
+  })
+  it('acceptance invalidates an older workspace read before it can restore obsolete badge state', async () => {
+    const original = invoke.getMockImplementation()!
+    const row = { ...rows[0]!, contentHash: 'b'.repeat(64), trust: 'reviewed' as const }
+    const observed = (status: string) => ({
+      ok: true as const,
+      value: {
+        rows: [row],
+        checkedAt: Date.now(),
+        durationMs: 1,
+        exposures: [
+          {
+            id: 'lib-skill-0',
+            skillId: row.id,
+            target: localPath('/workspace/.agents/skills/lib-skill-0'),
+            mode: 'native',
+            status,
+            expectedSourceHash: row.contentHash,
+          },
+        ],
+      },
+    })
+    let count = 0,
+      finish!: (value: unknown) => void
+    invoke.mockImplementation((channel, request) => {
+      if (channel === 'skillager:inventory')
+        return ++count === 2
+          ? new Promise((resolve) => {
+              finish = resolve
+            })
+          : Promise.resolve(observed(count === 1 ? 'current' : 'source_update'))
+      if (channel === 'skillager:review')
+        return Promise.resolve({
+          ok: true,
+          value: {
+            reviewId: 'review',
+            skillId: row.id,
+            root: localPath('/library/skills/skill-0'),
+            hash: row.contentHash,
+            canAccept: true,
+            files: [],
+            findings: [],
+            scanRisk: 'low',
+            lintStatus: 'ok',
+            history: { available: false, versions: [] },
+          },
+        })
+      if (channel === 'skillager:accept-review')
+        return Promise.resolve({
+          ok: true,
+          value: { status: 'accepted', hash: row.contentHash },
+        })
+      return original(channel, request)
+    })
+    await render()
+    await connect()
+    act(() => current.select(row))
+    await act(async () => current.reviews.review(current.active!))
+    let old!: Promise<void>
+    act(() => {
+      old = current.refresh()
+    })
+    expect(current.active?.metadata.workspaceFreshness).toBe('checking')
+    await act(async () => current.reviews.accept(current.activeId!))
+    await settle()
+    expect(current.active?.metadata.workspace?.status).toBe('source_update')
+    await act(async () => {
+      finish(observed('current'))
+      await old
+    })
+    expect(current.active?.metadata.workspace?.status).toBe('source_update')
+    expect(current.active?.metadata.workspaceFreshness).toBe('fresh')
+    invoke.mockImplementation((channel, request) =>
+      channel === 'skillager:inventory'
+        ? Promise.resolve({
+            ok: false,
+            reason: 'unavailable',
+            message: 'Unavailable source',
+          })
+        : original(channel, request),
+    )
+    await act(async () => current.refresh())
+    expect(current.active?.metadata.workspaceFreshness).toBe('unavailable')
+    expect(mount.querySelector('.skillager-details')?.textContent).toContain(
+      'stale / unavailable',
+    )
+    expect(mount.querySelector('.skillager-details')?.textContent).not.toContain(
+      'Workspace copy behind',
+    )
   })
   it('keeps only the settings toggle while disabled and makes no probe/read demand', async () => {
     await render({ initial: false })

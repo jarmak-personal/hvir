@@ -1,3 +1,4 @@
+import { workspaceSkillLabel } from './skillager-exposure-model'
 import { SkillagerActions, SkillagerActionsMenu } from './SkillagerActions'
 import { SkillagerExposureDialog } from './SkillagerExposureDialog'
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
@@ -37,7 +38,9 @@ export function SkillagerSidebar({
   const data = read.result?.ok ? read.result.value : undefined
   const rows = useMemo(() => {
     if (!data) return []
-    const metadata = skillagerWorkspaceMetadata(data)
+    const metadata = skillagerWorkspaceMetadata(data).map((row) =>
+      read.loading ? { ...row, workspaceFreshness: 'checking' as const } : row,
+    )
     if (searched) return metadata
     if (perspective === 'library')
       return pending ? metadata.filter(pendingSkillagerReview) : metadata
@@ -45,8 +48,10 @@ export function SkillagerSidebar({
     return (data.exposures ?? []).map((exposure) => ({
       ...(byId.get(exposure.skillId ?? '') ?? unavailableSource(exposure)),
       workspace: exposure,
+      workspaceFreshness: read.loading ? ('checking' as const) : ('fresh' as const),
+      workspaceCheckedAt: data.checkedAt,
     }))
-  }, [data, searched, perspective, pending])
+  }, [data, searched, perspective, pending, read.loading])
   const pageOffset = Math.min(
     offset,
     Math.max(0, Math.floor((rows.length - 1) / 50) * 50),
@@ -226,7 +231,7 @@ export function SkillagerSidebar({
                                   row.source.type)}{' '}
                               ·{' '}
                               {perspective === 'workspace' && !searched
-                                ? `${row.workspace?.mode} · ${row.workspace?.status}`
+                                ? `${row.workspace?.mode} · ${workspaceSkillLabel(row)}`
                                 : trustLabel(row)}
                             </small>
                             {row.matchReasons.length > 0 ? (

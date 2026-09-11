@@ -123,6 +123,15 @@ export class SkillagerCli implements SkillagerCliPort {
       this.exposureCommands().previewExposure(selection, request, signal),
     )
   }
+  updateSourceHash(
+    selection: SkillagerCliSelection,
+    snapshot: SkillagerExposureSnapshot,
+    signal: AbortSignal,
+  ) {
+    return this.operate(() =>
+      this.exposureCommands().updateSourceHash(selection, snapshot, signal),
+    )
+  }
   applyExposure(
     selection: SkillagerCliSelection,
     snapshot: SkillagerExposureSnapshot,

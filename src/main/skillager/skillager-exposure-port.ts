@@ -11,6 +11,11 @@ export interface SkillagerExposureSnapshot {
   readonly confirmationToken: string
 }
 export interface SkillagerExposureCliPort {
+  updateSourceHash(
+    selection: SkillagerCliSelection,
+    snapshot: SkillagerExposureSnapshot,
+    signal: AbortSignal,
+  ): Promise<string>
   previewExposure(
     selection: SkillagerCliSelection,
     request: SkillagerExposureRequest,
@@ -25,5 +30,6 @@ export interface SkillagerExposureCliPort {
 export interface SkillagerExposureGrant {
   readonly selection: SkillagerCliSelection
   assertCurrent(): void
+  validatePreview?(snapshot: SkillagerExposureSnapshot): void
 }
 export type SkillagerDestinationAvailable = (destination: SkillagerDestination) => boolean

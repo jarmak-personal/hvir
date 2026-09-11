@@ -15,7 +15,7 @@ import type {
   SkillagerReviewPreviewPort,
 } from './skillager-review-port'
 import { randomUUID } from 'node:crypto'
-import type { HostPath } from '../../shared/host-path'
+import { hostPathEquals, type HostPath } from '../../shared/host-path'
 import {
   SKILLAGER_QUERY_BYTES,
   SKILLAGER_AGENTS,
@@ -75,7 +75,12 @@ export class SkillagerCapability {
     },
   ) {
     this.exposures = new SkillagerExposureOwner(exposure.cli, resources)
-    this.reviews = new SkillagerReviewOwner(review.cli, resources, review.previews)
+    this.reviews = new SkillagerReviewOwner(
+      review.cli,
+      resources,
+      review.previews,
+      exposure.cli,
+    )
   }
 
   configure(owner: RendererOwner, enabled: boolean): void {
@@ -265,7 +270,7 @@ export class SkillagerCapability {
         const grant = this.reviewGrant(owner, request)
         skillagerLibrarySkillRoot(grant.selection.library!, request.skillId)
         if (
-          !['add', 'change', 'remove'].includes(request.action) ||
+          !['add', 'change', 'remove', 'update'].includes(request.action) ||
           !['native', 'stub'].includes(request.mode) ||
           (request.action !== 'add' &&
             (!request.exposure ||
@@ -276,8 +281,13 @@ export class SkillagerCapability {
             'invalid-request',
             'Select an owned direct workspace skill action.',
           )
+        const update =
+          request.action === 'update'
+            ? this.reviews.updateGrant(owner, request)
+            : undefined
         const assertCurrent = () => {
           grant.assertCurrent()
+          update?.assertCurrent()
           if (!this.exposure.destinationAvailable(request.destination))
             throw new SkillagerError(
               'unavailable',
@@ -288,6 +298,7 @@ export class SkillagerCapability {
         return this.exposures.preview(owner, request, {
           selection: grant.selection,
           assertCurrent,
+          validatePreview: update?.validatePreview,
         })
       }),
     )
@@ -308,7 +319,29 @@ export class SkillagerCapability {
   review(owner: RendererOwner, request: SkillagerSkillRequest) {
     return this.track(
       owner,
-      result(() => this.reviews.review(owner, request, this.reviewGrant(owner, request))),
+      result(() => {
+        const grant = this.reviewGrant(owner, request)
+        if (request.update) {
+          const update = request.update
+          if (
+            update.action !== 'update' ||
+            update.skillId !== request.skillId ||
+            update.connectionId !== request.connectionId ||
+            update.agent !== request.agent ||
+            !hostPathEquals(update.workspaceRoot, request.workspaceRoot) ||
+            !hostPathEquals(update.destination.root, request.workspaceRoot) ||
+            !this.exposure.destinationAvailable(update.destination) ||
+            update.exposure?.skillId !== request.skillId ||
+            update.mode !== update.exposure.mode ||
+            !['native', 'stub'].includes(update.mode)
+          )
+            throw new SkillagerError(
+              'invalid-request',
+              'Select one current workspace copy to review.',
+            )
+        }
+        return this.reviews.review(owner, request, grant)
+      }),
     )
   }
   history(owner: RendererOwner, request: SkillagerSkillRequest) {

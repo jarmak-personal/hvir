@@ -16,8 +16,16 @@ export function skillagerExposureFixture(root: HostPath) {
       },
     ],
   ])
+  copies.set('lib-skill-0', {
+    id: 'lib-skill-0',
+    skillId: 'lib/skill-0',
+    target: joinHostPath(root, '.agents/skills/lib-skill-0'),
+    mode: 'native',
+    status: 'source_unavailable',
+  })
   const file = { type: 'file' as const, mode: 0o644, size: 24, sha256: 'a'.repeat(64) }
   const cli: SkillagerExposureCliPort = {
+    updateSourceHash: () => Promise.resolve('c'.repeat(64)),
     async previewExposure(_selection, request) {
       // Delayed read-only completion exercises real IPC cancellation and late-result revocation.
       await new Promise((resolve) => setTimeout(resolve, 200))
@@ -31,7 +39,11 @@ export function skillagerExposureFixture(root: HostPath) {
         detail: {
           request,
           target,
-          sourceHash: removing ? undefined : 'b'.repeat(64),
+          sourceHash: removing
+            ? undefined
+            : request.skillId === 'lib/skill-0'
+              ? 'a'.repeat(64)
+              : 'b'.repeat(64),
           targetHash: existing ? 'a'.repeat(64) : null,
           beforeMode: existing ? 0o755 : null,
           afterMode: removing ? null : 0o755,
@@ -74,5 +86,17 @@ export function skillagerExposureFixture(root: HostPath) {
       })
     },
   }
-  return { cli, exposures: () => Promise.resolve([...copies.values()]) }
+  return {
+    cli,
+    exposures: () => Promise.resolve([...copies.values()]),
+    accepted: (skillId: string) => {
+      const copy = copies.get(skillId.replace('/', '-'))
+      if (copy)
+        copies.set(copy.id, {
+          ...copy,
+          status: 'source_update',
+          expectedSourceHash: 'a'.repeat(64),
+        })
+    },
+  }
 }

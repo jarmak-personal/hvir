@@ -1,3 +1,4 @@
+import { workspaceSkillLabel } from './skillager-exposure-model'
 import { SkillagerActions } from './SkillagerActions'
 import type { SkillagerExposureController } from './use-skillager-exposure'
 import { SkillagerReview } from './SkillagerReview'
@@ -69,7 +70,7 @@ export function SkillagerDetails({
           <>
             <dt>Workspace copy</dt>
             <dd>
-              {metadata.workspace.mode} · {metadata.workspace.status}
+              {metadata.workspace.mode} · {workspaceSkillLabel(metadata)}
             </dd>
             <dt>Destination</dt>
             <dd>
@@ -87,8 +88,17 @@ export function SkillagerDetails({
           </>
         )}
       </dl>
+      {metadata.workspaceCheckedAt ? (
+        <p className="skillager-freshness">
+          Workspace last checked{' '}
+          {new Date(metadata.workspaceCheckedAt).toLocaleTimeString()}
+          {metadata.workspaceFreshness !== 'fresh' ? ' · stale / unavailable' : ''}
+        </p>
+      ) : null}
       <p className="skillager-hint">Content loads only after explicit review.</p>
-      {tab && reviews ? <SkillagerReview tab={tab} controller={reviews} /> : null}
+      {tab && reviews ? (
+        <SkillagerReview tab={tab} controller={reviews} exposures={exposures} />
+      ) : null}
     </article>
   )
 }

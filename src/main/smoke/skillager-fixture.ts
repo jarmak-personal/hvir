@@ -90,6 +90,7 @@ export function createSkillagerSmoke(
         skillagerReviewFixture(library.skillsRoot, (id) => {
           const row = rows.findIndex((item) => item.id === id)
           if (row >= 0) rows[row] = { ...rows[row]!, trust: 'reviewed' }
+          exposureFixture.accepted(id)
         }),
       previews: {
         create: (content, at) => previews.create(content, undefined, at),

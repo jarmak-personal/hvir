@@ -1,3 +1,5 @@
+import { parseUpdateSourceHash } from './skillager-update-status'
+import { parseSkillagerExposures } from './skillager-cli-metadata'
 import { validateExposureSelection } from './skillager-exposure-selection'
 import {
   containsHostPath,
@@ -71,6 +73,46 @@ export class SkillagerExposureCommands implements SkillagerExposureCliPort {
     await this.validate(selection, signal)
     signal.throwIfAborted()
     return snapshot
+  }
+
+  async updateSourceHash(
+    selection: SkillagerCliSelection,
+    snapshot: SkillagerExposureSnapshot,
+    signal: AbortSignal,
+  ): Promise<string> {
+    const { request } = snapshot.detail
+    await this.validate(selection, signal)
+    await this.validateDestination(request.destination.root, signal)
+    const run = async (args: readonly string[]) =>
+      parseSkillagerJson(
+        await this.process.run(
+          selection.executable.path,
+          ['--catalog-state-dir', selection.catalog.path, ...args],
+          { cwd: request.destination.root, signal, env: selection.environment },
+          {
+            stdout: 2 * 1024 * 1024,
+            stderr: 64 * 1024,
+            deadlineMs: SKILLAGER_REQUEST_DEADLINE_MS,
+          },
+        ),
+      )
+    const exposures = parseSkillagerExposures(
+      await run([
+        'expose',
+        '--list',
+        '--agent',
+        request.agent,
+        '--scope',
+        'project',
+        '--json',
+      ]),
+      request.destination.root,
+      request.agent,
+    )
+    const status = await run(['library', 'status', request.skillId, '--json'])
+    await this.validate(selection, signal)
+    signal.throwIfAborted()
+    return parseUpdateSourceHash(status, selection, snapshot, exposures)
   }
 
   async applyExposure(

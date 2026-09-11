@@ -33,6 +33,8 @@ export interface SkillagerMetadata {
   readonly exposure: string
   readonly scanRisk?: string
   readonly lintStatus?: string
+  readonly workspaceCheckedAt?: number
+  readonly workspaceFreshness?: 'fresh' | 'checking' | 'unavailable' | 'stale'
   readonly workspace?: SkillagerWorkspaceExposure
 }
 
@@ -42,6 +44,7 @@ export interface SkillagerWorkspaceExposure {
   readonly target: HostPath
   readonly mode: string
   readonly status: string
+  readonly expectedSourceHash?: string
 }
 
 export interface SkillagerLibrary {

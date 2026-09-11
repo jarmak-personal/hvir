@@ -56,6 +56,9 @@ function fixture(
     },
     {
       cli: {
+        updateSourceHash: vi.fn(() =>
+          Promise.reject(new Error('Unexpected update status')),
+        ),
         previewExposure: vi.fn(() =>
           Promise.reject(new Error('Unexpected exposure preview')),
         ),

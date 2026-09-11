@@ -45,6 +45,8 @@ export function realSkillagerSmokePort(
   )
   cleanup.defer('real Skillager CLI', () => cli.dispose())
   return {
+    updateSourceHash: (selection, snapshot, signal) =>
+      cli.updateSourceHash(selection, snapshot, signal),
     previewExposure: (selection, request, signal) =>
       cli.previewExposure(selection, request, signal),
     applyExposure: (selection, snapshot, signal) =>
