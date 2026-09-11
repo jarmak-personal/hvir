@@ -147,6 +147,73 @@ afterEach(() => {
 })
 
 describe('Skills renderer demand and metadata views', () => {
+  it('requeries the submitted search after acceptance and rejects its obsolete in-flight result', async () => {
+    await render()
+    await connect()
+    act(() => current.select(rows[0]!))
+    const tab = current.active!
+    const original = invoke.getMockImplementation()!
+    let oldSearch!: (value: unknown) => void
+    let searches = 0
+    invoke.mockImplementation((channel, request) => {
+      if (channel === 'skillager:review')
+        return Promise.resolve({
+          ok: true,
+          value: {
+            reviewId: 'review',
+            skillId: tab.metadata.id,
+            root: localPath('/library/skills/skill-0'),
+            hash: 'a'.repeat(64),
+            canAccept: true,
+            files: [],
+            findings: [],
+            scanRisk: 'low',
+            lintStatus: 'ok',
+            history: { available: false, versions: [] },
+          },
+        })
+      if (channel === 'skillager:accept-review')
+        return Promise.resolve({
+          ok: true,
+          value: { status: 'accepted', hash: 'a'.repeat(64) },
+        })
+      if (channel === 'skillager:search') {
+        searches++
+        return searches === 1
+          ? new Promise((resolve) => {
+              oldSearch = resolve
+            })
+          : Promise.resolve(metadata([rows[1]!]))
+      }
+      return original(channel, request)
+    })
+    await act(async () => current.reviews.review(tab))
+    act(() => current.setQuery('needle'))
+    let pending!: Promise<void>
+    act(() => {
+      pending = current.submit()
+    })
+    act(() => current.setQuery('unfinished next query'))
+    await act(async () => current.reviews.accept(tab.id))
+    await settle()
+    expect(searches).toBe(2)
+    expect(
+      invoke.mock.calls.filter(([channel]) => channel === 'skillager:search').at(-1)?.[1],
+    ).toMatchObject({ query: 'needle' })
+    await act(async () => {
+      oldSearch(metadata([rows[2]!]))
+      await pending
+    })
+    expect(current.query).toBe('unfinished next query')
+    expect(current.search.result).toMatchObject({ ok: true, value: { rows: [rows[1]!] } })
+    expect(
+      invoke.mock.calls.some(
+        ([channel, request]) =>
+          channel === 'skillager:cancel' &&
+          (request as { kind?: string }).kind === 'search',
+      ),
+    ).toBe(true)
+  })
   it('keeps only the settings toggle while disabled and makes no probe/read demand', async () => {
     await render({ initial: false })
     expect(mount.textContent).toBe(' Enable Skillager')

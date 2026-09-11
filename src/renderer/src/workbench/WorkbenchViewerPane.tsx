@@ -145,7 +145,11 @@ export function WorkbenchViewerPane({
       />
       {graphPane && skillager.active ? (
         <div className="workspace-view">
-          <SkillagerDetails metadata={skillager.active.metadata} />
+          <SkillagerDetails
+            metadata={skillager.active.metadata}
+            tab={skillager.active}
+            reviews={skillager.reviews}
+          />
         </div>
       ) : null}
       {graphPane && gitGraphOpen ? (

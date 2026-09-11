@@ -66,6 +66,10 @@ export type SkillagerFailureReason =
   | 'busy'
   | 'cancelled'
   | 'command-failed'
+  | 'stale-review'
+  | 'review-refused'
+  | 'review-expired'
+  | 'uncertain'
 
 export type SkillagerResult<T> =
   | { readonly ok: true; readonly value: T }

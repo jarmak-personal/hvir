@@ -50,7 +50,23 @@ export interface SystemClipboardPort {
 }
 
 export interface IpcDeps extends IpcRouterAuthorityPort {
-  readonly skillager: Pick<SkillagerCapability, 'configure' | 'probe' | 'connect' | 'disconnect' | 'inventory' | 'search' | 'cancel'>
+  readonly skillager: Pick<
+    SkillagerCapability,
+    | 'configure'
+    | 'probe'
+    | 'connect'
+    | 'disconnect'
+    | 'inventory'
+    | 'search'
+    | 'cancel'
+    | 'review'
+    | 'history'
+    | 'reviewContent'
+    | 'reviewDiff'
+    | 'acceptReview'
+    | 'releaseReview'
+    | 'cancelReview'
+  >
   readonly echoWorker: WorkerClient<EchoWorkerProtocol>
   readonly gitWorker: WorkerClient<GitWorkerProtocol>
   readonly filenameSearch: Pick<FilenameSearchCoordinator, 'search' | 'cancel' | 'revoke'>

@@ -210,6 +210,8 @@ export default tseslint.config(
     files: [
       'src/main/skillager/skillager-capability.ts',
       'src/main/skillager/skillager-port.ts',
+      'src/main/skillager/skillager-review-owner.ts',
+      'src/main/skillager/skillager-review-port.ts',
     ],
     rules: dependencyDirectionRules(
       '(^|/)(skillager-cli|skillager-process|skillager-application|local-host|ssh-host|project-registry)(\\.[cm]?[jt]sx?)?$|^electron$',
@@ -219,6 +221,7 @@ export default tseslint.config(
   {
     files: [
       'src/main/skillager/skillager-cli-metadata.ts',
+      'src/main/skillager/skillager-review-contract.ts',
       'src/renderer/src/skillager/skillager-model.ts',
     ],
     rules: dependencyDirectionRules(

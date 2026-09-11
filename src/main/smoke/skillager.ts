@@ -1,3 +1,4 @@
+import { verifySkillagerReview } from './skillager-review'
 import { app, type BrowserWindow } from 'electron'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import { prepareTerminalScenario } from './terminal-scenario-ready'
@@ -124,6 +125,7 @@ export async function verifySkillagerScenario(
     const warmMs = performance.now() - warmStarted
     if (!output.toLowerCase().includes('hvirwarm'))
       throw new Error('Terminal did not accept input during warm search')
+    await verifySkillagerReview(win)
     await evaluate(`
       const field = document.querySelector('#skillager-search-query'); setInput(field, 'obsolete');
       await new Promise(requestAnimationFrame); document.querySelector('.skillager-search').requestSubmit();

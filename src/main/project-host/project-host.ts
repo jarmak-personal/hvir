@@ -134,6 +134,11 @@ export type ProjectFileDeletionPort =
 
 /** Immediate transfer mechanics. Recursive policy remains coordinator-owned. */
 export interface ProjectFileTransferPort {
+  /** Refuses symlinks in every path component at open; absent when unsupported. */
+  readFileChunksNoFollow?(
+    path: HostPath,
+    opts?: ProjectFileStreamOptions,
+  ): AsyncIterable<Uint8Array>
   readFileChunks(
     path: HostPath,
     opts?: ProjectFileStreamOptions,
