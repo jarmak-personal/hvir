@@ -13,6 +13,7 @@ const selection = {
   executable: localPath('/tools/skillager'),
   catalog: localPath('/catalog'),
   version: 'skillager 0.9.0',
+  environment: {},
   library: {
     id: 'library',
     root: localPath('/library'),
@@ -168,7 +169,7 @@ describe('Skillager capability authority and demand', () => {
       expect(processes.running[0]?.signal?.aborted).toBe(true)
       expect(released).toBe(false)
       processes.running[0]!.close()
-      expect(await pending).toMatchObject({ ok: false })
+      expect(await pending).toMatchObject({ ok: false, reason: 'cancelled' })
       await cleanup
       expect(released).toBe(true)
     },
@@ -203,12 +204,58 @@ describe('Skillager capability authority and demand', () => {
     const request = await f.connect()
     expect(await f.capability.inventory(f.owner, request)).toEqual({
       ok: false,
-      reason: 'malformed-result',
-      message: 'Skillager returned unsupported or malformed metadata.',
+      reason: 'command-failed',
+      message: 'Skillager request failed. Try again.',
     })
     expect(await f.capability.search(f.owner, search(request))).toMatchObject({
       ok: true,
       value: { rows: [] },
     })
+  })
+  it('classifies a late probe after owner revocation as cancelled', async () => {
+    let finish!: (value: typeof selection) => void
+    const f = fixture({
+      probe: () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    })
+    f.capability.configure(f.owner, true)
+    const pending = f.capability.probe(f.owner)
+    const revoked = f.resources.destroyOwner(f.owner.id)
+    finish(selection)
+    expect(await pending).toMatchObject({ ok: false, reason: 'cancelled' })
+    await revoked
+    expect(await f.capability.probe(f.owner)).toMatchObject({
+      ok: false,
+      reason: 'cancelled',
+    })
+  })
+  it('reports unexpected resource-registration failure without blaming CLI metadata or exposing diagnostics', async () => {
+    const f = fixture()
+    const request = await f.connect()
+    vi.spyOn(f.resources.scopes, 'register').mockImplementationOnce(() => {
+      throw new Error('PRIVATE RESOURCE DUMP')
+    })
+    expect(await f.capability.inventory(f.owner, request)).toEqual({
+      ok: false,
+      reason: 'command-failed',
+      message: 'Skillager request failed. Try again.',
+    })
+  })
+  it('keeps operational rejections during owner revocation cancelled', async () => {
+    let fail!: (error: unknown) => void
+    const f = fixture({
+      search: () =>
+        new Promise((_resolve, reject) => {
+          fail = reject
+        }),
+    })
+    const request = await f.connect()
+    const pending = f.capability.search(f.owner, search(request))
+    const revoked = f.resources.destroyOwner(f.owner.id)
+    fail(new Error('PRIVATE ABORT FAILURE'))
+    expect(await pending).toMatchObject({ ok: false, reason: 'cancelled' })
+    await revoked
   })
 })

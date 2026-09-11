@@ -44,7 +44,7 @@ export class SkillagerCapability {
     private readonly cli: SkillagerCliPort,
     private readonly resources: Pick<
       RendererResourceScopes,
-      'assertCurrent' | 'register'
+      'assertCurrent' | 'isCurrent' | 'register'
     >,
     private readonly workspaceAvailable: (root: HostPath) => boolean,
   ) {}
@@ -92,6 +92,9 @@ export class SkillagerCapability {
             version: selection.version,
             library: selection.library,
           }
+        } catch (error) {
+          this.current(owner, state, generation)
+          throw error
         } finally {
           if (state.probe === controller) state.probe = undefined
         }
@@ -121,9 +124,15 @@ export class SkillagerCapability {
         state.probe?.abort()
         const controller = new AbortController()
         state.probe = controller
-        await this.cli.validate(state.selection, controller.signal)
+        try {
+          await this.cli.validate(state.selection, controller.signal)
+        } catch (error) {
+          this.current(owner, state, generation)
+          throw error
+        } finally {
+          if (state.probe === controller) state.probe = undefined
+        }
         this.current(owner, state, generation)
-        state.probe = undefined
         state.connectionId = randomUUID()
         return {
           connectionId: state.connectionId,
@@ -345,9 +354,11 @@ export class SkillagerCapability {
                 reject(
                   timedOut
                     ? new SkillagerError('timeout', 'Skillager took too long. Try again.')
-                    : error instanceof Error
-                      ? error
-                      : new Error('Skillager request failed.'),
+                    : controller.signal.aborted || !this.resources.isCurrent(owner)
+                      ? cancelled()
+                      : error instanceof Error
+                        ? error
+                        : new Error('Skillager request failed.'),
                 )
               } finally {
                 clearTimeout(deadline)
@@ -364,7 +375,8 @@ export class SkillagerCapability {
   }
 
   private state(owner: RendererOwner): OwnerState {
-    this.resources.assertCurrent(owner)
+    if (!this.resources.isCurrent(owner))
+      throw new SkillagerError('cancelled', 'Skillager request cancelled.')
     const state = this.owners.get(key(owner))
     if (this.disposed || !state?.enabled)
       throw new SkillagerError('disabled', 'Skillager is disabled.')
@@ -372,8 +384,11 @@ export class SkillagerCapability {
   }
 
   private current(owner: RendererOwner, state: OwnerState, generation: number): void {
-    this.resources.assertCurrent(owner)
-    if (this.owners.get(key(owner)) !== state || state.generation !== generation)
+    if (
+      !this.resources.isCurrent(owner) ||
+      this.owners.get(key(owner)) !== state ||
+      state.generation !== generation
+    )
       throw new SkillagerError('cancelled', 'Skillager request cancelled.')
   }
 }
@@ -392,8 +407,8 @@ export async function result<T>(
       return { ok: false, reason: error.reason, message: error.message }
     return {
       ok: false,
-      reason: 'malformed-result',
-      message: 'Skillager returned unsupported or malformed metadata.',
+      reason: 'command-failed',
+      message: 'Skillager request failed. Try again.',
     }
   }
 }

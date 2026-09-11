@@ -15,6 +15,7 @@ import { LocalHost } from '../src/main/project-host/local-host'
 import type { ExecOptions } from '../src/main/project-host/project-host'
 import { SkillagerCli } from '../src/main/skillager/skillager-cli'
 import { localPath } from '../src/shared/host-path'
+import { skillagerFixtureEnvironment } from '../src/main/smoke/skillager-fixture-environment'
 
 // Opt in with an already prepared v0.9.0 checkout. No package installation or user state.
 const release = process.env.HVIR_SKILLAGER_RELEASE
@@ -30,25 +31,9 @@ it.runIf(Boolean(release))(
     const scratch = join(root, 'scratch')
     const home = join(root, 'home')
     const executable = join(release!, '.venv/bin/skillager')
-    const environment = {
-      HOME: home,
-      XDG_CONFIG_HOME: join(root, 'config'),
-      XDG_CACHE_HOME: join(root, 'cache'),
-      XDG_DATA_HOME: join(root, 'data'),
-      XDG_STATE_HOME: join(root, 'state'),
-      CODEX_HOME: join(root, 'codex'),
-      CLAUDE_CONFIG_DIR: join(root, 'claude'),
-      SKILLAGER_CATALOG_STATE_DIR: catalog,
-      SKILLAGER_CACHE_DIR: join(root, 'cache/skillager'),
-      PYTHONDONTWRITEBYTECODE: '1',
-      SKILLAGER_NO_UPDATE_CHECK: '1',
-      GIT_CONFIG_NOSYSTEM: '1',
-      GIT_CONFIG_GLOBAL: join(root, 'gitconfig'),
-    }
-    const unsetEnv = Object.keys(process.env).filter(
-      (key) =>
-        key.startsWith('SKILLAGER_') ||
-        ['PYTHONPATH', 'PYTHONHOME', 'VIRTUAL_ENV', 'CONDA_PREFIX'].includes(key),
+    const { env: environment, unsetEnv } = skillagerFixtureEnvironment(
+      localPath(root),
+      process.env,
     )
     const samples: Array<{ command: string; ms: number; bytes: number }> = []
     class FixtureHost extends LocalHost {
@@ -70,7 +55,7 @@ it.runIf(Boolean(release))(
           samples.push({
             command: args.includes('refresh')
               ? 'inventory'
-              : args.includes('search') && !args.includes('--help')
+              : args.includes('search') && !(args.length === 2 && args[1] === '--help')
                 ? 'search'
                 : 'metadata/probe',
             ms: performance.now() - started,
@@ -182,6 +167,9 @@ it.runIf(Boolean(release))(
       const body = await cli.search(selection, request, signal)
       expect(body.map((row) => row.id)).toEqual(['lib/body'])
       expect(body[0]?.matchReasons).toContain('body:deadlockneedle')
+      expect(
+        await cli.search(selection, { ...request, query: '--help' }, signal),
+      ).toEqual([])
       for (const [query, id] of [
         ['amberneedle', 'lib/title'],
         ['cobaltneedle', 'lib/description'],

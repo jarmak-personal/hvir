@@ -207,5 +207,8 @@ function strings(value: unknown, max: number, length: number): readonly string[]
 }
 
 function malformed(): never {
-  throw new Error('Unsupported or malformed Skillager metadata.')
+  throw new SkillagerError(
+    'malformed-result',
+    'Skillager returned unsupported or malformed metadata.',
+  )
 }

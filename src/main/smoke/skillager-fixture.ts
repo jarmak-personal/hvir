@@ -23,6 +23,7 @@ export function createSkillagerSmoke(
     executable: localPath('/hvir-smoke/skillager'),
     catalog: localPath('/hvir-smoke/catalog'),
     version: 'skillager 0.9.0',
+    environment: {},
     library,
   }
   const rows: SkillagerMetadata[] = Array.from({ length: 5000 }, (_, index) => ({

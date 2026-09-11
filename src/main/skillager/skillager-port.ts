@@ -12,6 +12,7 @@ export interface SkillagerCliSelection {
   readonly executable: HostPath
   readonly catalog: HostPath
   readonly version: string
+  readonly environment: Readonly<Record<string, string>>
   readonly library?: SkillagerLibrary
 }
 

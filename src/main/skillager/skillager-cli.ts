@@ -31,7 +31,9 @@ import {
 import type { SkillagerCliPort, SkillagerCliSelection } from './skillager-port'
 
 const MARKER = '\x1ehvir-skillager-probe\x1f'
-const RESOLVE = `printf '\\036hvir-skillager-probe\\037'; command -v -- "$1" || true; printf '%s\\n' "\${SKILLAGER_CATALOG_STATE_DIR:-\${XDG_CONFIG_HOME:-$HOME/.config}/skillager}"`
+// Only this fixed command is interpreted by the login shell. The selected path
+// remains environment data; POSIX expansion belongs to the explicit /bin/sh child.
+const RESOLVE = `/bin/sh -c 'printf "\\036hvir-skillager-probe\\037"; resolved=$(command -v -- "$HVIR_SKILLAGER_PROBE_EXECUTABLE" || true); printf "%s\\0" "$resolved" "\${SKILLAGER_CATALOG_STATE_DIR:-\${XDG_CONFIG_HOME:-$HOME/.config}/skillager}"; /usr/bin/env -0'`
 
 /** Local CLI mechanics. Its private cwd is never presented as a workspace destination. */
 export class SkillagerCli implements SkillagerCliPort {
@@ -116,23 +118,28 @@ export class SkillagerCli implements SkillagerCliPort {
     }
     await this.prepare(signal)
     const shell = await this.host.defaultShell()
+    const csh = /(?:^|\/)(?:csh|tcsh)$/.test(shell)
     const output = await this.process.run(
       shell,
-      ['-lic', RESOLVE, 'hvir-skillager', selected?.path || 'skillager'],
-      { cwd: this.context, signal },
+      csh ? ['-l'] : ['-lic', RESOLVE],
+      {
+        cwd: this.context,
+        signal,
+        input: csh ? `${RESOLVE}\n` : undefined,
+        env: { HVIR_SKILLAGER_PROBE_EXECUTABLE: selected?.path || 'skillager' },
+      },
       SKILLAGER_PROBE_LIMITS,
     )
     const marker = output.lastIndexOf(MARKER)
-    const lines = output
+    const [resolved, catalogPath, ...exports] = output
       .slice(marker + MARKER.length)
-      .trim()
-      .split('\n')
-    if (marker < 0 || lines.length < 1)
+      .split('\0')
+    if (marker < 0 || !catalogPath || !exports.length)
       throw new SkillagerError(
         'command-failed',
         'Could not resolve the local Skillager environment.',
       )
-    if (lines.length !== 2 || !lines[0]?.startsWith('/')) {
+    if (!resolved?.startsWith('/')) {
       throw new SkillagerError(
         selected ? 'invalid-executable' : 'missing',
         selected
@@ -140,8 +147,20 @@ export class SkillagerCli implements SkillagerCliPort {
           : 'Skillager was not found.',
       )
     }
-    const executable = await this.host.realpath(localPath(lines[0]))
-    const catalog = localPath(lines[1]!)
+    const environment: Record<string, string> = {}
+    for (const entry of exports) {
+      const separator = entry.indexOf('=')
+      const key = entry.slice(0, separator)
+      if (
+        separator < 1 ||
+        !/^[A-Za-z_][A-Za-z_0-9]*$/.test(key) ||
+        ['PWD', 'OLDPWD', 'SHLVL', '_', 'HVIR_SKILLAGER_PROBE_EXECUTABLE'].includes(key)
+      )
+        continue
+      environment[key] = entry.slice(separator + 1)
+    }
+    const executable = await this.host.realpath(localPath(resolved))
+    const catalog = localPath(catalogPath)
     if (!catalog.path.startsWith('/'))
       throw new SkillagerError(
         'unsupported',
@@ -151,7 +170,7 @@ export class SkillagerCli implements SkillagerCliPort {
       await this.process.run(
         executable.path,
         ['--version'],
-        { cwd: this.context, signal },
+        { cwd: this.context, signal, env: environment },
         SKILLAGER_PROBE_LIMITS,
       )
     ).trim()
@@ -164,7 +183,7 @@ export class SkillagerCli implements SkillagerCliPort {
     const help = await this.process.run(
       executable.path,
       ['search', '--help'],
-      { cwd: this.context, signal },
+      { cwd: this.context, signal, env: environment },
       SKILLAGER_PROBE_LIMITS,
     )
     if (!['--scope', '--full-json', '--limit'].every((flag) => help.includes(flag)))
@@ -172,7 +191,7 @@ export class SkillagerCli implements SkillagerCliPort {
         'unsupported',
         'Skillager does not support the required search contract.',
       )
-    const selection = { executable, catalog, version }
+    const selection = { executable, catalog, version, environment }
     const library = await this.registration(selection, signal)
     return { ...selection, library }
   }
@@ -202,8 +221,8 @@ export class SkillagerCli implements SkillagerCliPort {
   ): Promise<readonly SkillagerMetadata[]> {
     await this.validateLocal(selection, signal)
     const state = joinHostPath(this.context, randomUUID())
-    const output = await this.process
-      .run(
+    const outcome = await (async () => {
+      const output = await this.process.run(
         selection.executable.path,
         [
           '--catalog-state-dir',
@@ -215,12 +234,27 @@ export class SkillagerCli implements SkillagerCliPort {
           'lib',
           '--json',
         ],
-        { cwd: this.context, signal },
+        { cwd: this.context, signal, env: selection.environment },
         SKILLAGER_INVENTORY_LIMITS,
       )
-      .finally(() => this.removeState(state))
-    await this.validateLocal(selection, signal)
-    return parseSkillagerInventory(parseSkillagerJson(output), selection.library!)
+      await this.validateLocal(selection, signal)
+      return parseSkillagerInventory(parseSkillagerJson(output), selection.library!)
+    })().then(
+      (value) => ({ ok: true as const, value }),
+      (error: unknown) => ({ ok: false as const, error }),
+    )
+    try {
+      await this.removeState(state)
+    } catch (error) {
+      if (outcome.ok) throw error
+      const primary = outcome.error
+      throw new SkillagerError(
+        primary instanceof SkillagerError ? primary.reason : 'command-failed',
+        `${primary instanceof SkillagerError ? primary.message : 'Skillager request failed.'} Temporary state cleanup also failed.`,
+      )
+    }
+    if (!outcome.ok) throw outcome.error
+    return outcome.value
   }
 
   private async searchLocal(
@@ -237,7 +271,6 @@ export class SkillagerCli implements SkillagerCliPort {
         selection.catalog.path,
         ...(personal ? ['--state-dir', selection.catalog.path] : []),
         'search',
-        request.query,
         '--scope',
         request.scope,
         '--agent',
@@ -246,8 +279,14 @@ export class SkillagerCli implements SkillagerCliPort {
         '50',
         '--json',
         '--full-json',
+        '--',
+        request.query,
       ],
-      { cwd: personal ? this.context : request.workspaceRoot, signal },
+      {
+        cwd: personal ? this.context : request.workspaceRoot,
+        signal,
+        env: selection.environment,
+      },
       SKILLAGER_SEARCH_LIMITS,
     )
     await this.validateLocal(selection, signal)
@@ -273,7 +312,7 @@ export class SkillagerCli implements SkillagerCliPort {
         'project',
         '--json',
       ],
-      { cwd: request.workspaceRoot, signal },
+      { cwd: request.workspaceRoot, signal, env: selection.environment },
       SKILLAGER_INVENTORY_LIMITS,
     )
     return parseSkillagerExposures(
@@ -311,13 +350,13 @@ export class SkillagerCli implements SkillagerCliPort {
   }
 
   private async registration(
-    selection: Pick<SkillagerCliSelection, 'executable' | 'catalog'>,
+    selection: Pick<SkillagerCliSelection, 'executable' | 'catalog' | 'environment'>,
     signal: AbortSignal,
   ): Promise<SkillagerLibrary | undefined> {
     const output = await this.process.run(
       selection.executable.path,
       ['--catalog-state-dir', selection.catalog.path, 'collection', 'list', '--json'],
-      { cwd: this.context, signal },
+      { cwd: this.context, signal, env: selection.environment },
       SKILLAGER_PROBE_LIMITS,
     )
     const library = parseSkillagerLibrary(parseSkillagerJson(output))
