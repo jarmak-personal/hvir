@@ -1,3 +1,5 @@
+import nodeAssert from 'node:assert/strict'
+import { automaticRefreshAllowed } from './model.mjs'
 import { setTimeout, clearTimeout } from 'node:timers'
 const { fetch, WebSocket } = globalThis
 import { Buffer } from 'node:buffer'
@@ -13,6 +15,16 @@ const root = resolve(process.argv[2] || '/tmp/hvir-skillager-study')
 const chromePath =
   process.env.HVIR_STUDY_CHROME ||
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+for (const connected of [false, true])
+  for (const viewer of ['skills', 'history']) {
+    for (const visible of [false, true])
+      for (const focused of [false, true]) {
+        nodeAssert.equal(
+          automaticRefreshAllowed({ connected, viewer }, visible, focused),
+          connected && viewer === 'skills' && visible && focused,
+        )
+      }
+  }
 const profile = await mkdtemp(join(tmpdir(), 'hvir-skillager-browser-'))
 const chrome = spawn(
   chromePath,
@@ -27,10 +39,37 @@ const chrome = spawn(
   ],
   { stdio: ['ignore', 'ignore', 'pipe'] },
 )
+// Observe close from acquisition so an already-signaled exit cannot be missed in cleanup.
+let childClosed = false
+const childClose = new Promise((resolve) =>
+  chrome.once('close', () => {
+    childClosed = true
+    resolve(true)
+  }),
+)
+async function waitForClose(ms) {
+  let timer
+  try {
+    return await Promise.race([
+      childClose,
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve(false), ms)
+      }),
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+}
 let socket
 const errors = [],
   checks = []
-const deadline = setTimeout(() => chrome.kill(), 45_000)
+const deadline = setTimeout(() => chrome.kill('SIGKILL'), 45_000)
+checks.push(
+  'Automatic refresh eligibility: all 16 connection/viewer/visibility/focus combinations at the pure gate',
+)
+const limitations = [
+  'Periodic eligibility is checked at its pure owner; browser checks exercise visibility/focus/viewer events, not a real 60-second wall-clock wait.',
+]
 try {
   const endpoint = await new Promise((resolve, reject) => {
     let log = ''
@@ -51,6 +90,11 @@ try {
   await new Promise((resolve, reject) => {
     socket.addEventListener('open', resolve, { once: true })
     socket.addEventListener('error', reject, { once: true })
+    socket.addEventListener(
+      'close',
+      () => reject(new Error('Browser socket closed before ready')),
+      { once: true },
+    )
   })
   let id = 0
   const pending = new Map()
@@ -164,6 +208,10 @@ try {
     `document.querySelector('#search').value==='not submitted' && document.querySelectorAll('[data-skill]').length===3`,
     'Typing during search does not retarget the submitted query',
   )
+  await assert(
+    `document.querySelector('#search-status').textContent.includes('for “deadlock”') && !document.querySelector('#search-status').textContent.includes('not submitted')`,
+    'Result label identifies submitted text while the input holds an unsubmitted draft',
+  )
   await run(
     `document.querySelector('#search').value='deadlock';document.querySelector('#search').dispatchEvent(new Event('input',{bubbles:true}))`,
   )
@@ -241,11 +289,37 @@ try {
       `${name} target preserves ordinary replacement and removal protection`,
     )
   }
+  await flow('unmanaged')
+  await assert(
+    `!document.querySelector('#details').textContent.includes('Exposed version') && !document.querySelector('#skill-list').textContent.includes('Full skill · Unmanaged') && document.querySelector('#details').textContent.includes('No recorded Skillager exposure')`,
+    'Unmanaged presence has no recorded exposure mode or version',
+  )
+  await flow('blocked')
+  await assert(
+    `document.querySelector('#details').textContent.includes('Blocked by library policy') && document.querySelector('#details .pill').textContent==='Current' && document.querySelector('#details').textContent.includes('Exposed version')`,
+    'Blocked policy belongs to the source; the actual existing exposure retains its own state',
+  )
+  for (const [selector, value] of [
+    ['#destination', 'local-review'],
+    ['#agent', 'claude'],
+  ]) {
+    await flow('update')
+    await choose(selector, value)
+    await assert(
+      `!document.querySelector('#dialog').open && !document.querySelector('dialog[open] [data-action="apply"]')`,
+      `Changing ${selector} through its existing control revokes the prepared dialog`,
+    )
+    await choose(selector, selector === '#destination' ? 'local-main' : 'codex')
+    await assert(
+      `document.querySelector('#details').textContent.includes('7da204b')`,
+      'Selection revocation preserves the original workspace copy',
+    )
+  }
   await flow('stale')
   await click('[data-action="apply"]')
   await assert(
     `document.querySelector('#dialog-title').textContent.includes('out of date')`,
-    'Changed source/target preview requires new review',
+    'An actual source-version change after preview requires new review',
   )
   await flow('remote')
   await assert(
@@ -267,6 +341,51 @@ try {
     `document.querySelector('#freshness').textContent.includes('Unavailable')`,
     'Freshness displays unavailable and last-check time',
   )
+  const terminalState = await run(
+    `JSON.stringify([document.querySelector('#terminal-pane').innerHTML,document.querySelector('.sessions').innerHTML,document.querySelector('#terminal-pane').getBoundingClientRect().toJSON(),document.querySelector('.sessions').getBoundingClientRect().toJSON()])`,
+  )
+  const staleFreshness = await run(`document.querySelector('#freshness').textContent`)
+  const other = await call('Target.createTarget', { url: 'about:blank' })
+  await call('Target.activateTarget', { targetId: other.targetId })
+  const background = await run(
+    `({visible: document.visibilityState==='visible', focused: document.hasFocus()})`,
+  )
+  if (!background.visible || !background.focused) {
+    await run(
+      `document.dispatchEvent(new Event('visibilitychange'));window.dispatchEvent(new Event('focus'))`,
+    )
+    await assert(
+      `document.querySelector('#freshness').textContent===${JSON.stringify(staleFreshness)}`,
+      'Background focus/visibility signals preserve freshness using actual browser background state',
+    )
+    await call('Page.bringToFront')
+    await waitFor(
+      `document.querySelector('#freshness').textContent.startsWith('Checked at')`,
+    )
+    await assert(
+      `document.querySelector('#freshness').textContent.includes('Local · hvir / main')`,
+      'Returning real browser focus refreshes only the selected workspace',
+    )
+  } else {
+    limitations.push(
+      'This headless Chromium did not expose background focus/visibility loss; that combination is covered only at the pure gate.',
+    )
+  }
+  await call('Target.closeTarget', { targetId: other.targetId })
+  await click('[data-viewer="history"]')
+  const hiddenFreshness = await run(`document.querySelector('#freshness').textContent`)
+  await run(
+    `document.dispatchEvent(new Event('visibilitychange'));window.dispatchEvent(new Event('focus'))`,
+  )
+  await assert(
+    `document.querySelector('#freshness').textContent===${JSON.stringify(hiddenFreshness)}`,
+    'Focus/visibility signals do not refresh while another viewer tab is active',
+  )
+  await click('#skills-nav')
+  await assert(
+    `JSON.stringify([document.querySelector('#terminal-pane').innerHTML,document.querySelector('.sessions').innerHTML,document.querySelector('#terminal-pane').getBoundingClientRect().toJSON(),document.querySelector('.sessions').getBoundingClientRect().toJSON()])===${JSON.stringify(terminalState)}`,
+    'Refresh events leave terminal/session content, attention and geometry unchanged',
+  )
   await flow('missing')
   await assert(
     `document.querySelector('#content').textContent.includes('Skillager unavailable')`,
@@ -284,6 +403,29 @@ try {
     `!document.querySelector('[data-skill]') && !document.querySelector('[data-action="connect"]').disabled`,
     'Changing library identity/location revokes metadata and requires reconnecting',
   )
+  await click('[data-action="connect"]')
+  await click('#details [data-action="read"]')
+  await assert(
+    `document.querySelector('#dialog').textContent.includes('/library-new/skills/migration-review')`,
+    'Reconnected content review names the selected library location',
+  )
+  await click('[data-action="close"]')
+  await click('[data-select="deploy-checklist"]')
+  await click('#details [data-action="accept"]')
+  await assert(
+    `document.querySelector('#dialog').textContent.includes('/library-new/skills/deploy-checklist')`,
+    'Reconnected library acceptance names the same selected source',
+  )
+  await click('[data-action="close"]')
+  await click('[data-select="incident-notes"]')
+  await click('#details [data-action="add"]')
+  await click('[data-action="preview-add"]')
+  await assert(
+    `document.querySelector('#dialog').textContent.includes('/library-new/skills/incident-notes')`,
+    'Reconnected exposure preview names the same selected source',
+  )
+  await click('[data-action="close"]')
+  await click('#settings')
   await click('#enabled')
   await click('[data-action="close"]')
   await assert(
@@ -342,6 +484,7 @@ try {
   const result = {
     checks,
     errors,
+    limitations,
     scope: 'Synthetic standalone study only; no hvir, CLI or SSH execution.',
   }
   await writeFile(join(root, 'validation.json'), JSON.stringify(result, null, 2) + '\n')
@@ -349,9 +492,22 @@ try {
 } finally {
   clearTimeout(deadline)
   socket?.close()
-  chrome.kill()
-  await new Promise((resolve) =>
-    chrome.exitCode !== null ? resolve() : chrome.once('exit', resolve),
-  )
-  await rm(profile, { recursive: true, force: true })
+  try {
+    if (
+      !childClosed &&
+      chrome.pid &&
+      chrome.exitCode === null &&
+      chrome.signalCode === null
+    )
+      chrome.kill()
+    if (!(await waitForClose(2000))) {
+      chrome.kill('SIGKILL')
+      if (!(await waitForClose(2000))) {
+        process.exitCode = 1
+        console.error('Browser close was not observed after bounded termination.')
+      }
+    }
+  } finally {
+    await rm(profile, { recursive: true, force: true })
+  }
 }

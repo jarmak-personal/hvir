@@ -1,5 +1,8 @@
 // Sample state only. This module has no CLI, filesystem, or network authority.
-export const library = '/home/example/.skillager/library'
+export const libraries = [
+  { id: 'library-7f29', path: '/home/example/.skillager/library' },
+  { id: 'library-b812', path: '/home/example/.skillager/library-new' },
+]
 export const destinations = [
   { id: 'local-main', label: 'Local · hvir / main', host: 'local', path: '/work/hvir' },
   {
@@ -90,7 +93,7 @@ export function initialState() {
     connected: false,
     missing: false,
     empty: false,
-    changedLibrary: false,
+    library: libraries[0],
     viewer: 'skills',
     skillsOpen: true,
     perspective: 'library',
@@ -99,11 +102,12 @@ export function initialState() {
     scope: 'personal',
     filter: 'all',
     query: '',
+    submittedQuery: '',
     results: null,
     searching: false,
     selected: 'migration-review',
     lastChecked: 'Not checked',
-    stale: false,
+    unmanagedTargets: {},
     generation: 0,
     skills: globalThis.structuredClone(seeds),
     exposures: {
@@ -127,6 +131,11 @@ export const destinationFor = (state) =>
   destinations.find((d) => d.id === state.destination)
 export const exposureKey = (state) => `${state.destination}/${state.agent}`
 export const exposuresFor = (state) => state.exposures[exposureKey(state)] || {}
+export const unmanagedFor = (state, id = state.selected, key = exposureKey(state)) =>
+  state.unmanagedTargets[key]?.[id] === true
+export function automaticRefreshAllowed({ connected, viewer }, visible, focused) {
+  return connected && viewer === 'skills' && visible && focused
+}
 export const modeLabel = (mode) => (mode === 'stub' ? 'Stub' : 'Full skill')
 export const agentLabel = (agent) => (agent === 'codex' ? 'Codex' : 'Claude Code')
 export function targetPath(state, skill) {
@@ -146,6 +155,7 @@ export function sampleSearch(state) {
     .filter(
       (s) =>
         s.accepted &&
+        !s.blocked &&
         (!query ||
           `${s.id} ${s.description} ${s.tags} ${s.query || ''}`
             .toLowerCase()
@@ -161,6 +171,8 @@ export function previewSnapshot(state, action, mode) {
     mode,
     id: skill.id,
     version: skill.version,
+    libraryId: state.library.id,
+    libraryPath: state.library.path,
     destination: state.destination,
     agent: state.agent,
     generation: state.generation,
@@ -173,14 +185,20 @@ export function applySample(state, preview) {
   const existing = state.exposures[preview.key]?.[preview.id]
   if (
     !state.connected ||
-    state.stale ||
+    state.library.id !== preview.libraryId ||
+    state.library.path !== preview.libraryPath ||
     state.generation !== preview.generation ||
     skill.version !== preview.version ||
     (preview.action !== 'accept' && JSON.stringify(existing || null) !== preview.target)
   ) {
     return 'stale'
   }
-  if (skill.source || (preview.action !== 'accept' && existing?.protected))
+  if (
+    skill.source ||
+    skill.blocked ||
+    (preview.action !== 'accept' &&
+      (existing?.protected || unmanagedFor(state, preview.id, preview.key)))
+  )
     return 'protected'
   if (preview.action === 'accept') {
     skill.accepted = true

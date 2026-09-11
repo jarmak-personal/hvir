@@ -10,7 +10,8 @@ import {
   sampleSearch,
   previewSnapshot,
   applySample,
-  library,
+  libraries,
+  automaticRefreshAllowed,
 } from './model.mjs'
 import {
   catalogView,
@@ -40,6 +41,7 @@ function cancelSearch() {
   queryGeneration++
   state.searching = false
   state.results = null
+  state.submittedQuery = ''
 }
 function closeDialog() {
   $('#dialog').close()
@@ -51,7 +53,7 @@ function modal(html) {
 }
 function refresh() {
   if (!state.connected || state.viewer !== 'skills') return
-  state.lastChecked = 'Just checked · active workspace'
+  state.lastChecked = `Checked at ${new Date().toLocaleTimeString()} · ${destinationFor(state).label}`
   render()
 }
 function render() {
@@ -101,6 +103,7 @@ function search() {
   cancelSearch()
   state.query = $('#search').value
   state.scope = $('#search-scope').value
+  state.submittedQuery = state.query
   state.searching = true
   state.results = []
   const generation = queryGeneration
@@ -135,7 +138,7 @@ function action(name) {
     return render()
   }
   if (name === 'change-library') {
-    state.changedLibrary = !state.changedLibrary
+    state.library = state.library.id === libraries[0].id ? libraries[1] : libraries[0]
     state.connected = false
     state.generation++
     cancelSearch()
@@ -167,7 +170,7 @@ function action(name) {
   if (name === 'read') {
     const s = skillFor(state)
     return modal(
-      `<h2 id="dialog-title">Review content · ${s.id}</h2><div class="target">${s.source || `Local · ${library}/skills/${s.id}`}<p>Reviewed snapshot: ${s.version}</p></div><h3>SKILL.md · sample instructions</h3><p>Read the proposed change and its tests. Verify rollback preserves existing data.</p><p>Full tree: SKILL.md only in this sample. Supporting files and executable modes must be reviewable before production acceptance.</p>${!s.accepted ? sampleDiff : ''}<div class="notice">Content review does not approve or expose this skill.</div><footer><button data-action="close">Close</button></footer>`,
+      `<h2 id="dialog-title">Review content · ${s.id}</h2><div class="target">${s.source || `Local · ${state.library.path}/skills/${s.id}`}<p>Reviewed snapshot: ${s.version}</p></div><h3>SKILL.md · sample instructions</h3><p>Read the proposed change and its tests. Verify rollback preserves existing data.</p><p>Full tree: SKILL.md only in this sample. Supporting files and executable modes must be reviewable before production acceptance.</p>${!s.accepted ? sampleDiff : ''}<div class="notice">Content review does not approve or expose this skill.</div><footer><button data-action="close">Close</button></footer>`,
     )
   }
   if (name === 'history')
@@ -226,12 +229,13 @@ function scenario(name) {
   if (['modified', 'pinned', 'unmanaged', 'blocked'].includes(name)) {
     state.perspective = 'workspace'
     state.selected = name === 'pinned' ? 'test-design' : 'release-checklist'
-    exposuresFor(state)[state.selected].protected = {
-      modified: 'Modified here',
-      pinned: 'Pinned',
-      unmanaged: 'Unmanaged target',
-      blocked: 'Blocked source',
-    }[name]
+    if (name === 'unmanaged') {
+      delete exposuresFor(state)[state.selected]
+      state.unmanagedTargets['local-main/codex'] = { [state.selected]: true }
+    } else if (name === 'blocked') {
+      delete exposuresFor(state)[state.selected].protected
+      skillFor(state).blocked = true
+    }
   }
   if (name === 'notify') {
     skillFor(state, 'pr-review').version = 'd777a09'
@@ -248,7 +252,8 @@ function scenario(name) {
   if (name === 'remove') prepare('remove')
   if (name === 'pending') prepare('accept')
   if (['update', 'stale'].includes(name)) prepare('update')
-  if (name === 'stale') state.stale = true
+  // Simulate an accepted source changing after preview, exercising the real version guard.
+  if (name === 'stale') skillFor(state).version = 'newer-a72c'
 }
 $('#destination').innerHTML = destinations
   .map((d) => `<option value="${d.id}">${escapeHtml(d.label)}</option>`)
@@ -316,7 +321,7 @@ document.addEventListener('change', (event) => {
     stub.disabled = d.host !== 'local'
     if (stub.disabled) $('#add-mode').value = 'native'
     $('#add-route').textContent =
-      `Local source → ${d.label}${stub.disabled ? ' · Remote Stub unavailable' : ''}`
+      `Local · ${state.library.path} → ${d.label}${stub.disabled ? ' · Remote Stub unavailable' : ''}`
   }
 })
 document.addEventListener('input', (event) => {
@@ -357,18 +362,19 @@ $('#workspace-nav').onclick = () => {
   state.perspective = 'workspace'
   render()
 }
-const periodic = setInterval(() => {
+function refreshIfActive() {
   if (
-    document.visibilityState === 'visible' &&
-    document.hasFocus() &&
-    state.viewer === 'skills'
+    automaticRefreshAllowed(
+      state,
+      document.visibilityState === 'visible',
+      document.hasFocus(),
+    )
   )
     refresh()
-}, 60_000)
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && document.hasFocus()) refresh()
-})
-window.addEventListener('focus', refresh)
+}
+const periodic = setInterval(refreshIfActive, 60_000)
+document.addEventListener('visibilitychange', refreshIfActive)
+window.addEventListener('focus', refreshIfActive)
 window.addEventListener('pagehide', () => {
   cancelSearch()
   clearInterval(periodic)

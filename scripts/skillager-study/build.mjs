@@ -1,18 +1,27 @@
 import process from 'node:process'
 import console from 'node:console'
-import { build } from 'esbuild'
+import { build } from 'vite'
 import { readFile, mkdir, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { fileURLToPath, URL } from 'node:url'
 const root = fileURLToPath(new URL('.', import.meta.url))
 const output = resolve(process.argv[2] || '/tmp/hvir-skillager-study')
 const bundle = await build({
-  entryPoints: [resolve(root, 'study.mjs')],
-  bundle: true,
-  write: false,
-  format: 'iife',
-  platform: 'browser',
+  configFile: false,
+  envFile: false,
+  publicDir: false,
+  logLevel: 'error',
+  build: {
+    write: false,
+    minify: false,
+    lib: { entry: resolve(root, 'study.mjs'), formats: ['iife'], name: 'SkillagerStudy' },
+  },
 })
+const outputs = Array.isArray(bundle) ? bundle : [bundle]
+if (outputs.length !== 1 || !('output' in outputs[0]))
+  throw new Error('Expected one study bundle')
+const script = outputs[0].output.find((item) => item.type === 'chunk' && item.isEntry)
+if (!script) throw new Error('Study entry chunk is missing')
 const html = (await readFile(resolve(root, 'shell.html'), 'utf8'))
   .replace(
     '<!-- STYLE -->',
@@ -20,7 +29,7 @@ const html = (await readFile(resolve(root, 'shell.html'), 'utf8'))
   )
   .replace(
     '<!-- SCRIPT -->',
-    `<script>${bundle.outputFiles[0].text.replaceAll('</script', '<\\/script')}</script>`,
+    `<script>${script.code.replaceAll('</script', '<\\/script')}</script>`,
   )
 await mkdir(output, { recursive: true })
 await writeFile(resolve(output, 'index.html'), html)

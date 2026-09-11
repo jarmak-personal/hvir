@@ -19,7 +19,7 @@ initial disabled state. The scenario selector loads independent examples, includ
 missing CLI, empty, stale preview, protected targets, remote delivery, and unavailable freshness.
 
 The source model owns only illustrative state; views produce markup; the browser entry owns
-DOM events and page timers. The builder bundles these explicit modules and stylesheet into a
+DOM events and page timers. The builder uses the declared Vite dependency to bundle these modules and stylesheet into a
 single self-contained artifact outside the maintained tree. Generated HTML, screenshots, and
 run evidence are not committed. Ordinary source and dependency checks cover the maintained JS
 and CSS; no source-policy exception or production dependency is introduced.
@@ -27,16 +27,20 @@ and CSS; no source-policy exception or production dependency is introduced.
 ## Exercise the decisions
 
 - Enable Skillager in Settings and connect the exact displayed local library. Changing its
-  identity/location requires reconnecting; ordinary content review does not.
+  identity/location requires reconnecting; review, acceptance, and exposure then name that selected
+  source. Ordinary content review does not require reconnecting.
 - Switch among Skills, the document, and Git history. Close and reopen Skills while the terminal
   and session rail remain below the viewer.
 - Submit `deadlock` in the sample search scenario. It illustrates title, description, and
-  body-only metadata matches, external ownership, loading, cancellation, the 50-row window, and
+  body-only metadata matches, external ownership, loading, cancellation, the submitted query beside
+  results, the 50-row window, and
   the 50,000-character accepted-body boundary. The eight-row synthetic dataset proves no scale
   or CLI behavior.
 - Add to a selected worktree and agent, change mode, or remove its exposure. The preview names
   source version, exact destination, existing state, and every sample effect. Protected targets
-  cannot be replaced or removed through ordinary actions.
+  cannot be replaced or removed through ordinary actions. Unmanaged presence has no recorded mode
+  or version; source policy blocks remain distinct from the existing exposure's state. Changing
+  destination or agent revokes a prepared dialog; a changed source version refuses apply.
 - Accept library changes and observe that the old workspace copy stays behind. Update that copy
   as a separate action. Remove a copy and confirm its library row remains.
 - Select SSH: Personal library is the default; workspace catalog search and Stub are unavailable.
@@ -48,11 +52,17 @@ Run the focused real Chromium check after generating the artifact:
 node scripts/skillager-study/check.mjs /tmp/hvir-skillager-study
 ```
 
-It uses an isolated headless Chrome profile, closes its process, and writes `validation.json`
+It uses an isolated headless Chrome profile, observes process completion from launch, bounds
+termination waits, removes its profile, and writes `validation.json`
 and a compact screenshot beside the artifact. Set `HVIR_STUDY_CHROME` to an explicit local Chrome
 or Chromium executable on other systems. The opaque `allow-scripts` iframe check proves this
 self-contained page renders in that browser sandbox. It does not establish hvir's response-header
 CSP, Electron lifecycle, terminal responsiveness, or SSH transport behavior.
+
+Refresh eligibility is checked at its pure connection/viewer/visibility/focus gate. Browser checks
+exercise viewer selection and actual tab focus changes where Chromium exposes them, plus terminal
+and session-rail content and geometry preservation. The report discloses unsupported background
+state observations. These checks do not wait through a real 60-second periodic interval.
 
 ## Real CLI contract evidence
 
