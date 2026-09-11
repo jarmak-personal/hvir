@@ -1,4 +1,4 @@
-import type { ReactElement, RefObject } from 'react'
+import type { ReactElement, ReactNode, RefObject } from 'react'
 
 import type { HostPath } from '../../../shared'
 import {
@@ -13,6 +13,7 @@ import { KeybindingsSettings } from './sections/KeybindingsSettings'
 import { TerminalSettings } from './sections/TerminalSettings'
 
 interface SettingsActiveSectionProps {
+  readonly skillager?: ReactNode
   readonly activeSection: SettingsSection
   readonly draft: SettingsDraft
   readonly validation?: Exclude<SettingsDraftValidation, { readonly valid: true }>
@@ -28,6 +29,7 @@ interface SettingsActiveSectionProps {
 }
 
 export function SettingsActiveSection({
+  skillager,
   activeSection,
   draft,
   validation,
@@ -40,7 +42,7 @@ export function SettingsActiveSection({
 }: SettingsActiveSectionProps): ReactElement {
   switch (activeSection) {
     case 'appearance':
-      return <AppearanceSettings draft={draft} onChange={onChange} />
+      return <><AppearanceSettings draft={draft} onChange={onChange} />{skillager}</>
     case 'terminal':
       return (
         <TerminalSettings

@@ -31,11 +31,12 @@ import { WorkbenchRuntime } from './workbench-runtime'
 import { RuntimeDiagnostics } from './diagnostics/runtime-diagnostics'
 import { createDiagnosticReportCoordinator } from './diagnostics/diagnostic-report-coordinator'
 import { RendererEventPublisher } from './renderer-event-publisher'
-import { createFilenameSearchCoordinator } from './filename-search'
+import { installFilenameSearch } from './filename-search'
 import { createProjectFileOperationCoordinator } from './project-file-operations'
 import type { DocumentReviewRuntime } from './document-review'
 import { installApplicationDocumentReviewRuntime } from './document-review/document-review-application'
 import { installApplicationSessionsObservation } from './sessions/sessions-observation-application'
+import { installSkillager } from './skillager/skillager-application'
 import { applicationRuntime, applicationUserDataPath } from './application-runtime'
 import {
   GIT_WORKSPACE_ACTIVITY_TYPE,
@@ -225,11 +226,7 @@ function createWorkbenchEntry(): void {
       ),
       (worker) => worker.dispose(),
     )
-    const filenameSearch = runtime.own(
-      'filename search',
-      createFilenameSearchCoordinator(gitWorker),
-      (search) => search.dispose(),
-    )
+    const filenameSearch = installFilenameSearch(runtime, gitWorker)
     const projectFiles = runtime.own(
       'project file operations',
       createProjectFileOperationCoordinator(registry, hostCatalog, rendererScopes),
@@ -360,6 +357,7 @@ function createWorkbenchEntry(): void {
     runtime.own(
       'IPC authority router',
       registerIpcHandlers({
+        skillager: installSkillager(runtime, hostCatalog.local, rendererScopes, registry),
         echoWorker,
         gitWorker,
         filenameSearch,

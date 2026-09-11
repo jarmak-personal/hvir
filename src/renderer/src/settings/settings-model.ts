@@ -19,6 +19,7 @@ export interface TextTypography {
 }
 
 export interface AppSettings {
+  readonly skillagerEnabled?: boolean
   readonly idleThresholdMs: number
   readonly gitAutoFetchIntervalMs: number
   readonly terminalRecoveryMode: TerminalRecoveryMode

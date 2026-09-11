@@ -275,7 +275,7 @@ reports a result for every scheduled group. Direct single-process invocations re
 `diagnostic-report-restart`, `renderer-recovery`, `sessions-projection`, `document-review`, `development-performance`,
 `terminal-presentation`, `terminal-lifecycle`, `native-host-worker`, `workbench-health`,
 `terminal-theme`, `terminal-move`, `workbench-layout`, `terminal-split`, `app-settings`,
-`harness-profiles`, and `capacity`. The
+`harness-profiles`, `skillager`, and `capacity`. The
 development-performance group starts a development renderer and is run separately with `npm run
 smoke:development-performance`; the restart scenario is reserved for the packaged multi-launch
 fixture. `npm run smoke:macos` runs the focused PTY, viewer, Git, workspace/remote, web-pane,

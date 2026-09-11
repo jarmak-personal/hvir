@@ -1,6 +1,13 @@
 import { SEND_CHANNELS, type IpcInvokeChannel } from '../../shared'
 
 export const OWNER_SCOPED_INVOKE_CHANNELS = [
+  'skillager:configure',
+  'skillager:probe',
+  'skillager:connect',
+  'skillager:disconnect',
+  'skillager:inventory',
+  'skillager:search',
+  'skillager:cancel',
   'workbench-health:acknowledge',
   'diagnostic-evidence:get',
   'diagnostic-evidence:delete',
@@ -65,6 +72,8 @@ export const OWNER_SCOPED_INVOKE_CHANNELS = [
 export const OWNER_SCOPED_SEND_CHANNELS = SEND_CHANNELS
 
 export const AUTHORITY_SCOPED_INVOKE_CHANNELS = [
+  'skillager:inventory',
+  'skillager:search',
   'project:watch-interests',
   'document-review:restore',
   'document-review:save',

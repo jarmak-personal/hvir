@@ -1,3 +1,4 @@
+import { BufferedExecOutput } from './buffered-exec-output'
 /**
  * `LocalHost` — the default `ProjectHost` (ADR-010).
  *
@@ -167,11 +168,9 @@ export class LocalHost implements ProjectHost {
         // signals cannot stop Electron's process group with them.
         detached: process.platform !== 'win32',
       })
-      const maxBuffer = opts.maxBuffer ?? DEFAULT_MAX_BUFFER
+      const outputBudget = new BufferedExecOutput(opts, DEFAULT_MAX_BUFFER)
       let stdout = ''
       let stderr = ''
-      let bytes = 0
-      let stdoutNulRecords = 0
       let settled = false
       let truncated = false
       let terminalError: Error | undefined
@@ -211,34 +210,26 @@ export class LocalHost implements ProjectHost {
       opts.signal?.addEventListener('abort', abort, { once: true })
 
       const overflow = (): boolean => {
-        if (
-          bytes <= maxBuffer &&
-          (opts.maxStdoutNulRecords === undefined ||
-            stdoutNulRecords < opts.maxStdoutNulRecords)
-        )
-          return false
+        if (!outputBudget.exceeded) return false
         if (opts.allowTruncatedOutput) {
           truncated = true
           terminate()
           return true
         }
-        terminalError = new Error(`exec output exceeded maxBuffer (${maxBuffer} bytes)`)
+        terminalError = new Error('exec output exceeded maxBuffer or per-stream limit')
         terminate()
         return true
       }
 
       child.stdout.on('data', (d: Buffer) => {
         if (truncated) return
-        bytes += d.length
-        if (opts.maxStdoutNulRecords !== undefined) {
-          for (const byte of d) if (byte === 0) stdoutNulRecords++
-        }
+        outputBudget.add('stdout', d)
         stdout += stdoutDecoder.write(d)
         overflow()
       })
       child.stderr.on('data', (d: Buffer) => {
         if (truncated) return
-        bytes += d.length
+        outputBudget.add('stderr', d)
         stderr += stderrDecoder.write(d)
         overflow()
       })

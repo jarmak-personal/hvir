@@ -27,7 +27,7 @@ const TREE_MAX_WIDTH = 520
 const MAIN_MIN_WIDTH = 420
 const VIEWER_PANE_MIN_WIDTH = 240
 
-export type WorkbenchRailMode = 'files' | 'git'
+export type WorkbenchRailMode = 'files' | 'git' | 'skills'
 
 export function useWorkbenchLayout({
   root,

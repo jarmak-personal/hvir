@@ -18,6 +18,7 @@ const expectedOrder = [
   'terminal-shell.css',
   'terminal-move.css',
   'settings.css',
+  'skillager.css',
   'terminal-theme-gallery.css',
   'harness-settings.css',
   'composer-submit.css',
