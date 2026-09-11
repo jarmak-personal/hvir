@@ -58,7 +58,7 @@ it.runIf(Boolean(release)).each([true, false])(
       }
     }
     const host = new FixtureHost(),
-      cli = new SkillagerCli(host, localPath(scratch), host),
+      cli = new SkillagerCli(host, localPath(scratch)),
       signal = AbortSignal.timeout(60_000)
     const run = async (args: readonly string[], cwd = workspace) => {
       const result = await host.exec(

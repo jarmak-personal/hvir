@@ -14,11 +14,11 @@ export function installSkillager(
   host: ProjectHost,
   resources: RendererResourceScopes,
   projects: Pick<ProjectRegistry, 'active' | 'registeredWorkspaceRoot'>,
-  previews?: Pick<HtmlPreviewProtocol, 'create' | 'release'>,
+  previews: Pick<HtmlPreviewProtocol, 'create' | 'release'>,
 ): SkillagerCapability {
   const cli = runtime.own(
     'Skillager CLI',
-    new SkillagerCli(host, localPath(applicationUserDataPath('.')), host),
+    new SkillagerCli(host, localPath(applicationUserDataPath('.'))),
     (owned) => owned.dispose(),
   )
   return runtime.own(
@@ -29,15 +29,13 @@ export function installSkillager(
       (root) =>
         Boolean(projects.registeredWorkspaceRoot(root)) &&
         hostPathEquals(projects.active.root, root),
-      previews
-        ? {
-            cli,
-            previews: {
-              create: (content, root) => previews.create(content, undefined, root),
-              release: (id) => previews.release(id),
-            },
-          }
-        : undefined,
+      {
+        cli,
+        previews: {
+          create: (content, root) => previews.create(content, undefined, root),
+          release: (id) => previews.release(id),
+        },
+      },
     ),
     (owned) => owned.dispose(),
   )

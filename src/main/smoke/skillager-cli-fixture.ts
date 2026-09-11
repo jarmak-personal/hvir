@@ -28,6 +28,11 @@ export function realSkillagerSmokePort(
       hostId: host.hostId,
       defaultShell: () => Promise.resolve('/bin/sh'),
       realpath: (value) => host.realpath(value),
+      stat: (value) => host.stat(value),
+      readdir: (value) => host.readdir(value),
+      fileTransfer: host.fileTransfer,
+      createDirectoryExclusive: (value, options) =>
+        host.createDirectoryExclusive(value, options),
       exec: (command, args, options) =>
         host.exec(command, args, {
           ...options,
@@ -36,7 +41,6 @@ export function realSkillagerSmokePort(
         }),
     },
     joinHostPath(root, 'scratch'),
-    host,
   )
   cleanup.defer('real Skillager CLI', () => cli.dispose())
   return {

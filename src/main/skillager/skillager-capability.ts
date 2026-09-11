@@ -48,7 +48,7 @@ export class SkillagerCapability {
   private readonly owners = new Map<string, OwnerState>()
   private readonly jobs = new Map<Promise<unknown>, string>()
   private disposed = false
-  private readonly reviews?: SkillagerReviewOwner
+  private readonly reviews: SkillagerReviewOwner
 
   constructor(
     private readonly cli: SkillagerCliPort,
@@ -57,13 +57,12 @@ export class SkillagerCapability {
       'assertCurrent' | 'isCurrent' | 'register'
     >,
     private readonly workspaceAvailable: (root: HostPath) => boolean,
-    review?: {
+    review: {
       readonly cli: SkillagerReviewCliPort
       readonly previews: SkillagerReviewPreviewPort
     },
   ) {
-    if (review)
-      this.reviews = new SkillagerReviewOwner(review.cli, resources, review.previews)
+    this.reviews = new SkillagerReviewOwner(review.cli, resources, review.previews)
   }
 
   configure(owner: RendererOwner, enabled: boolean): void {
@@ -165,7 +164,7 @@ export class SkillagerCapability {
     const state = this.owners.get(key(owner))
     if (!state) return
     state.generation++
-    if (this.reviews) void this.track(owner, this.reviews.revoke(owner))
+    void this.track(owner, this.reviews.revoke(owner))
     state.probe?.abort()
     this.cancelLane(state.lanes.search)
     this.cancelLane(state.lanes.inventory)
@@ -240,23 +239,21 @@ export class SkillagerCapability {
       this.cancelLane(state.lanes.inventory)
     }
     this.owners.clear()
-    await this.reviews?.revoke()
+    await this.reviews.revoke()
     await Promise.allSettled([...this.jobs.keys()])
   }
 
   review(owner: RendererOwner, request: SkillagerSkillRequest) {
     return this.track(
       owner,
-      result(() =>
-        this.reviewOwner().review(owner, request, this.reviewGrant(owner, request)),
-      ),
+      result(() => this.reviews.review(owner, request, this.reviewGrant(owner, request))),
     )
   }
   history(owner: RendererOwner, request: SkillagerSkillRequest) {
     return this.track(
       owner,
       result(() =>
-        this.reviewOwner().history(owner, request, this.reviewGrant(owner, request)),
+        this.reviews.history(owner, request, this.reviewGrant(owner, request)),
       ),
     )
   }
@@ -267,7 +264,7 @@ export class SkillagerCapability {
       readonly documentEntry?: string
     },
   ) {
-    return result(() => Promise.resolve(this.reviewOwner().content(owner, request)))
+    return result(() => Promise.resolve(this.reviews.content(owner, request)))
   }
   reviewDiff(
     owner: RendererOwner,
@@ -275,25 +272,20 @@ export class SkillagerCapability {
   ) {
     return this.track(
       owner,
-      result(() => this.reviewOwner().diff(owner, request)),
+      result(() => this.reviews.diff(owner, request)),
     )
   }
   acceptReview(owner: RendererOwner, request: SkillagerReviewRequest) {
     return this.track(
       owner,
-      result(() => this.reviewOwner().accept(owner, request)),
+      result(() => this.reviews.accept(owner, request)),
     )
   }
   cancelReview(owner: RendererOwner, requestId: number): Promise<void> {
-    return this.reviews?.cancel(owner, requestId) ?? Promise.resolve()
+    return this.reviews.cancel(owner, requestId)
   }
   releaseReview(owner: RendererOwner, reviewId: string): Promise<void> {
-    return this.reviews?.release(owner, reviewId) ?? Promise.resolve()
-  }
-  private reviewOwner(): SkillagerReviewOwner {
-    if (!this.reviews)
-      throw new SkillagerError('unavailable', 'Skill review is unavailable.')
-    return this.reviews
+    return this.reviews.release(owner, reviewId)
   }
   private reviewGrant(owner: RendererOwner, request: SkillagerRequest) {
     const state = this.state(owner),

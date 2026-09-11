@@ -49,12 +49,8 @@ export class SkillagerCli implements SkillagerCliPort {
   private disposal?: Promise<void>
 
   constructor(
-    private readonly host: Pick<
-      ProjectHost,
-      'hostId' | 'exec' | 'realpath' | 'defaultShell'
-    >,
+    private readonly host: SkillagerSnapshotHost & Pick<ProjectHost, 'defaultShell'>,
     stateParent: HostPath,
-    private readonly snapshotHost?: SkillagerSnapshotHost,
   ) {
     if (host.hostId !== 'local' || stateParent.hostId !== 'local')
       throw new Error('Skillager requires the local host.')
@@ -116,10 +112,8 @@ export class SkillagerCli implements SkillagerCliPort {
     return this.operate(() => this.reviewCommands().accept(selection, snapshot, signal))
   }
   private reviewCommands(): SkillagerReviewCommands {
-    if (!this.snapshotHost)
-      throw new SkillagerError('unavailable', 'Skill review is unavailable.')
     return new SkillagerReviewCommands(
-      this.snapshotHost,
+      this.host,
       this.process,
       this.context,
       (selection, signal) => this.validateLocal(selection, signal),

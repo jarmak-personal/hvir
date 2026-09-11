@@ -23,6 +23,11 @@ for (const shell of ['/bin/zsh', '/bin/tcsh']) {
           hostId: host.hostId,
           defaultShell: () => Promise.resolve(shell),
           realpath: (path) => host.realpath(path),
+          stat: (path) => host.stat(path),
+          readdir: (path) => host.readdir(path),
+          fileTransfer: host.fileTransfer,
+          createDirectoryExclusive: (path, options) =>
+            host.createDirectoryExclusive(path, options),
           exec: (command, args, options) =>
             host.exec(command, args, {
               ...options,

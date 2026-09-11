@@ -40,7 +40,20 @@ function fixture(
     cli,
     resources.scopes,
     () => available,
-    review,
+    review ?? {
+      cli: {
+        review: vi.fn(() => Promise.reject(new Error('Unexpected content review'))),
+        history: vi.fn(() => Promise.reject(new Error('Unexpected version history'))),
+        diff: vi.fn(() => Promise.reject(new Error('Unexpected content diff'))),
+        accept: vi.fn(() => Promise.reject(new Error('Unexpected acceptance'))),
+      },
+      previews: {
+        create: vi.fn(() => {
+          throw new Error('Unexpected HTML preview')
+        }),
+        release: vi.fn(),
+      },
+    },
   )
   onTestFinished(() => capability.dispose())
   async function connect() {
