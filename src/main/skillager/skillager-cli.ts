@@ -1,3 +1,6 @@
+import { SkillagerExposureCommands } from './skillager-exposure-commands'
+import type { SkillagerExposureRequest } from '../../shared/skillager-exposure'
+import type { SkillagerExposureSnapshot } from './skillager-exposure-port'
 import { SkillagerReviewCommands } from './skillager-review-commands'
 import type { SkillagerSnapshotHost } from './skillager-review-snapshot'
 import type { SkillagerReviewSnapshot } from './skillager-review-port'
@@ -111,6 +114,30 @@ export class SkillagerCli implements SkillagerCliPort {
   ) {
     return this.operate(() => this.reviewCommands().accept(selection, snapshot, signal))
   }
+  previewExposure(
+    selection: SkillagerCliSelection,
+    request: SkillagerExposureRequest,
+    signal: AbortSignal,
+  ) {
+    return this.operate(() =>
+      this.exposureCommands().previewExposure(selection, request, signal),
+    )
+  }
+  applyExposure(
+    selection: SkillagerCliSelection,
+    snapshot: SkillagerExposureSnapshot,
+    signal: AbortSignal,
+  ) {
+    return this.operate(() =>
+      this.exposureCommands().applyExposure(selection, snapshot, signal),
+    )
+  }
+  private exposureCommands(): SkillagerExposureCommands {
+    return new SkillagerExposureCommands(this.host, this.process, (selection, signal) =>
+      this.validateLocal(selection, signal),
+    )
+  }
+
   private reviewCommands(): SkillagerReviewCommands {
     return new SkillagerReviewCommands(
       this.host,

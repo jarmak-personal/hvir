@@ -66,6 +66,10 @@ export interface IpcDeps extends IpcRouterAuthorityPort {
     | 'acceptReview'
     | 'releaseReview'
     | 'cancelReview'
+    | 'previewExposure'
+    | 'applyExposure'
+    | 'releaseExposure'
+    | 'cancelExposure'
   >
   readonly echoWorker: WorkerClient<EchoWorkerProtocol>
   readonly gitWorker: WorkerClient<GitWorkerProtocol>

@@ -149,6 +149,7 @@ export function WorkbenchViewerPane({
             metadata={skillager.active.metadata}
             tab={skillager.active}
             reviews={skillager.reviews}
+            exposures={skillager.exposures}
           />
         </div>
       ) : null}

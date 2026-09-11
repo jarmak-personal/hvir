@@ -9,7 +9,6 @@ import type {
   SkillagerHistory,
   SkillagerReviewDiff,
 } from '../../shared/skillager-review'
-import type { SkillagerLibrary } from '../../shared/skillager'
 import { SkillagerError } from './skillager-port'
 
 export function reviewObject(value: unknown): Record<string, unknown> {
@@ -25,11 +24,6 @@ export function reviewHash(value: unknown): string {
   const hash = reviewText(value, 64)
   if (!/^[0-9a-f]{64}$/.test(hash)) return malformed()
   return hash
-}
-export function reviewSkillRoot(library: SkillagerLibrary, id: string): HostPath {
-  if (!/^lib\/[\p{L}\p{N}]+(?:-[\p{L}\p{N}]+)*$/u.test(id) || id.length > 68)
-    throw new SkillagerError('invalid-request', 'Select an owned personal-library skill.')
-  return joinHostPath(library.skillsRoot, id.slice(4))
 }
 function skillIdentity(value: unknown, id: string, root: HostPath) {
   const skill = reviewObject(value)

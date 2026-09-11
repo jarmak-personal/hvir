@@ -1,3 +1,4 @@
+import type { SkillagerExposureRequest } from '../../../shared/skillager-exposure'
 import type { SkillagerRequest, SkillagerSearchRequest } from '../../../shared/skillager'
 import type { IpcRegistrar } from '../authority-router'
 import type { IpcDeps } from '../deps'
@@ -5,6 +6,23 @@ import type { IpcDeps } from '../deps'
 type SkillagerIpcDeps = Pick<IpcDeps, 'skillager'>
 
 export function registerSkillagerIpc(ipc: IpcRegistrar, deps: SkillagerIpcDeps): void {
+  ipc.handle('skillager:preview-exposure', (request, context) =>
+    deps.skillager.previewExposure(
+      context.owner(),
+      qualifyExposureRequest(ipc.authority, request),
+    ),
+  )
+  ipc.handle('skillager:apply-exposure', (request, context) =>
+    deps.skillager.applyExposure(context.owner(), boundedText(request?.previewId)),
+  )
+  ipc.handle('skillager:release-exposure', (request, context) =>
+    deps.skillager.releaseExposure(context.owner(), boundedText(request?.previewId)),
+  )
+  ipc.handle('skillager:cancel-exposure', (request, context) => {
+    if (!request || !Number.isSafeInteger(request.requestId) || request.requestId < 1)
+      throw new Error('Invalid exposure cancellation.')
+    return deps.skillager.cancelExposure(context.owner(), request.requestId)
+  })
   ipc.handle('skillager:cancel-review', (request, context) => {
     if (!request || !Number.isSafeInteger(request.requestId) || request.requestId < 1)
       throw new Error('Invalid review cancellation.')
@@ -117,4 +135,41 @@ function boundedText(value: unknown): string {
   if (typeof value !== 'string' || !value || value.length > 16384 || value.includes('\0'))
     throw new Error('Invalid Skillager review selection.')
   return value
+}
+
+function qualifyExposureRequest(
+  authority: IpcRegistrar['authority'],
+  request: SkillagerExposureRequest,
+): SkillagerExposureRequest {
+  const base = qualifySkillagerRequest(authority, request)
+  if (
+    !request.destination ||
+    !['add', 'change', 'remove'].includes(request.action) ||
+    !['native', 'stub'].includes(request.mode)
+  )
+    throw new Error('Invalid exposure action.')
+  const exposure = request.exposure
+  return {
+    ...base,
+    skillId: boundedText(request.skillId),
+    mode: request.mode,
+    action: request.action,
+    destination: {
+      projectId: boundedText(request.destination.projectId),
+      workspaceId: boundedText(request.destination.workspaceId),
+      root: authority.workspaceRoot(
+        authority.reconstructHostPath(request.destination.root),
+      ),
+    },
+    exposure:
+      exposure === undefined
+        ? undefined
+        : {
+            id: boundedText(exposure.id),
+            skillId: boundedText(exposure.skillId),
+            target: authority.reconstructHostPath(exposure.target),
+            mode: boundedText(exposure.mode),
+            status: boundedText(exposure.status),
+          },
+  }
 }

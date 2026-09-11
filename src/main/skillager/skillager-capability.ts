@@ -1,3 +1,10 @@
+import type { SkillagerExposureRequest } from '../../shared/skillager-exposure'
+import type {
+  SkillagerExposureCliPort,
+  SkillagerDestinationAvailable,
+} from './skillager-exposure-port'
+import { SkillagerExposureOwner } from './skillager-exposure-owner'
+import { skillagerLibrarySkillRoot } from './skillager-library-identity'
 import type {
   SkillagerSkillRequest,
   SkillagerReviewRequest,
@@ -48,6 +55,7 @@ export class SkillagerCapability {
   private readonly owners = new Map<string, OwnerState>()
   private readonly jobs = new Map<Promise<unknown>, string>()
   private disposed = false
+  private readonly exposures: SkillagerExposureOwner
   private readonly reviews: SkillagerReviewOwner
 
   constructor(
@@ -61,7 +69,12 @@ export class SkillagerCapability {
       readonly cli: SkillagerReviewCliPort
       readonly previews: SkillagerReviewPreviewPort
     },
+    private readonly exposure: {
+      readonly cli: SkillagerExposureCliPort
+      readonly destinationAvailable: SkillagerDestinationAvailable
+    },
   ) {
+    this.exposures = new SkillagerExposureOwner(exposure.cli, resources)
     this.reviews = new SkillagerReviewOwner(review.cli, resources, review.previews)
   }
 
@@ -165,6 +178,7 @@ export class SkillagerCapability {
     if (!state) return
     state.generation++
     void this.track(owner, this.reviews.revoke(owner))
+    void this.track(owner, this.exposures.revoke(owner))
     state.probe?.abort()
     this.cancelLane(state.lanes.search)
     this.cancelLane(state.lanes.inventory)
@@ -239,8 +253,56 @@ export class SkillagerCapability {
       this.cancelLane(state.lanes.inventory)
     }
     this.owners.clear()
+    await this.exposures.revoke()
     await this.reviews.revoke()
     await Promise.allSettled([...this.jobs.keys()])
+  }
+
+  previewExposure(owner: RendererOwner, request: SkillagerExposureRequest) {
+    return this.track(
+      owner,
+      result(async () => {
+        const grant = this.reviewGrant(owner, request)
+        skillagerLibrarySkillRoot(grant.selection.library!, request.skillId)
+        if (
+          !['add', 'change', 'remove'].includes(request.action) ||
+          !['native', 'stub'].includes(request.mode) ||
+          (request.action !== 'add' &&
+            (!request.exposure ||
+              request.exposure.skillId !== request.skillId ||
+              !['native', 'stub'].includes(request.exposure.mode)))
+        )
+          throw new SkillagerError(
+            'invalid-request',
+            'Select an owned direct workspace skill action.',
+          )
+        const assertCurrent = () => {
+          grant.assertCurrent()
+          if (!this.exposure.destinationAvailable(request.destination))
+            throw new SkillagerError(
+              'unavailable',
+              'The selected local destination is closed, missing, or no longer registered.',
+            )
+        }
+        assertCurrent()
+        return this.exposures.preview(owner, request, {
+          selection: grant.selection,
+          assertCurrent,
+        })
+      }),
+    )
+  }
+  applyExposure(owner: RendererOwner, previewId: string) {
+    return this.track(
+      owner,
+      result(() => this.exposures.apply(owner, previewId)),
+    )
+  }
+  releaseExposure(owner: RendererOwner, previewId: string) {
+    return this.exposures.release(owner, previewId)
+  }
+  cancelExposure(owner: RendererOwner, requestId: number) {
+    return this.exposures.cancel(owner, requestId)
   }
 
   review(owner: RendererOwner, request: SkillagerSkillRequest) {

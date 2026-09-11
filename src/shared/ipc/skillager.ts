@@ -1,4 +1,9 @@
 import type {
+  SkillagerExposureRequest,
+  SkillagerExposurePreview,
+  SkillagerExposureCompletion,
+} from '../skillager-exposure'
+import type {
   SkillagerAcceptance,
   SkillagerHistory,
   SkillagerReview,
@@ -20,6 +25,16 @@ import type {
 
 export const skillagerIpc = {
   invoke: {
+    'skillager:preview-exposure': invoke<
+      SkillagerExposureRequest,
+      SkillagerResult<SkillagerExposurePreview>
+    >(),
+    'skillager:apply-exposure': invoke<
+      { readonly previewId: string },
+      SkillagerResult<SkillagerExposureCompletion>
+    >(),
+    'skillager:release-exposure': invoke<{ readonly previewId: string }, void>(),
+    'skillager:cancel-exposure': invoke<{ readonly requestId: number }, void>(),
     'skillager:cancel-review': invoke<{ readonly requestId: number }, void>(),
     'skillager:review': invoke<SkillagerSkillRequest, SkillagerResult<SkillagerReview>>(),
     'skillager:history': invoke<

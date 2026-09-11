@@ -1,3 +1,4 @@
+import { skillagerLibrarySkillRoot } from './skillager-library-identity'
 import { randomUUID } from 'node:crypto'
 import { joinHostPath, type HostPath } from '../../shared/host-path'
 import type {
@@ -17,7 +18,6 @@ import {
   parseReviewAccepted,
   parseReviewDiff,
   parseReviewHistory,
-  reviewSkillRoot,
   verifySnapshotLibrary,
   verifySnapshotPreview,
 } from './skillager-review-contract'
@@ -48,7 +48,7 @@ export class SkillagerReviewCommands implements SkillagerReviewCliPort {
     signal: AbortSignal,
   ): Promise<SkillagerReviewSnapshot> {
     await this.validate(selection, signal)
-    const root = reviewSkillRoot(selection.library!, skillId)
+    const root = skillagerLibrarySkillRoot(selection.library!, skillId)
     const preview = parseAcceptancePreview(
       await this.command(selection, ['library', 'accept', skillId, '--json'], signal),
       skillId,
@@ -139,7 +139,7 @@ export class SkillagerReviewCommands implements SkillagerReviewCliPort {
     signal: AbortSignal,
   ): Promise<SkillagerHistory> {
     await this.validate(selection, signal)
-    const root = reviewSkillRoot(selection.library!, skillId)
+    const root = skillagerLibrarySkillRoot(selection.library!, skillId)
     const result = parseReviewHistory(
       await this.command(selection, ['library', 'history', skillId, '--json'], signal),
       skillId,

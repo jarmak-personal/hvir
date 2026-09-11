@@ -54,6 +54,17 @@ function fixture(
         release: vi.fn(),
       },
     },
+    {
+      cli: {
+        previewExposure: vi.fn(() =>
+          Promise.reject(new Error('Unexpected exposure preview')),
+        ),
+        applyExposure: vi.fn(() =>
+          Promise.reject(new Error('Unexpected exposure apply')),
+        ),
+      },
+      destinationAvailable: () => available,
+    },
   )
   onTestFinished(() => capability.dispose())
   async function connect() {

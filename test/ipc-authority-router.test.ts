@@ -466,6 +466,10 @@ describe('IpcAuthorityRouter', () => {
         'skillager:accept-review',
         'skillager:release-review',
         'skillager:cancel-review',
+        'skillager:preview-exposure',
+        'skillager:apply-exposure',
+        'skillager:release-exposure',
+        'skillager:cancel-exposure',
         'workbench-health:acknowledge',
         'diagnostic-evidence:get',
         'diagnostic-evidence:delete',
@@ -533,6 +537,7 @@ describe('IpcAuthorityRouter', () => {
     expect(new Set(AUTHORITY_SCOPED_INVOKE_CHANNELS)).toEqual(
       new Set<IpcInvokeChannel>([
         'skillager:inventory',
+        'skillager:preview-exposure',
         'skillager:search',
         'skillager:review',
         'skillager:history',
@@ -620,7 +625,7 @@ describe('IpcAuthorityRouter', () => {
     expect(source).not.toMatch(/getRegisteredWorkspaceRoot/)
     for (const channel of AUTHORITY_SCOPED_INVOKE_CHANNELS) {
       expect(registrationBlock(source, 'handle', channel)).toMatch(
-        /ipc\.authority\.|(?:authorizeDocumentRead|qualifySkillagerRequest)\(ipc\.authority,/,
+        /ipc\.authority\.|(?:authorizeDocumentRead|qualifySkillagerRequest|qualifyExposureRequest)\(ipc\.authority,/,
       )
     }
     for (const channel of OWNER_SCOPED_INVOKE_CHANNELS) {
