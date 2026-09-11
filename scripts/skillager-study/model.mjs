@@ -94,8 +94,11 @@ export function initialState() {
     missing: false,
     empty: false,
     library: libraries[0],
-    viewer: 'skills',
-    skillsOpen: true,
+    railMode: 'files',
+    viewer: 'document',
+    lastOrdinaryViewer: 'document',
+    skillsOpen: false,
+    reviewOpen: false,
     perspective: 'library',
     destination: 'local-main',
     agent: 'codex',
@@ -133,8 +136,11 @@ export const exposureKey = (state) => `${state.destination}/${state.agent}`
 export const exposuresFor = (state) => state.exposures[exposureKey(state)] || {}
 export const unmanagedFor = (state, id = state.selected, key = exposureKey(state)) =>
   state.unmanagedTargets[key]?.[id] === true
-export function automaticRefreshAllowed({ connected, viewer }, visible, focused) {
-  return connected && viewer === 'skills' && visible && focused
+export function skillsVisible(state) {
+  return state.enabled && (state.railMode === 'skills' || state.viewer === 'skills')
+}
+export function automaticRefreshAllowed(state, visible, focused) {
+  return state.connected && skillsVisible(state) && visible && focused
 }
 export const modeLabel = (mode) => (mode === 'stub' ? 'Stub' : 'Full skill')
 export const agentLabel = (agent) => (agent === 'codex' ? 'Codex' : 'Claude Code')

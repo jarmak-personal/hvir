@@ -2,9 +2,10 @@
 
 This maintained, offline study illustrates the accepted interaction in ADR-046. Its original
 reference was the user-owned `skillager-integration.local/` study; those originals remain
-untouched. The same dark palette, viewer/terminal split, sidebar launcher, and representative
-skills are retained. The revised surface adds the accepted opt-in connection, exact source and
-destination, submitted search, remote scope restriction, review distinctions, and refresh rules.
+untouched. The dark palette, viewer/terminal split, and representative skills are retained.
+Skills is a left-sidebar peer of Files/Git: metadata browsing and submitted search live on the
+left, selected details and explicit body review use the normal main viewer. The study harness
+and scenario controls sit outside the illustrated app shell.
 
 Generate a standalone HTML file from the maintained sources:
 
@@ -19,23 +20,29 @@ initial disabled state. The scenario selector loads independent examples, includ
 missing CLI, empty, stale preview, protected targets, remote delivery, and unavailable freshness.
 
 The source model owns only illustrative state; views produce markup; the browser entry owns
-DOM events and page timers. The builder uses the declared Vite dependency to bundle these modules and stylesheet into a
-single self-contained artifact outside the maintained tree. Generated HTML, screenshots, and
-run evidence are not committed. Ordinary source and dependency checks cover the maintained JS
+DOM events and page timers. The builder uses the declared Vite dependency to bundle these modules
+and stylesheet into a single self-contained artifact outside the maintained tree. Generated HTML,
+screenshots, and run evidence are not committed. Ordinary source and dependency checks cover the maintained JS
 and CSS; no source-policy exception or production dependency is introduced.
 
 ## Exercise the decisions
 
+- Start disabled: the app shows no Skills navigation, placeholder, controls, badges, or retained
+  content. Only Settings offers Enable Skillager. Enabling reveals connection settings without
+  granting access or reopening a prior feature viewer.
 - Enable Skillager in Settings and connect the exact displayed local library. Changing its
   identity/location requires reconnecting; review, acceptance, and exposure then name that selected
   source. Ordinary content review does not require reconnecting.
-- Switch among Skills, the document, and Git history. Close and reopen Skills while the terminal
-  and session rail remain below the viewer.
+- Switch Files/Git/Skills independently of open viewer tabs. Select metadata from the sidebar,
+  then use Review content to read the chosen snapshot. Closing a skill tab preserves a visible
+  sidebar; switching to another skill never carries forward body-review access.
+- Disable during search, a preview, or a notification. Feature requests and timers stop, its
+  tabs/dialogs/toasts disappear, and the sidebar returns to Files if needed. The last ordinary
+  viewer and terminal/session content remain. Re-enabling starts disconnected, without old tabs.
 - Submit `deadlock` in the sample search scenario. It illustrates title, description, and
   body-only metadata matches, external ownership, loading, cancellation, the submitted query beside
-  results, the 50-row window, and
-  the 50,000-character accepted-body boundary. The eight-row synthetic dataset proves no scale
-  or CLI behavior.
+  results, the 50-row window, and the 50,000-character accepted-body boundary. The eight-row
+  synthetic dataset proves no scale or CLI behavior.
 - Add to a selected worktree and agent, change mode, or remove its exposure. The preview names
   source version, exact destination, existing state, and every sample effect. Protected targets
   cannot be replaced or removed through ordinary actions. Unmanaged presence has no recorded mode
@@ -53,16 +60,18 @@ node scripts/skillager-study/check.mjs /tmp/hvir-skillager-study
 ```
 
 It uses an isolated headless Chrome profile, observes process completion from launch, bounds
-termination waits, removes its profile, and writes `validation.json`
-and a compact screenshot beside the artifact. Set `HVIR_STUDY_CHROME` to an explicit local Chrome
-or Chromium executable on other systems. The opaque `allow-scripts` iframe check proves this
+termination waits, removes its profile, and writes `validation.json` plus initial-off, sidebar,
+explicit-review, disabled-after-search, and compact screenshots beside the artifact. Set
+`HVIR_STUDY_CHROME` to an explicit local Chrome or Chromium executable on other systems. The opaque `allow-scripts` iframe check proves this
 self-contained page renders in that browser sandbox. It does not establish hvir's response-header
 CSP, Electron lifecycle, terminal responsiveness, or SSH transport behavior.
 
-Refresh eligibility is checked at its pure connection/viewer/visibility/focus gate. Browser checks
-exercise viewer selection and actual tab focus changes where Chromium exposes them, plus terminal
-and session-rail content and geometry preservation. The report discloses unsupported background
-state observations. These checks do not wait through a real 60-second periodic interval.
+Refresh eligibility is checked at its pure enable/connection/sidebar/viewer/visibility/focus gate.
+The browser runner observes actual periodic timer acquisition/release without changing the clock,
+and replays an actual canceled search callback to prove late publication is rejected. Browser
+checks exercise separate sidebar/viewer selection and real tab focus changes where Chromium
+exposes them, plus terminal/session content and geometry preservation. The report discloses
+unsupported background observations. It does not wait through a real 60-second periodic interval.
 
 ## Real CLI contract evidence
 

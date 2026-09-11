@@ -17,7 +17,7 @@ export const escapeHtml = (value) =>
 const button = (action, label, disabled = false) =>
   `<button data-action="${action}" ${disabled ? 'disabled' : ''}>${label}</button>`
 export function connectionView(state) {
-  return `<h2 id="dialog-title">Settings · Skillager</h2><p>Optional built-in integration</p>
+  return `<h2 id="dialog-title">Settings</h2>
     <label class="inline"><input type="checkbox" id="enabled" ${state.enabled ? 'checked' : ''}>Enable Skillager</label>
     ${
       state.enabled
@@ -26,16 +26,17 @@ export function connectionView(state) {
       <p>Connecting grants metadata access. Review content opens selected bodies or diffs. Accept library changes is a separate confirmation.</p>
       ${button('change-library', 'Change library (sample)')}
       ${button('connect', state.connected ? 'Connected' : 'Connect this library', state.missing || state.connected)}`
-        : '<p>Enable the integration to choose its local installation and library.</p>'
+        : ''
     }
     <footer>${button('close', 'Close')}</footer>`
 }
 export function catalogView(state) {
+  if (!state.enabled) return ''
   const heading = `<div class="heading"><div><h1>${state.perspective === 'library' ? 'Personal library' : 'Workspace skills'}</h1><p>Review instructions and choose when workspace copies change.</p></div>${button('refresh', '↻ Refresh', !state.connected)}</div>`
   if (!state.connected)
     return (
       heading +
-      `<div class="empty"><h2>${state.missing ? 'Skillager unavailable' : 'Connect Skillager'}</h2><p>${state.missing ? 'The selected executable could not be found. Check Settings and retry.' : 'The integration starts disabled. Enable it in Settings, then connect the displayed personal library.'}</p>${button('settings', 'Open Skillager settings')}</div>`
+      `<div class="empty"><h2>${state.missing ? 'Skillager unavailable' : 'Connect Skillager'}</h2><p>${state.missing ? 'The selected executable could not be found. Check Settings and retry.' : 'Connect the displayed personal library in Settings to browse metadata. Enabling alone grants no access.'}</p>${button('settings', 'Open Skillager settings')}</div>`
     )
   if (state.empty)
     return (
@@ -49,16 +50,12 @@ export function catalogView(state) {
       (state.perspective === 'library' || current[s.id] || unmanagedFor(state, s.id)) &&
       (state.filter !== 'pending' || !s.accepted),
   )
-  return (
-    heading +
-    `${remote ? `<div class="notice"><strong>Source:</strong> Local personal library → <strong>Destination:</strong> ${escapeHtml(destinationFor(state).label)}<p>Full skill files only · no remote Skillager. Remote management here is simulated; production awaits its portable package and compare/apply contracts.</p></div>` : ''}
+  return `${remote ? `<details class="search-caption"><summary>Local library → ${escapeHtml(destinationFor(state).label)}</summary><p>Full skill files only · no remote Skillager. Remote management here is simulated; production awaits its portable package and compare/apply contracts.</p></details>` : ''}
     <form id="search-form" class="search-bar"><input id="search" aria-label="Search skill metadata and accepted body" placeholder="Search titles, descriptions, tags and accepted bodies…" maxlength="1000" value="${escapeHtml(state.query)}"><select id="search-scope" aria-label="Search scope"><option value="personal" ${state.scope === 'personal' ? 'selected' : ''}>Personal library</option><option value="available" ${state.scope === 'available' ? 'selected' : ''} ${remote ? 'disabled' : ''}>All available to this workspace</option></select><button class="primary" type="submit">Search</button>${button('cancel-search', 'Cancel search', !state.searching)}</form>
-    <p class="search-caption">Enter/Search submits · up to 50 ranked metadata results · no total or pagination.<br>Accepted-body search covers the first 50,000 characters. Pending drafts remain browsable below.</p>
-    <div id="search-status" role="status">${state.searching ? `Searching Skillager for “${escapeHtml(state.submittedQuery)}”… Initial indexing may take several seconds.` : state.results ? `${rows.length} results returned for “${escapeHtml(state.submittedQuery)}” · ${state.scope === 'personal' ? 'Personal library · workspace exposure unknown in search' : 'All available to this workspace'}` : 'Metadata only. Use Review content to open a body or diff.'}</div>
-    <div class="toolbar"><label>Browse <select id="filter"><option value="all">All metadata</option><option value="pending" ${state.filter === 'pending' ? 'selected' : ''}>Pending review</option></select></label><span id="freshness">${escapeHtml(state.lastChecked)}</span></div>
-    <small>Refresh on visibility, after actions, and every 60 seconds while this tab is visible and the app is foregrounded. Only the active workspace is observed.</small>
-    <div class="catalog-layout"><section id="skill-list">${rows.map((s) => `<div class="skill-row ${s.id === state.selected ? 'selected' : ''}" data-skill="${s.id}"><button data-select="${s.id}"><h3>${s.id}</h3><p>${s.description}</p><small>${s.source || 'Owned · Personal library'} · ${state.perspective === 'library' ? (s.blocked ? 'Blocked source' : s.accepted ? 'Accepted' : 'Needs review') : unmanagedFor(state, s.id) ? 'Unmanaged target' : `${modeLabel(current[s.id].mode)} · ${statusFor(s, current[s.id])}`}${state.results ? ` · ${s.match} match` : ''}</small></button><button class="more" data-menu="${s.id}" aria-label="Actions for ${s.id}">⋯</button></div>`).join('') || '<p class="empty">No matching skills</p>'}</section><aside class="details" id="details">${detailView(state)}</aside></div>`
-  )
+    <details class="search-caption"><summary>Search coverage · first 50,000 body characters</summary><p>Enter/Search submits up to 50 ranked metadata results. No total or pagination. Only accepted bodies are searched; pending drafts remain in metadata browsing. Refresh runs every 60 seconds while this sidebar or a skill viewer is visible and the app is foregrounded, for the active workspace only.</p></details>
+    <div id="search-status" role="status">${state.searching ? `Searching Skillager for “${escapeHtml(state.submittedQuery)}”… Initial indexing may take several seconds.` : state.results ? `${rows.length} results returned for “${escapeHtml(state.submittedQuery)}” · ${state.scope === 'personal' ? 'Personal library · workspace exposure unknown in search' : 'All available to this workspace'}` : 'Metadata only · Review content opens bodies/diffs.'}</div>
+    <div class="toolbar"><label>Browse <select id="filter"><option value="all">All metadata</option><option value="pending" ${state.filter === 'pending' ? 'selected' : ''}>Pending review</option></select></label>${button('refresh', '↻ Refresh')}</div><p id="freshness" class="muted">${escapeHtml(state.lastChecked)}</p>
+    <section id="skill-list">${rows.map((s) => `<div class="skill-row ${s.id === state.selected ? 'selected' : ''}" data-skill="${s.id}"><button data-select="${s.id}"><h3>${s.id}</h3><p>${s.description}</p><small>${s.source || 'Owned · Personal library'} · ${state.perspective === 'library' ? (s.blocked ? 'Blocked source' : s.accepted ? 'Accepted' : 'Needs review') : unmanagedFor(state, s.id) ? 'Unmanaged target' : `${modeLabel(current[s.id].mode)} · ${statusFor(s, current[s.id])}`}${state.results ? ` · ${s.match} match` : ''}</small></button><button class="more" data-menu="${s.id}" aria-label="Actions for ${s.id}">⋯</button></div>`).join('') || '<p class="empty">No matching skills</p>'}</section>`
 }
 export function detailView(state) {
   const s = skillFor(state),
@@ -111,4 +108,20 @@ export function previewView(state, preview) {
     ${protectedTarget ? `<div class="notice">${typeof protectedTarget === 'string' ? protectedTarget : 'Already added'}: preserve this target. Ordinary replacement and removal are unavailable.</div>` : ''}
     <small>The study simulates the accepted contract. Production actions require actual CLI-bound preview/apply and complete effects.</small>
     <footer>${button('close', 'Cancel')}${button('apply', label, !!protectedTarget)}</footer>`
+}
+
+export function skillsRailView(state) {
+  if (!state.enabled) return ''
+  const pending = state.skills.filter((s) => !s.accepted).length
+  const updates = state.skills.filter(
+    (s) => statusFor(s, exposuresFor(state)[s.id]) === 'Workspace copy behind',
+  ).length
+  return `<div class="skills-scope"><button id="library-nav" data-perspective="library">Personal library</button><button id="workspace-nav" data-perspective="workspace">This workspace</button></div>
+    ${state.connected ? `<div class="feature-badges"><span id="review-count">${pending} library review${pending === 1 ? '' : 's'}</span><span id="updates-count">${updates} workspace update${updates === 1 ? '' : 's'}</span></div>` : ''}
+    <div class="rail-controls"><label>Destination<select id="destination">${destinations.map((d) => `<option value="${d.id}" ${d.id === state.destination ? 'selected' : ''}>${escapeHtml(d.label)}</option>`).join('')}</select></label><label>Agent<select id="agent"><option value="codex" ${state.agent === 'codex' ? 'selected' : ''}>Codex</option><option value="claude" ${state.agent === 'claude' ? 'selected' : ''}>Claude Code</option></select></label></div>
+    <div id="content">${catalogView(state)}<p id="connection-label">${state.connected ? 'Local Skillager connected' : 'Skillager disconnected'}</p></div>`
+}
+export function reviewView(state) {
+  const s = skillFor(state)
+  return `<h2>Review content · ${s.id}</h2><div class="target">${s.source || `Local · ${state.library.path}/skills/${s.id}`}<p>Reviewed snapshot: ${s.version}</p></div><h3>SKILL.md · sample instructions</h3><p>Read the proposed change and its tests. Verify rollback preserves existing data.</p><p>Full tree: SKILL.md only in this sample. Supporting files and executable modes must be reviewable before production acceptance.</p>${!s.accepted ? sampleDiff : ''}<div class="notice">Content review does not approve or expose this skill.</div>${button('metadata', 'Back to metadata')}`
 }

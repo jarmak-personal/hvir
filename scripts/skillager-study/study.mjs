@@ -6,20 +6,20 @@ import {
   destinationFor,
   skillFor,
   exposuresFor,
-  statusFor,
   sampleSearch,
   previewSnapshot,
   applySample,
   libraries,
   automaticRefreshAllowed,
+  skillsVisible,
 } from './model.mjs'
 import {
-  catalogView,
   connectionView,
   pickerView,
   previewView,
   detailView,
-  sampleDiff,
+  skillsRailView,
+  reviewView,
   escapeHtml,
 } from './views.mjs'
 const $ = (selector) => document.querySelector(selector)
@@ -27,8 +27,10 @@ let state = initialState(),
   preview,
   searchTimer,
   queryGeneration = 0,
-  toastTimer
+  toastTimer,
+  periodic
 function notify(text) {
+  if (!state.enabled) return
   clearTimeout(toastTimer)
   $('#toast').textContent = text
   $('#toast').hidden = false
@@ -45,6 +47,7 @@ function cancelSearch() {
 }
 function closeDialog() {
   $('#dialog').close()
+  $('#dialog').innerHTML = ''
   preview = null
 }
 function modal(html) {
@@ -52,7 +55,7 @@ function modal(html) {
   if (!$('#dialog').open) $('#dialog').showModal()
 }
 function refresh() {
-  if (!state.connected || state.viewer !== 'skills') return
+  if (!state.connected || !skillsVisible(state)) return
   state.lastChecked = `Checked at ${new Date().toLocaleTimeString()} · ${destinationFor(state).label}`
   render()
 }
@@ -61,45 +64,77 @@ function render() {
   const selection = focusedSearch
     ? [$('#search').selectionStart, $('#search').selectionEnd]
     : null
+  $('#active-workspace').textContent = destinationFor(state).label
+  $('#skills-nav-container').innerHTML = state.enabled
+    ? '<button id="skills-nav" data-rail="skills">Skills</button>'
+    : ''
+  $('#skills-tab-container').innerHTML =
+    state.enabled && state.skillsOpen
+      ? `<button data-viewer="skills">${escapeHtml(state.selected)}</button><button data-action="close-skills" aria-label="Close skill">×</button>`
+      : ''
   for (const viewer of ['skills', 'document', 'history']) {
     $(`#${viewer}-view`).hidden = state.viewer !== viewer
     document
       .querySelectorAll(`[data-viewer="${viewer}"]`)
       .forEach((b) => b.classList.toggle('active', state.viewer === viewer))
   }
-  $('#skills-tab-container').hidden = !state.skillsOpen
-  $('#connection-label').textContent = state.connected
-    ? 'Local Skillager connected'
-    : state.enabled
-      ? 'Skillager disconnected'
-      : 'Skillager disabled'
-  $('#destination').value = state.destination
-  $('#agent').value = state.agent
-  $('#library-nav').classList.toggle('active', state.perspective === 'library')
-  $('#workspace-nav').classList.toggle('active', state.perspective === 'workspace')
-  const updates = state.skills.filter(
-    (s) => statusFor(s, exposuresFor(state)[s.id]) === 'Workspace copy behind',
-  ).length
-  $('#updates-count').textContent = state.connected
-    ? `${updates} workspace update${updates === 1 ? '' : 's'}`
-    : ''
-  $('#content').innerHTML = catalogView(state)
+  for (const rail of ['files', 'git', 'skills']) {
+    $(`#${rail}-rail`).hidden = state.railMode !== rail
+    document
+      .querySelectorAll(`[data-rail="${rail}"]`)
+      .forEach((b) => b.classList.toggle('active', state.railMode === rail))
+  }
+  $('#skills-rail').innerHTML = skillsRailView(state)
+  $('#skills-view').innerHTML =
+    state.enabled && state.connected && state.skillsOpen
+      ? state.reviewOpen
+        ? reviewView(state)
+        : `<article class="details" id="details">${detailView(state)}</article>`
+      : ''
+  document
+    .querySelectorAll('[data-perspective]')
+    .forEach((b) =>
+      b.classList.toggle('active', b.dataset.perspective === state.perspective),
+    )
+  syncRefreshDemand()
   if (focusedSearch && $('#search')) {
     $('#search').focus()
     $('#search').setSelectionRange(...selection)
   }
 }
 function selectViewer(viewer) {
-  cancelSearch()
+  if (viewer === 'skills' && (!state.enabled || !state.skillsOpen)) return
   closeDialog()
   state.viewer = viewer
-  if (viewer === 'skills') {
-    state.skillsOpen = true
-    refresh()
-  }
+  if (viewer !== 'skills') state.lastOrdinaryViewer = viewer
+  refresh()
   render()
 }
+function selectRail(rail) {
+  if (rail === 'skills' && !state.enabled) return
+  if (rail !== 'skills') cancelSearch()
+  state.railMode = rail
+  refresh()
+  render()
+}
+function revokeFeature() {
+  state.connected = false
+  state.generation++
+  cancelSearch()
+  clearInterval(periodic)
+  periodic = undefined
+  clearTimeout(toastTimer)
+  $('#toast').hidden = true
+  $('#toast').textContent = ''
+  closeDialog()
+  state.skillsOpen = false
+  state.reviewOpen = false
+  state.query = ''
+  if (state.viewer === 'skills') state.viewer = state.lastOrdinaryViewer
+  if (state.railMode === 'skills') state.railMode = 'files'
+}
 function search() {
+  if (!state.enabled || !state.connected || state.railMode !== 'skills') return
   cancelSearch()
   state.query = $('#search').value
   state.scope = $('#search-scope').value
@@ -111,11 +146,15 @@ function search() {
   render()
   $('#search').focus()
   searchTimer = setTimeout(() => {
-    if (generation !== queryGeneration || !state.connected || state.viewer !== 'skills')
+    if (
+      generation !== queryGeneration ||
+      !state.enabled ||
+      !state.connected ||
+      state.railMode !== 'skills'
+    )
       return
     state.results = sampleSearch({ ...state, ...submitted })
     state.searching = false
-    if (state.results.length) state.selected = state.results[0].id
     render()
   }, 500)
 }
@@ -130,7 +169,13 @@ function prepare(action, mode) {
 function action(name) {
   if (name === 'close') return closeDialog()
   if (name === 'settings') return modal(connectionView(state))
-  if (name === 'connect') {
+  if (!state.enabled) return
+  if (name === 'close-skills') {
+    state.skillsOpen = false
+    state.reviewOpen = false
+    return selectViewer(state.lastOrdinaryViewer)
+  }
+  if (name === 'connect' && !state.missing) {
     state.connected = true
     state.generation++
     closeDialog()
@@ -139,11 +184,14 @@ function action(name) {
   }
   if (name === 'change-library') {
     state.library = state.library.id === libraries[0].id ? libraries[1] : libraries[0]
-    state.connected = false
-    state.generation++
-    cancelSearch()
+    revokeFeature()
     render()
     return modal(connectionView(state))
+  }
+  if (!state.connected) return
+  if (name === 'metadata') {
+    state.reviewOpen = false
+    return render()
   }
   if (name === 'refresh') return refresh()
   if (name === 'cancel-search') {
@@ -168,10 +216,10 @@ function action(name) {
     )
   if (['update', 'remove', 'accept'].includes(name)) return prepare(name)
   if (name === 'read') {
-    const s = skillFor(state)
-    return modal(
-      `<h2 id="dialog-title">Review content · ${s.id}</h2><div class="target">${s.source || `Local · ${state.library.path}/skills/${s.id}`}<p>Reviewed snapshot: ${s.version}</p></div><h3>SKILL.md · sample instructions</h3><p>Read the proposed change and its tests. Verify rollback preserves existing data.</p><p>Full tree: SKILL.md only in this sample. Supporting files and executable modes must be reviewable before production acceptance.</p>${!s.accepted ? sampleDiff : ''}<div class="notice">Content review does not approve or expose this skill.</div><footer><button data-action="close">Close</button></footer>`,
-    )
+    closeDialog()
+    state.reviewOpen = true
+    state.skillsOpen = true
+    return selectViewer('skills')
   }
   if (name === 'history')
     return modal(
@@ -207,6 +255,9 @@ function scenario(name) {
   if (name !== 'disabled') {
     state.enabled = true
     state.connected = true
+    state.railMode = 'skills'
+    state.viewer = 'skills'
+    state.skillsOpen = true
     state.lastChecked = 'Just checked · active workspace'
   }
   if (name === 'missing') {
@@ -255,20 +306,27 @@ function scenario(name) {
   // Simulate an accepted source changing after preview, exercising the real version guard.
   if (name === 'stale') skillFor(state).version = 'newer-a72c'
 }
-$('#destination').innerHTML = destinations
-  .map((d) => `<option value="${d.id}">${escapeHtml(d.label)}</option>`)
-  .join('')
 document.addEventListener('click', (event) => {
   const button = event.target.closest('button')
   if (!button || button.disabled) return
   if (button.dataset.action) return action(button.dataset.action)
+  if (button.dataset.rail) return selectRail(button.dataset.rail)
   if (button.dataset.viewer) return selectViewer(button.dataset.viewer)
+  if (!state.enabled || !state.connected) return
+  if (button.dataset.perspective) {
+    cancelSearch()
+    state.perspective = button.dataset.perspective
+    return render()
+  }
   if (button.dataset.select) {
     state.selected = button.dataset.select
-    return render()
+    state.reviewOpen = false
+    state.skillsOpen = true
+    return selectViewer('skills')
   }
   if (button.dataset.menu) {
     state.selected = button.dataset.menu
+    state.reviewOpen = false
     render()
     return modal(
       `<h2 id="dialog-title">Actions · ${state.selected}</h2>${detailView(state)}<footer><button data-action="close">Close</button></footer>`,
@@ -289,13 +347,13 @@ document.addEventListener('submit', (event) => {
 })
 document.addEventListener('change', (event) => {
   if (event.target.id === 'enabled') {
-    state.enabled = event.target.checked
-    state.connected = false
-    state.generation++
-    cancelSearch()
+    const enabled = event.target.checked
+    revokeFeature()
+    state.enabled = enabled
     render()
-    modal(connectionView(state))
+    return modal(connectionView(state))
   }
+  if (!state.enabled) return
   if (['destination', 'agent'].includes(event.target.id)) {
     cancelSearch()
     closeDialog()
@@ -329,12 +387,13 @@ document.addEventListener('input', (event) => {
 })
 document.addEventListener('keydown', (event) => {
   if (
+    state.enabled &&
     event.key === '/' &&
     !event.target.matches('input,select,textarea') &&
     !$('#dialog').open
   ) {
     event.preventDefault()
-    selectViewer('skills')
+    selectRail('skills')
     $('#search')?.focus()
   }
 })
@@ -347,21 +406,6 @@ $('#reset').onclick = () => {
   scenario('disabled')
 }
 $('#scenario').onchange = (event) => scenario(event.target.value)
-$('#skills-nav').onclick = () => selectViewer('skills')
-$('#close-skills').onclick = () => {
-  state.skillsOpen = false
-  selectViewer('document')
-}
-$('#library-nav').onclick = () => {
-  cancelSearch()
-  state.perspective = 'library'
-  render()
-}
-$('#workspace-nav').onclick = () => {
-  cancelSearch()
-  state.perspective = 'workspace'
-  render()
-}
 function refreshIfActive() {
   if (
     automaticRefreshAllowed(
@@ -372,14 +416,27 @@ function refreshIfActive() {
   )
     refresh()
 }
-const periodic = setInterval(refreshIfActive, 60_000)
-document.addEventListener('visibilitychange', refreshIfActive)
-window.addEventListener('focus', refreshIfActive)
+function syncRefreshDemand() {
+  const active = automaticRefreshAllowed(
+    state,
+    document.visibilityState === 'visible',
+    document.hasFocus(),
+  )
+  if (active && !periodic) periodic = setInterval(refreshIfActive, 60_000)
+  if (!active && periodic) {
+    clearInterval(periodic)
+    periodic = undefined
+  }
+}
+function visibilityChanged() {
+  syncRefreshDemand()
+  refreshIfActive()
+}
+document.addEventListener('visibilitychange', visibilityChanged)
+window.addEventListener('focus', visibilityChanged)
+window.addEventListener('blur', syncRefreshDemand)
 window.addEventListener('pagehide', () => {
-  cancelSearch()
-  clearInterval(periodic)
-  clearTimeout(toastTimer)
-  state.connected = false
-  state.generation++
+  revokeFeature()
+  render()
 })
 render()
