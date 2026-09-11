@@ -47,6 +47,9 @@ export interface ExecOptions {
   readonly signal?: AbortSignal
   /** Max bytes to buffer across stdout+stderr before failing. */
   readonly maxBuffer?: number
+  /** Independent UTF-8 byte bounds, in addition to the combined buffer limit. */
+  readonly maxStdoutBytes?: number
+  readonly maxStderrBytes?: number
   /** Terminate and return the buffered prefix instead of rejecting at maxBuffer. */
   readonly allowTruncatedOutput?: boolean
   /** Also terminate after this many NUL-delimited stdout records. */

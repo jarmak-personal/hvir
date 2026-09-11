@@ -13,6 +13,7 @@ import { registerImagePasteIpc } from './ipc/features/image-paste'
 import { registerPreviewIpc } from './ipc/features/preview'
 import { registerProjectIpc } from './ipc/features/project'
 import { registerSessionsIpc } from './ipc/features/sessions'
+import { registerSkillagerIpc } from './ipc/features/skillager'
 import { registerTerminalIpc } from './ipc/features/terminal'
 import { registerTerminalFilePasteIpc } from './ipc/features/terminal-file-paste'
 import { registerWebPaneIpc } from './ipc/features/web-pane'
@@ -31,6 +32,7 @@ export function registerIpcHandlers(
     registerDocumentReviewIpc(router, deps)
     registerProjectIpc(router, deps)
     registerSessionsIpc(router, deps)
+    registerSkillagerIpc(router, deps)
     registerFilesystemIpc(router, deps)
     registerGitIpc(router, deps)
     registerHarnessIpc(router, deps)

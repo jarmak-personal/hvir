@@ -37,6 +37,7 @@ import type {
 } from '../document-review'
 import type { SessionsObservationPort } from '../sessions/sessions-observation-port'
 import type { SessionsUsageObservationPort } from '../sessions/sessions-usage-observation-port'
+import type { SkillagerCapability } from '../skillager/skillager-capability'
 
 export type EmitRendererEvent = <E extends IpcEventChannel>(
   channel: E,
@@ -49,6 +50,7 @@ export interface SystemClipboardPort {
 }
 
 export interface IpcDeps extends IpcRouterAuthorityPort {
+  readonly skillager: Pick<SkillagerCapability, 'configure' | 'probe' | 'connect' | 'disconnect' | 'inventory' | 'search' | 'cancel'>
   readonly echoWorker: WorkerClient<EchoWorkerProtocol>
   readonly gitWorker: WorkerClient<GitWorkerProtocol>
   readonly filenameSearch: Pick<FilenameSearchCoordinator, 'search' | 'cancel' | 'revoke'>

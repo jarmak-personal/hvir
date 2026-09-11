@@ -22,6 +22,7 @@ export const ELECTRON_SMOKE_SCENARIOS = [
   'terminal-split',
   'harness-profiles',
   'app-settings',
+  'skillager',
   'capacity',
 ] as const
 

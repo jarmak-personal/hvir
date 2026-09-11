@@ -1,4 +1,4 @@
-import { useEffect, useState, type DragEvent, type ReactElement } from 'react'
+import { useEffect, useState, type DragEvent, type ReactElement, type ReactNode } from 'react'
 
 import { basenameHostPath, type HostPath } from '../../../shared'
 import { PathCopyMenu } from '../path-copy/PathCopyMenu'
@@ -13,6 +13,8 @@ import type { ViewerPaneId, ViewerTab } from './tab-state'
 const VIEWER_TAB_DRAG_TYPE = 'application/x-hvir-viewer-tab'
 
 interface TabStripProps {
+  readonly additionalTabs?: ReactNode
+  readonly hasAdditionalTabs?: boolean
   readonly tabs: readonly ViewerTab[]
   readonly pane: ViewerPaneId
   readonly pathCopyRoot?: HostPath
@@ -36,6 +38,8 @@ interface TabStripProps {
 }
 
 export function TabStrip({
+  additionalTabs,
+  hasAdditionalTabs,
   tabs,
   pane,
   pathCopyRoot,
@@ -211,7 +215,8 @@ export function TabStrip({
             </button>
           </div>
         ))}
-        {tabs.length === 0 && !graphOpen && webTabs.length === 0 ? (
+        {additionalTabs}
+        {tabs.length === 0 && !graphOpen && webTabs.length === 0 && !hasAdditionalTabs ? (
           <span className="tab-strip-empty">{split ? 'Drop a tab here' : 'Viewer'}</span>
         ) : null}
         <span className="tab-strip-spacer" />

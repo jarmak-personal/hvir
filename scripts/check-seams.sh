@@ -37,11 +37,13 @@ hits=$(grep -rnE '\.spawnPty\(' "$SRC" --include='*.ts' --include='*.tsx' --incl
   | grep -v '^src/main/pty/pty-supervisor.ts' || true)
 report "host.spawnPty() called only in pty-supervisor.ts" "$hits"
 
+# Skillager's shared contract separately owns the external CLI --agent vocabulary.
 # 4. Bundled harness identities stay inside provider-owned main modules. Shared
 # IPC, persistence, and renderer code treat provider ids as opaque catalog data.
 hits=$(grep -rnE "['\"](plain-shell|claude-code|codex)['\"]" \
   "$SRC" --include='*.ts' --include='*.tsx' --include='*.mts' \
-  | grep -v '^src/main/harness/' || true)
+  | grep -v '^src/main/harness/' \
+  | grep -v '^src/shared/skillager.ts:' || true)
 report "bundled harness ids used only in src/main/harness/" "$hits"
 
 # 5. Raw loopback streams are transport for the main-owned pane proxy, never a
