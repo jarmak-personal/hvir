@@ -420,8 +420,8 @@ try {
   )
   await click('[data-action="preview-add"]')
   await assert(
-    `document.querySelector('#dialog').textContent.includes('Local · /home/example/.skillager/library') && document.querySelector('#dialog').textContent.includes('SSH · build-host') && document.querySelector('#dialog').textContent.includes('Stage and verify')`,
-    'Remote preview names local source, remote destination and verified staging',
+    `document.querySelector('#dialog').textContent.includes('Local · /home/example/.skillager/library') && document.querySelector('#dialog').textContent.includes('SSH · build-host') && document.querySelector('#dialog').textContent.includes('hvir checks this workspace')`,
+    'Remote preview names local source, remote destination and hvir-managed changes',
   )
   await click('[data-action="apply"]')
   await assert(

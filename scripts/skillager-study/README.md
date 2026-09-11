@@ -55,7 +55,17 @@ and CSS; no source-policy exception or production dependency is introduced.
 - Accept library changes and observe that the old workspace copy stays behind. Update that copy
   as a separate action. Remove a copy and confirm its library row remains.
 - Select SSH: Personal library is the default; workspace catalog search and Stub are unavailable.
-  Full-skill staging and management are simulations of the accepted future contract.
+  The same Add, Update, and Remove flows show local approval/export from Skillager and SSH
+  observation, delivery, and safe destination management by hvir. Remote previews distinguish
+  workspace files from hvir's deployment-record effects; they do not install Skillager sidecars.
+
+Skillager owns local approval/identity and a transport-neutral verified Full skill export, without
+SSH credentials, paths, observation, or mutation APIs. hvir owns remote records/fingerprints,
+transfer, safe publish/update/remove, reconciliation and cleanup through ProjectHost. Remote
+records describe hvir delivery, not Skillager trust state. This study chooses no production record
+format or storage path. The export contract remains an upstream prerequisite; safe destination
+management remains hvir implementation/acceptance work. Existing transfer primitives alone do not
+prove safe replacement, and ordinary Files collision policy remains unchanged.
 
 Skillager is user-installed and user-managed, as documented by its
 [quickstart](https://github.com/jarmak-personal/skillager#quickstart) and
