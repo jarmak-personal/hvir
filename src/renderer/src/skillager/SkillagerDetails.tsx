@@ -1,3 +1,5 @@
+import { SkillagerActions } from './SkillagerActions'
+import type { SkillagerExposureController } from './use-skillager-exposure'
 import { SkillagerReview } from './SkillagerReview'
 import type { SkillagerDetailTab } from './skillager-model'
 import type { SkillagerReviewController } from './use-skillager-review'
@@ -9,9 +11,13 @@ export function SkillagerDetails({
   metadata,
   tab,
   reviews,
+  exposures,
+  actionsVisible = true,
 }: {
   readonly metadata: SkillagerMetadata
   readonly tab?: SkillagerDetailTab
+  readonly actionsVisible?: boolean
+  readonly exposures?: SkillagerExposureController
   readonly reviews?: SkillagerReviewController
 }): ReactElement {
   return (
@@ -21,6 +27,13 @@ export function SkillagerDetails({
         <h1>{metadata.name}</h1>
         <p>{metadata.description}</p>
       </header>
+      {exposures ? (
+        <SkillagerActions
+          metadata={metadata}
+          controller={exposures}
+          active={actionsVisible}
+        />
+      ) : null}
       <dl>
         <dt>Identity</dt>
         <dd>{metadata.id}</dd>

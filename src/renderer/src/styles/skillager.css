@@ -191,3 +191,46 @@
 .skillager-review-confirm button {
   margin: 12px 8px 0 0;
 }
+
+.skillager-action-row {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+}
+.skillager-action-row > .skillager-row {
+  flex: 1;
+  min-width: 0;
+}
+.skillager-actions-trigger {
+  align-self: center;
+  flex: 0 0 28px;
+}
+.skillager-exposure-dialog {
+  width: min(860px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+}
+.skillager-exposure-dialog .confirmation-dialog-content {
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+.skillager-destination-fields {
+  display: grid;
+  gap: 10px;
+}
+.skillager-destination-fields label {
+  display: grid;
+  gap: 4px;
+}
+.skillager-exposure-effects details {
+  padding: 8px;
+  border-top: 1px solid var(--border);
+}
+.skillager-effect-sides {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.skillager-effect-sides pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

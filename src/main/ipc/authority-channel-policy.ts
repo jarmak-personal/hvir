@@ -15,6 +15,10 @@ export const OWNER_SCOPED_INVOKE_CHANNELS = [
   'skillager:accept-review',
   'skillager:release-review',
   'skillager:cancel-review',
+  'skillager:preview-exposure',
+  'skillager:apply-exposure',
+  'skillager:release-exposure',
+  'skillager:cancel-exposure',
   'workbench-health:acknowledge',
   'diagnostic-evidence:get',
   'diagnostic-evidence:delete',
@@ -80,6 +84,7 @@ export const OWNER_SCOPED_SEND_CHANNELS = SEND_CHANNELS
 
 export const AUTHORITY_SCOPED_INVOKE_CHANNELS = [
   'skillager:inventory',
+  'skillager:preview-exposure',
   'skillager:review',
   'skillager:history',
   'skillager:review-content',

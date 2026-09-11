@@ -1,9 +1,10 @@
+import { skillagerExposureFixture } from './skillager-exposure-fixture'
 import { skillagerReviewFixture } from './skillager-review-fixture'
 import type { HtmlPreviewProtocol } from '../html-preview-protocol'
 import { realSkillagerSmokePort } from './skillager-cli-fixture'
 import type { ProjectHost } from '../project-host'
 import type { SmokeCleanup } from './cleanup'
-import { joinHostPath, localPath, type HostPath } from '../../shared/host-path'
+import { localPath, type HostPath } from '../../shared/host-path'
 import type { SkillagerMetadata } from '../../shared/skillager'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import { SkillagerCapability } from '../skillager/skillager-capability'
@@ -45,6 +46,7 @@ export function createSkillagerSmoke(
     matchReasons: [],
     exposure: 'unknown',
   }))
+  const exposureFixture = skillagerExposureFixture(root)
   const calls: string[] = []
   const real = realSkillagerSmokePort(host, cleanup)
   const capability = new SkillagerCapability(
@@ -78,17 +80,7 @@ export function createSkillagerSmoke(
         })
         return [{ ...rows[4999]!, name: request.query, matchReasons: ['body'] }]
       },
-      exposures() {
-        return Promise.resolve([
-          {
-            id: 'lib-skill-1',
-            skillId: 'lib/skill-1',
-            target: joinHostPath(root, '.agents/skills/lib-skill-1'),
-            mode: 'native',
-            status: 'current',
-          },
-        ])
-      },
+      exposures: exposureFixture.exposures,
     },
     resources,
     (candidate) => candidate.hostId === root.hostId && candidate.path === root.path,
@@ -103,6 +95,11 @@ export function createSkillagerSmoke(
         create: (content, at) => previews.create(content, undefined, at),
         release: (id) => previews.release(id),
       },
+    },
+    {
+      cli: real ?? exposureFixture.cli,
+      destinationAvailable: (destination) =>
+        destination.root.path === root.path && destination.root.hostId === root.hostId,
     },
   )
   cleanup.defer('Skillager capability', () => capability.dispose())

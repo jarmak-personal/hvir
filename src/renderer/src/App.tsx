@@ -170,7 +170,7 @@ export function App(): ReactElement {
   } = layout
   const skills = useSkillagerWorkspace({
     enabled: settings.skillagerEnabled === true,
-    root,
+    projectState,
     sidebarVisible:
       destination === 'workspace' && railMode === 'skills' && !treeCollapsed,
     viewerVisible: destination === 'workspace' && terminalMode !== 'maximized',

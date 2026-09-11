@@ -1,3 +1,5 @@
+import { SkillagerActions } from './SkillagerActions'
+import { SkillagerExposureDialog } from './SkillagerExposureDialog'
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import type { HostPath } from '../../../shared/host-path'
 import {
@@ -51,6 +53,7 @@ export function SkillagerSidebar({
   )
   return (
     <section className="skillager-sidebar" aria-label="Skills" hidden={hidden}>
+      <SkillagerExposureDialog controller={controller.exposures} />
       <div className="skillager-perspectives" aria-label="Skill perspective">
         <button
           type="button"
@@ -200,29 +203,36 @@ export function SkillagerSidebar({
                   ) : (
                     <div className="skillager-rows">
                       {rows.slice(pageOffset, pageOffset + 50).map((row) => (
-                        <button
-                          type="button"
-                          className={`skillager-row${controller.active?.metadata.id === row.id ? ' selected' : ''}`}
+                        <SkillagerActions
                           key={row.workspace?.id ?? row.id}
-                          onClick={() => controller.select(row)}
+                          metadata={row}
+                          controller={controller.exposures}
+                          active={!hidden && controller.sidebarVisible}
                         >
-                          <strong>{row.name}</strong>
-                          <span>{row.description}</span>
-                          <small>
-                            {row.source.ownership === 'library'
-                              ? 'Personal library'
-                              : (row.source.collection ??
-                                row.source.package ??
-                                row.source.type)}{' '}
-                            ·{' '}
-                            {perspective === 'workspace' && !searched
-                              ? `${row.workspace?.mode} · ${row.workspace?.status}`
-                              : trustLabel(row)}
-                          </small>
-                          {row.matchReasons.length > 0 ? (
-                            <small>{row.matchReasons.join(' · ')}</small>
-                          ) : null}
-                        </button>
+                          <button
+                            type="button"
+                            className={`skillager-row${controller.active?.metadata.id === row.id ? ' selected' : ''}`}
+                            key={row.workspace?.id ?? row.id}
+                            onClick={() => controller.select(row)}
+                          >
+                            <strong>{row.name}</strong>
+                            <span>{row.description}</span>
+                            <small>
+                              {row.source.ownership === 'library'
+                                ? 'Personal library'
+                                : (row.source.collection ??
+                                  row.source.package ??
+                                  row.source.type)}{' '}
+                              ·{' '}
+                              {perspective === 'workspace' && !searched
+                                ? `${row.workspace?.mode} · ${row.workspace?.status}`
+                                : trustLabel(row)}
+                            </small>
+                            {row.matchReasons.length > 0 ? (
+                              <small>{row.matchReasons.join(' · ')}</small>
+                            ) : null}
+                          </button>
+                        </SkillagerActions>
                       ))}
                     </div>
                   )}

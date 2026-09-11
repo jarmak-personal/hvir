@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { projectState } from './fixtures/skillager-exposure-fixture'
 import { act, useState, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -82,7 +83,7 @@ function Harness({
   const [enabled, setEnabled] = useState(initial)
   current = useSkillagerWorkspace({
     enabled,
-    root,
+    projectState: projectState(root),
     sidebarVisible: visible,
     viewerVisible: true,
     onActivate: () => undefined,

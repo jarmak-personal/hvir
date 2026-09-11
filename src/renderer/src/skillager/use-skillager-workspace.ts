@@ -1,6 +1,8 @@
+import { useSkillagerExposure } from './use-skillager-exposure'
+import type { ProjectState } from '../../../shared/workspace-types'
 import { useSkillagerReview } from './use-skillager-review'
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
-import { localPath, type HostPath } from '../../../shared/host-path'
+import { localPath } from '../../../shared/host-path'
 import {
   SKILLAGER_REFRESH_MS,
   SKILLAGER_AGENTS,
@@ -16,7 +18,7 @@ import { skillagerObservationDemand, skillagerTabs } from './skillager-model'
 
 interface Options {
   readonly enabled: boolean
-  readonly root?: HostPath
+  readonly projectState?: ProjectState
   readonly sidebarVisible: boolean
   readonly viewerVisible: boolean
   readonly onActivate: () => void
@@ -30,7 +32,8 @@ interface ReadState {
 
 const emptyRead: ReadState = { loading: false }
 
-export function useSkillagerWorkspace(options: Options) {
+export function useSkillagerWorkspace(input: Options) {
+  const options = { ...input, root: input.projectState?.root }
   const optionsRef = useRef(options)
   optionsRef.current = options
   const generation = useRef(0)
@@ -315,9 +318,23 @@ export function useSkillagerWorkspace(options: Options) {
     onAccepted: afterAcceptance,
   })
 
+  const exposures = useSkillagerExposure({
+    connection,
+    detailId: tabs.activeId,
+    projectState: options.projectState,
+    agent,
+    visible:
+      options.enabled &&
+      (options.sidebarVisible || (Boolean(tabs.activeId) && options.viewerVisible)),
+    onCompleted: afterAcceptance,
+  })
+
   return {
+    exposures,
     reviews,
     enabled: options.enabled,
+    sidebarVisible: options.sidebarVisible,
+    viewerVisible: options.viewerVisible,
     probe,
     probing,
     check,

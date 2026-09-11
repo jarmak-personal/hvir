@@ -1,8 +1,8 @@
 import type { HostPath } from './host-path'
 
 export const SKILLAGER_AGENTS = [
-  { id: 'codex', label: 'Codex' },
-  { id: 'claude', label: 'Claude Code' },
+  { id: 'codex', label: 'Codex', projectSkillRoots: ['.agents/skills', '.codex/skills'] },
+  { id: 'claude', label: 'Claude Code', projectSkillRoots: ['.claude/skills'] },
 ] as const
 export type SkillagerAgent = (typeof SKILLAGER_AGENTS)[number]['id']
 export type SkillagerSearchScope = 'library' | 'workspace'
