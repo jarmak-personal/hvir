@@ -38,8 +38,13 @@ export function SkillagerSidebar({
   const data = read.result?.ok ? read.result.value : undefined
   const rows = useMemo(() => {
     if (!data) return []
+    const freshness = !controller.observing
+      ? ('stale' as const)
+      : read.loading
+        ? ('checking' as const)
+        : undefined
     const metadata = skillagerWorkspaceMetadata(data).map((row) =>
-      read.loading ? { ...row, workspaceFreshness: 'checking' as const } : row,
+      freshness ? { ...row, workspaceFreshness: freshness } : row,
     )
     if (searched) return metadata
     if (perspective === 'library')
@@ -48,10 +53,10 @@ export function SkillagerSidebar({
     return (data.exposures ?? []).map((exposure) => ({
       ...(byId.get(exposure.skillId ?? '') ?? unavailableSource(exposure)),
       workspace: exposure,
-      workspaceFreshness: read.loading ? ('checking' as const) : ('fresh' as const),
+      workspaceFreshness: freshness ?? ('fresh' as const),
       workspaceCheckedAt: data.checkedAt,
     }))
-  }, [data, searched, perspective, pending, read.loading])
+  }, [data, searched, perspective, pending, read.loading, controller.observing])
   const pageOffset = Math.min(
     offset,
     Math.max(0, Math.floor((rows.length - 1) / 50) * 50),

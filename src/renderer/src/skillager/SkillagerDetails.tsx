@@ -92,7 +92,11 @@ export function SkillagerDetails({
         <p className="skillager-freshness">
           Workspace last checked{' '}
           {new Date(metadata.workspaceCheckedAt).toLocaleTimeString()}
-          {metadata.workspaceFreshness !== 'fresh' ? ' · stale / unavailable' : ''}
+          {metadata.workspaceFreshness === 'checking'
+            ? ' · checking…'
+            : metadata.workspaceFreshness !== 'fresh'
+              ? ' · stale / unavailable'
+              : ''}
         </p>
       ) : null}
       <p className="skillager-hint">Content loads only after explicit review.</p>

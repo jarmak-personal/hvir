@@ -1,3 +1,9 @@
+import {
+  exposureResponse,
+  request as exposureRequest,
+} from './fixtures/skillager-exposure-fixture'
+import { parseExposurePreview } from '../src/main/skillager/skillager-exposure-contract'
+import type { SkillagerExposureRequest } from '../src/shared/skillager-exposure'
 import type { ExecResult } from '../src/shared'
 import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import { SkillagerCapability } from '../src/main/skillager/skillager-capability'
@@ -24,6 +30,7 @@ const selection = {
 function fixture(
   overrides: Partial<SkillagerCliPort> = {},
   review?: ConstructorParameters<typeof SkillagerCapability>[3],
+  exposure?: ConstructorParameters<typeof SkillagerCapability>[4],
 ) {
   const resources = createRendererResourceFixture()
   const owner = resources.activateOwner()
@@ -54,7 +61,7 @@ function fixture(
         release: vi.fn(),
       },
     },
-    {
+    exposure ?? {
       cli: {
         updateSourceHash: vi.fn(() =>
           Promise.reject(new Error('Unexpected update status')),
@@ -345,4 +352,157 @@ describe('Skillager capability authority and demand', () => {
     expect(await pending).toMatchObject({ ok: false, reason: 'cancelled' })
     await revoked
   })
+})
+
+function updateFixture() {
+  const request: SkillagerExposureRequest = {
+    ...exposureRequest,
+    workspaceRoot: root,
+    destination: { projectId: 'project', workspaceId: 'workspace', root },
+    action: 'update',
+    exposure: {
+      id: 'lib-demo',
+      skillId: 'lib/demo',
+      mode: 'native',
+      status: 'source_update',
+      target: localPath('/workspace/.agents/skills/lib-demo'),
+    },
+  }
+  let targetHash = 'a'.repeat(64)
+  const previewExposure = vi.fn((_selection, at: SkillagerExposureRequest) => {
+    const parsed = parseExposurePreview(
+      exposureResponse({ ...at, action: 'change' }).value,
+      selection,
+      at,
+    )
+    return Promise.resolve({ ...parsed, detail: { ...parsed.detail, targetHash } })
+  })
+  const review = vi.fn(() =>
+    Promise.resolve({
+      detail: {
+        skillId: request.skillId,
+        root: localPath('/library/skills/demo'),
+        hash: 'a'.repeat(64),
+        files: [],
+        canAccept: false,
+        scanRisk: 'low',
+        lintStatus: 'ok',
+        findings: [],
+        history: { available: true, versions: [] },
+      },
+      bytes: new Map(),
+      dispose: vi.fn(() => Promise.resolve()),
+    }),
+  )
+  const applyExposure = vi.fn()
+  const f = fixture(
+    {},
+    {
+      cli: {
+        review,
+        history: vi.fn(),
+        accept: vi.fn(),
+        diff: vi.fn(() =>
+          Promise.resolve({
+            fromHash: 'c'.repeat(64),
+            toHash: 'a'.repeat(64),
+            text: '+ reviewed',
+          }),
+        ),
+      },
+      previews: { create: vi.fn(), release: vi.fn() },
+    },
+    {
+      cli: {
+        previewExposure,
+        updateSourceHash: vi.fn(() => Promise.resolve('c'.repeat(64))),
+        applyExposure,
+      },
+      destinationAvailable: (destination) =>
+        destination.workspaceId === 'workspace' && destination.projectId === 'project',
+    },
+  )
+  return {
+    ...f,
+    request,
+    review,
+    previewExposure,
+    applyExposure,
+    changeTarget: () => {
+      targetHash = 'd'.repeat(64)
+    },
+  }
+}
+it.each([
+  { action: 'change' },
+  { skillId: 'lib/other' },
+  { connectionId: 'other' },
+  { agent: 'claude' },
+  { workspaceRoot: localPath('/other') },
+  {
+    destination: {
+      projectId: 'project',
+      workspaceId: 'workspace',
+      root: localPath('/other'),
+    },
+  },
+  { destination: { projectId: 'project', workspaceId: 'closed', root } },
+  { mode: 'stub' },
+  { exposure: undefined },
+] as const)(
+  'rejects mismatched nested update selection before review work: %j',
+  async (patch) => {
+    const f = updateFixture(),
+      base = await f.connect()
+    const update = { ...f.request, ...base, ...patch } as SkillagerExposureRequest
+    expect(
+      await f.capability.review(f.owner, { ...base, skillId: f.request.skillId, update }),
+    ).toMatchObject({ ok: false, reason: 'invalid-request' })
+    expect(f.previewExposure).not.toHaveBeenCalled()
+    expect(f.review).not.toHaveBeenCalled()
+  },
+)
+it('consults the retained update proof through capability preview and rechecks it at apply', async () => {
+  const f = updateFixture(),
+    base = await f.connect(),
+    request = { ...f.request, ...base }
+  for (const reviewId of [undefined, 'forged'])
+    expect(
+      await f.capability.previewExposure(f.owner, { ...request, reviewId }),
+    ).toMatchObject({ ok: false })
+  expect(f.previewExposure).not.toHaveBeenCalled()
+  const reviewed = await f.capability.review(f.owner, {
+    ...base,
+    skillId: request.skillId,
+    update: request,
+  })
+  if (!reviewed.ok) throw new Error(reviewed.message)
+  const linked = { ...request, reviewId: reviewed.value.reviewId }
+  const preview = await f.capability.previewExposure(f.owner, linked)
+  if (!preview.ok) throw new Error(preview.message)
+  await f.capability.releaseReview(f.owner, reviewed.value.reviewId)
+  expect(
+    await f.capability.applyExposure(f.owner, preview.value.previewId),
+  ).toMatchObject({ ok: false })
+  expect(f.applyExposure).not.toHaveBeenCalled()
+})
+it('validates later CLI target evidence through the capability update grant', async () => {
+  const f = updateFixture(),
+    base = await f.connect(),
+    request = { ...f.request, ...base }
+  const reviewed = await f.capability.review(f.owner, {
+    ...base,
+    skillId: request.skillId,
+    update: request,
+  })
+  if (!reviewed.ok) throw new Error(reviewed.message)
+  f.changeTarget()
+  expect(
+    await f.capability.previewExposure(f.owner, {
+      ...request,
+      reviewId: reviewed.value.reviewId,
+    }),
+  ).toMatchObject({ ok: false, reason: 'stale-review' })
+  expect(f.previewExposure).toHaveBeenCalledTimes(2)
+  expect(f.applyExposure).not.toHaveBeenCalled()
 })

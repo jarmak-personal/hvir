@@ -157,3 +157,23 @@ it('refuses a pinned incoming source even when a renderer explicitly requests an
     parseExposurePreview(response.value, selection, f.snapshot.detail.request),
   ).toThrow('pinned')
 })
+
+it.each([undefined, 'f'.repeat(64)])(
+  'labels unmatched accepted source evidence %s as unverified, preserving genuine unavailability',
+  (expectedSourceHash) => {
+    const { exposure } = fixture()
+    const row = {
+      ...metadata,
+      workspaceFreshness: 'fresh' as const,
+      workspace: { ...exposure, expectedSourceHash },
+    }
+    expect(eligibleSkillagerUpdate(row)).toBe(false)
+    expect(workspaceSkillLabel(row)).toBe('Update unverified')
+    expect(
+      workspaceSkillLabel({
+        ...row,
+        workspace: { ...row.workspace, status: 'source_unavailable' },
+      }),
+    ).toBe('Source unavailable for update')
+  },
+)

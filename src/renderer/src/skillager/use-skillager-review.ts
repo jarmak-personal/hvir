@@ -131,18 +131,15 @@ export function useSkillagerReview(options: Options) {
 
   const review = useCallback(
     async (tab: SkillagerDetailTab, update = false) => {
-      const lease = start(tab)
-      if (!lease) return
       const selected = optionsRef.current
       const destination = update
         ? exposureDestinations(selected.projectState).find(
             (item) => selected.root && hostPathEquals(item.root, selected.root),
           )
         : undefined
-      if (update && (!destination || !eligibleSkillagerUpdate(tab.metadata))) {
-        release(tab.id)
-        return
-      }
+      if (update && (!destination || !eligibleSkillagerUpdate(tab.metadata))) return
+      const lease = start(tab)
+      if (!lease) return
       const updateRequest: SkillagerExposureRequest | undefined = update
         ? {
             ...lease.request,
@@ -181,7 +178,7 @@ export function useSkillagerReview(options: Options) {
           failure(tab.id, { message: 'Could not prepare this review.' })
       }
     },
-    [start, publish, failure, release],
+    [start, publish, failure],
   )
 
   const history = useCallback(

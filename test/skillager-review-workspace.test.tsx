@@ -2,6 +2,8 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { projectState } from './fixtures/skillager-exposure-fixture'
+import type { ProjectState } from '../src/shared/workspace-types'
 import { localPath } from '../src/shared/host-path'
 import {
   useSkillagerReview,
@@ -52,13 +54,16 @@ const accepted = vi.fn()
 function Harness({
   open = true,
   connected = true,
+  project,
 }: {
   open?: boolean
   connected?: boolean
+  project?: ProjectState
 }) {
   current = useSkillagerReview({
     connection: connected ? connection : undefined,
     root,
+    projectState: project,
     agent: 'codex',
     tabs: open ? tabs : [],
     onAccepted: accepted,
@@ -188,3 +193,43 @@ it('revokes retained review content when disconnected and leaves uncertain confi
   expect(current.states).toEqual({})
   expect(invoke).toHaveBeenCalledWith('skillager:release-review', { reviewId: 'review' })
 })
+
+it.each(['checking', 'stale', 'unavailable', 'destination'] as const)(
+  'keeps an existing review usable when update admission fails for %s',
+  async (reason) => {
+    await render({ project: reason === 'destination' ? undefined : projectState(root) })
+    await act(async () => current.review(tab))
+    const retained = current.states.tab?.detail
+    invoke.mockClear()
+    const candidate: SkillagerDetailTab = {
+      ...tab,
+      metadata: {
+        ...tab.metadata,
+        trust: 'reviewed',
+        contentHash: detail.hash,
+        workspaceFreshness: reason === 'destination' ? 'fresh' : reason,
+        workspace: {
+          id: 'lib-example',
+          skillId: tab.metadata.id,
+          mode: 'native',
+          target: localPath('/workspace/.agents/skills/lib-example'),
+          status: 'source_update',
+          expectedSourceHash: detail.hash,
+        },
+      },
+    }
+    await act(async () => current.review(candidate, true))
+    expect(current.states.tab?.detail).toBe(retained)
+    expect(invoke).not.toHaveBeenCalled()
+    await act(async () => current.history(tab))
+    expect(invoke).toHaveBeenCalledWith(
+      'skillager:history',
+      expect.objectContaining({ requestId: 1 }),
+    )
+    await act(async () => current.accept(tab.id))
+    expect(invoke).toHaveBeenCalledWith(
+      'skillager:accept-review',
+      expect.objectContaining({ reviewId: detail.reviewId }),
+    )
+  },
+)

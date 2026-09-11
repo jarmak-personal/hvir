@@ -68,11 +68,14 @@ export function exposureDestinationCurrent(
 }
 
 export function eligibleSkillagerUpdate(metadata: SkillagerMetadata): boolean {
+  return metadata.workspaceFreshness === 'fresh' && observedSkillagerUpdate(metadata)
+}
+
+export function observedSkillagerUpdate(metadata: SkillagerMetadata): boolean {
   const copy = metadata.workspace
   return (
     metadata.source.ownership === 'library' &&
     ['reviewed', 'trusted'].includes(metadata.trust) &&
-    metadata.workspaceFreshness === 'fresh' &&
     copy?.skillId === metadata.id &&
     copy.target.hostId === 'local' &&
     ['native', 'stub'].includes(copy.mode) &&
@@ -93,7 +96,7 @@ export function workspaceSkillLabel(metadata: SkillagerMetadata): string {
   if (metadata.trust === 'blocked') return 'Blocked source'
   if (['discovered', 'lint_blocked'].includes(metadata.trust))
     return 'Pending library review'
-  if (status === 'source_unavailable' || status === 'source_update')
-    return 'Source unavailable for update'
+  if (status === 'source_unavailable') return 'Source unavailable for update'
+  if (status === 'source_update') return 'Update unverified'
   return status ?? 'Workspace status not checked'
 }

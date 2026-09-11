@@ -250,6 +250,7 @@ export function useSkillagerWorkspace(input: Options) {
     agent,
     scope,
     options.sidebarVisible,
+    options.projectState?.connectionState,
     cancel,
   ])
 
@@ -354,6 +355,7 @@ export function useSkillagerWorkspace(input: Options) {
     exposures,
     reviews,
     enabled: options.enabled,
+    observing,
     sidebarVisible: options.sidebarVisible,
     viewerVisible: options.viewerVisible,
     probe,

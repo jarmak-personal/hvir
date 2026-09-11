@@ -277,6 +277,21 @@ describe('Skills renderer demand and metadata views', () => {
     await act(async () => vi.advanceTimersByTimeAsync(120_000))
     expect(count()).toBe(initial + 1)
     expect(current.active?.metadata.workspaceFreshness).toBe('stale')
+    expect(mount.querySelector('.skillager-sidebar')?.textContent).not.toContain(
+      'Workspace copy behind',
+    )
+    act(() => (mount.querySelector('.skillager-row') as HTMLButtonElement).click())
+    expect(current.active?.metadata.workspaceFreshness).toBe('stale')
+    act(() =>
+      (
+        mount.querySelectorAll('.skillager-perspectives button')[1] as HTMLButtonElement
+      ).click(),
+    )
+    expect(mount.querySelector('.skillager-sidebar')?.textContent).not.toContain(
+      'Workspace copy behind',
+    )
+    act(() => (mount.querySelector('.skillager-row') as HTMLButtonElement).click())
+    expect(current.active?.metadata.workspaceFreshness).toBe('stale')
     vi.spyOn(document, 'hasFocus').mockReturnValue(true)
     act(() => {
       window.dispatchEvent(new Event('focus'))
@@ -286,6 +301,11 @@ describe('Skills renderer demand and metadata views', () => {
     await render({ connected: false })
     await act(async () => vi.advanceTimersByTimeAsync(120_000))
     expect(count()).toBe(initial + 2)
+    expect(current.active?.metadata.workspaceFreshness).toBe('stale')
+    expect(mount.querySelector('.skillager-sidebar')?.textContent).not.toContain(
+      'Workspace copy behind',
+    )
+    act(() => (mount.querySelector('.skillager-row') as HTMLButtonElement).click())
     expect(current.active?.metadata.workspaceFreshness).toBe('stale')
     await act(async () => current.refresh())
     expect(count()).toBe(initial + 2)
@@ -515,6 +535,49 @@ describe('Skills renderer demand and metadata views', () => {
     expect(
       invoke.mock.calls.filter(([channel]) => channel === 'skillager:cancel').length,
     ).toBeGreaterThan(0)
+  })
+  it('cancels submitted search on host loss and rejects its late result', async () => {
+    await render()
+    await connect()
+    const original = invoke.getMockImplementation()!
+    let finish!: (value: unknown) => void
+    invoke.mockImplementation((channel, request) =>
+      channel === 'skillager:search'
+        ? new Promise((resolve) => {
+            finish = resolve
+          })
+        : original(channel, request),
+    )
+    let pending!: Promise<void>
+    act(() => {
+      pending = current.submit('needle')
+    })
+    const request = invoke.mock.calls.find(
+      ([channel]) => channel === 'skillager:search',
+    )![1] as { requestId: number }
+    await render({ connected: false })
+    const cancellation = invoke.mock.calls
+      .filter(
+        ([channel, value]) =>
+          channel === 'skillager:cancel' && (value as { kind: string }).kind === 'search',
+      )
+      .at(-1)![1] as { requestId: number }
+    expect(cancellation.requestId).toBeGreaterThan(request.requestId)
+    expect(current.submitted).toBe('')
+    expect(current.search.loading).toBe(false)
+    await act(async () => {
+      finish(metadata([{ ...rows[0]!, name: 'Late after host loss' }]))
+      await pending
+    })
+    expect(current.search.result).toBeUndefined()
+    expect(mount.textContent).not.toContain('Late after host loss')
+    const searches = invoke.mock.calls.filter(
+      ([channel]) => channel === 'skillager:search',
+    ).length
+    await act(async () => current.submit('blocked'))
+    expect(
+      invoke.mock.calls.filter(([channel]) => channel === 'skillager:search'),
+    ).toHaveLength(searches)
   })
   it('clears details and metadata on workspace changes and all surfaces on disable', async () => {
     await render()

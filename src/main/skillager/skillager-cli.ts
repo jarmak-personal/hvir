@@ -142,8 +142,11 @@ export class SkillagerCli implements SkillagerCliPort {
     )
   }
   private exposureCommands(): SkillagerExposureCommands {
-    return new SkillagerExposureCommands(this.host, this.process, (selection, signal) =>
-      this.validateLocal(selection, signal),
+    return new SkillagerExposureCommands(
+      this.host,
+      this.process,
+      (selection, signal) => this.validateLocal(selection, signal),
+      (selection, request, signal) => this.exposuresLocal(selection, request, signal),
     )
   }
 

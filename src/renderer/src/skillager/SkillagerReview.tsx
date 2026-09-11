@@ -1,5 +1,8 @@
 import { joinHostPath } from '../../../shared/host-path'
-import { eligibleSkillagerUpdate } from './skillager-exposure-model'
+import {
+  eligibleSkillagerUpdate,
+  observedSkillagerUpdate,
+} from './skillager-exposure-model'
 import type { SkillagerExposureController } from './use-skillager-exposure'
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 import type { SkillagerDetailTab } from './skillager-model'
@@ -17,6 +20,9 @@ export function SkillagerReview({
 }): ReactElement | null {
   const state = controller.states[tab.id]
   const detail = state?.detail
+  const checkingUpdate =
+    tab.metadata.workspaceFreshness === 'checking' &&
+    observedSkillagerUpdate(tab.metadata)
   const loadContent = controller.content
   const opened = useRef<string | undefined>(undefined)
   const [confirming, setConfirming] = useState(false)
@@ -42,10 +48,10 @@ export function SkillagerReview({
         >
           Review content
         </button>
-        {eligibleSkillagerUpdate(tab.metadata) ? (
+        {eligibleSkillagerUpdate(tab.metadata) || checkingUpdate ? (
           <button
             onClick={() => void controller.review(tab, true)}
-            disabled={state?.loading || state?.accepting}
+            disabled={state?.loading || state?.accepting || checkingUpdate}
           >
             Review workspace update
           </button>
@@ -57,6 +63,9 @@ export function SkillagerReview({
           Version history
         </button>
       </div>
+      {checkingUpdate ? (
+        <p role="status">Checking workspace copy before another review or preview…</p>
+      ) : null}
       {state?.loading ? <p role="status">Preparing review…</p> : null}
       {state?.message ? (
         <p role={state.failed ? 'alert' : 'status'}>{state.message}</p>

@@ -1,5 +1,4 @@
 import { parseUpdateSourceHash } from './skillager-update-status'
-import { parseSkillagerExposures } from './skillager-cli-metadata'
 import { validateExposureSelection } from './skillager-exposure-selection'
 import {
   containsHostPath,
@@ -13,6 +12,7 @@ import {
   SkillagerError,
   SKILLAGER_REQUEST_DEADLINE_MS,
   type SkillagerCliSelection,
+  type SkillagerCliPort,
 } from './skillager-port'
 import type {
   SkillagerExposureCliPort,
@@ -42,6 +42,7 @@ export class SkillagerExposureCommands implements SkillagerExposureCliPort {
       selection: SkillagerCliSelection,
       signal: AbortSignal,
     ) => Promise<void>,
+    private readonly observe: SkillagerCliPort['exposures'],
   ) {}
 
   async previewExposure(
@@ -83,36 +84,33 @@ export class SkillagerExposureCommands implements SkillagerExposureCliPort {
     const { request } = snapshot.detail
     await this.validate(selection, signal)
     await this.validateDestination(request.destination.root, signal)
-    const run = async (args: readonly string[]) =>
-      parseSkillagerJson(
-        await this.process.run(
-          selection.executable.path,
-          ['--catalog-state-dir', selection.catalog.path, ...args],
-          { cwd: request.destination.root, signal, env: selection.environment },
-          {
-            stdout: 2 * 1024 * 1024,
-            stderr: 64 * 1024,
-            deadlineMs: SKILLAGER_REQUEST_DEADLINE_MS,
-          },
-        ),
-      )
-    const exposures = parseSkillagerExposures(
-      await run([
-        'expose',
-        '--list',
-        '--agent',
-        request.agent,
-        '--scope',
-        'project',
-        '--json',
-      ]),
-      request.destination.root,
-      request.agent,
+    const exposures = await this.observe(
+      selection,
+      { ...request, workspaceRoot: request.destination.root },
+      signal,
     )
-    const status = await run(['library', 'status', request.skillId, '--json'])
+    const status = parseSkillagerJson(
+      await this.process.run(
+        selection.executable.path,
+        [
+          '--catalog-state-dir',
+          selection.catalog.path,
+          'library',
+          'status',
+          request.skillId,
+          '--json',
+        ],
+        { cwd: request.destination.root, signal, env: selection.environment },
+        {
+          stdout: 2 * 1024 * 1024,
+          stderr: 64 * 1024,
+          deadlineMs: SKILLAGER_REQUEST_DEADLINE_MS,
+        },
+      ),
+    )
     await this.validate(selection, signal)
     signal.throwIfAborted()
-    return parseUpdateSourceHash(status, selection, snapshot, exposures)
+    return parseUpdateSourceHash(status, selection, snapshot, exposures ?? [])
   }
 
   async applyExposure(

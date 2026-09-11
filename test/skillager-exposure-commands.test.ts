@@ -1,3 +1,4 @@
+import type { SkillagerWorkspaceExposure } from '../src/shared/skillager'
 import { describe, expect, it, vi } from 'vitest'
 import { SkillagerExposureCommands } from '../src/main/skillager/skillager-exposure-commands'
 import { SkillagerProcess } from '../src/main/skillager/skillager-process'
@@ -25,8 +26,9 @@ function fixture() {
   const realpath = vi.fn((path: HostPath) => Promise.resolve(path))
   const process = new SkillagerProcess({ exec })
   const validate = vi.fn(() => Promise.resolve())
-  const commands = new SkillagerExposureCommands({ realpath }, process, validate)
-  return { exec, realpath, process, commands, validate }
+  const observe = vi.fn(() => Promise.resolve<readonly SkillagerWorkspaceExposure[]>([]))
+  const commands = new SkillagerExposureCommands({ realpath }, process, validate, observe)
+  return { exec, realpath, process, commands, validate, observe }
 }
 describe('bounded local exposure command adapter', () => {
   it('uses selected cwd, reconstructed argv, finite output/time bounds and one bound apply', async () => {
@@ -182,4 +184,95 @@ describe('bounded local exposure command adapter', () => {
     await f.process.dispose()
     await Promise.all([first, second])
   })
+})
+
+it('validates selection and canonical destination before reading workspace update status', async () => {
+  const f = fixture()
+  const snapshot = parseExposurePreview(exposureResponse().value, selection, request)
+  try {
+    f.validate.mockRejectedValueOnce(new Error('Changed library'))
+    await expect(
+      f.commands.updateSourceHash(selection, snapshot, new AbortController().signal),
+    ).rejects.toThrow('Changed library')
+    expect(f.observe).not.toHaveBeenCalled()
+    f.realpath.mockResolvedValueOnce(localPath('/changed'))
+    await expect(
+      f.commands.updateSourceHash(selection, snapshot, new AbortController().signal),
+    ).rejects.toThrow('location changed')
+    expect(f.observe).not.toHaveBeenCalled()
+    expect(f.exec).not.toHaveBeenCalled()
+  } finally {
+    await f.process.dispose()
+  }
+})
+
+it('uses the existing exposure observer and independently bounds the library-status command', async () => {
+  const f = fixture()
+  const exposure = {
+    id: 'lib-demo',
+    skillId: request.skillId,
+    target: localPath('/other/.agents/skills/lib-demo'),
+    mode: 'native',
+    status: 'source_update',
+    expectedSourceHash: 'a'.repeat(64),
+  }
+  const update = { ...request, action: 'update' as const, exposure }
+  const snapshot = parseExposurePreview(
+    exposureResponse({ ...update, action: 'change' }).value,
+    selection,
+    update,
+  )
+  f.observe.mockResolvedValue([exposure])
+  f.exec.mockResolvedValue({
+    code: 0,
+    signal: null,
+    stderr: '',
+    stdout: JSON.stringify({
+      schema: 'skillager.library-status.v1',
+      skill: {
+        id: request.skillId,
+        path: '/library/skills/demo',
+        acceptance: 'accepted',
+        working_hash: 'a'.repeat(64),
+        accepted_hash: 'a'.repeat(64),
+        exposures: [
+          {
+            path: exposure.target.path,
+            agent: request.agent,
+            kind: 'native',
+            scope: 'project',
+            status: 'update_available',
+            source_hash: 'c'.repeat(64),
+          },
+        ],
+      },
+    }),
+  })
+  try {
+    expect(
+      await f.commands.updateSourceHash(
+        selection,
+        snapshot,
+        new AbortController().signal,
+      ),
+    ).toBe('c'.repeat(64))
+    expect(f.observe).toHaveBeenCalledTimes(1)
+    expect(f.observe).toHaveBeenCalledWith(
+      selection,
+      { ...update, workspaceRoot: request.destination.root },
+      expect.any(AbortSignal),
+    )
+    expect(f.exec).toHaveBeenCalledTimes(1)
+    expect(f.exec).toHaveBeenCalledWith(
+      '/skillager',
+      ['--catalog-state-dir', '/catalog', 'library', 'status', request.skillId, '--json'],
+      expect.objectContaining({
+        cwd: request.destination.root,
+        maxStdoutBytes: 2 * 1024 * 1024,
+        maxStderrBytes: 64 * 1024,
+      }),
+    )
+  } finally {
+    await f.process.dispose()
+  }
 })
