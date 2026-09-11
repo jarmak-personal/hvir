@@ -103,6 +103,8 @@ export function parseExposurePreview(
       !hostPathEquals(absolute(provenance.library_root), selection.library!.root)
     )
       return malformedExposure()
+    if (request.action === 'update' && source.trust === 'pinned')
+      return refusedExposure('pinned source')
     if (!['reviewed', 'trusted', 'pinned'].includes(String(source.trust)))
       return refusedExposure('unaccepted source')
     sourceHash = exposureHash(source.content_hash)

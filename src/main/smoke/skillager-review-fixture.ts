@@ -6,6 +6,7 @@ export function skillagerReviewFixture(
   root: HostPath,
   accepted: (id: string) => void,
 ): SkillagerReviewCliPort {
+  const acceptedIds = new Set<string>()
   const history = { available: false, reason: 'no-git', versions: [] }
   return {
     history: () => Promise.resolve(history),
@@ -33,7 +34,7 @@ export function skillagerReviewFixture(
             size: data.length,
             executable: entry === 'helper.sh',
           })),
-          canAccept: true,
+          canAccept: !acceptedIds.has(skillId),
           scanRisk: 'low',
           lintStatus: 'ok',
           findings: [],
@@ -47,8 +48,14 @@ export function skillagerReviewFixture(
         },
       })
     },
-    diff: () => Promise.resolve({ toHash: 'a'.repeat(64), text: '+ Reviewed skill' }),
+    diff: (_selection, _snapshot, fromHash) =>
+      Promise.resolve({
+        fromHash,
+        toHash: 'a'.repeat(64),
+        text: '- Old instructions\n+ Reviewed skill',
+      }),
     accept: (_selection, snapshot) => {
+      acceptedIds.add(snapshot.detail.skillId)
       accepted(snapshot.detail.skillId)
       return Promise.resolve({ status: 'accepted', hash: snapshot.detail.hash })
     },

@@ -15,6 +15,7 @@ import type {
 import type { ProjectState } from '../../../shared/workspace-types'
 import {
   exposureActions,
+  eligibleSkillagerUpdate,
   exposureDestinationCurrent,
   exposureDestinations,
   type ExposureAction,
@@ -33,6 +34,7 @@ interface Options {
 interface ActionState {
   readonly metadata: SkillagerMetadata
   readonly action: ExposureAction
+  readonly reviewId?: string
   readonly destination?: SkillagerDestination
   readonly agent: SkillagerAgent
   readonly mode: SkillagerExposureMode
@@ -88,13 +90,15 @@ export function useSkillagerExposure(options: Options) {
       close()
   }, [destinations, state?.destination, close])
   const start = useCallback(
-    (metadata: SkillagerMetadata, action: ExposureAction) => {
+    (metadata: SkillagerMetadata, action: ExposureAction, reviewId?: string) => {
       const current = optionsRef.current
       if (
         !current.connection ||
         !current.projectState ||
         !current.visible ||
-        exposureActions(metadata).find((item) => item.action === action)?.disabled
+        (action === 'update'
+          ? !reviewId || !eligibleSkillagerUpdate(metadata)
+          : exposureActions(metadata).find((item) => item.action === action)?.disabled)
       )
         return
       release()
@@ -108,6 +112,7 @@ export function useSkillagerExposure(options: Options) {
       setState({
         metadata,
         action,
+        reviewId,
         destination,
         agent: current.agent,
         mode:
@@ -115,7 +120,8 @@ export function useSkillagerExposure(options: Options) {
             ? metadata.workspace?.mode === 'stub'
               ? 'native'
               : 'stub'
-            : action === 'remove' && metadata.workspace?.mode === 'stub'
+            : (action === 'remove' || action === 'update') &&
+                metadata.workspace?.mode === 'stub'
               ? 'stub'
               : 'native',
       })
@@ -160,6 +166,7 @@ export function useSkillagerExposure(options: Options) {
         skillId: current.metadata.id,
         mode: current.mode,
         action: current.action,
+        reviewId: current.reviewId,
         exposure: current.action === 'add' ? undefined : current.metadata.workspace,
       },
     }
@@ -218,12 +225,15 @@ export function useSkillagerExposure(options: Options) {
           ...current,
           used: true,
           message:
-            current.action === 'change'
-              ? `Changed ${result.value.skillId} to ${result.value.mode === 'native' ? 'Full skill' : 'Stub'} at ${result.value.target.hostId}:${result.value.target.path}.`
-              : `${result.value.status === 'removed' ? 'Removed' : 'Added'} ${result.value.skillId} ${result.value.status === 'removed' ? 'from' : 'to'} ${result.value.target.hostId}:${result.value.target.path}.`,
+            current.action === 'update'
+              ? `Updated ${result.value.skillId} for ${current.agent} at ${result.value.target.hostId}:${result.value.target.path}.`
+              : current.action === 'change'
+                ? `Changed ${result.value.skillId} to ${result.value.mode === 'native' ? 'Full skill' : 'Stub'} at ${result.value.target.hostId}:${result.value.target.path}.`
+                : `${result.value.status === 'removed' ? 'Removed' : 'Added'} ${result.value.skillId} ${result.value.status === 'removed' ? 'from' : 'to'} ${result.value.target.hostId}:${result.value.target.path}.`,
         })
       } else {
         if (result.reason === 'busy') owned.used = false
+        else optionsRef.current.onCompleted()
         setState({
           ...current,
           used: result.reason !== 'busy',
@@ -232,7 +242,8 @@ export function useSkillagerExposure(options: Options) {
         })
       }
     } catch {
-      if (lease.current === owned && contextRef.current === at)
+      if (lease.current === owned && contextRef.current === at) {
+        optionsRef.current.onCompleted()
         setState({
           ...current,
           used: true,
@@ -240,6 +251,7 @@ export function useSkillagerExposure(options: Options) {
           message:
             'Completion is uncertain. Refresh the workspace state before starting a new preview; do not retry this confirmation.',
         })
+      }
     }
   }, [])
   const menu = useSkillagerActions({

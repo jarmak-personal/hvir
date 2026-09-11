@@ -1,8 +1,10 @@
 import type { HostPath } from './host-path'
 import type { SkillagerRequest } from './skillager'
+import type { SkillagerExposureRequest } from './skillager-exposure'
 
 export interface SkillagerSkillRequest extends SkillagerRequest {
   readonly skillId: string
+  readonly update?: SkillagerExposureRequest
 }
 export interface SkillagerReviewRequest extends SkillagerRequest {
   readonly reviewId: string
@@ -34,6 +36,10 @@ export interface SkillagerReview {
   readonly lintStatus: string
   readonly findings: readonly string[]
   readonly history: SkillagerHistory
+  readonly update?: {
+    readonly request: SkillagerExposureRequest
+    readonly diff: SkillagerReviewDiff
+  }
 }
 export interface SkillagerReviewContent {
   readonly entry: string

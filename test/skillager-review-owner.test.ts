@@ -62,7 +62,10 @@ function fixture(overrides: Partial<SkillagerReviewCliPort> = {}) {
     create: vi.fn(() => ({ id: 'html', url: 'hvir-preview://document/html/index.html' })),
     release: vi.fn(),
   }
-  const reviews = new SkillagerReviewOwner(cli, resources.scopes, previews)
+  const reviews = new SkillagerReviewOwner(cli, resources.scopes, previews, {
+    previewExposure: vi.fn(),
+    updateSourceHash: vi.fn(),
+  })
   const selection = {
     executable: localPath('/skillager'),
     catalog: localPath('/catalog'),

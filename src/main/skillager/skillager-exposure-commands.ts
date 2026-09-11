@@ -1,3 +1,4 @@
+import { parseUpdateSourceHash } from './skillager-update-status'
 import { validateExposureSelection } from './skillager-exposure-selection'
 import {
   containsHostPath,
@@ -11,6 +12,7 @@ import {
   SkillagerError,
   SKILLAGER_REQUEST_DEADLINE_MS,
   type SkillagerCliSelection,
+  type SkillagerCliPort,
 } from './skillager-port'
 import type {
   SkillagerExposureCliPort,
@@ -40,6 +42,7 @@ export class SkillagerExposureCommands implements SkillagerExposureCliPort {
       selection: SkillagerCliSelection,
       signal: AbortSignal,
     ) => Promise<void>,
+    private readonly observe: SkillagerCliPort['exposures'],
   ) {}
 
   async previewExposure(
@@ -71,6 +74,43 @@ export class SkillagerExposureCommands implements SkillagerExposureCliPort {
     await this.validate(selection, signal)
     signal.throwIfAborted()
     return snapshot
+  }
+
+  async updateSourceHash(
+    selection: SkillagerCliSelection,
+    snapshot: SkillagerExposureSnapshot,
+    signal: AbortSignal,
+  ): Promise<string> {
+    const { request } = snapshot.detail
+    await this.validate(selection, signal)
+    await this.validateDestination(request.destination.root, signal)
+    const exposures = await this.observe(
+      selection,
+      { ...request, workspaceRoot: request.destination.root },
+      signal,
+    )
+    const status = parseSkillagerJson(
+      await this.process.run(
+        selection.executable.path,
+        [
+          '--catalog-state-dir',
+          selection.catalog.path,
+          'library',
+          'status',
+          request.skillId,
+          '--json',
+        ],
+        { cwd: request.destination.root, signal, env: selection.environment },
+        {
+          stdout: 2 * 1024 * 1024,
+          stderr: 64 * 1024,
+          deadlineMs: SKILLAGER_REQUEST_DEADLINE_MS,
+        },
+      ),
+    )
+    await this.validate(selection, signal)
+    signal.throwIfAborted()
+    return parseUpdateSourceHash(status, selection, snapshot, exposures ?? [])
   }
 
   async applyExposure(

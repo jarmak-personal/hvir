@@ -1,3 +1,9 @@
+import type { SkillagerExposureRequest } from '../../shared/skillager-exposure'
+import type {
+  SkillagerExposureCliPort,
+  SkillagerExposureSnapshot,
+  SkillagerExposureGrant,
+} from './skillager-exposure-port'
 import { randomUUID } from 'node:crypto'
 import { hostPathEquals, joinHostPath } from '../../shared/host-path'
 import { repositoryImageMimeType } from '../../shared'
@@ -35,6 +41,7 @@ interface Session {
   readonly previews: Map<string, { readonly id: string; readonly url: string }>
   lease?: RendererResourceLease
   snapshot?: SkillagerReviewSnapshot
+  update?: SkillagerExposureSnapshot['detail']
   pending?: Promise<unknown>
   consumed: boolean
   disposed: boolean
@@ -58,6 +65,10 @@ export class SkillagerReviewOwner {
       'register' | 'assertCurrent'
     >,
     private readonly previews: SkillagerReviewPreviewPort,
+    private readonly updates: Pick<
+      SkillagerExposureCliPort,
+      'previewExposure' | 'updateSourceHash'
+    >,
   ) {}
 
   async review(
@@ -95,11 +106,49 @@ export class SkillagerReviewOwner {
       },
       () => this.release(owner, id),
     )
-    const operation = this.cli.review(
-      grant.selection,
-      request.skillId,
-      session.controller.signal,
-    )
+    const operation = (async () => {
+      const signal = session.controller.signal
+      const initial = request.update
+        ? await this.updates.previewExposure(grant.selection, request.update, signal)
+        : undefined
+      const fromHash = initial
+        ? await this.updates.updateSourceHash(grant.selection, initial, signal)
+        : undefined
+      const snapshot = await this.cli.review(grant.selection, request.skillId, signal)
+      session.snapshot = snapshot
+      if (!initial) return snapshot
+      if (
+        snapshot.detail.hash !== initial.detail.sourceHash ||
+        snapshot.detail.canAccept ||
+        snapshot.detail.refusal
+      )
+        throw new SkillagerError(
+          'stale-review',
+          'The accepted source changed. Refresh and review the update again.',
+        )
+      const diff = await this.cli
+        .diff(grant.selection, snapshot, fromHash, signal)
+        .catch((error: unknown) => {
+          if (error instanceof SkillagerError && error.reason === 'invalid-request')
+            throw new SkillagerError(
+              'unavailable',
+              'The workspace source version is unavailable in library history. This update cannot be reviewed.',
+            )
+          throw error
+        })
+      this.current(session)
+      if (diff.fromHash !== fromHash || diff.toHash !== snapshot.detail.hash)
+        throw new SkillagerError(
+          'stale-review',
+          'The exact workspace update diff is unavailable. Review again.',
+        )
+      // Only a completed exact diff grants update proof. No ExposureOwner session is allocated here.
+      session.update = initial.detail
+      return {
+        ...snapshot,
+        detail: { ...snapshot.detail, update: { request: request.update!, diff } },
+      }
+    })()
     let timedOut = false
     const timer = setTimeout(() => {
       timedOut = true
@@ -120,6 +169,49 @@ export class SkillagerReviewOwner {
     } finally {
       clearTimeout(timer)
       session.pending = undefined
+    }
+  }
+
+  updateGrant(
+    owner: RendererOwner,
+    request: SkillagerExposureRequest,
+  ): Pick<SkillagerExposureGrant, 'assertCurrent' | 'validatePreview'> {
+    const session = this.get(owner, { ...request, reviewId: request.reviewId ?? '' })
+    const proof = session.update
+    const previous = proof?.request
+    if (
+      !proof ||
+      !previous ||
+      request.action !== 'update' ||
+      previous.skillId !== request.skillId ||
+      previous.mode !== request.mode ||
+      previous.exposure?.id !== request.exposure?.id ||
+      !request.exposure ||
+      !hostPathEquals(proof.target, request.exposure.target) ||
+      previous.destination.projectId !== request.destination.projectId ||
+      previous.destination.workspaceId !== request.destination.workspaceId ||
+      !hostPathEquals(previous.destination.root, request.destination.root)
+    )
+      throw new SkillagerError(
+        'review-expired',
+        'Review this exact workspace update before previewing changes.',
+      )
+    return {
+      assertCurrent: () => this.current(session),
+      validatePreview: ({ detail }) => {
+        this.current(session)
+        if (
+          detail.sourceHash !== session.snapshot!.detail.hash ||
+          detail.sourceHash !== proof.sourceHash ||
+          detail.targetHash !== proof.targetHash ||
+          detail.beforeMode !== proof.beforeMode ||
+          !hostPathEquals(detail.target, proof.target)
+        )
+          throw new SkillagerError(
+            'stale-review',
+            'The source or target changed during review. Refresh and review a new update.',
+          )
+      },
     }
   }
 

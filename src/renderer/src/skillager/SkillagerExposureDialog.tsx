@@ -21,9 +21,11 @@ export function SkillagerExposureDialog({
   const label =
     state.action === 'remove'
       ? 'Remove workspace copy'
-      : state.action === 'change'
-        ? 'Change workspace mode'
-        : 'Add to project'
+      : state.action === 'update'
+        ? 'Update workspace copy'
+        : state.action === 'change'
+          ? 'Change workspace mode'
+          : 'Add to project'
   return createPortal(
     <ConfirmationDialog
       key={`${preview?.previewId ?? 'choose'}:${state.loading ? 'preparing' : 'ready'}:${state.used ?? false}`}

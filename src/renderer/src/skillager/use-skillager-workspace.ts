@@ -159,10 +159,17 @@ export function useSkillagerWorkspace(input: Options) {
   const refresh = useCallback(async () => {
     const current = connectionRef.current
     const root = optionsRef.current.root
-    if (!current || !root || !optionsRef.current.enabled) return
+    if (
+      !current ||
+      !root ||
+      !optionsRef.current.enabled ||
+      optionsRef.current.projectState?.connectionState !== 'connected'
+    )
+      return
     const requestId = ++requests.current.inventory
     const at = generation.current
     setInventory((state) => ({ ...state, loading: true }))
+    dispatchTabs({ type: 'invalidate', freshness: 'checking' })
     try {
       const result = await window.hvir.invoke('skillager:inventory', {
         connectionId: current.connectionId,
@@ -173,9 +180,11 @@ export function useSkillagerWorkspace(input: Options) {
       if (requestId !== requests.current.inventory || at !== generation.current) return
       setInventory({ loading: false, result })
       if (result.ok) dispatchTabs({ type: 'observe', result: result.value })
+      else dispatchTabs({ type: 'invalidate', freshness: 'unavailable' })
       if (!result.ok && result.reason === 'library-changed') disconnect()
     } catch {
-      if (requestId === requests.current.inventory && at === generation.current)
+      if (requestId === requests.current.inventory && at === generation.current) {
+        dispatchTabs({ type: 'invalidate', freshness: 'unavailable' })
         setInventory({
           loading: false,
           result: {
@@ -184,6 +193,7 @@ export function useSkillagerWorkspace(input: Options) {
             message: 'Library metadata is unavailable. Try again.',
           },
         })
+      }
     }
   }, [agent, disconnect])
 
@@ -191,7 +201,13 @@ export function useSkillagerWorkspace(input: Options) {
     async (submittedQuery = query.trim()) => {
       const current = connectionRef.current
       const root = optionsRef.current.root
-      if (!current || !root || !submittedQuery || !optionsRef.current.sidebarVisible)
+      if (
+        !current ||
+        !root ||
+        !submittedQuery ||
+        !optionsRef.current.sidebarVisible ||
+        optionsRef.current.projectState?.connectionState !== 'connected'
+      )
         return
       const requestId = ++requests.current.search
       const at = generation.current
@@ -234,6 +250,7 @@ export function useSkillagerWorkspace(input: Options) {
     agent,
     scope,
     options.sidebarVisible,
+    options.projectState?.connectionState,
     cancel,
   ])
 
@@ -261,7 +278,7 @@ export function useSkillagerWorkspace(input: Options) {
 
   const observing = skillagerObservationDemand(
     options.enabled,
-    Boolean(connection),
+    Boolean(connection) && options.projectState?.connectionState === 'connected',
     foreground,
     options.sidebarVisible,
     Boolean(tabs.activeId) && options.viewerVisible,
@@ -270,6 +287,7 @@ export function useSkillagerWorkspace(input: Options) {
     if (!observing) {
       cancel('inventory')
       setInventory((state) => ({ ...state, loading: false }))
+      dispatchTabs({ type: 'invalidate', freshness: 'stale' })
       return
     }
     void refresh()
@@ -313,6 +331,7 @@ export function useSkillagerWorkspace(input: Options) {
   const reviews = useSkillagerReview({
     connection,
     root: options.root,
+    projectState: options.projectState,
     agent,
     tabs: tabs.tabs,
     onAccepted: afterAcceptance,
@@ -327,6 +346,7 @@ export function useSkillagerWorkspace(input: Options) {
     agent,
     visible:
       options.enabled &&
+      options.projectState?.connectionState === 'connected' &&
       (options.sidebarVisible || (Boolean(tabs.activeId) && options.viewerVisible)),
     onCompleted: afterAcceptance,
   })
@@ -335,6 +355,7 @@ export function useSkillagerWorkspace(input: Options) {
     exposures,
     reviews,
     enabled: options.enabled,
+    observing,
     sidebarVisible: options.sidebarVisible,
     viewerVisible: options.viewerVisible,
     probe,

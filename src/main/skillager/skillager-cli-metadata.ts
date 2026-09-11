@@ -97,6 +97,8 @@ export function parseSkillagerExposures(
       target,
       mode: string(row.mode, 64),
       status: string(row.status, 64),
+      expectedSourceHash:
+        row.expected_source_hash == null ? undefined : hash(row.expected_source_hash),
     }
   })
 }
@@ -211,4 +213,10 @@ function malformed(): never {
     'malformed-result',
     'Skillager returned unsupported or malformed metadata.',
   )
+}
+
+function hash(value: unknown): string {
+  const result = string(value, 64)
+  if (!HASH.test(result)) malformed()
+  return result
 }

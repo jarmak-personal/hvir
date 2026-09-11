@@ -1,3 +1,7 @@
+import { exposureDestinations, eligibleSkillagerUpdate } from './skillager-exposure-model'
+import { hostPathEquals } from '../../../shared/host-path'
+import type { ProjectState } from '../../../shared/workspace-types'
+import type { SkillagerExposureRequest } from '../../../shared/skillager-exposure'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { HostPath } from '../../../shared/host-path'
 import type {
@@ -29,6 +33,7 @@ export interface SkillagerReviewState {
 interface Options {
   readonly connection?: SkillagerConnection
   readonly root?: HostPath
+  readonly projectState?: ProjectState
   readonly agent: SkillagerAgent
   readonly tabs: readonly SkillagerDetailTab[]
   readonly onAccepted: () => void
@@ -46,7 +51,7 @@ export function useSkillagerReview(options: Options) {
   optionsRef.current = options
   const sequence = useRef(0),
     leases = useRef(new Map<string, Lease>())
-  const context = `${options.connection?.connectionId}:${options.root?.hostId}:${options.root?.path}:${options.agent}`
+  const context = `${options.connection?.connectionId}:${options.root?.hostId}:${options.root?.path}:${options.agent}:${options.projectState?.connectionState}`
   const contextRef = useRef(context)
   contextRef.current = context
   const publish = useCallback(
@@ -87,7 +92,14 @@ export function useSkillagerReview(options: Options) {
   const start = useCallback(
     (tab: SkillagerDetailTab): Lease | undefined => {
       const { connection, root, agent } = optionsRef.current
-      if (!connection || !root || tab.metadata.source.ownership !== 'library') return
+      if (
+        !connection ||
+        !root ||
+        tab.metadata.source.ownership !== 'library' ||
+        (optionsRef.current.projectState &&
+          optionsRef.current.projectState.connectionState !== 'connected')
+      )
+        return
       release(tab.id)
       const lease = {
         context: contextRef.current,
@@ -118,14 +130,32 @@ export function useSkillagerReview(options: Options) {
   )
 
   const review = useCallback(
-    async (tab: SkillagerDetailTab) => {
+    async (tab: SkillagerDetailTab, update = false) => {
+      const selected = optionsRef.current
+      const destination = update
+        ? exposureDestinations(selected.projectState).find(
+            (item) => selected.root && hostPathEquals(item.root, selected.root),
+          )
+        : undefined
+      if (update && (!destination || !eligibleSkillagerUpdate(tab.metadata))) return
       const lease = start(tab)
       if (!lease) return
+      const updateRequest: SkillagerExposureRequest | undefined = update
+        ? {
+            ...lease.request,
+            destination: destination!,
+            skillId: tab.metadata.id,
+            action: 'update',
+            exposure: tab.metadata.workspace,
+            mode: tab.metadata.workspace!.mode as 'native' | 'stub',
+          }
+        : undefined
       setStates((value) => ({ ...value, [tab.id]: { loading: true } }))
       try {
         const result = await window.hvir.invoke('skillager:review', {
           ...lease.request,
           skillId: tab.metadata.id,
+          update: updateRequest,
         })
         if (!current(tab.id, lease)) {
           if (result.ok)
@@ -140,7 +170,8 @@ export function useSkillagerReview(options: Options) {
           loading: false,
           detail: result.value,
           history: result.value.history,
-          mode: 'rendered',
+          mode: result.value.update ? 'diff' : 'rendered',
+          diff: result.value.update?.diff,
         })
       } catch {
         if (current(tab.id, lease))

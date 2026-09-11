@@ -33,7 +33,10 @@ interface Session {
 export class SkillagerExposureOwner {
   private readonly sessions = new Map<string, Session>()
   constructor(
-    private readonly cli: SkillagerExposureCliPort,
+    private readonly cli: Pick<
+      SkillagerExposureCliPort,
+      'previewExposure' | 'applyExposure'
+    >,
     private readonly resources: Pick<
       RendererResourceScopes,
       'register' | 'assertCurrent'
@@ -92,6 +95,7 @@ export class SkillagerExposureOwner {
     try {
       session.snapshot = await task
       this.current(session)
+      grant.validatePreview?.(session.snapshot)
       return { ...session.snapshot.detail, previewId: id }
     } catch (error) {
       session.pending = undefined

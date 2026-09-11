@@ -32,6 +32,10 @@ export function registerSkillagerIpc(ipc: IpcRegistrar, deps: SkillagerIpcDeps):
     deps.skillager.review(context.owner(), {
       ...qualifySkillagerRequest(ipc.authority, request),
       skillId: boundedText(request.skillId),
+      update:
+        request.update === undefined
+          ? undefined
+          : qualifyExposureRequest(ipc.authority, request.update),
     }),
   )
   ipc.handle('skillager:history', (request, context) =>
@@ -144,7 +148,7 @@ function qualifyExposureRequest(
   const base = qualifySkillagerRequest(authority, request)
   if (
     !request.destination ||
-    !['add', 'change', 'remove'].includes(request.action) ||
+    !['add', 'change', 'remove', 'update'].includes(request.action) ||
     !['native', 'stub'].includes(request.mode)
   )
     throw new Error('Invalid exposure action.')
@@ -154,6 +158,7 @@ function qualifyExposureRequest(
     skillId: boundedText(request.skillId),
     mode: request.mode,
     action: request.action,
+    reviewId: request.reviewId === undefined ? undefined : boundedText(request.reviewId),
     destination: {
       projectId: boundedText(request.destination.projectId),
       workspaceId: boundedText(request.destination.workspaceId),

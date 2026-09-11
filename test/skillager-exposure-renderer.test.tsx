@@ -385,13 +385,13 @@ describe('workspace skill action UI', () => {
       document.querySelector('.skillager-exposure-dialog [role="status"]')?.textContent,
     ).toBe('Changed lib/demo to Stub at local:/other.')
   })
-  it('shows an uncertain outcome once and never offers repeated confirmation', async () => {
+  it('refreshes an uncertain outcome once and never offers repeated confirmation', async () => {
     await open()
     invoke.mockRejectedValue(new Error('lost IPC'))
     await settle(() => button('Confirm exact changes').click())
     expect(document.querySelector('[role="alert"]')?.textContent).toContain('uncertain')
     expect(button('Confirm exact changes')).toBeUndefined()
-    expect(completion).not.toHaveBeenCalled()
+    expect(completion).toHaveBeenCalledTimes(1)
     expect(
       invoke.mock.calls.filter(([channel]) => channel === 'skillager:apply-exposure'),
     ).toHaveLength(1)
