@@ -1,4 +1,4 @@
-import { SkillagerActions } from './SkillagerActions'
+import { SkillagerActions, SkillagerActionsMenu } from './SkillagerActions'
 import { SkillagerExposureDialog } from './SkillagerExposureDialog'
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import type { HostPath } from '../../../shared/host-path'
@@ -54,6 +54,7 @@ export function SkillagerSidebar({
   return (
     <section className="skillager-sidebar" aria-label="Skills" hidden={hidden}>
       <SkillagerExposureDialog controller={controller.exposures} />
+      <SkillagerActionsMenu controller={controller.exposures.menu} />
       <div className="skillager-perspectives" aria-label="Skill perspective">
         <button
           type="button"
@@ -206,8 +207,8 @@ export function SkillagerSidebar({
                         <SkillagerActions
                           key={row.workspace?.id ?? row.id}
                           metadata={row}
-                          controller={controller.exposures}
-                          active={!hidden && controller.sidebarVisible}
+                          controller={controller.exposures.menu}
+                          surface="sidebar"
                         >
                           <button
                             type="button"

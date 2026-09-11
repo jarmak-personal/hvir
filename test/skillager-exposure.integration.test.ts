@@ -21,6 +21,7 @@ import type { ExecOptions } from '../src/main/project-host/project-host'
 import { SkillagerCli } from '../src/main/skillager/skillager-cli'
 import { skillagerFixtureEnvironment } from '../src/main/smoke/skillager-fixture-environment'
 
+const FIXTURE_AGENT_ROOTS = { codex: '.agents/skills', claude: '.claude/skills' } as const
 const source = process.env.HVIR_SKILLAGER_EXPOSURE_SOURCE,
   python = process.env.HVIR_SKILLAGER_PYTHON
 const supported = process.env.HVIR_SKILLAGER_EXPOSURE_CONTRACT !== 'legacy'
@@ -164,7 +165,7 @@ it.runIf(Boolean(source && python)).each(SKILLAGER_AGENTS)(
       ])
       const otherCopy = join(
           workspace,
-          agent.projectSkillRoots[0] + '/lib-fixture/SKILL.md',
+          FIXTURE_AGENT_ROOTS[agent.id] + '/lib-fixture/SKILL.md',
         ),
         preserved = await readFile(otherCopy)
       await writeFile(entry, body('Version B accepted after original exposure'))
@@ -339,7 +340,7 @@ it.runIf(Boolean(source && python)).each(SKILLAGER_AGENTS)(
       await cli.applyExposure(selection, nested, signal)
       const parentCopy = join(
           workspace,
-          agent.projectSkillRoots[0],
+          FIXTURE_AGENT_ROOTS[agent.id],
           'lib-context/SKILL.md',
         ),
         parentBytes = await readFile(parentCopy)

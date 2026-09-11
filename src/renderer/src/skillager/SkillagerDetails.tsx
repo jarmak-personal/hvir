@@ -12,11 +12,9 @@ export function SkillagerDetails({
   tab,
   reviews,
   exposures,
-  actionsVisible = true,
 }: {
   readonly metadata: SkillagerMetadata
   readonly tab?: SkillagerDetailTab
-  readonly actionsVisible?: boolean
   readonly exposures?: SkillagerExposureController
   readonly reviews?: SkillagerReviewController
 }): ReactElement {
@@ -30,8 +28,8 @@ export function SkillagerDetails({
       {exposures ? (
         <SkillagerActions
           metadata={metadata}
-          controller={exposures}
-          active={actionsVisible}
+          controller={exposures.menu}
+          surface="details"
         />
       ) : null}
       <dl>

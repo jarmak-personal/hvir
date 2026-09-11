@@ -321,6 +321,8 @@ export function useSkillagerWorkspace(input: Options) {
   const exposures = useSkillagerExposure({
     connection,
     detailId: tabs.activeId,
+    sidebarVisible: options.sidebarVisible,
+    detailsVisible: Boolean(tabs.activeId) && options.viewerVisible,
     projectState: options.projectState,
     agent,
     visible:

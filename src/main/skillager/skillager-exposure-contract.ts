@@ -1,6 +1,7 @@
-import { SKILLAGER_AGENTS } from '../../shared/skillager'
+import { safeExposureId } from './skillager-exposure-selection'
 import {
-  dirnameHostPath,
+  basenameHostPath,
+  containsHostPath,
   hostPathEquals,
   joinHostPath,
   localPath,
@@ -209,16 +210,12 @@ function verifyRow(
     row.scope !== 'project'
   )
     return malformedExposure()
-  const target = absolute(row.target),
-    parent = dirnameHostPath(target)
-  const roots = SKILLAGER_AGENTS.find(
-    (agent) => agent.id === request.agent,
-  )!.projectSkillRoots
+  const target = absolute(row.target)
   if (
-    !roots.some((root) =>
-      hostPathEquals(parent, joinHostPath(request.destination.root, ...root.split('/'))),
-    ) ||
-    exposureText(row.exposure_id, 512) !== target.path.split('/').at(-1)
+    !containsHostPath(request.destination.root, target) ||
+    hostPathEquals(request.destination.root, target) ||
+    !safeExposureId(row.exposure_id) ||
+    row.exposure_id !== basenameHostPath(target)
   )
     throw new SkillagerError(
       'unavailable',

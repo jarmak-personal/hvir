@@ -72,7 +72,7 @@ describe('complete bound exposure contract', () => {
         response = exposureResponse(at)
       Reflect.deleteProperty(response.row, 'preview')
       expect(() => parseExposurePreview(response.value, selection, at)).toThrow(
-        'installation does not support',
+        'preview contract is not supported',
       )
     },
   )
@@ -100,7 +100,7 @@ describe('complete bound exposure contract', () => {
     if (fault === 'generated') {
       const after = row.preview.file_effects[2]!.after!
       if ('generated_fields' in after)
-        after.generated_fields.materialized_at = 'different'
+        Reflect.deleteProperty(after.generated_fields, 'materialized_at')
     }
     if (fault === 'overflow')
       row.preview.file_effects = Array.from(
@@ -109,6 +109,56 @@ describe('complete bound exposure contract', () => {
       )
     expect(() => parseExposurePreview(value, selection, request)).toThrow()
   })
+  it('accepts a new CLI projection layout only inside the exact selected root', () => {
+    const response = exposureResponse()
+    response.row.target = '/other/new/layout/lib-demo'
+    response.row.preview.target = response.row.target
+    expect(
+      parseExposurePreview(response.value, selection, request).detail.target,
+    ).toEqual(localPath(response.row.target))
+    response.row.target = '/other'
+    response.row.exposure_id = 'other'
+    response.row.preview.target = '/other'
+    expect(() => parseExposurePreview(response.value, selection, request)).toThrow()
+  })
+  it('discloses additive inert metadata and generated policies without matching English wording', () => {
+    const response = exposureResponse(),
+      after = response.row.preview.file_effects[2]!.after!
+    if (!('metadata' in after)) throw new Error('Missing fixture metadata')
+    Object.assign(after.metadata, {
+      future_field: { enabled: true, examples: ['<script>inert</script>', 42, null] },
+    })
+    after.generated_fields.materialized_at = 'Clock value chosen at installation'
+    Object.assign(after.generated_fields, {
+      future_generated: 'An additional declared generated value',
+    })
+    const parsed = parseExposurePreview(response.value, selection, request)
+    expect(parsed.detail.effects[2]!.after?.metadata).toContain('<script>inert</script>')
+    expect(parsed.detail.effects[2]!.after?.generatedFields).toContain(
+      'future_generated: "An additional declared generated value"',
+    )
+    expect(parsed.detail.effects[2]!.after?.generatedFields).toContain(
+      'materialized_at: "Clock value chosen at installation"',
+    )
+  })
+  it.each(['identity', 'blocked', 'oversize', 'generated-type', 'unknown-schema'])(
+    'refuses malformed %s metadata despite allowing additive fields',
+    (fault) => {
+      const response = exposureResponse(),
+        after = response.row.preview.file_effects[2]!.after!
+      if (!('metadata' in after)) throw new Error('Missing fixture metadata')
+      if (fault === 'identity') Reflect.deleteProperty(after.metadata, 'source_id')
+      if (fault === 'blocked')
+        Object.assign(after.metadata, { exposure_blocked_hashes: [123] })
+      if (fault === 'oversize')
+        Object.assign(after.metadata, { future: 'x'.repeat(65536) })
+      if (fault === 'generated-type')
+        Object.assign(after.generated_fields, { future_generated: 123 })
+      if (fault === 'unknown-schema')
+        response.row.preview.schema = 'skillager.exposure-preview.v2'
+      expect(() => parseExposurePreview(response.value, selection, request)).toThrow()
+    },
+  )
   it('reports skipped/refused items as failure despite successful JSON/process output', () => {
     const response = exposureResponse(),
       snapshot = parseExposurePreview(response.value, selection, request)

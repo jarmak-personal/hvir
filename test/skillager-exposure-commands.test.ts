@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { SkillagerExposureCommands } from '../src/main/skillager/skillager-exposure-commands'
 import { SkillagerProcess } from '../src/main/skillager/skillager-process'
 import { parseExposurePreview } from '../src/main/skillager/skillager-exposure-contract'
-import { localPath, type HostPath } from '../src/shared/host-path'
+import { localPath, hostPath, asHostId, type HostPath } from '../src/shared/host-path'
 import type { ExecResult } from '../src/shared/fs-types'
 import type { ExecOptions } from '../src/main/project-host/project-host'
 import {
@@ -74,6 +74,59 @@ describe('bounded local exposure command adapter', () => {
       '--confirmation-token',
       token,
     ])
+    await f.process.dispose()
+  })
+  it.each([
+    '--yes',
+    '../lib-demo',
+    'with space',
+    'line\nbreak',
+    'lib/demo',
+    '.',
+    '..',
+    'x'.repeat(513),
+  ])('refuses an unsafe selected ID before any CLI invocation: %s', async (id) => {
+    const f = fixture(),
+      selected = {
+        ...request,
+        action: 'remove' as const,
+        exposure: {
+          id,
+          skillId: request.skillId,
+          target: localPath('/other/copies/lib-demo'),
+          mode: 'native',
+          status: 'current',
+        },
+      }
+    await expect(
+      f.commands.previewExposure(selection, selected, new AbortController().signal),
+    ).rejects.toMatchObject({ reason: 'invalid-request' })
+    expect(f.exec).not.toHaveBeenCalled()
+    expect(f.validate).not.toHaveBeenCalled()
+    await f.process.dispose()
+  })
+  it.each([
+    localPath('/outside/lib-demo'),
+    localPath('/other'),
+    localPath('/other/copies/different'),
+    hostPath(asHostId('ssh-target'), '/other/copies/lib-demo'),
+  ])('refuses an unbound selected target before any CLI invocation', async (target) => {
+    const f = fixture(),
+      selected = {
+        ...request,
+        action: 'remove' as const,
+        exposure: {
+          id: 'lib-demo',
+          skillId: request.skillId,
+          target,
+          mode: 'native',
+          status: 'current',
+        },
+      }
+    await expect(
+      f.commands.previewExposure(selection, selected, new AbortController().signal),
+    ).rejects.toMatchObject({ reason: 'invalid-request' })
+    expect(f.exec).not.toHaveBeenCalled()
     await f.process.dispose()
   })
   it('rejects a changed canonical destination before dispatch', async () => {

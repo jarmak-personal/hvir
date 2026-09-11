@@ -51,6 +51,27 @@ describe('one-use workspace skill confirmation ownership', () => {
       expect.any(AbortSignal),
     )
   })
+  it('rejects a malformed selected identity before admitting a preview to its CLI port', async () => {
+    const f = fixture()
+    await expect(
+      f.exposures.preview(
+        f.owner,
+        {
+          ...request,
+          action: 'remove',
+          exposure: {
+            id: '--yes',
+            skillId: request.skillId,
+            target: f.snapshot.detail.target,
+            mode: 'native',
+            status: 'current',
+          },
+        },
+        f.grant,
+      ),
+    ).rejects.toMatchObject({ reason: 'invalid-request' })
+    expect(vi.mocked(f.cli.previewExposure)).not.toHaveBeenCalled()
+  })
   it.each(['origin', 'destination', 'renderer', 'connection'] as const)(
     'revokes a preview when its %s authority departs',
     async (kind) => {

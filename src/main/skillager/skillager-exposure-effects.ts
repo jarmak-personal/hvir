@@ -6,29 +6,24 @@ import {
 import { SkillagerError } from './skillager-port'
 
 export const EXPOSURE_SIDECAR = 'skillager.materialized.yaml'
-const GENERATED = {
-  materialized_at: 'UTC installation time',
-  materialized_fingerprint: 'advisory fingerprint of installed file metadata',
-  materialized_sidecar_hash: 'integrity hash of the complete generated sidecar',
-}
-const METADATA_KEYS = new Set([
+const REQUIRED_GENERATED = [
+  'materialized_at',
+  'materialized_fingerprint',
+  'materialized_sidecar_hash',
+]
+const METADATA_IDENTITY_FIELDS = [
   'schema',
   'projection_kind',
-  'projection_identity',
   'id',
   'source_id',
   'source_type',
-  'source_package',
   'source_entrypoint',
   'source_hash',
-  'materialized_hash',
-  'materialized_target_hash',
-  'source_trust',
+  'source_library_id',
   'agent',
   'scope',
-  'source_library_id',
-  'exposure_blocked_hashes',
-])
+]
+const METADATA_BYTES = 64 * 1024
 
 export function exposureObject(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value))
@@ -122,25 +117,29 @@ function entry(value: unknown, metadataAllowed: boolean): SkillagerExposureEntry
         if (!metadataAllowed) return malformedExposure()
         const metadata = exposureObject(data.metadata),
           generated = exposureObject(data.generated_fields)
-        if (
-          Object.keys(metadata).some((key) => !METADATA_KEYS.has(key)) ||
-          Object.keys(generated).length !== Object.keys(GENERATED).length ||
-          Object.entries(GENERATED).some(([key, policy]) => generated[key] !== policy)
-        )
-          return unsupportedExposure()
-        for (const [key, item] of Object.entries(metadata)) {
-          if (key === 'exposure_blocked_hashes') {
-            if (!Array.isArray(item) || item.length > 512) return malformedExposure()
-            item.forEach(exposureHash)
-          } else if (item !== null) exposureText(item)
+        for (const key of METADATA_IDENTITY_FIELDS) exposureText(metadata[key])
+        if (metadata.exposure_blocked_hashes !== undefined) {
+          const hashes = metadata.exposure_blocked_hashes
+          if (!Array.isArray(hashes) || hashes.length > 512) return malformedExposure()
+          hashes.forEach(exposureHash)
         }
+        if (REQUIRED_GENERATED.some((key) => !Object.hasOwn(generated, key)))
+          return unsupportedExposure()
+        if (Object.keys(generated).length > 128) return unsupportedExposure()
+        const generatedFields = Object.entries(generated).map(([key, policy]) => {
+          exposureText(key, 256)
+          if (typeof policy !== 'string' || policy.length > 16_384)
+            return malformedExposure()
+          return `${key}: ${JSON.stringify(policy)}`
+        })
+        const metadataJson = inertMetadata(metadata)
+        inertMetadata(generated)
+
         return {
           type: 'file',
           mode,
-          metadata: JSON.stringify(metadata, null, 2),
-          generatedFields: Object.entries(GENERATED).map(
-            ([key, policy]) => `${key}: ${policy}`,
-          ),
+          metadata: metadataJson,
+          generatedFields,
         }
       }
       return {
@@ -154,6 +153,32 @@ function entry(value: unknown, metadataAllowed: boolean): SkillagerExposureEntry
       return malformedExposure()
   }
 }
+function inertMetadata(value: Record<string, unknown>): string {
+  let json: string
+  try {
+    json = JSON.stringify(
+      value,
+      (_key, item: unknown) => {
+        if (
+          ['undefined', 'function', 'symbol', 'bigint'].includes(typeof item) ||
+          (typeof item === 'number' && !Number.isFinite(item))
+        )
+          return malformedExposure()
+        return item
+      },
+      2,
+    )
+  } catch {
+    return malformedExposure()
+  }
+  if (Buffer.byteLength(json) > METADATA_BYTES)
+    throw new SkillagerError(
+      'output-limit',
+      'Skillager deployment metadata exceeds the complete preview limit.',
+    )
+  return json
+}
+
 export function malformedExposure(): never {
   throw new SkillagerError(
     'malformed-result',
@@ -163,6 +188,6 @@ export function malformedExposure(): never {
 export function unsupportedExposure(): never {
   throw new SkillagerError(
     'unsupported',
-    'This Skillager installation does not support the complete, bound preview required for this action. Update Skillager in your local terminal, then check again.',
+    'This Skillager preview contract is not supported by this hvir version. This action requires compatible versions with a complete, bound preview.',
   )
 }

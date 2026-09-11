@@ -1,75 +1,27 @@
-import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactElement, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { SkillagerMetadata } from '../../../shared/skillager'
 import { useViewportContextMenuPosition } from '../context-menu/viewport-context-menu'
+import { firstEnabledMenuItem, focusRelativeMenuItem } from '../context-menu/menu-focus'
 import { exposureActions } from './skillager-exposure-model'
 import type { SkillagerExposureController } from './use-skillager-exposure'
+import type { SkillagerActionSurface } from './use-skillager-actions'
 
+type MenuController = SkillagerExposureController['menu']
+/** Rows and details are stateless triggers; the feature renders one menu host. */
 export function SkillagerActions({
   metadata,
   controller,
   children,
-  active = true,
+  surface,
 }: {
   readonly metadata: SkillagerMetadata
-  readonly controller: SkillagerExposureController
-  readonly active?: boolean
+  readonly controller: MenuController
+  readonly surface: SkillagerActionSurface
   readonly children?: ReactNode
 }): ReactElement {
-  const [anchor, setAnchor] = useState<{ id: number; x: number; y: number }>()
-  const menu = useRef<HTMLDivElement>(null),
-    trigger = useRef<HTMLElement>(null)
-  const position = useViewportContextMenuPosition(menu, anchor)
-  useEffect(
-    () => setAnchor(undefined),
-    [active, controller.context, controller.state, metadata.id],
-  )
-  useEffect(() => {
-    if (!anchor) return
-    menu.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()
-    const dismiss = (event: PointerEvent): void => {
-      if (!menu.current?.contains(event.target as Node)) setAnchor(undefined)
-    }
-    const keyboard = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        event.stopPropagation()
-        setAnchor(undefined)
-        trigger.current?.focus()
-        return
-      }
-      if (
-        !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key) ||
-        !menu.current?.contains(document.activeElement)
-      )
-        return
-      event.preventDefault()
-      const items = [
-        ...menu.current.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'),
-      ]
-      const index = items.indexOf(document.activeElement as HTMLButtonElement)
-      const next =
-        event.key === 'Home'
-          ? 0
-          : event.key === 'End'
-            ? items.length - 1
-            : event.key === 'ArrowUp'
-              ? (index - 1 + items.length) % items.length
-              : (index + 1) % items.length
-      items[next]?.focus()
-    }
-    document.addEventListener('pointerdown', dismiss)
-    document.addEventListener('keydown', keyboard, true)
-    return () => {
-      document.removeEventListener('pointerdown', dismiss)
-      document.removeEventListener('keydown', keyboard, true)
-    }
-  }, [anchor])
-  const open = (element: HTMLElement, x?: number, y?: number): void => {
-    trigger.current = element
-    const bounds = element.getBoundingClientRect()
-    setAnchor({ id: Date.now(), x: x ?? bounds.left, y: y ?? bounds.bottom })
-  }
+  const open = (trigger: HTMLElement, point?: { x: number; y: number }): void =>
+    controller.open(metadata, surface, trigger, point)
   return (
     <div
       className="skillager-action-row"
@@ -78,8 +30,7 @@ export function SkillagerActions({
         open(
           (event.target as HTMLElement).closest('button') ??
             event.currentTarget.querySelector('button')!,
-          event.clientX,
-          event.clientY,
+          { x: event.clientX, y: event.clientY },
         )
       }}
       onKeyDown={(event) => {
@@ -95,39 +46,77 @@ export function SkillagerActions({
         className="skillager-actions-trigger"
         aria-label={`Actions for ${metadata.name}`}
         aria-haspopup="menu"
-        aria-expanded={Boolean(anchor)}
+        aria-expanded={
+          controller.request?.surface === surface &&
+          controller.request.metadata === metadata
+        }
         onClick={(event) => open(event.currentTarget)}
       >
         ⋯
       </button>
-      {anchor && active
-        ? createPortal(
-            <div
-              ref={menu}
-              className="path-copy-menu viewport-context-menu"
-              role="menu"
-              aria-label={`Skill actions for ${metadata.name}`}
-              style={position}
-            >
-              {exposureActions(metadata).map((item) => (
-                <button
-                  key={item.action}
-                  type="button"
-                  role="menuitem"
-                  disabled={item.disabled}
-                  onClick={() => {
-                    setAnchor(undefined)
-                    trigger.current?.focus()
-                    controller.start(metadata, item.action)
-                  }}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>,
-            document.body,
-          )
-        : null}
     </div>
+  )
+}
+
+export function SkillagerActionsMenu({
+  controller,
+}: {
+  readonly controller: MenuController
+}): ReactElement | null {
+  const { request, current, dismiss, select } = controller
+  const menu = useRef<HTMLDivElement>(null)
+  const position = useViewportContextMenuPosition(menu, request)
+  // Sidebar paging/filtering can remove the originating row without changing the workspace.
+  useEffect(() => {
+    if (request && !current(request)) dismiss()
+  })
+  useEffect(() => {
+    if (!request) return
+    if (menu.current) firstEnabledMenuItem(menu.current)?.focus()
+    const outside = (event: PointerEvent): void => {
+      if (!menu.current?.contains(event.target as Node)) dismiss()
+    }
+    const keyboard = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopPropagation()
+        dismiss(true)
+        return
+      }
+      if (
+        menu.current?.contains(document.activeElement) &&
+        focusRelativeMenuItem(menu.current, event.key)
+      )
+        event.preventDefault()
+    }
+    document.addEventListener('pointerdown', outside)
+    document.addEventListener('keydown', keyboard, true)
+    return () => {
+      document.removeEventListener('pointerdown', outside)
+      document.removeEventListener('keydown', keyboard, true)
+    }
+  }, [request, dismiss])
+  if (!request || !current(request)) return null
+  return createPortal(
+    <div
+      ref={menu}
+      className="path-copy-menu viewport-context-menu"
+      role="menu"
+      aria-label={`Skill actions for ${request.metadata.name}`}
+      style={position}
+    >
+      {exposureActions(request.metadata).map((item) => (
+        <button
+          key={item.action}
+          type="button"
+          role="menuitem"
+          disabled={item.disabled}
+          onClick={() => select(item.action)}
+        >
+          {item.label}
+        </button>
+      ))}
+    </div>,
+    document.body,
   )
 }

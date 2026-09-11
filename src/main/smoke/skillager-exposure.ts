@@ -66,6 +66,32 @@ export async function verifySkillagerExposure(win: BrowserWindow): Promise<void>
     await wait(() => button('.skillager-exposure-dialog', 'Confirm exact changes'));
     button('.skillager-exposure-dialog', 'Cancel').click();
     await wait(() => !document.querySelector('.skillager-exposure-dialog'));
+  `)
+  for (const cancellation of ['Cancel', 'Escape']) {
+    await evaluate(`
+      checkpoint = 'cancel preparing preview';
+      document.querySelector('.skillager-sidebar .skillager-actions-trigger').click();
+      await wait(() => button('[role=menu]', 'Add to project…'));
+      button('[role=menu]', 'Add to project…').click();
+      await wait(() => document.querySelector('select[aria-label="Destination project"]'));
+      choose('Destination project', 1);
+      await wait(() => !button('.skillager-exposure-dialog', 'Preview changes').disabled);
+      button('.skillager-exposure-dialog', 'Preview changes').click();
+      await wait(() => document.querySelector('.skillager-exposure-dialog [role=status]')?.textContent.includes('Preparing complete preview'));
+      if (button('.skillager-exposure-dialog', 'Cancel').disabled) throw new Error('Read-only preparation disabled Cancel');
+    `)
+    if (cancellation === 'Escape') {
+      win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
+      win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
+    } else await evaluate(`button('.skillager-exposure-dialog', 'Cancel').click();`)
+    await evaluate(`
+      checkpoint = 'late cancelled preview';
+      await wait(() => !document.querySelector('.skillager-exposure-dialog'));
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      if (document.querySelector('.skillager-exposure-dialog')) throw new Error('Cancelled preview reappeared');
+    `)
+  }
+  await evaluate(`
     document.querySelector('.skillager-sidebar .skillager-actions-trigger').click();
     await wait(() => document.querySelector('[role=menu]'));
     checkpoint = 'hidden menu';
@@ -74,6 +100,6 @@ export async function verifySkillagerExposure(win: BrowserWindow): Promise<void>
     button('.rail-nav', 'Skills').click();
   `)
   console.log(
-    '[smoke] Skill exposures OK (real IPC; mouse/keyboard menu parity and focus restoration; selected project/worktree; complete effect confirmation; mode change and removal; preview cancellation; hidden-menu cleanup)',
+    '[smoke] Skill exposures OK (real IPC; mouse/keyboard menu parity and focus restoration; selected project/worktree; complete effect confirmation; mode change and removal; preparing-preview Cancel/Escape and late-result revocation; hidden-menu cleanup)',
   )
 }

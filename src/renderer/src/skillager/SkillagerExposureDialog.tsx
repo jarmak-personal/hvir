@@ -26,10 +26,10 @@ export function SkillagerExposureDialog({
         : 'Add to project'
   return createPortal(
     <ConfirmationDialog
-      key={`${preview?.previewId ?? 'choose'}:${state.used ?? false}`}
+      key={`${preview?.previewId ?? 'choose'}:${state.loading ? 'preparing' : 'ready'}:${state.used ?? false}`}
       labelledBy="skillager-exposure-title"
       className="skillager-exposure-dialog"
-      busy={busy}
+      busy={Boolean(state.applying)}
       actions={[
         {
           label: state.used ? 'Close' : 'Cancel',
@@ -44,7 +44,7 @@ export function SkillagerExposureDialog({
                   state.action === 'remove'
                     ? ('destructive' as const)
                     : ('primary' as const),
-                disabled: !state.destination,
+                disabled: busy || !state.destination,
                 onSelect: () => {
                   void (preview ? controller.apply() : controller.preview())
                 },
@@ -268,7 +268,7 @@ function Entry({
       {value.device !== undefined ? <p>Device: {value.device}</p> : null}
       {value.metadata ? <pre>{value.metadata}</pre> : null}
       {value.generatedFields?.map((policy) => (
-        <p key={policy}>{policy}</p>
+        <pre key={policy}>{policy}</pre>
       ))}
     </>
   )

@@ -1,4 +1,3 @@
-import { SKILLAGER_AGENTS } from '../../shared/skillager'
 import { joinHostPath, type HostPath } from '../../shared/host-path'
 import type { SkillagerWorkspaceExposure } from '../../shared/skillager'
 import type { SkillagerExposureCliPort } from '../skillager/skillager-exposure-port'
@@ -19,18 +18,14 @@ export function skillagerExposureFixture(root: HostPath) {
   ])
   const file = { type: 'file' as const, mode: 0o644, size: 24, sha256: 'a'.repeat(64) }
   const cli: SkillagerExposureCliPort = {
-    previewExposure(_selection, request) {
+    async previewExposure(_selection, request) {
+      // Delayed read-only completion exercises real IPC cancellation and late-result revocation.
+      await new Promise((resolve) => setTimeout(resolve, 200))
       const id = request.skillId.replace('/', '-'),
         existing = copies.get(id),
         removing = request.action === 'remove'
       const target =
-        existing?.target ??
-        joinHostPath(
-          request.destination.root,
-          SKILLAGER_AGENTS.find((agent) => agent.id === request.agent)!
-            .projectSkillRoots[0],
-          id,
-        )
+        existing?.target ?? joinHostPath(request.destination.root, '.fixture-skills', id)
       return Promise.resolve({
         confirmationToken: 'fixture-private-exposure-token',
         detail: {

@@ -1,3 +1,4 @@
+import { firstEnabledMenuItem, focusRelativeMenuItem } from '../context-menu/menu-focus'
 import {
   useEffect,
   useLayoutEffect,
@@ -287,29 +288,4 @@ export function TerminalContextMenu({
 
 function retainTerminalFocus(event: ReactPointerEvent<HTMLButtonElement>): void {
   event.preventDefault()
-}
-
-function enabledMenuItems(menu: HTMLElement): HTMLButtonElement[] {
-  return [...menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].filter(
-    (item) => !item.disabled,
-  )
-}
-
-function firstEnabledMenuItem(menu: HTMLElement): HTMLButtonElement | undefined {
-  return enabledMenuItems(menu)[0]
-}
-
-function focusRelativeMenuItem(menu: HTMLElement, key: string): void {
-  const items = enabledMenuItems(menu)
-  if (items.length === 0) return
-  const index = items.indexOf(document.activeElement as HTMLButtonElement)
-  const next =
-    key === 'Home'
-      ? 0
-      : key === 'End'
-        ? items.length - 1
-        : key === 'ArrowUp'
-          ? (index - 1 + items.length) % items.length
-          : (index + 1) % items.length
-  items[next]?.focus()
 }

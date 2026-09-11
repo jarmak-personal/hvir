@@ -1,3 +1,4 @@
+import { validateExposureSelection } from './skillager-exposure-selection'
 import { randomUUID } from 'node:crypto'
 import { hostPathEquals } from '../../shared/host-path'
 import type {
@@ -9,7 +10,7 @@ import type {
   RendererResourceLease,
   RendererResourceScopes,
 } from '../renderer-resource-scopes'
-import { SkillagerError } from './skillager-port'
+import { SkillagerError, SKILLAGER_REQUEST_DEADLINE_MS } from './skillager-port'
 import type {
   SkillagerExposureCliPort,
   SkillagerExposureGrant,
@@ -45,6 +46,7 @@ export class SkillagerExposureOwner {
     grant: SkillagerExposureGrant,
   ): Promise<SkillagerExposurePreview> {
     grant.assertCurrent()
+    validateExposureSelection(request)
     if ([...this.sessions.values()].some((session) => sameOwner(session.owner, owner)))
       throw new SkillagerError(
         'busy',
@@ -77,7 +79,10 @@ export class SkillagerExposureOwner {
           () => this.release(owner, id),
         ),
       )
-    const timer = setTimeout(() => session.controller.abort(), 30_000)
+    const timer = setTimeout(
+      () => session.controller.abort(),
+      SKILLAGER_REQUEST_DEADLINE_MS,
+    )
     const task = this.cli.previewExposure(
       grant.selection,
       request,

@@ -1,3 +1,4 @@
+import { validateExposureSelection } from './skillager-exposure-selection'
 import {
   containsHostPath,
   dirnameHostPath,
@@ -6,7 +7,11 @@ import {
 } from '../../shared/host-path'
 import type { SkillagerExposureRequest } from '../../shared/skillager-exposure'
 import type { ProjectHost } from '../project-host/project-host'
-import { SkillagerError, type SkillagerCliSelection } from './skillager-port'
+import {
+  SkillagerError,
+  SKILLAGER_REQUEST_DEADLINE_MS,
+  type SkillagerCliSelection,
+} from './skillager-port'
 import type {
   SkillagerExposureCliPort,
   SkillagerExposureSnapshot,
@@ -20,7 +25,11 @@ import {
   refusedExposure,
 } from './skillager-exposure-contract'
 
-const LIMITS = { stdout: 4 * 1024 * 1024, stderr: 64 * 1024, deadlineMs: 30_000 }
+const LIMITS = {
+  stdout: 4 * 1024 * 1024,
+  stderr: 64 * 1024,
+  deadlineMs: SKILLAGER_REQUEST_DEADLINE_MS,
+}
 
 /** Local projection writes belong to Skillager; only fixed argv and bound tokens reach exec. */
 export class SkillagerExposureCommands implements SkillagerExposureCliPort {
@@ -38,6 +47,7 @@ export class SkillagerExposureCommands implements SkillagerExposureCliPort {
     request: SkillagerExposureRequest,
     signal: AbortSignal,
   ) {
+    validateExposureSelection(request)
     await this.validate(selection, signal)
     await this.validateDestination(request.destination.root, signal)
     const output = await this.process.runResult(
@@ -69,6 +79,7 @@ export class SkillagerExposureCommands implements SkillagerExposureCliPort {
     signal: AbortSignal,
   ) {
     const { request, target } = snapshot.detail
+    validateExposureSelection(request)
     await this.validate(selection, signal)
     await this.validateDestination(request.destination.root, signal)
     await this.validateTarget(target, request.destination.root, signal)

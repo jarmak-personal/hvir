@@ -1,3 +1,4 @@
+import { useSkillagerActions } from './use-skillager-actions'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { hostPathEquals } from '../../../shared/host-path'
 import type {
@@ -25,6 +26,8 @@ interface Options {
   readonly agent: SkillagerAgent
   readonly detailId?: string
   readonly visible: boolean
+  readonly sidebarVisible: boolean
+  readonly detailsVisible: boolean
   readonly onCompleted: () => void
 }
 interface ActionState {
@@ -214,7 +217,10 @@ export function useSkillagerExposure(options: Options) {
         setState({
           ...current,
           used: true,
-          message: `${result.value.status === 'removed' ? 'Removed' : 'Added'} ${result.value.skillId} ${result.value.status === 'removed' ? 'from' : 'to'} ${result.value.target.hostId}:${result.value.target.path}.`,
+          message:
+            current.action === 'change'
+              ? `Changed ${result.value.skillId} to ${result.value.mode === 'native' ? 'Full skill' : 'Stub'} at ${result.value.target.hostId}:${result.value.target.path}.`
+              : `${result.value.status === 'removed' ? 'Removed' : 'Added'} ${result.value.skillId} ${result.value.status === 'removed' ? 'from' : 'to'} ${result.value.target.hostId}:${result.value.target.path}.`,
         })
       } else {
         if (result.reason === 'busy') owned.used = false
@@ -236,6 +242,13 @@ export function useSkillagerExposure(options: Options) {
         })
     }
   }, [])
-  return { state, context, destinations, start, close, choose, preview, apply }
+  const menu = useSkillagerActions({
+    context,
+    sidebarVisible: options.sidebarVisible,
+    detailsVisible: options.detailsVisible,
+    blocked: Boolean(state) || !options.connection || !options.visible,
+    onSelect: start,
+  })
+  return { state, context, menu, destinations, start, close, choose, preview, apply }
 }
 export type SkillagerExposureController = ReturnType<typeof useSkillagerExposure>
