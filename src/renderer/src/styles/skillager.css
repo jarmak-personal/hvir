@@ -95,10 +95,10 @@
 .skillager-connection code {
   user-select: text;
 }
-.skillager-settings {
-  margin-top: 20px;
-  border-top: 1px solid var(--border-subtle);
-  padding-top: 16px;
+.skillager-settings input[type='checkbox'] {
+  width: 14px;
+  height: 14px;
+  padding: 0;
 }
 .skillager-settings > label {
   display: block;

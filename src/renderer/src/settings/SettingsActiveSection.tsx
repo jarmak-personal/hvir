@@ -9,6 +9,7 @@ import type { SettingsDraft, SettingsDraftValidation } from './settings-draft'
 import type { SettingsSection } from './settings-navigation'
 import { AppearanceSettings } from './sections/AppearanceSettings'
 import { GitSettings } from './sections/GitSettings'
+import { IntegrationsSettings } from './sections/IntegrationsSettings'
 import { KeybindingsSettings } from './sections/KeybindingsSettings'
 import { TerminalSettings } from './sections/TerminalSettings'
 
@@ -42,7 +43,9 @@ export function SettingsActiveSection({
 }: SettingsActiveSectionProps): ReactElement {
   switch (activeSection) {
     case 'appearance':
-      return <><AppearanceSettings draft={draft} onChange={onChange} />{skillager}</>
+      return <AppearanceSettings draft={draft} onChange={onChange} />
+    case 'integrations':
+      return <IntegrationsSettings>{skillager}</IntegrationsSettings>
     case 'terminal':
       return (
         <TerminalSettings

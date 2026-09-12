@@ -1,3 +1,7 @@
+import {
+  enableSkillagerInSettings,
+  disableAndReenableSkillagerInSettings,
+} from './skillager-settings'
 import { verifySkillagerUpdate } from './skillager-update'
 import { verifySkillagerExposure } from './skillager-exposure'
 import { verifySkillagerReview } from './skillager-review'
@@ -54,13 +58,9 @@ export async function verifySkillagerScenario(
       const file = await wait(() => document.querySelector('.file-row'));
       file.click();
       await wait(() => document.querySelector('.viewer-tab:not(.skillager-tab)'));
-      document.querySelector('.settings-toggle').click();
-      const toggle = await wait(() => document.querySelector('.skillager-settings input[type="checkbox"]'));
-      if (document.querySelectorAll('.skillager-settings input').length !== 1) throw new Error('Disabled settings contain more than the toggle');
-      toggle.click();
-      await wait(() => button('.skillager-settings', 'Connect library'));
-      if (document.querySelector('.skillager-row')) throw new Error('Probe connected implicitly');
-      button('.settings-dialog', 'Close settings').click();
+    `)
+    await enableSkillagerInSettings(win)
+    await evaluate(`
       button('.rail-nav', 'Skills').click();
       await wait(() => !document.querySelector('.skillager-sidebar').hidden);
       button('.skillager-sidebar', 'Connect library').click();
@@ -152,13 +152,8 @@ export async function verifySkillagerScenario(
       button('.rail-nav', 'Files').click();
       document.querySelector('.skillager-tab.active .tab-close').click();
       await wait(() => !document.querySelector('.skillager-details'));
-      document.querySelector('.settings-toggle').click();
-      const toggle = await wait(() => document.querySelector('.skillager-settings input[type="checkbox"]'));
-      toggle.click();
-      await wait(() => !button('.rail-nav', 'Skills') && !document.querySelector('.skillager-sidebar') && !document.querySelector('.skillager-tab'));
-      if (document.querySelectorAll('.skillager-settings input').length !== 1) throw new Error('Disabled settings retained feature controls');
-      button('.settings-dialog', 'Close settings').click();
     `)
+    await disableAndReenableSkillagerInSettings(win)
     console.log(
       `[smoke] Skills OK (${process.env.HVIR_SKILLAGER_SMOKE_FIXTURE ? 'real CLI, fresh search cache' : 'delayed fixture'}; 5,000 rows; 50 visible; first ${firstMs.toFixed(0)}ms/${first.frames} frames/${first.maxGapMs.toFixed(1)}ms maximum gap; warm ${warmMs.toFixed(0)}ms/${warm.frames} frames/${warm.maxGapMs.toFixed(1)}ms maximum gap; typing, document navigation and terminal input during both searches; cancellation, disable)`,
     )
