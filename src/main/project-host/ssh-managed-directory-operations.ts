@@ -22,6 +22,7 @@ def stage():
                 try: os.fchmod(created,0o755)
                 finally: os.close(created)
             finally: os.close(at)
+        emit({'status':'ready'})
         for row in tree['files']:
             at,leaf,_=open_parent(fd,row['entry'])
             out=None

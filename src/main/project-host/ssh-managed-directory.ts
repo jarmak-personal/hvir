@@ -203,6 +203,10 @@ export class SshManagedDirectory implements ManagedDirectoryPort {
     }
     const subscriptions: Disposer[] = []
     let rejectExit: (error: unknown) => void = () => {}
+    let allowUpload: () => void = () => {}
+    const ready = new Promise<void>((resolve) => {
+      allowUpload = resolve
+    })
     const exited = new Promise<void>((resolve, reject) => {
       rejectExit = reject
       subscriptions.push(
@@ -214,6 +218,7 @@ export class SshManagedDirectory implements ManagedDirectoryPort {
             return
           }
           output += chunk
+          if (bytes && output.startsWith('{"status":"ready"}\n')) allowUpload()
           if (!submitted && output.includes('{"status":"submitting"}\n')) {
             submitted = true
             onSubmitted?.()
@@ -275,7 +280,10 @@ export class SshManagedDirectory implements ManagedDirectoryPort {
         await write(header.slice(offset, end))
         offset = end
       }
-      if (bytes) {
+      const upload =
+        bytes &&
+        (await Promise.race([ready.then(() => true), exited.then(() => false), stopped]))
+      if (upload) {
         for (const file of (request.tree as ManagedDirectoryTree).files) {
           const content = bytes.get(file.entry)!
           for (let offset = 0; offset < content.byteLength; offset += 65_536)
@@ -289,13 +297,14 @@ export class SshManagedDirectory implements ManagedDirectoryPort {
       abort.signal.throwIfAborted()
       // Once every write was accepted, successful process exit is authoritative
       // even if the transport's stdin-close callback is still settling.
-      await Promise.race([stream.end(), exited, stopped])
+      if (!bytes || upload) await Promise.race([stream.end(), exited, stopped])
       await Promise.race([exited, stopped])
       const rows = output.trim().split('\n')
-      if (rows.length > 2 || (rows.length === 2 && rows[0] !== '{"status":"submitting"}'))
-        throw uncertain()
+      const prefix = bytes ? '{"status":"ready"}' : '{"status":"submitting"}'
+      if (rows.length > 2 || (rows.length === 2 && rows[0] !== prefix)) throw uncertain()
       const result = JSON.parse(rows.at(-1)!) as Record<string, unknown>
       if (!result || typeof result !== 'object') throw uncertain()
+      if (bytes && result.status === 'staged' && !upload) throw uncertain()
       if (result.status === 'unavailable')
         throw new ManagedDirectoryError(
           'unavailable',

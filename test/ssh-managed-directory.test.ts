@@ -141,6 +141,7 @@ describe('managed directory immediate stream boundary', () => {
     const abort = new AbortController()
     let writes = 0
     vi.mocked(boundary.stream.write).mockImplementation(() => {
+      if (writes === 0) boundary.events.emit('stdout', '{"status":"ready"}\n')
       if (++writes === 2) abort.abort()
       return Promise.resolve()
     })
@@ -166,6 +167,46 @@ describe('managed directory immediate stream boundary', () => {
       ),
     ).rejects.toMatchObject({ reason: 'uncertain' })
     expect(writes).toBe(2)
+    expect(boundary.stream.end).not.toHaveBeenCalled()
+    expect(boundary.dispose).toHaveBeenCalledOnce()
+  })
+  it('waits for stage admission and preserves a clean terminal refusal without uploading bytes', async () => {
+    const boundary = transport(() => {})
+    vi.mocked(boundary.stream.write).mockImplementation(() => Promise.resolve())
+    const pending = boundary.port.stage(
+      root,
+      '.stage',
+      tree,
+      new Map([['SKILL.md', Buffer.alloc(0)]]),
+      location,
+      new AbortController().signal,
+    )
+    const rejected = expect(pending).rejects.toMatchObject({ reason: 'refused' })
+    await vi.waitFor(() => expect(boundary.stream.write).toHaveBeenCalledOnce())
+    expect(boundary.stream.end).not.toHaveBeenCalled()
+    boundary.events.emit('stdout', '{"status":"not-applied"}\n')
+    boundary.events.emit('exit', { code: 0 })
+    await rejected
+    expect(boundary.stream.write).toHaveBeenCalledOnce()
+    expect(boundary.stream.end).not.toHaveBeenCalled()
+    expect(boundary.dispose).toHaveBeenCalledOnce()
+  })
+  it('cancels a stage while waiting for readiness without further writes', async () => {
+    const boundary = transport(() => {}),
+      abort = new AbortController()
+    const pending = boundary.port.stage(
+      root,
+      '.stage',
+      tree,
+      new Map([['SKILL.md', Buffer.alloc(0)]]),
+      location,
+      abort.signal,
+    )
+    const rejected = expect(pending).rejects.toMatchObject({ reason: 'uncertain' })
+    await vi.waitFor(() => expect(boundary.stream.write).toHaveBeenCalledOnce())
+    abort.abort()
+    await rejected
+    expect(boundary.stream.write).toHaveBeenCalledOnce()
     expect(boundary.stream.end).not.toHaveBeenCalled()
     expect(boundary.dispose).toHaveBeenCalledOnce()
   })
