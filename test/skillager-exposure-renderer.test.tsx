@@ -19,6 +19,8 @@ import {
   selection,
 } from './fixtures/skillager-exposure-fixture'
 import type { SkillagerMetadata } from '../src/shared/skillager'
+import { asHostId, hostPath } from '../src/shared/host-path'
+import type { ProjectState } from '../src/shared/workspace-types'
 
 const metadata: SkillagerMetadata = {
   id: 'lib/demo',
@@ -44,15 +46,17 @@ function Harness({
   active = true,
   detailId = 'tab',
   showFirst = true,
+  projects = projectState(),
 }: {
   visible?: boolean
   connected?: boolean
   active?: boolean
   detailId?: string
   showFirst?: boolean
+  projects?: ProjectState
 }) {
   controller = useSkillagerExposure({
-    projectState: projectState(),
+    projectState: projects,
     agent: 'codex',
     visible,
     sidebarVisible: active,
@@ -133,6 +137,59 @@ async function open(): Promise<void> {
   await settle(() => controller.preview())
 }
 describe('workspace skill action UI', () => {
+  it('selects a remote worktree, forces Full mode, and discloses prerequisites and retained cleanup', async () => {
+    const remote = hostPath(asHostId('ssh:fixture'), '/remote')
+    const projects = projectState(remote)
+    await settle(() => root.render(<Harness projects={projects} />))
+    await settle(() => controller.start(metadata, 'add'))
+    await settle(() =>
+      controller.choose({ destination: request.destination, mode: 'stub' }),
+    )
+    expect(controller.state?.mode).toBe('stub')
+    const destination = controller.destinations.find(
+      (item) => item.root.hostId === remote.hostId,
+    )!
+    await settle(() => controller.choose({ destination }))
+    expect(controller.state?.mode).toBe('native')
+    expect(
+      document.querySelector<HTMLOptionElement>('option[value="stub"]')?.disabled,
+    ).toBe(true)
+    expect(document.body.textContent).toContain('Stubs require a Skillager runtime')
+    const preview = {
+      ...parseExposurePreview(exposureResponse().value, selection, request).detail,
+      previewId: 'remote-preview',
+      target: hostPath(remote.hostId, '/remote/.agents/skills/lib-demo'),
+      remote: {
+        declarations: ['Required: EXAMPLE_ENV'],
+        createdParents: [hostPath(remote.hostId, '/remote/.agents')],
+        temporaryPaths: [hostPath(remote.hostId, '/remote/.agents/skills/.stage')],
+        lock: hostPath(remote.hostId, '/remote/.lock'),
+      },
+    }
+    invoke.mockResolvedValueOnce({ ok: true, value: preview })
+    await settle(() => controller.preview())
+    expect(invoke).toHaveBeenLastCalledWith(
+      'skillager:preview-exposure',
+      expect.objectContaining({ destination, mode: 'native' }),
+    )
+    expect(document.body.textContent).toContain('Not checked on remote host')
+    expect(document.body.textContent).toContain('Required: EXAMPLE_ENV')
+    expect(document.body.textContent).toContain('ssh:fixture:/remote/.agents')
+    invoke.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        status: 'exposed',
+        target: preview.target,
+        skillId: metadata.id,
+        mode: 'native',
+        notice: 'Cleanup retained. Start a fresh preview to reconcile.',
+      },
+    })
+    await settle(() => controller.apply())
+    expect(document.body.textContent).toContain(
+      'Cleanup retained. Start a fresh preview to reconcile.',
+    )
+  })
   it('uses the same keyboard and mouse menu, restoring the actual row after nested-label Escape', async () => {
     const row = document.querySelector<HTMLButtonElement>('.row')!
     await settle(() =>

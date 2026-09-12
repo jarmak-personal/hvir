@@ -1,4 +1,6 @@
 import { SkillagerExposureCommands } from './skillager-exposure-commands'
+import { SkillagerNativeCommands } from './skillager-native-commands'
+import type { SkillagerNativeSnapshot } from './skillager-native-port'
 import type { SkillagerExposureRequest } from '../../shared/skillager-exposure'
 import type { SkillagerExposureSnapshot } from './skillager-exposure-port'
 import { SkillagerReviewCommands } from './skillager-review-commands'
@@ -14,6 +16,7 @@ import {
 } from '../../shared/host-path'
 import type {
   SkillagerLibrary,
+  SkillagerAgent,
   SkillagerMetadata,
   SkillagerRequest,
   SkillagerSearchRequest,
@@ -156,6 +159,39 @@ export class SkillagerCli implements SkillagerCliPort {
       this.process,
       this.context,
       (selection, signal) => this.validateLocal(selection, signal),
+    )
+  }
+
+  nativeSnapshot(
+    selection: SkillagerCliSelection,
+    skillId: string,
+    agent: SkillagerAgent,
+    signal: AbortSignal,
+  ) {
+    return this.operate(() =>
+      this.nativeCommands().nativeSnapshot(selection, skillId, agent, signal),
+    )
+  }
+
+  validateNativeSource(
+    selection: SkillagerCliSelection,
+    snapshot: Pick<SkillagerNativeSnapshot, 'skillId' | 'sourceHash'>,
+    advancing: boolean,
+    signal: AbortSignal,
+  ) {
+    return this.operate(() =>
+      this.nativeCommands().validateNativeSource(selection, snapshot, advancing, signal),
+    )
+  }
+
+  private nativeCommands(): SkillagerNativeCommands {
+    return new SkillagerNativeCommands(
+      this.host,
+      this.process,
+      this.context,
+      this.reviewCommands(),
+      (selection, signal) => this.validateLocal(selection, signal),
+      (selection, request, signal) => this.exposuresLocal(selection, request, signal),
     )
   }
 

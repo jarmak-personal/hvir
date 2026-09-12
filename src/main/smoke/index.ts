@@ -391,7 +391,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       echoWorker: worker,
       gitWorker: git,
       filenameSearch,
-      skillager: createSkills(rendererResources, smokeRoot, cleanup, host, htmlPreviews),
+      skillager: createSkills(rendererResources, cleanup, projectCommands, htmlPreviews),
       projectFiles,
       projectFolderPicker,
       documentReview: documentReview.coordinator,
@@ -738,7 +738,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       'workbench-layout': () => verifyWorkbenchLayoutScenario(win, supervisor),
       'terminal-split': () => verifyTerminalSplitScenario(win, supervisor),
       'app-settings': () => verifyAppSettingsScenario(win, supervisor),
-      skillager: () => verifySkillagerScenario(win, supervisor),
+      skillager: () => verifySkillagerScenario(win, supervisor, projectFixture, emit),
       'harness-profiles': () =>
         verifyHarnessProfilesScenario(win, supervisor, host, smokeRoot),
     }

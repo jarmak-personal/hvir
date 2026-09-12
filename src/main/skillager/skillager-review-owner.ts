@@ -111,9 +111,17 @@ export class SkillagerReviewOwner {
       const initial = request.update
         ? await this.updates.previewExposure(grant.selection, request.update, signal)
         : undefined
-      const fromHash = initial
-        ? await this.updates.updateSourceHash(grant.selection, initial, signal)
-        : undefined
+      let fromHash: string | undefined
+      try {
+        fromHash = initial
+          ? await this.updates.updateSourceHash(grant.selection, initial, signal)
+          : undefined
+      } finally {
+        // Retain only target/version evidence for D5; remote preparation must not
+        // occupy later preview admission while the independent D4 review is open.
+        if (initial?.dispose) await initial.dispose()
+      }
+      this.current(session)
       const snapshot = await this.cli.review(grant.selection, request.skillId, signal)
       session.snapshot = snapshot
       if (!initial) return snapshot

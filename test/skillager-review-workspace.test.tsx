@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { projectState } from './fixtures/skillager-exposure-fixture'
 import type { ProjectState } from '../src/shared/workspace-types'
-import { localPath } from '../src/shared/host-path'
+import { asHostId, hostPath, localPath } from '../src/shared/host-path'
 import {
   useSkillagerReview,
   type SkillagerReviewController,
@@ -62,7 +62,7 @@ function Harness({
 }) {
   current = useSkillagerReview({
     connection: connected ? connection : undefined,
-    root,
+    root: project?.root ?? root,
     projectState: project,
     agent: 'codex',
     tabs: open ? tabs : [],
@@ -115,6 +115,49 @@ it('does no implicit content work and separately requests history, review, and a
   expect(accepted).toHaveBeenCalledTimes(1)
   expect(current.states.tab?.message).toContain('Workspace copies are unchanged')
   expect(current.states.tab?.used).toBe(true)
+})
+
+it('revokes a review at SSH loss and admits a fresh independent Personal review while disconnected', async () => {
+  const remote = hostPath(asHostId('ssh:fixture'), '/workspace')
+  const connected = projectState(remote)
+  const disconnected = {
+    ...connected,
+    connectionState: 'disconnected' as const,
+    projects: connected.projects.map((project) => ({
+      ...project,
+      connectionState: 'disconnected' as const,
+    })),
+  }
+  await render({ project: connected })
+  const original = invoke.getMockImplementation()!
+  let finish!: (value: unknown) => void
+  invoke.mockImplementation((channel, request) =>
+    channel === 'skillager:review'
+      ? new Promise((resolve) => {
+          finish = resolve
+        })
+      : original(channel, request),
+  )
+  let pending!: Promise<void>
+  act(() => {
+    pending = current.review(tab)
+  })
+  await render({ project: disconnected })
+  await act(async () => {
+    finish({ ok: true, value: detail })
+    await pending
+  })
+  expect(current.states.tab).toBeUndefined()
+  expect(invoke).toHaveBeenCalledWith('skillager:release-review', {
+    reviewId: detail.reviewId,
+  })
+  invoke.mockImplementation(original)
+  await act(async () => current.review(tab))
+  expect(current.states.tab?.detail).toEqual(detail)
+  expect(invoke).toHaveBeenLastCalledWith(
+    'skillager:review',
+    expect.objectContaining({ workspaceRoot: remote }),
+  )
 })
 
 it('closes a pending review without allowing a late response to restore content', async () => {

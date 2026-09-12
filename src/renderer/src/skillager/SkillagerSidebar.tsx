@@ -175,9 +175,9 @@ export function SkillagerSidebar({
               Refresh
             </button>
           </div>
-          {perspective === 'workspace' && root.hostId !== 'local' && !searched ? (
+          {perspective === 'workspace' && data && !data.exposures && !searched ? (
             <p className="skillager-empty">
-              Workspace skill status is unavailable for this SSH destination. Browse your
+              Workspace skill status is unavailable for this destination. Browse your
               Personal library.
             </p>
           ) : (

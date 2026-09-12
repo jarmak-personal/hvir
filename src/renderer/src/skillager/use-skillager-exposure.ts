@@ -101,7 +101,6 @@ export function useSkillagerExposure(options: Options) {
           : exposureActions(metadata).find((item) => item.action === action)?.disabled)
       )
         return
-      release()
       const destination =
         action === 'add'
           ? undefined
@@ -109,6 +108,7 @@ export function useSkillagerExposure(options: Options) {
               hostPathEquals(item.root, current.projectState!.root),
             )
       if (action !== 'add' && !destination) return
+      release()
       setState({
         metadata,
         action,
@@ -137,7 +137,17 @@ export function useSkillagerExposure(options: Options) {
       release()
       setState((current) =>
         current
-          ? { ...current, ...patch, preview: undefined, used: false, message: undefined }
+          ? {
+              ...current,
+              ...patch,
+              mode:
+                (patch.destination ?? current.destination)?.root.hostId !== 'local'
+                  ? 'native'
+                  : (patch.mode ?? current.mode),
+              preview: undefined,
+              used: false,
+              message: undefined,
+            }
           : undefined,
       )
     },
@@ -225,11 +235,12 @@ export function useSkillagerExposure(options: Options) {
           ...current,
           used: true,
           message:
-            current.action === 'update'
+            (current.action === 'update'
               ? `Updated ${result.value.skillId} for ${current.agent} at ${result.value.target.hostId}:${result.value.target.path}.`
               : current.action === 'change'
                 ? `Changed ${result.value.skillId} to ${result.value.mode === 'native' ? 'Full skill' : 'Stub'} at ${result.value.target.hostId}:${result.value.target.path}.`
-                : `${result.value.status === 'removed' ? 'Removed' : 'Added'} ${result.value.skillId} ${result.value.status === 'removed' ? 'from' : 'to'} ${result.value.target.hostId}:${result.value.target.path}.`,
+                : `${result.value.status === 'removed' ? 'Removed' : 'Added'} ${result.value.skillId} ${result.value.status === 'removed' ? 'from' : 'to'} ${result.value.target.hostId}:${result.value.target.path}.`) +
+            (result.value.notice ? ` ${result.value.notice}` : ''),
         })
       } else {
         if (result.reason === 'busy') owned.used = false

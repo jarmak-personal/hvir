@@ -4,10 +4,18 @@ import { verifySkillagerReview } from './skillager-review'
 import { app, type BrowserWindow } from 'electron'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import { prepareTerminalScenario } from './terminal-scenario-ready'
+import { verifySkillagerRemote } from './skillager-remote'
+import type { createSmokeProjectState } from './project-state-fixture'
+import type { EmitRendererEvent } from '../ipc/deps'
 
 export async function verifySkillagerScenario(
   win: BrowserWindow,
   supervisor: PtySupervisor,
+  projects: Pick<
+    ReturnType<typeof createSmokeProjectState>,
+    'base' | 'remoteFiles' | 'set'
+  >,
+  emit: EmitRendererEvent,
 ): Promise<void> {
   app.focus({ steal: true })
   win.focus()
@@ -131,6 +139,11 @@ export async function verifySkillagerScenario(
     if (!process.env.HVIR_SKILLAGER_SMOKE_FIXTURE) {
       await verifySkillagerUpdate(win)
       await verifySkillagerExposure(win)
+      await verifySkillagerRemote(win, {
+        local: projects.base,
+        remote: projects.remoteFiles,
+        publish: (state) => emit('project:state', projects.set(state)),
+      })
     }
     await evaluate(`
       const field = document.querySelector('#skillager-search-query'); setInput(field, 'obsolete');

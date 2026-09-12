@@ -45,6 +45,9 @@ export interface SkillagerWorkspaceExposure {
   readonly mode: string
   readonly status: string
   readonly expectedSourceHash?: string
+  /** CLI projection fingerprint; Stub hashes are not canonical source versions. */
+  readonly currentHash?: string
+  readonly reconciliation?: 'pending' | 'cleanup-pending'
 }
 
 export interface SkillagerLibrary {

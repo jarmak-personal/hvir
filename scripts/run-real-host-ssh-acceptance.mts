@@ -25,6 +25,7 @@ import {
   type SshIdentitySource,
 } from '../src/main/project-host/ssh-identity-source.ts'
 import { PtySupervisor } from '../src/main/pty/pty-supervisor.ts'
+import { runSkillagerSshAcceptance } from './skillager-ssh-acceptance.mts'
 import {
   REAL_HOST_SSH_PHASES,
   createRealHostSshFailureEvidence,
@@ -119,8 +120,10 @@ async function main(): Promise<number> {
     ? Buffer.from(process.env.HVIR_REAL_SSH_PRIVATE_KEY, 'utf8')
     : undefined
   const passphrase = process.env.HVIR_REAL_SSH_PASSPHRASE
+  const password = process.env.HVIR_REAL_SSH_PASSWORD
   delete process.env.HVIR_REAL_SSH_PRIVATE_KEY
   delete process.env.HVIR_REAL_SSH_PASSPHRASE
+  delete process.env.HVIR_REAL_SSH_PASSWORD
 
   if (configuration.kind === 'unavailable') {
     inlinePrivateKey?.fill(0)
@@ -150,6 +153,7 @@ async function main(): Promise<number> {
       configuration.value,
       inlinePrivateKey,
       configuration.value.hasPassphrase ? passphrase : undefined,
+      password,
     )
   } finally {
     inlinePrivateKey?.fill(0)
@@ -160,6 +164,7 @@ async function runConfiguredAcceptance(
   configuration: RealHostSshConfiguration,
   inlinePrivateKey: Buffer | undefined,
   passphrase: string | undefined,
+  password: string | undefined,
 ): Promise<number> {
   const state: AcceptanceState = {
     phase: 'configuration',
@@ -190,6 +195,10 @@ async function runConfiguredAcceptance(
   try {
     await runPhase(state, 'configuration', () => Promise.resolve())
     await runPhase(state, 'credentials-loaded', async () => {
+      if (configuration.credential.kind === 'password') {
+        if (!password) throw new Error('Explicit SSH credential was empty')
+        return
+      }
       const loaded =
         configuration.credential.kind === 'inline'
           ? inlinePrivateKey
@@ -222,6 +231,15 @@ async function runConfiguredAcceptance(
           if (request.kind === 'passphrase' && passphrase) {
             return Promise.resolve([passphrase])
           }
+          if (
+            password &&
+            (request.kind === 'password' ||
+              (request.kind === 'keyboard-interactive' &&
+                request.prompts.length === 1 &&
+                !request.prompts[0]!.echo &&
+                /password/i.test(request.prompts[0]!.text)))
+          )
+            return Promise.resolve([password])
           return Promise.resolve(undefined)
         },
       },
@@ -271,7 +289,11 @@ async function runConfiguredAcceptance(
   }
 
   if (
-    state.completed.map(({ phase }) => phase).join(',') !== REAL_HOST_SSH_PHASES.join(',')
+    state.completed.map(({ phase }) => phase).join(',') !==
+    REAL_HOST_SSH_PHASES.filter(
+      (phase) =>
+        phase !== 'skillager-delivery' || Boolean(process.env.HVIR_REAL_SSH_SKILLAGER),
+    ).join(',')
   ) {
     const incomplete = captureFailure(state, host, 'incomplete')
     await retainFailureEvidence(incomplete)
@@ -296,6 +318,8 @@ function acceptanceIdentitySource(
   configuration: RealHostSshConfiguration,
   inlinePrivateKey: Buffer | undefined,
 ): SshIdentitySource {
+  if (configuration.credential.kind === 'password')
+    return { candidatePaths: [], acquire: () => Promise.resolve(undefined) }
   if (configuration.credential.kind === 'file') {
     const path = configuration.credential.path
     const local: Pick<ProjectHost, 'readFile'> = {
@@ -440,6 +464,11 @@ async function exerciseRealHost(
       throw new Error('Reconnect did not recover the registered project root')
     }
   })
+  const executable = process.env.HVIR_REAL_SSH_SKILLAGER
+  if (executable)
+    await runPhase(state, 'skillager-delivery', () =>
+      runSkillagerSshAcceptance(host, project.root, executable),
+    )
 }
 
 async function verifyPtyAndProviderObservation(

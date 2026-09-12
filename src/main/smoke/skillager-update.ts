@@ -24,7 +24,7 @@ export async function verifySkillagerUpdate(win: BrowserWindow): Promise<void> {
     button('.skillager-exposure-dialog', 'Confirm exact changes').click();
     await wait(() => document.querySelector('.skillager-exposure-dialog [role=status]')?.textContent.includes('Updated lib/skill-0 for codex'));
     button('.skillager-exposure-dialog', 'Close').click();
-    await wait(() => row()?.textContent.includes('native · current'));
+    await wait(() => row()?.textContent.includes('native · Current'));
     if (row().textContent.includes('Workspace copy behind')) throw new Error('Completed update retained obsolete badge');
     document.querySelector('.skillager-tab.active .tab-close').click();
     await wait(() => !document.querySelector('.skillager-details'));

@@ -373,22 +373,35 @@ Real SSH server behavior is an opt-in acceptance boundary, not a pull-request de
 - `HVIR_REAL_SSH_HOST`, `HVIR_REAL_SSH_PORT`, and `HVIR_REAL_SSH_USER` identify the target;
 - `HVIR_REAL_SSH_HOST_KEY` is the exact trusted `SHA256:` fingerprint;
 - `HVIR_REAL_SSH_ROOT_PARENT` is an existing absolute directory reserved for disposable runs; and
-- exactly one of `HVIR_REAL_SSH_PRIVATE_KEY` or `HVIR_REAL_SSH_IDENTITY_FILE` supplies the key.
+- exactly one of `HVIR_REAL_SSH_PRIVATE_KEY`, `HVIR_REAL_SSH_IDENTITY_FILE`, or
+  `HVIR_REAL_SSH_PASSWORD` supplies the credential.
   `HVIR_REAL_SSH_PASSPHRASE` is optional for an encrypted key.
 
-The command never reads ambient SSH config, agents, default hosts, passwords, or trust stores. It
+The command never reads ambient SSH config, agents, default hosts, or trust stores. Supply a
+password through the environment, never a command argument; the runner removes credential
+environment entries before starting fixture commands. It
 exits with status 2 and reports `unavailable` when all target settings are absent; a partial or
 invalid configuration fails. One logical `SshHost` then exercises exec, SFTP, real watch/poll,
 supervised PTY plus provider observation, direct loopback streaming, pooled transport capacity,
 and explicit disconnect/reconnect. Every remote file stays under a fresh host-qualified project
-root. The target must provide POSIX `sh`, SFTP, and `python3`; Python runs only one bounded
-in-memory loopback server and is not installed or retained by hvir. Cleanup requires the exact
+root. The target must provide POSIX `sh`, SFTP, and `python3`; Python runs bounded in-memory
+operations and is not installed or retained by hvir. Cleanup requires the exact
 per-run ownership marker before removing that root, stops all streams/PTYs/watches, disconnects
 transports, and installs no remote service. `SIGHUP`, `SIGINT`, and `SIGTERM` enter that same
 bounded cleanup path instead of exiting around it. Failure output and
 the optional `HVIR_REAL_SSH_ARTIFACT_DIR` artifact contain only the closed phase and failure
 reason, connection/watch state, resource counts/flags, transport counts, and duration—never
 target configuration, credentials, fingerprints, paths, terminal output, or remote file contents.
+
+Set `HVIR_REAL_SSH_SKILLAGER` to an absolute local Skillager executable to include the optional
+Full-skill delivery scenario. It creates an isolated local library, verifies native exports for
+both agents, and exercises remote Add, exact-version Update, modified-target protection, Remove,
+and immediate transport races. This scenario requires a Linux remote target with descriptor
+operations and `renameat2`; missing primitives remain unavailable for the action. It installs no
+remote CLI or helper. The native source contract can also run independently with
+`HVIR_SKILLAGER_RELEASE=/absolute/skillager/checkout npx vitest run test/skillager-native.integration.test.ts`.
+The released CLI's `review pin` skips library-owned sources; pin protections use public-metadata
+port fixtures and must not be reported as a successful real-CLI pin operation.
 
 The monthly/manual `Real-host SSH acceptance` workflow reads the same values from the protected
 `real-host-ssh` environment. With no configured target its acceptance job is visibly skipped; a

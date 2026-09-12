@@ -16,12 +16,7 @@ export function exposureDestinations(state?: ProjectState): ExposureDestination[
     state?.projects.flatMap((project) =>
       project.connectionState === 'connected'
         ? project.workspaces
-            .filter(
-              (workspace) =>
-                !workspace.closed &&
-                !workspace.missing &&
-                workspace.root.hostId === 'local',
-            )
+            .filter((workspace) => !workspace.closed && !workspace.missing)
             .map((workspace) => ({
               projectId: project.id,
               workspaceId: workspace.id,
@@ -42,15 +37,16 @@ export function exposureActions(
     owned &&
     Boolean(
       copy?.skillId === metadata.id &&
-      ['native', 'stub'].includes(copy.mode) &&
-      copy.target.hostId === 'local',
+      !['removed', 'absent'].includes(copy.status) &&
+      (copy.mode === 'native' ||
+        (copy.mode === 'stub' && copy.target.hostId === 'local')),
     )
   return [
     { action: 'add', label: 'Add to project…', disabled: !owned },
     {
       action: 'change',
       label: copy?.mode === 'stub' ? 'Change to Full skill…' : 'Change to Stub…',
-      disabled: !managed,
+      disabled: !managed || copy?.target.hostId !== 'local',
     },
     { action: 'remove', label: 'Remove workspace copy…', disabled: !managed },
   ]
@@ -77,26 +73,38 @@ export function observedSkillagerUpdate(metadata: SkillagerMetadata): boolean {
     metadata.source.ownership === 'library' &&
     ['reviewed', 'trusted'].includes(metadata.trust) &&
     copy?.skillId === metadata.id &&
-    copy.target.hostId === 'local' &&
-    ['native', 'stub'].includes(copy.mode) &&
+    (copy.mode === 'native' ||
+      (copy.mode === 'stub' && copy.target.hostId === 'local')) &&
     copy.status === 'source_update' &&
     Boolean(metadata.contentHash && copy.expectedSourceHash === metadata.contentHash)
   )
 }
 
 export function workspaceSkillLabel(metadata: SkillagerMetadata): string {
+  const label = observedWorkspaceLabel(metadata)
+  return metadata.workspace?.reconciliation
+    ? `${label} · ${metadata.workspace.reconciliation === 'cleanup-pending' ? 'Cleanup retained' : 'Reconciliation pending'}`
+    : label
+}
+
+function observedWorkspaceLabel(metadata: SkillagerMetadata): string {
   if (metadata.workspaceFreshness && metadata.workspaceFreshness !== 'fresh')
     return metadata.workspaceFreshness === 'checking'
       ? 'Checking workspace copy…'
       : 'Workspace status stale / unavailable'
   if (eligibleSkillagerUpdate(metadata)) return 'Workspace copy behind'
   const status = metadata.workspace?.status
+  if (status === 'removed') return 'Workspace copy removed'
+  if (status === 'absent') return 'Workspace copy absent'
   if (status === 'local_edit') return 'Workspace copy modified'
   if (metadata.trust === 'pinned') return 'Pinned source · update unavailable'
   if (metadata.trust === 'blocked') return 'Blocked source'
   if (['discovered', 'lint_blocked'].includes(metadata.trust))
     return 'Pending library review'
   if (status === 'source_unavailable') return 'Source unavailable for update'
-  if (status === 'source_update') return 'Update unverified'
+  if (status === 'source_update' || status === 'source_unverified')
+    return 'Update unverified'
+  if (status === 'current') return 'Current'
+  if (status === 'uncertain') return 'Delivery state uncertain'
   return status ?? 'Workspace status not checked'
 }

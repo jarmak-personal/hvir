@@ -149,6 +149,7 @@ export class SkillagerExposureOwner {
     session.controller.abort()
     for (const lease of session.leases.reverse()) lease.release()
     await session.pending?.catch(() => undefined)
+    await session.snapshot?.dispose?.()
   }
   async cancel(owner: RendererOwner, requestId: number): Promise<void> {
     await Promise.all(

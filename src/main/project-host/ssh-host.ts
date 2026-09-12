@@ -4,6 +4,7 @@ import { StringDecoder } from 'node:string_decoder'
 
 import { Client, utils, type ClientChannel, type ConnectConfig } from 'ssh2'
 
+import { SshManagedDirectory } from './ssh-managed-directory'
 import {
   asHostId,
   type DirEntry,
@@ -65,6 +66,7 @@ interface SshCredentialAttempt {
 let nextRemotePid = -1
 
 export class SshHost implements ProjectHost {
+  readonly managedDirectory: SshManagedDirectory
   readonly hostId: HostId
   readonly fileDeletion = { capability: 'permanent' } as const
   readonly fileTransfer: ProjectFileTransferPort
@@ -103,6 +105,9 @@ export class SshHost implements ProjectHost {
   private readonly watches: SshWatchService
   constructor(private readonly options: SshHostOptions) {
     this.hostId = asHostId(options.config.alias)
+    this.managedDirectory = new SshManagedDirectory(this, (root) =>
+      this.files.invalidate(root.path),
+    )
     this.transportPool = new SshTransportPool({
       connected: () => this.connected(),
       assertTransportGrowthAllowed: (role) => this.assertTransportGrowthAllowed(role),

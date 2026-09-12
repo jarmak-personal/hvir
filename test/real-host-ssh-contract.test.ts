@@ -117,4 +117,27 @@ describe('real-host SSH acceptance contract', () => {
       /hostname|username|fingerprint|private|passphrase|terminal|cookie|header|path/,
     )
   })
+  it('accepts an explicit password without retaining it and rejects mixed credential authority', () => {
+    const environment = {
+      HVIR_REAL_SSH_HOST: 'acceptance.example.test',
+      HVIR_REAL_SSH_PORT: '2222',
+      HVIR_REAL_SSH_USER: 'hvir-acceptance',
+      HVIR_REAL_SSH_HOST_KEY: HOST_KEY,
+      HVIR_REAL_SSH_ROOT_PARENT: '/srv/hvir-acceptance',
+      HVIR_REAL_SSH_PASSWORD: 'PASSWORD-MUST-NOT-ESCAPE',
+    }
+    expect(readRealHostSshConfiguration(environment)).toMatchObject({
+      kind: 'configured',
+      value: { credential: { kind: 'password' } },
+    })
+    expect(JSON.stringify(readRealHostSshConfiguration(environment))).not.toContain(
+      'PASSWORD-MUST-NOT-ESCAPE',
+    )
+    expect(
+      readRealHostSshConfiguration({
+        ...environment,
+        HVIR_REAL_SSH_IDENTITY_FILE: '/key',
+      }).kind,
+    ).toBe('invalid')
+  })
 })

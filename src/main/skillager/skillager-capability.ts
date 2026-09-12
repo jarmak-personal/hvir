@@ -2,6 +2,7 @@ import type { SkillagerExposureRequest } from '../../shared/skillager-exposure'
 import type {
   SkillagerExposureCliPort,
   SkillagerDestinationAvailable,
+  SkillagerExposureObserver,
 } from './skillager-exposure-port'
 import { SkillagerExposureOwner } from './skillager-exposure-owner'
 import { skillagerLibrarySkillRoot } from './skillager-library-identity'
@@ -72,6 +73,7 @@ export class SkillagerCapability {
     private readonly exposure: {
       readonly cli: SkillagerExposureCliPort
       readonly destinationAvailable: SkillagerDestinationAvailable
+      readonly observe: SkillagerExposureObserver
     },
   ) {
     this.exposures = new SkillagerExposureOwner(exposure.cli, resources)
@@ -291,7 +293,7 @@ export class SkillagerCapability {
           if (!this.exposure.destinationAvailable(request.destination))
             throw new SkillagerError(
               'unavailable',
-              'The selected local destination is closed, missing, or no longer registered.',
+              'The selected destination is disconnected, closed, missing, or no longer registered.',
             )
         }
         assertCurrent()
@@ -513,9 +515,10 @@ export class SkillagerCapability {
                 this.current(owner, state, generation)
                 if (controller.signal.aborted) throw cancelled()
                 const rows = await operation(selection, controller.signal)
-                const exposures = await this.cli.exposures(
+                const exposures = await this.exposure.observe(
                   selection,
                   request,
+                  { rows, complete: kind === 'inventory' },
                   controller.signal,
                 )
                 this.current(owner, state, generation)

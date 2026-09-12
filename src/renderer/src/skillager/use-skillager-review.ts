@@ -92,14 +92,7 @@ export function useSkillagerReview(options: Options) {
   const start = useCallback(
     (tab: SkillagerDetailTab): Lease | undefined => {
       const { connection, root, agent } = optionsRef.current
-      if (
-        !connection ||
-        !root ||
-        tab.metadata.source.ownership !== 'library' ||
-        (optionsRef.current.projectState &&
-          optionsRef.current.projectState.connectionState !== 'connected')
-      )
-        return
+      if (!connection || !root || tab.metadata.source.ownership !== 'library') return
       release(tab.id)
       const lease = {
         context: contextRef.current,

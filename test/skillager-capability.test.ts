@@ -30,7 +30,7 @@ const selection = {
 function fixture(
   overrides: Partial<SkillagerCliPort> = {},
   review?: ConstructorParameters<typeof SkillagerCapability>[3],
-  exposure?: ConstructorParameters<typeof SkillagerCapability>[4],
+  exposure?: Omit<ConstructorParameters<typeof SkillagerCapability>[4], 'observe'>,
 ) {
   const resources = createRendererResourceFixture()
   const owner = resources.activateOwner()
@@ -61,19 +61,23 @@ function fixture(
         release: vi.fn(),
       },
     },
-    exposure ?? {
-      cli: {
-        updateSourceHash: vi.fn(() =>
-          Promise.reject(new Error('Unexpected update status')),
-        ),
-        previewExposure: vi.fn(() =>
-          Promise.reject(new Error('Unexpected exposure preview')),
-        ),
-        applyExposure: vi.fn(() =>
-          Promise.reject(new Error('Unexpected exposure apply')),
-        ),
-      },
-      destinationAvailable: () => available,
+    {
+      observe: (selection, request, _source, signal) =>
+        cli.exposures(selection, request, signal),
+      ...(exposure ?? {
+        cli: {
+          updateSourceHash: vi.fn(() =>
+            Promise.reject(new Error('Unexpected update status')),
+          ),
+          previewExposure: vi.fn(() =>
+            Promise.reject(new Error('Unexpected exposure preview')),
+          ),
+          applyExposure: vi.fn(() =>
+            Promise.reject(new Error('Unexpected exposure apply')),
+          ),
+        },
+        destinationAvailable: () => available,
+      }),
     },
   )
   onTestFinished(() => capability.dispose())

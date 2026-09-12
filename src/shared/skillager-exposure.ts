@@ -40,11 +40,18 @@ export interface SkillagerExposurePreview {
   readonly beforeMode: number | null
   readonly afterMode: number | null
   readonly effects: readonly SkillagerExposureEffect[]
+  readonly remote?: {
+    readonly declarations: readonly string[]
+    readonly createdParents: readonly HostPath[]
+    readonly temporaryPaths: readonly HostPath[]
+    readonly lock: HostPath
+  }
 }
 export interface SkillagerExposureCompletion {
   readonly status: 'exposed' | 'removed'
   readonly target: HostPath
   readonly skillId: string
   readonly mode: SkillagerExposureMode
+  readonly notice?: string
 }
 export const SKILLAGER_EXPOSURE_MAX_EFFECTS = 2_048

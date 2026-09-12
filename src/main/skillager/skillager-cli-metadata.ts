@@ -1,4 +1,5 @@
 import { SkillagerError } from './skillager-port'
+import { skillagerLibrarySkillRoot } from './skillager-library-identity'
 import { containsHostPath, joinHostPath, localPath } from '../../shared/host-path'
 import {
   SKILLAGER_INVENTORY_LIMIT,
@@ -73,6 +74,29 @@ export function parseSkillagerSearch(
   return rows
 }
 
+/** Public show metadata; never requests or forwards the skill body. */
+export function parseSkillagerShow(payload: unknown, library: SkillagerLibrary) {
+  const skill = object(object(payload).skill)
+  const row = metadata(skill, library)
+  if (row.source.ownership !== 'library') malformed()
+  const compatibility = skill.compatibility == null ? {} : object(skill.compatibility)
+  const declarations: string[] = []
+  for (const [label, value] of [
+    ['Assumptions', compatibility.assumptions],
+    ['Exclusive to', compatibility.exclusive_to],
+    ['Incompatible with', compatibility.incompatible_with],
+    ['Warnings', compatibility.warnings],
+    ['Activation warnings', compatibility.activation_warnings],
+    ['Targets', skill.targets],
+  ] as const) {
+    if (value == null || JSON.stringify(value) === '[]') continue
+    const encoded = JSON.stringify(value)
+    if (encoded.length > 16_384 || encoded.includes('\\u0000')) malformed()
+    declarations.push(`${label}: ${encoded}`)
+  }
+  return { row, declarations }
+}
+
 export function parseSkillagerExposures(
   payload: unknown,
   workspaceRoot: HostPath,
@@ -99,6 +123,7 @@ export function parseSkillagerExposures(
       status: string(row.status, 64),
       expectedSourceHash:
         row.expected_source_hash == null ? undefined : hash(row.expected_source_hash),
+      currentHash: row.current_hash == null ? undefined : hash(row.current_hash),
     }
   })
 }
@@ -111,19 +136,20 @@ function metadata(payload: unknown, library: SkillagerLibrary): SkillagerMetadat
   if (!TRUST.has(trust) || !HASH.test(string(row.content_hash, 64))) malformed()
   const owned = source.ownership === 'library'
   if (owned) {
-    const name = id.slice(4)
     if (
       !id.startsWith('lib/') ||
-      !/^[a-z0-9][a-z0-9-]{0,63}$/.test(name) ||
       source.library_id !== library.id ||
       source.collection !== 'lib'
     )
       malformed()
     const root = absolutePath(row.root)
-    if (
-      !containsHostPath(library.skillsRoot, root) ||
-      root.path !== joinHostPath(library.skillsRoot, name).path
-    )
+    let expectedRoot: HostPath
+    try {
+      expectedRoot = skillagerLibrarySkillRoot(library, id)
+    } catch {
+      return malformed()
+    }
+    if (!containsHostPath(library.skillsRoot, root) || root.path !== expectedRoot.path)
       malformed()
   } else if (id.startsWith('lib/')) malformed()
   const scan = row.scan === undefined ? {} : object(row.scan)
