@@ -296,6 +296,9 @@ export class LocalHost implements ProjectHost {
     // Install immediately: a failed spawn emits `error` before a caller has a
     // chance to subscribe, and an unhandled child-process error crashes Node.
     child.on('error', onError)
+    // Write promises own stdin failures. Keep a sink for errors emitted after a
+    // write callback or disposal, when its per-write listener is already gone.
+    child.stdin.on('error', () => {})
     child.stdout.on('data', (chunk: Buffer) => {
       const value = stdoutDecoder.write(chunk)
       if (value) for (const cb of stdoutListeners) cb(value)
@@ -330,16 +333,19 @@ export class LocalHost implements ProjectHost {
         )
       }
     }
-    const performStdinWrite = (operation: (done: () => void) => void): Promise<void> =>
+    const performStdinWrite = (
+      operation: (done: (error?: Error | null) => void) => void,
+    ): Promise<void> =>
       new Promise<void>((resolve, reject) => {
         const onStdinError = (error: Error): void => {
           child.stdin.off('error', onStdinError)
           reject(error)
         }
         child.stdin.once('error', onStdinError)
-        operation(() => {
+        operation((error) => {
           child.stdin.off('error', onStdinError)
-          resolve()
+          if (error) reject(error)
+          else resolve()
         })
       })
 

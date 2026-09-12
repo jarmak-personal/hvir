@@ -159,13 +159,7 @@ export function useSkillagerWorkspace(input: Options) {
   const refresh = useCallback(async () => {
     const current = connectionRef.current
     const root = optionsRef.current.root
-    if (
-      !current ||
-      !root ||
-      !optionsRef.current.enabled ||
-      optionsRef.current.projectState?.connectionState !== 'connected'
-    )
-      return
+    if (!current || !root || !optionsRef.current.enabled) return
     const requestId = ++requests.current.inventory
     const at = generation.current
     setInventory((state) => ({ ...state, loading: true }))
@@ -179,8 +173,11 @@ export function useSkillagerWorkspace(input: Options) {
       })
       if (requestId !== requests.current.inventory || at !== generation.current) return
       setInventory({ loading: false, result })
-      if (result.ok) dispatchTabs({ type: 'observe', result: result.value })
-      else dispatchTabs({ type: 'invalidate', freshness: 'unavailable' })
+      if (result.ok) {
+        dispatchTabs({ type: 'observe', result: result.value })
+        if (optionsRef.current.projectState?.connectionState !== 'connected')
+          dispatchTabs({ type: 'invalidate', freshness: 'stale' })
+      } else dispatchTabs({ type: 'invalidate', freshness: 'unavailable' })
       if (!result.ok && result.reason === 'library-changed') disconnect()
     } catch {
       if (requestId === requests.current.inventory && at === generation.current) {
@@ -206,7 +203,8 @@ export function useSkillagerWorkspace(input: Options) {
         !root ||
         !submittedQuery ||
         !optionsRef.current.sidebarVisible ||
-        optionsRef.current.projectState?.connectionState !== 'connected'
+        (scope === 'workspace' &&
+          optionsRef.current.projectState?.connectionState !== 'connected')
       )
         return
       const requestId = ++requests.current.search
@@ -283,11 +281,21 @@ export function useSkillagerWorkspace(input: Options) {
     options.sidebarVisible,
     Boolean(tabs.activeId) && options.viewerVisible,
   )
+  const disconnectedReadDemand = skillagerObservationDemand(
+    options.enabled,
+    Boolean(connection) && options.projectState?.connectionState !== 'connected',
+    foreground,
+    options.sidebarVisible,
+    Boolean(tabs.activeId) && options.viewerVisible,
+  )
   useEffect(() => {
     if (!observing) {
       cancel('inventory')
       setInventory((state) => ({ ...state, loading: false }))
       dispatchTabs({ type: 'invalidate', freshness: 'stale' })
+      // A visibility/connection action may read the local Personal library even
+      // while SSH is unavailable. Only connected observation owns a timer.
+      if (disconnectedReadDemand) void refresh()
       return
     }
     void refresh()
@@ -301,6 +309,7 @@ export function useSkillagerWorkspace(input: Options) {
     connection?.connectionId,
     options.root?.hostId,
     options.root?.path,
+    disconnectedReadDemand,
     refresh,
     cancel,
   ])

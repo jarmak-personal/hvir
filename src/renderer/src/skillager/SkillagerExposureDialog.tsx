@@ -18,6 +18,7 @@ export function SkillagerExposureDialog({
   if (!state) return null
   const busy = Boolean(state.loading || state.applying),
     preview = state.preview
+  const remote = Boolean(state.destination && state.destination.root.hostId !== 'local')
   const label =
     state.action === 'remove'
       ? 'Remove workspace copy'
@@ -114,7 +115,7 @@ export function SkillagerExposureDialog({
                 .filter((item) => item.projectId === state.destination?.projectId)
                 .map((item) => (
                   <option key={item.workspaceId} value={item.workspaceId}>
-                    {item.name} · {item.root.path}
+                    {item.name} · {item.root.hostId}:{item.root.path}
                   </option>
                 ))}
             </select>
@@ -149,10 +150,18 @@ export function SkillagerExposureDialog({
               }
             >
               <option value="native">Full skill</option>
-              <option value="stub">Stub</option>
+              <option value="stub" disabled={remote}>
+                Stub
+              </option>
             </select>
           </label>
-          <p>Only open local workspaces are available here.</p>
+          <p>Choose an open workspace on a connected host.</p>
+          {remote ? (
+            <p>
+              SSH destinations support Full skills. Stubs require a Skillager runtime on
+              the destination host.
+            </p>
+          ) : null}
         </div>
       ) : null}
       {state.destination ? (
@@ -223,6 +232,47 @@ function ExposureEffects({
         </code>
       </p>
       <p>{preview.effects.length} file and directory effects</p>
+      {preview.remote ? (
+        <>
+          <p>
+            {preview.request.action === 'remove'
+              ? 'Remove this verified workspace copy, including supporting files, executables, and its hvir delivery record.'
+              : 'Supporting files, executables, and the hvir delivery record are copied to this SSH workspace.'}
+          </p>
+          {preview.request.action !== 'remove' ? (
+            <div aria-label="Remote prerequisites">
+              <strong>Declared prerequisites · Not checked on remote host</strong>
+              {preview.remote.declarations.length ? (
+                preview.remote.declarations.map((item, i) => <pre key={i}>{item}</pre>)
+              ) : (
+                <p>No prerequisite declarations returned by Skillager.</p>
+              )}
+            </div>
+          ) : null}
+          {preview.remote.createdParents.length ? (
+            <p>
+              Creates parent directories:{' '}
+              {preview.remote.createdParents.map((path) => (
+                <code key={path.path}>
+                  {path.hostId}:{path.path}{' '}
+                </code>
+              ))}
+            </p>
+          ) : null}
+          <p>
+            Temporary staging and cleanup paths:{' '}
+            {preview.remote.temporaryPaths.map((path) => (
+              <code key={path.path}>
+                {path.hostId}:{path.path}{' '}
+              </code>
+            ))}
+          </p>
+          <p>
+            Interrupted delivery or changed cleanup entries are retained for
+            reconciliation on the next explicit preview.
+          </p>
+        </>
+      ) : null}
       <div className="skillager-exposure-effects">
         {preview.effects.map((effect) => (
           <details key={effect.path}>

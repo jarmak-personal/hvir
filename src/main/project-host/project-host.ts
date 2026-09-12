@@ -9,6 +9,7 @@
  */
 
 import type { Duplex } from 'node:stream'
+import type { ManagedDirectoryPort } from './managed-directory'
 
 import type {
   HostId,
@@ -261,6 +262,8 @@ export interface ProjectHost {
   readonly watchTier: HostWatchTier
   /** Present when this host can participate in verified project-file transfers. */
   readonly fileTransfer?: ProjectFileTransferPort
+  /** Exact receipt/manifest mechanics for explicitly managed directory publication. */
+  readonly managedDirectory?: ManagedDirectoryPort
   /** Exact recovery guarantee and immediate top-level trash mechanic, when available. */
   readonly fileDeletion: ProjectFileDeletionPort
 

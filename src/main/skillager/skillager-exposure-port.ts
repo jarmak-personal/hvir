@@ -5,10 +5,24 @@ import type {
   SkillagerExposureRequest,
 } from '../../shared/skillager-exposure'
 import type { SkillagerCliSelection } from './skillager-port'
+import type {
+  SkillagerMetadata,
+  SkillagerRequest,
+  SkillagerWorkspaceExposure,
+} from '../../shared/skillager'
+
+export type SkillagerExposureObserver = (
+  selection: SkillagerCliSelection,
+  request: SkillagerRequest,
+  source: { readonly rows: readonly SkillagerMetadata[]; readonly complete: boolean },
+  signal: AbortSignal,
+) => Promise<readonly SkillagerWorkspaceExposure[] | undefined>
 
 export interface SkillagerExposureSnapshot {
   readonly detail: Omit<SkillagerExposurePreview, 'previewId'>
   readonly confirmationToken: string
+  /** Releases main-only remote preparation; local CLI snapshots retain no resources. */
+  dispose?(): Promise<void>
 }
 export interface SkillagerExposureCliPort {
   updateSourceHash(

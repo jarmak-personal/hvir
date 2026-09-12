@@ -285,9 +285,11 @@ it.runIf(Boolean(source && python)).each(SKILLAGER_AGENTS)(
         reason: 'review-refused',
       })
       await writeFile(sidecar, sidecarBytes)
-      await run(['review', 'pin', 'lib/fixture', '--json'])
-      const pinned = await cli.previewExposure(selection, change, signal)
-      await cli.applyExposure(selection, pinned, signal)
+      expect(
+        JSON.stringify(await run(['review', 'pin', 'lib/fixture', '--json'])),
+      ).toContain('commit-before-acceptance')
+      const stillAccepted = await cli.previewExposure(selection, change, signal)
+      await cli.applyExposure(selection, stillAccepted, signal)
       await writeFile(entry, body('Unaccepted change after pin'))
       await expect(cli.previewExposure(selection, request, signal)).rejects.toMatchObject(
         { reason: 'review-refused' },

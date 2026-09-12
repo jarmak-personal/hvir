@@ -47,22 +47,33 @@ export function skillagerExposureFixture(root: HostPath) {
           targetHash: existing ? 'a'.repeat(64) : null,
           beforeMode: existing ? 0o755 : null,
           afterMode: removing ? null : 0o755,
-          effects: ['SKILL.md', 'support.md', 'skillager.materialized.yaml'].map(
-            (path) => {
-              const before = existing ? file : null,
-                after =
-                  removing || (path === 'support.md' && request.mode === 'stub')
-                    ? null
-                    : file
-              return {
-                path,
-                action:
-                  after === null ? 'remove' : before === null ? 'create' : 'replace',
-                before,
-                after,
-              }
-            },
-          ),
+          effects: [
+            'SKILL.md',
+            'support.md',
+            root.hostId === 'local'
+              ? 'skillager.materialized.yaml'
+              : '.hvir-skillager.json',
+          ].map((path) => {
+            const before = existing ? file : null,
+              after =
+                removing || (path === 'support.md' && request.mode === 'stub')
+                  ? null
+                  : file
+            return {
+              path,
+              action: after === null ? 'remove' : before === null ? 'create' : 'replace',
+              before,
+              after,
+            }
+          }),
+          remote:
+            root.hostId === 'local'
+              ? undefined
+              : {
+                  declarations: ['Assumptions: EXAMPLE_RUNTIME'],
+                  createdParents: [],
+                  temporaryPaths: [joinHostPath(root, '.fixture-stage')],
+                },
         },
       })
     },

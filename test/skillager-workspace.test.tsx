@@ -17,7 +17,7 @@ import {
   skillagerTabs,
   type SkillagerTabs as Tabs,
 } from '../src/renderer/src/skillager/skillager-model'
-import { localPath, type HostPath } from '../src/shared/host-path'
+import { asHostId, hostPath, localPath, type HostPath } from '../src/shared/host-path'
 import type {
   SkillagerMetadata,
   SkillagerMetadataResult,
@@ -299,8 +299,10 @@ describe('Skills renderer demand and metadata views', () => {
     await settle()
     expect(count()).toBe(initial + 2)
     await render({ connected: false })
+    const disconnectedReads = count()
+    expect(disconnectedReads).toBe(initial + 3)
     await act(async () => vi.advanceTimersByTimeAsync(120_000))
-    expect(count()).toBe(initial + 2)
+    expect(count()).toBe(disconnectedReads)
     expect(current.active?.metadata.workspaceFreshness).toBe('stale')
     expect(mount.querySelector('.skillager-sidebar')?.textContent).not.toContain(
       'Workspace copy behind',
@@ -308,14 +310,14 @@ describe('Skills renderer demand and metadata views', () => {
     act(() => (mount.querySelector('.skillager-row') as HTMLButtonElement).click())
     expect(current.active?.metadata.workspaceFreshness).toBe('stale')
     await act(async () => current.refresh())
-    expect(count()).toBe(initial + 2)
+    expect(count()).toBe(disconnectedReads + 1)
     await render({ connected: true })
     await settle()
-    expect(count()).toBe(initial + 3)
+    expect(count()).toBe(disconnectedReads + 2)
     act(() => current.deactivate())
     await render({ visible: false })
     await act(async () => vi.advanceTimersByTimeAsync(120_000))
-    expect(count()).toBe(initial + 3)
+    expect(count()).toBe(disconnectedReads + 2)
     await render({ visible: true })
     await settle()
     const visible = count()
@@ -574,11 +576,96 @@ describe('Skills renderer demand and metadata views', () => {
     const searches = invoke.mock.calls.filter(
       ([channel]) => channel === 'skillager:search',
     ).length
-    await act(async () => current.submit('blocked'))
+    invoke.mockImplementation(original)
+    await act(async () => current.submit('fresh Personal search'))
     expect(
       invoke.mock.calls.filter(([channel]) => channel === 'skillager:search'),
-    ).toHaveLength(searches)
+    ).toHaveLength(searches + 1)
+    expect(current.search.result).toMatchObject({
+      ok: true,
+      value: { rows: [rows[4999]!] },
+    })
   })
+  it('reads Personal metadata for a disconnected SSH workspace without periodic demand or destination actions', async () => {
+    vi.useFakeTimers()
+    const remote = hostPath(asHostId('ssh:fixture'), '/workspace')
+    const original = invoke.getMockImplementation()!
+    invoke.mockImplementation((channel, request) =>
+      channel === 'skillager:inventory'
+        ? Promise.resolve({
+            ok: true,
+            value: { rows: [rows[0]!], checkedAt: 1, durationMs: 1 },
+          })
+        : original(channel, request),
+    )
+    await render({ root: remote, connected: false })
+    await connect()
+    expect(mount.querySelector('.skillager-row')?.textContent).toContain('Skill 0')
+    expect(current.observing).toBe(false)
+    const reads = invoke.mock.calls.filter(
+      ([channel]) => channel === 'skillager:inventory',
+    ).length
+    await act(async () => vi.advanceTimersByTimeAsync(180_000))
+    expect(
+      invoke.mock.calls.filter(([channel]) => channel === 'skillager:inventory'),
+    ).toHaveLength(reads)
+    await act(async () => current.refresh())
+    expect(
+      invoke.mock.calls.filter(([channel]) => channel === 'skillager:inventory'),
+    ).toHaveLength(reads + 1)
+    act(() => current.exposures.start(rows[0]!, 'add'))
+    expect(current.exposures.state).toBeUndefined()
+    expect(
+      mount.querySelector<HTMLOptionElement>('option[value="workspace"]')?.disabled,
+    ).toBe(true)
+  })
+  it.each(['current', 'removed'])(
+    'shows %s remote state with retained cleanup and carries it into details',
+    async (status) => {
+      const remote = hostPath(asHostId('ssh:fixture'), '/workspace')
+      const original = invoke.getMockImplementation()!
+      invoke.mockImplementation((channel, request) =>
+        channel === 'skillager:inventory'
+          ? Promise.resolve({
+              ok: true,
+              value: {
+                rows: [{ ...rows[0]!, trust: 'reviewed' }],
+                checkedAt: 1,
+                durationMs: 1,
+                exposures: [
+                  {
+                    id: 'lib-skill-0',
+                    skillId: rows[0]!.id,
+                    mode: 'native',
+                    status,
+                    reconciliation: 'cleanup-pending',
+                    target: hostPath(
+                      remote.hostId,
+                      '/workspace/.agents/skills/lib-skill-0',
+                    ),
+                  },
+                ],
+              },
+            })
+          : original(channel, request),
+      )
+      await render({ root: remote })
+      await connect()
+      act(() =>
+        [...mount.querySelectorAll('button')]
+          .find((item) => item.textContent === 'This workspace')!
+          .click(),
+      )
+      expect(mount.querySelector('.skillager-row')?.textContent).toContain(
+        `${status === 'current' ? 'Current' : 'Workspace copy removed'} · Cleanup retained`,
+      )
+      act(() => mount.querySelector<HTMLButtonElement>('.skillager-row')!.click())
+      expect(current.active?.metadata.workspace?.reconciliation).toBe('cleanup-pending')
+      expect(mount.querySelector('.skillager-details')?.textContent).toContain(
+        'Cleanup retained',
+      )
+    },
+  )
   it('clears details and metadata on workspace changes and all surfaces on disable', async () => {
     await render()
     await connect()

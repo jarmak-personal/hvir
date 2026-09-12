@@ -1,4 +1,9 @@
-import { skillagerDestinationAvailable } from './skillager-destination'
+import {
+  skillagerDestinationAvailable,
+  skillagerWorkspaceAvailable,
+} from './skillager-destination'
+import { SkillagerDeploymentStore } from './skillager-deployment-store'
+import { SkillagerRemoteExposures } from './skillager-remote-exposures'
 import type { HtmlPreviewProtocol } from '../html-preview-protocol'
 import { hostPathEquals, localPath } from '../../shared/host-path'
 import { applicationUserDataPath } from '../application-runtime'
@@ -14,12 +19,33 @@ export function installSkillager(
   runtime: Pick<WorkbenchRuntime, 'own'>,
   host: ProjectHost,
   resources: RendererResourceScopes,
-  projects: Pick<ProjectRegistry, 'active' | 'registeredWorkspaceRoot' | 'state'>,
+  projects: Pick<
+    ProjectRegistry,
+    'active' | 'registeredWorkspaceRoot' | 'state' | 'authorityForPath'
+  >,
   previews: Pick<HtmlPreviewProtocol, 'create' | 'release'>,
 ): SkillagerCapability {
   const cli = runtime.own(
     'Skillager CLI',
     new SkillagerCli(host, localPath(applicationUserDataPath('.'))),
+    (owned) => owned.dispose(),
+  )
+  const store = runtime.own(
+    'Skillager deployment records',
+    new SkillagerDeploymentStore(
+      host,
+      localPath(applicationUserDataPath('skillager-deployments.json')),
+    ),
+    (owned) => owned.dispose(),
+  )
+  const exposure = runtime.own(
+    'Skillager SSH deliveries',
+    new SkillagerRemoteExposures(cli, store, (root) =>
+      projects.registeredWorkspaceRoot(root) &&
+      skillagerWorkspaceAvailable(projects.state(), root)
+        ? projects.authorityForPath(root.hostId, root.path)?.host
+        : undefined,
+    ),
     (owned) => owned.dispose(),
   )
   return runtime.own(
@@ -38,7 +64,9 @@ export function installSkillager(
         },
       },
       {
-        cli,
+        cli: exposure,
+        observe: (selection, request, source, signal) =>
+          exposure.observe(selection, request, source, signal),
         destinationAvailable: (destination) =>
           skillagerDestinationAvailable(projects.state(), destination),
       },

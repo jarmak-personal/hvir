@@ -128,6 +128,7 @@ export async function captureSkillagerTree(
     throw new SkillagerError('review-refused', 'This skill has no reviewable SKILL.md.')
   return {
     bytes,
+    entries: plan.entries,
     files: plan.entries
       .filter((entry) => entry.type === 'file')
       .map((entry) => ({
