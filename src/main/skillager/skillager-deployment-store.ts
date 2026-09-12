@@ -85,7 +85,7 @@ export class SkillagerDeploymentStore {
       this.unavailable = true
       throw new SkillagerError(
         'uncertain',
-        'The local deployment receipt could not be saved. Reopen the feature after restoring its local records before another action.',
+        'The local deployment receipt could not be saved. Restore its local records and restart hvir before another action.',
       )
     } finally {
       this.write = undefined
@@ -123,7 +123,7 @@ export class SkillagerDeploymentStore {
     if (this.unavailable)
       throw new SkillagerError(
         'unavailable',
-        'Local deployment records are unavailable or unsupported. Existing remote copies are protected; restore the local records before managing them.',
+        'Local deployment records are unavailable or unsupported. Existing remote copies are protected; restore the local records and restart hvir before managing them.',
       )
   }
 }

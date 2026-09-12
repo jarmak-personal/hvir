@@ -137,6 +137,48 @@ async function open(): Promise<void> {
   await settle(() => controller.preview())
 }
 describe('workspace skill action UI', () => {
+  it.each(['continue', 'close', 'disable'] as const)(
+    'awaits the previous full release before a reopened preview (%s)',
+    async (next) => {
+      await open()
+      let acknowledge!: () => void
+      const prior = new Promise<void>((resolve) => {
+        acknowledge = resolve
+      })
+      const original = invoke.getMockImplementation()!
+      invoke.mockImplementation((channel, args) =>
+        channel === 'skillager:cancel-exposure' &&
+        (args as { requestId: number }).requestId === 1
+          ? prior
+          : original(channel, args),
+      )
+      await settle(() => controller.close())
+      await settle(() => controller.start(metadata, 'add'))
+      await settle(() =>
+        controller.choose({ destination: request.destination, agent: 'claude' }),
+      )
+      let pending!: Promise<void>
+      await settle(() => {
+        pending = controller.preview()
+      })
+      expect(controller.state?.loading).toBe(true)
+      expect(
+        invoke.mock.calls.filter(([channel]) => channel === 'skillager:preview-exposure'),
+      ).toHaveLength(1)
+      if (next === 'close') await settle(() => controller.close())
+      if (next === 'disable') await settle(() => root.render(<Harness visible={false} />))
+      await settle(async () => {
+        acknowledge()
+        await pending
+      })
+      expect(
+        invoke.mock.calls.filter(([channel]) => channel === 'skillager:preview-exposure'),
+      ).toHaveLength(next === 'continue' ? 2 : 1)
+      if (next === 'continue') expect(controller.state?.preview).toBeDefined()
+      else expect(controller.state).toBeUndefined()
+    },
+  )
+
   it('selects a remote worktree, forces Full mode, and discloses prerequisites and retained cleanup', async () => {
     const remote = hostPath(asHostId('ssh:fixture'), '/remote')
     const projects = projectState(remote)

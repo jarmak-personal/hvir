@@ -184,14 +184,21 @@ export class SshManagedDirectory implements ManagedDirectoryPort {
       keepStdinOpen: true,
       signal: abort.signal,
     })
-    const timer = setTimeout(() => abort.abort(), 30_000)
+    // Validated payloads may need several minutes on an ordinary WAN. Every
+    // operation still has a hard deadline and immediate caller cancellation.
+    const byteCount = bytes
+      ? [...bytes.values()].reduce((sum, value) => sum + value.byteLength, 0)
+      : 0
+    const timeout = Math.min(300_000, 30_000 + Math.ceil(byteCount / 131_072) * 1000)
+    const timer = setTimeout(() => abort.abort(), timeout)
     const cancel = (): void => abort.abort(signal.reason)
     signal.addEventListener('abort', cancel, { once: true })
     let output = '',
       stderrBytes = 0,
       outputBytes = 0,
       submitted = false,
-      closed = false
+      closed = false,
+      provenUnavailable = false
     const close = (): void => {
       if (closed) return
       closed = true
@@ -305,16 +312,20 @@ export class SshManagedDirectory implements ManagedDirectoryPort {
       const result = JSON.parse(rows.at(-1)!) as Record<string, unknown>
       if (!result || typeof result !== 'object') throw uncertain()
       if (bytes && result.status === 'staged' && !upload) throw uncertain()
-      if (result.status === 'unavailable')
+      if (result.status === 'unavailable') {
+        provenUnavailable = result.noEffects === true
+        if (submitted && !provenUnavailable) throw uncertain()
         throw new ManagedDirectoryError(
           'unavailable',
           'This host does not provide the secure directory operation required for this action.',
         )
+      }
       // Any failure after the immediate primitive was submitted is indeterminate.
       if (submitted && result.status === 'refused') throw uncertain()
       return result
     } catch (error) {
-      if (error instanceof ManagedDirectoryError && !submitted) throw error
+      if (error instanceof ManagedDirectoryError && (!submitted || provenUnavailable))
+        throw error
       if (
         !submitted &&
         String(request.operation).startsWith('inspect') &&

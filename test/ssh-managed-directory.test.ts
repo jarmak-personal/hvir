@@ -63,6 +63,65 @@ function transport(finish: (events: EventEmitter, input: string) => void) {
   }
 }
 describe('managed directory immediate stream boundary', () => {
+  it.each([false, true])(
+    'requires explicit post-error no-effect proof for submitted unavailability (%s)',
+    async (noEffects) => {
+      const boundary = transport((events) => {
+        events.emit(
+          'stdout',
+          '{"status":"submitting"}\n' +
+            JSON.stringify({ status: 'unavailable', noEffects }) +
+            '\n',
+        )
+        events.emit('exit', { code: 0 })
+      })
+      const candidate = { ...location, entry: '.stage', tree, device: '1', inode: '2' }
+      await expect(
+        boundary.port.commit(
+          { action: 'add', candidate, target: 'skill' },
+          { signal: new AbortController().signal, onSubmitted: () => {} },
+        ),
+      ).rejects.toMatchObject({ reason: noEffects ? 'unavailable' : 'uncertain' })
+    },
+  )
+  it('allows a validated large stage beyond the ordinary deadline and still enforces its hard bound', async () => {
+    vi.useFakeTimers()
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
+    const boundary = transport(() => {})
+    const bytes = new Map(
+      Array.from(
+        { length: 5 },
+        (_, index) =>
+          [String(index), Buffer.alloc((index === 4 ? 1 : 8) * 1024 * 1024)] as const,
+      ),
+    )
+    const large = {
+      files: [...bytes].map(([entry, value]) => ({
+        entry,
+        size: value.byteLength,
+        mode: 0o644 as const,
+        sha256: createHash('sha256').update(value).digest('hex'),
+      })),
+    }
+    const pending = boundary.port.stage(
+      root,
+      '.stage',
+      large,
+      bytes,
+      location,
+      new AbortController().signal,
+    )
+    const rejected = expect(pending).rejects.toMatchObject({ reason: 'uncertain' })
+    await vi.advanceTimersByTimeAsync(30_001)
+    expect(boundary.dispose).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(300_000 - 30_001)
+    await rejected
+    expect(boundary.dispose).toHaveBeenCalledOnce()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it.each(['write', 'end', 'exit'] as const)(
     'cancels an opened stream with stalled %s and bounds disposal',
     async (at) => {

@@ -7,6 +7,7 @@ def stage():
     tree=Q['tree']; files,dirs=manifest(tree)
     expected=Q['location']
     if location(ROOT,Q['entry'])!=expected: return {'status':'not-applied'}
+    prerequisites(ROOT)
     parent,name,ancestors=open_parent(ROOT,Q['entry'],True,expected)
     fd=None
     try:
@@ -54,6 +55,7 @@ def stage():
         os.close(parent)
 def exact(r): return inspect(ROOT,r['entry'],r['tree'],r)
 def commit():
+    global SUBMITTED
     action=Q['action']; before=Q.get('before'); candidate=Q.get('candidate')
     target=Q['target'] if action=='add' else before['entry']
     source=candidate['entry'] if candidate else Q['quarantine']
@@ -62,6 +64,7 @@ def commit():
     parent,targetname,ancestors=open_parent(ROOT,target,False,candidate or before)
     try:
         if before and ancestors!=before['ancestors']: raise Different()
+        prerequisites(parent)
         try: fcntl.flock(parent,fcntl.LOCK_EX|fcntl.LOCK_NB)
         except BlockingIOError: return {'status':'not-applied'}
         if candidate: exact(candidate)
@@ -70,6 +73,7 @@ def commit():
         root_current(ROOT)
         # This is the immediate publication boundary. The controller persists
         # intent before starting the command and does not mistake later loss for cancellation.
+        SUBMITTED=True
         emit({'status':'submitting'})
         if action=='add':
             try: rename(parent,sourcename,targetname,1)
@@ -111,12 +115,16 @@ def commit():
     finally:
         os.close(parent)
 def cleanup():
+    global EFFECTS
     r=Q['receipt']; exact(r)
     parent,name,_=open_parent(ROOT,r['entry'],False,r)
+    try: prerequisites(parent)
+    except: os.close(parent); raise
     # Detach into an exclusively allocated, private operation-owned directory.
     # Workspace names are never unlinked based on an earlier inspection.
     quarantine=name+'.cleanup'; parts(quarantine)
     os.mkdir(quarantine,0o700,dir_fd=parent)
+    EFFECTS=True
     private=os.open(quarantine,DF,dir_fd=parent)
     allocated=os.fstat(private)
     fd=None
@@ -164,6 +172,22 @@ def cleanup():
         if fd is not None: os.close(fd)
         os.close(private); os.close(parent)
 ROOT=None
+def original_commit_state():
+    # A failing syscall can still have effects (for example after an NFS retry).
+    # Only exact post-error observations can prove the original bound state.
+    try:
+        before=Q.get('before'); candidate=Q.get('candidate')
+        if candidate: exact(candidate)
+        if before: exact(before)
+        if Q['action']!='update':
+            entry=Q['target'] if Q['action']=='add' else Q['quarantine']
+            expected=candidate or before
+            observed=inspection(entry,expected['tree'])
+            if observed['status']!='absent': return False
+            at=observed['location']
+            if any(at[k]!=expected[k] for k in ('root','rootDevice','rootInode','ancestors')): return False
+        return True
+    except (Different,OSError,ValueError,KeyError,TypeError): return False
 def inspection(entry,tree):
     observed=location(ROOT,entry)
     if observed['missingParents']: return {'status':'absent','location':observed}
@@ -190,7 +214,9 @@ try:
     elif operation=='cleanup': result=cleanup()
     else: raise Different()
     emit(result)
-except Unavailable: emit({'status':'unavailable'})
+except Unavailable:
+    known=not EFFECTS and (not SUBMITTED or original_commit_state())
+    emit({'status':'unavailable','noEffects':True} if known else {'status':'uncertain'})
 except (Different,OSError,ValueError,KeyError,TypeError): emit({'status':'refused'})
 finally:
     if ROOT is not None: os.close(ROOT)

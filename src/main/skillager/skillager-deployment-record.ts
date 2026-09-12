@@ -64,24 +64,16 @@ export interface SkillagerStoredTarget {
 
 /** The disclosed record describes delivery. Only the matching local intent grants authority. */
 export function deploymentRecordBytes(deployment: SkillagerDeployment): Uint8Array {
-  const at = (path: HostPath) => ({ hostId: path.hostId, path: path.path })
   return Buffer.from(
     JSON.stringify({
       schema: 'hvir.skillager-deployment.v1',
       id: deployment.id,
       library: {
         id: deployment.library.id,
-        root: at(deployment.library.root),
-        skillsRoot: at(deployment.library.skillsRoot),
       },
       skillId: deployment.skillId,
       sourceHash: deployment.sourceHash,
       agent: deployment.agent,
-      destination: {
-        projectId: deployment.destination.projectId,
-        workspaceId: deployment.destination.workspaceId,
-        root: at(deployment.destination.root),
-      },
       targetEntry: deployment.targetEntry,
       exposureId: deployment.exposureId,
       payload: { files: deploymentFiles(deployment) },
