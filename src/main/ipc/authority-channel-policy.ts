@@ -3,6 +3,9 @@ import { SEND_CHANNELS, type IpcInvokeChannel } from '../../shared'
 export const OWNER_SCOPED_INVOKE_CHANNELS = [
   'skillager:configure',
   'skillager:probe',
+  'skillager:choose-library-folder',
+  'skillager:initialize-library',
+  'skillager:reconcile-library',
   'skillager:connect',
   'skillager:disconnect',
   'skillager:inventory',

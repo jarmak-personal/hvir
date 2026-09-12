@@ -234,3 +234,37 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+.skillager-library-setup {
+  display: grid;
+  gap: 10px;
+}
+.skillager-library-setup h3,
+.skillager-library-setup p {
+  margin: 0;
+}
+.skillager-library-location {
+  user-select: text;
+  padding: 8px;
+  background: var(--surface-1);
+  border-radius: 5px;
+}
+.skillager-git-choice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.skillager-connection-details {
+  margin-top: 16px;
+}
+.skillager-first-skill textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  color: var(--text);
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: 5px;
+  padding: 8px;
+  user-select: text;
+}

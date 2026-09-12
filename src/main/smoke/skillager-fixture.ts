@@ -6,7 +6,7 @@ import type { IpcProjectAuthorityPort } from '../ipc/authority-port'
 import type { SmokeCleanup } from './cleanup'
 import { hostPathEquals, localPath, type HostPath } from '../../shared/host-path'
 import { skillagerDestinationAvailable } from '../skillager/skillager-destination'
-import type { SkillagerMetadata } from '../../shared/skillager'
+import type { SkillagerLibrary, SkillagerMetadata } from '../../shared/skillager'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import { SkillagerCapability } from '../skillager/skillager-capability'
 import { SkillagerError } from '../skillager/skillager-port'
@@ -59,6 +59,8 @@ export function createSkillagerSmoke(
     }
     return fixture
   }
+  let initializedLibrary: SkillagerLibrary | undefined
+  let initializedGit = true
   const calls: string[] = []
   const real = realSkillagerSmokePort(host, cleanup)
   const capability = new SkillagerCapability(
@@ -67,15 +69,19 @@ export function createSkillagerSmoke(
         calls.push('probe')
         if (executable?.path === '/missing')
           return Promise.reject(new SkillagerError('missing', 'Skillager was not found.'))
-        return Promise.resolve(selection)
+        return Promise.resolve(
+          executable?.path === '/hvir-smoke/onboarding'
+            ? { ...selection, executable, library: initializedLibrary }
+            : selection,
+        )
       },
       validate() {
         calls.push('validate')
         return Promise.resolve()
       },
-      inventory() {
+      inventory(selected) {
         calls.push('inventory')
-        return Promise.resolve(rows)
+        return Promise.resolve(selected.library?.id === 'onboarding-library' ? [] : rows)
       },
       async search(_selection, request, signal) {
         calls.push(`search:${request.query}`)
@@ -137,6 +143,35 @@ export function createSkillagerSmoke(
           : fixtureFor(request.workspaceRoot).exposures(),
       destinationAvailable: (destination) =>
         skillagerDestinationAvailable(projects.getProjectState(), destination),
+    },
+    {
+      cli: real ?? {
+        defaultLibraryRoot: () =>
+          Promise.resolve(localPath('/hvir-smoke/personal library')),
+        async initializeLibrary(_selection, root, gitHistory, signal) {
+          await new Promise<void>((resolve, reject) => {
+            const cancelled = () => {
+              clearTimeout(timer)
+              reject(new SkillagerError('cancelled', 'Setup cancelled.'))
+            }
+            const timer = setTimeout(() => {
+              signal.removeEventListener('abort', cancelled)
+              resolve()
+            }, 250)
+            signal.addEventListener('abort', cancelled, { once: true })
+          })
+          initializedLibrary = {
+            id: 'onboarding-library',
+            root,
+            skillsRoot: localPath(root.path + '/skills'),
+          }
+          initializedGit = gitHistory
+          return { kind: 'ready', status: { library: initializedLibrary, gitHistory } }
+        },
+        libraryStatus: () =>
+          Promise.resolve({ library: initializedLibrary, gitHistory: initializedGit }),
+      },
+      picker: { choose: () => Promise.resolve(localPath('/hvir-smoke/chosen library')) },
     },
   )
   cleanup.defer('Skillager capability', () => capability.dispose())

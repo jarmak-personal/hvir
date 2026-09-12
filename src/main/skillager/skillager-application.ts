@@ -1,3 +1,4 @@
+import { createSkillagerFolderPicker } from './electron-skillager-folder-picker'
 import {
   skillagerDestinationAvailable,
   skillagerWorkspaceAvailable,
@@ -70,6 +71,7 @@ export function installSkillager(
         destinationAvailable: (destination) =>
           skillagerDestinationAvailable(projects.state(), destination),
       },
+      { cli, picker: createSkillagerFolderPicker(host) },
     ),
     (owned) => owned.dispose(),
   )

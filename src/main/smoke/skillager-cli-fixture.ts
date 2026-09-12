@@ -1,3 +1,4 @@
+import type { SkillagerSetupCliPort } from '../skillager/skillager-setup-port'
 import type { SkillagerExposureCliPort } from '../skillager/skillager-exposure-port'
 import type { SkillagerReviewCliPort } from '../skillager/skillager-review-port'
 import { randomUUID } from 'node:crypto'
@@ -12,7 +13,12 @@ import { skillagerFixtureEnvironment } from './skillager-fixture-environment'
 export function realSkillagerSmokePort(
   host: ProjectHost,
   cleanup: SmokeCleanup,
-): (SkillagerCliPort & SkillagerReviewCliPort & SkillagerExposureCliPort) | undefined {
+):
+  | (SkillagerCliPort &
+      SkillagerReviewCliPort &
+      SkillagerExposureCliPort &
+      SkillagerSetupCliPort)
+  | undefined {
   const fixture = process.env.HVIR_SKILLAGER_SMOKE_FIXTURE
   const release = process.env.HVIR_SKILLAGER_RELEASE
   if (!fixture || !release) return undefined
@@ -45,6 +51,10 @@ export function realSkillagerSmokePort(
   )
   cleanup.defer('real Skillager CLI', () => cli.dispose())
   return {
+    defaultLibraryRoot: (selection) => cli.defaultLibraryRoot(selection),
+    initializeLibrary: (selection, root, gitHistory, signal) =>
+      cli.initializeLibrary(selection, root, gitHistory, signal),
+    libraryStatus: (selection, signal) => cli.libraryStatus(selection, signal),
     updateSourceHash: (selection, snapshot, signal) =>
       cli.updateSourceHash(selection, snapshot, signal),
     previewExposure: (selection, request, signal) =>

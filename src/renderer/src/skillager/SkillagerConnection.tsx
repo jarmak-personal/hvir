@@ -1,3 +1,4 @@
+import { SkillagerLibrarySetup } from './SkillagerLibrarySetup'
 import type { ReactElement } from 'react'
 import type { SkillagerController } from './use-skillager-workspace'
 
@@ -14,6 +15,16 @@ export function SkillagerConnection({
         <button type="button" onClick={controller.disconnect}>
           Disconnect
         </button>
+        <details className="skillager-connection-details">
+          <summary>Connection details</summary>
+          <p>
+            {controller.connection.version}
+            <br />
+            <span className="skillager-path">
+              {controller.connection.executable.path}
+            </span>
+          </p>
+        </details>
       </div>
     )
   if (!controller.probe)
@@ -41,18 +52,18 @@ export function SkillagerConnection({
   const probe = controller.probe.value
   return (
     <div className="skillager-connection">
-      <p>
-        {probe.version}
-        <br />
-        <span className="skillager-path">{probe.executable.path}</span>
-      </p>
-      {probe.library ? (
+      {probe.setup?.needsReconciliation ? (
+        <SkillagerLibrarySetup controller={controller} />
+      ) : probe.library ? (
         <>
           <p>
             Personal library
             <br />
             <span className="skillager-path">{probe.library.root.path}</span>
           </p>
+          {probe.setup?.gitHistory !== undefined ? (
+            <p>Git history: {probe.setup.gitHistory ? 'On' : 'Off'}</p>
+          ) : null}
           <p>
             Connect to browse metadata. Content opens only when you choose to review it.
           </p>
@@ -65,14 +76,27 @@ export function SkillagerConnection({
           </button>
         </>
       ) : (
-        <p>Initialize your personal library in Skillager, then choose Check again.</p>
+        <SkillagerLibrarySetup controller={controller} />
       )}
+      {probe.setup?.message ? <p role="status">{probe.setup.message}</p> : null}
       {controller.connectionError ? (
         <p role="alert">{controller.connectionError}</p>
       ) : null}
-      <button type="button" onClick={() => void controller.check()}>
-        Check again
-      </button>
+      <details className="skillager-connection-details">
+        <summary>Connection details</summary>
+        <p>
+          {probe.version}
+          <br />
+          <span className="skillager-path">{probe.executable.path}</span>
+        </p>
+        <button
+          type="button"
+          disabled={Boolean(controller.setupBusy)}
+          onClick={() => void controller.check()}
+        >
+          Check again
+        </button>
+      </details>
     </div>
   )
 }

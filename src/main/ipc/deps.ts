@@ -54,6 +54,9 @@ export interface IpcDeps extends IpcRouterAuthorityPort {
     SkillagerCapability,
     | 'configure'
     | 'probe'
+    | 'chooseLibraryFolder'
+    | 'initializeLibrary'
+    | 'reconcileLibrary'
     | 'connect'
     | 'disconnect'
     | 'inventory'

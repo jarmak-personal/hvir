@@ -21,6 +21,7 @@ import type {
   SkillagerRequest,
   SkillagerResult,
   SkillagerSearchRequest,
+  SkillagerSetupCompletion,
 } from '../skillager'
 
 export const skillagerIpc = {
@@ -60,6 +61,18 @@ export const skillagerIpc = {
     'skillager:configure': invoke<{ readonly enabled: boolean }, void>(),
     'skillager:probe': invoke<
       { readonly executable?: HostPath },
+      SkillagerResult<SkillagerProbe>
+    >(),
+    'skillager:choose-library-folder': invoke<
+      { readonly probeId: string },
+      SkillagerResult<SkillagerProbe>
+    >(),
+    'skillager:initialize-library': invoke<
+      { readonly selectionId: string; readonly gitHistory: boolean },
+      SkillagerResult<SkillagerSetupCompletion>
+    >(),
+    'skillager:reconcile-library': invoke<
+      { readonly probeId: string },
       SkillagerResult<SkillagerProbe>
     >(),
     'skillager:connect': invoke<

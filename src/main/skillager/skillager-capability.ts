@@ -1,3 +1,5 @@
+import type { SkillagerSetupTarget } from '../../shared/skillager-setup'
+import type { SkillagerFolderPicker, SkillagerSetupCliPort } from './skillager-setup-port'
 import type { SkillagerExposureRequest } from '../../shared/skillager-exposure'
 import type {
   SkillagerExposureCliPort,
@@ -26,6 +28,7 @@ import {
   type SkillagerRequest,
   type SkillagerResult,
   type SkillagerSearchRequest,
+  type SkillagerSetupCompletion,
 } from '../../shared/skillager'
 import type { RendererOwner, RendererResourceScopes } from '../renderer-resource-scopes'
 import type { SkillagerCliPort, SkillagerCliSelection } from './skillager-port'
@@ -48,6 +51,10 @@ interface OwnerState {
   probeId?: string
   connectionId?: string
   probe?: AbortController
+  setupTarget?: SkillagerSetupTarget
+  choosingFolder?: boolean
+  setupGitHistory?: boolean
+  setupMessage?: string
   readonly lanes: { search: RequestLane; inventory: RequestLane }
   latest: { search: number; inventory: number }
 }
@@ -56,6 +63,10 @@ export class SkillagerCapability {
   private readonly owners = new Map<string, OwnerState>()
   private readonly jobs = new Map<Promise<unknown>, string>()
   private disposed = false
+  // Application lifetime: renderer/configuration revocation must not erase an
+  // uncertain mutation. Only an explicit public status reconciliation clears it.
+  private readonly uncertainCatalogs = new Map<string, HostPath>()
+  private initializing?: AbortController
   private readonly exposures: SkillagerExposureOwner
   private readonly reviews: SkillagerReviewOwner
 
@@ -74,6 +85,10 @@ export class SkillagerCapability {
       readonly cli: SkillagerExposureCliPort
       readonly destinationAvailable: SkillagerDestinationAvailable
       readonly observe: SkillagerExposureObserver
+    },
+    private readonly setup: {
+      readonly cli: SkillagerSetupCliPort
+      readonly picker: SkillagerFolderPicker
     },
   ) {
     this.exposures = new SkillagerExposureOwner(exposure.cli, resources)
@@ -119,15 +134,27 @@ export class SkillagerCapability {
         try {
           const selection = await this.cli.probe(executable, controller.signal)
           this.current(owner, state, generation)
-          const probeId = randomUUID()
-          state.selection = selection
-          state.probeId = probeId
-          return {
-            probeId,
-            executable: selection.executable,
-            version: selection.version,
-            library: selection.library,
+          let root = selection.library
+            ? undefined
+            : this.uncertainCatalogs.get(selection.catalog.path)
+          let setupMessage: string | undefined
+          if (!selection.library && !root) {
+            try {
+              root = await this.setup.cli.defaultLibraryRoot(selection)
+            } catch (error) {
+              this.current(owner, state, generation)
+              setupMessage =
+                error instanceof SkillagerError
+                  ? error.message
+                  : 'The local library location could not be determined. Check Skillager again.'
+            }
           }
+          this.current(owner, state, generation)
+          state.selection = selection
+          state.probeId = randomUUID()
+          state.setupTarget = root ? { selectionId: randomUUID(), root } : undefined
+          state.setupMessage = setupMessage
+          return this.probed(state)
         } catch (error) {
           this.current(owner, state, generation)
           throw error
@@ -151,10 +178,15 @@ export class SkillagerCapability {
             'disconnected',
             'Check Skillager again before connecting.',
           )
+        if (this.uncertainCatalogs.has(state.selection.catalog.path) || this.initializing)
+          throw new SkillagerError(
+            'uncertain',
+            'Check library status before connecting after interrupted setup.',
+          )
         if (!state.selection.library)
           throw new SkillagerError(
             'not-initialized',
-            'Initialize your Skillager library in your local terminal, then check again.',
+            'Set up your personal library before connecting.',
           )
         const generation = ++state.generation
         state.probe?.abort()
@@ -192,6 +224,245 @@ export class SkillagerCapability {
     state.connectionId = undefined
     state.probeId = undefined
     state.selection = undefined
+    state.setupTarget = undefined
+    state.setupGitHistory = undefined
+    state.setupMessage = undefined
+    state.choosingFolder = false
+  }
+
+  chooseLibraryFolder(
+    owner: RendererOwner,
+    probeId: string,
+  ): Promise<SkillagerResult<SkillagerProbe>> {
+    return this.track(
+      owner,
+      result(async () => {
+        const state = this.setupState(owner, probeId)
+        if (
+          !state.setupTarget ||
+          state.selection!.library ||
+          this.initializing ||
+          state.choosingFolder
+        )
+          throw new SkillagerError(
+            'busy',
+            'Finish the current library setup action first.',
+          )
+        const generation = ++state.generation
+        const controller = new AbortController()
+        state.probe?.abort()
+        state.probe = controller
+        state.choosingFolder = true
+        try {
+          const root = await this.setup.picker.choose(
+            owner,
+            state.setupTarget.root,
+            controller.signal,
+          )
+          this.current(owner, state, generation)
+          if (root) {
+            if (
+              root.hostId !== 'local' ||
+              !root.path.startsWith('/') ||
+              root.path.includes('\0') ||
+              root.path.length > 16384
+            )
+              throw new SkillagerError(
+                'invalid-request',
+                'Choose an existing local library folder.',
+              )
+            state.setupTarget = { selectionId: randomUUID(), root }
+          }
+          return this.probed(state)
+        } catch (error) {
+          this.current(owner, state, generation)
+          throw error
+        } finally {
+          if (state.generation === generation) state.choosingFolder = false
+          if (state.probe === controller) state.probe = undefined
+        }
+      }),
+    )
+  }
+
+  initializeLibrary(
+    owner: RendererOwner,
+    selectionId: string,
+    gitHistory: boolean,
+  ): Promise<SkillagerResult<SkillagerSetupCompletion>> {
+    return this.track(
+      owner,
+      result(async () => {
+        const state = this.state(owner),
+          selection = state.selection
+        if (
+          !selection ||
+          !state.probeId ||
+          selection.library ||
+          !state.setupTarget ||
+          state.setupTarget.selectionId !== selectionId ||
+          typeof gitHistory !== 'boolean'
+        )
+          throw new SkillagerError(
+            'invalid-request',
+            'Check and select your personal-library location before creating it.',
+          )
+        if (this.initializing || state.choosingFolder)
+          throw new SkillagerError(
+            'busy',
+            'Finish the current library setup action first.',
+          )
+        if (this.uncertainCatalogs.has(selection.catalog.path))
+          throw new SkillagerError(
+            'uncertain',
+            'Library setup may already have changed files or registration. Check library status before continuing.',
+          )
+        const generation = ++state.generation,
+          controller = new AbortController()
+        state.probe?.abort()
+        state.probe = controller
+        this.initializing = controller
+        this.uncertainCatalogs.set(selection.catalog.path, state.setupTarget.root)
+        try {
+          const initialized = await this.setup.cli.initializeLibrary(
+            selection,
+            state.setupTarget.root,
+            gitHistory,
+            controller.signal,
+          )
+          if (initialized.kind === 'refused') {
+            this.uncertainCatalogs.delete(selection.catalog.path)
+            this.current(owner, state, generation)
+            throw new SkillagerError('command-failed', initialized.message)
+          }
+          this.current(owner, state, generation)
+          if (
+            !initialized.status.library ||
+            !hostPathEquals(initialized.status.library.root, state.setupTarget.root)
+          )
+            throw new SkillagerError(
+              'library-changed',
+              'The resulting library differs from the selected location.',
+            )
+          state.selection = { ...selection, library: initialized.status.library }
+          state.setupGitHistory = initialized.status.gitHistory
+          state.setupTarget = undefined
+          state.probeId = randomUUID()
+          this.uncertainCatalogs.delete(selection.catalog.path)
+          if (initialized.status.gitHistory !== gitHistory) {
+            state.setupMessage =
+              'This existing library has a different Git history setting. Connect with its actual setting to continue.'
+            return { probe: this.probed(state) }
+          }
+          state.connectionId = randomUUID()
+          return {
+            probe: this.probed(state),
+            connection: {
+              connectionId: state.connectionId,
+              executable: selection.executable,
+              version: selection.version,
+              library: initialized.status.library,
+            },
+          }
+        } catch (error) {
+          this.current(owner, state, generation)
+          if (!this.uncertainCatalogs.has(selection.catalog.path)) throw error
+          const detail =
+            error instanceof SkillagerError
+              ? error.reason === 'timeout'
+                ? 'Skillager took too long while setting up the library.'
+                : error.reason === 'output-limit'
+                  ? 'The library setup response exceeded the supported size.'
+                  : error.reason === 'command-failed'
+                    ? 'Skillager could not finish library setup.'
+                    : error.message
+              : 'Library setup could not be verified.'
+          throw new SkillagerError(
+            'uncertain',
+            `${detail} Files or registration may already exist. Check library status before continuing.`,
+          )
+        } finally {
+          if (state.probe === controller) state.probe = undefined
+          if (this.initializing === controller) this.initializing = undefined
+        }
+      }),
+    )
+  }
+
+  reconcileLibrary(
+    owner: RendererOwner,
+    probeId: string,
+  ): Promise<SkillagerResult<SkillagerProbe>> {
+    return this.track(
+      owner,
+      result(async () => {
+        const state = this.setupState(owner, probeId),
+          selection = state.selection!
+        if (state.connectionId)
+          throw new SkillagerError(
+            'invalid-request',
+            'Disconnect before reconciling library setup.',
+          )
+        if (this.initializing || state.choosingFolder)
+          throw new SkillagerError(
+            'busy',
+            'Wait for library setup to stop before checking its status.',
+          )
+        const generation = ++state.generation,
+          controller = new AbortController()
+        state.probe?.abort()
+        state.probe = controller
+        try {
+          const status = await this.setup.cli.libraryStatus(selection, controller.signal)
+          const root = status.library
+            ? undefined
+            : (this.uncertainCatalogs.get(selection.catalog.path) ??
+              state.setupTarget?.root ??
+              (await this.setup.cli.defaultLibraryRoot(selection)))
+          this.current(owner, state, generation)
+          state.selection = { ...selection, library: status.library }
+          state.setupTarget = root ? { selectionId: randomUUID(), root } : undefined
+          state.setupGitHistory = status.gitHistory
+          state.setupMessage = status.library
+            ? 'Library status is verified. Connect to browse its metadata.'
+            : 'No personal library is registered. Files from an interrupted setup may still exist at the selected location.'
+          state.probeId = randomUUID()
+          this.uncertainCatalogs.delete(selection.catalog.path)
+          return this.probed(state)
+        } catch (error) {
+          this.current(owner, state, generation)
+          throw error
+        } finally {
+          if (state.probe === controller) state.probe = undefined
+        }
+      }),
+    )
+  }
+
+  private setupState(owner: RendererOwner, probeId: string): OwnerState {
+    const state = this.state(owner)
+    if (!state.selection || state.probeId !== probeId)
+      throw new SkillagerError(
+        'invalid-request',
+        'Check Skillager again before selecting library setup.',
+      )
+    return state
+  }
+
+  private probed(state: OwnerState): SkillagerProbe {
+    const selection = state.selection!
+    return {
+      probeId: state.probeId!,
+      executable: selection.executable,
+      version: selection.version,
+      library: selection.library,
+      setup: {
+        target: state.setupTarget,
+        needsReconciliation: this.uncertainCatalogs.has(selection.catalog.path),
+        gitHistory: state.setupGitHistory,
+        message: state.setupMessage,
+      },
+    }
   }
 
   search(

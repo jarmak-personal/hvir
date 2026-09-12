@@ -733,3 +733,167 @@ describe('Skills renderer demand and metadata views', () => {
       ).toBe(false)
   })
 })
+
+const setupProbe = {
+  ok: true as const,
+  value: {
+    ...probe.value,
+    library: undefined,
+    setup: {
+      needsReconciliation: false,
+      target: {
+        selectionId: 'retained-target',
+        root: localPath('/chosen personal library'),
+      },
+    },
+  },
+}
+function useSetupResponses(
+  extra: (channel: string, request: unknown) => Promise<unknown> | undefined = () =>
+    undefined,
+) {
+  const fallback = invoke.getMockImplementation()!
+  invoke.mockImplementation(
+    (channel, request) =>
+      extra(channel, request) ??
+      (channel === 'skillager:probe'
+        ? Promise.resolve(setupProbe)
+        : fallback(channel, request)),
+  )
+}
+
+it('shows the main-retained target and Git on by default without creating; one explicit setup connects directly', async () => {
+  useSetupResponses((channel) =>
+    channel === 'skillager:initialize-library'
+      ? Promise.resolve({
+          ok: true,
+          value: { probe: probe.value, connection: connection.value },
+        })
+      : channel === 'skillager:inventory'
+        ? Promise.resolve(metadata([]))
+        : undefined,
+  )
+  await render()
+  expect(mount.textContent).toContain('Set up your personal library')
+  expect(mount.querySelector('.skillager-library-location')?.textContent).toBe(
+    '/chosen personal library',
+  )
+  expect(
+    (mount.querySelector('.skillager-git-choice input') as HTMLInputElement).checked,
+  ).toBe(true)
+  expect(
+    invoke.mock.calls.some(([channel]) => channel === 'skillager:initialize-library'),
+  ).toBe(false)
+  await act(async () => current.setupLibrary('initialize'))
+  await settle()
+  expect(invoke).toHaveBeenCalledWith('skillager:initialize-library', {
+    selectionId: 'retained-target',
+    gitHistory: true,
+  })
+  expect(current.connection?.library).toEqual(library)
+  expect(invoke.mock.calls.some(([channel]) => channel === 'skillager:connect')).toBe(
+    false,
+  )
+  const prompt = mount.querySelector(
+    'textarea[aria-label="First skill agent prompt"]',
+  ) as HTMLTextAreaElement
+  expect(prompt.readOnly).toBe(true)
+  expect(prompt.value).toContain('/library')
+  expect(prompt.value).toContain('Leave it pending')
+})
+
+it('keeps uncertain setup blocked, preserves unavailable reconciliation, and sends an explicit no-Git choice', async () => {
+  useSetupResponses((channel) =>
+    channel === 'skillager:initialize-library'
+      ? Promise.resolve({
+          ok: false,
+          reason: 'uncertain',
+          message: 'Setup timed out. Check library status.',
+        })
+      : channel === 'skillager:reconcile-library'
+        ? Promise.resolve({
+            ok: false,
+            reason: 'unavailable',
+            message: 'Library status is unavailable.',
+          })
+        : undefined,
+  )
+  await render()
+  act(() => current.setGitHistory(false))
+  await act(async () => current.setupLibrary('initialize'))
+  expect(invoke).toHaveBeenCalledWith('skillager:initialize-library', {
+    selectionId: 'retained-target',
+    gitHistory: false,
+  })
+  expect(mount.textContent).toContain('Check library status')
+  expect(mount.textContent).not.toContain('Create and connect')
+  await act(async () => current.setupLibrary('reconcile'))
+  expect(mount.textContent).toContain('Library status is unavailable.')
+  expect(mount.textContent).not.toContain('Create and connect')
+})
+
+it('discards a late initialization after disable and re-enables without connection or restored views', async () => {
+  let finish!: (value: unknown) => void
+  useSetupResponses((channel) =>
+    channel === 'skillager:initialize-library'
+      ? new Promise((resolve) => {
+          finish = resolve
+        })
+      : undefined,
+  )
+  await render()
+  let pending!: Promise<void>
+  act(() => {
+    pending = current.setupLibrary('initialize')
+  })
+  const toggle = mount.querySelector(
+    '.skillager-settings > label input',
+  ) as HTMLInputElement
+  act(() => toggle.click())
+  await settle()
+  await act(async () => {
+    finish({ ok: true, value: { probe: probe.value, connection: connection.value } })
+    await pending
+  })
+  expect(mount.textContent).toBe(' Enable Skillager')
+  expect(current.connection).toBeUndefined()
+  act(() => toggle.click())
+  await settle()
+  expect(current.connection).toBeUndefined()
+  expect(current.tabs).toEqual([])
+  expect(
+    invoke.mock.calls.filter(([channel]) => channel === 'skillager:initialize-library'),
+  ).toHaveLength(1)
+  expect(invoke.mock.calls.some(([channel]) => channel === 'skillager:inventory')).toBe(
+    false,
+  )
+})
+
+it('first-skill guidance requires a complete empty personal inventory, not workspace/search/pending/error states', async () => {
+  const fallback = invoke.getMockImplementation()!
+  let response: SkillagerResult<SkillagerMetadataResult> = metadata([])
+  invoke.mockImplementation((channel, request) =>
+    channel === 'skillager:inventory' || channel === 'skillager:search'
+      ? Promise.resolve(response)
+      : fallback(channel, request),
+  )
+  await render()
+  await connect()
+  expect(mount.querySelector('.skillager-first-skill')).not.toBeNull()
+  const perspective = [...mount.querySelectorAll('.skillager-perspectives button')]
+  act(() => (perspective[1] as HTMLButtonElement).click())
+  expect(mount.querySelector('.skillager-first-skill')).toBeNull()
+  act(() => (perspective[0] as HTMLButtonElement).click())
+  await act(async () => current.submit('no matches'))
+  expect(mount.querySelector('.skillager-first-skill')).toBeNull()
+  act(() => current.clearSearch())
+  response = metadata([rows[1]!])
+  await act(async () => current.refresh())
+  act(() =>
+    (mount.querySelector('.skillager-list-controls input') as HTMLInputElement).click(),
+  )
+  expect(mount.querySelector('.skillager-first-skill')).toBeNull()
+  response = { ok: false, reason: 'unavailable', message: 'Read failed.' }
+  await act(async () => current.refresh())
+  expect(mount.querySelector('.skillager-first-skill')).toBeNull()
+})

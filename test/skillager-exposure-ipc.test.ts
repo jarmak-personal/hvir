@@ -8,7 +8,10 @@ function fixture() {
   const owner = { id: 7, generation: 3 },
     previewExposure = vi.fn(),
     applyExposure = vi.fn(),
-    review = vi.fn()
+    review = vi.fn(),
+    initializeLibrary = vi.fn(),
+    chooseLibraryFolder = vi.fn(),
+    reconcileLibrary = vi.fn()
   const workspaceRoot = vi.fn((path: HostPath) => {
     if (
       ![request.workspaceRoot, request.destination.root].some((root) =>
@@ -33,13 +36,23 @@ function fixture() {
     ) => handlers.set(channel, handler),
   } as unknown as IpcRegistrar
   registerSkillagerIpc(ipc, {
-    skillager: { previewExposure, applyExposure, review },
+    skillager: {
+      previewExposure,
+      applyExposure,
+      review,
+      initializeLibrary,
+      chooseLibraryFolder,
+      reconcileLibrary,
+    },
   } as unknown as Parameters<typeof registerSkillagerIpc>[1])
   return {
     owner,
     previewExposure,
     applyExposure,
     review,
+    initializeLibrary,
+    chooseLibraryFolder,
+    reconcileLibrary,
     workspaceRoot,
     invoke: (channel: string, value: unknown) =>
       handlers.get(channel)!(value, { owner: () => owner }),
@@ -139,4 +152,32 @@ it('reconstructs and qualifies nested update paths before forwarding the review'
     }),
   ).toThrow('Unregistered')
   expect(f.review).toHaveBeenCalledTimes(1)
+})
+
+it('library setup IPC forwards only retained identities and the explicit boolean, without workspace authority', () => {
+  const f = fixture()
+  f.invoke('skillager:initialize-library', {
+    selectionId: 'retained',
+    gitHistory: false,
+    root: localPath('/arbitrary'),
+    command: 'shell injection',
+    catalog: '/other',
+  })
+  expect(f.initializeLibrary).toHaveBeenCalledWith(f.owner, 'retained', false)
+  f.invoke('skillager:choose-library-folder', {
+    probeId: 'probe',
+    root: localPath('/ungranted'),
+  })
+  expect(f.chooseLibraryFolder).toHaveBeenCalledWith(f.owner, 'probe')
+  f.invoke('skillager:reconcile-library', { probeId: 'probe' })
+  expect(f.reconcileLibrary).toHaveBeenCalledWith(f.owner, 'probe')
+  expect(f.workspaceRoot).not.toHaveBeenCalled()
+  for (const gitHistory of [undefined, 'false', 0, null])
+    expect(() =>
+      f.invoke('skillager:initialize-library', { selectionId: 'retained', gitHistory }),
+    ).toThrow()
+  expect(() =>
+    f.invoke('skillager:initialize-library', { selectionId: '', gitHistory: true }),
+  ).toThrow()
+  expect(f.initializeLibrary).toHaveBeenCalledOnce()
 })

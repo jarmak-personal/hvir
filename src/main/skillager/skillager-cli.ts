@@ -1,3 +1,5 @@
+import { SkillagerSetupCommands } from './skillager-setup-commands'
+import type { SkillagerSetupCliPort } from './skillager-setup-port'
 import { SkillagerExposureCommands } from './skillager-exposure-commands'
 import { SkillagerNativeCommands } from './skillager-native-commands'
 import type { SkillagerNativeSnapshot } from './skillager-native-port'
@@ -10,6 +12,8 @@ import { SkillagerError } from './skillager-port'
 import { randomUUID } from 'node:crypto'
 import {
   hostPathEquals,
+  dirnameHostPath,
+  basenameHostPath,
   joinHostPath,
   localPath,
   type HostPath,
@@ -45,7 +49,7 @@ const MARKER = '\x1ehvir-skillager-probe\x1f'
 const RESOLVE = `/bin/sh -c 'printf "\\036hvir-skillager-probe\\037"; resolved=$(command -v -- "$HVIR_SKILLAGER_PROBE_EXECUTABLE" || true); printf "%s\\0" "$resolved" "\${SKILLAGER_CATALOG_STATE_DIR:-\${XDG_CONFIG_HOME:-$HOME/.config}/skillager}"; /usr/bin/env -0'`
 
 /** Local CLI mechanics. Its private cwd is never presented as a workspace destination. */
-export class SkillagerCli implements SkillagerCliPort {
+export class SkillagerCli implements SkillagerCliPort, SkillagerSetupCliPort {
   private readonly process: SkillagerProcess
   private readonly context: HostPath
   private prepared?: Promise<void>
@@ -69,6 +73,35 @@ export class SkillagerCli implements SkillagerCliPort {
     signal: AbortSignal,
   ): Promise<SkillagerCliSelection> {
     return this.operate(() => this.probeLocal(selected, signal))
+  }
+  async defaultLibraryRoot(selection: SkillagerCliSelection): Promise<HostPath> {
+    const home = selection.environment.HOME
+    if (!home?.startsWith('/') || home.includes('\0'))
+      throw new SkillagerError(
+        'unsupported',
+        'The selected Skillager environment has no supported local home directory.',
+      )
+    return this.canonicalDestination(
+      joinHostPath(localPath(home), '.skillager', 'library'),
+    )
+  }
+  initializeLibrary(
+    selection: SkillagerCliSelection,
+    root: HostPath,
+    gitHistory: boolean,
+    signal: AbortSignal,
+  ) {
+    return this.operate(() =>
+      this.setupCommands().initialize(selection, root, gitHistory, signal),
+    )
+  }
+  libraryStatus(selection: SkillagerCliSelection, signal: AbortSignal) {
+    return this.operate(() => this.setupCommands().status(selection, signal))
+  }
+  private setupCommands(): SkillagerSetupCommands {
+    return new SkillagerSetupCommands(this.process, this.context, (selection, signal) =>
+      this.validateLocal(selection, signal),
+    )
   }
   validate(selection: SkillagerCliSelection, signal: AbortSignal): Promise<void> {
     return this.operate(() => this.validateLocal(selection, signal))
@@ -267,12 +300,16 @@ export class SkillagerCli implements SkillagerCliPort {
       environment[key] = entry.slice(separator + 1)
     }
     const executable = await this.host.realpath(localPath(resolved))
-    const catalog = localPath(catalogPath)
-    if (!catalog.path.startsWith('/'))
+    if (
+      !catalogPath.startsWith('/') ||
+      catalogPath.includes('\0') ||
+      catalogPath.length > 16384
+    )
       throw new SkillagerError(
         'unsupported',
         'Skillager returned an unsupported catalog location.',
       )
+    const catalog = await this.canonicalDestination(localPath(catalogPath))
     const version = (
       await this.process.run(
         executable.path,
@@ -480,6 +517,44 @@ export class SkillagerCli implements SkillagerCliPort {
       )
     }
     return library
+  }
+
+  /** Catalog/setup identity must survive aliases even before the destination exists. */
+  private async canonicalDestination(destination: HostPath): Promise<HostPath> {
+    let ancestor = destination
+    const missing: string[] = []
+    for (;;) {
+      try {
+        return joinHostPath(await this.host.realpath(ancestor), ...missing)
+      } catch (error) {
+        if (
+          !(error instanceof Error) ||
+          !('code' in error) ||
+          error.code !== 'ENOENT' ||
+          ancestor.path === '/'
+        )
+          throw error
+        let absent = false
+        try {
+          await this.host.stat(ancestor)
+        } catch (reason) {
+          if (
+            !(reason instanceof Error) ||
+            !('code' in reason) ||
+            reason.code !== 'ENOENT'
+          )
+            throw reason
+          absent = true
+        }
+        if (!absent)
+          throw new SkillagerError(
+            'unsupported',
+            'The Skillager catalog or library location contains an unresolved symbolic link. Resolve that location before continuing.',
+          )
+        missing.unshift(basenameHostPath(ancestor))
+        ancestor = dirnameHostPath(ancestor)
+      }
+    }
   }
 
   private async removeState(state: HostPath): Promise<void> {

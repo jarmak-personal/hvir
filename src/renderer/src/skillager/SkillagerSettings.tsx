@@ -26,25 +26,28 @@ export function SkillagerSettings({
             Uses your local Skillager installation. You manage installation and updates in
             your terminal.
           </p>
-          <label htmlFor="skillager-executable">
-            Local executable <span>(optional)</span>
-          </label>
-          <div className="skillager-executable">
-            <input
-              id="skillager-executable"
-              value={executable}
-              placeholder="Find skillager in your shell"
-              onChange={(event) => setExecutable(event.currentTarget.value)}
-            />
-            <button
-              type="button"
-              disabled={controller.probing}
-              onClick={() => void controller.check(executable)}
-            >
-              Check path
-            </button>
-          </div>
           <SkillagerConnection controller={controller} />
+          <details>
+            <summary>Local executable</summary>
+            <label htmlFor="skillager-executable">
+              Local executable <span>(optional)</span>
+            </label>
+            <div className="skillager-executable">
+              <input
+                id="skillager-executable"
+                value={executable}
+                placeholder="Find skillager in your shell"
+                onChange={(event) => setExecutable(event.currentTarget.value)}
+              />
+              <button
+                type="button"
+                disabled={controller.probing}
+                onClick={() => void controller.check(executable)}
+              >
+                Check path
+              </button>
+            </div>
+          </details>
         </>
       ) : null}
     </div>

@@ -1,3 +1,4 @@
+import { verifySkillagerOnboarding } from './skillager-onboarding'
 import {
   enableSkillagerInSettings,
   disableAndReenableSkillagerInSettings,
@@ -60,6 +61,7 @@ export async function verifySkillagerScenario(
       await wait(() => document.querySelector('.viewer-tab:not(.skillager-tab)'));
     `)
     await enableSkillagerInSettings(win)
+    if (!process.env.HVIR_SKILLAGER_SMOKE_FIXTURE) await verifySkillagerOnboarding(win)
     await evaluate(`
       button('.rail-nav', 'Skills').click();
       await wait(() => !document.querySelector('.skillager-sidebar').hidden);
