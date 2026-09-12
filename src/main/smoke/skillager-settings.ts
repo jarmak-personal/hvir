@@ -8,12 +8,15 @@ const close = '.settings-footer button:first-of-type'
 
 /** Settings discovery must work through Chromium hit-testing, not DOM click(). */
 export async function enableSkillagerInSettings(win: BrowserWindow): Promise<void> {
-  await openIntegrations(win)
+  await openSkillagerIntegrations(win)
   await assertDisabled(win)
-  await click(win, toggle)
+  await clickSkillagerControl(win, toggle)
   await waitForConnectionChoice(win)
-  await click(win, close)
-  await inspect(win, `await wait(() => !document.querySelector('.settings-dialog'));`)
+  await clickSkillagerControl(win, close)
+  await inspectSkillagerControls(
+    win,
+    `await wait(() => !document.querySelector('.settings-dialog'));`,
+  )
 }
 
 /** Exercise the same navigation and scroll shell at a compact viewport, then revoke. */
@@ -23,27 +26,31 @@ export async function disableAndReenableSkillagerInSettings(
   const bounds = win.getBounds()
   const minimum = win.getMinimumSize()
   try {
-    await openIntegrations(win)
-    await click(win, toggle)
+    await openSkillagerIntegrations(win)
+    await clickSkillagerControl(win, toggle)
     await assertDisabled(win)
 
     win.setMinimumSize(0, 0)
     win.setContentSize(640, 460)
-    await inspect(win, `await wait(() => innerWidth === 640 && innerHeight === 460);`)
+    await inspectSkillagerControls(
+      win,
+      `await wait(() => innerWidth === 640 && innerHeight === 460);`,
+    )
     await navigateCompactSettings(win, 'appearance')
-    await inspect(
+    await inspectSkillagerControls(
       win,
       `await wait(() => document.querySelector('#settings-appearance-title'));`,
     )
     await navigateCompactSettings(win, 'integrations')
-    await inspect(
+    await inspectSkillagerControls(
       win,
       `await wait(() => document.querySelector('#settings-integrations-title'));`,
     )
     await assertDisabled(win)
-    await click(win, toggle)
+    await clickSkillagerControl(win, toggle)
     await waitForConnectionChoice(win)
-    await inspect(
+    await clickSkillagerControl(win, '.skillager-settings > details > summary')
+    await inspectSkillagerControls(
       win,
       `
       if (document.querySelector('.skillager-tab, .skillager-details, .skillager-review, .skillager-row'))
@@ -55,15 +62,17 @@ export async function disableAndReenableSkillagerInSettings(
     `,
     )
     await scrollSettings(win, -1000)
-    await point(win, connect)
-    // The last probe action must be reachable below the fold as well.
-    await click(win, '.skillager-settings .skillager-connection button:last-of-type')
+    await skillagerControlPoint(win, '#skillager-executable')
+    await clickSkillagerControl(win, '.skillager-executable button')
     await waitForConnectionChoice(win)
     await scrollSettings(win, 1000)
-    await click(win, toggle)
+    await clickSkillagerControl(win, toggle)
     await assertDisabled(win)
-    await click(win, close)
-    await inspect(win, `await wait(() => !document.querySelector('.settings-dialog'));`)
+    await clickSkillagerControl(win, close)
+    await inspectSkillagerControls(
+      win,
+      `await wait(() => !document.querySelector('.settings-dialog'));`,
+    )
     console.log(
       '[smoke] Skillager Settings OK (pointer Integrations navigation and enable/disable; 640×460 visible select/change-event navigation and real wheel scrolling; clean re-enable)',
     )
@@ -75,17 +84,17 @@ export async function disableAndReenableSkillagerInSettings(
   }
 }
 
-async function openIntegrations(win: BrowserWindow): Promise<void> {
-  await click(win, '.settings-toggle')
-  await click(win, section)
-  await inspect(
+export async function openSkillagerIntegrations(win: BrowserWindow): Promise<void> {
+  await clickSkillagerControl(win, '.settings-toggle')
+  await clickSkillagerControl(win, section)
+  await inspectSkillagerControls(
     win,
     `await wait(() => document.querySelector('#settings-integrations-title'));`,
   )
 }
 
 async function assertDisabled(win: BrowserWindow): Promise<void> {
-  await inspect(
+  await inspectSkillagerControls(
     win,
     `
     await wait(() => !document.querySelector(${JSON.stringify(toggle)}).checked);
@@ -99,7 +108,7 @@ async function assertDisabled(win: BrowserWindow): Promise<void> {
 }
 
 async function waitForConnectionChoice(win: BrowserWindow): Promise<void> {
-  await inspect(
+  await inspectSkillagerControls(
     win,
     `
     await wait(() => document.querySelector(${JSON.stringify(connect)})?.textContent === 'Connect library');
@@ -109,7 +118,7 @@ async function waitForConnectionChoice(win: BrowserWindow): Promise<void> {
 }
 
 async function scrollSettings(win: BrowserWindow, deltaY: number): Promise<void> {
-  const location = await point(win, '.settings-section-scroll')
+  const location = await skillagerControlPoint(win, '.settings-section-scroll')
   win.webContents.sendInputEvent({ type: 'mouseMove', ...location })
   win.webContents.sendInputEvent({
     type: 'mouseWheel',
@@ -118,7 +127,7 @@ async function scrollSettings(win: BrowserWindow, deltaY: number): Promise<void>
     deltaY,
     canScroll: true,
   })
-  await inspect(
+  await inspectSkillagerControls(
     win,
     `await wait(() => {
     const scroll = document.querySelector('.settings-section-scroll');
@@ -127,8 +136,11 @@ async function scrollSettings(win: BrowserWindow, deltaY: number): Promise<void>
   )
 }
 
-async function click(win: BrowserWindow, selector: string): Promise<void> {
-  const location = await point(win, selector)
+export async function clickSkillagerControl(
+  win: BrowserWindow,
+  selector: string,
+): Promise<void> {
+  const location = await skillagerControlPoint(win, selector)
   win.webContents.sendInputEvent({ type: 'mouseMove', ...location })
   for (const type of ['mouseDown', 'mouseUp'] as const)
     win.webContents.sendInputEvent({ type, button: 'left', clickCount: 1, ...location })
@@ -141,8 +153,8 @@ async function navigateCompactSettings(
   // macOS native popup/type-ahead behavior is outside webContents input ownership.
   // Prove this select is visible, then exercise its production change handler.
   // Checkbox activation and content scrolling still use real pointer events.
-  await point(win, select)
-  await inspect(
+  await skillagerControlPoint(win, select)
+  await inspectSkillagerControls(
     win,
     `const select = document.querySelector(${JSON.stringify(select)});
     Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(select, ${JSON.stringify(destination)});
@@ -151,19 +163,20 @@ async function navigateCompactSettings(
   )
 }
 
-async function point(
+export async function skillagerControlPoint(
   win: BrowserWindow,
   selector: string,
+  padding = false,
 ): Promise<{ readonly x: number; readonly y: number }> {
-  return inspect(
+  return inspectSkillagerControls(
     win,
     `
     const element = await wait(() => document.querySelector(${JSON.stringify(selector)}));
     await new Promise(requestAnimationFrame);
     const bounds = element.getBoundingClientRect();
-    const x = Math.round(bounds.left + bounds.width / 2), y = Math.round(bounds.top + bounds.height / 2);
+    const x = Math.round(bounds.left + ${padding ? '4' : 'bounds.width / 2'}), y = Math.round(bounds.top + bounds.height / 2);
     const hit = document.elementFromPoint(x, y);
-    if (bounds.width <= 0 || bounds.height <= 0 || element.disabled || !element.contains(hit))
+    if (bounds.width <= 0 || bounds.height <= 0 || element.disabled || !element.contains(hit) || (${padding} && hit !== element))
       throw new Error('Skillager Settings control is not hit-testable: ' + JSON.stringify({
         selector: ${JSON.stringify(selector)}, x, y, width: bounds.width, height: bounds.height,
         viewportWidth: innerWidth, viewportHeight: innerHeight, hit: element.contains(hit), disabled: !!element.disabled,
@@ -173,7 +186,10 @@ async function point(
   )
 }
 
-function inspect<T>(win: BrowserWindow, source: string): Promise<T> {
+export function inspectSkillagerControls<T>(
+  win: BrowserWindow,
+  source: string,
+): Promise<T> {
   return win.webContents.executeJavaScript(`(async () => {
     const wait = (read) => new Promise((resolve, reject) => {
       const deadline = Date.now() + 10000;

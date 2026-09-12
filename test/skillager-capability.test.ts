@@ -1,3 +1,7 @@
+import type { BrowserWindow } from 'electron'
+import { createSkillagerFolderPicker } from '../src/main/skillager/electron-skillager-folder-picker'
+import { SkillagerError } from '../src/main/skillager/skillager-port'
+import type { SkillagerInitialization } from '../src/main/skillager/skillager-setup-port'
 import {
   exposureResponse,
   request as exposureRequest,
@@ -31,6 +35,7 @@ function fixture(
   overrides: Partial<SkillagerCliPort> = {},
   review?: ConstructorParameters<typeof SkillagerCapability>[3],
   exposure?: Omit<ConstructorParameters<typeof SkillagerCapability>[4], 'observe'>,
+  setup?: ConstructorParameters<typeof SkillagerCapability>[5],
 ) {
   const resources = createRendererResourceFixture()
   const owner = resources.activateOwner()
@@ -78,6 +83,16 @@ function fixture(
         },
         destinationAvailable: () => available,
       }),
+    },
+    setup ?? {
+      cli: {
+        defaultLibraryRoot: () =>
+          Promise.resolve(localPath('/home/test/.skillager/library')),
+        initializeLibrary: () => Promise.reject(new Error('Unexpected library creation')),
+        libraryStatus: () =>
+          Promise.reject(new Error('Unexpected library reconciliation')),
+      },
+      picker: { choose: () => Promise.reject(new Error('Unexpected native picker')) },
     },
   )
   onTestFinished(() => capability.dispose())
@@ -509,4 +524,330 @@ it('validates later CLI target evidence through the capability update grant', as
   ).toMatchObject({ ok: false, reason: 'stale-review' })
   expect(f.previewExposure).toHaveBeenCalledTimes(2)
   expect(f.applyExposure).not.toHaveBeenCalled()
+})
+
+function setupFixture() {
+  const target = localPath('/home/test/.skillager/library')
+  const status = {
+    library: {
+      ...selection.library,
+      root: target,
+      skillsRoot: localPath(target.path + '/skills'),
+    },
+    gitHistory: true,
+  }
+  const init = vi.fn(
+    (
+      _selection: unknown,
+      _root: unknown,
+      _git: boolean,
+      _signal: AbortSignal,
+    ): Promise<SkillagerInitialization> => Promise.resolve({ kind: 'ready', status }),
+  )
+  const observed = vi.fn(() => Promise.resolve(status))
+  const picker = vi.fn<
+    ConstructorParameters<typeof SkillagerCapability>[5]['picker']['choose']
+  >(() => Promise.resolve(undefined))
+  const f = fixture(
+    { probe: () => Promise.resolve({ ...selection, library: undefined }) },
+    undefined,
+    undefined,
+    {
+      cli: {
+        defaultLibraryRoot: () => Promise.resolve(target),
+        initializeLibrary: init,
+        libraryStatus: observed,
+      },
+      picker: { choose: picker },
+    },
+  )
+  async function offer(owner = f.owner) {
+    f.capability.configure(owner, true)
+    const result = await f.capability.probe(owner)
+    if (!result.ok || !result.value.setup?.target) throw Error('Missing setup offer')
+    return result.value
+  }
+  return { ...f, init, observed, picker, offer, target, status }
+}
+
+describe('explicit personal-library initialization', () => {
+  it.each([true, false])(
+    'creates only the retained local selection with explicit Git=%s and connects matching metadata directly',
+    async (gitHistory) => {
+      const f = setupFixture(),
+        offer = await f.offer()
+      expect(f.init).not.toHaveBeenCalled()
+      expect(f.observed).not.toHaveBeenCalled()
+      f.init.mockResolvedValue({ kind: 'ready', status: { ...f.status, gitHistory } })
+      const result = await f.capability.initializeLibrary(
+        f.owner,
+        offer.setup!.target!.selectionId,
+        gitHistory,
+      )
+      expect(result).toMatchObject({
+        ok: true,
+        value: {
+          connection: { library: f.status.library },
+          probe: { setup: { gitHistory, needsReconciliation: false } },
+        },
+      })
+      expect(f.init).toHaveBeenCalledWith(
+        expect.objectContaining({ catalog: selection.catalog }),
+        f.target,
+        gitHistory,
+        expect.any(AbortSignal),
+      )
+      expect(f.observed).not.toHaveBeenCalled()
+    },
+  )
+
+  it('native cancellation preserves selection, and choosing another folder invalidates its previous handle', async () => {
+    const f = setupFixture(),
+      offer = await f.offer()
+    expect(await f.capability.chooseLibraryFolder(f.owner, offer.probeId)).toMatchObject({
+      ok: true,
+      value: { setup: offer.setup },
+    })
+    const chosen = localPath('/chosen personal library')
+    f.picker.mockResolvedValue(chosen)
+    const next = await f.capability.chooseLibraryFolder(f.owner, offer.probeId)
+    expect(next).toMatchObject({
+      ok: true,
+      value: { setup: { target: { root: chosen } } },
+    })
+    expect(
+      await f.capability.initializeLibrary(
+        f.owner,
+        offer.setup!.target!.selectionId,
+        true,
+      ),
+    ).toMatchObject({ ok: false, reason: 'invalid-request' })
+    expect(f.init).not.toHaveBeenCalled()
+  })
+
+  it('rejects remote and stale picker results without restoring the selection', async () => {
+    const f = setupFixture(),
+      offer = await f.offer()
+    f.picker.mockResolvedValue(hostPath(asHostId('ssh:fixture'), '/remote'))
+    expect(await f.capability.chooseLibraryFolder(f.owner, offer.probeId)).toMatchObject({
+      ok: false,
+      reason: 'invalid-request',
+    })
+    let resolve!: (value: ReturnType<typeof localPath>) => void
+    f.picker.mockImplementation(
+      () =>
+        new Promise((done) => {
+          resolve = done
+        }),
+    )
+    const pending = f.capability.chooseLibraryFolder(f.owner, offer.probeId)
+    await f.capability.probe(f.owner)
+    resolve(localPath('/late'))
+    expect(await pending).toMatchObject({ ok: false, reason: 'cancelled' })
+    expect(f.init).not.toHaveBeenCalled()
+  })
+
+  it('shows actual Git mode and requires a new explicit connection when an existing library differs', async () => {
+    const f = setupFixture(),
+      offer = await f.offer()
+    const initialized = await f.capability.initializeLibrary(
+      f.owner,
+      offer.setup!.target!.selectionId,
+      false,
+    )
+    expect(initialized).toMatchObject({
+      ok: true,
+      value: { probe: { library: f.status.library, setup: { gitHistory: true } } },
+    })
+    if (!initialized.ok) throw Error('Expected verified mismatch')
+    expect(initialized.value.connection).toBeUndefined()
+    expect(
+      await f.capability.connect(f.owner, initialized.value.probe.probeId),
+    ).toMatchObject({ ok: true })
+    expect(
+      await f.capability.reconcileLibrary(f.owner, initialized.value.probe.probeId),
+    ).toMatchObject({ ok: false, reason: 'invalid-request' })
+    expect(f.observed).not.toHaveBeenCalled()
+  })
+
+  it.each(['disable', 'renderer'] as const)(
+    'retains in-flight admission and uncertainty across %s until explicit reconciliation',
+    async (boundary) => {
+      const f = setupFixture(),
+        offer = await f.offer()
+      let close!: (value: SkillagerInitialization) => void
+      f.init.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            close = resolve
+          }),
+      )
+      const creation = f.capability.initializeLibrary(
+        f.owner,
+        offer.setup!.target!.selectionId,
+        true,
+      )
+      expect(
+        await f.capability.initializeLibrary(
+          f.owner,
+          offer.setup!.target!.selectionId,
+          true,
+        ),
+      ).toMatchObject({ ok: false, reason: 'busy' })
+      let currentOwner = f.owner
+      if (boundary === 'disable') f.capability.configure(f.owner, false)
+      else currentOwner = f.resources.rolloverOwner(f.owner.id).owner
+      const next = await f.offer(currentOwner)
+      expect(f.init.mock.calls[0]![3].aborted).toBe(true)
+      expect(next.setup?.needsReconciliation).toBe(true)
+      expect(
+        await f.capability.initializeLibrary(
+          currentOwner,
+          next.setup!.target!.selectionId,
+          true,
+        ),
+      ).toMatchObject({ ok: false, reason: 'busy' })
+      close({ kind: 'ready', status: f.status })
+      expect(await creation).toMatchObject({ ok: false, reason: 'cancelled' })
+      expect(
+        await f.capability.initializeLibrary(
+          currentOwner,
+          next.setup!.target!.selectionId,
+          true,
+        ),
+      ).toMatchObject({ ok: false, reason: 'uncertain' })
+      f.observed.mockRejectedValueOnce(
+        new SkillagerError('unavailable', 'Unavailable status'),
+      )
+      expect(
+        await f.capability.reconcileLibrary(currentOwner, next.probeId),
+      ).toMatchObject({ ok: false, reason: 'unavailable' })
+      expect(
+        await f.capability.initializeLibrary(
+          currentOwner,
+          next.setup!.target!.selectionId,
+          true,
+        ),
+      ).toMatchObject({ ok: false, reason: 'uncertain' })
+      const checked = await f.capability.reconcileLibrary(currentOwner, next.probeId)
+      expect(checked).toMatchObject({
+        ok: true,
+        value: { library: f.status.library, setup: { needsReconciliation: false } },
+      })
+      expect(f.init).toHaveBeenCalledOnce()
+      if (!checked.ok) throw Error('Expected observed library')
+      expect(
+        await f.capability.connect(currentOwner, checked.value.probeId),
+      ).toMatchObject({ ok: true })
+    },
+  )
+
+  it.each([
+    ['timeout', 'Skillager took too long while setting up'],
+    ['output-limit', 'exceeded the supported size'],
+    ['malformed-result', 'Invalid bounded setup response'],
+  ] as const)(
+    'preserves actionable %s context while requiring reconciliation',
+    async (reason, message) => {
+      const f = setupFixture(),
+        offer = await f.offer()
+      f.init.mockRejectedValueOnce(
+        new SkillagerError(
+          reason,
+          reason === 'malformed-result' ? message : 'Read request failed. Try again.',
+        ),
+      )
+      const result = await f.capability.initializeLibrary(
+        f.owner,
+        offer.setup!.target!.selectionId,
+        true,
+      )
+      expect(result).toMatchObject({
+        ok: false,
+        reason: 'uncertain',
+      })
+      if (result.ok) throw Error('Expected uncertain setup')
+      expect(result.message).toContain(message)
+      expect(JSON.stringify(result)).not.toContain('Try again')
+      expect(
+        await f.capability.initializeLibrary(
+          f.owner,
+          offer.setup!.target!.selectionId,
+          true,
+        ),
+      ).toMatchObject({ ok: false, reason: 'uncertain' })
+    },
+  )
+
+  it('known pre-execution refusal stays distinct and does not require reconciliation', async () => {
+    const f = setupFixture(),
+      offer = await f.offer()
+    f.init.mockResolvedValueOnce({
+      kind: 'refused',
+      message: 'Git is unavailable. Choose whether to keep history.',
+    })
+    expect(
+      await f.capability.initializeLibrary(
+        f.owner,
+        offer.setup!.target!.selectionId,
+        true,
+      ),
+    ).toMatchObject({ ok: false, reason: 'command-failed' })
+    expect(
+      await f.capability.initializeLibrary(
+        f.owner,
+        offer.setup!.target!.selectionId,
+        true,
+      ),
+    ).toMatchObject({ ok: true })
+    expect(f.observed).not.toHaveBeenCalled()
+  })
+})
+
+it('renderer revocation and application disposal settle without awaiting an undismissed native chooser', async () => {
+  const f = setupFixture(),
+    offer = await f.offer()
+  const realpath = vi.fn(() => Promise.reject(Error('Unexpected late filesystem read')))
+  const native = createSkillagerFolderPicker(
+    { realpath },
+    {
+      showOpenDialog: () => new Promise(() => {}),
+    },
+    () => ({}) as BrowserWindow,
+  )
+  f.picker.mockImplementation((owner, root, signal) => native.choose(owner, root, signal))
+  const pending = f.capability.chooseLibraryFolder(f.owner, offer.probeId)
+  await f.capability.revoke(f.owner)
+  expect(await pending).toMatchObject({ ok: false, reason: 'cancelled' })
+  await f.capability.dispose()
+  expect(realpath).not.toHaveBeenCalled()
+})
+
+it('changing executable/environment aliases cannot clear uncertainty for the canonical catalog identity', async () => {
+  const f = setupFixture(),
+    offered = await f.offer()
+  f.init.mockRejectedValueOnce(
+    new SkillagerError('malformed-result', 'Setup result was invalid.'),
+  )
+  await f.capability.initializeLibrary(f.owner, offered.setup!.target!.selectionId, true)
+  // The CLI port canonicalizes both environment aliases to the same catalog.
+  f.cli.probe = () =>
+    Promise.resolve({
+      ...selection,
+      library: undefined,
+      executable: localPath('/other/skillager'),
+      environment: { SKILLAGER_CATALOG_STATE_DIR: '/catalog-symlink' },
+    })
+  const reprobed = await f.capability.probe(f.owner, localPath('/other/skillager'))
+  if (!reprobed.ok) throw Error('Expected compatible reprobe')
+  expect(reprobed.value.setup?.needsReconciliation).toBe(true)
+  expect(
+    await f.capability.initializeLibrary(
+      f.owner,
+      reprobed.value.setup!.target!.selectionId,
+      true,
+    ),
+  ).toMatchObject({ ok: false, reason: 'uncertain' })
+  expect(f.init).toHaveBeenCalledOnce()
+  expect(f.observed).not.toHaveBeenCalled()
 })

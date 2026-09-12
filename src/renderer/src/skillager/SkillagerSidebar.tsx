@@ -1,3 +1,4 @@
+import { SkillagerFirstSkill } from './SkillagerFirstSkill'
 import { workspaceSkillLabel } from './skillager-exposure-model'
 import { SkillagerActions, SkillagerActionsMenu } from './SkillagerActions'
 import { SkillagerExposureDialog } from './SkillagerExposureDialog'
@@ -201,7 +202,13 @@ export function SkillagerSidebar({
                       ? ' · First 50 results; refine your search for more.'
                       : ''}
                   </p>
-                  {rows.length === 0 ? (
+                  {!searched &&
+                  perspective === 'library' &&
+                  !pending &&
+                  !read.loading &&
+                  data.rows.length === 0 ? (
+                    <SkillagerFirstSkill root={controller.connection.library.root} />
+                  ) : rows.length === 0 ? (
                     <p className="skillager-empty">
                       {searched
                         ? 'No matching skills.'

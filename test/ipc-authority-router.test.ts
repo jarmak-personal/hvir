@@ -454,6 +454,9 @@ describe('IpcAuthorityRouter', () => {
       new Set<IpcInvokeChannel>([
         'skillager:configure',
         'skillager:probe',
+        'skillager:choose-library-folder',
+        'skillager:initialize-library',
+        'skillager:reconcile-library',
         'skillager:connect',
         'skillager:disconnect',
         'skillager:inventory',

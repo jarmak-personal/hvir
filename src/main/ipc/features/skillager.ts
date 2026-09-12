@@ -87,6 +87,21 @@ export function registerSkillagerIpc(ipc: IpcRegistrar, deps: SkillagerIpcDeps):
       throw new Error('Skillager executable must be local.')
     return deps.skillager.probe(context.owner(), executable)
   })
+  ipc.handle('skillager:choose-library-folder', (request, context) =>
+    deps.skillager.chooseLibraryFolder(context.owner(), boundedText(request?.probeId)),
+  )
+  ipc.handle('skillager:initialize-library', (request, context) => {
+    if (!request || typeof request.gitHistory !== 'boolean')
+      throw new Error('Invalid library history choice.')
+    return deps.skillager.initializeLibrary(
+      context.owner(),
+      boundedText(request.selectionId),
+      request.gitHistory,
+    )
+  })
+  ipc.handle('skillager:reconcile-library', (request, context) =>
+    deps.skillager.reconcileLibrary(context.owner(), boundedText(request?.probeId)),
+  )
   ipc.handle('skillager:connect', (request, context) => {
     if (!request || typeof request.probeId !== 'string' || request.probeId.length > 128)
       throw new Error('Invalid Skillager connection.')

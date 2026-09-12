@@ -1,3 +1,4 @@
+import type { SkillagerSetup } from './skillager-setup'
 import type { HostPath } from './host-path'
 
 export const SKILLAGER_AGENTS = [
@@ -86,6 +87,7 @@ export type SkillagerResult<T> =
     }
 
 export interface SkillagerProbe {
+  readonly setup?: SkillagerSetup
   readonly probeId: string
   readonly executable: HostPath
   readonly version: string
@@ -97,6 +99,11 @@ export interface SkillagerConnection {
   readonly executable: HostPath
   readonly version: string
   readonly library: SkillagerLibrary
+}
+
+export interface SkillagerSetupCompletion {
+  readonly probe: SkillagerProbe
+  readonly connection?: SkillagerConnection
 }
 
 export interface SkillagerRequest {

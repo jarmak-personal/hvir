@@ -44,6 +44,8 @@ export function useSkillagerWorkspace(input: Options) {
   const [connection, setConnection] = useState<SkillagerConnection>()
   const [connecting, setConnecting] = useState(false)
   const [connectionError, setConnectionError] = useState<string>()
+  const [setupBusy, setSetupBusy] = useState<'choose' | 'initialize' | 'reconcile'>()
+  const [gitHistory, setGitHistory] = useState(true)
   const connectionRef = useRef(connection)
   connectionRef.current = connection
   const [agent, setAgent] = useState<SkillagerAgent>(SKILLAGER_AGENTS[0].id)
@@ -75,6 +77,8 @@ export function useSkillagerWorkspace(input: Options) {
     setInventory(emptyRead)
     setSubmitted('')
     setConnectionError(undefined)
+    setSetupBusy(undefined)
+    setGitHistory(true)
     dispatchTabs({ type: 'clear' })
   }, [cancel])
 
@@ -149,6 +153,68 @@ export function useSkillagerWorkspace(input: Options) {
       if (at === generation.current) setConnecting(false)
     }
   }, [probe])
+
+  const setupLibrary = useCallback(
+    async (action: 'choose' | 'initialize' | 'reconcile') => {
+      if (!probe?.ok || setupBusy || !optionsRef.current.enabled) return
+      const at = generation.current
+      setSetupBusy(action)
+      setConnectionError(undefined)
+      const uncertain = () =>
+        setProbe((current) =>
+          current?.ok
+            ? {
+                ok: true,
+                value: {
+                  ...current.value,
+                  setup: { ...current.value.setup, needsReconciliation: true },
+                },
+              }
+            : current,
+        )
+      try {
+        if (action === 'initialize') {
+          const target = probe.value.setup?.target
+          if (!target) return
+          const result = await window.hvir.invoke('skillager:initialize-library', {
+            selectionId: target.selectionId,
+            gitHistory,
+          })
+          if (at !== generation.current || !optionsRef.current.enabled) return
+          if (result.ok) {
+            setProbe({ ok: true, value: result.value.probe })
+            setConnection(result.value.connection)
+            connectionRef.current = result.value.connection
+          } else {
+            setConnectionError(result.message)
+            if (result.reason === 'uncertain') uncertain()
+          }
+        } else {
+          const result = await window.hvir.invoke(
+            action === 'choose'
+              ? 'skillager:choose-library-folder'
+              : 'skillager:reconcile-library',
+            { probeId: probe.value.probeId },
+          )
+          if (at !== generation.current || !optionsRef.current.enabled) return
+          if (result.ok) setProbe(result)
+          else setConnectionError(result.message)
+        }
+      } catch {
+        if (at === generation.current && optionsRef.current.enabled) {
+          setConnectionError(
+            action === 'initialize'
+              ? 'Library setup could not be verified. Check library status before continuing.'
+              : 'Could not complete the library setup action.',
+          )
+          if (action === 'initialize') uncertain()
+        }
+      } finally {
+        if (at === generation.current) setSetupBusy(undefined)
+      }
+    },
+    [probe, setupBusy, gitHistory],
+  )
 
   const disconnect = useCallback(() => {
     clear()
@@ -373,6 +439,10 @@ export function useSkillagerWorkspace(input: Options) {
     connect,
     connecting,
     connectionError,
+    setupBusy,
+    setupLibrary,
+    gitHistory,
+    setGitHistory,
     connection,
     disconnect,
     inventory,
