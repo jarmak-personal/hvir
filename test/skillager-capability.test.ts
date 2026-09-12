@@ -1,7 +1,10 @@
 import type { BrowserWindow } from 'electron'
 import { createSkillagerFolderPicker } from '../src/main/skillager/electron-skillager-folder-picker'
 import { SkillagerError } from '../src/main/skillager/skillager-port'
-import type { SkillagerInitialization } from '../src/main/skillager/skillager-setup-port'
+import type {
+  SkillagerInitialization,
+  SkillagerSetupCliPort,
+} from '../src/main/skillager/skillager-setup-port'
 import {
   exposureResponse,
   request as exposureRequest,
@@ -544,7 +547,10 @@ function setupFixture() {
       _signal: AbortSignal,
     ): Promise<SkillagerInitialization> => Promise.resolve({ kind: 'ready', status }),
   )
-  const observed = vi.fn(() => Promise.resolve(status))
+  const observed = vi.fn<SkillagerSetupCliPort['libraryStatus']>(() =>
+    Promise.resolve(status),
+  )
+  const defaultRoot = vi.fn(() => Promise.resolve(target))
   const picker = vi.fn<
     ConstructorParameters<typeof SkillagerCapability>[5]['picker']['choose']
   >(() => Promise.resolve(undefined))
@@ -554,7 +560,7 @@ function setupFixture() {
     undefined,
     {
       cli: {
-        defaultLibraryRoot: () => Promise.resolve(target),
+        defaultLibraryRoot: defaultRoot,
         initializeLibrary: init,
         libraryStatus: observed,
       },
@@ -567,10 +573,71 @@ function setupFixture() {
     if (!result.ok || !result.value.setup?.target) throw Error('Missing setup offer')
     return result.value
   }
-  return { ...f, init, observed, picker, offer, target, status }
+  return { ...f, init, observed, defaultRoot, picker, offer, target, status }
 }
 
 describe('explicit personal-library initialization', () => {
+  it.each([
+    [
+      new SkillagerError('unsupported', 'No supported local home directory.'),
+      'No supported local home directory.',
+    ],
+    [
+      new Error('PRIVATE filesystem diagnostic'),
+      'The local library location could not be determined. Check Skillager again.',
+    ],
+  ])(
+    'preserves compatible CLI diagnostics when the default location fails (%s)',
+    async (error, message) => {
+      const f = setupFixture()
+      f.defaultRoot.mockRejectedValueOnce(error)
+      f.capability.configure(f.owner, true)
+      const probed = await f.capability.probe(f.owner)
+      expect(probed).toMatchObject({
+        ok: true,
+        value: {
+          executable: selection.executable,
+          version: selection.version,
+          library: undefined,
+          setup: { target: undefined, needsReconciliation: false, message },
+        },
+      })
+      expect(JSON.stringify(probed)).not.toContain('PRIVATE')
+      if (!probed.ok) throw Error('Expected compatible CLI diagnostics')
+      expect(
+        await f.capability.initializeLibrary(f.owner, 'ungranted', true),
+      ).toMatchObject({ ok: false, reason: 'invalid-request' })
+      expect(
+        await f.capability.chooseLibraryFolder(f.owner, probed.value.probeId),
+      ).toMatchObject({ ok: false })
+      expect(f.init).not.toHaveBeenCalled()
+      expect(f.picker).not.toHaveBeenCalled()
+    },
+  )
+
+  it('does not publish compatible CLI diagnostics when default derivation rejects after revocation', async () => {
+    const f = setupFixture()
+    let reject!: (error: Error) => void
+    let started!: () => void
+    const deriving = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    f.defaultRoot.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, fail) => {
+          reject = fail
+          started()
+        }),
+    )
+    f.capability.configure(f.owner, true)
+    const pending = f.capability.probe(f.owner)
+    await deriving
+    f.capability.configure(f.owner, false)
+    reject(new SkillagerError('unsupported', 'No supported local home directory.'))
+    expect(await pending).toMatchObject({ ok: false, reason: 'cancelled' })
+    expect(f.init).not.toHaveBeenCalled()
+  })
+
   it.each([true, false])(
     'creates only the retained local selection with explicit Git=%s and connects matching metadata directly',
     async (gitHistory) => {
@@ -670,11 +737,21 @@ describe('explicit personal-library initialization', () => {
     expect(f.observed).not.toHaveBeenCalled()
   })
 
-  it.each(['disable', 'renderer'] as const)(
-    'retains in-flight admission and uncertainty across %s until explicit reconciliation',
-    async (boundary) => {
+  it.each([
+    ['disable', true],
+    ['renderer', true],
+    ['disable', false],
+    ['renderer', false],
+  ] as const)(
+    'retains attempted root, admission and uncertainty across %s until explicit reconciliation (registered=%s)',
+    async (boundary, registered) => {
       const f = setupFixture(),
-        offer = await f.offer()
+        initial = await f.offer(),
+        chosen = localPath('/chosen personal library')
+      f.picker.mockResolvedValueOnce(chosen)
+      const picked = await f.capability.chooseLibraryFolder(f.owner, initial.probeId)
+      if (!picked.ok) throw Error('Expected chosen library')
+      const offer = picked.value
       let close!: (value: SkillagerInitialization) => void
       f.init.mockImplementation(
         () =>
@@ -700,6 +777,8 @@ describe('explicit personal-library initialization', () => {
       const next = await f.offer(currentOwner)
       expect(f.init.mock.calls[0]![3].aborted).toBe(true)
       expect(next.setup?.needsReconciliation).toBe(true)
+      expect(next.setup?.target?.root).toEqual(chosen)
+      expect(f.defaultRoot).toHaveBeenCalledOnce()
       expect(
         await f.capability.initializeLibrary(
           currentOwner,
@@ -729,16 +808,50 @@ describe('explicit personal-library initialization', () => {
           true,
         ),
       ).toMatchObject({ ok: false, reason: 'uncertain' })
+      if (!registered) f.observed.mockResolvedValueOnce({})
+      f.defaultRoot.mockRejectedValue(
+        new SkillagerError('unsupported', 'Default unavailable'),
+      )
       const checked = await f.capability.reconcileLibrary(currentOwner, next.probeId)
       expect(checked).toMatchObject({
         ok: true,
-        value: { library: f.status.library, setup: { needsReconciliation: false } },
+        value: {
+          library: registered ? f.status.library : undefined,
+          setup: { needsReconciliation: false },
+        },
       })
       expect(f.init).toHaveBeenCalledOnce()
+      expect(f.defaultRoot).toHaveBeenCalledOnce()
       if (!checked.ok) throw Error('Expected observed library')
-      expect(
-        await f.capability.connect(currentOwner, checked.value.probeId),
-      ).toMatchObject({ ok: true })
+      if (registered) {
+        expect(
+          await f.capability.connect(currentOwner, checked.value.probeId),
+        ).toMatchObject({ ok: true })
+      } else {
+        expect(checked.value.setup?.target?.root).toEqual(chosen)
+        expect(checked.value.setup?.message).toContain(
+          'Files from an interrupted setup may still exist at the selected location.',
+        )
+        f.init.mockResolvedValueOnce({
+          kind: 'ready',
+          status: {
+            ...f.status,
+            library: {
+              ...f.status.library,
+              root: chosen,
+              skillsRoot: localPath(chosen.path + '/skills'),
+            },
+          },
+        })
+        expect(
+          await f.capability.initializeLibrary(
+            currentOwner,
+            checked.value.setup!.target!.selectionId,
+            false,
+          ),
+        ).toMatchObject({ ok: true })
+        expect(f.init.mock.calls[1]![1]).toEqual(chosen)
+      }
     },
   )
 

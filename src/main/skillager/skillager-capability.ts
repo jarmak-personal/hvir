@@ -65,7 +65,7 @@ export class SkillagerCapability {
   private disposed = false
   // Application lifetime: renderer/configuration revocation must not erase an
   // uncertain mutation. Only an explicit public status reconciliation clears it.
-  private readonly uncertainCatalogs = new Set<string>()
+  private readonly uncertainCatalogs = new Map<string, HostPath>()
   private initializing?: AbortController
   private readonly exposures: SkillagerExposureOwner
   private readonly reviews: SkillagerReviewOwner
@@ -134,13 +134,26 @@ export class SkillagerCapability {
         try {
           const selection = await this.cli.probe(executable, controller.signal)
           this.current(owner, state, generation)
-          const root = selection.library
+          let root = selection.library
             ? undefined
-            : await this.setup.cli.defaultLibraryRoot(selection)
+            : this.uncertainCatalogs.get(selection.catalog.path)
+          let setupMessage: string | undefined
+          if (!selection.library && !root) {
+            try {
+              root = await this.setup.cli.defaultLibraryRoot(selection)
+            } catch (error) {
+              this.current(owner, state, generation)
+              setupMessage =
+                error instanceof SkillagerError
+                  ? error.message
+                  : 'The local library location could not be determined. Check Skillager again.'
+            }
+          }
           this.current(owner, state, generation)
           state.selection = selection
           state.probeId = randomUUID()
           state.setupTarget = root ? { selectionId: randomUUID(), root } : undefined
+          state.setupMessage = setupMessage
           return this.probed(state)
         } catch (error) {
           this.current(owner, state, generation)
@@ -309,7 +322,7 @@ export class SkillagerCapability {
         state.probe?.abort()
         state.probe = controller
         this.initializing = controller
-        this.uncertainCatalogs.add(selection.catalog.path)
+        this.uncertainCatalogs.set(selection.catalog.path, state.setupTarget.root)
         try {
           const initialized = await this.setup.cli.initializeLibrary(
             selection,
@@ -403,12 +416,12 @@ export class SkillagerCapability {
           const status = await this.setup.cli.libraryStatus(selection, controller.signal)
           const root = status.library
             ? undefined
-            : await this.setup.cli.defaultLibraryRoot(selection)
+            : (this.uncertainCatalogs.get(selection.catalog.path) ??
+              state.setupTarget?.root ??
+              (await this.setup.cli.defaultLibraryRoot(selection)))
           this.current(owner, state, generation)
           state.selection = { ...selection, library: status.library }
-          state.setupTarget = status.library
-            ? undefined
-            : (state.setupTarget ?? { selectionId: randomUUID(), root: root! })
+          state.setupTarget = root ? { selectionId: randomUUID(), root } : undefined
           state.setupGitHistory = status.gitHistory
           state.setupMessage = status.library
             ? 'Library status is verified. Connect to browse its metadata.'
