@@ -12,6 +12,10 @@ import {
   libraries,
   automaticRefreshAllowed,
   skillsVisible,
+  beginSampleSetup,
+  finishSampleSetup,
+  cancelSampleSetup,
+  reconcileSampleSetup,
 } from './model.mjs'
 import {
   connectionView,
@@ -26,6 +30,7 @@ const $ = (selector) => document.querySelector(selector)
 let state = initialState(),
   preview,
   searchTimer,
+  setupTimer,
   queryGeneration = 0,
   toastTimer,
   periodic
@@ -118,6 +123,8 @@ function selectRail(rail) {
   render()
 }
 function revokeFeature() {
+  cancelSampleSetup(state)
+  clearTimeout(setupTimer)
   state.connected = false
   state.generation++
   cancelSearch()
@@ -177,12 +184,35 @@ function action(name) {
     if ($('#dialog').open) modal(connectionView(state))
     return
   }
+  if (name === 'show-setup') {
+    closeDialog()
+    return selectRail('skills')
+  }
+  if (name === 'choose-folder' && state.libraryMissing && state.setup.status === 'idle')
+    return modal(
+      `<h2 id="dialog-title">Choose a local folder · sample picker</h2><p>This offline picker changes only the displayed sample location.</p><label>Folder<select id="sample-folder"><option>/home/example/.skillager/library</option><option>/home/example/Documents/my-skills</option></select></label><footer>${'<button data-action="close">Cancel</button><button data-action="use-folder">Choose folder</button>'}</footer>`,
+    )
+  if (name === 'use-folder' && state.libraryMissing && state.setup.status === 'idle') {
+    state.setup.path = $('#sample-folder').value
+    closeDialog()
+    return render()
+  }
+  if (name === 'cancel-setup') {
+    cancelSampleSetup(state)
+    clearTimeout(setupTimer)
+    state.generation++
+    return render()
+  }
+  if (name === 'check-setup') {
+    reconcileSampleSetup(state)
+    return render()
+  }
   if (name === 'close-skills') {
     state.skillsOpen = false
     state.reviewOpen = false
     return selectViewer(state.lastOrdinaryViewer)
   }
-  if (name === 'connect' && !state.missing) {
+  if (name === 'connect' && !state.missing && !state.libraryMissing) {
     state.connected = true
     state.generation++
     closeDialog()
@@ -255,6 +285,7 @@ function action(name) {
 }
 function scenario(name) {
   clearTimeout(toastTimer)
+  clearTimeout(setupTimer)
   $('#toast').hidden = true
   cancelSearch()
   closeDialog()
@@ -274,7 +305,31 @@ function scenario(name) {
     state.skillsOpen = false
     state.viewer = state.lastOrdinaryViewer
   }
-  if (name === 'empty') state.empty = true
+  if (
+    [
+      'setup',
+      'setup-error',
+      'setup-git-mismatch',
+      'setup-remote',
+      'setup-status-unavailable',
+    ].includes(name)
+  ) {
+    state.libraryMissing = true
+    state.connected = false
+    state.skillsOpen = false
+    state.viewer = state.lastOrdinaryViewer
+    if (name === 'setup-error') state.sampleSetupOutcome = 'error'
+    if (name === 'setup-status-unavailable') state.sampleSetupStatusUnavailable = true
+    if (name === 'setup-git-mismatch') state.sampleSetupOutcome = 'git-mismatch'
+    if (name === 'setup-remote') state.destination = 'remote-main'
+  }
+  if (name === 'empty') {
+    state.empty = true
+    state.skills = []
+    state.exposures = {}
+    state.skillsOpen = false
+    state.viewer = state.lastOrdinaryViewer
+  }
   if (name === 'unavailable')
     state.lastChecked = 'Unavailable · last checked 4 minutes ago'
   if (name === 'remote') {
@@ -350,6 +405,16 @@ document.addEventListener('contextmenu', (event) => {
   row.querySelector('[data-menu]').click()
 })
 document.addEventListener('submit', (event) => {
+  if (event.target.id === 'library-setup') {
+    event.preventDefault()
+    const generation = beginSampleSetup(state)
+    if (generation === undefined) return
+    render()
+    setupTimer = setTimeout(() => {
+      finishSampleSetup(state, generation)
+      render()
+    }, 600)
+  }
   if (event.target.id === 'search-form') {
     event.preventDefault()
     search()
@@ -364,6 +429,7 @@ document.addEventListener('change', (event) => {
     return modal(connectionView(state))
   }
   if (!state.enabled) return
+  if (event.target.id === 'library-git') state.setup.git = event.target.checked
   if (['destination', 'agent'].includes(event.target.id)) {
     cancelSearch()
     closeDialog()

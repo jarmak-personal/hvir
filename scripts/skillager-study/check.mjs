@@ -143,6 +143,24 @@ try {
   }
   const click = (selector) =>
     run(`document.querySelector(${JSON.stringify(selector)}).click()`)
+  // New setup controls use actual pointer delivery and hit testing, not DOM click().
+  const pointClick = async (selector) => {
+    const point = await run(
+      `(()=>{const el=document.querySelector(${JSON.stringify(selector)});el.scrollIntoView({block:'nearest'});const r=el.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;if(!el.contains(document.elementFromPoint(x,y)))throw Error('Setup control is not reachable');return {x,y}})()`,
+    )
+    await call('Input.dispatchMouseEvent', {
+      type: 'mousePressed',
+      ...point,
+      button: 'left',
+      clickCount: 1,
+    })
+    await call('Input.dispatchMouseEvent', {
+      type: 'mouseReleased',
+      ...point,
+      button: 'left',
+      clickCount: 1,
+    })
+  }
   const choose = (selector, value) =>
     run(
       `document.querySelector(${JSON.stringify(selector)}).value=${JSON.stringify(value)};document.querySelector(${JSON.stringify(selector)}).dispatchEvent(new Event('change',{bubbles:true}))`,
@@ -167,11 +185,11 @@ try {
   // Observe actual study timers without advancing its clock; retain one canceled search callback.
   await call('Page.addScriptToEvaluateOnNewDocument', {
     source: `
-    window.studyTimers={intervals:new Set(),search:null};
+    window.studyTimers={intervals:new Set(),search:null,setup:null};
     const interval=window.setInterval,clear=window.clearInterval,timeout=window.setTimeout;
     window.setInterval=(fn,ms,...args)=>{const id=interval(fn,ms,...args);if(ms===60000)studyTimers.intervals.add(id);return id};
     window.clearInterval=id=>{studyTimers.intervals.delete(id);return clear(id)};
-    window.setTimeout=(fn,ms,...args)=>{if(ms===500)studyTimers.search=fn;return timeout(fn,ms,...args)};
+    window.setTimeout=(fn,ms,...args)=>{if(ms===500)studyTimers.search=fn;if(ms===600)studyTimers.setup=fn;return timeout(fn,ms,...args)};
   `,
   })
   const capture = async (name) => {
@@ -522,8 +540,126 @@ try {
   )
   await flow('empty')
   await assert(
-    `document.querySelector('#content').textContent.includes('one useful skill')`,
-    'Empty library has its own state',
+    `document.querySelector('#first-skill-prompt').readOnly && document.querySelector('#first-skill-prompt').value.includes('Leave it pending')`,
+    'Observed empty personal library provides selectable guidance leaving the draft pending',
+  )
+  await click('#workspace-nav')
+  await assert(
+    `!document.querySelector('#first-skill-prompt') && document.querySelector('#content').textContent.includes('No skills added to this workspace')`,
+    'An empty workspace keeps its own state instead of personal-library onboarding',
+  )
+  await flow('setup')
+  await assert(
+    `document.querySelector('#library-location').readOnly && document.querySelector('#library-location').value==='/home/example/.skillager/library' && document.querySelector('#library-git').checked && !document.querySelector('.connection-details').open && !document.querySelector('[data-skill]') && studyTimers.intervals.size===0`,
+    'Missing library shows the local default, explicit Git default and setup before diagnostics without connection',
+  )
+  await capture('onboarding')
+  const beforeSetup = await run(
+    `JSON.stringify([document.querySelector('#terminal-pane').innerHTML,document.querySelector('.sessions').innerHTML])`,
+  )
+  await pointClick('[data-action="choose-folder"]')
+  await choose('#sample-folder', '/home/example/Documents/my-skills')
+  await pointClick('#dialog [data-action="close"]')
+  await assert(
+    `document.querySelector('#library-location').value==='/home/example/.skillager/library' && !document.querySelector('[data-action="cancel-setup"]')`,
+    'Canceling the sample folder picker preserves the original target without starting initialization',
+  )
+  await pointClick('[data-action="choose-folder"]')
+  await choose('#sample-folder', '/home/example/Documents/my-skills')
+  await pointClick('[data-action="use-folder"]')
+  await pointClick('#library-git')
+  await assert(
+    `document.querySelector('#library-location').value==='/home/example/Documents/my-skills' && !document.querySelector('#library-git').checked`,
+    'Folder choice keeps the exact selected path and no-Git requires an explicit user choice',
+  )
+  await pointClick('#library-setup button[type="submit"]')
+  await assert(
+    `document.querySelector('.library-setup').textContent.includes('Creating your personal library') && document.querySelector('.library-setup').textContent.includes('Git history: disabled') && !document.querySelector('[data-action="connect"]') && studyTimers.intervals.size===0`,
+    'Create and connect presents the selected path and Git mode as pending without premature metadata connection',
+  )
+  await waitFor(`!!document.querySelector('#first-skill-prompt')`)
+  await assert(
+    `document.querySelector('#first-skill-prompt').value.includes('/home/example/Documents/my-skills') && document.querySelector('#content').textContent.includes('Your personal library is ready') && document.querySelector('#content').textContent.includes('Git history: disabled') && !document.querySelector('[data-action="connect"]') && !document.querySelector('[data-viewer="skills"]') && JSON.stringify([document.querySelector('#terminal-pane').innerHTML,document.querySelector('.sessions').innerHTML])===${JSON.stringify(beforeSetup)}`,
+    'Verified sample setup opens first-skill guidance directly without terminal input, approval or a body viewer',
+  )
+  await capture('onboarding-ready')
+  await flow('setup-remote')
+  await pointClick('#library-setup button[type="submit"]')
+  await waitFor(`!!document.querySelector('#first-skill-prompt')`)
+  await assert(
+    `document.querySelector('#active-workspace').textContent.includes('SSH') && document.querySelector('#first-skill-prompt').value.includes('/home/example/.skillager/library') && document.querySelector('#content').textContent.includes('Git history: enabled')`,
+    'Default Git setup beside an SSH workspace still names the local personal-library target',
+  )
+  await flow('setup-git-mismatch')
+  await pointClick('#library-setup button[type="submit"]')
+  await waitFor(`!!document.querySelector('#content [data-action="connect"]')`)
+  await assert(
+    `document.querySelector('#content').textContent.includes('different Git history setting') && document.querySelector('#content').textContent.includes('Git history: disabled') && !document.querySelector('#first-skill-prompt') && studyTimers.intervals.size===0`,
+    'Existing Git-mode mismatch shows the actual mode and requires explicit connection',
+  )
+  await pointClick('#content [data-action="connect"]')
+  await assert(
+    `!!document.querySelector('#first-skill-prompt')`,
+    'Explicit connection after a mode mismatch enters the observed empty library',
+  )
+  await flow('setup-error')
+  await pointClick('#library-setup button[type="submit"]')
+  await waitFor(`!!document.querySelector('[data-action="check-setup"]')`)
+  await assert(
+    `document.querySelector('#content').textContent.includes('Git initialization failed: permission denied') && document.querySelector('#content').textContent.includes('may have been created') && !document.querySelector('#library-setup') && studyTimers.intervals.size===0`,
+    'Git failure reports actual error and possible effects without no-Git fallback or blind retry',
+  )
+  await pointClick('[data-action="check-setup"]')
+  await assert(
+    `document.querySelector('#library-git').checked && document.querySelector('#content').textContent.includes('No registered library was found')`,
+    'Explicit absent-status reconciliation retains the Git choice and discloses potentially retained files',
+  )
+  await flow('setup-status-unavailable')
+  await pointClick('#library-setup button[type="submit"]')
+  await pointClick('[data-action="cancel-setup"]')
+  await pointClick('[data-action="check-setup"]')
+  await assert(
+    `document.querySelector('#content').textContent.includes('status is unavailable') && !document.querySelector('#library-setup') && !document.querySelector('[data-action="connect"]') && studyTimers.intervals.size===0`,
+    'Unavailable reconciliation retains uncertainty and cannot enable another initialization',
+  )
+  await flow('setup')
+  await pointClick('#library-setup button[type="submit"]')
+  await click('#settings')
+  await click('#enabled')
+  await click('[data-action="close"]')
+  await run('studyTimers.setup()')
+  await assert(
+    absent,
+    'Disable during setup removes all feature surfaces and rejects the actual late completion',
+  )
+  await click('#settings')
+  await click('#enabled')
+  await click('[data-action="show-setup"]')
+  await run('studyTimers.setup()')
+  await assert(
+    `!!document.querySelector('[data-action="check-setup"]') && !document.querySelector('#library-setup') && !document.querySelector('#first-skill-prompt') && studyTimers.intervals.size===0`,
+    'Re-enable preserves uncertain setup without reconnecting, restarting initialization or accepting late completion',
+  )
+  await pointClick('[data-action="check-setup"]')
+  await assert(
+    `document.querySelector('#content').textContent.includes('Library found') && document.querySelector('#content').textContent.includes('Git history: enabled') && !!document.querySelector('[data-action="connect"]') && !document.querySelector('#first-skill-prompt')`,
+    'Found-status reconciliation displays actual library details for a fresh explicit connection',
+  )
+  await flow('search')
+  await run(
+    `document.querySelector('#search').value='no-match-first-skill';document.querySelector('#search-form').requestSubmit()`,
+  )
+  await waitFor(
+    `document.querySelector('#search-status').textContent.includes('0 results returned')`,
+  )
+  await assert(
+    `!document.querySelector('#first-skill-prompt')`,
+    'No-match submitted search is not treated as an empty personal inventory',
+  )
+  await flow('unavailable')
+  await assert(
+    `!document.querySelector('#first-skill-prompt') && document.querySelector('#freshness').textContent.includes('Unavailable')`,
+    'Unavailable observation retains its own state without onboarding',
   )
   await flow('browse')
   await click('#settings')

@@ -1,7 +1,7 @@
 # Skills interaction study
 
-This maintained, offline study illustrates the accepted interaction in ADR-046. Its original
-reference was the user-owned `skillager-integration.local/` study; those originals remain
+This maintained, offline study illustrates the accepted interaction in ADR-046 and ADR-047.
+Its original reference was the user-owned `skillager-integration.local/` study; those originals remain
 untouched. The dark palette, viewer/terminal split, and representative skills are retained.
 Skills is a left-sidebar peer of Files/Git: metadata browsing and submitted search live on the
 left, selected details and explicit body review use the normal main viewer. The study harness
@@ -34,6 +34,20 @@ and CSS; no source-policy exception or production dependency is introduced.
   and Settings. Check again preserves that missing sample. The separate “CLI available externally”
   study scenario supplies a successful probe fixture; Check again then returns to explicit library
   connection without connecting automatically. The study never installs anything.
+- Select First use · create personal library to see the visible local default location and
+  Keep Git history enabled for the personal library. Choose folder opens a labeled sample picker,
+  changing only that local selection; it is not an OS picker or filesystem grant. Create and
+  connect shows progress, then the verified sample library opens directly with first-skill guidance.
+  The readonly agent prompt leaves a draft pending for review and never injects terminal input.
+- The Git-failure scenario preserves the actual sample error and uncertain effects. Check library
+  status reconciles the external fixture before offering another initialization. The existing-mode
+  scenario shows the actual Git mode and requires explicit connection instead of silently changing
+  the choice. Disable during setup cancels its timer and rejects late publication; re-enable
+  preserves the need to check status without restoring a connection or viewer. Unavailable status
+  keeps effects uncertain and offers no new initialization. The SSH-workspace
+  example still initializes the local personal library only. All effects are page memory.
+- Empty-library guidance requires an observed empty personal inventory. A no-match search keeps
+  its search state, not the onboarding prompt. Existing errors and unavailable states remain distinct.
 - Enable Skillager in Settings and connect the exact displayed local library. Changing its
   identity/location requires reconnecting; review, acceptance, and exposure then name that selected
   source. Ordinary content review does not require reconnecting.
@@ -73,8 +87,8 @@ Skillager is user-installed and user-managed, as documented by its
 dependency, install/upgrade it, bootstrap Python/uv, change PATH or package environments, execute
 package managers, or inject terminal input. Missing, selected-path, unsupported-contract, and
 command-failure states remain distinct design contracts; this sample illustrates missing and
-externally available CLI states only. Existing opt-in contributor fixtures do not grant application
-installation authority.
+externally available CLI states plus synthetic library-init success/failure outcomes. Existing
+opt-in contributor fixtures do not grant application installation authority.
 
 Run the focused real Chromium check after generating the artifact:
 
@@ -83,15 +97,15 @@ node scripts/skillager-study/check.mjs /tmp/hvir-skillager-study
 ```
 
 It uses an isolated headless Chrome profile, observes process completion from launch, bounds
-termination waits, removes its profile, and writes `validation.json` plus initial-off, sidebar,
-explicit-review, disabled-after-search, and compact screenshots beside the artifact. Set
+termination waits, removes its profile, and writes `validation.json` plus initial-off, onboarding,
+sidebar, explicit-review, disabled-after-search, and compact screenshots beside the artifact. Set
 `HVIR_STUDY_CHROME` to an explicit local Chrome or Chromium executable on other systems. The opaque `allow-scripts` iframe check proves this
 self-contained page renders in that browser sandbox. It does not establish hvir's response-header
 CSP, Electron lifecycle, terminal responsiveness, or SSH transport behavior.
 
 Refresh eligibility is checked at its pure enable/connection/sidebar/viewer/visibility/focus gate.
 The browser runner observes actual periodic timer acquisition/release without changing the clock,
-and replays an actual canceled search callback to prove late publication is rejected. Browser
+and replays actual canceled search and setup callbacks to prove late publication is rejected. Browser
 checks exercise separate sidebar/viewer selection and real tab focus changes where Chromium
 exposes them, plus terminal/session content and geometry preservation. The report discloses
 unsupported background observations. It does not wait through a real 60-second periodic interval.
@@ -137,4 +151,4 @@ application-wide. These are consumer requirements, not claims that v0.9.0 enforc
 Execution aborts or reports unsupported data rather than parsing partial output.
 
 Implementation observations, measurements, remaining upstream contract gaps, and acceptance
-results belong to issue #778 and its focused pull request. ADR-046 records decisions only.
+results belong to issue #778 and its focused pull request. ADRs record decisions only.

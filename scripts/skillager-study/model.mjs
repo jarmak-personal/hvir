@@ -1,7 +1,7 @@
 // Sample state only. This module has no CLI, filesystem, or network authority.
 export const libraries = [
-  { id: 'library-7f29', path: '/home/example/.skillager/library' },
-  { id: 'library-b812', path: '/home/example/.skillager/library-new' },
+  { id: 'library-7f29', path: '/home/example/.skillager/library', git: true },
+  { id: 'library-b812', path: '/home/example/.skillager/library-new', git: true },
 ]
 export const destinations = [
   { id: 'local-main', label: 'Local · hvir / main', host: 'local', path: '/work/hvir' },
@@ -94,7 +94,14 @@ export function initialState() {
     missing: false,
     // External CLI availability is fixture input, never changed by Check again.
     sampleCliAvailable: true,
+    // True only after a successful empty personal-inventory observation.
     empty: false,
+    libraryMissing: false,
+    setup: { path: '/home/example/.skillager/library', git: true, status: 'idle' },
+    // The study supplies these external outcomes; no user library is touched.
+    sampleSetupOutcome: 'success',
+    sampleSetupStatusUnavailable: false,
+    sampleInitializedLibrary: null,
     library: libraries[0],
     railMode: 'files',
     viewer: 'document',
@@ -224,4 +231,76 @@ export function applySample(state, preview) {
   }
   state.generation++
   return 'completed'
+}
+
+// Illustrative onboarding outcomes only; Skillager owns real initialization and identity.
+export function beginSampleSetup(state) {
+  if (!state.enabled || !state.libraryMissing || state.setup.status !== 'idle') return
+  state.setup.status = 'creating'
+  state.sampleInitializedLibrary =
+    state.sampleSetupOutcome === 'error'
+      ? null
+      : {
+          id: 'library-created-sample',
+          path: state.setup.path,
+          git:
+            state.sampleSetupOutcome === 'git-mismatch'
+              ? !state.setup.git
+              : state.setup.git,
+        }
+  return state.generation
+}
+export function finishSampleSetup(state, generation) {
+  if (
+    !state.enabled ||
+    state.generation !== generation ||
+    state.setup.status !== 'creating'
+  )
+    return
+  if (state.sampleSetupOutcome === 'error') {
+    state.setup.status = 'uncertain'
+    state.setup.message =
+      'Git initialization failed: permission denied. Library files may have been created.'
+    return
+  }
+  state.library = state.sampleInitializedLibrary
+  state.libraryMissing = false
+  state.empty = true
+  state.skills = []
+  state.exposures = {}
+  state.setup.status = 'idle'
+  if (state.library.git !== state.setup.git) {
+    state.setup.message =
+      'An existing library was found with a different Git history setting. Review its actual setting before connecting.'
+    return
+  }
+  state.connected = true
+  state.setup.message = 'Your personal library is ready.'
+}
+export function cancelSampleSetup(state) {
+  if (state.setup.status !== 'creating') return
+  state.setup.status = 'uncertain'
+  state.setup.message =
+    'Setup was interrupted. Library files or registration may already exist. Check library status before continuing.'
+}
+export function reconcileSampleSetup(state) {
+  if (state.setup.status !== 'uncertain') return
+  if (state.sampleSetupStatusUnavailable) {
+    state.setup.message =
+      'Library status is unavailable. Setup effects remain uncertain; no new initialization can start.'
+    return
+  }
+  state.setup.status = 'idle'
+  if (state.sampleInitializedLibrary) {
+    state.library = state.sampleInitializedLibrary
+    state.libraryMissing = false
+    state.empty = true
+    state.skills = []
+    state.exposures = {}
+    state.setup.message =
+      'Library found. Review its location and Git history setting, then connect.'
+  } else {
+    state.setup.message =
+      'No registered library was found. Inspect any retained files before choosing Create and connect again.'
+  }
 }
