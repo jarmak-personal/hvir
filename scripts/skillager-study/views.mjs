@@ -15,9 +15,18 @@ export const escapeHtml = (value) =>
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
   )
 const button = (action, label, disabled = false) =>
-  `<button data-action="${action}" ${disabled ? 'disabled' : ''}>${label}</button>`
+  `<button type="button" data-action="${action}" ${disabled ? 'disabled' : ''}>${label}</button>`
 function missingCliView() {
   return `<div class="notice"><h2>Skillager wasn’t found.</h2><p>Install Skillager in your local terminal:</p><code>uv tool install skillager</code><p>Then choose Check again.</p>${button('check-again', 'Check again')}</div>`
+}
+function executableDetails() {
+  return '<details class="connection-details"><summary>Connection details</summary><p>Resolved executable</p><code>Local · /home/example/.local/bin/skillager · 0.9.1</code></details>'
+}
+function registeredLibraryView(state) {
+  return `<div class="target">Personal library<code>Local · ${escapeHtml(state.library.path)}</code><small>Git history: ${state.library.git ? 'enabled' : 'disabled'}</small></div>
+    ${state.setup.message ? `<p role="status">${escapeHtml(state.setup.message)}</p>` : ''}
+    <p>Connect to browse metadata. Content review and acceptance remain separate actions.</p>
+    ${button('connect', state.connected ? 'Connected' : 'Connect this library', state.connected)}`
 }
 export function connectionView(state) {
   return `<h2 id="dialog-title">Settings</h2>
@@ -26,28 +35,49 @@ export function connectionView(state) {
       state.enabled
         ? state.missing
           ? missingCliView()
-          : `<div class="target">Resolved executable<code>Local · /home/example/.local/bin/skillager · 0.9.0</code></div>
-      <div class="target">Registered personal library<code>Local · ${state.library.path}</code><small>Sample identity: ${state.library.id}</small></div>
-      <p>Connecting grants metadata access. Review content opens selected bodies or diffs. Accept library changes is a separate confirmation.</p>
-      ${button('change-library', 'Change library (sample)')}
-      ${button('connect', state.connected ? 'Connected' : 'Connect this library', state.missing || state.connected)}`
+          : `
+      ${state.libraryMissing ? `<h3>Set up your personal library</h3><p>Create a local home for reusable skills.</p>${button('show-setup', 'Set up library')}` : registeredLibraryView(state) + button('change-library', 'Change library (sample)')}
+      ${executableDetails()}`
         : ''
     }
     <footer>${button('close', 'Close')}</footer>`
 }
+function setupView(state) {
+  const setup = state.setup
+  const status = setup.message ? `<p role="status">${escapeHtml(setup.message)}</p>` : ''
+  if (setup.status === 'creating')
+    return `<section class="library-setup"><h2>Creating your personal library…</h2><p role="status">Initializing and checking Local · ${escapeHtml(setup.path)}</p><p>Git history: ${setup.git ? 'enabled' : 'disabled'}</p>${button('cancel-setup', 'Cancel setup')}</section>`
+  if (setup.status === 'uncertain')
+    return `<section class="library-setup"><h2>Check your library setup</h2>${status}${button('check-setup', 'Check library status')}</section>`
+  return `<form id="library-setup" class="library-setup"><h2>Set up your personal library</h2><p>A local home for skills you reuse across projects.</p>
+    <label>Library location · Local<input id="library-location" value="${escapeHtml(setup.path)}" readonly></label>
+    <small>Default: ~/.skillager/library on this computer.</small>${button('choose-folder', 'Choose folder…')}
+    <label class="inline"><input id="library-git" type="checkbox" ${setup.git ? 'checked' : ''}>Keep Git history</label>
+    <p>Version history for this personal library. Project Git and ignore files stay as you choose.</p>
+    ${status}<button class="primary" type="submit">Create and connect</button>
+    <small>Creates and registers this library, then connects for metadata browsing.</small>
+  </form>`
+}
+function firstSkillView(state) {
+  const prompt = `Help me create my first reusable skill in my local Skillager library at ${JSON.stringify(state.library.path)}. Ask what workflow I repeat, then use Skillager's public authoring workflow to create a draft. Leave it pending for me to review and accept in hvir. Do not expose it to a project or change project Git or ignore files.`
+  return `<section class="first-skill"><h2>Create your first skill</h2>${state.setup.message ? `<p role="status">${escapeHtml(state.setup.message)}</p>` : ''}<p>Personal-library Git history: ${state.library.git ? 'enabled' : 'disabled'}</p><p>Give this prompt to your agent in a local terminal:</p><textarea id="first-skill-prompt" aria-label="First skill agent prompt" readonly rows="8">${escapeHtml(prompt)}</textarea><p>Return here and refresh, then review and accept the draft before adding it to a workspace.</p>${button('refresh', 'Refresh library')}</section>`
+}
 export function catalogView(state) {
   if (!state.enabled) return ''
   if (state.missing) return missingCliView()
+  if (state.libraryMissing) return setupView(state) + executableDetails()
   const heading = `<div class="heading"><div><h1>${state.perspective === 'library' ? 'Personal library' : 'Workspace skills'}</h1><p>Review instructions and choose when workspace copies change.</p></div>${button('refresh', '↻ Refresh', !state.connected)}</div>`
   if (!state.connected)
     return (
       heading +
-      `<div class="empty"><h2>Connect Skillager</h2><p>Connect the displayed personal library in Settings to browse metadata. Enabling alone grants no access.</p>${button('settings', 'Open Skillager settings')}</div>`
+      `<div class="empty"><h2>Connect Skillager</h2>${registeredLibraryView(state)}${executableDetails()}</div>`
     )
-  if (state.empty)
+  if (state.empty && state.results === null && !state.submittedQuery)
     return (
       heading +
-      '<div class="empty"><h2>Your library starts with one useful skill</h2><p>Create or import a skill through Skillager, then refresh.</p></div>'
+      (state.perspective === 'library'
+        ? firstSkillView(state)
+        : '<p class="empty">No skills added to this workspace.</p>')
     )
   const remote = destinationFor(state).host !== 'local'
   const current = exposuresFor(state)
@@ -127,8 +157,8 @@ export function skillsRailView(state) {
     (s) => statusFor(s, exposuresFor(state)[s.id]) === 'Workspace copy behind',
   ).length
   return `<div class="skills-scope"><button id="library-nav" data-perspective="library">Personal library</button><button id="workspace-nav" data-perspective="workspace">This workspace</button></div>
-    ${state.connected ? `<div class="feature-badges"><span id="review-count">${pending} library review${pending === 1 ? '' : 's'}</span><span id="updates-count">${updates} workspace update${updates === 1 ? '' : 's'}</span></div>` : ''}
-    <div class="rail-controls"><label>Destination<select id="destination">${destinations.map((d) => `<option value="${d.id}" ${d.id === state.destination ? 'selected' : ''}>${escapeHtml(d.label)}</option>`).join('')}</select></label><label>Agent<select id="agent"><option value="codex" ${state.agent === 'codex' ? 'selected' : ''}>Codex</option><option value="claude" ${state.agent === 'claude' ? 'selected' : ''}>Claude Code</option></select></label></div>
+    ${state.connected && !state.empty ? `<div class="feature-badges"><span id="review-count">${pending} library review${pending === 1 ? '' : 's'}</span><span id="updates-count">${updates} workspace update${updates === 1 ? '' : 's'}</span></div>` : ''}
+    ${state.connected ? `<div class="rail-controls"><label>Destination<select id="destination">${destinations.map((d) => `<option value="${d.id}" ${d.id === state.destination ? 'selected' : ''}>${escapeHtml(d.label)}</option>`).join('')}</select></label><label>Agent<select id="agent"><option value="codex" ${state.agent === 'codex' ? 'selected' : ''}>Codex</option><option value="claude" ${state.agent === 'claude' ? 'selected' : ''}>Claude Code</option></select></label></div>` : ''}
     <div id="content">${catalogView(state)}<p id="connection-label">${state.connected ? 'Local Skillager connected' : 'Skillager disconnected'}</p></div>`
 }
 export function reviewView(state) {

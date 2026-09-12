@@ -570,3 +570,42 @@ dialog label.inline {
     display: none;
   }
 }
+
+.library-setup,
+.first-skill {
+  padding: 14px 0;
+}
+.library-setup label {
+  display: grid;
+  gap: 6px;
+  margin: 14px 0;
+}
+.library-setup label.inline {
+  display: flex;
+  align-items: center;
+}
+.library-setup input:not([type='checkbox']),
+.first-skill textarea {
+  width: 100%;
+  min-width: 0;
+}
+.library-setup small {
+  display: block;
+  margin: 8px 0;
+}
+.first-skill textarea {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 10px;
+  resize: vertical;
+}
+.connection-details {
+  margin: 14px 0;
+  font-size: 11px;
+}
+.connection-details summary {
+  cursor: pointer;
+}

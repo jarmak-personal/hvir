@@ -174,6 +174,7 @@ the appropriate unseen child attention.
 > Lifecycle: Partially superseded
 > Superseded by: [ADR-045](adr/ADR-045-explicit-outside-project-viewing.md) | partial | Temporary document viewing addendum: location, document-type, and automatic image-read scope.
 > Superseded by: [ADR-046](adr/ADR-046-explicit-skillager-library-and-exposure-authority.md) | partial | Registered-project confinement for the named local personal-library metadata, review, and acceptance capability.
+> Superseded by: [ADR-047](adr/ADR-047-explicit-skillager-library-initialization.md) | partial | Registered-project confinement only for the named local personal-library initialization and registration capability.
 
 All project operations and paths are host-qualified behind `ProjectHost`; SSH remains a
 bounded transport owned by one logical host, not an installed remote service.
@@ -489,12 +490,23 @@ Markdown images remain within the canonical document directory and descendants.
 
 ### [ADR-046 — Explicit Skillager library and workspace exposure authority](adr/ADR-046-explicit-skillager-library-and-exposure-authority.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-047](adr/ADR-047-explicit-skillager-library-initialization.md) | partial | Initial personal-library connection and first-use presentation only; add explicit local initialization followed by verified metadata connection.
 > Supersedes: [ADR-010](adr/ADR-010-project-host-remote-boundary.md) | partial | Registered-project confinement for the named local personal-library metadata, review, and acceptance capability.
 > Supersedes: [ADR-030](adr/ADR-030-bounded-project-file-operations.md) | partial | No-replacement rule only for explicitly confirmed, verified unchanged Skillager-managed local exposures and hvir-managed SSH deployments.
 
 An explicit local-library grant and exact reviewed workspace operations keep Skillager approval
 authority separate from hvir viewing, transport, and ordinary Files behavior.
+
+### [ADR-047 — Explicit Skillager personal-library initialization](adr/ADR-047-explicit-skillager-library-initialization.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-010](adr/ADR-010-project-host-remote-boundary.md) | partial | Registered-project confinement only for the named local personal-library initialization and registration capability.
+> Supersedes: [ADR-046](adr/ADR-046-explicit-skillager-library-and-exposure-authority.md) | partial | Initial personal-library connection and first-use presentation only; add explicit local initialization followed by verified metadata connection.
+
+An explicit Create and connect action initializes one local personal library through Skillager,
+verifies its identity and Git choice, then grants metadata access. Empty-library guidance keeps
+skill authoring with the user's agent or terminal and approval with the existing review flow.
 
 ## 5. Architecture
 
