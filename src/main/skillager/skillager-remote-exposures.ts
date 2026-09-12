@@ -544,8 +544,10 @@ export class SkillagerRemoteExposures implements SkillagerExposureCliPort {
       }
     } catch (error) {
       const stored = preparation.stored
+      const unavailable =
+        error instanceof ManagedDirectoryError && error.reason === 'unavailable'
       if (stored?.intent) {
-        if (!submitted && stored.intent.candidate) {
+        if (unavailable || (!submitted && stored.intent.candidate)) {
           await this.settle(preparation, {
             status: stored.installed ? 'current' : 'absent',
             installed: stored.installed,

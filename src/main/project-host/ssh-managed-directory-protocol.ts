@@ -3,6 +3,8 @@ export const MANAGED_DIRECTORY_PROTOCOL = String.raw`
 import os, sys, stat, json, hashlib, base64, ctypes, errno, fcntl
 class Different(Exception): pass
 class Unavailable(Exception): pass
+EFFECTS=False
+SUBMITTED=False
 MAX_FILES=513
 MAX_FILE=8*1024*1024
 MAX_BYTES=33*1024*1024
@@ -150,14 +152,27 @@ def moved(r, entry):
 def rename(parent, source, destination, flags):
     return rename_to(parent,source,parent,destination,flags)
 def rename_to(parent, source, destination_parent, destination, flags):
-    libc=ctypes.CDLL(None,use_errno=True)
-    if not hasattr(libc,'renameat2'): raise Unavailable()
-    fn=libc.renameat2
-    fn.argtypes=[ctypes.c_int,ctypes.c_char_p,ctypes.c_int,ctypes.c_char_p,ctypes.c_uint]
+    global EFFECTS
+    fn=rename_function()
     if fn(parent,source.encode(),destination_parent,destination.encode(),flags):
         e=ctypes.get_errno()
         if e in (errno.ENOSYS,errno.EINVAL,errno.EOPNOTSUPP): raise Unavailable()
         raise OSError(e,'rename refused')
+    EFFECTS=True
+def rename_function():
+    libc=ctypes.CDLL(None,use_errno=True)
+    if not hasattr(libc,'renameat2'): raise Unavailable()
+    fn=libc.renameat2
+    fn.argtypes=[ctypes.c_int,ctypes.c_char_p,ctypes.c_int,ctypes.c_char_p,ctypes.c_uint]
+    return fn
+def prerequisites(parent):
+    fn=rename_function()
+    # Empty names cannot rename an object. This proves syscall/flag support only;
+    # a filesystem can still reject the first actual rename without effects.
+    for flags in (1,2):
+        if fn(parent,b'',parent,b'',flags)==0: raise Unavailable()
+        e=ctypes.get_errno()
+        if e!=errno.ENOENT: raise Unavailable()
 def same_parent(a,b):
     if parts(a)[:-1]!=parts(b)[:-1] or a==b: raise Different()
 def emit(value):

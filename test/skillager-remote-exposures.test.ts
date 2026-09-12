@@ -452,3 +452,41 @@ it('admits one remote preparation through source, apply, and full release withou
   )
   await remove.dispose!()
 })
+it.each(['stage', 'add', 'update', 'remove'] as const)(
+  'settles proven unavailable %s without persisting submitted uncertainty',
+  async (at) => {
+    const f = remoteFixture(),
+      signal = AbortSignal.timeout(1000)
+    if (at === 'update' || at === 'remove') await f.add()
+    if (at === 'update') f.source('next', 'b'.repeat(64))
+    const request = at === 'update' || at === 'remove' ? await f.existing(at) : f.request
+    const snapshot = await f.adapter.previewExposure(f.selection, request, signal)
+    const cleanupCalls = f.port.cleanup.mock.calls.length
+    if (at === 'stage')
+      f.port.stage.mockRejectedValueOnce(
+        new ManagedDirectoryError('unavailable', 'Unsupported primitive'),
+      )
+    else
+      f.port.commit.mockImplementationOnce((_operation, options) => {
+        options.onSubmitted()
+        return Promise.reject(
+          new ManagedDirectoryError(
+            'unavailable',
+            'Exact original state proved after unsupported rename',
+          ),
+        )
+      })
+    await expect(
+      f.adapter.applyExposure(f.selection, snapshot, signal),
+    ).rejects.toMatchObject({ reason: 'unavailable' })
+    await snapshot.dispose!()
+    const stored = (await f.store.read())[0]
+    expect(stored?.intent).toBeUndefined()
+    expect(stored?.installed?.deployment.sourceHash).toBe(
+      at === 'update' || at === 'remove' ? 'a'.repeat(64) : undefined,
+    )
+    expect(f.port.cleanup).toHaveBeenCalledTimes(
+      cleanupCalls + (at === 'add' || at === 'update' ? 1 : 0),
+    )
+  },
+)

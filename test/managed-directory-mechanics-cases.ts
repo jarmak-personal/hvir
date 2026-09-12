@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { managedDirectoryUnavailableCases } from './managed-directory-unavailable-cases'
 import { createHash } from 'node:crypto'
 import { joinHostPath, type HostPath } from '../src/shared/host-path'
 import type { ProjectHost } from '../src/main/project-host/project-host'
@@ -179,7 +180,7 @@ export async function managedDirectoryMechanicsCases(
       {
         hostId: host.hostId,
         execStream: (command, args, options) => {
-          const prefix = `import ctypes,os\n_original_cdll=ctypes.CDLL\n_fired=False\nclass _Rename:\n def __init__(self,fn): self.fn=fn\n def __call__(self,source_fd,source,destination_fd,destination,flags):\n  global _fired\n  if not _fired:\n   _fired=True\n   name=${action === 'update' ? 'destination' : 'source'}\n   fd=os.open(name,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=source_fd)\n   try:\n    ${action === 'cleanup-replacement' ? "os.rename('SKILL.md','retained-original',src_dir_fd=fd,dst_dir_fd=fd)\n    " : ''}leaf=os.open('SKILL.md',os.O_WRONLY|os.O_TRUNC|os.O_NOFOLLOW|os.O_CREAT,0o644,dir_fd=fd)\n    try: os.write(leaf,b'Concurrent human edit\\n')\n    finally: os.close(leaf)\n   finally: os.close(fd)\n  return self.fn(source_fd,source,destination_fd,destination,flags)\nclass _Lib:\n def __init__(self,*a,**kw):\n  lib=_original_cdll(*a,**kw)\n  real=lib.renameat2\n  real.argtypes=[ctypes.c_int,ctypes.c_char_p,ctypes.c_int,ctypes.c_char_p,ctypes.c_uint]\n  self.renameat2=_Rename(real)\nctypes.CDLL=_Lib\n`
+          const prefix = `import ctypes,os\n_original_cdll=ctypes.CDLL\n_fired=False\nclass _Rename:\n def __init__(self,fn): self.fn=fn\n def __call__(self,source_fd,source,destination_fd,destination,flags):\n  global _fired\n  if not _fired and source and destination:\n   _fired=True\n   name=${action === 'update' ? 'destination' : 'source'}\n   fd=os.open(name,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=source_fd)\n   try:\n    ${action === 'cleanup-replacement' ? "os.rename('SKILL.md','retained-original',src_dir_fd=fd,dst_dir_fd=fd)\n    " : ''}leaf=os.open('SKILL.md',os.O_WRONLY|os.O_TRUNC|os.O_NOFOLLOW|os.O_CREAT,0o644,dir_fd=fd)\n    try: os.write(leaf,b'Concurrent human edit\\n')\n    finally: os.close(leaf)\n   finally: os.close(fd)\n  return self.fn(source_fd,source,destination_fd,destination,flags)\nclass _Lib:\n def __init__(self,*a,**kw):\n  lib=_original_cdll(*a,**kw)\n  real=lib.renameat2\n  real.argtypes=[ctypes.c_int,ctypes.c_char_p,ctypes.c_int,ctypes.c_char_p,ctypes.c_uint]\n  self.renameat2=_Rename(real)\nctypes.CDLL=_Lib\n`
           return host.execStream(command, ['-c', prefix + args[1]!], options)
         },
       },
@@ -476,5 +477,6 @@ export async function managedDirectoryMechanicsCases(
   passed.push(
     'cleanup retains a replaced public leaf between verification and private ownership',
   )
+  passed.push(...(await managedDirectoryUnavailableCases(host, root)))
   return passed
 }

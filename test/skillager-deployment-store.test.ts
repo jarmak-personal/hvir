@@ -156,3 +156,45 @@ it('admits one write without accumulating a queue and blocks after uncertain per
   await expect(writing).rejects.toMatchObject({ reason: 'uncertain' })
   await expect(store.read()).rejects.toMatchObject({ reason: 'unavailable' })
 })
+
+it('publishes only delivery identity and fingerprints while local records retain qualified authority', async () => {
+  const { store, content } = fixture(),
+    target = preparedTarget()
+  await store.save(deploymentKey(target.identity), 0, target)
+  const raw = Buffer.from(deploymentRecordBytes(deploymentFixture)).toString()
+  const published = JSON.parse(raw) as Record<string, unknown>
+  expect(Object.keys(published)).toEqual([
+    'schema',
+    'id',
+    'library',
+    'skillId',
+    'sourceHash',
+    'agent',
+    'targetEntry',
+    'exposureId',
+    'payload',
+  ])
+  expect(published.library).toEqual({ id: deploymentFixture.library.id })
+  expect(raw).not.toContain(deploymentFixture.library.root.path)
+  expect(published).not.toHaveProperty('destination')
+  const retained = parseDeploymentFile(JSON.parse(content()!))[0]!.intent!.incoming!
+  expect(retained.library).toEqual(deploymentFixture.library)
+  expect(retained.destination).toEqual(deploymentFixture.destination)
+})
+it('requires an app restart after restoring unavailable local records and retains the protective latch', async () => {
+  const { store, host } = fixture('broken')
+  await expect(store.read()).rejects.toThrow('restart hvir')
+  host.readTextFilePrefix.mockResolvedValue({
+    content: '{"version":1,"targets":[]}',
+    complete: true,
+    byteLength: 26,
+    lineCount: 1,
+  })
+  await expect(store.read()).rejects.toThrow('restart hvir')
+  expect(host.readTextFilePrefix).toHaveBeenCalledOnce()
+  const restarted = new SkillagerDeploymentStore(
+    host,
+    localPath('/state/deployments.json'),
+  )
+  expect(await restarted.read()).toEqual([])
+})

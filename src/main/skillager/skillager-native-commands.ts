@@ -60,12 +60,12 @@ export class SkillagerNativeCommands implements SkillagerNativePort {
     let created = false
     const cleanup = async (): Promise<void> => {
       if (!created) return
-      await this.process.run(
+      const result = await this.host.exec(
         'rm',
         ['-rf', '--', scratch.path],
-        { signal: AbortSignal.timeout(10_000) },
-        SKILLAGER_PROBE_LIMITS,
+        { signal: AbortSignal.timeout(10_000), maxBuffer: 4096 },
       )
+      if (result.code !== 0) throw new Error('Native scratch cleanup failed')
       created = false
     }
     try {
@@ -202,8 +202,10 @@ export class SkillagerNativeCommands implements SkillagerNativePort {
         captured.bytes.clear()
       }
     } catch (error) {
-      await verified.dispose()
-      await cleanup()
+      await Promise.allSettled([
+        Promise.resolve().then(() => verified.dispose()),
+        cleanup(),
+      ])
       throw error
     }
   }

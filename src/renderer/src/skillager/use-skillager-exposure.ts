@@ -58,6 +58,7 @@ export function useSkillagerExposure(options: Options) {
   stateRef.current = state
   const lease = useRef<Lease>(undefined),
     sequence = useRef(0)
+  const released = useRef<Promise<void>>(Promise.resolve())
   const destinations = exposureDestinations(options.projectState)
   const context = `${options.connection?.connectionId}\0${options.projectState?.root.hostId}\0${options.projectState?.root.path}\0${options.agent}\0${options.visible}\0${options.detailId}`
   const contextRef = useRef(context)
@@ -66,13 +67,19 @@ export function useSkillagerExposure(options: Options) {
     const current = lease.current
     lease.current = undefined
     if (!current) return
-    void window.hvir
-      .invoke('skillager:cancel-exposure', { requestId: current.request.requestId })
-      .catch(() => undefined)
-    if (current.previewId)
-      void window.hvir
-        .invoke('skillager:release-exposure', { previewId: current.previewId })
-        .catch(() => undefined)
+    released.current = Promise.allSettled([
+      released.current,
+      window.hvir.invoke('skillager:cancel-exposure', {
+        requestId: current.request.requestId,
+      }),
+      ...(current.previewId
+        ? [
+            window.hvir.invoke('skillager:release-exposure', {
+              previewId: current.previewId,
+            }),
+          ]
+        : []),
+    ]).then(() => undefined)
   }, [])
   const close = useCallback(() => {
     release()
@@ -183,6 +190,17 @@ export function useSkillagerExposure(options: Options) {
     lease.current = owned
     setState({ ...current, loading: true, message: undefined })
     try {
+      await released.current
+      if (
+        lease.current !== owned ||
+        contextRef.current !== at ||
+        !optionsRef.current.visible ||
+        !exposureDestinationCurrent(
+          exposureDestinations(optionsRef.current.projectState),
+          owned.request.destination,
+        )
+      )
+        return
       const result = await window.hvir.invoke('skillager:preview-exposure', owned.request)
       if (lease.current !== owned || contextRef.current !== at) {
         if (result.ok)
