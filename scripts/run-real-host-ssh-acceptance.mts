@@ -74,7 +74,15 @@ interface AcceptanceState {
   phase: RealHostSshPhase
   interrupted: boolean
   readonly startedAt: number
-  readonly completed: { phase: RealHostSshPhase; durationMs: number }[]
+  readonly completed: (
+    | { phase: RealHostSshPhase; durationMs: number; status: 'passed' }
+    | {
+        phase: 'skillager-delivery'
+        durationMs: 0
+        status: 'skipped'
+        reason: 'local-cli-not-configured'
+      }
+  )[]
   readonly resources: MutableResources
   readonly supervisor: PtySupervisor
   readonly capacityStreams: ExecStreamHandle[]
@@ -262,6 +270,7 @@ async function runConfiguredAcceptance(
       if (!failure) {
         state.completed.push({
           phase: 'cleanup',
+          status: 'passed',
           durationMs: performance.now() - cleanupStartedAt,
         })
         console.log(
@@ -289,11 +298,7 @@ async function runConfiguredAcceptance(
   }
 
   if (
-    state.completed.map(({ phase }) => phase).join(',') !==
-    REAL_HOST_SSH_PHASES.filter(
-      (phase) =>
-        phase !== 'skillager-delivery' || Boolean(process.env.HVIR_REAL_SSH_SKILLAGER),
-    ).join(',')
+    state.completed.map(({ phase }) => phase).join(',') !== REAL_HOST_SSH_PHASES.join(',')
   ) {
     const incomplete = captureFailure(state, host, 'incomplete')
     await retainFailureEvidence(incomplete)
@@ -304,9 +309,9 @@ async function runConfiguredAcceptance(
     `[real-host:ssh] passed ${JSON.stringify({
       schema: 1,
       status: 'passed',
-      phases: state.completed.map(({ phase, durationMs }) => ({
-        phase,
-        durationMs: Math.round(durationMs),
+      phases: state.completed.map((result) => ({
+        ...result,
+        durationMs: Math.round(result.durationMs),
       })),
       totalDurationMs: Math.round(performance.now() - state.startedAt),
     })}`,
@@ -469,6 +474,16 @@ async function exerciseRealHost(
     await runPhase(state, 'skillager-delivery', () =>
       runSkillagerSshAcceptance(host, project.root, executable),
     )
+  else {
+    const skipped = {
+      phase: 'skillager-delivery',
+      durationMs: 0,
+      status: 'skipped',
+      reason: 'local-cli-not-configured',
+    } as const
+    state.completed.push(skipped)
+    console.log(`[real-host:ssh] skipped ${JSON.stringify(skipped)}`)
+  }
 }
 
 async function verifyPtyAndProviderObservation(
@@ -831,7 +846,7 @@ async function runPhase(
   await task()
   if (state.interrupted) throw new Error('Real-host SSH acceptance was interrupted')
   const durationMs = performance.now() - startedAt
-  state.completed.push({ phase, durationMs })
+  state.completed.push({ phase, durationMs, status: 'passed' })
   console.log(`[real-host:ssh] ${phase} OK (${Math.round(durationMs)}ms)`)
 }
 

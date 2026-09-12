@@ -12,7 +12,7 @@ it.runIf(process.platform === 'linux')(
     const root = await realpath(await mkdtemp(join(tmpdir(), 'hvir-managed-mechanics-')))
     const host = new LocalHost()
     try {
-      expect(await managedDirectoryMechanicsCases(host, localPath(root))).toHaveLength(17)
+      expect(await managedDirectoryMechanicsCases(host, localPath(root))).toHaveLength(18)
     } finally {
       await host.dispose()
       await rm(root, { recursive: true, force: true })

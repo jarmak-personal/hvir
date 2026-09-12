@@ -85,9 +85,13 @@ it('never promotes a prepared record from remote JSON or even an exact incoming 
 })
 
 it('retains interrupted intent when absences belong to a replaced workspace or ancestor', () => {
-  const prepared = { ...preparedTarget(), revision: 1 }
+  const prepared = {
+    ...preparedTarget(),
+    revision: 1,
+    intent: { ...preparedTarget().intent!, state: 'staging' as const },
+  }
   const checks = deploymentChecks(prepared)
-  const location = prepared.intent!.location
+  const location = prepared.intent.location
   for (const replaced of [
     { ...location, rootInode: '999' },
     {
@@ -105,6 +109,40 @@ it('retains interrupted intent when absences belong to a replaced workspace or a
       ),
     ).toEqual({ status: 'uncertain' })
   }
+})
+it('resolves no-receipt staging only from exact absence before submission', () => {
+  const prepared = preparedTarget()
+  const staging = {
+    ...prepared,
+    revision: 1,
+    intent: { ...prepared.intent!, state: 'staging' as const },
+  }
+  expect(assess(staging, {})).toMatchObject({ status: 'absent', outcome: 'not-applied' })
+  for (const candidate of [
+    { status: 'different' as const },
+    {
+      status: 'exact' as const,
+      receipt: { ...oldReceipt, entry: staging.intent.stageEntry },
+    },
+  ])
+    expect(assess(staging, { candidate })).toEqual({ status: 'uncertain' })
+  expect(
+    assess({ ...staging, intent: { ...staging.intent, state: 'uncertain' } }, {}),
+  ).toEqual({ status: 'uncertain' })
+  expect(assess(staging, { incoming: { status: 'exact', receipt: oldReceipt } })).toEqual(
+    { status: 'uncertain' },
+  )
+  const update = {
+    ...staging,
+    installed,
+    intent: { ...staging.intent, action: 'update' as const, before: oldReceipt },
+  }
+  expect(
+    assess(update, { installed: { status: 'exact', receipt: oldReceipt } }),
+  ).toMatchObject({ status: 'current', outcome: 'not-applied' })
+  expect(assess(update, { installed: { status: 'different' } })).toEqual({
+    status: 'uncertain',
+  })
 })
 it('reconciles a submitted Add only with its persisted candidate receipt', () => {
   const prepared = preparedTarget(),

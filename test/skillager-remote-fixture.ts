@@ -158,7 +158,7 @@ export function remoteFixture() {
     environment: {},
   }
   const sourceSnapshots: {
-    dispose: ReturnType<typeof vi.fn>
+    dispose: ReturnType<typeof vi.fn<() => Promise<void>>>
     bytes: Map<string, Uint8Array>
   }[] = []
   const local = {

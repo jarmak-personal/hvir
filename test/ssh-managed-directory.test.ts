@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { EventEmitter } from 'node:events'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import { hostPath, asHostId } from '../src/shared'
 import { SshManagedDirectory } from '../src/main/project-host/ssh-managed-directory'
 import { MANAGED_DIRECTORY_PROGRAM } from '../src/main/project-host/ssh-managed-directory-operations'
@@ -49,7 +49,7 @@ function transport(finish: (events: EventEmitter, input: string) => void) {
     }),
     kill: vi.fn(),
     dispose,
-  } as ExecStreamHandle
+  } satisfies ExecStreamHandle
   const execStream = vi.fn(
     (_command: string, _args: readonly string[], _options?: ExecOptions) => stream,
   )
@@ -59,9 +59,141 @@ function transport(finish: (events: EventEmitter, input: string) => void) {
     events,
     writes,
     dispose,
+    stream,
   }
 }
 describe('managed directory immediate stream boundary', () => {
+  it.each(['write', 'end', 'exit'] as const)(
+    'cancels an opened stream with stalled %s and bounds disposal',
+    async (at) => {
+      const boundary = transport(() => {})
+      if (at === 'write')
+        vi.mocked(boundary.stream.write).mockImplementation(() => new Promise(() => {}))
+      if (at === 'end')
+        vi.mocked(boundary.stream.end).mockImplementation(() => new Promise(() => {}))
+      const abort = new AbortController()
+      const pending = boundary.port.inspectMany(
+        root,
+        [{ entry: '.stage', tree }],
+        abort.signal,
+      )
+      const rejected = expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+      await vi.waitFor(() =>
+        expect(
+          at === 'write' ? boundary.stream.write : boundary.stream.end,
+        ).toHaveBeenCalled(),
+      )
+      expect(() => abort.abort()).not.toThrow()
+      await rejected
+      expect(boundary.stream.kill).toHaveBeenCalledOnce()
+      expect(boundary.dispose).toHaveBeenCalledOnce()
+      expect(boundary.events.eventNames()).toEqual([])
+    },
+  )
+  it('bounds an opened observation by its deadline even without an exit event', async () => {
+    vi.useFakeTimers()
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
+    const boundary = transport(() => {})
+    const pending = boundary.port.inspect(
+      root,
+      '.stage',
+      tree,
+      new AbortController().signal,
+    )
+    const rejected = expect(pending).rejects.toMatchObject({ reason: 'unavailable' })
+    await vi.advanceTimersByTimeAsync(30_000)
+    await rejected
+    expect(boundary.stream.kill).toHaveBeenCalledOnce()
+    expect(boundary.dispose).toHaveBeenCalledOnce()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+  it('retains submitted uncertainty when aborting a stalled end and cleanup throws', async () => {
+    const boundary = transport(() => {})
+    vi.mocked(boundary.stream.end).mockImplementation(() => {
+      boundary.events.emit('stdout', '{"status":"submitting"}\n')
+      return new Promise(() => {})
+    })
+    vi.mocked(boundary.stream.kill).mockImplementation(() => {
+      throw Error('kill failed')
+    })
+    boundary.dispose.mockImplementation(() => {
+      throw Error('dispose failed')
+    })
+    const abort = new AbortController()
+    const candidate = { ...location, entry: '.stage', tree, device: '1', inode: '2' }
+    const submitted = vi.fn()
+    const pending = boundary.port.commit(
+      { action: 'add', candidate, target: 'skill' },
+      { signal: abort.signal, onSubmitted: submitted },
+    )
+    const rejected = expect(pending).rejects.toMatchObject({ reason: 'uncertain' })
+    await vi.waitFor(() => expect(submitted).toHaveBeenCalledOnce())
+    expect(() => abort.abort()).not.toThrow()
+    await rejected
+    expect(boundary.stream.kill).toHaveBeenCalledOnce()
+    expect(boundary.dispose).toHaveBeenCalledOnce()
+    expect(boundary.events.eventNames()).toEqual([])
+  })
+  it('stops uploading between chunks after cancellation', async () => {
+    const boundary = transport(() => {})
+    const abort = new AbortController()
+    let writes = 0
+    vi.mocked(boundary.stream.write).mockImplementation(() => {
+      if (++writes === 2) abort.abort()
+      return Promise.resolve()
+    })
+    const bytes = Buffer.alloc(150_000)
+    const content = {
+      files: [
+        {
+          entry: 'SKILL.md',
+          size: bytes.length,
+          mode: 0o644 as const,
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+        },
+      ],
+    }
+    await expect(
+      boundary.port.stage(
+        root,
+        '.stage',
+        content,
+        new Map([['SKILL.md', bytes]]),
+        location,
+        abort.signal,
+      ),
+    ).rejects.toMatchObject({ reason: 'uncertain' })
+    expect(writes).toBe(2)
+    expect(boundary.stream.end).not.toHaveBeenCalled()
+    expect(boundary.dispose).toHaveBeenCalledOnce()
+  })
+  it('preserves a successful exit emitted before end finishes settling', async () => {
+    const boundary = transport(() => {})
+    let finish!: () => void
+    vi.mocked(boundary.stream.end).mockImplementation(() => {
+      boundary.events.emit(
+        'stdout',
+        JSON.stringify({ status: 'absent', location }) + '\n',
+      )
+      boundary.events.emit('exit', { code: 0 })
+      return new Promise<void>((resolve) => {
+        finish = resolve
+      })
+    })
+    const pending = boundary.port.inspect(
+      root,
+      '.stage',
+      tree,
+      new AbortController().signal,
+    )
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
+    expect(await pending).toEqual({ status: 'absent', location })
+    expect(boundary.stream.kill).not.toHaveBeenCalled()
+    expect(boundary.dispose).toHaveBeenCalledOnce()
+    finish()
+  })
   it('uses the fixed host program and preserves a Unicode scalar across a bounded header write', async () => {
     const files: ManagedDirectoryFile[] = []
     while (

@@ -163,7 +163,6 @@ describe('workspace skill action UI', () => {
         declarations: ['Required: EXAMPLE_ENV'],
         createdParents: [hostPath(remote.hostId, '/remote/.agents')],
         temporaryPaths: [hostPath(remote.hostId, '/remote/.agents/skills/.stage')],
-        lock: hostPath(remote.hostId, '/remote/.lock'),
       },
     }
     invoke.mockResolvedValueOnce({ ok: true, value: preview })

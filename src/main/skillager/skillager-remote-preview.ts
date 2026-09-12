@@ -5,7 +5,6 @@ import type {
 } from '../../shared/skillager-exposure'
 import type { SkillagerExposureSnapshot } from './skillager-exposure-port'
 import type { ManagedDirectoryTree } from '../project-host/managed-directory'
-import { managedDirectoryLockEntry } from '../project-host/managed-directory-contract'
 import {
   deploymentRecordBytes,
   deploymentTargetFingerprint,
@@ -53,10 +52,6 @@ export function remoteExposurePreview(
           ? [intent.quarantineEntry, intent.quarantineEntry + '.cleanup']
           : []),
       ].map((entry) => joinHostPath(request.destination.root, entry)),
-      lock: joinHostPath(
-        request.destination.root,
-        managedDirectoryLockEntry(stored.identity.targetEntry),
-      ),
     },
   }
 }

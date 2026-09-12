@@ -58,18 +58,13 @@ def commit():
     source=candidate['entry'] if candidate else Q['quarantine']
     same_parent(source,target)
     bound_root(ROOT,candidate or before)
-    lockname='.hvir-directory-lock-'+hashlib.sha256(target.encode()).hexdigest()[:32]
-    lock=os.open(lockname,os.O_RDWR|os.O_CREAT|os.O_NOFOLLOW|os.O_NONBLOCK,0o600,dir_fd=ROOT)
-    parent=None
+    parent,targetname,ancestors=open_parent(ROOT,target,False,candidate or before)
     try:
-        ls=os.fstat(lock)
-        if not stat.S_ISREG(ls.st_mode) or ls.st_size!=0: raise Different()
-        try: fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        if before and ancestors!=before['ancestors']: raise Different()
+        try: fcntl.flock(parent,fcntl.LOCK_EX|fcntl.LOCK_NB)
         except BlockingIOError: return {'status':'not-applied'}
         if candidate: exact(candidate)
         if before: exact(before)
-        parent,targetname,ancestors=open_parent(ROOT,target,False,candidate or before)
-        if before and ancestors!=before['ancestors']: raise Different()
         sourcename=parts(source)[-1]
         root_current(ROOT)
         # This is the immediate publication boundary. The controller persists
@@ -113,8 +108,7 @@ def commit():
             return {'status':'uncertain'}
         raise Different()
     finally:
-        if parent is not None: os.close(parent)
-        os.close(lock)
+        os.close(parent)
 def cleanup():
     r=Q['receipt']; exact(r)
     parent,name,_=open_parent(ROOT,r['entry'],False,r)

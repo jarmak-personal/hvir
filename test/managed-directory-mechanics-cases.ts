@@ -79,6 +79,36 @@ export async function managedDirectoryMechanicsCases(
     await location('.agents/skills/.first', initial.tree),
     signal,
   )
+  const contended = new SshManagedDirectory(
+    {
+      hostId: host.hostId,
+      execStream: (command, args, options) =>
+        host.execStream(
+          command,
+          [
+            '-c',
+            `import fcntl,os,stat\n_flock=fcntl.flock\ndef _contend(fd,operation):\n assert stat.S_ISDIR(os.fstat(fd).st_mode)\n other=os.open('.',os.O_RDONLY|os.O_DIRECTORY,dir_fd=fd)\n try:\n  _flock(other,fcntl.LOCK_EX|fcntl.LOCK_NB)\n  _flock(fd,operation)\n finally: os.close(other)\nfcntl.flock=_contend\n` +
+              args[1]!,
+          ],
+          options,
+        ),
+    },
+    () => {},
+  )
+  assert.equal(
+    (
+      await contended.commit(
+        { action: 'add', candidate: first, target },
+        { signal, onSubmitted: () => {} },
+      )
+    ).status,
+    'not-applied',
+  )
+  assert.equal(
+    (await port.inspect(root, first.entry, initial.tree, signal)).status,
+    'exact',
+  )
+  assert.equal((await port.inspect(root, target, initial.tree, signal)).status, 'absent')
   const added = await port.commit(
     { action: 'add', candidate: first, target },
     { signal, onSubmitted: () => {} },
@@ -87,6 +117,13 @@ export async function managedDirectoryMechanicsCases(
   assert(added.published)
   assert.equal(await read(), 'First accepted source\n')
   passed.push('bounded complete-tree Add with binary, executable and Unicode files')
+  assert.deepEqual(
+    (await host.readdir(root)).map((entry) => entry.name),
+    ['.agents'],
+  )
+  passed.push(
+    'verified parent-directory flock rejects a competing lock and leaves no project-root artifact',
+  )
   const candidate = await port.stage(
     root,
     '.agents/skills/.second',

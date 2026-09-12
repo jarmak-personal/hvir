@@ -284,7 +284,7 @@ it('retains uncertain partial staging and refuses adoption without a candidate r
   ).rejects.toMatchObject({ reason: 'uncertain' })
   await snapshot.dispose!()
   expect((await f.store.read())[0]?.intent).toMatchObject({
-    state: 'uncertain',
+    state: 'staging',
     candidate: undefined,
   })
   expect(f.port.commit).not.toHaveBeenCalled()
@@ -294,6 +294,40 @@ it('retains uncertain partial staging and refuses adoption without a candidate r
   ).rejects.toMatchObject({ reason: 'uncertain' })
   expect(f.trees.size).toBe(1)
 })
+it.each(['add', 'update'] as const)(
+  'reconciles a %s stage failure with no effects before retrying',
+  async (action) => {
+    const f = remoteFixture(),
+      signal = AbortSignal.timeout(1000)
+    if (action === 'update') {
+      await f.add()
+      f.source('next', 'b'.repeat(64))
+    }
+    const request = action === 'add' ? f.request : await f.existing('update')
+    const snapshot = await f.adapter.previewExposure(f.selection, request, signal)
+    const commits = f.port.commit.mock.calls.length
+    f.port.stage.mockRejectedValueOnce(
+      new ManagedDirectoryError('uncertain', 'stage connection lost before effects'),
+    )
+    await expect(
+      f.adapter.applyExposure(f.selection, snapshot, signal),
+    ).rejects.toMatchObject({ reason: 'uncertain' })
+    await snapshot.dispose!()
+    expect((await f.store.read())[0]!.intent).toMatchObject({
+      state: 'staging',
+      candidate: undefined,
+    })
+    const writes = f.fileHost.writeFile.mock.calls.length
+    await f.observe()
+    expect(f.fileHost.writeFile).toHaveBeenCalledTimes(writes)
+    const retry = await f.adapter.previewExposure(f.selection, request, signal)
+    expect(f.port.commit).toHaveBeenCalledTimes(commits)
+    await f.adapter.applyExposure(f.selection, retry, signal)
+    await retry.dispose!()
+    expect((await f.store.read())[0]!.intent).toBeUndefined()
+    expect((await f.observe())?.[0]?.status).toBe('current')
+  },
+)
 it('revokes late preparation at disconnect and bounds same-target concurrent admission', async () => {
   const f = remoteFixture(),
     signal = AbortSignal.timeout(1000)
@@ -350,4 +384,71 @@ it('disposal waits for late preparation ownership and releases every retained bu
   expect(f.port.inspect).not.toHaveBeenCalled()
   expect(f.listeners.size).toBe(0)
   expect(await f.store.read()).toEqual([])
+})
+it('admits one remote preparation through source, apply, and full release without overlapping store ownership', async () => {
+  const f = remoteFixture(),
+    signal = AbortSignal.timeout(2000)
+  const other = {
+    ...f.request,
+    destination: { ...f.request.destination, workspaceId: 'other-workspace' },
+  }
+  const source = f.local.nativeSnapshot.getMockImplementation()!
+  let sourceReady!: () => void
+  f.local.nativeSnapshot.mockImplementationOnce(async () => {
+    await new Promise<void>((resolve) => {
+      sourceReady = resolve
+    })
+    return source()
+  })
+  const pending = f.adapter.previewExposure(f.selection, f.request, signal)
+  await vi.waitFor(() => expect(sourceReady).toBeTypeOf('function'))
+  await expect(
+    f.adapter.previewExposure(f.selection, other, signal),
+  ).rejects.toMatchObject({ reason: 'busy' })
+  expect(f.local.nativeSnapshot).toHaveBeenCalledOnce()
+  sourceReady()
+  const snapshot = await pending
+  const stage = f.port.stage.getMockImplementation()!
+  let stageReady!: () => void
+  f.port.stage.mockImplementationOnce(async (...args) => {
+    await new Promise<void>((resolve) => {
+      stageReady = resolve
+    })
+    return stage(...args)
+  })
+  const applying = f.adapter.applyExposure(f.selection, snapshot, signal)
+  await vi.waitFor(() => expect(stageReady).toBeTypeOf('function'))
+  const writes = f.fileHost.writeFile.mock.calls.length
+  await expect(
+    f.adapter.previewExposure(f.selection, other, signal),
+  ).rejects.toMatchObject({ reason: 'busy' })
+  expect(f.fileHost.writeFile).toHaveBeenCalledTimes(writes)
+  stageReady()
+  expect(await applying).toMatchObject({ status: 'exposed', notice: undefined })
+  await expect(
+    f.adapter.previewExposure(f.selection, other, signal),
+  ).rejects.toMatchObject({ reason: 'busy' })
+  const disposal = f.sourceSnapshots[0]!.dispose.getMockImplementation()!
+  let releaseReady!: () => void
+  f.sourceSnapshots[0]!.dispose.mockImplementationOnce(async () => {
+    await new Promise<void>((resolve) => {
+      releaseReady = resolve
+    })
+    return disposal()
+  })
+  const releasing = snapshot.dispose!()
+  await vi.waitFor(() => expect(releaseReady).toBeTypeOf('function'))
+  await expect(
+    f.adapter.previewExposure(f.selection, other, signal),
+  ).rejects.toMatchObject({ reason: 'busy' })
+  expect(f.local.nativeSnapshot).toHaveBeenCalledOnce()
+  releaseReady()
+  await releasing
+  expect(f.sourceSnapshots[0]!.bytes.size).toBe(0)
+  const remove = await f.adapter.previewExposure(
+    f.selection,
+    await f.existing('remove'),
+    signal,
+  )
+  await remove.dispose!()
 })

@@ -404,7 +404,11 @@ The released CLI's `review pin` skips library-owned sources; pin protections use
 port fixtures and must not be reported as a successful real-CLI pin operation.
 
 The monthly/manual `Real-host SSH acceptance` workflow reads the same values from the protected
-`real-host-ssh` environment. With no configured target its acceptance job is visibly skipped; a
+`real-host-ssh` environment. Its optional `HVIR_REAL_SSH_SKILLAGER` environment variable names a
+local executable already available on the runner; the workflow does not install Skillager. When
+unset, the log and phase summary explicitly report `skillager-delivery` skipped with reason
+`local-cli-not-configured`; a configured but unavailable executable fails that phase.
+With no configured target its acceptance job is visibly skipped; a
 partially configured target fails the availability job. This leaves deterministic `SshHost` and
 transport tests as the first pull-request evidence while keeping mutable infrastructure outside
 the universal gate.

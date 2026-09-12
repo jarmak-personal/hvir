@@ -176,7 +176,11 @@ export function assessDeployment(
     if (intent.action !== 'remove') {
       if (matches('candidate', intent.candidate))
         return { ...current(), outcome: 'not-applied', cleanup: intent.candidate }
-      if (intent.state === 'prepared' && !intent.candidate && absent('candidate'))
+      if (
+        ['prepared', 'staging'].includes(intent.state) &&
+        !intent.candidate &&
+        absent('candidate')
+      )
         return { ...current(), outcome: 'not-applied' }
     }
   }

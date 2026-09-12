@@ -44,7 +44,6 @@ export interface SkillagerExposurePreview {
     readonly declarations: readonly string[]
     readonly createdParents: readonly HostPath[]
     readonly temporaryPaths: readonly HostPath[]
-    readonly lock: HostPath
   }
 }
 export interface SkillagerExposureCompletion {

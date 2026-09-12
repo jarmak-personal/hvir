@@ -37,7 +37,8 @@ export interface SkillagerDeployment {
 export interface SkillagerDeploymentIntent {
   readonly id: string
   readonly action: 'add' | 'update' | 'remove'
-  readonly state: 'prepared' | 'staged' | 'submitted' | 'completed' | 'uncertain'
+  readonly state:
+    'prepared' | 'staging' | 'staged' | 'submitted' | 'completed' | 'uncertain'
   readonly stageEntry: string
   readonly quarantineEntry: string
   readonly location: ManagedDirectoryLocation
@@ -63,15 +64,42 @@ export interface SkillagerStoredTarget {
 
 /** The disclosed record describes delivery. Only the matching local intent grants authority. */
 export function deploymentRecordBytes(deployment: SkillagerDeployment): Uint8Array {
+  const at = (path: HostPath) => ({ hostId: path.hostId, path: path.path })
   return Buffer.from(
-    JSON.stringify({ schema: 'hvir.skillager-deployment.v1', ...deployment }) + '\n',
+    JSON.stringify({
+      schema: 'hvir.skillager-deployment.v1',
+      id: deployment.id,
+      library: {
+        id: deployment.library.id,
+        root: at(deployment.library.root),
+        skillsRoot: at(deployment.library.skillsRoot),
+      },
+      skillId: deployment.skillId,
+      sourceHash: deployment.sourceHash,
+      agent: deployment.agent,
+      destination: {
+        projectId: deployment.destination.projectId,
+        workspaceId: deployment.destination.workspaceId,
+        root: at(deployment.destination.root),
+      },
+      targetEntry: deployment.targetEntry,
+      exposureId: deployment.exposureId,
+      payload: { files: deploymentFiles(deployment) },
+    }) + '\n',
   )
+}
+function deploymentFiles(deployment: SkillagerDeployment) {
+  return [...deployment.payload.files]
+    .sort((left, right) =>
+      left.entry < right.entry ? -1 : left.entry > right.entry ? 1 : 0,
+    )
+    .map(({ entry, mode, size, sha256 }) => ({ entry, mode, size, sha256 }))
 }
 export function deploymentTree(deployment: SkillagerDeployment): ManagedDirectoryTree {
   const record = deploymentRecordBytes(deployment)
   return {
     files: [
-      ...deployment.payload.files,
+      ...deploymentFiles(deployment),
       {
         entry: SKILLAGER_DEPLOYMENT_RECORD,
         mode: 0o644,
@@ -138,7 +166,9 @@ export function parseStoredTarget(value: unknown): SkillagerStoredTarget {
       state = text(item.state, 16)
     if (
       !['add', 'update', 'remove'].includes(action) ||
-      !['prepared', 'staged', 'submitted', 'completed', 'uncertain'].includes(state)
+      !['prepared', 'staging', 'staged', 'submitted', 'completed', 'uncertain'].includes(
+        state,
+      )
     )
       throw Error('Invalid deployment intent')
     const intentId = uuid(item.id)

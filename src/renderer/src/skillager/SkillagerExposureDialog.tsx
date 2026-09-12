@@ -268,12 +268,6 @@ function ExposureEffects({
             ))}
           </p>
           <p>
-            Persistent empty coordination file:{' '}
-            <code>
-              {preview.remote.lock.hostId}:{preview.remote.lock.path}
-            </code>
-          </p>
-          <p>
             Interrupted delivery or changed cleanup entries are retained for
             reconciliation on the next explicit preview.
           </p>

@@ -73,7 +73,6 @@ export function skillagerExposureFixture(root: HostPath) {
                   declarations: ['Assumptions: EXAMPLE_RUNTIME'],
                   createdParents: [],
                   temporaryPaths: [joinHostPath(root, '.fixture-stage')],
-                  lock: joinHostPath(root, '.fixture-lock'),
                 },
         },
       })

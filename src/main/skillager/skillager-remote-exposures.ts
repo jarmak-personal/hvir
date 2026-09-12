@@ -98,10 +98,10 @@ export class SkillagerRemoteExposures implements SkillagerExposureCliPort {
         'SSH delivery supports Full skills. Stub requires a host-side Skillager runtime.',
       )
     if (this.disposed || signal.aborted) throw cancelled()
-    if (this.preparations.size >= 2)
+    if (this.preparations.size)
       throw new SkillagerError(
         'busy',
-        'Close another remote skill preparation before continuing.',
+        'Close the current remote skill preparation before continuing.',
       )
     const host = this.host(request.destination.root),
       port = host.managedDirectory!
@@ -167,15 +167,6 @@ export class SkillagerRemoteExposures implements SkillagerExposureCliPort {
         exposureId,
       }
       const key = deploymentKey(identity)
-      if (
-        [...this.preparations.values()].some(
-          (other) => other !== preparation && other.key === key,
-        )
-      )
-        throw new SkillagerError(
-          'busy',
-          'This target already has a remote skill preparation.',
-        )
       preparation.key = key
       let existing = (await this.store.read()).find(
         (target) => deploymentKey(target.identity) === key,
@@ -438,8 +429,7 @@ export class SkillagerRemoteExposures implements SkillagerExposureCliPort {
     preparation: Preparation,
   ): Promise<SkillagerExposureCompletion> {
     const { request, port, signal } = preparation
-    let staging = false,
-      submitted = false
+    let submitted = false
     try {
       await this.local.validate(selection, signal)
       if (preparation.source)
@@ -455,11 +445,16 @@ export class SkillagerRemoteExposures implements SkillagerExposureCliPort {
       if (preparation.source && intent.incoming) {
         const bytes = new Map(preparation.source.bytes)
         bytes.set(SKILLAGER_DEPLOYMENT_RECORD, deploymentRecordBytes(intent.incoming))
-        staging = true
+        preparation.stored = stored = (await this.store.save(
+          preparation.key!,
+          stored.revision,
+          { ...stored, intent: { ...intent, state: 'staging' } },
+        ))!
+        intent = stored.intent!
         const candidate = await port.stage(
           request.destination.root,
           intent.stageEntry,
-          deploymentTree(intent.incoming),
+          deploymentTree(intent.incoming!),
           bytes,
           intent.location,
           signal,
@@ -557,11 +552,7 @@ export class SkillagerRemoteExposures implements SkillagerExposureCliPort {
             outcome: 'not-applied',
             cleanup: stored.intent.candidate,
           }).catch(() => undefined)
-        } else if (
-          submitted ||
-          (staging &&
-            !(error instanceof ManagedDirectoryError && error.reason === 'refused'))
-        ) {
+        } else if (submitted) {
           preparation.stored = await this.store
             .save(preparation.key!, stored.revision, {
               ...stored,

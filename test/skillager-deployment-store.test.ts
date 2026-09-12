@@ -6,6 +6,7 @@ import {
   parseDeploymentFile,
   deploymentRecordBytes,
   deploymentTree,
+  type SkillagerDeployment,
 } from '../src/main/skillager/skillager-deployment-record'
 import { deploymentFixture, preparedTarget } from './skillager-deployment-fixture'
 
@@ -35,6 +36,56 @@ function fixture(initial?: string) {
     content: () => content,
   }
 }
+it('keeps record bytes and transport trees stable across object ordering and reload', async () => {
+  const incoming: SkillagerDeployment = {
+    ...deploymentFixture,
+    payload: {
+      files: [
+        ...deploymentFixture.payload.files,
+        { ...deploymentFixture.payload.files[0]!, entry: 'helper.sh', mode: 0o755 },
+      ],
+    },
+  }
+  const reordered: SkillagerDeployment = {
+    ...(Object.fromEntries(Object.entries(incoming).reverse()) as SkillagerDeployment),
+    library: {
+      skillsRoot: Object.assign(
+        { path: incoming.library.skillsRoot.path },
+        incoming.library.skillsRoot,
+      ),
+      root: Object.assign({ path: incoming.library.root.path }, incoming.library.root),
+      id: incoming.library.id,
+    },
+    destination: {
+      root: Object.assign(
+        { path: incoming.destination.root.path },
+        incoming.destination.root,
+      ),
+      workspaceId: incoming.destination.workspaceId,
+      projectId: incoming.destination.projectId,
+    },
+    payload: {
+      files: incoming.payload.files
+        .toReversed()
+        .map(({ entry, mode, size, sha256 }) => ({ sha256, size, mode, entry })),
+    },
+  }
+  expect(deploymentRecordBytes(reordered)).toEqual(deploymentRecordBytes(incoming))
+  expect(deploymentTree(reordered)).toEqual(deploymentTree(incoming))
+  const { store, host } = fixture(),
+    target = preparedTarget()
+  await store.save(deploymentKey(target.identity), 0, {
+    ...target,
+    intent: { ...target.intent!, incoming: reordered },
+  })
+  const reopened = new SkillagerDeploymentStore(
+    host,
+    localPath('/state/deployments.json'),
+  )
+  const restored = (await reopened.read())[0]!.intent!.incoming!
+  expect(deploymentRecordBytes(restored)).toEqual(deploymentRecordBytes(incoming))
+  expect(deploymentTree(restored)).toEqual(deploymentTree(incoming))
+})
 it('persists exact local intent and reloads it without adopting remote metadata', async () => {
   const { store, host, content } = fixture()
   expect(await store.read()).toEqual([])

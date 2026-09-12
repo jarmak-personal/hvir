@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import { hostPathEquals, type HostPath } from '../../shared/host-path'
 import type {
   ManagedDirectoryReceipt,
@@ -70,10 +69,6 @@ export class ManagedDirectoryError extends Error {
   ) {
     super(message)
   }
-}
-
-export function managedDirectoryLockEntry(target: string): string {
-  return `.hvir-directory-lock-${createHash('sha256').update(target).digest('hex').slice(0, 32)}`
 }
 
 export function validateManagedTree(tree: ManagedDirectoryTree): void {
