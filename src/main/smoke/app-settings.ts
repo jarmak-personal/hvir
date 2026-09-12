@@ -10,7 +10,7 @@ export async function verifyAppSettings(win: BrowserWindow): Promise<void> {
             '.settings-section-index button'
           ) || [])];
           const appearance = dialog?.querySelector('#settings-appearance-title');
-          if (!dialog || !appearance || sections.length !== 5) {
+          if (!dialog || !appearance || sections.length !== 6) {
             return reject(new Error('settings surface incomplete'));
           }
           sections.find((button) => button.textContent?.trim() === 'Keybindings')?.click();
@@ -62,7 +62,7 @@ export async function verifyAppSettings(win: BrowserWindow): Promise<void> {
                   if (document.querySelector('.settings-dialog')) {
                     return reject(new Error('settings dialog did not close'));
                   }
-                  resolve('5 sections · modal isolation · validation focus');
+                  resolve('6 sections · modal isolation · validation focus');
                 });
               });
               });

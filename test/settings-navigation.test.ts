@@ -14,6 +14,7 @@ describe('settings navigation policy', () => {
       'git',
       'keybindings',
       'harnesses',
+      'integrations',
     ])
   })
 
