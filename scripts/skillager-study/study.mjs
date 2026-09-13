@@ -16,6 +16,11 @@ import {
   finishSampleSetup,
   cancelSampleSetup,
   reconcileSampleSetup,
+  projectMetadataSample,
+  beginProjectSetupSample,
+  completeProjectSetupSample,
+  finishProjectTerminalSample,
+  refreshProjectSample,
 } from './model.mjs'
 import {
   connectionView,
@@ -25,12 +30,15 @@ import {
   skillsRailView,
   reviewView,
   escapeHtml,
+  nativeProjectDetailView,
+  projectTerminalView,
 } from './views.mjs'
 const $ = (selector) => document.querySelector(selector)
 let state = initialState(),
   preview,
   searchTimer,
   setupTimer,
+  projectSetupTimer,
   queryGeneration = 0,
   toastTimer,
   periodic
@@ -61,6 +69,7 @@ function modal(html) {
 }
 function refresh() {
   if (!state.connected || !skillsVisible(state)) return
+  refreshProjectSample(state)
   state.lastChecked = `Checked at ${new Date().toLocaleTimeString()} · ${destinationFor(state).label}`
   render()
 }
@@ -70,12 +79,22 @@ function render() {
     ? [$('#search').selectionStart, $('#search').selectionEnd]
     : null
   $('#active-workspace').textContent = destinationFor(state).label
+  $('#project-terminal-lab').hidden = !state.projectStudy
+  $('#setup-terminal').hidden = state.selectedTerminal === 'ordinary'
+  $('#ordinary-terminal').hidden = state.selectedTerminal !== 'ordinary'
+  $('#setup-terminal').innerHTML = projectTerminalView(state)
+  $('#setup-terminal-tabs').innerHTML = state.setupTerminals
+    .map(
+      (terminal) =>
+        `<button data-terminal="${terminal.id}">Shell · setup ${terminal.id.slice(6)}</button>`,
+    )
+    .join('')
   $('#skills-nav-container').innerHTML = state.enabled
     ? '<button id="skills-nav" data-rail="skills">Skills</button>'
     : ''
   $('#skills-tab-container').innerHTML =
     state.enabled && state.skillsOpen
-      ? `<button data-viewer="skills">${escapeHtml(state.selected)}</button><button data-action="close-skills" aria-label="Close skill">×</button>`
+      ? `<button data-viewer="skills">${escapeHtml(state.nativeSelected || state.selected)}</button><button data-action="close-skills" aria-label="Close skill">×</button>`
       : ''
   for (const viewer of ['skills', 'document', 'history']) {
     $(`#${viewer}-view`).hidden = state.viewer !== viewer
@@ -92,9 +111,11 @@ function render() {
   $('#skills-rail').innerHTML = skillsRailView(state)
   $('#skills-view').innerHTML =
     state.enabled && state.connected && state.skillsOpen
-      ? state.reviewOpen
-        ? reviewView(state)
-        : `<article class="details" id="details">${detailView(state)}</article>`
+      ? state.nativeSelected
+        ? nativeProjectDetailView(state)
+        : state.reviewOpen
+          ? reviewView(state)
+          : `<article class="details" id="details">${detailView(state)}</article>`
       : ''
   document
     .querySelectorAll('[data-perspective]')
@@ -125,6 +146,9 @@ function selectRail(rail) {
 function revokeFeature() {
   cancelSampleSetup(state)
   clearTimeout(setupTimer)
+  clearTimeout(projectSetupTimer)
+  state.pendingProjectSetup = null
+  state.nativeSelected = null
   state.connected = false
   state.generation++
   cancelSearch()
@@ -226,6 +250,16 @@ function action(name) {
     return modal(connectionView(state))
   }
   if (!state.connected) return
+  if (name === 'project-setup') {
+    const handoff = beginProjectSetupSample(state)
+    if (!handoff) return
+    render()
+    projectSetupTimer = setTimeout(() => {
+      completeProjectSetupSample(state, handoff)
+      render()
+    }, 400)
+    return
+  }
   if (name === 'metadata') {
     state.reviewOpen = false
     return render()
@@ -286,6 +320,7 @@ function action(name) {
 function scenario(name) {
   clearTimeout(toastTimer)
   clearTimeout(setupTimer)
+  clearTimeout(projectSetupTimer)
   $('#toast').hidden = true
   cancelSearch()
   closeDialog()
@@ -329,6 +364,22 @@ function scenario(name) {
     state.exposures = {}
     state.skillsOpen = false
     state.viewer = state.lastOrdinaryViewer
+  }
+  if (['project-existing', 'project-empty', 'project-unavailable'].includes(name)) {
+    state.projectStudy = true
+    state.perspective = 'workspace'
+    state.skillsOpen = false
+    state.viewer = state.lastOrdinaryViewer
+    for (const destination of ['local-main', 'local-review'])
+      for (const agent of ['codex', 'claude']) {
+        const sample = projectMetadataSample()
+        if (name !== 'project-existing') sample.rows = sample.externalRows = []
+        if (name === 'project-unavailable') {
+          sample.metadataUnavailable = true
+          sample.external = sample.observed = { state: 'Unavailable', working: 'Unknown' }
+        }
+        state.projectSamples[`${destination}/${agent}`] = sample
+      }
   }
   if (name === 'unavailable')
     state.lastChecked = 'Unavailable · last checked 4 minutes ago'
@@ -374,6 +425,10 @@ function scenario(name) {
 document.addEventListener('click', (event) => {
   const button = event.target.closest('button')
   if (!button || button.disabled) return
+  if (button.dataset.terminal) {
+    state.selectedTerminal = button.dataset.terminal
+    return render()
+  }
   if (button.dataset.action) return action(button.dataset.action)
   if (button.dataset.rail) return selectRail(button.dataset.rail)
   if (button.dataset.viewer) return selectViewer(button.dataset.viewer)
@@ -383,7 +438,14 @@ document.addEventListener('click', (event) => {
     state.perspective = button.dataset.perspective
     return render()
   }
+  if (button.dataset.native) {
+    state.nativeSelected = button.dataset.native
+    state.skillsOpen = true
+    state.reviewOpen = false
+    return selectViewer('skills')
+  }
   if (button.dataset.select) {
+    state.nativeSelected = null
     state.selected = button.dataset.select
     state.reviewOpen = false
     state.skillsOpen = true
@@ -431,6 +493,13 @@ document.addEventListener('change', (event) => {
   if (!state.enabled) return
   if (event.target.id === 'library-git') state.setup.git = event.target.checked
   if (['destination', 'agent'].includes(event.target.id)) {
+    clearTimeout(projectSetupTimer)
+    state.pendingProjectSetup = null
+    state.nativeSelected = null
+    if (state.projectStudy) {
+      state.skillsOpen = false
+      state.viewer = state.lastOrdinaryViewer
+    }
     cancelSearch()
     closeDialog()
     state[event.target.id] = event.target.value
@@ -482,6 +551,19 @@ $('#reset').onclick = () => {
   scenario('disabled')
 }
 $('#scenario').onchange = (event) => scenario(event.target.value)
+$('#finish-project-terminal').onclick = () => {
+  finishProjectTerminalSample(state, $('#project-outcome').value)
+  render()
+}
+$('#recover-project-terminal').onclick = () => {
+  // Simulate ordinary terminal recovery with the one-shot setup command omitted.
+  const terminal = state.setupTerminals.find((t) => t.id === state.selectedTerminal)
+  if (terminal) {
+    terminal.running = false
+    terminal.recovered = true
+  }
+  render()
+}
 function refreshIfActive() {
   if (
     automaticRefreshAllowed(

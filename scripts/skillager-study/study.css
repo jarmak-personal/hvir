@@ -609,3 +609,30 @@ dialog label.inline {
 .connection-details summary {
   cursor: pointer;
 }
+
+.project-setup {
+  padding: 10px 0;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.project-setup h2 {
+  font-size: 15px;
+}
+.project-setup p {
+  margin-bottom: 6px;
+}
+.project-setup small {
+  display: block;
+  margin-top: 8px;
+}
+#setup-terminal-tabs:empty {
+  display: none;
+}
+#setup-terminal header button {
+  float: right;
+  padding: 2px 6px;
+}
+
+body:has(#project-terminal-lab:not([hidden])) .frame {
+  height: calc(100vh - 112px);
+}

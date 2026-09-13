@@ -1,6 +1,7 @@
 # ADR-046: Explicit Skillager library and workspace exposure authority
 
 > Lifecycle: Partially superseded
+> Superseded by: [ADR-048](ADR-048-explicit-skillager-project-setup.md) | partial | Local project setup terminal handoff and Working installation, existing-project metadata presentation, and post-handoff terminal lifetime only.
 > Superseded by: [ADR-047](ADR-047-explicit-skillager-library-initialization.md) | partial | Initial personal-library connection and first-use presentation only; add explicit local initialization followed by verified metadata connection.
 > Supersedes: [ADR-010](ADR-010-project-host-remote-boundary.md) | partial | Registered-project confinement for the named local personal-library metadata, review, and acceptance capability.
 > Supersedes: [ADR-030](ADR-030-bounded-project-file-operations.md) | partial | No-replacement rule only for explicitly confirmed, verified unchanged Skillager-managed local exposures and hvir-managed SSH deployments.

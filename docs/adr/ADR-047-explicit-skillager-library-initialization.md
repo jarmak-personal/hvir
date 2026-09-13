@@ -1,6 +1,7 @@
 # ADR-047: Explicit Skillager personal-library initialization
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-048](ADR-048-explicit-skillager-project-setup.md) | partial | Interactive setup and shell-launch exclusion only for the separately requested project setup handoff; personal-library initialization and first-skill guidance remain unchanged.
 > Supersedes: [ADR-010](ADR-010-project-host-remote-boundary.md) | partial | Registered-project confinement only for the named local personal-library initialization and registration capability.
 > Supersedes: [ADR-046](ADR-046-explicit-skillager-library-and-exposure-authority.md) | partial | Initial personal-library connection and first-use presentation only; add explicit local initialization followed by verified metadata connection.
 

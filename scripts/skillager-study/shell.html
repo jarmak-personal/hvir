@@ -17,6 +17,11 @@
         >Try a flow
         <select id="scenario">
           <option value="disabled">First use · disabled</option>
+          <option value="project-existing">
+            Existing project skills · terminal setup
+          </option>
+          <option value="project-empty">No project skills reported</option>
+          <option value="project-unavailable">Project metadata unavailable</option>
           <option value="browse">Connected library</option>
           <option value="search">Search a large catalog (sample)</option>
           <option value="add">Add to workspace</option>
@@ -46,6 +51,20 @@
           <option value="notify">Observe accepted update</option>
         </select></label
       ><button id="reset">Reset</button><span>Sample data · no CLI or file writes</span>
+    </div>
+    <div id="project-terminal-lab" class="lab" hidden>
+      <label
+        >Observed outcome after exit (synthetic)<select id="project-outcome">
+          <option>Pending review</option>
+          <option>Blocked</option>
+          <option>Paused</option>
+          <option>Incomplete</option>
+          <option>Ready</option>
+        </select></label
+      ><button id="finish-project-terminal">Finish setup terminal (sample)</button
+      ><button id="recover-project-terminal">
+        Recover terminal (sample · no replay)
+      </button>
     </div>
     <div class="frame">
       <header class="titlebar">● ● ● <span>hvir — workbench</span></header>
@@ -96,15 +115,19 @@
           </section>
         </main>
         <div class="terminal" id="terminal-pane">
-          <header>◇ Codex · database review</header>
-          <pre>
+          <nav id="setup-terminal-tabs" aria-label="Setup terminal illustrations"></nav>
+          <section id="ordinary-terminal">
+            <header>◇ Codex · database review</header>
+            <pre>
 › Review the database migration and its rollback path.
 
 I checked the migration and rollback steps.
 The review is ready in the viewer above.
 
 › ▋</pre>
-          <small>Session illustration</small>
+            <small>Session illustration</small>
+          </section>
+          <section id="setup-terminal" hidden></section>
         </div>
         <aside class="sessions">
           <header>Terminals</header>
