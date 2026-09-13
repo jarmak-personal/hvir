@@ -46,7 +46,7 @@ export interface TerminalSessionRuntimesProps {
     identityStatus: TerminalIdentityStatus,
     identityDiverged?: true,
   ) => void
-  readonly onForkStartFailed: (id: string, reason: string) => void
+  readonly onStartFailed: (id: string, reason: string) => void
   readonly onExit: (id: string, exitCode: number) => void
   readonly onInput: (id: string, data: string) => void
   readonly onOutput: (id: string) => void
@@ -80,7 +80,7 @@ export function TerminalSessionRuntimes({
   onUpdateSession,
   onFreshStarted,
   onForkIdentity,
-  onForkStartFailed,
+  onStartFailed,
   onExit,
   onInput,
   onOutput,
@@ -104,6 +104,7 @@ export function TerminalSessionRuntimes({
           <TerminalView
             key={session.id}
             sessionId={session.id}
+            initialStart={session.initialStart}
             profileId={session.profileId}
             launchRevision={session.launchRevision}
             supportsResume={session.capabilities.exactResume}
@@ -167,12 +168,19 @@ export function TerminalSessionRuntimes({
                 identityDiverged,
               )
             }}
-            onStartFailed={(reason) => onForkStartFailed(session.id, reason)}
+            onStartFailed={(reason) => onStartFailed(session.id, reason)}
             onExit={(exitCode) => onExit(session.id, exitCode)}
             onStarted={() =>
               onUpdateSession(session.id, (current) =>
-                current.resumeOnStart || current.startMode === 'bulk'
-                  ? { ...current, resumeOnStart: false, startMode: 'interactive' }
+                current.initialStart ||
+                current.resumeOnStart ||
+                current.startMode === 'bulk'
+                  ? {
+                      ...current,
+                      initialStart: undefined,
+                      resumeOnStart: false,
+                      startMode: 'interactive',
+                    }
                   : current,
               )
             }

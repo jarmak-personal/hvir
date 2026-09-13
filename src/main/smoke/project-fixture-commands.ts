@@ -1,3 +1,5 @@
+import { ProjectFolderPickerCoordinator } from '../project-folder-picker'
+import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import {
   MAX_PROJECT_WATCH_INTERESTS,
   hostPathEquals,
@@ -12,6 +14,7 @@ import type { workspaceCloseSmokeCommands } from './workspace-close'
 /** Project/host command fixture behind the production IPC authority router. */
 export function createProjectFixtureCommands(options: {
   host: ProjectHost
+  rendererResources: RendererResourceScopes
   smokeRemoteHost: ProjectHost
   smokeRoot: HostPath
   smokeRemoteRoot: HostPath
@@ -165,5 +168,12 @@ export function createProjectFixtureCommands(options: {
     pullGit: () => Promise.resolve(setSmokeProjectState(smokeProjectState())),
     respondSshPrompt: () => undefined,
   }
-  return { ports, browseHost: browseSmokeHost, openedFolderSelections, revealedEntries }
+  const projectFolderPicker = new ProjectFolderPickerCoordinator(
+    {
+      hostById: (hostId) => (hostId === smokeRemoteHost.hostId ? smokeRemoteHost : host),
+    },
+    { browseHost: browseSmokeHost },
+    options.rendererResources,
+  )
+  return { ports, projectFolderPicker, openedFolderSelections, revealedEntries }
 }

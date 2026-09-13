@@ -1,3 +1,5 @@
+import { verifySkillagerScenario } from './skillager'
+import { createSkillagerSmoke as createSkills } from './skillager-fixture'
 import {
   verifyTerminalThemeScenario,
   verifyTerminalMoveScenario,
@@ -25,7 +27,6 @@ import type { BrowserWindow } from 'electron'
 import { dispatchWorkerHostCall } from '../git/worker-host-broker'
 import { createFilenameSearchCoordinator } from '../filename-search'
 import { createProjectFileOperationCoordinator } from '../project-file-operations'
-import { ProjectFolderPickerCoordinator } from '../project-folder-picker'
 import { createDocumentReviewRuntime } from '../document-review'
 import { HarnessProfileStore } from '../harness/harness-profile-store'
 import {
@@ -367,11 +368,12 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     cleanup.defer('project file operations', () => projectFiles.dispose())
     const {
       ports: projectCommands,
-      browseHost,
+      projectFolderPicker,
       openedFolderSelections,
       revealedEntries,
     } = createProjectFixtureCommands({
       host,
+      rendererResources,
       smokeRemoteHost,
       smokeRoot,
       smokeRemoteRoot,
@@ -384,19 +386,12 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       preserveSelection: mode === 'sessions-projection',
       projectReturn: mode === 'terminal-presentation' || mode === 'document-review',
     })
-    const projectFolderPicker = new ProjectFolderPickerCoordinator(
-      {
-        hostById: (hostId) =>
-          hostId === smokeRemoteHost.hostId ? smokeRemoteHost : host,
-      },
-      { browseHost },
-      rendererResources,
-    )
     const readiness = new SmokeRendererReadiness()
     const ipcRouter = registerIpcHandlers({
       echoWorker: worker,
       gitWorker: git,
       filenameSearch,
+      skillager: createSkills(rendererResources, cleanup, projectCommands, htmlPreviews, { ptySupervisor: supervisor, profiles: smokeHarnessProfiles, sessions: smokeTerminalSessions }),
       projectFiles,
       projectFolderPicker,
       documentReview: documentReview.coordinator,
@@ -743,6 +738,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       'workbench-layout': () => verifyWorkbenchLayoutScenario(win, supervisor),
       'terminal-split': () => verifyTerminalSplitScenario(win, supervisor),
       'app-settings': () => verifyAppSettingsScenario(win, supervisor),
+      skillager: () => verifySkillagerScenario(win, supervisor, projectFixture, emit),
       'harness-profiles': () =>
         verifyHarnessProfilesScenario(win, supervisor, host, smokeRoot),
     }

@@ -22,12 +22,13 @@ import type {
   TerminalTypography,
 } from './terminal-pane'
 import { useTerminalPaneController } from './use-terminal-pane-controller'
-import type { FreshTerminalStart } from './terminal-runtime-options'
+import type { FreshTerminalStart, TerminalInitialStart } from './terminal-runtime-options'
 import type { TerminalForkRequest } from './terminal-workspace-model'
 import type { TerminalRuntimeRegistry } from './terminal-runtime-registry'
 import { useTerminalContextMenu } from './use-terminal-context-menu'
 
 interface TerminalViewProps {
+  readonly initialStart?: TerminalInitialStart
   readonly sessionId: string
   readonly profileId: HarnessProfileId
   readonly launchRevision: number

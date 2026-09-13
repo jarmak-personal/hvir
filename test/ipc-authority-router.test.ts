@@ -452,6 +452,31 @@ describe('IpcAuthorityRouter', () => {
   it('keeps the reviewed owner and authority channel policies explicit', () => {
     expect(new Set(OWNER_SCOPED_INVOKE_CHANNELS)).toEqual(
       new Set<IpcInvokeChannel>([
+        'skillager:start-project-setup',
+        'skillager:release-project-setup',
+        'skillager:configure',
+        'skillager:probe',
+        'skillager:choose-library-folder',
+        'skillager:initialize-library',
+        'skillager:reconcile-library',
+        'skillager:connect',
+        'skillager:disconnect',
+        'skillager:project-metadata',
+        'skillager:prepare-project-setup',
+        'skillager:inventory',
+        'skillager:search',
+        'skillager:cancel',
+        'skillager:review',
+        'skillager:history',
+        'skillager:review-content',
+        'skillager:review-diff',
+        'skillager:accept-review',
+        'skillager:release-review',
+        'skillager:cancel-review',
+        'skillager:preview-exposure',
+        'skillager:apply-exposure',
+        'skillager:release-exposure',
+        'skillager:cancel-exposure',
         'workbench-health:acknowledge',
         'diagnostic-evidence:get',
         'diagnostic-evidence:delete',
@@ -518,6 +543,16 @@ describe('IpcAuthorityRouter', () => {
     )
     expect(new Set(AUTHORITY_SCOPED_INVOKE_CHANNELS)).toEqual(
       new Set<IpcInvokeChannel>([
+        'skillager:project-metadata',
+        'skillager:prepare-project-setup',
+        'skillager:inventory',
+        'skillager:preview-exposure',
+        'skillager:search',
+        'skillager:review',
+        'skillager:history',
+        'skillager:review-content',
+        'skillager:review-diff',
+        'skillager:accept-review',
         'project:watch-interests',
         'document-review:restore',
         'document-review:save',
@@ -585,6 +620,7 @@ describe('IpcAuthorityRouter', () => {
       'clipboard.ts',
       'terminal-file-paste.ts',
       'sessions.ts',
+      'skillager.ts',
     ]
     const source = (
       await Promise.all(
@@ -598,7 +634,7 @@ describe('IpcAuthorityRouter', () => {
     expect(source).not.toMatch(/getRegisteredWorkspaceRoot/)
     for (const channel of AUTHORITY_SCOPED_INVOKE_CHANNELS) {
       expect(registrationBlock(source, 'handle', channel)).toMatch(
-        /ipc\.authority\.|authorizeDocumentRead\(ipc\.authority,/,
+        /ipc\.authority\.|(?:authorizeDocumentRead|qualifySkillagerRequest|qualifyExposureRequest)\(ipc\.authority,/,
       )
     }
     for (const channel of OWNER_SCOPED_INVOKE_CHANNELS) {
@@ -607,6 +643,35 @@ describe('IpcAuthorityRouter', () => {
     for (const channel of OWNER_SCOPED_SEND_CHANNELS) {
       expect(registrationBlock(source, 'handleSend', channel)).toMatch(/\.owner\(\)/)
     }
+  })
+
+  it('qualifies a selected Skillager executable and rejects SSH before the local probe', async () => {
+    const { deps, transport } = fixture()
+    const probe = vi.fn(() =>
+      Promise.resolve({ ok: false, reason: 'missing', message: 'Missing fixture CLI' }),
+    )
+    Object.assign(deps, { skillager: { probe } })
+    registerIpcHandlers(deps, transport)
+    const invoke = transport.invokes.get('skillager:probe')?.[0]
+    await expect(
+      Promise.resolve().then(() =>
+        invoke?.(ipcEvent(), {
+          executable: { hostId: 'local', path: '/tmp/../tools/skillager' },
+        }),
+      ),
+    ).rejects.toThrow('must already be normalized')
+    await invoke?.(ipcEvent(), {
+      executable: { hostId: 'local', path: '/tools/skillager' },
+    })
+    expect(probe).toHaveBeenCalledWith(owner, localPath('/tools/skillager'))
+    await expect(
+      Promise.resolve().then(() =>
+        invoke?.(ipcEvent(), {
+          executable: { hostId: 'ssh:example', path: '/tools/skillager' },
+        }),
+      ),
+    ).rejects.toThrow('must be local')
+    expect(probe).toHaveBeenCalledOnce()
   })
 
   it('reconstructs normalized create-entry paths and qualifies the exact owner', async () => {

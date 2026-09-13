@@ -570,6 +570,31 @@ describe('LocalHost', () => {
     await duplex.end()
     duplex.dispose()
   })
+  it.each([false, true])(
+    'rejects a failed stdin callback and contains late EPIPE after disposal=%s',
+    async (disposeEarly) => {
+      const stream = host.execStream(
+        process.execPath,
+        [
+          '-e',
+          "require('node:fs').closeSync(0); process.stdout.write('closed\\n'); setInterval(() => {}, 1000)",
+        ],
+        { keepStdinOpen: true, signal: AbortSignal.timeout(4000) },
+      )
+      try {
+        await new Promise<void>((resolve, reject) => {
+          stream.onStdout(() => resolve())
+          stream.onError(reject)
+        })
+        const writing = stream.write('x'.repeat(MAX_EXEC_STREAM_WRITE_BYTES))
+        const rejected = expect(writing).rejects.toMatchObject({ code: 'EPIPE' })
+        if (disposeEarly) stream.dispose()
+        await rejected
+      } finally {
+        stream.dispose()
+      }
+    },
+  )
 
   it('reports streaming spawn errors instead of emitting an unhandled error', async () => {
     const stream = host.execStream('/definitely/not/a/real/hvir-command', [])

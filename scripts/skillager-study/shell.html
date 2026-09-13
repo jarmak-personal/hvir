@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <title>hvir · Skills interaction study</title>
+    <!-- STYLE -->
+  </head>
+  <body>
+    <div class="lab">
+      <strong>hvir × Skillager · Offline study</strong
+      ><label
+        >Try a flow
+        <select id="scenario">
+          <option value="disabled">First use · disabled</option>
+          <option value="project-existing">
+            Existing project skills · terminal setup
+          </option>
+          <option value="project-empty">No project skills reported</option>
+          <option value="project-unavailable">Project metadata unavailable</option>
+          <option value="browse">Connected library</option>
+          <option value="search">Search a large catalog (sample)</option>
+          <option value="add">Add to workspace</option>
+          <option value="switch">Change to a stub</option>
+          <option value="remove">Remove from workspace</option>
+          <option value="pending">Accept library changes</option>
+          <option value="update">Review workspace update</option>
+          <option value="modified">Modified target</option>
+          <option value="pinned">Pinned target</option>
+          <option value="unmanaged">Unmanaged target</option>
+          <option value="blocked">Blocked target</option>
+          <option value="stale">Stale preview</option>
+          <option value="missing">Missing CLI</option>
+          <option value="cli-available">CLI available externally · check again</option>
+          <option value="setup">First use · create personal library</option>
+          <option value="setup-error">Library setup · Git failure</option>
+          <option value="setup-git-mismatch">
+            Library setup · existing Git mode differs
+          </option>
+          <option value="setup-status-unavailable">
+            Library setup · status unavailable after cancellation
+          </option>
+          <option value="setup-remote">Library setup · SSH workspace selected</option>
+          <option value="empty">Empty library</option>
+          <option value="unavailable">Status unavailable</option>
+          <option value="remote">Local → SSH Full skill</option>
+          <option value="notify">Observe accepted update</option>
+        </select></label
+      ><button id="reset">Reset</button><span>Sample data · no CLI or file writes</span>
+    </div>
+    <div id="project-terminal-lab" class="lab" hidden>
+      <label
+        >Observed outcome after exit (synthetic)<select id="project-outcome">
+          <option>Pending review</option>
+          <option>Blocked</option>
+          <option>Paused</option>
+          <option>Incomplete</option>
+          <option>Ready</option>
+        </select></label
+      ><button id="finish-project-terminal">Finish setup terminal (sample)</button
+      ><button id="recover-project-terminal">
+        Recover terminal (sample · no replay)
+      </button>
+    </div>
+    <div class="frame">
+      <header class="titlebar">● ● ● <span>hvir — workbench</span></header>
+      <div class="projects">
+        <strong>hvir</strong><span>diabot</span><span>atlas</span
+        ><button id="settings">Settings</button>
+      </div>
+      <div class="workspaces" id="active-workspace">Local · hvir / main</div>
+      <div class="workbench">
+        <aside class="left">
+          <nav class="rail-tabs" aria-label="Project views">
+            <button data-rail="files">Files</button><button data-rail="git">Git</button>
+            <span id="skills-nav-container"></span>
+          </nav>
+          <div class="file-tree" id="files-rail">
+            <p>▾ hvir</p>
+            <p>　▸ src</p>
+            <p>　▾ docs</p>
+            <button data-viewer="document">　design.md</button>
+            <p>　package.json</p>
+          </div>
+          <div class="file-tree" id="git-rail" hidden>
+            <h3>Changes · main</h3>
+            <p>Working tree clean</p>
+            <button data-viewer="history">Git history</button>
+          </div>
+          <section id="skills-rail" hidden></section>
+        </aside>
+        <main class="main">
+          <nav class="viewer-tabs" aria-label="Viewer tabs">
+            <button data-viewer="document">design.md</button
+            ><button data-viewer="history">Git history</button
+            ><span id="skills-tab-container"></span>
+          </nav>
+          <section id="skills-view" class="content" hidden></section>
+          <section id="document-view" class="static-document" hidden>
+            <small>docs/design.md · Rendered</small>
+            <h1>hvir — Design &amp; Architecture</h1>
+            <p>A lightweight, view-first workbench for agentic development.</p>
+            <h2>Stay in the loop</h2>
+            <p>Read the code, inspect changes, and keep your agent terminals close.</p>
+          </section>
+          <section id="history-view" class="static-document" hidden>
+            <small>Git history · main</small>
+            <h1>History</h1>
+            <p>● 7acbf88 · Refine workbench workflows</p>
+            <p>│ Earlier commits</p>
+          </section>
+        </main>
+        <div class="terminal" id="terminal-pane">
+          <nav id="setup-terminal-tabs" aria-label="Setup terminal illustrations"></nav>
+          <section id="ordinary-terminal">
+            <header>◇ Codex · database review</header>
+            <pre>
+› Review the database migration and its rollback path.
+
+I checked the migration and rollback steps.
+The review is ready in the viewer above.
+
+› ▋</pre>
+            <small>Session illustration</small>
+          </section>
+          <section id="setup-terminal" hidden></section>
+        </div>
+        <aside class="sessions">
+          <header>Terminals</header>
+          <p>Database review</p>
+          <small>Codex · main</small>
+          <p class="pill">Ready</p>
+          <hr />
+          <p>Shell</p>
+          <small>zsh · main · Idle</small>
+        </aside>
+      </div>
+      <footer class="statusbar">Local · main <span>Ready</span></footer>
+    </div>
+    <dialog id="dialog" aria-labelledby="dialog-title"></dialog>
+    <div id="toast" role="status" hidden></div>
+    <!-- SCRIPT -->
+  </body>
+</html>

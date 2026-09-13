@@ -72,6 +72,7 @@ jobs:
       HVIR_REAL_SSH_ROOT_PARENT: ${{ secrets.HVIR_REAL_SSH_ROOT_PARENT }}
       HVIR_REAL_SSH_PRIVATE_KEY: ${{ secrets.HVIR_REAL_SSH_PRIVATE_KEY }}
       HVIR_REAL_SSH_PASSPHRASE: ${{ secrets.HVIR_REAL_SSH_PASSPHRASE }}
+      HVIR_REAL_SSH_SKILLAGER: ${{ vars.HVIR_REAL_SSH_SKILLAGER }}
 
     steps:
       - name: Check out repository

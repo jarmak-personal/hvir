@@ -1,0 +1,600 @@
+const { document, window, setTimeout, clearTimeout, setInterval, clearInterval } =
+  globalThis
+import {
+  initialState,
+  destinations,
+  destinationFor,
+  skillFor,
+  exposuresFor,
+  sampleSearch,
+  previewSnapshot,
+  applySample,
+  libraries,
+  automaticRefreshAllowed,
+  skillsVisible,
+  beginSampleSetup,
+  finishSampleSetup,
+  cancelSampleSetup,
+  reconcileSampleSetup,
+  projectMetadataSample,
+  beginProjectSetupSample,
+  completeProjectSetupSample,
+  finishProjectTerminalSample,
+  refreshProjectSample,
+} from './model.mjs'
+import {
+  connectionView,
+  pickerView,
+  previewView,
+  detailView,
+  skillsRailView,
+  reviewView,
+  escapeHtml,
+  nativeProjectDetailView,
+  projectTerminalView,
+} from './views.mjs'
+const $ = (selector) => document.querySelector(selector)
+let state = initialState(),
+  preview,
+  searchTimer,
+  setupTimer,
+  projectSetupTimer,
+  queryGeneration = 0,
+  toastTimer,
+  periodic
+function notify(text) {
+  if (!state.enabled) return
+  clearTimeout(toastTimer)
+  $('#toast').textContent = text
+  $('#toast').hidden = false
+  toastTimer = setTimeout(() => {
+    $('#toast').hidden = true
+  }, 5000)
+}
+function cancelSearch() {
+  clearTimeout(searchTimer)
+  queryGeneration++
+  state.searching = false
+  state.results = null
+  state.submittedQuery = ''
+}
+function closeDialog() {
+  $('#dialog').close()
+  $('#dialog').innerHTML = ''
+  preview = null
+}
+function modal(html) {
+  $('#dialog').innerHTML = html
+  if (!$('#dialog').open) $('#dialog').showModal()
+}
+function refresh() {
+  if (!state.connected || !skillsVisible(state)) return
+  refreshProjectSample(state)
+  state.lastChecked = `Checked at ${new Date().toLocaleTimeString()} · ${destinationFor(state).label}`
+  render()
+}
+function render() {
+  const focusedSearch = document.activeElement?.id === 'search'
+  const selection = focusedSearch
+    ? [$('#search').selectionStart, $('#search').selectionEnd]
+    : null
+  $('#active-workspace').textContent = destinationFor(state).label
+  $('#project-terminal-lab').hidden = !state.projectStudy
+  $('#setup-terminal').hidden = state.selectedTerminal === 'ordinary'
+  $('#ordinary-terminal').hidden = state.selectedTerminal !== 'ordinary'
+  $('#setup-terminal').innerHTML = projectTerminalView(state)
+  $('#setup-terminal-tabs').innerHTML = state.setupTerminals
+    .map(
+      (terminal) =>
+        `<button data-terminal="${terminal.id}">Shell · setup ${terminal.id.slice(6)}</button>`,
+    )
+    .join('')
+  $('#skills-nav-container').innerHTML = state.enabled
+    ? '<button id="skills-nav" data-rail="skills">Skills</button>'
+    : ''
+  $('#skills-tab-container').innerHTML =
+    state.enabled && state.skillsOpen
+      ? `<button data-viewer="skills">${escapeHtml(state.nativeSelected || state.selected)}</button><button data-action="close-skills" aria-label="Close skill">×</button>`
+      : ''
+  for (const viewer of ['skills', 'document', 'history']) {
+    $(`#${viewer}-view`).hidden = state.viewer !== viewer
+    document
+      .querySelectorAll(`[data-viewer="${viewer}"]`)
+      .forEach((b) => b.classList.toggle('active', state.viewer === viewer))
+  }
+  for (const rail of ['files', 'git', 'skills']) {
+    $(`#${rail}-rail`).hidden = state.railMode !== rail
+    document
+      .querySelectorAll(`[data-rail="${rail}"]`)
+      .forEach((b) => b.classList.toggle('active', state.railMode === rail))
+  }
+  $('#skills-rail').innerHTML = skillsRailView(state)
+  $('#skills-view').innerHTML =
+    state.enabled && state.connected && state.skillsOpen
+      ? state.nativeSelected
+        ? nativeProjectDetailView(state)
+        : state.reviewOpen
+          ? reviewView(state)
+          : `<article class="details" id="details">${detailView(state)}</article>`
+      : ''
+  document
+    .querySelectorAll('[data-perspective]')
+    .forEach((b) =>
+      b.classList.toggle('active', b.dataset.perspective === state.perspective),
+    )
+  syncRefreshDemand()
+  if (focusedSearch && $('#search')) {
+    $('#search').focus()
+    $('#search').setSelectionRange(...selection)
+  }
+}
+function selectViewer(viewer) {
+  if (viewer === 'skills' && (!state.enabled || !state.skillsOpen)) return
+  closeDialog()
+  state.viewer = viewer
+  if (viewer !== 'skills') state.lastOrdinaryViewer = viewer
+  refresh()
+  render()
+}
+function selectRail(rail) {
+  if (rail === 'skills' && !state.enabled) return
+  if (rail !== 'skills') cancelSearch()
+  state.railMode = rail
+  refresh()
+  render()
+}
+function revokeFeature() {
+  cancelSampleSetup(state)
+  clearTimeout(setupTimer)
+  clearTimeout(projectSetupTimer)
+  state.pendingProjectSetup = null
+  state.nativeSelected = null
+  state.connected = false
+  state.generation++
+  cancelSearch()
+  clearInterval(periodic)
+  periodic = undefined
+  clearTimeout(toastTimer)
+  $('#toast').hidden = true
+  $('#toast').textContent = ''
+  closeDialog()
+  state.skillsOpen = false
+  state.reviewOpen = false
+  state.query = ''
+  if (state.viewer === 'skills') state.viewer = state.lastOrdinaryViewer
+  if (state.railMode === 'skills') state.railMode = 'files'
+}
+function search() {
+  if (!state.enabled || !state.connected || state.railMode !== 'skills') return
+  cancelSearch()
+  state.query = $('#search').value
+  state.scope = $('#search-scope').value
+  state.submittedQuery = state.query
+  state.searching = true
+  state.results = []
+  const generation = queryGeneration
+  const submitted = { query: state.query, scope: state.scope }
+  render()
+  $('#search').focus()
+  searchTimer = setTimeout(() => {
+    if (
+      generation !== queryGeneration ||
+      !state.enabled ||
+      !state.connected ||
+      state.railMode !== 'skills'
+    )
+      return
+    state.results = sampleSearch({ ...state, ...submitted })
+    state.searching = false
+    render()
+  }, 500)
+}
+function prepare(action, mode) {
+  preview = previewSnapshot(
+    state,
+    action,
+    mode || exposuresFor(state)[state.selected]?.mode || 'native',
+  )
+  modal(previewView(state, preview))
+}
+function action(name) {
+  if (name === 'close') return closeDialog()
+  if (name === 'settings') return modal(connectionView(state))
+  if (!state.enabled) return
+  if (name === 'check-again') {
+    // Simulate a read-only probe of externally controlled fixture availability.
+    state.missing = !state.sampleCliAvailable
+    render()
+    if ($('#dialog').open) modal(connectionView(state))
+    return
+  }
+  if (name === 'show-setup') {
+    closeDialog()
+    return selectRail('skills')
+  }
+  if (name === 'choose-folder' && state.libraryMissing && state.setup.status === 'idle')
+    return modal(
+      `<h2 id="dialog-title">Choose a local folder · sample picker</h2><p>This offline picker changes only the displayed sample location.</p><label>Folder<select id="sample-folder"><option>/home/example/.skillager/library</option><option>/home/example/Documents/my-skills</option></select></label><footer>${'<button data-action="close">Cancel</button><button data-action="use-folder">Choose folder</button>'}</footer>`,
+    )
+  if (name === 'use-folder' && state.libraryMissing && state.setup.status === 'idle') {
+    state.setup.path = $('#sample-folder').value
+    closeDialog()
+    return render()
+  }
+  if (name === 'cancel-setup') {
+    cancelSampleSetup(state)
+    clearTimeout(setupTimer)
+    state.generation++
+    return render()
+  }
+  if (name === 'check-setup') {
+    reconcileSampleSetup(state)
+    return render()
+  }
+  if (name === 'close-skills') {
+    state.skillsOpen = false
+    state.reviewOpen = false
+    return selectViewer(state.lastOrdinaryViewer)
+  }
+  if (name === 'connect' && !state.missing && !state.libraryMissing) {
+    state.connected = true
+    state.generation++
+    closeDialog()
+    refresh()
+    return render()
+  }
+  if (name === 'change-library') {
+    state.library = state.library.id === libraries[0].id ? libraries[1] : libraries[0]
+    revokeFeature()
+    render()
+    return modal(connectionView(state))
+  }
+  if (!state.connected) return
+  if (name === 'project-setup') {
+    const handoff = beginProjectSetupSample(state)
+    if (!handoff) return
+    render()
+    projectSetupTimer = setTimeout(() => {
+      completeProjectSetupSample(state, handoff)
+      render()
+    }, 400)
+    return
+  }
+  if (name === 'metadata') {
+    state.reviewOpen = false
+    return render()
+  }
+  if (name === 'refresh') return refresh()
+  if (name === 'cancel-search') {
+    cancelSearch()
+    return render()
+  }
+  if (name === 'add') return modal(pickerView(state))
+  if (name === 'preview-add') {
+    cancelSearch()
+    state.destination = $('#add-destination').value
+    state.agent = $('#add-agent').value
+    const selectedMode = $('#add-mode').value
+    if (destinationFor(state).host !== 'local') state.scope = 'personal'
+    state.generation++
+    render()
+    return prepare('add', selectedMode)
+  }
+  if (name === 'switch')
+    return prepare(
+      'switch',
+      exposuresFor(state)[state.selected].mode === 'native' ? 'stub' : 'native',
+    )
+  if (['update', 'remove', 'accept'].includes(name)) return prepare(name)
+  if (name === 'read') {
+    closeDialog()
+    state.reviewOpen = true
+    state.skillsOpen = true
+    return selectViewer('skills')
+  }
+  if (name === 'history')
+    return modal(
+      '<h2 id="dialog-title">Version history · metadata only</h2><p>Current accepted version and prior versions belong to Skillager.</p><p>Libraries without Git show history unavailable. A new draft has no previous version: review the full tree explicitly.</p><footer><button data-action="close">Close</button></footer>',
+    )
+  if (name === 'apply' && preview) {
+    const requested = preview.action,
+      destination = destinationFor(state).label
+    const result = applySample(state, preview)
+    if (result !== 'completed')
+      return modal(
+        `<h2 id="dialog-title">${result === 'stale' ? 'This preview is out of date' : 'Preserve this target'}</h2><p>No action applied. Refresh and review a new preview.</p><footer><button data-action="close">Close</button></footer>`,
+      )
+    closeDialog()
+    cancelSearch()
+    refresh()
+    notify(
+      requested === 'accept'
+        ? 'Accepted library version. Workspace copies were not updated.'
+        : requested === 'remove'
+          ? `Removed exposure from ${destination}. Library original and other workspaces kept.`
+          : `${requested === 'add' ? 'Added' : 'Updated'} · ${destination} · ${state.agent}`,
+    )
+    render()
+  }
+}
+function scenario(name) {
+  clearTimeout(toastTimer)
+  clearTimeout(setupTimer)
+  clearTimeout(projectSetupTimer)
+  $('#toast').hidden = true
+  cancelSearch()
+  closeDialog()
+  state = initialState()
+  if (name !== 'disabled') {
+    state.enabled = true
+    state.connected = true
+    state.railMode = 'skills'
+    state.viewer = 'skills'
+    state.skillsOpen = true
+    state.lastChecked = 'Just checked · active workspace'
+  }
+  if (['missing', 'cli-available'].includes(name)) {
+    state.missing = true
+    state.sampleCliAvailable = name === 'cli-available'
+    state.connected = false
+    state.skillsOpen = false
+    state.viewer = state.lastOrdinaryViewer
+  }
+  if (
+    [
+      'setup',
+      'setup-error',
+      'setup-git-mismatch',
+      'setup-remote',
+      'setup-status-unavailable',
+    ].includes(name)
+  ) {
+    state.libraryMissing = true
+    state.connected = false
+    state.skillsOpen = false
+    state.viewer = state.lastOrdinaryViewer
+    if (name === 'setup-error') state.sampleSetupOutcome = 'error'
+    if (name === 'setup-status-unavailable') state.sampleSetupStatusUnavailable = true
+    if (name === 'setup-git-mismatch') state.sampleSetupOutcome = 'git-mismatch'
+    if (name === 'setup-remote') state.destination = 'remote-main'
+  }
+  if (name === 'empty') {
+    state.empty = true
+    state.skills = []
+    state.exposures = {}
+    state.skillsOpen = false
+    state.viewer = state.lastOrdinaryViewer
+  }
+  if (['project-existing', 'project-empty', 'project-unavailable'].includes(name)) {
+    state.projectStudy = true
+    state.perspective = 'workspace'
+    state.skillsOpen = false
+    state.viewer = state.lastOrdinaryViewer
+    for (const destination of ['local-main', 'local-review'])
+      for (const agent of ['codex', 'claude']) {
+        const sample = projectMetadataSample()
+        if (name !== 'project-existing') sample.rows = sample.externalRows = []
+        if (name === 'project-unavailable') {
+          sample.metadataUnavailable = true
+          sample.external = sample.observed = { state: 'Unavailable', working: 'Unknown' }
+        }
+        state.projectSamples[`${destination}/${agent}`] = sample
+      }
+  }
+  if (name === 'unavailable')
+    state.lastChecked = 'Unavailable · last checked 4 minutes ago'
+  if (name === 'remote') {
+    state.destination = 'remote-main'
+    state.selected = 'incident-notes'
+  }
+  if (name === 'add') state.selected = 'incident-notes'
+  if (name === 'pending') state.selected = 'deploy-checklist'
+  if (['switch', 'remove'].includes(name)) {
+    state.selected = 'pr-review'
+    exposuresFor(state)['pr-review'].mode = 'native'
+  }
+  if (['modified', 'pinned', 'unmanaged', 'blocked'].includes(name)) {
+    state.perspective = 'workspace'
+    state.selected = name === 'pinned' ? 'test-design' : 'release-checklist'
+    if (name === 'unmanaged') {
+      delete exposuresFor(state)[state.selected]
+      state.unmanagedTargets['local-main/codex'] = { [state.selected]: true }
+    } else if (name === 'blocked') {
+      delete exposuresFor(state)[state.selected].protected
+      skillFor(state).blocked = true
+    }
+  }
+  if (name === 'notify') {
+    skillFor(state, 'pr-review').version = 'd777a09'
+    state.perspective = 'workspace'
+  }
+  if (name === 'search') {
+    state.query = 'deadlock'
+    state.scope = 'available'
+  }
+  render()
+  if (name === 'search') search()
+  if (['add', 'remote'].includes(name)) action('add')
+  if (name === 'switch') prepare('switch', 'stub')
+  if (name === 'remove') prepare('remove')
+  if (name === 'pending') prepare('accept')
+  if (['update', 'stale'].includes(name)) prepare('update')
+  // Simulate an accepted source changing after preview, exercising the real version guard.
+  if (name === 'stale') skillFor(state).version = 'newer-a72c'
+}
+document.addEventListener('click', (event) => {
+  const button = event.target.closest('button')
+  if (!button || button.disabled) return
+  if (button.dataset.terminal) {
+    state.selectedTerminal = button.dataset.terminal
+    return render()
+  }
+  if (button.dataset.action) return action(button.dataset.action)
+  if (button.dataset.rail) return selectRail(button.dataset.rail)
+  if (button.dataset.viewer) return selectViewer(button.dataset.viewer)
+  if (!state.enabled || !state.connected) return
+  if (button.dataset.perspective) {
+    cancelSearch()
+    state.perspective = button.dataset.perspective
+    return render()
+  }
+  if (button.dataset.native) {
+    state.nativeSelected = button.dataset.native
+    state.skillsOpen = true
+    state.reviewOpen = false
+    return selectViewer('skills')
+  }
+  if (button.dataset.select) {
+    state.nativeSelected = null
+    state.selected = button.dataset.select
+    state.reviewOpen = false
+    state.skillsOpen = true
+    return selectViewer('skills')
+  }
+  if (button.dataset.menu) {
+    state.selected = button.dataset.menu
+    state.reviewOpen = false
+    render()
+    return modal(
+      `<h2 id="dialog-title">Actions · ${state.selected}</h2>${detailView(state)}<footer><button data-action="close">Close</button></footer>`,
+    )
+  }
+})
+document.addEventListener('contextmenu', (event) => {
+  const row = event.target.closest('[data-skill]')
+  if (!row) return
+  event.preventDefault()
+  row.querySelector('[data-menu]').click()
+})
+document.addEventListener('submit', (event) => {
+  if (event.target.id === 'library-setup') {
+    event.preventDefault()
+    const generation = beginSampleSetup(state)
+    if (generation === undefined) return
+    render()
+    setupTimer = setTimeout(() => {
+      finishSampleSetup(state, generation)
+      render()
+    }, 600)
+  }
+  if (event.target.id === 'search-form') {
+    event.preventDefault()
+    search()
+  }
+})
+document.addEventListener('change', (event) => {
+  if (event.target.id === 'enabled') {
+    const enabled = event.target.checked
+    revokeFeature()
+    state.enabled = enabled
+    render()
+    return modal(connectionView(state))
+  }
+  if (!state.enabled) return
+  if (event.target.id === 'library-git') state.setup.git = event.target.checked
+  if (['destination', 'agent'].includes(event.target.id)) {
+    clearTimeout(projectSetupTimer)
+    state.pendingProjectSetup = null
+    state.nativeSelected = null
+    if (state.projectStudy) {
+      state.skillsOpen = false
+      state.viewer = state.lastOrdinaryViewer
+    }
+    cancelSearch()
+    closeDialog()
+    state[event.target.id] = event.target.value
+    state.generation++
+    if (destinationFor(state).host !== 'local') state.scope = 'personal'
+    refresh()
+    render()
+  }
+  if (event.target.id === 'filter') {
+    cancelSearch()
+    state.filter = event.target.value
+    render()
+  }
+  if (event.target.id === 'search-scope') {
+    cancelSearch()
+    state.scope = event.target.value
+    render()
+  }
+  if (event.target.id === 'add-destination') {
+    const d = destinations.find((d) => d.id === event.target.value)
+    const stub = $('#add-mode option[value="stub"]')
+    stub.disabled = d.host !== 'local'
+    if (stub.disabled) $('#add-mode').value = 'native'
+    $('#add-route').textContent =
+      `Local · ${state.library.path} → ${d.label}${stub.disabled ? ' · Remote Stub unavailable' : ''}`
+  }
+})
+document.addEventListener('input', (event) => {
+  if (event.target.id === 'search') state.query = event.target.value
+})
+document.addEventListener('keydown', (event) => {
+  if (
+    state.enabled &&
+    event.key === '/' &&
+    !event.target.matches('input,select,textarea') &&
+    !$('#dialog').open
+  ) {
+    event.preventDefault()
+    selectRail('skills')
+    $('#search')?.focus()
+  }
+})
+$('#dialog').addEventListener('cancel', () => {
+  preview = null
+})
+$('#settings').onclick = () => action('settings')
+$('#reset').onclick = () => {
+  $('#scenario').value = 'disabled'
+  scenario('disabled')
+}
+$('#scenario').onchange = (event) => scenario(event.target.value)
+$('#finish-project-terminal').onclick = () => {
+  finishProjectTerminalSample(state, $('#project-outcome').value)
+  render()
+}
+$('#recover-project-terminal').onclick = () => {
+  // Simulate ordinary terminal recovery with the one-shot setup command omitted.
+  const terminal = state.setupTerminals.find((t) => t.id === state.selectedTerminal)
+  if (terminal) {
+    terminal.running = false
+    terminal.recovered = true
+  }
+  render()
+}
+function refreshIfActive() {
+  if (
+    automaticRefreshAllowed(
+      state,
+      document.visibilityState === 'visible',
+      document.hasFocus(),
+    )
+  )
+    refresh()
+}
+function syncRefreshDemand() {
+  const active = automaticRefreshAllowed(
+    state,
+    document.visibilityState === 'visible',
+    document.hasFocus(),
+  )
+  if (active && !periodic) periodic = setInterval(refreshIfActive, 60_000)
+  if (!active && periodic) {
+    clearInterval(periodic)
+    periodic = undefined
+  }
+}
+function visibilityChanged() {
+  syncRefreshDemand()
+  refreshIfActive()
+}
+document.addEventListener('visibilitychange', visibilityChanged)
+window.addEventListener('focus', visibilityChanged)
+window.addEventListener('blur', syncRefreshDemand)
+window.addEventListener('pagehide', () => {
+  revokeFeature()
+  render()
+})
+render()

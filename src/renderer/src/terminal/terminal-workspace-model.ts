@@ -8,6 +8,8 @@ import {
   type HarnessTelemetry,
   type HostPath,
   type TerminalIdentityStatus,
+  type StartPtyRequest,
+  type StartPtyResponse,
 } from '../../../shared'
 import type { TerminalAttention } from './terminal-attention'
 
@@ -20,6 +22,7 @@ export interface TerminalForkRequest {
 }
 
 export interface TerminalSession {
+  readonly initialStart?: TerminalInitialStart
   readonly id: string
   readonly providerId: HarnessProviderId
   readonly profileId: HarnessProfileId
@@ -101,7 +104,7 @@ export function terminalWorkspaceActionAffectsSessionsProjection(
 export function settledTerminalSessions(
   sessions: readonly TerminalSession[],
 ): readonly TerminalSession[] {
-  return sessions.filter((session) => !session.forkRequest)
+  return sessions.filter((session) => !session.forkRequest && !session.initialStart)
 }
 
 export const initialTerminalWorkspaceModel: TerminalWorkspaceModel = {
@@ -451,4 +454,17 @@ function requestTerminalStart(
           ? 'Resuming…'
           : 'Starting…',
   }
+}
+
+export interface PreparedTerminalSession {
+  readonly id: string
+  readonly profile: HarnessProfile
+  readonly title: string
+  readonly initialStart: TerminalInitialStart
+}
+
+/** Renderer-only one-use initial handoff, omitted from persisted session identity. */
+export interface TerminalInitialStart {
+  start(request: StartPtyRequest): Promise<StartPtyResponse>
+  cancel(): void
 }

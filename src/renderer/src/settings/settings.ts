@@ -89,6 +89,7 @@ export function normalizeAppSettings(value: unknown): AppSettings {
   const idle = candidate.idleThresholdMs
   const autoFetch = candidate.gitAutoFetchIntervalMs
   return {
+    skillagerEnabled: candidate.skillagerEnabled === true,
     idleThresholdMs:
       typeof idle === 'number' && Number.isFinite(idle)
         ? Math.min(60_000, Math.max(500, Math.round(idle)))

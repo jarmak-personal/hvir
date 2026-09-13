@@ -8,13 +8,11 @@ import {
 } from '../../shared'
 import { PaneResizer } from './layout/PaneResizer'
 import type { WebViewState } from './dashboards/WebPane'
-import { WebPaneStack } from './dashboards/WebPaneStack'
 import { useWebPaneWorkspace } from './dashboards/use-web-pane-workspace'
 import { TerminalWorkspaceCollection } from './terminal/TerminalWorkspaceCollection'
 import { useTerminalWorkspaceRuntime } from './terminal/use-terminal-workspace-runtime'
 import { useTerminalAttention } from './terminal/use-terminal-attention'
 import { ProjectsBar } from './workspaces/ProjectsBar'
-import { MissingWorkspaceNotice } from './workspaces/MissingWorkspaceNotice'
 import { useProjectSession } from './workspaces/project-session'
 import { useProjectWatchInterests } from './workspaces/project-watch-interests'
 import { SessionDialog } from './workspaces/SessionDialog'
@@ -23,10 +21,7 @@ import { FileTree } from './tree/FileTree'
 import { isGitIgnoreRulePath } from './tree/git-ignore-refresh'
 import { GitPanel } from './git/GitPanel'
 import { workspaceGitEnabled } from './git/git-capability'
-import { GitGraphView } from './git/GitGraphView'
 import { useGitWorkspace } from './git/use-git-workspace'
-import { FileViewer } from './viewer/FileViewer'
-import { TabStrip } from './viewer/TabStrip'
 import { useViewerWorkspace } from './viewer/use-viewer-workspace'
 import { setAppTheme, useAppTheme } from './theme'
 import { SettingsDialog } from './settings/SettingsDialog'
@@ -40,7 +35,12 @@ import { useRendererReady } from './workbench/use-renderer-ready'
 import { useTerminalPathActivation } from './workbench/use-terminal-path-activation'
 import * as review from './document-review/use-document-review-workspace'
 import { SessionsApplicationDestination } from './sessions/SessionsApplicationDestination'
+import { WorkbenchViewerPane } from './workbench/WorkbenchViewerPane'
+import { useSkillagerWorkspace } from './skillager/use-skillager-workspace'
+import { SkillagerSidebar } from './skillager/SkillagerSidebar'
+import { SkillagerSettings } from './skillager/SkillagerSettings'
 export function App(): ReactElement {
+  const deactivateSkillsRef = useRef<() => void>(() => undefined)
   const [destination, setDestination] = useState<'workspace' | 'sessions'>('workspace')
   const theme = useAppTheme()
   const settings = useAppSettings()
@@ -56,6 +56,7 @@ export function App(): ReactElement {
   const terminalAttention = useTerminalAttention()
   const viewer = useViewerWorkspace({
     onActivateFile: () => {
+      deactivateSkillsRef.current()
       deactivateGitGraphRef.current()
       deactivateWebPaneRef.current()
       restoreViewerRef.current()
@@ -64,37 +65,20 @@ export function App(): ReactElement {
   const {
     tabs,
     activeTab,
-    primaryTabs,
-    secondaryTabs,
-    primaryActiveTab,
-    secondaryActiveTab,
     split: viewerSplit,
     switchWorkspace: switchViewerWorkspace,
     openFile,
-    activateTab,
-    closeTab,
-    pinTab,
-    setMode: setViewerMode,
     cycleActiveMode,
     viewerCommands,
-    setDiffBase: setViewerDiffBase,
-    setContent: setViewerContent,
-    navigationHandled,
-    schedulePosition,
-    reloadTab,
-    saveTab,
     handleWatchEvent,
     reloadCleanFiles,
     focusPane: focusViewerPane,
     getActivePane,
-    openSplit: openViewerSplit,
-    closeSplit: closeViewerSplit,
-    moveTab: moveTabToPane,
-    reorderTabs: reorderViewerTabs,
   } = viewer
   const reviewWatch = review.useWatchFanout(handleWatchEvent)
   const web = useWebPaneWorkspace({
     onActivate: () => {
+      deactivateSkillsRef.current()
       focusViewerPane('primary')
       deactivateGitGraphRef.current()
       restoreViewerRef.current()
@@ -102,8 +86,6 @@ export function App(): ReactElement {
     onError: (message) => sessionErrorRef.current(message),
   })
   const {
-    views: webViews,
-    activeId: activeWebViewId,
     active: webViewActive,
     activeRef: webViewActiveRef,
     focused: webViewFocused,
@@ -112,12 +94,8 @@ export function App(): ReactElement {
     applyProjectState: applyWebProjectState,
     setWorkspaceRoot: setWebWorkspaceRoot,
     openLink: openWebLink,
-    activateView: activateWebView,
     closeView: closeWebView,
     forgetTerminalViews,
-    followBlockedNavigation,
-    setTitle: setWebViewTitle,
-    openBrowser: openWebViewInBrowser,
   } = web
   const changedCount = gitChanges?.workingTree.length ?? 0
   const changedCountLabel = gitChanges?.workingTreeLimited
@@ -190,6 +168,23 @@ export function App(): ReactElement {
     resetViewerPrimaryWidth,
     focusTerminal: showTerminal,
   } = layout
+  const skills = useSkillagerWorkspace({
+    onSetupTerminal: (root, prepared, signal) => terminalWorkspaces.openPrepared(root, prepared, signal).then(() => showTerminal(prepared.id)),
+    enabled: settings.skillagerEnabled === true,
+    projectState,
+    sidebarVisible:
+      destination === 'workspace' && railMode === 'skills' && !treeCollapsed,
+    viewerVisible: destination === 'workspace' && terminalMode !== 'maximized',
+    onActivate: () => {
+      setWebViewFocused(false)
+      focusViewerPane('primary')
+      restoreViewer()
+    },
+    onDisabled: () => {
+      if (railMode === 'skills') setRailMode('files')
+    },
+  })
+  deactivateSkillsRef.current = skills.deactivate
   const git = useGitWorkspace({
     root,
     hasDirtyViewerTabs: () => tabs.some((tab) => tab.dirty),
@@ -197,19 +192,16 @@ export function App(): ReactElement {
     refreshContent: session.refreshWorkspaceContent,
     refreshGit: session.refreshGit,
     activateViewer: () => {
+      deactivateSkillsRef.current()
       focusViewerPane('primary')
       restoreViewer()
     },
     deactivateWebPane: () => setWebViewActive(false),
   })
   const {
-    graphOpen: gitGraphOpen,
     graphActive: gitGraphActive,
     graphActiveRef: gitGraphActiveRef,
-    graphRequest: gitGraphRequest,
     openGraph: openGitGraph,
-    activateGraph: activateGitGraph,
-    closeGraph: closeGitGraph,
     resetGraph: resetGitGraph,
     deactivateGraph: deactivateGitGraph,
     switchBranch: switchGitBranch,
@@ -243,7 +235,8 @@ export function App(): ReactElement {
     enabled: destination === 'workspace',
     closeWebPane: closeWebView,
     escapeWebPaneFocus: () => setWebViewFocused(false),
-    canUseViewerCommands: () => !gitGraphActiveRef.current && !webViewActiveRef.current,
+    canUseViewerCommands: () =>
+      !skills.activeId && !gitGraphActiveRef.current && !webViewActiveRef.current,
     cycleViewMode: cycleActiveMode,
     findFile: layout.focusFilenameSearch,
     findInFile: viewerCommands.findInFile,
@@ -282,120 +275,20 @@ export function App(): ReactElement {
   }
   if (rootError) return <div className="startup-error">{rootError}</div>
   if (!root) return <div className="startup-loading">Starting hvir…</div>
-  const rootWebViews = webViews.filter((view) => hostPathEquals(view.workspaceRoot, root))
-  const renderViewerPane = (
-    pane: 'primary' | 'secondary',
-    paneTabs: typeof primaryTabs,
-    paneTab: typeof primaryActiveTab,
-    graphPane: boolean,
-  ): ReactElement => (
-    <section
-      className={`viewer-group viewer-group-${pane}`}
-      aria-label={`${pane === 'primary' ? 'Primary' : 'Secondary'} file viewer`}
-      data-diagnostic-capture="viewer"
-      data-viewer-pane={pane}
-      tabIndex={-1}
-      onPointerDownCapture={(event) => {
-        if (event.button !== 0) return
-        if (
-          paneTab &&
-          !(graphPane && gitGraphActive) &&
-          !(pane === 'primary' && webViewActive)
-        ) {
-          focusViewerPane(pane, paneTab.id)
-        } else {
-          focusViewerPane(pane)
-        }
-      }}
-    >
-      <TabStrip
-        tabs={paneTabs}
-        pathCopyRoot={root}
-        pane={pane}
-        activeId={
-          (graphPane && gitGraphActive) || (pane === 'primary' && webViewActive)
-            ? undefined
-            : paneTab?.id
-        }
-        onActivate={(id) => activateTab(id, pane)}
-        onClose={closeTab}
-        onPin={pinTab}
-        onReorder={reorderViewerTabs}
-        onMoveToPane={moveTabToPane}
-        split={viewerSplit}
-        onSplit={openViewerSplit}
-        onClosePane={pane === 'secondary' ? closeViewerSplit : undefined}
-        graphOpen={graphPane && gitGraphOpen}
-        graphActive={graphPane && gitGraphActive}
-        onActivateGraph={activateGitGraph}
-        onCloseGraph={closeGitGraph}
-        webTabs={
-          pane === 'primary'
-            ? rootWebViews.map((view) => ({ id: view.id, title: view.title }))
-            : undefined
-        }
-        activeWebId={pane === 'primary' && webViewActive ? activeWebViewId : undefined}
-        onActivateWeb={activateWebView}
-        onCloseWeb={closeWebView}
-      />
-      {graphPane && gitGraphOpen ? (
-        <div className="workspace-view" hidden={!gitGraphActive}>
-          <GitGraphView
-            root={root}
-            refreshVersion={gitVersion}
-            connectionState={connectionState}
-            requestedHash={gitGraphRequest.hash}
-            requestSerial={gitGraphRequest.serial}
-            onOpen={(path, base, revision) => openFile(path, true, 'git', base, revision)}
-          />
-        </div>
-      ) : null}
-      {pane === 'primary' ? (
-        <WebPaneStack
-          views={webViews}
-          root={root}
-          active={webViewActive}
-          activeId={activeWebViewId}
-          focused={webViewFocused}
-          onToggleFocus={() => setWebViewFocused((focused) => !focused)}
-          onTitle={setWebViewTitle}
-          onBlockedNavigation={followBlockedNavigation}
-          onOpenBrowser={openWebViewInBrowser}
-          onRevealTerminal={(view) => void revealSourceTerminal(view)}
-        />
-      ) : null}
-      <div
-        className="workspace-view"
-        hidden={(graphPane && gitGraphActive) || (pane === 'primary' && webViewActive)}
-      >
-        {activeWorkspace?.missing ? (
-          <MissingWorkspaceNotice root={root} />
-        ) : (
-          <FileViewer
-            key={`${pane}:${paneTab?.id ?? 'empty'}`}
-            tab={paneTab}
-            gitRefreshVersion={gitVersion}
-            onMode={(mode, at) => paneTab && setViewerMode(paneTab.id, mode, at)}
-            onDiffBase={(diffBase) => paneTab && setViewerDiffBase(paneTab.id, diffBase)}
-            onContent={(content) => paneTab && setViewerContent(paneTab.id, content)}
-            onSave={() => paneTab && saveTab(paneTab.id)}
-            onReload={() => paneTab && reloadTab(paneTab.id)}
-            onPosition={(position) => paneTab && schedulePosition(paneTab.id, position)}
-            onNavigationHandled={(serial) =>
-              paneTab && navigationHandled(paneTab.id, serial)
-            }
-            registerCommands={viewerCommands.register}
-            onOpenPath={(path) => {
-              focusViewerPane(pane)
-              if (paneTab) pinTab(paneTab.id)
-              openFile(path, true)
-            }}
-            onRenderedDependencies={viewer.setRenderedDependencies}
-            documentReview={documentReview}
-          />
-        )}
-      </div>
-    </section>
+  const renderViewerPane = (pane: 'primary' | 'secondary'): ReactElement => (
+    <WorkbenchViewerPane
+      pane={pane}
+      root={root}
+      viewer={viewer}
+      git={git}
+      web={web}
+      documentReview={documentReview}
+      skillager={skills}
+      workspaceMissing={Boolean(activeWorkspace?.missing)}
+      connectionState={connectionState}
+      gitVersion={gitVersion}
+      revealSourceTerminal={revealSourceTerminal}
+    />
   )
   return (
     <div className="app-shell">
@@ -464,8 +357,25 @@ export function App(): ReactElement {
                 Git{changedCount > 0 ? ` ${changedCountLabel}` : ''}
               </button>
             ) : null}
+            {settings.skillagerEnabled ? (
+              <button
+                type="button"
+                className={railMode === 'skills' ? 'active' : ''}
+                aria-current={railMode === 'skills' ? 'page' : undefined}
+                onClick={() => setRailMode('skills')}
+              >
+                Skills
+              </button>
+            ) : null}
           </nav>
           <div className="rail-content">
+            {settings.skillagerEnabled ? (
+              <SkillagerSidebar
+                controller={skills}
+                root={root}
+                hidden={railMode !== 'skills'}
+              />
+            ) : null}
             <FileTree
               key={`files:${root.hostId}:${root.path}`}
               root={root}
@@ -564,7 +474,7 @@ export function App(): ReactElement {
             className={`viewer-groups${viewerSplit ? ' split' : ''}`}
             ref={viewerGroupsRef}
           >
-            {renderViewerPane('primary', primaryTabs, primaryActiveTab, true)}
+            {renderViewerPane('primary')}
             {viewerSplit ? (
               <>
                 <PaneResizer
@@ -586,7 +496,7 @@ export function App(): ReactElement {
                   }}
                   onReset={resetViewerPrimaryWidth}
                 />
-                {renderViewerPane('secondary', secondaryTabs, secondaryActiveTab, false)}
+                {renderViewerPane('secondary')}
               </>
             ) : null}
           </div>
@@ -661,6 +571,13 @@ export function App(): ReactElement {
       ) : null}
       {overlays.settingsOpen ? (
         <SettingsDialog
+          skillager={
+            <SkillagerSettings
+              controller={skills}
+              settings={settings}
+              onSettings={setAppSettings}
+            />
+          }
           theme={theme}
           settings={settings}
           workspaceRoot={root}
@@ -669,7 +586,10 @@ export function App(): ReactElement {
           onClose={overlays.closeSettings}
           onSave={(nextTheme, nextSettings) => {
             setAppTheme(nextTheme)
-            setAppSettings(nextSettings)
+            setAppSettings({
+              ...nextSettings,
+              skillagerEnabled: settings.skillagerEnabled,
+            })
             overlays.closeSettings()
           }}
         />

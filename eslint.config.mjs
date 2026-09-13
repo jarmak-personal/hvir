@@ -205,6 +205,31 @@ export default tseslint.config(
     ),
   },
 
+  // Skillager policy consumes its port and metadata contracts, never its adapters.
+  {
+    files: [
+      'src/main/skillager/skillager-capability.ts',
+      'src/main/skillager/skillager-port.ts',
+      'src/main/skillager/skillager-review-owner.ts',
+      'src/main/skillager/skillager-review-port.ts',
+    ],
+    rules: dependencyDirectionRules(
+      '(^|/)(skillager-cli|skillager-process|skillager-application|local-host|ssh-host|project-registry)(\\.[cm]?[jt]sx?)?$|^electron$',
+      'Skillager authority and ports remain independent of CLI, concrete host and application composition.',
+    ),
+  },
+  {
+    files: [
+      'src/main/skillager/skillager-cli-metadata.ts',
+      'src/main/skillager/skillager-review-contract.ts',
+      'src/renderer/src/skillager/skillager-model.ts',
+    ],
+    rules: dependencyDirectionRules(
+      '(^|/)(skillager-cli|skillager-capability|skillager-process|skillager-application|use-[^/]+)(\\.[cm]?[jt]sx?)?$|^react(/|$)|^electron$',
+      'Skillager metadata and presentation policy import only stable contracts, never feature effects.',
+    ),
+  },
+
   // Project state and workflows consume the host contract, never concrete host owners.
   {
     files: [

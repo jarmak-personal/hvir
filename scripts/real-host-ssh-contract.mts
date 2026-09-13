@@ -13,6 +13,7 @@ export const REAL_HOST_SSH_ENVIRONMENT_KEYS = [
   'HVIR_REAL_SSH_PRIVATE_KEY',
   'HVIR_REAL_SSH_IDENTITY_FILE',
   'HVIR_REAL_SSH_PASSPHRASE',
+  'HVIR_REAL_SSH_PASSWORD',
 ] as const
 
 export const REAL_HOST_SSH_PHASES = [
@@ -27,6 +28,7 @@ export const REAL_HOST_SSH_PHASES = [
   'loopback-stream',
   'transport-capacity',
   'reconnected',
+  'skillager-delivery',
   'cleanup',
 ] as const
 
@@ -43,8 +45,7 @@ export const REAL_HOST_SSH_FAILURE_REASONS = [
   'launcher-failed',
 ] as const
 
-export type RealHostSshFailureReason =
-  (typeof REAL_HOST_SSH_FAILURE_REASONS)[number]
+export type RealHostSshFailureReason = (typeof REAL_HOST_SSH_FAILURE_REASONS)[number]
 
 export interface RealHostSshConfiguration {
   readonly alias: 'real-host-acceptance'
@@ -54,7 +55,9 @@ export interface RealHostSshConfiguration {
   readonly trustedHostKey: string
   readonly rootParent: string
   readonly credential:
-    { readonly kind: 'inline' } | { readonly kind: 'file'; readonly path: string }
+    | { readonly kind: 'inline' }
+    | { readonly kind: 'file'; readonly path: string }
+    | { readonly kind: 'password' }
   readonly hasPassphrase: boolean
 }
 
@@ -112,6 +115,7 @@ export function readRealHostSshConfiguration(
   const rootParent = trimmed(environment.HVIR_REAL_SSH_ROOT_PARENT)
   const inlineKey = hasValue(environment.HVIR_REAL_SSH_PRIVATE_KEY)
   const identityFile = trimmed(environment.HVIR_REAL_SSH_IDENTITY_FILE)
+  const password = hasValue(environment.HVIR_REAL_SSH_PASSWORD)
 
   if (!validName(hostname, 253)) fields.push('HVIR_REAL_SSH_HOST')
   const port = Number(rawPort)
@@ -123,8 +127,10 @@ export function readRealHostSshConfiguration(
   if (!validRemoteRootParent(rootParent)) {
     fields.push('HVIR_REAL_SSH_ROOT_PARENT')
   }
-  if (inlineKey === Boolean(identityFile)) {
-    fields.push('HVIR_REAL_SSH_PRIVATE_KEY|HVIR_REAL_SSH_IDENTITY_FILE')
+  if (Number(inlineKey) + Number(Boolean(identityFile)) + Number(password) !== 1) {
+    fields.push(
+      'HVIR_REAL_SSH_PRIVATE_KEY|HVIR_REAL_SSH_IDENTITY_FILE|HVIR_REAL_SSH_PASSWORD',
+    )
   } else if (identityFile && (!isAbsolute(identityFile) || hasControl(identityFile))) {
     fields.push('HVIR_REAL_SSH_IDENTITY_FILE')
   }
@@ -139,7 +145,11 @@ export function readRealHostSshConfiguration(
       user,
       trustedHostKey,
       rootParent,
-      credential: inlineKey ? { kind: 'inline' } : { kind: 'file', path: identityFile },
+      credential: password
+        ? { kind: 'password' }
+        : inlineKey
+          ? { kind: 'inline' }
+          : { kind: 'file', path: identityFile },
       hasPassphrase: hasValue(environment.HVIR_REAL_SSH_PASSPHRASE),
     },
   }
