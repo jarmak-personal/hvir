@@ -21,7 +21,7 @@ import {
   skillagerRouterMember,
   skillagerWorkspaceMetadata,
 } from '../src/renderer/src/skillager/skillager-model'
-import { withSkillagerRouterMemberships } from '../src/shared/skillager-workspace-metadata'
+import { withSkillagerRouterMemberships } from '../src/main/skillager/skillager-workspace-metadata'
 
 const executable = process.env.HVIR_SKILLAGER_EXECUTABLE
 async function fixture() {

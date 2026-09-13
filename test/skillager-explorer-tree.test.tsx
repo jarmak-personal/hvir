@@ -38,7 +38,6 @@ function render(items: readonly SkillagerMetadata[], activeId?: string) {
       <SkillagerTree
         rows={items}
         known={items}
-        agent="all"
         label="Your library"
         actions={actions}
         onSelect={select}

@@ -77,7 +77,6 @@ export function SkillagerExplorer({
             <SkillagerTree
               rows={rows}
               known={known}
-              agent={controller.browseAgent}
               activeId={controller.activeId}
               onSelect={controller.select}
               actions={controller.exposures.menu}

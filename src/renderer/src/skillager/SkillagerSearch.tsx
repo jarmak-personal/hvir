@@ -91,8 +91,8 @@ export function SkillagerSearch({
             </select>
             <p className="skillager-hint">
               Agent preference selects native variants and compatibility context; it is
-              not a strict compatibility filter. Browsing shows matching project agents
-              and reusable library skills.
+              not a strict compatibility filter. Browsing keeps every reported project
+              copy and reusable library skill visible.
             </p>
             <p className="skillager-hint">
               Search covers metadata and the first 50,000 characters of accepted bodies.

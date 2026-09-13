@@ -23,7 +23,7 @@ import type {
 } from './skillager-review-port'
 import { randomUUID } from 'node:crypto'
 import { hostPathEquals, type HostPath } from '../../shared/host-path'
-import { withSkillagerRouterMemberships } from '../../shared/skillager-workspace-metadata'
+import { withSkillagerRouterMemberships } from './skillager-workspace-metadata'
 import {
   SKILLAGER_QUERY_BYTES,
   SKILLAGER_INVENTORY_LIMIT,

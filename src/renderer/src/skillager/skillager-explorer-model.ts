@@ -1,9 +1,12 @@
 import type {
-  SkillagerBrowseAgent,
   SkillagerMetadata,
   SkillagerWorkspaceExposure,
 } from '../../../shared/skillager'
-import { skillagerMetadataKey, skillagerRouterMember } from './skillager-model'
+import {
+  canonicalSkillagerMetadata,
+  skillagerMetadataKey,
+  skillagerRouterMember,
+} from './skillager-model'
 
 export interface SkillagerExplorerRow {
   readonly key: string
@@ -27,30 +30,16 @@ export function skillagerExplorerRows(
   sources: readonly SkillagerMetadata[],
   known: readonly SkillagerMetadata[],
   expanded: ReadonlySet<string>,
-  agent: SkillagerBrowseAgent,
 ) {
-  const canonical = new Map(
-    known
-      .filter((row) => row.source.ownership === 'library' && !row.workspace)
-      .map((row) => [JSON.stringify([row.source.libraryId, row.id]), row]),
-  )
+  const canonical = canonicalSkillagerMetadata(known)
   const segments: Segment[] = []
   const parents = new Map<string, Segment>()
-  const visible = sources.filter((metadata) => {
-    const observed =
-      metadata.workspace?.agent ??
-      metadata.routerMembership?.agent ??
-      metadata.projectSkill?.agent
-    return agent === 'all' || !observed || observed === agent
-  })
-  let remaining = SKILLAGER_EXPANDED_ROW_LIMIT - visible.length
+  let remaining = SKILLAGER_EXPANDED_ROW_LIMIT - sources.length
   const refused: string[] = []
   let length = 0
-  for (const metadata of visible) {
+  for (const metadata of sources) {
     const key = skillagerMetadataKey(metadata)
-    const copies = (metadata.workspaceCopies ?? []).filter(
-      (copy) => agent === 'all' || copy.agent === agent,
-    )
+    const copies = metadata.workspaceCopies ?? []
     const members = metadata.workspace?.router?.skillIds ?? []
     const requested = expanded.has(key),
       size = copies.length + members.length

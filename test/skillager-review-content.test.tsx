@@ -31,6 +31,7 @@ const tabs = [] as const
 function Harness({ diff }: { diff?: string }) {
   const controller = useSkillagerReview({
     agent: 'codex',
+    activeId: undefined,
     tabs,
     onAccepted: () => undefined,
   })

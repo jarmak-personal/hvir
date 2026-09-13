@@ -6,11 +6,7 @@ import {
   useState,
   type KeyboardEvent,
 } from 'react'
-import {
-  skillagerAgentLabel,
-  type SkillagerBrowseAgent,
-  type SkillagerMetadata,
-} from '../../../shared/skillager'
+import { skillagerAgentLabel, type SkillagerMetadata } from '../../../shared/skillager'
 import { virtualRange } from '../layout/virtual-range'
 import { SkillagerActions } from './SkillagerActions'
 import type { SkillagerExposureController } from './use-skillager-exposure'
@@ -27,7 +23,6 @@ const ROW_HEIGHT = 25
 export function SkillagerTree({
   rows: sources,
   known,
-  agent,
   activeId,
   onSelect,
   actions,
@@ -35,7 +30,6 @@ export function SkillagerTree({
 }: {
   readonly rows: readonly SkillagerMetadata[]
   readonly known: readonly SkillagerMetadata[]
-  readonly agent: SkillagerBrowseAgent
   readonly activeId?: string
   readonly onSelect: (row: SkillagerMetadata) => void
   readonly actions: SkillagerExposureController['menu']
@@ -44,8 +38,8 @@ export function SkillagerTree({
   const viewport = useRef<HTMLDivElement>(null)
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
   const rows = useMemo(
-    () => skillagerExplorerRows(sources, known, expanded, agent),
-    [sources, known, expanded, agent],
+    () => skillagerExplorerRows(sources, known, expanded),
+    [sources, known, expanded],
   )
   const [position, setPosition] = useState({ top: 0, height: 200 })
   const [focusKey, setFocusKey] = useState<string>()
@@ -122,7 +116,7 @@ export function SkillagerTree({
     if (next.has(row.key)) next.delete(row.key)
     else {
       next.add(row.key)
-      if (skillagerExplorerRows(sources, known, next, agent).refused.length) {
+      if (skillagerExplorerRows(sources, known, next).refused.length) {
         setNotice(
           'Collapse another skill before expanding this one. Up to 40,000 rows can be expanded at once.',
         )

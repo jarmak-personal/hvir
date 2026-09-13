@@ -70,7 +70,6 @@ it('keeps exact copies separate from their source and opens stable source/copy/m
     library,
     library,
     new Set([skillagerMetadataKey(library[0]!)]),
-    'all',
   )
   expect(projected.length).toBe(3)
   expect(projected.slice(0, 3).map((row) => row.metadata.workspace?.agent)).toEqual([
@@ -83,7 +82,6 @@ it('keeps exact copies separate from their source and opens stable source/copy/m
     project,
     library,
     new Set(project.map(skillagerMetadataKey)),
-    'all',
   )
   const selections = [...projected.slice(0, 3), expanded.at(3)!]
   let state = { tabs: [] } as ReturnType<typeof skillagerTabs>
@@ -106,7 +104,7 @@ it('keeps exact copies separate from their source and opens stable source/copy/m
       type: 'observe-project',
       result: { ...result, exposures: [copy] },
     }).tabs[3]!.metadata,
-  ).toMatchObject({ workspaceFreshness: 'unavailable', trust: 'unknown' })
+  ).toMatchObject({ workspaceFreshness: 'unavailable', trust: 'reviewed' })
 })
 
 it('never joins foreign or unproven same-ID copies/members to the currently registered library', () => {
@@ -119,7 +117,6 @@ it('never joins foreign or unproven same-ID copies/members to the currently regi
     project,
     [foreign],
     new Set(project.map(skillagerMetadataKey)),
-    'all',
   )
   expect(members.at(3)!.metadata.source.ownership).toBe('unknown')
   expect(
@@ -130,19 +127,21 @@ it('never joins foreign or unproven same-ID copies/members to the currently regi
   ).toBe('unknown')
 })
 
-it('filters project occurrences by agent without dropping reusable source rows or changing keys', () => {
-  const library = skillagerWorkspaceMetadata(result),
-    key = skillagerMetadataKey(library[0]!)
-  const all = skillagerExplorerRows(library, library, new Set([key]), 'all')
-  const codex = skillagerExplorerRows(library, library, new Set([key]), 'codex')
-  expect(codex.length).toBe(2)
-  expect(codex.slice(0, 2).map((row) => row.key)).toEqual(
-    all.slice(0, 2).map((row) => row.key),
+it('keeps every reported agent copy visible so counts and disclosure describe the same entries', () => {
+  const library = skillagerWorkspaceMetadata(result)
+  const projection = skillagerExplorerRows(
+    library,
+    library,
+    new Set([skillagerMetadataKey(library[0]!)]),
   )
+  expect(projection.sourceCount).toBe(library.length)
+  expect(projection.at(0)!.expandable).toBe(true)
+  expect(projection.at(0)!.metadata.workspaceCopies).toHaveLength(2)
   expect(
-    skillagerExplorerRows(skillagerProjectRows(result), library, new Set(), 'claude')
-      .length,
-  ).toBe(2)
+    projection.slice(1, projection.length).map((row) => row.metadata.workspace?.agent),
+  ).toEqual(['codex', 'claude'])
+  const project = skillagerProjectRows(result)
+  expect(skillagerExplorerRows(project, library, new Set()).length).toBe(project.length)
 })
 
 it('projects only the requested range with millions of repeated public member references', () => {
@@ -168,7 +167,6 @@ it('projects only the requested range with millions of repeated public member re
     sources,
     [],
     new Set(sources.map(skillagerMetadataKey)),
-    'all',
   )
   expect(projection.length).toBe(40_000)
   expect(projection.refused).toHaveLength(4993)
@@ -182,12 +180,87 @@ it('projects only the requested range with millions of repeated public member re
     sources,
     [],
     new Set([skillagerMetadataKey(sources.at(-1)!)]),
-    'all',
   )
   expect(last.length).toBe(10_000)
   expect(last.at(last.length - 1)!.metadata.id).toBe('lib/member-4999')
-  const collapsed = skillagerExplorerRows(sources, [], new Set(), 'all')
+  const collapsed = skillagerExplorerRows(sources, [], new Set())
   expect(collapsed.length).toBe(5000)
   expect(collapsed.indexOf(window[0]!.key, window[0])).toBe(-1)
   expect(collapsed.indexOf(window[0]!.parent!)).toBe(0)
+})
+
+it.each(['observe', 'observe-project'] as const)(
+  '%s distinguishes unavailable copy/member observation from proven disappearance',
+  (type) => {
+    const canonical = { ...source, contentHash: 'a'.repeat(64) }
+    const copyMetadata = skillagerProjectRows({ ...result, rows: [canonical] })[0]!
+    const memberMetadata = { ...canonical, routerMembership: router }
+    const original = {
+      tabs: [copyMetadata, memberMetadata].map((metadata) => ({
+        id: skillagerMetadataKey(metadata),
+        metadata,
+      })),
+    }
+    const freshSource = {
+      ...canonical,
+      description: 'Still in the library',
+      contentHash: 'b'.repeat(64),
+    }
+    const unavailable = skillagerTabs(original, {
+      type,
+      result: { ...result, rows: [freshSource], exposures: undefined },
+    })
+    expect(unavailable.tabs.map((tab) => tab.id)).toEqual(
+      original.tabs.map((tab) => tab.id),
+    )
+    for (const tab of unavailable.tabs)
+      expect(tab.metadata).toMatchObject({
+        trust: 'reviewed',
+        contentHash: freshSource.contentHash,
+        description: freshSource.description,
+        workspaceFreshness: 'unavailable',
+      })
+    const absent = skillagerTabs(unavailable, {
+      type,
+      result: { ...result, rows: [freshSource], exposures: [] },
+    })
+    expect(absent.tabs[0]!.metadata.description).toContain(
+      'project copy is no longer reported',
+    )
+    expect(absent.tabs[1]!.metadata.description).toContain(
+      'router membership is no longer reported',
+    )
+    expect(absent.tabs.every((tab) => tab.metadata.trust === 'reviewed')).toBe(true)
+    const unavailableWithoutSource = skillagerTabs(original, {
+      type,
+      result: { ...result, rows: [], exposures: undefined },
+    })
+    expect(
+      unavailableWithoutSource.tabs.every(
+        (tab) => tab.metadata.contentHash === canonical.contentHash,
+      ),
+    ).toBe(true)
+    expect(
+      unavailableWithoutSource.tabs.every(
+        (tab) => !tab.metadata.description.includes('no longer'),
+      ),
+    ).toBe(true)
+  },
+)
+
+it('only reports a canonical source gone after the complete library inventory omits it', () => {
+  const selected = skillagerTabs({ tabs: [] }, { type: 'select', metadata: source })
+  const partial = skillagerTabs(selected, {
+    type: 'observe-project',
+    result: { ...result, rows: [] },
+  })
+  expect(partial.tabs[0]!.metadata.trust).toBe('reviewed')
+  const complete = skillagerTabs(partial, {
+    type: 'observe',
+    result: { ...result, rows: [], exposures: [] },
+  })
+  expect(complete.tabs[0]!.metadata).toMatchObject({
+    trust: 'unknown',
+    description: 'This skill is no longer in the personal library.',
+  })
 })

@@ -450,6 +450,7 @@ export function useSkillagerWorkspace(input: Options) {
     projectState: options.projectState,
     agent,
     tabs: tabs.tabs,
+    activeId: tabs.activeId,
     onAccepted: afterAcceptance,
   })
 

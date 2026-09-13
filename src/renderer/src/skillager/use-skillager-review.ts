@@ -36,6 +36,7 @@ interface Options {
   readonly projectState?: ProjectState
   readonly agent: SkillagerAgent
   readonly tabs: readonly SkillagerDetailTab[]
+  readonly activeId: string | undefined
   readonly onAccepted: () => void
 }
 interface Lease {
@@ -79,7 +80,9 @@ export function useSkillagerReview(options: Options) {
     }
   }, [context, release])
   useEffect(() => {
-    const ids = new Set(options.tabs.map((tab) => tab.id))
+    const ids = new Set(
+      options.tabs.filter((tab) => tab.id === options.activeId).map((tab) => tab.id),
+    )
     for (const id of [...leases.current.keys()]) if (!ids.has(id)) release(id)
     setStates((current) => {
       const retained = Object.entries(current).filter(([id]) => ids.has(id))
@@ -87,12 +90,18 @@ export function useSkillagerReview(options: Options) {
         ? current
         : Object.fromEntries(retained)
     })
-  }, [options.tabs, release])
+  }, [options.tabs, options.activeId, release])
 
   const start = useCallback(
     (tab: SkillagerDetailTab): Lease | undefined => {
-      const { connection, root, agent } = optionsRef.current
-      if (!connection || !root || tab.metadata.source.ownership !== 'library') return
+      const { connection, root, agent, activeId } = optionsRef.current
+      if (
+        !connection ||
+        !root ||
+        activeId !== tab.id ||
+        tab.metadata.source.ownership !== 'library'
+      )
+        return
       release(tab.id)
       const lease = {
         context: contextRef.current,
@@ -100,7 +109,10 @@ export function useSkillagerReview(options: Options) {
         request: {
           connectionId: connection.connectionId,
           workspaceRoot: root,
-          agent,
+          agent:
+            tab.metadata.workspace?.agent ??
+            tab.metadata.routerMembership?.agent ??
+            agent,
           requestId: ++sequence.current,
         },
       }
@@ -110,7 +122,9 @@ export function useSkillagerReview(options: Options) {
     [release],
   )
   const current = (id: string, lease: Lease): boolean =>
-    leases.current.get(id) === lease && lease.context === contextRef.current
+    optionsRef.current.activeId === id &&
+    leases.current.get(id) === lease &&
+    lease.context === contextRef.current
   const failure = useCallback(
     (id: string, result: { readonly message: string }) =>
       publish(id, {
@@ -176,7 +190,12 @@ export function useSkillagerReview(options: Options) {
 
   const history = useCallback(
     async (tab: SkillagerDetailTab) => {
+      if (optionsRef.current.activeId !== tab.id) return
       let lease = leases.current.get(tab.id)
+      if (lease && !current(tab.id, lease)) {
+        release(tab.id)
+        lease = undefined
+      }
       if (!lease) lease = start(tab)
       if (!lease) return
       const owned = lease
@@ -194,13 +213,13 @@ export function useSkillagerReview(options: Options) {
           failure(tab.id, { message: 'Could not read library history.' })
       }
     },
-    [start, publish, failure],
+    [start, publish, failure, release],
   )
 
   const content = useCallback(
     async (id: string, entry: string) => {
       const lease = leases.current.get(id)
-      if (!lease?.reviewId) return
+      if (!lease?.reviewId || !current(id, lease)) return
       const serial = ++lease.serial
       publish(id, { loading: true, message: undefined })
       try {
@@ -228,7 +247,7 @@ export function useSkillagerReview(options: Options) {
   const diff = useCallback(
     async (id: string, fromHash?: string) => {
       const lease = leases.current.get(id)
-      if (!lease?.reviewId) return
+      if (!lease?.reviewId || !current(id, lease)) return
       const serial = ++lease.serial
       publish(id, { loading: true, message: undefined })
       try {
@@ -251,7 +270,7 @@ export function useSkillagerReview(options: Options) {
   const accept = useCallback(
     async (id: string) => {
       const lease = leases.current.get(id)
-      if (!lease?.reviewId) return
+      if (!lease?.reviewId || !current(id, lease)) return
       publish(id, { accepting: true, used: true, message: undefined })
       try {
         const result = await window.hvir.invoke('skillager:accept-review', {
@@ -289,7 +308,7 @@ export function useSkillagerReview(options: Options) {
       entry: string,
     ): Promise<SkillagerResult<SkillagerReviewContent> | undefined> => {
       const lease = leases.current.get(id)
-      if (!lease?.reviewId) return
+      if (!lease?.reviewId || !current(id, lease)) return
       const result = await window.hvir.invoke('skillager:review-content', {
         ...lease.request,
         reviewId: lease.reviewId,
@@ -308,7 +327,9 @@ export function useSkillagerReview(options: Options) {
     diff,
     accept,
     asset,
-    mode: (id: string, mode: 'rendered' | 'source') => publish(id, { mode }),
+    mode: (id: string, mode: 'rendered' | 'source') => {
+      if (optionsRef.current.activeId === id) publish(id, { mode })
+    },
   }
 }
 export type SkillagerReviewController = ReturnType<typeof useSkillagerReview>

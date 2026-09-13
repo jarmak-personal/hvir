@@ -99,7 +99,6 @@ export function SkillagerSidebar({
                     <SkillagerTree
                       rows={searchRows}
                       known={searchRows}
-                      agent="all"
                       activeId={controller.activeId}
                       onSelect={controller.select}
                       actions={controller.exposures.menu}

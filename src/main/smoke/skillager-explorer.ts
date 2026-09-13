@@ -1,4 +1,5 @@
 import type { BrowserWindow } from 'electron'
+import { SKILLAGER_PROJECT_FIXTURE_ROWS } from './skillager-project-fixture'
 import {
   captureSkillagerSidebar,
   selectSkillagerExecutable,
@@ -38,12 +39,25 @@ export async function verifySkillagerExplorer(win: BrowserWindow): Promise<void>
     await wait(() => document.querySelector('.skillager-details'));
   `,
   )
+  const controlledProject = !process.env.HVIR_SKILLAGER_SMOKE_FIXTURE
+  if (controlledProject)
+    await inspect(
+      win,
+      `await wait(() => {
+      const section = document.querySelector('${project}'), tree = section?.querySelector('[role=tree]');
+      return section?.querySelector('.skillager-section-header small')?.textContent.trim() === '${SKILLAGER_PROJECT_FIXTURE_ROWS + 2}' && tree && tree.clientHeight > 0 && tree.scrollHeight > tree.clientHeight;
+    });`,
+    )
   const scrollable = await inspect<boolean>(
     win,
     `
     const tree = document.querySelector('${project} [role=tree]'); return Boolean(tree && tree.scrollHeight > tree.clientHeight);
   `,
   )
+  if (controlledProject && !scrollable)
+    throw Error(
+      'Controlled project metadata lost its expected scroll range before wheel input',
+    )
   if (scrollable) {
     const at = await skillagerControlPoint(win, `${project} [role=tree]`)
     win.webContents.sendInputEvent({ type: 'mouseMove', ...at })
@@ -69,7 +83,11 @@ export async function verifySkillagerExplorer(win: BrowserWindow): Promise<void>
   )
   await captureSkillagerSidebar(win, 'explorer')
   console.log(
-    '[smoke] Skills explorer OK (5000 complete library rows; physical End and project wheel; independently hit-testable project/library headers; bounded DOM and 125000px actual library scroll range; stable detail)',
+    '[smoke] Skills explorer OK (5000 complete library rows; physical End; independently hit-testable project/library headers; bounded DOM and 125000px actual library scroll range; stable detail; project wheel: ' +
+      (scrollable
+        ? 'physical input over observed overflowing tree'
+        : 'not exercised: real CLI project did not provide a long tree') +
+      ')',
   )
 }
 
