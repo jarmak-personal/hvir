@@ -356,6 +356,7 @@ installation.
 ### [ADR-030 — Bounded project file operations and explicit external-source authority](adr/ADR-030-bounded-project-file-operations.md)
 
 > Lifecycle: Partially superseded
+> Superseded by: [ADR-049](adr/ADR-049-project-skill-explorer-and-curation.md) | partial | No-replacement rule only for explicitly confirmed preserved native-original adoption/removal through the named Skillager operation; ordinary Files operations remain unchanged.
 > Superseded by: [ADR-046](adr/ADR-046-explicit-skillager-library-and-exposure-authority.md) | partial | No-replacement rule only for explicitly confirmed, verified unchanged Skillager-managed local exposures and hvir-managed SSH deployments.
 
 One main-owned coordinator applies fixed targeting, confinement, collision, transfer,
@@ -491,6 +492,7 @@ Markdown images remain within the canonical document directory and descendants.
 ### [ADR-046 — Explicit Skillager library and workspace exposure authority](adr/ADR-046-explicit-skillager-library-and-exposure-authority.md)
 
 > Lifecycle: Partially superseded
+> Superseded by: [ADR-049](adr/ADR-049-project-skill-explorer-and-curation.md) | partial | Skills explorer presentation, derived reusable library acceptance after explicit source approval or backfill, and named local native/router exposure operations only.
 > Superseded by: [ADR-048](adr/ADR-048-explicit-skillager-project-setup.md) | partial | Local project setup terminal handoff and Working installation, existing-project metadata presentation, and post-handoff terminal lifetime only.
 > Superseded by: [ADR-047](adr/ADR-047-explicit-skillager-library-initialization.md) | partial | Initial personal-library connection and first-use presentation only; add explicit local initialization followed by verified metadata connection.
 > Supersedes: [ADR-010](adr/ADR-010-project-host-remote-boundary.md) | partial | Registered-project confinement for the named local personal-library metadata, review, and acceptance capability.
@@ -502,6 +504,7 @@ authority separate from hvir viewing, transport, and ordinary Files behavior.
 ### [ADR-047 — Explicit Skillager personal-library initialization](adr/ADR-047-explicit-skillager-library-initialization.md)
 
 > Lifecycle: Partially superseded
+> Superseded by: [ADR-049](adr/ADR-049-project-skill-explorer-and-curation.md) | partial | Empty-library presentation adds explicit approved-source backfill; initialization, Git choice and first-skill authoring remain unchanged.
 > Superseded by: [ADR-048](adr/ADR-048-explicit-skillager-project-setup.md) | partial | Interactive setup and shell-launch exclusion only for the separately requested project setup handoff; personal-library initialization and first-skill guidance remain unchanged.
 > Supersedes: [ADR-010](adr/ADR-010-project-host-remote-boundary.md) | partial | Registered-project confinement only for the named local personal-library initialization and registration capability.
 > Supersedes: [ADR-046](adr/ADR-046-explicit-skillager-library-and-exposure-authority.md) | partial | Initial personal-library connection and first-use presentation only; add explicit local initialization followed by verified metadata connection.
@@ -512,13 +515,26 @@ skill authoring with the user's agent or terminal and approval with the existing
 
 ### [ADR-048 — Explicit Skillager project setup and existing skills](adr/ADR-048-explicit-skillager-project-setup.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-049](adr/ADR-049-project-skill-explorer-and-curation.md) | partial | Compact project/library explorer, successful setup presentation, approved-source sync after setup, and explicit native exposure actions only; terminal handoff and ownership remain unchanged.
 > Supersedes: [ADR-046](adr/ADR-046-explicit-skillager-library-and-exposure-authority.md) | partial | Local project setup terminal handoff and Working installation, existing-project metadata presentation, and post-handoff terminal lifetime only.
 > Supersedes: [ADR-047](adr/ADR-047-explicit-skillager-library-initialization.md) | partial | Interactive setup and shell-launch exclusion only for the separately requested project setup handoff; personal-library initialization and first-skill guidance remain unchanged.
 
 Existing project skills remain visible through public metadata, independently of managed copies.
 One explicit setup handoff opens a new user-controlled terminal for the selected local project
 and agent; public readiness, rather than terminal output or exit status, determines the result.
+
+### [ADR-049 — Project skill explorer and explicit curation](adr/ADR-049-project-skill-explorer-and-curation.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-030](adr/ADR-030-bounded-project-file-operations.md) | partial | No-replacement rule only for explicitly confirmed preserved native-original adoption/removal through the named Skillager operation; ordinary Files operations remain unchanged.
+> Supersedes: [ADR-046](adr/ADR-046-explicit-skillager-library-and-exposure-authority.md) | partial | Skills explorer presentation, derived reusable library acceptance after explicit source approval or backfill, and named local native/router exposure operations only.
+> Supersedes: [ADR-047](adr/ADR-047-explicit-skillager-library-initialization.md) | partial | Empty-library presentation adds explicit approved-source backfill; initialization, Git choice and first-skill authoring remain unchanged.
+> Supersedes: [ADR-048](adr/ADR-048-explicit-skillager-project-setup.md) | partial | Compact project/library explorer, successful setup presentation, approved-source sync after setup, and explicit native exposure actions only; terminal handoff and ownership remain unchanged.
+
+A compact project/library explorer keeps exact copy identities visible. Explicit source approval
+derives reusable preserved library acceptance; named native/router plans bind every project effect,
+while unwanted unpreserved originals retain the separate Files removal path.
 
 ## 5. Architecture
 

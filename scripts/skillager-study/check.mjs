@@ -1,5 +1,6 @@
 import nodeAssert from 'node:assert/strict'
 import { automaticRefreshAllowed } from './model.mjs'
+import { checkCurationStudy } from './curation-check.mjs'
 import { checkProjectSetupStudy } from './project-setup-check.mjs'
 import { setTimeout, clearTimeout } from 'node:timers'
 const { fetch, WebSocket } = globalThis
@@ -229,7 +230,7 @@ try {
   await click('#settings')
   await click('[data-action="connect"]')
   await assert(
-    `document.querySelectorAll('#skills-rail [data-skill]').length===6 && !document.querySelector('[data-viewer="skills"]') && studyTimers.intervals.size===1`,
+    `document.querySelectorAll('#explorer-library [data-skill]').length===6 && document.querySelector('#search-scope').value==='available' && !document.querySelector('[data-viewer="skills"]') && studyTimers.intervals.size===1`,
     'Connection reveals sidebar metadata including pending drafts without opening a detail tab',
   )
   const terminal = await run(
@@ -260,7 +261,7 @@ try {
     'The newly selected skill body requires its own explicit Review content',
   )
   await assert(
-    `document.querySelector('#review-count').textContent==='1 library review' && document.querySelector('#updates-count').textContent==='1 workspace update'`,
+    `document.querySelector('#review-count').textContent==='1 library review' && document.querySelector('#updates-count').textContent==='1 project update'`,
     'Enabled sidebar distinguishes library review from workspace update badges',
   )
   await click('[data-rail="git"]')
@@ -307,7 +308,7 @@ try {
     'Submitted results retain match reasons and external ownership',
   )
   await assert(
-    `document.querySelector('#search').value==='not submitted' && document.querySelectorAll('[data-skill]').length===3`,
+    `document.querySelector('#search').value==='not submitted' && document.querySelectorAll('.explorer-search-results [data-skill]').length===3`,
     'Typing during search does not retarget the submitted query',
   )
   await assert(
@@ -354,9 +355,8 @@ try {
     'Preview names exact worktree/agent and supporting effects',
   )
   await click('[data-action="apply"]')
-  await click('#workspace-nav')
   await assert(
-    `document.querySelector('#skill-list').textContent.includes('incident-notes') && document.querySelector('#skill-list').textContent.includes('Stub')`,
+    `document.querySelector('#project-managed-list').textContent.includes('incident-notes') && document.querySelector('#project-managed-list').textContent.includes('Stub')`,
     'Add applies only to selected workspace and agent',
   )
   await flow('switch')
@@ -379,14 +379,12 @@ try {
   )
   await flow('remove')
   await click('[data-action="apply"]')
-  await click('#workspace-nav')
   await assert(
-    `!document.querySelector('[data-skill="pr-review"]')`,
+    `!document.querySelector('#explorer-workspace [data-skill="pr-review"]')`,
     'Removal deletes the selected workspace exposure',
   )
-  await click('#library-nav')
   await assert(
-    `!!document.querySelector('[data-skill="pr-review"]')`,
+    `!!document.querySelector('#explorer-library [data-skill="pr-review"]')`,
     'Removal preserves library metadata',
   )
   for (const name of ['modified', 'pinned', 'unmanaged', 'blocked']) {
@@ -544,9 +542,8 @@ try {
     `document.querySelector('#first-skill-prompt').readOnly && document.querySelector('#first-skill-prompt').value.includes('Leave it pending')`,
     'Observed empty personal library provides selectable guidance leaving the draft pending',
   )
-  await click('#workspace-nav')
   await assert(
-    `!document.querySelector('#first-skill-prompt') && document.querySelector('#content').textContent.includes('No skills added to this workspace')`,
+    `!document.querySelector('#explorer-workspace #first-skill-prompt') && document.querySelector('#explorer-workspace').textContent.includes('No skills added to this workspace') && !!document.querySelector('#explorer-library #first-skill-prompt')`,
     'An empty workspace keeps its own state instead of personal-library onboarding',
   )
   await flow('setup')
@@ -727,7 +724,7 @@ try {
   await click('#skills-nav')
   await run('studyTimers.search()')
   await assert(
-    `document.querySelectorAll('[data-skill]').length===6 && !document.querySelector('#search-status').textContent.includes('results returned') && !document.querySelector('[data-viewer="skills"]')`,
+    `document.querySelectorAll('#explorer-library [data-skill]').length===6 && !document.querySelector('#search-status').textContent.includes('results returned') && !document.querySelector('[data-viewer="skills"]')`,
     'A fresh connection also rejects the prior generation search callback',
   )
   await flow('update')
@@ -754,6 +751,17 @@ try {
       ` && document.querySelector('#toast').hidden && document.querySelector('#toast').textContent===''`,
     'Disable clears a visible feature notification',
   )
+  await checkCurationStudy({
+    flow,
+    click,
+    pointClick,
+    choose,
+    run,
+    call,
+    assert,
+    waitFor,
+    capture,
+  })
   await checkProjectSetupStudy({
     flow,
     click,

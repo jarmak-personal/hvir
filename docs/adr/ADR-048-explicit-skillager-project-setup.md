@@ -1,6 +1,7 @@
 # ADR-048: Explicit Skillager project setup and existing skills
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-049](ADR-049-project-skill-explorer-and-curation.md) | partial | Compact project/library explorer, successful setup presentation, approved-source sync after setup, and explicit native exposure actions only; terminal handoff and ownership remain unchanged.
 > Supersedes: [ADR-046](ADR-046-explicit-skillager-library-and-exposure-authority.md) | partial | Local project setup terminal handoff and Working installation, existing-project metadata presentation, and post-handoff terminal lifetime only.
 > Supersedes: [ADR-047](ADR-047-explicit-skillager-library-initialization.md) | partial | Interactive setup and shell-launch exclusion only for the separately requested project setup handoff; personal-library initialization and first-skill guidance remain unchanged.
 

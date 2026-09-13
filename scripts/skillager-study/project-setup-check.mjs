@@ -15,13 +15,21 @@ export async function checkProjectSetupStudy({
     `document.querySelectorAll('[data-native]').length===4 && document.querySelector('#project-skill-list').textContent.includes('Pending review') && document.querySelector('#project-skill-list').textContent.includes('Lint blocked') && document.querySelector('#project-skill-list').textContent.includes('Approved') && document.querySelector('#project-skill-list').textContent.includes('Blocked') && document.querySelector('#project-skill-list').textContent.includes('Claude Code') && document.querySelector('#project-skill-list').textContent.includes('Codex') && document.querySelector('#content').textContent.includes('Managed copy')`,
     'Public project metadata includes existing approved, pending and lint-blocked native skills separately from managed copies before setup',
   )
+  await run(
+    `document.querySelector('[data-native-row="project-draft"]').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}))`,
+  )
+  await assert(
+    `document.querySelector('#dialog').open && document.querySelector('[data-action="native-files"]')`,
+    'Existing native context-menu dispatch uses its visible action trigger and separate Files handoff',
+  )
+  await pointClick('[data-action="close"]')
   await pointClick('[data-native="project-draft"]')
   await assert(
     `document.querySelector('#skills-view').textContent.includes('Project native · Unmanaged') && document.querySelector('#skills-view').textContent.includes('Pending review') && document.querySelector('#skills-view').textContent.includes('/.claude/skills/project-draft') && !document.querySelector('#skills-view [data-action="add"]') && !document.querySelector('#skills-view [data-action="update"]') && !document.querySelector('#skills-view [data-action="remove"]') && !document.querySelector('#skills-view [data-action="accept"]')`,
     'Native metadata details confer no managed mutation or canonical-library acceptance actions',
   )
   await click('[data-viewer="document"]')
-  await pointClick('[data-action="refresh"]')
+  await pointClick('.project-setup [data-action="refresh"]')
   await assert(
     `document.querySelector('#project-readiness').textContent.includes('Pending review') && document.querySelector('#setup-terminal').hidden && !document.querySelector('#setup-terminal-tabs button')`,
     'Observation keeps pending metadata visible without launching setup or installing Working',
@@ -56,8 +64,8 @@ export async function checkProjectSetupStudy({
   await choose('#project-outcome', 'Ready')
   await click('#finish-project-terminal')
   await assert(
-    `document.querySelector('#project-readiness').textContent.includes('Ready') && document.querySelector('#project-readiness').textContent.includes('Installed') && !document.querySelector('[data-action="project-setup"]') && document.querySelectorAll('[data-native]').length===4 && !document.querySelector('#project-skill-list').textContent.includes('Pending review') && !document.querySelector('#project-skill-list').textContent.includes('Lint blocked') && document.querySelector('#project-skill-list').textContent.includes('Blocked')`,
-    'A separately supplied public ready outcome reports Working installed while retaining existing-project metadata',
+    `!document.querySelector('.project-setup') && !!document.querySelector('[data-action="show-project-setup"]') && !document.querySelector('[data-action="project-setup"]') && document.querySelectorAll('[data-native]').length===4 && !document.querySelector('#project-skill-list').textContent.includes('Pending review') && !document.querySelector('#project-skill-list').textContent.includes('Lint blocked') && document.querySelector('#project-skill-list').textContent.includes('Blocked')`,
+    'A separately supplied ready outcome removes the success card, preserves skills and keeps setup reachable',
   )
   await flow('project-existing')
   await pointClick('[data-action="project-setup"]')

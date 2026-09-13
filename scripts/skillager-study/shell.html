@@ -22,6 +22,7 @@
           </option>
           <option value="project-empty">No project skills reported</option>
           <option value="project-unavailable">Project metadata unavailable</option>
+          <option value="curation">Project skills explorer</option>
           <option value="browse">Connected library</option>
           <option value="search">Search a large catalog (sample)</option>
           <option value="add">Add to workspace</option>
@@ -66,6 +67,23 @@
         Recover terminal (sample · no replay)
       </button>
     </div>
+    <details id="curation-lab" class="lab" hidden>
+      <summary>External curation outcomes (sample)</summary>
+      <span
+        >External outcome fixtures · derived reusable approval · originals retain their
+        actual scope</span
+      >
+      <button id="curation-long-project">Many observed project skills (sample)</button>
+      <button id="curation-approve">Finish explicit source approval (sample)</button>
+      <button id="curation-change-source">Source changes after preview</button>
+      <button id="curation-block-origin">Original approval is blocked</button>
+      <button id="curation-edit-library">Library copy gains pending edits</button>
+      <button id="curation-change-router">Router membership changes</button>
+      <button id="curation-shared-tag">Another agent uses the router tag</button>
+      <button id="curation-interrupt-sync">Lose next sync completion</button>
+      <button id="curation-interrupt">Interrupt next apply</button>
+      <button id="curation-unsupported">Unsupported action contract</button>
+    </details>
     <div class="frame">
       <header class="titlebar">● ● ● <span>hvir — workbench</span></header>
       <div class="projects">
@@ -85,6 +103,7 @@
             <p>　▾ docs</p>
             <button data-viewer="document">　design.md</button>
             <p>　package.json</p>
+            <div id="files-selection"></div>
           </div>
           <div class="file-tree" id="git-rail" hidden>
             <h3>Changes · main</h3>

@@ -19,6 +19,9 @@
 }
 body {
   margin: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 button,
 input,
@@ -92,6 +95,7 @@ hr {
   display: none !important;
 }
 .lab {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -107,8 +111,8 @@ hr {
   font-size: 11px;
 }
 .frame {
-  height: calc(100vh - 54px);
-  min-height: 720px;
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
@@ -153,6 +157,7 @@ hr {
 .left {
   grid-column: 1;
   grid-row: 1 / -1;
+  min-height: 0;
   background: var(--s0);
   border-right: 1px solid var(--border);
   display: flex;
@@ -176,6 +181,7 @@ hr {
   background: none;
 }
 #skills-rail {
+  flex: 1;
   overflow: auto;
   min-height: 0;
 }
@@ -382,7 +388,7 @@ hr {
   justify-content: space-between;
   gap: 10px;
   border-bottom: 1px solid var(--border);
-  padding: 12px 8px;
+  padding: 8px;
 }
 .skill-row.selected {
   background: #1c2633;
@@ -635,4 +641,233 @@ dialog label.inline {
 
 body:has(#project-terminal-lab:not([hidden])) .frame {
   height: calc(100vh - 112px);
+}
+
+/* Curation hierarchy: decisions stay legible without status paragraphs above every row. */
+#search-disclosure {
+  margin: 8px 0;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+}
+#search-disclosure > summary {
+  font-weight: 600;
+  cursor: pointer;
+  padding: 5px 0;
+}
+#search-form {
+  margin-top: 8px;
+}
+#search-advanced {
+  margin-top: 8px;
+}
+#search-advanced label {
+  display: grid;
+  gap: 4px;
+  margin: 6px 0;
+}
+.target-controls {
+  margin: 6px 0;
+  font-size: 11px;
+}
+.target-controls summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+/* Skill metadata follows Files' compact semantic-row language, not filesystem nodes. */
+#skills-rail {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.explorer-tools {
+  padding: 0 8px;
+  flex: 0 0 auto;
+}
+#skills-rail #content.skill-explorer {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+.explorer-section {
+  display: flex;
+  flex-direction: column;
+  min-height: 27px;
+  flex: 0 0 auto;
+  border-top: 1px solid var(--border);
+}
+.explorer-section.is-open {
+  flex: 1 1 0;
+  min-height: 80px;
+}
+#explorer-workspace.is-open {
+  flex: 0 1 auto;
+  max-height: 55%;
+}
+.explorer-heading {
+  text-align: left;
+  border: 0;
+  border-radius: 0;
+  padding: 4px 8px;
+  height: 27px;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  background: #191d24;
+}
+.explorer-scroll {
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 0;
+  flex: 1;
+}
+.explorer-scroll > p,
+.explorer-scroll > details,
+.explorer-scroll > .first-skill {
+  margin: 4px 8px;
+}
+.explorer-search-results {
+  flex: 1 1 50%;
+  overflow: auto;
+  min-height: 70px;
+}
+.explorer-search-results ~ .explorer-section.is-open {
+  flex: 0 0 27px;
+  min-height: 27px;
+}
+.explorer-search-results ~ .explorer-section .explorer-scroll {
+  display: none;
+}
+.skill-row,
+.skill-row:nth-child(even) {
+  height: 27px;
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  margin: 0;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: 12px;
+}
+.skill-row.selected {
+  background: #28364c;
+  box-shadow: inset 2px 0 var(--accent);
+}
+.skill-row:hover {
+  background: #202733;
+}
+.skill-row:focus-within {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.skill-row > button,
+.skill-row > button:first-child {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 3px;
+  height: 25px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  min-width: 0;
+}
+.skill-row > button:not(.more):not(.disclosure) {
+  flex: 1;
+  text-align: left;
+}
+.skill-row .skill-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+.skill-row small {
+  flex: 0 1 auto;
+  font-size: 10px;
+  white-space: nowrap;
+  color: var(--muted);
+  max-width: 48%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.skill-row .more,
+.skill-row .disclosure {
+  flex: 0 0 20px;
+  min-width: 20px;
+  justify-content: center;
+  padding: 0;
+}
+.row-status {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: #d3b775;
+}
+.tree-icon {
+  width: 20px;
+  text-align: center;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.explorer-child {
+  margin-left: 15px;
+  border-left: 1px solid #36404c;
+  padding-left: 6px;
+}
+.explorer-child button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border: 0;
+  background: none;
+  font-size: 11px;
+  height: 25px;
+  padding: 2px;
+}
+.router-group {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.library-actions {
+  font-size: 11px;
+  padding: 0 8px;
+}
+.library-actions summary {
+  cursor: pointer;
+}
+.feature-badges {
+  flex-shrink: 0;
+}
+.project-setup {
+  margin: 0 8px 6px;
+}
+.curation-details header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.curation-details header button {
+  width: auto;
+  margin: 0;
+}
+#dialog label:not(.inline) {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0;
+}
+#router-member-choices label {
+  display: flex;
+  gap: 8px;
+  padding: 6px 0;
 }
