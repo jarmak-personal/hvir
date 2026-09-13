@@ -47,7 +47,8 @@ export async function verifySkillagerOnboarding(win: BrowserWindow): Promise<voi
     if (!document.querySelector('.viewer-tab:not(.skillager-tab)') || !document.querySelector('.terminal-container canvas')) throw new Error('Setup displaced ordinary work');
   `,
   )
-  const at = await skillagerControlPoint(win, '.skillager-sidebar', true)
+  const guidanceScroll = 'section[aria-label="Your library"] .skillager-section-empty'
+  const at = await skillagerControlPoint(win, guidanceScroll, true)
   win.webContents.sendInputEvent({ type: 'mouseMove', ...at })
   win.webContents.sendInputEvent({
     type: 'mouseWheel',
@@ -58,8 +59,8 @@ export async function verifySkillagerOnboarding(win: BrowserWindow): Promise<voi
   })
   await inspect(
     win,
-    `try { await wait(() => { const sidebar = document.querySelector('.skillager-sidebar'); return sidebar.scrollTop + sidebar.clientHeight >= sidebar.scrollHeight - 1; }); }
-    catch { const sidebar = document.querySelector('.skillager-sidebar'), prompt = document.querySelector('.skillager-first-skill textarea');
+    `try { await wait(() => { const sidebar = document.querySelector(${JSON.stringify(guidanceScroll)}); return sidebar.scrollTop + sidebar.clientHeight >= sidebar.scrollHeight - 1; }); }
+    catch { const sidebar = document.querySelector(${JSON.stringify(guidanceScroll)}), prompt = document.querySelector('.skillager-first-skill textarea');
       const rect = sidebar.getBoundingClientRect(), promptRect = prompt.getBoundingClientRect(), rail = document.querySelector('.rail-content');
       throw new Error('Guidance scroll geometry: ' + JSON.stringify({ top: sidebar.scrollTop, client: sidebar.clientHeight, total: sidebar.scrollHeight, height: rect.height, overflow: getComputedStyle(sidebar).overflowY, railClient: rail.clientHeight, railTotal: rail.scrollHeight, railTop: rail.scrollTop, promptHit: prompt.contains(document.elementFromPoint(promptRect.x + promptRect.width / 2, promptRect.y + promptRect.height / 2)), promptTop: promptRect.top, promptHeight: promptRect.height, viewport: innerHeight, focused: document.hasFocus() })); }`,
   )
@@ -111,7 +112,7 @@ export async function selectSkillagerExecutable(
 /** Opt-in, cropped, closed-fixture visuals; ordinary tests produce no screenshots. */
 export async function captureSkillagerSidebar(
   win: BrowserWindow,
-  name: 'setup' | 'connected-empty' | 'project-before' | 'project-ready',
+  name: 'setup' | 'connected-empty' | 'project-before' | 'project-ready' | 'explorer',
 ): Promise<void> {
   const directory = process.env.HVIR_SKILLAGER_VISUAL_DIRECTORY
   if (!directory) return

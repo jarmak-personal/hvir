@@ -5,6 +5,8 @@ import type { SkillagerCliSelection } from '../skillager/skillager-port'
 import type { ProjectHost } from '../project-host'
 import type { SmokeCleanup } from './cleanup'
 
+export const SKILLAGER_PROJECT_FIXTURE_ROWS = 1000
+
 /** Deterministic interaction fixture only; installed CLI contracts run separately. */
 export function skillagerProjectFixture(
   host: ProjectHost,
@@ -110,6 +112,21 @@ exit 0
             managed: false,
           },
         }))
+        for (let index = 3; index < SKILLAGER_PROJECT_FIXTURE_ROWS; index++)
+          rows.push({
+            ...rows[0]!,
+            id: `project/observed-${index}`,
+            name: `Observed project skill ${index}`,
+            trust: 'reviewed',
+            projectSkill: {
+              path: joinHostPath(
+                projectRoot,
+                `${index % 2 ? '.claude' : '.agents'}/skills/observed-${index}`,
+              ),
+              agent: SKILLAGER_AGENTS[index % 2]!.id,
+              managed: false,
+            },
+          })
         return { rows, status }
       },
     } satisfies SkillagerProjectCliPort,

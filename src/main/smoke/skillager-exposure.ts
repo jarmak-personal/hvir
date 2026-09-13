@@ -10,10 +10,9 @@ export async function verifySkillagerExposure(win: BrowserWindow): Promise<void>
     try { ${body} } catch (error) { throw new Error('Exposure ' + checkpoint + ': ' + error.message); }
   })()`)
   await evaluate(`
-    const back = button('.skillager-sidebar', 'Back to browsing'); if (back) back.click();
-    button('.skillager-sidebar', 'This workspace').click();
-    const row = await wait(() => [...document.querySelectorAll('.skillager-row')].find((item) => item.textContent.includes('native')));
-    row.querySelector('strong').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 30, clientY: 100 }));
+    const back = button('.skillager-sidebar', 'Clear search'); if (back) back.click();
+    const row = await wait(() => [...document.querySelectorAll('section[aria-label="In this project"] .skillager-row')].find((item) => item.textContent.includes('Full')));
+    row.querySelector('.skillager-name').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 30, clientY: 100 }));
     await wait(() => button('[role=menu]', 'Change to Stub…'));
     await wait(() => document.activeElement?.getAttribute('role') === 'menuitem' && document.hasFocus());
   `)
@@ -39,9 +38,9 @@ export async function verifySkillagerExposure(win: BrowserWindow): Promise<void>
     button('.skillager-exposure-dialog', 'Confirm exact changes').click();
     await wait(() => button('.skillager-exposure-dialog', 'Close'));
     button('.skillager-exposure-dialog', 'Close').click();
-    await wait(() => [...document.querySelectorAll('.skillager-row')].some((item) => item.textContent.includes('stub')));
+    await wait(() => [...document.querySelectorAll('section[aria-label="In this project"] .skillager-row')].some((item) => item.textContent.includes('Stub')));
     checkpoint = 'remove menu';
-    document.querySelector('.skillager-sidebar .skillager-actions-trigger').click();
+    document.querySelector('section[aria-label="In this project"] .skillager-actions-trigger').click();
     await wait(() => button('[role=menu]', 'Remove workspace copy…'));
     button('[role=menu]', 'Remove workspace copy…').click();
     await wait(() => button('.skillager-exposure-dialog', 'Preview changes'));
@@ -52,10 +51,9 @@ export async function verifySkillagerExposure(win: BrowserWindow): Promise<void>
     await wait(() => button('.skillager-exposure-dialog', 'Close'));
     button('.skillager-exposure-dialog', 'Close').click();
     checkpoint = 'add menu';
-    button('.skillager-sidebar', 'Personal library').click();
-    const pending = await wait(() => document.querySelector('.skillager-list-controls input[type=checkbox]')); if (pending.checked) pending.click();
-    await wait(() => document.querySelectorAll('.skillager-row').length === 50);
-    document.querySelector('.skillager-sidebar .skillager-actions-trigger').click();
+    const pending = await wait(() => document.querySelector('.skillager-pending-filter input[type=checkbox]')); if (pending.checked) pending.click();
+    await wait(() => document.querySelector('section[aria-label="Your library"] .skillager-row'));
+    document.querySelector('section[aria-label="Your library"] .skillager-actions-trigger').click();
     await wait(() => button('[role=menu]', 'Add to project…'));
     button('[role=menu]', 'Add to project…').click();
     await wait(() => document.querySelector('select[aria-label="Destination project"]'));
@@ -70,7 +68,7 @@ export async function verifySkillagerExposure(win: BrowserWindow): Promise<void>
   for (const cancellation of ['Cancel', 'Escape']) {
     await evaluate(`
       checkpoint = 'cancel preparing preview';
-      document.querySelector('.skillager-sidebar .skillager-actions-trigger').click();
+      document.querySelector('section[aria-label="Your library"] .skillager-actions-trigger').click();
       await wait(() => button('[role=menu]', 'Add to project…'));
       button('[role=menu]', 'Add to project…').click();
       await wait(() => document.querySelector('select[aria-label="Destination project"]'));
@@ -92,7 +90,7 @@ export async function verifySkillagerExposure(win: BrowserWindow): Promise<void>
     `)
   }
   await evaluate(`
-    document.querySelector('.skillager-sidebar .skillager-actions-trigger').click();
+    document.querySelector('section[aria-label="Your library"] .skillager-actions-trigger').click();
     await wait(() => document.querySelector('[role=menu]'));
     checkpoint = 'hidden menu';
     button('.rail-nav', 'Files').click();

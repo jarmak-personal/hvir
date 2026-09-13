@@ -58,6 +58,7 @@ export function useSkillagerProject(options: {
         connectionId: connection.connectionId,
         workspaceRoot: root,
         agent,
+        browseAgent: 'all',
         requestId,
       })
       if (at === generation.current && requestId === sequence.current) {

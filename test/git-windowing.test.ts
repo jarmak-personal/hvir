@@ -4,7 +4,7 @@ import {
   measureVariableRows,
   variableVirtualRange,
   virtualRange,
-} from '../src/renderer/src/git/virtual-range'
+} from '../src/renderer/src/layout/virtual-range'
 
 describe('Git list windowing', () => {
   it('keeps a deep history window independent of accumulated commit count', () => {

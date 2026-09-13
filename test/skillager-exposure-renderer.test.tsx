@@ -460,6 +460,7 @@ describe('workspace skill action UI', () => {
     const selected = {
       ...metadata,
       workspace: {
+        agent: 'codex' as const,
         id: 'lib-demo',
         skillId: metadata.id,
         target: request.destination.root,
@@ -482,6 +483,25 @@ describe('workspace skill action UI', () => {
     expect(
       document.querySelector('.skillager-exposure-dialog [role="status"]')?.textContent,
     ).toBe('Changed lib/demo to Stub at local:/other.')
+  })
+  it('uses the selected copy agent for mutations independently of the setup agent', async () => {
+    const selected = {
+      ...metadata,
+      workspace: {
+        agent: 'claude' as const,
+        id: 'lib-demo',
+        skillId: metadata.id,
+        target: request.workspaceRoot,
+        mode: 'native',
+        status: 'current',
+      },
+    }
+    await settle(() => controller.start(selected, 'remove'))
+    expect(controller.state?.agent).toBe('claude')
+    await settle(() => controller.preview())
+    expect(
+      invoke.mock.calls.find(([channel]) => channel === 'skillager:preview-exposure')![1],
+    ).toMatchObject({ agent: 'claude', exposure: { agent: 'claude', id: 'lib-demo' } })
   })
   it('refreshes an uncertain outcome once and never offers repeated confirmation', async () => {
     await open()

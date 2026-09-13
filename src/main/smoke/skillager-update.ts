@@ -5,8 +5,8 @@ export async function verifySkillagerUpdate(win: BrowserWindow): Promise<void> {
   await win.webContents.executeJavaScript(`(async () => {
     const wait = (read) => new Promise((resolve, reject) => { const until = Date.now() + 30000; const poll = () => { const value = read(); if (value) return resolve(value); if (Date.now() > until) return reject(new Error('Workspace update condition timed out: ' + read.toString())); requestAnimationFrame(poll) }; poll() });
     const button = (scope, label) => [...document.querySelectorAll(scope + ' button')].find((item) => item.textContent.trim() === label);
-    const row = () => [...document.querySelectorAll('.skillager-row')].find((item) => item.querySelector('strong')?.textContent === 'Skill 0');
-    button('.skillager-sidebar', 'This workspace').click();
+    const row = () => [...document.querySelectorAll('section[aria-label="In this project"] .skillager-row')].find((item) => item.querySelector('.skillager-name')?.textContent === 'Skill 0');
+    const entry = await wait(() => document.querySelector('section[aria-label="In this project"] [role=treeitem]')); entry.focus(); entry.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
     await wait(() => row()?.textContent.includes('Workspace copy behind'));
     row().click();
     await wait(() => button('.skillager-review', 'Review workspace update'));
@@ -24,7 +24,7 @@ export async function verifySkillagerUpdate(win: BrowserWindow): Promise<void> {
     button('.skillager-exposure-dialog', 'Confirm exact changes').click();
     await wait(() => document.querySelector('.skillager-exposure-dialog [role=status]')?.textContent.includes('Updated lib/skill-0 for codex'));
     button('.skillager-exposure-dialog', 'Close').click();
-    await wait(() => row()?.textContent.includes('native · Current'));
+    await wait(() => row()?.textContent.includes('Current'));
     if (row().textContent.includes('Workspace copy behind')) throw new Error('Completed update retained obsolete badge');
     document.querySelector('.skillager-tab.active .tab-close').click();
     await wait(() => !document.querySelector('.skillager-details'));

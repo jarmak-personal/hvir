@@ -10,7 +10,7 @@ import {
 import { splitFileName } from '../tree/file-name'
 import { displayGitParentPath } from './commit-file-tree'
 import { gitChangeGroups } from './git-rail-model'
-import { virtualRange } from './virtual-range'
+import { virtualRange } from '../layout/virtual-range'
 
 const DETAIL_ROW_HEIGHT = 28
 

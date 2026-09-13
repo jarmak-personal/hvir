@@ -252,6 +252,7 @@ it.each(['checking', 'stale', 'unavailable', 'destination'] as const)(
         contentHash: detail.hash,
         workspaceFreshness: reason === 'destination' ? 'fresh' : reason,
         workspace: {
+          agent: 'codex' as const,
           id: 'lib-example',
           skillId: tab.metadata.id,
           mode: 'native',

@@ -25,6 +25,7 @@ import type {
   SkillagerMetadataResult,
   SkillagerProbe,
   SkillagerRequest,
+  SkillagerBrowseRequest,
   SkillagerResult,
   SkillagerSearchRequest,
   SkillagerSetupCompletion,
@@ -33,7 +34,7 @@ import type {
 export const skillagerIpc = {
   invoke: {
     'skillager:project-metadata': invoke<
-      SkillagerRequest,
+      SkillagerBrowseRequest,
       SkillagerResult<SkillagerProjectObservation>
     >(),
     'skillager:prepare-project-setup': invoke<
@@ -100,7 +101,7 @@ export const skillagerIpc = {
     >(),
     'skillager:disconnect': invoke<Record<string, never>, void>(),
     'skillager:inventory': invoke<
-      SkillagerRequest,
+      SkillagerBrowseRequest,
       SkillagerResult<SkillagerMetadataResult>
     >(),
     'skillager:search': invoke<

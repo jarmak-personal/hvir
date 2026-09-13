@@ -1,0 +1,193 @@
+import { expect, it } from 'vitest'
+import { localPath } from '../src/shared/host-path'
+import type {
+  SkillagerMetadata,
+  SkillagerMetadataResult,
+  SkillagerWorkspaceExposure,
+} from '../src/shared/skillager'
+import { skillagerExplorerRows } from '../src/renderer/src/skillager/skillager-explorer-model'
+import {
+  skillagerMetadataKey,
+  skillagerProjectRows,
+  skillagerTabs,
+  skillagerWorkspaceMetadata,
+} from '../src/renderer/src/skillager/skillager-model'
+
+const source: SkillagerMetadata = {
+  id: 'lib/guide',
+  name: 'Guide',
+  description: 'Source',
+  trust: 'reviewed',
+  source: { type: 'collection', ownership: 'library', libraryId: 'library-a' },
+  tags: [],
+  matchReasons: [],
+  exposure: 'unknown',
+}
+const copy: SkillagerWorkspaceExposure = {
+  id: 'lib-guide',
+  agent: 'codex',
+  skillId: source.id,
+  sourceLibraryId: 'library-a',
+  target: localPath('/project/.agents/skills/lib-guide'),
+  mode: 'native',
+  status: 'current',
+}
+const router: SkillagerWorkspaceExposure = {
+  id: 'router-guide',
+  agent: 'claude',
+  target: localPath('/project/.claude/skills/router-guide'),
+  mode: 'router',
+  status: 'current',
+  router: {
+    slug: 'router-guide',
+    kind: 'tag',
+    tag: 'Guides',
+    skillIds: [source.id],
+    memberSources: [{ skillId: source.id, sourceLibraryId: source.source.libraryId }],
+  },
+}
+const result: SkillagerMetadataResult = {
+  rows: [source],
+  exposures: [
+    copy,
+    {
+      ...copy,
+      agent: 'claude',
+      mode: 'stub',
+      target: localPath('/project/.claude/skills/lib-guide'),
+    },
+    router,
+  ],
+  checkedAt: 100,
+  durationMs: 1,
+}
+
+it('keeps exact copies separate from their source and opens stable source/copy/member tabs', () => {
+  const library = skillagerWorkspaceMetadata(result)
+  expect(library[0]!.workspaceCopies).toHaveLength(2)
+  expect(library[0]!.workspace).toBeUndefined()
+  const projected = skillagerExplorerRows(
+    library,
+    library,
+    new Set([skillagerMetadataKey(library[0]!)]),
+    'all',
+  )
+  expect(projected.length).toBe(3)
+  expect(projected.slice(0, 3).map((row) => row.metadata.workspace?.agent)).toEqual([
+    undefined,
+    'codex',
+    'claude',
+  ])
+  const project = skillagerProjectRows(result)
+  const expanded = skillagerExplorerRows(
+    project,
+    library,
+    new Set(project.map(skillagerMetadataKey)),
+    'all',
+  )
+  const selections = [...projected.slice(0, 3), expanded.at(3)!]
+  let state = { tabs: [] } as ReturnType<typeof skillagerTabs>
+  for (const row of selections)
+    state = skillagerTabs(state, { type: 'select', metadata: row.metadata })
+  expect(new Set(state.tabs.map((tab) => tab.id)).size).toBe(4)
+  const refreshed = skillagerTabs(state, {
+    type: 'observe',
+    result: { ...result, rows: [{ ...source, description: 'Refreshed' }] },
+  })
+  expect(refreshed.tabs.map((tab) => tab.id)).toEqual(state.tabs.map((tab) => tab.id))
+  expect(
+    refreshed.tabs.slice(0, 3).every((tab) => tab.metadata.description === 'Refreshed'),
+  ).toBe(true)
+  expect(refreshed.tabs[3]!.metadata.workspaceFreshness).toBe('fresh')
+  expect(refreshed.tabs[3]!.metadata.source.ownership).toBe('library')
+  expect(refreshed.tabs[3]!.metadata.description).toBe('Refreshed')
+  expect(
+    skillagerTabs(refreshed, {
+      type: 'observe-project',
+      result: { ...result, exposures: [copy] },
+    }).tabs[3]!.metadata,
+  ).toMatchObject({ workspaceFreshness: 'unavailable', trust: 'unknown' })
+})
+
+it('never joins foreign or unproven same-ID copies/members to the currently registered library', () => {
+  const foreign = { ...source, source: { ...source.source, libraryId: 'library-b' } }
+  const data = { ...result, rows: [foreign] }
+  expect(skillagerWorkspaceMetadata(data)[0]!.workspaceCopies).toEqual([])
+  const project = skillagerProjectRows(data)
+  expect(project.every((row) => row.source.ownership === 'unknown')).toBe(true)
+  const members = skillagerExplorerRows(
+    project,
+    [foreign],
+    new Set(project.map(skillagerMetadataKey)),
+    'all',
+  )
+  expect(members.at(3)!.metadata.source.ownership).toBe('unknown')
+  expect(
+    skillagerProjectRows({
+      ...result,
+      exposures: [{ ...copy, sourceLibraryId: undefined }],
+    })[0]!.source.ownership,
+  ).toBe('unknown')
+})
+
+it('filters project occurrences by agent without dropping reusable source rows or changing keys', () => {
+  const library = skillagerWorkspaceMetadata(result),
+    key = skillagerMetadataKey(library[0]!)
+  const all = skillagerExplorerRows(library, library, new Set([key]), 'all')
+  const codex = skillagerExplorerRows(library, library, new Set([key]), 'codex')
+  expect(codex.length).toBe(2)
+  expect(codex.slice(0, 2).map((row) => row.key)).toEqual(
+    all.slice(0, 2).map((row) => row.key),
+  )
+  expect(
+    skillagerExplorerRows(skillagerProjectRows(result), library, new Set(), 'claude')
+      .length,
+  ).toBe(2)
+})
+
+it('projects only the requested range with millions of repeated public member references', () => {
+  const ids = Array.from({ length: 5000 }, (_, n) => `lib/member-${n}`)
+  let memberReads = 0
+  const members = new Proxy(ids, {
+    get(target, key, receiver) {
+      if (typeof key === 'string' && /^\d+$/.test(key)) memberReads++
+      return Reflect.get(target, key, receiver) as unknown
+    },
+  })
+  const sources = Array.from({ length: 5000 }, (_, n) => ({
+    ...source,
+    id: `router-${n}`,
+    workspace: {
+      ...router,
+      id: `router-${n}`,
+      target: localPath(`/project/routers/${n}`),
+      router: { ...router.router!, skillIds: members },
+    },
+  }))
+  const projection = skillagerExplorerRows(
+    sources,
+    [],
+    new Set(sources.map(skillagerMetadataKey)),
+    'all',
+  )
+  expect(projection.length).toBe(40_000)
+  expect(projection.refused).toHaveLength(4993)
+  expect(memberReads).toBe(0)
+  const window = projection.slice(1, 21)
+  expect(window).toHaveLength(20)
+  expect(memberReads).toBe(20)
+  expect(window.at(-1)!.metadata.id).toBe('lib/member-19')
+  expect(projection.indexOf(window[0]!.key, window[0])).toBe(1)
+  const last = skillagerExplorerRows(
+    sources,
+    [],
+    new Set([skillagerMetadataKey(sources.at(-1)!)]),
+    'all',
+  )
+  expect(last.length).toBe(10_000)
+  expect(last.at(last.length - 1)!.metadata.id).toBe('lib/member-4999')
+  const collapsed = skillagerExplorerRows(sources, [], new Set(), 'all')
+  expect(collapsed.length).toBe(5000)
+  expect(collapsed.indexOf(window[0]!.key, window[0])).toBe(-1)
+  expect(collapsed.indexOf(window[0]!.parent!)).toBe(0)
+})

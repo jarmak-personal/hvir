@@ -60,6 +60,7 @@ describe('one-use workspace skill confirmation ownership', () => {
           ...request,
           action: 'remove',
           exposure: {
+            agent: request.agent,
             id: '--yes',
             skillId: request.skillId,
             target: f.snapshot.detail.target,

@@ -19,6 +19,7 @@ import {
   type SkillagerTrust,
   type SkillagerWorkspaceExposure,
   type SkillagerAgent,
+  type SkillagerBrowseAgent,
 } from '../../shared/skillager'
 import type { HostPath } from '../../shared/host-path'
 
@@ -212,7 +213,7 @@ export function parseSkillagerShow(payload: unknown, library: SkillagerLibrary) 
 export function parseSkillagerExposures(
   payload: unknown,
   workspaceRoot: HostPath,
-  agent: string,
+  agent: SkillagerBrowseAgent,
 ): readonly SkillagerWorkspaceExposure[] {
   const data = object(payload)
   if (data.schema !== 'skillager.exposures.v1') malformed()
@@ -220,24 +221,77 @@ export function parseSkillagerExposures(
     const row = object(item)
     if (
       row.schema !== 'skillager.exposure.v1' ||
-      row.agent !== agent ||
+      !SKILLAGER_AGENTS.some((item) => item.id === row.agent) ||
+      (agent !== 'all' && row.agent !== agent) ||
       row.scope !== 'project'
     )
       malformed()
     const target = absolutePath(row.target)
     if (!containsHostPath(workspaceRoot, target) || target.path === workspaceRoot.path)
       malformed()
+    const members =
+      row.mode === 'router'
+        ? strings(row.skill_ids, SKILLAGER_INVENTORY_LIMIT, 512)
+        : undefined
+    if (members && new Set(members).size !== members.length) malformed()
     return {
       id: string(row.exposure_id, 512),
+      agent: row.agent as SkillagerAgent,
       skillId: optionalString(row.skill_id, 512),
+      sourceLibraryId: libraryQualifier(row.source_library_id),
       target,
       mode: string(row.mode, 64),
       status: string(row.status, 64),
       expectedSourceHash:
         row.expected_source_hash == null ? undefined : hash(row.expected_source_hash),
       currentHash: row.current_hash == null ? undefined : hash(row.current_hash),
+      ...(row.mode === 'router'
+        ? {
+            router: {
+              slug: string(row.router_slug, 512),
+              kind: string(row.router_kind, 64),
+              tag: optionalString(row.tag, 512),
+              skillIds: members!,
+              memberSources: routerMemberSources(row.member_sources, members!),
+            },
+          }
+        : {}),
     }
   })
+}
+
+function libraryQualifier(value: unknown): string | undefined {
+  return typeof value === 'string' && value === value.toLowerCase() && UUID.test(value)
+    ? value
+    : undefined
+}
+
+/** Legacy or malformed membership may be displayed, but cannot confer partial source authority. */
+function routerMemberSources(
+  value: unknown,
+  members: readonly string[],
+): NonNullable<SkillagerWorkspaceExposure['router']>['memberSources'] {
+  if (!Array.isArray(value) || value.length !== members.length) return undefined
+  const ids = new Set(members)
+  if (ids.size !== members.length) return undefined
+  const result: { skillId: string; sourceLibraryId?: string }[] = []
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return undefined
+    const item = entry as Record<string, unknown>
+    if (
+      Object.keys(item).length !== 2 ||
+      !('source_library_id' in item) ||
+      typeof item.skill_id !== 'string' ||
+      !ids.delete(item.skill_id) ||
+      (item.source_library_id !== null && !libraryQualifier(item.source_library_id))
+    )
+      return undefined
+    result.push({
+      skillId: item.skill_id,
+      sourceLibraryId: libraryQualifier(item.source_library_id),
+    })
+  }
+  return result
 }
 
 function metadata(payload: unknown, library: SkillagerLibrary): SkillagerMetadata {

@@ -108,12 +108,9 @@ export function useSkillagerExposure(options: Options) {
           : exposureActions(metadata).find((item) => item.action === action)?.disabled)
       )
         return
-      const destination =
-        action === 'add'
-          ? undefined
-          : exposureDestinations(current.projectState).find((item) =>
-              hostPathEquals(item.root, current.projectState!.root),
-            )
+      const destination = exposureDestinations(current.projectState).find((item) =>
+        hostPathEquals(item.root, current.projectState!.root),
+      )
       if (action !== 'add' && !destination) return
       release()
       setState({
@@ -121,7 +118,7 @@ export function useSkillagerExposure(options: Options) {
         action,
         reviewId,
         destination,
-        agent: current.agent,
+        agent: action === 'add' ? current.agent : metadata.workspace!.agent,
         mode:
           action === 'change'
             ? metadata.workspace?.mode === 'stub'

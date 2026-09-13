@@ -155,8 +155,10 @@ it('observes native project metadata independently of an empty personal inventor
 
 it('joins only actual referenced owned source metadata when managed copies are browsed first, including pending versions', async () => {
   const copy = {
+    agent: 'codex' as const,
     id: 'lib-guide',
     skillId: 'lib/guide',
+    sourceLibraryId: selection.library.id,
     target: localPath('/workspace/.agents/skills/lib-guide'),
     mode: 'native',
     status: 'source_unverified',
@@ -214,8 +216,10 @@ it('keeps only the newest project read while an aborted predecessor is still clo
 it('fails explicitly if project metadata plus referenced canonical sources exceed the retained row bound', async () => {
   const f = fixture([
     {
+      agent: 'codex' as const,
       id: 'copy',
       skillId: canonical.id,
+      sourceLibraryId: selection.library.id,
       target: localPath('/workspace/.agents/skills/lib-guide'),
       mode: 'native',
       status: 'current',

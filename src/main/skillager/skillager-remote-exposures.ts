@@ -3,7 +3,7 @@ import type { Disposer } from '../../shared'
 import { hostPathEquals, joinHostPath, type HostPath } from '../../shared/host-path'
 import type {
   SkillagerMetadata,
-  SkillagerRequest,
+  SkillagerBrowseRequest,
   SkillagerWorkspaceExposure,
 } from '../../shared/skillager'
 import type {
@@ -314,7 +314,7 @@ export class SkillagerRemoteExposures implements SkillagerExposureCliPort {
 
   async observe(
     selection: SkillagerCliSelection,
-    request: SkillagerRequest,
+    request: SkillagerBrowseRequest,
     sourceObservation: {
       readonly rows: readonly SkillagerMetadata[]
       readonly complete: boolean
@@ -334,7 +334,8 @@ export class SkillagerRemoteExposures implements SkillagerExposureCliPort {
       const targets = (await this.store.read()).filter(
         (target) =>
           hostPathEquals(target.identity.destination.root, request.workspaceRoot) &&
-          target.identity.agent === request.agent &&
+          (request.browseAgent === 'all' ||
+            target.identity.agent === (request.browseAgent ?? request.agent)) &&
           sameLibrary(
             target.installed?.deployment ??
               target.intent?.incoming ??
@@ -388,7 +389,9 @@ export class SkillagerRemoteExposures implements SkillagerExposureCliPort {
         return [
           {
             id: target.identity.exposureId,
+            agent: target.identity.agent,
             skillId: deployment.skillId,
+            sourceLibraryId: selection.library!.id,
             target: joinHostPath(request.workspaceRoot, target.identity.targetEntry),
             mode: 'native',
             status,

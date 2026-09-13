@@ -15,6 +15,7 @@ import {
 } from './fixtures/skillager-exposure-fixture'
 
 const copy = {
+  agent: request.agent,
   id: 'lib-demo',
   skillId: request.skillId,
   target: localPath('/other/.agents/skills/lib-demo'),

@@ -1,3 +1,7 @@
+import {
+  verifySkillagerExplorer,
+  verifySkillagerExpansionCapacity,
+} from './skillager-explorer'
 import { verifySkillagerOnboarding } from './skillager-onboarding'
 import { verifySkillagerProject } from './skillager-project'
 import {
@@ -67,15 +71,13 @@ export async function verifySkillagerScenario(
       button('.rail-nav', 'Skills').click();
       await wait(() => !document.querySelector('.skillager-sidebar').hidden);
       button('.skillager-sidebar', 'Connect library').click();
-      await wait(() => document.querySelectorAll('.skillager-row').length === 50);
-      button('.skillager-sidebar', 'Next 50').click();
-      await wait(() => document.querySelector('[aria-label="Library page"]').textContent.includes('51–100'));
-      if (document.querySelectorAll('.skillager-row').length !== 50) throw new Error('Browsing expanded the DOM window');
-      document.querySelector('.skillager-row').click();
-      await wait(() => document.querySelector('.skillager-details'));
+    `)
+    await verifySkillagerExplorer(win)
+    await evaluate(`
       if (!document.querySelector('.viewer-tab:not(.skillager-tab)') || !document.querySelector('.terminal-container canvas')) throw new Error('Skill selection displaced the document or terminal');
       document.querySelector('.viewer-tab:not(.skillager-tab) .tab-main').click();
       await wait(() => !document.querySelector('.skillager-details'));
+      document.querySelector('.skillager-search-disclosure > summary').click();
       const field = document.querySelector('#skillager-search-query'); setInput(field, 'deadlockneedle'); field.focus();
       await new Promise(requestAnimationFrame);
     `)
@@ -101,9 +103,9 @@ export async function verifySkillagerScenario(
       let previous = performance.now(), maxGapMs = 0, frames = 0;
       await wait(() => {
         const now = performance.now(); maxGapMs = Math.max(maxGapMs, now - previous); previous = now; frames++;
-        return !document.querySelector('.skillager-sidebar [role="status"]') && document.querySelectorAll('.skillager-row').length === 1;
+        return !document.querySelector('.skillager-search-results [role="status"]') && document.querySelectorAll('.skillager-search-results .skillager-row').length === 1;
       });
-      const row = document.querySelector('.skillager-row');
+      const row = document.querySelector('.skillager-search-results .skillager-row');
       if (!row.textContent.toLowerCase().includes('body')) throw new Error('Body match reason missing');
       row.click();
       await wait(() => document.querySelector('.skillager-details'));
@@ -128,10 +130,10 @@ export async function verifySkillagerScenario(
       let previous = performance.now(), maxGapMs = 0, frames = 0;
       await wait(() => {
         const now = performance.now(); maxGapMs = Math.max(maxGapMs, now - previous); previous = now; frames++;
-        return !document.querySelector('.skillager-sidebar [role="status"]') && document.querySelectorAll('.skillager-row').length === 1;
+        return !document.querySelector('.skillager-search-results [role="status"]') && document.querySelectorAll('.skillager-search-results .skillager-row').length === 1;
       });
-      if (!document.querySelector('.skillager-row').textContent.toLowerCase().includes('amberneedle')) throw new Error('Replacement query result missing');
-      document.querySelector('.skillager-row').click();
+      if (!document.querySelector('.skillager-search-results .skillager-row').textContent.toLowerCase().includes('amberneedle')) throw new Error('Replacement query result missing');
+      document.querySelector('.skillager-search-results .skillager-row').click();
       await wait(() => document.querySelector('.skillager-details'));
       return { frames, maxGapMs };
     `)
@@ -156,11 +158,13 @@ export async function verifySkillagerScenario(
       document.querySelector('.skillager-tab.active .tab-close').click();
       await wait(() => !document.querySelector('.skillager-details'));
     `)
-    if (!process.env.HVIR_SKILLAGER_SMOKE_FIXTURE)
+    if (!process.env.HVIR_SKILLAGER_SMOKE_FIXTURE) {
       await verifySkillagerProject(win, supervisor)
+      await verifySkillagerExpansionCapacity(win)
+    }
     await disableAndReenableSkillagerInSettings(win)
     console.log(
-      `[smoke] Skills OK (${process.env.HVIR_SKILLAGER_SMOKE_FIXTURE ? 'real CLI, fresh search cache' : 'delayed fixture'}; 5,000 rows; 50 visible; first ${firstMs.toFixed(0)}ms/${first.frames} frames/${first.maxGapMs.toFixed(1)}ms maximum gap; warm ${warmMs.toFixed(0)}ms/${warm.frames} frames/${warm.maxGapMs.toFixed(1)}ms maximum gap; typing, document navigation and terminal input during both searches; cancellation, disable)`,
+      `[smoke] Skills OK (${process.env.HVIR_SKILLAGER_SMOKE_FIXTURE ? 'real CLI, fresh search cache' : 'delayed fixture'}; 5,000 rows; bounded scroll window; first ${firstMs.toFixed(0)}ms/${first.frames} frames/${first.maxGapMs.toFixed(1)}ms maximum gap; warm ${warmMs.toFixed(0)}ms/${warm.frames} frames/${warm.maxGapMs.toFixed(1)}ms maximum gap; typing, document navigation and terminal input during both searches; cancellation, disable)`,
     )
   } finally {
     await detach()

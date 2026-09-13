@@ -6,6 +6,7 @@ export const SKILLAGER_AGENTS = [
   { id: 'claude', label: 'Claude Code' },
 ] as const
 export type SkillagerAgent = (typeof SKILLAGER_AGENTS)[number]['id']
+export type SkillagerBrowseAgent = SkillagerAgent | 'all'
 export function skillagerAgentLabel(agent: SkillagerAgent | undefined): string {
   return SKILLAGER_AGENTS.find((item) => item.id === agent)?.label ?? 'Project skill'
 }
@@ -40,6 +41,10 @@ export interface SkillagerMetadata {
   readonly workspaceCheckedAt?: number
   readonly workspaceFreshness?: 'fresh' | 'checking' | 'unavailable' | 'stale'
   readonly workspace?: SkillagerWorkspaceExposure
+  readonly workspaceCopies?: readonly SkillagerWorkspaceExposure[]
+  /** Proven public router memberships in this observation; undefined means unavailable. */
+  readonly workspaceRouterCount?: number
+  readonly routerMembership?: SkillagerWorkspaceExposure
   /** CLI-observed project presence; this is not an exposure or library grant. */
   readonly projectSkill?: {
     readonly path: HostPath
@@ -50,7 +55,10 @@ export interface SkillagerMetadata {
 
 export interface SkillagerWorkspaceExposure {
   readonly id: string
+  readonly agent: SkillagerAgent
   readonly skillId?: string
+  /** Present only when public CLI metadata or a trusted deployment binds the source library. */
+  readonly sourceLibraryId?: string
   readonly target: HostPath
   readonly mode: string
   readonly status: string
@@ -58,6 +66,16 @@ export interface SkillagerWorkspaceExposure {
   /** CLI projection fingerprint; Stub hashes are not canonical source versions. */
   readonly currentHash?: string
   readonly reconciliation?: 'pending' | 'cleanup-pending'
+  readonly router?: {
+    readonly slug: string
+    readonly kind: string
+    readonly tag?: string
+    readonly skillIds: readonly string[]
+    readonly memberSources?: readonly {
+      readonly skillId: string
+      readonly sourceLibraryId?: string
+    }[]
+  }
 }
 
 export interface SkillagerLibrary {
@@ -122,7 +140,12 @@ export interface SkillagerRequest {
   readonly agent: SkillagerAgent
 }
 
-export interface SkillagerSearchRequest extends SkillagerRequest {
+/** Browsing preference never supplies mutation or setup target authority. */
+export interface SkillagerBrowseRequest extends SkillagerRequest {
+  readonly browseAgent?: SkillagerBrowseAgent
+}
+
+export interface SkillagerSearchRequest extends SkillagerBrowseRequest {
   readonly query: string
   readonly scope: SkillagerSearchScope
 }

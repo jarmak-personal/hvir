@@ -1,4 +1,5 @@
 import type { ReactElement } from 'react'
+import { skillagerAgentLabel } from '../../../shared/skillager'
 import {
   closeOnMiddleClick,
   guardMiddleClickClosePointerDown,
@@ -26,9 +27,24 @@ export function SkillagerTabs({
           <button
             type="button"
             className="tab-main"
+            title={
+              tab.metadata.workspace?.target.path ??
+              tab.metadata.routerMembership?.target.path ??
+              tab.metadata.projectSkill?.path.path ??
+              tab.metadata.id
+            }
             onClick={() => controller.activate(tab.id)}
           >
-            <span className="tab-name">{tab.metadata.name}</span>
+            <span className="tab-name">
+              {tab.metadata.name}
+              {tab.metadata.workspace
+                ? ` · ${skillagerAgentLabel(tab.metadata.workspace.agent)}`
+                : tab.metadata.routerMembership
+                  ? ' · Router member'
+                  : tab.metadata.projectSkill?.agent
+                    ? ` · ${skillagerAgentLabel(tab.metadata.projectSkill.agent)}`
+                    : ''}
+            </span>
           </button>
           <button
             type="button"

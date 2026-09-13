@@ -104,6 +104,7 @@ it('reconstructs and qualifies nested update paths before forwarding the review'
   const f = fixture()
   const target = localPath('/other/.agents/skills/lib-demo')
   const exposure = {
+    agent: request.agent,
     id: 'lib-demo',
     skillId: request.skillId,
     target,

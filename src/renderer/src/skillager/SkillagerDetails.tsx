@@ -91,11 +91,47 @@ export function SkillagerDetails({
           <>
             <dt>Workspace copy</dt>
             <dd>
-              {metadata.workspace.mode} · {workspaceSkillLabel(metadata)}
+              {skillagerAgentLabel(metadata.workspace.agent)} ·{' '}
+              {metadata.workspace.mode === 'native' ? 'Full' : metadata.workspace.mode} ·{' '}
+              {workspaceSkillLabel(metadata)}
             </dd>
             <dt>Destination</dt>
             <dd>
               {metadata.workspace.target.hostId}:{metadata.workspace.target.path}
+            </dd>
+          </>
+        ) : metadata.routerMembership ? (
+          <>
+            <dt>Router member</dt>
+            <dd>
+              {metadata.routerMembership.router?.tag ?? metadata.routerMembership.id} ·{' '}
+              {skillagerAgentLabel(metadata.routerMembership.agent)}
+            </dd>
+            <dt>Router location</dt>
+            <dd>
+              {metadata.routerMembership.target.hostId}:
+              {metadata.routerMembership.target.path}
+            </dd>
+          </>
+        ) : metadata.workspaceCopies?.length ? (
+          <>
+            <dt>In this project</dt>
+            <dd>
+              {metadata.workspaceCopies.length} managed{' '}
+              {metadata.workspaceCopies.length === 1 ? 'copy' : 'copies'}.
+              {metadata.workspaceRouterCount
+                ? ` Also a member of ${metadata.workspaceRouterCount} project routers.`
+                : ''}{' '}
+              Expand this skill in Your library to inspect each destination.
+            </dd>
+          </>
+        ) : metadata.workspaceRouterCount ? (
+          <>
+            <dt>In this project</dt>
+            <dd>
+              Member of {metadata.workspaceRouterCount}{' '}
+              {metadata.workspaceRouterCount === 1 ? 'router' : 'routers'}. Expand the
+              concrete router under In this project to inspect its members.
             </dd>
           </>
         ) : metadata.projectSkill ? null : (
@@ -122,7 +158,7 @@ export function SkillagerDetails({
       ) : null}
       <p className="skillager-hint">
         {projectOnly
-          ? 'Project review stays in Skillager. Use Set up in terminal from This workspace.'
+          ? 'Project review stays in Skillager. Use Set up in terminal under In this project.'
           : 'Content loads only after explicit review.'}
       </p>
       {tab && reviews && !projectOnly ? (

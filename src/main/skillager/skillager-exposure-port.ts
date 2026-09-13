@@ -7,13 +7,13 @@ import type {
 import type { SkillagerCliSelection } from './skillager-port'
 import type {
   SkillagerMetadata,
-  SkillagerRequest,
+  SkillagerBrowseRequest,
   SkillagerWorkspaceExposure,
 } from '../../shared/skillager'
 
 export type SkillagerExposureObserver = (
   selection: SkillagerCliSelection,
-  request: SkillagerRequest,
+  request: SkillagerBrowseRequest,
   source: { readonly rows: readonly SkillagerMetadata[]; readonly complete: boolean },
   signal: AbortSignal,
 ) => Promise<readonly SkillagerWorkspaceExposure[] | undefined>

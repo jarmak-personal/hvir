@@ -40,8 +40,10 @@ const data: SkillagerMetadataResult = {
   durationMs: 1,
   exposures: [
     {
+      agent: 'codex' as const,
       id: 'copy',
       skillId: owned.id,
+      sourceLibraryId: owned.source.libraryId,
       target: localPath('/project/.agents/skills/lib-guide'),
       mode: 'native',
       status: 'source_update',

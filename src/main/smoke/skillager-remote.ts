@@ -23,8 +23,7 @@ export async function verifySkillagerRemote(
     remote = projects.remote()
   projects.publish({ ...local, projects: [...local.projects, ...remote.projects] })
   await evaluate(`
-    button('.skillager-sidebar', 'Personal library').click();
-    const rows = await wait(() => document.querySelectorAll('.skillager-row').length === 50 && document.querySelectorAll('.skillager-row'));
+    const rows = await wait(() => document.querySelectorAll('section[aria-label="Your library"] .skillager-row').length > 0 && document.querySelectorAll('section[aria-label="Your library"] .skillager-row'));
     rows[2].parentElement.querySelector('.skillager-actions-trigger').click();
     await wait(() => button('[role=menu]', 'Add to project…'));
     button('[role=menu]', 'Add to project…').click();
@@ -43,8 +42,7 @@ export async function verifySkillagerRemote(
   projects.publish({ ...remote, projects: [...local.projects, ...remote.projects] })
   await evaluate(`
     await wait(() => document.querySelector('#skillager-search-scope option[value=workspace]').disabled);
-    button('.skillager-sidebar', 'This workspace').click();
-    const row = await wait(() => [...document.querySelectorAll('.skillager-row')].find((item) => item.querySelector('strong')?.textContent === 'Skill 0' && item.textContent.includes('Workspace copy behind')));
+    const row = await wait(() => [...document.querySelectorAll('section[aria-label="In this project"] .skillager-row')].find((item) => item.querySelector('.skillager-name')?.textContent === 'Skill 0' && item.textContent.includes('Workspace copy behind')));
     row.click();
     await wait(() => button('.skillager-review', 'Review workspace update'));
     button('.skillager-review', 'Review workspace update').click();
@@ -58,7 +56,7 @@ export async function verifySkillagerRemote(
     button('.skillager-exposure-dialog', 'Confirm exact changes').click();
     await wait(() => button('.skillager-exposure-dialog', 'Close'));
     button('.skillager-exposure-dialog', 'Close').click();
-    const current = await wait(() => [...document.querySelectorAll('.skillager-row')].find((item) => item.querySelector('strong')?.textContent === 'Skill 0' && item.textContent.includes('Current')));
+    const current = await wait(() => [...document.querySelectorAll('section[aria-label="In this project"] .skillager-row')].find((item) => item.querySelector('.skillager-name')?.textContent === 'Skill 0' && item.textContent.includes('Current')));
     current.parentElement.querySelector('.skillager-actions-trigger').click();
     await wait(() => button('[role=menu]', 'Remove workspace copy…'));
     if (!button('[role=menu]', 'Change to Stub…').disabled) throw new Error('Remote mode change remained available');
@@ -74,8 +72,7 @@ export async function verifySkillagerRemote(
   `)
   projects.publish(local)
   await evaluate(`
-    button('.skillager-sidebar', 'Personal library').click();
-    const row = await wait(() => document.querySelector('.skillager-row'));
+    const row = await wait(() => document.querySelector('section[aria-label="Your library"] .skillager-row'));
     row.click(); await wait(() => document.querySelector('.skillager-tab.active'));
   `)
   console.log(

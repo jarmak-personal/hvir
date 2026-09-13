@@ -7,10 +7,10 @@ type SkillagerIpcDeps = Pick<IpcDeps, 'skillager'>
 
 export function registerSkillagerIpc(ipc: IpcRegistrar, deps: SkillagerIpcDeps): void {
   ipc.handle('skillager:project-metadata', (request, context) =>
-    deps.skillager.projectMetadata(
-      context.owner(),
-      qualifySkillagerRequest(ipc.authority, request),
-    ),
+    deps.skillager.projectMetadata(context.owner(), {
+      ...qualifySkillagerRequest(ipc.authority, request),
+      browseAgent: request.browseAgent,
+    }),
   )
   ipc.handle('skillager:prepare-project-setup', (request, context) =>
     deps.skillager.prepareProjectSetup(
@@ -134,16 +134,17 @@ export function registerSkillagerIpc(ipc: IpcRegistrar, deps: SkillagerIpcDeps):
     deps.skillager.disconnect(context.owner()),
   )
   ipc.handle('skillager:inventory', (request, context) =>
-    deps.skillager.inventory(
-      context.owner(),
-      qualifySkillagerRequest(ipc.authority, request),
-    ),
+    deps.skillager.inventory(context.owner(), {
+      ...qualifySkillagerRequest(ipc.authority, request),
+      browseAgent: request.browseAgent,
+    }),
   )
   ipc.handle('skillager:search', (request, context) =>
     deps.skillager.search(context.owner(), {
       ...qualifySkillagerRequest(ipc.authority, request),
       query: request.query,
       scope: request.scope,
+      browseAgent: request.browseAgent,
     } satisfies SkillagerSearchRequest),
   )
   ipc.handle('skillager:cancel', (request, context) => {
@@ -209,6 +210,7 @@ function qualifyExposureRequest(
         ? undefined
         : {
             id: boundedText(exposure.id),
+            agent: exposure.agent,
             skillId: boundedText(exposure.skillId),
             target: authority.reconstructHostPath(exposure.target),
             mode: boundedText(exposure.mode),

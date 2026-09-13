@@ -383,6 +383,7 @@ function updateFixture() {
     destination: { projectId: 'project', workspaceId: 'workspace', root },
     action: 'update',
     exposure: {
+      agent: 'codex' as const,
       id: 'lib-demo',
       skillId: 'lib/demo',
       mode: 'native',

@@ -14,7 +14,7 @@ import { SkillagerTabs } from '../src/renderer/src/skillager/SkillagerTabs'
 import { SkillagerDetails } from '../src/renderer/src/skillager/SkillagerDetails'
 import {
   skillagerObservationDemand,
-  skillagerWorkspaceMetadata,
+  skillagerProjectRows,
   skillagerTabs,
   type SkillagerTabs as Tabs,
 } from '../src/renderer/src/skillager/skillager-model'
@@ -132,6 +132,7 @@ async function connect() {
 }
 beforeEach(() => {
   vi.spyOn(document, 'hasFocus').mockReturnValue(true)
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(250)
   mount = document.createElement('div')
   document.body.append(mount)
   reactRoot = createRoot(mount)
@@ -160,6 +161,49 @@ afterEach(() => {
 })
 
 describe('Skills renderer demand and metadata views', () => {
+  it('keeps section demand independent and all-agent browsing separate from setup and submitted search context', async () => {
+    vi.useFakeTimers()
+    await render()
+    act(() => current.setProjectExpanded(false))
+    await connect()
+    const count = (kind: string) =>
+      invoke.mock.calls.filter(([channel]) => channel === `skillager:${kind}`).length
+    expect(count('project-metadata')).toBe(0)
+    expect(count('inventory')).toBe(1)
+    act(() => current.setBrowseAgent('claude'))
+    expect(current.agent).toBe('codex')
+    expect(count('inventory')).toBe(1)
+    await act(async () => current.submit('first query'))
+    expect(
+      invoke.mock.calls.find(([channel]) => channel === 'skillager:search')![1],
+    ).toMatchObject({ scope: 'workspace', browseAgent: 'claude', agent: 'codex' })
+    act(() => {
+      current.setBrowseAgent('all')
+      current.setScope('library')
+      current.setQuery('unsubmitted draft')
+      current.setLibraryExpanded(false)
+      current.setProjectExpanded(true)
+    })
+    await settle()
+    expect(current.submittedContext).toEqual({
+      scope: 'workspace',
+      browseAgent: 'claude',
+    })
+    expect(mount.querySelector('.skillager-query-summary')?.textContent).toContain(
+      'first query',
+    )
+    expect(mount.querySelector('.skillager-query-summary')?.textContent).toContain(
+      'Available to this project',
+    )
+    expect(mount.querySelector('.skillager-query-summary')?.textContent).not.toContain(
+      'unsubmitted draft',
+    )
+    expect(count('project-metadata')).toBe(1)
+    await act(async () => vi.advanceTimersByTimeAsync(60_000))
+    expect(count('inventory')).toBe(1)
+    expect(count('project-metadata')).toBe(2)
+    expect(count('search')).toBe(1)
+  })
   it('requeries the submitted search after acceptance and rejects its obsolete in-flight result', async () => {
     await render()
     await connect()
@@ -232,8 +276,10 @@ describe('Skills renderer demand and metadata views', () => {
     const original = invoke.getMockImplementation()!
     const accepted = { ...rows[1]!, contentHash: 'b'.repeat(64) }
     const exposure = {
+      agent: 'claude' as const,
       id: 'lib-skill-1',
       skillId: accepted.id,
+      sourceLibraryId: library.id,
       mode: 'stub',
       status: 'current',
       target: localPath('/workspace/.claude/skills/lib-skill-1'),
@@ -270,7 +316,7 @@ describe('Skills renderer demand and metadata views', () => {
     const initial = count()
     act(() =>
       current.select(
-        skillagerWorkspaceMetadata(
+        skillagerProjectRows(
           current.inventory.result!.ok
             ? current.inventory.result!.value
             : { rows: [], checkedAt: 1, durationMs: 1 },
@@ -297,11 +343,7 @@ describe('Skills renderer demand and metadata views', () => {
     )
     act(() => (mount.querySelector('.skillager-row') as HTMLButtonElement).click())
     expect(current.active?.metadata.workspaceFreshness).toBe('stale')
-    act(() =>
-      (
-        mount.querySelectorAll('.skillager-perspectives button')[1] as HTMLButtonElement
-      ).click(),
-    )
+    act(() => current.setLibraryExpanded(false))
     expect(mount.querySelector('.skillager-sidebar')?.textContent).not.toContain(
       'Workspace copy behind',
     )
@@ -365,8 +407,10 @@ describe('Skills renderer demand and metadata views', () => {
         durationMs: 1,
         exposures: [
           {
+            agent: 'codex' as const,
             id: 'lib-skill-0',
             skillId: row.id,
+            sourceLibraryId: library.id,
             target: localPath('/workspace/.agents/skills/lib-skill-0'),
             mode: 'native',
             status,
@@ -390,6 +434,7 @@ describe('Skills renderer demand and metadata views', () => {
           value: {
             reviewId: 'review',
             skillId: row.id,
+            sourceLibraryId: library.id,
             root: localPath('/library/skills/skill-0'),
             hash: row.contentHash,
             canAccept: true,
@@ -409,7 +454,7 @@ describe('Skills renderer demand and metadata views', () => {
     })
     await render()
     await connect()
-    act(() => current.select(row))
+    act(() => current.select(skillagerProjectRows(observed('current').value)[0]!))
     await act(async () => current.reviews.review(current.active!))
     let old!: Promise<void>
     act(() => {
@@ -462,7 +507,7 @@ describe('Skills renderer demand and metadata views', () => {
     )
     await settle()
     await connect()
-    expect(mount.querySelectorAll('.skillager-row')).toHaveLength(50)
+    expect(mount.querySelectorAll('.skillager-row').length).toBeLessThanOrEqual(16)
   })
   it('requires explicit connection, bounds visible rows, and opens a metadata tab', async () => {
     await render()
@@ -470,20 +515,25 @@ describe('Skills renderer demand and metadata views', () => {
       false,
     )
     await connect()
-    expect(mount.querySelectorAll('.skillager-row')).toHaveLength(50)
-    expect(document.activeElement).toBe(mount.querySelector('#skillager-search-query'))
-    expect(mount.textContent).toContain('1–50 of 5000')
-    const next = [...mount.querySelectorAll('button')].find(
-      (button) => button.textContent === 'Next 50',
-    )!
-    act(() => next.click())
-    expect(mount.querySelectorAll('.skillager-row')).toHaveLength(50)
-    expect(mount.querySelector('.skillager-row')?.textContent).toContain('Skill 50')
-    act(() =>
-      [...mount.querySelectorAll('button')]
-        .find((button) => button.textContent === 'Previous 50')!
-        .click(),
+    expect(mount.querySelectorAll('.skillager-row').length).toBeLessThanOrEqual(16)
+    expect(
+      mount.querySelector<HTMLDetailsElement>('.skillager-search-disclosure')!.open,
+    ).toBe(false)
+    expect(mount.querySelector('[aria-label="Your library"]')?.textContent).toContain(
+      '5000',
     )
+    const first = mount.querySelector<HTMLButtonElement>('.skillager-row')!
+    act(() => {
+      first.focus()
+      first.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))
+    })
+    expect(mount.querySelectorAll('.skillager-row').length).toBeLessThanOrEqual(16)
+    expect(document.activeElement?.textContent).toContain('Skill 4999')
+    act(() => {
+      document.activeElement!.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Home', bubbles: true }),
+      )
+    })
     act(() => (mount.querySelector('.skillager-row') as HTMLButtonElement).click())
     expect(mount.querySelectorAll('.skillager-tab')).toHaveLength(1)
     expect(mount.querySelector('.skillager-details')?.textContent).toContain(
@@ -592,6 +642,7 @@ describe('Skills renderer demand and metadata views', () => {
       ([channel]) => channel === 'skillager:search',
     ).length
     invoke.mockImplementation(original)
+    act(() => current.setScope('library'))
     await act(async () => current.submit('fresh Personal search'))
     expect(
       invoke.mock.calls.filter(([channel]) => channel === 'skillager:search'),
@@ -649,8 +700,10 @@ describe('Skills renderer demand and metadata views', () => {
                 durationMs: 1,
                 exposures: [
                   {
+                    agent: 'codex' as const,
                     id: 'lib-skill-0',
                     skillId: rows[0]!.id,
+                    sourceLibraryId: library.id,
                     mode: 'native',
                     status,
                     reconciliation: 'cleanup-pending',
@@ -666,11 +719,6 @@ describe('Skills renderer demand and metadata views', () => {
       )
       await render({ root: remote })
       await connect()
-      act(() =>
-        [...mount.querySelectorAll('button')]
-          .find((item) => item.textContent === 'This workspace')!
-          .click(),
-      )
       expect(mount.querySelector('.skillager-row')?.textContent).toContain(
         `${status === 'current' ? 'Current' : 'Workspace copy removed'} · Cleanup retained`,
       )
@@ -895,17 +943,22 @@ it('first-skill guidance requires a complete empty personal inventory, not works
   await render()
   await connect()
   expect(mount.querySelector('.skillager-first-skill')).not.toBeNull()
-  const perspective = [...mount.querySelectorAll('.skillager-perspectives button')]
-  act(() => (perspective[1] as HTMLButtonElement).click())
+  expect(
+    mount.querySelector('[aria-label="In this project"] .skillager-first-skill'),
+  ).toBeNull()
+  act(() => current.setLibraryExpanded(false))
   expect(mount.querySelector('.skillager-first-skill')).toBeNull()
-  act(() => (perspective[0] as HTMLButtonElement).click())
+  act(() => current.setLibraryExpanded(true))
+  response = metadata([rows[1]!])
+  await act(async () => current.refresh())
+  response = metadata([])
   await act(async () => current.submit('no matches'))
   expect(mount.querySelector('.skillager-first-skill')).toBeNull()
   act(() => current.clearSearch())
   response = metadata([rows[1]!])
   await act(async () => current.refresh())
   act(() =>
-    (mount.querySelector('.skillager-list-controls input') as HTMLInputElement).click(),
+    (mount.querySelector('.skillager-pending-filter input') as HTMLInputElement).click(),
   )
   expect(mount.querySelector('.skillager-first-skill')).toBeNull()
   response = { ok: false, reason: 'unavailable', message: 'Read failed.' }

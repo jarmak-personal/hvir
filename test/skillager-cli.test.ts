@@ -66,6 +66,85 @@ function fixture(
 }
 
 describe('Skillager local executable and explicit authority probe', () => {
+  it.each(['all', 'claude'] as const)(
+    'submits one ranked search using %s preference without compatibility filtering',
+    async (browseAgent) => {
+      const { cli, calls } = fixture()
+      try {
+        const signal = new AbortController().signal
+        const selection = await cli.probe(undefined, signal)
+        await cli.search(
+          selection,
+          {
+            connectionId: 'connection',
+            requestId: 1,
+            workspaceRoot: localPath('/project'),
+            agent: 'codex',
+            browseAgent,
+            query: 'needle',
+            scope: 'workspace',
+          },
+          signal,
+        )
+        const searches = calls.filter(
+          (call) => call.args.includes('search') && !call.args.includes('--help'),
+        )
+        expect(searches).toHaveLength(1)
+        const args = searches[0]!.args
+        expect(args.includes('--agent')).toBe(browseAgent !== 'all')
+        if (browseAgent !== 'all')
+          expect(args[args.indexOf('--agent') + 1]).toBe(browseAgent)
+        expect(args).not.toContain('--compatible-only')
+        expect(args.slice(-2)).toEqual(['--', 'needle'])
+        expect(args[args.indexOf('--limit') + 1]).toBe('50')
+      } finally {
+        await cli.dispose()
+      }
+    },
+  )
+  it('observes all project agents in one public exposure list without changing concrete setup agent', async () => {
+    const { cli, host } = fixture(),
+      original = host.exec.getMockImplementation()!
+    host.exec.mockImplementation((command, args, options) =>
+      args.includes('expose')
+        ? Promise.resolve({
+            code: 0,
+            signal: null,
+            stdout: JSON.stringify({ schema: 'skillager.exposures.v1', exposures: [] }),
+            stderr: '',
+          })
+        : original(command, args, options),
+    )
+    try {
+      const signal = new AbortController().signal,
+        selection = await cli.probe(undefined, signal)
+      await cli.exposures(
+        selection,
+        {
+          connectionId: 'connection',
+          requestId: 1,
+          workspaceRoot: localPath('/project'),
+          agent: 'codex',
+          browseAgent: 'all',
+        },
+        signal,
+      )
+      const calls = host.exec.mock.calls.filter(([, args]) => args.includes('expose'))
+      expect(calls).toHaveLength(1)
+      expect(calls[0]![1]).toEqual(
+        expect.arrayContaining([
+          '--list',
+          '--all-agents',
+          '--scope',
+          'project',
+          '--json',
+        ]),
+      )
+      expect(calls[0]![1]).not.toContain('--agent')
+    } finally {
+      await cli.dispose()
+    }
+  })
   it('uses a private local context and only version/help/registration before connection', async () => {
     const { cli, calls } = fixture()
     try {

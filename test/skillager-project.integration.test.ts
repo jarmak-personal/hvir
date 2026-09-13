@@ -14,9 +14,14 @@ import { expect, it, onTestFinished } from 'vitest'
 import { LocalHost } from '../src/main/project-host/local-host'
 import type { ExecOptions } from '../src/main/project-host/project-host'
 import { SkillagerCli } from '../src/main/skillager/skillager-cli'
-import { localPath } from '../src/shared/host-path'
+import { localPath, type HostPath } from '../src/shared/host-path'
 import { skillagerFixtureEnvironment } from '../src/main/smoke/skillager-fixture-environment'
-import { skillagerProjectRows } from '../src/renderer/src/skillager/skillager-model'
+import {
+  skillagerProjectRows,
+  skillagerRouterMember,
+  skillagerWorkspaceMetadata,
+} from '../src/renderer/src/skillager/skillager-model'
+import { withSkillagerRouterMemberships } from '../src/shared/skillager-workspace-metadata'
 
 const executable = process.env.HVIR_SKILLAGER_EXECUTABLE
 async function fixture() {
@@ -78,10 +83,10 @@ async function fixture() {
   if (initialized.kind !== 'ready' || !initialized.status.library)
     throw Error('Expected fixture library')
   const selection = { ...probe, library: initialized.status.library }
-  const run = async (args: readonly string[]) => {
+  const run = async (args: readonly string[], catalog: HostPath = selection.catalog) => {
     const result = await host.exec(
       executable!,
-      ['--catalog-state-dir', selection.catalog.path, ...args],
+      ['--catalog-state-dir', catalog.path, ...args],
       { cwd: localPath(project), signal, maxBuffer: 32 * 1024 * 1024 },
     )
     expect(result.code, result.stderr).toBe(0)
@@ -233,7 +238,7 @@ it.runIf(Boolean(executable)).each(['codex', 'claude'] as const)(
 )
 
 it.runIf(Boolean(executable))(
-  'keeps one managed target alongside native metadata with a 5,000-entry personal library using bounded public reads',
+  'keeps agent-qualified managed targets alongside native metadata with a 5,000-entry personal library using bounded public reads',
   async () => {
     const f = await fixture()
     await f.author('claude', 'native-guide')
@@ -248,15 +253,16 @@ it.runIf(Boolean(executable))(
     }
     const preview = await f.run(['library', 'accept', 'lib/guide-0', '--json'])
     await f.run((preview.next_command_argv as string[]).slice(1))
-    await f.run([
-      'expose',
-      'lib/guide-0',
-      '--agent',
-      'codex',
-      '--mode',
-      'native',
-      '--json',
-    ])
+    for (const agent of ['codex', 'claude'])
+      await f.run([
+        'expose',
+        'lib/guide-0',
+        '--agent',
+        agent,
+        '--mode',
+        agent === 'codex' ? 'native' : 'stub',
+        '--json',
+      ])
     const before = await files(f.project)
     const start = performance.now()
     const observation = await f.cli.projectMetadata(
@@ -272,15 +278,21 @@ it.runIf(Boolean(executable))(
         requestId: 1,
         workspaceRoot: localPath(f.project),
         agent: 'codex',
+        browseAgent: 'all',
       },
       f.signal,
     )
     const inventory = await f.cli.inventory(f.selection, f.signal)
-    const ids = new Set(exposures?.map((copy) => copy.skillId))
+    const proven =
+      exposures?.filter((copy) => copy.sourceLibraryId === f.selection.library.id) ?? []
+    if (process.env.HVIR_SKILLAGER_IDENTITY_CONTRACT === '1')
+      expect(proven).toHaveLength(2)
+    expect(exposures?.map((copy) => copy.agent).sort()).toEqual(['claude', 'codex'])
+    const ids = new Set(proven.map((copy) => copy.skillId))
     const canonical = inventory.filter((row) => ids.has(row.id))
     const durationMs = performance.now() - start
     expect(inventory).toHaveLength(5000)
-    expect(canonical).toHaveLength(1)
+    expect(canonical).toHaveLength(proven.length ? 1 : 0)
     expect(
       observation.rows.some(
         (row) => row.projectSkill?.path.path === exposures?.[0]?.target.path,
@@ -292,11 +304,15 @@ it.runIf(Boolean(executable))(
       checkedAt: Date.now(),
       durationMs,
     })
-    expect(rows).toHaveLength(2)
-    expect(rows.find((row) => row.id === 'lib/guide-0')).toMatchObject({
-      source: { ownership: 'library', libraryId: f.selection.library.id },
-      workspace: exposures?.[0],
-    })
+    expect(rows).toHaveLength(3)
+    for (const copy of rows.filter((row) => row.workspace)) {
+      expect(copy.source).toMatchObject(
+        proven.length
+          ? { ownership: 'library', libraryId: f.selection.library.id }
+          : { ownership: 'unknown' },
+      )
+      expect(copy.workspace?.skillId).toBe('lib/guide-0')
+    }
     expect(await files(f.project)).toEqual(before)
     expect(durationMs).toBeLessThan(30_000)
     const reads = f.calls.filter(
@@ -331,6 +347,122 @@ it.runIf(Boolean(executable))(
       f.cli.projectMetadata(f.selection, localPath(nested), 'codex', f.signal),
     ).rejects.toMatchObject({ reason: 'invalid-request' })
     expect(f.calls.filter((call) => call.args.includes('review'))).toHaveLength(0)
+    expect(await files(f.project)).toEqual(before)
+  },
+  90_000,
+)
+
+it.runIf(Boolean(executable) && process.env.HVIR_SKILLAGER_IDENTITY_CONTRACT === '1')(
+  'preserves actual public copy/member UUIDs across two libraries with identical skill IDs and bytes',
+  async () => {
+    const f = await fixture()
+    const body =
+      '---\nname: Identity guide\ndescription: A precise identity fixture\n---\n# Guide\nInspect only fixture examples.\n'
+    const authorLibrary = async (root: string, catalog: HostPath) => {
+      await mkdir(join(root, 'skills', 'x'))
+      await writeFile(join(root, 'skills', 'x', 'SKILL.md'), body)
+      const preview = await f.run(['library', 'accept', 'lib/x', '--json'], catalog)
+      await f.run((preview.next_command_argv as string[]).slice(1), catalog)
+    }
+    await authorLibrary(f.selection.library.root.path, f.selection.catalog)
+    await f.run(['expose', 'lib/x', '--agent', 'codex', '--mode', 'native', '--json'])
+    const group = await f.run([
+      'expose',
+      '--agent',
+      'claude',
+      '--scope',
+      'project',
+      '--dry-run',
+      '--json',
+      '--request-json',
+      JSON.stringify({
+        schema: 'skillager.exposure-request.v1',
+        action: 'group',
+        name: 'Identity fixture',
+        library_id: f.selection.library.id,
+        members: ['lib/x'],
+        replace: [],
+      }),
+    ])
+    await f.run((group.next_command_argv as string[]).slice(1))
+    const before = await files(f.project)
+    const request = {
+      connectionId: 'fixture',
+      requestId: 1,
+      workspaceRoot: localPath(f.project),
+      agent: 'codex' as const,
+      browseAgent: 'all' as const,
+    }
+    const inventoryA = await f.cli.inventory(f.selection, f.signal)
+    const exposuresA = await f.cli.exposures(f.selection, request, f.signal)
+    expect(exposuresA).toHaveLength(2)
+    expect(exposuresA?.find((copy) => !copy.router)?.sourceLibraryId).toBe(
+      f.selection.library.id,
+    )
+    const routerA = exposuresA?.find((copy) => copy.router)
+    expect(routerA?.router?.memberSources).toEqual([
+      { skillId: 'lib/x', sourceLibraryId: f.selection.library.id },
+    ])
+    const associatedA = withSkillagerRouterMemberships(inventoryA, exposuresA)
+    expect(associatedA[0]!.workspaceRouterCount).toBe(1)
+    const canonicalA = new Map(
+      inventoryA.map((row) => [JSON.stringify([row.source.libraryId, row.id]), row]),
+    )
+    expect(skillagerRouterMember(routerA!, 'lib/x', canonicalA).source.ownership).toBe(
+      'library',
+    )
+    const projectedA = skillagerWorkspaceMetadata({
+      rows: associatedA,
+      exposures: exposuresA,
+      checkedAt: 1,
+      durationMs: 1,
+    })
+    expect(projectedA[0]!.workspaceCopies).toHaveLength(1)
+    expect(projectedA[0]!.exposure).toBe('project')
+
+    const catalogB = localPath(join(f.root, 'catalog-b'))
+    const selectionB = { ...f.selection, catalog: catalogB, library: undefined }
+    const initializedB = await f.cli.initializeLibrary(
+      selectionB,
+      localPath(join(f.root, 'library-b')),
+      false,
+      f.signal,
+    )
+    if (initializedB.kind !== 'ready' || !initializedB.status.library)
+      throw Error('Expected second fixture library')
+    const selectedB = { ...selectionB, library: initializedB.status.library }
+    expect(selectedB.library.id).not.toBe(f.selection.library.id)
+    await authorLibrary(selectedB.library.root.path, catalogB)
+    const inventoryB = await f.cli.inventory(selectedB, f.signal)
+    expect(inventoryB[0]!.id).toBe(inventoryA[0]!.id)
+    expect(inventoryB[0]!.contentHash).toBe(inventoryA[0]!.contentHash)
+    const exposuresB = await f.cli.exposures(selectedB, request, f.signal)
+    expect(exposuresB).toHaveLength(2)
+    expect(exposuresB?.find((copy) => !copy.router)?.sourceLibraryId).toBe(
+      f.selection.library.id,
+    )
+    const routerB = exposuresB?.find((copy) => copy.router)
+    expect(routerB?.router?.memberSources).toEqual(routerA?.router?.memberSources)
+    const associatedB = withSkillagerRouterMemberships(inventoryB, exposuresB)
+    expect(associatedB[0]!.workspaceRouterCount).toBe(0)
+    const resultB = {
+      rows: associatedB,
+      exposures: exposuresB,
+      checkedAt: 2,
+      durationMs: 1,
+    }
+    expect(skillagerWorkspaceMetadata(resultB)[0]!.workspaceCopies).toEqual([])
+    expect(skillagerWorkspaceMetadata(resultB)[0]!.exposure).toBe('hidden')
+    expect(skillagerProjectRows(resultB)).toHaveLength(2)
+    expect(
+      skillagerProjectRows(resultB).every((row) => row.source.ownership === 'unknown'),
+    ).toBe(true)
+    const canonicalB = new Map(
+      inventoryB.map((row) => [JSON.stringify([row.source.libraryId, row.id]), row]),
+    )
+    expect(skillagerRouterMember(routerB!, 'lib/x', canonicalB).source.ownership).toBe(
+      'unknown',
+    )
     expect(await files(f.project)).toEqual(before)
   },
   90_000,

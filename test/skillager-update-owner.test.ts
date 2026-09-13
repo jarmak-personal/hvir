@@ -25,6 +25,7 @@ function fixture(overrides: Partial<SkillagerReviewCliPort> = {}) {
     action: 'update',
     workspaceRoot: base.destination.root,
     exposure: {
+      agent: 'codex' as const,
       id: 'lib-demo',
       skillId: 'lib/demo',
       mode: 'native',
