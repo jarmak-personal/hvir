@@ -141,7 +141,7 @@ export function curationPickerView(state, kind) {
       .join(
         '',
       )}</div><label>Departing members<select id="curation-mode"><option>Full skill</option><option>Stub</option><option>Remove from project</option></select></label><p>Selected added standalone copies will be replaced by router membership. Other copies stay unchanged.</p><footer>${close}${action('members-preview', 'Preview changes')}</footer>`
-  return `<h2 id="dialog-title">Group ${row.name}</h2><p>${agentLabel(row.agent)} · Local · ${projectRoot(state)}</p><label>Router<select id="curation-group"><option value="new">Create a named router</option>${c.routers
+  return `<h2 id="dialog-title">Group ${row.name}</h2><p>${agentLabel(row.projectAgent ?? row.agent)} · Local · ${projectRoot(state)}</p><label>Router<select id="curation-group"><option value="new">Create a named router</option>${c.routers
     .filter(
       (group) => group.agent === (row.projectAgent ?? row.agent) && group.members.length,
     )

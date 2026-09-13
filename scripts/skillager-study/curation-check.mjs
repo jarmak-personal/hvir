@@ -401,10 +401,13 @@ export async function checkCurationStudy({
   await pointClick('[data-curate="add-preview"]')
   await run(`document.querySelector('#curation-change-source').click()`)
   await pointClick('[data-curate="apply"]')
+  await pointClick('[data-curate="menu"]')
+  await pointClick('#dialog [data-curate="router"]')
   await assert(
-    `document.querySelector('[data-curation-row="environment"]') && !document.querySelector('#dialog').open`,
-    'Canonical Add remains bound to its accepted library version when unrelated original content changes again',
+    `document.querySelector('[data-curation-row="environment"]') && document.querySelector('#dialog').textContent.includes('Codex · Local · /work/hvir') && document.querySelector('#dialog').textContent.includes('/.agents/skills/lib-environment')`,
+    'Canonical Add survives unrelated original drift and its Group heading uses the concrete Codex project copy identity',
   )
+  await pointClick('[data-action="close"]')
   await run(`document.querySelector('#curation-edit-library').click()`)
   await pointClick('#explorer-workspace [data-curation-select="environment"]')
   await assert(
