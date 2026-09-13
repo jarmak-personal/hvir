@@ -370,7 +370,7 @@ hr {
   background: #0f141c;
 }
 .search-caption,
-#search-status {
+.search-status {
   color: var(--muted);
   font-size: 11px;
   margin: 7px 0;

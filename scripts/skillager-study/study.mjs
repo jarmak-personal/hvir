@@ -3,6 +3,7 @@ import {
   curationSource,
   curationRouter,
   curationTarget,
+  standaloneCopyPresent,
   syncCurationSample,
   searchCurationSample,
   prepareCurationSample,
@@ -55,7 +56,6 @@ import {
 const $ = (selector) => document.querySelector(selector)
 let state = initialState(),
   preview,
-  dialogOwner = 'feature',
   searchTimer,
   setupTimer,
   projectSetupTimer,
@@ -83,8 +83,7 @@ function closeDialog() {
   $('#dialog').innerHTML = ''
   preview = null
 }
-function modal(html, owner = 'feature') {
-  dialogOwner = owner
+function modal(html) {
   $('#dialog').innerHTML = html
   if (!$('#dialog').open) $('#dialog').showModal()
 }
@@ -176,7 +175,7 @@ function revokeFeature() {
   clearTimeout(toastTimer)
   $('#toast').hidden = true
   $('#toast').textContent = ''
-  if (dialogOwner === 'feature') closeDialog()
+  closeDialog()
   state.skillsOpen = false
   state.reviewOpen = false
   state.query = ''
@@ -224,7 +223,6 @@ function action(name) {
   if (name === 'files-trash' && state.filesSelection) {
     return modal(
       `<h2 id="dialog-title">Move to Trash</h2><p>Local · ${state.filesSelection.path}</p><p>This local folder can be recovered from Trash.</p><footer><button data-action="close">Cancel</button><button data-action="files-trash-confirm">Move to Trash</button></footer>`,
-      'files',
     )
   }
   if (name === 'files-trash-confirm' && state.filesSelection) {
@@ -287,13 +285,7 @@ function action(name) {
   if (name === 'native-files' && state.nativeFileSelection)
     return revealSkillInFiles(state.nativeFileSelection)
   if (name === 'sync-approved') {
-    state.curation = curationSample()
-    for (const row of state.curation.sources) {
-      row.preserved = false
-      row.conflict = false
-    }
-    state.empty = false
-    return curate('sync')
+    return modal(curationSyncView(state))
   }
   if (name === 'show-project-setup') {
     state.setupOpen = true
@@ -374,7 +366,12 @@ function revealSkillInFiles(source) {
   return selectRail('files')
 }
 function curate(name) {
-  if (!state.enabled || !state.connected || !state.curation) return
+  if (!state.enabled || !state.connected) return
+  if (!state.curation) {
+    if (name !== 'sync-confirm' || !state.empty) return
+    state.curation = curationSample({ emptyLibrary: true })
+    state.empty = false
+  }
   const c = state.curation
   if (name === 'review') {
     state.reviewOpen = true
@@ -462,7 +459,11 @@ function curate(name) {
             ),
           }
     if (name === 'members-preview')
-      options.replace = options.members.filter((id) => !router.members.includes(id))
+      options.replace = options.members.filter(
+        (id) =>
+          !router.members.includes(id) &&
+          standaloneCopyPresent(curationSource(state, id)),
+      )
     preview = {
       ...prepareCurationSample(
         state,

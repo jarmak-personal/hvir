@@ -4,6 +4,7 @@ import {
   curationRefusal,
   canonicalRefusal,
   curationTarget,
+  standaloneCopyPresent,
 } from './curation-model.mjs'
 import { agentLabel } from './model.mjs'
 const escape = (s) =>
@@ -25,7 +26,8 @@ export function curationCatalogView(state) {
       state.results ??
       c.sources.filter(
         (row) =>
-          (state.browseAgent === 'all' ||
+          (library ||
+            state.browseAgent === 'all' ||
             !(row.projectAgent ?? row.agent) ||
             (row.projectAgent ?? row.agent) === state.browseAgent) &&
           (library ? row.preserved : row.projectPresent && row.mode !== 'Router member'),
@@ -57,10 +59,10 @@ export function curationCatalogView(state) {
       selected = c.selected === row.id && !c.selectedRouter && c.selectedScope === scope
     return `<div class="skill-row ${selected ? 'selected' : ''}" ${fromLibrary ? 'data-library-row' : 'data-curation-row'}="${row.id}" data-row-scope="${scope}">${linkedCopy ? `<button class="disclosure" data-expand="${key}" aria-expanded="${!!open}" aria-label="Related copies of ${row.name}">${open ? '⌄' : '›'}</button>` : '<span class="tree-icon" aria-hidden="true">◇</span>'}<button data-curation-select="${row.id}" title="${row.name}"><span class="skill-name">${row.name}</span><small>${row.resultScope ? (fromLibrary ? 'Your library' : row.origin) : library ? '' : `${agent === 'claude' ? 'Claude' : 'Codex'} · ${row.mode === 'Full skill' ? 'Full' : row.mode}`}</small>${status ? `<span class="row-status">${status}</span>` : ''}</button><button class="more" data-curation-menu="${row.id}" aria-label="Actions for ${row.name}">⋯</button></div>${linkedCopy && open ? `<div class="explorer-child"><button data-curation-select="${row.id}" data-row-scope="workspace">↳ ${agentLabel(agent)} · ${row.mode} · In this project</button></div>` : ''}`
   }
-  return `${state.submittedQuery ? `<p id="curation-search-status" role="status">${state.searching ? 'Searching…' : `${rows.length} results`} for “${escape(state.submittedQuery)}” · ${state.scope === 'personal' ? 'Your library' : 'Available to this project'}</p>` : ''}
+  return `${state.submittedQuery ? `<p class="curation-search-status" role="status">${state.searching ? 'Searching…' : `${rows.length} results`} for “${escape(state.submittedQuery)}” · ${state.scope === 'personal' ? 'Your library' : 'Available to this project'}</p>` : ''}
     ${library && !libraryEmpty ? `<details class="library-actions"><summary>Library actions</summary>${action('sync', 'Sync approved skills…')}</details>` : ''}
     ${library && libraryEmpty && !state.results ? `<p>Your library has no preserved skills.</p>${action('sync', 'Sync approved skills…')}` : !rows.length ? '<p>No skills match this view.</p>' : ''}
-    <div id="${library ? 'curation-library-list' : 'curation-list'}">${rows.map(rowView).join('')}</div>
+    <div class="${library ? 'curation-library-list' : 'curation-list'}">${rows.map(rowView).join('')}</div>
     ${
       !library && !state.results
         ? c.routers
@@ -134,7 +136,7 @@ export function curationPickerView(state, kind) {
       .filter((source) => (source.projectAgent ?? source.agent) === router.agent)
       .map(
         (source) =>
-          `<label class="inline"><input type="checkbox" data-router-member="${source.id}" ${router.members.includes(source.id) ? 'checked' : ''} ${curationRefusal(state, source) && !router.members.includes(source.id) ? 'disabled' : ''}>${source.name} · ${source.mode}${curationRefusal(state, source) ? ` · ${curationRefusal(state, source)}` : ''}</label>`,
+          `<label class="inline"><input type="checkbox" data-router-member="${source.id}" ${router.members.includes(source.id) ? 'checked' : ''} ${curationRefusal(state, source, standaloneCopyPresent(source) ? 'native' : 'canonical') && !router.members.includes(source.id) ? 'disabled' : ''}>${source.name} · ${standaloneCopyPresent(source) ? source.mode : 'No standalone copy to remove'}${curationRefusal(state, source, standaloneCopyPresent(source) ? 'native' : 'canonical') ? ` · ${curationRefusal(state, source, standaloneCopyPresent(source) ? 'native' : 'canonical')}` : ''}</label>`,
       )
       .join(
         '',
@@ -171,11 +173,22 @@ export function curationPreviewView(state, plan) {
       `Remove selected standalone ${curationTarget(state, row)}/SKILL.md${row.managed ? ' and skillager.materialized.yaml' : ''}; remove its empty directory (0755). Its complete original bytes/modes are preserved; no extra entries in this sample.`,
     )
   }
+  for (const id of plan.afterMembers ?? []) {
+    if (plan.router.members.includes(id) || plan.replacements.includes(id)) continue
+    const row = curationSource(state, id)
+    effects.push(
+      standaloneCopyPresent(row)
+        ? `Keep the existing ${row.mode} standalone ${curationTarget(state, row)} unchanged alongside this router.`
+        : `No standalone copy to remove at ${curationTarget(state, row)}; add this source only through router membership.`,
+    )
+  }
   for (const id of plan.departures)
     effects.push(
-      plan.mode === 'Remove from project'
-        ? `Remove ${id} from this router's project membership; create no standalone copy. Retain the library and unselected copies.`
-        : `Create or reuse unchanged ${plan.mode}: ${curationTarget(state, curationSource(state, id))}/SKILL.md and skillager.materialized.yaml; root 0755, files 0644.`,
+      plan.retainedStandalone.includes(id)
+        ? `Remove ${id} from this router's membership; keep its existing ${curationSource(state, id).mode} standalone ${curationTarget(state, curationSource(state, id))} unchanged, without adoption or approval.`
+        : plan.mode === 'Remove from project'
+          ? `Remove ${id} from this router's project membership; create no standalone copy. Retain the library and unselected copies.`
+          : `Create or reuse unchanged ${plan.mode}: ${curationTarget(state, curationSource(state, id))}/SKILL.md and skillager.materialized.yaml; root 0755, files 0644.`,
     )
   if (plan.router) {
     effects.push(
@@ -187,7 +200,9 @@ export function curationPreviewView(state, plan) {
   }
   return `<h2 id="dialog-title">Review ${plan.action === 'remove' ? 'removal from this project' : plan.router ? (plan.action === 'remove-router' ? 'router removal' : plan.action === 'ungroup' ? 'router ungrouping' : 'router membership') : `change to ${plan.mode}`}</h2><p>Local · ${projectRoot(state)} · ${agentLabel(plan.agent)}</p>${plan.router ? `<p>Router: ${escape(plan.router.name)} · returned tag ${escape(plan.router.tag)} · membership version ${plan.router.version}</p><p>After: ${plan.afterMembers.map((id) => curationSource(state, id).name).join(', ') || (plan.action === 'remove-router' ? 'No router; no standalone copies created' : 'No router; standalone copies')}</p>` : ''}<h3>${managedRemoval ? 'Library retained' : 'Preserved approved sources'}</h3>${!plan.router ? `<p>Existing selected copy: ${rows[0].projectPresent ? `${rows[0].mode} · ${rows[0].exposedVersion}` : 'absent'}</p>` : ''}<ul>${rows
     .filter(
-      (row) => !(plan.mode === 'Remove from project' && plan.departures.includes(row.id)),
+      (row) =>
+        !plan.retainedStandalone.includes(row.id) &&
+        !(plan.mode === 'Remove from project' && plan.departures.includes(row.id)),
     )
     .map(
       (row) =>
@@ -198,6 +213,6 @@ export function curationPreviewView(state, plan) {
     )}</ul><h3>Every sample effect</h3><ul>${effects.map((effect) => `<li>Local · ${escape(effect)}</li>`).join('')}</ul><p>Library versions and unselected copies stay unchanged. Any required source version, selected target, name or membership change refuses this preview.</p><small>Sample plan only. Interrupted changes may retain partial effects; inspect the actual result before another action.</small><footer>${close}${action('apply', 'Confirm exact changes')}</footer>`
 }
 export function curationSyncView(state) {
-  const c = state.curation
+  const c = state.curation ?? { outcomes: [] }
   return `<h2 id="dialog-title">Sync approved skills</h2><p>Preserve currently approved project, environment, package, collection and global sources in Local · ${state.library.path}. These exact approved copies are reusable across projects, with the original approval scope and evidence retained in their lineage. Originals stay in place. Reads and refresh do not perform this action.</p>${c.outcomes.length ? `<ul id="sync-outcomes">${c.outcomes.map((row) => `<li>${row.origin}${row.agent ? ` · ${agentLabel(row.agent)}` : ''} · ${row.name} (${row.id}): ${row.outcome}</li>`).join('')}</ul>` : '<p>Customized, pinned or conflicting library copies are preserved. Pending or stale sources are skipped.</p>'}<footer><button data-action="close">Close</button>${c.syncUncertain ? action('sync-status', 'Check library state') : action('sync-confirm', 'Sync approved skills')}</footer>`
 }

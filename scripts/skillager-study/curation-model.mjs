@@ -1,5 +1,5 @@
 // Synthetic curation outcomes only: no CLI calls, files, approval policy or real tokens.
-export function curationSample() {
+export function curationSample({ emptyLibrary = false } = {}) {
   const source = (id, name, agent, origin, extra = {}) => ({
     id,
     name,
@@ -22,7 +22,7 @@ export function curationSample() {
     files: ['SKILL.md'],
     ...extra,
   })
-  return {
+  const sample = {
     revision: 0,
     selected: 'native-codex',
     selectedRouter: false,
@@ -90,6 +90,14 @@ export function curationSample() {
     // Original scope is retained; verified derived copies are reusable across projects.
     syncScope: 'derived-reusable-acceptance',
   }
+  if (emptyLibrary)
+    for (const row of sample.sources) {
+      row.preserved = false
+      row.conflict = false
+      row.libraryAccepted = false
+      row.libraryVersion = row.libraryAcceptedVersion = undefined
+    }
+  return sample
 }
 export function curationSource(state, id = state.curation.selected) {
   return state.curation.sources.find((row) => row.id === id)
@@ -134,7 +142,11 @@ export function syncCurationSample(state) {
         ? 'Skipped · pending or stale approval'
         : row.syncFailed
           ? 'Failed · source approval retained; preservation unavailable'
-          : row.conflict
+          : row.conflict ||
+              (row.preserved &&
+                (!row.libraryAccepted ||
+                  row.libraryVersion !== row.libraryAcceptedVersion ||
+                  row.libraryBlocked))
             ? 'Conflict · customized library copy preserved'
             : row.preserved
               ? row.libraryVersion === row.version
@@ -157,6 +169,9 @@ export function curationTarget(state, row) {
       ? '/work/hvir-worktrees/database-review'
       : '/work/hvir'
   return `${root}/${(row.projectAgent ?? row.agent) === 'claude' ? '.claude' : '.agents'}/skills/${row.projectId ?? row.id}`
+}
+export function standaloneCopyPresent(row) {
+  return row.projectPresent && row.mode !== 'Router member'
 }
 export function canonicalRefusal(row) {
   if (
@@ -182,6 +197,7 @@ function curationAvailability(state) {
 export function curationRefusal(state, row, authority = 'native') {
   const unavailable = curationAvailability(state)
   if (unavailable) return unavailable
+  if (authority === 'retain') return ''
   if (authority !== 'add' && row.targetProtected)
     return 'This project target changed independently; preserve it.'
   if (authority === 'remove' && row.managed) return ''
@@ -212,7 +228,7 @@ function curationSnapshot(state, requirements) {
       exposedVersion: row.exposedVersion,
       targetProtected: row.targetProtected,
     }
-    return authority === 'remove'
+    return ['remove', 'retain'].includes(authority)
       ? target
       : {
           ...target,
@@ -269,7 +285,9 @@ export function prepareCurationSample(state, action, options = {}) {
         ? options.members
         : [...new Set([...router.members, row.id])]
     departures = router.members.filter((id) => !afterMembers.includes(id))
-    replacements = options.replace ?? []
+    replacements = (options.replace ?? []).filter((id) =>
+      standaloneCopyPresent(curationSource(state, id)),
+    )
     tagPolicy = c.routers.includes(router) ? 'change' : 'create'
     if (router.shared && JSON.stringify(afterMembers) !== JSON.stringify(router.members))
       return {
@@ -285,10 +303,22 @@ export function prepareCurationSample(state, action, options = {}) {
   const members = ids.map((id) => (id === row.id ? row : curationSource(state, id)))
   if ((!ids.length && action !== 'remove-router') || members.some((member) => !member))
     return { refusal: 'Select an observed, preserved source.' }
+  const retainedStandalone = departures.filter((id) =>
+    standaloneCopyPresent(curationSource(state, id)),
+  )
+  if (
+    options.mode !== 'Remove from project' &&
+    retainedStandalone.some((id) => curationSource(state, id).mode !== options.mode)
+  )
+    return {
+      refusal:
+        'A retained standalone copy has a different mode. Convert that exact copy separately with its source and target protections; this membership action cannot adopt or overwrite it.',
+    }
   const requirements = members.map((member) => ({
     id: member.id,
-    authority:
-      options.mode === 'Remove from project' && departures.includes(member.id)
+    authority: retainedStandalone.includes(member.id)
+      ? 'retain'
+      : options.mode === 'Remove from project' && departures.includes(member.id)
         ? 'remove'
         : action === 'add'
           ? 'add'
@@ -321,6 +351,7 @@ export function prepareCurationSample(state, action, options = {}) {
     afterMembers,
     replacements,
     departures,
+    retainedStandalone,
     tagPolicy,
     mode:
       options.mode ??
@@ -367,16 +398,22 @@ export function applyCurationSample(state, plan) {
     if (plan.tagPolicy !== 'retained') router.tagMembers = [...plan.afterMembers]
     router.version++
     c.routerId = router.id
-    for (const id of plan.replacements) {
+    for (const id of plan.afterMembers) {
       const source = curationSource(state, id)
-      source.mode = 'Router member'
-      source.managed = true
+      if (plan.replacements.includes(id) || !standaloneCopyPresent(source)) {
+        source.mode = 'Router member'
+        source.managed = true
+        source.projectPresent = true
+        source.exposedVersion = source.libraryAcceptedVersion
+      }
     }
     for (const id of plan.departures) {
+      if (plan.retainedStandalone.includes(id)) continue
       const source = curationSource(state, id)
       source.mode = plan.mode
       source.managed = true
       source.projectPresent = plan.mode !== 'Remove from project'
+      if (source.projectPresent) source.exposedVersion = source.libraryAcceptedVersion
     }
     if (!router.members.length) c.selectedRouter = false
   } else {

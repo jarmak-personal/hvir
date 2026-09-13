@@ -113,12 +113,18 @@ and CSS; no source-policy exception or production dependency is introduced.
   approval fixture illustrates subsequent sync publication. Every verified approved copy becomes
   reusable across projects, including project-only originals; advanced lineage retains the actual
   original scope/evidence. Refresh, expansion and browsing never sync.
+  Opening or canceling empty-library backfill preserves the observed inventory; only confirmation
+  publishes the supplied sync result. Pending or blocked canonical edits remain unaccepted after
+  explicit backfill or approval-triggered sync.
 - Group in router offers an editable New router name or an existing provided named group.
   Select whether the exact standalone copy should be replaced, then review the returned tag,
   members and all sample file effects before confirming. New-name conflicts require a fresh choice.
   Existing groups use their provided identities and a complete membership plan; changing a tag
   shared with another agent/router refuses. Edit members chooses Full, Stub or Remove from project
   for departures; removal creates no standalone copy or new approval.
+  A previously retained standalone copy stays in place when its router membership is removed.
+  A different requested restoration mode refuses rather than silently adopting that copy. Absent
+  members disclose that no standalone copy exists to remove.
   Ungroup chooses the standalone mode, removes the router and retains the tag’s curated members.
   Unselected copies and unrelated groups remain. External source/member changes refuse old plans.
   An interrupted outcome stays uncertain; explicit sample observation can report retained originals
@@ -134,6 +140,7 @@ and CSS; no source-policy exception or production dependency is introduced.
   This sample illustrates local recoverable Trash; no real OS operation runs and no approval occurs.
   Ordinary viewer/terminal content stays intact. The study does not prove Files' production dirty
   buffer checks, platform recovery behavior or actual filesystem token validation.
+  The synthetic app has one shared dialog; it does not model simultaneous Files and Settings dialogs.
 - Select SSH: Your library remains available; workspace catalog search and Stub are unavailable.
   The same Add, Update, and Remove flows show local approval/export from Skillager and SSH
   observation, delivery, and safe destination management by hvir. Remote previews distinguish

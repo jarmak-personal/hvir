@@ -294,25 +294,25 @@ try {
   )
   await flow('search')
   await assert(
-    `document.querySelector('#search-status').textContent.includes('Initial indexing') && !document.querySelector('#search').disabled`,
+    `document.querySelector('.explorer-search-results .search-status').textContent.includes('Initial indexing') && !document.querySelector('#search').disabled`,
     'Cold search loading leaves input usable',
   )
   await run(
     `document.querySelector('#search').value='not submitted';document.querySelector('#search').dispatchEvent(new Event('input',{bubbles:true}))`,
   )
   await waitFor(
-    `document.querySelector('#search-status').textContent.includes('3 results returned')`,
+    `document.querySelector('.explorer-search-results .search-status').textContent.includes('3 results returned')`,
   )
   await assert(
-    `['Title match','Description match','Body match','Company database collection'].every(s=>document.querySelector('#skill-list').textContent.includes(s))`,
-    'Submitted results retain match reasons and external ownership',
+    `['Title match','Description match','Body match','Company database collection'].every(s=>document.querySelector('.explorer-search-results .skill-list').textContent.includes(s)) && (()=>{const ids=[...document.querySelectorAll('[id]')].map(el=>el.id);return ids.length===new Set(ids).size})()`,
+    'Submitted results retain match reasons, external ownership and unique IDs across all catalog sections',
   )
   await assert(
     `document.querySelector('#search').value==='not submitted' && document.querySelectorAll('.explorer-search-results [data-skill]').length===3`,
     'Typing during search does not retarget the submitted query',
   )
   await assert(
-    `document.querySelector('#search-status').textContent.includes('for “deadlock”') && !document.querySelector('#search-status').textContent.includes('not submitted')`,
+    `document.querySelector('.explorer-search-results .search-status').textContent.includes('for “deadlock”') && !document.querySelector('.explorer-search-results .search-status').textContent.includes('not submitted')`,
     'Result label identifies submitted text while the input holds an unsubmitted draft',
   )
   await run(
@@ -321,23 +321,23 @@ try {
   await choose('#search-scope', 'personal')
   await click('#search-form button[type="submit"]')
   await waitFor(
-    `document.querySelector('#search-status').textContent.includes('1 results returned')`,
+    `document.querySelector('.explorer-search-results .search-status').textContent.includes('1 results returned')`,
   )
   await assert(
-    `document.querySelector('#search-status').textContent.includes('workspace exposure unknown') && document.querySelector('.search-caption').textContent.includes('50,000')`,
+    `document.querySelector('.explorer-search-results .search-status').textContent.includes('workspace exposure unknown') && document.querySelector('.search-caption').textContent.includes('50,000')`,
     'Personal scope discloses exposure unknown and accepted-body coverage',
   )
   await click('#search-form button[type="submit"]')
   await click('[data-action="cancel-search"]')
   await assert(
-    `!document.querySelector('#search-status').textContent.includes('Searching')`,
+    `!document.querySelector('.explorer-search-results')`,
     'Submitted query has explicit cancellation',
   )
   await flow('search')
   await click('[data-rail="files"]')
   await run('studyTimers.search()')
   await assert(
-    `!document.querySelector('#skills-view').hidden && !document.querySelector('#search-status').textContent.includes('results returned')`,
+    `!document.querySelector('#skills-view').hidden && !document.querySelector('.explorer-search-results')`,
     'Leaving the sidebar cancels search publication while preserving a visible feature viewer',
   )
   await click('[data-viewer="history"]')
@@ -356,7 +356,7 @@ try {
   )
   await click('[data-action="apply"]')
   await assert(
-    `document.querySelector('#project-managed-list').textContent.includes('incident-notes') && document.querySelector('#project-managed-list').textContent.includes('Stub')`,
+    `document.querySelector('#explorer-workspace .project-managed-list').textContent.includes('incident-notes') && document.querySelector('#explorer-workspace .project-managed-list').textContent.includes('Stub')`,
     'Add applies only to selected workspace and agent',
   )
   await flow('switch')
@@ -396,7 +396,7 @@ try {
   }
   await flow('unmanaged')
   await assert(
-    `!document.querySelector('#details').textContent.includes('Exposed version') && !document.querySelector('#skill-list').textContent.includes('Full skill · Unmanaged') && document.querySelector('#details').textContent.includes('No recorded Skillager exposure')`,
+    `!document.querySelector('#details').textContent.includes('Exposed version') && !document.querySelector('#explorer-workspace .project-managed-list').textContent.includes('Full skill · Unmanaged') && document.querySelector('#details').textContent.includes('No recorded Skillager exposure')`,
     'Unmanaged presence has no recorded exposure mode or version',
   )
   await flow('blocked')
@@ -648,7 +648,7 @@ try {
     `document.querySelector('#search').value='no-match-first-skill';document.querySelector('#search-form').requestSubmit()`,
   )
   await waitFor(
-    `document.querySelector('#search-status').textContent.includes('0 results returned')`,
+    `document.querySelector('.explorer-search-results .search-status').textContent.includes('0 results returned')`,
   )
   await assert(
     `!document.querySelector('#first-skill-prompt')`,
@@ -724,7 +724,7 @@ try {
   await click('#skills-nav')
   await run('studyTimers.search()')
   await assert(
-    `document.querySelectorAll('#explorer-library [data-skill]').length===6 && !document.querySelector('#search-status').textContent.includes('results returned') && !document.querySelector('[data-viewer="skills"]')`,
+    `document.querySelectorAll('#explorer-library [data-skill]').length===6 && !document.querySelector('.explorer-search-results') && !document.querySelector('[data-viewer="skills"]')`,
     'A fresh connection also rejects the prior generation search callback',
   )
   await flow('update')
@@ -785,7 +785,7 @@ try {
     'Compact viewport has no horizontal document overflow',
   )
   await assert(
-    `(()=>{const rows=Array.from(document.querySelectorAll('#skill-list [data-skill]')).slice(0,2);return rows.length===2 && rows.every(row=>{const bounds=row.getBoundingClientRect(),rail=document.querySelector('#skills-rail').getBoundingClientRect();return bounds.top>=rail.top && bounds.bottom<=rail.bottom})})()`,
+    `(()=>{const rows=Array.from(document.querySelectorAll('#explorer-library .skill-list [data-skill]')).slice(0,2);return rows.length===2 && rows.every(row=>{const bounds=row.getBoundingClientRect(),rail=document.querySelector('#skills-rail').getBoundingClientRect();return bounds.top>=rail.top && bounds.bottom<=rail.bottom})})()`,
     'Compact sidebar keeps its first two metadata rows visible without scrolling',
   )
   const screenshot = await call('Page.captureScreenshot', { format: 'png' })

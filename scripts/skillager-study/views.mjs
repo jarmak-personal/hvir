@@ -76,7 +76,13 @@ export function catalogView(state) {
   if (state.missing) return missingCliView()
   if (state.libraryMissing) return setupView(state) + executableDetails()
   if (state.curation && state.connected) return curationCatalogView(state)
-  if (state.projectStudy && state.perspective === 'workspace' && state.connected)
+  if (
+    state.projectStudy &&
+    state.perspective === 'workspace' &&
+    state.connected &&
+    !state.results &&
+    !state.searching
+  )
     return projectWorkspaceView(state)
   const heading = `<div class="heading"><div><h1>${state.perspective === 'library' ? 'Personal library' : 'Workspace skills'}</h1><p>Review instructions and choose when workspace copies change.</p></div>${button('refresh', '↻ Refresh', !state.connected)}</div>`
   if (!state.connected)
@@ -91,8 +97,8 @@ export function catalogView(state) {
   const remote = destinationFor(state).host !== 'local'
   const rows = browseSampleRows(state)
   return `${remote ? `<details class="search-caption"><summary>Local library → ${escapeHtml(destinationFor(state).label)}</summary><p>hvir manages this SSH workspace with the same Add, Update, and Remove actions. Full skill files only; no Skillager installation is needed on this host.</p></details>` : ''}
-    <div id="search-status" role="status">${state.searching ? `Searching Skillager for “${escapeHtml(state.submittedQuery)}”… Initial indexing may take several seconds.` : state.results ? `${rows.length} results returned for “${escapeHtml(state.submittedQuery)}” · ${state.scope === 'personal' ? 'Personal library · workspace exposure unknown in search' : 'All available to this workspace'}` : ''}</div>
-    <section id="${state.results || state.perspective === 'library' ? 'skill-list' : 'project-managed-list'}" aria-label="Skill list">${rows.map((s) => `<div class="skill-row ${s.id === state.selected && state.selectedScope === state.perspective && (!s.rowAgent || s.rowAgent === state.agent) ? 'selected' : ''}" data-skill="${s.id}" data-row-scope="${state.perspective}"><button data-select="${s.id}" ${s.rowAgent ? `data-row-agent="${s.rowAgent}"` : ''}><span class="skill-name">◇ ${s.id}</span><small class="row-badges">${s.source ? `${s.source} · ` : ''}${state.perspective === 'library' ? (s.blocked ? 'Blocked source' : s.accepted ? 'Accepted' : 'Needs review') : s.rowUnmanaged ? 'Unmanaged target' : `${agentLabel(s.rowAgent)} · ${modeLabel(s.rowExposure?.mode)} · ${statusFor(s, s.rowExposure)}`}${state.results ? ` · ${s.match} match` : ''}</small></button><button class="more" data-menu="${s.id}" ${s.rowAgent ? `data-row-agent="${s.rowAgent}"` : ''} aria-label="Actions for ${s.id}">⋯</button></div>`).join('') || '<p class="empty">No matching skills</p>'}</section>`
+    <div class="search-status" role="status">${state.searching ? `Searching Skillager for “${escapeHtml(state.submittedQuery)}”… Initial indexing may take several seconds.` : state.results ? `${rows.length} results returned for “${escapeHtml(state.submittedQuery)}” · ${state.scope === 'personal' ? 'Personal library · workspace exposure unknown in search' : 'All available to this workspace'}` : ''}</div>
+    <section class="${state.results || state.perspective === 'library' ? 'skill-list' : 'project-managed-list'}" aria-label="Skill list">${rows.map((s) => `<div class="skill-row ${s.id === state.selected && state.selectedScope === state.perspective && (!s.rowAgent || s.rowAgent === state.agent) ? 'selected' : ''}" data-skill="${s.id}" data-row-scope="${state.perspective}"><button data-select="${s.id}" ${s.rowAgent ? `data-row-agent="${s.rowAgent}"` : ''}><span class="skill-name">◇ ${s.id}</span><small class="row-badges">${s.source ? `${s.source} · ` : ''}${state.perspective === 'library' ? (s.blocked ? 'Blocked source' : s.accepted ? 'Accepted' : 'Needs review') : s.rowUnmanaged ? 'Unmanaged target' : `${agentLabel(s.rowAgent)} · ${modeLabel(s.rowExposure?.mode)} · ${statusFor(s, s.rowExposure)}`}${state.results ? ` · ${s.match} match` : ''}</small></button><button class="more" data-menu="${s.id}" ${s.rowAgent ? `data-row-agent="${s.rowAgent}"` : ''} aria-label="Actions for ${s.id}">⋯</button></div>`).join('') || '<p class="empty">No matching skills</p>'}</section>`
 }
 export function detailView(state) {
   const s = skillFor(state),

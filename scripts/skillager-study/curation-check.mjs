@@ -44,15 +44,19 @@ export async function checkCurationStudy({
   await pointClick('#search-advanced > summary')
   await choose('#browse-agent', 'claude')
   await assert(
-    `document.querySelectorAll('[data-curation-row]').length===2 && document.querySelector('#skills-view').textContent===${JSON.stringify(detail)} && document.querySelector('#agent').value==='codex'`,
-    'Agent browsing filters observed copies without closing details or retargeting an action agent',
+    `document.querySelectorAll('[data-curation-row]').length===2 && document.querySelector('#explorer-library [data-library-row="native-codex"]') && document.querySelector('#skills-view').textContent===${JSON.stringify(detail)} && document.querySelector('#agent').value==='codex'`,
+    'Agent browsing filters project copies while retaining reusable library rows, open details and the exact action agent',
   )
   await choose('#browse-agent', 'all')
   await pointClick('#search')
   await call('Input.insertText', { text: 'Release' })
   await pointClick('#search-form button[type="submit"]')
   await waitFor(
-    `document.querySelector('#curation-search-status').textContent.includes('2 results')`,
+    `document.querySelector('.explorer-search-results .curation-search-status').textContent.includes('2 results')`,
+  )
+  await assert(
+    `(()=>{const ids=[...document.querySelectorAll('[id]')].map(el=>el.id);return ids.length===new Set(ids).size})()`,
+    'Search and both retained explorer sections have unique element IDs',
   )
   await pointClick('#search-disclosure > summary')
   await assert(
@@ -120,10 +124,19 @@ export async function checkCurationStudy({
   )
   await capture('curation-sync-outcomes')
   await pointClick('[data-action="close"]')
+  await run(`document.querySelector('#curation-edit-library').click()`)
+  await pointClick('[data-curate="menu"]')
+  await pointClick('#dialog [data-curate="sync"]')
+  await pointClick('[data-curate="sync-confirm"]')
+  await assert(
+    `document.querySelector('#sync-outcomes').textContent.includes('Conflict') && document.querySelector('[data-library-row="native-claude"]').textContent.includes('Review') && document.querySelector('#skills-view').textContent.includes('edited-v3')`,
+    'Explicit sync preserves a pending canonical edit and its unaccepted version',
+  )
+  await pointClick('[data-action="close"]')
   await run(`document.querySelector('#curation-approve').click()`)
   await assert(
-    `document.querySelector('[data-library-row="draft"]') && document.querySelector('[data-library-row="collection"]').textContent.includes('Conflict')`,
-    'The explicit approval fixture syncs its new source while the conflicting canonical copy stays protected',
+    `document.querySelector('[data-library-row="draft"]') && document.querySelector('[data-library-row="collection"]').textContent.includes('Conflict') && document.querySelector('[data-library-row="native-claude"]').textContent.includes('Review') && document.querySelector('#skills-view').textContent.includes('edited-v3')`,
+    'Approval-triggered sync preserves pending and conflicting canonical copies while adding the newly approved source',
   )
   await flow('curation')
   const routerPoint = await run(
@@ -248,6 +261,32 @@ export async function checkCurationStudy({
     `document.querySelector('#dialog').textContent.includes('already exists') && !document.querySelector('[data-curate="apply"]')`,
     'A conflicting requested name requires a new choice instead of silently renaming on apply',
   )
+  await pointClick('[data-action="close"]')
+  await run(`document.querySelector('#curation-change-source').click()`)
+  await pointClick('[data-curation-router="router-release-helpers"]')
+  await pointClick('[data-curate="set-members"]')
+  await pointClick('[data-router-member="native-codex"]')
+  await choose('#curation-mode', 'Stub')
+  await pointClick('[data-curate="members-preview"]')
+  await assert(
+    `document.querySelector('#dialog').textContent.includes('retained standalone copy has a different mode') && !document.querySelector('#dialog [data-curate="apply"]')`,
+    'Restoring Stub cannot adopt or overwrite the retained unmanaged Full copy on membership authority',
+  )
+  await pointClick('[data-action="close"]')
+  await pointClick('[data-curate="set-members"]')
+  await pointClick('[data-router-member="native-codex"]')
+  await choose('#curation-mode', 'Remove from project')
+  await pointClick('[data-curate="members-preview"]')
+  await assert(
+    `document.querySelector('#dialog').textContent.includes('keep its existing Full skill standalone') && document.querySelector('#dialog').textContent.includes('without adoption or approval')`,
+    'Membership-only departure previews retaining the standalone copy despite its changed original approval',
+  )
+  await pointClick('[data-curate="apply"]')
+  await pointClick('[data-curation-select="native-codex"]')
+  await assert(
+    `document.querySelector('[data-curation-row="native-codex"]').textContent.includes('Full') && document.querySelector('#curation-approval').textContent==='Original needs review' && document.querySelector('#skills-view').textContent.includes('Full skill · Original source') && !document.querySelector('[data-router-row="router-release-helpers"]') && document.querySelector('[data-library-row="native-codex"]')`,
+    'Removing only membership retains the Full unmanaged standalone, its pending original state and canonical library copy',
+  )
   await flow('curation')
   await click('[data-curation-menu="native-codex"]')
   await pointClick('[data-curate="stub"]')
@@ -275,15 +314,22 @@ export async function checkCurationStudy({
     'Router-only removal also respects unresolved recovery despite requiring no accepted source body',
   )
   await flow('empty')
+  const emptyInventory = await run(`document.querySelector('#content').innerHTML`)
   await assert(
-    `document.querySelector('[data-action="sync-approved"]') && !document.querySelector('#curation-list')`,
+    `document.querySelector('[data-action="sync-approved"]') && !document.querySelector('#explorer-workspace .curation-list')`,
     'An observed empty personal inventory has a visible explicit Sync approved skills action',
   )
   await pointClick('[data-action="sync-approved"]')
   await assert(
-    `!document.querySelector('#sync-outcomes')`,
-    'Opening backfill guidance does not sync on browse',
+    `!document.querySelector('#sync-outcomes') && document.querySelector('#content').innerHTML===${JSON.stringify(emptyInventory)}`,
+    'Opening backfill guidance does not sync or replace the observed inventory',
   )
+  await pointClick('[data-action="close"]')
+  await assert(
+    `document.querySelector('#content').innerHTML===${JSON.stringify(emptyInventory)} && document.querySelector('#curation-lab').hidden`,
+    'Canceling empty-library backfill preserves the existing inventory and onboarding',
+  )
+  await pointClick('[data-action="sync-approved"]')
   await pointClick('[data-curate="sync-confirm"]')
   await pointClick('[data-action="close"]')
   await assert(
@@ -295,7 +341,7 @@ export async function checkCurationStudy({
   await call('Input.insertText', { text: 'no-such-skill' })
   await pointClick('#search-form button[type="submit"]')
   await waitFor(
-    `document.querySelector('#curation-search-status').textContent.includes('0 results')`,
+    `document.querySelector('.explorer-search-results .curation-search-status').textContent.includes('0 results')`,
   )
   await assert(
     `document.querySelector('.explorer-search-results').textContent.includes('No skills match this view') && !document.querySelector('[data-action="sync-approved"]') && !document.querySelector('#content').textContent.includes('has no preserved skills')`,
@@ -339,7 +385,7 @@ export async function checkCurationStudy({
   await call('Input.insertText', { text: 'Environment' })
   await pointClick('#search-form button[type="submit"]')
   await waitFor(
-    `document.querySelector('#curation-search-status').textContent.includes('1 results')`,
+    `document.querySelector('.explorer-search-results .curation-search-status').textContent.includes('1 results')`,
   )
   await pointClick('.explorer-search-results [data-curation-select="environment"]')
   await assert(
@@ -474,6 +520,19 @@ export async function checkCurationStudy({
   await assert(
     `!document.querySelector('[data-curation-row="native-codex"]') && document.querySelector('[data-library-row="native-codex"]') && document.querySelector('[data-curation-row="native-claude"]')`,
     'Removing the selected project occurrence preserves the library and another agent copy',
+  )
+  await pointClick('[data-curation-router="review-router"]')
+  await pointClick('[data-curate="set-members"]')
+  await pointClick('[data-router-member="native-codex"]')
+  await pointClick('[data-curate="members-preview"]')
+  await assert(
+    `document.querySelector('#dialog').textContent.includes('No standalone copy to remove at /work/hvir/.agents/skills/native-codex') && !document.querySelector('#dialog').textContent.includes('Remove selected standalone')`,
+    'Adding an absent member previews router membership with no invented standalone removal',
+  )
+  await pointClick('[data-curate="apply"]')
+  await assert(
+    `document.querySelector('.router-group').textContent.includes('Release review') && !document.querySelector('[data-curation-row="native-codex"]') && document.querySelector('[data-library-row="native-codex"]')`,
+    'An absent source becomes a router member without a standalone copy or library deletion',
   )
   await flow('curation')
   const ordinary = await run(
