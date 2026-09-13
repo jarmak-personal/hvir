@@ -1,6 +1,7 @@
 import type {
   SkillagerMetadata,
   SkillagerMetadataResult,
+  SkillagerWorkspaceExposure,
 } from '../../../shared/skillager'
 
 export interface SkillagerDetailTab {
@@ -13,7 +14,10 @@ export interface SkillagerTabs {
 }
 export type SkillagerTabAction =
   | { readonly type: 'select'; readonly metadata: SkillagerMetadata }
-  | { readonly type: 'observe'; readonly result: SkillagerMetadataResult }
+  | {
+      readonly type: 'observe' | 'observe-project'
+      readonly result: SkillagerMetadataResult
+    }
   | {
       readonly type: 'invalidate'
       readonly freshness: 'checking' | 'stale' | 'unavailable'
@@ -47,15 +51,30 @@ export function skillagerTabs(
           metadata: { ...tab.metadata, workspaceFreshness: action.freshness },
         })),
       }
+    case 'observe-project':
     case 'observe': {
       const rows = new Map(
-        skillagerWorkspaceMetadata(action.result).map((row) => [row.id, row]),
+        (action.type === 'observe-project'
+          ? skillagerProjectRows(action.result)
+          : skillagerWorkspaceMetadata(action.result)
+        ).map((row) => [row.id, row]),
       )
       return {
         ...state,
         tabs: state.tabs.map((tab) => {
           const metadata = rows.get(tab.metadata.id)
           if (metadata) return { ...tab, metadata }
+          if (action.type === 'observe-project')
+            return tab.metadata.projectSkill
+              ? {
+                  ...tab,
+                  metadata: {
+                    ...tab.metadata,
+                    workspaceFreshness: 'unavailable',
+                    description: 'Skillager no longer reports this project skill.',
+                  },
+                }
+              : tab
           if (tab.metadata.source.ownership !== 'library') return tab
           return {
             ...tab,
@@ -123,4 +142,46 @@ export function skillagerWorkspaceMetadata(
     workspaceFreshness: data.exposures ? 'fresh' : 'unavailable',
     exposure: data.exposures ? (exposures.get(row.id)?.mode ?? 'hidden') : row.exposure,
   }))
+}
+
+export function isNativeProjectSkill(
+  row: SkillagerMetadata,
+): row is SkillagerMetadata & {
+  readonly projectSkill: NonNullable<SkillagerMetadata['projectSkill']>
+} {
+  return Boolean(row.projectSkill) && row.source.ownership !== 'library'
+}
+
+/** Native discovery excludes managed targets; copies retain only actual owned source metadata. */
+export function skillagerProjectRows(
+  data: SkillagerMetadataResult,
+): readonly SkillagerMetadata[] {
+  const metadata = skillagerWorkspaceMetadata(data)
+  const owned = new Map(
+    metadata
+      .filter((row) => row.source.ownership === 'library')
+      .map((row) => [row.id, row]),
+  )
+  return [
+    ...metadata.filter(isNativeProjectSkill),
+    ...(data.exposures ?? []).map((exposure) => ({
+      ...(owned.get(exposure.skillId ?? '') ?? unavailableSource(exposure)),
+      workspace: exposure,
+      workspaceFreshness: 'fresh' as const,
+      workspaceCheckedAt: data.checkedAt,
+    })),
+  ]
+}
+function unavailableSource(exposure: SkillagerWorkspaceExposure): SkillagerMetadata {
+  return {
+    id: exposure.skillId ?? exposure.id,
+    name: exposure.skillId ?? exposure.id,
+    description: 'Source metadata is unavailable.',
+    trust: 'unknown',
+    source: { type: 'workspace', ownership: 'unknown' },
+    tags: [],
+    matchReasons: [],
+    exposure: exposure.mode,
+    workspace: exposure,
+  }
 }

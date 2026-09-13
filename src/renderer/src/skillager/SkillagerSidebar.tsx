@@ -1,3 +1,4 @@
+import { SkillagerProjectSetup } from './SkillagerProjectSetup'
 import { SkillagerFirstSkill } from './SkillagerFirstSkill'
 import { workspaceSkillLabel } from './skillager-exposure-model'
 import { SkillagerActions, SkillagerActionsMenu } from './SkillagerActions'
@@ -6,14 +7,15 @@ import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import type { HostPath } from '../../../shared/host-path'
 import {
   SKILLAGER_AGENTS,
+  skillagerAgentLabel,
   type SkillagerAgent,
-  type SkillagerMetadata,
-  type SkillagerWorkspaceExposure,
 } from '../../../shared/skillager'
 import {
+  isNativeProjectSkill,
   pendingSkillagerReview,
   trustLabel,
   skillagerWorkspaceMetadata,
+  skillagerProjectRows,
 } from './skillager-model'
 import { SkillagerConnection } from './SkillagerConnection'
 import type { SkillagerController } from './use-skillager-workspace'
@@ -31,11 +33,19 @@ export function SkillagerSidebar({
   useEffect(() => {
     if (!hidden && controller.connection) searchField.current?.focus()
   }, [hidden, controller.connection])
-  const [perspective, setPerspective] = useState<'library' | 'workspace'>('library')
+  const { perspective, setPerspective } = controller
+  const localProject = perspective === 'workspace' && root.hostId === 'local'
   const [pending, setPending] = useState(false)
   const [offset, setOffset] = useState(0)
   const searched = Boolean(controller.submitted)
-  const read = searched ? controller.search : controller.inventory
+  const read = searched
+    ? controller.search
+    : localProject
+      ? {
+          loading: controller.project.loading,
+          result: controller.project.result ?? controller.inventory.result,
+        }
+      : controller.inventory
   const data = read.result?.ok ? read.result.value : undefined
   const rows = useMemo(() => {
     if (!data) return []
@@ -50,13 +60,9 @@ export function SkillagerSidebar({
     if (searched) return metadata
     if (perspective === 'library')
       return pending ? metadata.filter(pendingSkillagerReview) : metadata
-    const byId = new Map(metadata.map((row) => [row.id, row]))
-    return (data.exposures ?? []).map((exposure) => ({
-      ...(byId.get(exposure.skillId ?? '') ?? unavailableSource(exposure)),
-      workspace: exposure,
-      workspaceFreshness: freshness ?? ('fresh' as const),
-      workspaceCheckedAt: data.checkedAt,
-    }))
+    return skillagerProjectRows(data).map((row) =>
+      freshness ? { ...row, workspaceFreshness: freshness } : row,
+    )
   }, [data, searched, perspective, pending, read.loading, controller.observing])
   const pageOffset = Math.min(
     offset,
@@ -148,6 +154,9 @@ export function SkillagerSidebar({
               Pending bodies are excluded.
             </p>
           </form>
+          {perspective === 'workspace' ? (
+            <SkillagerProjectSetup controller={controller} root={root} />
+          ) : null}
           <div className="skillager-list-controls">
             {searched ? (
               <button type="button" onClick={controller.clearSearch}>
@@ -166,12 +175,14 @@ export function SkillagerSidebar({
                 Pending review
               </label>
             ) : (
-              <span>Workspace copies</span>
+              <span>Project skills and managed copies</span>
             )}
             <button
               type="button"
-              disabled={controller.inventory.loading}
-              onClick={() => void controller.refresh()}
+              disabled={read.loading}
+              onClick={() =>
+                void (localProject ? controller.project.refresh() : controller.refresh())
+              }
             >
               Refresh
             </button>
@@ -187,7 +198,9 @@ export function SkillagerSidebar({
                 <p role="status">
                   {searched
                     ? 'Searching Skillager… The first search can take longer.'
-                    : 'Reading library and workspace metadata…'}
+                    : localProject
+                      ? 'Reading project metadata…'
+                      : 'Reading library and workspace metadata…'}
                 </p>
               ) : null}
               {read.result && !read.result.ok ? (
@@ -215,7 +228,11 @@ export function SkillagerSidebar({
                         : pending
                           ? 'No skills pending review.'
                           : perspective === 'workspace'
-                            ? 'No workspace skills found.'
+                            ? root.hostId === 'local'
+                              ? controller.project.result?.ok
+                                ? 'No project skills reported by Skillager.'
+                                : 'Project metadata has not been checked.'
+                              : 'No workspace skills found.'
                             : 'Your personal library is empty.'}
                     </p>
                   ) : (
@@ -242,9 +259,11 @@ export function SkillagerSidebar({
                                   row.source.package ??
                                   row.source.type)}{' '}
                               ·{' '}
-                              {perspective === 'workspace' && !searched
-                                ? `${row.workspace?.mode} · ${workspaceSkillLabel(row)}`
-                                : trustLabel(row)}
+                              {isNativeProjectSkill(row)
+                                ? `${skillagerAgentLabel(row.projectSkill.agent)} · ${row.projectSkill.managed ? 'Managed project entry' : 'Unmanaged project entry'} · ${row.trust === 'lint_blocked' ? 'Lint blocked' : trustLabel(row)}`
+                                : perspective === 'workspace' && !searched
+                                  ? `${row.workspace?.mode} · ${workspaceSkillLabel(row)}`
+                                  : trustLabel(row)}
                             </small>
                             {row.matchReasons.length > 0 ? (
                               <small>{row.matchReasons.join(' · ')}</small>
@@ -284,18 +303,4 @@ export function SkillagerSidebar({
       )}
     </section>
   )
-}
-
-function unavailableSource(exposure: SkillagerWorkspaceExposure): SkillagerMetadata {
-  return {
-    id: exposure.skillId ?? exposure.id,
-    name: exposure.skillId ?? exposure.id,
-    description: 'Source metadata is unavailable.',
-    trust: 'unknown',
-    source: { type: 'workspace', ownership: 'unknown' },
-    tags: [],
-    matchReasons: [],
-    exposure: exposure.mode,
-    workspace: exposure,
-  }
 }

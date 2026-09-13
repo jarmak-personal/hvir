@@ -169,6 +169,7 @@ export function App(): ReactElement {
     focusTerminal: showTerminal,
   } = layout
   const skills = useSkillagerWorkspace({
+    onSetupTerminal: (root, prepared, signal) => terminalWorkspaces.openPrepared(root, prepared, signal).then(() => showTerminal(prepared.id)),
     enabled: settings.skillagerEnabled === true,
     projectState,
     sidebarVisible:
@@ -573,9 +574,8 @@ export function App(): ReactElement {
           skillager={
             <SkillagerSettings
               controller={skills}
-              onEnabled={(skillagerEnabled) =>
-                setAppSettings({ ...settings, skillagerEnabled })
-              }
+              settings={settings}
+              onSettings={setAppSettings}
             />
           }
           theme={theme}

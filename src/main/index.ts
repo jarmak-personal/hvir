@@ -357,7 +357,7 @@ function createWorkbenchEntry(): void {
     runtime.own(
       'IPC authority router',
       registerIpcHandlers({
-        skillager: installSkillager(runtime, hostCatalog.local, rendererScopes, registry, htmlPreviews),
+        skillager: installSkillager(runtime, hostCatalog.local, rendererScopes, registry, htmlPreviews, { ptySupervisor, profiles: harnessProfileStore, sessions: terminalSessionRegistry }),
         echoWorker,
         gitWorker,
         filenameSearch,

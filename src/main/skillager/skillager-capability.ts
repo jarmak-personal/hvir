@@ -1,3 +1,7 @@
+import type { SkillagerProjectStart } from '../../shared/skillager-project'
+import type { SkillagerProjectCliPort } from './skillager-project-commands'
+import type { SkillagerProjectTerminalPort } from './skillager-project-terminal'
+import { SkillagerProjectSetupOwner } from './skillager-project-setup-owner'
 import type { SkillagerSetupTarget } from '../../shared/skillager-setup'
 import type { SkillagerFolderPicker, SkillagerSetupCliPort } from './skillager-setup-port'
 import type { SkillagerExposureRequest } from '../../shared/skillager-exposure'
@@ -21,6 +25,7 @@ import { randomUUID } from 'node:crypto'
 import { hostPathEquals, type HostPath } from '../../shared/host-path'
 import {
   SKILLAGER_QUERY_BYTES,
+  SKILLAGER_INVENTORY_LIMIT,
   SKILLAGER_AGENTS,
   type SkillagerConnection,
   type SkillagerMetadataResult,
@@ -55,8 +60,8 @@ interface OwnerState {
   choosingFolder?: boolean
   setupGitHistory?: boolean
   setupMessage?: string
-  readonly lanes: { search: RequestLane; inventory: RequestLane }
-  latest: { search: number; inventory: number }
+  readonly lanes: { search: RequestLane; inventory: RequestLane; project: RequestLane }
+  latest: { search: number; inventory: number; project: number }
 }
 
 export class SkillagerCapability {
@@ -69,6 +74,7 @@ export class SkillagerCapability {
   private initializing?: AbortController
   private readonly exposures: SkillagerExposureOwner
   private readonly reviews: SkillagerReviewOwner
+  private readonly projectSetup?: SkillagerProjectSetupOwner
 
   constructor(
     private readonly cli: SkillagerCliPort,
@@ -90,7 +96,17 @@ export class SkillagerCapability {
       readonly cli: SkillagerSetupCliPort
       readonly picker: SkillagerFolderPicker
     },
+    private readonly project?: {
+      readonly cli: SkillagerProjectCliPort
+      readonly terminal: SkillagerProjectTerminalPort
+    },
   ) {
+    if (project)
+      this.projectSetup = new SkillagerProjectSetupOwner(
+        project.cli,
+        project.terminal,
+        resources,
+      )
     this.exposures = new SkillagerExposureOwner(exposure.cli, resources)
     this.reviews = new SkillagerReviewOwner(
       review.cli,
@@ -108,8 +124,8 @@ export class SkillagerCapability {
     this.owners.set(key(owner), {
       enabled: true,
       generation: 0,
-      latest: { search: 0, inventory: 0 },
-      lanes: { search: {}, inventory: {} },
+      latest: { search: 0, inventory: 0, project: 0 },
+      lanes: { search: {}, inventory: {}, project: {} },
     })
     this.resources.register(
       owner,
@@ -216,11 +232,13 @@ export class SkillagerCapability {
     const state = this.owners.get(key(owner))
     if (!state) return
     state.generation++
+    if (this.projectSetup) void this.track(owner, this.projectSetup.revoke(owner))
     void this.track(owner, this.reviews.revoke(owner))
     void this.track(owner, this.exposures.revoke(owner))
     state.probe?.abort()
     this.cancelLane(state.lanes.search)
     this.cancelLane(state.lanes.inventory)
+    this.cancelLane(state.lanes.project)
     state.connectionId = undefined
     state.probeId = undefined
     state.selection = undefined
@@ -469,7 +487,7 @@ export class SkillagerCapability {
     owner: RendererOwner,
     request: SkillagerSearchRequest,
   ): Promise<SkillagerResult<SkillagerMetadataResult>> {
-    return this.read(owner, 'search', request, (selection, signal) => {
+    return this.read(owner, 'search', request, async (selection, signal) => {
       if (
         typeof request.query !== 'string' ||
         request.query.trim().length === 0 ||
@@ -487,7 +505,7 @@ export class SkillagerCapability {
           'Use Personal library for an SSH workspace.',
         )
       }
-      return this.cli.search(selection, request, signal)
+      return { rows: await this.cli.search(selection, request, signal) }
     })
   }
 
@@ -495,12 +513,73 @@ export class SkillagerCapability {
     owner: RendererOwner,
     request: SkillagerRequest,
   ): Promise<SkillagerResult<SkillagerMetadataResult>> {
-    return this.read(owner, 'inventory', request, (selection, signal) =>
-      this.cli.inventory(selection, signal),
+    return this.read(owner, 'inventory', request, async (selection, signal) => ({
+      rows: await this.cli.inventory(selection, signal),
+    }))
+  }
+
+  projectMetadata(owner: RendererOwner, request: SkillagerRequest) {
+    return this.track(
+      owner,
+      result(async () => {
+        const grant = this.reviewGrant(owner, request)
+        const observed = await this.read(
+          owner,
+          'project',
+          request,
+          (selection, signal) => {
+            if (!this.project)
+              throw new SkillagerError('unavailable', 'Project metadata is unavailable.')
+            return this.project.cli.projectMetadata(
+              selection,
+              request.workspaceRoot,
+              request.agent,
+              signal,
+            )
+          },
+        )
+        if (!observed.ok) throw new SkillagerError(observed.reason, observed.message)
+        grant.assertCurrent()
+        return {
+          ...observed.value,
+          setupRunning: this.projectSetup?.isRunning(grant.selection, request) ?? false,
+        }
+      }),
     )
   }
 
-  cancel(owner: RendererOwner, kind: 'search' | 'inventory', requestId: number): void {
+  prepareProjectSetup(owner: RendererOwner, request: SkillagerRequest) {
+    return this.track(
+      owner,
+      result(async () => {
+        if (!this.projectSetup)
+          throw new SkillagerError('unavailable', 'Project setup is unavailable.')
+        return this.projectSetup.prepare(owner, request, this.reviewGrant(owner, request))
+      }),
+    )
+  }
+
+  startProjectSetup(owner: RendererOwner, request: SkillagerProjectStart) {
+    return this.track(
+      owner,
+      result(async () => {
+        this.state(owner)
+        if (!this.projectSetup)
+          throw new SkillagerError('unavailable', 'Project setup is unavailable.')
+        return this.projectSetup.start(owner, request)
+      }),
+    )
+  }
+
+  releaseProjectSetup(owner: RendererOwner, id: string) {
+    return this.projectSetup?.release(owner, id)
+  }
+
+  cancel(
+    owner: RendererOwner,
+    kind: 'search' | 'inventory' | 'project',
+    requestId: number,
+  ): void {
     const state = this.owners.get(key(owner))
     if (!state || !Number.isSafeInteger(requestId) || requestId < 1) return
     state.latest[kind] = Math.max(state.latest[kind], requestId)
@@ -529,8 +608,10 @@ export class SkillagerCapability {
       state.probe?.abort()
       this.cancelLane(state.lanes.search)
       this.cancelLane(state.lanes.inventory)
+      this.cancelLane(state.lanes.project)
     }
     this.owners.clear()
+    await this.projectSetup?.revoke()
     await this.exposures.revoke()
     await this.reviews.revoke()
     await Promise.allSettled([...this.jobs.keys()])
@@ -707,15 +788,12 @@ export class SkillagerCapability {
     })
   }
 
-  private read(
+  private read<T extends { readonly rows: SkillagerMetadataResult['rows'] }>(
     owner: RendererOwner,
-    kind: 'search' | 'inventory',
+    kind: 'search' | 'inventory' | 'project',
     request: SkillagerRequest,
-    operation: (
-      selection: SkillagerCliSelection,
-      signal: AbortSignal,
-    ) => ReturnType<SkillagerCliPort['inventory']>,
-  ): Promise<SkillagerResult<SkillagerMetadataResult>> {
+    operation: (selection: SkillagerCliSelection, signal: AbortSignal) => Promise<T>,
+  ): Promise<SkillagerResult<T & SkillagerMetadataResult>> {
     return this.track(
       owner,
       result(async () => {
@@ -745,7 +823,7 @@ export class SkillagerCapability {
         const lane = state.lanes[kind]
         this.cancelLane(lane)
         state.latest[kind] = request.requestId
-        return new Promise<SkillagerMetadataResult>((resolve, reject) => {
+        return new Promise<T & SkillagerMetadataResult>((resolve, reject) => {
           const controller = new AbortController()
           const cancelled = (): SkillagerError =>
             new SkillagerError('cancelled', 'Skillager request cancelled.')
@@ -785,13 +863,30 @@ export class SkillagerCapability {
               try {
                 this.current(owner, state, generation)
                 if (controller.signal.aborted) throw cancelled()
-                const rows = await operation(selection, controller.signal)
+                let payload = await operation(selection, controller.signal)
                 const exposures = await this.exposure.observe(
                   selection,
                   request,
-                  { rows, complete: kind === 'inventory' },
+                  { rows: payload.rows, complete: kind === 'inventory' },
                   controller.signal,
                 )
+                if (
+                  kind === 'project' &&
+                  exposures?.some((copy) => copy.skillId?.startsWith('lib/'))
+                ) {
+                  const ids = new Set(exposures.map((copy) => copy.skillId))
+                  const canonical = await this.cli.inventory(selection, controller.signal)
+                  const rows = [
+                    ...payload.rows,
+                    ...canonical.filter((row) => ids.has(row.id)),
+                  ]
+                  if (rows.length > SKILLAGER_INVENTORY_LIMIT)
+                    throw new SkillagerError(
+                      'output-limit',
+                      'Project metadata exceeds the supported number of entries.',
+                    )
+                  payload = { ...payload, rows }
+                }
                 this.current(owner, state, generation)
                 if (
                   controller.signal.aborted ||
@@ -800,7 +895,7 @@ export class SkillagerCapability {
                 )
                   throw cancelled()
                 resolve({
-                  rows,
+                  ...payload,
                   exposures,
                   checkedAt: Date.now(),
                   durationMs: performance.now() - started,

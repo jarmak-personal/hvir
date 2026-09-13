@@ -20,6 +20,7 @@ import {
   terminalWorkspaceSplit,
   type TerminalWorkspaceAction,
   type TerminalWorkspaceModel,
+  type PreparedTerminalSession,
 } from './terminal-workspace-model'
 
 export function useTerminalSessionCommands({
@@ -80,21 +81,25 @@ export function useTerminalSessionCommands({
     launch(profile, provider)
   }
 
-  const failForkStart = (id: string, reason: string): void => {
-    const fork = modelRef.current.sessions.find(
-      (session) => session.id === id && session.forkRequest,
-    )
-    if (!fork?.forkRequest) return
+  const failStart = (id: string, reason: string): void => {
+    const session = modelRef.current.sessions.find((candidate) => candidate.id === id)
+    if (!session?.forkRequest && !session?.initialStart) return
     runtimes.disposeSession(id)
     void window.hvir
       .invoke('terminal:forget', { root: workspaceRoot, id })
       .catch(() => undefined)
-    send({
-      type: 'session-fork-failed',
-      sourceId: fork.forkRequest.sourceSessionId,
-      id,
-    })
-    onError(`Conversation fork failed: ${reason}`)
+    if (session.forkRequest) {
+      send({
+        type: 'session-fork-failed',
+        sourceId: session.forkRequest.sourceSessionId,
+        id,
+      })
+      onError(`Conversation fork failed: ${reason}`)
+    } else {
+      forgetAttention(id)
+      send({ type: 'session-closed', id })
+      onError(`Terminal launch failed: ${reason}`)
+    }
   }
 
   const acceptForkIdentity = (
@@ -116,7 +121,7 @@ export function useTerminalSessionCommands({
           identityStatus !== 'identified' ||
           harnessSessionId !== pendingChild.forkRequest.parentHarnessSessionId)
       ) {
-        failForkStart(
+        failStart(
           pendingChild.id,
           'The source conversation identity changed while its sibling was starting.',
         )
@@ -144,14 +149,11 @@ export function useTerminalSessionCommands({
         runtimes.isSessionLive(source.id),
       ).available
     ) {
-      failForkStart(
-        id,
-        'The source terminal changed or exited before the fork completed.',
-      )
+      failStart(id, 'The source terminal changed or exited before the fork completed.')
       return
     }
     if (identityDiverged) {
-      failForkStart(id, 'The sibling conversation identity diverged during launch.')
+      failStart(id, 'The sibling conversation identity diverged during launch.')
       return
     }
     if (identityStatus === 'discovering') return
@@ -160,7 +162,7 @@ export function useTerminalSessionCommands({
       !harnessSessionId ||
       harnessSessionId === fork.forkRequest.parentHarnessSessionId
     ) {
-      failForkStart(id, 'The sibling conversation could not be identified exactly.')
+      failStart(id, 'The sibling conversation could not be identified exactly.')
       return
     }
     send({
@@ -177,6 +179,36 @@ export function useTerminalSessionCommands({
 
   return {
     add,
+    addPrepared: (prepared: PreparedTerminalSession): boolean => {
+      const profile = profiles.find((item) => item.id === prepared.profile.id)
+      const provider = providers.find((item) => item.id === prepared.profile.providerId)
+      if (
+        !available ||
+        !profile ||
+        !provider ||
+        profile.launchRevision !== prepared.profile.launchRevision ||
+        modelRef.current.sessions.some((session) => session.id === prepared.id)
+      )
+        return false
+      const session = createTerminalSession(
+        prepared.id,
+        profile,
+        provider,
+        workspaceRoot,
+        modelRef.current.activePane,
+      )
+      send({
+        type: 'session-added',
+        session: {
+          ...session,
+          title: prepared.title,
+          fallbackTitle: prepared.title,
+          initialStart: prepared.initialStart,
+        },
+      })
+      closeLaunchMenu()
+      return true
+    },
     fork: (sourceId: string) => {
       const source = modelRef.current.sessions.find((session) => session.id === sourceId)
       const provider = source
@@ -194,13 +226,13 @@ export function useTerminalSessionCommands({
       send({ type: 'session-fork-requested', sourceId, session: fork })
     },
     acceptForkIdentity,
-    failForkStart,
+    failStart,
     handleExit: (id: string, exitCode: number) => {
       const pendingChild = modelRef.current.sessions.find(
         (session) => session.forkRequest?.sourceSessionId === id,
       )
       if (pendingChild) {
-        failForkStart(
+        failStart(
           pendingChild.id,
           `The source terminal exited before the fork completed (${exitCode}).`,
         )
@@ -259,14 +291,14 @@ export function useTerminalSessionCommands({
       forgetAttention(id)
       const session = modelRef.current.sessions.find((candidate) => candidate.id === id)
       if (session?.forkRequest) {
-        failForkStart(id, 'The pending sibling was closed before launch completed.')
+        failStart(id, 'The pending sibling was closed before launch completed.')
         return
       }
       const pendingChild = modelRef.current.sessions.find(
         (candidate) => candidate.forkRequest?.sourceSessionId === id,
       )
       if (pendingChild) {
-        failForkStart(
+        failStart(
           pendingChild.id,
           'The source terminal was closed before the fork completed.',
         )

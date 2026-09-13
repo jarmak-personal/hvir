@@ -1,13 +1,16 @@
+import type { AppSettings } from '../settings/settings'
 import { useState, type ReactElement } from 'react'
 import { SkillagerConnection } from './SkillagerConnection'
 import type { SkillagerController } from './use-skillager-workspace'
 
 export function SkillagerSettings({
   controller,
-  onEnabled,
+  settings,
+  onSettings,
 }: {
   readonly controller: SkillagerController
-  readonly onEnabled: (enabled: boolean) => void
+  readonly settings: AppSettings
+  readonly onSettings: (settings: AppSettings) => void
 }): ReactElement {
   const [executable, setExecutable] = useState('')
   return (
@@ -16,7 +19,9 @@ export function SkillagerSettings({
         <input
           type="checkbox"
           checked={controller.enabled}
-          onChange={(event) => onEnabled(event.currentTarget.checked)}
+          onChange={(event) =>
+            onSettings({ ...settings, skillagerEnabled: event.currentTarget.checked })
+          }
         />{' '}
         Enable Skillager
       </label>

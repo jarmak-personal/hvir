@@ -1,3 +1,5 @@
+import type { PreparedTerminalSession } from './terminal-workspace-model'
+import { hostPathEquals, type HostPath } from '../../../shared'
 import { useEffect, useRef, useSyncExternalStore } from 'react'
 
 import type {
@@ -25,6 +27,8 @@ export function useTerminalWorkspaceRuntime({
   ) => Promise<void>
   readonly onError: (message: string) => void
 }) {
+  const currentProject = useRef(projectState)
+  currentProject.current = projectState
   const owner = useRef(new TerminalWorkspaceRuntimeOwner()).current
   const materializedWorkspaceIds = useSyncExternalStore(
     owner.subscribe,
@@ -65,6 +69,27 @@ export function useTerminalWorkspaceRuntime({
   }, [owner, projectState])
 
   return {
+    openPrepared: async (
+      root: HostPath,
+      session: PreparedTerminalSession,
+      signal: AbortSignal,
+    ): Promise<void> => {
+      const state = currentProject.current
+      if (!state || !hostPathEquals(state.root, root))
+        throw new Error('The setup workspace changed.')
+      const id = state.activeWorkspaceId
+      try {
+        await transfer.prepare(id, signal)
+        if (
+          signal.aborted ||
+          currentProject.current?.activeWorkspaceId !== id ||
+          !owner.controller(id)?.addPrepared(session)
+        )
+          throw new Error('The terminal workspace is not ready.')
+      } finally {
+        transfer.release(id)
+      }
+    },
     materializedWorkspaceIds,
     sessionsObservation: owner.sessionsObservation,
     sessionsSurface: owner.sessionsSurface,

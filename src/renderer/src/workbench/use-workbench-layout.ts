@@ -216,9 +216,9 @@ export function useWorkbenchLayout({
     () => setTerminalMode((mode) => (mode === 'maximized' ? 'restored' : 'maximized')),
     [setTerminalMode],
   )
-  const focusTerminal = useCallback((): void => {
+  const focusTerminal = useCallback((sessionId?: string): void => {
     setTerminalMode((mode) => (mode === 'collapsed' ? 'restored' : mode))
-    focusActiveTerminalAfterLayout()
+    focusActiveTerminalAfterLayout(sessionId)
   }, [setTerminalMode])
   const focusViewer = useCallback(
     (pane: ViewerPaneId): void => {

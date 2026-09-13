@@ -1,6 +1,8 @@
 import { SEND_CHANNELS, type IpcInvokeChannel } from '../../shared'
 
 export const OWNER_SCOPED_INVOKE_CHANNELS = [
+  'skillager:start-project-setup',
+  'skillager:release-project-setup',
   'skillager:configure',
   'skillager:probe',
   'skillager:choose-library-folder',
@@ -8,6 +10,8 @@ export const OWNER_SCOPED_INVOKE_CHANNELS = [
   'skillager:reconcile-library',
   'skillager:connect',
   'skillager:disconnect',
+  'skillager:project-metadata',
+  'skillager:prepare-project-setup',
   'skillager:inventory',
   'skillager:search',
   'skillager:cancel',
@@ -86,6 +90,8 @@ export const OWNER_SCOPED_INVOKE_CHANNELS = [
 export const OWNER_SCOPED_SEND_CHANNELS = SEND_CHANNELS
 
 export const AUTHORITY_SCOPED_INVOKE_CHANNELS = [
+  'skillager:project-metadata',
+  'skillager:prepare-project-setup',
   'skillager:inventory',
   'skillager:preview-exposure',
   'skillager:review',

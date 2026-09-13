@@ -8,6 +8,7 @@ import { SkillagerCli } from '../skillager/skillager-cli'
 import type { SkillagerCliPort } from '../skillager/skillager-port'
 import type { SmokeCleanup } from './cleanup'
 import { skillagerFixtureEnvironment } from './skillager-fixture-environment'
+import type { SkillagerProjectCliPort } from '../skillager/skillager-project-commands'
 
 /** Opt-in real CLI load over an explicitly supplied disposable acceptance fixture. */
 export function realSkillagerSmokePort(
@@ -17,7 +18,8 @@ export function realSkillagerSmokePort(
   | (SkillagerCliPort &
       SkillagerReviewCliPort &
       SkillagerExposureCliPort &
-      SkillagerSetupCliPort)
+      SkillagerSetupCliPort &
+      SkillagerProjectCliPort)
   | undefined {
   const fixture = process.env.HVIR_SKILLAGER_SMOKE_FIXTURE
   const release = process.env.HVIR_SKILLAGER_RELEASE
@@ -51,6 +53,10 @@ export function realSkillagerSmokePort(
   )
   cleanup.defer('real Skillager CLI', () => cli.dispose())
   return {
+    projectMetadata: (selection, root, agent, signal) =>
+      cli.projectMetadata(selection, root, agent, signal),
+    projectStatus: (selection, root, agent, signal) =>
+      cli.projectStatus(selection, root, agent, signal),
     defaultLibraryRoot: (selection) => cli.defaultLibraryRoot(selection),
     initializeLibrary: (selection, root, gitHistory, signal) =>
       cli.initializeLibrary(selection, root, gitHistory, signal),

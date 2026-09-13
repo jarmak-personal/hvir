@@ -1,3 +1,4 @@
+import { getAppSettings } from '../src/renderer/src/settings/settings'
 // @vitest-environment happy-dom
 import { projectState } from './fixtures/skillager-exposure-fixture'
 import { act, useState, StrictMode } from 'react'
@@ -97,7 +98,11 @@ function Harness({
   })
   return (
     <>
-      <SkillagerSettings controller={current} onEnabled={setEnabled} />
+      <SkillagerSettings
+        controller={current}
+        settings={{ ...getAppSettings(), skillagerEnabled: enabled }}
+        onSettings={(value) => setEnabled(value.skillagerEnabled === true)}
+      />
       {enabled ? (
         <SkillagerSidebar controller={current} root={root} hidden={!visible} />
       ) : null}
@@ -236,10 +241,20 @@ describe('Skills renderer demand and metadata views', () => {
     }
     let drift = 'current'
     invoke.mockImplementation((channel, request) =>
-      channel === 'skillager:inventory'
+      channel === 'skillager:inventory' || channel === 'skillager:project-metadata'
         ? Promise.resolve({
             ok: true,
             value: {
+              setupRunning: false,
+              status: {
+                projectRoot: localPath('/workspace'),
+                agent: 'codex',
+                status: 'ready',
+                canProceed: true,
+                reviewNeeded: 0,
+                lintBlocked: 0,
+                working: 'present',
+              },
               rows: [accepted],
               exposures: [{ ...exposure, status: drift }],
               checkedAt: Date.now(),

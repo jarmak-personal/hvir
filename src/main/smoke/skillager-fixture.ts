@@ -10,6 +10,8 @@ import type { SkillagerLibrary, SkillagerMetadata } from '../../shared/skillager
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import { SkillagerCapability } from '../skillager/skillager-capability'
 import { SkillagerError } from '../skillager/skillager-port'
+import { createSkillagerProjectTerminal } from '../skillager/skillager-project-terminal'
+import { skillagerProjectFixture } from './skillager-project-fixture'
 
 /** Renderer interaction evidence only; real CLI performance has a separate fixture. */
 export function createSkillagerSmoke(
@@ -17,6 +19,10 @@ export function createSkillagerSmoke(
   cleanup: SmokeCleanup,
   projects: Pick<IpcProjectAuthorityPort, 'getProject' | 'getProjectState'>,
   previews: Pick<HtmlPreviewProtocol, 'create' | 'release'>,
+  terminal: Omit<
+    Parameters<typeof createSkillagerProjectTerminal>[1],
+    'rendererResources'
+  >,
 ) {
   const { host, root } = projects.getProject()
   const library = {
@@ -63,10 +69,13 @@ export function createSkillagerSmoke(
   let initializedGit = true
   const calls: string[] = []
   const real = realSkillagerSmokePort(host, cleanup)
+  const project = skillagerProjectFixture(host, root, cleanup)
   const capability = new SkillagerCapability(
     real ?? {
       probe(executable) {
         calls.push('probe')
+        if (executable?.path === '/hvir-smoke/project-setup')
+          return project.selection(selection)
         if (executable?.path === '/missing')
           return Promise.reject(new SkillagerError('missing', 'Skillager was not found.'))
         return Promise.resolve(
@@ -172,6 +181,13 @@ export function createSkillagerSmoke(
           Promise.resolve({ library: initializedLibrary, gitHistory: initializedGit }),
       },
       picker: { choose: () => Promise.resolve(localPath('/hvir-smoke/chosen library')) },
+    },
+    {
+      cli: real ?? project.cli,
+      terminal: createSkillagerProjectTerminal(host, {
+        ...terminal,
+        rendererResources: resources,
+      }),
     },
   )
   cleanup.defer('Skillager capability', () => capability.dispose())

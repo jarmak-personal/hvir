@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import type { SkillagerMetadata } from '../../../shared/skillager'
 import { useViewportContextMenuPosition } from '../context-menu/viewport-context-menu'
 import { firstEnabledMenuItem, focusRelativeMenuItem } from '../context-menu/menu-focus'
+import { isNativeProjectSkill } from './skillager-model'
 import { exposureActions } from './skillager-exposure-model'
 import type { SkillagerExposureController } from './use-skillager-exposure'
 import type { SkillagerActionSurface } from './use-skillager-actions'
@@ -20,6 +21,7 @@ export function SkillagerActions({
   readonly surface: SkillagerActionSurface
   readonly children?: ReactNode
 }): ReactElement {
+  if (isNativeProjectSkill(metadata)) return <>{children}</>
   const open = (trigger: HTMLElement, point?: { x: number; y: number }): void =>
     controller.open(metadata, surface, trigger, point)
   return (

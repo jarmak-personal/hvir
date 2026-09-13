@@ -10,7 +10,7 @@ import {
 
 /** Chromium/input evidence over the labeled setup CLI/picker fixture ports. */
 export async function verifySkillagerOnboarding(win: BrowserWindow): Promise<void> {
-  await selectExecutable(win, '/hvir-smoke/onboarding')
+  await selectSkillagerExecutable(win, '/hvir-smoke/onboarding')
   await inspect(
     win,
     `await wait(() => document.querySelector('.skillager-library-setup'));`,
@@ -31,7 +31,7 @@ export async function verifySkillagerOnboarding(win: BrowserWindow): Promise<voi
     win,
     `await wait(() => document.querySelector('.skillager-sidebar .skillager-library-location').textContent === '/hvir-smoke/chosen library');`,
   )
-  await capture(win, 'setup')
+  await captureSkillagerSidebar(win, 'setup')
   await click(win, '.skillager-sidebar .skillager-git-choice input')
   await inspect(
     win,
@@ -78,8 +78,8 @@ export async function verifySkillagerOnboarding(win: BrowserWindow): Promise<voi
   `,
   )
   await skillagerControlPoint(win, prompt)
-  await capture(win, 'connected-empty')
-  await selectExecutable(win, '/hvir-smoke/skillager')
+  await captureSkillagerSidebar(win, 'connected-empty')
+  await selectSkillagerExecutable(win, '/hvir-smoke/skillager')
   await inspect(
     win,
     `await wait(() => [...document.querySelectorAll('.skillager-settings button')].some((button) => button.textContent === 'Connect library'));`,
@@ -90,7 +90,10 @@ export async function verifySkillagerOnboarding(win: BrowserWindow): Promise<voi
   )
 }
 
-async function selectExecutable(win: BrowserWindow, value: string): Promise<void> {
+export async function selectSkillagerExecutable(
+  win: BrowserWindow,
+  value: string,
+): Promise<void> {
   await openSkillagerIntegrations(win)
   await click(win, '.skillager-settings > details > summary')
   await inspect(
@@ -106,9 +109,9 @@ async function selectExecutable(win: BrowserWindow, value: string): Promise<void
 }
 
 /** Opt-in, cropped, closed-fixture visuals; ordinary tests produce no screenshots. */
-async function capture(
+export async function captureSkillagerSidebar(
   win: BrowserWindow,
-  name: 'setup' | 'connected-empty',
+  name: 'setup' | 'connected-empty' | 'project-before' | 'project-ready',
 ): Promise<void> {
   const directory = process.env.HVIR_SKILLAGER_VISUAL_DIRECTORY
   if (!directory) return
