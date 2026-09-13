@@ -6,7 +6,7 @@ import type { SkillagerDetailTab } from './skillager-model'
 import type { SkillagerReviewController } from './use-skillager-review'
 import type { ReactElement } from 'react'
 import { skillagerAgentLabel, type SkillagerMetadata } from '../../../shared/skillager'
-import { trustLabel } from './skillager-model'
+import { isNativeProjectSkill, trustLabel } from './skillager-model'
 
 export function SkillagerDetails({
   metadata,
@@ -19,7 +19,7 @@ export function SkillagerDetails({
   readonly exposures?: SkillagerExposureController
   readonly reviews?: SkillagerReviewController
 }): ReactElement {
-  const projectOnly = metadata.projectSkill && metadata.source.ownership !== 'library'
+  const projectOnly = isNativeProjectSkill(metadata)
   return (
     <article className="skillager-details" aria-label={`Skill details: ${metadata.name}`}>
       <header>

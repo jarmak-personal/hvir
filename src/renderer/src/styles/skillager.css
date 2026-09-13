@@ -282,7 +282,3 @@
 .skillager-project-setup p {
   margin: 0;
 }
-.skillager-project-setup code {
-  white-space: pre-wrap;
-  font-size: calc(11px * var(--hvir-interface-scale));
-}

@@ -12,6 +12,13 @@ import { builtInProfiles } from '../src/main/harness/harness-profile-store'
 import type { SkillagerConnection } from '../src/shared/skillager'
 import type { PreparedTerminalSession } from '../src/renderer/src/terminal/terminal-workspace-model'
 import type { StartPtyRequest } from '../src/shared'
+import { TerminalRuntimeRegistry } from '../src/renderer/src/terminal/terminal-runtime-registry'
+import { ghosttyLifecycleRuntimeOptions } from './fixtures/ghostty-lifecycle-runtime-options'
+
+vi.mock('ghostty-web', async () => {
+  const { ghosttyWebMock } = await import('./fixtures/ghostty-terminal-pane-mock')
+  return ghosttyWebMock
+})
 
 const root = localPath('/workspace')
 const connection: SkillagerConnection = {
@@ -69,6 +76,7 @@ const started = {
   },
 }
 const invoke = vi.fn<(channel: string, request: unknown) => Promise<unknown>>()
+const send = vi.fn()
 const exits = new Set<(event: { id: string; exitCode: number }) => void>()
 let current!: ReturnType<typeof useSkillagerProject>,
   prepared: PreparedTerminalSession | undefined
@@ -94,7 +102,7 @@ function Harness({
   return enabled ? (
     <SkillagerProjectSetup
       root={root}
-      controller={{ project: current, connection, agent: 'codex' }}
+      controller={{ project: current, agent: 'codex' }}
     />
   ) : (
     <span>Disabled</span>
@@ -120,6 +128,7 @@ beforeEach(() => {
   prepared = undefined
   open.mockClear()
   exits.clear()
+  send.mockClear()
   invoke
     .mockReset()
     .mockImplementation((channel) =>
@@ -137,11 +146,12 @@ beforeEach(() => {
     configurable: true,
     value: {
       invoke,
+      send,
       on: (
-        _channel: string,
+        channel: string,
         callback: (event: { id: string; exitCode: number }) => void,
       ) => {
-        exits.add(callback)
+        if (channel === 'pty:exit') exits.add(callback)
         return () => exits.delete(callback)
       },
     },
@@ -152,12 +162,12 @@ afterEach(() => {
   mount.remove()
   vi.useRealTimers()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 it('starts one explicit new terminal and keeps the gesture disabled until matching exit and public observation', async () => {
   await render()
   expect(mount.textContent).toContain('Project review needed · Working not installed')
-  expect(mount.textContent).toContain('/tools/skillager setup --agent codex')
   await act(() => {
     mount.querySelector('button')!.click()
     return Promise.resolve()
@@ -213,6 +223,81 @@ it('uses independent read and setup identities so an in-flight metadata completi
   expect(current.loading).toBe(false)
   expect(current.result).toEqual(metadata)
   act(() => prepared!.initialStart.cancel())
+})
+
+it('does not republish running after a disposed runtime receives a late successful setup response', async () => {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  )
+  await render()
+  await act(async () => {
+    await current.setup()
+  })
+  const original = invoke.getMockImplementation()!
+  let finish!: (value: unknown) => void
+  invoke.mockImplementation((channel, value) =>
+    channel === 'skillager:start-project-setup'
+      ? new Promise((resolve) => {
+          finish = resolve
+        })
+      : original(channel, value),
+  )
+  const featureExitListeners = [...exits]
+  const runtimes = new TerminalRuntimeRegistry()
+  const surface = document.createElement('div')
+  document.body.append(surface)
+  const options = {
+    ...ghosttyLifecycleRuntimeOptions(),
+    sessionId: setup.sessionId,
+    cwd: root,
+    workspaceRoot: root,
+    initialStart: prepared!.initialStart,
+    supportsResume: false,
+    resumeOnStart: false,
+    harnessSessionId: undefined,
+  }
+  try {
+    await act(async () => {
+      runtimes.acquire(options).attach(surface)
+      await vi.waitFor(() =>
+        expect(
+          invoke.mock.calls.some(
+            ([channel]) => channel === 'skillager:start-project-setup',
+          ),
+        ).toBe(true),
+      )
+    })
+    act(() => {
+      runtimes.disposeSession(setup.sessionId)
+    })
+    expect(current.starting).toBe(false)
+    expect(featureExitListeners.every((listener) => !exits.has(listener))).toBe(true)
+    const previousKills = send.mock.calls.filter(
+      ([channel]) => channel === 'pty:kill',
+    ).length
+    await act(async () => {
+      finish(started)
+      await vi.waitFor(() =>
+        expect(
+          send.mock.calls.filter(([channel]) => channel === 'pty:kill'),
+        ).toHaveLength(previousKills + 1),
+      )
+    })
+    expect(current.running).toBe(false)
+    expect(current.starting).toBe(false)
+    expect(mount.querySelector('button')!.disabled).toBe(false)
+    expect(featureExitListeners.every((listener) => !exits.has(listener))).toBe(true)
+    expect(options.onStarted).not.toHaveBeenCalled()
+    expect(invoke.mock.calls.some(([channel]) => channel === 'pty:start')).toBe(false)
+  } finally {
+    act(() => runtimes.dispose())
+    surface.remove()
+  }
+  expect(exits.size).toBe(0)
 })
 
 it('releases a late prepared grant on disable and preserves an already handed-off user terminal', async () => {

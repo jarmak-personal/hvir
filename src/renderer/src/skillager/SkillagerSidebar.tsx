@@ -11,6 +11,7 @@ import {
   type SkillagerAgent,
 } from '../../../shared/skillager'
 import {
+  isNativeProjectSkill,
   pendingSkillagerReview,
   trustLabel,
   skillagerWorkspaceMetadata,
@@ -258,7 +259,7 @@ export function SkillagerSidebar({
                                   row.source.package ??
                                   row.source.type)}{' '}
                               ·{' '}
-                              {row.projectSkill && row.source.ownership !== 'library'
+                              {isNativeProjectSkill(row)
                                 ? `${skillagerAgentLabel(row.projectSkill.agent)} · ${row.projectSkill.managed ? 'Managed project entry' : 'Unmanaged project entry'} · ${row.trust === 'lint_blocked' ? 'Lint blocked' : trustLabel(row)}`
                                 : perspective === 'workspace' && !searched
                                   ? `${row.workspace?.mode} · ${workspaceSkillLabel(row)}`

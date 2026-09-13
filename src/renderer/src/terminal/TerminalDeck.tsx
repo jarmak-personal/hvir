@@ -48,7 +48,7 @@ export function TerminalDeck({
   onUpdateSession,
   onFreshStarted,
   onForkIdentity,
-  onForkStartFailed,
+  onStartFailed,
   onExit,
   onInput,
   onOutput,
@@ -91,7 +91,7 @@ export function TerminalDeck({
   ) => void
   readonly onFreshStarted: (id: string, started: FreshTerminalStart) => void
   readonly onForkIdentity: TerminalSessionRuntimesProps['onForkIdentity']
-  readonly onForkStartFailed: TerminalSessionRuntimesProps['onForkStartFailed']
+  readonly onStartFailed: TerminalSessionRuntimesProps['onStartFailed']
   readonly onExit: TerminalSessionRuntimesProps['onExit']
   readonly onInput: (id: string, data: string) => void
   readonly onOutput: (id: string) => void
@@ -129,7 +129,7 @@ export function TerminalDeck({
       onUpdateSession={onUpdateSession}
       onFreshStarted={onFreshStarted}
       onForkIdentity={onForkIdentity}
-      onForkStartFailed={onForkStartFailed}
+      onStartFailed={onStartFailed}
       onExit={onExit}
       onInput={onInput}
       onOutput={onOutput}

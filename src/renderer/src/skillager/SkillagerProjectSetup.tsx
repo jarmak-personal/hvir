@@ -7,7 +7,7 @@ export function SkillagerProjectSetup({
   controller,
   root,
 }: {
-  readonly controller: Pick<SkillagerController, 'project' | 'connection' | 'agent'>
+  readonly controller: Pick<SkillagerController, 'project' | 'agent'>
   readonly root: HostPath
 }): ReactElement | null {
   if (root.hostId !== 'local')
@@ -31,9 +31,6 @@ export function SkillagerProjectSetup({
       {!ready ? (
         <>
           <p>Review project skills and include Working in a new interactive terminal.</p>
-          <code>
-            {controller.connection?.executable.path} setup --agent {controller.agent}
-          </code>
           <button
             type="button"
             disabled={project.starting || project.running || project.loading}

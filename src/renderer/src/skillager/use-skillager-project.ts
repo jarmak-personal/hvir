@@ -230,8 +230,12 @@ function initialSetupStart(
           position: request.position,
         })
         if (!result.ok) throw new Error(result.message)
-        handedOff = true
-        finish(undefined, true)
+        if (controller.signal.aborted) finish()
+        else {
+          handedOff = true
+          finish(undefined, true)
+        }
+        // A disposed runtime still needs the successful identity to terminate its late PTY.
         return result.value
       } catch (error) {
         release()

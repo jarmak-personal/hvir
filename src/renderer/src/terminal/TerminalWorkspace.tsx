@@ -320,7 +320,7 @@ export function TerminalWorkspace({
         onUpdateSession={updateSession}
         onFreshStarted={commands.acceptFreshStart}
         onForkIdentity={commands.acceptForkIdentity}
-        onForkStartFailed={commands.failForkStart}
+        onStartFailed={commands.failStart}
         onExit={commands.handleExit}
         onInput={recordInput}
         onOutput={recordOutput}

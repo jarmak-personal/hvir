@@ -144,6 +144,14 @@ export function skillagerWorkspaceMetadata(
   }))
 }
 
+export function isNativeProjectSkill(
+  row: SkillagerMetadata,
+): row is SkillagerMetadata & {
+  readonly projectSkill: NonNullable<SkillagerMetadata['projectSkill']>
+} {
+  return Boolean(row.projectSkill) && row.source.ownership !== 'library'
+}
+
 /** Native discovery excludes managed targets; copies retain only actual owned source metadata. */
 export function skillagerProjectRows(
   data: SkillagerMetadataResult,
@@ -155,7 +163,7 @@ export function skillagerProjectRows(
       .map((row) => [row.id, row]),
   )
   return [
-    ...metadata.filter((row) => row.projectSkill),
+    ...metadata.filter(isNativeProjectSkill),
     ...(data.exposures ?? []).map((exposure) => ({
       ...(owned.get(exposure.skillId ?? '') ?? unavailableSource(exposure)),
       workspace: exposure,

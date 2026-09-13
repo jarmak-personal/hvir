@@ -32,7 +32,10 @@ export async function verifySkillagerProject(
   await refresh(win)
   await inspect(
     win,
-    `await wait(() => document.querySelector('.skillager-project-setup button')?.textContent === 'Set up in terminal');
+    `await wait(() => {
+      const action = document.querySelector('.skillager-project-setup button');
+      return action?.textContent === 'Set up in terminal' && !action.disabled;
+    });
     if (!document.querySelector('.skillager-project-setup').textContent.includes('Working not installed')) throw new Error('Exit zero incorrectly established readiness');`,
   )
   await reveal(win, '.skillager-project-setup button')
@@ -138,7 +141,10 @@ async function answer(
     await click(win, selector)
     await inspect(
       win,
-      `await wait(() => document.activeElement === document.querySelector(${JSON.stringify(selector)}));`,
+      `await wait(() => {
+        const input = document.querySelector(${JSON.stringify(selector)})?.querySelector('textarea');
+        return input && document.activeElement === input;
+      });`,
     )
     win.webContents.sendInputEvent({ type: 'char', keyCode: choice })
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' })
