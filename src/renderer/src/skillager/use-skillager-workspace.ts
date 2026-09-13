@@ -1,3 +1,4 @@
+import { useSkillagerProject, type SkillagerSetupTerminal } from './use-skillager-project'
 import { useSkillagerExposure } from './use-skillager-exposure'
 import type { ProjectState } from '../../../shared/workspace-types'
 import { useSkillagerReview } from './use-skillager-review'
@@ -17,6 +18,7 @@ import {
 import { skillagerObservationDemand, skillagerTabs } from './skillager-model'
 
 interface Options {
+  readonly onSetupTerminal?: SkillagerSetupTerminal
   readonly enabled: boolean
   readonly projectState?: ProjectState
   readonly sidebarVisible: boolean
@@ -49,6 +51,7 @@ export function useSkillagerWorkspace(input: Options) {
   const connectionRef = useRef(connection)
   connectionRef.current = connection
   const [agent, setAgent] = useState<SkillagerAgent>(SKILLAGER_AGENTS[0].id)
+  const [perspective, setPerspective] = useState<'library' | 'workspace'>('library')
   const [scope, setScope] = useState<SkillagerSearchScope>('library')
   const [query, setQuery] = useState('')
   const [submitted, setSubmitted] = useState('')
@@ -79,6 +82,7 @@ export function useSkillagerWorkspace(input: Options) {
     setConnectionError(undefined)
     setSetupBusy(undefined)
     setGitHistory(true)
+    setPerspective('library')
     dispatchTabs({ type: 'clear' })
   }, [cancel])
 
@@ -340,22 +344,46 @@ export function useSkillagerWorkspace(input: Options) {
     }
   }, [options.enabled])
 
+  const localProject = options.root?.hostId === 'local' && perspective === 'workspace'
+  const activeDetail = tabs.tabs.find((tab) => tab.id === tabs.activeId)
   const observing = skillagerObservationDemand(
     options.enabled,
     Boolean(connection) && options.projectState?.connectionState === 'connected',
     foreground,
     options.sidebarVisible,
-    Boolean(tabs.activeId) && options.viewerVisible,
+    Boolean(activeDetail) && options.viewerVisible,
+  )
+  const inventoryDemand = skillagerObservationDemand(
+    options.enabled,
+    Boolean(connection) && options.projectState?.connectionState === 'connected',
+    foreground,
+    options.sidebarVisible && !localProject,
+    Boolean(activeDetail && !activeDetail.metadata.projectSkill) && options.viewerVisible,
   )
   const disconnectedReadDemand = skillagerObservationDemand(
     options.enabled,
     Boolean(connection) && options.projectState?.connectionState !== 'connected',
     foreground,
-    options.sidebarVisible,
-    Boolean(tabs.activeId) && options.viewerVisible,
+    options.sidebarVisible && !localProject,
+    Boolean(activeDetail && !activeDetail.metadata.projectSkill) && options.viewerVisible,
   )
+  const project = useSkillagerProject({
+    connection,
+    root: options.root,
+    agent,
+    openTerminal: options.onSetupTerminal,
+    demand:
+      observing &&
+      ((options.sidebarVisible && localProject) ||
+        Boolean(activeDetail?.metadata.projectSkill && options.viewerVisible)),
+  })
   useEffect(() => {
-    if (!observing) {
+    if (project.result?.ok)
+      dispatchTabs({ type: 'observe-project', result: project.result.value })
+    else if (project.result && project.result.reason === 'library-changed') disconnect()
+  }, [project.result, disconnect])
+  useEffect(() => {
+    if (!inventoryDemand) {
       cancel('inventory')
       setInventory((state) => ({ ...state, loading: false }))
       dispatchTabs({ type: 'invalidate', freshness: 'stale' })
@@ -371,7 +399,7 @@ export function useSkillagerWorkspace(input: Options) {
       cancel('inventory')
     }
   }, [
-    observing,
+    inventoryDemand,
     connection?.connectionId,
     options.root?.hostId,
     options.root?.path,
@@ -397,12 +425,14 @@ export function useSkillagerWorkspace(input: Options) {
     setSearch(emptyRead)
   }, [cancel])
 
+  const refreshProject = project.refresh
   const afterAcceptance = useCallback(() => {
     cancel('search')
     setSearch(emptyRead)
     void refresh()
     if (submitted) void submit(submitted)
-  }, [cancel, refresh, submit, submitted])
+    void refreshProject()
+  }, [cancel, refresh, submit, submitted, refreshProject])
   const reviews = useSkillagerReview({
     connection,
     root: options.root,
@@ -427,6 +457,9 @@ export function useSkillagerWorkspace(input: Options) {
   })
 
   return {
+    project,
+    perspective,
+    setPerspective,
     exposures,
     reviews,
     enabled: options.enabled,

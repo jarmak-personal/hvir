@@ -1,3 +1,4 @@
+import { useTerminalSessionsObservation } from './use-terminal-sessions-observation'
 import {
   useCallback,
   useEffect,
@@ -7,8 +8,6 @@ import {
   type ReactElement,
 } from 'react'
 import {
-  asSessionsTerminalHandle,
-  sessionsProjectionDisplayTitle,
   type HostConnectionState,
   type HostPath,
   type MoveTerminalResponse,
@@ -31,7 +30,6 @@ import {
 } from './terminal-split-persistence'
 import {
   initialTerminalWorkspaceModel,
-  settledTerminalSessions,
   terminalPaneActiveId,
   terminalWorkspaceReducer,
   terminalWorkspaceActionAffectsSessionsProjection,
@@ -172,43 +170,16 @@ export function TerminalWorkspace({
     [onSessionsChanged, workspaceId],
   )
   modelRef.current = model
-  useEffect(() => {
-    onSessionsSource(workspaceId, () =>
-      settledTerminalSessions(modelRef.current.sessions).map((session) => {
-        const runtime = runtimes.sessionSnapshot(session.id)
-        const handle = asSessionsTerminalHandle(session.id)
-        const providerName =
-          providers.find((provider) => provider.id === session.providerId)?.displayName ??
-          String(session.providerId)
-        return {
-          handle,
-          workspaceQualifier: sessionsWorkspaceQualifier,
-          providerId: session.providerId,
-          profileId: session.profileId,
-          title: sessionsProjectionDisplayTitle(
-            session.title,
-            handle,
-            `${providerName} · ${label}`,
-            [workspaceRoot.path, session.cwd.path, session.harnessSessionId ?? ''],
-          ),
-          dormant: session.dormant === true,
-          resumeOnStart: session.resumeOnStart,
-          exited: runtime?.exited === true,
-          recoveryUnavailable: runtime?.recoveryFailure !== undefined,
-          attention: session.attention,
-        }
-      }),
-    )
-    return () => onSessionsSource(workspaceId, undefined)
-  }, [
-    label,
-    onSessionsSource,
-    providers,
-    runtimes,
-    sessionsWorkspaceQualifier,
+  useTerminalSessionsObservation({
     workspaceId,
-    workspaceRoot.path,
-  ])
+    label,
+    workspaceRoot,
+    sessionsWorkspaceQualifier,
+    providers,
+    modelRef,
+    runtimes,
+    onSessionsSource,
+  })
   const { sessions, activeId } = model
   useEffect(() => {
     onMaterializationChange(workspaceId, sessions.length > 0)
@@ -271,6 +242,7 @@ export function TerminalWorkspace({
   })
   const moving = useTerminalWorkspaceMove({
     workspaceId,
+    addPrepared: commands.addPrepared,
     modelRef,
     send,
     forgetAttention: forgetAttentionSession,

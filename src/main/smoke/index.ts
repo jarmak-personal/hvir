@@ -391,7 +391,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       echoWorker: worker,
       gitWorker: git,
       filenameSearch,
-      skillager: createSkills(rendererResources, cleanup, projectCommands, htmlPreviews),
+      skillager: createSkills(rendererResources, cleanup, projectCommands, htmlPreviews, { ptySupervisor: supervisor, profiles: smokeHarnessProfiles, sessions: smokeTerminalSessions }),
       projectFiles,
       projectFolderPicker,
       documentReview: documentReview.coordinator,

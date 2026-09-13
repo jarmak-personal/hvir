@@ -452,6 +452,8 @@ describe('IpcAuthorityRouter', () => {
   it('keeps the reviewed owner and authority channel policies explicit', () => {
     expect(new Set(OWNER_SCOPED_INVOKE_CHANNELS)).toEqual(
       new Set<IpcInvokeChannel>([
+        'skillager:start-project-setup',
+        'skillager:release-project-setup',
         'skillager:configure',
         'skillager:probe',
         'skillager:choose-library-folder',
@@ -459,6 +461,8 @@ describe('IpcAuthorityRouter', () => {
         'skillager:reconcile-library',
         'skillager:connect',
         'skillager:disconnect',
+        'skillager:project-metadata',
+        'skillager:prepare-project-setup',
         'skillager:inventory',
         'skillager:search',
         'skillager:cancel',
@@ -539,6 +543,8 @@ describe('IpcAuthorityRouter', () => {
     )
     expect(new Set(AUTHORITY_SCOPED_INVOKE_CHANNELS)).toEqual(
       new Set<IpcInvokeChannel>([
+        'skillager:project-metadata',
+        'skillager:prepare-project-setup',
         'skillager:inventory',
         'skillager:preview-exposure',
         'skillager:search',

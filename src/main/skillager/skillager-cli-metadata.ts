@@ -1,13 +1,24 @@
 import { SkillagerError } from './skillager-port'
 import { skillagerLibrarySkillRoot } from './skillager-library-identity'
-import { containsHostPath, joinHostPath, localPath } from '../../shared/host-path'
 import {
+  containsHostPath,
+  hostPathEquals,
+  joinHostPath,
+  localPath,
+} from '../../shared/host-path'
+import type {
+  SkillagerProjectStatus,
+  SkillagerWorkingStatus,
+} from '../../shared/skillager-project'
+import {
+  SKILLAGER_AGENTS,
   SKILLAGER_INVENTORY_LIMIT,
   SKILLAGER_SEARCH_LIMIT,
   type SkillagerLibrary,
   type SkillagerMetadata,
   type SkillagerTrust,
   type SkillagerWorkspaceExposure,
+  type SkillagerAgent,
 } from '../../shared/skillager'
 import type { HostPath } from '../../shared/host-path'
 
@@ -21,6 +32,107 @@ const TRUST = new Set<SkillagerTrust>([
 ])
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const HASH = /^[0-9a-f]{64}$/i
+
+export function parseSkillagerProjectSkills(
+  payload: unknown,
+  library: SkillagerLibrary,
+): readonly SkillagerMetadata[] {
+  const data = object(payload),
+    action = object(data.action)
+  if (array(action.changed, 0).length) malformed()
+  const selected = array(data.selected, SKILLAGER_INVENTORY_LIMIT)
+  if (object(data.summary).total !== selected.length) malformed()
+  const lintBlockedIds = new Set(
+    selected.flatMap((item) => {
+      const row = object(item)
+      return row.trust === 'lint_blocked' ? [string(row.id, 1024)] : []
+    }),
+  )
+  for (const entry of array(action.skipped, SKILLAGER_INVENTORY_LIMIT)) {
+    const skipped = object(entry)
+    if (
+      skipped.reason !== 'lint-blocked; fix source or use --override-lint --reason' ||
+      !lintBlockedIds.has(string(skipped.skill_id, 1024))
+    )
+      malformed()
+  }
+  const rows = selected.map((item): SkillagerMetadata => {
+    const raw = object(item),
+      source = object(raw.source)
+    if (source.type !== 'project' || source.ownership === 'library') malformed()
+    const native = raw.native === undefined ? undefined : object(raw.native)
+    const agent = native?.agent ?? source.agent
+    if (agent !== undefined && !SKILLAGER_AGENTS.some((item) => item.id === agent))
+      malformed()
+    if (native && (typeof native.managed !== 'boolean' || native.scope !== 'project'))
+      malformed()
+    return {
+      ...metadata(raw, library),
+      projectSkill: {
+        path: absolutePath(raw.root),
+        agent: agent as SkillagerAgent | undefined,
+        managed: native?.managed === true,
+      },
+    }
+  })
+  unique(rows)
+  return rows
+}
+
+/** Doctor's diagnostic exit statuses are structured outcomes, not process failures. */
+export function parseSkillagerProjectStatus(
+  payload: unknown,
+  exitCode: number,
+  projectRoot: HostPath,
+  agent: SkillagerAgent,
+): SkillagerProjectStatus {
+  const data = object(payload),
+    readiness = object(data.readiness),
+    state = object(data.state)
+  if (
+    data.schema !== 'skillager.doctor.v1' ||
+    ![0, 10, 11, 12, 13, 14].includes(exitCode) ||
+    data.exit_code !== exitCode ||
+    data.agent !== agent
+  )
+    malformed()
+  const observedRoot = absolutePath(data.project)
+  if (!hostPathEquals(observedRoot, projectRoot))
+    throw new SkillagerError(
+      'invalid-request',
+      'Skillager resolved a different project. Open that project explicitly before setting it up.',
+    )
+  const status = string(data.status, 80)
+  if (
+    !/^[a-z][a-z0-9-]*$/.test(status) ||
+    typeof readiness.can_proceed !== 'boolean' ||
+    (exitCode === 0 && (status !== 'ready' || !readiness.can_proceed)) ||
+    (exitCode !== 0 && status === 'ready')
+  )
+    malformed()
+  const working = object(object(state.artifacts).working_skill).status
+  if (
+    !['missing', 'present', 'unmanaged', 'drift', 'stale'].includes(string(working, 32))
+  )
+    malformed()
+  const count = (value: unknown): number => {
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)
+      return malformed()
+    return value
+  }
+  const reviewNeeded = count(object(state.review).needed),
+    lintBlocked = count(object(state.lint_blocked).count)
+  if (exitCode === 0 && (reviewNeeded > 0 || lintBlocked > 0)) malformed()
+  return {
+    projectRoot: observedRoot,
+    agent,
+    status,
+    canProceed: exitCode === 0,
+    reviewNeeded,
+    lintBlocked,
+    working: working as SkillagerWorkingStatus,
+  }
+}
 
 /** Closed projections: raw scanner/linter text and unreviewed content never cross IPC. */
 export function parseSkillagerLibrary(payload: unknown): SkillagerLibrary | undefined {

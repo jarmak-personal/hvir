@@ -268,3 +268,21 @@
   padding: 8px;
   user-select: text;
 }
+
+.skillager-project-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 10px;
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+.skillager-project-setup p {
+  margin: 0;
+}
+.skillager-project-setup code {
+  white-space: pre-wrap;
+  font-size: calc(11px * var(--hvir-interface-scale));
+}

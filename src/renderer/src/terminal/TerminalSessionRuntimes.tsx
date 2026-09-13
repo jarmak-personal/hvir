@@ -104,6 +104,7 @@ export function TerminalSessionRuntimes({
           <TerminalView
             key={session.id}
             sessionId={session.id}
+            initialStart={session.initialStart}
             profileId={session.profileId}
             launchRevision={session.launchRevision}
             supportsResume={session.capabilities.exactResume}
@@ -171,8 +172,15 @@ export function TerminalSessionRuntimes({
             onExit={(exitCode) => onExit(session.id, exitCode)}
             onStarted={() =>
               onUpdateSession(session.id, (current) =>
-                current.resumeOnStart || current.startMode === 'bulk'
-                  ? { ...current, resumeOnStart: false, startMode: 'interactive' }
+                current.initialStart ||
+                current.resumeOnStart ||
+                current.startMode === 'bulk'
+                  ? {
+                      ...current,
+                      initialStart: undefined,
+                      resumeOnStart: false,
+                      startMode: 'interactive',
+                    }
                   : current,
               )
             }

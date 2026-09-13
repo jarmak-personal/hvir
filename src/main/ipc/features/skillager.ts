@@ -6,6 +6,29 @@ import type { IpcDeps } from '../deps'
 type SkillagerIpcDeps = Pick<IpcDeps, 'skillager'>
 
 export function registerSkillagerIpc(ipc: IpcRegistrar, deps: SkillagerIpcDeps): void {
+  ipc.handle('skillager:project-metadata', (request, context) =>
+    deps.skillager.projectMetadata(
+      context.owner(),
+      qualifySkillagerRequest(ipc.authority, request),
+    ),
+  )
+  ipc.handle('skillager:prepare-project-setup', (request, context) =>
+    deps.skillager.prepareProjectSetup(
+      context.owner(),
+      qualifySkillagerRequest(ipc.authority, request),
+    ),
+  )
+  ipc.handle('skillager:start-project-setup', (request, context) =>
+    deps.skillager.startProjectSetup(context.owner(), {
+      setupId: boundedText(request?.setupId),
+      cols: request.cols,
+      rows: request.rows,
+      position: request.position,
+    }),
+  )
+  ipc.handle('skillager:release-project-setup', (request, context) =>
+    deps.skillager.releaseProjectSetup(context.owner(), boundedText(request?.setupId)),
+  )
   ipc.handle('skillager:preview-exposure', (request, context) =>
     deps.skillager.previewExposure(
       context.owner(),
@@ -124,7 +147,7 @@ export function registerSkillagerIpc(ipc: IpcRegistrar, deps: SkillagerIpcDeps):
     } satisfies SkillagerSearchRequest),
   )
   ipc.handle('skillager:cancel', (request, context) => {
-    if (!request || !['search', 'inventory'].includes(request.kind))
+    if (!request || !['search', 'inventory', 'project'].includes(request.kind))
       throw new Error('Invalid Skillager cancellation.')
     deps.skillager.cancel(context.owner(), request.kind, request.requestId)
   })

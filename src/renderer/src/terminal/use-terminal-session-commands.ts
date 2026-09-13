@@ -20,6 +20,7 @@ import {
   terminalWorkspaceSplit,
   type TerminalWorkspaceAction,
   type TerminalWorkspaceModel,
+  type PreparedTerminalSession,
 } from './terminal-workspace-model'
 
 export function useTerminalSessionCommands({
@@ -177,6 +178,36 @@ export function useTerminalSessionCommands({
 
   return {
     add,
+    addPrepared: (prepared: PreparedTerminalSession): boolean => {
+      const profile = profiles.find((item) => item.id === prepared.profile.id)
+      const provider = providers.find((item) => item.id === prepared.profile.providerId)
+      if (
+        !available ||
+        !profile ||
+        !provider ||
+        profile.launchRevision !== prepared.profile.launchRevision ||
+        modelRef.current.sessions.some((session) => session.id === prepared.id)
+      )
+        return false
+      const session = createTerminalSession(
+        prepared.id,
+        profile,
+        provider,
+        workspaceRoot,
+        modelRef.current.activePane,
+      )
+      send({
+        type: 'session-added',
+        session: {
+          ...session,
+          title: prepared.title,
+          fallbackTitle: prepared.title,
+          initialStart: prepared.initialStart,
+        },
+      })
+      closeLaunchMenu()
+      return true
+    },
     fork: (sourceId: string) => {
       const source = modelRef.current.sessions.find((session) => session.id === sourceId)
       const provider = source

@@ -6,6 +6,9 @@ export const SKILLAGER_AGENTS = [
   { id: 'claude', label: 'Claude Code' },
 ] as const
 export type SkillagerAgent = (typeof SKILLAGER_AGENTS)[number]['id']
+export function skillagerAgentLabel(agent: SkillagerAgent | undefined): string {
+  return SKILLAGER_AGENTS.find((item) => item.id === agent)?.label ?? 'Project skill'
+}
 export type SkillagerSearchScope = 'library' | 'workspace'
 export type SkillagerTrust =
   | 'reviewed'
@@ -37,6 +40,12 @@ export interface SkillagerMetadata {
   readonly workspaceCheckedAt?: number
   readonly workspaceFreshness?: 'fresh' | 'checking' | 'unavailable' | 'stale'
   readonly workspace?: SkillagerWorkspaceExposure
+  /** CLI-observed project presence; this is not an exposure or library grant. */
+  readonly projectSkill?: {
+    readonly path: HostPath
+    readonly agent?: SkillagerAgent
+    readonly managed: boolean
+  }
 }
 
 export interface SkillagerWorkspaceExposure {

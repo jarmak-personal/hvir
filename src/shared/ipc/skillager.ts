@@ -13,6 +13,12 @@ import type {
   SkillagerSkillRequest,
 } from '../skillager-review'
 import type { HostPath } from '../host-path'
+import type { StartPtyResponse } from '../ipc/terminal'
+import type {
+  SkillagerProjectObservation,
+  SkillagerProjectSetup,
+  SkillagerProjectStart,
+} from '../skillager-project'
 import { invoke, type IpcFeatureContract } from '../ipc-contract'
 import type {
   SkillagerConnection,
@@ -26,6 +32,19 @@ import type {
 
 export const skillagerIpc = {
   invoke: {
+    'skillager:project-metadata': invoke<
+      SkillagerRequest,
+      SkillagerResult<SkillagerProjectObservation>
+    >(),
+    'skillager:prepare-project-setup': invoke<
+      SkillagerRequest,
+      SkillagerResult<SkillagerProjectSetup>
+    >(),
+    'skillager:start-project-setup': invoke<
+      SkillagerProjectStart,
+      SkillagerResult<Extract<StartPtyResponse, { outcome: 'started' }>>
+    >(),
+    'skillager:release-project-setup': invoke<{ readonly setupId: string }, void>(),
     'skillager:preview-exposure': invoke<
       SkillagerExposureRequest,
       SkillagerResult<SkillagerExposurePreview>
@@ -89,7 +108,7 @@ export const skillagerIpc = {
       SkillagerResult<SkillagerMetadataResult>
     >(),
     'skillager:cancel': invoke<
-      { readonly kind: 'search' | 'inventory'; readonly requestId: number },
+      { readonly kind: 'search' | 'inventory' | 'project'; readonly requestId: number },
       void
     >(),
   },

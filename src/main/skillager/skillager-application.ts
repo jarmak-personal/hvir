@@ -14,6 +14,7 @@ import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import type { WorkbenchRuntime } from '../workbench-runtime'
 import { SkillagerCapability } from './skillager-capability'
 import { SkillagerCli } from './skillager-cli'
+import { createSkillagerProjectTerminal } from './skillager-project-terminal'
 
 /** Thin application composition; all feature state belongs to the capability. */
 export function installSkillager(
@@ -25,6 +26,10 @@ export function installSkillager(
     'active' | 'registeredWorkspaceRoot' | 'state' | 'authorityForPath'
   >,
   previews: Pick<HtmlPreviewProtocol, 'create' | 'release'>,
+  terminal?: Omit<
+    Parameters<typeof createSkillagerProjectTerminal>[1],
+    'rendererResources'
+  >,
 ): SkillagerCapability {
   const cli = runtime.own(
     'Skillager CLI',
@@ -72,6 +77,15 @@ export function installSkillager(
           skillagerDestinationAvailable(projects.state(), destination),
       },
       { cli, picker: createSkillagerFolderPicker(host) },
+      terminal
+        ? {
+            cli,
+            terminal: createSkillagerProjectTerminal(host, {
+              ...terminal,
+              rendererResources: resources,
+            }),
+          }
+        : undefined,
     ),
     (owned) => owned.dispose(),
   )

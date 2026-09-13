@@ -1,4 +1,5 @@
 import { SkillagerSetupCommands } from './skillager-setup-commands'
+import { SkillagerProjectCommands } from './skillager-project-commands'
 import type { SkillagerSetupCliPort } from './skillager-setup-port'
 import { SkillagerExposureCommands } from './skillager-exposure-commands'
 import { SkillagerNativeCommands } from './skillager-native-commands'
@@ -100,6 +101,32 @@ export class SkillagerCli implements SkillagerCliPort, SkillagerSetupCliPort {
   }
   private setupCommands(): SkillagerSetupCommands {
     return new SkillagerSetupCommands(this.process, this.context, (selection, signal) =>
+      this.validateLocal(selection, signal),
+    )
+  }
+
+  projectMetadata(
+    selection: SkillagerCliSelection,
+    root: HostPath,
+    agent: SkillagerAgent,
+    signal: AbortSignal,
+  ) {
+    return this.operate(() =>
+      this.projectCommands().metadata(selection, root, agent, signal),
+    )
+  }
+  projectStatus(
+    selection: SkillagerCliSelection,
+    root: HostPath,
+    agent: SkillagerAgent,
+    signal: AbortSignal,
+  ) {
+    return this.operate(() =>
+      this.projectCommands().status(selection, root, agent, signal),
+    )
+  }
+  private projectCommands(): SkillagerProjectCommands {
+    return new SkillagerProjectCommands(this.process, (selection, signal) =>
       this.validateLocal(selection, signal),
     )
   }

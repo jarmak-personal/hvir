@@ -5,7 +5,7 @@ import { SkillagerReview } from './SkillagerReview'
 import type { SkillagerDetailTab } from './skillager-model'
 import type { SkillagerReviewController } from './use-skillager-review'
 import type { ReactElement } from 'react'
-import type { SkillagerMetadata } from '../../../shared/skillager'
+import { skillagerAgentLabel, type SkillagerMetadata } from '../../../shared/skillager'
 import { trustLabel } from './skillager-model'
 
 export function SkillagerDetails({
@@ -19,6 +19,7 @@ export function SkillagerDetails({
   readonly exposures?: SkillagerExposureController
   readonly reviews?: SkillagerReviewController
 }): ReactElement {
+  const projectOnly = metadata.projectSkill && metadata.source.ownership !== 'library'
   return (
     <article className="skillager-details" aria-label={`Skill details: ${metadata.name}`}>
       <header>
@@ -26,7 +27,7 @@ export function SkillagerDetails({
         <h1>{metadata.name}</h1>
         <p>{metadata.description}</p>
       </header>
-      {exposures ? (
+      {exposures && !projectOnly ? (
         <SkillagerActions
           metadata={metadata}
           controller={exposures.menu}
@@ -45,7 +46,27 @@ export function SkillagerDetails({
               metadata.source.type)}
         </dd>
         <dt>Review state</dt>
-        <dd>{trustLabel(metadata)}</dd>
+        <dd>
+          {metadata.projectSkill && metadata.trust === 'lint_blocked'
+            ? 'Lint blocked'
+            : trustLabel(metadata)}
+        </dd>
+        {metadata.projectSkill ? (
+          <>
+            <dt>Project location</dt>
+            <dd>
+              {metadata.projectSkill.path.hostId}:{metadata.projectSkill.path.path}
+            </dd>
+            <dt>Agent</dt>
+            <dd>{skillagerAgentLabel(metadata.projectSkill.agent)}</dd>
+            <dt>Management</dt>
+            <dd>
+              {metadata.projectSkill.managed
+                ? 'Managed project entry'
+                : 'Unmanaged project entry'}
+            </dd>
+          </>
+        ) : null}
         {metadata.contentHash ? (
           <>
             <dt>Content version</dt>
@@ -77,7 +98,7 @@ export function SkillagerDetails({
               {metadata.workspace.target.hostId}:{metadata.workspace.target.path}
             </dd>
           </>
-        ) : (
+        ) : metadata.projectSkill ? null : (
           <>
             <dt>Workspace status</dt>
             <dd>
@@ -99,8 +120,12 @@ export function SkillagerDetails({
               : ''}
         </p>
       ) : null}
-      <p className="skillager-hint">Content loads only after explicit review.</p>
-      {tab && reviews ? (
+      <p className="skillager-hint">
+        {projectOnly
+          ? 'Project review stays in Skillager. Use Set up in terminal from This workspace.'
+          : 'Content loads only after explicit review.'}
+      </p>
+      {tab && reviews && !projectOnly ? (
         <SkillagerReview tab={tab} controller={reviews} exposures={exposures} />
       ) : null}
     </article>

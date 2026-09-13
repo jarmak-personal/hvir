@@ -1,4 +1,5 @@
 import { verifySkillagerOnboarding } from './skillager-onboarding'
+import { verifySkillagerProject } from './skillager-project'
 import {
   enableSkillagerInSettings,
   disableAndReenableSkillagerInSettings,
@@ -155,6 +156,8 @@ export async function verifySkillagerScenario(
       document.querySelector('.skillager-tab.active .tab-close').click();
       await wait(() => !document.querySelector('.skillager-details'));
     `)
+    if (!process.env.HVIR_SKILLAGER_SMOKE_FIXTURE)
+      await verifySkillagerProject(win, supervisor)
     await disableAndReenableSkillagerInSettings(win)
     console.log(
       `[smoke] Skills OK (${process.env.HVIR_SKILLAGER_SMOKE_FIXTURE ? 'real CLI, fresh search cache' : 'delayed fixture'}; 5,000 rows; 50 visible; first ${firstMs.toFixed(0)}ms/${first.frames} frames/${first.maxGapMs.toFixed(1)}ms maximum gap; warm ${warmMs.toFixed(0)}ms/${warm.frames} frames/${warm.maxGapMs.toFixed(1)}ms maximum gap; typing, document navigation and terminal input during both searches; cancellation, disable)`,

@@ -20,6 +20,8 @@ export function SkillagerActions({
   readonly surface: SkillagerActionSurface
   readonly children?: ReactNode
 }): ReactElement {
+  if (metadata.projectSkill && metadata.source.ownership !== 'library')
+    return <>{children}</>
   const open = (trigger: HTMLElement, point?: { x: number; y: number }): void =>
     controller.open(metadata, surface, trigger, point)
   return (
