@@ -117,7 +117,13 @@ export function initialState() {
     selectedTerminal: 'ordinary',
     destination: 'local-main',
     agent: 'codex',
-    scope: 'personal',
+    scope: 'available',
+    browseAgent: 'all',
+    explorerOpen: { workspace: true, library: true },
+    expandedSkills: {},
+    searchOpen: false,
+    advancedOpen: false,
+    setupOpen: false,
     filter: 'all',
     query: '',
     submittedQuery: '',
@@ -167,6 +173,25 @@ export function statusFor(skill, exposure) {
   if (exposure.protected) return exposure.protected
   if (!skill.accepted) return 'Library changes await review'
   return exposure.version === skill.version ? 'Current' : 'Workspace copy behind'
+}
+export function browseSampleRows(state) {
+  if (state.results) return state.results
+  if (state.perspective === 'library')
+    return state.skills.filter((s) => state.filter !== 'pending' || !s.accepted)
+  return ['codex', 'claude']
+    .filter((agent) => state.browseAgent === 'all' || state.browseAgent === agent)
+    .flatMap((agent) => {
+      const key = `${state.destination}/${agent}`,
+        copies = state.exposures[key] || {}
+      return state.skills
+        .filter((s) => copies[s.id] || unmanagedFor(state, s.id, key))
+        .map((s) => ({
+          ...s,
+          rowAgent: agent,
+          rowExposure: copies[s.id],
+          rowUnmanaged: unmanagedFor(state, s.id, key),
+        }))
+    })
 }
 export function sampleSearch(state) {
   // Predeclared sample match reasons illustrate CLI output; never performance evidence.

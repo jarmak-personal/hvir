@@ -1,6 +1,7 @@
 # ADR-030: Bounded project file operations and explicit external-source authority
 
 > Lifecycle: Partially superseded
+> Superseded by: [ADR-049](ADR-049-project-skill-explorer-and-curation.md) | partial | No-replacement rule only for explicitly confirmed preserved native-original adoption/removal through the named Skillager operation; ordinary Files operations remain unchanged.
 > Superseded by: [ADR-046](ADR-046-explicit-skillager-library-and-exposure-authority.md) | partial | No-replacement rule only for explicitly confirmed, verified unchanged Skillager-managed local exposures and hvir-managed SSH deployments.
 
 ## Context

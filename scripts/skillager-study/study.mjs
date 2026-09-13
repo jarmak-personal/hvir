@@ -1,3 +1,22 @@
+import {
+  curationSample,
+  curationSource,
+  curationRouter,
+  curationTarget,
+  standaloneCopyPresent,
+  syncCurationSample,
+  searchCurationSample,
+  prepareCurationSample,
+  applyCurationSample,
+} from './curation-model.mjs'
+import {
+  curationDetailView,
+  curationMenuView,
+  curationRouterMenuView,
+  curationPickerView,
+  curationPreviewView,
+  curationSyncView,
+} from './curation-views.mjs'
 const { document, window, setTimeout, clearTimeout, setInterval, clearInterval } =
   globalThis
 import {
@@ -17,6 +36,7 @@ import {
   cancelSampleSetup,
   reconcileSampleSetup,
   projectMetadataSample,
+  projectSampleFor,
   beginProjectSetupSample,
   completeProjectSetupSample,
   finishProjectTerminalSample,
@@ -79,6 +99,7 @@ function render() {
     ? [$('#search').selectionStart, $('#search').selectionEnd]
     : null
   $('#active-workspace').textContent = destinationFor(state).label
+  $('#curation-lab').hidden = !state.curation
   $('#project-terminal-lab').hidden = !state.projectStudy
   $('#setup-terminal').hidden = state.selectedTerminal === 'ordinary'
   $('#ordinary-terminal').hidden = state.selectedTerminal !== 'ordinary'
@@ -94,7 +115,7 @@ function render() {
     : ''
   $('#skills-tab-container').innerHTML =
     state.enabled && state.skillsOpen
-      ? `<button data-viewer="skills">${escapeHtml(state.nativeSelected || state.selected)}</button><button data-action="close-skills" aria-label="Close skill">×</button>`
+      ? `<button data-viewer="skills">${escapeHtml(state.curation ? (state.curation.selectedRouter ? curationRouter(state).name : curationSource(state).name) : state.nativeSelected || state.selected)}</button><button data-action="close-skills" aria-label="Close skill">×</button>`
       : ''
   for (const viewer of ['skills', 'document', 'history']) {
     $(`#${viewer}-view`).hidden = state.viewer !== viewer
@@ -111,17 +132,14 @@ function render() {
   $('#skills-rail').innerHTML = skillsRailView(state)
   $('#skills-view').innerHTML =
     state.enabled && state.connected && state.skillsOpen
-      ? state.nativeSelected
-        ? nativeProjectDetailView(state)
-        : state.reviewOpen
-          ? reviewView(state)
-          : `<article class="details" id="details">${detailView(state)}</article>`
+      ? state.curation
+        ? curationDetailView(state)
+        : state.nativeSelected
+          ? nativeProjectDetailView(state)
+          : state.reviewOpen
+            ? reviewView(state)
+            : `<article class="details" id="details">${detailView(state)}</article>`
       : ''
-  document
-    .querySelectorAll('[data-perspective]')
-    .forEach((b) =>
-      b.classList.toggle('active', b.dataset.perspective === state.perspective),
-    )
   syncRefreshDemand()
   if (focusedSearch && $('#search')) {
     $('#search').focus()
@@ -184,7 +202,9 @@ function search() {
       state.railMode !== 'skills'
     )
       return
-    state.results = sampleSearch({ ...state, ...submitted })
+    state.results = state.curation
+      ? searchCurationSample(state, submitted)
+      : sampleSearch({ ...state, ...submitted })
     state.searching = false
     render()
   }, 500)
@@ -200,6 +220,18 @@ function prepare(action, mode) {
 function action(name) {
   if (name === 'close') return closeDialog()
   if (name === 'settings') return modal(connectionView(state))
+  if (name === 'files-trash' && state.filesSelection) {
+    return modal(
+      `<h2 id="dialog-title">Move to Trash</h2><p>Local · ${state.filesSelection.path}</p><p>This local folder can be recovered from Trash.</p><footer><button data-action="close">Cancel</button><button data-action="files-trash-confirm">Move to Trash</button></footer>`,
+    )
+  }
+  if (name === 'files-trash-confirm' && state.filesSelection) {
+    state.filesSelection.source.projectPresent = false
+    $('#files-selection').innerHTML =
+      '<p>Moved selected folder to Trash · local sample.</p>'
+    closeDialog()
+    return render()
+  }
   if (!state.enabled) return
   if (name === 'check-again') {
     // Simulate a read-only probe of externally controlled fixture availability.
@@ -250,6 +282,15 @@ function action(name) {
     return modal(connectionView(state))
   }
   if (!state.connected) return
+  if (name === 'native-files' && state.nativeFileSelection)
+    return revealSkillInFiles(state.nativeFileSelection)
+  if (name === 'sync-approved') {
+    return modal(curationSyncView(state))
+  }
+  if (name === 'show-project-setup') {
+    state.setupOpen = true
+    return render()
+  }
   if (name === 'project-setup') {
     const handoff = beginProjectSetupSample(state)
     if (!handoff) return
@@ -317,7 +358,133 @@ function action(name) {
     render()
   }
 }
+function revealSkillInFiles(source) {
+  state.filesSelection = { host: 'local', path: curationTarget(state, source), source }
+  closeDialog()
+  $('#files-selection').innerHTML =
+    `<p>Selected folder · Local · ${state.filesSelection.path}</p><p>◇ SKILL.md · use the existing Files viewer for content</p><button data-action="files-trash">Move to Trash…</button>`
+  return selectRail('files')
+}
+function curate(name) {
+  if (!state.enabled || !state.connected) return
+  if (!state.curation) {
+    if (name !== 'sync-confirm' || !state.empty) return
+    state.curation = curationSample({ emptyLibrary: true })
+    state.empty = false
+  }
+  const c = state.curation
+  if (name === 'review') {
+    state.reviewOpen = true
+    return render()
+  }
+  if (['files-remove', 'review-files'].includes(name))
+    return revealSkillInFiles(curationSource(state))
+  if (name === 'menu') return modal(curationMenuView(state))
+  if (name === 'router-menu') return modal(curationRouterMenuView(state))
+  if (name === 'remove-router') {
+    preview = { ...prepareCurationSample(state, name), curation: true }
+    return modal(curationPreviewView(state, preview))
+  }
+  if (name === 'sync') return modal(curationSyncView(state))
+  if (name === 'sync-status') {
+    c.syncUncertain = false
+    c.outcomes = c.sources.map((row) => ({
+      id: row.id,
+      name: row.name,
+      agent: row.agent,
+      origin: row.origin,
+      outcome: row.preserved
+        ? `Observed library version: ${row.libraryVersion}`
+        : 'No preserved library version observed',
+    }))
+    return modal(curationSyncView(state))
+  }
+  if (name === 'sync-confirm') {
+    syncCurationSample(state)
+    cancelSearch()
+    render()
+    return modal(curationSyncView(state))
+  }
+  if (name === 'select-router') {
+    c.selectedRouter = true
+    state.reviewOpen = false
+    state.skillsOpen = true
+    return selectViewer('skills')
+  }
+  if (name === 'reconcile') {
+    c.uncertain = false
+    c.recoveryRequired = true
+    c.lastEffect = `Observed sample: originals retained; staging recovery remains required. Library unchanged; further conversion is unavailable.`
+    closeDialog()
+    return render()
+  }
+  if (name === 'apply' && preview?.curation) {
+    const failure = applyCurationSample(state, preview)
+    if (failure) {
+      preview = null
+      return modal(
+        `<h2 id="dialog-title">Check this result</h2><p>${failure}</p>${c.uncertain ? '<button data-curate="reconcile">Check result</button>' : ''}<footer><button data-action="close">Close</button></footer>`,
+      )
+    }
+    closeDialog()
+    cancelSearch()
+    return render()
+  }
+  if (['add', 'router', 'set-members', 'ungroup'].includes(name))
+    return modal(curationPickerView(state, name))
+  if (name === 'add-preview') {
+    preview = {
+      ...prepareCurationSample(state, 'add', {
+        agent: $('#curation-add-agent').value,
+        mode: $('#curation-mode').value,
+      }),
+      curation: true,
+    }
+    return modal(curationPreviewView(state, preview))
+  }
+  if (['router-preview', 'members-preview', 'ungroup-preview'].includes(name)) {
+    const router = curationRouter(state)
+    const options =
+      name === 'router-preview'
+        ? {
+            routerId: $('#curation-group').value,
+            name: $('#curation-name').value,
+            replace: $('#curation-replace').checked ? [c.selected] : [],
+          }
+        : {
+            routerId: router.id,
+            mode: $('#curation-mode').value,
+            members: [...document.querySelectorAll('[data-router-member]:checked')].map(
+              (el) => el.dataset.routerMember,
+            ),
+          }
+    if (name === 'members-preview')
+      options.replace = options.members.filter(
+        (id) =>
+          !router.members.includes(id) &&
+          standaloneCopyPresent(curationSource(state, id)),
+      )
+    preview = {
+      ...prepareCurationSample(
+        state,
+        name === 'router-preview'
+          ? 'router'
+          : name === 'members-preview'
+            ? 'set-members'
+            : 'ungroup',
+        options,
+      ),
+      curation: true,
+    }
+    return modal(curationPreviewView(state, preview))
+  }
+  if (['full', 'stub', 'update', 'remove'].includes(name)) {
+    preview = { ...prepareCurationSample(state, name), curation: true }
+    return modal(curationPreviewView(state, preview))
+  }
+}
 function scenario(name) {
+  $('#files-selection').innerHTML = ''
   clearTimeout(toastTimer)
   clearTimeout(setupTimer)
   clearTimeout(projectSetupTimer)
@@ -356,7 +523,10 @@ function scenario(name) {
     if (name === 'setup-error') state.sampleSetupOutcome = 'error'
     if (name === 'setup-status-unavailable') state.sampleSetupStatusUnavailable = true
     if (name === 'setup-git-mismatch') state.sampleSetupOutcome = 'git-mismatch'
-    if (name === 'setup-remote') state.destination = 'remote-main'
+    if (name === 'setup-remote') {
+      state.destination = 'remote-main'
+      state.scope = 'personal'
+    }
   }
   if (name === 'empty') {
     state.empty = true
@@ -381,9 +551,17 @@ function scenario(name) {
         state.projectSamples[`${destination}/${agent}`] = sample
       }
   }
+  if (name === 'curation') {
+    state.curation = curationSample()
+    state.perspective = 'workspace'
+    state.scope = 'available'
+    state.skillsOpen = false
+    state.viewer = state.lastOrdinaryViewer
+  }
   if (name === 'unavailable')
     state.lastChecked = 'Unavailable · last checked 4 minutes ago'
   if (name === 'remote') {
+    state.scope = 'personal'
     state.destination = 'remote-main'
     state.selected = 'incident-notes'
   }
@@ -409,6 +587,7 @@ function scenario(name) {
     state.perspective = 'workspace'
   }
   if (name === 'search') {
+    state.searchOpen = true
     state.query = 'deadlock'
     state.scope = 'available'
   }
@@ -429,14 +608,55 @@ document.addEventListener('click', (event) => {
     state.selectedTerminal = button.dataset.terminal
     return render()
   }
+  if (button.dataset.curate) return curate(button.dataset.curate)
   if (button.dataset.action) return action(button.dataset.action)
   if (button.dataset.rail) return selectRail(button.dataset.rail)
   if (button.dataset.viewer) return selectViewer(button.dataset.viewer)
   if (!state.enabled || !state.connected) return
   if (button.dataset.perspective) {
-    cancelSearch()
-    state.perspective = button.dataset.perspective
+    const scope = button.dataset.perspective
+    if (state.results || state.searching) {
+      cancelSearch()
+      state.explorerOpen[scope] = true
+    } else state.explorerOpen[scope] = !state.explorerOpen[scope]
     return render()
+  }
+  if (button.dataset.expand) {
+    state.expandedSkills[button.dataset.expand] =
+      !state.expandedSkills[button.dataset.expand]
+    return render()
+  }
+  const rowScope = button.closest('[data-row-scope]')?.dataset.rowScope
+  if (rowScope) {
+    state.perspective = rowScope
+    state.selectedScope = rowScope
+  }
+  if (button.dataset.routerMenu) {
+    state.curation.routerId = button.dataset.routerMenu
+    curate('select-router')
+    return curate('router-menu')
+  }
+  if (button.dataset.curationRouter) {
+    state.curation.routerId = button.dataset.curationRouter
+    return curate('select-router')
+  }
+  if (button.dataset.curationSelect || button.dataset.curationMenu) {
+    state.curation.selectedScope = rowScope ?? 'workspace'
+    state.curation.selected = button.dataset.curationSelect || button.dataset.curationMenu
+    state.curation.selectedRouter = false
+    state.reviewOpen = false
+    state.skillsOpen = true
+    selectViewer('skills')
+    if (button.dataset.curationMenu) curate('menu')
+    return
+  }
+  if (button.dataset.nativeActions) {
+    state.nativeFileSelection = projectSampleFor(state).rows.find(
+      (row) => row.id === button.dataset.nativeActions,
+    )
+    return modal(
+      `<h2 id="dialog-title">Actions · ${escapeHtml(button.dataset.nativeActions)}</h2><p>Preserve an approved version in your personal library before converting this project source.</p><button disabled>Full skill</button><button disabled>Stub</button><button disabled>Group in router</button><p>Use Sync approved skills after approval. Unrepresented files and modified targets stay protected.</p><button data-action="native-files">Review or remove in Files…</button><footer><button data-action="close">Close</button></footer>`,
+    )
   }
   if (button.dataset.native) {
     state.nativeSelected = button.dataset.native
@@ -444,6 +664,7 @@ document.addEventListener('click', (event) => {
     state.reviewOpen = false
     return selectViewer('skills')
   }
+  if (button.dataset.rowAgent) state.agent = button.dataset.rowAgent
   if (button.dataset.select) {
     state.nativeSelected = null
     state.selected = button.dataset.select
@@ -461,10 +682,16 @@ document.addEventListener('click', (event) => {
   }
 })
 document.addEventListener('contextmenu', (event) => {
-  const row = event.target.closest('[data-skill]')
-  if (!row) return
+  const row = event.target.closest(
+    '[data-skill], [data-curation-row], [data-library-row], [data-native-row], [data-router-row]',
+  )
+  if (!row || !state.enabled || !state.connected) return
+  const trigger = row.querySelector(
+    '[data-menu], [data-curation-menu], [data-native-actions], [data-router-menu]',
+  )
+  if (!trigger) return
   event.preventDefault()
-  row.querySelector('[data-menu]').click()
+  trigger.click()
 })
 document.addEventListener('submit', (event) => {
   if (event.target.id === 'library-setup') {
@@ -491,6 +718,8 @@ document.addEventListener('change', (event) => {
     return modal(connectionView(state))
   }
   if (!state.enabled) return
+  if ($('#search-disclosure')) state.searchOpen = $('#search-disclosure').open
+  if ($('#search-advanced')) state.advancedOpen = $('#search-advanced').open
   if (event.target.id === 'library-git') state.setup.git = event.target.checked
   if (['destination', 'agent'].includes(event.target.id)) {
     clearTimeout(projectSetupTimer)
@@ -507,6 +736,20 @@ document.addEventListener('change', (event) => {
     if (destinationFor(state).host !== 'local') state.scope = 'personal'
     refresh()
     render()
+  }
+  if (event.target.id === 'curation-group') {
+    const group = state.curation.routers.find(
+      (router) => router.id === event.target.value,
+    )
+    $('#curation-name').disabled = !!group
+    $('#router-existing-members').textContent = group
+      ? `Existing members: ${group.members.map((id) => curationSource(state, id).name).join(', ')}`
+      : 'New group; no existing members.'
+  }
+  if (event.target.id === 'browse-agent') {
+    state.browseAgent = event.target.value
+    cancelSearch()
+    return render()
   }
   if (event.target.id === 'filter') {
     cancelSearch()
@@ -527,6 +770,15 @@ document.addEventListener('change', (event) => {
       `Local · ${state.library.path} → ${d.label}${stub.disabled ? ' · Remote Stub unavailable' : ''}`
   }
 })
+document.addEventListener(
+  'toggle',
+  (event) => {
+    if (!event.target.isConnected) return
+    if (event.target.id === 'search-disclosure') state.searchOpen = event.target.open
+    if (event.target.id === 'search-advanced') state.advancedOpen = event.target.open
+  },
+  true,
+)
 document.addEventListener('input', (event) => {
   if (event.target.id === 'search') state.query = event.target.value
 })
@@ -538,6 +790,7 @@ document.addEventListener('keydown', (event) => {
     !$('#dialog').open
   ) {
     event.preventDefault()
+    state.searchOpen = true
     selectRail('skills')
     $('#search')?.focus()
   }
@@ -551,6 +804,61 @@ $('#reset').onclick = () => {
   scenario('disabled')
 }
 $('#scenario').onchange = (event) => scenario(event.target.value)
+$('#curation-long-project').onclick = () => {
+  if (!state.enabled || !state.curation) return
+  if (state.curation.sources.some((row) => row.id === 'observed-0')) return
+  const example = curationSource(state, 'draft')
+  for (let i = 0; i < 40; i++)
+    state.curation.sources.push({
+      ...example,
+      id: `observed-${i}`,
+      name: `Observed project skill ${i}`,
+    })
+  render()
+}
+$('#curation-change-source').onclick = () => {
+  if (state.enabled && state.curation) {
+    const row = curationSource(state)
+    row.version = row.version === 'newer-v2' ? 'newer-v3' : 'newer-v2'
+  }
+}
+$('#curation-block-origin').onclick = () => {
+  if (state.enabled && state.curation) curationSource(state).originBlocked = true
+}
+$('#curation-edit-library').onclick = () => {
+  if (state.enabled && state.curation) {
+    const row = curationSource(state)
+    row.libraryVersion = 'edited-v3'
+    row.libraryAccepted = false
+    render()
+  }
+}
+$('#curation-change-router').onclick = () => {
+  if (state.enabled && state.curation) curationRouter(state).version++
+}
+$('#curation-shared-tag').onclick = () => {
+  if (state.enabled && state.curation) curationRouter(state).shared = true
+}
+$('#curation-interrupt-sync').onclick = () => {
+  if (state.enabled && state.curation) state.curation.interruptSync = true
+}
+$('#curation-interrupt').onclick = () => {
+  if (state.enabled && state.curation) state.curation.nextUncertain = true
+}
+$('#curation-unsupported').onclick = () => {
+  if (state.enabled && state.curation) {
+    state.curation.unavailable = true
+    render()
+  }
+}
+$('#curation-approve').onclick = () => {
+  if (!state.enabled || !state.curation) return
+  curationSource(state, 'draft').approved = true
+  syncCurationSample(state)
+  state.curation.lastEffect =
+    'Explicit source approval completed; library sync outcomes are available. No workspace conversion ran.'
+  render()
+}
 $('#finish-project-terminal').onclick = () => {
   finishProjectTerminalSample(state, $('#project-outcome').value)
   render()

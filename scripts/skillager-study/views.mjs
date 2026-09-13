@@ -1,3 +1,5 @@
+import { browseSampleRows } from './model.mjs'
+import { curationCatalogView } from './curation-views.mjs'
 import {
   unmanagedFor,
   destinations,
@@ -62,13 +64,25 @@ function setupView(state) {
 }
 function firstSkillView(state) {
   const prompt = `Help me create my first reusable skill in my local Skillager library at ${JSON.stringify(state.library.path)}. Ask what workflow I repeat, then use Skillager's public authoring workflow to create a draft. Leave it pending for me to review and accept in hvir. Do not expose it to a project or change project Git or ignore files.`
-  return `<section class="first-skill"><h2>Create your first skill</h2>${state.setup.message ? `<p role="status">${escapeHtml(state.setup.message)}</p>` : ''}<p>Personal-library Git history: ${state.library.git ? 'enabled' : 'disabled'}</p><p>Give this prompt to your agent in a local terminal:</p><textarea id="first-skill-prompt" aria-label="First skill agent prompt" readonly rows="8">${escapeHtml(prompt)}</textarea><p>Return here and refresh, then review and accept the draft before adding it to a workspace.</p>${button('refresh', 'Refresh library')}</section>`
+  return `<section class="first-skill"><h2>Create your first skill</h2>${state.setup.message ? `<p role="status">${escapeHtml(state.setup.message)}</p>` : ''}<p>Personal-library Git history: ${state.library.git ? 'enabled' : 'disabled'}</p><p>Give this prompt to your agent in a local terminal:</p><textarea id="first-skill-prompt" aria-label="First skill agent prompt" readonly rows="8">${escapeHtml(prompt)}</textarea><p>Return here and refresh, then review and accept the draft before adding it to a workspace.</p>${button('refresh', 'Refresh library')}<p>Already approved skills elsewhere?</p>${button('sync-approved', 'Sync approved skills…')}</section>`
+}
+export function searchView(state) {
+  return `<details id="search-disclosure" ${state.searchOpen ? 'open' : ''}><summary>Search skills${state.submittedQuery ? ` · “${escapeHtml(state.submittedQuery)}”` : ''}${state.browseAgent !== 'all' ? ` · ${agentLabel(state.browseAgent)}` : ''}</summary>
+    <form id="search-form"><div class="search-bar"><input id="search" aria-label="Search skill metadata and accepted body" placeholder="Title, description, tags, body…" maxlength="1000" value="${escapeHtml(state.query)}"><button class="primary" type="submit">Search</button>${button('cancel-search', 'Clear', !state.searching && !state.results)}</div>
+    <details id="search-advanced" class="search-caption" ${state.advancedOpen ? 'open' : ''}><summary>Advanced</summary><label>Search scope<select id="search-scope"><option value="personal" ${state.scope === 'personal' ? 'selected' : ''}>Personal library</option><option value="available" ${state.scope === 'available' ? 'selected' : ''} ${destinationFor(state).host !== 'local' ? 'disabled' : ''}>All available to this workspace</option></select></label><label>Preferred agent<select id="browse-agent"><option value="all" ${state.browseAgent === 'all' ? 'selected' : ''}>All agents</option><option value="codex" ${state.browseAgent === 'codex' ? 'selected' : ''}>Codex</option><option value="claude" ${state.browseAgent === 'claude' ? 'selected' : ''}>Claude Code</option></select></label><p>Search covers metadata and the first 50,000 accepted body characters. Pending drafts stay in browsing. Up to 50 ranked results; no total or pagination. Prefer skills for this agent. Search uses Skillager’s ordering; agent-neutral library skills remain visible.</p></details></form></details>`
 }
 export function catalogView(state) {
   if (!state.enabled) return ''
   if (state.missing) return missingCliView()
   if (state.libraryMissing) return setupView(state) + executableDetails()
-  if (state.projectStudy && state.perspective === 'workspace' && state.connected)
+  if (state.curation && state.connected) return curationCatalogView(state)
+  if (
+    state.projectStudy &&
+    state.perspective === 'workspace' &&
+    state.connected &&
+    !state.results &&
+    !state.searching
+  )
     return projectWorkspaceView(state)
   const heading = `<div class="heading"><div><h1>${state.perspective === 'library' ? 'Personal library' : 'Workspace skills'}</h1><p>Review instructions and choose when workspace copies change.</p></div>${button('refresh', '↻ Refresh', !state.connected)}</div>`
   if (!state.connected)
@@ -77,25 +91,14 @@ export function catalogView(state) {
       `<div class="empty"><h2>Connect Skillager</h2>${registeredLibraryView(state)}${executableDetails()}</div>`
     )
   if (state.empty && state.results === null && !state.submittedQuery)
-    return (
-      heading +
-      (state.perspective === 'library'
-        ? firstSkillView(state)
-        : '<p class="empty">No skills added to this workspace.</p>')
-    )
+    return state.perspective === 'library'
+      ? firstSkillView(state)
+      : '<p class="empty">No skills added to this workspace.</p>'
   const remote = destinationFor(state).host !== 'local'
-  const current = exposuresFor(state)
-  const rows = (state.results || state.skills).filter(
-    (s) =>
-      (state.perspective === 'library' || current[s.id] || unmanagedFor(state, s.id)) &&
-      (state.filter !== 'pending' || !s.accepted),
-  )
+  const rows = browseSampleRows(state)
   return `${remote ? `<details class="search-caption"><summary>Local library → ${escapeHtml(destinationFor(state).label)}</summary><p>hvir manages this SSH workspace with the same Add, Update, and Remove actions. Full skill files only; no Skillager installation is needed on this host.</p></details>` : ''}
-    <form id="search-form" class="search-bar"><input id="search" aria-label="Search skill metadata and accepted body" placeholder="Search titles, descriptions, tags and accepted bodies…" maxlength="1000" value="${escapeHtml(state.query)}"><select id="search-scope" aria-label="Search scope"><option value="personal" ${state.scope === 'personal' ? 'selected' : ''}>Personal library</option><option value="available" ${state.scope === 'available' ? 'selected' : ''} ${remote ? 'disabled' : ''}>All available to this workspace</option></select><button class="primary" type="submit">Search</button>${button('cancel-search', 'Cancel search', !state.searching)}</form>
-    <details class="search-caption"><summary>Search coverage · first 50,000 body characters</summary><p>Enter/Search submits up to 50 ranked metadata results. No total or pagination. Only accepted bodies are searched; pending drafts remain in metadata browsing. Refresh runs every 60 seconds while this sidebar or a skill viewer is visible and the app is foregrounded, for the active workspace only.</p></details>
-    <div id="search-status" role="status">${state.searching ? `Searching Skillager for “${escapeHtml(state.submittedQuery)}”… Initial indexing may take several seconds.` : state.results ? `${rows.length} results returned for “${escapeHtml(state.submittedQuery)}” · ${state.scope === 'personal' ? 'Personal library · workspace exposure unknown in search' : 'All available to this workspace'}` : 'Metadata only · Review content opens bodies/diffs.'}</div>
-    <div class="toolbar"><label>Browse <select id="filter"><option value="all">All metadata</option><option value="pending" ${state.filter === 'pending' ? 'selected' : ''}>Pending review</option></select></label>${button('refresh', '↻ Refresh')}</div><p id="freshness" class="muted">${escapeHtml(state.lastChecked)}</p>
-    <section id="skill-list">${rows.map((s) => `<div class="skill-row ${s.id === state.selected ? 'selected' : ''}" data-skill="${s.id}"><button data-select="${s.id}"><h3>${s.id}</h3><p>${s.description}</p><small>${s.source || 'Owned · Personal library'} · ${state.perspective === 'library' ? (s.blocked ? 'Blocked source' : s.accepted ? 'Accepted' : 'Needs review') : unmanagedFor(state, s.id) ? 'Unmanaged target' : `${modeLabel(current[s.id].mode)} · ${statusFor(s, current[s.id])}`}${state.results ? ` · ${s.match} match` : ''}</small></button><button class="more" data-menu="${s.id}" aria-label="Actions for ${s.id}">⋯</button></div>`).join('') || '<p class="empty">No matching skills</p>'}</section>`
+    <div class="search-status" role="status">${state.searching ? `Searching Skillager for “${escapeHtml(state.submittedQuery)}”… Initial indexing may take several seconds.` : state.results ? `${rows.length} results returned for “${escapeHtml(state.submittedQuery)}” · ${state.scope === 'personal' ? 'Personal library · workspace exposure unknown in search' : 'All available to this workspace'}` : ''}</div>
+    <section class="${state.results || state.perspective === 'library' ? 'skill-list' : 'project-managed-list'}" aria-label="Skill list">${rows.map((s) => `<div class="skill-row ${s.id === state.selected && state.selectedScope === state.perspective && (!s.rowAgent || s.rowAgent === state.agent) ? 'selected' : ''}" data-skill="${s.id}" data-row-scope="${state.perspective}"><button data-select="${s.id}" ${s.rowAgent ? `data-row-agent="${s.rowAgent}"` : ''}><span class="skill-name">◇ ${s.id}</span><small class="row-badges">${s.source ? `${s.source} · ` : ''}${state.perspective === 'library' ? (s.blocked ? 'Blocked source' : s.accepted ? 'Accepted' : 'Needs review') : s.rowUnmanaged ? 'Unmanaged target' : `${agentLabel(s.rowAgent)} · ${modeLabel(s.rowExposure?.mode)} · ${statusFor(s, s.rowExposure)}`}${state.results ? ` · ${s.match} match` : ''}</small></button><button class="more" data-menu="${s.id}" ${s.rowAgent ? `data-row-agent="${s.rowAgent}"` : ''} aria-label="Actions for ${s.id}">⋯</button></div>`).join('') || '<p class="empty">No matching skills</p>'}</section>`
 }
 export function detailView(state) {
   const s = skillFor(state),
@@ -156,14 +159,28 @@ export function previewView(state, preview) {
 
 export function skillsRailView(state) {
   if (!state.enabled) return ''
-  const pending = state.skills.filter((s) => !s.accepted).length
-  const updates = state.skills.filter(
-    (s) => statusFor(s, exposuresFor(state)[s.id]) === 'Workspace copy behind',
-  ).length
-  return `<div class="skills-scope"><button id="library-nav" data-perspective="library">Personal library</button><button id="workspace-nav" data-perspective="workspace">This workspace</button></div>
-    ${state.connected && !state.empty ? `<div class="feature-badges"><span id="review-count">${pending} library review${pending === 1 ? '' : 's'}</span><span id="updates-count">${updates} workspace update${updates === 1 ? '' : 's'}</span></div>` : ''}
-    ${state.connected ? `<div class="rail-controls"><label>Destination<select id="destination">${destinations.map((d) => `<option value="${d.id}" ${d.id === state.destination ? 'selected' : ''}>${escapeHtml(d.label)}</option>`).join('')}</select></label><label>Agent<select id="agent"><option value="codex" ${state.agent === 'codex' ? 'selected' : ''}>Codex</option><option value="claude" ${state.agent === 'claude' ? 'selected' : ''}>Claude Code</option></select></label></div>` : ''}
-    <div id="content">${catalogView(state)}<p id="connection-label">${state.connected ? 'Local Skillager connected' : 'Skillager disconnected'}</p></div>`
+  const pending = state.curation
+    ? state.curation.sources.filter((s) => s.preserved && !s.libraryAccepted).length
+    : state.skills.filter((s) => !s.accepted).length
+  const updates = state.curation
+    ? state.curation.sources.filter(
+        (s) =>
+          s.projectPresent &&
+          s.managed &&
+          s.preserved &&
+          s.libraryAccepted &&
+          s.exposedVersion !== s.libraryVersion,
+      ).length
+    : state.skills.filter(
+        (s) => statusFor(s, exposuresFor(state)[s.id]) === 'Workspace copy behind',
+      ).length
+  if (!state.connected)
+    return `<div id="content">${catalogView(state)}<p id="connection-label">Skillager disconnected</p></div>`
+  const section = (scope, title) =>
+    `<section class="explorer-section ${state.explorerOpen[scope] ? 'is-open' : ''}" id="explorer-${scope}"><button class="explorer-heading" id="${scope === 'library' ? 'library' : 'workspace'}-nav" data-perspective="${scope}" aria-expanded="${state.explorerOpen[scope] && !state.results && !state.searching}"><span aria-hidden="true">${state.explorerOpen[scope] && !state.results && !state.searching ? '⌄' : '›'}</span> ${title}</button><div class="explorer-scroll" ${state.explorerOpen[scope] && !state.results && !state.searching ? '' : 'hidden'}>${catalogView({ ...state, perspective: scope, results: null, submittedQuery: '', searching: false })}</div></section>`
+  return `<div class="explorer-tools">${searchView(state)}<details class="target-controls"><summary>Project actions · ${agentLabel(state.agent)}</summary><div class="rail-controls"><label>Active project<select id="destination">${destinations.map((d) => `<option value="${d.id}" ${d.id === state.destination ? 'selected' : ''}>${escapeHtml(d.label)}</option>`).join('')}</select></label><label>Action agent<select id="agent"><option value="codex" ${state.agent === 'codex' ? 'selected' : ''}>Codex</option><option value="claude" ${state.agent === 'claude' ? 'selected' : ''}>Claude Code</option></select></label></div>${button('refresh', 'Refresh')}<p id="freshness">${escapeHtml(state.lastChecked)}</p><label>Review filter<select id="filter"><option value="all">All metadata</option><option value="pending" ${state.filter === 'pending' ? 'selected' : ''}>Pending review</option></select></label></details></div>
+    <div id="content" class="skill-explorer">${state.results || state.searching ? `<section class="explorer-search-results">${catalogView(state)}</section>` : ''}${section('workspace', 'In this project')}${section('library', 'Your library')}</div>
+    <div class="feature-badges"><span id="review-count">${pending} library review${pending === 1 ? '' : 's'}</span><span id="updates-count">${updates} project update${updates === 1 ? '' : 's'}</span></div><span id="connection-label" hidden>Local Skillager connected</span>`
 }
 export function reviewView(state) {
   const s = skillFor(state)
@@ -178,19 +195,37 @@ function projectWorkspaceView(state) {
   const running = state.setupTerminals.some(
     (t) => t.key === exposureKey(state) && t.running,
   )
-  return `<section class="project-setup"><h2>Project setup</h2><p>${escapeHtml(destinationFor(state).label)} · ${agentLabel(state.agent)}</p>
+  return `${
+    readiness.state === 'Ready' && !state.setupOpen
+      ? button('show-project-setup', 'Project setup…')
+      : `<section class="project-setup"><h2>Project setup</h2><p>${escapeHtml(destinationFor(state).label)} · ${agentLabel(state.agent)}</p>
     <p id="project-readiness">${escapeHtml(readiness.state)} · Working: ${escapeHtml(readiness.working)}</p>
     <p>Open a new terminal for Skillager setup and Working for ${agentLabel(state.agent)}.</p>
     <code>skillager setup --agent ${state.agent}</code>
     ${readiness.state !== 'Ready' ? button('project-setup', state.pendingProjectSetup ? 'Opening new terminal…' : 'Set up in terminal', !!state.pendingProjectSetup || running) : ''}
     ${button('refresh', 'Refresh status')}
-    <small>Skillager handles review decisions in the terminal.</small></section>
-    <h3>Existing project skills</h3><section id="project-skill-list">${sample.metadataUnavailable ? '<p>Project skill metadata is unavailable.</p>' : sample.rows.map((row) => `<div class="skill-row"><button data-native="${row.id}"><h3>${row.id}</h3><p>${row.description}</p><small>Project native · ${agentLabel(row.agent)} · Unmanaged · ${row.review}</small></button></div>`).join('') || '<p>No project skills reported by Skillager.</p>'}</section>
-    <h3>Managed copies</h3>${
+    <small>Skillager handles review decisions in the terminal.</small></section>`
+  }
+    <section id="project-skill-list">${
+      sample.metadataUnavailable
+        ? '<p>Project skill metadata is unavailable.</p>'
+        : sample.rows
+            .filter(
+              (row) =>
+                row.projectPresent !== false &&
+                (state.browseAgent === 'all' || row.agent === state.browseAgent),
+            )
+            .map(
+              (row) =>
+                `<div class="skill-row" data-native-row="${row.id}"><button data-native="${row.id}"><span class="skill-name">◇ ${row.id}</span><small> ${agentLabel(row.agent)} · ${row.review}</small></button><button class="more" data-native-actions="${row.id}" aria-label="Actions for ${row.id}">⋯</button></div>`,
+            )
+            .join('') || '<p>No project skills reported by Skillager.</p>'
+    }</section>
+    ${
       Object.entries(exposuresFor(state))
         .map(
           ([id, exposure]) =>
-            `<div class="skill-row"><button data-select="${id}"><h3>${id}</h3><small>Managed copy · ${modeLabel(exposure.mode)} · ${statusFor(skillFor(state, id), exposure)}</small></button></div>`,
+            `<div class="skill-row"><button data-select="${id}"><span class="skill-name">◇ ${id}</span><small>Managed copy · ${modeLabel(exposure.mode)} · ${statusFor(skillFor(state, id), exposure)}</small></button></div>`,
         )
         .join('') || '<p>No managed copies.</p>'
     }`
@@ -199,7 +234,7 @@ export function nativeProjectDetailView(state) {
   const row = projectSampleFor(state)?.rows.find((r) => r.id === state.nativeSelected)
   if (!row) return '<p>Project metadata is unavailable for this selection.</p>'
   const folder = row.agent === 'codex' ? '.agents' : '.claude'
-  return `<article class="details"><h2>${row.id}</h2><p>${row.description}</p><p>Project native · Unmanaged · ${agentLabel(row.agent)}</p><p>${row.review}</p><code>Local · ${destinationFor(state).path}/${folder}/skills/${row.id}</code><p>Existing project files are preserved. Their presence does not authorize managed Add, Update or Remove.</p><p>Use Set up in terminal for Skillager’s project review decisions.</p></article>`
+  return `<article class="details"><h2>${row.id}</h2><p>${row.description}</p><p>Project native · Unmanaged · ${agentLabel(row.agent)}</p><p>${row.review}</p><code>Local · ${destinationFor(state).path}/${folder}/skills/${row.id}</code><p>Existing project files are preserved. Their presence does not authorize managed Add, Update or Remove.</p><p>Use Set up in terminal for Skillager’s project review decisions.</p><button data-native-actions="${row.id}">Actions…</button></article>`
 }
 export function projectTerminalView(state) {
   const terminal = state.setupTerminals.find((t) => t.id === state.selectedTerminal)
