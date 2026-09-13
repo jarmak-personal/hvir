@@ -109,6 +109,12 @@ export function initialState() {
     skillsOpen: false,
     reviewOpen: false,
     perspective: 'library',
+    projectStudy: false,
+    projectSamples: {},
+    nativeSelected: null,
+    pendingProjectSetup: null,
+    setupTerminals: [],
+    selectedTerminal: 'ordinary',
     destination: 'local-main',
     agent: 'codex',
     scope: 'personal',
@@ -303,4 +309,108 @@ export function reconcileSampleSetup(state) {
     state.setup.message =
       'No registered library was found. Inspect any retained files before choosing Create and connect again.'
   }
+}
+
+// These public-metadata and terminal outcomes are fixtures, never a CLI or PTY adapter.
+export const projectSampleFor = (state) => state.projectSamples[exposureKey(state)]
+export function projectMetadataSample() {
+  const rows = [
+    {
+      id: 'project-review',
+      agent: 'codex',
+      review: 'Approved',
+      description: 'Review this project’s conventions.',
+    },
+    {
+      id: 'project-draft',
+      agent: 'claude',
+      review: 'Pending review',
+      description: 'A draft already present in this project.',
+    },
+    {
+      id: 'project-lint',
+      agent: 'codex',
+      review: 'Lint blocked',
+      description: 'Existing instructions need a lint correction.',
+    },
+    {
+      id: 'project-blocked',
+      agent: 'claude',
+      review: 'Blocked',
+      description: 'An explicitly blocked project skill remains visible.',
+    },
+  ]
+  return {
+    observed: { state: 'Pending review', working: 'Not installed' },
+    external: { state: 'Pending review', working: 'Not installed' },
+    rows,
+    externalRows: globalThis.structuredClone(rows),
+    metadataUnavailable: false,
+  }
+}
+export function beginProjectSetupSample(state) {
+  if (
+    !state.enabled ||
+    !state.connected ||
+    destinationFor(state).host !== 'local' ||
+    !projectSampleFor(state) ||
+    state.pendingProjectSetup ||
+    state.setupTerminals.some((t) => t.key === exposureKey(state) && t.running)
+  )
+    return
+  const handoff = {
+    key: exposureKey(state),
+    generation: state.generation,
+    destination: destinationFor(state),
+    agent: state.agent,
+    command: `/home/example/.local/bin/skillager setup --agent ${state.agent}`,
+  }
+  state.pendingProjectSetup = handoff
+  return handoff
+}
+export function completeProjectSetupSample(state, handoff) {
+  if (
+    !state.enabled ||
+    !state.connected ||
+    state.pendingProjectSetup !== handoff ||
+    state.generation !== handoff.generation ||
+    exposureKey(state) !== handoff.key
+  )
+    return
+  state.pendingProjectSetup = null
+  const terminal = {
+    ...handoff,
+    id: `setup-${state.setupTerminals.length + 1}`,
+    running: true,
+  }
+  state.setupTerminals.push(terminal)
+  state.selectedTerminal = terminal.id
+}
+export function refreshProjectSample(state) {
+  const sample = projectSampleFor(state)
+  if (state.enabled && state.connected && skillsVisible(state) && sample) {
+    sample.observed = { ...sample.external }
+    sample.rows = globalThis.structuredClone(sample.externalRows)
+  }
+}
+export function finishProjectTerminalSample(state, outcome) {
+  const terminal = state.setupTerminals.find((t) => t.id === state.selectedTerminal)
+  if (!terminal || !terminal.running) return
+  terminal.running = false
+  // The fixture independently supplies public readiness; exit is deliberately always zero.
+  terminal.exitCode = 0
+  const sample = state.projectSamples[terminal.key]
+  // Ready fixture represents the user resolving pending/lint work through the CLI.
+  if (outcome === 'Ready')
+    sample.externalRows = sample.externalRows.map((row) =>
+      ['Pending review', 'Lint blocked'].includes(row.review)
+        ? { ...row, review: 'Approved' }
+        : row,
+    )
+  sample.external = {
+    state: outcome,
+    working: outcome === 'Ready' ? 'Installed' : 'Not installed',
+  }
+  if (state.generation === terminal.generation && exposureKey(state) === terminal.key)
+    refreshProjectSample(state)
 }

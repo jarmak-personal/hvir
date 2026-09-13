@@ -8,6 +8,8 @@ import {
   modeLabel,
   agentLabel,
   targetPath,
+  projectSampleFor,
+  exposureKey,
 } from './model.mjs'
 export const escapeHtml = (value) =>
   String(value).replace(
@@ -66,6 +68,8 @@ export function catalogView(state) {
   if (!state.enabled) return ''
   if (state.missing) return missingCliView()
   if (state.libraryMissing) return setupView(state) + executableDetails()
+  if (state.projectStudy && state.perspective === 'workspace' && state.connected)
+    return projectWorkspaceView(state)
   const heading = `<div class="heading"><div><h1>${state.perspective === 'library' ? 'Personal library' : 'Workspace skills'}</h1><p>Review instructions and choose when workspace copies change.</p></div>${button('refresh', '↻ Refresh', !state.connected)}</div>`
   if (!state.connected)
     return (
@@ -164,4 +168,43 @@ export function skillsRailView(state) {
 export function reviewView(state) {
   const s = skillFor(state)
   return `<h2>Review content · ${s.id}</h2><div class="target">${s.source || `Local · ${state.library.path}/skills/${s.id}`}<p>Reviewed snapshot: ${s.version}</p></div><h3>SKILL.md · sample instructions</h3><p>Read the proposed change and its tests. Verify rollback preserves existing data.</p><p>Full tree: SKILL.md only in this sample. Supporting files and executable modes must be reviewable before production acceptance.</p>${!s.accepted ? sampleDiff : ''}<div class="notice">Content review does not approve or expose this skill.</div>${button('metadata', 'Back to metadata')}`
+}
+
+function projectWorkspaceView(state) {
+  if (destinationFor(state).host !== 'local')
+    return '<div class="notice"><h2>Project setup unavailable over SSH</h2><p>Existing-project discovery and Working setup require the local CLI. Managed SSH Full skill delivery remains available.</p></div>'
+  const sample = projectSampleFor(state)
+  const readiness = sample.observed
+  const running = state.setupTerminals.some(
+    (t) => t.key === exposureKey(state) && t.running,
+  )
+  return `<section class="project-setup"><h2>Project setup</h2><p>${escapeHtml(destinationFor(state).label)} · ${agentLabel(state.agent)}</p>
+    <p id="project-readiness">${escapeHtml(readiness.state)} · Working: ${escapeHtml(readiness.working)}</p>
+    <p>Open a new terminal for Skillager setup and Working for ${agentLabel(state.agent)}.</p>
+    <code>skillager setup --agent ${state.agent}</code>
+    ${readiness.state !== 'Ready' ? button('project-setup', state.pendingProjectSetup ? 'Opening new terminal…' : 'Set up in terminal', !!state.pendingProjectSetup || running) : ''}
+    ${button('refresh', 'Refresh status')}
+    <small>Skillager handles review decisions in the terminal.</small></section>
+    <h3>Existing project skills</h3><section id="project-skill-list">${sample.metadataUnavailable ? '<p>Project skill metadata is unavailable.</p>' : sample.rows.map((row) => `<div class="skill-row"><button data-native="${row.id}"><h3>${row.id}</h3><p>${row.description}</p><small>Project native · ${agentLabel(row.agent)} · Unmanaged · ${row.review}</small></button></div>`).join('') || '<p>No project skills reported by Skillager.</p>'}</section>
+    <h3>Managed copies</h3>${
+      Object.entries(exposuresFor(state))
+        .map(
+          ([id, exposure]) =>
+            `<div class="skill-row"><button data-select="${id}"><h3>${id}</h3><small>Managed copy · ${modeLabel(exposure.mode)} · ${statusFor(skillFor(state, id), exposure)}</small></button></div>`,
+        )
+        .join('') || '<p>No managed copies.</p>'
+    }`
+}
+export function nativeProjectDetailView(state) {
+  const row = projectSampleFor(state)?.rows.find((r) => r.id === state.nativeSelected)
+  if (!row) return '<p>Project metadata is unavailable for this selection.</p>'
+  const folder = row.agent === 'codex' ? '.agents' : '.claude'
+  return `<article class="details"><h2>${row.id}</h2><p>${row.description}</p><p>Project native · Unmanaged · ${agentLabel(row.agent)}</p><p>${row.review}</p><code>Local · ${destinationFor(state).path}/${folder}/skills/${row.id}</code><p>Existing project files are preserved. Their presence does not authorize managed Add, Update or Remove.</p><p>Use Set up in terminal for Skillager’s project review decisions.</p></article>`
+}
+export function projectTerminalView(state) {
+  const terminal = state.setupTerminals.find((t) => t.id === state.selectedTerminal)
+  if (!terminal) return ''
+  return `<header>Shell · project setup · ${agentLabel(terminal.agent)} <button data-terminal="ordinary">Back to original terminal</button></header><code>Local · ${terminal.destination.path}</code><pre>${escapeHtml(terminal.command)}
+
+${terminal.running ? 'Interactive Skillager setup is running. Answer its prompts here.' : terminal.recovered ? 'Recovered shell. Setup was not restarted.' : 'Command exited with code 0. The terminal remains yours.'}</pre><small>Terminal illustration only · no process launched. Recovery never replays this command.</small>`
 }

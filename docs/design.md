@@ -491,6 +491,7 @@ Markdown images remain within the canonical document directory and descendants.
 ### [ADR-046 — Explicit Skillager library and workspace exposure authority](adr/ADR-046-explicit-skillager-library-and-exposure-authority.md)
 
 > Lifecycle: Partially superseded
+> Superseded by: [ADR-048](adr/ADR-048-explicit-skillager-project-setup.md) | partial | Local project setup terminal handoff and Working installation, existing-project metadata presentation, and post-handoff terminal lifetime only.
 > Superseded by: [ADR-047](adr/ADR-047-explicit-skillager-library-initialization.md) | partial | Initial personal-library connection and first-use presentation only; add explicit local initialization followed by verified metadata connection.
 > Supersedes: [ADR-010](adr/ADR-010-project-host-remote-boundary.md) | partial | Registered-project confinement for the named local personal-library metadata, review, and acceptance capability.
 > Supersedes: [ADR-030](adr/ADR-030-bounded-project-file-operations.md) | partial | No-replacement rule only for explicitly confirmed, verified unchanged Skillager-managed local exposures and hvir-managed SSH deployments.
@@ -500,13 +501,24 @@ authority separate from hvir viewing, transport, and ordinary Files behavior.
 
 ### [ADR-047 — Explicit Skillager personal-library initialization](adr/ADR-047-explicit-skillager-library-initialization.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-048](adr/ADR-048-explicit-skillager-project-setup.md) | partial | Interactive setup and shell-launch exclusion only for the separately requested project setup handoff; personal-library initialization and first-skill guidance remain unchanged.
 > Supersedes: [ADR-010](adr/ADR-010-project-host-remote-boundary.md) | partial | Registered-project confinement only for the named local personal-library initialization and registration capability.
 > Supersedes: [ADR-046](adr/ADR-046-explicit-skillager-library-and-exposure-authority.md) | partial | Initial personal-library connection and first-use presentation only; add explicit local initialization followed by verified metadata connection.
 
 An explicit Create and connect action initializes one local personal library through Skillager,
 verifies its identity and Git choice, then grants metadata access. Empty-library guidance keeps
 skill authoring with the user's agent or terminal and approval with the existing review flow.
+
+### [ADR-048 — Explicit Skillager project setup and existing skills](adr/ADR-048-explicit-skillager-project-setup.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-046](adr/ADR-046-explicit-skillager-library-and-exposure-authority.md) | partial | Local project setup terminal handoff and Working installation, existing-project metadata presentation, and post-handoff terminal lifetime only.
+> Supersedes: [ADR-047](adr/ADR-047-explicit-skillager-library-initialization.md) | partial | Interactive setup and shell-launch exclusion only for the separately requested project setup handoff; personal-library initialization and first-skill guidance remain unchanged.
+
+Existing project skills remain visible through public metadata, independently of managed copies.
+One explicit setup handoff opens a new user-controlled terminal for the selected local project
+and agent; public readiness, rather than terminal output or exit status, determines the result.
 
 ## 5. Architecture
 

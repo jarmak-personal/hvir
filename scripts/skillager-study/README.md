@@ -1,6 +1,6 @@
 # Skills interaction study
 
-This maintained, offline study illustrates the accepted interaction in ADR-046 and ADR-047.
+This maintained, offline study illustrates the accepted interaction in ADR-046, ADR-047 and ADR-048.
 Its original reference was the user-owned `skillager-integration.local/` study; those originals remain
 untouched. The dark palette, viewer/terminal split, and representative skills are retained.
 Skills is a left-sidebar peer of Files/Git: metadata browsing and submitted search live on the
@@ -68,6 +68,22 @@ and CSS; no source-policy exception or production dependency is introduced.
   destination or agent revokes a prepared dialog; a changed source version refuses apply.
 - Accept library changes and observe that the old workspace copy stays behind. Update that copy
   as a separate action. Remove a copy and confirm its library row remains.
+- Select Existing project skills · terminal setup. This workspace shows approved, pending,
+  lint-blocked and explicitly blocked native metadata with source-agent labels separately from
+  managed copies. Native details expose no managed mutation or canonical-library acceptance action.
+  The metadata can appear before setup. Zero-row copy reports what Skillager returned; it cannot
+  prove every folder was readable. A separate unavailable example preserves that distinction.
+- Set up in terminal identifies the selected local project and agent, then creates a new terminal
+  illustration through a revocable one-use handoff. It never launches a real shell or sends input.
+  The existing terminal and ordinary viewer remain available. Controls outside the app shell
+  supply synthetic observed completion outcomes and simulate terminal recovery; their labels are
+  illustrative, not claims that every installed public schema distinguishes each state. Exit zero does not imply
+  readiness or Working installation. The Ready fixture includes resolved pending/lint metadata;
+  explicitly blocked metadata may remain. Skillager, not hvir, owns those decisions.
+- Disable before the simulated handoff to reject its late callback. Disable afterward to preserve
+  ordinary terminal content while feature observation disappears. Changing project/agent prevents
+  stale completion from publishing readiness, and terminal recovery never replays setup. Public
+  metadata refresh remains read-only with respect to approval, Working and exposure effects.
 - Select SSH: Personal library is the default; workspace catalog search and Stub are unavailable.
   The same Add, Update, and Remove flows show local approval/export from Skillager and SSH
   observation, delivery, and safe destination management by hvir. Remote previews distinguish
@@ -85,7 +101,8 @@ Skillager is user-installed and user-managed, as documented by its
 [quickstart](https://github.com/jarmak-personal/skillager#quickstart) and
 [PyPI project](https://pypi.org/project/skillager/). hvir does not bundle or manage the CLI as a
 dependency, install/upgrade it, bootstrap Python/uv, change PATH or package environments, execute
-package managers, or inject terminal input. Missing, selected-path, unsupported-contract, and
+package managers, or inject commands into existing terminals. The named project setup handoff
+authorizes one command in a new user-controlled local terminal; the offline study never executes it. Missing, selected-path, unsupported-contract, and
 command-failure states remain distinct design contracts; this sample illustrates missing and
 externally available CLI states plus synthetic library-init success/failure outcomes. Existing
 opt-in contributor fixtures do not grant application installation authority.
@@ -107,7 +124,8 @@ Refresh eligibility is checked at its pure enable/connection/sidebar/viewer/visi
 The browser runner observes actual periodic timer acquisition/release without changing the clock,
 and replays actual canceled search and setup callbacks to prove late publication is rejected. Browser
 checks exercise separate sidebar/viewer selection and real tab focus changes where Chromium
-exposes them, plus terminal/session content and geometry preservation. The report discloses
+exposes them, plus terminal/session content and geometry preservation. The project setup journey
+is maintained in its focused checker module; all terminal handoff effects there are synthetic. The report discloses
 unsupported background observations. It does not wait through a real 60-second periodic interval.
 
 ## Real CLI contract evidence

@@ -1,5 +1,6 @@
 import nodeAssert from 'node:assert/strict'
 import { automaticRefreshAllowed } from './model.mjs'
+import { checkProjectSetupStudy } from './project-setup-check.mjs'
 import { setTimeout, clearTimeout } from 'node:timers'
 const { fetch, WebSocket } = globalThis
 import { Buffer } from 'node:buffer'
@@ -185,11 +186,11 @@ try {
   // Observe actual study timers without advancing its clock; retain one canceled search callback.
   await call('Page.addScriptToEvaluateOnNewDocument', {
     source: `
-    window.studyTimers={intervals:new Set(),search:null,setup:null};
+    window.studyTimers={intervals:new Set(),search:null,setup:null,projectSetup:null};
     const interval=window.setInterval,clear=window.clearInterval,timeout=window.setTimeout;
     window.setInterval=(fn,ms,...args)=>{const id=interval(fn,ms,...args);if(ms===60000)studyTimers.intervals.add(id);return id};
     window.clearInterval=id=>{studyTimers.intervals.delete(id);return clear(id)};
-    window.setTimeout=(fn,ms,...args)=>{if(ms===500)studyTimers.search=fn;if(ms===600)studyTimers.setup=fn;return timeout(fn,ms,...args)};
+    window.setTimeout=(fn,ms,...args)=>{if(ms===500)studyTimers.search=fn;if(ms===600)studyTimers.setup=fn;if(ms===400)studyTimers.projectSetup=fn;return timeout(fn,ms,...args)};
   `,
   })
   const capture = async (name) => {
@@ -753,6 +754,17 @@ try {
       ` && document.querySelector('#toast').hidden && document.querySelector('#toast').textContent===''`,
     'Disable clears a visible feature notification',
   )
+  await checkProjectSetupStudy({
+    flow,
+    click,
+    pointClick,
+    choose,
+    run,
+    assert,
+    waitFor,
+    capture,
+    absent,
+  })
   await flow('browse')
   await call('Emulation.setDeviceMetricsOverride', {
     width: 900,
