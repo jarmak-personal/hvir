@@ -175,6 +175,8 @@ export function registerSkillagerIpc(ipc: IpcRegistrar, deps: SkillagerIpcDeps):
       query: request.query,
       scope: request.scope,
       browseAgent: request.browseAgent,
+      view: request.view,
+      includeInstalled: request.includeInstalled,
     } satisfies SkillagerSearchRequest),
   )
   ipc.handle('skillager:cancel', (request, context) => {

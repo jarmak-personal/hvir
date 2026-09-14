@@ -16,7 +16,8 @@ function fixture() {
     reconcileLibrary = vi.fn(),
     syncStatus = vi.fn(),
     syncApproved = vi.fn(),
-    cancelSync = vi.fn()
+    cancelSync = vi.fn(),
+    search = vi.fn()
   const workspaceRoot = vi.fn((path: HostPath) => {
     if (
       ![request.workspaceRoot, request.destination.root].some((root) =>
@@ -50,6 +51,7 @@ function fixture() {
       initializeLibrary,
       chooseLibraryFolder,
       reconcileLibrary,
+      search,
     },
   } as unknown as Parameters<typeof registerSkillagerIpc>[1])
   return {
@@ -65,11 +67,44 @@ function fixture() {
     chooseLibraryFolder,
     reconcileLibrary,
     workspaceRoot,
+    search,
     invoke: (channel: string, value: unknown) =>
       handlers.get(channel)!(value, { owner: () => owner }),
   }
 }
 describe('workspace skill IPC authority', () => {
+  it.each(['skills', 'copies', 'legacy'] as const)(
+    'preserves the submitted %s search policy through the registered handler',
+    (view) => {
+      const f = fixture()
+      for (const includeInstalled of [false, true]) {
+        const selected = {
+          connectionId: request.connectionId,
+          requestId: includeInstalled ? 2 : 1,
+          workspaceRoot: request.workspaceRoot,
+          agent: 'codex' as const,
+          browseAgent: 'claude' as const,
+          query: 'merge',
+          scope: 'workspace' as const,
+          view,
+          includeInstalled,
+        }
+        f.invoke('skillager:search', {
+          ...selected,
+          workspaceRoot: { ...selected.workspaceRoot, command: 'forged' },
+          catalog: '/ungranted',
+          executable: '/ungranted',
+          installedIdentities: [{ skillId: 'forged' }],
+        })
+        expect(f.search).toHaveBeenLastCalledWith(f.owner, selected)
+      }
+      expect(f.workspaceRoot.mock.calls.map(([root]) => root)).toEqual([
+        request.workspaceRoot,
+        request.workspaceRoot,
+      ])
+      expect(f.search).toHaveBeenCalledTimes(2)
+    },
+  )
   it('native preparation has a named read-only request and separately qualifies its exact current destination', () => {
     const f = fixture(),
       selected = {
