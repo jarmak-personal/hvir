@@ -168,7 +168,14 @@ export function App(): ReactElement {
     resetViewerPrimaryWidth,
     focusTerminal: showTerminal,
   } = layout
+  const terminalPathActivation = useTerminalPathActivation({
+    root,
+    selectedFile: activeTab?.path,
+    openFile,
+    revealDirectory: layout.focusTree,
+  })
   const skills = useSkillagerWorkspace({
+    onRevealDirectory: terminalPathActivation.revealDirectory,
     onSetupTerminal: (root, prepared, signal) => terminalWorkspaces.openPrepared(root, prepared, signal).then(() => showTerminal(prepared.id)),
     enabled: settings.skillagerEnabled === true,
     projectState,
@@ -208,13 +215,6 @@ export function App(): ReactElement {
     fetch: fetchGit,
     pull: pullGit,
   } = git
-  const terminalPathActivation = useTerminalPathActivation({
-    root,
-    selectedFile: activeTab?.path,
-    openFile: (path, position) =>
-      openFile(path, true, 'file-tree', 'head', undefined, position),
-    revealDirectory: layout.focusTree,
-  })
   rootRef.current = root
   sessionErrorRef.current = session.reportError
   workspaceSwitchRef.current = session.switchRelativeWorkspace

@@ -67,6 +67,7 @@ export function exposureResponse(at: SkillagerExposureRequest = request) {
     }),
   )
   const preview = {
+    ...(at.exposure && !remove ? { selected_exposure_id: at.exposure.id } : {}),
     schema: remove
       ? 'skillager.exposure-remove-preview.v1'
       : 'skillager.exposure-preview.v1',

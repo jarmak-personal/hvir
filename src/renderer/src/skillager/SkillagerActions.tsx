@@ -1,8 +1,6 @@
 import { useEffect, type ReactElement, type ReactNode } from 'react'
 import type { SkillagerMetadata } from '../../../shared/skillager'
 import { SkillagerMenu } from './SkillagerMenu'
-import { isNativeProjectSkill } from './skillager-model'
-import { exposureActions } from './skillager-exposure-model'
 import type { SkillagerExposureController } from './use-skillager-exposure'
 import type { SkillagerActionSurface } from './use-skillager-actions'
 
@@ -19,10 +17,7 @@ export function SkillagerActions({
   readonly surface: SkillagerActionSurface
   readonly children?: ReactNode
 }): ReactElement {
-  if (
-    isNativeProjectSkill(metadata) ||
-    exposureActions(metadata).every((action) => action.disabled)
-  )
+  if (controller.actions(metadata).every((action) => action.disabled))
     return <>{children}</>
   const open = (trigger: HTMLElement, point?: { x: number; y: number }): void =>
     controller.open(metadata, surface, trigger, point)
@@ -78,7 +73,7 @@ export function SkillagerActionsMenu({
       anchor={request}
       label={`Skill actions for ${request.metadata.name}`}
       dismiss={dismiss}
-      items={exposureActions(request.metadata).map((item) => ({
+      items={controller.actions(request.metadata).map((item) => ({
         id: item.action,
         label: item.label,
         disabled: item.disabled,

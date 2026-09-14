@@ -60,7 +60,11 @@ it('shows native metadata and one managed copy with actual canonical actions whe
     trust: 'blocked',
     projectSkill: native.projectSkill,
   })
-  expect(exposureActions(rows[0]!).every((action) => action.disabled)).toBe(true)
+  expect(
+    exposureActions(rows[0]!)
+      .filter((action) => !action.disabled)
+      .map((action) => action.action),
+  ).toEqual(['files'])
   expect(rows[1]).toMatchObject({
     source: owned.source,
     trust: 'reviewed',
@@ -68,7 +72,11 @@ it('shows native metadata and one managed copy with actual canonical actions whe
     workspace: data.exposures![0],
   })
   expect(eligibleSkillagerUpdate(rows[1]!)).toBe(true)
-  expect(exposureActions(rows[1]!).every((action) => !action.disabled)).toBe(true)
+  expect(
+    exposureActions(rows[1]!)
+      .filter((action) => !action.disabled)
+      .map((action) => action.action),
+  ).toEqual(['stub', 'group', 'review-update', 'remove'])
   const tabs = skillagerTabs({ tabs: [] }, { type: 'select', metadata: rows[1]! })
   expect(
     skillagerTabs(tabs, { type: 'observe-project', result: data }).tabs[0]?.metadata,
@@ -83,6 +91,10 @@ it('never infers library authority from a missing canonical source or a matching
     trust: 'unknown',
     workspace: data.exposures![0],
   })
-  expect(exposureActions(rows[1]!).every((action) => action.disabled)).toBe(true)
+  expect(
+    exposureActions(rows[1]!)
+      .filter((action) => !action.disabled)
+      .map((action) => action.action),
+  ).toEqual(['remove'])
   expect(eligibleSkillagerUpdate(rows[1]!)).toBe(false)
 })

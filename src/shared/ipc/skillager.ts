@@ -1,8 +1,9 @@
 import type {
-  SkillagerExposureRequest,
-  SkillagerExposurePreview,
-  SkillagerExposureCompletion,
-} from '../skillager-exposure'
+  SkillagerExposureActionRequest,
+  SkillagerExposureLineageRequest,
+  SkillagerExposureActionPreview,
+  SkillagerExposureActionCompletion,
+} from '../skillager-exposure-plan'
 import type {
   SkillagerAcceptance,
   SkillagerHistory,
@@ -14,6 +15,7 @@ import type {
 } from '../skillager-review'
 import type { HostPath } from '../host-path'
 import type {
+  SkillagerSyncStatus,
   SkillagerSyncCompletion,
   SkillagerSyncPreparation,
   SkillagerSyncRequest,
@@ -60,13 +62,17 @@ export const skillagerIpc = {
       SkillagerResult<Extract<StartPtyResponse, { outcome: 'started' }>>
     >(),
     'skillager:release-project-setup': invoke<{ readonly setupId: string }, void>(),
+    'skillager:exposure-lineage': invoke<
+      SkillagerExposureLineageRequest,
+      SkillagerResult<SkillagerSyncStatus>
+    >(),
     'skillager:preview-exposure': invoke<
-      SkillagerExposureRequest,
-      SkillagerResult<SkillagerExposurePreview>
+      SkillagerExposureActionRequest,
+      SkillagerResult<SkillagerExposureActionPreview>
     >(),
     'skillager:apply-exposure': invoke<
       { readonly previewId: string },
-      SkillagerResult<SkillagerExposureCompletion>
+      SkillagerResult<SkillagerExposureActionCompletion>
     >(),
     'skillager:release-exposure': invoke<{ readonly previewId: string }, void>(),
     'skillager:cancel-exposure': invoke<{ readonly requestId: number }, void>(),

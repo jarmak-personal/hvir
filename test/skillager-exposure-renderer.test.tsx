@@ -258,7 +258,7 @@ describe('workspace skill action UI', () => {
     expect(
       [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent),
     ).toEqual(labels)
-    expect(document.activeElement?.textContent).toBe('Add to project…')
+    expect(document.activeElement?.textContent).toBe('Add to this project…')
     await settle(() => root.render(<Harness active={false} />))
     expect(document.querySelector('[role="menu"]')).toBeNull()
   })
@@ -403,7 +403,7 @@ describe('workspace skill action UI', () => {
     await settle(() =>
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })),
     )
-    expect(document.activeElement?.textContent).toBe('Add to project…')
+    expect(document.activeElement?.textContent).toBe('Group in router…')
     await settle(() => root.render(<Harness active={false} />))
     expect(document.querySelector('[role="menu"]')).toBeNull()
     await settle(() =>

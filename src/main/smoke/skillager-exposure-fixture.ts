@@ -1,4 +1,5 @@
 import { SKILLAGER_PROJECT_FIXTURE_ROWS } from './skillager-project-fixture'
+import { skillagerCurationFixture } from './skillager-curation-fixture'
 import { joinHostPath, type HostPath } from '../../shared/host-path'
 import { SKILLAGER_AGENTS, type SkillagerWorkspaceExposure } from '../../shared/skillager'
 import type { SkillagerExposureCliPort } from '../skillager/skillager-exposure-port'
@@ -135,6 +136,7 @@ export function skillagerExposureFixture(root: HostPath, libraryId: string) {
   })
   return {
     cli,
+    localActions: skillagerCurationFixture(root, libraryId, copies),
     capacity,
     exposures: () => Promise.resolve([...copies.values()]),
     accepted: (skillId: string) => {

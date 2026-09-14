@@ -36,6 +36,11 @@ export function exposureCommand(request: SkillagerExposureRequest): readonly str
     request.agent,
     '--scope',
     'project',
+    ...(request.action !== 'remove' &&
+    request.exposure &&
+    request.destination.root.hostId === 'local'
+      ? ['--exposure-id', request.exposure.id]
+      : []),
     '--json',
   ]
 }
@@ -87,7 +92,8 @@ export function parseExposurePreview(
       preview.mode !== request.mode ||
       preview.scope !== 'project' ||
       !hostPathEquals(absolute(preview.project), request.destination.root) ||
-      !hostPathEquals(absolute(preview.target), target)
+      !hostPathEquals(absolute(preview.target), target) ||
+      (request.exposure && preview.selected_exposure_id !== request.exposure.id)
     )
       return malformedExposure()
     const source = exposureObject(preview.source),
@@ -186,7 +192,7 @@ export function parseExposureApplied(
   }
 }
 
-function resultRow(value: unknown, removing: boolean): Record<string, unknown> {
+export function resultRow(value: unknown, removing: boolean): Record<string, unknown> {
   let rows: unknown = value
   if (removing) {
     const data = exposureObject(value)
@@ -201,12 +207,15 @@ function resultRow(value: unknown, removing: boolean): Record<string, unknown> {
     return unsupportedExposure()
   return row
 }
-function verifyRow(
+export function verifyRow(
   row: Record<string, unknown>,
-  request: SkillagerExposureRequest,
+  request: Pick<SkillagerExposureRequest, 'destination' | 'agent' | 'exposure'> & {
+    readonly skillId?: string
+    readonly mode: string
+  },
 ): HostPath {
   if (
-    row.skill_id !== request.skillId ||
+    (row.skill_id ?? undefined) !== request.skillId ||
     row.agent !== request.agent ||
     row.mode !== request.mode ||
     row.scope !== 'project'
@@ -260,4 +269,16 @@ export function refusedExposure(reason: unknown): never {
     'review-refused',
     `${detail} Hvir does not force replacement or change approval policy.`,
   )
+}
+
+/** This exact public Remove diagnostic is emitted before detach, under its confirmation lock. */
+export function isStaleExposureRemovalDiagnostic(stderr: string): boolean {
+  const message =
+    'exposure removal preview is stale or does not match this command; review the current preview and execute its returned command'
+  return [
+    message,
+    `${message}\n`,
+    `skillager: error: ${message}`,
+    `skillager: error: ${message}\n`,
+  ].includes(stderr)
 }

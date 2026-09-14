@@ -31,7 +31,7 @@ export function SkillagerDetails({
         <h1>{metadata.name}</h1>
         <p>{metadata.description}</p>
       </header>
-      {exposures && !projectOnly ? (
+      {exposures ? (
         <SkillagerActions
           metadata={metadata}
           controller={exposures.menu}

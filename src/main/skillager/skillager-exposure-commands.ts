@@ -1,11 +1,9 @@
 import { parseUpdateSourceHash } from './skillager-update-status'
 import { validateExposureSelection } from './skillager-exposure-selection'
 import {
-  containsHostPath,
-  dirnameHostPath,
-  hostPathEquals,
-  type HostPath,
-} from '../../shared/host-path'
+  validateExposureDestination,
+  validateExposureTarget,
+} from './skillager-exposure-paths'
 import type { SkillagerExposureRequest } from '../../shared/skillager-exposure'
 import type { ProjectHost } from '../project-host/project-host'
 import {
@@ -52,7 +50,7 @@ export class SkillagerExposureCommands implements SkillagerExposureCliPort {
   ) {
     validateExposureSelection(request)
     await this.validate(selection, signal)
-    await this.validateDestination(request.destination.root, signal)
+    await validateExposureDestination(this.host, request.destination.root, signal)
     const output = await this.process.runResult(
       selection.executable.path,
       [
@@ -70,7 +68,12 @@ export class SkillagerExposureCommands implements SkillagerExposureCliPort {
       selection,
       request,
     )
-    await this.validateTarget(snapshot.detail.target, request.destination.root, signal)
+    await validateExposureTarget(
+      this.host,
+      snapshot.detail.target,
+      request.destination.root,
+      signal,
+    )
     await this.validate(selection, signal)
     signal.throwIfAborted()
     return snapshot
@@ -83,7 +86,7 @@ export class SkillagerExposureCommands implements SkillagerExposureCliPort {
   ): Promise<string> {
     const { request } = snapshot.detail
     await this.validate(selection, signal)
-    await this.validateDestination(request.destination.root, signal)
+    await validateExposureDestination(this.host, request.destination.root, signal)
     const exposures = await this.observe(
       selection,
       { ...request, workspaceRoot: request.destination.root },
@@ -121,8 +124,8 @@ export class SkillagerExposureCommands implements SkillagerExposureCliPort {
     const { request, target } = snapshot.detail
     validateExposureSelection(request)
     await this.validate(selection, signal)
-    await this.validateDestination(request.destination.root, signal)
-    await this.validateTarget(target, request.destination.root, signal)
+    await validateExposureDestination(this.host, request.destination.root, signal)
+    await validateExposureTarget(this.host, target, request.destination.root, signal)
     signal.throwIfAborted()
     let output
     try {
@@ -163,45 +166,8 @@ export class SkillagerExposureCommands implements SkillagerExposureCliPort {
       throw uncertainExposure()
     }
   }
-
-  private async validateDestination(root: HostPath, signal: AbortSignal): Promise<void> {
-    if (root.hostId !== 'local' || !hostPathEquals(await this.host.realpath(root), root))
-      throw new SkillagerError(
-        'unavailable',
-        'The selected local workspace location changed. Select its registered location again.',
-      )
-    signal.throwIfAborted()
-  }
-  private async validateTarget(
-    target: HostPath,
-    root: HostPath,
-    signal: AbortSignal,
-  ): Promise<void> {
-    let path = target
-    for (;;) {
-      signal.throwIfAborted()
-      try {
-        const canonical = await this.host.realpath(path)
-        if (!containsHostPath(root, canonical) || !hostPathEquals(path, canonical))
-          throw new SkillagerError(
-            'unavailable',
-            'The selected exposure resolves through a changed or outside workspace path.',
-          )
-        return
-      } catch (error) {
-        if (
-          !(error instanceof Error) ||
-          !('code' in error) ||
-          error.code !== 'ENOENT' ||
-          hostPathEquals(path, root)
-        )
-          throw error
-        path = dirnameHostPath(path)
-        if (!containsHostPath(root, path)) throw error
-      }
-    }
-  }
 }
+
 function uncertainExposure(): SkillagerError {
   return new SkillagerError(
     'uncertain',

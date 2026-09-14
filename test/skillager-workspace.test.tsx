@@ -161,6 +161,38 @@ afterEach(() => {
 })
 
 describe('Skills renderer demand and metadata views', () => {
+  it('reuses canonical project metadata for curation when Your library has not been expanded', async () => {
+    const original = invoke.getMockImplementation()!
+    invoke.mockImplementation((channel, request) =>
+      channel === 'skillager:project-metadata'
+        ? Promise.resolve({
+            ok: true,
+            value: {
+              rows: rows.slice(0, 2),
+              exposures: [],
+              checkedAt: Date.now(),
+              durationMs: 1,
+              status: {
+                projectRoot: localPath('/workspace'),
+                agent: 'codex',
+                status: 'ready',
+                canProceed: true,
+                reviewNeeded: 0,
+                lintBlocked: 0,
+                working: 'present',
+              },
+            },
+          })
+        : original(channel, request),
+    )
+    await render()
+    act(() => current.setLibraryExpanded(false))
+    await connect()
+    expect(current.exposures.rows).toEqual(rows.slice(0, 2))
+    expect(invoke.mock.calls.some(([channel]) => channel === 'skillager:inventory')).toBe(
+      false,
+    )
+  })
   it('keeps section demand independent and all-agent browsing separate from setup and submitted search context', async () => {
     vi.useFakeTimers()
     await render()

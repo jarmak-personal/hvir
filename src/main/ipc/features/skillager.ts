@@ -1,4 +1,5 @@
-import type { SkillagerExposureRequest } from '../../../shared/skillager-exposure'
+import type { SkillagerExposureActionRequest } from '../../../shared/skillager-exposure-plan'
+import type { SkillagerWorkspaceExposure } from '../../../shared/skillager'
 import type { SkillagerRequest, SkillagerSearchRequest } from '../../../shared/skillager'
 import type { IpcRegistrar } from '../authority-router'
 import type { IpcDeps } from '../deps'
@@ -46,6 +47,18 @@ export function registerSkillagerIpc(ipc: IpcRegistrar, deps: SkillagerIpcDeps):
   ipc.handle('skillager:release-project-setup', (request, context) =>
     deps.skillager.releaseProjectSetup(context.owner(), boundedText(request?.setupId)),
   )
+  ipc.handle('skillager:exposure-lineage', (request, context) =>
+    deps.skillager.exposureLineage(context.owner(), {
+      ...qualifySkillagerRequest(ipc.authority, request),
+      destination: {
+        projectId: boundedText(request.destination?.projectId),
+        workspaceId: boundedText(request.destination?.workspaceId),
+        root: ipc.authority.workspaceRoot(
+          ipc.authority.reconstructHostPath(request.destination?.root),
+        ),
+      },
+    }),
+  )
   ipc.handle('skillager:preview-exposure', (request, context) =>
     deps.skillager.previewExposure(
       context.owner(),
@@ -75,7 +88,7 @@ export function registerSkillagerIpc(ipc: IpcRegistrar, deps: SkillagerIpcDeps):
       update:
         request.update === undefined
           ? undefined
-          : qualifyExposureRequest(ipc.authority, request.update),
+          : qualifyUpdateRequest(ipc.authority, request.update),
     }),
   )
   ipc.handle('skillager:history', (request, context) =>
@@ -199,9 +212,53 @@ function boundedText(value: unknown): string {
 
 function qualifyExposureRequest(
   authority: IpcRegistrar['authority'],
-  request: SkillagerExposureRequest,
-): SkillagerExposureRequest {
+  request: SkillagerExposureActionRequest,
+): SkillagerExposureActionRequest {
   const base = qualifySkillagerRequest(authority, request)
+  const destination = {
+    projectId: boundedText(request.destination?.projectId),
+    workspaceId: boundedText(request.destination?.workspaceId),
+    root: authority.workspaceRoot(
+      authority.reconstructHostPath(request.destination?.root),
+    ),
+  }
+  if (request.action === 'remove-router')
+    return {
+      ...base,
+      destination,
+      action: request.action,
+      exposure: qualifyCopy(authority, request.exposure),
+    }
+  if (request.action === 'plan') {
+    if (
+      !Array.isArray(request.origins) ||
+      request.origins.length > 128 ||
+      !Array.isArray(request.exposures) ||
+      request.exposures.length > 128 ||
+      JSON.stringify(request.plan).length > 65536
+    )
+      throw new Error('Invalid local action selection.')
+    return {
+      ...base,
+      destination,
+      action: 'plan',
+      plan: request.plan,
+      origins: request.origins.map(
+        (
+          origin: import('../../../shared/skillager-exposure-plan').SkillagerNativeSelection,
+        ) => ({
+          originId: boundedText(origin.originId),
+          lineageId: boundedText(origin.lineageId),
+          sourceIdentity: boundedText(origin.sourceIdentity),
+          skillId: boundedText(origin.skillId),
+          path: authority.reconstructHostPath(origin.path),
+        }),
+      ),
+      exposures: request.exposures.map((copy: SkillagerWorkspaceExposure) =>
+        qualifyCopy(authority, copy, true),
+      ),
+    }
+  }
   if (
     !request.destination ||
     !['add', 'change', 'remove', 'update'].includes(request.action) ||
@@ -215,23 +272,56 @@ function qualifyExposureRequest(
     mode: request.mode,
     action: request.action,
     reviewId: request.reviewId === undefined ? undefined : boundedText(request.reviewId),
-    destination: {
-      projectId: boundedText(request.destination.projectId),
-      workspaceId: boundedText(request.destination.workspaceId),
-      root: authority.workspaceRoot(
-        authority.reconstructHostPath(request.destination.root),
-      ),
-    },
-    exposure:
-      exposure === undefined
-        ? undefined
-        : {
-            id: boundedText(exposure.id),
-            agent: exposure.agent,
-            skillId: boundedText(exposure.skillId),
-            target: authority.reconstructHostPath(exposure.target),
-            mode: boundedText(exposure.mode),
-            status: boundedText(exposure.status),
-          },
+    destination,
+    exposure: exposure === undefined ? undefined : qualifyCopy(authority, exposure),
   }
+}
+
+function qualifyCopy(
+  authority: IpcRegistrar['authority'],
+  copy: SkillagerWorkspaceExposure,
+  members = false,
+): SkillagerWorkspaceExposure {
+  const router = members ? copy.router : undefined
+  if (
+    router &&
+    (!Array.isArray(router.skillIds) ||
+      router.skillIds.length > 64 ||
+      (router.memberSources &&
+        (!Array.isArray(router.memberSources) || router.memberSources.length > 64)))
+  )
+    throw new Error('Router member selection exceeds the action limit.')
+  return {
+    id: boundedText(copy.id),
+    agent: copy.agent,
+    skillId: copy.skillId == null ? undefined : boundedText(copy.skillId),
+    sourceLibraryId:
+      copy.sourceLibraryId == null ? undefined : boundedText(copy.sourceLibraryId),
+    target: authority.reconstructHostPath(copy.target),
+    mode: boundedText(copy.mode),
+    status: boundedText(copy.status),
+    router: router
+      ? {
+          ...router,
+          skillIds: router.skillIds.map(boundedText),
+          memberSources: router.memberSources?.map((member) => ({
+            skillId: boundedText(member.skillId),
+            sourceLibraryId:
+              member.sourceLibraryId == null
+                ? undefined
+                : boundedText(member.sourceLibraryId),
+          })),
+        }
+      : undefined,
+  }
+}
+
+function qualifyUpdateRequest(
+  authority: IpcRegistrar['authority'],
+  request: SkillagerExposureActionRequest,
+) {
+  const qualified = qualifyExposureRequest(authority, request)
+  if (qualified.action !== 'update')
+    throw new Error('Expected explicit Update review selection.')
+  return qualified
 }

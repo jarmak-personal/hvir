@@ -71,6 +71,7 @@ export function installSkillager(
       },
       {
         cli: exposure,
+        localActions: cli,
         observe: (selection, request, source, signal) =>
           exposure.observe(selection, request, source, signal),
         destinationAvailable: (destination) =>

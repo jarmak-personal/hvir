@@ -1,4 +1,5 @@
 import { verifySkillagerLibrarySync } from './skillager-library-sync'
+import { verifySkillagerCuration } from './skillager-curation'
 import {
   verifySkillagerExplorer,
   verifySkillagerExpansionCapacity,
@@ -147,6 +148,7 @@ export async function verifySkillagerScenario(
     if (!process.env.HVIR_SKILLAGER_SMOKE_FIXTURE) {
       await verifySkillagerUpdate(win)
       await verifySkillagerExposure(win)
+      await verifySkillagerCuration(win)
       await verifySkillagerRemote(win, {
         local: projects.base,
         remote: projects.remoteFiles,

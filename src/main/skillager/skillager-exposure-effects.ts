@@ -102,7 +102,10 @@ export function parseExposureEffects(
   return effects
 }
 
-function entry(value: unknown, metadataAllowed: boolean): SkillagerExposureEntry {
+export function entry(
+  value: unknown,
+  metadataAllowed: boolean | 'plan',
+): SkillagerExposureEntry {
   const data = exposureObject(value),
     mode = exposureMode(data.mode)
   switch (data.type) {
@@ -117,13 +120,17 @@ function entry(value: unknown, metadataAllowed: boolean): SkillagerExposureEntry
         if (!metadataAllowed) return malformedExposure()
         const metadata = exposureObject(data.metadata),
           generated = exposureObject(data.generated_fields)
-        for (const key of METADATA_IDENTITY_FIELDS) exposureText(metadata[key])
+        if (metadataAllowed !== 'plan')
+          for (const key of METADATA_IDENTITY_FIELDS) exposureText(metadata[key])
         if (metadata.exposure_blocked_hashes !== undefined) {
           const hashes = metadata.exposure_blocked_hashes
           if (!Array.isArray(hashes) || hashes.length > 512) return malformedExposure()
           hashes.forEach(exposureHash)
         }
-        if (REQUIRED_GENERATED.some((key) => !Object.hasOwn(generated, key)))
+        if (
+          metadataAllowed !== 'plan' &&
+          REQUIRED_GENERATED.some((key) => !Object.hasOwn(generated, key))
+        )
           return unsupportedExposure()
         if (Object.keys(generated).length > 128) return unsupportedExposure()
         const generatedFields = Object.entries(generated).map(([key, policy]) => {
@@ -153,7 +160,7 @@ function entry(value: unknown, metadataAllowed: boolean): SkillagerExposureEntry
       return malformedExposure()
   }
 }
-function inertMetadata(value: Record<string, unknown>): string {
+export function inertMetadata(value: Record<string, unknown>): string {
   let json: string
   try {
     json = JSON.stringify(

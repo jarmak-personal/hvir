@@ -1,3 +1,4 @@
+import { exposureActions } from '../src/renderer/src/skillager/skillager-exposure-model'
 // @vitest-environment happy-dom
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -27,6 +28,7 @@ const rows = Array.from({ length: 5000 }, (_, i) => ({
 const select = vi.fn(),
   dismiss = vi.fn()
 const actions = {
+  actions: exposureActions,
   request: undefined,
   dismiss,
   current: () => true,
