@@ -26,9 +26,20 @@ export async function verifySkillagerProject(
       return action?.textContent === 'Set up in terminal' && !action.disabled;
     });
     const native = [...document.querySelectorAll('.skillager-row')].find((row) => row.textContent.includes('Project fixture 1'));
-    if (!native.textContent.includes('Original') || !native.textContent.includes('Blocked') || native.closest('.skillager-action-row')) throw new Error('Native metadata gained managed actions');
+    if (!native.textContent.includes('Original') || !native.textContent.includes('Blocked')) throw new Error('Native metadata lost original/blocked status');
+    native.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 40, clientY: 180 }));
+    const menu = await wait(() => document.querySelector('[role=menu][aria-label="Skill actions for Project fixture 1"]'));
+    const action = (label) => [...menu.querySelectorAll('[role=menuitem]')].find(item => item.textContent === label);
+    for (const label of ['Full skill…', 'Stub…', 'Group in router…', 'Remove from this project…']) {
+      if (!action(label)?.disabled) throw Error('Blocked original gained mutation authority: ' + label);
+    }
+    if (!action('Remove in Files…') || action('Remove in Files…').disabled) throw Error('Blocked original lost separate Files handoff');
+    await wait(() => menu.contains(document.activeElement) && document.hasFocus());
     if (!document.querySelector('.viewer-tab:not(.skillager-tab)')) throw new Error('Project observation displaced the ordinary document');`,
   )
+  for (const type of ['keyDown', 'keyUp'] as const)
+    win.webContents.sendInputEvent({ type, keyCode: 'Escape' })
+  await inspect(win, `await wait(() => !document.querySelector('[role=menu]'));`)
   await reveal(win, '.skillager-project-setup button')
   await captureSkillagerSidebar(win, 'project-before')
   const first = await launch(win, supervisor, new Set(ordinary))

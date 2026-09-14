@@ -60,11 +60,23 @@ export async function verifySkillagerCuration(
   const confirm = '.skillager-exposure-dialog .confirmation-action-primary'
   await skillagerControlPoint(win, confirm)
   await captureSkillagerCurationDialog(win, 'curation-preview')
+  const projectCount = await inspectSkillagerControls<number>(
+    win,
+    `return Number(document.querySelector('section[aria-label="In this project"] .skillager-section-header small').textContent);`,
+  )
   await clickSkillagerControl(win, confirm)
   await inspect(`
     await wait(() => document.querySelector('[aria-label="Actual project outcomes"]'));
     button('.skillager-exposure-dialog', 'Close').click();
-    const router = await wait(() => [...document.querySelectorAll('section[aria-label="In this project"] .skillager-row')].find(row => row.textContent.includes('smoke-guidance')));
+    await wait(() => Number(document.querySelector('section[aria-label="In this project"] .skillager-section-header small').textContent) === ${projectCount + 1});
+    const entry = await wait(() => document.querySelector('section[aria-label="In this project"] [role=treeitem]')); entry.focus();
+    await wait(() => document.activeElement === entry && document.hasFocus());
+  `)
+  for (const type of ['keyDown', 'keyUp'] as const)
+    win.webContents.sendInputEvent({ type, keyCode: 'End' })
+  await inspect(`
+    const router = await wait(() => [...document.querySelectorAll('section[aria-label="In this project"] .skillager-row')].find(row => row.querySelector('.skillager-name')?.textContent === 'smoke-guidance'));
+    await wait(() => document.activeElement === router);
     router.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 40, clientY: 180 }));
     await wait(() => button('[role=menu]', 'Remove from this project…'));
     button('[role=menu]', 'Remove from this project…').click();
