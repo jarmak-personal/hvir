@@ -1,3 +1,5 @@
+import { escapeHtml as escape } from './html.mjs'
+import { searchStatusView, matchedSourceView } from './search-views.mjs'
 import {
   curationSource,
   curationRouter,
@@ -7,8 +9,6 @@ import {
   standaloneCopyPresent,
 } from './curation-model.mjs'
 import { agentLabel } from './model.mjs'
-const escape = (s) =>
-  String(s).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;')
 const action = (name, label, disabled = false) =>
   `<button data-curate="${name}" ${disabled ? 'disabled' : ''}>${label}</button>`
 const close = '<button data-action="close">Cancel</button>'
@@ -24,13 +24,8 @@ export function curationCatalogView(state) {
     libraryEmpty = !c.sources.some((row) => row.preserved),
     rows =
       state.results ??
-      c.sources.filter(
-        (row) =>
-          (library ||
-            state.browseAgent === 'all' ||
-            !(row.projectAgent ?? row.agent) ||
-            (row.projectAgent ?? row.agent) === state.browseAgent) &&
-          (library ? row.preserved : row.projectPresent && row.mode !== 'Router member'),
+      c.sources.filter((row) =>
+        library ? row.preserved : row.projectPresent && row.mode !== 'Router member',
       )
   const rowView = (row) => {
     const agent = row.projectAgent ?? row.agent,
@@ -57,24 +52,20 @@ export function curationCatalogView(state) {
               ? 'Review'
               : '',
       selected = c.selected === row.id && !c.selectedRouter && c.selectedScope === scope
-    return `<div class="skill-row ${selected ? 'selected' : ''}" ${fromLibrary ? 'data-library-row' : 'data-curation-row'}="${row.id}" data-row-scope="${scope}">${linkedCopy ? `<button class="disclosure" data-expand="${key}" aria-expanded="${!!open}" aria-label="Related copies of ${row.name}">${open ? '⌄' : '›'}</button>` : '<span class="tree-icon" aria-hidden="true">◇</span>'}<button data-curation-select="${row.id}" title="${row.name}"><span class="skill-name">${row.name}</span><small>${row.resultScope ? (fromLibrary ? 'Your library' : row.origin) : library ? '' : `${agent === 'claude' ? 'Claude' : 'Codex'} · ${row.mode === 'Full skill' ? 'Full' : row.mode}`}</small>${status ? `<span class="row-status">${status}</span>` : ''}</button><button class="more" data-curation-menu="${row.id}" aria-label="Actions for ${row.name}">⋯</button></div>${linkedCopy && open ? `<div class="explorer-child"><button data-curation-select="${row.id}" data-row-scope="workspace">↳ ${agentLabel(agent)} · ${row.mode} · In this project</button></div>` : ''}`
+    return `<div class="skill-row ${selected ? 'selected' : ''}" ${fromLibrary ? 'data-library-row' : 'data-curation-row'}="${row.id}" data-row-scope="${scope}">${linkedCopy ? `<button class="disclosure" data-expand="${key}" aria-expanded="${!!open}" aria-label="Related copies of ${row.name}">${open ? '⌄' : '›'}</button>` : '<span class="tree-icon" aria-hidden="true">◇</span>'}<button data-curation-select="${row.id}" ${row.occurrenceId ? `data-occurrence="${row.occurrenceId}"` : ''} title="${row.name}"><span class="skill-name">${row.name}</span><small>${row.resultScope ? (fromLibrary ? 'Your library' : `${row.managed ? `Installed ${row.mode === 'Full skill' ? 'Full' : row.mode}` : row.origin === 'Project native' ? 'Original' : row.origin}${agent ? ` · ${agentLabel(agent)}` : ''}`) : library ? '' : `${row.managed ? (row.mode === 'Full skill' ? 'Full' : row.mode) : 'Original'} · ${agentLabel(agent)}`}</small>${status ? `<span class="row-status">${status}</span>` : ''}${row.resultScope ? matchedSourceView(row) : ''}</button><button class="more" data-curation-menu="${row.id}" ${row.occurrenceId ? `data-occurrence="${row.occurrenceId}"` : ''} aria-label="Actions for ${row.name}">⋯</button></div>${linkedCopy && open ? `<div class="explorer-child"><button data-curation-select="${row.id}" data-row-scope="workspace">↳ ${row.managed ? row.mode : 'Original'} · ${agentLabel(agent)} · In this project</button></div>` : ''}`
   }
-  return `${state.submittedQuery ? `<p class="curation-search-status" role="status">${state.searching ? 'Searching…' : `${rows.length} results`} for “${escape(state.submittedQuery)}” · ${state.scope === 'personal' ? 'Your library' : 'Available to this project'}</p>` : ''}
+  return `${searchStatusView(state)}
     ${library && !libraryEmpty ? `<details class="library-actions"><summary>Library actions</summary>${action('sync', 'Sync approved skills…')}</details>` : ''}
-    ${library && libraryEmpty && !state.results ? `<p>Your library has no preserved skills.</p>${action('sync', 'Sync approved skills…')}` : !rows.length ? '<p>No skills match this view.</p>' : ''}
+    ${library && libraryEmpty && !state.results ? `<p>Your library has no preserved skills.</p>${action('sync', 'Sync approved skills…')}` : !rows.length && !state.searching && !state.searchReport?.unavailable ? '<p>No skills match this view.</p>' : ''}
     <div class="${library ? 'curation-library-list' : 'curation-list'}">${rows.map(rowView).join('')}</div>
     ${
       !library && !state.results
         ? c.routers
-            .filter(
-              (router) =>
-                router.members.length &&
-                (state.browseAgent === 'all' || router.agent === state.browseAgent),
-            )
+            .filter((router) => router.members.length)
             .map((router) => {
               const key = `router:${router.id}`,
                 open = state.expandedSkills[key]
-              return `<section class="router-group"><div class="skill-row" data-router-row="${router.id}"><button class="disclosure" data-expand="${key}" aria-expanded="${!!open}" aria-label="Members of ${escape(router.name)}">${open ? '⌄' : '›'}</button><button data-curation-router="${router.id}"><span class="skill-name">${escape(router.name)}</span><small>${agentLabel(router.agent)} · Router ${router.members.length}</small></button><button class="more" data-router-menu="${router.id}" aria-label="Actions for ${escape(router.name)}">⋯</button></div><div class="explorer-child" ${open ? '' : 'hidden'}>${router.members.map((id) => `<button data-curation-select="${id}" data-row-scope="workspace">◇ ${curationSource(state, id).name} · Router member</button>`).join('')}</div></section>`
+              return `<section class="router-group"><div class="skill-row" data-router-row="${router.id}"><button class="disclosure" data-expand="${key}" aria-expanded="${!!open}" aria-label="Members of ${escape(router.name)}">${open ? '⌄' : '›'}</button><button data-curation-router="${router.id}"><span class="skill-name">${escape(router.name)}</span><small>${agentLabel(router.agent)} · Router ${router.members.length}</small></button><button class="more" data-router-menu="${router.id}" aria-label="Actions for ${escape(router.name)}">⋯</button></div><div class="explorer-child" ${open ? '' : 'hidden'}>${router.members.map((id) => `<button data-curation-select="${id}" data-member-router="${router.id}" data-row-scope="workspace">◇ ${curationSource(state, id).name} · Router member</button>`).join('')}</div></section>`
             })
             .join('')
         : ''
@@ -86,7 +77,7 @@ export function curationDetailView(state) {
   if (c.selectedRouter)
     return `<article class="details curation-details"><h2>${escape(router.name)}</h2><p>${agentLabel(router.agent)} · Router · Membership reported by Skillager</p><ul>${router.members.map((id) => `<li>${curationSource(state, id).name} · ${id}</li>`).join('')}</ul><p>Project tag: ${escape(router.tag)}</p>${action('set-members', 'Edit members…')}${action('ungroup', 'Ungroup…')}${action('remove-router', 'Remove router from this project…')}<p>Review every standalone copy and router effect. Ungrouping retains the project tag.</p></article>`
   const row = curationSource(state),
-    canonicalSelection = c.selectedScope === 'library' || row.managed,
+    canonicalSelection = c.selectedScope === 'library',
     primaryApproval =
       row.managed && c.selectedScope !== 'library'
         ? `Accepted project copy · ${row.exposedVersion}`
@@ -99,11 +90,12 @@ export function curationDetailView(state) {
             : 'Original needs review',
     canReviewLibrary =
       canonicalSelection ||
+      row.managed ||
       (row.preserved &&
         row.approved &&
         row.libraryVersion === row.version &&
         row.version === row.approvedVersion)
-  return `<article class="details curation-details"><header><h2>${row.name}</h2>${action('menu', 'Actions…')}</header><p>${row.description}</p>${state.curation.lastEffect ? `<p role="status">${escape(state.curation.lastEffect)}</p>` : ''}<dl><dt>Selected copy</dt><dd>${row.managed && c.selectedScope !== 'library' ? 'Managed project copy' : canonicalSelection ? 'Canonical library source' : `Project original · ${agentLabel(row.projectAgent ?? row.agent)}`}</dd><dt>Approval</dt><dd id="curation-approval">${primaryApproval}</dd><dt>Library preservation</dt><dd>${row.preserved ? `Local · ${state.library.path}/skills/synced-${row.id} · ${row.libraryVersion}` : 'Not preserved yet'}</dd><dt>Original exposure</dt><dd>${row.projectPresent ? row.mode : 'Not in this project'} · ${row.managed ? 'Managed copy' : 'Original source'}</dd></dl><details class="provenance"><summary>Source and approval lineage</summary><p>Original ${row.origin} decision (${row.approved && !row.originBlocked && row.version === row.approvedVersion ? 'current' : 'changed or blocked'}): ${row.origin === 'Project native' ? 'project-only' : 'global'} · ${row.id} · ${row.approvedVersion}. ${row.libraryAcceptedVersion ? `Derived accepted library version: ${row.libraryAcceptedVersion} · reusable across projects. Current library version: ${row.libraryVersion}. Original scope and actual decision evidence retained.` : 'No derived library acceptance yet.'}</p></details>${state.reviewOpen && canReviewLibrary ? `<section class="review"><h3>Reviewed sample content</h3><p>Local · ${state.library.path}/skills/synced-${row.id} · ${row.libraryVersion}</p><pre id="curation-body"># ${escape(row.name)}\n\nSample instructions for ${escape(row.id)}.</pre></section>` : canReviewLibrary ? action('review', 'Review content') : row.origin === 'Project native' && row.projectPresent ? action('review-files', 'Review in Files…') : '<p>Review this source with Skillager in your local terminal.</p>'}${canonicalSelection ? (canonicalRefusal(row) ? `<p class="notice">${canonicalRefusal(row)}</p>` : '') : curationRefusal(state, row) ? `<p class="notice">${curationRefusal(state, row)}</p>` : ''}</article>`
+  return `<article class="details curation-details"><header><h2>${row.name}</h2>${action('menu', 'Actions…')}</header><p>${row.description}</p>${state.curation.lastEffect ? `<p role="status">${escape(state.curation.lastEffect)}</p>` : ''}<details class="source-status"><summary>Source and status</summary><dl><dt>Selected copy</dt><dd>${row.managed && c.selectedScope !== 'library' ? 'Managed project copy' : canonicalSelection ? 'Canonical library source' : `Project original · ${agentLabel(row.projectAgent ?? row.agent)}`}</dd><dt>Approval</dt><dd id="curation-approval">${primaryApproval}</dd><dt>Library preservation</dt><dd>${row.preserved ? `Local · ${state.library.path}/skills/synced-${row.id} · ${row.libraryVersion}` : 'Not preserved yet'}</dd><dt>Original exposure</dt><dd>${row.projectPresent ? row.mode : 'Not in this project'} · ${row.managed ? 'Managed copy' : 'Original source'}</dd></dl><details class="provenance"><summary>Source and approval lineage</summary><p>Original ${row.origin} decision (${row.approved && !row.originBlocked && row.version === row.approvedVersion ? 'current' : 'changed or blocked'}): ${row.origin === 'Project native' ? 'project-only' : 'global'} · ${row.id} · ${row.approvedVersion}. ${row.libraryAcceptedVersion ? `Derived accepted library version: ${row.libraryAcceptedVersion} · reusable across projects. Current library version: ${row.libraryVersion}. Original scope and actual decision evidence retained.` : 'No derived library acceptance yet.'}</p></details></details>${row.preserved && row.logicalIdentity && !canonicalSelection ? '<button data-action="canonical-definition">Open library definition</button>' : ''}${state.reviewOpen && canReviewLibrary ? `<section class="review"><h3>Reviewed sample content</h3><p>Local · ${state.library.path}/skills/synced-${row.id} · ${row.libraryVersion}</p><pre id="curation-body"># ${escape(row.name)}\n\nSample instructions for ${escape(row.id)}.</pre></section>` : canReviewLibrary ? action('review', 'Review content') : row.origin === 'Project native' && row.projectPresent ? action('review-files', 'Review in Files…') : '<p>Review this source with Skillager in your local terminal.</p>'}${canonicalSelection ? (canonicalRefusal(row) ? `<p class="notice">${canonicalRefusal(row)}</p>` : '') : curationRefusal(state, row) ? `<p class="notice">${curationRefusal(state, row)}</p>` : ''}</article>`
 }
 export function curationMenuView(state) {
   const row = curationSource(state),
@@ -114,7 +106,7 @@ export function curationMenuView(state) {
     canRemove = present && !member && !removeReason,
     library = state.curation.selectedScope === 'library'
   return `<h2 id="dialog-title">Actions · ${row.name}</h2><p>${row.projectAgent || row.agent ? agentLabel(row.projectAgent ?? row.agent) : 'Your library'} · ${present ? row.mode : 'Not in this project'}</p><h3>This project</h3>
-    ${!present ? action('add', 'Add to this project…', !!curationRefusal(state, row, 'add')) : action('full', 'Full skill…', !!reason || member) + action('stub', 'Stub…', !!reason || member) + action('router', 'Group in router…', !!reason) + action('update', 'Update…', !!reason || member || !row.managed || row.exposedVersion === row.libraryVersion) + (canRemove ? action('remove', 'Remove from this project…') : member ? '<p>Edit router members to restore or remove this membership.</p>' : action('files-remove', 'Remove in Files…'))}
+    ${!present ? action('add', 'Add to this project…', !!curationRefusal(state, row, 'add')) : action('full', 'Use as full skill…', !!reason || member) + action('stub', 'Use as stub…', !!reason || member) + action('router', 'Group in router…', !!reason) + action('update', 'Update…', !!reason || member || !row.managed || row.exposedVersion === row.libraryVersion) + (canRemove ? action('remove', 'Remove from this project…') : member ? '<p>Edit router members to restore or remove this membership.</p>' : action('files-remove', 'Remove in Files…'))}
     ${(!present ? canonicalRefusal(row) : reason) ? `<p class="notice">${!present ? canonicalRefusal(row) : reason}</p>` : ''}${library ? `<p>Canonical library versions remain when project copies change.</p>` : ''}<h3>Your library</h3>${action('sync', 'Sync approved skills…')}<p>Sync preserves originals; changing an original requires separate review.</p><footer><button data-action="close">Close</button></footer>`
 }
 export function curationRouterMenuView(state) {

@@ -1,7 +1,9 @@
+import { curationSearchCandidates, publicSearchSample } from './search-sample.mjs'
 // Synthetic curation outcomes only: no CLI calls, files, approval policy or real tokens.
 export function curationSample({ emptyLibrary = false } = {}) {
   const source = (id, name, agent, origin, extra = {}) => ({
     id,
+    logicalIdentity: `sample-source-${id}`,
     name,
     agent,
     origin,
@@ -103,22 +105,7 @@ export function curationSource(state, id = state.curation.selected) {
   return state.curation.sources.find((row) => row.id === id)
 }
 export function searchCurationSample(state, submitted) {
-  // Declared sample eligibility only; the real CLI supplies ranking and match metadata.
-  return state.curation.sources
-    .flatMap((row) => {
-      const canonical = row.preserved && row.libraryAccepted && !row.libraryBlocked
-      const original =
-        row.approved && !row.originBlocked && row.version === row.approvedVersion
-      if (!canonical && (submitted.scope === 'personal' || !original || row.preserved))
-        return []
-      return [{ ...row, resultScope: canonical ? 'library' : 'workspace' }]
-    })
-    .filter((row) =>
-      `${row.name} ${row.description}`
-        .toLowerCase()
-        .includes(submitted.query.toLowerCase()),
-    )
-    .slice(0, 50)
+  return publicSearchSample(state, submitted, curationSearchCandidates(state))
 }
 export function syncCurationSample(state) {
   const c = state.curation

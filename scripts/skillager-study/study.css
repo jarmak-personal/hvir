@@ -871,3 +871,82 @@ body:has(#project-terminal-lab:not([hidden])) .frame {
   gap: 8px;
   padding: 6px 0;
 }
+
+/* Explicit current-file reading leads; source and action details remain secondary. */
+.skill-reading {
+  padding: 24px;
+  max-width: 860px;
+}
+.skill-reading header h2 {
+  margin-bottom: 6px;
+}
+.skill-reading header p,
+.reading-status {
+  color: var(--muted);
+  font-size: 13px;
+}
+.skill-reading small {
+  overflow-wrap: anywhere;
+}
+.skill-reading pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  line-height: 1.7;
+  padding: 20px 0;
+}
+.skill-reading + .details {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.skill-reading + .details h2 {
+  font-size: 14px;
+}
+.source-status {
+  margin: 12px 0;
+}
+.source-status summary {
+  cursor: pointer;
+}
+.match-evidence {
+  display: block;
+  white-space: normal;
+  font-size: 11px;
+  color: var(--muted);
+}
+.reading-empty {
+  padding: 20px;
+  color: var(--muted);
+}
+
+/* Search occurrences need readable source/match evidence; browse stays one line. */
+.explorer-search-results .skill-row {
+  height: auto;
+  min-height: 48px;
+  align-items: start;
+}
+.explorer-search-results .skill-row > button:not(.more) {
+  display: grid;
+  height: auto;
+  min-height: 46px;
+  padding: 5px 3px;
+  gap: 1px;
+}
+.explorer-search-results .skill-row small {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.explorer-search-results .skill-row .more {
+  margin-top: 5px;
+}
+
+#search-advanced label.inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+#search-advanced label.inline input {
+  width: auto;
+  margin: 0;
+}
