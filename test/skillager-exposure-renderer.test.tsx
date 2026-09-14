@@ -484,6 +484,50 @@ describe('workspace skill action UI', () => {
       document.querySelector('.skillager-exposure-dialog [role="status"]')?.textContent,
     ).toBe('Changed lib/demo to Stub at local:/other.')
   })
+  it.each(['codex', 'claude'] as const)(
+    'reports the applied Update for the selected %s copy and exact destination',
+    async (agent) => {
+      const target = hostPath(
+        request.workspaceRoot.hostId,
+        `${request.workspaceRoot.path}/${agent === 'claude' ? '.claude' : '.agents'}/skills/lib-demo`,
+      )
+      const selected = {
+        ...metadata,
+        contentHash: 'a'.repeat(64),
+        workspaceFreshness: 'fresh' as const,
+        workspace: {
+          agent,
+          id: 'lib-demo',
+          skillId: metadata.id,
+          target,
+          mode: 'native',
+          status: 'source_update',
+          expectedSourceHash: 'a'.repeat(64),
+        },
+      }
+      await settle(() => controller.start(selected, 'update', 'review-id'))
+      await settle(() => controller.preview())
+      expect(
+        invoke.mock.calls.find(
+          ([channel]) => channel === 'skillager:preview-exposure',
+        )![1],
+      ).toMatchObject({
+        action: 'update',
+        agent,
+        exposure: { agent, target },
+        reviewId: 'review-id',
+        destination: { root: request.workspaceRoot },
+      })
+      invoke.mockResolvedValue({
+        ok: true,
+        value: { status: 'exposed', target, skillId: metadata.id, mode: 'native' },
+      })
+      await settle(() => button('Confirm exact changes').click())
+      expect(
+        document.querySelector('.skillager-exposure-dialog [role="status"]')?.textContent,
+      ).toBe(`Updated lib/demo for ${agent} at ${target.hostId}:${target.path}.`)
+    },
+  )
   it('uses the selected copy agent for mutations independently of the setup agent', async () => {
     const selected = {
       ...metadata,

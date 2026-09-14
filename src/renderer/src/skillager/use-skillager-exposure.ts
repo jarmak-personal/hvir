@@ -476,7 +476,7 @@ function completionMessage(
         : 'Project changes only partially completed. Inspect every target outcome below.'
   const action =
     state.action === 'update'
-      ? `Updated ${result.skillId}`
+      ? `Updated ${result.skillId} for ${state.agent}`
       : ['change', 'full', 'stub'].includes(state.action)
         ? `Changed ${result.skillId} to ${result.mode === 'native' ? 'Full skill' : 'Stub'}`
         : `${result.status === 'removed' ? 'Removed' : 'Added'} ${result.skillId}`
