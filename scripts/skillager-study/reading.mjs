@@ -1,11 +1,7 @@
+import { escapeHtml as escape } from './html.mjs'
 // Closed sample documents only. No filesystem, CLI, approval or snapshot authority.
 import { destinationFor, skillFor, exposuresFor, projectSampleFor } from './model.mjs'
 import { curationSource, curationRouter, curationTarget } from './curation-model.mjs'
-const escape = (value) =>
-  String(value).replace(
-    /[&<>"']/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
-  )
 export function selectedDocument(state) {
   const destination = destinationFor(state)
   const library = (id, name, version, status) => ({

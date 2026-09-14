@@ -1,3 +1,4 @@
+import { catalogView } from './views.mjs'
 import { selectedDocument } from './reading.mjs'
 import { initialState } from './model.mjs'
 import { curationSample } from './curation-model.mjs'
@@ -236,7 +237,7 @@ export async function checkReadingStudy({
   await choose('#browse-agent', 'claude')
   await submit()
   await assert(
-    `document.querySelector('[data-action="legacy-search"]') && !document.querySelector('.explorer-search-results [data-curation-select]')`,
+    `document.querySelector('[data-action="legacy-search"]') && !document.querySelector('.explorer-search-results [data-curation-select]') && !document.querySelector('.explorer-search-results').textContent.includes('No skills match')`,
     'Unsupported search contract offers an explicit legacy choice',
   )
   await pointClick('[data-action="legacy-search"]')
@@ -250,7 +251,7 @@ export async function checkReadingStudy({
   await flow('reading-unknown')
   await submit()
   await assert(
-    `document.querySelector('[data-action="include-installed"]') && !document.querySelector('[data-action="legacy-search"]') && !document.querySelector('.explorer-search-results [data-curation-select]')`,
+    `document.querySelector('[data-action="include-installed"]') && !document.querySelector('[data-action="legacy-search"]') && !document.querySelector('.explorer-search-results [data-curation-select]') && !document.querySelector('.explorer-search-results').textContent.includes('No skills match')`,
     'Unknown installed presence offers explicit Include installed without discarding supported grouping',
   )
   await pointClick('[data-action="include-installed"]')
@@ -308,6 +309,37 @@ export async function checkReadingStudy({
   await assert(
     'true',
     'A member shared by two sample routers requires the explicitly selected concrete router body',
+  )
+  for (const curation of [false, true]) {
+    const catalog = {
+      ...initialState(),
+      enabled: true,
+      connected: true,
+      results: [],
+      submittedSearch: { query: 'unmatched', scope: 'available', agent: 'all' },
+      searching: true,
+      searchReport: null,
+    }
+    if (curation) catalog.curation = curationSample()
+    nodeAssert.doesNotMatch(
+      catalogView(catalog),
+      /No matching skills|No skills match this view/,
+    )
+    catalog.searching = false
+    catalog.searchReport = {
+      unavailable: 'Sample search unavailable',
+      unavailableKind: 'contract',
+    }
+    nodeAssert.doesNotMatch(
+      catalogView(catalog),
+      /No matching skills|No skills match this view/,
+    )
+    catalog.searchReport = { rows: [] }
+    nodeAssert.match(catalogView(catalog), /No matching skills|No skills match this view/)
+  }
+  await assert(
+    'true',
+    'Both catalog renderers suppress no-match text during pending or unavailable search and show it only for completed zero results',
   )
   // Finite closed fixtures exercise the study response model, not production capacity.
   const candidates = Array.from({ length: 80 }, (_, i) => ({

@@ -2,7 +2,7 @@
 
 > Lifecycle: Active
 > Supersedes: [ADR-046](ADR-046-explicit-skillager-library-and-exposure-authority.md) | partial | Ordinary skill-body activation and confined reading grant, and logical-identity grouping and installed-skill search defaults only; verified review, acceptance and mutation authority remain unchanged.
-> Supersedes: [ADR-049](ADR-049-project-skill-explorer-and-curation.md) | partial | Selected skill reading presentation, exposure action wording, and logical-identity grouping and installed-skill search controls only; explorer disclosure, preservation and exposure authority remain unchanged.
+> Supersedes: [ADR-049](ADR-049-project-skill-explorer-and-curation.md) | partial | Selected skill reading presentation, exposure action wording, logical-identity grouping and installed-skill search controls, and Search Preferred agent independence from browse trees and action agents only; explorer disclosure, preservation and exposure authority remain unchanged.
 
 ## Context
 
@@ -79,7 +79,8 @@ the active project, including older or modified native originals, Full copies, S
 qualified router members. Presence across **all supported agents** counts. Preferred agent remains
 a native-variant/compatibility preference, not a strict filter or a narrowing of installed presence.
 Existing project entries and updates remain accessible through **In this project** and Include
-installed.
+installed. Search Preferred agent does not filter either browse tree or retarget an action’s
+concrete agent.
 
 Advanced exposes **Include installed** and **Show separate copies**. The latter returns concrete
 occurrences instead of one group representative, retaining source, agent, version and target

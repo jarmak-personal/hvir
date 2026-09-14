@@ -1,3 +1,4 @@
+import { escapeHtml as escape } from './html.mjs'
 import { searchStatusView, matchedSourceView } from './search-views.mjs'
 import {
   curationSource,
@@ -8,8 +9,6 @@ import {
   standaloneCopyPresent,
 } from './curation-model.mjs'
 import { agentLabel } from './model.mjs'
-const escape = (s) =>
-  String(s).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;')
 const action = (name, label, disabled = false) =>
   `<button data-curate="${name}" ${disabled ? 'disabled' : ''}>${label}</button>`
 const close = '<button data-action="close">Cancel</button>'
@@ -57,7 +56,7 @@ export function curationCatalogView(state) {
   }
   return `${searchStatusView(state)}
     ${library && !libraryEmpty ? `<details class="library-actions"><summary>Library actions</summary>${action('sync', 'Sync approved skills…')}</details>` : ''}
-    ${library && libraryEmpty && !state.results ? `<p>Your library has no preserved skills.</p>${action('sync', 'Sync approved skills…')}` : !rows.length ? '<p>No skills match this view.</p>' : ''}
+    ${library && libraryEmpty && !state.results ? `<p>Your library has no preserved skills.</p>${action('sync', 'Sync approved skills…')}` : !rows.length && !state.searching && !state.searchReport?.unavailable ? '<p>No skills match this view.</p>' : ''}
     <div class="${library ? 'curation-library-list' : 'curation-list'}">${rows.map(rowView).join('')}</div>
     ${
       !library && !state.results

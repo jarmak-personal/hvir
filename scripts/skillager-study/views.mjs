@@ -1,3 +1,4 @@
+import { escapeHtml } from './html.mjs'
 import { searchView, searchStatusView, matchedSourceView } from './search-views.mjs'
 import { browseSampleRows } from './model.mjs'
 import { curationCatalogView } from './curation-views.mjs'
@@ -14,11 +15,7 @@ import {
   projectSampleFor,
   exposureKey,
 } from './model.mjs'
-export const escapeHtml = (value) =>
-  String(value).replace(
-    /[&<>"']/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
-  )
+export { escapeHtml } from './html.mjs'
 const button = (action, label, disabled = false) =>
   `<button type="button" data-action="${action}" ${disabled ? 'disabled' : ''}>${label}</button>`
 function missingCliView() {
@@ -94,7 +91,7 @@ export function catalogView(state) {
   const rows = browseSampleRows(state)
   return `${remote ? `<details class="search-caption"><summary>Local library → ${escapeHtml(destinationFor(state).label)}</summary><p>hvir manages this SSH workspace with the same Add, Update, and Remove actions. Full skill files only; no Skillager installation is needed on this host.</p></details>` : ''}
     ${searchStatusView(state)}
-    <section class="${state.results || state.perspective === 'library' ? 'skill-list' : 'project-managed-list'}" aria-label="Skill list">${rows.map((s) => `<div class="skill-row ${s.id === state.selected && state.selectedScope === (s.resultScope || state.perspective) && (!s.rowAgent || s.rowAgent === state.agent) ? 'selected' : ''}" data-skill="${s.id}" data-row-scope="${s.resultScope || state.perspective}"><button data-select="${s.id}" ${state.results ? `data-occurrence="${s.occurrenceId}"` : ''} ${s.rowAgent ? `data-row-agent="${s.rowAgent}"` : ''}><span class="skill-name">◇ ${s.id}</span><small class="row-badges">${s.source ? `${s.source} · ` : ''}${state.results || state.perspective === 'library' ? (s.blocked ? 'Blocked source' : s.accepted ? 'Accepted' : 'Needs review') : s.rowUnmanaged ? 'Unmanaged target' : `${agentLabel(s.rowAgent)} · ${modeLabel(s.rowExposure?.mode)} · ${statusFor(s, s.rowExposure)}`}${state.results ? ` · ${s.match} match` : ''}</small>${state.results ? matchedSourceView(s) : ''}</button><button class="more" data-menu="${s.id}" ${state.results ? `data-occurrence="${s.occurrenceId}"` : ''} ${s.rowAgent ? `data-row-agent="${s.rowAgent}"` : ''} aria-label="Actions for ${s.id}">⋯</button></div>`).join('') || '<p class="empty">No matching skills</p>'}</section>`
+    <section class="${state.results || state.perspective === 'library' ? 'skill-list' : 'project-managed-list'}" aria-label="Skill list">${rows.map((s) => `<div class="skill-row ${s.id === state.selected && state.selectedScope === (s.resultScope || state.perspective) && (!s.rowAgent || s.rowAgent === state.agent) ? 'selected' : ''}" data-skill="${s.id}" data-row-scope="${s.resultScope || state.perspective}"><button data-select="${s.id}" ${state.results ? `data-occurrence="${s.occurrenceId}"` : ''} ${s.rowAgent ? `data-row-agent="${s.rowAgent}"` : ''}><span class="skill-name">◇ ${s.id}</span><small class="row-badges">${s.source ? `${s.source} · ` : ''}${state.results || state.perspective === 'library' ? (s.blocked ? 'Blocked source' : s.accepted ? 'Accepted' : 'Needs review') : s.rowUnmanaged ? 'Unmanaged target' : `${agentLabel(s.rowAgent)} · ${modeLabel(s.rowExposure?.mode)} · ${statusFor(s, s.rowExposure)}`}${state.results ? ` · ${s.match} match` : ''}</small>${state.results ? matchedSourceView(s) : ''}</button><button class="more" data-menu="${s.id}" ${state.results ? `data-occurrence="${s.occurrenceId}"` : ''} ${s.rowAgent ? `data-row-agent="${s.rowAgent}"` : ''} aria-label="Actions for ${s.id}">⋯</button></div>`).join('') || (state.searching || state.searchReport?.unavailable ? '' : '<p class="empty">No matching skills</p>')}</section>`
 }
 export function detailView(state) {
   const s = skillFor(state),

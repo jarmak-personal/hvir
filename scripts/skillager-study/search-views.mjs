@@ -1,10 +1,6 @@
+import { escapeHtml as escape } from './html.mjs'
 import { destinationFor } from './model.mjs'
 import { submittedSearchLabel } from './search-sample.mjs'
-const escape = (value) =>
-  String(value).replace(
-    /[&<>"']/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
-  )
 export function searchView(state) {
   return `<details id="search-disclosure" ${state.searchOpen ? 'open' : ''}><summary>Search skills${state.submittedSearch ? ` · “${escape(state.submittedQuery)}” · ${submittedSearchLabel(state.submittedSearch)}` : ''}</summary>
     <form id="search-form"><div class="search-bar"><input id="search" aria-label="Search skill metadata and accepted body" placeholder="Title, description, tags, body…" maxlength="1000" value="${escape(state.query)}"><button class="primary" type="submit">Search</button><button type="button" data-action="cancel-search" ${!state.searching && !state.results ? 'disabled' : ''}>Clear</button></div>
