@@ -45,6 +45,7 @@ const metadata = {
     rows: [],
     exposures: [],
     setupRunning: false,
+    requiresLibraryMetadata: false,
     checkedAt: 1,
     durationMs: 1,
     status: {

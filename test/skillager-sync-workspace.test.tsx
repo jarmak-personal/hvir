@@ -76,7 +76,13 @@ function result(channel: string) {
   if (channel === 'skillager:inventory' || channel === 'skillager:project-metadata')
     return {
       ok: true,
-      value: { rows, checkedAt: Date.now(), durationMs: 1, exposures: [] },
+      value: {
+        rows,
+        checkedAt: Date.now(),
+        durationMs: 1,
+        exposures: [],
+        requiresLibraryMetadata: false,
+      },
     }
   if (channel === 'skillager:sync-status')
     return {

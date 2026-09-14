@@ -1,3 +1,4 @@
+import { SKILLAGER_ACCEPTED_TRUST } from '../../shared/skillager'
 import { createHash, randomUUID } from 'node:crypto'
 import {
   containsHostPath,
@@ -60,11 +61,10 @@ export class SkillagerNativeCommands implements SkillagerNativePort {
     let created = false
     const cleanup = async (): Promise<void> => {
       if (!created) return
-      const result = await this.host.exec(
-        'rm',
-        ['-rf', '--', scratch.path],
-        { signal: AbortSignal.timeout(10_000), maxBuffer: 4096 },
-      )
+      const result = await this.host.exec('rm', ['-rf', '--', scratch.path], {
+        signal: AbortSignal.timeout(10_000),
+        maxBuffer: 4096,
+      })
       if (result.code !== 0) throw new Error('Native scratch cleanup failed')
       created = false
     }
@@ -242,7 +242,7 @@ export class SkillagerNativeCommands implements SkillagerNativePort {
     )
     if (
       result.row.id !== skillId ||
-      !['reviewed', 'trusted', 'pinned'].includes(result.row.trust)
+      !SKILLAGER_ACCEPTED_TRUST.some((trust) => trust === result.row.trust)
     )
       refuse('The canonical source is unavailable or requires acceptance.')
     await this.validate(selection, signal)

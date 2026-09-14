@@ -29,7 +29,6 @@ import { hostPathEquals, type HostPath } from '../../shared/host-path'
 import { withSkillagerRouterMemberships } from './skillager-workspace-metadata'
 import {
   SKILLAGER_QUERY_BYTES,
-  SKILLAGER_INVENTORY_LIMIT,
   SKILLAGER_AGENTS,
   type SkillagerConnection,
   type SkillagerMetadataResult,
@@ -560,6 +559,15 @@ export class SkillagerCapability {
         grant.assertCurrent()
         return {
           ...observed.value,
+          requiresLibraryMetadata: Boolean(
+            observed.value.exposures?.some(
+              (copy) =>
+                (copy.sourceLibraryId === grant.selection.library!.id && copy.skillId) ||
+                copy.router?.memberSources?.some(
+                  (member) => member.sourceLibraryId === grant.selection.library!.id,
+                ),
+            ),
+          ),
           setupRunning: this.projectSetup?.isRunning(grant.selection, request) ?? false,
         }
       }),
@@ -875,35 +883,13 @@ export class SkillagerCapability {
               try {
                 this.current(owner, state, generation)
                 if (controller.signal.aborted) throw cancelled()
-                let payload = await operation(selection, controller.signal)
+                const payload = await operation(selection, controller.signal)
                 const exposures = await this.exposure.observe(
                   selection,
                   request,
                   { rows: payload.rows, complete: kind === 'inventory' },
                   controller.signal,
                 )
-                const ids = new Set<string>()
-                if (kind === 'project')
-                  for (const copy of exposures ?? []) {
-                    if (copy.sourceLibraryId === selection.library!.id && copy.skillId)
-                      ids.add(copy.skillId)
-                    for (const member of copy.router?.memberSources ?? [])
-                      if (member.sourceLibraryId === selection.library!.id)
-                        ids.add(member.skillId)
-                  }
-                if (ids.size) {
-                  const canonical = await this.cli.inventory(selection, controller.signal)
-                  const rows = [
-                    ...payload.rows,
-                    ...canonical.filter((row) => ids.has(row.id)),
-                  ]
-                  if (rows.length > SKILLAGER_INVENTORY_LIMIT)
-                    throw new SkillagerError(
-                      'output-limit',
-                      'Project metadata exceeds the supported number of entries.',
-                    )
-                  payload = { ...payload, rows }
-                }
                 this.current(owner, state, generation)
                 if (
                   controller.signal.aborted ||

@@ -1,3 +1,4 @@
+import { SKILLAGER_ACCEPTED_TRUST } from '../../shared/skillager'
 import {
   hostPathEquals,
   joinHostPath,
@@ -83,7 +84,8 @@ export function parseAcceptancePreview(value: unknown, id: string, root: HostPat
     refusal,
     confirmationToken,
     canAccept:
-      !refusal && !['reviewed', 'trusted', 'pinned'].includes(String(skill.trust)),
+      !refusal &&
+      !SKILLAGER_ACCEPTED_TRUST.some((trust) => trust === String(skill.trust)),
   }
 }
 export function verifySnapshotLibrary(value: unknown, root: HostPath): void {

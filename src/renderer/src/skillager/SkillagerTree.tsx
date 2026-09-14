@@ -1,3 +1,4 @@
+import type { SkillagerCanonicalObservation } from './skillager-model'
 import {
   useEffect,
   useLayoutEffect,
@@ -29,7 +30,7 @@ export function SkillagerTree({
   label,
 }: {
   readonly rows: readonly SkillagerMetadata[]
-  readonly known: readonly SkillagerMetadata[]
+  readonly known: SkillagerCanonicalObservation
   readonly activeId?: string
   readonly onSelect: (row: SkillagerMetadata) => void
   readonly actions: SkillagerExposureController['menu']

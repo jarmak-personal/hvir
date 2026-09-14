@@ -1,3 +1,4 @@
+import { SKILLAGER_ACCEPTED_TRUST } from '../../shared/skillager'
 import { isDeepStrictEqual } from 'node:util'
 import { safeExposureId } from './skillager-exposure-selection'
 import {
@@ -98,7 +99,7 @@ export function parseExposurePreview(
     return malformedExposure()
   if (request.action === 'update' && source.trust === 'pinned')
     return refusedExposure('pinned source')
-  if (!['reviewed', 'trusted', 'pinned'].includes(String(source.trust)))
+  if (!SKILLAGER_ACCEPTED_TRUST.some((trust) => trust === String(source.trust)))
     return refusedExposure('unaccepted source')
   const sourceHash = exposureHash(source.content_hash)
   const metadata = exposureObject(

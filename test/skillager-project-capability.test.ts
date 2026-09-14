@@ -148,12 +148,18 @@ it('observes native project metadata independently of an empty personal inventor
   const result = await f.capability.projectMetadata(f.owner, request)
   expect(result).toMatchObject({
     ok: true,
-    value: { rows: [native], status, setupRunning: false, exposures: [] },
+    value: {
+      rows: [native],
+      status,
+      setupRunning: false,
+      exposures: [],
+      requiresLibraryMetadata: false,
+    },
   })
   expect(f.cli.inventory).not.toHaveBeenCalled()
 })
 
-it('joins only actual referenced owned source metadata when managed copies are browsed first, including pending versions', async () => {
+it('requests the shared library metadata lane for qualified managed copies without refreshing the catalog', async () => {
   const copy = {
     agent: 'codex' as const,
     id: 'lib-guide',
@@ -166,22 +172,41 @@ it('joins only actual referenced owned source metadata when managed copies are b
   const f = fixture([copy]),
     request = await f.connect()
   const result = await f.capability.projectMetadata(f.owner, request)
-  expect(f.cli.inventory).toHaveBeenCalledExactlyOnceWith(
-    selection,
-    expect.any(AbortSignal),
-  )
+  expect(f.cli.inventory).not.toHaveBeenCalled()
   expect(result).toMatchObject({
     ok: true,
-    value: { rows: [native, canonical], exposures: [copy] },
-  })
-  if (!result.ok) throw Error(result.message)
-  expect(result.value.rows.some((row) => row.id === 'lib/unrelated')).toBe(false)
-  expect(result.value.rows[0]?.source.ownership).toBe('external')
-  expect(result.value.rows[1]?.source).toMatchObject({
-    ownership: 'library',
-    libraryId: selection.library.id,
+    value: { rows: [native], exposures: [copy], requiresLibraryMetadata: true },
   })
 })
+
+it.each([undefined, 'foreign', selection.library.id])(
+  'derives router canonical demand only from the connected public UUID: %s',
+  async (sourceLibraryId) => {
+    const router: SkillagerWorkspaceExposure = {
+      id: 'router',
+      agent: 'claude',
+      mode: 'router',
+      status: 'current',
+      target: localPath('/workspace/.claude/skills/router'),
+      router: {
+        kind: 'tag',
+        slug: 'router',
+        skillIds: ['lib/guide'],
+        memberSources: [{ skillId: 'lib/guide', sourceLibraryId }],
+      },
+    }
+    const f = fixture([router]),
+      request = await f.connect()
+    expect(await f.capability.projectMetadata(f.owner, request)).toMatchObject({
+      ok: true,
+      value: {
+        rows: [native],
+        requiresLibraryMetadata: sourceLibraryId === selection.library.id,
+      },
+    })
+    expect(f.cli.inventory).not.toHaveBeenCalled()
+  },
+)
 
 it('keeps only the newest project read while an aborted predecessor is still closing', async () => {
   const f = fixture(),
@@ -213,7 +238,7 @@ it('keeps only the newest project read while an aborted predecessor is still clo
   expect(f.project.projectMetadata).toHaveBeenCalledTimes(2)
 })
 
-it('fails explicitly if project metadata plus referenced canonical sources exceed the retained row bound', async () => {
+it('retains the full bounded native observation without appending duplicate canonical rows', async () => {
   const f = fixture([
     {
       agent: 'codex' as const,
@@ -233,10 +258,12 @@ it('fails explicitly if project metadata plus referenced canonical sources excee
     })),
     status,
   })
-  expect(await f.capability.projectMetadata(f.owner, request)).toMatchObject({
-    ok: false,
-    reason: 'output-limit',
-  })
+  const observed = await f.capability.projectMetadata(f.owner, request)
+  expect(observed).toMatchObject({ ok: true, value: { requiresLibraryMetadata: true } })
+  if (!observed.ok) throw Error(observed.message)
+  expect(observed.value.rows).toHaveLength(10_000)
+  expect(observed.value.rows.at(-1)!.id).toBe('project/9999')
+  expect(f.cli.inventory).not.toHaveBeenCalled()
 })
 
 it('revokes project reads on disable and does not publish completed obsolete metadata', async () => {

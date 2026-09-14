@@ -1,3 +1,4 @@
+import { SKILLAGER_ACCEPTED_TRUST } from '../../shared/skillager'
 import { randomUUID } from 'node:crypto'
 import type { Disposer } from '../../shared'
 import { hostPathEquals, joinHostPath, type HostPath } from '../../shared/host-path'
@@ -369,7 +370,7 @@ export class SkillagerRemoteExposures implements SkillagerExposureCliPort {
             row.source.libraryId === selection.library!.id,
         )
         const available =
-          source && ['reviewed', 'trusted', 'pinned'].includes(source.trust)
+          source && SKILLAGER_ACCEPTED_TRUST.some((trust) => trust === source.trust)
         const status =
           assessment.status === 'absent'
             ? target.intent?.action === 'remove'

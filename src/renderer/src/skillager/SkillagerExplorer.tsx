@@ -1,3 +1,4 @@
+import type { SkillagerCanonicalObservation } from './skillager-model'
 import type { ReactNode } from 'react'
 import type { SkillagerMetadata } from '../../../shared/skillager'
 import type { SkillagerController } from './use-skillager-workspace'
@@ -25,7 +26,7 @@ export function SkillagerExplorer({
   readonly loading: boolean
   readonly error?: string
   readonly rows: readonly SkillagerMetadata[]
-  readonly known: readonly SkillagerMetadata[]
+  readonly known: SkillagerCanonicalObservation
   readonly checkedAt?: number
   readonly controller: SkillagerController
   readonly onRefresh: () => void

@@ -1,3 +1,4 @@
+import { SKILLAGER_ACCEPTED_TRUST } from '../../../shared/skillager'
 import { isNativeProjectSkill } from './skillager-model'
 import { hostPathEquals } from '../../../shared/host-path'
 import type { SkillagerMetadata } from '../../../shared/skillager'
@@ -42,7 +43,7 @@ export function exposureActions(
   const copy = metadata.workspace,
     member = metadata.routerMembership
   const native = isNativeProjectSkill(metadata)
-  const approved = ['reviewed', 'trusted', 'pinned'].includes(metadata.trust)
+  const approved = SKILLAGER_ACCEPTED_TRUST.some((trust) => trust === metadata.trust)
   const present = !['removed', 'absent'].includes(copy?.status ?? '')
   if (native)
     return [

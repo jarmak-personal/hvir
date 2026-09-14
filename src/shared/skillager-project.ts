@@ -22,6 +22,8 @@ export interface SkillagerProjectMetadata {
 }
 
 export interface SkillagerProjectObservation extends SkillagerProjectMetadata {
+  /** Qualified project copies/members need the existing canonical inventory lane. */
+  readonly requiresLibraryMetadata: boolean
   readonly setupRunning: boolean
   readonly exposures?: readonly SkillagerWorkspaceExposure[]
   readonly checkedAt: number

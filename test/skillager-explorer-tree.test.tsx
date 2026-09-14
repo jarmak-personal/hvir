@@ -6,7 +6,10 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { localPath } from '../src/shared/host-path'
 import type { SkillagerMetadata } from '../src/shared/skillager'
 import { SkillagerTree } from '../src/renderer/src/skillager/SkillagerTree'
-import { skillagerMetadataKey } from '../src/renderer/src/skillager/skillager-model'
+import {
+  canonicalSkillagerMetadata,
+  skillagerMetadataKey,
+} from '../src/renderer/src/skillager/skillager-model'
 import type { SkillagerExposureController } from '../src/renderer/src/skillager/use-skillager-exposure'
 
 let mount: HTMLDivElement, root: Root
@@ -39,7 +42,11 @@ function render(items: readonly SkillagerMetadata[], activeId?: string) {
     root.render(
       <SkillagerTree
         rows={items}
-        known={items}
+        known={{
+          rows: canonicalSkillagerMetadata(items),
+          checkedAt: 1,
+          freshness: 'fresh',
+        }}
         label="Your library"
         actions={actions}
         onSelect={select}
