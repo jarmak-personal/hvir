@@ -1,4 +1,4 @@
-import { appendFile, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
+import { appendFile, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -682,7 +682,8 @@ describe('HarnessTelemetryHub', () => {
       acceptRecord: `
         if [ "$line" = hold ]; then
           acquire_frame_lock || continue
-          : >"$follower_source.locked"
+          printf '%s\\n' "$tmp_dir/write.lock" >"$follower_source.locked.next"
+          mv "$follower_source.locked.next" "$follower_source.locked"
           sleep 30
           release_frame_lock
         else
@@ -710,13 +711,22 @@ describe('HarnessTelemetryHub', () => {
     try {
       await appendFile(firstPath, 'hold\n')
       await vi.waitFor(
-        () => expect(fileExists(`${firstPath}.locked`)).resolves.toBe(true),
+        async () => {
+          const marker = await stat(`${firstPath}.locked`)
+          expect(marker.size).toBeGreaterThan(0)
+          expect(marker.size).toBeLessThanOrEqual(4096)
+        },
         {
           timeout: 4_000,
         },
       )
+      const heldLock = (await readFile(`${firstPath}.locked`, 'utf8')).trim()
+      await expect(fileExists(heldLock)).resolves.toBe(true)
 
       void stopFirst()
+      await vi.waitFor(() => expect(fileExists(heldLock)).resolves.toBe(false), {
+        timeout: 4_000,
+      })
       await appendFile(secondPath, '{"used":23}\n')
 
       await vi.waitFor(
