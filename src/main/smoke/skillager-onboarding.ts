@@ -123,7 +123,14 @@ export async function selectSkillagerExecutable(
 /** Opt-in, cropped, closed-fixture visuals; ordinary tests produce no screenshots. */
 export async function captureSkillagerSidebar(
   win: BrowserWindow,
-  name: 'setup' | 'connected-empty' | 'project-before' | 'project-ready' | 'explorer',
+  name:
+    | 'setup'
+    | 'connected-empty'
+    | 'project-before'
+    | 'project-ready'
+    | 'explorer'
+    | 'search-grouped'
+    | 'search-copies',
 ): Promise<void> {
   return captureSkillagerVisual(win, name, '.tree-panel')
 }
