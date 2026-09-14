@@ -150,6 +150,7 @@ export function WorkbenchViewerPane({
             tab={skillager.active}
             reviews={skillager.reviews}
             exposures={skillager.exposures}
+            librarySync={skillager.librarySync}
           />
         </div>
       ) : null}

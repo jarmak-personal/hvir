@@ -421,3 +421,38 @@
   display: block;
   margin: 6px 0;
 }
+
+.skillager-sync-empty,
+.skillager-sync-progress {
+  padding: 8px 10px;
+  font-size: calc(12px * var(--hvir-interface-scale));
+  overflow-wrap: anywhere;
+}
+.skillager-sync-progress {
+  max-height: 220px;
+  overflow: auto;
+  flex: 0 1 auto;
+}
+.skillager-sync-progress p,
+.skillager-sync-empty p {
+  margin: 4px 0;
+}
+.skillager-sync-items {
+  padding-left: 22px;
+}
+.skillager-sync-items li {
+  margin: 6px 0;
+}
+.skillager-sync-progress nav,
+.skillager-lineage nav {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.skillager-lineage {
+  margin: 18px 0;
+  overflow-wrap: anywhere;
+}
+.skillager-lineage h2 {
+  font-size: calc(14px * var(--hvir-interface-scale));
+}

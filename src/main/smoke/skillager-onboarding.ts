@@ -1,3 +1,4 @@
+import { verifySkillagerLibrarySync } from './skillager-library-sync'
 import type { BrowserWindow } from 'electron'
 import { LocalHost } from '../project-host/local-host'
 import { localPath, joinHostPath } from '../../shared/host-path'
@@ -80,6 +81,7 @@ export async function verifySkillagerOnboarding(win: BrowserWindow): Promise<voi
   )
   await skillagerControlPoint(win, prompt)
   await captureSkillagerSidebar(win, 'connected-empty')
+  await verifySkillagerLibrarySync(win, true)
   await selectSkillagerExecutable(win, '/hvir-smoke/skillager')
   await inspect(
     win,

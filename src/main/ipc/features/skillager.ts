@@ -6,6 +6,23 @@ import type { IpcDeps } from '../deps'
 type SkillagerIpcDeps = Pick<IpcDeps, 'skillager'>
 
 export function registerSkillagerIpc(ipc: IpcRegistrar, deps: SkillagerIpcDeps): void {
+  ipc.handle('skillager:sync-status', (request, context) =>
+    deps.skillager.librarySync.observe(
+      context.owner(),
+      qualifySkillagerRequest(ipc.authority, request),
+    ),
+  )
+  ipc.handle('skillager:sync-approved', (request, context) =>
+    deps.skillager.librarySync.apply(context.owner(), {
+      ...qualifySkillagerRequest(ipc.authority, request),
+      observationId: boundedText(request.observationId),
+    }),
+  )
+  ipc.handle('skillager:cancel-sync', (request, context) => {
+    if (!request || !Number.isSafeInteger(request.requestId) || request.requestId < 1)
+      throw new Error('Invalid library sync cancellation.')
+    return deps.skillager.librarySync.cancel(context.owner(), request.requestId)
+  })
   ipc.handle('skillager:project-metadata', (request, context) =>
     deps.skillager.projectMetadata(context.owner(), {
       ...qualifySkillagerRequest(ipc.authority, request),
