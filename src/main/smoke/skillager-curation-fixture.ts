@@ -18,7 +18,7 @@ export function skillagerCurationFixture(
       if (request.action === 'remove-router')
         return {
           confirmationToken: 'fixture-private-router-token',
-          preview: {},
+          targetHash: hash,
           detail: {
             kind: 'remove-router',
             request,

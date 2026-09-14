@@ -4,6 +4,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { DirectoryTree } from '../src/renderer/src/tree/DirectoryTree'
 import { FileTree } from '../src/renderer/src/tree/FileTree'
 import { localPath, type DirEntry, type HostPath } from '../src/shared'
 
@@ -25,9 +26,20 @@ let container: HTMLDivElement
 let reactRoot: Root
 let originalScrollIntoView: PropertyDescriptor | undefined
 const scrollIntoView = vi.fn()
+const frames = new Map<number, FrameRequestCallback>()
+let frameId = 0
 
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  frames.clear()
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    const id = ++frameId
+    frames.set(id, callback)
+    return id
+  })
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => {
+    frames.delete(id)
+  })
   originalScrollIntoView = Object.getOwnPropertyDescriptor(
     HTMLElement.prototype,
     'scrollIntoView',
@@ -71,7 +83,7 @@ afterEach(() => {
 })
 
 describe('Files rail directory reveal', () => {
-  it('expands ancestors, selects the directory, and scrolls its row into view', async () => {
+  it('expands ancestors, selects the directory, and scrolls/focuses the exact revealed row', async () => {
     const onOpen = vi.fn()
     act(() => {
       reactRoot.render(
@@ -81,7 +93,7 @@ describe('Files rail directory reveal', () => {
           searchRefreshVersion={0}
           ignoredRefreshVersion={0}
           selected={target}
-          revealRequest={{ path: target, token: 1 }}
+          revealRequest={{ path: target, token: 1, focusRow: true }}
           onOpen={onOpen}
           viewerPathRebind={{
             canRebindPath: () => true,
@@ -100,6 +112,8 @@ describe('Files rail directory reveal', () => {
     })
 
     await waitFor(() => selectedRow(target) !== undefined)
+    flushFrames()
+    expect(document.activeElement).toBe(selectedRow(target))
 
     expect(treeRow(workspaceRoot)?.getAttribute('aria-expanded')).toBe('true')
     expect(treeRow(localPath('/repo/src'))?.getAttribute('aria-expanded')).toBe('true')
@@ -108,6 +122,93 @@ describe('Files rail directory reveal', () => {
     expect(onOpen).not.toHaveBeenCalled()
   })
 })
+
+it.each(['selection', 'request', 'unmount'] as const)(
+  'cancels explicit row focus when its %s departs before layout',
+  async (change) => {
+    const loadEntries = () => Promise.resolve([])
+    act(() =>
+      reactRoot.render(
+        <DirectoryTree
+          root={target}
+          loadEntries={loadEntries}
+          selected={target}
+          revealRequest={{ path: target, token: 1, focusRow: true }}
+        />,
+      ),
+    )
+    expect(frames.size).toBe(1)
+    act(() =>
+      reactRoot.render(
+        change === 'unmount' ? null : (
+          <DirectoryTree
+            root={target}
+            loadEntries={loadEntries}
+            selected={change === 'selection' ? undefined : target}
+            revealRequest={
+              change === 'request'
+                ? undefined
+                : { path: target, token: 1, focusRow: true }
+            }
+          />
+        ),
+      ),
+    )
+    expect(frames.size).toBe(0)
+    flushFrames()
+    expect(scrollIntoView).not.toHaveBeenCalled()
+    expect(document.activeElement).not.toBe(treeRow(target))
+    await act(async () => {
+      await Promise.resolve()
+    })
+  },
+)
+it('does not focus a directory for ordinary selection without an explicit reveal', async () => {
+  const loadEntries = () => Promise.resolve([])
+  act(() =>
+    reactRoot.render(
+      <DirectoryTree root={target} loadEntries={loadEntries} selected={target} />,
+    ),
+  )
+  expect(frames.size).toBe(0)
+  expect(document.activeElement).not.toBe(treeRow(target))
+  await act(async () => {
+    await Promise.resolve()
+  })
+})
+it('preserves input focus for an ordinary scroll-only folder reveal', async () => {
+  const input = document.createElement('input')
+  document.body.append(input)
+  input.focus()
+  const loadEntries = () => Promise.resolve([])
+  try {
+    act(() =>
+      reactRoot.render(
+        <DirectoryTree
+          root={target}
+          loadEntries={loadEntries}
+          selected={target}
+          revealRequest={{ path: target, token: 1 }}
+        />,
+      ),
+    )
+    flushFrames()
+    expect(scrollIntoView.mock.instances).toContain(treeRow(target))
+    expect(document.activeElement).toBe(input)
+  } finally {
+    input.remove()
+  }
+  await act(async () => {
+    await Promise.resolve()
+  })
+})
+function flushFrames(): void {
+  act(() => {
+    const pending = [...frames.values()]
+    frames.clear()
+    for (const callback of pending) callback(performance.now())
+  })
+}
 
 function treeRow(path: HostPath): HTMLButtonElement | undefined {
   return (

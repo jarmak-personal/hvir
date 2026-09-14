@@ -389,3 +389,60 @@ it('aborts a pending Files handoff when its originating action changes and never
     ),
   ).toBe(false)
 })
+
+it('does not route a foreign-library native-looking row into conversion or Files', async () => {
+  const foreign = {
+    ...native,
+    source: { type: 'collection', ownership: 'library' as const, libraryId: 'foreign' },
+  }
+  invoke.mockClear()
+  await settle(() => controller.start(foreign, 'stub'))
+  await settle(() => controller.start(foreign, 'files'))
+  expect(controller.state).toBeUndefined()
+  expect(invoke).not.toHaveBeenCalled()
+  expect(reveal).not.toHaveBeenCalled()
+})
+it.each(['original', 'managed', 'canonical'] as const)(
+  'renders an actionable Files fallback only for an eligible failed %s action',
+  async (kind) => {
+    const row =
+      kind === 'original'
+        ? native
+        : kind === 'managed'
+          ? { ...routerRow, projectSkill: { ...native.projectSkill!, managed: true } }
+          : { ...canonical, projectSkill: { ...native.projectSkill!, managed: true } }
+    await settle(() =>
+      controller.start(
+        row,
+        kind === 'original' ? 'stub' : kind === 'managed' ? 'remove' : 'group',
+      ),
+    )
+    invoke.mockResolvedValueOnce({
+      ok: false,
+      reason: 'review-refused',
+      message: 'Fixture refusal',
+    })
+    if (kind === 'canonical')
+      await settle(() =>
+        controller.choose({
+          curation: { ...controller.state!.curation!, name: 'Guidance' },
+        }),
+      )
+    await settle(() => button('Preview changes').click())
+    expect(controller.state?.failed).toBe(true)
+    const fallback = [
+      ...document.querySelectorAll<HTMLButtonElement>(
+        '.skillager-exposure-dialog button',
+      ),
+    ].find((item) => item.textContent === 'Remove in Files…')
+    expect(Boolean(fallback)).toBe(kind === 'original')
+    if (fallback) {
+      await settle(() => fallback.click())
+      expect(reveal).toHaveBeenCalledWith(
+        native.projectSkill!.path,
+        expect.any(AbortSignal),
+      )
+      expect(controller.state).toBeUndefined()
+    }
+  },
+)

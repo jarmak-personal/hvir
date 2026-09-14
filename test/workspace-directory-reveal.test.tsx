@@ -36,7 +36,7 @@ it('retains completed Files directory navigation when its Skills surface hides, 
   try {
     await settle(() => root.render(<Harness />))
     await settle(() => current.reveal(folder))
-    expect(current.request).toEqual({ path: folder, token: 1 })
+    expect(current.request).toEqual({ path: folder, token: 1, focusRow: true })
     expect(focus).toHaveBeenCalledTimes(1)
     await settle(() => root.render(<Harness skills={false} />))
     expect(current.request?.path).toEqual(folder)
@@ -78,7 +78,7 @@ it('preserves the terminal file navigation port and position while sharing the d
   try {
     await settle(() => root.render(<Harness />))
     await settle(() => current.activate({ path, line: 7, column: 2 }))
-    expect(openFile).toHaveBeenCalledWith(path, true, 'file-tree', 'head', undefined, {
+    expect(openFile).toHaveBeenCalledWith(path, {
       line: 7,
       column: 2,
     })

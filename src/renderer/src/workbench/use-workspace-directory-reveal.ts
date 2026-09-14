@@ -17,12 +17,16 @@ export function useWorkspaceDirectoryReveal(
   const [state, setState] = useState<{
     root: HostPath
     selectedFile?: HostPath
-    request: { readonly path: HostPath; readonly token: number }
+    request: { readonly path: HostPath; readonly token: number; readonly focusRow: true }
   }>()
   const reveal = useCallback((path: HostPath) => {
     const { root, selectedFile, focusTree } = current.current
     if (!root || !containsHostPath(root, path) || hostPathEquals(root, path)) return
-    setState({ root, selectedFile, request: { path, token: ++serial.current } })
+    setState({
+      root,
+      selectedFile,
+      request: { path, token: ++serial.current, focusRow: true },
+    })
     focusTree()
   }, [])
   const sameFile =

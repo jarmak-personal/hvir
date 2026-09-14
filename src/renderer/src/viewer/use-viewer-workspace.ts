@@ -457,6 +457,12 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
     }
   }, [flushPendingPositions])
 
+  const openFileAtPosition = useCallback(
+    (path: HostPath, position?: Omit<ViewerNavigationPosition, 'serial'>): void =>
+      openFile(path, true, 'file-tree', 'head', undefined, position),
+    [openFile],
+  )
+
   return {
     model,
     tabs: model.tabs,
@@ -469,6 +475,7 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
     split: model.split,
     switchWorkspace,
     openFile,
+    openFileAtPosition,
     activateTab,
     closeTab,
     pinTab,

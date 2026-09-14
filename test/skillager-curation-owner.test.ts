@@ -149,7 +149,10 @@ it('holds destination admission while a cancelled submitted action drains, then 
   await rolled.cleanup
   await expect(
     f.exposures.preview(rolled.owner, changed, changedGrant),
-  ).rejects.toMatchObject({ reason: 'uncertain' })
+  ).rejects.toMatchObject({
+    reason: 'uncertain',
+    message: expect.stringContaining('for this hvir session') as unknown,
+  })
   const elsewhere = localPath('/another-project')
   await expect(
     f.exposures.preview(

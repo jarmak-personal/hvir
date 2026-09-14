@@ -437,7 +437,7 @@ export function useSkillagerExposure(options: Options) {
           used: true,
           failed: true,
           message:
-            'Completion is uncertain. Project actions remain unavailable while target, tag or recovery outcomes cannot be established; this confirmation cannot be retried.',
+            'Completion is uncertain. Project actions remain unavailable for this hvir session; Refresh and reconnect cannot establish every target, tag or recovery outcome. This confirmation cannot be retried.',
         })
       }
     }

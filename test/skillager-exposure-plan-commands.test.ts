@@ -204,6 +204,12 @@ it('classifies only the complete nonzero Remove stale diagnostic as proven refus
     'skillager: error: exposure removal preview is stale or does not match this command; review the current preview and execute its returned command\n'
   for (const [code, stdout, stderr, reason] of [
     [2, '', exact, 'stale-review'],
+    [
+      2,
+      '',
+      'skillager: error: managed exposure has local edits; preview again with --force only if those edits may be discarded\n',
+      'review-refused',
+    ],
     [2, '', `failed to read filename "${exact.trim()}"`, 'uncertain'],
     [2, '', `${exact}additional failure\n`, 'uncertain'],
     [1, '', exact, 'uncertain'],
@@ -238,5 +244,33 @@ it('classifies only the complete nonzero Remove stale diagnostic as proven refus
       vi.fn(),
     ),
   ).rejects.toMatchObject({ reason: 'uncertain' })
-  expect(f.exec).toHaveBeenCalledTimes(6)
+  expect(f.exec).toHaveBeenCalledTimes(7)
+})
+
+it('keeps missing-router preview a sanitized current-target refusal rather than an unsupported installation', async () => {
+  const f = fixture()
+  f.exec.mockResolvedValueOnce({
+    code: 2,
+    signal: null,
+    stdout: '',
+    stderr: 'skillager: error: exposure not found: router-missing\n',
+  })
+  await expect(
+    f.commands.previewLocalAction(
+      planSelection,
+      {
+        ...planRequest,
+        action: 'remove-router',
+        exposure: {
+          id: 'router-missing',
+          mode: 'router',
+          agent: 'codex',
+          target: localPath('/workspace/.agents/skills/router-missing'),
+          status: 'current',
+        },
+      },
+      new AbortController().signal,
+    ),
+  ).rejects.toMatchObject({ reason: 'review-refused' })
+  expect(f.exec).toHaveBeenCalledTimes(1)
 })

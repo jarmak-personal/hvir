@@ -80,10 +80,6 @@ interface UseTerminalPathActivationOptions {
   readonly selectedFile?: HostPath
   readonly openFile: (
     path: HostPath,
-    pinned: true,
-    context: 'file-tree',
-    diffBase: 'head',
-    diffRevision: undefined,
     position?: Omit<ViewerNavigationPosition, 'serial'>,
   ) => void
   readonly revealDirectory: () => void
@@ -96,7 +92,7 @@ export function useTerminalPathActivation({
   revealDirectory,
 }: UseTerminalPathActivationOptions): {
   readonly activate: (target: ResolvedTerminalFileTarget) => void
-  readonly revealRequest?: { readonly path: HostPath; readonly token: number }
+  readonly revealRequest: ReturnType<typeof useWorkspaceDirectoryReveal>['request']
   readonly revealDirectory: (path: HostPath) => void
 } {
   const mounted = useRef(false)
@@ -108,7 +104,7 @@ export function useTerminalPathActivation({
     openFile: (path, position) => {
       if (!mounted.current) return
       directory.clear()
-      callbacks.current.openFile(path, true, 'file-tree', 'head', undefined, position)
+      callbacks.current.openFile(path, position)
     },
     revealDirectory: (path) => {
       if (!mounted.current || !root) return

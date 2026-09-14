@@ -14,6 +14,7 @@ import { join } from 'node:path'
 import { expect, it, onTestFinished } from 'vitest'
 import { localPath } from '../src/shared/host-path'
 import { SKILLAGER_AGENTS } from '../src/shared/skillager'
+import type { SkillagerExposureRequest } from '../src/shared/skillager-exposure'
 import type { SkillagerLifecycleRequest } from '../src/shared/skillager-exposure-plan'
 import { LocalHost } from '../src/main/project-host/local-host'
 import type { ExecOptions } from '../src/main/project-host/project-host'
@@ -496,6 +497,56 @@ it.runIf(Boolean(executable)).each(SKILLAGER_AGENTS)(
     expect(await readFile(join(project.path, '.skillager/tags.json'), 'utf8')).toContain(
       lineage.canonical.skillId,
     )
+    const selectedDirect = (await cli.exposures(selection, base, signal))!.find(
+      (item) => item.target.path === defaultPreview.detail.target.path,
+    )!
+    if (selectedDirect.mode !== 'native' && selectedDirect.mode !== 'stub')
+      throw new Error('Expected the retained direct copy')
+    const removeDirect: SkillagerExposureRequest = {
+      ...base,
+      action: 'remove' as const,
+      skillId: selectedDirect.skillId!,
+      mode: selectedDirect.mode,
+      exposure: selectedDirect,
+    }
+    const directRemoval = await cli.previewExposure(selection, removeDirect, signal)
+    const directBody = await readFile(
+      join(selectedDirect.target.path, 'SKILL.md'),
+      'utf8',
+    )
+    const directSidecar = await readFile(
+      join(selectedDirect.target.path, 'skillager.materialized.yaml'),
+      'utf8',
+    )
+    const directMode = (await stat(selectedDirect.target.path)).mode & 0o777
+    await chmod(selectedDirect.target.path, 0o700)
+    await expect(
+      cli.applyExposure(selection, directRemoval, signal),
+    ).rejects.toMatchObject({ reason: 'stale-review' })
+    expect((await stat(selectedDirect.target.path)).mode & 0o777).toBe(0o700)
+    expect(await readFile(join(selectedDirect.target.path, 'SKILL.md'), 'utf8')).toBe(
+      directBody,
+    )
+    expect(
+      await readFile(
+        join(selectedDirect.target.path, 'skillager.materialized.yaml'),
+        'utf8',
+      ),
+    ).toBe(directSidecar)
+    // Explicit fixture repair and a newly reviewed action; the stale confirmation is never retried.
+    await chmod(selectedDirect.target.path, directMode)
+    await cli.applyExposure(
+      selection,
+      await cli.previewExposure(selection, removeDirect, signal),
+      signal,
+    )
+    await expect(access(selectedDirect.target.path)).rejects.toThrow()
+    expect(
+      await readFile(
+        join(otherPreview.detail.target.path, 'skillager.materialized.yaml'),
+        'utf8',
+      ),
+    ).toBe(otherBefore)
   },
   180_000,
 )

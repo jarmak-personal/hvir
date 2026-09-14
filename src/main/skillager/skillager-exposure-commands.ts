@@ -23,6 +23,7 @@ import {
   parseExposureApplied,
   parseExposurePreview,
   refusedExposure,
+  isProvenManagedRemovalRefusal,
 } from './skillager-exposure-contract'
 
 const LIMITS = {
@@ -148,9 +149,11 @@ export class SkillagerExposureCommands implements SkillagerExposureCliPort {
     }
     if (output.code !== 0) {
       if (
-        /preview is stale|source identity or approval changed|exposure not found|ambiguous exposure id|managed exposure has local edits/.test(
-          output.stderr,
-        )
+        request.action === 'remove'
+          ? isProvenManagedRemovalRefusal(output)
+          : /preview is stale|source identity or approval changed|exposure not found|ambiguous exposure id|managed exposure has local edits/.test(
+              output.stderr,
+            )
       )
         return refusedExposure(output.stderr)
       throw uncertainExposure()
@@ -159,6 +162,7 @@ export class SkillagerExposureCommands implements SkillagerExposureCliPort {
       return parseExposureApplied(parseSkillagerJson(output.stdout), snapshot)
     } catch (error) {
       if (
+        request.action !== 'remove' &&
         error instanceof SkillagerError &&
         ['review-refused', 'stale-review'].includes(error.reason)
       )
@@ -171,6 +175,6 @@ export class SkillagerExposureCommands implements SkillagerExposureCliPort {
 function uncertainExposure(): SkillagerError {
   return new SkillagerError(
     'uncertain',
-    'The workspace action may have completed. Refresh its actual state before starting a new preview; do not retry this confirmation.',
+    'The workspace action may have completed. Project actions remain unavailable for this hvir session; Refresh and reconnect cannot establish the complete outcome. Inspect it in Skillager; do not retry this confirmation.',
   )
 }

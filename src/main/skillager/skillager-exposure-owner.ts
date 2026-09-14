@@ -287,7 +287,7 @@ export class SkillagerExposureOwner {
     if (destination && this.uncertainDestinations.has(destination))
       throw new SkillagerError(
         'uncertain',
-        'A prior action has unresolved project targets, tags or recovery material. Refresh and reconnect cannot establish its complete outcome; inspect it in Skillager before further project changes.',
+        'A prior action has unresolved project targets, tags or recovery material. Project actions remain unavailable for this hvir session. Refresh and reconnect cannot establish the complete outcome; inspect the targets, tags and recovery locations in Skillager.',
       )
     if (
       'action' in request &&

@@ -4,7 +4,7 @@ import type {
   SkillagerExposureActionCompletion,
 } from '../../shared/skillager-exposure-plan'
 import {
-  isStaleExposureRemovalDiagnostic,
+  isProvenManagedRemovalRefusal,
   refusedExposure,
 } from './skillager-exposure-contract'
 import type { ProjectHost } from '../project-host/project-host'
@@ -82,7 +82,7 @@ export class SkillagerExposurePlanCommands implements SkillagerLocalActionPort {
       { cwd: request.destination.root, signal, env: selection.environment },
       LIMITS,
     )
-    if (output.code === 2 && !output.stdout.trim())
+    if (request.action === 'plan' && output.code === 2 && !output.stdout.trim())
       throw new SkillagerError(
         'unsupported',
         'This action requires Skillager with the complete local lifecycle preview contract. Check your selected executable in a terminal.',
@@ -96,11 +96,7 @@ export class SkillagerExposurePlanCommands implements SkillagerLocalActionPort {
         request,
       )
     else {
-      if (output.code !== 0)
-        throw new SkillagerError(
-          'review-refused',
-          'Skillager could not preview removal of this managed router.',
-        )
+      if (output.code !== 0) return refusedExposure(output.stderr)
       snapshot = parseRouterRemoval(
         parseSkillagerJson(output.stdout),
         request,
@@ -148,11 +144,7 @@ export class SkillagerExposurePlanCommands implements SkillagerLocalActionPort {
           snapshot as SkillagerPlanSnapshot,
         )
       if (output.code !== 0) {
-        if (
-          output.code === 2 &&
-          output.stdout === '' &&
-          isStaleExposureRemovalDiagnostic(output.stderr)
-        ) {
+        if (isProvenManagedRemovalRefusal(output)) {
           provenRemovalRefusal = true
           return refusedExposure(output.stderr)
         }
@@ -173,7 +165,7 @@ export class SkillagerExposurePlanCommands implements SkillagerLocalActionPort {
         throw error
       throw new SkillagerError(
         'uncertain',
-        'Completion could not be verified. Local project actions remain unavailable; inspect the actual targets, tags and recovery locations in Skillager.',
+        'Completion could not be verified. Project actions remain unavailable for this hvir session; Refresh and reconnect cannot establish the complete outcome. Inspect the actual targets, tags and recovery locations in Skillager.',
       )
     }
   }

@@ -148,7 +148,7 @@ export async function verifySkillagerScenario(
     if (!process.env.HVIR_SKILLAGER_SMOKE_FIXTURE) {
       await verifySkillagerUpdate(win)
       await verifySkillagerExposure(win)
-      await verifySkillagerCuration(win)
+      await verifySkillagerCuration(win, projects.base().root)
       await verifySkillagerRemote(win, {
         local: projects.base,
         remote: projects.remoteFiles,

@@ -1,3 +1,4 @@
+import { isNativeProjectSkill } from './skillager-model'
 import { hostPathEquals } from '../../../shared/host-path'
 import type { SkillagerMetadata } from '../../../shared/skillager'
 import type {
@@ -40,7 +41,7 @@ export function exposureActions(
     (!libraryId || metadata.source.libraryId === libraryId)
   const copy = metadata.workspace,
     member = metadata.routerMembership
-  const native = metadata.projectSkill && !metadata.projectSkill.managed && !owned
+  const native = isNativeProjectSkill(metadata)
   const approved = ['reviewed', 'trusted', 'pinned'].includes(metadata.trust)
   const present = !['removed', 'absent'].includes(copy?.status ?? '')
   if (native)
@@ -103,7 +104,11 @@ export function exposureActions(
       label: 'Update…',
       disabled: !eligibleSkillagerUpdate(metadata),
     },
-    { action: 'remove', label: 'Remove from this project…', disabled: !direct },
+    {
+      action: 'remove',
+      label: 'Remove from this project…',
+      disabled: !direct || (copy.mode === 'stub' && copy.target.hostId !== 'local'),
+    },
   ]
 }
 export function exposureDestinationCurrent(

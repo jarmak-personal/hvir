@@ -1,3 +1,4 @@
+import { isProvenManagedRemovalRefusal } from '../src/main/skillager/skillager-exposure-contract'
 import { describe, expect, it } from 'vitest'
 import { localPath } from '../src/shared/host-path'
 import {
@@ -191,4 +192,34 @@ describe('complete bound exposure contract', () => {
       expect(skillagerDestinationAvailable(changed, request.destination)).toBe(false)
     }
   })
+})
+
+it('accepts only complete established pre-detach Remove diagnostics', () => {
+  for (const message of [
+    'exposure removal preview is stale or does not match this command; review the current preview and execute its returned command',
+    'managed exposure has local edits; preview again with --force only if those edits may be discarded',
+  ]) {
+    for (const prefix of ['', 'skillager: error: '])
+      for (const newline of ['', '\n'])
+        expect(
+          isProvenManagedRemovalRefusal({
+            code: 2,
+            stdout: '',
+            stderr: prefix + message + newline,
+          }),
+        ).toBe(true)
+    for (const stderr of [
+      'filename: ' + message,
+      message + '\nextra failure',
+      ' ' + message,
+      message + ' ',
+    ])
+      expect(isProvenManagedRemovalRefusal({ code: 2, stdout: '', stderr })).toBe(false)
+    expect(isProvenManagedRemovalRefusal({ code: 0, stdout: '', stderr: message })).toBe(
+      false,
+    )
+    expect(
+      isProvenManagedRemovalRefusal({ code: 2, stdout: '{}', stderr: message }),
+    ).toBe(false)
+  }
 })

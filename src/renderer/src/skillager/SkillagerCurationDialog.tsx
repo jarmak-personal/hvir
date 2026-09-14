@@ -453,7 +453,11 @@ export function SkillagerCurationDialog({
       {state.message ? (
         <p role={state.failed ? 'alert' : 'status'}>{state.message}</p>
       ) : null}
-      {state.failed && state.metadata.projectSkill && state.action !== 'files' ? (
+      {state.failed &&
+      state.action !== 'files' &&
+      controller.menu
+        .actions(state.metadata)
+        .some((action) => action.action === 'files' && !action.disabled) ? (
         <button
           type="button"
           onClick={() => void controller.start(state.metadata, 'files')}

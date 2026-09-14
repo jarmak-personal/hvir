@@ -171,7 +171,7 @@ export function App(): ReactElement {
   const terminalPathActivation = useTerminalPathActivation({
     root,
     selectedFile: activeTab?.path,
-    openFile,
+    openFile: viewer.openFileAtPosition,
     revealDirectory: layout.focusTree,
   })
   const skills = useSkillagerWorkspace({

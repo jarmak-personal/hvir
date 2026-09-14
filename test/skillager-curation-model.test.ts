@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { localPath } from '../src/shared/host-path'
+import { isNativeProjectSkill } from '../src/renderer/src/skillager/skillager-model'
+import { localPath, hostPath, asHostId } from '../src/shared/host-path'
 import type {
   SkillagerMetadata,
   SkillagerWorkspaceExposure,
@@ -276,4 +277,45 @@ describe('exact native occurrence selection and project curation', () => {
     }
     expect(reads).toBe(5000)
   })
+})
+
+it.each(['codex', 'claude'] as const)(
+  'keeps %s remote Stub Remove unavailable using the actual copy host, while Full Remove remains target-owned',
+  (agent) => {
+    const target = hostPath(asHostId('ssh:fixture'), '/workspace/skill')
+    for (const local of [true, false]) {
+      for (const mode of ['native', 'stub']) {
+        const row = {
+          ...member,
+          routerMembership: undefined,
+          workspace: { id: 'skill', agent, target, mode, status: 'current' },
+        }
+        expect(
+          exposureActions(row, local, syncLibrary.id).find(
+            (action) => action.action === 'remove',
+          )?.disabled,
+        ).toBe(mode === 'stub')
+      }
+    }
+  },
+)
+it('uses one unmanaged-native predicate and never associates foreign library or managed rows as native originals', () => {
+  const foreign: SkillagerMetadata = {
+    ...native,
+    source: { type: 'collection', ownership: 'library', libraryId: 'foreign' },
+  }
+  const managed: SkillagerMetadata = {
+    ...native,
+    projectSkill: { ...native.projectSkill!, managed: true },
+  }
+  for (const row of [foreign, managed]) {
+    expect(isNativeProjectSkill(row)).toBe(false)
+    expect(
+      exposureActions(row, true, syncLibrary.id).filter((action) => !action.disabled),
+    ).toEqual([])
+    expect(
+      skillagerNativeSelector(syncStatus(), syncContext, syncLibrary.id)(row),
+    ).toBeUndefined()
+  }
+  expect(isNativeProjectSkill(native)).toBe(true)
 })
