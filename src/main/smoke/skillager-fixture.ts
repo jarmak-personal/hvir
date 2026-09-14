@@ -170,6 +170,20 @@ export function createSkillagerSmoke(
             : fixtureFor(request.workspaceRoot).exposures(),
       destinationAvailable: (destination) =>
         skillagerDestinationAvailable(projects.getProjectState(), destination),
+      localActions: real ?? {
+        syncStatus: (selection, workspace, signal) =>
+          sync.cli.syncStatus(selection, workspace, signal),
+        previewLocalAction: (selection, request, signal) =>
+          fixtureFor(request.destination.root).localActions.previewLocalAction(
+            selection,
+            request,
+            signal,
+          ),
+        applyLocalAction: (selection, snapshot, signal, submitted) =>
+          fixtureFor(
+            snapshot.detail.request.destination.root,
+          ).localActions.applyLocalAction(selection, snapshot, signal, submitted),
+      },
     },
     {
       cli: real ?? {

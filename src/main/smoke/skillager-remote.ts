@@ -25,8 +25,8 @@ export async function verifySkillagerRemote(
   await evaluate(`
     const rows = await wait(() => document.querySelectorAll('section[aria-label="Your library"] .skillager-row').length > 0 && document.querySelectorAll('section[aria-label="Your library"] .skillager-row'));
     rows[2].parentElement.querySelector('.skillager-actions-trigger').click();
-    await wait(() => button('[role=menu]', 'Add to project…'));
-    button('[role=menu]', 'Add to project…').click();
+    await wait(() => button('[role=menu]', 'Add to this project…'));
+    button('[role=menu]', 'Add to this project…').click();
     await wait(() => document.querySelector('select[aria-label="Destination project"] option[value="smoke-remote-file-project"]'));
     choose('Destination project', 'smoke-remote-file-project');
     await wait(() => document.querySelector('select[aria-label="Discovery mode"] option[value=stub]').disabled);
@@ -58,9 +58,9 @@ export async function verifySkillagerRemote(
     button('.skillager-exposure-dialog', 'Close').click();
     const current = await wait(() => [...document.querySelectorAll('section[aria-label="In this project"] .skillager-row')].find((item) => item.querySelector('.skillager-name')?.textContent === 'Skill 0' && item.textContent.includes('Current')));
     current.parentElement.querySelector('.skillager-actions-trigger').click();
-    await wait(() => button('[role=menu]', 'Remove workspace copy…'));
-    if (!button('[role=menu]', 'Change to Stub…').disabled) throw new Error('Remote mode change remained available');
-    button('[role=menu]', 'Remove workspace copy…').click();
+    await wait(() => button('[role=menu]', 'Remove from this project…'));
+    if (!button('[role=menu]', 'Stub…').disabled) throw new Error('Remote mode change remained available');
+    button('[role=menu]', 'Remove from this project…').click();
     await wait(() => button('.skillager-exposure-dialog', 'Preview changes'));
     button('.skillager-exposure-dialog', 'Preview changes').click();
     await wait(() => button('.skillager-exposure-dialog', 'Confirm exact changes'));

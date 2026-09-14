@@ -3,17 +3,18 @@ import type { SkillagerProjectCliPort } from './skillager-project-commands'
 import type { SkillagerProjectTerminalPort } from './skillager-project-terminal'
 import { SkillagerProjectSetupOwner } from './skillager-project-setup-owner'
 import { SkillagerLibrarySyncOwner } from './skillager-library-sync-owner'
-import type { SkillagerLibrarySyncCliPort } from './skillager-library-sync-port'
 import type { SkillagerSetupTarget } from '../../shared/skillager-setup'
 import type { SkillagerFolderPicker, SkillagerSetupCliPort } from './skillager-setup-port'
-import type { SkillagerExposureRequest } from '../../shared/skillager-exposure'
+import type { SkillagerExposureActionRequest } from '../../shared/skillager-exposure-plan'
+import type { SkillagerLocalActionPort } from './skillager-exposure-plan-commands'
+import type { SkillagerLibrarySyncCliPort } from './skillager-library-sync-port'
+import type { SkillagerExposureLineageRequest } from '../../shared/skillager-exposure-plan'
 import type {
   SkillagerExposureCliPort,
   SkillagerDestinationAvailable,
   SkillagerExposureObserver,
 } from './skillager-exposure-port'
-import { SkillagerExposureOwner } from './skillager-exposure-owner'
-import { skillagerLibrarySkillRoot } from './skillager-library-identity'
+import { SkillagerExposureOwner, exposureActionGrant } from './skillager-exposure-owner'
 import type {
   SkillagerSkillRequest,
   SkillagerReviewRequest,
@@ -94,6 +95,8 @@ export class SkillagerCapability {
     },
     private readonly exposure: {
       readonly cli: SkillagerExposureCliPort
+      readonly localActions?: SkillagerLocalActionPort &
+        Pick<SkillagerLibrarySyncCliPort, 'syncStatus'>
       readonly destinationAvailable: SkillagerDestinationAvailable
       readonly observe: SkillagerExposureObserver
     },
@@ -115,7 +118,11 @@ export class SkillagerCapability {
         project.terminal,
         resources,
       )
-    this.exposures = new SkillagerExposureOwner(exposure.cli, resources)
+    this.exposures = new SkillagerExposureOwner(
+      exposure.cli,
+      resources,
+      exposure.localActions,
+    )
     this.reviews = new SkillagerReviewOwner(
       review.cli,
       resources,
@@ -629,44 +636,34 @@ export class SkillagerCapability {
     await Promise.allSettled([...this.jobs.keys()])
   }
 
-  previewExposure(owner: RendererOwner, request: SkillagerExposureRequest) {
+  exposureLineage(owner: RendererOwner, request: SkillagerExposureLineageRequest) {
     return this.track(
       owner,
-      result(async () => {
-        const grant = this.reviewGrant(owner, request)
-        skillagerLibrarySkillRoot(grant.selection.library!, request.skillId)
-        if (
-          !['add', 'change', 'remove', 'update'].includes(request.action) ||
-          !['native', 'stub'].includes(request.mode) ||
-          (request.action !== 'add' &&
-            (!request.exposure ||
-              request.exposure.skillId !== request.skillId ||
-              !['native', 'stub'].includes(request.exposure.mode)))
-        )
-          throw new SkillagerError(
-            'invalid-request',
-            'Select an owned direct workspace skill action.',
-          )
-        const update =
-          request.action === 'update'
-            ? this.reviews.updateGrant(owner, request)
-            : undefined
-        const assertCurrent = () => {
-          grant.assertCurrent()
-          update?.assertCurrent()
-          if (!this.exposure.destinationAvailable(request.destination))
-            throw new SkillagerError(
-              'unavailable',
-              'The selected destination is disconnected, closed, missing, or no longer registered.',
-            )
-        }
-        assertCurrent()
-        return this.exposures.preview(owner, request, {
-          selection: grant.selection,
-          assertCurrent,
-          validatePreview: update?.validatePreview,
-        })
-      }),
+      result(() =>
+        this.exposures.inspectLineage(owner, request, this.reviewGrant(owner, request)),
+      ),
+    )
+  }
+  previewExposure<T extends SkillagerExposureActionRequest>(
+    owner: RendererOwner,
+    request: T,
+  ) {
+    return this.track(
+      owner,
+      result(() =>
+        this.exposures.preview(
+          owner,
+          request,
+          exposureActionGrant(
+            request,
+            this.reviewGrant(owner, request),
+            request.action === 'update'
+              ? this.reviews.updateGrant(owner, request)
+              : undefined,
+            this.exposure.destinationAvailable,
+          ),
+        ),
+      ),
     )
   }
   applyExposure(owner: RendererOwner, previewId: string) {

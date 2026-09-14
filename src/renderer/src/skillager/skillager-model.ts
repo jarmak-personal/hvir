@@ -267,7 +267,11 @@ export function skillagerRouterMember(
 export function isNativeProjectSkill(row: SkillagerMetadata): row is SkillagerMetadata & {
   readonly projectSkill: NonNullable<SkillagerMetadata['projectSkill']>
 } {
-  return Boolean(row.projectSkill) && row.source.ownership !== 'library'
+  return (
+    Boolean(row.projectSkill) &&
+    !row.projectSkill?.managed &&
+    row.source.ownership !== 'library'
+  )
 }
 
 /** Native discovery excludes managed targets; copies retain only actual owned source metadata. */

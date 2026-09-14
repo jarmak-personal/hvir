@@ -6,6 +6,12 @@ import type { ProjectHost } from '../project-host'
 import type { SmokeCleanup } from './cleanup'
 
 export const SKILLAGER_PROJECT_FIXTURE_ROWS = 1000
+export const SKILLAGER_PENDING_FILES_FIXTURE = {
+  id: 'project/pending-files-handoff',
+  name: 'Pending Files handoff',
+  agent: SKILLAGER_AGENTS[1].id,
+  relativePath: '.claude/skills/pending-files-handoff',
+} as const
 
 /** Deterministic interaction fixture only; installed CLI contracts run separately. */
 export function skillagerProjectFixture(
@@ -127,6 +133,17 @@ exit 0
               managed: false,
             },
           })
+        rows[3] = {
+          ...rows[3]!,
+          id: SKILLAGER_PENDING_FILES_FIXTURE.id,
+          name: SKILLAGER_PENDING_FILES_FIXTURE.name,
+          trust: 'discovered',
+          projectSkill: {
+            path: joinHostPath(projectRoot, SKILLAGER_PENDING_FILES_FIXTURE.relativePath),
+            agent: SKILLAGER_PENDING_FILES_FIXTURE.agent,
+            managed: false,
+          },
+        }
         return { rows, status }
       },
     } satisfies SkillagerProjectCliPort,

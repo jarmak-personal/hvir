@@ -74,6 +74,7 @@ export interface IpcDeps extends IpcRouterAuthorityPort {
     | 'acceptReview'
     | 'releaseReview'
     | 'cancelReview'
+    | 'exposureLineage'
     | 'previewExposure'
     | 'applyExposure'
     | 'releaseExposure'

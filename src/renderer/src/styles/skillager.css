@@ -341,7 +341,7 @@
   align-self: center;
   flex: 0 0 28px;
 }
-.skillager-exposure-dialog {
+.project-dialog.confirmation-dialog.skillager-exposure-dialog {
   width: min(860px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
 }
@@ -369,6 +369,43 @@
 .skillager-effect-sides pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+.skillager-curation-members {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+  display: grid;
+  gap: 10px;
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+}
+.skillager-exposure-dialog label:has(input[type='checkbox']) {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 8px;
+}
+.skillager-exposure-dialog input[type='checkbox'] {
+  flex: 0 0 auto;
+  width: auto;
+  padding: 0;
+  margin: 2px 0 0;
+}
+.skillager-exposure-dialog pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.skillager-exposure-dialog .confirmation-dialog-content > details {
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+}
+.skillager-exposure-dialog nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .skillager-library-setup {

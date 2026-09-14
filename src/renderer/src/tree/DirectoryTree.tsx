@@ -81,13 +81,14 @@ export interface DirectoryTreeDropTarget {
 export interface DirectoryTreeRevealRequest {
   readonly path: HostPath
   readonly token: number
+  readonly focusRow?: boolean
 }
 
 /**
  * Lazy host-qualified tree presentation shared by the active Files rail and
  * the pre-project folder picker. Callers own transport, confinement, and what
  * selecting a node means; the tree owns expansion/loading/error behavior and
- * performs scrolling only for an explicit reveal request.
+ * scrolls only for an explicit reveal request, with optional row-focus intent.
  */
 export function DirectoryTree({
   root,
@@ -222,9 +223,7 @@ function DirectoryNode({
   )
   const rowRef = useRef<HTMLButtonElement>(null)
   const gitDecoration = gitDecorations?.directories.get(treeGitPathKey(stablePath))
-  const isDropTarget = Boolean(
-    dropTarget && hostPathEquals(dropTarget.path, stablePath),
-  )
+  const isDropTarget = Boolean(dropTarget && hostPathEquals(dropTarget.path, stablePath))
   const entryNames = useMemo(() => entries.map((entry) => entry.name), [entries])
 
   useEffect(() => {
@@ -232,10 +231,25 @@ function DirectoryNode({
   }, [shouldReveal])
 
   useEffect(() => {
-    if (isSelected && isRevealTarget) {
-      rowRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    const row = rowRef.current
+    if (!isSelected || !isRevealTarget || !row) return
+    if (!revealRequest?.focusRow) {
+      row.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+      return
     }
-  }, [isRevealTarget, isSelected, revealRequest?.token])
+    const frame = requestAnimationFrame(() => {
+      if (!row.isConnected) return
+      row.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+      row.focus({ preventScroll: true })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [
+    isRevealTarget,
+    isSelected,
+    revealRequest?.token,
+    revealRequest?.focusRow,
+    stablePath,
+  ])
 
   useEffect(() => {
     onExpandedChange?.(stablePath, open)
@@ -600,8 +614,7 @@ function SymlinkNode({
         data-file-type="symlink"
         data-project-file-unavailable={pathTraversesSymlink ? 'true' : undefined}
         draggable={
-          !pathTraversesSymlink &&
-          (isDraggable?.(stablePath, 'symlink') ?? false)
+          !pathTraversesSymlink && (isDraggable?.(stablePath, 'symlink') ?? false)
         }
         className={`tree-row file-row symlink-row${fileSelected ? ' selected' : ''}${gitIgnored ? ' gitignored' : ''}${fileGitDecoration ? ` git-status-${fileGitDecoration.tone}` : ''}`}
         style={{ paddingLeft: 24 + depth * 14 }}

@@ -1,8 +1,10 @@
+import { SkillagerCurationDialog } from './SkillagerCurationDialog'
+import { SkillagerExposureEntry } from './SkillagerExposureEntry'
+import { exposurePermission } from './skillager-exposure-model'
 import type { ReactElement } from 'react'
 import { createPortal } from 'react-dom'
 import { SKILLAGER_AGENTS, type SkillagerAgent } from '../../../shared/skillager'
 import type {
-  SkillagerExposureEntry,
   SkillagerExposureMode,
   SkillagerExposurePreview,
 } from '../../../shared/skillager-exposure'
@@ -16,15 +18,17 @@ export function SkillagerExposureDialog({
 }): ReactElement | null {
   const state = controller.state
   if (!state) return null
+  if (state.curation || state.action === 'files' || state.metadata.workspace?.router)
+    return <SkillagerCurationDialog controller={controller} />
   const busy = Boolean(state.loading || state.applying),
-    preview = state.preview
+    preview = state.preview && !('kind' in state.preview) ? state.preview : undefined
   const remote = Boolean(state.destination && state.destination.root.hostId !== 'local')
   const label =
     state.action === 'remove'
       ? 'Remove workspace copy'
       : state.action === 'update'
         ? 'Update workspace copy'
-        : state.action === 'change'
+        : ['change', 'full', 'stub'].includes(state.action)
           ? 'Change workspace mode'
           : 'Add to project'
   return createPortal(
@@ -59,7 +63,9 @@ export function SkillagerExposureDialog({
       <h2 id="skillager-exposure-title">{label}</h2>
       <p>
         <strong>{state.metadata.name}</strong> · <code>{state.metadata.id}</code> ·
-        Personal library
+        {state.metadata.source.ownership === 'library'
+          ? 'Your library'
+          : 'Selected project copy'}
       </p>
       {!preview && state.action === 'add' ? (
         <div className="skillager-destination-fields">
@@ -175,7 +181,7 @@ export function SkillagerExposureDialog({
       <p>
         {SKILLAGER_AGENTS.find((agent) => agent.id === state.agent)?.label} ·{' '}
         {state.mode === 'native' ? 'Full skill' : 'Stub'}
-        {state.action === 'change'
+        {['change', 'full', 'stub'].includes(state.action)
           ? ` (from ${state.metadata.workspace?.mode === 'native' ? 'Full skill' : 'Stub'})`
           : ''}
       </p>
@@ -228,7 +234,8 @@ function ExposureEffects({
       <p>
         Target folder permissions:{' '}
         <code>
-          {mode(preview.beforeMode)} → {mode(preview.afterMode)}
+          {exposurePermission(preview.beforeMode)} →{' '}
+          {exposurePermission(preview.afterMode)}
         </code>
       </p>
       <p>{preview.effects.length} file and directory effects</p>
@@ -282,11 +289,11 @@ function ExposureEffects({
             <div className="skillager-effect-sides">
               <div>
                 <h4>Before</h4>
-                <Entry value={effect.before} />
+                <SkillagerExposureEntry value={effect.before} />
               </div>
               <div>
                 <h4>After</h4>
-                <Entry value={effect.after} />
+                <SkillagerExposureEntry value={effect.after} />
               </div>
             </div>
           </details>
@@ -294,37 +301,4 @@ function ExposureEffects({
       </div>
     </section>
   )
-}
-function Entry({
-  value,
-}: {
-  readonly value: SkillagerExposureEntry | null
-}): ReactElement {
-  if (!value) return <p>Absent</p>
-  return (
-    <>
-      <p>
-        {value.type} · permissions <code>{mode(value.mode)}</code>
-        {value.size !== undefined ? ` · ${value.size} bytes` : ''}
-      </p>
-      {value.sha256 ? (
-        <p>
-          SHA-256 <code>{value.sha256}</code>
-        </p>
-      ) : null}
-      {value.linkTarget !== undefined ? (
-        <p>
-          Link: <code>{value.linkTarget}</code>
-        </p>
-      ) : null}
-      {value.device !== undefined ? <p>Device: {value.device}</p> : null}
-      {value.metadata ? <pre>{value.metadata}</pre> : null}
-      {value.generatedFields?.map((policy) => (
-        <pre key={policy}>{policy}</pre>
-      ))}
-    </>
-  )
-}
-function mode(value: number | null): string {
-  return value === null ? 'absent' : value.toString(8).padStart(4, '0')
 }

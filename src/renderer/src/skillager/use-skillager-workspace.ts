@@ -1,10 +1,12 @@
+import { revealSkillagerFolder } from './skillager-files-reveal'
+import { unwrapOperation } from '../../../shared'
 import { useSkillagerLibrarySync } from './use-skillager-library-sync'
 import { useSkillagerProject, type SkillagerSetupTerminal } from './use-skillager-project'
 import { useSkillagerExposure } from './use-skillager-exposure'
 import type { ProjectState } from '../../../shared/workspace-types'
 import { useSkillagerReview } from './use-skillager-review'
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
-import { localPath } from '../../../shared/host-path'
+import { hostPathEquals, localPath, type HostPath } from '../../../shared/host-path'
 import {
   SKILLAGER_REFRESH_MS,
   SKILLAGER_AGENTS,
@@ -17,9 +19,15 @@ import {
   type SkillagerResult,
   type SkillagerSearchScope,
 } from '../../../shared/skillager'
-import { skillagerObservationDemand, skillagerTabs } from './skillager-model'
+import {
+  skillagerObservationDemand,
+  skillagerTabs,
+  skillagerProjectRows,
+  skillagerMetadataKey,
+} from './skillager-model'
 
 interface Options {
+  readonly onRevealDirectory?: (path: HostPath) => void
   readonly onSetupTerminal?: SkillagerSetupTerminal
   readonly enabled: boolean
   readonly projectState?: ProjectState
@@ -466,7 +474,44 @@ export function useSkillagerWorkspace(input: Options) {
     onCompleted: afterAcceptance,
   })
 
+  const [updateSelection, setUpdateSelection] = useState<SkillagerMetadata>()
+  useEffect(() => {
+    if (!updateSelection || tabs.activeId !== skillagerMetadataKey(updateSelection))
+      return
+    setUpdateSelection(undefined)
+    void reviews.review({ id: tabs.activeId, metadata: updateSelection }, true)
+  }, [updateSelection, tabs.activeId, reviews])
   const exposures = useSkillagerExposure({
+    rows: inventory.result?.ok
+      ? inventory.result.value.rows
+      : project.result?.ok
+        ? project.result.value.rows
+        : [],
+    projectRows: project.result?.ok ? skillagerProjectRows(project.result.value) : [],
+    onUpdateReview: (metadata) => {
+      select(metadata)
+      setUpdateSelection(metadata)
+    },
+    onFiles: async (path, signal) => {
+      const selected = optionsRef.current.root
+      const selectedConnection = connectionRef.current
+      const reveal = optionsRef.current.onRevealDirectory
+      if (!selected || !selectedConnection || !reveal)
+        throw new Error('Files navigation is unavailable.')
+      await revealSkillagerFolder(selected, path, signal, {
+        current: () =>
+          Boolean(
+            optionsRef.current.enabled &&
+            connectionRef.current === selectedConnection &&
+            optionsRef.current.projectState?.connectionState === 'connected' &&
+            optionsRef.current.root &&
+            hostPathEquals(selected, optionsRef.current.root),
+          ),
+        resolve: (path) =>
+          window.hvir.invoke('fs:resolve-entry', { path }).then(unwrapOperation),
+        reveal,
+      })
+    },
     connection,
     detailId: tabs.activeId,
     sidebarVisible: options.sidebarVisible,

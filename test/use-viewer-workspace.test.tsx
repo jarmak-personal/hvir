@@ -440,13 +440,14 @@ it('uses main canonical classification for a symlink and retains its originating
   })
   act(() => workspace.switchWorkspace(root))
   await act(async () => {
-    workspace.openFile(path, true, 'file-tree', 'head', undefined, { line: 2, column: 3 })
+    workspace.openFileAtPosition(path, { line: 2, column: 3 })
     await settle()
   })
   expect(workspace.model.root).toEqual(root)
   expect(workspace.activeTab?.file?.resolvedPath).toEqual(resolvedPath)
   expect(workspace.activeTab?.externalWorkspaceRoot).toEqual(root)
   expect(workspace.activeTab?.navigation).toMatchObject({ line: 2, column: 3 })
+  expect(workspace.activeTab).toMatchObject({ pinned: true, diffBase: 'head' })
   expect(workspace.openWatchPaths).toEqual([])
   act(() => {
     workspace.setContent(workspace.activeId!, 'changed')

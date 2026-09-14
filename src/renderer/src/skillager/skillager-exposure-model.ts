@@ -1,12 +1,15 @@
+import { isNativeProjectSkill } from './skillager-model'
 import { hostPathEquals } from '../../../shared/host-path'
 import type { SkillagerMetadata } from '../../../shared/skillager'
 import type {
   SkillagerDestination,
   SkillagerExposureRequest,
 } from '../../../shared/skillager-exposure'
+import type { CurationAction } from './skillager-curation-model'
 import type { ProjectState } from '../../../shared/workspace-types'
 
-export type ExposureAction = SkillagerExposureRequest['action']
+export type ExposureAction =
+  SkillagerExposureRequest['action'] | CurationAction | 'files' | 'review-update'
 export interface ExposureDestination extends SkillagerDestination {
   readonly projectName: string
   readonly name: string
@@ -30,25 +33,82 @@ export function exposureDestinations(state?: ProjectState): ExposureDestination[
 }
 export function exposureActions(
   metadata: SkillagerMetadata,
+  local = true,
+  libraryId?: string,
 ): readonly { action: ExposureAction; label: string; disabled: boolean }[] {
-  const owned = metadata.source.ownership === 'library'
-  const copy = metadata.workspace
-  const managed =
-    owned &&
-    Boolean(
-      copy?.skillId === metadata.id &&
-      !['removed', 'absent'].includes(copy.status) &&
-      (copy.mode === 'native' ||
-        (copy.mode === 'stub' && copy.target.hostId === 'local')),
-    )
+  const owned =
+    metadata.source.ownership === 'library' &&
+    (!libraryId || metadata.source.libraryId === libraryId)
+  const copy = metadata.workspace,
+    member = metadata.routerMembership
+  const native = isNativeProjectSkill(metadata)
+  const approved = ['reviewed', 'trusted', 'pinned'].includes(metadata.trust)
+  const present = !['removed', 'absent'].includes(copy?.status ?? '')
+  if (native)
+    return [
+      { action: 'full', label: 'Full skill…', disabled: !local || !approved },
+      { action: 'stub', label: 'Stub…', disabled: !local || !approved },
+      { action: 'group', label: 'Group in router…', disabled: !local || !approved },
+      {
+        action: 'remove',
+        label: 'Remove from this project…',
+        disabled: !local || !approved,
+      },
+      { action: 'files', label: 'Remove in Files…', disabled: false },
+    ]
+  if (copy?.router)
+    return [
+      {
+        action: 'edit-members',
+        label: 'Edit members…',
+        disabled: !local || !present || copy.router.kind !== 'tag',
+      },
+      { action: 'ungroup', label: 'Ungroup…', disabled: !local || !present },
+      {
+        action: 'remove',
+        label: 'Remove from this project…',
+        disabled: !local || !present,
+      },
+    ]
+  if (member)
+    return [
+      { action: 'full', label: 'Full skill…', disabled: !local || !owned },
+      { action: 'stub', label: 'Stub…', disabled: !local || !owned },
+      {
+        action: 'edit-members',
+        label: 'Edit members…',
+        disabled: !local || member.router?.kind !== 'tag',
+      },
+      { action: 'remove', label: 'Remove from this project…', disabled: !local },
+    ]
+  if (!copy)
+    return [
+      { action: 'add', label: 'Add to this project…', disabled: !owned },
+      { action: 'group', label: 'Group in router…', disabled: !local || !owned },
+    ]
+  const direct = present && (copy.mode === 'native' || copy.mode === 'stub')
   return [
-    { action: 'add', label: 'Add to project…', disabled: !owned },
     {
-      action: 'change',
-      label: copy?.mode === 'stub' ? 'Change to Full skill…' : 'Change to Stub…',
-      disabled: !managed || copy?.target.hostId !== 'local',
+      action: 'full',
+      label: 'Full skill…',
+      disabled: !local || !owned || !direct || copy.mode === 'native',
     },
-    { action: 'remove', label: 'Remove workspace copy…', disabled: !managed },
+    {
+      action: 'stub',
+      label: 'Stub…',
+      disabled: !local || !owned || !direct || copy.mode === 'stub',
+    },
+    { action: 'group', label: 'Group in router…', disabled: !local || !owned || !direct },
+    {
+      action: 'review-update',
+      label: 'Update…',
+      disabled: !eligibleSkillagerUpdate(metadata),
+    },
+    {
+      action: 'remove',
+      label: 'Remove from this project…',
+      disabled: !direct || (copy.mode === 'stub' && copy.target.hostId !== 'local'),
+    },
   ]
 }
 export function exposureDestinationCurrent(
@@ -107,4 +167,8 @@ function observedWorkspaceLabel(metadata: SkillagerMetadata): string {
   if (status === 'current') return 'Current'
   if (status === 'uncertain') return 'Delivery state uncertain'
   return status ?? 'Workspace status not checked'
+}
+
+export function exposurePermission(value: number | null): string {
+  return value === null ? 'absent' : value.toString(8).padStart(4, '0')
 }

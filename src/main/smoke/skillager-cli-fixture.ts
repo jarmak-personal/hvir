@@ -1,4 +1,5 @@
 import type { SkillagerLibrarySyncCliPort } from '../skillager/skillager-library-sync-port'
+import type { SkillagerLocalActionPort } from '../skillager/skillager-exposure-plan-commands'
 import type { SkillagerSetupCliPort } from '../skillager/skillager-setup-port'
 import type { SkillagerExposureCliPort } from '../skillager/skillager-exposure-port'
 import type { SkillagerReviewCliPort } from '../skillager/skillager-review-port'
@@ -21,7 +22,8 @@ export function realSkillagerSmokePort(
       SkillagerExposureCliPort &
       SkillagerSetupCliPort &
       SkillagerProjectCliPort &
-      SkillagerLibrarySyncCliPort)
+      SkillagerLibrarySyncCliPort &
+      SkillagerLocalActionPort)
   | undefined {
   const fixture = process.env.HVIR_SKILLAGER_SMOKE_FIXTURE
   const release = process.env.HVIR_SKILLAGER_RELEASE
@@ -55,6 +57,10 @@ export function realSkillagerSmokePort(
   )
   cleanup.defer('real Skillager CLI', () => cli.dispose())
   return {
+    previewLocalAction: (selection, request, signal) =>
+      cli.previewLocalAction(selection, request, signal),
+    applyLocalAction: (selection, snapshot, signal, submitted) =>
+      cli.applyLocalAction(selection, snapshot, signal, submitted),
     syncStatus: (selection, workspace, signal) =>
       cli.syncStatus(selection, workspace, signal),
     syncApproved: (selection, workspace, signal, submitted) =>

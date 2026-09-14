@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useWorkspaceDirectoryReveal } from './use-workspace-directory-reveal'
+import { useCallback, useEffect, useRef } from 'react'
 
 import {
   containsHostPath,
@@ -84,17 +85,6 @@ interface UseTerminalPathActivationOptions {
   readonly revealDirectory: () => void
 }
 
-interface DirectoryRevealState {
-  readonly root: HostPath
-  readonly selectedFile?: HostPath
-  readonly request: TerminalDirectoryRevealRequest
-}
-
-interface TerminalDirectoryRevealRequest {
-  readonly path: HostPath
-  readonly token: number
-}
-
 export function useTerminalPathActivation({
   root,
   selectedFile,
@@ -102,28 +92,23 @@ export function useTerminalPathActivation({
   revealDirectory,
 }: UseTerminalPathActivationOptions): {
   readonly activate: (target: ResolvedTerminalFileTarget) => void
-  readonly revealRequest?: TerminalDirectoryRevealRequest
+  readonly revealRequest: ReturnType<typeof useWorkspaceDirectoryReveal>['request']
+  readonly revealDirectory: (path: HostPath) => void
 } {
   const mounted = useRef(false)
-  const revealToken = useRef(0)
   const callbacks = useRef({ openFile, revealDirectory, selectedFile })
-  const [directoryReveal, setDirectoryReveal] = useState<DirectoryRevealState>()
+  const directory = useWorkspaceDirectoryReveal(root, selectedFile, revealDirectory)
   callbacks.current = { openFile, revealDirectory, selectedFile }
   const ports: TerminalPathActivationPorts = {
     resolveEntry,
     openFile: (path, position) => {
       if (!mounted.current) return
-      setDirectoryReveal(undefined)
+      directory.clear()
       callbacks.current.openFile(path, position)
     },
     revealDirectory: (path) => {
       if (!mounted.current || !root) return
-      setDirectoryReveal({
-        root,
-        selectedFile: callbacks.current.selectedFile,
-        request: { path, token: (revealToken.current += 1) },
-      })
-      callbacks.current.revealDirectory()
+      directory.reveal(path)
     },
   }
   const coordinator = useRef<TerminalPathActivationCoordinator | undefined>(undefined)
@@ -142,14 +127,7 @@ export function useTerminalPathActivation({
   const activate = useCallback((target: ResolvedTerminalFileTarget): void => {
     void coordinator.current?.activate(target)
   }, [])
-  const revealRequest =
-    directoryReveal &&
-    root &&
-    hostPathEquals(directoryReveal.root, root) &&
-    sameOptionalPath(directoryReveal.selectedFile, selectedFile)
-      ? directoryReveal.request
-      : undefined
-  return { activate, revealRequest }
+  return { activate, revealRequest: directory.request, revealDirectory: directory.reveal }
 }
 
 async function resolveEntry(path: HostPath): Promise<ResolveEntryResponse> {

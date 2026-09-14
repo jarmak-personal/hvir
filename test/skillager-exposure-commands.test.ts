@@ -279,3 +279,60 @@ it('uses the existing exposure observer and independently bounds the library-sta
     await f.process.dispose()
   }
 })
+
+it('uses the same exact managed Remove refusal boundary and never accepts malformed code-zero completion as a no-write refusal', async () => {
+  const f = fixture(),
+    at = {
+      ...request,
+      action: 'remove' as const,
+      exposure: {
+        id: 'lib-demo',
+        skillId: request.skillId,
+        mode: 'native',
+        agent: request.agent,
+        target: localPath('/other/.agents/skills/lib-demo'),
+        status: 'current',
+      },
+    }
+  const response = exposureResponse(at),
+    snapshot = parseExposurePreview(response.value, selection, at)
+  const exact =
+    'skillager: error: exposure removal preview is stale or does not match this command; review the current preview and execute its returned command\n'
+  try {
+    for (const [code, stdout, stderr, reason] of [
+      [2, '', exact, 'stale-review'],
+      [
+        2,
+        '',
+        'skillager: error: managed exposure has local edits; preview again with --force only if those edits may be discarded\n',
+        'review-refused',
+      ],
+      [2, '', `failed filename "${exact.trim()}"`, 'uncertain'],
+      [2, '', 'managed exposure has local edits: unproven extra diagnostic', 'uncertain'],
+      [1, '', exact, 'uncertain'],
+      [2, '{}', exact, 'uncertain'],
+    ] as const) {
+      f.exec.mockResolvedValueOnce({ code, stdout, stderr, signal: null })
+      await expect(
+        f.commands.applyExposure(selection, snapshot, new AbortController().signal),
+      ).rejects.toMatchObject({ reason })
+    }
+    Object.assign(response.row, {
+      status: 'removed',
+      exposure_id: 'foreign',
+      target: '/other/.agents/skills/foreign',
+    })
+    f.exec.mockResolvedValueOnce({
+      code: 0,
+      stdout: JSON.stringify(response.value),
+      stderr: '',
+      signal: null,
+    })
+    await expect(
+      f.commands.applyExposure(selection, snapshot, new AbortController().signal),
+    ).rejects.toMatchObject({ reason: 'uncertain' })
+    expect(f.exec).toHaveBeenCalledTimes(7)
+  } finally {
+    await f.process.dispose()
+  }
+})

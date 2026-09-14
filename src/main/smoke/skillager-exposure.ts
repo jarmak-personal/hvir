@@ -9,13 +9,16 @@ export async function verifySkillagerExposure(win: BrowserWindow): Promise<void>
     let checkpoint = 'start';
     try { ${body} } catch (error) { throw new Error('Exposure ' + checkpoint + ': ' + error.message); }
   })()`)
-  await evaluate(`
+  const exposureKey = await evaluate(`
     const back = button('.skillager-sidebar', 'Clear search'); if (back) back.click();
     const row = await wait(() => [...document.querySelectorAll('section[aria-label="In this project"] .skillager-row')].find((item) => item.textContent.includes('Full')));
     row.querySelector('.skillager-name').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 30, clientY: 100 }));
-    await wait(() => button('[role=menu]', 'Change to Stub…'));
+    await wait(() => button('[role=menu]', 'Stub…'));
     await wait(() => document.activeElement?.getAttribute('role') === 'menuitem' && document.hasFocus());
+    return row.dataset.skillKey;
   `)
+  if (typeof exposureKey !== 'string' || !exposureKey.startsWith('skillager:copy:'))
+    throw Error('Expected an exact managed-copy occurrence for the exposure journey')
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
   win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
   await evaluate(
@@ -28,8 +31,8 @@ export async function verifySkillagerExposure(win: BrowserWindow): Promise<void>
   })
   win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'F10', modifiers: ['shift'] })
   await evaluate(`
-    await wait(() => button('[role=menu]', 'Change to Stub…'));
-    button('[role=menu]', 'Change to Stub…').click();
+    await wait(() => button('[role=menu]', 'Stub…'));
+    button('[role=menu]', 'Stub…').click();
     await wait(() => button('.skillager-exposure-dialog', 'Preview changes'));
     button('.skillager-exposure-dialog', 'Preview changes').click();
     await wait(() => button('.skillager-exposure-dialog', 'Confirm exact changes'));
@@ -38,11 +41,11 @@ export async function verifySkillagerExposure(win: BrowserWindow): Promise<void>
     button('.skillager-exposure-dialog', 'Confirm exact changes').click();
     await wait(() => button('.skillager-exposure-dialog', 'Close'));
     button('.skillager-exposure-dialog', 'Close').click();
-    await wait(() => [...document.querySelectorAll('section[aria-label="In this project"] .skillager-row')].some((item) => item.textContent.includes('Stub')));
+    const changed = await wait(() => [...document.querySelectorAll('section[aria-label="In this project"] .skillager-row')].find((item) => item.dataset.skillKey === ${JSON.stringify(exposureKey)} && item.textContent.includes('Stub')));
     checkpoint = 'remove menu';
-    document.querySelector('section[aria-label="In this project"] .skillager-actions-trigger').click();
-    await wait(() => button('[role=menu]', 'Remove workspace copy…'));
-    button('[role=menu]', 'Remove workspace copy…').click();
+    changed.closest('.skillager-action-row').querySelector('.skillager-actions-trigger').click();
+    await wait(() => button('[role=menu]', 'Remove from this project…'));
+    button('[role=menu]', 'Remove from this project…').click();
     await wait(() => button('.skillager-exposure-dialog', 'Preview changes'));
     button('.skillager-exposure-dialog', 'Preview changes').click();
     await wait(() => button('.skillager-exposure-dialog', 'Confirm exact changes'));
@@ -54,8 +57,8 @@ export async function verifySkillagerExposure(win: BrowserWindow): Promise<void>
     const pending = await wait(() => document.querySelector('.skillager-pending-filter input[type=checkbox]')); if (pending.checked) pending.click();
     await wait(() => document.querySelector('section[aria-label="Your library"] .skillager-row'));
     document.querySelector('section[aria-label="Your library"] .skillager-actions-trigger').click();
-    await wait(() => button('[role=menu]', 'Add to project…'));
-    button('[role=menu]', 'Add to project…').click();
+    await wait(() => button('[role=menu]', 'Add to this project…'));
+    button('[role=menu]', 'Add to this project…').click();
     await wait(() => document.querySelector('select[aria-label="Destination project"]'));
     choose('Destination project', 1);
     await wait(() => !button('.skillager-exposure-dialog', 'Preview changes').disabled);
@@ -69,8 +72,8 @@ export async function verifySkillagerExposure(win: BrowserWindow): Promise<void>
     await evaluate(`
       checkpoint = 'cancel preparing preview';
       document.querySelector('section[aria-label="Your library"] .skillager-actions-trigger').click();
-      await wait(() => button('[role=menu]', 'Add to project…'));
-      button('[role=menu]', 'Add to project…').click();
+      await wait(() => button('[role=menu]', 'Add to this project…'));
+      button('[role=menu]', 'Add to this project…').click();
       await wait(() => document.querySelector('select[aria-label="Destination project"]'));
       choose('Destination project', 1);
       await wait(() => !button('.skillager-exposure-dialog', 'Preview changes').disabled);

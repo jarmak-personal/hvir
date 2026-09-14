@@ -1,3 +1,11 @@
+import {
+  SkillagerExposurePlanCommands,
+  type SkillagerLocalActionSnapshot,
+} from './skillager-exposure-plan-commands'
+import type {
+  SkillagerLifecycleRequest,
+  SkillagerRouterRemovalRequest,
+} from '../../shared/skillager-exposure-plan'
 import { SkillagerSetupCommands } from './skillager-setup-commands'
 import { SkillagerLibrarySyncCommands } from './skillager-library-sync-commands'
 import { SkillagerProjectCommands } from './skillager-project-commands'
@@ -223,6 +231,32 @@ export class SkillagerCli implements SkillagerCliPort, SkillagerSetupCliPort {
   ) {
     return this.operate(() =>
       this.exposureCommands().applyExposure(selection, snapshot, signal),
+    )
+  }
+  previewLocalAction(
+    selection: SkillagerCliSelection,
+    request: SkillagerLifecycleRequest | SkillagerRouterRemovalRequest,
+    signal: AbortSignal,
+  ) {
+    return this.operate(() =>
+      this.planCommands().previewLocalAction(selection, request, signal),
+    )
+  }
+  applyLocalAction(
+    selection: SkillagerCliSelection,
+    snapshot: SkillagerLocalActionSnapshot,
+    signal: AbortSignal,
+    submitted: () => void,
+  ) {
+    return this.operate(() =>
+      this.planCommands().applyLocalAction(selection, snapshot, signal, submitted),
+    )
+  }
+  private planCommands() {
+    return new SkillagerExposurePlanCommands(
+      this.host,
+      this.process,
+      (selection, signal) => this.validateLocal(selection, signal),
     )
   }
   private exposureCommands(): SkillagerExposureCommands {

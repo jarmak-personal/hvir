@@ -116,6 +116,21 @@ export async function captureSkillagerSidebar(
   win: BrowserWindow,
   name: 'setup' | 'connected-empty' | 'project-before' | 'project-ready' | 'explorer',
 ): Promise<void> {
+  return captureSkillagerVisual(win, name, '.tree-panel')
+}
+
+export async function captureSkillagerCurationDialog(
+  win: BrowserWindow,
+  name: 'curation-choice' | 'curation-preview',
+): Promise<void> {
+  return captureSkillagerVisual(win, name, '.skillager-exposure-dialog')
+}
+
+async function captureSkillagerVisual(
+  win: BrowserWindow,
+  name: string,
+  selector: '.tree-panel' | '.skillager-exposure-dialog',
+): Promise<void> {
   const directory = process.env.HVIR_SKILLAGER_VISUAL_DIRECTORY
   if (!directory) return
   if (!directory.startsWith('/') || directory === '/')
@@ -123,7 +138,7 @@ export async function captureSkillagerSidebar(
   const rect = await inspect<{ x: number; y: number; width: number; height: number }>(
     win,
     `
-    const rect = document.querySelector('.tree-panel').getBoundingClientRect();
+    const rect = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();
     return { x: Math.ceil(rect.x), y: Math.ceil(rect.y), width: Math.floor(rect.width), height: Math.floor(rect.height) };
   `,
   )

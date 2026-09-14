@@ -3,10 +3,12 @@ import { registerSkillagerIpc } from '../src/main/ipc/features/skillager'
 import type { IpcRegistrar } from '../src/main/ipc/authority-router'
 import { hostPathEquals, localPath, type HostPath } from '../src/shared/host-path'
 import { request } from './fixtures/skillager-exposure-fixture'
+import { planRequest } from './fixtures/skillager-plan-fixture'
 
 function fixture() {
   const owner = { id: 7, generation: 3 },
     previewExposure = vi.fn(),
+    exposureLineage = vi.fn(),
     applyExposure = vi.fn(),
     review = vi.fn(),
     initializeLibrary = vi.fn(),
@@ -42,6 +44,7 @@ function fixture() {
     skillager: {
       librarySync: { observe: syncStatus, apply: syncApproved, cancel: cancelSync },
       previewExposure,
+      exposureLineage,
       applyExposure,
       review,
       initializeLibrary,
@@ -55,6 +58,7 @@ function fixture() {
     syncApproved,
     cancelSync,
     previewExposure,
+    exposureLineage,
     applyExposure,
     review,
     initializeLibrary,
@@ -66,6 +70,48 @@ function fixture() {
   }
 }
 describe('workspace skill IPC authority', () => {
+  it('native preparation has a named read-only request and separately qualifies its exact current destination', () => {
+    const f = fixture(),
+      selected = {
+        ...request,
+        destination: { ...request.destination, root: request.workspaceRoot },
+      }
+    f.invoke('skillager:exposure-lineage', {
+      ...selected,
+      executable: '/forged',
+      library: '/foreign',
+      plan: { action: 'remove-native' },
+    })
+    expect(f.exposureLineage).toHaveBeenCalledWith(f.owner, {
+      connectionId: request.connectionId,
+      requestId: request.requestId,
+      agent: request.agent,
+      workspaceRoot: request.workspaceRoot,
+      destination: selected.destination,
+    })
+    expect(f.syncStatus).not.toHaveBeenCalled()
+    expect(f.previewExposure).not.toHaveBeenCalled()
+  })
+  it('reconstructs aggregate public selectors and ignores command/force fields outside the closed request', () => {
+    const f = fixture(),
+      selected = {
+        ...planRequest,
+        workspaceRoot: request.workspaceRoot,
+        destination: { ...request.destination, root: request.workspaceRoot },
+      }
+    f.invoke('skillager:preview-exposure', {
+      ...selected,
+      command: 'remove everything',
+      force: true,
+    })
+    expect(f.previewExposure).toHaveBeenCalledWith(f.owner, selected)
+    expect(() =>
+      f.invoke('skillager:preview-exposure', {
+        ...selected,
+        plan: { ...selected.plan, name: 'x'.repeat(65537) },
+      }),
+    ).toThrow()
+  })
   it('sync binds the registered workspace and main observation ID, ignoring renderer target overrides', () => {
     const f = fixture()
     const base = {
