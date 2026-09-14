@@ -52,6 +52,7 @@ export interface SystemClipboardPort {
 export interface IpcDeps extends IpcRouterAuthorityPort {
   readonly skillager: Pick<
     SkillagerCapability,
+    | 'librarySync'
     | 'projectMetadata'
     | 'prepareProjectSetup'
     | 'startProjectSetup'

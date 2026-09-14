@@ -11,7 +11,10 @@ function fixture() {
     review = vi.fn(),
     initializeLibrary = vi.fn(),
     chooseLibraryFolder = vi.fn(),
-    reconcileLibrary = vi.fn()
+    reconcileLibrary = vi.fn(),
+    syncStatus = vi.fn(),
+    syncApproved = vi.fn(),
+    cancelSync = vi.fn()
   const workspaceRoot = vi.fn((path: HostPath) => {
     if (
       ![request.workspaceRoot, request.destination.root].some((root) =>
@@ -37,6 +40,7 @@ function fixture() {
   } as unknown as IpcRegistrar
   registerSkillagerIpc(ipc, {
     skillager: {
+      librarySync: { observe: syncStatus, apply: syncApproved, cancel: cancelSync },
       previewExposure,
       applyExposure,
       review,
@@ -47,6 +51,9 @@ function fixture() {
   } as unknown as Parameters<typeof registerSkillagerIpc>[1])
   return {
     owner,
+    syncStatus,
+    syncApproved,
+    cancelSync,
     previewExposure,
     applyExposure,
     review,
@@ -59,6 +66,43 @@ function fixture() {
   }
 }
 describe('workspace skill IPC authority', () => {
+  it('sync binds the registered workspace and main observation ID, ignoring renderer target overrides', () => {
+    const f = fixture()
+    const base = {
+      connectionId: 'connection',
+      requestId: 1,
+      agent: 'codex',
+      workspaceRoot: request.workspaceRoot,
+    }
+    f.invoke('skillager:sync-status', {
+      ...base,
+      catalog: '/private',
+      executable: '/forged',
+    })
+    expect(f.syncStatus).toHaveBeenCalledWith(f.owner, base)
+    f.invoke('skillager:sync-approved', {
+      ...base,
+      requestId: 2,
+      observationId: 'main-observation',
+      expectedLibrary: '/elsewhere',
+      approved: true,
+    })
+    expect(f.syncApproved).toHaveBeenCalledWith(f.owner, {
+      ...base,
+      requestId: 2,
+      observationId: 'main-observation',
+    })
+    expect(() =>
+      f.invoke('skillager:sync-approved', {
+        ...base,
+        workspaceRoot: localPath('/unregistered'),
+        observationId: 'main',
+      }),
+    ).toThrow('Unregistered')
+    expect(f.syncApproved).toHaveBeenCalledTimes(1)
+    f.invoke('skillager:cancel-sync', { requestId: 2 })
+    expect(f.cancelSync).toHaveBeenCalledWith(f.owner, 2)
+  })
   it('independently qualifies origin and selected destination and retains renderer ownership', () => {
     const f = fixture()
     f.invoke('skillager:preview-exposure', {

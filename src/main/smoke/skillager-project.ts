@@ -21,6 +21,10 @@ export async function verifySkillagerProject(
   await inspect(
     win,
     `await wait(() => [...document.querySelectorAll('.skillager-row')].filter((row) => row.textContent.includes('Project fixture')).length === 3);
+    await wait(() => {
+      const action = document.querySelector('.skillager-project-setup button');
+      return action?.textContent === 'Set up in terminal' && !action.disabled;
+    });
     const native = [...document.querySelectorAll('.skillager-row')].find((row) => row.textContent.includes('Project fixture 1'));
     if (!native.textContent.includes('Original') || !native.textContent.includes('Blocked') || native.closest('.skillager-action-row')) throw new Error('Native metadata gained managed actions');
     if (!document.querySelector('.viewer-tab:not(.skillager-tab)')) throw new Error('Project observation displaced the ordinary document');`,

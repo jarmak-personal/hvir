@@ -1,3 +1,8 @@
+import {
+  SkillagerLibraryMenu,
+  SkillagerSyncAction,
+  SkillagerSyncProgress,
+} from './SkillagerLibrarySync'
 import { useMemo, useState, type ReactElement } from 'react'
 import type { HostPath } from '../../../shared/host-path'
 import type {
@@ -145,6 +150,11 @@ export function SkillagerSidebar({
             </SkillagerExplorer>
             <SkillagerExplorer
               title="Your library"
+              actions={
+                library?.rows.length ? (
+                  <SkillagerLibraryMenu controller={controller.librarySync} />
+                ) : undefined
+              }
               expanded={controller.libraryExpanded}
               onExpanded={controller.setLibraryExpanded}
               loading={controller.inventory.loading}
@@ -160,7 +170,17 @@ export function SkillagerSidebar({
               onRefresh={() => void controller.refresh()}
               empty={
                 library && !pending && library.rows.length === 0 ? (
-                  <SkillagerFirstSkill root={controller.connection.library.root} />
+                  <>
+                    <div className="skillager-sync-empty">
+                      <SkillagerSyncAction controller={controller.librarySync} />
+                      <p>
+                        {local
+                          ? 'Bring approved sources from this project into your reusable library.'
+                          : 'Bring approved skills available on this computer into your library.'}
+                      </p>
+                    </div>
+                    <SkillagerFirstSkill root={controller.connection.library.root} />
+                  </>
                 ) : (
                   <p className="skillager-empty">
                     {pending
@@ -170,6 +190,7 @@ export function SkillagerSidebar({
                 )
               }
             >
+              <SkillagerSyncProgress controller={controller.librarySync} local={local} />
               <label className="skillager-pending-filter">
                 <input
                   type="checkbox"

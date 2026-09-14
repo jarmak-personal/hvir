@@ -1,3 +1,4 @@
+import { skillagerLibrarySyncFixture } from './skillager-library-sync-fixture'
 import { skillagerExposureFixture } from './skillager-exposure-fixture'
 import { skillagerReviewFixture } from './skillager-review-fixture'
 import type { HtmlPreviewProtocol } from '../html-preview-protocol'
@@ -68,6 +69,7 @@ export function createSkillagerSmoke(
   let initializedLibrary: SkillagerLibrary | undefined
   let initializedGit = true
   const calls: string[] = []
+  const sync = skillagerLibrarySyncFixture()
   const real = realSkillagerSmokePort(host, cleanup)
   const project = skillagerProjectFixture(host, root, cleanup)
   const capability = new SkillagerCapability(
@@ -92,7 +94,18 @@ export function createSkillagerSmoke(
       },
       inventory(selected) {
         calls.push('inventory')
-        return Promise.resolve(selected.library?.id === 'onboarding-library' ? [] : rows)
+        return Promise.resolve(
+          selected.library?.id === 'onboarding-library'
+            ? sync.synced
+              ? [
+                  {
+                    ...rows[1]!,
+                    source: { ...rows[1]!.source, libraryId: selected.library.id },
+                  },
+                ]
+              : []
+            : rows,
+        )
       },
       async search(_selection, request, signal) {
         calls.push(`search:${request.query}`)
@@ -110,6 +123,7 @@ export function createSkillagerSmoke(
         return [{ ...rows[4999]!, name: request.query, matchReasons: ['body'] }]
       },
       exposures: () => fixtureFor(root).exposures(),
+      ...sync.cli,
     },
     resources,
     (candidate) => hostPathEquals(candidate, projects.getProjectState().root),

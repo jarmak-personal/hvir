@@ -2,6 +2,8 @@ import type { SkillagerProjectStart } from '../../shared/skillager-project'
 import type { SkillagerProjectCliPort } from './skillager-project-commands'
 import type { SkillagerProjectTerminalPort } from './skillager-project-terminal'
 import { SkillagerProjectSetupOwner } from './skillager-project-setup-owner'
+import { SkillagerLibrarySyncOwner } from './skillager-library-sync-owner'
+import type { SkillagerLibrarySyncCliPort } from './skillager-library-sync-port'
 import type { SkillagerSetupTarget } from '../../shared/skillager-setup'
 import type { SkillagerFolderPicker, SkillagerSetupCliPort } from './skillager-setup-port'
 import type { SkillagerExposureRequest } from '../../shared/skillager-exposure'
@@ -67,6 +69,7 @@ interface OwnerState {
 }
 
 export class SkillagerCapability {
+  readonly librarySync: SkillagerLibrarySyncOwner
   private readonly owners = new Map<string, OwnerState>()
   private readonly jobs = new Map<Promise<unknown>, string>()
   private disposed = false
@@ -79,7 +82,7 @@ export class SkillagerCapability {
   private readonly projectSetup?: SkillagerProjectSetupOwner
 
   constructor(
-    private readonly cli: SkillagerCliPort,
+    private readonly cli: SkillagerCliPort & SkillagerLibrarySyncCliPort,
     private readonly resources: Pick<
       RendererResourceScopes,
       'assertCurrent' | 'isCurrent' | 'register'
@@ -103,6 +106,9 @@ export class SkillagerCapability {
       readonly terminal: SkillagerProjectTerminalPort
     },
   ) {
+    this.librarySync = new SkillagerLibrarySyncOwner(cli, resources, (owner, request) =>
+      this.reviewGrant(owner, request),
+    )
     if (project)
       this.projectSetup = new SkillagerProjectSetupOwner(
         project.cli,
@@ -207,6 +213,8 @@ export class SkillagerCapability {
             'Set up your personal library before connecting.',
           )
         const generation = ++state.generation
+        await this.librarySync.revoke(owner)
+        this.current(owner, state, generation)
         state.probe?.abort()
         const controller = new AbortController()
         state.probe = controller
@@ -234,6 +242,7 @@ export class SkillagerCapability {
     const state = this.owners.get(key(owner))
     if (!state) return
     state.generation++
+    void this.track(owner, this.librarySync.revoke(owner))
     if (this.projectSetup) void this.track(owner, this.projectSetup.revoke(owner))
     void this.track(owner, this.reviews.revoke(owner))
     void this.track(owner, this.exposures.revoke(owner))
@@ -613,6 +622,7 @@ export class SkillagerCapability {
       this.cancelLane(state.lanes.project)
     }
     this.owners.clear()
+    await this.librarySync.dispose()
     await this.projectSetup?.revoke()
     await this.exposures.revoke()
     await this.reviews.revoke()

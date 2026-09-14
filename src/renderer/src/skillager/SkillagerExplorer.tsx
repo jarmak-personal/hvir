@@ -17,6 +17,7 @@ export function SkillagerExplorer({
   onRefresh,
   children,
   empty,
+  actions,
 }: {
   readonly title: 'In this project' | 'Your library'
   readonly expanded: boolean
@@ -29,6 +30,7 @@ export function SkillagerExplorer({
   readonly controller: SkillagerController
   readonly onRefresh: () => void
   readonly children?: ReactNode
+  readonly actions?: ReactNode
   readonly empty: ReactNode
 }) {
   return (
@@ -45,6 +47,7 @@ export function SkillagerExplorer({
           <span aria-hidden="true">{expanded ? '⌄' : '›'}</span> {title}
           {checkedAt ? <small>{rows.length}</small> : null}
         </button>
+        {actions}
         <button
           type="button"
           className="skillager-section-refresh"

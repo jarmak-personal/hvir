@@ -13,6 +13,11 @@ import type {
   SkillagerSkillRequest,
 } from '../skillager-review'
 import type { HostPath } from '../host-path'
+import type {
+  SkillagerSyncCompletion,
+  SkillagerSyncPreparation,
+  SkillagerSyncRequest,
+} from '../skillager-library-sync'
 import type { StartPtyResponse } from '../ipc/terminal'
 import type {
   SkillagerProjectObservation,
@@ -33,6 +38,15 @@ import type {
 
 export const skillagerIpc = {
   invoke: {
+    'skillager:sync-status': invoke<
+      SkillagerRequest,
+      SkillagerResult<SkillagerSyncPreparation>
+    >(),
+    'skillager:sync-approved': invoke<
+      SkillagerSyncRequest,
+      SkillagerResult<SkillagerSyncCompletion>
+    >(),
+    'skillager:cancel-sync': invoke<{ readonly requestId: number }, void>(),
     'skillager:project-metadata': invoke<
       SkillagerBrowseRequest,
       SkillagerResult<SkillagerProjectObservation>

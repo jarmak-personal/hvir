@@ -15,6 +15,7 @@ import type { ExecResult } from '../src/shared'
 import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import { SkillagerCapability } from '../src/main/skillager/skillager-capability'
 import type { SkillagerCliPort } from '../src/main/skillager/skillager-port'
+import type { SkillagerLibrarySyncCliPort } from '../src/main/skillager/skillager-library-sync-port'
 import { SkillagerProcess } from '../src/main/skillager/skillager-process'
 import type { ExecOptions } from '../src/main/project-host/project-host'
 import { asHostId, hostPath, localPath } from '../src/shared/host-path'
@@ -49,7 +50,12 @@ function fixture(
     search: vi.fn(() => Promise.resolve([])),
     exposures: vi.fn(() => Promise.resolve([])),
   }
-  const cli: SkillagerCliPort = { ...calls, ...overrides }
+  const cli: SkillagerCliPort & SkillagerLibrarySyncCliPort = {
+    ...calls,
+    ...overrides,
+    syncStatus: () => Promise.reject(new Error('Unexpected sync observation')),
+    syncApproved: () => Promise.reject(new Error('Unexpected library sync')),
+  }
   let available = true
   const capability = new SkillagerCapability(
     cli,

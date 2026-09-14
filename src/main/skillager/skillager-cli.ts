@@ -1,4 +1,5 @@
 import { SkillagerSetupCommands } from './skillager-setup-commands'
+import { SkillagerLibrarySyncCommands } from './skillager-library-sync-commands'
 import { SkillagerProjectCommands } from './skillager-project-commands'
 import type { SkillagerSetupCliPort } from './skillager-setup-port'
 import { SkillagerExposureCommands } from './skillager-exposure-commands'
@@ -98,6 +99,26 @@ export class SkillagerCli implements SkillagerCliPort, SkillagerSetupCliPort {
   }
   libraryStatus(selection: SkillagerCliSelection, signal: AbortSignal) {
     return this.operate(() => this.setupCommands().status(selection, signal))
+  }
+  syncStatus(selection: SkillagerCliSelection, workspace: HostPath, signal: AbortSignal) {
+    return this.operate(() => this.syncCommands().status(selection, workspace, signal))
+  }
+  syncApproved(
+    selection: SkillagerCliSelection,
+    workspace: HostPath,
+    signal: AbortSignal,
+    submitted: () => void,
+  ) {
+    return this.operate(() =>
+      this.syncCommands().apply(selection, workspace, signal, submitted),
+    )
+  }
+  private syncCommands(): SkillagerLibrarySyncCommands {
+    return new SkillagerLibrarySyncCommands(
+      this.process,
+      this.context,
+      (selection, signal) => this.validateLocal(selection, signal),
+    )
   }
   private setupCommands(): SkillagerSetupCommands {
     return new SkillagerSetupCommands(this.process, this.context, (selection, signal) =>

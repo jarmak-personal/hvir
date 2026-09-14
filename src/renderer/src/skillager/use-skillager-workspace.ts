@@ -1,3 +1,4 @@
+import { useSkillagerLibrarySync } from './use-skillager-library-sync'
 import { useSkillagerProject, type SkillagerSetupTerminal } from './use-skillager-project'
 import { useSkillagerExposure } from './use-skillager-exposure'
 import type { ProjectState } from '../../../shared/workspace-types'
@@ -454,6 +455,17 @@ export function useSkillagerWorkspace(input: Options) {
     onAccepted: afterAcceptance,
   })
 
+  const librarySync = useSkillagerLibrarySync({
+    connection,
+    root: options.root,
+    agent,
+    visible:
+      options.enabled &&
+      options.projectState?.connectionState === 'connected' &&
+      (options.sidebarVisible || (Boolean(tabs.activeId) && options.viewerVisible)),
+    onCompleted: afterAcceptance,
+  })
+
   const exposures = useSkillagerExposure({
     connection,
     detailId: tabs.activeId,
@@ -469,6 +481,7 @@ export function useSkillagerWorkspace(input: Options) {
   })
 
   return {
+    librarySync,
     project,
     projectExpanded,
     setProjectExpanded,

@@ -1,3 +1,5 @@
+import { SkillagerLineage } from './SkillagerLineage'
+import type { SkillagerLibrarySyncController } from './use-skillager-library-sync'
 import { workspaceSkillLabel } from './skillager-exposure-model'
 import { SkillagerActions } from './SkillagerActions'
 import type { SkillagerExposureController } from './use-skillager-exposure'
@@ -13,7 +15,9 @@ export function SkillagerDetails({
   tab,
   reviews,
   exposures,
+  librarySync,
 }: {
+  readonly librarySync?: SkillagerLibrarySyncController
   readonly metadata: SkillagerMetadata
   readonly tab?: SkillagerDetailTab
   readonly exposures?: SkillagerExposureController
@@ -145,6 +149,9 @@ export function SkillagerDetails({
           </>
         )}
       </dl>
+      {librarySync ? (
+        <SkillagerLineage metadata={metadata} controller={librarySync} />
+      ) : null}
       {metadata.workspaceCheckedAt ? (
         <p className="skillager-freshness">
           Workspace last checked{' '}

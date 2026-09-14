@@ -1,3 +1,4 @@
+import { verifySkillagerLibrarySync } from './skillager-library-sync'
 import {
   verifySkillagerExplorer,
   verifySkillagerExpansionCapacity,
@@ -73,6 +74,8 @@ export async function verifySkillagerScenario(
       button('.skillager-sidebar', 'Connect library').click();
     `)
     await verifySkillagerExplorer(win)
+    if (!process.env.HVIR_SKILLAGER_SMOKE_FIXTURE)
+      await verifySkillagerLibrarySync(win, false)
     await evaluate(`
       if (!document.querySelector('.viewer-tab:not(.skillager-tab)') || !document.querySelector('.terminal-container canvas')) throw new Error('Skill selection displaced the document or terminal');
       document.querySelector('.viewer-tab:not(.skillager-tab) .tab-main').click();
