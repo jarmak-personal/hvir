@@ -93,7 +93,7 @@
     "ghostty-web": "https://github.com/jarmak-personal/ghostty-web/releases/download/hvir-v0.4.0-19/ghostty-web-0.4.0-hvir-g30b96a57de4c.tgz",
     "markdown-it": "^15.0.1",
     "markdown-it-task-lists": "^2.1.1",
-    "mermaid": "^11.17.2",
+    "mermaid": "^12.0.0",
     "node-pty": "^1.1.0",
     "plist": "^3.1.1",
     "shiki": "^4.4.3",
