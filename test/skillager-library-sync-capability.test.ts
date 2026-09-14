@@ -1,3 +1,5 @@
+import type { SkillagerCliPort } from '../src/main/skillager/skillager-port'
+import { skillagerSearchResult } from './fixtures/skillager-search-fixture'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import { SkillagerCapability } from '../src/main/skillager/skillager-capability'
 import type { SkillagerSyncStatus } from '../src/shared/skillager-library-sync'
@@ -20,7 +22,9 @@ it.each(['connect', 'probe', 'disconnect', 'disable'])(
       probe: () => Promise.resolve(syncSelection),
       validate: () => Promise.resolve(),
       inventory: () => Promise.resolve([]),
-      search: () => Promise.resolve([]),
+      search: vi.fn<SkillagerCliPort['search']>((_selection, request) =>
+        Promise.resolve(skillagerSearchResult(request)),
+      ),
       exposures: () => Promise.resolve([]),
       syncStatus: vi.fn((_selection, _root, received: AbortSignal) => {
         signal = received

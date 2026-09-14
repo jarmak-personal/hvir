@@ -13,7 +13,7 @@ export async function verifySkillagerExposure(win: BrowserWindow): Promise<void>
     const back = button('.skillager-sidebar', 'Clear search'); if (back) back.click();
     const row = await wait(() => [...document.querySelectorAll('section[aria-label="In this project"] .skillager-row')].find((item) => item.textContent.includes('Full')));
     row.querySelector('.skillager-name').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 30, clientY: 100 }));
-    await wait(() => button('[role=menu]', 'Stub…'));
+    await wait(() => button('[role=menu]', 'Use as stub…'));
     await wait(() => document.activeElement?.getAttribute('role') === 'menuitem' && document.hasFocus());
     return row.dataset.skillKey;
   `)
@@ -31,8 +31,8 @@ export async function verifySkillagerExposure(win: BrowserWindow): Promise<void>
   })
   win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'F10', modifiers: ['shift'] })
   await evaluate(`
-    await wait(() => button('[role=menu]', 'Stub…'));
-    button('[role=menu]', 'Stub…').click();
+    await wait(() => button('[role=menu]', 'Use as stub…'));
+    button('[role=menu]', 'Use as stub…').click();
     await wait(() => button('.skillager-exposure-dialog', 'Preview changes'));
     button('.skillager-exposure-dialog', 'Preview changes').click();
     await wait(() => button('.skillager-exposure-dialog', 'Confirm exact changes'));

@@ -37,6 +37,8 @@ export function exposureActions(
   local = true,
   libraryId?: string,
 ): readonly { action: ExposureAction; label: string; disabled: boolean }[] {
+  if (metadata.search?.occurrence.exposure && metadata.workspaceFreshness !== 'fresh')
+    return []
   const owned =
     metadata.source.ownership === 'library' &&
     (!libraryId || metadata.source.libraryId === libraryId)
@@ -47,8 +49,8 @@ export function exposureActions(
   const present = !['removed', 'absent'].includes(copy?.status ?? '')
   if (native)
     return [
-      { action: 'full', label: 'Full skill…', disabled: !local || !approved },
-      { action: 'stub', label: 'Stub…', disabled: !local || !approved },
+      { action: 'full', label: 'Use as full skill…', disabled: !local || !approved },
+      { action: 'stub', label: 'Use as stub…', disabled: !local || !approved },
       { action: 'group', label: 'Group in router…', disabled: !local || !approved },
       {
         action: 'remove',
@@ -73,8 +75,8 @@ export function exposureActions(
     ]
   if (member)
     return [
-      { action: 'full', label: 'Full skill…', disabled: !local || !owned },
-      { action: 'stub', label: 'Stub…', disabled: !local || !owned },
+      { action: 'full', label: 'Use as full skill…', disabled: !local || !owned },
+      { action: 'stub', label: 'Use as stub…', disabled: !local || !owned },
       {
         action: 'edit-members',
         label: 'Edit members…',
@@ -91,12 +93,12 @@ export function exposureActions(
   return [
     {
       action: 'full',
-      label: 'Full skill…',
+      label: 'Use as full skill…',
       disabled: !local || !owned || !direct || copy.mode === 'native',
     },
     {
       action: 'stub',
-      label: 'Stub…',
+      label: 'Use as stub…',
       disabled: !local || !owned || !direct || copy.mode === 'stub',
     },
     { action: 'group', label: 'Group in router…', disabled: !local || !owned || !direct },

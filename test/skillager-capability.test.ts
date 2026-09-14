@@ -1,3 +1,4 @@
+import { skillagerSearchResult } from './fixtures/skillager-search-fixture'
 import type { BrowserWindow } from 'electron'
 import { createSkillagerFolderPicker } from '../src/main/skillager/electron-skillager-folder-picker'
 import { SkillagerError } from '../src/main/skillager/skillager-port'
@@ -47,7 +48,9 @@ function fixture(
     probe: vi.fn(() => Promise.resolve(selection)),
     validate: vi.fn(() => Promise.resolve()),
     inventory: vi.fn(() => Promise.resolve([])),
-    search: vi.fn(() => Promise.resolve([])),
+    search: vi.fn<SkillagerCliPort['search']>((_selection, request) =>
+      Promise.resolve(skillagerSearchResult(request)),
+    ),
     exposures: vi.fn(() => Promise.resolve([])),
   }
   const cli: SkillagerCliPort & SkillagerLibrarySyncCliPort = {
@@ -243,7 +246,8 @@ describe('Skillager capability authority and demand', () => {
   it('keeps only the latest replacement behind an exiting predecessor while inventory owns the other slot', async () => {
     const processes = closingProcesses()
     const f = fixture({
-      search: (_selection, request, signal) => processes.run(request.query, signal),
+      search: async (_selection, request, signal) =>
+        skillagerSearchResult(request, await processes.run(request.query, signal)),
       inventory: (_selection, signal) => processes.run('inventory', signal),
     })
     const request = await f.connect()
@@ -272,7 +276,8 @@ describe('Skillager capability authority and demand', () => {
     async (kind) => {
       const processes = closingProcesses()
       const f = fixture({
-        search: (_selection, request, signal) => processes.run(request.query, signal),
+        search: async (_selection, request, signal) =>
+          skillagerSearchResult(request, await processes.run(request.query, signal)),
       })
       const request = await f.connect()
       const pending = f.capability.search(f.owner, search(request))

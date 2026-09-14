@@ -68,6 +68,17 @@
   display: block;
   margin: 6px 0;
 }
+.skillager-search-advanced .skillager-search-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.skillager-search-option input {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+}
 .skillager-query-summary {
   margin: 4px 8px;
   color: var(--text-muted);
@@ -186,6 +197,32 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
+}
+.skillager-sidebar .skillager-row.skillager-search-row {
+  height: 100%;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 0;
+  padding: 4px;
+}
+.skillager-search-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 16px;
+  line-height: 16px;
+  flex: none;
+}
+.skillager-search-row .skillager-search-context,
+.skillager-search-row .skillager-search-match {
+  display: block;
+  flex: none;
+  line-height: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 .skillager-badges {
   display: flex;

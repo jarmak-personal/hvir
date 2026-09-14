@@ -173,10 +173,30 @@ export function parseSkillagerSearch(
   payload: unknown,
   library: SkillagerLibrary,
   personal: boolean,
+  workspace?: HostPath,
 ): readonly SkillagerMetadata[] {
-  const rows = array(payload, SKILLAGER_SEARCH_LIMIT).map((item) =>
-    metadata(item, library),
-  )
+  const rows = array(payload, SKILLAGER_SEARCH_LIMIT).map((item) => {
+    const row = metadata(item, library),
+      raw = object(item),
+      source = object(raw.source)
+    if (row.source.type !== 'project' || !workspace || workspace.hostId !== 'local')
+      return row
+    const path = absolutePath(raw.root),
+      native = raw.native == null ? undefined : object(raw.native)
+    const agent = source.agent ?? native?.agent
+    if (agent !== undefined && !SKILLAGER_AGENTS.some((item) => item.id === agent))
+      malformed()
+    return containsHostPath(workspace, path)
+      ? {
+          ...row,
+          projectSkill: {
+            path,
+            agent: agent as SkillagerAgent | undefined,
+            managed: native?.managed === true,
+          },
+        }
+      : row
+  })
   if (
     personal &&
     rows.some((row) => row.source.ownership !== 'library' || row.exposure !== 'unknown')
@@ -295,7 +315,7 @@ function routerMemberSources(
   return result
 }
 
-function metadata(payload: unknown, library: SkillagerLibrary): SkillagerMetadata {
+export function metadata(payload: unknown, library: SkillagerLibrary): SkillagerMetadata {
   const row = object(payload)
   const source = object(row.source)
   const id = string(row.id, 512)
@@ -358,19 +378,19 @@ export function parseSkillagerJson(text: string): unknown {
   }
 }
 
-function absolutePath(value: unknown) {
+export function absolutePath(value: unknown) {
   const text = string(value, 16_384)
   if (!text.startsWith('/') || text.includes('\0') || text !== localPath(text).path)
     malformed()
   return localPath(text)
 }
 
-function object(value: unknown): Record<string, unknown> {
+export function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return malformed()
   return value as Record<string, unknown>
 }
 
-function string(value: unknown, max: number): string {
+export function string(value: unknown, max: number): string {
   if (
     typeof value !== 'string' ||
     value.length === 0 ||
@@ -387,7 +407,7 @@ function optionalString(value: unknown, max: number): string | undefined {
     : string(value, max)
 }
 
-function array(value: unknown, max: number): unknown[] {
+export function array(value: unknown, max: number): unknown[] {
   if (!Array.isArray(value)) return malformed()
   if (value.length > max)
     throw new SkillagerError(
@@ -397,11 +417,11 @@ function array(value: unknown, max: number): unknown[] {
   return value as unknown[]
 }
 
-function strings(value: unknown, max: number, length: number): readonly string[] {
+export function strings(value: unknown, max: number, length: number): readonly string[] {
   return array(value, max).map((item) => string(item, length))
 }
 
-function malformed(): never {
+export function malformed(): never {
   throw new SkillagerError(
     'malformed-result',
     'Skillager returned unsupported or malformed metadata.',

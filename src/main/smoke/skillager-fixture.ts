@@ -7,9 +7,18 @@ import type { HtmlPreviewProtocol } from '../html-preview-protocol'
 import { realSkillagerSmokePort } from './skillager-cli-fixture'
 import type { IpcProjectAuthorityPort } from '../ipc/authority-port'
 import type { SmokeCleanup } from './cleanup'
-import { hostPathEquals, localPath, type HostPath } from '../../shared/host-path'
+import {
+  hostPathEquals,
+  joinHostPath,
+  localPath,
+  type HostPath,
+} from '../../shared/host-path'
 import { skillagerDestinationAvailable } from '../skillager/skillager-destination'
-import type { SkillagerLibrary, SkillagerMetadata } from '../../shared/skillager'
+import type {
+  SkillagerLibrary,
+  SkillagerMetadata,
+  SkillagerSearchRequest,
+} from '../../shared/skillager'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import { SkillagerCapability } from '../skillager/skillager-capability'
 import { SkillagerError } from '../skillager/skillager-port'
@@ -60,6 +69,56 @@ export function createSkillagerSmoke(
     exposure: 'unknown',
   }))
   const acceptedIds = new Set<string>()
+  const searchRows = (request: SkillagerSearchRequest): readonly SkillagerMetadata[] => {
+    const row = { ...rows[4999]!, name: request.query, matchReasons: ['body'] }
+    if (request.query !== 'installed-merge') return [row]
+    if (!request.includeInstalled) return []
+    const path = joinHostPath(root, '.claude/skills/merge')
+    const original = {
+      id: 'c'.repeat(64),
+      kind: 'project-original' as const,
+      path,
+      entrypoint: joinHostPath(path, 'SKILL.md'),
+      agent: 'claude' as const,
+      sourceIdentity: 'd'.repeat(64),
+    }
+    const canonical: SkillagerMetadata = {
+      ...row,
+      matchReasons: [],
+      search: {
+        groupId: 'e'.repeat(64),
+        canonical: { libraryId: library.id, skillId: row.id },
+        occurrence: {
+          id: 'f'.repeat(64),
+          kind: 'library',
+          path: joinHostPath(library.skillsRoot, 'skill-4999'),
+          entrypoint: joinHostPath(library.skillsRoot, 'skill-4999/SKILL.md'),
+        },
+        groupOccurrences: 2,
+        installed: true,
+        match: {
+          skillId: 'project/merge',
+          contentHash: row.contentHash!,
+          score: 1,
+          reasons: ['body'],
+          occurrence: original,
+        },
+      },
+    }
+    return request.view === 'copies'
+      ? [
+          canonical,
+          {
+            ...canonical,
+            id: 'project/merge',
+            matchReasons: row.matchReasons,
+            source: { type: 'project', ownership: 'external' },
+            projectSkill: { path, agent: 'claude', managed: false },
+            search: { ...canonical.search!, occurrence: original },
+          },
+        ]
+      : [canonical]
+  }
   const fixtures = new Map<string, ReturnType<typeof skillagerExposureFixture>>()
   const fixtureFor = (at: HostPath) => {
     const key = JSON.stringify([at.hostId, at.path])
@@ -125,7 +184,17 @@ export function createSkillagerSmoke(
             { once: true },
           )
         })
-        return [{ ...rows[4999]!, name: request.query, matchReasons: ['body'] }]
+        return {
+          rows: searchRows(request),
+          search: {
+            scope: request.scope,
+            browseAgent: request.browseAgent ?? request.agent,
+            view: request.view ?? 'skills',
+            includeInstalled: request.includeInstalled ?? false,
+            installedObservation: 'observed' as const,
+            coverage: 'local-project' as const,
+          },
+        }
       },
       exposures: () => fixtureFor(root).exposures(),
       ...sync.cli,

@@ -1,4 +1,4 @@
-import { SKILLAGER_SEARCH_LIMIT } from '../../shared/skillager'
+import { SkillagerSearchCommands } from './skillager-search-commands'
 import {
   SkillagerExposurePlanCommands,
   type SkillagerLocalActionSnapshot,
@@ -35,6 +35,7 @@ import type {
   SkillagerMetadata,
   SkillagerBrowseRequest,
   SkillagerSearchRequest,
+  SkillagerSearchRows,
   SkillagerWorkspaceExposure,
 } from '../../shared/skillager'
 import type { ProjectHost } from '../project-host/project-host'
@@ -42,13 +43,11 @@ import {
   parseSkillagerInventory,
   parseSkillagerJson,
   parseSkillagerLibrary,
-  parseSkillagerSearch,
   parseSkillagerExposures,
 } from './skillager-cli-metadata'
 import {
   SkillagerProcess,
   SKILLAGER_PROBE_LIMITS,
-  SKILLAGER_SEARCH_LIMITS,
   SKILLAGER_INVENTORY_LIMITS,
 } from './skillager-process'
 
@@ -173,8 +172,17 @@ export class SkillagerCli implements SkillagerCliPort, SkillagerSetupCliPort {
     selection: SkillagerCliSelection,
     request: SkillagerSearchRequest,
     signal: AbortSignal,
-  ): Promise<readonly SkillagerMetadata[]> {
-    return this.operate(() => this.searchLocal(selection, request, signal))
+    remote?: { readonly exposures: readonly SkillagerWorkspaceExposure[] | undefined },
+  ): Promise<SkillagerSearchRows> {
+    return this.operate(() =>
+      new SkillagerSearchCommands(
+        this.host,
+        this.process,
+        this.context,
+        (selected, at) => this.validateLocal(selected, at),
+        (path) => this.removeState(path),
+      ).search(selection, request, signal, remote),
+    )
   }
   exposures(
     selection: SkillagerCliSelection,
@@ -420,7 +428,19 @@ export class SkillagerCli implements SkillagerCliPort, SkillagerSetupCliPort {
       )
     const selection = { executable, catalog, version, environment }
     const library = await this.registration(selection, signal)
-    return { ...selection, library }
+    return {
+      ...selection,
+      library,
+      searchView: [
+        '--view',
+        '--include-installed',
+        '--installed-project',
+        '--installed-identities',
+        'skillager.search.v1',
+      ].every((flag) => help.includes(flag))
+        ? 'skillager.search.v1'
+        : undefined,
+    }
   }
 
   private async validateLocal(
@@ -482,43 +502,6 @@ export class SkillagerCli implements SkillagerCliPort, SkillagerSetupCliPort {
     }
     if (!outcome.ok) throw outcome.error
     return outcome.value
-  }
-
-  private async searchLocal(
-    selection: SkillagerCliSelection,
-    request: SkillagerSearchRequest,
-    signal: AbortSignal,
-  ): Promise<readonly SkillagerMetadata[]> {
-    await this.validateLocal(selection, signal)
-    const personal = request.scope === 'library'
-    const output = await this.process.run(
-      selection.executable.path,
-      [
-        '--catalog-state-dir',
-        selection.catalog.path,
-        ...(personal ? ['--state-dir', selection.catalog.path] : []),
-        'search',
-        '--scope',
-        request.scope,
-        ...(request.browseAgent === 'all'
-          ? []
-          : ['--agent', request.browseAgent ?? request.agent]),
-        '--limit',
-        String(SKILLAGER_SEARCH_LIMIT),
-        '--json',
-        '--full-json',
-        '--',
-        request.query,
-      ],
-      {
-        cwd: personal ? this.context : request.workspaceRoot,
-        signal,
-        env: selection.environment,
-      },
-      SKILLAGER_SEARCH_LIMITS,
-    )
-    await this.validateLocal(selection, signal)
-    return parseSkillagerSearch(parseSkillagerJson(output), selection.library!, personal)
   }
 
   private async exposuresLocal(

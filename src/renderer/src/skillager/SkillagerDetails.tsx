@@ -8,7 +8,11 @@ import type { SkillagerDetailTab } from './skillager-model'
 import type { SkillagerReviewController } from './use-skillager-review'
 import type { ReactElement } from 'react'
 import { skillagerAgentLabel, type SkillagerMetadata } from '../../../shared/skillager'
-import { isNativeProjectSkill, trustLabel } from './skillager-model'
+import {
+  isNativeProjectSkill,
+  trustLabel,
+  skillagerOccurrenceLabel,
+} from './skillager-model'
 
 export function SkillagerDetails({
   metadata,
@@ -39,6 +43,30 @@ export function SkillagerDetails({
         />
       ) : null}
       <dl>
+        {metadata.search ? (
+          <>
+            <dt>Selected occurrence</dt>
+            <dd>
+              {skillagerOccurrenceLabel(metadata.search.occurrence)} ·{' '}
+              {metadata.search.occurrence.path.hostId}:
+              {metadata.search.occurrence.path.path}
+            </dd>
+            <dt>Search matched</dt>
+            <dd>
+              {skillagerOccurrenceLabel(metadata.search.match.occurrence)} ·{' '}
+              {metadata.search.match.occurrence.path.hostId}:
+              {metadata.search.match.occurrence.path.path}
+            </dd>
+            <dt>Installed observation</dt>
+            <dd>
+              {metadata.search.installed === null
+                ? 'Unknown'
+                : metadata.search.installed
+                  ? 'Present in the submitted observation'
+                  : 'Absent from the submitted observation'}
+            </dd>
+          </>
+        ) : null}
         <dt>Identity</dt>
         <dd>{metadata.id}</dd>
         <dt>Source</dt>
@@ -73,7 +101,11 @@ export function SkillagerDetails({
         ) : null}
         {metadata.contentHash ? (
           <>
-            <dt>Content version</dt>
+            <dt>
+              {metadata.search?.occurrence.exposure
+                ? 'Search definition version (not installed bytes)'
+                : 'Content version'}
+            </dt>
             <dd>
               <code>{metadata.contentHash}</code>
             </dd>

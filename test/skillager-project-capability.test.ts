@@ -1,3 +1,4 @@
+import { skillagerSearchResult } from './fixtures/skillager-search-fixture'
 import { expect, it, vi, onTestFinished } from 'vitest'
 import { SkillagerCapability } from '../src/main/skillager/skillager-capability'
 import {
@@ -54,7 +55,9 @@ function fixture(exposures: readonly SkillagerWorkspaceExposure[] = []) {
   const cli = {
     probe: vi.fn<SkillagerCliPort['probe']>(() => Promise.resolve(selection)),
     validate: vi.fn<SkillagerCliPort['validate']>(() => Promise.resolve()),
-    search: vi.fn<SkillagerCliPort['search']>(() => Promise.resolve([])),
+    search: vi.fn<SkillagerCliPort['search']>((_selection, request) =>
+      Promise.resolve(skillagerSearchResult(request)),
+    ),
     exposures: vi.fn<SkillagerCliPort['exposures']>(() => Promise.resolve(exposures)),
     inventory: vi.fn<SkillagerCliPort['inventory']>(() =>
       Promise.resolve([canonical, { ...canonical, id: 'lib/unrelated' }]),

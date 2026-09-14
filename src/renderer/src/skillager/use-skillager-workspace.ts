@@ -18,6 +18,7 @@ import {
   type SkillagerProbe,
   type SkillagerResult,
   type SkillagerSearchScope,
+  type SkillagerSearchContext,
 } from '../../../shared/skillager'
 import {
   canonicalSkillagerMetadata,
@@ -68,12 +69,11 @@ export function useSkillagerWorkspace(input: Options) {
   const [libraryExpanded, setLibraryExpanded] = useState(true)
   const [browseAgent, setBrowseAgent] = useState<SkillagerBrowseAgent>('all')
   const [scope, setScope] = useState<SkillagerSearchScope>('workspace')
+  const [includeInstalled, setIncludeInstalled] = useState(false)
+  const [separateCopies, setSeparateCopies] = useState(false)
   const [query, setQuery] = useState('')
   const [submitted, setSubmitted] = useState('')
-  const [submittedContext, setSubmittedContext] = useState<{
-    scope: SkillagerSearchScope
-    browseAgent: SkillagerBrowseAgent
-  }>()
+  const [submittedContext, setSubmittedContext] = useState<SkillagerSearchContext>()
   const [search, setSearch] = useState<ReadState>(emptyRead)
   const [inventory, setInventory] = useState<ReadState>(emptyRead)
   const [tabs, dispatchTabs] = useReducer(skillagerTabs, { tabs: [] })
@@ -105,6 +105,8 @@ export function useSkillagerWorkspace(input: Options) {
     setProjectExpanded(true)
     setLibraryExpanded(true)
     setBrowseAgent('all')
+    setIncludeInstalled(false)
+    setSeparateCopies(false)
     setSubmittedContext(undefined)
     dispatchTabs({ type: 'clear' })
   }, [cancel])
@@ -292,7 +294,15 @@ export function useSkillagerWorkspace(input: Options) {
   )
 
   const submit = useCallback(
-    async (submittedQuery = query.trim(), context = { scope, browseAgent }) => {
+    async (
+      submittedQuery = query.trim(),
+      context: SkillagerSearchContext = {
+        scope,
+        browseAgent,
+        view: separateCopies ? 'copies' : 'skills',
+        includeInstalled,
+      },
+    ) => {
       const current = connectionRef.current
       const root = optionsRef.current.root
       if (
@@ -333,7 +343,7 @@ export function useSkillagerWorkspace(input: Options) {
           })
       }
     },
-    [agent, browseAgent, scope, query, disconnect],
+    [agent, browseAgent, scope, query, includeInstalled, separateCopies, disconnect],
   )
 
   useEffect(() => {
@@ -613,6 +623,10 @@ export function useSkillagerWorkspace(input: Options) {
     setLibraryExpanded,
     browseAgent,
     setBrowseAgent,
+    includeInstalled,
+    setIncludeInstalled,
+    separateCopies,
+    setSeparateCopies,
     exposures,
     reviews,
     enabled: options.enabled,

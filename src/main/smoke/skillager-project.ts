@@ -30,7 +30,7 @@ export async function verifySkillagerProject(
     native.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 40, clientY: 180 }));
     const menu = await wait(() => document.querySelector('[role=menu][aria-label="Skill actions for Project fixture 1"]'));
     const action = (label) => [...menu.querySelectorAll('[role=menuitem]')].find(item => item.textContent === label);
-    for (const label of ['Full skill…', 'Stub…', 'Group in router…', 'Remove from this project…']) {
+    for (const label of ['Use as full skill…', 'Use as stub…', 'Group in router…', 'Remove from this project…']) {
       if (!action(label)?.disabled) throw Error('Blocked original gained mutation authority: ' + label);
     }
     if (!action('Remove in Files…') || action('Remove in Files…').disabled) throw Error('Blocked original lost separate Files handoff');

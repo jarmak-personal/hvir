@@ -22,6 +22,8 @@ export type SkillagerTrust =
   | 'unknown'
 
 export interface SkillagerMetadata {
+  /** Public search observation, not a body read or mutation grant. */
+  readonly search?: SkillagerSearchIdentity
   readonly id: string
   readonly name: string
   readonly description: string
@@ -86,6 +88,8 @@ export interface SkillagerLibrary {
 }
 
 export type SkillagerFailureReason =
+  | 'search-unsupported'
+  | 'installed-unknown'
   | 'disabled'
   | 'missing'
   | 'invalid-executable'
@@ -149,9 +153,62 @@ export interface SkillagerBrowseRequest extends SkillagerRequest {
 export interface SkillagerSearchRequest extends SkillagerBrowseRequest {
   readonly query: string
   readonly scope: SkillagerSearchScope
+  readonly view?: SkillagerSearchView
+  readonly includeInstalled?: boolean
+}
+
+export type SkillagerSearchView = 'skills' | 'copies' | 'legacy'
+export interface SkillagerSearchContext {
+  readonly scope: SkillagerSearchScope
+  readonly browseAgent: SkillagerBrowseAgent
+  readonly view: SkillagerSearchView
+  readonly includeInstalled: boolean
+}
+export interface SkillagerSearchOccurrence {
+  readonly id: string
+  readonly kind:
+    'library' | 'source' | 'project-original' | 'full' | 'stub' | 'router-member'
+  readonly path: HostPath
+  readonly entrypoint: HostPath
+  readonly agent?: SkillagerAgent
+  readonly sourceIdentity?: string
+  /** Exact target selector only; top-level source hashes never describe these bytes. */
+  readonly exposure?: Pick<
+    SkillagerWorkspaceExposure,
+    'id' | 'agent' | 'target' | 'mode'
+  > & {
+    readonly router?: {
+      readonly slug: string
+      readonly kind: string
+      readonly tag?: string
+    }
+  }
+}
+export interface SkillagerSearchIdentity {
+  readonly groupId: string
+  readonly canonical?: { readonly libraryId: string; readonly skillId: string }
+  readonly occurrence: SkillagerSearchOccurrence
+  readonly groupOccurrences: number
+  readonly installed: boolean | null
+  readonly match: {
+    readonly occurrence: SkillagerSearchOccurrence
+    readonly skillId: string
+    readonly contentHash: string
+    readonly score: number
+    readonly reasons: readonly string[]
+  }
+}
+export interface SkillagerSearchObservation extends SkillagerSearchContext {
+  readonly installedObservation: 'observed' | 'provided' | 'unknown' | 'legacy'
+  readonly coverage: 'local-project' | 'hvir-deliveries' | 'none'
+}
+export interface SkillagerSearchRows {
+  readonly rows: readonly SkillagerMetadata[]
+  readonly search: SkillagerSearchObservation
 }
 
 export interface SkillagerMetadataResult {
+  readonly search?: SkillagerSearchObservation
   readonly rows: readonly SkillagerMetadata[]
   readonly checkedAt: number
   readonly durationMs: number

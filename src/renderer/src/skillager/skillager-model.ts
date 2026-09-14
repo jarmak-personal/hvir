@@ -1,4 +1,9 @@
 import { skillagerSourceKey } from '../../../shared/skillager-source-identity'
+import { hostPathEquals } from '../../../shared/host-path'
+import {
+  skillagerAgentLabel,
+  type SkillagerSearchOccurrence,
+} from '../../../shared/skillager'
 import type {
   SkillagerMetadata,
   SkillagerMetadataResult,
@@ -87,6 +92,14 @@ export function skillagerTabs(
       return {
         ...state,
         tabs: state.tabs.map((tab) => {
+          // Inventory refresh never substitutes new bytes/identity for a selected search observation.
+          if (tab.metadata.search)
+            return tab.metadata.search.occurrence.exposure
+              ? {
+                  ...tab,
+                  metadata: searchOccurrenceMetadata(tab.metadata, action.result),
+                }
+              : tab
           if (
             (tab.metadata.workspace || tab.metadata.routerMembership) &&
             !action.result.exposures
@@ -216,6 +229,7 @@ export function skillagerWorkspaceMetadata(
     exposures.set(identity, copies)
   }
   return data.rows.map((row) => {
+    if (row.search) return searchOccurrenceMetadata(row, data)
     const key = skillagerSourceKey(row.source.libraryId, row.id)
     const copies = key ? (exposures.get(key) ?? []) : []
     return {
@@ -241,7 +255,7 @@ export function skillagerMetadataKey(row: SkillagerMetadata): string {
       row.routerMembership.target.path,
       row.routerMembership.agent,
       row.routerMembership.id,
-      row.id,
+      skillagerRouterMemberId(row),
     ])}`
   if (row.workspace)
     return `skillager:copy:${JSON.stringify([
@@ -257,7 +271,74 @@ export function skillagerMetadataKey(row: SkillagerMetadata): string {
       row.projectSkill.agent,
       row.id,
     ])}`
+  if (row.search && row.source.ownership !== 'library')
+    return `skillager:search-occurrence:${row.search.occurrence.id}`
   return `skillager:source:${skillagerSourceKey(row.source.libraryId, row.id) ?? JSON.stringify([row.source.collection ?? row.source.type, row.id])}`
+}
+
+/** A member's canonical identity and the accepted source supplying metadata may differ. */
+export function skillagerRouterMemberId(row: SkillagerMetadata): string {
+  return row.search?.canonical?.skillId ?? row.id
+}
+
+export function skillagerOccurrenceLabel(
+  occurrence: SkillagerSearchOccurrence,
+  context: 'selection' | 'match' = 'selection',
+): string {
+  const label = {
+    library: 'Your library',
+    source: 'External source',
+    'project-original': context === 'match' ? 'Project' : 'Project original',
+    full: 'Installed Full',
+    stub: 'Installed Stub',
+    'router-member': 'Installed Router',
+  }[occurrence.kind]
+  return occurrence.agent ? `${label} · ${skillagerAgentLabel(occurrence.agent)}` : label
+}
+
+function searchOccurrenceMetadata(
+  row: SkillagerMetadata,
+  data: SkillagerMetadataResult,
+): SkillagerMetadata {
+  const selected = row.search!.occurrence.exposure
+  if (!selected)
+    return {
+      ...row,
+      workspaceCopies: undefined,
+      workspaceCheckedAt: data.checkedAt,
+      workspaceFreshness: 'fresh',
+    }
+  const canonical = row.search!.canonical!
+  const observed = data.exposures?.find(
+    (copy) =>
+      copy.id === selected.id &&
+      copy.agent === selected.agent &&
+      copy.mode === selected.mode &&
+      hostPathEquals(copy.target, selected.target) &&
+      (selected.router
+        ? copy.router?.memberSources?.some(
+            (member) =>
+              member.skillId === canonical.skillId &&
+              member.sourceLibraryId === canonical.libraryId,
+          )
+        : copy.skillId === canonical.skillId &&
+          copy.sourceLibraryId === canonical.libraryId),
+  )
+  const copy: SkillagerWorkspaceExposure = observed ?? {
+    ...selected,
+    skillId: selected.router ? undefined : canonical.skillId,
+    sourceLibraryId: selected.router ? undefined : canonical.libraryId,
+    status: 'unverified',
+    router: selected.router ? { ...selected.router, skillIds: [] } : undefined,
+  }
+  return {
+    ...row,
+    workspaceCopies: undefined,
+    workspace: selected.router ? undefined : copy,
+    routerMembership: selected.router ? copy : undefined,
+    workspaceCheckedAt: data.checkedAt,
+    workspaceFreshness: observed ? 'fresh' : 'unavailable',
+  }
 }
 
 export function skillagerRouterMember(

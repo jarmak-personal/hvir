@@ -20,6 +20,18 @@ export function SkillagerSearch({
     if (open) input.current?.focus()
   }, [open])
   const submitted = controller.submittedContext
+  const retry = (legacy: boolean): void => {
+    if (!submitted) return
+    void controller.submit(controller.submitted, {
+      ...submitted,
+      view: legacy ? 'legacy' : submitted.view,
+      includeInstalled: true,
+    })
+  }
+  const failure =
+    controller.search.result && !controller.search.result.ok
+      ? controller.search.result.reason
+      : undefined
   return (
     <div className="skillager-search-controls">
       <details
@@ -27,15 +39,7 @@ export function SkillagerSearch({
         open={open}
         onToggle={(event) => setOpen(event.currentTarget.open)}
       >
-        <summary>
-          Search{' '}
-          <small>
-            ·{' '}
-            {controller.browseAgent === 'all'
-              ? 'All agents'
-              : skillagerAgentLabel(controller.browseAgent)}
-          </small>
-        </summary>
+        <summary>Search</summary>
         <form
           className="skillager-search"
           onSubmit={(event) => {
@@ -90,14 +94,34 @@ export function SkillagerSearch({
               ))}
             </select>
             <p className="skillager-hint">
-              Agent preference selects native variants and compatibility context; it is
-              not a strict compatibility filter. Browsing keeps every reported project
-              copy and reusable library skill visible.
+              Agent preference sets native variant and compatibility context; it is not a
+              strict compatibility filter. Browsing keeps every reported project copy and
+              reusable library skill visible.
             </p>
+            <label className="skillager-search-option">
+              <input
+                type="checkbox"
+                checked={controller.includeInstalled}
+                onChange={(event) =>
+                  controller.setIncludeInstalled(event.currentTarget.checked)
+                }
+              />
+              Include installed
+            </label>
+            <label className="skillager-search-option">
+              <input
+                type="checkbox"
+                checked={controller.separateCopies}
+                onChange={(event) =>
+                  controller.setSeparateCopies(event.currentTarget.checked)
+                }
+              />
+              Show separate copies
+            </label>
             <p className="skillager-hint">
               Search covers metadata and the first 50,000 characters of accepted bodies.
               Pending bodies are excluded. Results keep Skillager’s ranking, up to 50
-              matches.
+              matches. Grouping and installed filtering happen before that limit.
             </p>
           </details>
         </form>
@@ -106,10 +130,38 @@ export function SkillagerSearch({
         <p className="skillager-query-summary">
           Results for “{controller.submitted}” ·{' '}
           {submitted.scope === 'library' ? 'Your library' : 'Available to this project'} ·{' '}
+          {submitted.view === 'legacy'
+            ? 'Legacy results'
+            : submitted.view === 'copies'
+              ? 'Separate copies'
+              : 'One row per known skill'}{' '}
+          ·{' '}
+          {submitted.includeInstalled
+            ? 'Installed included'
+            : local
+              ? 'Installed hidden'
+              : 'Hidden: skills added through hvir'}{' '}
+          ·{' '}
           {submitted.browseAgent === 'all'
             ? 'All agents'
             : `Prefers ${skillagerAgentLabel(submitted.browseAgent)}`}
         </p>
+      ) : null}
+      {submitted?.view === 'legacy' ? (
+        <p className="skillager-section-notice">
+          Older Skillager may group agent variants. These legacy results include installed
+          skills.
+        </p>
+      ) : null}
+      {failure === 'search-unsupported' ? (
+        <button type="button" onClick={() => retry(true)}>
+          Search with installed Skillager…
+        </button>
+      ) : null}
+      {failure === 'installed-unknown' ? (
+        <button type="button" onClick={() => retry(false)}>
+          Include installed and search
+        </button>
       ) : null}
     </div>
   )

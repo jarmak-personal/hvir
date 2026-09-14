@@ -227,7 +227,7 @@ it('gives native rows and details the same mouse and keyboard lifecycle menu', a
   const labels = [...document.querySelectorAll('[role="menuitem"]')].map(
     (item) => item.textContent,
   )
-  expect(labels).toContain('Stub…')
+  expect(labels).toContain('Use as stub…')
   expect(labels).toContain('Remove in Files…')
   await settle(() =>
     document.dispatchEvent(
