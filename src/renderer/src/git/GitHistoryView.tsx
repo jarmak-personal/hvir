@@ -24,7 +24,7 @@ import { buildGitGraphLayout, type GitGraphRow } from './git-graph-layout'
 import { gitGraphWidth, RAIL_GRAPH_LANE_METRICS } from './git-graph-lane-metrics'
 import { GitGraphCell, GitGraphContinuation } from './GitGraphLanes'
 import type { RailCommitDetailState } from './use-git-commit-details'
-import { measureVariableRows, variableVirtualRange } from './virtual-range'
+import { measureVariableRows, variableVirtualRange } from '../layout/virtual-range'
 
 const HISTORY_COMMIT_ROW_HEIGHT = 40
 const HISTORY_CHILD_ROW_HEIGHT = 22

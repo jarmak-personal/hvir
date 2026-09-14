@@ -12,6 +12,7 @@ export function validateExposureSelection(request: SkillagerExposureRequest): vo
   const selected = request.exposure
   if (
     !selected ||
+    selected.agent !== request.agent ||
     !safeExposureId(selected.id) ||
     selected.id !== basenameHostPath(selected.target) ||
     !containsHostPath(request.destination.root, selected.target) ||

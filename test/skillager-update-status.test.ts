@@ -13,14 +13,19 @@ import {
   eligibleSkillagerUpdate,
   workspaceSkillLabel,
 } from '../src/renderer/src/skillager/skillager-exposure-model'
-import { skillagerWorkspaceMetadata } from '../src/renderer/src/skillager/skillager-model'
+import {
+  skillagerWorkspaceMetadata,
+  skillagerProjectRows,
+} from '../src/renderer/src/skillager/skillager-model'
 import type { SkillagerMetadata } from '../src/shared/skillager'
 
 const old = 'c'.repeat(64)
 function fixture(mode: 'native' | 'stub' = 'native') {
   const exposure = {
+    agent: request.agent,
     id: 'lib-demo',
     skillId: request.skillId,
+    sourceLibraryId: selection.library.id,
     target: localPath('/other/.agents/skills/lib-demo'),
     mode,
     status: 'source_update',
@@ -113,7 +118,7 @@ const metadata: SkillagerMetadata = {
   id: request.skillId,
   name: 'Demo',
   description: '',
-  source: { type: 'collection', ownership: 'library' },
+  source: { type: 'collection', ownership: 'library', libraryId: selection.library.id },
   trust: 'reviewed',
   contentHash: hash,
   tags: [],
@@ -132,7 +137,7 @@ it('library search without independent exposure observation cannot infer update,
 })
 it('labels only fresh accepted source drift as behind and separates protected states', () => {
   const f = fixture()
-  const row = skillagerWorkspaceMetadata({
+  const row = skillagerProjectRows({
     rows: [metadata],
     exposures: [f.exposure],
     checkedAt: 1,

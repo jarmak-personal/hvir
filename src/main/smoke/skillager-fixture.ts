@@ -59,7 +59,7 @@ export function createSkillagerSmoke(
     const key = JSON.stringify([at.hostId, at.path])
     let fixture = fixtures.get(key)
     if (!fixture) {
-      fixture = skillagerExposureFixture(at)
+      fixture = skillagerExposureFixture(at, library.id)
       for (const id of acceptedIds) fixture.accepted(id)
       fixtures.set(key, fixture)
     }
@@ -76,6 +76,8 @@ export function createSkillagerSmoke(
         calls.push('probe')
         if (executable?.path === '/hvir-smoke/project-setup')
           return project.selection(selection)
+        if (executable?.path === '/hvir-smoke/explorer-capacity')
+          return Promise.resolve({ ...selection, executable })
         if (executable?.path === '/missing')
           return Promise.reject(new SkillagerError('missing', 'Skillager was not found.'))
         return Promise.resolve(
@@ -149,7 +151,9 @@ export function createSkillagerSmoke(
       observe: (selection, request, _source, signal) =>
         real
           ? real.exposures(selection, request, signal)
-          : fixtureFor(request.workspaceRoot).exposures(),
+          : selection.executable.path === '/hvir-smoke/explorer-capacity'
+            ? Promise.resolve(fixtureFor(request.workspaceRoot).capacity)
+            : fixtureFor(request.workspaceRoot).exposures(),
       destinationAvailable: (destination) =>
         skillagerDestinationAvailable(projects.getProjectState(), destination),
     },

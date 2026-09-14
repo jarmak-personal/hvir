@@ -55,17 +55,22 @@ function Harness({
   open = true,
   connected = true,
   project,
+  activeId = tab.id,
+  openTabs = tabs,
 }: {
   open?: boolean
   connected?: boolean
   project?: ProjectState
+  activeId?: string
+  openTabs?: readonly SkillagerDetailTab[]
 }) {
   current = useSkillagerReview({
     connection: connected ? connection : undefined,
     root: project?.root ?? root,
     projectState: project,
     agent: 'codex',
-    tabs: open ? tabs : [],
+    tabs: open ? openTabs : [],
+    activeId: open ? activeId : undefined,
     onAccepted: accepted,
   })
   return null
@@ -252,6 +257,7 @@ it.each(['checking', 'stale', 'unavailable', 'destination'] as const)(
         contentHash: detail.hash,
         workspaceFreshness: reason === 'destination' ? 'fresh' : reason,
         workspace: {
+          agent: 'codex' as const,
           id: 'lib-example',
           skillId: tab.metadata.id,
           mode: 'native',
@@ -276,3 +282,177 @@ it.each(['checking', 'stale', 'unavailable', 'destination'] as const)(
     )
   },
 )
+
+it('binds a Claude copy update and every reused review operation to its concrete agent with Codex setup selected', async () => {
+  const selected: SkillagerDetailTab = {
+    ...tab,
+    metadata: {
+      ...tab.metadata,
+      trust: 'reviewed',
+      contentHash: detail.hash,
+      workspaceFreshness: 'fresh',
+      workspace: {
+        agent: 'claude',
+        id: 'lib-example',
+        skillId: tab.metadata.id,
+        mode: 'stub',
+        target: localPath('/workspace/.claude/skills/lib-example'),
+        status: 'source_update',
+        expectedSourceHash: detail.hash,
+      },
+    },
+  }
+  const original = invoke.getMockImplementation()!
+  invoke.mockImplementation((channel, request) =>
+    channel === 'skillager:review-content'
+      ? Promise.resolve({
+          ok: true,
+          value: {
+            entry: 'SKILL.md',
+            path: localPath('/library/skills/example/SKILL.md'),
+            size: 10,
+            text: '# Guide',
+          },
+        })
+      : channel === 'skillager:review-diff'
+        ? Promise.resolve({
+            ok: true,
+            value: { toHash: detail.hash, text: 'Reviewed diff' },
+          })
+        : original(channel, request),
+  )
+  await render({ project: projectState(root), openTabs: [selected] })
+  await act(async () => current.review(selected, true))
+  expect(
+    invoke.mock.calls.find(([channel]) => channel === 'skillager:review')?.[1],
+  ).toMatchObject({
+    agent: 'claude',
+    update: { agent: 'claude', exposure: selected.metadata.workspace },
+  })
+  await act(async () => current.history(selected))
+  await act(async () => current.content(selected.id, 'SKILL.md'))
+  await act(async () => current.diff(selected.id))
+  expect(current.states.tab?.failed).not.toBe(true)
+  await act(async () => current.accept(selected.id))
+  for (const channel of [
+    'skillager:history',
+    'skillager:review-content',
+    'skillager:review-diff',
+    'skillager:accept-review',
+  ])
+    expect(invoke).toHaveBeenCalledWith(
+      channel,
+      expect.objectContaining({ agent: 'claude', requestId: 1 }),
+    )
+  expect(
+    invoke.mock.calls.filter(([channel]) => channel === 'skillager:review'),
+  ).toHaveLength(1)
+})
+
+const secondTab: SkillagerDetailTab = {
+  ...tab,
+  id: 'second',
+  metadata: { ...tab.metadata, id: 'lib/second' },
+}
+const bothTabs = [tab, secondTab]
+it('changing active selection releases completed review content/confirmation without closing metadata tabs or restoring it on return', async () => {
+  const original = invoke.getMockImplementation()!
+  invoke.mockImplementation((channel, request) =>
+    channel === 'skillager:review-content'
+      ? Promise.resolve({
+          ok: true,
+          value: {
+            entry: 'SKILL.md',
+            path: localPath('/library/skills/example/SKILL.md'),
+            size: 20,
+            text: 'PRIVATE reviewed body',
+          },
+        })
+      : original(channel, request),
+  )
+  await render({ openTabs: bothTabs })
+  await act(async () => current.review(tab))
+  await act(async () => current.content(tab.id, 'SKILL.md'))
+  await act(async () => current.accept(tab.id))
+  expect(current.states.tab).toMatchObject({
+    content: { text: 'PRIVATE reviewed body' },
+    used: true,
+  })
+  await render({ openTabs: bothTabs, activeId: secondTab.id })
+  expect(current.states).toEqual({})
+  expect(invoke).toHaveBeenCalledWith('skillager:release-review', {
+    reviewId: detail.reviewId,
+  })
+  expect(invoke).toHaveBeenCalledWith('skillager:cancel-review', { requestId: 1 })
+  invoke.mockClear()
+  await act(async () => current.review(tab))
+  await act(async () => current.accept(tab.id))
+  expect(invoke).not.toHaveBeenCalled()
+  await render({ openTabs: bothTabs, activeId: tab.id })
+  expect(current.states).toEqual({})
+  expect(invoke).not.toHaveBeenCalled()
+  await act(async () => current.review(tab))
+  expect(current.states.tab?.detail).toEqual(detail)
+  expect(invoke).toHaveBeenCalledWith(
+    'skillager:review',
+    expect.objectContaining({ requestId: 2 }),
+  )
+})
+
+it('selection changes release late successful review leases and discard in-flight content even after returning to the original metadata tab', async () => {
+  const original = invoke.getMockImplementation()!
+  let resolveReview!: (result: unknown) => void
+  invoke.mockImplementation((channel, request) =>
+    channel === 'skillager:review'
+      ? new Promise((resolve) => {
+          resolveReview = resolve
+        })
+      : original(channel, request),
+  )
+  await render({ openTabs: bothTabs })
+  let pending!: Promise<void>
+  act(() => {
+    pending = current.review(tab)
+  })
+  await render({ openTabs: bothTabs, activeId: secondTab.id })
+  await render({ openTabs: bothTabs, activeId: tab.id })
+  await act(async () => {
+    resolveReview({ ok: true, value: detail })
+    await pending
+  })
+  expect(current.states).toEqual({})
+  expect(invoke).toHaveBeenCalledWith('skillager:release-review', {
+    reviewId: detail.reviewId,
+  })
+  invoke.mockImplementation(original)
+  await act(async () => current.review(tab))
+  let resolveContent!: (result: unknown) => void
+  invoke.mockImplementation((channel, request) =>
+    channel === 'skillager:review-content'
+      ? new Promise((resolve) => {
+          resolveContent = resolve
+        })
+      : original(channel, request),
+  )
+  act(() => {
+    pending = current.content(tab.id, 'SKILL.md')
+  })
+  await render({ openTabs: bothTabs, activeId: secondTab.id })
+  await render({ openTabs: bothTabs, activeId: tab.id })
+  await act(async () => {
+    resolveContent({
+      ok: true,
+      value: {
+        entry: 'SKILL.md',
+        path: localPath('/library/skills/example/SKILL.md'),
+        size: 10,
+        text: 'PRIVATE late content',
+      },
+    })
+    await pending
+  })
+  expect(current.states).toEqual({})
+  expect(
+    invoke.mock.calls.filter(([channel]) => channel === 'skillager:release-review'),
+  ).toHaveLength(2)
+})

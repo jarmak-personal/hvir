@@ -1,15 +1,18 @@
+import { SKILLAGER_PROJECT_FIXTURE_ROWS } from './skillager-project-fixture'
 import { joinHostPath, type HostPath } from '../../shared/host-path'
-import type { SkillagerWorkspaceExposure } from '../../shared/skillager'
+import { SKILLAGER_AGENTS, type SkillagerWorkspaceExposure } from '../../shared/skillager'
 import type { SkillagerExposureCliPort } from '../skillager/skillager-exposure-port'
 
 /** Fake only the CLI boundary; Electron exercises production IPC and one-use ownership. */
-export function skillagerExposureFixture(root: HostPath) {
+export function skillagerExposureFixture(root: HostPath, libraryId: string) {
   const copies = new Map<string, SkillagerWorkspaceExposure>([
     [
       'lib-skill-1',
       {
+        agent: SKILLAGER_AGENTS[0].id,
         id: 'lib-skill-1',
         skillId: 'lib/skill-1',
+        sourceLibraryId: libraryId,
         target: joinHostPath(root, '.agents/skills/lib-skill-1'),
         mode: 'native',
         status: 'current',
@@ -17,8 +20,10 @@ export function skillagerExposureFixture(root: HostPath) {
     ],
   ])
   copies.set('lib-skill-0', {
+    agent: SKILLAGER_AGENTS[0].id,
     id: 'lib-skill-0',
     skillId: 'lib/skill-0',
+    sourceLibraryId: libraryId,
     target: joinHostPath(root, '.agents/skills/lib-skill-0'),
     mode: 'native',
     status: 'source_unavailable',
@@ -83,8 +88,10 @@ export function skillagerExposureFixture(root: HostPath) {
       if (request.action === 'remove') copies.delete(id)
       else
         copies.set(id, {
+          agent: request.agent,
           id,
           skillId: request.skillId,
+          sourceLibraryId: libraryId,
           target,
           mode: request.mode,
           status: 'current',
@@ -97,8 +104,38 @@ export function skillagerExposureFixture(root: HostPath) {
       })
     },
   }
+  const capacity = Array.from({ length: 9 }, (_, index): SkillagerWorkspaceExposure => {
+    const count =
+      index < 7
+        ? 4999
+        : index === 7
+          ? 40_000 - SKILLAGER_PROJECT_FIXTURE_ROWS - 9 - 7 * 4999
+          : 1
+    const members = Array.from({ length: count }, (_, n) => `lib/skill-${n + 1}`)
+    return {
+      id: `capacity-router-${index}`,
+      agent: SKILLAGER_AGENTS[index % 2]!.id,
+      target: joinHostPath(
+        root,
+        `${index % 2 ? '.claude' : '.agents'}/skills/capacity-router-${index}`,
+      ),
+      mode: 'router',
+      status: 'current',
+      router: {
+        slug: `capacity-router-${index}`,
+        kind: 'group',
+        tag: `Capacity group ${index}`,
+        skillIds: members,
+        memberSources: members.map((skillId) => ({
+          skillId,
+          sourceLibraryId: libraryId,
+        })),
+      },
+    }
+  })
   return {
     cli,
+    capacity,
     exposures: () => Promise.resolve([...copies.values()]),
     accepted: (skillId: string) => {
       const copy = copies.get(skillId.replace('/', '-'))

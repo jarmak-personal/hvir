@@ -353,6 +353,7 @@ it.runIf(Boolean(source && python)).each(SKILLAGER_AGENTS)(
             ...nestedRequest,
             action: 'remove',
             exposure: {
+              agent: agent.id,
               id: 'lib-context',
               skillId: 'lib/context',
               target: nested.detail.target,

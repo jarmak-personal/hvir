@@ -8,12 +8,12 @@ export async function verifySkillagerReview(win: BrowserWindow): Promise<void> {
     ${body}
   })()`) as Promise<T>
   await evaluate(`
-    const back = [...document.querySelectorAll('.skillager-sidebar button')].find((element) => element.textContent.trim() === 'Back to browsing');
+    const back = [...document.querySelectorAll('.skillager-sidebar button')].find((element) => element.textContent.trim() === 'Clear search');
     if (back) back.click();
-    await wait(() => document.querySelector('.skillager-list-controls input[type=checkbox]'));
-    document.querySelector('.skillager-list-controls input[type=checkbox]').click();
-    await wait(() => document.querySelector('.skillager-row'));
-    document.querySelector('.skillager-row').click();
+    await wait(() => document.querySelector('.skillager-pending-filter input[type=checkbox]'));
+    document.querySelector('.skillager-pending-filter input[type=checkbox]').click();
+    await wait(() => document.querySelector('section[aria-label="Your library"] .skillager-row'));
+    document.querySelector('section[aria-label="Your library"] .skillager-row').click();
     await wait(() => button('Version history'));
     button('Version history').click();
     await wait(() => document.querySelector('.skillager-review-history'));

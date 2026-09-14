@@ -21,7 +21,11 @@ export function SkillagerActions({
   readonly surface: SkillagerActionSurface
   readonly children?: ReactNode
 }): ReactElement {
-  if (isNativeProjectSkill(metadata)) return <>{children}</>
+  if (
+    isNativeProjectSkill(metadata) ||
+    exposureActions(metadata).every((action) => action.disabled)
+  )
+    return <>{children}</>
   const open = (trigger: HTMLElement, point?: { x: number; y: number }): void =>
     controller.open(metadata, surface, trigger, point)
   return (

@@ -23,7 +23,7 @@ import type {
   SkillagerLibrary,
   SkillagerAgent,
   SkillagerMetadata,
-  SkillagerRequest,
+  SkillagerBrowseRequest,
   SkillagerSearchRequest,
   SkillagerWorkspaceExposure,
 } from '../../shared/skillager'
@@ -148,7 +148,7 @@ export class SkillagerCli implements SkillagerCliPort, SkillagerSetupCliPort {
   }
   exposures(
     selection: SkillagerCliSelection,
-    request: SkillagerRequest,
+    request: SkillagerBrowseRequest,
     signal: AbortSignal,
   ): Promise<readonly SkillagerWorkspaceExposure[] | undefined> {
     return this.operate(() => this.exposuresLocal(selection, request, signal))
@@ -444,8 +444,9 @@ export class SkillagerCli implements SkillagerCliPort, SkillagerSetupCliPort {
         'search',
         '--scope',
         request.scope,
-        '--agent',
-        request.agent,
+        ...(request.browseAgent === 'all'
+          ? []
+          : ['--agent', request.browseAgent ?? request.agent]),
         '--limit',
         '50',
         '--json',
@@ -466,7 +467,7 @@ export class SkillagerCli implements SkillagerCliPort, SkillagerSetupCliPort {
 
   private async exposuresLocal(
     selection: SkillagerCliSelection,
-    request: SkillagerRequest,
+    request: SkillagerBrowseRequest,
     signal: AbortSignal,
   ): Promise<readonly SkillagerWorkspaceExposure[] | undefined> {
     if (request.workspaceRoot.hostId !== 'local') return undefined
@@ -477,8 +478,9 @@ export class SkillagerCli implements SkillagerCliPort, SkillagerSetupCliPort {
         selection.catalog.path,
         'expose',
         '--list',
-        '--agent',
-        request.agent,
+        ...(request.browseAgent === 'all'
+          ? ['--all-agents']
+          : ['--agent', request.browseAgent ?? request.agent]),
         '--scope',
         'project',
         '--json',
@@ -489,7 +491,7 @@ export class SkillagerCli implements SkillagerCliPort, SkillagerSetupCliPort {
     return parseSkillagerExposures(
       parseSkillagerJson(output),
       request.workspaceRoot,
-      request.agent,
+      request.browseAgent ?? request.agent,
     )
   }
 

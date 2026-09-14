@@ -102,7 +102,7 @@ function Harness({
   return enabled ? (
     <SkillagerProjectSetup
       root={root}
-      controller={{ project: current, agent: 'codex' }}
+      controller={{ project: current, agent: 'codex', setAgent: () => undefined }}
     />
   ) : (
     <span>Disabled</span>

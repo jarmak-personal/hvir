@@ -3,7 +3,7 @@ import type {
   SkillagerFailureReason,
   SkillagerLibrary,
   SkillagerMetadata,
-  SkillagerRequest,
+  SkillagerBrowseRequest,
   SkillagerSearchRequest,
   SkillagerWorkspaceExposure,
 } from '../../shared/skillager'
@@ -33,7 +33,7 @@ export interface SkillagerCliPort {
   ): Promise<readonly SkillagerMetadata[]>
   exposures(
     selection: SkillagerCliSelection,
-    request: SkillagerRequest,
+    request: SkillagerBrowseRequest,
     signal: AbortSignal,
   ): Promise<readonly SkillagerWorkspaceExposure[] | undefined>
 }

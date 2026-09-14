@@ -93,6 +93,7 @@ describe('bounded local exposure command adapter', () => {
         ...request,
         action: 'remove' as const,
         exposure: {
+          agent: request.agent,
           id,
           skillId: request.skillId,
           target: localPath('/other/copies/lib-demo'),
@@ -118,6 +119,7 @@ describe('bounded local exposure command adapter', () => {
         ...request,
         action: 'remove' as const,
         exposure: {
+          agent: request.agent,
           id: 'lib-demo',
           skillId: request.skillId,
           target,
@@ -209,6 +211,7 @@ it('validates selection and canonical destination before reading workspace updat
 it('uses the existing exposure observer and independently bounds the library-status command', async () => {
   const f = fixture()
   const exposure = {
+    agent: request.agent,
     id: 'lib-demo',
     skillId: request.skillId,
     target: localPath('/other/.agents/skills/lib-demo'),

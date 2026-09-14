@@ -23,6 +23,7 @@ import type {
 } from './skillager-review-port'
 import { randomUUID } from 'node:crypto'
 import { hostPathEquals, type HostPath } from '../../shared/host-path'
+import { withSkillagerRouterMemberships } from './skillager-workspace-metadata'
 import {
   SKILLAGER_QUERY_BYTES,
   SKILLAGER_INVENTORY_LIMIT,
@@ -31,6 +32,7 @@ import {
   type SkillagerMetadataResult,
   type SkillagerProbe,
   type SkillagerRequest,
+  type SkillagerBrowseRequest,
   type SkillagerResult,
   type SkillagerSearchRequest,
   type SkillagerSetupCompletion,
@@ -511,14 +513,14 @@ export class SkillagerCapability {
 
   inventory(
     owner: RendererOwner,
-    request: SkillagerRequest,
+    request: SkillagerBrowseRequest,
   ): Promise<SkillagerResult<SkillagerMetadataResult>> {
     return this.read(owner, 'inventory', request, async (selection, signal) => ({
       rows: await this.cli.inventory(selection, signal),
     }))
   }
 
-  projectMetadata(owner: RendererOwner, request: SkillagerRequest) {
+  projectMetadata(owner: RendererOwner, request: SkillagerBrowseRequest) {
     return this.track(
       owner,
       result(async () => {
@@ -791,7 +793,7 @@ export class SkillagerCapability {
   private read<T extends { readonly rows: SkillagerMetadataResult['rows'] }>(
     owner: RendererOwner,
     kind: 'search' | 'inventory' | 'project',
-    request: SkillagerRequest,
+    request: SkillagerBrowseRequest,
     operation: (selection: SkillagerCliSelection, signal: AbortSignal) => Promise<T>,
   ): Promise<SkillagerResult<T & SkillagerMetadataResult>> {
     return this.track(
@@ -811,6 +813,9 @@ export class SkillagerCapability {
         if (
           !Number.isSafeInteger(request.requestId) ||
           request.requestId <= state.latest[kind] ||
+          (request.browseAgent !== undefined &&
+            request.browseAgent !== 'all' &&
+            !SKILLAGER_AGENTS.some((agent) => agent.id === request.browseAgent)) ||
           !SKILLAGER_AGENTS.some((agent) => agent.id === request.agent) ||
           !this.workspaceAvailable(request.workspaceRoot)
         ) {
@@ -870,11 +875,16 @@ export class SkillagerCapability {
                   { rows: payload.rows, complete: kind === 'inventory' },
                   controller.signal,
                 )
-                if (
-                  kind === 'project' &&
-                  exposures?.some((copy) => copy.skillId?.startsWith('lib/'))
-                ) {
-                  const ids = new Set(exposures.map((copy) => copy.skillId))
+                const ids = new Set<string>()
+                if (kind === 'project')
+                  for (const copy of exposures ?? []) {
+                    if (copy.sourceLibraryId === selection.library!.id && copy.skillId)
+                      ids.add(copy.skillId)
+                    for (const member of copy.router?.memberSources ?? [])
+                      if (member.sourceLibraryId === selection.library!.id)
+                        ids.add(member.skillId)
+                  }
+                if (ids.size) {
                   const canonical = await this.cli.inventory(selection, controller.signal)
                   const rows = [
                     ...payload.rows,
@@ -896,6 +906,7 @@ export class SkillagerCapability {
                   throw cancelled()
                 resolve({
                   ...payload,
+                  rows: withSkillagerRouterMemberships(payload.rows, exposures),
                   exposures,
                   checkedAt: Date.now(),
                   durationMs: performance.now() - started,

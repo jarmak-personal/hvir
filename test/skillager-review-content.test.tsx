@@ -31,6 +31,7 @@ const tabs = [] as const
 function Harness({ diff }: { diff?: string }) {
   const controller = useSkillagerReview({
     agent: 'codex',
+    activeId: undefined,
     tabs,
     onAccepted: () => undefined,
   })
@@ -88,6 +89,7 @@ it('retains disabled update controls and a checking hint while the workspace ref
     workspaceFreshness: 'fresh',
     workspaceCheckedAt: 1,
     workspace: {
+      agent: 'codex' as const,
       id: 'lib-demo',
       skillId: 'lib/demo',
       mode: 'native',

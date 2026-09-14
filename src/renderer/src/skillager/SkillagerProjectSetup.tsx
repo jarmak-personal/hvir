@@ -1,5 +1,9 @@
-import { skillagerAgentLabel } from '../../../shared/skillager'
-import type { ReactElement } from 'react'
+import {
+  SKILLAGER_AGENTS,
+  skillagerAgentLabel,
+  type SkillagerAgent,
+} from '../../../shared/skillager'
+import { useState, type ReactElement } from 'react'
 import type { HostPath } from '../../../shared/host-path'
 import type { SkillagerController } from './use-skillager-workspace'
 
@@ -7,45 +11,70 @@ export function SkillagerProjectSetup({
   controller,
   root,
 }: {
-  readonly controller: Pick<SkillagerController, 'project' | 'agent'>
+  readonly controller: Pick<SkillagerController, 'project' | 'agent' | 'setAgent'>
   readonly root: HostPath
 }): ReactElement | null {
-  if (root.hostId !== 'local')
-    return (
-      <p className="skillager-hint">Project setup runs in a local workspace terminal.</p>
-    )
+  const [expanded, setExpanded] = useState(false)
+  if (root.hostId !== 'local') return null
   const project = controller.project
   const status = project.result?.ok ? project.result.value.status : undefined
   const ready = status?.canProceed && status.working === 'present'
   return (
-    <section className="skillager-project-setup" aria-label="Project skill setup">
-      <strong>{ready ? 'Project setup ready' : 'Set up project skills'}</strong>
-      <p>
-        {root.path} · {skillagerAgentLabel(controller.agent)}
-      </p>
-      {status ? (
+    <div className="skillager-project-setup-scroll">
+      <details
+        className="skillager-project-setup"
+        aria-label="Project skill setup"
+        open={expanded || !ready || project.running || Boolean(project.message)}
+        onToggle={(event) => {
+          if (ready) setExpanded(event.currentTarget.open)
+        }}
+      >
+        <summary>{ready ? 'Project setup…' : 'Set up project skills'}</summary>
         <p>
-          {setupStatusLabel(status.status)} · {workingLabels[status.working]}
+          {root.path} · {skillagerAgentLabel(controller.agent)}
         </p>
-      ) : null}
-      {!ready ? (
-        <>
-          <p>Review project skills and include Working in a new interactive terminal.</p>
-          <button
-            type="button"
-            disabled={project.starting || project.running || project.loading}
-            onClick={() => void project.setup()}
-          >
-            {project.starting
-              ? 'Opening setup terminal…'
-              : project.running
-                ? 'Setup terminal running'
-                : 'Set up in terminal'}
-          </button>
-        </>
-      ) : null}
-      {project.message ? <p role="alert">{project.message}</p> : null}
-    </section>
+        {status ? (
+          <p>
+            {setupStatusLabel(status.status)} · {workingLabels[status.working]}
+          </p>
+        ) : null}
+        {
+          <>
+            <label>
+              Setup agent{' '}
+              <select
+                value={controller.agent}
+                disabled={project.starting || project.running}
+                onChange={(event) =>
+                  controller.setAgent(event.currentTarget.value as SkillagerAgent)
+                }
+              >
+                {SKILLAGER_AGENTS.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p>
+              Review project skills and include Working in a new interactive terminal.
+            </p>
+            <button
+              type="button"
+              disabled={project.starting || project.running || project.loading}
+              onClick={() => void project.setup()}
+            >
+              {project.starting
+                ? 'Opening setup terminal…'
+                : project.running
+                  ? 'Setup terminal running'
+                  : 'Set up in terminal'}
+            </button>
+          </>
+        }
+        {project.message ? <p role="alert">{project.message}</p> : null}
+      </details>
+    </div>
   )
 }
 

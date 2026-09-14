@@ -22,7 +22,7 @@ export async function verifySkillagerProject(
     win,
     `await wait(() => [...document.querySelectorAll('.skillager-row')].filter((row) => row.textContent.includes('Project fixture')).length === 3);
     const native = [...document.querySelectorAll('.skillager-row')].find((row) => row.textContent.includes('Project fixture 1'));
-    if (!native.textContent.includes('Unmanaged project entry') || !native.textContent.includes('Blocked') || native.closest('.skillager-action-row')) throw new Error('Native metadata gained managed actions');
+    if (!native.textContent.includes('Original') || !native.textContent.includes('Blocked') || native.closest('.skillager-action-row')) throw new Error('Native metadata gained managed actions');
     if (!document.querySelector('.viewer-tab:not(.skillager-tab)')) throw new Error('Project observation displaced the ordinary document');`,
   )
   await reveal(win, '.skillager-project-setup button')
@@ -66,11 +66,11 @@ export async function verifySkillagerProject(
   await refresh(win)
   await inspect(
     win,
-    `await wait(() => document.querySelector('.skillager-project-setup strong')?.textContent === 'Project setup ready');
+    `await wait(() => document.querySelector('.skillager-project-setup summary')?.textContent === 'Project setup…');
     if (!document.querySelector('.skillager-project-setup').textContent.includes('Working installed')) throw new Error('Public fixture artifact state was not shown');
-    if (document.querySelector('.skillager-project-setup button')) throw new Error('Completed setup still asks to initialize');`,
+    if (document.querySelector('.skillager-project-setup').open) throw new Error('Completed setup card remained open');`,
   )
-  await reveal(win, '.skillager-project-setup strong')
+  await reveal(win, '.skillager-project-setup summary')
   await captureSkillagerSidebar(win, 'project-ready')
   for (const id of ordinary)
     if (!supervisor.get(id)) throw Error('Project setup disturbed an existing terminal')
@@ -89,7 +89,6 @@ async function connectFixture(win: BrowserWindow): Promise<void> {
   await click(win, '.rail-nav button:last-of-type')
   await click(win, '.skillager-connection button:first-of-type')
   await inspect(win, `await wait(() => document.querySelector('.skillager-search'));`)
-  await click(win, '.skillager-perspectives button:last-of-type')
 }
 
 async function launch(
@@ -159,7 +158,7 @@ async function answer(
 }
 
 async function refresh(win: BrowserWindow): Promise<void> {
-  const selector = '.skillager-list-controls > button:last-of-type'
+  const selector = 'button[aria-label="Refresh in this project"]'
   await reveal(win, selector)
   await inspect(
     win,
@@ -169,19 +168,29 @@ async function refresh(win: BrowserWindow): Promise<void> {
 }
 
 async function reveal(win: BrowserWindow, selector: string): Promise<void> {
+  const scrollSelector = selector.startsWith('.skillager-project-setup')
+    ? '.skillager-project-setup-scroll'
+    : '.skillager-sidebar'
+  let geometry: unknown
   for (let step = 0; step < 8; step++) {
-    const state = await inspect<{ visible: boolean; delta: number; top: number }>(
+    const state = await inspect<{
+      visible: boolean
+      delta: number
+      destination: number
+    }>(
       win,
       `
-      const item = await wait(() => document.querySelector(${JSON.stringify(selector)})), sidebar = document.querySelector('.skillager-sidebar');
+      const item = await wait(() => document.querySelector(${JSON.stringify(selector)})), sidebar = document.querySelector(${JSON.stringify(scrollSelector)});
       const rect = item.getBoundingClientRect(), outer = sidebar.getBoundingClientRect();
-      return { visible: rect.top >= outer.top && rect.bottom <= outer.bottom, delta: rect.top < outer.top ? 500 : -500, top: sidebar.scrollTop };`,
+      const delta = rect.top < outer.top ? 500 : -500;
+      return { visible: rect.top >= outer.top && rect.bottom <= outer.bottom, delta, destination: Math.max(0, Math.min(sidebar.scrollHeight - sidebar.clientHeight, sidebar.scrollTop - delta)), top: sidebar.scrollTop, clientHeight: sidebar.clientHeight, scrollHeight: sidebar.scrollHeight, targetTop: rect.top, targetBottom: rect.bottom, viewportTop: outer.top, viewportBottom: outer.bottom };`,
     )
+    geometry = state
     if (state.visible) {
       await skillagerControlPoint(win, selector)
       return
     }
-    const location = await skillagerControlPoint(win, '.skillager-sidebar', true)
+    const location = await skillagerControlPoint(win, scrollSelector, true)
     win.webContents.sendInputEvent({ type: 'mouseMove', ...location })
     win.webContents.sendInputEvent({
       type: 'mouseWheel',
@@ -192,8 +201,14 @@ async function reveal(win: BrowserWindow, selector: string): Promise<void> {
     })
     await inspect(
       win,
-      `await wait(() => document.querySelector('.skillager-sidebar').scrollTop !== ${state.top});`,
+      `await wait(() => {
+        const sidebar = document.querySelector(${JSON.stringify(scrollSelector)}), item = document.querySelector(${JSON.stringify(selector)});
+        const rect = item.getBoundingClientRect(), outer = sidebar.getBoundingClientRect();
+        return (rect.top >= outer.top && rect.bottom <= outer.bottom) || Math.abs(sidebar.scrollTop - ${state.destination}) <= 1;
+      });`,
     )
   }
-  throw Error('Project setup control did not become scroll-reachable')
+  throw Error(
+    'Project setup control did not become scroll-reachable: ' + JSON.stringify(geometry),
+  )
 }

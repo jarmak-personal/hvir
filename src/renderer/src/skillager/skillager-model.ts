@@ -1,3 +1,4 @@
+import { skillagerSourceKey } from '../../../shared/skillager-source-identity'
 import type {
   SkillagerMetadata,
   SkillagerMetadataResult,
@@ -32,7 +33,7 @@ export function skillagerTabs(
 ): SkillagerTabs {
   switch (action.type) {
     case 'select': {
-      const id = `skillager:${action.metadata.source.libraryId ?? action.metadata.source.collection ?? action.metadata.source.type}:${action.metadata.id}`
+      const id = skillagerMetadataKey(action.metadata)
       const previous = state.tabs.find((tab) => tab.id === id)
       return {
         tabs: previous
@@ -54,16 +55,66 @@ export function skillagerTabs(
     case 'observe-project':
     case 'observe': {
       const rows = new Map(
-        (action.type === 'observe-project'
-          ? skillagerProjectRows(action.result)
-          : skillagerWorkspaceMetadata(action.result)
-        ).map((row) => [row.id, row]),
+        [
+          ...skillagerWorkspaceMetadata(action.result),
+          ...skillagerProjectRows(action.result),
+        ].map((row) => [skillagerMetadataKey(row), row]),
       )
+      const canonical = canonicalSkillagerMetadata(action.result.rows)
       return {
         ...state,
         tabs: state.tabs.map((tab) => {
-          const metadata = rows.get(tab.metadata.id)
+          if (
+            (tab.metadata.workspace || tab.metadata.routerMembership) &&
+            !action.result.exposures
+          )
+            return {
+              ...tab,
+              metadata: unavailableOccurrence(
+                tab.metadata,
+                canonical,
+                action.result.checkedAt,
+              ),
+            }
+          if (tab.metadata.routerMembership) {
+            const router = rows.get(
+              skillagerMetadataKey({
+                ...tab.metadata,
+                workspace: tab.metadata.routerMembership,
+                routerMembership: undefined,
+              }),
+            )?.workspace
+            return router?.router?.skillIds.includes(tab.metadata.id)
+              ? {
+                  ...tab,
+                  metadata: {
+                    ...skillagerRouterMember(router, tab.metadata.id, canonical),
+                    workspaceFreshness: 'fresh',
+                    workspaceCheckedAt: action.result.checkedAt,
+                  },
+                }
+              : {
+                  ...tab,
+                  metadata: unavailableOccurrence(
+                    tab.metadata,
+                    canonical,
+                    action.result.checkedAt,
+                    'This router membership is no longer reported by Skillager.',
+                  ),
+                }
+          }
+          const metadata = rows.get(tab.id)
           if (metadata) return { ...tab, metadata }
+          if (tab.metadata.workspace)
+            return {
+              ...tab,
+              metadata: unavailableOccurrence(
+                tab.metadata,
+                canonical,
+                action.result.checkedAt,
+                'This project copy is no longer reported by Skillager.',
+              ),
+            }
           if (action.type === 'observe-project')
             return tab.metadata.projectSkill
               ? {
@@ -134,19 +185,86 @@ export function trustLabel(row: SkillagerMetadata): string {
 export function skillagerWorkspaceMetadata(
   data: SkillagerMetadataResult,
 ): readonly SkillagerMetadata[] {
-  const exposures = new Map(data.exposures?.map((row) => [row.skillId, row]))
-  return data.rows.map((row) => ({
-    ...row,
-    workspace: exposures.get(row.id),
-    workspaceCheckedAt: data.checkedAt,
-    workspaceFreshness: data.exposures ? 'fresh' : 'unavailable',
-    exposure: data.exposures ? (exposures.get(row.id)?.mode ?? 'hidden') : row.exposure,
-  }))
+  const exposures = new Map<string, SkillagerWorkspaceExposure[]>()
+  for (const copy of data.exposures ?? []) {
+    const identity = skillagerSourceKey(copy.sourceLibraryId, copy.skillId)
+    if (!identity || copy.router) continue
+    const copies = exposures.get(identity) ?? []
+    copies.push(copy)
+    exposures.set(identity, copies)
+  }
+  return data.rows.map((row) => {
+    const key = skillagerSourceKey(row.source.libraryId, row.id)
+    const copies = key ? (exposures.get(key) ?? []) : []
+    return {
+      ...row,
+      workspace: undefined,
+      workspaceCopies: copies,
+      workspaceCheckedAt: data.checkedAt,
+      workspaceFreshness: data.exposures ? 'fresh' : 'unavailable',
+      exposure: data.exposures
+        ? copies.length || row.workspaceRouterCount
+          ? 'project'
+          : 'hidden'
+        : row.exposure,
+    }
+  })
 }
 
-export function isNativeProjectSkill(
-  row: SkillagerMetadata,
-): row is SkillagerMetadata & {
+/** Stable source and occurrence identities do not depend on filter, label or array order. */
+export function skillagerMetadataKey(row: SkillagerMetadata): string {
+  if (row.routerMembership)
+    return `skillager:member:${JSON.stringify([
+      row.routerMembership.target.hostId,
+      row.routerMembership.target.path,
+      row.routerMembership.agent,
+      row.routerMembership.id,
+      row.id,
+    ])}`
+  if (row.workspace)
+    return `skillager:copy:${JSON.stringify([
+      row.workspace.target.hostId,
+      row.workspace.target.path,
+      row.workspace.agent,
+      row.workspace.id,
+    ])}`
+  if (row.projectSkill)
+    return `skillager:origin:${JSON.stringify([
+      row.projectSkill.path.hostId,
+      row.projectSkill.path.path,
+      row.projectSkill.agent,
+      row.id,
+    ])}`
+  return `skillager:source:${skillagerSourceKey(row.source.libraryId, row.id) ?? JSON.stringify([row.source.collection ?? row.source.type, row.id])}`
+}
+
+export function skillagerRouterMember(
+  router: SkillagerWorkspaceExposure,
+  id: string,
+  canonical: ReadonlyMap<string, SkillagerMetadata>,
+): SkillagerMetadata {
+  const libraryId = router.router?.memberSources?.find(
+    (member) => member.skillId === id,
+  )?.sourceLibraryId
+  const key = skillagerSourceKey(libraryId, id)
+  return {
+    ...((key ? canonical.get(key) : undefined) ?? {
+      id,
+      name: id,
+      description: 'Member source metadata is unavailable.',
+      trust: 'unknown',
+      source: { type: 'router-member', ownership: 'unknown' },
+      tags: [],
+      matchReasons: [],
+      exposure: 'router',
+    }),
+    workspace: undefined,
+    workspaceCopies: undefined,
+    routerMembership: router,
+  }
+}
+
+export function isNativeProjectSkill(row: SkillagerMetadata): row is SkillagerMetadata & {
   readonly projectSkill: NonNullable<SkillagerMetadata['projectSkill']>
 } {
   return Boolean(row.projectSkill) && row.source.ownership !== 'library'
@@ -157,25 +275,27 @@ export function skillagerProjectRows(
   data: SkillagerMetadataResult,
 ): readonly SkillagerMetadata[] {
   const metadata = skillagerWorkspaceMetadata(data)
-  const owned = new Map(
-    metadata
-      .filter((row) => row.source.ownership === 'library')
-      .map((row) => [row.id, row]),
-  )
+  const owned = canonicalSkillagerMetadata(metadata)
   return [
     ...metadata.filter(isNativeProjectSkill),
-    ...(data.exposures ?? []).map((exposure) => ({
-      ...(owned.get(exposure.skillId ?? '') ?? unavailableSource(exposure)),
-      workspace: exposure,
-      workspaceFreshness: 'fresh' as const,
-      workspaceCheckedAt: data.checkedAt,
-    })),
+    ...(data.exposures ?? []).map((exposure) => {
+      const key = skillagerSourceKey(exposure.sourceLibraryId, exposure.skillId)
+      return {
+        ...((key ? owned.get(key) : undefined) ?? unavailableSource(exposure)),
+        workspace: exposure,
+        workspaceCopies: undefined,
+        exposure: exposure.mode,
+        workspaceFreshness: 'fresh' as const,
+        workspaceCheckedAt: data.checkedAt,
+      }
+    }),
   ]
 }
 function unavailableSource(exposure: SkillagerWorkspaceExposure): SkillagerMetadata {
   return {
     id: exposure.skillId ?? exposure.id,
-    name: exposure.skillId ?? exposure.id,
+    name:
+      exposure.router?.tag ?? exposure.router?.slug ?? exposure.skillId ?? exposure.id,
     description: 'Source metadata is unavailable.',
     trust: 'unknown',
     source: { type: 'workspace', ownership: 'unknown' },
@@ -183,5 +303,37 @@ function unavailableSource(exposure: SkillagerWorkspaceExposure): SkillagerMetad
     matchReasons: [],
     exposure: exposure.mode,
     workspace: exposure,
+  }
+}
+
+/** Renderer lookup only; canonical association uses the shared public identity value. */
+export function canonicalSkillagerMetadata(
+  rows: readonly SkillagerMetadata[],
+): ReadonlyMap<string, SkillagerMetadata> {
+  const result = new Map<string, SkillagerMetadata>()
+  for (const row of rows) {
+    const key = skillagerSourceKey(row.source.libraryId, row.id)
+    if (key && row.source.ownership === 'library' && !row.workspace) result.set(key, row)
+  }
+  return result
+}
+
+function unavailableOccurrence(
+  metadata: SkillagerMetadata,
+  canonical: ReadonlyMap<string, SkillagerMetadata>,
+  checkedAt: number,
+  message?: string,
+): SkillagerMetadata {
+  const key = skillagerSourceKey(metadata.source.libraryId, metadata.id)
+  const source = key ? canonical.get(key) : undefined
+  return {
+    ...metadata,
+    ...source,
+    workspace: metadata.workspace,
+    workspaceCopies: undefined,
+    routerMembership: metadata.routerMembership,
+    workspaceFreshness: 'unavailable',
+    workspaceCheckedAt: checkedAt,
+    description: message ?? source?.description ?? metadata.description,
   }
 }

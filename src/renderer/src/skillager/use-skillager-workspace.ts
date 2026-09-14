@@ -8,6 +8,7 @@ import {
   SKILLAGER_REFRESH_MS,
   SKILLAGER_AGENTS,
   type SkillagerAgent,
+  type SkillagerBrowseAgent,
   type SkillagerConnection,
   type SkillagerMetadata,
   type SkillagerMetadataResult,
@@ -51,10 +52,16 @@ export function useSkillagerWorkspace(input: Options) {
   const connectionRef = useRef(connection)
   connectionRef.current = connection
   const [agent, setAgent] = useState<SkillagerAgent>(SKILLAGER_AGENTS[0].id)
-  const [perspective, setPerspective] = useState<'library' | 'workspace'>('library')
-  const [scope, setScope] = useState<SkillagerSearchScope>('library')
+  const [projectExpanded, setProjectExpanded] = useState(true)
+  const [libraryExpanded, setLibraryExpanded] = useState(true)
+  const [browseAgent, setBrowseAgent] = useState<SkillagerBrowseAgent>('all')
+  const [scope, setScope] = useState<SkillagerSearchScope>('workspace')
   const [query, setQuery] = useState('')
   const [submitted, setSubmitted] = useState('')
+  const [submittedContext, setSubmittedContext] = useState<{
+    scope: SkillagerSearchScope
+    browseAgent: SkillagerBrowseAgent
+  }>()
   const [search, setSearch] = useState<ReadState>(emptyRead)
   const [inventory, setInventory] = useState<ReadState>(emptyRead)
   const [tabs, dispatchTabs] = useReducer(skillagerTabs, { tabs: [] })
@@ -82,7 +89,10 @@ export function useSkillagerWorkspace(input: Options) {
     setConnectionError(undefined)
     setSetupBusy(undefined)
     setGitHistory(true)
-    setPerspective('library')
+    setProjectExpanded(true)
+    setLibraryExpanded(true)
+    setBrowseAgent('all')
+    setSubmittedContext(undefined)
     dispatchTabs({ type: 'clear' })
   }, [cancel])
 
@@ -240,6 +250,7 @@ export function useSkillagerWorkspace(input: Options) {
         requestId,
         workspaceRoot: root,
         agent,
+        browseAgent: 'all',
       })
       if (requestId !== requests.current.inventory || at !== generation.current) return
       setInventory({ loading: false, result })
@@ -265,7 +276,7 @@ export function useSkillagerWorkspace(input: Options) {
   }, [agent, disconnect])
 
   const submit = useCallback(
-    async (submittedQuery = query.trim()) => {
+    async (submittedQuery = query.trim(), context = { scope, browseAgent }) => {
       const current = connectionRef.current
       const root = optionsRef.current.root
       if (
@@ -273,13 +284,14 @@ export function useSkillagerWorkspace(input: Options) {
         !root ||
         !submittedQuery ||
         !optionsRef.current.sidebarVisible ||
-        (scope === 'workspace' &&
+        (context.scope === 'workspace' &&
           optionsRef.current.projectState?.connectionState !== 'connected')
       )
         return
       const requestId = ++requests.current.search
       const at = generation.current
       setSubmitted(submittedQuery)
+      setSubmittedContext(context)
       setSearch({ loading: true })
       try {
         const result = await window.hvir.invoke('skillager:search', {
@@ -287,7 +299,7 @@ export function useSkillagerWorkspace(input: Options) {
           requestId,
           workspaceRoot: root,
           agent,
-          scope,
+          ...context,
           query: submittedQuery,
         })
         if (requestId !== requests.current.search || at !== generation.current) return
@@ -305,7 +317,7 @@ export function useSkillagerWorkspace(input: Options) {
           })
       }
     },
-    [agent, scope, query, disconnect],
+    [agent, browseAgent, scope, query, disconnect],
   )
 
   useEffect(() => {
@@ -315,8 +327,6 @@ export function useSkillagerWorkspace(input: Options) {
   }, [
     options.root?.hostId,
     options.root?.path,
-    agent,
-    scope,
     options.sidebarVisible,
     options.projectState?.connectionState,
     cancel,
@@ -326,8 +336,8 @@ export function useSkillagerWorkspace(input: Options) {
     cancel('inventory')
     setInventory(emptyRead)
     dispatchTabs({ type: 'clear' })
-    if (options.root?.hostId !== 'local') setScope('library')
-  }, [options.root?.hostId, options.root?.path, agent, cancel])
+    setScope(options.root?.hostId === 'local' ? 'workspace' : 'library')
+  }, [options.root?.hostId, options.root?.path, cancel])
 
   useEffect(() => {
     if (!options.enabled) return
@@ -344,7 +354,7 @@ export function useSkillagerWorkspace(input: Options) {
     }
   }, [options.enabled])
 
-  const localProject = options.root?.hostId === 'local' && perspective === 'workspace'
+  const localProject = options.root?.hostId === 'local'
   const activeDetail = tabs.tabs.find((tab) => tab.id === tabs.activeId)
   const observing = skillagerObservationDemand(
     options.enabled,
@@ -357,14 +367,14 @@ export function useSkillagerWorkspace(input: Options) {
     options.enabled,
     Boolean(connection) && options.projectState?.connectionState === 'connected',
     foreground,
-    options.sidebarVisible && !localProject,
+    options.sidebarVisible && (libraryExpanded || (!localProject && projectExpanded)),
     Boolean(activeDetail && !activeDetail.metadata.projectSkill) && options.viewerVisible,
   )
   const disconnectedReadDemand = skillagerObservationDemand(
     options.enabled,
     Boolean(connection) && options.projectState?.connectionState !== 'connected',
     foreground,
-    options.sidebarVisible && !localProject,
+    options.sidebarVisible && (libraryExpanded || (!localProject && projectExpanded)),
     Boolean(activeDetail && !activeDetail.metadata.projectSkill) && options.viewerVisible,
   )
   const project = useSkillagerProject({
@@ -374,7 +384,7 @@ export function useSkillagerWorkspace(input: Options) {
     openTerminal: options.onSetupTerminal,
     demand:
       observing &&
-      ((options.sidebarVisible && localProject) ||
+      ((options.sidebarVisible && projectExpanded && localProject) ||
         Boolean(activeDetail?.metadata.projectSkill && options.viewerVisible)),
   })
   useEffect(() => {
@@ -422,6 +432,7 @@ export function useSkillagerWorkspace(input: Options) {
     cancel('search')
     setQuery('')
     setSubmitted('')
+    setSubmittedContext(undefined)
     setSearch(emptyRead)
   }, [cancel])
 
@@ -430,15 +441,16 @@ export function useSkillagerWorkspace(input: Options) {
     cancel('search')
     setSearch(emptyRead)
     void refresh()
-    if (submitted) void submit(submitted)
+    if (submitted) void submit(submitted, submittedContext)
     void refreshProject()
-  }, [cancel, refresh, submit, submitted, refreshProject])
+  }, [cancel, refresh, submit, submitted, submittedContext, refreshProject])
   const reviews = useSkillagerReview({
     connection,
     root: options.root,
     projectState: options.projectState,
     agent,
     tabs: tabs.tabs,
+    activeId: tabs.activeId,
     onAccepted: afterAcceptance,
   })
 
@@ -458,8 +470,12 @@ export function useSkillagerWorkspace(input: Options) {
 
   return {
     project,
-    perspective,
-    setPerspective,
+    projectExpanded,
+    setProjectExpanded,
+    libraryExpanded,
+    setLibraryExpanded,
+    browseAgent,
+    setBrowseAgent,
     exposures,
     reviews,
     enabled: options.enabled,
@@ -483,6 +499,7 @@ export function useSkillagerWorkspace(input: Options) {
     query,
     setQuery,
     submitted,
+    submittedContext,
     search,
     submit,
     scope,

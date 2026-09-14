@@ -29,6 +29,34 @@ it('previews every byte/record effect, retains source buffers, and publishes onl
     currentHash: 'a'.repeat(64),
   })
 })
+it('All agents retains the trusted remote copy identity independently of the setup agent', async () => {
+  const f = remoteFixture()
+  await f.add()
+  const request = { ...f.request, agent: 'claude' as const }
+  const observation = { rows: [], complete: false }
+  const all = await f.adapter.observe(
+    f.selection,
+    { ...request, browseAgent: 'all' },
+    observation,
+    AbortSignal.timeout(1000),
+  )
+  expect(all).toHaveLength(1)
+  expect(all?.[0]).toMatchObject({
+    agent: f.request.agent,
+    sourceLibraryId: f.selection.library.id,
+    skillId: f.request.skillId,
+    target: { hostId: f.root.hostId, path: f.root.path + '/.agents/skills/lib-café' },
+  })
+  expect(
+    await f.adapter.observe(
+      f.selection,
+      { ...request, browseAgent: 'claude' },
+      observation,
+      AbortSignal.timeout(1000),
+    ),
+  ).toEqual([])
+  expect(f.port.commit).toHaveBeenCalledOnce()
+})
 it('protects unmanaged and modified targets, while removing unchanged copies without canonical source availability', async () => {
   const f = remoteFixture()
   await f.add()
@@ -64,6 +92,7 @@ it('protects unmanaged and modified targets, while removing unchanged copies wit
         ...f.request,
         action: 'remove',
         exposure: {
+          agent: f.request.agent,
           id: 'lib-café',
           skillId: f.request.skillId,
           target: { ...f.root, path: f.root.path + '/' + target },
