@@ -224,7 +224,12 @@ it('keeps section demand independent and all-agent browsing separate from setup 
     current.setLibraryExpanded(false)
     current.setProjectExpanded(true)
   })
-  expect(current.submittedContext).toEqual({ scope: 'workspace', browseAgent: 'claude' })
+  expect(current.submittedContext).toEqual({
+    scope: 'workspace',
+    browseAgent: 'claude',
+    view: 'skills',
+    includeInstalled: false,
+  })
   expect(current.submitted).toBe('first query')
   await act(async () => vi.advanceTimersByTimeAsync(60_000))
   expect(count('inventory')).toBe(1)

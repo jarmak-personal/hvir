@@ -27,8 +27,8 @@ export async function verifySkillagerCuration(
     const tree = document.querySelector('section[aria-label="In this project"] [role=tree]'); tree.scrollTop = 0;
     const original = await wait(() => [...document.querySelectorAll('section[aria-label="In this project"] .skillager-row')].find(row => row.textContent.includes('Observed project skill 4')));
     original.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 40, clientY: 180 }));
-    await wait(() => button('[role=menu]', 'Stub…'));
-    button('[role=menu]', 'Stub…').click();
+    await wait(() => button('[role=menu]', 'Use as stub…'));
+    button('[role=menu]', 'Use as stub…').click();
     await wait(() => document.querySelector('.skillager-exposure-dialog [role=status]')?.textContent.includes('Preparing'));
     if (button('.skillager-exposure-dialog', 'Cancel').disabled) throw Error('Native metadata preparation disabled cancellation');
   `)

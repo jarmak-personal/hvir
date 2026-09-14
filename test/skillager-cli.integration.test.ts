@@ -163,36 +163,38 @@ it.runIf(Boolean(release))(
         agent: 'codex' as const,
         scope: 'library' as const,
         query: 'deadlockneedle',
+        view: 'legacy' as const,
       }
       const body = await cli.search(selection, request, signal)
-      expect(body.map((row) => row.id)).toEqual(['lib/body'])
-      expect(body[0]?.matchReasons).toContain('body:deadlockneedle')
+      expect(body.rows.map((row) => row.id)).toEqual(['lib/body'])
+      expect(body.rows[0]?.matchReasons).toContain('body:deadlockneedle')
       expect(
-        await cli.search(selection, { ...request, query: '--help' }, signal),
+        (await cli.search(selection, { ...request, query: '--help' }, signal)).rows,
       ).toEqual([])
       for (const [query, id] of [
         ['amberneedle', 'lib/title'],
         ['cobaltneedle', 'lib/description'],
       ])
         expect(
-          (await cli.search(selection, { ...request, query: query! }, signal)).map(
+          (await cli.search(selection, { ...request, query: query! }, signal)).rows.map(
             (row) => row.id,
           ),
         ).toEqual([id])
       expect(
-        await cli.search(selection, { ...request, query: 'pendingneedle' }, signal),
+        (await cli.search(selection, { ...request, query: 'pendingneedle' }, signal))
+          .rows,
       ).toEqual([])
       const all = await cli.search(
         selection,
         { ...request, query: 'scopeprobe', scope: 'workspace' },
         signal,
       )
-      expect(all).toHaveLength(50)
-      expect(all.every((row) => row.source.ownership === 'external')).toBe(true)
+      expect(all.rows).toHaveLength(50)
+      expect(all.rows.every((row) => row.source.ownership === 'external')).toBe(true)
       expect(
-        (await cli.search(selection, { ...request, query: 'scopeprobe' }, signal)).map(
-          (row) => row.id,
-        ),
+        (
+          await cli.search(selection, { ...request, query: 'scopeprobe' }, signal)
+        ).rows.map((row) => row.id),
       ).toEqual(['lib/body'])
       const inventory = await cli.inventory(selection, signal)
       expect(inventory).toHaveLength(5000)

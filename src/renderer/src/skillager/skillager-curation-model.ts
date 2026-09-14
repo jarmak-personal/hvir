@@ -15,7 +15,7 @@ import type {
 } from '../../../shared/skillager-exposure-plan'
 import type { SkillagerSyncStatus } from '../../../shared/skillager-library-sync'
 import { skillagerNativeSelector } from './skillager-native-selection'
-import { isNativeProjectSkill } from './skillager-model'
+import { isNativeProjectSkill, skillagerRouterMemberId } from './skillager-model'
 
 export type CurationAction = 'full' | 'stub' | 'group' | 'edit-members' | 'ungroup'
 export interface SkillagerCurationChoice {
@@ -175,11 +175,14 @@ export function curationPlan(
         router_id: metadata.routerMembership.id,
         library_id: libraryId,
         members: metadata.routerMembership.router!.skillIds.filter(
-          (id) => id !== metadata.id,
+          (id) => id !== skillagerRouterMemberId(metadata),
         ),
         replace: [],
         departures: [
-          { skill_id: metadata.id, mode: action === 'remove' ? 'remove' : mode },
+          {
+            skill_id: skillagerRouterMemberId(metadata),
+            mode: action === 'remove' ? 'remove' : mode,
+          },
         ],
       },
       origins: [],

@@ -332,7 +332,10 @@ export function useSkillagerExposure(options: Options) {
       else
         request = {
           ...base,
-          skillId: current.metadata.id,
+          skillId:
+            current.action === 'remove'
+              ? (current.metadata.workspace?.skillId ?? current.metadata.id)
+              : current.metadata.id,
           mode: current.mode,
           action:
             current.action === 'full' || current.action === 'stub'

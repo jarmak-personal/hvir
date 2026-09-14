@@ -68,6 +68,17 @@
   display: block;
   margin: 6px 0;
 }
+.skillager-search-advanced .skillager-search-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.skillager-search-option input {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+}
 .skillager-query-summary {
   margin: 4px 8px;
   color: var(--text-muted);

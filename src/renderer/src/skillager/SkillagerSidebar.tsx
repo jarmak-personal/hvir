@@ -117,7 +117,29 @@ export function SkillagerSidebar({
                       label="Search results"
                     />
                   ) : (
-                    <p className="skillager-empty">No matching skills.</p>
+                    <div className="skillager-empty">
+                      <p>
+                        {controller.submittedContext?.includeInstalled
+                          ? 'No matching skills.'
+                          : local
+                            ? 'No matching skills to add. Installed skills are hidden.'
+                            : 'No matching skills to add. Skills added through hvir are hidden.'}
+                      </p>
+                      {!controller.submittedContext?.includeInstalled &&
+                      controller.submittedContext ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void controller.submit(controller.submitted, {
+                              ...controller.submittedContext!,
+                              includeInstalled: true,
+                            })
+                          }
+                        >
+                          Include installed and search
+                        </button>
+                      ) : null}
+                    </div>
                   )}
                 </>
               ) : null}

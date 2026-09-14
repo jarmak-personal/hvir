@@ -14,6 +14,7 @@ import {
 import { verifySkillagerUpdate } from './skillager-update'
 import { verifySkillagerExposure } from './skillager-exposure'
 import { verifySkillagerReview } from './skillager-review'
+import { verifySkillagerSearch } from './skillager-search'
 import { app, type BrowserWindow } from 'electron'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import { prepareTerminalScenario } from './terminal-scenario-ready'
@@ -147,6 +148,7 @@ export async function verifySkillagerScenario(
     const warmMs = performance.now() - warmStarted
     if (!output.toLowerCase().includes('hvirwarm'))
       throw new Error('Terminal did not accept input during warm search')
+    if (!process.env.HVIR_SKILLAGER_SMOKE_FIXTURE) await verifySkillagerSearch(win)
     await verifySkillagerReview(win)
     if (!process.env.HVIR_SKILLAGER_SMOKE_FIXTURE) {
       await verifySkillagerUpdate(win)

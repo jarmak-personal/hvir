@@ -67,7 +67,7 @@ function fixture(
 
 describe('Skillager local executable and explicit authority probe', () => {
   it.each(['all', 'claude'] as const)(
-    'submits one ranked search using %s preference without compatibility filtering',
+    'submits one legacy ranked search using %s preference without compatibility filtering',
     async (browseAgent) => {
       const { cli, calls } = fixture()
       try {
@@ -82,6 +82,7 @@ describe('Skillager local executable and explicit authority probe', () => {
             agent: 'codex',
             browseAgent,
             query: 'needle',
+            view: 'legacy',
             scope: 'workspace',
           },
           signal,
@@ -218,6 +219,7 @@ describe('Skillager local executable and explicit authority probe', () => {
           agent: 'codex',
           scope: 'library',
           query: '--help',
+          view: 'legacy',
         },
         signal,
       )

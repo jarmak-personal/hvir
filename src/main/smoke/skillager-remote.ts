@@ -59,7 +59,7 @@ export async function verifySkillagerRemote(
     const current = await wait(() => [...document.querySelectorAll('section[aria-label="In this project"] .skillager-row')].find((item) => item.querySelector('.skillager-name')?.textContent === 'Skill 0' && item.textContent.includes('Current')));
     current.parentElement.querySelector('.skillager-actions-trigger').click();
     await wait(() => button('[role=menu]', 'Remove from this project…'));
-    if (!button('[role=menu]', 'Stub…').disabled) throw new Error('Remote mode change remained available');
+    if (!button('[role=menu]', 'Use as stub…').disabled) throw new Error('Remote mode change remained available');
     button('[role=menu]', 'Remove from this project…').click();
     await wait(() => button('.skillager-exposure-dialog', 'Preview changes'));
     button('.skillager-exposure-dialog', 'Preview changes').click();

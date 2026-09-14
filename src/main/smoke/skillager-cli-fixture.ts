@@ -91,7 +91,8 @@ export function realSkillagerSmokePort(
       ),
     validate: (selection, signal) => cli.validate(selection, signal),
     inventory: (selection, signal) => cli.inventory(selection, signal),
-    search: (selection, request, signal) => cli.search(selection, request, signal),
+    search: (selection, request, signal, remote) =>
+      cli.search(selection, request, signal, remote),
     exposures: (selection, request, signal) => cli.exposures(selection, request, signal),
   }
 }

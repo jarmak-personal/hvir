@@ -15,7 +15,7 @@ import {
   skillagerExplorerRows,
   type SkillagerExplorerRow,
 } from './skillager-explorer-model'
-import { trustLabel } from './skillager-model'
+import { trustLabel, skillagerOccurrenceLabel } from './skillager-model'
 import { workspaceSkillLabel } from './skillager-exposure-model'
 
 const ROW_HEIGHT = 25
@@ -258,8 +258,24 @@ function SkillagerRowBadges({ metadata }: { readonly metadata: SkillagerMetadata
   const status = metadata.workspace ? workspaceSkillLabel(metadata) : trustLabel(metadata)
   return (
     <span className="skillager-badges">
-      {agent ? <small>{skillagerAgentLabel(agent)}</small> : null}
-      {mode ? <small>{mode}</small> : null}
+      {metadata.search ? (
+        <small
+          title={`${metadata.search.occurrence.path.hostId}:${metadata.search.occurrence.path.path}`}
+        >
+          {skillagerOccurrenceLabel(metadata.search.occurrence)}
+        </small>
+      ) : (
+        <>
+          {agent ? <small>{skillagerAgentLabel(agent)}</small> : null}
+          {mode ? <small>{mode}</small> : null}
+        </>
+      )}
+      {metadata.search &&
+      metadata.search.match.occurrence.id !== metadata.search.occurrence.id ? (
+        <small title={metadata.search.match.occurrence.path.path}>
+          Matched in {skillagerOccurrenceLabel(metadata.search.match.occurrence)}
+        </small>
+      ) : null}
       {status !== 'Accepted' ? (
         <small className="skillager-status-badge">{status}</small>
       ) : null}

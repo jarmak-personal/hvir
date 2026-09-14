@@ -547,6 +547,36 @@ describe('workspace skill action UI', () => {
       invoke.mock.calls.find(([channel]) => channel === 'skillager:preview-exposure')![1],
     ).toMatchObject({ agent: 'claude', exposure: { agent: 'claude', id: 'lib-demo' } })
   })
+  it('removes the exact canonical copy when an accepted original supplies the selected metadata', async () => {
+    const selected: SkillagerMetadata = {
+      ...metadata,
+      id: 'project/original',
+      source: { type: 'project', ownership: 'external' },
+      contentHash: 'a'.repeat(64),
+      workspaceFreshness: 'fresh',
+      workspace: {
+        id: 'lib-demo',
+        skillId: 'lib/demo',
+        sourceLibraryId: selection.library.id,
+        target: request.workspaceRoot,
+        agent: 'claude',
+        mode: 'native',
+        status: 'source_unavailable',
+      },
+    }
+    await settle(() => controller.start(selected, 'remove'))
+    expect(controller.state?.metadata.id).toBe('project/original')
+    expect(controller.state?.metadata.contentHash).toBe('a'.repeat(64))
+    await settle(() => controller.preview())
+    expect(
+      invoke.mock.calls.find(([channel]) => channel === 'skillager:preview-exposure')![1],
+    ).toMatchObject({
+      action: 'remove',
+      skillId: 'lib/demo',
+      agent: 'claude',
+      exposure: { id: 'lib-demo', skillId: 'lib/demo', target: request.workspaceRoot },
+    })
+  })
   it('refreshes an uncertain outcome once and never offers repeated confirmation', async () => {
     await open()
     invoke.mockRejectedValue(new Error('lost IPC'))

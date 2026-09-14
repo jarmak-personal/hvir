@@ -56,6 +56,57 @@ const member: SkillagerMetadata = {
 }
 
 describe('exact native occurrence selection and project curation', () => {
+  it('removes only the qualified canonical router member when an original supplies search metadata', () => {
+    const occurrence = {
+      id: 'a'.repeat(64),
+      kind: 'router-member' as const,
+      path: router.target,
+      entrypoint: localPath(`${router.target.path}/SKILL.md`),
+      agent: router.agent,
+    }
+    const selected: SkillagerMetadata = {
+      ...member,
+      id: 'project/original',
+      source: { type: 'project', ownership: 'external' },
+      contentHash: 'b'.repeat(64),
+      search: {
+        groupId: 'c'.repeat(64),
+        groupOccurrences: 3,
+        installed: true,
+        canonical: { libraryId: syncLibrary.id, skillId: 'lib/example' },
+        occurrence,
+        match: {
+          occurrence: { ...occurrence, id: 'd'.repeat(64), kind: 'project-original' },
+          skillId: 'project/original',
+          contentHash: 'b'.repeat(64),
+          score: 1,
+          reasons: [],
+        },
+      },
+    }
+    const plan = curationPlan(
+      selected,
+      'remove',
+      'native',
+      curationChoice(selected),
+      destination,
+      'codex',
+      syncLibrary.id,
+      [],
+    )
+    expect(plan.plan).toMatchObject({
+      action: 'set-members',
+      members: ['lib/second'],
+      departures: [{ skill_id: 'lib/example', mode: 'remove' }],
+    })
+    expect(selected.id).toBe('project/original')
+    expect(selected.contentHash).toBe('b'.repeat(64))
+    expect(
+      exposureActions(selected)
+        .filter((item) => ['full', 'stub'].includes(item.action))
+        .every((item) => item.disabled),
+    ).toBe(true)
+  })
   it('selects the observed occurrence without deriving identities and keeps native conversion separate from library provenance', () => {
     const report = syncStatus(),
       selected = skillagerNativeSelector(report, syncContext, syncLibrary.id)(native)

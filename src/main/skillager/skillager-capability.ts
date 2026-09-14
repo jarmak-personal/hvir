@@ -1,3 +1,4 @@
+import { validateSkillagerSearchRequest } from './skillager-search-contract'
 import type { SkillagerProjectStart } from '../../shared/skillager-project'
 import type { SkillagerProjectCliPort } from './skillager-project-commands'
 import type { SkillagerProjectTerminalPort } from './skillager-project-terminal'
@@ -28,10 +29,10 @@ import { randomUUID } from 'node:crypto'
 import { hostPathEquals, type HostPath } from '../../shared/host-path'
 import { withSkillagerRouterMemberships } from './skillager-workspace-metadata'
 import {
-  SKILLAGER_QUERY_BYTES,
   SKILLAGER_AGENTS,
   type SkillagerConnection,
   type SkillagerMetadataResult,
+  type SkillagerWorkspaceExposure,
   type SkillagerProbe,
   type SkillagerRequest,
   type SkillagerBrowseRequest,
@@ -505,24 +506,23 @@ export class SkillagerCapability {
     request: SkillagerSearchRequest,
   ): Promise<SkillagerResult<SkillagerMetadataResult>> {
     return this.read(owner, 'search', request, async (selection, signal) => {
-      if (
-        typeof request.query !== 'string' ||
-        request.query.trim().length === 0 ||
-        Buffer.byteLength(request.query) > SKILLAGER_QUERY_BYTES ||
-        request.query.includes('\0') ||
-        !['library', 'workspace'].includes(request.scope)
-      )
-        throw new SkillagerError(
-          'invalid-request',
-          'Enter a search of at most 1,000 UTF-8 bytes.',
-        )
-      if (request.scope === 'workspace' && request.workspaceRoot.hostId !== 'local') {
-        throw new SkillagerError(
-          'unavailable',
-          'Use Personal library for an SSH workspace.',
-        )
-      }
-      return { rows: await this.cli.search(selection, request, signal) }
+      validateSkillagerSearchRequest(request)
+      const remote =
+        selection.searchView &&
+        request.workspaceRoot.hostId !== 'local' &&
+        request.view !== 'legacy'
+          ? {
+              exposures: await this.exposure.observe(
+                selection,
+                { ...request, browseAgent: 'all' },
+                { rows: [], complete: false },
+                signal,
+              ),
+            }
+          : undefined
+      if (signal.aborted)
+        throw new SkillagerError('cancelled', 'Skillager request cancelled.')
+      return { ...(await this.cli.search(selection, request, signal, remote)), ...remote }
     })
   }
 
@@ -884,12 +884,16 @@ export class SkillagerCapability {
                 this.current(owner, state, generation)
                 if (controller.signal.aborted) throw cancelled()
                 const payload = await operation(selection, controller.signal)
-                const exposures = await this.exposure.observe(
-                  selection,
-                  request,
-                  { rows: payload.rows, complete: kind === 'inventory' },
-                  controller.signal,
-                )
+                const exposures =
+                  'exposures' in payload
+                    ? (payload.exposures as
+                        readonly SkillagerWorkspaceExposure[] | undefined)
+                    : await this.exposure.observe(
+                        selection,
+                        kind === 'search' ? { ...request, browseAgent: 'all' } : request,
+                        { rows: payload.rows, complete: kind === 'inventory' },
+                        controller.signal,
+                      )
                 this.current(owner, state, generation)
                 if (
                   controller.signal.aborted ||

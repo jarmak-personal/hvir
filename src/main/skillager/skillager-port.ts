@@ -5,10 +5,12 @@ import type {
   SkillagerMetadata,
   SkillagerBrowseRequest,
   SkillagerSearchRequest,
+  SkillagerSearchRows,
   SkillagerWorkspaceExposure,
 } from '../../shared/skillager'
 
 export interface SkillagerCliSelection {
+  readonly searchView?: 'skillager.search.v1'
   readonly executable: HostPath
   readonly catalog: HostPath
   readonly version: string
@@ -30,7 +32,8 @@ export interface SkillagerCliPort {
     selection: SkillagerCliSelection,
     request: SkillagerSearchRequest,
     signal: AbortSignal,
-  ): Promise<readonly SkillagerMetadata[]>
+    remote?: { readonly exposures: readonly SkillagerWorkspaceExposure[] | undefined },
+  ): Promise<SkillagerSearchRows>
   exposures(
     selection: SkillagerCliSelection,
     request: SkillagerBrowseRequest,
