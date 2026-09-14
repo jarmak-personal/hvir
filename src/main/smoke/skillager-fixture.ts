@@ -84,6 +84,7 @@ export function createSkillagerSmoke(
     }
     const canonical: SkillagerMetadata = {
       ...row,
+      matchReasons: [],
       search: {
         groupId: 'e'.repeat(64),
         canonical: { libraryId: library.id, skillId: row.id },
@@ -110,6 +111,7 @@ export function createSkillagerSmoke(
           {
             ...canonical,
             id: 'project/merge',
+            matchReasons: row.matchReasons,
             source: { type: 'project', ownership: 'external' },
             projectSkill: { path, agent: 'claude', managed: false },
             search: { ...canonical.search!, occurrence: original },

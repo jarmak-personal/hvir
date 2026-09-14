@@ -19,6 +19,7 @@ import { trustLabel, skillagerOccurrenceLabel } from './skillager-model'
 import { workspaceSkillLabel } from './skillager-exposure-model'
 
 const ROW_HEIGHT = 25
+const SEARCH_ROW_HEIGHT = 56
 
 /** One bounded metadata viewport; it never owns filesystem or instruction-content reads. */
 export function SkillagerTree({
@@ -36,6 +37,7 @@ export function SkillagerTree({
   readonly actions: SkillagerExposureController['menu']
   readonly label: string
 }) {
+  const rowHeight = sources[0]?.search ? SEARCH_ROW_HEIGHT : ROW_HEIGHT
   const viewport = useRef<HTMLDivElement>(null)
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
   const rows = useMemo(
@@ -48,7 +50,12 @@ export function SkillagerTree({
   const [pendingFocus, setPendingFocus] = useState<string>()
   const [notice, setNotice] = useState<string>()
   const focused = useRef(false)
-  const range = virtualRange(rows.length, ROW_HEIGHT, position.top, position.height, 3)
+  // Clamp before rendering so a row-height change cannot briefly unmount the focused key.
+  const scrollTop = Math.min(
+    position.top,
+    Math.max(0, rows.length * rowHeight - position.height),
+  )
+  const range = virtualRange(rows.length, rowHeight, scrollTop, position.height, 3)
   const mountedRows = rows.slice(range.start, range.end)
   const entryKey = mountedRows.some((row) => row.key === focusKey)
     ? focusKey
@@ -75,7 +82,7 @@ export function SkillagerTree({
   useLayoutEffect(() => {
     const element = viewport.current
     if (!element) return
-    const maximum = Math.max(0, rows.length * ROW_HEIGHT - element.clientHeight)
+    const maximum = Math.max(0, rows.length * rowHeight - element.clientHeight)
     if (element.scrollTop > maximum) {
       element.scrollTop = maximum
       setPosition({ top: maximum, height: element.clientHeight })
@@ -85,7 +92,7 @@ export function SkillagerTree({
       setFocusKey(replacement)
       if (focused.current) setPendingFocus(replacement)
     }
-  }, [rows, focusKey, range.start])
+  }, [rows, focusKey, range.start, rowHeight])
   useLayoutEffect(() => {
     if (!pendingFocus) return
     const row = [
@@ -104,10 +111,10 @@ export function SkillagerTree({
     const row = rows.at(index),
       element = viewport.current
     if (!row || !element) return
-    const top = index * ROW_HEIGHT
+    const top = index * rowHeight
     if (top < element.scrollTop) element.scrollTop = top
-    else if (top + ROW_HEIGHT > element.scrollTop + element.clientHeight)
-      element.scrollTop = top + ROW_HEIGHT - element.clientHeight
+    else if (top + rowHeight > element.scrollTop + element.clientHeight)
+      element.scrollTop = top + rowHeight - element.clientHeight
     setPosition({ top: element.scrollTop, height: element.clientHeight })
     setFocusKey(row.key)
     setPendingFocus(row.key)
@@ -178,7 +185,7 @@ export function SkillagerTree({
       >
         <div
           className="skillager-tree-space"
-          style={{ height: rows.length * ROW_HEIGHT }}
+          style={{ height: rows.length * rowHeight }}
           role="none"
         >
           {mountedRows.map((row, at) => (
@@ -187,7 +194,8 @@ export function SkillagerTree({
               className="skillager-tree-line"
               role="none"
               style={{
-                top: (range.start + at) * ROW_HEIGHT,
+                top: (range.start + at) * rowHeight,
+                height: rowHeight,
                 paddingLeft: row.depth * 14,
               }}
             >
@@ -220,7 +228,7 @@ export function SkillagerTree({
                   aria-selected={activeId === row.key}
                   data-skill-key={row.key}
                   tabIndex={row.key === entryKey ? 0 : -1}
-                  className={`skillager-row tree-row${activeId === row.key ? ' selected' : ''}`}
+                  className={`skillager-row tree-row${row.metadata.search ? ' skillager-search-row' : ''}${activeId === row.key ? ' selected' : ''}`}
                   title={`${row.metadata.name} · ${row.metadata.description}`}
                   onFocus={() => {
                     focusedRow.current = row
@@ -229,14 +237,46 @@ export function SkillagerTree({
                   onKeyDown={(event) => keyboard(event, row, range.start + at)}
                   onClick={() => onSelect(row.metadata)}
                 >
-                  <span className="skillager-name">{row.metadata.name}</span>
-                  <SkillagerRowBadges metadata={row.metadata} />
+                  {row.metadata.search ? (
+                    <SkillagerSearchRow metadata={row.metadata} />
+                  ) : (
+                    <>
+                      <span className="skillager-name">{row.metadata.name}</span>
+                      <SkillagerRowBadges metadata={row.metadata} />
+                    </>
+                  )}
                 </button>
               </SkillagerActions>
             </div>
           ))}
         </div>
       </div>
+    </>
+  )
+}
+
+function SkillagerSearchRow({ metadata }: { readonly metadata: SkillagerMetadata }) {
+  const search = metadata.search!
+  return (
+    <>
+      <span className="skillager-search-title">
+        <span className="skillager-name">{metadata.name}</span>
+        <SkillagerRowBadges metadata={metadata} />
+      </span>
+      <small
+        className="skillager-search-context"
+        title={`${search.occurrence.path.hostId}:${search.occurrence.path.path}`}
+      >
+        {skillagerOccurrenceLabel(search.occurrence)}
+      </small>
+      {search.match.occurrence.id !== search.occurrence.id ? (
+        <small
+          className="skillager-search-match"
+          title={`${skillagerOccurrenceLabel(search.match.occurrence)} · ${search.match.occurrence.path.hostId}:${search.match.occurrence.path.path}`}
+        >
+          Matched in {skillagerOccurrenceLabel(search.match.occurrence, 'match')}
+        </small>
+      ) : null}
     </>
   )
 }
@@ -258,23 +298,11 @@ function SkillagerRowBadges({ metadata }: { readonly metadata: SkillagerMetadata
   const status = metadata.workspace ? workspaceSkillLabel(metadata) : trustLabel(metadata)
   return (
     <span className="skillager-badges">
-      {metadata.search ? (
-        <small
-          title={`${metadata.search.occurrence.path.hostId}:${metadata.search.occurrence.path.path}`}
-        >
-          {skillagerOccurrenceLabel(metadata.search.occurrence)}
-        </small>
-      ) : (
+      {!metadata.search ? (
         <>
           {agent ? <small>{skillagerAgentLabel(agent)}</small> : null}
           {mode ? <small>{mode}</small> : null}
         </>
-      )}
-      {metadata.search &&
-      metadata.search.match.occurrence.id !== metadata.search.occurrence.id ? (
-        <small title={metadata.search.match.occurrence.path.path}>
-          Matched in {skillagerOccurrenceLabel(metadata.search.match.occurrence)}
-        </small>
       ) : null}
       {status !== 'Accepted' ? (
         <small className="skillager-status-badge">{status}</small>

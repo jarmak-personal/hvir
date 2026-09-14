@@ -281,11 +281,14 @@ export function skillagerRouterMemberId(row: SkillagerMetadata): string {
   return row.search?.canonical?.skillId ?? row.id
 }
 
-export function skillagerOccurrenceLabel(occurrence: SkillagerSearchOccurrence): string {
+export function skillagerOccurrenceLabel(
+  occurrence: SkillagerSearchOccurrence,
+  context: 'selection' | 'match' = 'selection',
+): string {
   const label = {
     library: 'Your library',
     source: 'External source',
-    'project-original': 'Project original',
+    'project-original': context === 'match' ? 'Project' : 'Project original',
     full: 'Installed Full',
     stub: 'Installed Stub',
     'router-member': 'Installed Router',

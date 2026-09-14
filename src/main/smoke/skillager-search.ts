@@ -48,10 +48,11 @@ export async function verifySkillagerSearch(win: BrowserWindow): Promise<void> {
     `
     await wait(() => document.querySelectorAll('.skillager-search-results .skillager-row').length === 1 && !document.querySelector('.skillager-search-results [role=status]'));
     const row = document.querySelector('.skillager-search-results .skillager-row');
-    if (!row.textContent.includes('Your library') || !row.textContent.includes('Matched in Project original · Claude Code')) throw Error('Canonical representative obscured its matching occurrence');
+    if (!row.textContent.includes('Your library') || !row.textContent.includes('Matched in Project · Claude Code')) throw Error('Canonical representative obscured its matching occurrence');
     if (!document.querySelector('.skillager-query-summary').textContent.includes('Installed included')) throw Error('Explicit Include installed did not update submitted policy');
   `,
   )
+  await verifySearchRowGeometry(win, 1)
   await captureSkillagerSidebar(win, 'search-grouped')
   await click(win, '.skillager-search-advanced > summary')
   for (const option of [1, 2]) {
@@ -62,8 +63,20 @@ export async function verifySkillagerSearch(win: BrowserWindow): Promise<void> {
       win,
       `
       const controls = document.querySelectorAll('.skillager-search-option input');
-      controls[${option - 1}].focus();
-      await wait(() => document.activeElement === controls[${option - 1}]);
+      const control = controls[${option - 1}];
+      const state = () => ({
+        open: !!document.querySelector('.skillager-search-advanced')?.open,
+        width: control.getBoundingClientRect().width,
+        height: control.getBoundingClientRect().height,
+        focused: document.activeElement === control,
+        activeTag: document.activeElement?.tagName,
+        activeType: document.activeElement instanceof HTMLInputElement ? document.activeElement.type : undefined,
+      });
+      try {
+        await wait(() => state().open && state().width > 0 && state().height > 0);
+        control.focus();
+        await wait(() => state().focused);
+      } catch { throw Error('Advanced checkbox readiness failed: ' + JSON.stringify(state())); }
     `,
     )
     await click(win, selector)
@@ -103,8 +116,50 @@ export async function verifySkillagerSearch(win: BrowserWindow): Promise<void> {
     win,
     `await wait(() => !document.querySelector('.skillager-search-advanced').open);`,
   )
+  await verifySearchRowGeometry(win, 2)
   await captureSkillagerSidebar(win, 'search-copies')
   console.log(
-    '[smoke] Skills search OK (controlled metadata fixture; physical Enter and Advanced checkbox clicks; default installed-hidden zero state, explicit Include installed, truthful submitted options, canonical match source and separate native occurrence)',
+    '[smoke] Skills search OK (controlled metadata fixture; physical Enter and Advanced checkbox clicks; default installed-hidden zero state, explicit Include installed, truthful submitted options, unclipped selected/matching source lines at the narrow rail and separate native occurrence)',
   )
+}
+
+/** Layout proof stays in Chromium; the tree owner tests range and keyboard math. */
+async function verifySearchRowGeometry(
+  win: BrowserWindow,
+  expectedRows: number,
+): Promise<void> {
+  const geometry = await inspect(
+    win,
+    `
+    const tree = document.querySelector('.skillager-search-results .skillager-tree');
+    const viewport = tree.getBoundingClientRect();
+    const rows = [...tree.querySelectorAll('.skillager-search-row')];
+    const geometry = rows.map(row => {
+      const bounds = row.getBoundingClientRect();
+      const lines = [...row.querySelectorAll('.skillager-search-context, .skillager-search-match')].map(line => {
+        const rect = line.getBoundingClientRect();
+        const range = document.createRange(); range.selectNodeContents(line);
+        const text = range.getBoundingClientRect();
+        return {
+          kind: line.classList.contains('skillager-search-match') ? 'match' : 'selected',
+          width: rect.width, height: rect.height,
+          complete: line.scrollWidth <= line.clientWidth && text.left >= rect.left - 1 && text.right <= rect.right + 1,
+          contained: text.top >= bounds.top - 1 && text.bottom <= bounds.bottom + 1 && rect.left >= bounds.left && rect.right <= bounds.right,
+        };
+      });
+      return {
+        height: bounds.height,
+        visible: bounds.top >= viewport.top - 1 && bounds.bottom <= viewport.bottom + 1,
+        lines,
+      };
+    });
+    const state = { viewportWidth: viewport.width, rows: geometry };
+    if (rows.length !== ${expectedRows} || viewport.width > 300 || !geometry.every(row =>
+      row.height === 56 && row.visible && row.lines.length > 0 && row.lines.every(line =>
+        line.width > 0 && line.height === 16 && line.complete && line.contained)))
+      throw Error('Search occurrence labels are clipped: ' + JSON.stringify(state));
+    return state;
+  `,
+  )
+  console.log('[smoke] Skills search row geometry ' + JSON.stringify(geometry))
 }

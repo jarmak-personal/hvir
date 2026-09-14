@@ -4,7 +4,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { localPath } from '../src/shared/host-path'
-import type { SkillagerMetadata } from '../src/shared/skillager'
+import { SKILLAGER_SEARCH_LIMIT, type SkillagerMetadata } from '../src/shared/skillager'
 import { SkillagerTree } from '../src/renderer/src/skillager/SkillagerTree'
 import {
   canonicalSkillagerMetadata,
@@ -208,4 +208,88 @@ it('admits whole groups up to the height limit, explains refresh collapses, and 
     'Collapse another skill',
   )
   expect(select).toHaveBeenCalledOnce()
+})
+
+it('uses the search occurrence height for range and End navigation while keeping selection and legacy browse height intact', () => {
+  const matches: SkillagerMetadata[] = rows
+    .slice(0, SKILLAGER_SEARCH_LIMIT)
+    .map((row, index) => {
+      const occurrence = {
+        id: `canonical-${index}`,
+        kind: 'library' as const,
+        path: localPath(`/library/skills/guide-${index}`),
+        entrypoint: localPath(`/library/skills/guide-${index}/SKILL.md`),
+      }
+      return {
+        ...row,
+        search: {
+          groupId: `group-${index}`,
+          canonical: { libraryId: 'library', skillId: row.id },
+          occurrence,
+          groupOccurrences: 2,
+          installed: true,
+          match: {
+            occurrence:
+              index === SKILLAGER_SEARCH_LIMIT - 1
+                ? occurrence
+                : {
+                    id: `original-${index}`,
+                    kind: 'project-original',
+                    path: localPath(`/project/.claude/skills/guide-${index}`),
+                    entrypoint: localPath(
+                      `/project/.claude/skills/guide-${index}/SKILL.md`,
+                    ),
+                    agent: 'claude',
+                  },
+            skillId:
+              index === SKILLAGER_SEARCH_LIMIT - 1 ? row.id : `project/guide-${index}`,
+            contentHash: 'a'.repeat(64),
+            score: 1,
+            reasons: ['body'],
+          },
+        },
+      }
+    })
+  render(matches, skillagerMetadataKey(matches[0]!))
+  const first = entry()
+  expect(first.querySelector('.skillager-search-context')?.textContent).toBe(
+    'Your library',
+  )
+  expect(first.querySelector('.skillager-search-match')?.textContent).toBe(
+    'Matched in Project · Claude Code',
+  )
+  expect(first.querySelector('.skillager-search-match')?.getAttribute('title')).toContain(
+    'Project original · Claude Code · local:/project/.claude/skills/guide-0',
+  )
+  expect(mount.querySelector<HTMLElement>('.skillager-tree-space')!.style.height).toBe(
+    '2800px',
+  )
+  expect(mount.querySelector<HTMLElement>('.skillager-tree-line')!.style.height).toBe(
+    '56px',
+  )
+  act(() => first.focus())
+  key('End')
+  expect(document.activeElement?.getAttribute('data-skill-key')).toBe(
+    skillagerMetadataKey(matches[49]!),
+  )
+  expect(document.activeElement?.querySelector('.skillager-search-match')).toBeNull()
+  expect(tree().scrollTop).toBe(2550)
+  expect(mount.querySelectorAll('[role="treeitem"]').length).toBeLessThanOrEqual(12)
+  expect(select).not.toHaveBeenCalled()
+  act(() => (document.activeElement as HTMLButtonElement).click())
+  expect(select).toHaveBeenCalledWith(matches[49])
+  key('Home')
+  expect(document.activeElement).toBe(entry())
+  expect(document.activeElement?.getAttribute('aria-selected')).toBe('true')
+  key('End')
+  render(matches.map((row) => ({ ...row, search: undefined })))
+  expect(mount.querySelector<HTMLElement>('.skillager-tree-space')!.style.height).toBe(
+    '1250px',
+  )
+  expect(mount.querySelector<HTMLElement>('.skillager-tree-line')!.style.height).toBe(
+    '25px',
+  )
+  expect(tree().scrollTop).toBe(1000)
+  expect(tree().contains(document.activeElement)).toBe(true)
+  expect(mount.querySelector('.skillager-search-context')).toBeNull()
 })
