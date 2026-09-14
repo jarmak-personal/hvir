@@ -1,3 +1,4 @@
+import { SKILLAGER_ACCEPTED_TRUST } from '../../shared/skillager'
 import { SkillagerError } from './skillager-port'
 import { skillagerLibrarySkillRoot } from './skillager-library-identity'
 import {
@@ -181,7 +182,7 @@ export function parseSkillagerSearch(
     rows.some((row) => row.source.ownership !== 'library' || row.exposure !== 'unknown')
   )
     malformed()
-  if (rows.some((row) => !['reviewed', 'trusted', 'pinned'].includes(row.trust)))
+  if (rows.some((row) => !SKILLAGER_ACCEPTED_TRUST.some((trust) => trust === row.trust)))
     malformed()
   unique(rows)
   return rows

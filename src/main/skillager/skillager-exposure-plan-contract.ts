@@ -1,3 +1,4 @@
+import { SKILLAGER_ACCEPTED_TRUST } from '../../shared/skillager'
 import { isDeepStrictEqual } from 'node:util'
 import {
   basenameHostPath,
@@ -98,7 +99,7 @@ export function parsePlanPreview(
       provenance.ownership !== 'library' ||
       source.root !== root.path ||
       source.entrypoint !== joinHostPath(root, 'SKILL.md').path ||
-      !['reviewed', 'trusted', 'pinned'].includes(String(source.trust))
+      !SKILLAGER_ACCEPTED_TRUST.some((trust) => trust === String(source.trust))
     )
       return malformed()
     const hash = exposureHash(source.content_hash),
@@ -107,7 +108,7 @@ export function parsePlanPreview(
     exposureText(approval.decision_skill_id, 512)
     if (
       approval.content_hash !== hash ||
-      !['reviewed', 'trusted', 'pinned'].includes(String(approval.state)) ||
+      !SKILLAGER_ACCEPTED_TRUST.some((trust) => trust === String(approval.state)) ||
       !['project', 'global'].includes(String(approval.scope)) ||
       typeof approval.lint_override !== 'boolean' ||
       typeof approval.risk_override !== 'boolean'

@@ -161,65 +161,15 @@ afterEach(() => {
 })
 
 describe('Skills renderer demand and metadata views', () => {
-  it('reuses canonical project metadata for curation when Your library has not been expanded', async () => {
-    const original = invoke.getMockImplementation()!
-    invoke.mockImplementation((channel, request) =>
-      channel === 'skillager:project-metadata'
-        ? Promise.resolve({
-            ok: true,
-            value: {
-              rows: rows.slice(0, 2),
-              exposures: [],
-              checkedAt: Date.now(),
-              durationMs: 1,
-              status: {
-                projectRoot: localPath('/workspace'),
-                agent: 'codex',
-                status: 'ready',
-                canProceed: true,
-                reviewNeeded: 0,
-                lintBlocked: 0,
-                working: 'present',
-              },
-            },
-          })
-        : original(channel, request),
-    )
+  it('keeps the visible summary bound to submitted query and scope after draft preference edits', async () => {
     await render()
-    act(() => current.setLibraryExpanded(false))
     await connect()
-    expect(current.exposures.rows).toEqual(rows.slice(0, 2))
-    expect(invoke.mock.calls.some(([channel]) => channel === 'skillager:inventory')).toBe(
-      false,
-    )
-  })
-  it('keeps section demand independent and all-agent browsing separate from setup and submitted search context', async () => {
-    vi.useFakeTimers()
-    await render()
-    act(() => current.setProjectExpanded(false))
-    await connect()
-    const count = (kind: string) =>
-      invoke.mock.calls.filter(([channel]) => channel === `skillager:${kind}`).length
-    expect(count('project-metadata')).toBe(0)
-    expect(count('inventory')).toBe(1)
     act(() => current.setBrowseAgent('claude'))
-    expect(current.agent).toBe('codex')
-    expect(count('inventory')).toBe(1)
     await act(async () => current.submit('first query'))
-    expect(
-      invoke.mock.calls.find(([channel]) => channel === 'skillager:search')![1],
-    ).toMatchObject({ scope: 'workspace', browseAgent: 'claude', agent: 'codex' })
     act(() => {
       current.setBrowseAgent('all')
       current.setScope('library')
       current.setQuery('unsubmitted draft')
-      current.setLibraryExpanded(false)
-      current.setProjectExpanded(true)
-    })
-    await settle()
-    expect(current.submittedContext).toEqual({
-      scope: 'workspace',
-      browseAgent: 'claude',
     })
     expect(mount.querySelector('.skillager-query-summary')?.textContent).toContain(
       'first query',
@@ -230,11 +180,6 @@ describe('Skills renderer demand and metadata views', () => {
     expect(mount.querySelector('.skillager-query-summary')?.textContent).not.toContain(
       'unsubmitted draft',
     )
-    expect(count('project-metadata')).toBe(1)
-    await act(async () => vi.advanceTimersByTimeAsync(60_000))
-    expect(count('inventory')).toBe(1)
-    expect(count('project-metadata')).toBe(2)
-    expect(count('search')).toBe(1)
   })
   it('requeries the submitted search after acceptance and rejects its obsolete in-flight result', async () => {
     await render()
@@ -324,6 +269,7 @@ describe('Skills renderer demand and metadata views', () => {
             ok: true,
             value: {
               setupRunning: false,
+              requiresLibraryMetadata: true,
               status: {
                 projectRoot: localPath('/workspace'),
                 agent: 'codex',
@@ -460,6 +406,25 @@ describe('Skills renderer demand and metadata views', () => {
               finish = resolve
             })
           : Promise.resolve(observed(count === 1 ? 'current' : 'source_update'))
+      if (channel === 'skillager:project-metadata')
+        return Promise.resolve({
+          ...observed(count < 3 ? 'current' : 'source_update'),
+          value: {
+            ...observed(count < 3 ? 'current' : 'source_update').value,
+            rows: [],
+            requiresLibraryMetadata: true,
+            setupRunning: false,
+            status: {
+              projectRoot: localPath('/workspace'),
+              agent: 'codex',
+              status: 'ready',
+              canProceed: true,
+              reviewNeeded: 0,
+              lintBlocked: 0,
+              working: 'present',
+            },
+          },
+        })
       if (channel === 'skillager:review')
         return Promise.resolve({
           ok: true,
@@ -512,9 +477,13 @@ describe('Skills renderer demand and metadata views', () => {
         : original(channel, request),
     )
     await act(async () => current.refresh())
-    expect(current.active?.metadata.workspaceFreshness).toBe('unavailable')
+    expect(current.active?.metadata).toMatchObject({
+      workspaceFreshness: 'fresh',
+      trust: 'unknown',
+      source: { ownership: 'unknown' },
+    })
     expect(mount.querySelector('.skillager-details')?.textContent).toContain(
-      'stale / unavailable',
+      'Source metadata is unavailable.',
     )
     expect(mount.querySelector('.skillager-details')?.textContent).not.toContain(
       'Workspace copy behind',

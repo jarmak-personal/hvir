@@ -3,7 +3,7 @@ import type {
   SkillagerWorkspaceExposure,
 } from '../../../shared/skillager'
 import {
-  canonicalSkillagerMetadata,
+  type SkillagerCanonicalObservation,
   skillagerMetadataKey,
   skillagerRouterMember,
 } from './skillager-model'
@@ -28,10 +28,9 @@ export const SKILLAGER_EXPANDED_ROW_LIMIT = 40_000
 /** Retain public membership references; construct only the admitted window, even with many expanded routers. */
 export function skillagerExplorerRows(
   sources: readonly SkillagerMetadata[],
-  known: readonly SkillagerMetadata[],
+  canonical: SkillagerCanonicalObservation,
   expanded: ReadonlySet<string>,
 ) {
-  const canonical = canonicalSkillagerMetadata(known)
   const segments: Segment[] = []
   const parents = new Map<string, Segment>()
   let remaining = SKILLAGER_EXPANDED_ROW_LIMIT - sources.length
@@ -88,6 +87,7 @@ export function skillagerExplorerRows(
           segment.metadata.workspace!,
           segment.members[child - segment.copies.length]!,
           canonical,
+          segment.metadata,
         )
     return {
       key: skillagerMetadataKey(metadata),

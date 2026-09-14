@@ -7,11 +7,18 @@ import type {
 } from '../src/shared/skillager'
 import { skillagerExplorerRows } from '../src/renderer/src/skillager/skillager-explorer-model'
 import {
+  canonicalSkillagerMetadata,
   skillagerMetadataKey,
   skillagerProjectRows,
   skillagerTabs,
   skillagerWorkspaceMetadata,
 } from '../src/renderer/src/skillager/skillager-model'
+
+const known = (rows: readonly SkillagerMetadata[]) => ({
+  rows: canonicalSkillagerMetadata(rows),
+  checkedAt: 100,
+  freshness: 'fresh' as const,
+})
 
 const source: SkillagerMetadata = {
   id: 'lib/guide',
@@ -68,7 +75,7 @@ it('keeps exact copies separate from their source and opens stable source/copy/m
   expect(library[0]!.workspace).toBeUndefined()
   const projected = skillagerExplorerRows(
     library,
-    library,
+    known(library),
     new Set([skillagerMetadataKey(library[0]!)]),
   )
   expect(projected.length).toBe(3)
@@ -80,7 +87,7 @@ it('keeps exact copies separate from their source and opens stable source/copy/m
   const project = skillagerProjectRows(result)
   const expanded = skillagerExplorerRows(
     project,
-    library,
+    known(library),
     new Set(project.map(skillagerMetadataKey)),
   )
   const selections = [...projected.slice(0, 3), expanded.at(3)!]
@@ -115,7 +122,7 @@ it('never joins foreign or unproven same-ID copies/members to the currently regi
   expect(project.every((row) => row.source.ownership === 'unknown')).toBe(true)
   const members = skillagerExplorerRows(
     project,
-    [foreign],
+    known([foreign]),
     new Set(project.map(skillagerMetadataKey)),
   )
   expect(members.at(3)!.metadata.source.ownership).toBe('unknown')
@@ -131,7 +138,7 @@ it('keeps every reported agent copy visible so counts and disclosure describe th
   const library = skillagerWorkspaceMetadata(result)
   const projection = skillagerExplorerRows(
     library,
-    library,
+    known(library),
     new Set([skillagerMetadataKey(library[0]!)]),
   )
   expect(projection.sourceCount).toBe(library.length)
@@ -141,8 +148,29 @@ it('keeps every reported agent copy visible so counts and disclosure describe th
     projection.slice(1, projection.length).map((row) => row.metadata.workspace?.agent),
   ).toEqual(['codex', 'claude'])
   const project = skillagerProjectRows(result)
-  expect(skillagerExplorerRows(project, library, new Set()).length).toBe(project.length)
+  expect(skillagerExplorerRows(project, known(library), new Set()).length).toBe(
+    project.length,
+  )
 })
+
+it.each(['checking', 'stale', 'unavailable'] as const)(
+  'expanded search/router members preserve their parent observation state: %s',
+  (workspaceFreshness) => {
+    const rows = skillagerProjectRows(result).map((row) => ({
+      ...row,
+      workspaceFreshness,
+    }))
+    const projection = skillagerExplorerRows(
+      rows,
+      known([source]),
+      new Set(rows.map(skillagerMetadataKey)),
+    )
+    expect(projection.at(3)!.metadata).toMatchObject({
+      workspaceFreshness,
+      workspaceCheckedAt: 100,
+    })
+  },
+)
 
 it('projects only the requested range with millions of repeated public member references', () => {
   const ids = Array.from({ length: 5000 }, (_, n) => `lib/member-${n}`)
@@ -165,7 +193,7 @@ it('projects only the requested range with millions of repeated public member re
   }))
   const projection = skillagerExplorerRows(
     sources,
-    [],
+    known([]),
     new Set(sources.map(skillagerMetadataKey)),
   )
   expect(projection.length).toBe(40_000)
@@ -178,12 +206,12 @@ it('projects only the requested range with millions of repeated public member re
   expect(projection.indexOf(window[0]!.key, window[0])).toBe(1)
   const last = skillagerExplorerRows(
     sources,
-    [],
+    known([]),
     new Set([skillagerMetadataKey(sources.at(-1)!)]),
   )
   expect(last.length).toBe(10_000)
   expect(last.at(last.length - 1)!.metadata.id).toBe('lib/member-4999')
-  const collapsed = skillagerExplorerRows(sources, [], new Set())
+  const collapsed = skillagerExplorerRows(sources, known([]), new Set())
   expect(collapsed.length).toBe(5000)
   expect(collapsed.indexOf(window[0]!.key, window[0])).toBe(-1)
   expect(collapsed.indexOf(window[0]!.parent!)).toBe(0)

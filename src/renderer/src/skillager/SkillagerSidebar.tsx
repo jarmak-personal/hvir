@@ -1,3 +1,4 @@
+import { SKILLAGER_SEARCH_LIMIT } from '../../../shared/skillager'
 import {
   SkillagerLibraryMenu,
   SkillagerSyncAction,
@@ -16,7 +17,7 @@ import { SkillagerExposureDialog } from './SkillagerExposureDialog'
 import {
   pendingSkillagerReview,
   skillagerWorkspaceMetadata,
-  skillagerProjectRows,
+  canonicalSkillagerMetadata,
 } from './skillager-model'
 import { SkillagerConnection } from './SkillagerConnection'
 import { SkillagerExplorer } from './SkillagerExplorer'
@@ -47,18 +48,24 @@ export function SkillagerSidebar({
   )
   const projectRows = useMemo(
     () =>
-      project
-        ? withFreshness(
-            skillagerProjectRows(project),
-            controller.observing,
-            projectRead.loading,
-          )
-        : [],
-    [project, controller.observing, projectRead.loading],
+      withFreshness(controller.projectRows, controller.observing, projectRead.loading),
+    [controller.projectRows, controller.observing, projectRead.loading],
   )
   const searchRows = useMemo(
     () => metadataRows(search, controller.observing, controller.search.loading),
     [search, controller.observing, controller.search.loading],
+  )
+  const searchCanonical = useMemo(
+    () => ({
+      rows: canonicalSkillagerMetadata(searchRows),
+      checkedAt: search?.checkedAt,
+      freshness: !controller.observing
+        ? ('stale' as const)
+        : controller.search.loading
+          ? ('checking' as const)
+          : ('fresh' as const),
+    }),
+    [searchRows, search, controller.observing, controller.search.loading],
   )
   const shownLibrary = useMemo(
     () => (pending ? libraryRows.filter(pendingSkillagerReview) : libraryRows),
@@ -96,14 +103,14 @@ export function SkillagerSidebar({
               {search ? (
                 <>
                   <p className="skillager-section-notice">
-                    {search.rows.length === 50
-                      ? 'First 50 ranked results; refine your search for more.'
+                    {search.rows.length === SKILLAGER_SEARCH_LIMIT
+                      ? `First ${SKILLAGER_SEARCH_LIMIT} ranked results; refine your search for more.`
                       : `${search.rows.length} ranked results.`}
                   </p>
                   {searchRows.length ? (
                     <SkillagerTree
                       rows={searchRows}
-                      known={searchRows}
+                      known={searchCanonical}
                       activeId={controller.activeId}
                       onSelect={controller.select}
                       actions={controller.exposures.menu}
@@ -125,14 +132,21 @@ export function SkillagerSidebar({
               error={
                 projectRead.result && !projectRead.result.ok
                   ? projectRead.result.message
-                  : undefined
+                  : project?.exposures &&
+                      local &&
+                      controller.project.result?.ok &&
+                      controller.project.result.value.requiresLibraryMetadata &&
+                      controller.inventory.result &&
+                      !controller.inventory.result.ok
+                    ? `Library source metadata is unavailable. ${controller.inventory.result.message}`
+                    : undefined
               }
               rows={projectRows}
-              known={project?.rows ?? []}
+              known={controller.canonical}
               checkedAt={project?.checkedAt}
               controller={controller}
               onRefresh={() =>
-                void (local ? controller.project.refresh() : controller.refresh())
+                void (local ? controller.refreshProjectMetadata() : controller.refresh())
               }
               empty={
                 <p className="skillager-empty">
@@ -164,7 +178,7 @@ export function SkillagerSidebar({
                   : undefined
               }
               rows={shownLibrary}
-              known={libraryRows}
+              known={controller.canonical}
               checkedAt={library?.checkedAt}
               controller={controller}
               onRefresh={() => void controller.refresh()}

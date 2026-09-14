@@ -1,3 +1,4 @@
+import { SKILLAGER_SEARCH_LIMIT } from '../../shared/skillager'
 import {
   SkillagerExposurePlanCommands,
   type SkillagerLocalActionSnapshot,
@@ -503,7 +504,7 @@ export class SkillagerCli implements SkillagerCliPort, SkillagerSetupCliPort {
           ? []
           : ['--agent', request.browseAgent ?? request.agent]),
         '--limit',
-        '50',
+        String(SKILLAGER_SEARCH_LIMIT),
         '--json',
         '--full-json',
         '--',

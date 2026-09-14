@@ -17,6 +17,7 @@ import { SkillagerCli } from '../src/main/skillager/skillager-cli'
 import { localPath, type HostPath } from '../src/shared/host-path'
 import { skillagerFixtureEnvironment } from '../src/main/smoke/skillager-fixture-environment'
 import {
+  canonicalSkillagerMetadata,
   skillagerProjectRows,
   skillagerRouterMember,
   skillagerWorkspaceMetadata,
@@ -298,12 +299,17 @@ it.runIf(Boolean(executable))(
         (row) => row.projectSkill?.path.path === exposures?.[0]?.target.path,
       ),
     ).toBe(false)
-    const rows = skillagerProjectRows({
-      rows: [...observation.rows, ...canonical],
-      exposures,
-      checkedAt: Date.now(),
-      durationMs,
-    })
+    const checkedAt = Date.now()
+    const rows = skillagerProjectRows(
+      {
+        rows: observation.rows,
+        exposures,
+        checkedAt,
+        durationMs,
+      },
+      { rows: canonicalSkillagerMetadata(inventory), checkedAt, freshness: 'fresh' },
+    )
+    expect(f.calls.filter((call) => call.args.includes('refresh'))).toHaveLength(1)
     expect(rows).toHaveLength(3)
     for (const copy of rows.filter((row) => row.workspace)) {
       expect(copy.source).toMatchObject(
@@ -408,9 +414,10 @@ it.runIf(Boolean(executable) && process.env.HVIR_SKILLAGER_IDENTITY_CONTRACT ===
     const canonicalA = new Map(
       inventoryA.map((row) => [JSON.stringify([row.source.libraryId, row.id]), row]),
     )
-    expect(skillagerRouterMember(routerA!, 'lib/x', canonicalA).source.ownership).toBe(
-      'library',
-    )
+    expect(
+      skillagerRouterMember(routerA!, 'lib/x', { rows: canonicalA, freshness: 'fresh' })
+        .source.ownership,
+    ).toBe('library')
     const projectedA = skillagerWorkspaceMetadata({
       rows: associatedA,
       exposures: exposuresA,
@@ -460,9 +467,10 @@ it.runIf(Boolean(executable) && process.env.HVIR_SKILLAGER_IDENTITY_CONTRACT ===
     const canonicalB = new Map(
       inventoryB.map((row) => [JSON.stringify([row.source.libraryId, row.id]), row]),
     )
-    expect(skillagerRouterMember(routerB!, 'lib/x', canonicalB).source.ownership).toBe(
-      'unknown',
-    )
+    expect(
+      skillagerRouterMember(routerB!, 'lib/x', { rows: canonicalB, freshness: 'fresh' })
+        .source.ownership,
+    ).toBe('unknown')
     expect(await files(f.project)).toEqual(before)
   },
   90_000,

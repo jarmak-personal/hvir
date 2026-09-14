@@ -6,6 +6,7 @@ import {
 } from '../../shared/host-path'
 import {
   SKILLAGER_INVENTORY_LIMIT,
+  SKILLAGER_ACCEPTED_TRUST,
   type SkillagerLibrary,
   type SkillagerTrust,
 } from '../../shared/skillager'
@@ -30,7 +31,6 @@ const TRUST = [
   'lint_blocked',
   'unknown',
 ] as const
-const APPROVED = ['reviewed', 'trusted', 'pinned'] as const
 
 /** Closed public projections; neither editable provenance nor paths acquire authority here. */
 export function parseSkillagerSyncStatus(
@@ -238,7 +238,7 @@ function lineage(payload: unknown, library: SkillagerLibrary): SkillagerLibraryL
       evidenceId: identity(source.evidence_id),
       decisionSkillId: text(source.decision_skill_id, 1024),
       scope: oneOf(source.scope, ['project', 'global'] as const),
-      state: oneOf(source.state, APPROVED),
+      state: oneOf(source.state, SKILLAGER_ACCEPTED_TRUST),
       contentHash: hash(source.content_hash),
       lintOverride: boolean(source.lint_override),
       riskOverride: boolean(source.risk_override),
@@ -278,7 +278,7 @@ function lineage(payload: unknown, library: SkillagerLibrary): SkillagerLibraryL
     current.acceptance === 'accepted' &&
     (!current.acceptedHash ||
       current.acceptedHash !== current.workingHash ||
-      !APPROVED.some((value) => value === current.trust))
+      !SKILLAGER_ACCEPTED_TRUST.some((value) => value === current.trust))
   )
     malformed()
   if (

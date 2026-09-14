@@ -11,6 +11,7 @@ export function skillagerAgentLabel(agent: SkillagerAgent | undefined): string {
   return SKILLAGER_AGENTS.find((item) => item.id === agent)?.label ?? 'Project skill'
 }
 export type SkillagerSearchScope = 'library' | 'workspace'
+export const SKILLAGER_ACCEPTED_TRUST = ['reviewed', 'trusted', 'pinned'] as const
 export type SkillagerTrust =
   | 'reviewed'
   | 'trusted'
