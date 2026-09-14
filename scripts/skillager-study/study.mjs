@@ -1,3 +1,5 @@
+import { createSampleReader, readingView } from './reading.mjs'
+import { readingSearchFixture } from './search-sample.mjs'
 import {
   curationSample,
   curationSource,
@@ -62,6 +64,7 @@ let state = initialState(),
   queryGeneration = 0,
   toastTimer,
   periodic
+const reader = createSampleReader(() => state, render)
 function notify(text) {
   if (!state.enabled) return
   clearTimeout(toastTimer)
@@ -77,6 +80,7 @@ function cancelSearch() {
   state.searching = false
   state.results = null
   state.submittedQuery = ''
+  state.submittedSearch = state.searchReport = null
 }
 function closeDialog() {
   $('#dialog').close()
@@ -130,6 +134,8 @@ function render() {
       .forEach((b) => b.classList.toggle('active', state.railMode === rail))
   }
   $('#skills-rail').innerHTML = skillsRailView(state)
+  $('#reading-delay').checked = state.sampleReadDelay === 500
+  $('#reading-count').textContent = `${state.readCount || 0} explicit sample reads`
   $('#skills-view').innerHTML =
     state.enabled && state.connected && state.skillsOpen
       ? state.curation
@@ -140,16 +146,23 @@ function render() {
             ? reviewView(state)
             : `<article class="details" id="details">${detailView(state)}</article>`
       : ''
+  if (state.enabled && state.connected && state.skillsOpen && !state.reviewOpen)
+    $('#skills-view').insertAdjacentHTML('afterbegin', readingView(state))
   syncRefreshDemand()
   if (focusedSearch && $('#search')) {
     $('#search').focus()
     $('#search').setSelectionRange(...selection)
   }
 }
-function selectViewer(viewer) {
+function selectViewer(viewer, read = false) {
   if (viewer === 'skills' && (!state.enabled || !state.skillsOpen)) return
   closeDialog()
   state.viewer = viewer
+  if (viewer !== 'skills') reader.revoke()
+  else if (read) {
+    state.reviewOpen = false
+    reader.activate()
+  }
   if (viewer !== 'skills') state.lastOrdinaryViewer = viewer
   refresh()
   render()
@@ -162,6 +175,7 @@ function selectRail(rail) {
   render()
 }
 function revokeFeature() {
+  reader.revoke()
   cancelSampleSetup(state)
   clearTimeout(setupTimer)
   clearTimeout(projectSetupTimer)
@@ -182,7 +196,7 @@ function revokeFeature() {
   if (state.viewer === 'skills') state.viewer = state.lastOrdinaryViewer
   if (state.railMode === 'skills') state.railMode = 'files'
 }
-function search() {
+function search(legacy = false) {
   if (!state.enabled || !state.connected || state.railMode !== 'skills') return
   cancelSearch()
   state.query = $('#search').value
@@ -191,7 +205,15 @@ function search() {
   state.searching = true
   state.results = []
   const generation = queryGeneration
-  const submitted = { query: state.query, scope: state.scope }
+  const submitted = {
+    query: state.query,
+    scope: state.scope,
+    agent: state.browseAgent,
+    includeInstalled: state.includeInstalled,
+    showCopies: state.showCopies,
+    legacy,
+  }
+  state.submittedSearch = submitted
   render()
   $('#search').focus()
   searchTimer = setTimeout(() => {
@@ -202,9 +224,10 @@ function search() {
       state.railMode !== 'skills'
     )
       return
-    state.results = state.curation
+    state.searchReport = state.curation
       ? searchCurationSample(state, submitted)
       : sampleSearch({ ...state, ...submitted })
+    state.results = state.searchReport.rows
     state.searching = false
     render()
   }, 500)
@@ -302,8 +325,20 @@ function action(name) {
     return
   }
   if (name === 'metadata') {
-    state.reviewOpen = false
-    return render()
+    state.selectedSearchVersion = null
+    return selectViewer('skills', true)
+  }
+  if (name === 'include-installed') {
+    state.includeInstalled = true
+    return search()
+  }
+  if (name === 'legacy-search') return search(true)
+  if (name === 'canonical-definition') {
+    reader.revoke()
+    state.selectedSearchVersion = null
+    if (state.curation) state.curation.selectedScope = 'library'
+    else state.selectedScope = 'library'
+    return selectViewer('skills', true)
   }
   if (name === 'refresh') return refresh()
   if (name === 'cancel-search') {
@@ -328,6 +363,7 @@ function action(name) {
     )
   if (['update', 'remove', 'accept'].includes(name)) return prepare(name)
   if (name === 'read') {
+    reader.revoke()
     closeDialog()
     state.reviewOpen = true
     state.skillsOpen = true
@@ -374,6 +410,7 @@ function curate(name) {
   }
   const c = state.curation
   if (name === 'review') {
+    reader.revoke()
     state.reviewOpen = true
     return render()
   }
@@ -484,6 +521,7 @@ function curate(name) {
   }
 }
 function scenario(name) {
+  reader.revoke()
   $('#files-selection').innerHTML = ''
   clearTimeout(toastTimer)
   clearTimeout(setupTimer)
@@ -551,8 +589,16 @@ function scenario(name) {
         state.projectSamples[`${destination}/${agent}`] = sample
       }
   }
-  if (name === 'curation') {
+  if (
+    ['curation', 'reading-search', 'reading-legacy', 'reading-unknown'].includes(name)
+  ) {
     state.curation = curationSample()
+    if (name.startsWith('reading-')) {
+      readingSearchFixture(state.curation)
+      state.searchOpen = state.advancedOpen = true
+      state.searchContract = name !== 'reading-legacy'
+      state.presenceUnknown = name === 'reading-unknown'
+    }
     state.perspective = 'workspace'
     state.scope = 'available'
     state.skillsOpen = false
@@ -587,6 +633,7 @@ function scenario(name) {
     state.perspective = 'workspace'
   }
   if (name === 'search') {
+    state.includeInstalled = true
     state.searchOpen = true
     state.query = 'deadlock'
     state.scope = 'available'
@@ -611,7 +658,7 @@ document.addEventListener('click', (event) => {
   if (button.dataset.curate) return curate(button.dataset.curate)
   if (button.dataset.action) return action(button.dataset.action)
   if (button.dataset.rail) return selectRail(button.dataset.rail)
-  if (button.dataset.viewer) return selectViewer(button.dataset.viewer)
+  if (button.dataset.viewer) return selectViewer(button.dataset.viewer, true)
   if (!state.enabled || !state.connected) return
   if (button.dataset.perspective) {
     const scope = button.dataset.perspective
@@ -626,6 +673,19 @@ document.addEventListener('click', (event) => {
       !state.expandedSkills[button.dataset.expand]
     return render()
   }
+  if (
+    button.matches(
+      '[data-select],[data-native],[data-curation-select],[data-curation-router],[data-menu],[data-curation-menu],[data-router-menu]',
+    )
+  ) {
+    reader.revoke()
+    const result = state.results?.find((row) =>
+      row.occurrenceId
+        ? row.occurrenceId === button.dataset.occurrence
+        : row.id === button.dataset.select,
+    )
+    state.selectedSearchVersion = result?.sourceVersion || null
+  }
   const rowScope = button.closest('[data-row-scope]')?.dataset.rowScope
   if (rowScope) {
     state.perspective = rowScope
@@ -638,15 +698,18 @@ document.addEventListener('click', (event) => {
   }
   if (button.dataset.curationRouter) {
     state.curation.routerId = button.dataset.curationRouter
-    return curate('select-router')
+    curate('select-router')
+    reader.activate()
+    return render()
   }
   if (button.dataset.curationSelect || button.dataset.curationMenu) {
+    state.curation.selectedMemberRouter = button.dataset.memberRouter || null
     state.curation.selectedScope = rowScope ?? 'workspace'
     state.curation.selected = button.dataset.curationSelect || button.dataset.curationMenu
     state.curation.selectedRouter = false
     state.reviewOpen = false
     state.skillsOpen = true
-    selectViewer('skills')
+    selectViewer('skills', !!button.dataset.curationSelect)
     if (button.dataset.curationMenu) curate('menu')
     return
   }
@@ -655,14 +718,15 @@ document.addEventListener('click', (event) => {
       (row) => row.id === button.dataset.nativeActions,
     )
     return modal(
-      `<h2 id="dialog-title">Actions · ${escapeHtml(button.dataset.nativeActions)}</h2><p>Preserve an approved version in your personal library before converting this project source.</p><button disabled>Full skill</button><button disabled>Stub</button><button disabled>Group in router</button><p>Use Sync approved skills after approval. Unrepresented files and modified targets stay protected.</p><button data-action="native-files">Review or remove in Files…</button><footer><button data-action="close">Close</button></footer>`,
+      `<h2 id="dialog-title">Actions · ${escapeHtml(button.dataset.nativeActions)}</h2><p>Preserve an approved version in your personal library before converting this project source.</p><button disabled>Use as full skill…</button><button disabled>Use as stub…</button><button disabled>Group in router</button><p>Use Sync approved skills after approval. Unrepresented files and modified targets stay protected.</p><button data-action="native-files">Review or remove in Files…</button><footer><button data-action="close">Close</button></footer>`,
     )
   }
   if (button.dataset.native) {
     state.nativeSelected = button.dataset.native
     state.skillsOpen = true
     state.reviewOpen = false
-    return selectViewer('skills')
+    state.selectedSearchVersion = null
+    return selectViewer('skills', true)
   }
   if (button.dataset.rowAgent) state.agent = button.dataset.rowAgent
   if (button.dataset.select) {
@@ -670,7 +734,7 @@ document.addEventListener('click', (event) => {
     state.selected = button.dataset.select
     state.reviewOpen = false
     state.skillsOpen = true
-    return selectViewer('skills')
+    return selectViewer('skills', true)
   }
   if (button.dataset.menu) {
     state.selected = button.dataset.menu
@@ -722,6 +786,8 @@ document.addEventListener('change', (event) => {
   if ($('#search-advanced')) state.advancedOpen = $('#search-advanced').open
   if (event.target.id === 'library-git') state.setup.git = event.target.checked
   if (['destination', 'agent'].includes(event.target.id)) {
+    reader.revoke()
+    state.selectedSearchVersion = null
     clearTimeout(projectSetupTimer)
     state.pendingProjectSetup = null
     state.nativeSelected = null
@@ -748,7 +814,6 @@ document.addEventListener('change', (event) => {
   }
   if (event.target.id === 'browse-agent') {
     state.browseAgent = event.target.value
-    cancelSearch()
     return render()
   }
   if (event.target.id === 'filter') {
@@ -756,8 +821,11 @@ document.addEventListener('change', (event) => {
     state.filter = event.target.value
     render()
   }
+  if (['include-installed', 'show-copies'].includes(event.target.id)) {
+    state[event.target.id === 'include-installed' ? 'includeInstalled' : 'showCopies'] =
+      event.target.checked
+  }
   if (event.target.id === 'search-scope') {
-    cancelSearch()
     state.scope = event.target.value
     render()
   }
@@ -815,6 +883,9 @@ $('#curation-long-project').onclick = () => {
       name: `Observed project skill ${i}`,
     })
   render()
+}
+$('#reading-delay').onchange = (event) => {
+  state.sampleReadDelay = event.target.checked ? 500 : 25
 }
 $('#curation-change-source').onclick = () => {
   if (state.enabled && state.curation) {

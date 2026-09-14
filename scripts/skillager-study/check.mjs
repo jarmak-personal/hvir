@@ -1,3 +1,4 @@
+import { checkReadingStudy } from './reading-check.mjs'
 import nodeAssert from 'node:assert/strict'
 import { automaticRefreshAllowed } from './model.mjs'
 import { checkCurationStudy } from './curation-check.mjs'
@@ -191,7 +192,7 @@ try {
     const interval=window.setInterval,clear=window.clearInterval,timeout=window.setTimeout;
     window.setInterval=(fn,ms,...args)=>{const id=interval(fn,ms,...args);if(ms===60000)studyTimers.intervals.add(id);return id};
     window.clearInterval=id=>{studyTimers.intervals.delete(id);return clear(id)};
-    window.setTimeout=(fn,ms,...args)=>{if(ms===500)studyTimers.search=fn;if(ms===600)studyTimers.setup=fn;if(ms===400)studyTimers.projectSetup=fn;return timeout(fn,ms,...args)};
+    window.setTimeout=(fn,ms,...args)=>{if(ms===500)studyTimers.read=studyTimers.search=fn;if(ms===600)studyTimers.setup=fn;if(ms===400)studyTimers.projectSetup=fn;return timeout(fn,ms,...args)};
   `,
   })
   const capture = async (name) => {
@@ -238,9 +239,10 @@ try {
   )
   await click('[data-select="migration-review"]')
   await assert(
-    `!!document.querySelector('#skills-rail #search') && !!document.querySelector('#skills-view #details') && !document.querySelector('#skills-view').textContent.includes('sample instructions')`,
-    'Sidebar selection opens metadata in the main viewer without reading a body',
+    `!!document.querySelector('#skills-rail #search') && !!document.querySelector('#skills-view #details') && document.querySelector('#reading-count').textContent==='1 explicit sample reads'`,
+    'Sidebar activation opens its selected current-file view; explicit review remains separate',
   )
+  await waitFor(`document.querySelector('#skill-current-body')`)
   await capture('sidebar-details')
   await click('#details [data-action="read"]')
   await assert(
@@ -258,7 +260,7 @@ try {
   await click('#dialog [data-action="read"]')
   await assert(
     `document.querySelector('#skills-view').textContent.includes('Review content · deploy-checklist') && document.querySelector('#skills-view').textContent.includes('sample instructions')`,
-    'The newly selected skill body requires its own explicit Review content',
+    'The newly selected skill snapshot requires its own explicit Review content',
   )
   await assert(
     `document.querySelector('#review-count').textContent==='1 library review' && document.querySelector('#updates-count').textContent==='1 project update'`,
@@ -324,8 +326,8 @@ try {
     `document.querySelector('.explorer-search-results .search-status').textContent.includes('1 results returned')`,
   )
   await assert(
-    `document.querySelector('.explorer-search-results .search-status').textContent.includes('workspace exposure unknown') && document.querySelector('.search-caption').textContent.includes('50,000')`,
-    'Personal scope discloses exposure unknown and accepted-body coverage',
+    `document.querySelector('.explorer-search-results .search-status').textContent.includes('Including installed') && document.querySelector('.search-caption').textContent.includes('50,000')`,
+    'Personal candidates retain explicit submitted installed controls and accepted-body coverage',
   )
   await click('#search-form button[type="submit"]')
   await click('[data-action="cancel-search"]')
@@ -752,6 +754,17 @@ try {
     'Disable clears a visible feature notification',
   )
   await checkCurationStudy({
+    flow,
+    click,
+    pointClick,
+    choose,
+    run,
+    call,
+    assert,
+    waitFor,
+    capture,
+  })
+  await checkReadingStudy({
     flow,
     click,
     pointClick,

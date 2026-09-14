@@ -492,6 +492,7 @@ Markdown images remain within the canonical document directory and descendants.
 ### [ADR-046 — Explicit Skillager library and workspace exposure authority](adr/ADR-046-explicit-skillager-library-and-exposure-authority.md)
 
 > Lifecycle: Partially superseded
+> Superseded by: [ADR-050](adr/ADR-050-explicit-skill-reading-and-search-defaults.md) | partial | Ordinary skill-body activation and confined reading grant, and logical-identity grouping and installed-skill search defaults only; verified review, acceptance and mutation authority remain unchanged.
 > Superseded by: [ADR-049](adr/ADR-049-project-skill-explorer-and-curation.md) | partial | Skills explorer presentation, derived reusable library acceptance after explicit source approval or backfill, and named local native/router exposure operations only.
 > Superseded by: [ADR-048](adr/ADR-048-explicit-skillager-project-setup.md) | partial | Local project setup terminal handoff and Working installation, existing-project metadata presentation, and post-handoff terminal lifetime only.
 > Superseded by: [ADR-047](adr/ADR-047-explicit-skillager-library-initialization.md) | partial | Initial personal-library connection and first-use presentation only; add explicit local initialization followed by verified metadata connection.
@@ -526,7 +527,8 @@ and agent; public readiness, rather than terminal output or exit status, determi
 
 ### [ADR-049 — Project skill explorer and explicit curation](adr/ADR-049-project-skill-explorer-and-curation.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-050](adr/ADR-050-explicit-skill-reading-and-search-defaults.md) | partial | Selected skill reading presentation, exposure action wording, and logical-identity grouping and installed-skill search controls only; explorer disclosure, preservation and exposure authority remain unchanged.
 > Supersedes: [ADR-030](adr/ADR-030-bounded-project-file-operations.md) | partial | No-replacement rule only for explicitly confirmed preserved native-original adoption/removal through the named Skillager operation; ordinary Files operations remain unchanged.
 > Supersedes: [ADR-046](adr/ADR-046-explicit-skillager-library-and-exposure-authority.md) | partial | Skills explorer presentation, derived reusable library acceptance after explicit source approval or backfill, and named local native/router exposure operations only.
 > Supersedes: [ADR-047](adr/ADR-047-explicit-skillager-library-initialization.md) | partial | Empty-library presentation adds explicit approved-source backfill; initialization, Git choice and first-skill authoring remain unchanged.
@@ -535,6 +537,15 @@ and agent; public readiness, rather than terminal output or exit status, determi
 A compact project/library explorer keeps exact copy identities visible. Explicit source approval
 derives reusable preserved library acceptance; named native/router plans bind every project effect,
 while unwanted unpreserved originals retain the separate Files removal path.
+
+### [ADR-050 — Explicit skill reading and search defaults](adr/ADR-050-explicit-skill-reading-and-search-defaults.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-046](adr/ADR-046-explicit-skillager-library-and-exposure-authority.md) | partial | Ordinary skill-body activation and confined reading grant, and logical-identity grouping and installed-skill search defaults only; verified review, acceptance and mutation authority remain unchanged.
+> Supersedes: [ADR-049](adr/ADR-049-project-skill-explorer-and-curation.md) | partial | Selected skill reading presentation, exposure action wording, and logical-identity grouping and installed-skill search controls only; explorer disclosure, preservation and exposure authority remain unchanged.
+
+Explicit activation reads the selected current file without granting approval. Public identity
+groups search before ranking, with visible controls for installed skills and separate occurrences.
 
 ## 5. Architecture
 

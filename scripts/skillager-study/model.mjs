@@ -1,3 +1,4 @@
+import { publicSearchSample } from './search-sample.mjs'
 // Sample state only. This module has no CLI, filesystem, or network authority.
 export const libraries = [
   { id: 'library-7f29', path: '/home/example/.skillager/library', git: true },
@@ -126,6 +127,10 @@ export function initialState() {
     setupOpen: false,
     filter: 'all',
     query: '',
+    includeInstalled: false,
+    showCopies: false,
+    submittedSearch: null,
+    searchReport: null,
     submittedQuery: '',
     results: null,
     searching: false,
@@ -178,37 +183,35 @@ export function browseSampleRows(state) {
   if (state.results) return state.results
   if (state.perspective === 'library')
     return state.skills.filter((s) => state.filter !== 'pending' || !s.accepted)
-  return ['codex', 'claude']
-    .filter((agent) => state.browseAgent === 'all' || state.browseAgent === agent)
-    .flatMap((agent) => {
-      const key = `${state.destination}/${agent}`,
-        copies = state.exposures[key] || {}
-      return state.skills
-        .filter((s) => copies[s.id] || unmanagedFor(state, s.id, key))
-        .map((s) => ({
-          ...s,
-          rowAgent: agent,
-          rowExposure: copies[s.id],
-          rowUnmanaged: unmanagedFor(state, s.id, key),
-        }))
-    })
+  return ['codex', 'claude'].flatMap((agent) => {
+    const key = `${state.destination}/${agent}`,
+      copies = state.exposures[key] || {}
+    return state.skills
+      .filter((s) => copies[s.id] || unmanagedFor(state, s.id, key))
+      .map((s) => ({
+        ...s,
+        rowAgent: agent,
+        rowExposure: copies[s.id],
+        rowUnmanaged: unmanagedFor(state, s.id, key),
+      }))
+  })
 }
 export function sampleSearch(state) {
-  // Predeclared sample match reasons illustrate CLI output; never performance evidence.
   const rows = state.scope === 'personal' ? state.skills : [...external, ...state.skills]
-  const query = state.query.trim().toLowerCase()
-  return rows
-    .filter(
-      (s) =>
-        s.accepted &&
-        !s.blocked &&
-        (!query ||
-          `${s.id} ${s.description} ${s.tags} ${s.query || ''}`
-            .toLowerCase()
-            .includes(query)),
-    )
-    .map((s) => ({ ...s, match: s.query === query ? s.match : 'Metadata' }))
-    .slice(0, 50)
+  return publicSearchSample(
+    state,
+    state,
+    rows
+      .filter((row) => row.accepted && !row.blocked)
+      .map((row) => ({
+        ...row,
+        canonical: !row.source,
+        occurrenceId: row.id,
+        sourceVersion: row.version,
+        resultScope: row.source ? 'external' : 'library',
+        identity: row.source ? null : `library:${state.library.id}:${row.id}`,
+      })),
+  )
 }
 export function previewSnapshot(state, action, mode) {
   const skill = skillFor(state)

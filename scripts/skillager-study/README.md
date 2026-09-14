@@ -1,13 +1,13 @@
 # Skills interaction study
 
-This maintained offline study illustrates ADR-046 through ADR-049. Its original reference was the
+This maintained offline study illustrates ADR-046 through ADR-050. Its original reference was the
 user-owned `skillager-integration.local/` study, whose originals remain untouched. The dark palette,
 normal viewer/terminal split and representative skills are retained.
 
 Skills is a left-sidebar peer of Files/Git. Its compact explorer shows In this project and Your
 library together, with independent collapsible sections and bounded scrolling. Rows use the Files
-visual language, while metadata, provenance, explicit content review and actions use the normal
-main viewer. The scenario harness stays outside the illustrated app shell.
+visual language. Explicit row/tab activation opens the selected current file in the normal main
+viewer; source, status, provenance and actions are secondary. Exact acceptance review remains separate. The scenario harness stays outside the illustrated app shell.
 
 Generate a standalone HTML file from the maintained sources:
 
@@ -22,12 +22,54 @@ initial disabled state. The scenario selector loads independent examples, includ
 missing CLI, empty, stale preview, protected targets, remote delivery, and unavailable freshness.
 
 The curation model and view own the new sample source/sync/router interactions; the existing
-model and view retain connection, search, lifecycle, setup and direct-exposure examples.
+model and view retain connection, lifecycle, setup and direct-exposure examples. `reading.mjs`
+owns the revocable explicit sample read and its current-file presentation. `search-sample.mjs`
+illustrates public pre-limit grouped/occurrence responses; `search-views.mjs` owns submitted
+controls and matched-source disclosure. None of these modules implements production search or
+filesystem access. `reading-check.mjs` reuses the existing headless browser lifecycle.
 The source model owns only illustrative state; views produce markup; the browser entry owns
 DOM events and page timers. The builder uses the declared Vite dependency to bundle these modules
 and stylesheet into a single self-contained artifact outside the maintained tree. Generated HTML,
 screenshots, and run evidence are not committed. Ordinary source and dependency checks cover the maintained JS
 and CSS; no source-policy exception or production dependency is introduced.
+
+
+## Explicit reading and search refinement
+
+Select **Reading / three installed skill pairs**. The fixture declares three proven logical
+identities, each with an original and an accepted canonical library occurrence. Their versions
+differ deliberately. Submit an empty query: all three installed identities are hidden, with a
+clear explanation and **Include installed** action. Including them returns three canonical group
+representatives. **Show separate copies** returns the six sourced occurrences; their row menus
+retain the same applicable actions. These are returned sample rows, not a global match count.
+
+Query `original-only` with Include installed and grouping on. Each preferred canonical result
+explicitly identifies the matching original and says that its own definition did not match.
+Show separate copies expands the matched proven group to all eligible occurrences, retaining
+that evidence on a canonical occurrence whose own content did not match; legacy search keeps
+its independent occurrence-match semantics.
+Changing an Advanced draft leaves the submitted result labels intact until the next search.
+**Preferred agent** never narrows all-agent installed exclusion. Pending canonical edits exclude
+that canonical candidate; an eligible original may represent the proven group. No older accepted
+Git body is retrieved. Equal names and unknown/conflicting identity links do not establish groups.
+
+Activate original and canonical rows to compare their labeled current files. The fixture panel
+reports only the count of explicit sample reads and can delay one read. Expansion, refresh and
+focus leave that count unchanged; leaving the tab, disabling or changing context rejects late
+completion. Pending project instructions remain readable. Converting one sample to Stub and
+activating the result shows stub instructions; activating a router shows its own routing body.
+Review content and Accept retain their separate complete-tree flow and do not run on activation.
+
+The unknown-presence scenario offers **Search including installed…**, retaining supported
+grouping while bypassing only the unavailable installed filter. An unsupported contract instead
+offers **Search with installed Skillager…** explicitly, including installed skills and retaining
+the actual agent preference. Older Skillager may group agent variants; this fallback does not
+promise the new separate-copy contract. They do not claim a
+version number establishes support. Local library candidate approval is separate from selected
+project-presence observation. SSH search remains local; only proven identities from hvir-owned
+remote delivery observation may exclude installed groups before CLI ranking. This offline study
+illustrates those boundaries and cannot prove real discovery, confinement, transport, installed
+CLI compatibility, aggregate completeness or 5,000-source performance.
 
 ## Exercise the decisions
 
@@ -55,16 +97,19 @@ and CSS; no source-policy exception or production dependency is introduced.
 - Enable Skillager in Settings and connect the exact displayed local library. Changing its
   identity/location requires reconnecting; review, acceptance, and exposure then name that selected
   source. Ordinary content review does not require reconnecting.
-- Switch Files/Git/Skills independently of open viewer tabs. Select metadata from the sidebar,
-  then use Review content to read the chosen snapshot. Closing a skill tab preserves a visible
-  sidebar; switching to another skill never carries forward body-review access.
+- Switch Files/Git/Skills independently of open viewer tabs. Activate a sidebar row or retained
+  detail tab to read its actual current file; focus, expansion, search arrival and refresh do not
+  read bodies. Review content separately prepares the verified sample snapshot. Closing or leaving
+  a tab revokes its read; activating it again starts a new current read. A source change never
+  relabels old bytes as newly accepted. Closing a skill tab preserves a visible sidebar.
 - Disable during search, a preview, or a notification. Feature requests and timers stop, its
   tabs/dialogs/toasts disappear, and the sidebar returns to Files if needed. The last ordinary
   viewer and terminal/session content remain. Re-enabling starts disconnected, without old tabs.
 - Submit `deadlock` in the sample search scenario. It illustrates title, description, and
   body-only metadata matches, external ownership, loading, cancellation, the submitted query beside
   results, the 50-row window, and the 50,000-character accepted-body boundary. The eight-row
-  synthetic dataset proves no scale or CLI behavior.
+  synthetic dataset proves no scale or CLI behavior. This dedicated mixed-match scenario explicitly
+  enables Include installed; the normal search default keeps it off.
 - Add to a selected worktree and agent, change mode, or remove its exposure. The preview names
   source version, exact destination, existing state, and every sample effect. Protected targets
   cannot be replaced or removed through ordinary actions. Unmanaged presence has no recorded mode
@@ -74,7 +119,8 @@ and CSS; no source-policy exception or production dependency is introduced.
   as a separate action. Remove a copy and confirm its library row remains.
 - Select Existing project skills · terminal setup. This workspace shows approved, pending,
   lint-blocked and explicitly blocked native metadata with source-agent labels separately from
-  managed copies. Native details keep body review explicit and offer discoverable Full, Stub and Router actions
+  managed copies. Native row activation reads approved, pending or blocked current instructions without approving
+  them. Details offer discoverable Use as full skill…, Use as stub… and Router actions
   with a preservation prerequisite when conversion is unavailable; source approval remains distinct
   from canonical-library acceptance.
   The metadata can appear before setup. Zero-row copy reports what Skillager returned; it cannot
@@ -98,12 +144,14 @@ and CSS; no source-policy exception or production dependency is introduced.
   when names and secondary agent text truncate.
   Search starts collapsed; its first level contains query and submit, while Advanced contains scope,
   Preferred agent and coverage. All agents does not silently choose an action agent. Same-named
-  Codex and Claude copies retain distinct identities, and changing the browsing preference preserves
-  open details. Submitted results are not filtered afterward or merged from separate limited queries.
+  Codex and Claude copies retain distinct identities, and changing the search preference preserves
+  every project browse row and open details. Submitted results are not filtered afterward or merged from separate limited queries.
 - The curation scenario’s row action trigger, context menu and details action expose the same
-  Full, Stub and Router choices. Review content alone opens the exact selected canonical sample
-  body; a project source needs a verified preserved relation to reuse that flow. Unpreserved
-  native source review explicitly hands off to Files, without canonical acceptance authority. Converting
+  Use as full skill…, Use as stub… and Router choices. Ordinary row activation shows the actual
+  Project original, Installed Full, Installed Stub or Installed Router current file. A separate
+  Open library definition action selects the proven canonical relation. Review content opens its
+  own retained canonical sample; ordinary reading cannot satisfy that review. Unpreserved native
+  removal still hands off to Files without canonical acceptance authority. Converting
   a native source requires an approved version already preserved in the chosen library; extra
   original files, stale approval, conflicts and unsupported capabilities refuse with a reason.
 - Sync approved skills is visible in an actually empty personal inventory and lives in compact

@@ -1,6 +1,7 @@
 # ADR-049: Project skill explorer and explicit curation
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-050](ADR-050-explicit-skill-reading-and-search-defaults.md) | partial | Selected skill reading presentation, exposure action wording, and logical-identity grouping and installed-skill search controls only; explorer disclosure, preservation and exposure authority remain unchanged.
 > Supersedes: [ADR-030](ADR-030-bounded-project-file-operations.md) | partial | No-replacement rule only for explicitly confirmed preserved native-original adoption/removal through the named Skillager operation; ordinary Files operations remain unchanged.
 > Supersedes: [ADR-046](ADR-046-explicit-skillager-library-and-exposure-authority.md) | partial | Skills explorer presentation, derived reusable library acceptance after explicit source approval or backfill, and named local native/router exposure operations only.
 > Supersedes: [ADR-047](ADR-047-explicit-skillager-library-initialization.md) | partial | Empty-library presentation adds explicit approved-source backfill; initialization, Git choice and first-skill authoring remain unchanged.

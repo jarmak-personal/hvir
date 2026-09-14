@@ -44,10 +44,11 @@ export async function checkCurationStudy({
   await pointClick('#search-advanced > summary')
   await choose('#browse-agent', 'claude')
   await assert(
-    `document.querySelectorAll('[data-curation-row]').length===2 && document.querySelector('#explorer-library [data-library-row="native-codex"]') && document.querySelector('#skills-view').textContent===${JSON.stringify(detail)} && document.querySelector('#agent').value==='codex'`,
-    'Agent browsing filters project copies while retaining reusable library rows, open details and the exact action agent',
+    `document.querySelectorAll('[data-curation-row]').length===5 && document.querySelector('#explorer-library [data-library-row="native-codex"]') && document.querySelector('#skills-view').textContent===${JSON.stringify(detail)} && document.querySelector('#agent').value==='codex'`,
+    'Search agent preference preserves all project copies, reusable library rows, open details and the exact action agent',
   )
   await choose('#browse-agent', 'all')
+  await pointClick('#include-installed')
   await pointClick('#search')
   await call('Input.insertText', { text: 'Release' })
   await pointClick('#search-form button[type="submit"]')
@@ -73,7 +74,7 @@ export async function checkCurationStudy({
   await run(`document.querySelector('[data-curation-menu="native-codex"]').focus()`)
   await key('Enter')
   await assert(
-    `document.querySelector('#dialog').textContent.includes('Full') && document.querySelector('#dialog').textContent.includes('Stub') && document.querySelector('#dialog').textContent.includes('Group in router')`,
+    `document.querySelector('#dialog').textContent.includes('full skill') && document.querySelector('#dialog').textContent.includes('stub') && document.querySelector('#dialog').textContent.includes('Group in router')`,
     'Keyboard row action trigger exposes Full, Stub and router choices for the selected native source',
   )
   await pointClick('[data-curate="stub"]')
@@ -91,7 +92,7 @@ export async function checkCurationStudy({
   await pointClick('[data-curation-select="native-codex"]')
   await assert(
     `!document.querySelector('#curation-body')`,
-    'Curation selection starts with metadata only',
+    'Ordinary activation does not open the separate verified review snapshot',
   )
   await pointClick('[data-curate="review"]')
   await assert(
@@ -203,7 +204,7 @@ export async function checkCurationStudy({
   await pointClick('[data-curate="apply"]')
   await pointClick('[data-curation-router="review-router"]')
   await assert(
-    `document.querySelector('.router-group').textContent.includes('Release review') && document.querySelector('#skills-view').textContent.includes('native-codex') && document.querySelector('[data-curation-row="native-claude"]').textContent.includes('Full')`,
+    `document.querySelector('.router-group').textContent.includes('Release review') && document.querySelector('#skills-view').textContent.includes('native-codex') && document.querySelector('[data-curation-row="native-claude"]').textContent.includes('Original')`,
     'Router membership uses provided identities and leaves the other agent copy unchanged',
   )
   await pointClick('[data-curate="set-members"]')
@@ -250,7 +251,7 @@ export async function checkCurationStudy({
   )
   await pointClick('[data-curate="apply"]')
   await assert(
-    `document.querySelectorAll('.router-group').length===2 && document.querySelector('[data-curation-row="native-codex"]').textContent.includes('Full') && document.querySelector('[data-curation-router="review-router"]')`,
+    `document.querySelectorAll('.router-group').length===2 && document.querySelector('[data-curation-row="native-codex"]').textContent.includes('Original') && document.querySelector('[data-curation-router="review-router"]')`,
     'Creating another named router retains the unrelated group and unselected standalone copy',
   )
   await click('[data-curation-menu="native-codex"]')
@@ -284,7 +285,7 @@ export async function checkCurationStudy({
   await pointClick('[data-curate="apply"]')
   await pointClick('[data-curation-select="native-codex"]')
   await assert(
-    `document.querySelector('[data-curation-row="native-codex"]').textContent.includes('Full') && document.querySelector('#curation-approval').textContent==='Original needs review' && document.querySelector('#skills-view').textContent.includes('Full skill · Original source') && !document.querySelector('[data-router-row="router-release-helpers"]') && document.querySelector('[data-library-row="native-codex"]')`,
+    `document.querySelector('[data-curation-row="native-codex"]').textContent.includes('Original') && document.querySelector('#curation-approval').textContent==='Original needs review' && document.querySelector('#skills-view').textContent.includes('Full skill · Original source') && !document.querySelector('[data-router-row="router-release-helpers"]') && document.querySelector('[data-library-row="native-codex"]')`,
     'Removing only membership retains the Full unmanaged standalone, its pending original state and canonical library copy',
   )
   await flow('curation')

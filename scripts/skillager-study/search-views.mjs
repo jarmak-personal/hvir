@@ -1,0 +1,22 @@
+import { destinationFor } from './model.mjs'
+import { submittedSearchLabel } from './search-sample.mjs'
+const escape = (value) =>
+  String(value).replace(
+    /[&<>"']/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
+  )
+export function searchView(state) {
+  return `<details id="search-disclosure" ${state.searchOpen ? 'open' : ''}><summary>Search skills${state.submittedSearch ? ` · “${escape(state.submittedQuery)}” · ${submittedSearchLabel(state.submittedSearch)}` : ''}</summary>
+    <form id="search-form"><div class="search-bar"><input id="search" aria-label="Search skill metadata and accepted body" placeholder="Title, description, tags, body…" maxlength="1000" value="${escape(state.query)}"><button class="primary" type="submit">Search</button><button type="button" data-action="cancel-search" ${!state.searching && !state.results ? 'disabled' : ''}>Clear</button></div>
+    <details id="search-advanced" class="search-caption" ${state.advancedOpen ? 'open' : ''}><summary>Advanced</summary><label>Search scope<select id="search-scope"><option value="personal" ${state.scope === 'personal' ? 'selected' : ''}>Personal library</option><option value="available" ${state.scope === 'available' ? 'selected' : ''} ${destinationFor(state).host !== 'local' ? 'disabled' : ''}>All available to this workspace</option></select></label><label>Preferred agent<select id="browse-agent"><option value="all" ${state.browseAgent === 'all' ? 'selected' : ''}>All agents</option><option value="codex" ${state.browseAgent === 'codex' ? 'selected' : ''}>Codex</option><option value="claude" ${state.browseAgent === 'claude' ? 'selected' : ''}>Claude Code</option></select></label>
+    <label class="inline"><input type="checkbox" id="include-installed" ${state.includeInstalled ? 'checked' : ''}>Include installed</label><label class="inline"><input type="checkbox" id="show-copies" ${state.showCopies ? 'checked' : ''}>Show separate copies</label><p>By default, one proven skill per result; skills already in this project for any agent are hidden. Use In this project for updates. Pending drafts stay in browsing.</p><details><summary>Search coverage</summary><p>Search covers metadata and the first 50,000 accepted body characters. Up to 50 ranked results; no total or pagination. Skillager groups and filters before ranking. Preferred agent does not narrow installed presence.</p></details></details></form></details>`
+}
+export function searchStatusView(state) {
+  if (!state.submittedSearch || (!state.searching && state.results === null)) return ''
+  const report = state.searchReport
+  return `<div class="search-status curation-search-status" role="status">${state.searching ? `Searching Skillager for “${escape(state.submittedQuery)}”… Initial indexing may take several seconds.` : `${report?.unavailable ? '' : `${state.results.length} results returned · `}for “${escape(state.submittedQuery)}” · ${submittedSearchLabel(state.submittedSearch)}`}${report?.unavailable ? `<p>${report.unavailable}</p>${report.unavailableKind === 'presence' ? '<button data-action="include-installed">Search including installed…</button>' : '<button data-action="legacy-search">Search with installed Skillager…</button>'}` : report?.legacy ? '<p>Older Skillager may group agent variants.</p>' : report?.installedHidden ? '<p>Installed skills are hidden. Find their copies and updates in In this project.</p><button data-action="include-installed">Include installed</button>' : ''}</div>`
+}
+export function matchedSourceView(row) {
+  if (!row.matchedOccurrence) return ''
+  return `<small class="match-evidence">${row.legacy ? 'Legacy result' : row.grouped ? 'Proven skill group' : 'Separate occurrence'} · ${escape(row.sourceVersion || row.version)}${row.identity ? '' : ' · Identity unproven'}${row.representativeMatched ? '' : ` · Match from ${escape(row.matchedSource)} · ${escape(row.matchedVersion)}; selected ${row.canonical ? 'library definition' : 'source'} did not match`}</small>`
+}
