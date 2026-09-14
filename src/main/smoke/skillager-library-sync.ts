@@ -1,4 +1,5 @@
 import type { BrowserWindow } from 'electron'
+import type { SkillagerSyncApplyHold } from './skillager-library-sync-fixture'
 import {
   clickSkillagerControl as click,
   inspectSkillagerControls as inspect,
@@ -9,6 +10,7 @@ import {
 export async function verifySkillagerLibrarySync(
   win: BrowserWindow,
   empty: boolean,
+  held?: SkillagerSyncApplyHold,
 ): Promise<void> {
   const library = 'section[aria-label="Your library"]'
   const key = (keyCode: string) => {
@@ -18,6 +20,7 @@ export async function verifySkillagerLibrarySync(
     win.webContents.sendInputEvent({ type: 'keyUp', keyCode })
   }
   if (empty) {
+    if (!held) throw Error('Empty library journey requires a held fixture sync')
     await inspect(
       win,
       `const scroll = document.querySelector('${library} .skillager-section-empty'); scroll.scrollTop = 0; await wait(() => scroll.scrollTop === 0);`,
@@ -57,6 +60,31 @@ export async function verifySkillagerLibrarySync(
       `await wait(() => document.activeElement?.getAttribute('role') === 'menuitem');`,
     )
     key('Enter')
+  }
+  if (empty) {
+    if (!(await held!.submitted)) throw Error('Fixture sync was not submitted')
+    await inspect(
+      win,
+      `await wait(() => document.querySelector('.skillager-sync-progress [role=status]')?.textContent.includes('Syncing approved'));
+      if (document.querySelector('.skillager-tab.active')) throw Error('Passive rail journey must begin without an active skill detail');`,
+    )
+    await click(win, '.rail-nav button:first-of-type')
+    await inspect(
+      win,
+      `await wait(() => document.querySelector('.skillager-sidebar').hidden);
+      if (!document.querySelector('.skillager-sync-progress [role=status]')?.textContent.includes('Syncing approved')) throw Error('Sync did not remain submitted while Files became visible');`,
+    )
+    held!.release()
+    await inspect(
+      win,
+      `await wait(() => document.querySelector('.skillager-sync-progress [role=status]')?.textContent.includes('Sync completed'));`,
+    )
+    await click(win, '.rail-nav button:last-of-type')
+    await inspect(
+      win,
+      `await wait(() => !document.querySelector('.skillager-sidebar').hidden);
+      if (!document.querySelector('.skillager-sync-progress [role=status]')?.textContent.includes('Sync completed')) throw Error('Returning to Skills lost the completed sync result');`,
+    )
   }
   await inspect(
     win,
@@ -104,6 +132,6 @@ export async function verifySkillagerLibrarySync(
   await inspect(win, `document.querySelector('.skillager-sync-progress').scrollTop = 0;`)
   await click(win, '.skillager-sync-progress summary')
   console.log(
-    `[smoke] Skillager sync OK (${empty ? 'empty primary action to populated library menu' : 'keyboard menu, cancelled check, 5000 retained outcomes with 50 mounted rows and page navigation'}; 640×460 headers reachable; ordinary viewer and terminal retained; delayed CLI fixture)`,
+    `[smoke] Skillager sync OK (${empty ? 'empty primary action, submitted sync retained across physical Files to Skills navigation, populated library menu' : 'keyboard menu, cancelled check, 5000 retained outcomes with 50 mounted rows and page navigation'}; 640×460 headers reachable; ordinary viewer and terminal retained; delayed CLI fixture)`,
   )
 }

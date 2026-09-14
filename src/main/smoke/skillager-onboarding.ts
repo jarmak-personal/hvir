@@ -1,4 +1,5 @@
 import { verifySkillagerLibrarySync } from './skillager-library-sync'
+import type { SkillagerSyncApplyHold } from './skillager-library-sync-fixture'
 import type { BrowserWindow } from 'electron'
 import { LocalHost } from '../project-host/local-host'
 import { localPath, joinHostPath } from '../../shared/host-path'
@@ -10,7 +11,10 @@ import {
 } from './skillager-settings'
 
 /** Chromium/input evidence over the labeled setup CLI/picker fixture ports. */
-export async function verifySkillagerOnboarding(win: BrowserWindow): Promise<void> {
+export async function verifySkillagerOnboarding(
+  win: BrowserWindow,
+  holdNextSyncApply: () => SkillagerSyncApplyHold,
+): Promise<void> {
   await selectSkillagerExecutable(win, '/hvir-smoke/onboarding')
   await inspect(
     win,
@@ -81,7 +85,12 @@ export async function verifySkillagerOnboarding(win: BrowserWindow): Promise<voi
   )
   await skillagerControlPoint(win, prompt)
   await captureSkillagerSidebar(win, 'connected-empty')
-  await verifySkillagerLibrarySync(win, true)
+  const held = holdNextSyncApply()
+  try {
+    await verifySkillagerLibrarySync(win, true, held)
+  } finally {
+    held.release()
+  }
   await selectSkillagerExecutable(win, '/hvir-smoke/skillager')
   await inspect(
     win,

@@ -45,8 +45,8 @@ export function useSkillagerLibrarySync(options: Options) {
     options.agent,
   ])
   const context = JSON.stringify([identity, options.visible])
-  const contextRef = useRef(context)
-  contextRef.current = context
+  const identityRef = useRef(identity)
+  identityRef.current = identity
   const release = useCallback(() => {
     const current = lease.current
     lease.current = undefined
@@ -71,9 +71,8 @@ export function useSkillagerLibrarySync(options: Options) {
     return release
   }, [identity, release])
   useEffect(() => {
-    release()
-    return release
-  }, [context, release])
+    if (!options.visible && !lease.current?.submitted) release()
+  }, [options.visible, release])
 
   const run = useCallback(
     async (write: boolean) => {
@@ -89,17 +88,17 @@ export function useSkillagerLibrarySync(options: Options) {
         },
         submitted: false,
       }
-      const at = contextRef.current
+      const at = identityRef.current
       const reconciliation = Boolean(stateRef.current.uncertain)
       lease.current = owned
-      const current = () =>
-        lease.current === owned && contextRef.current === at && optionsRef.current.visible
+      const current = () => lease.current === owned && identityRef.current === at
+      const preparing = () => current() && optionsRef.current.visible
       setState((state) => ({ ...state, busy: 'checking', message: undefined }))
       try {
         await released.current
-        if (!current()) return
+        if (!preparing()) return
         const checked = await window.hvir.invoke('skillager:sync-status', owned.request)
-        if (!current()) return
+        if (!preparing()) return
         if (!checked.ok) {
           setState((state) => ({ ...state, busy: undefined, message: checked.message }))
           return
@@ -124,7 +123,7 @@ export function useSkillagerLibrarySync(options: Options) {
               : 'Current library lineage checked.',
         }))
         if (!ready || !write || reconciliation || requiresNewSync) return
-        if (!current()) return
+        if (!preparing()) return
         owned.request = { ...owned.request, requestId: ++sequence.current }
         owned.submitted = true
         setState((state) => ({

@@ -463,15 +463,21 @@ export function useSkillagerWorkspace(input: Options) {
     onAccepted: afterAcceptance,
   })
 
+  const librarySyncVisible =
+    options.enabled &&
+    options.projectState?.connectionState === 'connected' &&
+    (options.sidebarVisible || (Boolean(tabs.activeId) && options.viewerVisible))
   const librarySync = useSkillagerLibrarySync({
-    connection,
+    connection:
+      options.enabled && options.projectState?.connectionState === 'connected'
+        ? connection
+        : undefined,
     root: options.root,
     agent,
-    visible:
-      options.enabled &&
-      options.projectState?.connectionState === 'connected' &&
-      (options.sidebarVisible || (Boolean(tabs.activeId) && options.viewerVisible)),
-    onCompleted: afterAcceptance,
+    visible: librarySyncVisible,
+    onCompleted: () => {
+      if (librarySyncVisible) afterAcceptance()
+    },
   })
 
   const [updateSelection, setUpdateSelection] = useState<SkillagerMetadata>()

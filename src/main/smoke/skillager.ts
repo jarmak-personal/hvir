@@ -1,4 +1,5 @@
 import { verifySkillagerLibrarySync } from './skillager-library-sync'
+import type { SkillagerSyncApplyHold } from './skillager-library-sync-fixture'
 import { verifySkillagerCuration } from './skillager-curation'
 import {
   verifySkillagerExplorer,
@@ -28,6 +29,7 @@ export async function verifySkillagerScenario(
     'base' | 'remoteFiles' | 'set'
   >,
   emit: EmitRendererEvent,
+  holdNextSyncApply: () => SkillagerSyncApplyHold,
 ): Promise<void> {
   app.focus({ steal: true })
   win.focus()
@@ -68,7 +70,8 @@ export async function verifySkillagerScenario(
       await wait(() => document.querySelector('.viewer-tab:not(.skillager-tab)'));
     `)
     await enableSkillagerInSettings(win)
-    if (!process.env.HVIR_SKILLAGER_SMOKE_FIXTURE) await verifySkillagerOnboarding(win)
+    if (!process.env.HVIR_SKILLAGER_SMOKE_FIXTURE)
+      await verifySkillagerOnboarding(win, holdNextSyncApply)
     await evaluate(`
       button('.rail-nav', 'Skills').click();
       await wait(() => !document.querySelector('.skillager-sidebar').hidden);

@@ -33,12 +33,28 @@ const rows: SkillagerMetadata[] = ['first', 'second'].map((name) => ({
   matchReasons: [],
 }))
 let container: HTMLDivElement, react: Root, current: SkillagerController
-function Harness({ root = syncContext }: { readonly root?: HostPath }) {
+function Harness({
+  root = syncContext,
+  enabled = true,
+  connected = true,
+  sidebarVisible = true,
+  viewerVisible = true,
+}: {
+  readonly root?: HostPath
+  readonly enabled?: boolean
+  readonly connected?: boolean
+  readonly sidebarVisible?: boolean
+  readonly viewerVisible?: boolean
+}) {
+  const project = projectState(root)
   current = useSkillagerWorkspace({
-    enabled: true,
-    projectState: projectState(root),
-    sidebarVisible: true,
-    viewerVisible: true,
+    enabled,
+    projectState: {
+      ...project,
+      connectionState: connected ? 'connected' : 'disconnected',
+    },
+    sidebarVisible,
+    viewerVisible,
     onActivate: () => undefined,
     onDisabled: () => undefined,
   })
@@ -49,8 +65,8 @@ function Harness({ root = syncContext }: { readonly root?: HostPath }) {
     />
   ) : null
 }
-async function render(root = syncContext) {
-  await act(() => Promise.resolve(react.render(<Harness root={root} />)))
+async function render(props: Parameters<typeof Harness>[0] = {}) {
+  await act(() => Promise.resolve(react.render(<Harness {...props} />)))
 }
 function result(channel: string) {
   if (channel === 'skillager:probe')
@@ -129,16 +145,72 @@ it.each(['checking', 'syncing'] as const)(
     ).toHaveLength(1)
   },
 )
-it.each(['checking', 'syncing'] as const)(
-  'changing the actual workspace during %s cancels and ignores late output',
-  async (phase) => {
+it.each(
+  (['checking', 'syncing'] as const).flatMap((phase) =>
+    (
+      [
+        'workspace',
+        'agent',
+        'connection',
+        'disable',
+        'disconnect',
+        'cancel',
+        'unmount',
+      ] as const
+    ).map((change) => ({ phase, change })),
+  ),
+)('$change during $phase cancels and ignores late output', async ({ phase, change }) => {
+  await render()
+  await act(() => current.connect())
+  const delayed =
+    phase === 'checking' ? 'skillager:sync-status' : 'skillager:sync-approved'
+  let finish!: (value: unknown) => void
+  invoke.mockImplementation((channel) =>
+    channel === delayed
+      ? new Promise((resolve) => {
+          finish = resolve
+        })
+      : Promise.resolve(result(channel)),
+  )
+  let pending!: Promise<void>
+  await act(() => {
+    pending = current.librarySync.sync()
+    return Promise.resolve()
+  })
+  expect(current.librarySync.state.busy).toBe(phase)
+  if (change === 'workspace') await render({ root: localPath('/other-workspace') })
+  else if (change === 'disable') await render({ enabled: false })
+  else if (change === 'disconnect') await render({ connected: false })
+  else if (change === 'agent')
+    await act(() => Promise.resolve(current.setAgent('claude')))
+  else if (change === 'connection') await act(() => Promise.resolve(current.disconnect()))
+  else if (change === 'cancel')
+    await act(() => Promise.resolve(current.librarySync.cancel()))
+  else await act(() => Promise.resolve(react.unmount()))
+  expect(invoke.mock.calls.some(([channel]) => channel === 'skillager:cancel-sync')).toBe(
+    true,
+  )
+  await act(async () => {
+    finish(result(delayed))
+    await pending
+  })
+  expect(current.librarySync.state.completion).toBeUndefined()
+  expect(
+    invoke.mock.calls.filter(([channel]) => channel === 'skillager:sync-approved'),
+  ).toHaveLength(phase === 'checking' ? 0 : 1)
+})
+it.each(['rail', 'viewer', 'last-detail'] as const)(
+  'keeps submitted sync when %s hides the last surface, observes on return and never retries',
+  async (hide) => {
     await render()
     await act(() => current.connect())
-    const delayed =
-      phase === 'checking' ? 'skillager:sync-status' : 'skillager:sync-approved'
+    if (hide !== 'rail') {
+      await act(() => Promise.resolve(current.select(rows[0]!)))
+      await render({ sidebarVisible: false })
+    }
     let finish!: (value: unknown) => void
     invoke.mockImplementation((channel) =>
-      channel === delayed
+      channel === 'skillager:sync-approved'
         ? new Promise((resolve) => {
             finish = resolve
           })
@@ -149,18 +221,34 @@ it.each(['checking', 'syncing'] as const)(
       pending = current.librarySync.sync()
       return Promise.resolve()
     })
-    expect(current.librarySync.state.busy).toBe(phase)
-    await render(localPath('/other-workspace'))
+    expect(current.librarySync.state.busy).toBe('syncing')
+    if (hide === 'last-detail')
+      await act(() => Promise.resolve(current.close(current.activeId!)))
+    else await render({ sidebarVisible: false, viewerVisible: hide !== 'viewer' })
+    expect(current.librarySync.enabled).toBe(false)
+    expect(current.librarySync.state.busy).toBe('syncing')
     expect(
       invoke.mock.calls.some(([channel]) => channel === 'skillager:cancel-sync'),
-    ).toBe(true)
+    ).toBe(false)
+    const observations = invoke.mock.calls.filter(
+      ([channel]) => channel === 'skillager:inventory',
+    ).length
     await act(async () => {
-      finish(result(delayed))
+      finish(result('skillager:sync-approved'))
       await pending
     })
-    expect(current.librarySync.state.completion).toBeUndefined()
+    expect(current.librarySync.state.completion?.counts.created).toBe(1)
+    expect(current.librarySync.state.uncertain).toBe(false)
+    expect(
+      invoke.mock.calls.filter(([channel]) => channel === 'skillager:inventory').length,
+    ).toBe(observations)
+    await render()
+    expect(current.librarySync.state.completion?.counts.created).toBe(1)
+    expect(
+      invoke.mock.calls.filter(([channel]) => channel === 'skillager:inventory').length,
+    ).toBeGreaterThan(observations)
     expect(
       invoke.mock.calls.filter(([channel]) => channel === 'skillager:sync-approved'),
-    ).toHaveLength(phase === 'checking' ? 0 : 1)
+    ).toHaveLength(1)
   },
 )
