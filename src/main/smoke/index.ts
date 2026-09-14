@@ -1,4 +1,3 @@
-import { verifySkillagerScenario } from './skillager'
 import { createSkillagerSmoke as createSkills } from './skillager-fixture'
 import {
   verifyTerminalThemeScenario,
@@ -268,16 +267,16 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     cleanup.defer('document review draft', () =>
       host.removeFile(documentReviewPath, { ignoreMissing: true }),
     )
+    const terminalPorts = {
+      ptys: supervisor,
+      sessions: smokeTerminalSessions,
+      profiles: smokeHarnessProfiles,
+    }
     const documentReview = await createDocumentReviewRuntime(
       host,
       documentReviewPath,
       rendererResources,
-      {
-        ptys: supervisor,
-        sessions: smokeTerminalSessions,
-        providers: harnessProviders,
-        profiles: smokeHarnessProfiles,
-      },
+      { ...terminalPorts, providers: harnessProviders },
     )
     cleanup.defer('document review', () => documentReview.dispose())
     const smokeHostOptions = () => [
@@ -387,11 +386,12 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       projectReturn: mode === 'terminal-presentation' || mode === 'document-review',
     })
     const readiness = new SmokeRendererReadiness()
+    const skills = createSkills(dependencies, cleanup, projectCommands, terminalPorts)
     const ipcRouter = registerIpcHandlers({
       echoWorker: worker,
       gitWorker: git,
       filenameSearch,
-      skillager: createSkills(rendererResources, cleanup, projectCommands, htmlPreviews, { ptySupervisor: supervisor, profiles: smokeHarnessProfiles, sessions: smokeTerminalSessions }),
+      skillager: skills.capability,
       projectFiles,
       projectFolderPicker,
       documentReview: documentReview.coordinator,
@@ -738,7 +738,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       'workbench-layout': () => verifyWorkbenchLayoutScenario(win, supervisor),
       'terminal-split': () => verifyTerminalSplitScenario(win, supervisor),
       'app-settings': () => verifyAppSettingsScenario(win, supervisor),
-      skillager: () => verifySkillagerScenario(win, supervisor, projectFixture, emit),
+      skillager: () => skills.verify(win, projectFixture, emit),
       'harness-profiles': () =>
         verifyHarnessProfilesScenario(win, supervisor, host, smokeRoot),
     }

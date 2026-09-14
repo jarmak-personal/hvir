@@ -1,3 +1,5 @@
+import { verifySkillagerScenario } from './skillager'
+import type { PtySupervisor } from '../pty/pty-supervisor'
 import { skillagerLibrarySyncFixture } from './skillager-library-sync-fixture'
 import { skillagerExposureFixture } from './skillager-exposure-fixture'
 import { skillagerReviewFixture } from './skillager-review-fixture'
@@ -16,15 +18,18 @@ import { skillagerProjectFixture } from './skillager-project-fixture'
 
 /** Renderer interaction evidence only; real CLI performance has a separate fixture. */
 export function createSkillagerSmoke(
-  resources: RendererResourceScopes,
+  dependencies: {
+    rendererResources: RendererResourceScopes
+    htmlPreviews: Pick<HtmlPreviewProtocol, 'create' | 'release'>
+  },
   cleanup: SmokeCleanup,
   projects: Pick<IpcProjectAuthorityPort, 'getProject' | 'getProjectState'>,
-  previews: Pick<HtmlPreviewProtocol, 'create' | 'release'>,
-  terminal: Omit<
+  terminal: Pick<
     Parameters<typeof createSkillagerProjectTerminal>[1],
-    'rendererResources'
-  >,
+    'profiles' | 'sessions'
+  > & { ptys: PtySupervisor },
 ) {
+  const { rendererResources: resources, htmlPreviews: previews } = dependencies
   const { host, root } = projects.getProject()
   const library = {
     id: 'smoke-library',
@@ -217,11 +222,23 @@ export function createSkillagerSmoke(
     {
       cli: real ?? project.cli,
       terminal: createSkillagerProjectTerminal(host, {
-        ...terminal,
+        ptySupervisor: terminal.ptys,
+        profiles: terminal.profiles,
+        sessions: terminal.sessions,
         rendererResources: resources,
       }),
     },
   )
   cleanup.defer('Skillager capability', () => capability.dispose())
-  return capability
+  return {
+    capability,
+    verify: (
+      win: Parameters<typeof verifySkillagerScenario>[0],
+      projectFixture: Parameters<typeof verifySkillagerScenario>[2],
+      emit: Parameters<typeof verifySkillagerScenario>[3],
+    ) =>
+      verifySkillagerScenario(win, terminal.ptys, projectFixture, emit, () =>
+        sync.holdNextApply(),
+      ),
+  }
 }

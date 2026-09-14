@@ -127,7 +127,7 @@ it('does no sync observation or mutation on mount and performs one explicit chec
   expect(element.textContent).toContain('1 created')
   expect(completed).toHaveBeenCalledOnce()
 })
-it.each(['cancel', 'workspace', 'disable'])(
+it.each(['cancel', 'workspace', 'hide'])(
   'cannot continue into apply after %s during the check',
   async (action) => {
     let resolve!: (value: unknown) => void
@@ -159,6 +159,70 @@ it.each(['cancel', 'workspace', 'disable'])(
     expect(
       invoke.mock.calls.some(([channel]) => channel === 'skillager:sync-approved'),
     ).toBe(false)
+  },
+)
+it.each(['completed', 'partial', 'uncertain', 'lost'] as const)(
+  'retains a submitted %s result while hidden and does not write again on return',
+  async (outcome) => {
+    let finish!: () => void
+    invoke.mockImplementation((channel) => {
+      if (channel === 'skillager:sync-approved')
+        return new Promise((resolve, reject) => {
+          finish = () =>
+            outcome === 'lost'
+              ? reject(new Error('IPC reply lost'))
+              : resolve({
+                  ok: true,
+                  value: { ...syncCompletion(), status: outcome },
+                })
+        })
+      return Promise.resolve(
+        channel === 'skillager:sync-status'
+          ? {
+              ok: true,
+              value: {
+                report: syncStatus(),
+                observationId: 'main-observed',
+                requiresNewSync: false,
+              },
+            }
+          : undefined,
+      )
+    })
+    await render()
+    let pending!: Promise<void>
+    await act(() => {
+      pending = current.sync()
+      return Promise.resolve()
+    })
+    expect(current.state.busy).toBe('syncing')
+    await render({ visible: false })
+    expect(current.state.busy).toBe('syncing')
+    expect(
+      invoke.mock.calls.some(([channel]) => channel === 'skillager:cancel-sync'),
+    ).toBe(false)
+    await act(() => current.sync())
+    await act(async () => {
+      finish()
+      await pending
+    })
+    expect(current.state.busy).toBeUndefined()
+    expect(Boolean(current.state.uncertain)).toBe(
+      outcome === 'uncertain' || outcome === 'lost',
+    )
+    expect(current.state.completion?.status).toBe(
+      outcome === 'lost' ? undefined : outcome,
+    )
+    expect(completed).toHaveBeenCalledOnce()
+    const retained = current.state
+    const calls = invoke.mock.calls.length
+    await render()
+    expect(current.state).toBe(retained)
+    expect(invoke).toHaveBeenCalledTimes(calls)
+    expect(
+      invoke.mock.calls.filter(([channel]) => channel === 'skillager:sync-approved'),
+    ).toHaveLength(1)
+    expect(completed).toHaveBeenCalledOnce()
   },
 )
 it('requires a separate check and then a new Sync gesture after uncertain completion', async () => {
