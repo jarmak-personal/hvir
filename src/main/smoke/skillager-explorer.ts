@@ -114,35 +114,23 @@ export async function verifySkillagerExpansionCapacity(
     win.webContents.sendInputEvent({ type: 'keyUp', keyCode })
   }
   key('End')
-  await inspect(
-    win,
-    `await wait(() => document.activeElement?.textContent.includes('Capacity group 8'));`,
-  )
+  await capacityGroupFocused(win, 8)
   for (let step = 8; step > 0; step--) {
-    key('ArrowUp')
-    await inspect(
-      win,
-      `await wait(() => document.activeElement?.textContent.includes('Capacity group ${step - 1}'));`,
-    )
+    key('Up')
+    await capacityGroupFocused(win, step - 1)
   }
   for (let index = 0; index < 8; index++) {
-    key('ArrowRight')
+    key('Right')
     await inspect(
       win,
       `await wait(() => document.activeElement?.getAttribute('aria-expanded') === 'true');`,
     )
     if (index < 7) {
       key('End')
-      await inspect(
-        win,
-        `await wait(() => document.activeElement?.textContent.includes('Capacity group 8'));`,
-      )
+      await capacityGroupFocused(win, 8)
       for (let step = 8; step > index + 1; step--) {
-        key('ArrowUp')
-        await inspect(
-          win,
-          `await wait(() => document.activeElement?.textContent.includes('Capacity group ${step - 1}'));`,
-        )
+        key('Up')
+        await capacityGroupFocused(win, step - 1)
       }
     }
   }
@@ -151,28 +139,49 @@ export async function verifySkillagerExpansionCapacity(
     `const tree = document.querySelector('${project} [role=tree]'); if (tree.scrollHeight !== 1000000) throw Error('Expanded browser scroll range did not reach the supported 1Mpx boundary'); if (tree.querySelectorAll('[role=treeitem]').length > Math.ceil(tree.clientHeight /25)+6) throw Error('Expanded DOM exceeded its viewport');`,
   )
   key('End')
-  await inspect(
-    win,
-    `await wait(() => document.activeElement?.textContent.includes('Capacity group 8'));`,
-  )
-  key('ArrowRight')
+  await capacityGroupFocused(win, 8)
+  key('Right')
   await inspect(
     win,
     `await wait(() => document.querySelector('${project} [role=status]')?.textContent.includes('Collapse another skill')); if (document.activeElement?.getAttribute('aria-expanded') !== 'false') throw Error('Rejected group expanded partially');`,
   )
-  key('ArrowUp')
+  key('Up')
+  await inspect(
+    win,
+    `await wait(() => document.querySelector('${project} [role=tree]')?.contains(document.activeElement) && document.activeElement?.getAttribute('aria-level') === '2');`,
+  )
   key('Enter')
   await inspect(
     win,
     `await wait(() => document.querySelector('.skillager-details')?.textContent.includes('Router member'));`,
   )
-  key('ArrowLeft')
-  key('ArrowLeft')
+  key('Left')
+  await capacityGroupFocused(win, 7)
+  key('Left')
   await inspect(
     win,
     `await wait(() => document.activeElement?.getAttribute('aria-expanded') === 'false'); if (!document.querySelector('.skillager-details')) throw Error('Collapsing router lost its open member detail');`,
   )
   console.log(
     '[smoke] Skills expansion OK (actual 1,000,000px/40,000-row range; bounded mounted window; whole-group refusal; physical End/member selection and collapse retain detail)',
+  )
+}
+
+async function capacityGroupFocused(win: BrowserWindow, index: number): Promise<void> {
+  await inspect(
+    win,
+    `try {
+    await wait(() => {
+      const row = document.activeElement, tree = document.querySelector('${project} [role=tree]');
+      return tree?.contains(row) && row?.getAttribute('role') === 'treeitem' && row.querySelector('.skillager-name')?.textContent === 'Capacity group ${index}';
+    });
+  } catch {
+    const row = document.activeElement, tree = document.querySelector('${project} [role=tree]');
+    throw Error('Capacity group ${index} did not receive keyboard focus: ' + JSON.stringify({
+      tag: row?.tagName, role: row?.getAttribute('role'), name: row?.querySelector('.skillager-name')?.textContent,
+      inProjectTree: tree?.contains(row), scrollTop: tree?.scrollTop, clientHeight: tree?.clientHeight, scrollHeight: tree?.scrollHeight,
+      mounted: tree?.querySelectorAll('[role=treeitem]').length,
+    }));
+  }`,
   )
 }

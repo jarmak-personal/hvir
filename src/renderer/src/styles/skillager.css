@@ -405,7 +405,7 @@
   user-select: text;
 }
 
-.skillager-project-setup {
+.skillager-project-setup-scroll {
   flex: 0 1 auto;
   min-height: 25px;
   max-height: 50%;

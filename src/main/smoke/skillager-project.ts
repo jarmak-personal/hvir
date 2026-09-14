@@ -169,16 +169,23 @@ async function refresh(win: BrowserWindow): Promise<void> {
 
 async function reveal(win: BrowserWindow, selector: string): Promise<void> {
   const scrollSelector = selector.startsWith('.skillager-project-setup')
-    ? '.skillager-project-setup'
+    ? '.skillager-project-setup-scroll'
     : '.skillager-sidebar'
+  let geometry: unknown
   for (let step = 0; step < 8; step++) {
-    const state = await inspect<{ visible: boolean; delta: number; top: number }>(
+    const state = await inspect<{
+      visible: boolean
+      delta: number
+      destination: number
+    }>(
       win,
       `
       const item = await wait(() => document.querySelector(${JSON.stringify(selector)})), sidebar = document.querySelector(${JSON.stringify(scrollSelector)});
       const rect = item.getBoundingClientRect(), outer = sidebar.getBoundingClientRect();
-      return { visible: rect.top >= outer.top && rect.bottom <= outer.bottom, delta: rect.top < outer.top ? 500 : -500, top: sidebar.scrollTop };`,
+      const delta = rect.top < outer.top ? 500 : -500;
+      return { visible: rect.top >= outer.top && rect.bottom <= outer.bottom, delta, destination: Math.max(0, Math.min(sidebar.scrollHeight - sidebar.clientHeight, sidebar.scrollTop - delta)), top: sidebar.scrollTop, clientHeight: sidebar.clientHeight, scrollHeight: sidebar.scrollHeight, targetTop: rect.top, targetBottom: rect.bottom, viewportTop: outer.top, viewportBottom: outer.bottom };`,
     )
+    geometry = state
     if (state.visible) {
       await skillagerControlPoint(win, selector)
       return
@@ -194,8 +201,14 @@ async function reveal(win: BrowserWindow, selector: string): Promise<void> {
     })
     await inspect(
       win,
-      `await wait(() => document.querySelector(${JSON.stringify(scrollSelector)}).scrollTop !== ${state.top});`,
+      `await wait(() => {
+        const sidebar = document.querySelector(${JSON.stringify(scrollSelector)}), item = document.querySelector(${JSON.stringify(selector)});
+        const rect = item.getBoundingClientRect(), outer = sidebar.getBoundingClientRect();
+        return (rect.top >= outer.top && rect.bottom <= outer.bottom) || Math.abs(sidebar.scrollTop - ${state.destination}) <= 1;
+      });`,
     )
   }
-  throw Error('Project setup control did not become scroll-reachable')
+  throw Error(
+    'Project setup control did not become scroll-reachable: ' + JSON.stringify(geometry),
+  )
 }

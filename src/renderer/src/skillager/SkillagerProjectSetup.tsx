@@ -20,57 +20,61 @@ export function SkillagerProjectSetup({
   const status = project.result?.ok ? project.result.value.status : undefined
   const ready = status?.canProceed && status.working === 'present'
   return (
-    <details
-      className="skillager-project-setup"
-      aria-label="Project skill setup"
-      open={expanded || !ready || project.running || Boolean(project.message)}
-      onToggle={(event) => {
-        if (ready) setExpanded(event.currentTarget.open)
-      }}
-    >
-      <summary>{ready ? 'Project setup…' : 'Set up project skills'}</summary>
-      <p>
-        {root.path} · {skillagerAgentLabel(controller.agent)}
-      </p>
-      {status ? (
+    <div className="skillager-project-setup-scroll">
+      <details
+        className="skillager-project-setup"
+        aria-label="Project skill setup"
+        open={expanded || !ready || project.running || Boolean(project.message)}
+        onToggle={(event) => {
+          if (ready) setExpanded(event.currentTarget.open)
+        }}
+      >
+        <summary>{ready ? 'Project setup…' : 'Set up project skills'}</summary>
         <p>
-          {setupStatusLabel(status.status)} · {workingLabels[status.working]}
+          {root.path} · {skillagerAgentLabel(controller.agent)}
         </p>
-      ) : null}
-      {
-        <>
-          <label>
-            Setup agent{' '}
-            <select
-              value={controller.agent}
-              disabled={project.starting || project.running}
-              onChange={(event) =>
-                controller.setAgent(event.currentTarget.value as SkillagerAgent)
-              }
+        {status ? (
+          <p>
+            {setupStatusLabel(status.status)} · {workingLabels[status.working]}
+          </p>
+        ) : null}
+        {
+          <>
+            <label>
+              Setup agent{' '}
+              <select
+                value={controller.agent}
+                disabled={project.starting || project.running}
+                onChange={(event) =>
+                  controller.setAgent(event.currentTarget.value as SkillagerAgent)
+                }
+              >
+                {SKILLAGER_AGENTS.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p>
+              Review project skills and include Working in a new interactive terminal.
+            </p>
+            <button
+              type="button"
+              disabled={project.starting || project.running || project.loading}
+              onClick={() => void project.setup()}
             >
-              {SKILLAGER_AGENTS.map((agent) => (
-                <option key={agent.id} value={agent.id}>
-                  {agent.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <p>Review project skills and include Working in a new interactive terminal.</p>
-          <button
-            type="button"
-            disabled={project.starting || project.running || project.loading}
-            onClick={() => void project.setup()}
-          >
-            {project.starting
-              ? 'Opening setup terminal…'
-              : project.running
-                ? 'Setup terminal running'
-                : 'Set up in terminal'}
-          </button>
-        </>
-      }
-      {project.message ? <p role="alert">{project.message}</p> : null}
-    </details>
+              {project.starting
+                ? 'Opening setup terminal…'
+                : project.running
+                  ? 'Setup terminal running'
+                  : 'Set up in terminal'}
+            </button>
+          </>
+        }
+        {project.message ? <p role="alert">{project.message}</p> : null}
+      </details>
+    </div>
   )
 }
 
