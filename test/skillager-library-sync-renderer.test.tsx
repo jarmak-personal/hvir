@@ -1,3 +1,4 @@
+import { localPath, type HostPath } from '../src/shared/host-path'
 // @vitest-environment happy-dom
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -22,16 +23,16 @@ const invoke = vi.fn<(channel: string, request: unknown) => Promise<unknown>>(),
   completed = vi.fn()
 let element: HTMLDivElement, react: Root, current: SkillagerLibrarySyncController
 function Harness({
-  activeId = 'one',
+  root = syncContext,
   visible = true,
   menu = false,
 }: {
-  activeId?: string
+  root?: HostPath
   visible?: boolean
   menu?: boolean
 }) {
   current = useSkillagerLibrarySync({
-    root: syncContext,
+    root,
     connection: {
       connectionId: 'connected',
       executable: syncSelection.executable,
@@ -39,7 +40,6 @@ function Harness({
       library: syncSelection.library,
     },
     agent: 'codex',
-    activeId,
     visible,
     onCompleted: completed,
   })
@@ -127,7 +127,7 @@ it('does no sync observation or mutation on mount and performs one explicit chec
   expect(element.textContent).toContain('1 created')
   expect(completed).toHaveBeenCalledOnce()
 })
-it.each(['cancel', 'selection', 'disable'])(
+it.each(['cancel', 'workspace', 'disable'])(
   'cannot continue into apply after %s during the check',
   async (action) => {
     let resolve!: (value: unknown) => void
@@ -145,7 +145,10 @@ it.each(['cancel', 'selection', 'disable'])(
     })
     expect(element.textContent).toContain('Checking approved skills…')
     if (action === 'cancel') await click('Cancel sync')
-    else await render(action === 'selection' ? { activeId: 'two' } : { visible: false })
+    else
+      await render(
+        action === 'workspace' ? { root: localPath('/other') } : { visible: false },
+      )
     await act(async () => {
       resolve({
         ok: true,
@@ -232,6 +235,15 @@ it('offers a compact library menu with keyboard dismissal and focus restoration'
   await act(() => Promise.resolve(trigger.click()))
   expect(document.querySelector('[role="menu"]')).not.toBeNull()
   expect(document.activeElement?.textContent).toBe('Sync approved skills')
+  trigger.focus()
+  const outsideArrow = new KeyboardEvent('keydown', {
+    key: 'ArrowDown',
+    bubbles: true,
+    cancelable: true,
+  })
+  document.dispatchEvent(outsideArrow)
+  expect(outsideArrow.defaultPrevented).toBe(false)
+  expect(document.activeElement).toBe(trigger)
   await act(() =>
     document.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
@@ -239,6 +251,22 @@ it('offers a compact library menu with keyboard dismissal and focus restoration'
   )
   expect(document.querySelector('[role="menu"]')).toBeNull()
   expect(document.activeElement).toBe(trigger)
+  await act(() => Promise.resolve(trigger.click()))
+  await act(() =>
+    Promise.resolve(
+      void document.body.dispatchEvent(
+        new PointerEvent('pointerdown', { bubbles: true }),
+      ),
+    ),
+  )
+  expect(document.querySelector('[role="menu"]')).toBeNull()
+  const afterDismiss = new KeyboardEvent('keydown', {
+    key: 'ArrowDown',
+    bubbles: true,
+    cancelable: true,
+  })
+  document.dispatchEvent(afterDismiss)
+  expect(afterDismiss.defaultPrevented).toBe(false)
   expect(invoke).not.toHaveBeenCalled()
 })
 it('preserves all 5000 outcomes with bounded rendering and selected lineage metadata', async () => {

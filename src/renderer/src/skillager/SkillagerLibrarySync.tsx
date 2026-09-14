@@ -1,11 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { SKILLAGER_SYNC_OUTCOMES } from '../../../shared/skillager-library-sync'
-import { firstEnabledMenuItem, focusRelativeMenuItem } from '../context-menu/menu-focus'
-import {
-  useViewportContextMenuPosition,
-  type ContextMenuAnchor,
-} from '../context-menu/viewport-context-menu'
+import type { ContextMenuAnchor } from '../context-menu/viewport-context-menu'
+import { SkillagerMenu } from './SkillagerMenu'
 import type { SkillagerLibrarySyncController } from './use-skillager-library-sync'
 
 const PAGE_SIZE = 50
@@ -32,33 +28,16 @@ export function SkillagerLibraryMenu({
 }: {
   readonly controller: SkillagerLibrarySyncController
 }) {
-  const [anchor, setAnchor] = useState<ContextMenuAnchor>()
-  const trigger = useRef<HTMLButtonElement>(null),
-    menu = useRef<HTMLDivElement>(null)
-  const position = useViewportContextMenuPosition(menu, anchor)
-  useEffect(() => setAnchor(undefined), [controller.context])
+  const [anchor, setAnchor] = useState<ContextMenuAnchor & { readonly context: string }>()
+  const trigger = useRef<HTMLButtonElement>(null)
+  const dismiss = useCallback((restoreFocus = false) => {
+    setAnchor(undefined)
+    if (restoreFocus && trigger.current?.isConnected) trigger.current.focus()
+  }, [])
+  const current = anchor?.context === controller.context && controller.enabled
   useEffect(() => {
-    if (!anchor) return
-    if (menu.current) firstEnabledMenuItem(menu.current)?.focus()
-    const outside = (event: PointerEvent) => {
-      if (!menu.current?.contains(event.target as Node)) setAnchor(undefined)
-    }
-    const key = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        event.stopPropagation()
-        setAnchor(undefined)
-        trigger.current?.focus()
-      } else if (menu.current && focusRelativeMenuItem(menu.current, event.key))
-        event.preventDefault()
-    }
-    document.addEventListener('pointerdown', outside)
-    document.addEventListener('keydown', key, true)
-    return () => {
-      document.removeEventListener('pointerdown', outside)
-      document.removeEventListener('keydown', key, true)
-    }
-  }, [anchor])
+    if (!current) dismiss()
+  }, [current, dismiss])
   return (
     <>
       <button
@@ -66,43 +45,40 @@ export function SkillagerLibraryMenu({
         type="button"
         aria-label="Your library actions"
         aria-haspopup="menu"
-        aria-expanded={Boolean(anchor)}
+        aria-expanded={Boolean(anchor && current)}
         onClick={() => {
           const box = trigger.current!.getBoundingClientRect()
-          setAnchor({ id: Date.now(), x: box.right, y: box.bottom })
+          setAnchor({
+            id: Date.now(),
+            x: box.right,
+            y: box.bottom,
+            context: controller.context,
+          })
         }}
       >
         ⋯
       </button>
-      {anchor
-        ? createPortal(
-            <div
-              ref={menu}
-              className="path-copy-menu viewport-context-menu"
-              role="menu"
-              aria-label="Your library actions"
-              style={position}
-            >
-              <button
-                type="button"
-                role="menuitem"
-                disabled={!controller.enabled || Boolean(controller.state.busy)}
-                onClick={() => {
-                  setAnchor(undefined)
-                  trigger.current?.focus()
-                  void (controller.state.uncertain
-                    ? controller.check()
-                    : controller.sync())
-                }}
-              >
-                {controller.state.uncertain
-                  ? 'Check current state'
-                  : 'Sync approved skills'}
-              </button>
-            </div>,
-            document.body,
-          )
-        : null}
+      {anchor && current ? (
+        <SkillagerMenu
+          anchor={anchor}
+          label="Your library actions"
+          dismiss={dismiss}
+          items={[
+            {
+              id: 'sync-approved',
+              label: controller.state.uncertain
+                ? 'Check current state'
+                : 'Sync approved skills',
+              disabled: Boolean(controller.state.busy),
+              select: () => {
+                if (!current || controller.state.busy) return
+                dismiss(true)
+                void (controller.state.uncertain ? controller.check() : controller.sync())
+              },
+            },
+          ]}
+        />
+      ) : null}
     </>
   )
 }

@@ -1,8 +1,6 @@
-import { useEffect, useRef, type ReactElement, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
+import { useEffect, type ReactElement, type ReactNode } from 'react'
 import type { SkillagerMetadata } from '../../../shared/skillager'
-import { useViewportContextMenuPosition } from '../context-menu/viewport-context-menu'
-import { firstEnabledMenuItem, focusRelativeMenuItem } from '../context-menu/menu-focus'
+import { SkillagerMenu } from './SkillagerMenu'
 import { isNativeProjectSkill } from './skillager-model'
 import { exposureActions } from './skillager-exposure-model'
 import type { SkillagerExposureController } from './use-skillager-exposure'
@@ -70,59 +68,22 @@ export function SkillagerActionsMenu({
   readonly controller: MenuController
 }): ReactElement | null {
   const { request, current, dismiss, select } = controller
-  const menu = useRef<HTMLDivElement>(null)
-  const position = useViewportContextMenuPosition(menu, request)
   // Sidebar paging/filtering can remove the originating row without changing the workspace.
   useEffect(() => {
     if (request && !current(request)) dismiss()
   })
-  useEffect(() => {
-    if (!request) return
-    if (menu.current) firstEnabledMenuItem(menu.current)?.focus()
-    const outside = (event: PointerEvent): void => {
-      if (!menu.current?.contains(event.target as Node)) dismiss()
-    }
-    const keyboard = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        event.stopPropagation()
-        dismiss(true)
-        return
-      }
-      if (
-        menu.current?.contains(document.activeElement) &&
-        focusRelativeMenuItem(menu.current, event.key)
-      )
-        event.preventDefault()
-    }
-    document.addEventListener('pointerdown', outside)
-    document.addEventListener('keydown', keyboard, true)
-    return () => {
-      document.removeEventListener('pointerdown', outside)
-      document.removeEventListener('keydown', keyboard, true)
-    }
-  }, [request, dismiss])
   if (!request || !current(request)) return null
-  return createPortal(
-    <div
-      ref={menu}
-      className="path-copy-menu viewport-context-menu"
-      role="menu"
-      aria-label={`Skill actions for ${request.metadata.name}`}
-      style={position}
-    >
-      {exposureActions(request.metadata).map((item) => (
-        <button
-          key={item.action}
-          type="button"
-          role="menuitem"
-          disabled={item.disabled}
-          onClick={() => select(item.action)}
-        >
-          {item.label}
-        </button>
-      ))}
-    </div>,
-    document.body,
+  return (
+    <SkillagerMenu
+      anchor={request}
+      label={`Skill actions for ${request.metadata.name}`}
+      dismiss={dismiss}
+      items={exposureActions(request.metadata).map((item) => ({
+        id: item.action,
+        label: item.label,
+        disabled: item.disabled,
+        select: () => select(item.action),
+      }))}
+    />
   )
 }

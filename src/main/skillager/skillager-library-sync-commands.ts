@@ -36,6 +36,11 @@ export class SkillagerLibrarySyncCommands {
       { cwd: context, signal, env: selection.environment },
       SKILLAGER_INVENTORY_LIMITS,
     )
+    if (output.code !== 0 && output.code !== 2)
+      throw new SkillagerError(
+        'command-failed',
+        'Skillager command failed. Check it in your local terminal.',
+      )
     if (output.code === 2 && !output.stdout.trim())
       throw new SkillagerError(
         'unsupported',

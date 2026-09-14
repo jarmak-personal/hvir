@@ -459,7 +459,6 @@ export function useSkillagerWorkspace(input: Options) {
     connection,
     root: options.root,
     agent,
-    activeId: tabs.activeId,
     visible:
       options.enabled &&
       options.projectState?.connectionState === 'connected' &&

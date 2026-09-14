@@ -62,6 +62,9 @@ it.runIf(Boolean(executable && baseline)).each([true, false])(
       '---\nname: example\ndescription: Use precise project guidance.\n---\n\nUse precise project guidance.\n'
     await writeFile(join(source, 'SKILL.md'), body)
     await writeFile(join(source, 'support.txt'), 'Preserve supporting bytes.\n')
+    const baselineVersion = await host.exec(baseline!, ['--version'], { cwd: project })
+    expect(baselineVersion.code).toBe(0)
+    expect(baselineVersion.stdout.trim()).toBe('skillager 0.9.1')
     const approved = await host.exec(
       baseline!,
       [
@@ -92,6 +95,21 @@ it.runIf(Boolean(executable && baseline)).each([true, false])(
       'utf8',
     )
     const initialEntries = await readdir(selection.library.skillsRoot.path)
+    const legacy = await cli.probe(localPath(baseline!), signal)
+    expect(legacy.version).toBe('skillager 0.9.1')
+    await expect(cli.syncStatus(legacy, project, signal)).rejects.toMatchObject({
+      reason: 'unsupported',
+    })
+    expect(calls.filter((call) => call.args.includes('sync'))).toHaveLength(1)
+    expect(calls.find((call) => call.args.includes('sync'))!.args).toContain('--status')
+    expect(calls.some((call) => call.args.includes('--approved'))).toBe(false)
+    expect(await readdir(selection.library.skillsRoot.path)).toEqual(initialEntries)
+    expect(
+      await readFile(
+        join(selection.library.root.path, '.skillager/library.json'),
+        'utf8',
+      ),
+    ).toBe(before)
     const observed = await cli.syncStatus(selection, project, signal)
     expect(observed.coverage).toMatchObject({
       selectedSources: 1,

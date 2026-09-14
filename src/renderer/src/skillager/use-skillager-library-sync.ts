@@ -14,7 +14,6 @@ interface Options {
   readonly connection?: SkillagerConnection
   readonly root?: HostPath
   readonly agent: SkillagerAgent
-  readonly activeId?: string
   readonly visible: boolean
   readonly onCompleted: () => void
 }
@@ -45,7 +44,7 @@ export function useSkillagerLibrarySync(options: Options) {
     options.root,
     options.agent,
   ])
-  const context = JSON.stringify([identity, options.visible, options.activeId])
+  const context = JSON.stringify([identity, options.visible])
   const contextRef = useRef(context)
   contextRef.current = context
   const release = useCallback(() => {

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { SkillagerLibrarySyncCommands } from '../src/main/skillager/skillager-library-sync-commands'
 import { SkillagerProcess } from '../src/main/skillager/skillager-process'
 import { SkillagerError } from '../src/main/skillager/skillager-port'
+import type { ExecResult } from '../src/shared/fs-types'
 import type { ExecOptions } from '../src/main/project-host/project-host'
 import { asHostId, hostPath, localPath } from '../src/shared/host-path'
 import {
@@ -12,7 +13,11 @@ import {
 } from './fixtures/skillager-sync-fixture'
 function fixture() {
   const exec = vi.fn(
-    (_command: string, args: readonly string[], _options?: ExecOptions) =>
+    (
+      _command: string,
+      args: readonly string[],
+      _options?: ExecOptions,
+    ): Promise<ExecResult> =>
       Promise.resolve({
         code: 0,
         signal: null,
@@ -39,6 +44,73 @@ function fixture() {
   }
 }
 describe('selected public sync commands', () => {
+  it('reports an unsupported old CLI status without submitting or retrying a write', async () => {
+    const f = fixture()
+    f.exec.mockResolvedValueOnce({
+      code: 2,
+      signal: null,
+      stdout: '',
+      stderr: 'PRIVATE usage diagnostic',
+    })
+    const attempt = f.commands.status(syncSelection, syncContext, f.signal)
+    await expect(attempt).rejects.toMatchObject({ reason: 'unsupported' })
+    await expect(attempt).rejects.not.toThrow('PRIVATE')
+    expect(f.exec).toHaveBeenCalledOnce()
+    expect(f.exec.mock.calls[0]![1]).toContain('--status')
+    expect(f.exec.mock.calls.some(([, args]) => args.includes('--approved'))).toBe(false)
+    expect(f.submitted).not.toHaveBeenCalled()
+  })
+  it.each([1, null])(
+    'classifies unstructured status exit %s before parsing output',
+    async (code) => {
+      const f = fixture()
+      f.exec.mockResolvedValueOnce({
+        code,
+        signal: null,
+        stdout: 'not-json',
+        stderr: 'PRIVATE crash diagnostic',
+      })
+      const attempt = f.commands.status(syncSelection, syncContext, f.signal)
+      await expect(attempt).rejects.toMatchObject({ reason: 'command-failed' })
+      await expect(attempt).rejects.not.toThrow('PRIVATE')
+      expect(f.exec).toHaveBeenCalledOnce()
+      expect(f.submitted).not.toHaveBeenCalled()
+    },
+  )
+  it('retains an actual structured exit-two refusal as public status metadata', async () => {
+    const f = fixture(),
+      raw = syncStatusRaw()
+    f.exec.mockResolvedValueOnce({
+      code: 2,
+      signal: null,
+      stderr: 'PRIVATE',
+      stdout: JSON.stringify({
+        ...raw,
+        status: 'refused',
+        reason_code: 'library-changed',
+        library: null,
+        context: null,
+        lineages: [],
+        candidates: [],
+        coverage: {
+          discovered_origins: 0,
+          approved_origins: 0,
+          selected_sources: 0,
+          processed_sources: 0,
+          complete: false,
+          discovery_error_count: 0,
+        },
+      }),
+    })
+    expect(await f.commands.status(syncSelection, syncContext, f.signal)).toMatchObject({
+      status: 'refused',
+      reason: 'library-changed',
+      library: undefined,
+      context: undefined,
+    })
+    expect(f.submitted).not.toHaveBeenCalled()
+  })
+
   it('binds exact UUID/root/catalog/local cwd and existing finite process output', async () => {
     const f = fixture()
     await f.commands.status(syncSelection, syncContext, f.signal)
