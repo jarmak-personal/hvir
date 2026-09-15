@@ -40,9 +40,15 @@ export async function verifySkillagerOnboarding(
   await click(win, '.skillager-sidebar .skillager-git-choice input')
   await inspect(
     win,
-    `if (document.querySelector('.skillager-sidebar .skillager-git-choice input').checked) throw new Error('Explicit no-Git choice failed');`,
+    `try { await wait(() => document.querySelector('.skillager-sidebar .skillager-git-choice input')?.checked === false); }
+    catch { const input = document.querySelector('.skillager-sidebar .skillager-git-choice input'); throw new Error('Explicit no-Git choice failed: ' + JSON.stringify({ checked: input?.checked === true, disabled: input?.disabled === true, focused: document.hasFocus(), visible: document.visibilityState === 'visible' })); }`,
   )
   await click(win, '.skillager-sidebar .skillager-git-choice input')
+  await inspect(
+    win,
+    `try { await wait(() => document.querySelector('.skillager-sidebar .skillager-git-choice input')?.checked === true); }
+    catch { const input = document.querySelector('.skillager-sidebar .skillager-git-choice input'); throw new Error('Explicit Git choice failed: ' + JSON.stringify({ checked: input?.checked === true, disabled: input?.disabled === true, focused: document.hasFocus(), visible: document.visibilityState === 'visible' })); }`,
+  )
   await click(win, '.skillager-sidebar .skillager-library-setup > button:last-of-type')
   await inspect(
     win,
