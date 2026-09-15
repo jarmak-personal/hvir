@@ -10,6 +10,15 @@ export async function verifySkillagerQuietRefresh(
   win: BrowserWindow,
   holdNext: ReturnType<typeof skillagerObservationFixture>['holdNext'],
 ): Promise<void> {
+  const visibleRow = `
+    const visibleRow = (tree) => {
+      const bounds = tree.getBoundingClientRect();
+      return [...tree.querySelectorAll('[role=treeitem]')].find((row) => {
+        const at = row.getBoundingClientRect();
+        return at.height > 0 && at.top >= bounds.top && at.bottom <= bounds.bottom;
+      });
+    };
+  `
   for (const [kind, title] of [
     ['library', 'Your library'],
     ['project', 'In this project'],
@@ -29,7 +38,8 @@ export async function verifySkillagerQuietRefresh(
         if (tree.clientHeight <= 0 || tree.scrollHeight <= tree.clientHeight) throw Error('Quiet refresh requires an overflowing visible tree');
         tree.scrollTop = Math.min(400, tree.scrollHeight - tree.clientHeight);
         if (tree.scrollTop <= 0) throw Error('Quiet refresh requires a nonzero scroll position');
-        await wait(() => tree.querySelector('[role=treeitem]'));
+        ${visibleRow}
+        await wait(() => visibleRow(tree));
         window.__skillagerQuiet = {
           tree, top: tree.scrollTop, height: tree.clientHeight, range: tree.scrollHeight,
           y: tree.getBoundingClientRect().top,
@@ -42,21 +52,29 @@ export async function verifySkillagerQuietRefresh(
       await click(win, `${selector} .skillager-section-refresh`)
       if (!(await held.entered))
         throw Error('Quiet refresh did not enter its bounded CLI hold')
-      const unchanged = `
+      const unchanged = (phase: string): string => `{
         const previous = window.__skillagerQuiet;
         const section = document.querySelector('${selector}'), tree = section.querySelector('[role=tree]');
-        if (tree !== previous.tree || tree.scrollTop !== previous.top || tree.clientHeight !== previous.height || tree.scrollHeight !== previous.range || tree.getBoundingClientRect().top !== previous.y || section.querySelector('header small').textContent !== previous.count)
-          throw Error('Metadata refresh changed tree identity, geometry, scroll or count');
+        const expected = { sameTree: true, top: previous.top, height: previous.height, range: previous.range, y: previous.y, count: Number(previous.count) };
+        const observed = { sameTree: tree === previous.tree, top: tree?.scrollTop, height: tree?.clientHeight, range: tree?.scrollHeight, y: tree?.getBoundingClientRect().top, count: Number(section.querySelector('header small').textContent) };
+        if (Object.keys(expected).some((field) => expected[field] !== observed[field]))
+          throw Error('Quiet refresh ${kind}/${phase} geometry mismatch: ' + JSON.stringify({ expected, observed }));
         if (document.querySelector('.skillager-project-setup')?.open !== previous.setup || document.querySelector('.skillager-tab.active') !== previous.selected || previous.selected.getAttribute('aria-selected') !== 'true' || previous.selected.querySelector('.tab-main').title !== previous.title)
-          throw Error('Metadata refresh changed setup disclosure or selection');
-      `
+          throw Error('Quiet refresh ${kind}/${phase} changed setup disclosure or selection');
+      }`
       await inspect(
         win,
         `
         await wait(() => document.querySelector('${selector} header [aria-busy=true]'));
-        ${unchanged}
-        const row = tree.querySelector('[role=treeitem]'); row.focus();
+        ${unchanged('pending')}
+        const tree = document.querySelector('${selector} [role=tree]');
+        ${visibleRow}
+        const row = visibleRow(tree);
+        if (!row) throw Error('Quiet refresh requires a fully visible row for focus');
+        row.focus({ preventScroll: true });
+        if (document.activeElement !== row) throw Error('Quiet refresh row did not receive focus');
         window.__skillagerQuiet.focused = row;
+        ${unchanged('focus')}
         if (tree.textContent.includes('Checking workspace copy')) throw Error('Checking replaced an observed row label');
       `,
       )
@@ -65,8 +83,8 @@ export async function verifySkillagerQuietRefresh(
         win,
         `
         await wait(() => document.querySelector('${selector} header [role=alert]'));
-        ${unchanged}
-        if (document.activeElement !== previous.focused) throw Error('Failed refresh displaced row focus');
+        ${unchanged('failed')}
+        if (document.activeElement !== window.__skillagerQuiet.focused) throw Error('Failed refresh displaced row focus');
       `,
       )
       await click(win, `${selector} .skillager-section-refresh`)
@@ -74,7 +92,7 @@ export async function verifySkillagerQuietRefresh(
         win,
         `
         await wait(() => !document.querySelector('${selector} header [role=alert]') && !document.querySelector('${selector} .skillager-section-refresh').disabled);
-        ${unchanged}
+        ${unchanged('retry')}
       `,
       )
     } finally {
