@@ -109,8 +109,12 @@ export class SkillagerCli implements SkillagerCliPort, SkillagerSetupCliPort {
     signal: AbortSignal,
   ): Promise<void> {
     return this.operate(async () => {
-      await this.validateLocal(selection, signal)
-      if (!source.expectedHash) return
+      if (!source.expectedHash) {
+        if (source.kind === 'library') await this.validateLocal(selection, signal)
+        return
+      }
+      // Library access already checked registration before reading the file.
+      if (source.kind !== 'library') await this.validateLocal(selection, signal)
       if (
         source.path.hostId !== 'local' ||
         (source.kind !== 'library' && workspace.hostId !== 'local')
@@ -126,9 +130,10 @@ export class SkillagerCli implements SkillagerCliPort, SkillagerSetupCliPort {
           selection.catalog.path,
           ...(source.kind === 'library' ? ['--state-dir', selection.catalog.path] : []),
           'show',
-          source.skillId,
           '--content',
           '--full-json',
+          '--',
+          source.skillId,
         ],
         {
           cwd: source.kind === 'library' ? this.context : workspace,

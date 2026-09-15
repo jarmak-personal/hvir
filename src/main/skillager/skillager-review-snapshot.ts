@@ -10,6 +10,7 @@ import {
   UnsupportedSourceError,
 } from '../project-file-operations/verified-project-copy-manifest'
 import { SkillagerError } from './skillager-port'
+import { readSkillagerFileBytes } from './skillager-file-read'
 
 export type SkillagerSnapshotHost = Pick<
   ProjectHost,
@@ -87,34 +88,22 @@ export async function captureSkillagerTree(
     const from = joinHostPath(source, ...parts)
     const to = joinHostPath(destination, ...parts)
     await confined(from)
-    const before = await host.stat(from)
-    if (before.type !== (entry.type === 'directory' ? 'dir' : 'file'))
-      throw new SkillagerError('stale-review', 'The skill tree changed. Review it again.')
     if (entry.type === 'directory') {
+      if ((await host.stat(from)).type !== 'dir')
+        throw new SkillagerError(
+          'stale-review',
+          'The skill tree changed. Review it again.',
+        )
       await host.createDirectoryExclusive(to, { mode: 0o755, signal })
       continue
     }
-    let size = 0
-    const chunks: Uint8Array[] = []
-    for await (const chunk of read(from, signal)) {
-      size += chunk.byteLength
-      if (size > entry.size || size > SKILLAGER_REVIEW_FILE_BYTES)
-        throw new SkillagerError(
-          'output-limit',
-          'The skill file changed or exceeds the review limit.',
-        )
-      chunks.push(Uint8Array.from(chunk))
-    }
-    await confined(from)
-    const after = await host.stat(from)
-    if (
-      size !== entry.size ||
-      after.type !== 'file' ||
-      before.mode !== after.mode ||
-      before.mtimeMs !== after.mtimeMs
+    const captured = await readSkillagerFileBytes(
+      { stat: (path) => host.stat(path), readFileChunks: read },
+      from,
+      signal,
+      { expectedSize: entry.size },
     )
-      throw new SkillagerError('stale-review', 'The skill tree changed. Review it again.')
-    const captured = Buffer.concat(chunks)
+    await confined(from)
     bytes.set(entry.relativePath, captured)
     await transfer.writeFileChunksExclusive(
       to,

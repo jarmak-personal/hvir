@@ -24,7 +24,12 @@ it.runIf(Boolean(executable))(
     const root = await realpath(await mkdtemp(join(tmpdir(), 'hvir-document-cli-')))
     const environment = skillagerFixtureEnvironment(localPath(root), process.env)
     const calls: string[][] = []
-    const bodyCalls: { args: readonly string[]; cwd?: HostPath }[] = []
+    const bodyCalls: {
+      args: readonly string[]
+      cwd?: HostPath
+      code: number | null
+      missingLiteralId: boolean
+    }[] = []
     class FixtureHost extends LocalHost {
       override defaultShell() {
         return Promise.resolve('/bin/sh')
@@ -36,14 +41,20 @@ it.runIf(Boolean(executable))(
       ) {
         if (command === executable) {
           calls.push([...args])
-          if (args.includes('show') && args.includes('--content'))
-            bodyCalls.push({ args, cwd: options.cwd })
         }
-        return super.exec(command, args, {
+        const result = await super.exec(command, args, {
           ...options,
           unsetEnv: environment.unsetEnv,
           env: { ...environment.env, ...options.env },
         })
+        if (command === executable && args.includes('show') && args.includes('--content'))
+          bodyCalls.push({
+            args,
+            cwd: options.cwd,
+            code: result.code,
+            missingLiteralId: result.stderr.includes('skill not found: --help'),
+          })
+        return result
       }
     }
     const host = new FixtureHost(),
@@ -192,6 +203,31 @@ it.runIf(Boolean(executable))(
       ).toBe(false)
       await reviews.releaseDocument(owner, pending.contentId)
     }
+    // Real argparse must treat this as an unknown literal ID, not the successful help action.
+    const parserRoot = localPath(join(root, 'project', 'parser-fixture'))
+    await expect(
+      cli.validateDocument(
+        selection,
+        {
+          kind: 'project-original',
+          skillId: '--help',
+          root: parserRoot,
+          path: joinHostPath(parserRoot, 'SKILL.md'),
+          expectedHash: 'a'.repeat(64),
+        },
+        localPath(join(root, 'project')),
+        Buffer.from('# Current file'),
+        signal,
+      ),
+    ).rejects.toMatchObject({ reason: 'stale-review' })
+    expect(bodyCalls.at(-1)?.args.slice(-5)).toEqual([
+      'show',
+      '--content',
+      '--full-json',
+      '--',
+      '--help',
+    ])
+    expect(bodyCalls.at(-1)).toMatchObject({ code: 2, missingLiteralId: true })
     if (probe.searchView) {
       const project = localPath(join(root, 'project'))
       await writeFile(
