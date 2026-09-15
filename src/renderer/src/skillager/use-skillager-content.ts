@@ -195,7 +195,7 @@ export function useSkillagerContent(options: Options) {
           )
         return result
       } catch {
-        if (current(owned) && documentEntry === undefined)
+        if (current(owned) && serial === owned.serial && documentEntry === undefined)
           setState((value) => ({
             ...value,
             loading: false,

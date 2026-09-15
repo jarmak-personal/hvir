@@ -98,6 +98,38 @@ it.each(['full', 'stub', 'router-member'] as const)(
     expect(canonical).not.toHaveProperty('search')
   },
 )
+it.each([
+  ['native', 'full'],
+  ['stub', 'stub'],
+  ['router', 'router'],
+  ['future-mode', undefined],
+] as const)(
+  'reads only the recognized installed mode %s with its actual source label',
+  (mode, kind) => {
+    const target = joinHostPath(workspace, '.claude/skills/example')
+    const selected = {
+      ...row,
+      workspace: {
+        id: 'copy',
+        target,
+        agent: 'claude' as const,
+        mode,
+        status: 'current',
+      },
+    }
+    const content = skillagerContentSelection(selected, library, workspace)
+    if (kind === undefined) expect(content).toBeUndefined()
+    else {
+      expect(content).toMatchObject({
+        kind,
+        root: target,
+        path: joinHostPath(target, 'SKILL.md'),
+        agent: 'claude',
+      })
+      expect(content?.expectedHash).toBeUndefined()
+    }
+  },
+)
 it('keeps local library and actual SSH occurrence grants distinct and excludes arbitrary external roots', () => {
   const ssh = hostPath(asHostId('remote'), '/work')
   expect(skillagerContentSelection(row, library, ssh)?.path.hostId).toBe('local')

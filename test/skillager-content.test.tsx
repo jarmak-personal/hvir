@@ -9,7 +9,10 @@ import {
 import { skillagerMetadataKey } from '../src/renderer/src/skillager/skillager-model'
 import { localPath } from '../src/shared/host-path'
 import type { SkillagerMetadata } from '../src/shared/skillager'
-import type { SkillagerContentRequest } from '../src/shared/skillager-content'
+import type {
+  SkillagerContentRequest,
+  SkillagerContentFileRequest,
+} from '../src/shared/skillager-content'
 const library = {
   id: 'library',
   root: localPath('/library'),
@@ -222,6 +225,65 @@ it('offers a separate explicit current-file read after stale accepted selection 
     ])
     expect(f.node.textContent).toBe('body')
     expect(f.current.state.currentFile).toBe(true)
+  } finally {
+    await f.dispose()
+  }
+})
+it('ignores an earlier rejected supporting-file request while a newer file is loading', async () => {
+  const f = fixture()
+  let rejectEarlier!: (error: Error) => void
+  let finishNewer!: (value: unknown) => void
+  let earlier!: Promise<unknown>
+  let newer!: Promise<unknown>
+  try {
+    f.invoke.mockImplementation((channel, request) => {
+      if (channel === 'skillager:open-document')
+        return Promise.resolve(f.open(request as SkillagerContentRequest))
+      if (channel === 'skillager:read-document')
+        return new Promise((resolve, reject) => {
+          if ((request as SkillagerContentFileRequest).entry === 'earlier.md')
+            rejectEarlier = reject
+          else finishNewer = resolve
+        })
+      return Promise.resolve(undefined)
+    })
+    await f.render()
+    await act(async () => {
+      f.current.activate(row)
+      await Promise.resolve()
+    })
+    await act(async () => {
+      earlier = f.current.read('earlier.md')
+      await Promise.resolve()
+    })
+    await act(async () => {
+      newer = f.current.read('newer.md')
+      await Promise.resolve()
+    })
+    expect(f.current.state.loading).toBe(true)
+    await act(async () => {
+      rejectEarlier(Error('Earlier transport rejected'))
+      await earlier
+    })
+    expect(f.current.state.loading).toBe(true)
+    expect(f.current.state.message).toBeUndefined()
+    expect(f.current.state.content?.entry).toBe('SKILL.md')
+    await act(async () => {
+      finishNewer({
+        ok: true,
+        value: {
+          entry: 'newer.md',
+          path: localPath('/library/skills/example/newer.md'),
+          size: 5,
+          text: 'newer',
+        },
+      })
+      await newer
+    })
+    expect(f.current.state.loading).toBe(false)
+    expect(f.current.state.message).toBeUndefined()
+    expect(f.current.state.content?.entry).toBe('newer.md')
+    expect(f.node.textContent).toBe('newer')
   } finally {
     await f.dispose()
   }

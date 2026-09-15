@@ -37,7 +37,9 @@ export function skillagerContentSelection(
         ? 'router'
         : copy.mode === 'stub'
           ? 'stub'
-          : 'full'
+          : copy.mode === 'native'
+            ? 'full'
+            : undefined
       : row.projectSkill
         ? 'project-original'
         : row.source.ownership === 'library'
