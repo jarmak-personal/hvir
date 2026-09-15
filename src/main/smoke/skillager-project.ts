@@ -26,7 +26,7 @@ export async function verifySkillagerProject(
       return action?.textContent === 'Set up in terminal' && !action.disabled;
     });
     const native = [...document.querySelectorAll('.skillager-row')].find((row) => row.textContent.includes('Project fixture 1'));
-    if (!native.textContent.includes('Original') || !native.textContent.includes('Blocked')) throw new Error('Native metadata lost original/blocked status');
+    if (!native.querySelector('[role=img][aria-label="Project original"]') || !native.querySelector('[role=img][aria-label="Codex"]') || !native.textContent.includes('Blocked')) throw new Error('Native metadata lost original/blocked status');
     native.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 40, clientY: 180 }));
     const menu = await wait(() => document.querySelector('[role=menu][aria-label="Skill actions for Project fixture 1"]'));
     const action = (label) => [...menu.querySelectorAll('[role=menuitem]')].find(item => item.textContent === label);
