@@ -3,13 +3,14 @@ import type { BrowserWindow } from 'electron'
 
 /** Production review/exposure owners and real Chromium; only the immediate CLI port is synthetic. */
 export async function verifySkillagerUpdate(win: BrowserWindow): Promise<void> {
-  const evaluate = (body: string) =>
+  const evaluate = <T = void>(body: string): Promise<T> =>
     win.webContents.executeJavaScript(`(async () => {
     const wait = (read) => new Promise((resolve, reject) => { const until = Date.now() + 30000; const poll = () => { const value = read(); if (value) return resolve(value); if (Date.now() > until) return reject(new Error('Workspace update condition timed out: ' + read.toString())); requestAnimationFrame(poll) }; poll() });
     const button = (scope, label) => [...document.querySelectorAll(scope + ' button')].find((item) => item.textContent.trim() === label);
+    const detail = (name) => [...document.querySelectorAll('.skillager-details dt')].find(item => item.textContent === name)?.nextElementSibling?.textContent.trim();
     const row = () => [...document.querySelectorAll('section[aria-label="In this project"] .skillager-row')].find((item) => item.querySelector('.skillager-name')?.textContent === 'Skill 0');
     ${body}
-  })()`)
+  })()`) as Promise<T>
   await evaluate(`
     const entry = await wait(() => document.querySelector('section[aria-label="In this project"] [role=treeitem]')); entry.focus(); entry.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
     await wait(() => row()?.textContent.includes('Workspace copy behind'));
@@ -18,9 +19,12 @@ export async function verifySkillagerUpdate(win: BrowserWindow): Promise<void> {
     if (document.querySelector('.skillager-secondary').open) throw Error('Ordinary copy selection expanded metadata implicitly');
   `)
   await clickSkillagerDetailControl(win, '.skillager-secondary > summary')
-  await evaluate(`
+  const selected = await evaluate<{ key: string; destination: string }>(`
     await wait(() => button('.skillager-review', 'Review workspace update'));
     if (document.querySelector('.skillager-details').textContent.includes('Preview workspace update')) throw new Error('Update preview appeared before explicit update review');
+    const destination = detail('Destination'), key = row().dataset.skillKey;
+    if (!key || !destination?.startsWith('local:') || !destination.endsWith('/.agents/skills/lib-skill-0')) throw Error('Update selection lost its exact local occurrence');
+    return { key, destination };
   `)
   await clickSkillagerDetailControl(
     win,
@@ -46,8 +50,9 @@ export async function verifySkillagerUpdate(win: BrowserWindow): Promise<void> {
     button('.skillager-exposure-dialog', 'Confirm exact changes').click();
     await wait(() => document.querySelector('.skillager-exposure-dialog [role=status]')?.textContent.includes('Updated lib/skill-0 for codex'));
     button('.skillager-exposure-dialog', 'Close').click();
-    await wait(() => row()?.textContent.includes('Current'));
-    if (row().textContent.includes('Workspace copy behind')) throw new Error('Completed update retained obsolete badge');
+    await wait(() => document.querySelector('section[aria-label="In this project"] .skillager-section-refresh')?.getAttribute('aria-busy') === 'false' && row()?.dataset.skillKey === ${JSON.stringify(selected.key)} &&
+      row().querySelector('[role=img][aria-label="Installed Full"]') && row().querySelector('[role=img][aria-label="Codex"]') &&
+      !row().querySelector('.skillager-status-badge') && detail('Workspace copy') === 'Codex · Full · Current' && detail('Destination') === ${JSON.stringify(selected.destination)});
     document.querySelector('.skillager-tab.active .tab-close').click();
     await wait(() => !document.querySelector('.skillager-details'));
     row().click();

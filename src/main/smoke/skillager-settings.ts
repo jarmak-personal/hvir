@@ -49,7 +49,7 @@ export async function disableAndReenableSkillagerInSettings(
     await assertDisabled(win)
     await clickSkillagerControl(win, toggle)
     await waitForConnectionChoice(win)
-    await clickSkillagerControl(win, '.skillager-settings > details > summary')
+    await clickSkillagerControl(win, '.skillager-executable-details > summary')
     await inspectSkillagerControls(
       win,
       `
@@ -99,7 +99,7 @@ async function assertDisabled(win: BrowserWindow): Promise<void> {
     `
     await wait(() => !document.querySelector(${JSON.stringify(toggle)}).checked);
     await wait(() => !document.querySelector('.skillager-sidebar, .skillager-tab, .skillager-details, .skillager-review, .skillager-exposure-dialog'));
-    if (document.querySelector('.skillager-settings').textContent.trim() !== 'Enable Skillager' ||
+    if (document.querySelector('.skillager-settings').textContent.trim() !== 'SkillagerEnable Skillager' ||
         document.querySelectorAll('.skillager-settings input, .skillager-settings button').length !== 1 ||
         [...document.querySelectorAll('.rail-nav button')].some((button) => button.textContent.trim() === 'Skills'))
       throw new Error('Disabled Skillager left controls, status, or navigation');

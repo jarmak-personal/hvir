@@ -5,13 +5,17 @@ export async function verifySkillagerExposure(win: BrowserWindow): Promise<void>
     win.webContents.executeJavaScript(`(async () => {
     const wait = (read) => new Promise((resolve, reject) => { const until = Date.now() + 30000; const poll = () => { const value = read(); if (value) return resolve(value); if (Date.now() > until) return reject(new Error('Exposure readiness timed out: ' + read.toString() + '; ' + document.querySelector('.skillager-exposure-dialog')?.textContent)); requestAnimationFrame(poll) }; poll() });
     const button = (scope, label) => [...document.querySelectorAll(scope + ' button')].find((item) => item.textContent.trim() === label);
+    const detail = (name) => [...document.querySelectorAll('.skillager-details dt')].find(item => item.textContent === name)?.nextElementSibling?.textContent.trim();
     const choose = (label, index) => { const field = document.querySelector('select[aria-label="' + label + '"]'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(field, field.options[index].value); field.dispatchEvent(new Event('change', { bubbles: true })); };
     let checkpoint = 'start';
     try { ${body} } catch (error) { throw new Error('Exposure ' + checkpoint + ': ' + error.message); }
   })()`)
   const exposureKey = await evaluate(`
     const back = button('.skillager-sidebar', 'Clear search'); if (back) back.click();
-    const row = await wait(() => [...document.querySelectorAll('section[aria-label="In this project"] .skillager-row')].find((item) => item.textContent.includes('Full')));
+    const row = await wait(() => [...document.querySelectorAll('section[aria-label="In this project"] .skillager-row')].find((item) => item.querySelector('.skillager-name')?.textContent === 'Skill 0' && item.querySelector('[role=img][aria-label="Installed Full"]') && item.querySelector('[role=img][aria-label="Codex"]')));
+    row.click();
+    await wait(() => detail('Workspace copy') === 'Codex · Full · Current');
+    if (!detail('Destination')?.startsWith('local:') || !detail('Destination').endsWith('/.agents/skills/lib-skill-0')) throw Error('Mode change lost its selected local occurrence');
     row.querySelector('.skillager-name').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 30, clientY: 100 }));
     await wait(() => button('[role=menu]', 'Use as stub…'));
     await wait(() => document.activeElement?.getAttribute('role') === 'menuitem' && document.hasFocus());
@@ -31,6 +35,7 @@ export async function verifySkillagerExposure(win: BrowserWindow): Promise<void>
   })
   win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'F10', modifiers: ['shift'] })
   await evaluate(`
+    const destination = detail('Destination');
     await wait(() => button('[role=menu]', 'Use as stub…'));
     button('[role=menu]', 'Use as stub…').click();
     await wait(() => button('.skillager-exposure-dialog', 'Preview changes'));
@@ -39,9 +44,10 @@ export async function verifySkillagerExposure(win: BrowserWindow): Promise<void>
     const text = document.querySelector('.skillager-exposure-dialog').textContent;
     if (!text.includes('support.md') || !text.includes('skillager.materialized.yaml') || !text.includes('Incoming accepted source version') || text.includes('fixture-private-exposure-token')) throw new Error('Exposure effect/identity disclosure failed');
     button('.skillager-exposure-dialog', 'Confirm exact changes').click();
+    await wait(() => document.querySelector('.skillager-exposure-dialog [role=status]')?.textContent.includes('Changed lib/skill-0 to Stub at ' + destination + '.'));
     await wait(() => button('.skillager-exposure-dialog', 'Close'));
     button('.skillager-exposure-dialog', 'Close').click();
-    const changed = await wait(() => [...document.querySelectorAll('section[aria-label="In this project"] .skillager-row')].find((item) => item.dataset.skillKey === ${JSON.stringify(exposureKey)} && item.textContent.includes('Stub')));
+    const changed = await wait(() => document.querySelector('section[aria-label="In this project"] .skillager-section-refresh')?.getAttribute('aria-busy') === 'false' && [...document.querySelectorAll('section[aria-label="In this project"] .skillager-row')].find((item) => item.dataset.skillKey === ${JSON.stringify(exposureKey)} && item.querySelector('[role=img][aria-label="Installed Stub"]') && item.querySelector('[role=img][aria-label="Codex"]') && !item.querySelector('.skillager-status-badge') && detail('Workspace copy') === 'Codex · stub · Current' && detail('Destination') === destination));
     checkpoint = 'remove menu';
     changed.closest('.skillager-action-row').querySelector('.skillager-actions-trigger').click();
     await wait(() => button('[role=menu]', 'Remove from this project…'));

@@ -293,3 +293,65 @@ it('uses the search occurrence height for range and End navigation while keeping
   expect(tree().contains(document.activeElement)).toBe(true)
   expect(mount.querySelector('.skillager-search-context')).toBeNull()
 })
+
+it('keeps normal occurrences quiet and gives context glyphs accessible names without hiding exceptions', () => {
+  const original: SkillagerMetadata = {
+    ...source,
+    id: 'project/original',
+    source: { type: 'project', ownership: 'external' },
+    projectSkill: {
+      path: localPath('/project/.claude/skills/original'),
+      agent: 'claude',
+      managed: false,
+    },
+  }
+  const copy: SkillagerMetadata = {
+    ...source,
+    workspace: {
+      id: 'copy',
+      agent: 'codex',
+      skillId: source.id,
+      sourceLibraryId: 'library',
+      target: localPath('/project/.agents/skills/guide'),
+      mode: 'native',
+      status: 'current',
+    },
+  }
+  render([source, original, copy])
+  const items = [...mount.querySelectorAll('[role="treeitem"]')]
+  expect(items[0]!.querySelector('.skillager-badges')?.textContent).toBe('')
+  expect(items[0]!.querySelector('[aria-label="Your library"]')).toBeNull()
+  expect(
+    items[1]!
+      .querySelector('[role="img"][aria-label="Claude Code"]')
+      ?.getAttribute('title'),
+  ).toBe('Claude Code')
+  expect(
+    items[1]!
+      .querySelector('[role="img"][aria-label="Project original"]')
+      ?.getAttribute('title'),
+  ).toBe('Project original')
+  expect(
+    items[2]!
+      .querySelector('[role="img"][aria-label="Installed Full"]')
+      ?.getAttribute('title'),
+  ).toBe('Installed Full')
+  expect(items[2]!.querySelector('.skillager-status-badge')).toBeNull()
+  expect(
+    mount.querySelectorAll(
+      '.skillager-icon[tabindex], .skillager-icon svg:not([focusable="false"])',
+    ),
+  ).toHaveLength(0)
+  render([{ ...copy, workspace: { ...copy.workspace!, status: 'local_edit' } }])
+  expect(entry().querySelector('.skillager-status-badge')?.textContent).toBe(
+    'Workspace copy modified',
+  )
+  render([{ ...copy, trust: 'pinned' }])
+  expect(entry().querySelector('.skillager-status-badge')?.textContent).toBe(
+    'Pinned source · update unavailable',
+  )
+  render([{ ...source, trust: 'discovered' }])
+  expect(entry().querySelector('.skillager-status-badge')?.textContent).toBe(
+    'Pending review',
+  )
+})

@@ -16,6 +16,7 @@ export async function verifySkillagerRemote(
     win.webContents.executeJavaScript(`(async () => {
     const wait = (read) => new Promise((resolve, reject) => { const until = Date.now() + 30000; const poll = () => { const value = read(); if (value) return resolve(value); if (Date.now() > until) return reject(new Error('Remote skill condition timed out: ' + read.toString() + '; ' + document.querySelector('.skillager-exposure-dialog')?.textContent)); requestAnimationFrame(poll) }; poll() });
     const button = (scope, label) => [...document.querySelectorAll(scope + ' button')].find((item) => item.textContent.trim() === label);
+    const detail = (name) => [...document.querySelectorAll('.skillager-details dt')].find(item => item.textContent === name)?.nextElementSibling?.textContent.trim();
     const choose = (label, value) => { const field = document.querySelector('select[aria-label="' + label + '"]'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(field, value); field.dispatchEvent(new Event('change', { bubbles: true })); };
     ${body}
   })()`)
@@ -45,6 +46,8 @@ export async function verifySkillagerRemote(
     const row = await wait(() => [...document.querySelectorAll('section[aria-label="In this project"] .skillager-row')].find((item) => item.querySelector('.skillager-name')?.textContent === 'Skill 0' && item.textContent.includes('Workspace copy behind')));
     row.click();
     await wait(() => button('.skillager-review', 'Review workspace update'));
+    const key = row.dataset.skillKey, destination = detail('Destination');
+    if (!key || destination !== 'smoke-remote:/srv/hvir/.agents/skills/lib-skill-0') throw Error('Remote update lost its exact selected occurrence');
     button('.skillager-review', 'Review workspace update').click();
     await wait(() => button('.skillager-review', 'Preview workspace update…'));
     await wait(() => document.querySelector('.skillager-review-content .cm-editor'));
@@ -54,9 +57,12 @@ export async function verifySkillagerRemote(
     await wait(() => button('.skillager-exposure-dialog', 'Confirm exact changes'));
     if (!document.querySelector('.skillager-exposure-dialog').textContent.includes('smoke-remote:/srv/hvir/.agents/skills/lib-skill-0')) throw new Error('Update lost exact remote destination');
     button('.skillager-exposure-dialog', 'Confirm exact changes').click();
+    await wait(() => document.querySelector('.skillager-exposure-dialog [role=status]')?.textContent.includes('Updated lib/skill-0 for codex'));
     await wait(() => button('.skillager-exposure-dialog', 'Close'));
     button('.skillager-exposure-dialog', 'Close').click();
-    const current = await wait(() => [...document.querySelectorAll('section[aria-label="In this project"] .skillager-row')].find((item) => item.querySelector('.skillager-name')?.textContent === 'Skill 0' && item.textContent.includes('Current')));
+    const current = await wait(() => document.querySelector('section[aria-label="In this project"] .skillager-section-refresh')?.getAttribute('aria-busy') === 'false' && [...document.querySelectorAll('section[aria-label="In this project"] .skillager-row')].find((item) => item.dataset.skillKey === key &&
+      item.querySelector('[role=img][aria-label="Installed Full"]') && item.querySelector('[role=img][aria-label="Codex"]') &&
+      !item.querySelector('.skillager-status-badge') && detail('Workspace copy') === 'Codex · Full · Current' && detail('Destination') === destination));
     current.parentElement.querySelector('.skillager-actions-trigger').click();
     await wait(() => button('[role=menu]', 'Remove from this project…'));
     if (!button('[role=menu]', 'Use as stub…').disabled) throw new Error('Remote mode change remained available');

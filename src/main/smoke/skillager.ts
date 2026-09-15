@@ -174,7 +174,7 @@ export async function verifySkillagerScenario(
       await wait(() => !document.querySelector('.skillager-details'));
     `)
     if (!process.env.HVIR_SKILLAGER_SMOKE_FIXTURE) {
-      await verifySkillagerProject(win, supervisor)
+      await verifySkillagerProject(win, supervisor, holdNextObservation)
       await verifySkillagerExpansionCapacity(win)
     }
     await disableAndReenableSkillagerInSettings(win)

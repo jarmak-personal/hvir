@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { SkillagerIcon } from './SkillagerIcon'
 import {
   SKILLAGER_AGENTS,
   skillagerAgentLabel,
@@ -39,7 +40,13 @@ export function SkillagerSearch({
         open={open}
         onToggle={(event) => setOpen(event.currentTarget.open)}
       >
-        <summary>Search</summary>
+        <summary>
+          <span className="skillager-chevron" aria-hidden="true">
+            {open ? '⌄' : '›'}
+          </span>
+          <span>Search</span>
+          <SkillagerIcon name="search" />
+        </summary>
         <form
           className="skillager-search"
           onSubmit={(event) => {
@@ -47,10 +54,10 @@ export function SkillagerSearch({
             void controller.submit()
           }}
         >
-          <label htmlFor="skillager-search-query">Search skills</label>
           <div className="skillager-query">
             <input
               id="skillager-search-query"
+              aria-label="Search skills"
               ref={input}
               type="search"
               value={controller.query}

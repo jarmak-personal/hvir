@@ -14,47 +14,53 @@ export function SkillagerSettings({
 }): ReactElement {
   const [executable, setExecutable] = useState('')
   return (
-    <div className="skillager-settings">
-      <label>
-        <input
-          type="checkbox"
-          checked={controller.enabled}
-          onChange={(event) =>
-            onSettings({ ...settings, skillagerEnabled: event.currentTarget.checked })
-          }
-        />{' '}
-        Enable Skillager
-      </label>
-      {controller.enabled ? (
-        <>
-          <p>
-            Uses your local Skillager installation. You manage installation and updates in
-            your terminal.
-          </p>
-          <SkillagerConnection controller={controller} />
-          <details>
-            <summary>Local executable</summary>
-            <label htmlFor="skillager-executable">
-              Local executable <span>(optional)</span>
-            </label>
-            <div className="skillager-executable">
-              <input
-                id="skillager-executable"
-                value={executable}
-                placeholder="Find skillager in your shell"
-                onChange={(event) => setExecutable(event.currentTarget.value)}
-              />
-              <button
-                type="button"
-                disabled={controller.probing}
-                onClick={() => void controller.check(executable)}
-              >
-                Check path
-              </button>
-            </div>
-          </details>
-        </>
-      ) : null}
+    <div className="skillager-settings settings-fields">
+      <div className="skillager-settings-field">
+        <span>Skillager</span>
+        <div className="settings-checkbox-copy">
+          <label className="settings-checkbox-control">
+            <input
+              id="skillager-enabled"
+              type="checkbox"
+              checked={controller.enabled}
+              onChange={(event) =>
+                onSettings({ ...settings, skillagerEnabled: event.currentTarget.checked })
+              }
+            />
+            Enable Skillager
+          </label>
+          {controller.enabled ? (
+            <>
+              <small>
+                Uses your local installation. You manage installation and updates in your
+                terminal.
+              </small>
+              <SkillagerConnection controller={controller} />
+              <details className="skillager-executable-details">
+                <summary>Local executable</summary>
+                <label htmlFor="skillager-executable">
+                  Local executable <span>(optional)</span>
+                </label>
+                <div className="skillager-executable">
+                  <input
+                    id="skillager-executable"
+                    value={executable}
+                    placeholder="Find skillager in your shell"
+                    onChange={(event) => setExecutable(event.currentTarget.value)}
+                  />
+                  <button
+                    type="button"
+                    disabled={controller.probing}
+                    onClick={() => void controller.check(executable)}
+                  >
+                    Check path
+                  </button>
+                </div>
+              </details>
+            </>
+          ) : null}
+        </div>
+      </div>
     </div>
   )
 }

@@ -1,5 +1,6 @@
 import type { BrowserWindow } from 'electron'
 import type { PtySupervisor } from '../pty/pty-supervisor'
+import type { skillagerObservationFixture } from './skillager-observation-fixture'
 import {
   captureSkillagerSidebar,
   selectSkillagerExecutable,
@@ -15,6 +16,7 @@ import {
 export async function verifySkillagerProject(
   win: BrowserWindow,
   supervisor: PtySupervisor,
+  holdNext: ReturnType<typeof skillagerObservationFixture>['holdNext'],
 ): Promise<void> {
   const ordinary = supervisor.list().map((terminal) => terminal.id)
   await connectFixture(win)
@@ -26,7 +28,7 @@ export async function verifySkillagerProject(
       return action?.textContent === 'Set up in terminal' && !action.disabled;
     });
     const native = [...document.querySelectorAll('.skillager-row')].find((row) => row.textContent.includes('Project fixture 1'));
-    if (!native.textContent.includes('Original') || !native.textContent.includes('Blocked')) throw new Error('Native metadata lost original/blocked status');
+    if (!native.querySelector('[role=img][aria-label="Project original"]') || !native.querySelector('[role=img][aria-label="Codex"]') || !native.textContent.includes('Blocked')) throw new Error('Native metadata lost original/blocked status');
     native.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 40, clientY: 180 }));
     const menu = await wait(() => document.querySelector('[role=menu][aria-label="Skill actions for Project fixture 1"]'));
     const action = (label) => [...menu.querySelectorAll('[role=menuitem]')].find(item => item.textContent === label);
@@ -40,11 +42,9 @@ export async function verifySkillagerProject(
   for (const type of ['keyDown', 'keyUp'] as const)
     win.webContents.sendInputEvent({ type, keyCode: 'Escape' })
   await inspect(win, `await wait(() => !document.querySelector('[role=menu]'));`)
-  await reveal(win, '.skillager-project-setup button')
-  await captureSkillagerSidebar(win, 'project-before')
-  const first = await launch(win, supervisor, new Set(ordinary))
+  const first = await launch(win, supervisor, new Set(ordinary), 'initial')
   await answer(win, supervisor, first, 'p')
-  await refresh(win)
+  await refresh(win, holdNext, 'after pause')
   await inspect(
     win,
     `await wait(() => {
@@ -53,14 +53,18 @@ export async function verifySkillagerProject(
     });
     if (!document.querySelector('.skillager-project-setup').textContent.includes('Working not installed')) throw new Error('Exit zero incorrectly established readiness');`,
   )
-  await reveal(win, '.skillager-project-setup button')
-  const second = await launch(win, supervisor, new Set([...ordinary, first]))
+  const second = await launch(
+    win,
+    supervisor,
+    new Set([...ordinary, first]),
+    'after pause',
+  )
   await openSkillagerIntegrations(win)
   await click(win, '.skillager-settings input[type=checkbox]')
   await inspect(
     win,
     `await wait(() => !document.querySelector('.skillager-sidebar, .skillager-tab, .skillager-details'));
-    if (document.querySelector('.skillager-settings').textContent.trim() !== 'Enable Skillager') throw new Error('Disabled project setup retained feature UI');`,
+    if (document.querySelector('.skillager-settings').textContent.trim() !== 'SkillagerEnable Skillager') throw new Error('Disabled project setup retained feature UI');`,
   )
   if (!supervisor.get(second))
     throw Error('Disabling killed the handed-off setup terminal')
@@ -78,7 +82,7 @@ export async function verifySkillagerProject(
     if (!document.querySelector('.skillager-project-setup button').disabled) throw new Error('Re-enable lost the running setup guard');`,
   )
   await answer(win, supervisor, second, 'r')
-  await refresh(win)
+  await refresh(win, holdNext, 'after ready answer')
   await inspect(
     win,
     `await wait(() => document.querySelector('.skillager-project-setup summary')?.textContent === 'Project setup…');
@@ -110,11 +114,26 @@ async function launch(
   win: BrowserWindow,
   supervisor: PtySupervisor,
   previous: ReadonlySet<string>,
+  phase: 'initial' | 'after pause',
 ): Promise<string> {
-  await click(win, '.skillager-project-setup button')
-  const id = await inspect<string>(
-    win,
-    `try { return await wait(() => {
+  try {
+    await inspect(
+      win,
+      `await wait(() => {
+      const section = document.querySelector('section[aria-label="In this project"]');
+      const action = section?.querySelector('.skillager-project-setup button');
+      return section?.querySelector('header small') &&
+        section.querySelector('.skillager-section-refresh')?.getAttribute('aria-busy') === 'false' &&
+        !section.querySelector('header [role=alert], header [role=status]') &&
+        action?.textContent === 'Set up in terminal' && !action.disabled;
+    });`,
+    )
+    await reveal(win, '.skillager-project-setup button')
+    if (phase === 'initial') await captureSkillagerSidebar(win, 'project-before')
+    await click(win, '.skillager-project-setup button')
+    const id = await inspect<string>(
+      win,
+      `try { return await wait(() => {
       const panel = [...document.querySelectorAll('.terminal-panel.visible')].find((item) => !${JSON.stringify([...previous])}.includes(item.dataset.terminalSession));
       return panel && /^pid [0-9]+$/.test(panel.dataset.terminalStatus) && panel.dataset.terminalSession;
     }); } catch {
@@ -124,15 +143,19 @@ async function launch(
         focused: document.hasFocus(),
       }));
     }`,
-  )
-  if (!supervisor.get(id))
-    throw Error('Setup terminal did not reach the ordinary supervisor')
-  await inspect(
-    win,
-    `await wait(() => document.querySelector('.skillager-project-setup button')?.textContent === 'Setup terminal running');
+    )
+    if (!supervisor.get(id))
+      throw Error('Setup terminal did not reach the ordinary supervisor')
+    await inspect(
+      win,
+      `await wait(() => document.querySelector('.skillager-project-setup button')?.textContent === 'Setup terminal running');
     if (!document.querySelector('.skillager-project-setup button').disabled) throw new Error('Setup allows duplicate interactive launches');`,
-  )
-  return id
+    )
+    return id
+  } catch (error) {
+    await diagnose(win, phase + ': launch')
+    throw error
+  }
 }
 
 async function answer(
@@ -172,14 +195,86 @@ async function answer(
   }
 }
 
-async function refresh(win: BrowserWindow): Promise<void> {
+async function refresh(
+  win: BrowserWindow,
+  holdNext: ReturnType<typeof skillagerObservationFixture>['holdNext'],
+  after: 'after pause' | 'after ready answer',
+): Promise<void> {
   const selector = 'button[aria-label="Refresh in this project"]'
-  await reveal(win, selector)
-  await inspect(
+  let phase = 'previous project observation'
+  let held: ReturnType<typeof holdNext> | undefined
+  try {
+    // The first handoff still has its renderer exit listener; re-enable revoked it.
+    if (after === 'after pause') {
+      phase = 'renderer exit'
+      await inspect(
+        win,
+        `await wait(() => document.querySelector('.skillager-project-setup button')?.textContent === 'Set up in terminal');`,
+      )
+    }
+    phase = 'previous project observation'
+    await inspect(
+      win,
+      `await wait(() => document.querySelector(${JSON.stringify(selector)})?.getAttribute('aria-busy') === 'false');`,
+    )
+    await reveal(win, selector)
+    held = holdNext('project')
+    phase = 'explicit refresh entered'
+    await click(win, selector)
+    if (!(await held.entered))
+      throw Error('Project refresh did not enter its bounded CLI hold')
+    phase = 'explicit refresh rendered pending'
+    await inspect(
+      win,
+      `await wait(() => document.querySelector(${JSON.stringify(selector)})?.getAttribute('aria-busy') === 'true');`,
+    )
+    held.release()
+    phase = 'explicit refresh settled'
+    await inspect(
+      win,
+      `await wait(() => {
+      const section = document.querySelector('section[aria-label="In this project"]');
+      return section?.querySelector('header small') &&
+        document.querySelector(${JSON.stringify(selector)})?.getAttribute('aria-busy') === 'false' &&
+        !section.querySelector('header [role=alert], header [role=status]');
+    });`,
+    )
+    console.log(
+      '[smoke] Skillager project setup ' +
+        after +
+        ': explicit project refresh entered, pending, and settled',
+    )
+  } catch (error) {
+    await diagnose(win, after + ': ' + phase)
+    throw error
+  } finally {
+    held?.release()
+  }
+}
+
+async function diagnose(win: BrowserWindow, phase: string): Promise<void> {
+  const state = await inspect(
     win,
-    `await wait(() => !document.querySelector(${JSON.stringify(selector)}).disabled);`,
-  )
-  await click(win, selector)
+    `
+    const setup = document.querySelector('.skillager-project-setup');
+    const action = setup?.querySelector('button');
+    return {
+      button: action?.textContent, disabled: action?.disabled, open: setup?.open,
+      workingMissing: setup?.textContent.includes('Working not installed'),
+      workingPresent: setup?.textContent.includes('Working installed'),
+      setupError: Boolean(setup?.querySelector('[role=alert]')),
+      lanes: ['In this project', 'Your library'].map((title) => {
+        const section = document.querySelector('section[aria-label="' + title + '"]');
+        return { title, observed: Boolean(section?.querySelector('header small')),
+          busy: section?.querySelector('.skillager-section-refresh')?.getAttribute('aria-busy'),
+          notice: section?.querySelector('.skillager-refresh-status')?.textContent,
+          error: Boolean(section?.querySelector('header [role=alert]')) };
+      }),
+      focused: document.hasFocus(),
+    };
+  `,
+  ).catch(() => ({ unavailable: true }))
+  console.error('[smoke] Skillager project setup ' + phase + ': ' + JSON.stringify(state))
 }
 
 async function reveal(win: BrowserWindow, selector: string): Promise<void> {
