@@ -170,6 +170,14 @@ it('retains the bounded tree, focus, expanded copies and last check through peri
   await connect()
   const libraryTree = tree(),
     projectTree = tree('In this project')
+  const heading = section('Your library').querySelector('.skillager-section-heading')!
+  expect(heading.getAttribute('aria-label')).toBe(
+    `Your library, ${current.libraryRows.length} skills`,
+  )
+  expect(heading.getAttribute('title')).toBe('Your library')
+  expect(heading.querySelector('.skillager-section-title')?.textContent).toBe(
+    'Your library',
+  )
   act(() => {
     libraryTree.querySelector<HTMLButtonElement>('[role="treeitem"]')!.focus()
     document.activeElement!.dispatchEvent(

@@ -65,10 +65,14 @@ export function SkillagerExplorer({
       <header className="skillager-section-header">
         <button
           type="button"
+          className="skillager-section-heading"
           aria-expanded={expanded}
+          aria-label={observed ? `${title}, ${rows.length} skills` : title}
+          title={title}
           onClick={() => onExpanded(!expanded)}
         >
-          <span aria-hidden="true">{expanded ? '⌄' : '›'}</span> {title}
+          <span aria-hidden="true">{expanded ? '⌄' : '›'}</span>
+          <span className="skillager-section-title">{title}</span>
           {observed ? <small>{rows.length}</small> : null}
         </button>
         {actions}

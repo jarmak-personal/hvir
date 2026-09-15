@@ -10,6 +10,47 @@ export async function verifySkillagerQuietRefresh(
   win: BrowserWindow,
   holdNext: ReturnType<typeof skillagerObservationFixture>['holdNext'],
 ): Promise<void> {
+  await verifyRefreshAtCurrentSize(win, holdNext)
+  // Exact presentation inputs exercise the supported rail/scale boundary, not Settings input.
+  const original = await inspect<{ track: string; scale: string }>(
+    win,
+    `
+    return {
+      track: document.querySelector('.workbench').style.getPropertyValue('--tree-track'),
+      scale: document.documentElement.style.getPropertyValue('--hvir-interface-scale'),
+    };
+  `,
+  )
+  try {
+    await inspect(
+      win,
+      `
+      document.querySelector('.workbench').style.setProperty('--tree-track', '160px');
+      document.documentElement.style.setProperty('--hvir-interface-scale', '1.5');
+      await wait(() => document.querySelector('.tree-panel').getBoundingClientRect().width === 160 &&
+        getComputedStyle(document.querySelector('.skillager-sidebar')).fontSize === '18px');
+    `,
+    )
+    await verifyRefreshAtCurrentSize(win, holdNext)
+  } finally {
+    if (!win.isDestroyed())
+      await inspect(
+        win,
+        `
+      document.querySelector('.workbench').style.setProperty('--tree-track', ${JSON.stringify(original.track)});
+      document.documentElement.style.setProperty('--hvir-interface-scale', ${JSON.stringify(original.scale)});
+    `,
+      )
+  }
+  console.log(
+    '[smoke] Skills quiet refresh OK (held library/project reads; fixed tree geometry/count/scroll/selection; retained failure and focus; explicit retry; unchanged setup disclosure; original layout and 160px rail/150% text through restored fixture presentation inputs)',
+  )
+}
+
+async function verifyRefreshAtCurrentSize(
+  win: BrowserWindow,
+  holdNext: ReturnType<typeof skillagerObservationFixture>['holdNext'],
+): Promise<void> {
   const visibleRow = `
     const visibleRow = (tree) => {
       const bounds = tree.getBoundingClientRect();
@@ -59,6 +100,15 @@ export async function verifySkillagerQuietRefresh(
         const observed = { sameTree: tree === previous.tree, top: tree?.scrollTop, height: tree?.clientHeight, range: tree?.scrollHeight, y: tree?.getBoundingClientRect().top, count: Number(section.querySelector('header small').textContent) };
         if (Object.keys(expected).some((field) => expected[field] !== observed[field]))
           throw Error('Quiet refresh ${kind}/${phase} geometry mismatch: ' + JSON.stringify({ expected, observed }));
+        const header = section.querySelector('header'), bounds = header.getBoundingClientRect();
+        for (const control of header.querySelectorAll('button, small')) {
+          const at = control.getBoundingClientRect(), hit = document.elementFromPoint(at.left + at.width / 2, at.top + at.height / 2);
+          if (at.width <= 0 || at.height <= 0 || at.left < bounds.left || at.right > bounds.right || at.top < bounds.top || at.bottom > bounds.bottom || !control.contains(hit))
+            throw Error('Quiet refresh ${kind}/${phase} header control is clipped or unreachable: ' + JSON.stringify({ width: at.width, height: at.height, inside: at.left >= bounds.left && at.right <= bounds.right && at.top >= bounds.top && at.bottom <= bounds.bottom, hit: control.contains(hit) }));
+        }
+        const notice = header.querySelector('.skillager-refresh-status');
+        if (notice.textContent && (notice.getBoundingClientRect().width <= 0 || !notice.getAttribute('aria-label') || !notice.title))
+          throw Error('Quiet refresh ${kind}/${phase} lost its visible or accessible notice');
         if (document.querySelector('.skillager-project-setup')?.open !== previous.setup || document.querySelector('.skillager-tab.active') !== previous.selected || previous.selected.getAttribute('aria-selected') !== 'true' || previous.selected.querySelector('.tab-main').title !== previous.title)
           throw Error('Quiet refresh ${kind}/${phase} changed setup disclosure or selection');
       }`
@@ -100,7 +150,4 @@ export async function verifySkillagerQuietRefresh(
       if (!win.isDestroyed()) await inspect(win, 'delete window.__skillagerQuiet;')
     }
   }
-  console.log(
-    '[smoke] Skills quiet refresh OK (held library/project reads; fixed tree geometry/count/scroll/selection; retained failure and focus; explicit retry; unchanged setup disclosure)',
-  )
 }
