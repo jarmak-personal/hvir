@@ -355,13 +355,22 @@
 .skillager-connection code {
   user-select: text;
 }
-.skillager-settings input[type='checkbox'] {
+.settings-dialog .skillager-settings input[type='checkbox'] {
+  accent-color: var(--accent);
   width: 14px;
   height: 14px;
   padding: 0;
 }
-.skillager-settings .skillager-settings-field {
+.settings-dialog .skillager-settings .skillager-settings-field {
   align-items: start;
+}
+.settings-dialog .skillager-settings .settings-checkbox-control {
+  display: grid;
+  align-items: start;
+  color: var(--text);
+}
+.settings-dialog .skillager-settings .settings-checkbox-copy > small {
+  color: var(--text-muted);
 }
 .skillager-settings details > summary {
   cursor: pointer;

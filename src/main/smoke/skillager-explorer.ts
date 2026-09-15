@@ -239,21 +239,51 @@ async function verifySkillagerPresentation(win: BrowserWindow): Promise<void> {
         theme === 'dark' ? 'explorer-dark' : 'explorer-light',
       )
       await openSkillagerIntegrations(win)
-      await inspect(
-        win,
-        `
+      try {
+        await inspect(
+          win,
+          `
         await wait(() => document.querySelector('.skillager-connection-summary'));
         const field = document.querySelector('.skillager-settings-field'), copy = field.querySelector('.settings-checkbox-copy');
-        const checkbox = field.querySelector('input[type=checkbox]').getBoundingClientRect();
-        if (getComputedStyle(field).display !== 'grid' || checkbox.width !== 14 || checkbox.height !== 14)
-          throw Error('Skillager Settings lost the existing field grid or checkbox sizing');
+        const input = field.querySelector('input[type=checkbox]'), label = input.closest('label');
+        const checkbox = input.getBoundingClientRect(), fieldStyle = getComputedStyle(field), labelStyle = getComputedStyle(label), inputStyle = getComputedStyle(input);
+        const textNode = [...label.childNodes].find(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
+        const range = document.createRange(); range.selectNode(textNode); const textBounds = range.getBoundingClientRect();
+        const hint = copy.querySelector(':scope > small');
+        const tokenColor = (token) => {
+          const probe = document.createElement('span'); probe.style.cssText = 'display:none;color:var(' + token + ')'; document.body.append(probe);
+          try { return getComputedStyle(probe).color; } finally { probe.remove(); }
+        };
+        const colors = { text: tokenColor('--text'), muted: tokenColor('--text-muted'), accent: tokenColor('--accent') };
+        const inline = textBounds.left >= checkbox.right && textBounds.top < checkbox.bottom && textBounds.bottom > checkbox.top;
+        const topAligned = Math.abs(field.firstElementChild.getBoundingClientRect().top - copy.getBoundingClientRect().top) < 1;
+        if (fieldStyle.display !== 'grid' || fieldStyle.alignItems !== 'start' || labelStyle.display !== 'grid' || checkbox.width !== 14 || checkbox.height !== 14 || !inline || !topAligned || labelStyle.color !== colors.text || getComputedStyle(hint).color !== colors.muted || inputStyle.accentColor !== colors.accent)
+          throw Error('Skillager Settings field geometry: ' + JSON.stringify({
+            theme: '${theme}', scale: '${scale}',
+            field: { display: fieldStyle.display, align: fieldStyle.alignItems, topAligned, columns: fieldStyle.gridTemplateColumns, width: field.getBoundingClientRect().width },
+            label: { display: labelStyle.display, inline, direction: labelStyle.flexDirection, width: label.getBoundingClientRect().width, height: label.getBoundingClientRect().height, color: labelStyle.color },
+            colors: { ...colors, label: labelStyle.color, hint: getComputedStyle(hint).color, checkbox: inputStyle.accentColor },
+            checkbox: { width: checkbox.width, height: checkbox.height, computedWidth: inputStyle.width, computedHeight: inputStyle.height, padding: inputStyle.padding, boxSizing: inputStyle.boxSizing },
+          }));
         if (field.querySelector('label button, label details') || copy.querySelector('details[open]')) throw Error('Connected Settings details are not initially compact');
         const summary = field.querySelector('.skillager-connection-summary');
         if (summary.textContent.trim() !== 'Personal libraryDisconnect' || summary.querySelector('.skillager-path')) throw Error('Connected Settings lost its compact library summary');
         const scroll = field.closest('.settings-section-scroll');
         if (scroll.scrollWidth > scroll.clientWidth + 1) throw Error('Skillager Settings overflowed horizontally');
       `,
-      )
+        )
+      } catch (error) {
+        try {
+          await captureSkillagerVisual(
+            win,
+            'settings-failure-' + theme,
+            '.settings-dialog',
+          )
+        } catch {
+          console.warn('[smoke] Skillager Settings failure capture unavailable')
+        }
+        throw error
+      }
       await skillagerControlPoint(win, '#skillager-enabled')
       await skillagerControlPoint(win, '.skillager-connection-summary button')
       await captureSkillagerVisual(win, 'settings-' + theme, '.settings-dialog')
