@@ -148,6 +148,11 @@ export function WorkbenchViewerPane({
           <SkillagerDetails
             metadata={skillager.active.metadata}
             tab={skillager.active}
+            reviewRequested={skillager.reviewRequested}
+            content={skillager.content}
+            openCanonical={
+              skillager.canonicalContent ? skillager.openCanonical : undefined
+            }
             reviews={skillager.reviews}
             exposures={skillager.exposures}
             librarySync={skillager.librarySync}

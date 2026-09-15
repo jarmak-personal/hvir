@@ -1,3 +1,22 @@
+import { repositoryImageMimeType } from '../../shared'
+import { skillagerFileContent } from './skillager-file-content'
+import {
+  readSkillagerDocument,
+  validateSkillagerDocumentAsset,
+  validateSkillagerDocumentSelection,
+  type SkillagerDocumentAccess,
+  type SkillagerDocumentCliPort,
+  type SkillagerProjectDocumentAccess,
+} from './skillager-document-read'
+import type {
+  SkillagerContentRequest,
+  SkillagerContentFileRequest,
+  SkillagerContentSession,
+} from '../../shared/skillager-content'
+import {
+  SKILLAGER_REVIEW_MAX_BYTES,
+  SKILLAGER_REVIEW_MAX_FILES,
+} from '../../shared/skillager-review'
 import type { SkillagerExposureRequest } from '../../shared/skillager-exposure'
 import type {
   SkillagerExposureCliPort,
@@ -6,7 +25,6 @@ import type {
 } from './skillager-exposure-port'
 import { randomUUID } from 'node:crypto'
 import { hostPathEquals, joinHostPath } from '../../shared/host-path'
-import { repositoryImageMimeType } from '../../shared'
 import type {
   SkillagerReview,
   SkillagerReviewContent,
@@ -47,9 +65,22 @@ interface Session {
   disposed: boolean
 }
 
+interface DocumentSession {
+  readonly owner: RendererOwner
+  readonly request: SkillagerContentRequest
+  readonly grant: SkillagerReviewGrant
+  readonly controller: AbortController
+  readonly bytes: Map<string, Uint8Array>
+  readonly previews: Map<string, { readonly id: string; readonly url: string }>
+  readonly jobs: Set<Promise<unknown>>
+  access?: SkillagerDocumentAccess
+  lease?: RendererResourceLease
+  disposed: boolean
+}
 /** Owns content leases independently of sidebar searches and metadata refresh. */
 export class SkillagerReviewOwner {
   private readonly sessions = new Map<string, Session>()
+  private readonly documents = new Map<string, DocumentSession>()
   private readonly histories = new Map<
     AbortController,
     {
@@ -180,6 +211,251 @@ export class SkillagerReviewOwner {
     }
   }
 
+  async openDocument(
+    owner: RendererOwner,
+    request: SkillagerContentRequest,
+    grant: SkillagerReviewGrant,
+    cli: SkillagerDocumentCliPort,
+    projectAccess: SkillagerProjectDocumentAccess,
+  ): Promise<SkillagerContentSession> {
+    grant.assertCurrent()
+    validateSkillagerDocumentSelection(
+      grant.selection,
+      request.selection,
+      request.workspaceRoot,
+    )
+    if (
+      [...this.documents.values()].filter((item) => sameOwner(item.owner, owner))
+        .length >= 4
+    )
+      throw new SkillagerError(
+        'busy',
+        'Close another skill document before opening more content.',
+      )
+    const id = randomUUID()
+    const session: DocumentSession = {
+      owner,
+      request,
+      grant,
+      controller: new AbortController(),
+      bytes: new Map(),
+      previews: new Map(),
+      jobs: new Set(),
+      disposed: false,
+    }
+    this.documents.set(id, session)
+    try {
+      session.lease = this.resources.register(
+        owner,
+        {
+          lifetime: 'workspace',
+          type: 'skillager-request',
+          root: request.workspaceRoot,
+          id: `document:${id}`,
+        },
+        () => this.releaseDocument(owner, id),
+      )
+    } catch (error) {
+      this.documents.delete(id)
+      session.controller.abort()
+      throw error
+    }
+    const signal = session.controller.signal
+    const timer = setTimeout(
+      () => session.controller.abort(),
+      SKILLAGER_REQUEST_DEADLINE_MS,
+    )
+    const job = (async () => {
+      session.access =
+        request.selection.kind === 'library'
+          ? await cli.documentAccess(grant.selection, request.selection, signal)
+          : await projectAccess(request.selection.path)
+      const bytes = await readSkillagerDocument(
+        session.access,
+        request.selection.root,
+        request.selection.path,
+        signal,
+        request.selection.kind === 'library',
+      )
+      await cli.validateDocument(
+        grant.selection,
+        request.selection,
+        request.workspaceRoot,
+        bytes,
+        signal,
+      )
+      this.documentCurrent(session)
+      session.bytes.set('SKILL.md', bytes)
+      return {
+        contentId: id,
+        selection: request.selection,
+        content: skillagerFileContent(
+          'SKILL.md',
+          request.selection.path,
+          bytes,
+          false,
+          request.workspaceRoot,
+          session.previews,
+          this.previews,
+        ),
+      }
+    })()
+    session.jobs.add(job)
+    try {
+      return await job
+    } catch (error) {
+      session.jobs.delete(job)
+      await this.releaseDocument(owner, id)
+      throw error
+    } finally {
+      clearTimeout(timer)
+      session.jobs.delete(job)
+    }
+  }
+
+  async documentContent(
+    owner: RendererOwner,
+    request: SkillagerContentFileRequest,
+  ): Promise<SkillagerReviewContent> {
+    const session = this.documents.get(request.contentId)
+    if (
+      !session ||
+      !session.access ||
+      !sameOwner(owner, session.owner) ||
+      session.request.connectionId !== request.connectionId ||
+      session.request.agent !== request.agent ||
+      !hostPathEquals(session.request.workspaceRoot, request.workspaceRoot)
+    )
+      throw new SkillagerError(
+        'review-expired',
+        'The selected skill document is no longer open.',
+      )
+    this.documentCurrent(session)
+    if (
+      !request.entry ||
+      request.entry.length > 4096 ||
+      request.entry
+        .split('/')
+        .some(
+          (part) =>
+            !part ||
+            part === '.' ||
+            part === '..' ||
+            part.includes('\\') ||
+            part.includes('\0'),
+        )
+    )
+      throw new SkillagerError('invalid-request', 'Select a file inside this skill.')
+    if (request.documentEntry !== undefined) {
+      if (!repositoryImageMimeType(request.entry))
+        throw new SkillagerError(
+          'invalid-request',
+          'Only image assets may load automatically.',
+        )
+      if (!session.bytes.has(request.documentEntry))
+        throw new SkillagerError('invalid-request', 'The source document is not open.')
+      const parent = request.documentEntry.split('/').slice(0, -1).join('/')
+      if (parent && !request.entry.startsWith(parent + '/'))
+        throw new SkillagerError(
+          'invalid-request',
+          'Image escapes its document directory.',
+        )
+    }
+    if (session.jobs.size >= 4)
+      throw new SkillagerError(
+        'busy',
+        'Wait for the current skill files to finish loading.',
+      )
+    const path = joinHostPath(session.request.selection.root, ...request.entry.split('/'))
+    const signal = AbortSignal.any([
+      session.controller.signal,
+      AbortSignal.timeout(SKILLAGER_REQUEST_DEADLINE_MS),
+    ])
+    const job = (async () => {
+      if (request.documentEntry !== undefined)
+        await validateSkillagerDocumentAsset(
+          session.access!,
+          joinHostPath(
+            session.request.selection.root,
+            ...request.documentEntry.split('/'),
+          ),
+          path,
+          signal,
+        )
+      let bytes = session.bytes.get(request.entry)
+      if (!bytes) {
+        bytes = await readSkillagerDocument(
+          session.access!,
+          session.request.selection.root,
+          path,
+          signal,
+          session.request.selection.kind === 'library',
+        )
+        this.documentCurrent(session)
+        const total = [...session.bytes.values()].reduce(
+          (sum, item) => sum + item.byteLength,
+          bytes.byteLength,
+        )
+        if (
+          session.bytes.size >= SKILLAGER_REVIEW_MAX_FILES ||
+          total > SKILLAGER_REVIEW_MAX_BYTES
+        )
+          throw new SkillagerError(
+            'output-limit',
+            'The open skill document exceeds its retained content limit.',
+          )
+        session.bytes.set(request.entry, bytes)
+      }
+      this.documentCurrent(session)
+      return skillagerFileContent(
+        request.entry,
+        path,
+        bytes,
+        request.documentEntry !== undefined,
+        request.workspaceRoot,
+        session.previews,
+        this.previews,
+      )
+    })()
+    session.jobs.add(job)
+    try {
+      return await job
+    } finally {
+      session.jobs.delete(job)
+    }
+  }
+
+  async releaseDocument(owner: RendererOwner, id: string): Promise<void> {
+    const session = this.documents.get(id)
+    if (!session || !sameOwner(owner, session.owner)) return
+    this.documents.delete(id)
+    session.disposed = true
+    session.controller.abort()
+    session.lease?.release()
+    await Promise.allSettled(session.jobs)
+    for (const preview of session.previews.values()) this.previews.release(preview.id)
+    session.previews.clear()
+    session.bytes.clear()
+  }
+  async cancelDocument(owner: RendererOwner, requestId: number): Promise<void> {
+    await Promise.all(
+      [...this.documents]
+        .filter(
+          ([, item]) =>
+            sameOwner(owner, item.owner) && item.request.requestId === requestId,
+        )
+        .map(([id]) => this.releaseDocument(owner, id)),
+    )
+  }
+  private documentCurrent(session: DocumentSession): void {
+    this.resources.assertCurrent(session.owner)
+    session.grant.assertCurrent()
+    session.controller.signal.throwIfAborted()
+    session.access?.assertCurrent()
+    if (session.disposed)
+      throw new SkillagerError('review-expired', 'The skill document was closed.')
+  }
+
   updateGrant(
     owner: RendererOwner,
     request: SkillagerExposureRequest,
@@ -281,30 +557,15 @@ export class SkillagerReviewOwner {
         )
     }
     const path = joinHostPath(snapshot.detail.root, ...request.entry.split('/'))
-    const result = { entry: request.entry, path, size: bytes.byteLength }
-    const mime = repositoryImageMimeType(path.path)
-    if (mime) return { ...result, image: { mime, bytes } }
-    if (request.documentEntry !== undefined)
-      throw new SkillagerError(
-        'invalid-request',
-        'Only reviewed image assets may load automatically.',
-      )
-    let text: string
-    try {
-      text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
-    } catch {
-      return result
-    }
-    if (text.includes('\0')) return result
-    if (/\.html?$/i.test(path.path)) {
-      let preview = session.previews.get(request.entry)
-      if (!preview) {
-        preview = this.previews.create(text, request.workspaceRoot)
-        session.previews.set(request.entry, preview)
-      }
-      return { ...result, text, htmlUrl: preview.url }
-    }
-    return { ...result, text }
+    return skillagerFileContent(
+      request.entry,
+      path,
+      bytes,
+      request.documentEntry !== undefined,
+      request.workspaceRoot,
+      session.previews,
+      this.previews,
+    )
   }
 
   async diff(
@@ -393,6 +654,9 @@ export class SkillagerReviewOwner {
       .filter(([, session]) => !owner || sameOwner(session.owner, owner))
       .map(([id, session]) => this.release(session.owner, id))
     await Promise.all([
+      ...[...this.documents]
+        .filter(([, item]) => !owner || sameOwner(owner, item.owner))
+        .map(([id, item]) => this.releaseDocument(item.owner, id)),
       Promise.allSettled(historyJobs.map(([, job]) => job.task)),
       ...releases,
     ])

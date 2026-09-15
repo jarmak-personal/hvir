@@ -530,3 +530,39 @@
 .skillager-lineage h2 {
   font-size: calc(14px * var(--hvir-interface-scale));
 }
+
+.skillager-body-source {
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.skillager-body-modes {
+  display: flex;
+  gap: 6px;
+  margin: 10px 0;
+}
+.skillager-body-content {
+  min-height: 240px;
+}
+.skillager-body-content .source-view {
+  height: 440px;
+}
+.skillager-secondary {
+  margin-top: 24px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.skillager-secondary > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.skillager-detail-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.skillager-detail-heading h1 {
+  min-width: 0;
+  margin-bottom: 6px;
+}

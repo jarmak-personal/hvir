@@ -41,7 +41,7 @@ function Harness({ diff }: { diff?: string }) {
       source={false}
       diff={diff}
       diffPath={localPath('/library/skills/review/SKILL.md')}
-      controller={controller}
+      navigation={{ asset: controller.asset, open: controller.content }}
     />
   )
 }

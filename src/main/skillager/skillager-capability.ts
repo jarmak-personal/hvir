@@ -1,3 +1,6 @@
+import { result } from './skillager-result'
+import { skillagerDocumentPort } from './skillager-document-port'
+import type { SkillagerDocumentCliPort } from './skillager-document-read'
 import { validateSkillagerSearchRequest } from './skillager-search-contract'
 import type { SkillagerProjectStart } from '../../shared/skillager-project'
 import type { SkillagerProjectCliPort } from './skillager-project-commands'
@@ -70,6 +73,7 @@ interface OwnerState {
 }
 
 export class SkillagerCapability {
+  readonly content: ReturnType<typeof skillagerDocumentPort>
   readonly librarySync: SkillagerLibrarySyncOwner
   private readonly owners = new Map<string, OwnerState>()
   private readonly jobs = new Map<Promise<unknown>, string>()
@@ -83,7 +87,9 @@ export class SkillagerCapability {
   private readonly projectSetup?: SkillagerProjectSetupOwner
 
   constructor(
-    private readonly cli: SkillagerCliPort & SkillagerLibrarySyncCliPort,
+    private readonly cli: SkillagerCliPort &
+      SkillagerLibrarySyncCliPort &
+      SkillagerDocumentCliPort,
     private readonly resources: Pick<
       RendererResourceScopes,
       'assertCurrent' | 'isCurrent' | 'register'
@@ -128,6 +134,9 @@ export class SkillagerCapability {
       resources,
       review.previews,
       exposure.cli,
+    )
+    this.content = skillagerDocumentPort(this.reviews, cli, (owner, request) =>
+      this.reviewGrant(owner, request),
     )
   }
 
@@ -955,20 +964,4 @@ export class SkillagerCapability {
 
 function key(owner: RendererOwner): string {
   return `${owner.id}:${owner.generation}`
-}
-
-export async function result<T>(
-  operation: () => Promise<T>,
-): Promise<SkillagerResult<T>> {
-  try {
-    return { ok: true, value: await operation() }
-  } catch (error) {
-    if (error instanceof SkillagerError)
-      return { ok: false, reason: error.reason, message: error.message }
-    return {
-      ok: false,
-      reason: 'command-failed',
-      message: 'Skillager request failed. Try again.',
-    }
-  }
 }

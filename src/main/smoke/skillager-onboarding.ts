@@ -40,9 +40,15 @@ export async function verifySkillagerOnboarding(
   await click(win, '.skillager-sidebar .skillager-git-choice input')
   await inspect(
     win,
-    `if (document.querySelector('.skillager-sidebar .skillager-git-choice input').checked) throw new Error('Explicit no-Git choice failed');`,
+    `try { await wait(() => document.querySelector('.skillager-sidebar .skillager-git-choice input')?.checked === false); }
+    catch { const input = document.querySelector('.skillager-sidebar .skillager-git-choice input'); throw new Error('Explicit no-Git choice failed: ' + JSON.stringify({ checked: input?.checked === true, disabled: input?.disabled === true, focused: document.hasFocus(), visible: document.visibilityState === 'visible' })); }`,
   )
   await click(win, '.skillager-sidebar .skillager-git-choice input')
+  await inspect(
+    win,
+    `try { await wait(() => document.querySelector('.skillager-sidebar .skillager-git-choice input')?.checked === true); }
+    catch { const input = document.querySelector('.skillager-sidebar .skillager-git-choice input'); throw new Error('Explicit Git choice failed: ' + JSON.stringify({ checked: input?.checked === true, disabled: input?.disabled === true, focused: document.hasFocus(), visible: document.visibilityState === 'visible' })); }`,
+  )
   await click(win, '.skillager-sidebar .skillager-library-setup > button:last-of-type')
   await inspect(
     win,
@@ -142,10 +148,17 @@ export async function captureSkillagerCurationDialog(
   return captureSkillagerVisual(win, name, '.skillager-exposure-dialog')
 }
 
+export function captureSkillagerBody(
+  win: BrowserWindow,
+  name: 'body-first' | 'body-review',
+): Promise<void> {
+  return captureSkillagerVisual(win, name, '.skillager-details')
+}
+
 async function captureSkillagerVisual(
   win: BrowserWindow,
   name: string,
-  selector: '.tree-panel' | '.skillager-exposure-dialog',
+  selector: '.tree-panel' | '.skillager-exposure-dialog' | '.skillager-details',
 ): Promise<void> {
   const directory = process.env.HVIR_SKILLAGER_VISUAL_DIRECTORY
   if (!directory) return

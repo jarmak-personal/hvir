@@ -1,3 +1,4 @@
+import type { SkillagerDocumentCliPort } from '../skillager/skillager-document-read'
 import type { SkillagerLibrarySyncCliPort } from '../skillager/skillager-library-sync-port'
 import type { SkillagerLocalActionPort } from '../skillager/skillager-exposure-plan-commands'
 import type { SkillagerSetupCliPort } from '../skillager/skillager-setup-port'
@@ -18,6 +19,7 @@ export function realSkillagerSmokePort(
   cleanup: SmokeCleanup,
 ):
   | (SkillagerCliPort &
+      SkillagerDocumentCliPort &
       SkillagerReviewCliPort &
       SkillagerExposureCliPort &
       SkillagerSetupCliPort &
@@ -57,6 +59,10 @@ export function realSkillagerSmokePort(
   )
   cleanup.defer('real Skillager CLI', () => cli.dispose())
   return {
+    documentAccess: (selection, source, signal) =>
+      cli.documentAccess(selection, source, signal),
+    validateDocument: (selection, source, workspace, bytes, signal) =>
+      cli.validateDocument(selection, source, workspace, bytes, signal),
     previewLocalAction: (selection, request, signal) =>
       cli.previewLocalAction(selection, request, signal),
     applyLocalAction: (selection, snapshot, signal, submitted) =>

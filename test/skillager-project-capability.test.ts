@@ -73,7 +73,13 @@ function fixture(exposures: readonly SkillagerWorkspaceExposure[] = []) {
   } satisfies SkillagerProjectCliPort
   const unsupported = () => Promise.reject(Error('Unexpected mutation/content operation'))
   const capability = new SkillagerCapability(
-    { ...cli, syncStatus: unsupported, syncApproved: unsupported },
+    {
+      ...cli,
+      documentAccess: unsupported,
+      validateDocument: unsupported,
+      syncStatus: unsupported,
+      syncApproved: unsupported,
+    },
     resources.scopes,
     () => true,
     {

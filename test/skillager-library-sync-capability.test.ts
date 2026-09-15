@@ -19,6 +19,8 @@ it.each(['connect', 'probe', 'disconnect', 'disable'])(
     let finish!: (value: SkillagerSyncStatus) => void, signal!: AbortSignal
     const unsupported = () => Promise.reject(new Error('Unexpected operation'))
     const cli = {
+      documentAccess: unsupported,
+      validateDocument: unsupported,
       probe: () => Promise.resolve(syncSelection),
       validate: () => Promise.resolve(),
       inventory: () => Promise.resolve([]),

@@ -11,7 +11,18 @@ import { renderMarkdown, useMarkdownRendererGeneration } from '../viewer/markdow
 import { SourceView } from '../viewer/SourceView'
 import { initialViewerPosition } from '../viewer/viewer-position'
 import { useAppTheme } from '../theme'
-import type { SkillagerReviewController } from './use-skillager-review'
+import type { SkillagerResult } from '../../../shared/skillager'
+
+export interface SkillagerContentNavigation {
+  readonly root?: HostPath
+  readonly asset: (
+    id: string,
+    document: string,
+    entry: string,
+  ) => Promise<SkillagerResult<Content> | undefined>
+  readonly open: (id: string, entry: string) => unknown
+  readonly entries?: readonly { readonly entry: string }[]
+}
 
 const ignore = (): void => undefined
 
@@ -21,14 +32,14 @@ export function SkillagerReviewContent({
   source,
   diff,
   diffPath,
-  controller,
+  navigation,
 }: {
   readonly id: string
   readonly content?: Content
   readonly source: boolean
   readonly diff?: string
   readonly diffPath?: HostPath
-  readonly controller: SkillagerReviewController
+  readonly navigation: SkillagerContentNavigation
 }): ReactElement {
   const capture = useRef<(() => ReturnType<typeof initialViewerPosition>) | undefined>(
     undefined,
@@ -64,8 +75,7 @@ export function SkillagerReviewContent({
         registerFindTarget={() => ignore}
       />
     )
-  if (!content)
-    return <p className="skillager-hint">Choose a file in the verified tree.</p>
+  if (!content) return <p className="skillager-hint">Choose a file to read.</p>
   if (content.image)
     return imageUrl ? (
       <img className="skillager-review-image" src={imageUrl} alt={content.entry} />
@@ -76,7 +86,7 @@ export function SkillagerReviewContent({
     return (
       <iframe
         className="skillager-review-html"
-        title={`Reviewed ${content.entry}`}
+        title={content.entry}
         sandbox={HTML_SANDBOX}
         src={content.htmlUrl}
       />
@@ -84,32 +94,31 @@ export function SkillagerReviewContent({
   if (content.text === undefined)
     return (
       <p>
-        Binary file · {content.size.toLocaleString()} bytes. Included in the verified
-        tree; no text preview is available.
+        Binary file · {content.size.toLocaleString()} bytes. No text preview is available.
       </p>
     )
   if (/\.(?:md|markdown)$/i.test(content.entry))
-    return <ReviewedMarkdown id={id} content={content} controller={controller} />
+    return <SkillMarkdown id={id} content={content} navigation={navigation} />
   return (
-    <SkillagerReviewContent id={id} content={content} source controller={controller} />
+    <SkillagerReviewContent id={id} content={content} source navigation={navigation} />
   )
 }
 
-/** Renders retained content; every embedded image resolves through the same review lease. */
-function ReviewedMarkdown({
+/** Renders retained content; every embedded image resolves through the same content lease. */
+function SkillMarkdown({
   id,
   content,
-  controller,
+  navigation,
 }: {
   readonly id: string
   readonly content: Content
-  readonly controller: SkillagerReviewController
+  readonly navigation: SkillagerContentNavigation
 }): ReactElement {
   const element = useRef<HTMLDivElement>(null)
   const [error, setError] = useState(false)
   const theme = useAppTheme(),
     generation = useMarkdownRendererGeneration()
-  const asset = controller.asset
+  const asset = navigation.asset
   useEffect(() => {
     let disposed = false
     const urls = new Set<string>()
@@ -125,36 +134,37 @@ function ReviewedMarkdown({
         const sources = images.map((image) => image.getAttribute('src'))
         for (const image of images) image.removeAttribute('src')
         root.replaceChildren(template.content)
-        await Promise.all(
-          images.map(async (image, index) => {
-            const target = resolveRenderedLink(content.path, sources[index] ?? '')
-            if (
-              target.kind !== 'file' ||
-              !containsHostPath(dirnameHostPath(content.path), target.path)
-            ) {
-              image.alt = 'Image outside this reviewed document is unavailable'
-              return
-            }
-            const parent = content.entry.split('/').slice(0, -1).join('/')
-            const relative = target.path.path.slice(
-              dirnameHostPath(content.path).path.length + 1,
+        // Serial requests keep valid multi-image documents within the main content lane.
+        for (const [index, image] of images.entries()) {
+          if (disposed) break
+          const target = resolveRenderedLink(content.path, sources[index] ?? '')
+          if (
+            target.kind !== 'file' ||
+            !containsHostPath(dirnameHostPath(content.path), target.path)
+          ) {
+            image.alt = 'Image outside this document is unavailable'
+            continue
+          }
+          const parent = content.entry.split('/').slice(0, -1).join('/')
+          const relative = target.path.path.slice(
+            dirnameHostPath(content.path).path.length + 1,
+          )
+          const entry = parent ? `${parent}/${relative}` : relative
+          try {
+            const result = await asset(id, content.entry, entry)
+            if (disposed) break
+            if (!result?.ok || !result.value.image) continue
+            const url = URL.createObjectURL(
+              new Blob([Uint8Array.from(result.value.image.bytes).buffer], {
+                type: result.value.image.mime,
+              }),
             )
-            const entry = parent ? `${parent}/${relative}` : relative
-            try {
-              const result = await asset(id, content.entry, entry)
-              if (disposed || !result?.ok || !result.value.image) return
-              const url = URL.createObjectURL(
-                new Blob([Uint8Array.from(result.value.image.bytes).buffer], {
-                  type: result.value.image.mime,
-                }),
-              )
-              urls.add(url)
-              image.src = url
-            } catch {
-              if (!disposed) image.alt = 'Reviewed image unavailable'
-            }
-          }),
-        )
+            urls.add(url)
+            image.src = url
+          } catch {
+            if (!disposed) image.alt = 'Image unavailable'
+          }
+        }
       })
       .catch(() => {
         if (!disposed) setError(true)
@@ -179,16 +189,15 @@ function ReviewedMarkdown({
           content.path,
           anchor.getAttribute('href') ?? '',
         )
-        const detail = controller.states[id]?.detail
-        if (
-          target.kind !== 'file' ||
-          !detail ||
-          !containsHostPath(detail.root, target.path)
-        )
+        const root = navigation.root
+        if (target.kind !== 'file' || !root || !containsHostPath(root, target.path))
           return
-        const entry = target.path.path.slice(detail.root.path.length + 1)
-        if (detail.files.some((file) => file.entry === entry))
-          void controller.content(id, entry)
+        const entry = target.path.path.slice(root.path.length + 1)
+        if (
+          !navigation.entries ||
+          navigation.entries.some((file) => file.entry === entry)
+        )
+          void navigation.open(id, entry)
       }}
     />
   )

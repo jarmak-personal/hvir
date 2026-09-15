@@ -1,3 +1,4 @@
+import { skillagerDocumentFixture } from './skillager-document-fixture'
 import { verifySkillagerScenario } from './skillager'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import { skillagerLibrarySyncFixture } from './skillager-library-sync-fixture'
@@ -138,6 +139,7 @@ export function createSkillagerSmoke(
   const project = skillagerProjectFixture(host, root, cleanup)
   const capability = new SkillagerCapability(
     real ?? {
+      ...skillagerDocumentFixture(),
       probe(executable) {
         calls.push('probe')
         if (executable?.path === '/hvir-smoke/project-setup')

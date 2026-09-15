@@ -1,4 +1,9 @@
 import type {
+  SkillagerContentRequest,
+  SkillagerContentSession,
+  SkillagerContentFileRequest,
+} from '../skillager-content'
+import type {
   SkillagerExposureActionRequest,
   SkillagerExposureLineageRequest,
   SkillagerExposureActionPreview,
@@ -40,6 +45,16 @@ import type {
 
 export const skillagerIpc = {
   invoke: {
+    'skillager:open-document': invoke<
+      SkillagerContentRequest,
+      SkillagerResult<SkillagerContentSession>
+    >(),
+    'skillager:read-document': invoke<
+      SkillagerContentFileRequest,
+      SkillagerResult<SkillagerReviewContent>
+    >(),
+    'skillager:release-document': invoke<{ readonly contentId: string }, void>(),
+    'skillager:cancel-document': invoke<{ readonly requestId: number }, void>(),
     'skillager:sync-status': invoke<
       SkillagerRequest,
       SkillagerResult<SkillagerSyncPreparation>

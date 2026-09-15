@@ -37,6 +37,8 @@ function fixture(supported = true) {
       exposures: unexpected,
       search,
       syncStatus: unexpected,
+      documentAccess: unexpected,
+      validateDocument: unexpected,
       syncApproved: unexpected,
     },
     resources.scopes,
