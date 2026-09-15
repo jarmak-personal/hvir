@@ -52,6 +52,15 @@ export async function verifySkillagerReview(win: BrowserWindow): Promise<void> {
     await wait(() => document.querySelector('.skillager-review-version'));
     await wait(() => document.querySelector('.skillager-review .skillager-review-markdown h1'));
     if (document.querySelector('.skillager-review').textContent.includes('fixture-private-token')) throw new Error('Main token leaked to renderer');
+    const version = document.querySelector('.skillager-review-version');
+    version.scrollIntoView({ block: 'start' });
+    await wait(() => {
+      const viewport = document.querySelector('.skillager-details').getBoundingClientRect();
+      return [version, document.querySelector('.skillager-review .skillager-review-markdown h1')].every(element => {
+        const rect = element.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0 && rect.top >= Math.max(0, viewport.top) && rect.bottom <= Math.min(innerHeight, viewport.bottom);
+      });
+    });
   `)
   await captureSkillagerBody(win, 'body-review')
   await clickSkillagerDetailControl(win, '.skillager-review button', 'Source')
@@ -62,29 +71,46 @@ export async function verifySkillagerReview(win: BrowserWindow): Promise<void> {
     return file.textContent.trim();
   `)
   await clickSkillagerDetailControl(win, '.skillager-review-files button', htmlLabel)
-  await evaluate(`
+  const htmlUrl = await evaluate<string>(`
     await wait(() => document.querySelector('.skillager-review-html'));
     const frame = document.querySelector('.skillager-review-html');
     if (frame.getAttribute('sandbox') !== 'allow-scripts' || !frame.src.startsWith('hvir-preview:')) throw new Error('Review HTML lost its opaque preview boundary');
+    return frame.src;
   `)
   let htmlFrame
-  for (let attempt = 0; attempt < 200; attempt++) {
-    htmlFrame = win.webContents.mainFrame.framesInSubtree.find((frame) =>
-      frame.url.startsWith('hvir-preview:'),
+  let readiness: { documentReady: boolean; fixtureReady: boolean } | undefined
+  const htmlDeadline = Date.now() + 5000
+  for (;;) {
+    htmlFrame = win.webContents.mainFrame.framesInSubtree.find(
+      (frame) => !frame.detached && !frame.isDestroyed() && frame.url === htmlUrl,
     )
-    if (htmlFrame) break
+    if (htmlFrame) {
+      readiness = (await htmlFrame.executeJavaScript(
+        `({ documentReady: document.readyState !== 'loading', fixtureReady: document.body?.dataset.reviewed === 'yes' })`,
+      )) as { documentReady: boolean; fixtureReady: boolean }
+      if (readiness.documentReady && readiness.fixtureReady) break
+    }
+    if (Date.now() >= htmlDeadline)
+      throw new Error(
+        'Reviewed HTML document readiness failed: ' +
+          JSON.stringify({ frameFound: Boolean(htmlFrame), ...readiness }),
+      )
     await new Promise((resolve) => setTimeout(resolve, 25))
   }
-  if (!htmlFrame) throw new Error('Reviewed HTML frame did not load')
   const confinement = (await htmlFrame.executeJavaScript(
-    `(async () => { let parentBlocked = false; try { void parent.document.body } catch { parentBlocked = true } let networkBlocked = false; try { await fetch('https://example.invalid/review') } catch { networkBlocked = true } return { parentBlocked, networkBlocked, text: document.querySelector('h1')?.textContent } })()`,
-  )) as { parentBlocked: boolean; networkBlocked: boolean; text: string }
+    `(async () => { let parentBlocked = false; try { void parent.document.body } catch { parentBlocked = true } let networkBlocked = false; try { await fetch('https://example.invalid/review') } catch { networkBlocked = true } return { parentBlocked, networkBlocked, expectedHeading: document.querySelector('h1')?.textContent === 'Reviewed HTML' } })()`,
+  )) as { parentBlocked: boolean; networkBlocked: boolean; expectedHeading: boolean }
+  const exactFrame = htmlFrame.url === htmlUrl
   if (
+    !exactFrame ||
     !confinement.parentBlocked ||
     !confinement.networkBlocked ||
-    confinement.text !== 'Reviewed HTML'
+    !confinement.expectedHeading
   )
-    throw new Error('Reviewed HTML confinement failed')
+    throw new Error(
+      'Reviewed HTML confinement failed: ' +
+        JSON.stringify({ exactFrame, ...readiness, ...confinement }),
+    )
   await clickSkillagerDetailControl(
     win,
     '.skillager-review button',
