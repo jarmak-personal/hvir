@@ -175,16 +175,34 @@ export class TerminalWorkspaceRuntimeOwner {
     return this.controllers.get(workspaceId)
   }
 
-  prepareTransferTarget(workspaceId: string): Promise<void> {
-    if (this.disposed) {
-      return Promise.reject(new Error('Terminal workspace runtime owner is disposed'))
+  prepareTransferTarget(workspaceId: string, signal?: AbortSignal): Promise<void> {
+    if (this.disposed || signal?.aborted) {
+      return Promise.reject(new Error('Terminal workspace runtime owner is unavailable'))
     }
     this.transferWorkspaceIds.add(workspaceId)
     this.publishMaterialized()
     if (this.controllers.has(workspaceId)) return Promise.resolve()
     return new Promise<void>((resolve, reject) => {
       const waiters = this.controllerWaiters.get(workspaceId) ?? new Set()
-      waiters.add({ resolve, reject })
+      const cleanup = (): void => {
+        signal?.removeEventListener('abort', cancel)
+        waiters.delete(waiter)
+        if (!waiters.size) this.controllerWaiters.delete(workspaceId)
+      }
+      const waiter = {
+        resolve: () => {
+          cleanup()
+          resolve()
+        },
+        reject: (error: Error) => {
+          cleanup()
+          reject(error)
+        },
+      }
+      const cancel = (): void =>
+        waiter.reject(new Error('Terminal preparation cancelled'))
+      signal?.addEventListener('abort', cancel, { once: true })
+      waiters.add(waiter)
       this.controllerWaiters.set(workspaceId, waiters)
     })
   }

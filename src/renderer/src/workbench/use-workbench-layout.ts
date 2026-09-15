@@ -27,7 +27,7 @@ const TREE_MAX_WIDTH = 520
 const MAIN_MIN_WIDTH = 420
 const VIEWER_PANE_MIN_WIDTH = 240
 
-export type WorkbenchRailMode = 'files' | 'git'
+export type WorkbenchRailMode = 'files' | 'git' | 'skills'
 
 export function useWorkbenchLayout({
   root,
@@ -216,9 +216,9 @@ export function useWorkbenchLayout({
     () => setTerminalMode((mode) => (mode === 'maximized' ? 'restored' : 'maximized')),
     [setTerminalMode],
   )
-  const focusTerminal = useCallback((): void => {
+  const focusTerminal = useCallback((sessionId?: string): void => {
     setTerminalMode((mode) => (mode === 'collapsed' ? 'restored' : mode))
-    focusActiveTerminalAfterLayout()
+    focusActiveTerminalAfterLayout(sessionId)
   }, [setTerminalMode])
   const focusViewer = useCallback(
     (pane: ViewerPaneId): void => {

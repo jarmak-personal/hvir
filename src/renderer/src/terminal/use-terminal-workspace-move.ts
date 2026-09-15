@@ -8,11 +8,13 @@ import {
 } from '../../../shared'
 import type {
   TerminalSession,
+  PreparedTerminalSession,
   TerminalWorkspaceAction,
   TerminalWorkspaceModel,
 } from './terminal-workspace-model'
 
 export interface TerminalWorkspaceController {
+  readonly addPrepared: (session: PreparedTerminalSession) => boolean
   readonly hasSession: (id: string) => boolean
   readonly selectSession: (id: string) => boolean
   readonly transferOut: (id: string) => TerminalSession | undefined
@@ -21,6 +23,7 @@ export interface TerminalWorkspaceController {
 
 export function useTerminalWorkspaceMove({
   workspaceId,
+  addPrepared,
   modelRef,
   send,
   forgetAttention,
@@ -33,6 +36,7 @@ export function useTerminalWorkspaceMove({
   onError,
 }: {
   readonly workspaceId: string
+  readonly addPrepared: (session: PreparedTerminalSession) => boolean
   readonly modelRef: RefObject<TerminalWorkspaceModel>
   readonly send: (action: TerminalWorkspaceAction) => void
   readonly forgetAttention: (id: string) => void
@@ -56,8 +60,11 @@ export function useTerminalWorkspaceMove({
   const [pending, setPending] = useState<TerminalMovePlan>()
   const confirmationInFlight = useRef(false)
 
+  const prepared = useRef(addPrepared)
+  prepared.current = addPrepared
   useEffect(() => {
     const controller: TerminalWorkspaceController = {
+      addPrepared: (session) => prepared.current(session),
       hasSession: (id) => modelRef.current.sessions.some((session) => session.id === id),
       selectSession: (id) => {
         if (!modelRef.current.sessions.some((session) => session.id === id)) return false

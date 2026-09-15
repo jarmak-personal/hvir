@@ -2,6 +2,8 @@
 
 > Lifecycle: Partially superseded
 > Superseded by: [ADR-045](ADR-045-explicit-outside-project-viewing.md) | partial | Temporary document viewing addendum: location, document-type, and automatic image-read scope.
+> Superseded by: [ADR-046](ADR-046-explicit-skillager-library-and-exposure-authority.md) | partial | Registered-project confinement for the named local personal-library metadata, review, and acceptance capability.
+> Superseded by: [ADR-047](ADR-047-explicit-skillager-library-initialization.md) | partial | Registered-project confinement only for the named local personal-library initialization and registration capability.
 
 ## Context
 

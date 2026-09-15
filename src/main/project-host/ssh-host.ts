@@ -1,8 +1,10 @@
+import { BufferedExecOutput } from './buffered-exec-output'
 import { createHash, randomUUID } from 'node:crypto'
 import { StringDecoder } from 'node:string_decoder'
 
 import { Client, utils, type ClientChannel, type ConnectConfig } from 'ssh2'
 
+import { SshManagedDirectory } from './ssh-managed-directory'
 import {
   asHostId,
   type DirEntry,
@@ -64,6 +66,7 @@ interface SshCredentialAttempt {
 let nextRemotePid = -1
 
 export class SshHost implements ProjectHost {
+  readonly managedDirectory: SshManagedDirectory
   readonly hostId: HostId
   readonly fileDeletion = { capability: 'permanent' } as const
   readonly fileTransfer: ProjectFileTransferPort
@@ -102,6 +105,9 @@ export class SshHost implements ProjectHost {
   private readonly watches: SshWatchService
   constructor(private readonly options: SshHostOptions) {
     this.hostId = asHostId(options.config.alias)
+    this.managedDirectory = new SshManagedDirectory(this, (root) =>
+      this.files.invalidate(root.path),
+    )
     this.transportPool = new SshTransportPool({
       connected: () => this.connected(),
       assertTransportGrowthAllowed: (role) => this.assertTransportGrowthAllowed(role),
@@ -264,27 +270,19 @@ export class SshHost implements ProjectHost {
       return await new Promise((resolve, reject) => {
         let stdout = '',
           stderr = '',
-          bytes = 0,
-          stdoutNulRecords = 0,
           code: number | null = null,
           signal: string | null = null
         let settled = false
         let truncated = false
+        const outputBudget = new BufferedExecOutput(opts, 10 * 1024 * 1024)
         const stdoutDecoder = new StringDecoder('utf8')
         const stderrDecoder = new StringDecoder('utf8')
         const append = (kind: 'out' | 'err', chunk: Buffer): void => {
           if (truncated) return
-          bytes += chunk.length
-          if (kind === 'out' && opts.maxStdoutNulRecords !== undefined) {
-            for (const byte of chunk) if (byte === 0) stdoutNulRecords++
-          }
+          outputBudget.add(kind === 'out' ? 'stdout' : 'stderr', chunk)
           if (kind === 'out') stdout += stdoutDecoder.write(chunk)
           else stderr += stderrDecoder.write(chunk)
-          if (
-            bytes > (opts.maxBuffer ?? 10 * 1024 * 1024) ||
-            (opts.maxStdoutNulRecords !== undefined &&
-              stdoutNulRecords >= opts.maxStdoutNulRecords)
-          ) {
+          if (outputBudget.exceeded) {
             if (opts.allowTruncatedOutput) {
               truncated = true
               return stream.close()

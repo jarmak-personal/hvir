@@ -28,7 +28,7 @@ import {
 } from './commit-file-tree'
 import { loadCommitDetail } from './commit-detail-client'
 import { commitMessageBody } from './commit-message'
-import { measureVariableRows, variableVirtualRange, virtualRange } from './virtual-range'
+import { measureVariableRows, variableVirtualRange, virtualRange } from '../layout/virtual-range'
 import { MarkdownFragment } from '../viewer/MarkdownFragment'
 
 interface GitGraphViewProps {

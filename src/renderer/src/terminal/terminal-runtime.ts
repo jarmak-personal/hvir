@@ -23,7 +23,7 @@ import type {
   SessionsTerminalSurfaceRevocationReason,
 } from '../sessions/sessions-terminal-surface'
 import { TerminalSessionsSurfaceOwner } from './terminal-sessions-surface-owner'
-import { terminalStartedStatus, terminalStartRequest } from './terminal-runtime-launch'
+import { terminalStartedStatus, startTerminalRuntime } from './terminal-runtime-launch'
 
 const PTY_RESIZE_DEBOUNCE_MS = 75
 
@@ -245,6 +245,7 @@ export class TerminalRuntime {
   }
 
   dispose(): void {
+    this.options.initialStart?.cancel()
     this.disposeOwnedResources(true)
   }
 
@@ -334,16 +335,14 @@ export class TerminalRuntime {
         Boolean(this.options.harnessSessionId) &&
         (this.options.resumeOnStart || reconnect || manualRestart)
       const fork = !replacement && !resume ? this.options.forkRequest : undefined
-      const result = await window.hvir.invoke(
-        'pty:start',
-        terminalStartRequest(
-          this.options,
-          sessionId,
-          replacement,
-          this.terminalSize,
-          this.currentSnapshot.title,
-          resume,
-        ),
+      const result = await startTerminalRuntime(
+        this.options,
+        sessionId,
+        replacement,
+        this.terminalSize,
+        this.currentSnapshot.title,
+        resume,
+        !this.hasStarted,
       )
       if (!this.isCurrent(generation)) {
         if (this.terminateLateStart && result.outcome === 'started') {
@@ -556,7 +555,8 @@ export class TerminalRuntime {
     recoveryFailure?: TerminalRuntimeSnapshot['recoveryFailure'],
   ): void {
     this.updateSnapshot(terminalStartFailureSnapshot(this.currentSnapshot, status, recoveryFailure))
-    if (this.options.forkRequest) this.options.onStartFailed?.(status)
+    if (this.options.forkRequest || this.options.initialStart)
+      this.options.onStartFailed?.(status)
   }
 
   private publishIdentity(

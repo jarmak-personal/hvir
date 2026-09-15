@@ -1,3 +1,4 @@
+import { focusRelativeMenuItem } from '../context-menu/menu-focus'
 import {
   useEffect,
   useRef,
@@ -327,20 +328,5 @@ function deletionMenuLabel(
 }
 
 function moveMenuFocus(event: KeyboardEvent<HTMLDivElement>): void {
-  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
-  const items = [
-    ...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
-  ].filter((item) => !item.disabled)
-  if (items.length === 0) return
-  event.preventDefault()
-  const current = items.indexOf(document.activeElement as HTMLButtonElement)
-  const next =
-    event.key === 'Home'
-      ? items[0]
-      : event.key === 'End'
-        ? items.at(-1)
-        : event.key === 'ArrowDown'
-          ? items[(current + 1 + items.length) % items.length]
-          : items[(current - 1 + items.length) % items.length]
-  next?.focus()
+  if (focusRelativeMenuItem(event.currentTarget, event.key)) event.preventDefault()
 }

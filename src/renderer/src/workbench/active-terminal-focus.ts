@@ -1,9 +1,16 @@
 const ACTIVE_TERMINAL_INPUT =
   '.terminal-deck:not([hidden]) .terminal-surface.visible.active .terminal-container'
 
-export function focusActiveTerminalAfterLayout(): void {
+export function focusActiveTerminalAfterLayout(sessionId?: string): void {
   window.requestAnimationFrame(() => {
-    document.querySelector<HTMLElement>(ACTIVE_TERMINAL_INPUT)?.focus()
+    const input = document.querySelector<HTMLElement>(ACTIVE_TERMINAL_INPUT)
+    if (
+      sessionId !== undefined &&
+      input?.closest<HTMLElement>('[data-terminal-session]')?.dataset
+        .terminalSession !== sessionId
+    )
+      return
+    input?.focus()
   })
 }
 

@@ -9,6 +9,7 @@
  */
 
 import type { Duplex } from 'node:stream'
+import type { ManagedDirectoryPort } from './managed-directory'
 
 import type {
   HostId,
@@ -47,6 +48,9 @@ export interface ExecOptions {
   readonly signal?: AbortSignal
   /** Max bytes to buffer across stdout+stderr before failing. */
   readonly maxBuffer?: number
+  /** Independent UTF-8 byte bounds, in addition to the combined buffer limit. */
+  readonly maxStdoutBytes?: number
+  readonly maxStderrBytes?: number
   /** Terminate and return the buffered prefix instead of rejecting at maxBuffer. */
   readonly allowTruncatedOutput?: boolean
   /** Also terminate after this many NUL-delimited stdout records. */
@@ -131,6 +135,11 @@ export type ProjectFileDeletionPort =
 
 /** Immediate transfer mechanics. Recursive policy remains coordinator-owned. */
 export interface ProjectFileTransferPort {
+  /** Refuses symlinks in every path component at open; absent when unsupported. */
+  readFileChunksNoFollow?(
+    path: HostPath,
+    opts?: ProjectFileStreamOptions,
+  ): AsyncIterable<Uint8Array>
   readFileChunks(
     path: HostPath,
     opts?: ProjectFileStreamOptions,
@@ -253,6 +262,8 @@ export interface ProjectHost {
   readonly watchTier: HostWatchTier
   /** Present when this host can participate in verified project-file transfers. */
   readonly fileTransfer?: ProjectFileTransferPort
+  /** Exact receipt/manifest mechanics for explicitly managed directory publication. */
+  readonly managedDirectory?: ManagedDirectoryPort
   /** Exact recovery guarantee and immediate top-level trash mechanic, when available. */
   readonly fileDeletion: ProjectFileDeletionPort
 

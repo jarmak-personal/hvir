@@ -17,7 +17,12 @@ export function useTerminalWorkspaceTransfer({
   readonly forgetWebViews: (terminalId: string) => void
   readonly onError: (message: string) => void
 }) {
-  const callbacks = useRef({ acceptProjectState, canMaterialize, forgetWebViews, onError })
+  const callbacks = useRef({
+    acceptProjectState,
+    canMaterialize,
+    forgetWebViews,
+    onError,
+  })
   callbacks.current = { acceptProjectState, canMaterialize, forgetWebViews, onError }
 
   const register = useCallback(
@@ -28,13 +33,13 @@ export function useTerminalWorkspaceTransfer({
   )
 
   const prepare = useCallback(
-    (workspaceId: string): Promise<void> => {
+    (workspaceId: string, signal?: AbortSignal): Promise<void> => {
       if (!callbacks.current.canMaterialize(workspaceId)) {
         return Promise.reject(
           new Error(`Terminal move target '${workspaceId}' is no longer available`),
         )
       }
-      return owner.prepareTransferTarget(workspaceId)
+      return owner.prepareTransferTarget(workspaceId, signal)
     },
     [owner],
   )

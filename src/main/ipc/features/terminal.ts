@@ -4,7 +4,6 @@ import { harnessProvider, selectHarnessLaunch } from '../../harness/harness-prov
 import {
   attachRendererPty,
   canAttachRetainedRendererPty,
-  registerRendererPty,
   rendererPtyQualifier,
 } from '../../terminal/renderer-pty-lifecycle'
 import {
@@ -13,6 +12,7 @@ import {
   isTerminalId,
   terminalLaunchMode,
 } from '../../terminal/terminal-launch-admission'
+import { startTerminalSession } from '../../terminal/terminal-session-start'
 import { terminalStartedResponse } from '../../terminal/terminal-start-response'
 import { PtyStartUnavailableError } from '../../pty/pty-supervisor'
 import type { IpcRegistrar } from '../authority-router'
@@ -215,18 +215,20 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       }
     }
     if (requestedMode === 'fork') {
-      if (!isAuthorizedTerminalFork({
-        request: req,
-        capabilities: effectiveCapabilities,
-        providerSupportsFork: provider.fork !== undefined,
-        source: isTerminalId(req.forkSourceSessionId)
-          ? deps.ptySupervisor.get(req.forkSourceSessionId)
-          : undefined,
-        profile,
-        sessions: deps.terminalSessions,
-        workspaceRoot: root,
-        cwd,
-      })) {
+      if (
+        !isAuthorizedTerminalFork({
+          request: req,
+          capabilities: effectiveCapabilities,
+          providerSupportsFork: provider.fork !== undefined,
+          source: isTerminalId(req.forkSourceSessionId)
+            ? deps.ptySupervisor.get(req.forkSourceSessionId)
+            : undefined,
+          profile,
+          sessions: deps.terminalSessions,
+          workspaceRoot: root,
+          cwd,
+        })
+      ) {
         throw new Error('Terminal fork is not authorized for this project')
       }
     } else if (
@@ -320,105 +322,98 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
         effectiveCapabilities,
       },
     })
-    const launchDecision = await selectHarnessLaunch(host, provider, requestedMode, {
-      sessionId:
-        requestedMode === 'fork'
-          ? req.parentHarnessSessionId!
-          : requestedMode === 'resume'
-            ? req.harnessSessionId!
-            : req.sessionId,
-      cwd,
-      artifact: resolved.artifact,
-    }, effectiveCapabilities)
+    const launchDecision = await selectHarnessLaunch(
+      host,
+      provider,
+      requestedMode,
+      {
+        sessionId:
+          requestedMode === 'fork'
+            ? req.parentHarnessSessionId!
+            : requestedMode === 'resume'
+              ? req.harnessSessionId!
+              : req.sessionId,
+        cwd,
+        artifact: resolved.artifact,
+      },
+      effectiveCapabilities,
+    )
     if (launchDecision.outcome !== 'launch') return launchDecision
     const launchMode = launchDecision.mode
     const refreshAfterClassifiedLaunchFailure = (): void =>
       deps.harnessProbes.refreshProfile(availabilityRequest, profile)
-    const ptyLease = registerRendererPty(deps, owner, root, req.sessionId)
-    let managed
     try {
-      managed = await deps.ptySupervisor.spawn({
-        host,
-        provider,
-        launchSpec: resolved.spec,
-        unsetEnvironment: resolved.unsetEnvironment,
-        artifact: resolved.artifact,
-        effectiveCapabilities,
-        profileId: profile.id,
-        launchRevision: profile.launchRevision,
-        providerContractVersion: profile.providerContractVersion,
-        composerSubmitMode: req.composerSubmitMode,
-        cwd,
-        workspaceRoot: root,
-        ownerId: owner.id,
-        ownerGeneration: owner.generation,
-        sessionId: req.sessionId,
-        harnessSessionId: launchMode === 'resume' ? req.harnessSessionId : undefined,
-        launchMode,
-        parentHarnessSessionId:
-          launchMode === 'fork' ? req.parentHarnessSessionId : undefined,
-        resume: launchMode === 'resume',
-        admission: req.admission,
-        cols,
-        rows,
-        onClassifiedLaunchFailure: refreshAfterClassifiedLaunchFailure,
+      return await startTerminalSession(deps, {
+        owner,
+        sender: context.sender,
+        spawn: {
+          host,
+          provider,
+          launchSpec: resolved.spec,
+          unsetEnvironment: resolved.unsetEnvironment,
+          artifact: resolved.artifact,
+          effectiveCapabilities,
+          profileId: profile.id,
+          launchRevision: profile.launchRevision,
+          providerContractVersion: profile.providerContractVersion,
+          composerSubmitMode: req.composerSubmitMode,
+          cwd,
+          workspaceRoot: root,
+          ownerId: owner.id,
+          ownerGeneration: owner.generation,
+          sessionId: req.sessionId,
+          harnessSessionId: launchMode === 'resume' ? req.harnessSessionId : undefined,
+          launchMode,
+          parentHarnessSessionId:
+            launchMode === 'fork' ? req.parentHarnessSessionId : undefined,
+          resume: launchMode === 'resume',
+          admission: req.admission,
+          cols,
+          rows,
+          onClassifiedLaunchFailure: refreshAfterClassifiedLaunchFailure,
+        },
+        onSpawned: (managed) =>
+          deps.harnessProbes.recordSuccessfulLaunch(
+            availabilityRequest,
+            profile,
+            managed.capabilities,
+          ),
+        record: (managed) => {
+          const spawn = {
+            id: managed.id,
+            providerId: profile.providerId,
+            profileId: profile.id,
+            launchRevision: profile.launchRevision,
+            artifactIdentity: resolved.artifactIdentity,
+            harnessSessionId: managed.harnessSessionId,
+            workspaceRoot: root,
+            cwd,
+            title: req.title,
+            position: req.position,
+            active: req.active,
+          }
+          if (req.replacesSessionId)
+            return deps.terminalSessions.recordReplacement({
+              replacedId: req.replacesSessionId,
+              spawn,
+            })
+          void deps.terminalSessions
+            .recordSpawn(spawn)
+            .catch((error) =>
+              console.error('[terminal] session persistence failed', error),
+            )
+        },
       })
     } catch (reason) {
-      await ptyLease.dispose()
       if (reason instanceof PtyStartUnavailableError)
         return {
           outcome: 'launch-unavailable',
           reason: reason.reason,
           retryable: reason.retryable,
         }
-      if (isClassifiedHarnessLaunchFailure(reason)) {
-        refreshAfterClassifiedLaunchFailure()
-      }
+      if (isClassifiedHarnessLaunchFailure(reason)) refreshAfterClassifiedLaunchFailure()
       throw reason
     }
-    deps.harnessProbes.recordSuccessfulLaunch(
-      availabilityRequest,
-      profile,
-      managed.capabilities,
-    )
-    try {
-      deps.rendererResources.assertCurrent(owner)
-    } catch (error) {
-      await ptyLease.dispose()
-      throw error
-    }
-    const spawnRecord = {
-      id: managed.id,
-      providerId: profile.providerId,
-      profileId: profile.id,
-      launchRevision: profile.launchRevision,
-      artifactIdentity: resolved.artifactIdentity,
-      harnessSessionId: managed.harnessSessionId,
-      workspaceRoot: root,
-      cwd,
-      title: req.title,
-      position: req.position,
-      active: req.active,
-    }
-    let detach: () => void | Promise<void> = () => undefined
-    try {
-      detach = attachRendererPty(deps, managed, ptyLease, owner, context.sender)
-      if (req.replacesSessionId) {
-        await deps.terminalSessions.recordReplacement({
-          replacedId: req.replacesSessionId,
-          spawn: spawnRecord,
-        })
-      } else {
-        void deps.terminalSessions
-          .recordSpawn(spawnRecord)
-          .catch((error) => console.error('[terminal] session persistence failed', error))
-      }
-    } catch (error) {
-      await detach()
-      await ptyLease.dispose()
-      throw error
-    }
-    return terminalStartedResponse(managed, false)
   })
 
   ipc.handleSend('pty:write', ({ id, data }, context) => {

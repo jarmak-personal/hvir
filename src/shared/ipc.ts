@@ -21,6 +21,7 @@ import { terminalIpc } from './ipc/terminal'
 import { sessionsIpc } from './ipc/sessions'
 import { webPaneIpc } from './ipc/web-pane'
 import { documentReviewIpc } from './ipc/document-review'
+import { skillagerIpc } from './ipc/skillager'
 
 // Compatibility only: domain contracts import their named owners directly.
 export { type AppInfo, type EchoRequest, type EchoResponse } from './ipc/app'
@@ -115,6 +116,7 @@ const contract = composeIpcContracts(
   sessionsIpc,
   webPaneIpc,
   documentReviewIpc,
+  skillagerIpc,
 )
 
 export type IpcInvokeMap = InvokeMap<typeof contract>

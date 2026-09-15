@@ -57,3 +57,25 @@ export function terminalStartedStatus(
   if (context.reconnect) return `New shell · pid ${result.pid}`
   return `pid ${result.pid}`
 }
+
+export function startTerminalRuntime(
+  options: TerminalRuntimeOptions,
+  sessionId: string,
+  replacement: TerminalReplacement | undefined,
+  size: Readonly<{ cols: number; rows: number }>,
+  title: string,
+  resume: boolean,
+  initial: boolean,
+) {
+  const request = terminalStartRequest(
+    options,
+    sessionId,
+    replacement,
+    size,
+    title,
+    resume,
+  )
+  return initial && options.initialStart
+    ? options.initialStart.start(request)
+    : window.hvir.invoke('pty:start', request)
+}

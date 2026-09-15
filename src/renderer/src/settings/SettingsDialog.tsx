@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, type ReactElement } from 'react'
+import { useCallback, useEffect, useRef, type ReactElement, type ReactNode } from 'react'
 
 import type { HostPath } from '../../../shared'
 import type { AppTheme } from '../theme'
@@ -15,6 +15,7 @@ import {
 import { useSettingsController } from './use-settings-controller'
 
 interface SettingsDialogProps {
+  readonly skillager?: ReactNode
   readonly theme: AppTheme
   readonly settings: AppSettings
   readonly onSave: (theme: AppTheme, settings: AppSettings) => void
@@ -25,6 +26,7 @@ interface SettingsDialogProps {
 }
 
 export function SettingsDialog({
+  skillager,
   theme,
   settings,
   onSave,
@@ -97,7 +99,8 @@ export function SettingsDialog({
             onSelect={controller.requestSection}
           />
           <div className="settings-content">
-            <SettingsActiveSection
+          <SettingsActiveSection
+            skillager={skillager}
               activeSection={controller.activeSection}
               draft={controller.draft}
               validation={controller.validation}

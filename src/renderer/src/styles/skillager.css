@@ -1,0 +1,679 @@
+.skillager-sidebar {
+  min-height: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+  font-size: calc(12px * var(--hvir-interface-scale));
+}
+.skillager-sidebar[hidden] {
+  display: none;
+}
+.skillager-sidebar button,
+.skillager-settings button {
+  border: 1px solid var(--border-subtle);
+  border-radius: 5px;
+  padding: 5px 8px;
+  color: var(--text);
+  background: var(--surface-1);
+  cursor: pointer;
+}
+.skillager-sidebar button:disabled,
+.skillager-settings button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.skillager-sidebar input:not([type='checkbox']),
+.skillager-sidebar select,
+.skillager-executable input {
+  min-width: 0;
+  width: 100%;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-1);
+  color: var(--text);
+  border-radius: 5px;
+  padding: 6px;
+  box-sizing: border-box;
+}
+.skillager-sidebar button:hover {
+  background: var(--surface-hover);
+}
+.skillager-query,
+.skillager-executable {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.skillager-search {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+}
+.skillager-query {
+  align-items: stretch;
+}
+.skillager-search-controls {
+  flex: 0 1 auto;
+  min-height: 25px;
+  max-height: 45%;
+  overflow: auto;
+}
+.skillager-search-disclosure > summary,
+.skillager-search-advanced > summary {
+  cursor: pointer;
+  padding: 5px 8px;
+}
+.skillager-search-disclosure > summary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  padding: 0 8px;
+  list-style: none;
+  background: var(--surface-2);
+  border-top: 1px solid var(--border-subtle);
+}
+.skillager-search-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+.skillager-search-disclosure > summary > :nth-child(2) {
+  flex: 1;
+}
+.skillager-chevron {
+  flex: none;
+  width: 12px;
+  text-align: center;
+}
+.skillager-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: calc(14px * var(--hvir-interface-scale));
+  height: calc(14px * var(--hvir-interface-scale));
+  vertical-align: middle;
+  color: var(--text-muted);
+}
+.skillager-icon svg {
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.skillager-sidebar :is(button, summary):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.skillager-search-advanced label {
+  display: block;
+  margin: 6px 0;
+}
+.skillager-search-advanced .skillager-search-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.skillager-search-option input {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+}
+.skillager-query-summary {
+  margin: 4px 8px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.skillager-explorer-sections {
+  display: flex;
+  flex-direction: column;
+  min-height: 80px;
+  flex: 1;
+}
+.skillager-explorer-section {
+  display: flex;
+  flex-direction: column;
+  min-height: 30px;
+  flex: 0 0 auto;
+}
+.skillager-explorer-section.expanded {
+  flex: 1;
+  min-height: 80px;
+  overflow: hidden;
+}
+.skillager-section-header {
+  background: var(--surface-2);
+  display: flex;
+  flex: 0 0 30px;
+  align-items: center;
+  border-top: 1px solid var(--border-subtle);
+  padding: 0 4px;
+}
+.skillager-section-header > :first-child {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+.skillager-section-header .skillager-section-heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 4px;
+  min-width: min-content;
+  white-space: nowrap;
+}
+.skillager-section-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.skillager-section-header > button:not(.skillager-section-heading) {
+  flex: none;
+  white-space: nowrap;
+}
+.skillager-sidebar .skillager-section-header button {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding-inline: 4px;
+}
+.skillager-sidebar .skillager-section-refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+}
+.skillager-section-header small {
+  color: var(--text-muted);
+  margin-left: 8px;
+}
+.skillager-section-heading small {
+  margin-left: 0;
+}
+.skillager-refresh-status {
+  color: var(--text-muted);
+  font-size: calc(11px * var(--hvir-interface-scale));
+  max-width: 90px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.skillager-section-notice,
+.skillager-pending-filter {
+  margin: 3px 8px;
+}
+.skillager-section-empty {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 8px;
+}
+.skillager-connection-scroll {
+  overflow: auto;
+  padding: 12px;
+}
+.skillager-search-results {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 75px;
+  max-height: 40%;
+}
+.skillager-tree {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.skillager-tree-space {
+  position: relative;
+}
+.skillager-tree-line {
+  position: absolute;
+  height: 25px;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: stretch;
+}
+.skillager-sidebar .skillager-disclosure {
+  flex: 0 0 20px;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--text-muted);
+}
+.skillager-disclosure .skillager-icon {
+  max-width: 100%;
+}
+.skillager-tree-line > .skillager-action-row {
+  flex: 1;
+}
+.skillager-sidebar .skillager-row {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 0;
+  padding: 0 4px;
+  text-align: left;
+  font-size: inherit;
+  background: transparent;
+}
+.skillager-sidebar .skillager-row:hover {
+  background: var(--surface-hover);
+}
+.skillager-sidebar .skillager-row.selected {
+  background: var(--accent-soft);
+  color: var(--text-strong);
+}
+.skillager-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.skillager-sidebar .skillager-row.skillager-search-row {
+  height: 100%;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 0;
+  padding: 4px;
+}
+.skillager-search-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 16px;
+  line-height: 16px;
+  flex: none;
+}
+.skillager-search-row .skillager-search-context,
+.skillager-search-row .skillager-search-match {
+  display: block;
+  flex: none;
+  line-height: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(10px * var(--hvir-interface-scale));
+}
+.skillager-badges {
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
+  max-width: 65%;
+  min-width: 0;
+  overflow: hidden;
+}
+.skillager-badges small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-radius: 3px;
+  background: var(--surface-1);
+  padding: 0 3px;
+  font-size: calc(10px * var(--hvir-interface-scale));
+  white-space: nowrap;
+}
+.skillager-sidebar .skillager-actions-trigger {
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+}
+.skillager-tree-line .skillager-actions-trigger {
+  opacity: 0;
+}
+.skillager-tree-line:hover .skillager-actions-trigger,
+.skillager-tree-line:focus-within .skillager-actions-trigger {
+  opacity: 1;
+}
+.skillager-hint,
+.skillager-freshness,
+.skillager-row small,
+.skillager-eyebrow {
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.skillager-connection {
+  overflow-wrap: anywhere;
+}
+.skillager-connection code {
+  user-select: text;
+}
+.settings-dialog .skillager-settings input[type='checkbox'] {
+  accent-color: var(--accent);
+  width: 14px;
+  height: 14px;
+  padding: 0;
+}
+.settings-dialog .skillager-settings .skillager-settings-field {
+  align-items: start;
+}
+.settings-dialog .skillager-settings .settings-checkbox-control {
+  display: grid;
+  align-items: start;
+  color: var(--text);
+}
+.settings-dialog .skillager-settings .settings-checkbox-copy > small {
+  color: var(--text-muted);
+}
+.skillager-settings details > summary {
+  cursor: pointer;
+  color: var(--text-muted);
+}
+.skillager-connection-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+}
+.skillager-connection-summary > span:nth-child(2) {
+  flex: 1;
+}
+.skillager-connection-details {
+  margin-top: 8px;
+}
+.skillager-details {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 28px;
+  max-width: 900px;
+  overflow-wrap: anywhere;
+}
+.skillager-details h1 {
+  margin-top: 6px;
+  font-size: calc(23px * var(--hvir-interface-scale));
+}
+.skillager-details dl {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr);
+  gap: 12px;
+  margin: 28px 0;
+}
+.skillager-details dt {
+  color: var(--text-muted);
+}
+.skillager-details dd {
+  margin: 0;
+}
+
+.skillager-review {
+  margin-top: 20px;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+.skillager-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+.skillager-review-version code,
+.skillager-review-confirm code {
+  overflow-wrap: anywhere;
+}
+.skillager-review-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 14px 0;
+}
+.skillager-review-files button {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.skillager-review-files small {
+  opacity: 0.7;
+}
+.skillager-review-content {
+  min-height: 240px;
+  height: 48vh;
+  overflow: auto;
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.skillager-review-content .source-view {
+  height: 100%;
+}
+.skillager-review-markdown {
+  padding: 18px;
+}
+.skillager-review-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.skillager-review-html {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.skillager-review-confirm {
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  padding: 16px;
+  border-radius: 6px;
+}
+.skillager-review-confirm button {
+  margin: 12px 8px 0 0;
+}
+
+.skillager-action-row {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+}
+.skillager-action-row > .skillager-row {
+  flex: 1;
+  min-width: 0;
+}
+.skillager-actions-trigger {
+  align-self: center;
+  flex: 0 0 28px;
+}
+.project-dialog.confirmation-dialog.skillager-exposure-dialog {
+  width: min(860px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+}
+.skillager-exposure-dialog .confirmation-dialog-content {
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+.skillager-destination-fields {
+  display: grid;
+  gap: 10px;
+}
+.skillager-destination-fields label {
+  display: grid;
+  gap: 4px;
+}
+.skillager-exposure-effects details {
+  padding: 8px;
+  border-top: 1px solid var(--border);
+}
+.skillager-effect-sides {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.skillager-effect-sides pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.skillager-curation-members {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+  display: grid;
+  gap: 10px;
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+}
+.skillager-exposure-dialog label:has(input[type='checkbox']) {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 8px;
+}
+.skillager-exposure-dialog input[type='checkbox'] {
+  flex: 0 0 auto;
+  width: auto;
+  padding: 0;
+  margin: 2px 0 0;
+}
+.skillager-exposure-dialog pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.skillager-exposure-dialog .confirmation-dialog-content > details {
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+}
+.skillager-exposure-dialog nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.skillager-library-setup {
+  display: grid;
+  gap: 10px;
+}
+.skillager-library-setup h3,
+.skillager-library-setup p {
+  margin: 0;
+}
+.skillager-library-location {
+  user-select: text;
+  padding: 8px;
+  background: var(--surface-1);
+  border-radius: 5px;
+}
+.skillager-git-choice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.skillager-connection-details {
+  margin-top: 16px;
+}
+.skillager-first-skill textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  color: var(--text);
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: 5px;
+  padding: 8px;
+  user-select: text;
+}
+
+.skillager-project-setup-scroll {
+  flex: 0 1 auto;
+  min-height: 25px;
+  max-height: 50%;
+  overflow: auto;
+  padding: 4px 8px;
+  overflow-wrap: anywhere;
+}
+.skillager-project-setup summary {
+  cursor: pointer;
+}
+.skillager-project-setup p,
+.skillager-project-setup label {
+  display: block;
+  margin: 6px 0;
+}
+
+.skillager-sync-empty,
+.skillager-sync-progress {
+  padding: 8px 10px;
+  font-size: calc(12px * var(--hvir-interface-scale));
+  overflow-wrap: anywhere;
+}
+.skillager-sync-progress {
+  max-height: 220px;
+  overflow: auto;
+  flex: 0 1 auto;
+}
+.skillager-sync-progress p,
+.skillager-sync-empty p {
+  margin: 4px 0;
+}
+.skillager-sync-items {
+  padding-left: 22px;
+}
+.skillager-sync-items li {
+  margin: 6px 0;
+}
+.skillager-sync-progress nav,
+.skillager-lineage nav {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.skillager-lineage {
+  margin: 18px 0;
+  overflow-wrap: anywhere;
+}
+.skillager-lineage h2 {
+  font-size: calc(14px * var(--hvir-interface-scale));
+}
+
+.skillager-body-source {
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.skillager-body-modes {
+  display: flex;
+  gap: 6px;
+  margin: 10px 0;
+}
+.skillager-body-content {
+  min-height: 240px;
+}
+.skillager-body-content .source-view {
+  height: 440px;
+}
+.skillager-secondary {
+  margin-top: 24px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.skillager-secondary > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.skillager-detail-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.skillager-detail-heading h1 {
+  min-width: 0;
+  margin-bottom: 6px;
+}

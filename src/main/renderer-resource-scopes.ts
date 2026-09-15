@@ -17,6 +17,7 @@ export type RendererResourceQualifier =
         | 'project-folder-picker'
         | 'sessions-observation'
         | 'sessions-usage-observation'
+        | 'skillager'
     }
   | {
       readonly lifetime: 'workspace'
@@ -28,6 +29,7 @@ export type RendererResourceQualifier =
         | 'project-file-operation'
         | 'document-review'
         | 'document-review-delivery'
+        | 'skillager-request'
       readonly root: HostPath
       readonly id: string
     }

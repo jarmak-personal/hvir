@@ -89,6 +89,31 @@ describe('terminal session commands', () => {
     expect(text('panes')).toBe('primary')
   })
 
+  it('removes, disposes and forgets a failed prepared terminal while restoring the ordinary session', () => {
+    renderHarness()
+    act(() => button('start-default').click())
+    const ordinaryId = text('ids')
+    act(() => button('add-prepared').click())
+    expect(text('ids')).toBe(`${ordinaryId},prepared`)
+    expect(text('active')).toBe('prepared')
+
+    act(() => button('fail-prepared').click())
+
+    expect(text('ids')).toBe(ordinaryId)
+    expect(text('active')).toBe(ordinaryId)
+    expect(disposeSession).toHaveBeenCalledExactlyOnceWith('prepared')
+    expect(invoke).toHaveBeenCalledExactlyOnceWith('terminal:forget', {
+      root: localPath('/repo'),
+      id: 'prepared',
+    })
+    expect(reportError).toHaveBeenCalledExactlyOnceWith(
+      'Terminal launch failed: setup grant revoked',
+    )
+    act(() => button('fail-prepared').click())
+    expect(disposeSession).toHaveBeenCalledOnce()
+    expect(host.querySelector('[data-session="prepared"]')).toBeNull()
+  })
+
   it.each([
     ['local', localPath('/repo')],
     ['deterministic SSH', hostPath(asHostId('ssh-test'), '/repo')],
@@ -260,6 +285,26 @@ function CommandsHarness({
       <button type="button" data-testid="split" onClick={commands.split} />
       <button
         type="button"
+        data-testid="add-prepared"
+        onClick={() =>
+          commands.addPrepared({
+            id: 'prepared',
+            profile,
+            title: 'Skillager setup',
+            initialStart: {
+              start: () => Promise.reject(Error('Unexpected invocation')),
+              cancel: () => {},
+            },
+          })
+        }
+      />
+      <button
+        type="button"
+        data-testid="fail-prepared"
+        onClick={() => commands.failStart('prepared', 'setup grant revoked')}
+      />
+      <button
+        type="button"
         data-testid="fork-source-twice"
         onClick={() => {
           commands.fork('source')
@@ -283,7 +328,7 @@ function CommandsHarness({
         type="button"
         data-testid="fail-fork"
         onClick={() => {
-          if (pendingFork) commands.failForkStart(pendingFork.id, 'admission refused')
+          if (pendingFork) commands.failStart(pendingFork.id, 'admission refused')
         }}
       />
       <button

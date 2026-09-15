@@ -72,6 +72,33 @@ afterEach(() => {
 })
 
 describe('SettingsDialog section workflow', () => {
+  it('opens optional tools only through Integrations while preserving ordinary drafts', async () => {
+    renderDialog()
+    expect(document.querySelector('.skillager-settings')).toBeNull()
+    await selectSection('Terminal')
+    changeValue(
+      document.querySelector<HTMLInputElement>('#settings-idle-threshold')!,
+      '9',
+    )
+    await act(async () => {
+      changeSelect(
+        document.querySelector<HTMLSelectElement>('.settings-section-selector select')!,
+        'integrations',
+      )
+      await Promise.resolve()
+    })
+    expect(document.querySelector('#settings-integrations-title')).toBeTruthy()
+    expect(navButton('Integrations').getAttribute('aria-current')).toBe('page')
+    expect(document.querySelector('.skillager-settings')?.textContent).toBe(
+      'Enable Skillager',
+    )
+    await selectSection('Terminal')
+    expect(document.querySelector('.skillager-settings')).toBeNull()
+    expect(
+      document.querySelector<HTMLInputElement>('#settings-idle-threshold')?.value,
+    ).toBe('9')
+  })
+
   it('targets Harnesses without scroll alignment and preserves app drafts across sections', async () => {
     renderDialog({ section: 'harnesses' })
     flushFrames()
@@ -429,6 +456,12 @@ function renderDialog(
         workspaceRoot: localPath('/tmp/hvir'),
         projectRoot: localPath('/tmp/hvir'),
         initialDestination,
+        skillager: createElement(
+          'label',
+          { className: 'skillager-settings' },
+          createElement('input', { type: 'checkbox' }),
+          'Enable Skillager',
+        ),
         onClose,
         onSave,
       }),

@@ -15,7 +15,10 @@ import type {
   TerminalPresentation,
   TerminalTypography,
 } from './terminal-pane'
-import type { TerminalForkRequest } from './terminal-workspace-model'
+import type {
+  TerminalForkRequest,
+  TerminalInitialStart,
+} from './terminal-workspace-model'
 
 export interface FreshTerminalStart {
   readonly sessionId: string
@@ -26,6 +29,8 @@ export interface FreshTerminalStart {
 }
 
 export interface TerminalRuntimeOptions {
+  /** Transient, explicit initial handoff. Never serialized as a launch profile. */
+  readonly initialStart?: TerminalInitialStart
   readonly sessionId: string
   readonly profileId: HarnessProfileId
   readonly launchRevision: number
@@ -67,3 +72,5 @@ export interface TerminalRuntimeOptions {
   readonly onFocus: () => void
   readonly onLink: (activation: TerminalLinkActivation) => void
 }
+
+export type { TerminalInitialStart } from './terminal-workspace-model'

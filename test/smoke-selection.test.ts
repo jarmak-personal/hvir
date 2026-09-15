@@ -23,11 +23,11 @@ describe('Electron smoke scenario selection', () => {
   it('rejects unknown groups with the complete reproducible name set', () => {
     expect(() => parseElectronSmokeScenario('unknown')).toThrow(
       "Unknown Electron smoke scenario 'unknown'. Expected one of: " +
-        'pty-native, viewer-position, viewer-content, git-workflow, workspace-remote, web-pane, renderer-authority, platform-contracts, diagnostic-report-restart, renderer-recovery, sessions-projection, document-review, development-performance, terminal-presentation, terminal-lifecycle, native-host-worker, workbench-health, terminal-theme, terminal-move, workbench-layout, terminal-split, harness-profiles, app-settings, capacity',
+        'pty-native, viewer-position, viewer-content, git-workflow, workspace-remote, web-pane, renderer-authority, platform-contracts, diagnostic-report-restart, renderer-recovery, sessions-projection, document-review, development-performance, terminal-presentation, terminal-lifecycle, native-host-worker, workbench-health, terminal-theme, terminal-move, workbench-layout, terminal-split, harness-profiles, app-settings, skillager, capacity',
     )
     expect(() => selectedSmokeScenarios('unknown')).toThrow(
       "Unknown Electron smoke scenario 'unknown'. Expected one of: " +
-        'pty-native, viewer-position, viewer-content, git-workflow, workspace-remote, web-pane, renderer-authority, platform-contracts, diagnostic-report-restart, renderer-recovery, sessions-projection, document-review, development-performance, terminal-presentation, terminal-lifecycle, native-host-worker, workbench-health, terminal-theme, terminal-move, workbench-layout, terminal-split, harness-profiles, app-settings, capacity',
+        'pty-native, viewer-position, viewer-content, git-workflow, workspace-remote, web-pane, renderer-authority, platform-contracts, diagnostic-report-restart, renderer-recovery, sessions-projection, document-review, development-performance, terminal-presentation, terminal-lifecycle, native-host-worker, workbench-health, terminal-theme, terminal-move, workbench-layout, terminal-split, harness-profiles, app-settings, skillager, capacity',
     )
   })
 

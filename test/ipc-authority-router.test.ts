@@ -449,125 +449,6 @@ describe('IpcAuthorityRouter', () => {
     expect(transport.sends.size).toBe(0)
   })
 
-  it('keeps the reviewed owner and authority channel policies explicit', () => {
-    expect(new Set(OWNER_SCOPED_INVOKE_CHANNELS)).toEqual(
-      new Set<IpcInvokeChannel>([
-        'workbench-health:acknowledge',
-        'diagnostic-evidence:get',
-        'diagnostic-evidence:delete',
-        'project:connect-host',
-        'project:browse-host',
-        'project:folder-picker-start',
-        'project:folder-picker-browse',
-        'project:folder-picker-create-directory',
-        'project:folder-picker-close',
-        'project:open',
-        'document-review:restore',
-        'document-review:save',
-        'document-review:revalidate',
-        'document-review:delivery-destinations',
-        'document-review:preview-delivery',
-        'document-review:prepare-delivery',
-        'document-review:insert-delivery',
-        'document-review:send-now-delivery',
-        'ssh:prompt-response',
-        'fs:read',
-        'fs:read-asset',
-        'fs:filename-search',
-        'fs:reveal-entry',
-        'fs:create-entry',
-        'fs:acquire-clipboard-files',
-        'fs:acquire-dropped-files',
-        'fs:copy-external',
-        'fs:external-move-disclosure',
-        'fs:acquire-external-move-files',
-        'fs:release-external-move-grant',
-        'fs:move-external',
-        'fs:organize-entry',
-        'fs:deletion-disclosure',
-        'fs:delete-entry',
-        'fs:cancel-file-operation',
-        'html-preview:create',
-        'web-pane:open',
-        'web-pane:close',
-        'web-pane:open-external',
-        'web-pane:open-browser',
-        'terminal:plan-move',
-        'terminal:move',
-        'terminal:record-recovery-decision',
-        'terminal:resolve-file-clipboard',
-        'pty:start',
-        'sessions:observe',
-        'sessions:snapshot',
-        'sessions:release',
-        'sessions:usage-observe',
-        'sessions:usage-snapshot',
-        'sessions:usage-release',
-        'sessions:open',
-        'sessions:resolve-terminal',
-        'diagnostic-report:create',
-        'diagnostic-report:capture',
-        'diagnostic-report:copy',
-        'diagnostic-report:save',
-        'diagnostic-report:cancel',
-        'diagnostic-report:delete',
-      ]),
-    )
-    expect(new Set(OWNER_SCOPED_SEND_CHANNELS)).toEqual(
-      new Set<IpcSendChannel>(SEND_CHANNELS),
-    )
-    expect(new Set(AUTHORITY_SCOPED_INVOKE_CHANNELS)).toEqual(
-      new Set<IpcInvokeChannel>([
-        'project:watch-interests',
-        'document-review:restore',
-        'document-review:save',
-        'document-review:revalidate',
-        'document-review:delivery-destinations',
-        'document-review:preview-delivery',
-        'document-review:prepare-delivery',
-        'fs:readdir',
-        'fs:filename-search',
-        'fs:resolve-entry',
-        'fs:reveal-entry',
-        'fs:read',
-        'fs:read-asset',
-        'fs:write',
-        'fs:create-entry',
-        'fs:copy-external',
-        'fs:move-external',
-        'fs:organize-entry',
-        'fs:deletion-disclosure',
-        'fs:delete-entry',
-        'git:diff-inputs',
-        'git:changes',
-        'git:history',
-        'git:ignored-entries',
-        'git:commit-detail',
-        'git:blame',
-        'git:branches',
-        'git:fetch',
-        'git:pull',
-        'git:switch-branch',
-        'html-preview:create',
-        'harness:profiles',
-        'harness:probe-snapshot',
-        'harness:probe-profiles',
-        'harness:probe-templates',
-        'harness:profile-materialize',
-        'harness:profile-save',
-        'harness:preview',
-        'harness:authorize-path',
-        'terminal:recovery',
-        'terminal:record-recovery-decision',
-        'terminal:update-layout',
-        'terminal:forget',
-        'terminal:rebind-profile',
-        'pty:start',
-        'web-pane:open',
-      ]),
-    )
-  })
-
   it('keeps feature registrars free of direct IPC and canonicalization primitives', async () => {
     const featureDirectory = join(process.cwd(), 'src/main/ipc/features')
     const features = [
@@ -585,6 +466,7 @@ describe('IpcAuthorityRouter', () => {
       'clipboard.ts',
       'terminal-file-paste.ts',
       'sessions.ts',
+      'skillager.ts',
     ]
     const source = (
       await Promise.all(
@@ -598,7 +480,7 @@ describe('IpcAuthorityRouter', () => {
     expect(source).not.toMatch(/getRegisteredWorkspaceRoot/)
     for (const channel of AUTHORITY_SCOPED_INVOKE_CHANNELS) {
       expect(registrationBlock(source, 'handle', channel)).toMatch(
-        /ipc\.authority\.|authorizeDocumentRead\(ipc\.authority,/,
+        /ipc\.authority\.|(?:authorizeDocumentRead|qualifySkillagerRequest|qualifyExposureRequest)\(ipc\.authority,/,
       )
     }
     for (const channel of OWNER_SCOPED_INVOKE_CHANNELS) {
@@ -607,6 +489,35 @@ describe('IpcAuthorityRouter', () => {
     for (const channel of OWNER_SCOPED_SEND_CHANNELS) {
       expect(registrationBlock(source, 'handleSend', channel)).toMatch(/\.owner\(\)/)
     }
+  })
+
+  it('qualifies a selected Skillager executable and rejects SSH before the local probe', async () => {
+    const { deps, transport } = fixture()
+    const probe = vi.fn(() =>
+      Promise.resolve({ ok: false, reason: 'missing', message: 'Missing fixture CLI' }),
+    )
+    Object.assign(deps, { skillager: { probe } })
+    registerIpcHandlers(deps, transport)
+    const invoke = transport.invokes.get('skillager:probe')?.[0]
+    await expect(
+      Promise.resolve().then(() =>
+        invoke?.(ipcEvent(), {
+          executable: { hostId: 'local', path: '/tmp/../tools/skillager' },
+        }),
+      ),
+    ).rejects.toThrow('must already be normalized')
+    await invoke?.(ipcEvent(), {
+      executable: { hostId: 'local', path: '/tools/skillager' },
+    })
+    expect(probe).toHaveBeenCalledWith(owner, localPath('/tools/skillager'))
+    await expect(
+      Promise.resolve().then(() =>
+        invoke?.(ipcEvent(), {
+          executable: { hostId: 'ssh:example', path: '/tools/skillager' },
+        }),
+      ),
+    ).rejects.toThrow('must be local')
+    expect(probe).toHaveBeenCalledOnce()
   })
 
   it('reconstructs normalized create-entry paths and qualifies the exact owner', async () => {

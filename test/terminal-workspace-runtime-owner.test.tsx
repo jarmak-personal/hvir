@@ -90,6 +90,20 @@ describe('TerminalWorkspaceRuntimeOwner', () => {
     owner.dispose()
   })
 
+  it('revokes a pending prepared terminal destination before its late controller can admit it', async () => {
+    const owner = new TerminalWorkspaceRuntimeOwner()
+    const abort = new AbortController()
+    const prepared = owner.prepareTransferTarget('workspace-setup', abort.signal)
+    abort.abort()
+    await expect(prepared).rejects.toThrow('cancelled')
+    owner.releaseTransferTarget('workspace-setup')
+    expect(owner.snapshot()).toEqual([])
+    const late = controller()
+    owner.registerController('workspace-setup', late)
+    expect(late.addPrepared).not.toHaveBeenCalled()
+    owner.dispose()
+  })
+
   it('reads materialized session facts only while an observer declares demand', () => {
     const owner = new TerminalWorkspaceRuntimeOwner()
     let sessions = [
@@ -359,6 +373,7 @@ describe('TerminalWorkspaceRuntimeOwner', () => {
 
 function controller(): TerminalWorkspaceController {
   return {
+    addPrepared: vi.fn(() => true),
     hasSession: vi.fn(() => false),
     selectSession: vi.fn(() => false),
     transferOut: vi.fn(() => undefined),
