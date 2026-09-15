@@ -1,4 +1,10 @@
-import { createDirectAddController } from './direct-add.mjs'
+import {
+  createDirectAddController,
+  changeAddChoice,
+  addChoice,
+  reviewDirectAddSample,
+  applyReviewedDirectAddSample,
+} from './direct-add.mjs'
 import { createCurationActions } from './curation-actions.mjs'
 import { createSampleReader, readingView } from './reading.mjs'
 import { readingSearchFixture } from './search-sample.mjs'
@@ -15,7 +21,6 @@ const { document, window, setTimeout, clearTimeout, setInterval, clearInterval }
   globalThis
 import {
   initialState,
-  destinations,
   destinationFor,
   skillFor,
   exposuresFor,
@@ -48,7 +53,6 @@ import {
 } from './views.mjs'
 const $ = (selector) => document.querySelector(selector)
 let state = initialState(),
-  preview,
   searchTimer,
   refreshTimer,
   setupTimer,
@@ -58,22 +62,15 @@ let state = initialState(),
   periodic
 const reader = createSampleReader(() => state, render)
 const directAdd = createDirectAddController(() => state, render, notify)
-const curate = createCurationActions({
-  current: () => ({
-    state,
-    reader,
-    render,
-    modal,
-    closeDialog,
-    cancelSearch,
-    selectViewer,
-    revealSkillInFiles,
-    directAdd,
-  }),
-  preview: () => preview,
-  setPreview: (value) => {
-    preview = value
-  },
+const curate = createCurationActions(() => state, {
+  reader,
+  render,
+  modal,
+  closeDialog,
+  cancelSearch,
+  selectViewer,
+  revealSkillInFiles,
+  directAdd,
 })
 function notify(text) {
   if (!state.enabled) return
@@ -95,7 +92,7 @@ function cancelSearch() {
 function closeDialog() {
   $('#dialog').close()
   $('#dialog').innerHTML = ''
-  preview = null
+  state.preview = null
 }
 function modal(html) {
   $('#dialog').innerHTML = html
@@ -147,6 +144,7 @@ function render() {
   reader.remember()
   const focused = document.activeElement,
     row = focused?.closest('.skill-row')
+  const addFocus = focused?.closest('.direct-add-controls') ? focused.id : null
   const rowIdentity = row ? JSON.stringify(row.dataset) : null
   const rowButton = row ? [...row.querySelectorAll('button')].indexOf(focused) : -1
   const scrolls = [...document.querySelectorAll('.explorer-scroll')].map(
@@ -189,6 +187,7 @@ function render() {
   }
   $('#skills-rail').innerHTML = skillsRailView(state)
   $('#polish-refresh-error').checked = !!state.sampleRefreshFailure
+  $('#polish-uncertain').checked = state.sampleDirectOutcome === 'uncertain'
   $('#polish-prerequisites').checked = !!state.samplePrerequisites?.length
   $('#reading-delay').checked = state.sampleReadDelay === 500
   $('#reading-count').textContent = `${state.readCount || 0} explicit sample reads`
@@ -216,6 +215,7 @@ function render() {
       .find((item) => JSON.stringify(item.dataset) === rowIdentity)
       ?.querySelectorAll('button')
       [rowButton]?.focus({ preventScroll: true })
+  if (addFocus) document.getElementById(addFocus)?.focus({ preventScroll: true })
   syncRefreshDemand()
   if (focusedSearch && $('#search')) {
     $('#search').focus()
@@ -226,8 +226,8 @@ function selectViewer(viewer, read = false) {
   if (viewer === 'skills' && (!state.enabled || !state.skillsOpen)) return
   closeDialog()
   state.viewer = viewer
+  directAdd.revoke()
   if (viewer !== 'skills') {
-    directAdd.revoke()
     reader.revoke()
   } else if (read) {
     state.reviewOpen = false
@@ -306,12 +306,12 @@ function search(legacy = false) {
   }, 500)
 }
 function prepare(action, mode) {
-  preview = previewSnapshot(
+  state.preview = previewSnapshot(
     state,
     action,
     mode || exposuresFor(state)[state.selected]?.mode || 'native',
   )
-  modal(previewView(state, preview))
+  modal(previewView(state, state.preview))
 }
 function action(name) {
   if (name === 'close') return closeDialog()
@@ -423,25 +423,34 @@ function action(name) {
     cancelSearch()
     return directAdd.start({ agent: state.agent, mode: 'native' })
   }
-  if (name === 'review-add' && state.directAdd?.plan) {
-    preview = state.directAdd.plan
-    return modal(previewView(state, preview))
+  if (name === 'review-add') {
+    state.preview = reviewDirectAddSample(state)
+    if (state.preview) return modal(previewView(state, state.preview))
+    return
+  }
+  if (
+    name === 'inspect-add' &&
+    state.directAddUncertain?.destination === state.destination
+  ) {
+    const plan = state.directAddUncertain
+    state.filesSelection = null
+    $('#files-selection').innerHTML =
+      `<p>Inspect ${escapeHtml(plan.destinationHost)} · ${escapeHtml(plan.targetPath)}</p><p>Add completion remains uncertain. Observing files does not prove this operation completed; no retry or removal was authorized.</p>`
+    return selectRail('files')
   }
   if (name === 'preview-add') {
     cancelSearch()
-    const destination = $('#add-destination').value,
-      agent = $('#add-agent').value
+    const { destination, agent, mode } = addChoice(state)
     if (state.destination !== destination || state.agent !== agent) {
       reader.revoke()
       state.generation++
     }
     state.destination = destination
     state.agent = agent
-    const selectedMode = $('#add-mode').value
     if (destinationFor(state).host !== 'local') state.scope = 'personal'
     render()
     closeDialog()
-    return directAdd.start({ agent: state.agent, mode: selectedMode })
+    return directAdd.start({ agent: state.agent, mode })
   }
   if (name === 'switch')
     return prepare(
@@ -460,10 +469,12 @@ function action(name) {
     return modal(
       '<h2 id="dialog-title">Version history · metadata only</h2><p>Current accepted version and prior versions belong to Skillager.</p><p>Libraries without Git show history unavailable. A new draft has no previous version: review the full tree explicitly.</p><footer><button data-action="close">Close</button></footer>',
     )
-  if (name === 'apply' && preview) {
-    const requested = preview.action,
+  if (name === 'apply' && state.preview) {
+    const requested = state.preview.action,
       destination = destinationFor(state).label
-    const result = applySample(state, preview)
+    const result = state.preview.createOnly
+      ? applyReviewedDirectAddSample(state, state.preview)
+      : applySample(state, state.preview)
     if (result !== 'completed')
       return modal(
         `<h2 id="dialog-title">${result === 'stale' ? 'This preview is out of date' : 'Preserve this target'}</h2><p>No action applied. Refresh and review a new preview.</p><footer><button data-action="close">Close</button></footer>`,
@@ -661,6 +672,7 @@ document.addEventListener('click', (event) => {
       '[data-select],[data-native],[data-curation-select],[data-curation-router],[data-menu],[data-curation-menu],[data-router-menu]',
     )
   ) {
+    directAdd.revoke()
     reader.revoke()
     const result = state.results?.find((row) =>
       row.occurrenceId
@@ -819,14 +831,11 @@ document.addEventListener('change', (event) => {
     state.scope = event.target.value
     render()
   }
-  if (event.target.id === 'add-destination') {
-    const d = destinations.find((d) => d.id === event.target.value)
-    const stub = $('#add-mode option[value="stub"]')
-    stub.disabled = d.host !== 'local'
-    if (stub.disabled) $('#add-mode').value = 'native'
-    $('#add-route').textContent =
-      `Local · ${state.library.path} → ${d.label}${stub.disabled ? ' · Remote Stub unavailable' : ''}`
-  }
+  if (
+    !event.target.closest('dialog') &&
+    changeAddChoice(state, event.target.id, event.target.value)
+  )
+    render()
 })
 document.addEventListener(
   'toggle',
@@ -854,7 +863,7 @@ document.addEventListener('keydown', (event) => {
   }
 })
 $('#dialog').addEventListener('cancel', () => {
-  preview = null
+  state.preview = null
 })
 $('#settings').onclick = () => action('settings')
 $('#reset').onclick = () => {
@@ -884,6 +893,9 @@ $('#polish-refresh-error').onchange = (event) => {
 $('#polish-prerequisites').onchange = (event) => {
   state.samplePrerequisites = event.target.checked ? ['Python 3.12'] : []
   render()
+}
+$('#polish-uncertain').onchange = (event) => {
+  state.sampleDirectOutcome = event.target.checked ? 'uncertain' : null
 }
 $('#polish-theme').onchange = (event) => {
   document.documentElement.dataset.studyTheme = event.target.value

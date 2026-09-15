@@ -214,7 +214,8 @@ export function createSampleReader(current, render) {
   }
   function restore() {
     const viewport = globalThis.document?.querySelector('#skills-view')
-    if (viewport && current().reading?.body) viewport.scrollTop = presentation().scroll
+    if (viewport && current().reading?.body && !presentation().collapsed)
+      viewport.scrollTop = presentation().scroll
   }
   function control(name) {
     if (!current().reading?.body) return

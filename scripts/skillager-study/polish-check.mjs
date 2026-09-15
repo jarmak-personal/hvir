@@ -60,7 +60,6 @@ export async function checkPolishStudy({
   for (const agent of ['codex', 'claude'])
     for (const mode of ['native', 'stub']) {
       const state = ready()
-      skillFor(state).trust = 'pinned'
       const plan = prepareDirectAddSample(state, { agent, mode })
       nodeAssert.equal(completeDirectAddSample(state, plan), null)
       nodeAssert.deepEqual(state.exposures[`local-main/${agent}`]['incident-notes'], {
@@ -86,10 +85,16 @@ export async function checkPolishStudy({
   nodeAssert.ok(prepareDirectAddSample(uncertain, options).refusal)
   const retained = { ...ready(), refreshError: 'Metadata unavailable' }
   nodeAssert.equal(prepareDirectAddSample(retained, options).sourceHash, 'e417ab2')
-  await assert(
-    'true',
-    'Direct Add sample owner binds source hash, accepted state, exact absent target/context; pinned accepted create remains allowed and uncertainty/prerequisites stop automatic writes',
-  )
+  const ownerCases = [
+    '7 source/target/context stale refusals',
+    '4 accepted create agent/mode combinations',
+    'remote Stub unavailable',
+    'unchecked prerequisite refusal',
+    'uncertainty retained',
+    'retained metadata is not preview authority',
+  ]
+
+  await checkAddReview({ flow, click, pointClick, choose, run, assert, waitFor, capture })
 
   await flow('initial-loading')
   await assert(
@@ -169,6 +174,13 @@ export async function checkPolishStudy({
     `document.querySelector('.instructions-body').hidden`,
     'Instructions disclosure hides the entire body',
   )
+  await run(
+    `document.querySelector('.source-status').open=true; document.querySelector('#skills-view').scrollTop=30; window.collapsedScroll=document.querySelector('#skills-view').scrollTop; document.querySelector('#polish-prerequisites').click()`,
+  )
+  await assert(
+    `collapsedScroll>0 && collapsedScroll!==polishScroll && document.querySelector('.instructions-body').hidden && document.querySelector('#skills-view').scrollTop===collapsedScroll`,
+    'An unrelated render does not restore the old expanded-body scroll while collapsed',
+  )
   await click('[data-reading="collapse"]')
   await assert(
     `document.querySelector('[data-reading="source"]').getAttribute('aria-pressed')==='true' && document.querySelector('#skills-view').scrollTop===polishScroll && document.querySelector('#reading-count').textContent===polishReadCount`,
@@ -220,6 +232,10 @@ export async function checkPolishStudy({
     'The menu names its concrete Add shortcut separately from the detail controls’ unsubmitted choices',
   )
   await pointClick('#dialog [data-curate="add"]')
+  await assert(
+    `document.querySelector('.add-result')?.textContent.includes('Preparing exact create-only Add: Codex · Full skill · local · /work/hvir')`,
+    'Pending menu Add names its frozen Codex Full plan despite the separate Claude Stub draft',
+  )
   await waitFor(
     `document.querySelector('.add-result')?.textContent.includes('Added to Codex')`,
   )
@@ -300,4 +316,173 @@ export async function checkPolishStudy({
   )
   await capture('polish-disabled-settings')
   await click('[data-action="close"]')
+  return {
+    ownerCases,
+    ownerCaseCount: 15,
+    pinnedSourceCoverage:
+      'Not modeled by this study; ADR051 requires meaningful tests at the production mutation owner.',
+  }
+}
+
+async function checkAddReview({
+  flow,
+  click,
+  pointClick,
+  choose,
+  run,
+  assert,
+  waitFor,
+  capture,
+}) {
+  // Exact stopped-plan A→B, including opening B through its menu, in both sample models.
+  for (const curation of [false, true]) {
+    await flow(curation ? 'curation' : 'remote')
+    const a = curation ? 'environment' : 'incident-notes',
+      b = curation ? 'collection' : 'pr-review'
+    const row = (id, menu = false) =>
+      curation
+        ? `#explorer-library [data-curation-${menu ? 'menu' : 'select'}="${id}"]`
+        : `#explorer-library [data-${menu ? 'menu' : 'select'}="${id}"]`
+    const prefix = curation ? 'data-curate' : 'data-action'
+    if (curation) await click(row(a))
+    await click('#polish-prerequisites')
+    await pointClick(
+      curation ? '#skills-view [data-curate="add"]' : '[data-action="preview-add"]',
+    )
+    await waitFor(
+      `document.querySelector('.add-result')?.textContent.includes('not checked')`,
+    )
+    await pointClick(`[${prefix}="review-add"]`)
+    await assert(
+      `document.querySelector('#dialog').textContent.includes(${JSON.stringify(curation ? '/skills/synced-environment' : '/skills/incident-notes')}) && document.querySelector('#dialog').textContent.toLowerCase().includes('not checked')`,
+      'The prerequisite review names its exact originating source and retains unchecked-host disclosure',
+    )
+    await click('[data-action="close"]')
+    await click(row(b, true))
+    await assert(
+      `!document.querySelector('#skills-view .add-result') && !document.querySelector('[${prefix}="review-add"]') && !document.querySelector('#dialog [${prefix}="apply"]')`,
+      'Selecting B through its menu clears A’s stopped result and cannot confirm A under B',
+    )
+    await pointClick(`#dialog [${prefix}="add"]`)
+    await waitFor(
+      `document.querySelector('.add-result')?.textContent.includes('not checked')`,
+    )
+    await pointClick(`[${prefix}="review-add"]`)
+    await assert(
+      `document.querySelector('#dialog').textContent.includes(${JSON.stringify(curation ? '/skills/synced-collection' : '/skills/pr-review')}) && !document.querySelector('#dialog').textContent.includes(${JSON.stringify(curation ? '/skills/synced-environment' : '/skills/incident-notes')})`,
+      'B gets its own exact prerequisite plan rather than inheriting A’s source or target',
+    )
+    await pointClick(`#dialog [${prefix}="apply"]`)
+    await assert(
+      curation
+        ? `document.querySelector('[data-curation-row="collection"]') && !document.querySelector('[data-curation-row="environment"]')`
+        : `document.querySelector('#explorer-workspace [data-skill="pr-review"]') && !document.querySelector('#explorer-workspace [data-skill="incident-notes"]')`,
+      'Confirming the selected B plan creates only B; stopped A remains absent',
+    )
+    await assert(
+      `document.querySelector('.add-result').textContent.includes('Added to') && !document.querySelector('[${prefix}="review-add"]')`,
+      'Confirmed prerequisite Add replaces refusal with the bound success result',
+    )
+    if (curation) await capture('polish-curation-prerequisite-completed')
+    await click(row(a))
+    await assert(
+      `!document.querySelector('.add-result')`,
+      'A completed Add result is cleared when another source is selected',
+    )
+  }
+  await flow('add')
+  await choose('#add-destination', 'local-review')
+  await choose('#add-agent', 'claude')
+  await choose('#add-mode', 'stub')
+  await pointClick('[data-action="preview-add"]')
+  await assert(
+    `document.querySelector('.add-result')?.textContent.includes('Preparing exact create-only Add: Claude Code · Stub · local · /work/hvir-worktrees/database-review')`,
+    'Pending Add names the frozen changed-destination Claude Stub plan rather than a reset draft',
+  )
+  await waitFor(
+    `document.querySelector('.add-result')?.textContent.includes('Added to Claude Code')`,
+  )
+  await assert(
+    `document.querySelector('#explorer-workspace [data-skill="incident-notes"] [aria-label="Claude Code · Stub"]') && document.querySelector('#destination').value==='local-review'`,
+    'The submitted changed-destination Claude Stub intent remains the actual created copy',
+  )
+  await flow('add')
+  await pointClick('[data-action="preview-add"]')
+  await run(`window.selectionAdd=studyTimers.add`)
+  await assert(
+    `typeof selectionAdd==='function' && document.querySelector('.add-result').textContent.includes('Preparing')`,
+    'The A→B pending-selection test captures the actual active Add callback',
+  )
+  await click('#explorer-library [data-select="pr-review"]')
+  await run(`selectionAdd()`)
+  await assert(
+    `!document.querySelector('.add-result') && !document.querySelector('#explorer-workspace [data-skill="incident-notes"]')`,
+    'Changing row selection rejects the pending A completion and clears its result',
+  )
+
+  // Draft controls and actual focus survive a delayed body result and another render.
+  for (const curation of [false, true]) {
+    await flow(curation ? 'curation' : 'browse')
+    await click('#reading-delay')
+    await click(
+      curation
+        ? '#explorer-library [data-curation-select="environment"]'
+        : '#explorer-library [data-select="incident-notes"]',
+    )
+    await assert(
+      `document.querySelector('.instructions-body').textContent.includes('Reading selected file')`,
+      'Draft preservation starts with the selected ordinary read actually pending',
+    )
+    if (!curation) await choose('#add-destination', 'local-review')
+    const agent = curation ? '#curation-add-agent' : '#add-agent',
+      mode = curation ? '#curation-mode' : '#add-mode'
+    await choose(agent, 'claude')
+    await choose(mode, curation ? 'Stub' : 'stub')
+    await run(`document.querySelector(${JSON.stringify(mode)}).focus()`)
+    await waitFor(`document.querySelector('#skill-current-body')`)
+    await run(`document.querySelector('#polish-prerequisites').click()`)
+    if (curation) await run(`document.querySelector('#curation-long-project').click()`)
+    await assert(
+      `document.querySelector(${JSON.stringify(agent)}).value==='claude' && document.querySelector(${JSON.stringify(mode)}).value===${JSON.stringify(curation ? 'Stub' : 'stub')} && document.activeElement.id===${JSON.stringify(mode.slice(1))}${curation ? '' : " && document.querySelector('#add-destination').value==='local-review'"}`,
+      'Reader completion and metadata rendering retain the selection’s concrete draft choices and focused control',
+    )
+    await click(
+      curation
+        ? '#explorer-library [data-curation-select="collection"]'
+        : '#explorer-library [data-select="deploy-checklist"]',
+    )
+    await click(
+      curation
+        ? '#explorer-library [data-curation-select="environment"]'
+        : '#explorer-library [data-select="incident-notes"]',
+    )
+    await assert(
+      `document.querySelector(${JSON.stringify(agent)}).value==='codex' && document.querySelector(${JSON.stringify(mode)}).value===${JSON.stringify(curation ? 'Full skill' : 'native')}`,
+      'Leaving the selection retires its Add draft rather than transferring it to another source',
+    )
+  }
+  await flow('add')
+  await click('#polish-uncertain')
+  await pointClick('[data-action="preview-add"]')
+  await waitFor(`document.querySelector('.add-uncertainty')`)
+  await assert(
+    `document.querySelector('.add-uncertainty').textContent.includes('/work/hvir/.agents/skills/lib-incident-notes') && document.querySelector('[data-action="preview-add"]').disabled`,
+    'The explicit uncertainty fixture retains the bound original target and prevents another Add',
+  )
+  await pointClick('[data-action="inspect-add"]')
+  await assert(
+    `!document.querySelector('#files-rail').hidden && document.querySelector('#files-selection').textContent.includes('/work/hvir/.agents/skills/lib-incident-notes') && !document.querySelector('#files-selection button')`,
+    'Uncertainty inspection only navigates to Files with the original target; it grants no deletion or success claim',
+  )
+  await pointClick('[data-rail="skills"]')
+  await click('[data-action="refresh"]')
+  await waitFor(
+    `document.querySelector('.header-refresh').getAttribute('aria-busy')==='false'`,
+  )
+  await click('#explorer-library [data-select="pr-review"]')
+  await assert(
+    `!document.querySelector('.add-result') && document.querySelector('.add-uncertainty').textContent.includes('lib-incident-notes')`,
+    'Observation and selection departure clear the old display without clearing the original uncertain-write guard',
+  )
+  await capture('polish-uncertain-inspection')
 }

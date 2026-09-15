@@ -30,7 +30,7 @@ filesystem access. `reading-check.mjs` reuses the existing headless browser life
 `curation-actions.mjs` composes the existing curation model/views through page ports, and
 `direct-add.mjs` illustrates only exact accepted-version create-only intent through the existing
 preview/apply model. `skill-icons.mjs` owns the small accessible glyph markup. Reader and explorer
-styles have their own leaves; no application or controller budget exception is introduced.
+styles have their own leaves; preview/apply and dismissal share one state-owned prepared plan.
 The source model owns only illustrative state; views produce markup; the browser entry owns
 DOM events and page timers. The builder uses the declared Vite dependency to bundle these modules
 and stylesheet into a single self-contained artifact outside the maintained tree. Generated HTML,
@@ -67,7 +67,7 @@ supply page-memory observations, never runtime authority, filesystem effects or 
 `polish-check.mjs` extends the same headless browser lifecycle with focus/scroll stability, stale/error
 retention and replacement context, nonzero body-position collapse/expand, responsive light/dark layout,
 direct Add and compact removal. Its pure owner cases cover hash/approval/target/context changes,
-accepted pinned creation, unchecked remote requirements and retained uncertainty. These are study
+accepted create modes for both agents, unchecked remote requirements and retained uncertainty. These are study
 contracts; production CLI, transport, capacity and mutation guarantees need their separate owners.
 
 ## Explicit reading and search refinement
@@ -323,3 +323,10 @@ Execution aborts or reports unsupported data rather than parsing partial output.
 
 Implementation observations, measurements, remaining upstream contract gaps, and acceptance
 results belong to issue #778 and its focused pull request. ADRs record decisions only.
+
+The polish report lists pure owner cases separately from actual browser assertions. It does not
+claim source-pin coverage: the existing Pinned fixture is a protected target, not a pinned source.
+The explicit lost-Add fixture preserves its original target and offers a read-only Files inspection
+handoff. That navigation and subsequent observations never clear uncertainty or authorize retry.
+Add drafts and displayed results belong to the exact originating selection and context; changing
+selection retires them while any unresolved write guard remains.

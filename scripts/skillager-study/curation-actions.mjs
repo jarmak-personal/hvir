@@ -1,3 +1,4 @@
+import { reviewDirectAddSample, applyReviewedDirectAddSample } from './direct-add.mjs'
 const { document } = globalThis
 import {
   curationSample,
@@ -16,25 +17,20 @@ import {
   curationSyncView,
 } from './curation-views.mjs'
 
-export function createCurationActions(ports) {
+export function createCurationActions(current, ports) {
+  const {
+    reader,
+    render,
+    modal,
+    closeDialog,
+    cancelSearch,
+    selectViewer,
+    revealSkillInFiles,
+    directAdd,
+  } = ports
   return function curate(name) {
-    const {
-      state,
-      reader,
-      render,
-      modal,
-      closeDialog,
-      cancelSearch,
-      selectViewer,
-      revealSkillInFiles,
-      directAdd,
-    } = ports.current()
+    const state = current()
     const $ = (selector) => document.querySelector(selector)
-    let preview = ports.preview()
-    const retain = (value) => {
-      preview = value
-      ports.setPreview(value)
-    }
     if (!state.enabled || !state.connected) return
     if (!state.curation) {
       if (name !== 'sync-confirm' || !state.empty) return
@@ -51,9 +47,14 @@ export function createCurationActions(ports) {
       return revealSkillInFiles(curationSource(state))
     if (name === 'menu') return modal(curationMenuView(state))
     if (name === 'router-menu') return modal(curationRouterMenuView(state))
+    if (name === 'review-add') {
+      state.preview = reviewDirectAddSample(state)
+      if (!state.preview) return
+      return modal(curationPreviewView(state, state.preview))
+    }
     if (name === 'remove-router') {
-      retain({ ...prepareCurationSample(state, name), curation: true })
-      return modal(curationPreviewView(state, preview))
+      state.preview = { ...prepareCurationSample(state, name), curation: true }
+      return modal(curationPreviewView(state, state.preview))
     }
     if (name === 'sync') return modal(curationSyncView(state))
     if (name === 'sync-status') {
@@ -88,10 +89,12 @@ export function createCurationActions(ports) {
       closeDialog()
       return render()
     }
-    if (name === 'apply' && preview?.curation) {
-      const failure = applyCurationSample(state, preview)
+    if (name === 'apply' && state.preview?.curation) {
+      const failure = state.preview.createOnly
+        ? applyReviewedDirectAddSample(state, state.preview)
+        : applyCurationSample(state, state.preview)
       if (failure) {
-        retain(null)
+        state.preview = null
         return modal(
           `<h2 id="dialog-title">Check this result</h2><p>${failure}</p>${c.uncertain ? '<button data-curate="reconcile">Check result</button>' : ''}<footer><button data-action="close">Close</button></footer>`,
         )
@@ -134,7 +137,7 @@ export function createCurationActions(ports) {
             !router.members.includes(id) &&
             standaloneCopyPresent(curationSource(state, id)),
         )
-      retain({
+      state.preview = {
         ...prepareCurationSample(
           state,
           name === 'router-preview'
@@ -145,12 +148,12 @@ export function createCurationActions(ports) {
           options,
         ),
         curation: true,
-      })
-      return modal(curationPreviewView(state, preview))
+      }
+      return modal(curationPreviewView(state, state.preview))
     }
     if (['full', 'stub', 'update', 'remove'].includes(name)) {
-      retain({ ...prepareCurationSample(state, name), curation: true })
-      return modal(curationPreviewView(state, preview))
+      state.preview = { ...prepareCurationSample(state, name), curation: true }
+      return modal(curationPreviewView(state, state.preview))
     }
   }
 }

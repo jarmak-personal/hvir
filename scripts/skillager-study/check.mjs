@@ -800,7 +800,7 @@ try {
     absent,
   })
   await flow('browse')
-  await checkPolishStudy({
+  const polish = await checkPolishStudy({
     flow,
     click,
     pointClick,
@@ -866,6 +866,7 @@ try {
   if (errors.length) throw new Error(errors.join(', '))
   const result = {
     checks,
+    pureOwnerChecks: polish,
     errors,
     limitations,
     scope: 'Synthetic standalone study only; no hvir, CLI or SSH execution.',

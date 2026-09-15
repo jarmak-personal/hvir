@@ -1,3 +1,5 @@
+import { addChoice, currentDirectAdd } from './direct-add.mjs'
+import { directAddResultView } from './direct-add-view.mjs'
 import { instructionIcon, copyGlyphs } from './skill-icons.mjs'
 import { escapeHtml } from './html.mjs'
 import { searchView, searchStatusView, matchedSourceView } from './search-views.mjs'
@@ -102,19 +104,27 @@ export function detailView(state, menu = false) {
     unmanaged = unmanagedFor(state, s.id)
   const blocked = !!e?.protected || unmanaged || !!s.blocked || !s.accepted || !!s.source
   return `<h2>${instructionIcon}${s.id}</h2><p>${s.description}</p><div class="lifecycle-actions">${!e && !unmanaged ? pickerView(state, blocked, menu) : `<p>${escapeHtml(destinationFor(state).label)} · ${agentLabel(state.agent)} · ${unmanaged ? 'Unmanaged target' : modeLabel(e.mode)}</p>${button('switch', e?.mode === 'stub' ? 'Use as full skill…' : 'Use as stub…', blocked || destinationFor(state).host !== 'local')}${button('update', 'Review workspace update…', blocked || e?.version === s.version)}${button('remove', 'Remove from project…', !!e?.protected || unmanaged || !!s.blocked)}`}</div>
-    ${state.directAdd ? `<p class="add-result" role="status">${escapeHtml(state.directAdd.message)}</p>${state.directAdd.plan?.prerequisites?.length ? button('review-add', 'Review requirements and addition…') : ''}` : ''}
+    ${directAddResultView(state)}
     ${!s.accepted ? button('accept', 'Needs review · Review library changes…', !!s.blocked) : ''}
     <details class="source-status"><summary>Source and status</summary><dl><dt>Source</dt><dd>${s.source || 'Local personal library'}</dd><dt>Library review</dt><dd>${s.accepted ? 'Accepted' : 'Needs review'}</dd><dt>Source status</dt><dd>${s.blocked ? 'Blocked by library policy' : 'Available for review'}</dd><dt>Accepted version</dt><dd>${s.accepted ? s.version : s.acceptedVersion}</dd><dt>Project state</dt><dd><span class="pill">${unmanaged ? 'Unmanaged target' : statusFor(s, e)}</span></dd>${e ? `<dt>Exposed version</dt><dd>${e.version}</dd>` : ''}</dl>${unmanaged ? '<p>No recorded Skillager exposure mode or version. Existing files are preserved.</p>' : ''}${s.source ? '<p>External ownership is preserved. Search does not import this skill.</p>' : ''}${state.selectedScope === 'workspace' && e ? button('canonical-definition', 'Open library definition') : ''}</details>${button('read', 'Review content…')}${button('history', 'Version history')}`
 }
 export function pickerView(state, blocked = false, menu = false) {
+  const choice = addChoice(state),
+    chosenDestination = destinationFor({ ...state, destination: choice.destination })
   if (menu)
     return `<p>${escapeHtml(destinationFor(state).label)} · ${agentLabel(state.agent)} · Full skill · accepted ${escapeHtml(skillFor(state).version)}</p>${button('add', 'Add to project', blocked)}`
-  return `<section class="direct-add-controls"><label>Project<select id="add-destination">${destinations.map((d) => `<option value="${d.id}" ${d.id === state.destination ? 'selected' : ''}>${escapeHtml(d.label)}</option>`).join('')}</select></label><label>Agent<select id="add-agent"><option value="codex" ${state.agent === 'codex' ? 'selected' : ''}>Codex</option><option value="claude" ${state.agent === 'claude' ? 'selected' : ''}>Claude Code</option></select></label><label>Use as<select id="add-mode"><option value="native">Full skill</option><option value="stub" ${destinationFor(state).host !== 'local' ? 'disabled' : ''}>Stub</option></select></label>${button('preview-add', state.directAdd?.pending ? 'Preparing Add…' : 'Add to project', blocked || !!state.directAdd?.pending || !!state.directAddUncertain)}<small id="add-route">${escapeHtml(destinationFor(state).host)} · ${escapeHtml(destinationFor(state).path)} · accepted ${escapeHtml(skillFor(state).version)}</small>${state.samplePrerequisites?.length ? `<p class="notice">Declared runtime requirements: ${escapeHtml(state.samplePrerequisites.join(', '))}. Not checked on this host; explicit review is required.</p>` : ''}</section>`
+  return `<section class="direct-add-controls"><label>Project<select id="add-destination">${destinations.map((d) => `<option value="${d.id}" ${d.id === choice.destination ? 'selected' : ''}>${escapeHtml(d.label)}</option>`).join('')}</select></label><label>Agent<select id="add-agent"><option value="codex" ${choice.agent === 'codex' ? 'selected' : ''}>Codex</option><option value="claude" ${choice.agent === 'claude' ? 'selected' : ''}>Claude Code</option></select></label><label>Use as<select id="add-mode"><option value="native" ${choice.mode === 'native' ? 'selected' : ''}>Full skill</option><option value="stub" ${choice.mode === 'stub' ? 'selected' : ''} ${chosenDestination.host !== 'local' ? 'disabled' : ''}>Stub</option></select></label>${button('preview-add', currentDirectAdd(state)?.pending ? 'Preparing Add…' : 'Add to project', blocked || !!currentDirectAdd(state)?.pending || !!state.directAddUncertain)}<small id="add-route">${escapeHtml(chosenDestination.host)} · ${escapeHtml(chosenDestination.path)} · accepted ${escapeHtml(skillFor(state).version)}</small>${state.samplePrerequisites?.length ? `<p class="notice">Declared runtime requirements: ${escapeHtml(state.samplePrerequisites.join(', '))}. Not checked on this host; explicit review is required.</p>` : ''}</section>`
 }
 export const sampleDiff = `<pre class="diff">  ## Review steps\n<span class="del">− Check the rollback plan.</span><span class="add">+ Verify rollback preserves existing data.</span><span class="add">+ Call out blocking operations before approval.</span></pre>`
 export function previewView(state, preview) {
-  const s = skillFor(state),
-    e = exposuresFor(state)[s.id]
+  state = {
+    ...state,
+    destination: preview.destination,
+    agent: preview.agent,
+    library: { ...state.library, id: preview.libraryId, path: preview.libraryPath },
+  }
+  const s = skillFor(state, preview.id),
+    e = JSON.parse(preview.target || 'null')
   const accepting = preview.action === 'accept',
     removing = preview.action === 'remove'
   const label = accepting
