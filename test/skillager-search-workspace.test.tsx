@@ -99,6 +99,13 @@ function button(label: string): HTMLButtonElement {
 }
 it('keeps default and submitted Advanced policy visible while draft options change', async () => {
   await start()
+  expect(mount.querySelector('#skillager-search-query')?.getAttribute('aria-label')).toBe(
+    'Search skills',
+  )
+  expect(mount.querySelector('label[for="skillager-search-query"]')).toBeNull()
+  expect(
+    mount.querySelector<HTMLDetailsElement>('.skillager-search-disclosure')?.open,
+  ).toBe(false)
   expect(current.includeInstalled).toBe(false)
   expect(current.separateCopies).toBe(false)
   act(() => current.setBrowseAgent('claude'))

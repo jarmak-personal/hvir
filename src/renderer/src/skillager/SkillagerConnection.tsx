@@ -1,4 +1,5 @@
 import { SkillagerLibrarySetup } from './SkillagerLibrarySetup'
+import { SkillagerIcon } from './SkillagerIcon'
 import type { ReactElement } from 'react'
 import type { SkillagerController } from './use-skillager-workspace'
 
@@ -11,13 +12,21 @@ export function SkillagerConnection({
   if (controller.connection)
     return (
       <div className="skillager-connection">
-        <p>Connected to {controller.connection.library.root.path}</p>
-        <button type="button" onClick={controller.disconnect}>
-          Disconnect
-        </button>
+        <div className="skillager-connection-summary">
+          <SkillagerIcon name="library" />
+          <span>Personal library</span>
+          <button type="button" onClick={controller.disconnect}>
+            Disconnect
+          </button>
+        </div>
         <details className="skillager-connection-details">
           <summary>Connection details</summary>
           <p>
+            Connected to{' '}
+            <span className="skillager-path">
+              {controller.connection.library.root.path}
+            </span>
+            <br />
             {controller.connection.version}
             <br />
             <span className="skillager-path">
@@ -64,9 +73,7 @@ export function SkillagerConnection({
           {probe.setup?.gitHistory !== undefined ? (
             <p>Git history: {probe.setup.gitHistory ? 'On' : 'Off'}</p>
           ) : null}
-          <p>
-            Connect to browse metadata. Content opens only when you choose to review it.
-          </p>
+          <p>Connect to browse skills. Instructions open when you select a skill.</p>
           <button
             type="button"
             disabled={controller.connecting}

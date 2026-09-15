@@ -113,7 +113,7 @@ export async function selectSkillagerExecutable(
   value: string,
 ): Promise<void> {
   await openSkillagerIntegrations(win)
-  await click(win, '.skillager-settings > details > summary')
+  await click(win, '.skillager-executable-details > summary')
   await inspect(
     win,
     `
@@ -135,6 +135,8 @@ export async function captureSkillagerSidebar(
     | 'project-before'
     | 'project-ready'
     | 'explorer'
+    | 'explorer-dark'
+    | 'explorer-light'
     | 'search-grouped'
     | 'search-copies',
 ): Promise<void> {
@@ -155,10 +157,14 @@ export function captureSkillagerBody(
   return captureSkillagerVisual(win, name, '.skillager-details')
 }
 
-async function captureSkillagerVisual(
+export async function captureSkillagerVisual(
   win: BrowserWindow,
   name: string,
-  selector: '.tree-panel' | '.skillager-exposure-dialog' | '.skillager-details',
+  selector:
+    | '.tree-panel'
+    | '.skillager-exposure-dialog'
+    | '.skillager-details'
+    | '.settings-dialog',
 ): Promise<void> {
   const directory = process.env.HVIR_SKILLAGER_VISUAL_DIRECTORY
   if (!directory) return

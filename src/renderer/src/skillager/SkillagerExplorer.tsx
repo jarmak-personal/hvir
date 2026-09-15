@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import type { SkillagerMetadata } from '../../../shared/skillager'
 import type { SkillagerController } from './use-skillager-workspace'
 import { SkillagerTree } from './SkillagerTree'
+import { SkillagerIcon } from './SkillagerIcon'
 
 /** Section headers stay outside their independently bounded metadata scroll areas. */
 export function SkillagerExplorer({
@@ -71,7 +72,9 @@ export function SkillagerExplorer({
           title={title}
           onClick={() => onExpanded(!expanded)}
         >
-          <span aria-hidden="true">{expanded ? '⌄' : '›'}</span>
+          <span className="skillager-chevron" aria-hidden="true">
+            {expanded ? '⌄' : '›'}
+          </span>
           <span className="skillager-section-title">{title}</span>
           {observed ? <small>{rows.length}</small> : null}
         </button>
@@ -95,7 +98,7 @@ export function SkillagerExplorer({
           title={explanation}
           onClick={onRefresh}
         >
-          ↻
+          <SkillagerIcon name="refresh" />
         </button>
       </header>
       {expanded ? (

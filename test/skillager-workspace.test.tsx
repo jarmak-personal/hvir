@@ -507,7 +507,7 @@ describe('Skills renderer demand and metadata views', () => {
   })
   it('keeps only the settings toggle while disabled and makes no probe/read demand', async () => {
     await render({ initial: false })
-    expect(mount.textContent).toBe(' Enable Skillager')
+    expect(mount.textContent).toBe('SkillagerEnable Skillager')
     expect(mount.querySelectorAll('input')).toHaveLength(1)
     expect(
       invoke.mock.calls.some(([channel]) =>
@@ -765,7 +765,7 @@ describe('Skills renderer demand and metadata views', () => {
       (mount.querySelector('.skillager-settings input') as HTMLInputElement).click(),
     )
     await settle()
-    expect(mount.textContent).toBe(' Enable Skillager')
+    expect(mount.textContent).toBe('SkillagerEnable Skillager')
     expect(current.connection).toBeUndefined()
     const connections = invoke.mock.calls.filter(
       ([channel]) => channel === 'skillager:connect',
@@ -934,16 +934,14 @@ it('discards a late initialization after disable and re-enables without connecti
   act(() => {
     pending = current.setupLibrary('initialize')
   })
-  const toggle = mount.querySelector(
-    '.skillager-settings > label input',
-  ) as HTMLInputElement
+  const toggle = mount.querySelector('#skillager-enabled') as HTMLInputElement
   act(() => toggle.click())
   await settle()
   await act(async () => {
     finish({ ok: true, value: { probe: probe.value, connection: connection.value } })
     await pending
   })
-  expect(mount.textContent).toBe(' Enable Skillager')
+  expect(mount.textContent).toBe('SkillagerEnable Skillager')
   expect(current.connection).toBeUndefined()
   act(() => toggle.click())
   await settle()

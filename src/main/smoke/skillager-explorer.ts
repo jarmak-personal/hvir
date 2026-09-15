@@ -2,12 +2,14 @@ import type { BrowserWindow } from 'electron'
 import { SKILLAGER_PROJECT_FIXTURE_ROWS } from './skillager-project-fixture'
 import {
   captureSkillagerSidebar,
+  captureSkillagerVisual,
   selectSkillagerExecutable,
 } from './skillager-onboarding'
 import {
   clickSkillagerControl as click,
   inspectSkillagerControls as inspect,
   skillagerControlPoint,
+  openSkillagerIntegrations,
 } from './skillager-settings'
 
 const library = 'section[aria-label="Your library"]'
@@ -82,6 +84,7 @@ export async function verifySkillagerExplorer(win: BrowserWindow): Promise<void>
     `${library} .skillager-section-header button:first-child`,
   )
   await captureSkillagerSidebar(win, 'explorer')
+  if (controlledProject) await verifySkillagerPresentation(win)
   console.log(
     '[smoke] Skills explorer OK (5000 complete library rows; physical End; independently hit-testable project/library headers; bounded DOM and 125000px actual library scroll range; stable detail; project wheel: ' +
       (scrollable
@@ -183,5 +186,92 @@ async function capacityGroupFocused(win: BrowserWindow, index: number): Promise<
       mounted: tree?.querySelectorAll('[role=treeitem]').length,
     }));
   }`,
+  )
+}
+
+/** Presentation inputs are restored; real layout and Settings navigation remain production-owned. */
+async function verifySkillagerPresentation(win: BrowserWindow): Promise<void> {
+  const original = await inspect<{ theme: string | null; scale: string }>(
+    win,
+    `return {
+    theme: document.documentElement.getAttribute('data-theme'),
+    scale: document.documentElement.style.getPropertyValue('--hvir-interface-scale'),
+  };`,
+  )
+  try {
+    for (const [theme, scale] of [
+      ['dark', '1'],
+      ['light', '1.5'],
+    ] as const) {
+      await inspect(
+        win,
+        `
+        document.documentElement.setAttribute('data-theme', '${theme}');
+        document.documentElement.style.setProperty('--hvir-interface-scale', '${scale}');
+        await wait(() => getComputedStyle(document.querySelector('.skillager-sidebar')).fontSize === '${Number(scale) * 12}px');
+        const headers = [...document.querySelectorAll('.skillager-section-header, .skillager-search-disclosure > summary')];
+        const background = getComputedStyle(headers[0]).backgroundColor;
+        if (headers.length !== 3 || headers.some(header => getComputedStyle(header).backgroundColor !== background))
+          throw Error('Skills header bands do not share their theme surface');
+        const trees = [...document.querySelectorAll('.skillager-explorer-section [role=tree]')];
+        if (trees.length !== 2) throw Error('Skills presentation requires both real inventory trees');
+        for (const tree of trees) {
+          const bounds = tree.getBoundingClientRect();
+          const row = [...tree.querySelectorAll('.skillager-tree-line')].find(row => {
+            const at = row.getBoundingClientRect(); return at.top >= bounds.top && at.bottom <= bounds.bottom;
+          });
+          if (!row || row.getBoundingClientRect().height !== 25) throw Error('Skills browse density changed');
+          const box = row.getBoundingClientRect(), icons = [...row.querySelectorAll('.skillager-icon')];
+          if (!icons.length) throw Error('Skills row did not expose its drawn glyph');
+          for (const icon of icons) {
+            const at = icon.getBoundingClientRect(), svg = icon.querySelector('svg');
+            const ink = getComputedStyle(svg).stroke;
+            if (at.width <= 0 || at.height <= 0 || at.top < box.top || at.bottom > box.bottom || at.left < box.left || at.right > box.right || ink === 'none' || ink === 'transparent')
+              throw Error('Skills glyph is clipped or has no theme ink: ' + JSON.stringify({ theme: '${theme}', scale: '${scale}', width: at.width, height: at.height, rowHeight: box.height }));
+            if (icon.getAttribute('role') === 'img' && (!icon.getAttribute('aria-label') || !icon.title)) throw Error('Skills glyph lost its accessible name or tooltip');
+          }
+        }
+      `,
+      )
+      await skillagerControlPoint(win, '.skillager-search-disclosure > summary')
+      await captureSkillagerSidebar(
+        win,
+        theme === 'dark' ? 'explorer-dark' : 'explorer-light',
+      )
+      await openSkillagerIntegrations(win)
+      await inspect(
+        win,
+        `
+        await wait(() => document.querySelector('.skillager-connection-summary'));
+        const field = document.querySelector('.skillager-settings-field'), copy = field.querySelector('.settings-checkbox-copy');
+        const checkbox = field.querySelector('input[type=checkbox]').getBoundingClientRect();
+        if (getComputedStyle(field).display !== 'grid' || checkbox.width !== 14 || checkbox.height !== 14)
+          throw Error('Skillager Settings lost the existing field grid or checkbox sizing');
+        if (field.querySelector('label button, label details') || copy.querySelector('details[open]')) throw Error('Connected Settings details are not initially compact');
+        const summary = field.querySelector('.skillager-connection-summary');
+        if (summary.textContent.trim() !== 'Personal libraryDisconnect' || summary.querySelector('.skillager-path')) throw Error('Connected Settings lost its compact library summary');
+        const scroll = field.closest('.settings-section-scroll');
+        if (scroll.scrollWidth > scroll.clientWidth + 1) throw Error('Skillager Settings overflowed horizontally');
+      `,
+      )
+      await skillagerControlPoint(win, '#skillager-enabled')
+      await skillagerControlPoint(win, '.skillager-connection-summary button')
+      await captureSkillagerVisual(win, 'settings-' + theme, '.settings-dialog')
+      await click(win, '.settings-footer button:first-of-type')
+      await inspect(win, `await wait(() => !document.querySelector('.settings-dialog'));`)
+    }
+  } finally {
+    if (!win.isDestroyed())
+      await inspect(
+        win,
+        `
+      if (${JSON.stringify(original.theme)} === null) document.documentElement.removeAttribute('data-theme');
+      else document.documentElement.setAttribute('data-theme', ${JSON.stringify(original.theme)});
+      document.documentElement.style.setProperty('--hvir-interface-scale', ${JSON.stringify(original.scale)});
+    `,
+      )
+  }
+  console.log(
+    '[smoke] Skills presentation OK (theme-token header bands; 25px browse rows and named SVG glyphs contained at dark/100% and light/150%; existing Settings grid/checkbox and compact collapsed connection; fixture presentation inputs restored)',
   )
 }

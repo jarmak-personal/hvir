@@ -10,6 +10,7 @@ import {
 import { skillagerAgentLabel, type SkillagerMetadata } from '../../../shared/skillager'
 import { virtualRange } from '../layout/virtual-range'
 import { SkillagerActions } from './SkillagerActions'
+import { SkillagerIcon } from './SkillagerIcon'
 import type { SkillagerExposureController } from './use-skillager-exposure'
 import {
   skillagerExplorerRows,
@@ -211,8 +212,8 @@ export function SkillagerTree({
                   {expanded.has(row.key) ? '⌄' : '›'}
                 </button>
               ) : (
-                <span className="skillager-disclosure" aria-hidden="true">
-                  ◇
+                <span className="skillager-disclosure">
+                  <SkillagerIcon name="skill" label="Skill" />
                 </span>
               )}
               <SkillagerActions
@@ -302,11 +303,32 @@ function SkillagerRowBadges({ metadata }: { readonly metadata: SkillagerMetadata
     <span className="skillager-badges">
       {!metadata.search ? (
         <>
-          {agent ? <small>{skillagerAgentLabel(agent)}</small> : null}
-          {mode ? <small>{mode}</small> : null}
+          {agent ? (
+            <SkillagerIcon name={agent} label={skillagerAgentLabel(agent)} />
+          ) : null}
+          {mode ? (
+            <SkillagerIcon
+              name={
+                mode === 'Original'
+                  ? 'original'
+                  : mode === 'Stub'
+                    ? 'stub'
+                    : mode === 'Router' || mode === 'Member'
+                      ? 'router'
+                      : 'copy'
+              }
+              label={
+                mode === 'Original'
+                  ? 'Project original'
+                  : mode === 'Member'
+                    ? 'Router member'
+                    : `Installed ${mode}`
+              }
+            />
+          ) : null}
         </>
       ) : null}
-      {status !== 'Accepted' ? (
+      {status !== 'Accepted' && status !== 'Current' ? (
         <small className="skillager-status-badge">{status}</small>
       ) : null}
       {metadata.matchReasons[0] ? (

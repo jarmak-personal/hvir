@@ -60,7 +60,7 @@ export async function verifySkillagerProject(
   await inspect(
     win,
     `await wait(() => !document.querySelector('.skillager-sidebar, .skillager-tab, .skillager-details'));
-    if (document.querySelector('.skillager-settings').textContent.trim() !== 'Enable Skillager') throw new Error('Disabled project setup retained feature UI');`,
+    if (document.querySelector('.skillager-settings').textContent.trim() !== 'SkillagerEnable Skillager') throw new Error('Disabled project setup retained feature UI');`,
   )
   if (!supervisor.get(second))
     throw Error('Disabling killed the handed-off setup terminal')
