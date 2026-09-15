@@ -21,6 +21,8 @@ import { prepareTerminalScenario } from './terminal-scenario-ready'
 import { verifySkillagerRemote } from './skillager-remote'
 import type { createSmokeProjectState } from './project-state-fixture'
 import type { EmitRendererEvent } from '../ipc/deps'
+import { verifySkillagerQuietRefresh } from './skillager-quiet-refresh'
+import type { skillagerObservationFixture } from './skillager-observation-fixture'
 
 export async function verifySkillagerScenario(
   win: BrowserWindow,
@@ -31,6 +33,7 @@ export async function verifySkillagerScenario(
   >,
   emit: EmitRendererEvent,
   holdNextSyncApply: () => SkillagerSyncApplyHold,
+  holdNextObservation: ReturnType<typeof skillagerObservationFixture>['holdNext'],
 ): Promise<void> {
   app.focus({ steal: true })
   win.focus()
@@ -79,6 +82,8 @@ export async function verifySkillagerScenario(
       button('.skillager-sidebar', 'Connect library').click();
     `)
     await verifySkillagerExplorer(win)
+    if (!process.env.HVIR_SKILLAGER_SMOKE_FIXTURE)
+      await verifySkillagerQuietRefresh(win, holdNextObservation)
     if (!process.env.HVIR_SKILLAGER_SMOKE_FIXTURE)
       await verifySkillagerLibrarySync(win, false)
     await evaluate(`

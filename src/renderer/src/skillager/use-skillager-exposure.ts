@@ -31,7 +31,7 @@ import {
   type SkillagerCurationChoice,
   type CurationAction,
 } from './skillager-curation-model'
-import { isNativeProjectSkill } from './skillager-model'
+import { isNativeProjectSkill, skillagerMetadataKey } from './skillager-model'
 
 interface Options {
   readonly connection?: SkillagerConnection
@@ -123,14 +123,37 @@ export function useSkillagerExposure(options: Options) {
     )
       close()
   }, [destinations, state?.destination, close])
+  const currentUpdate = useCallback((metadata: SkillagerMetadata): boolean => {
+    const observed = optionsRef.current.projectRows?.find(
+      (row) => skillagerMetadataKey(row) === skillagerMetadataKey(metadata),
+    )
+    return Boolean(
+      observed &&
+      eligibleSkillagerUpdate(metadata) &&
+      eligibleSkillagerUpdate(observed) &&
+      metadata.id === observed.id &&
+      metadata.source.libraryId === observed.source.libraryId &&
+      metadata.contentHash === observed.contentHash &&
+      metadata.workspace?.mode === observed.workspace?.mode &&
+      metadata.workspace?.currentHash === observed.workspace?.currentHash,
+    )
+  }, [])
   const actions = useCallback(
     (metadata: SkillagerMetadata) =>
       exposureActions(
         metadata,
         optionsRef.current.projectState?.root.hostId === 'local',
         optionsRef.current.connection?.library.id,
+      ).map((item) =>
+        item.action === 'review-update' && !item.disabled && !currentUpdate(metadata)
+          ? {
+              ...item,
+              label: `${item.label} (current copy check required)`,
+              disabled: true,
+            }
+          : item,
       ),
-    [],
+    [currentUpdate],
   )
   const prepare = useCallback(
     async (metadata: SkillagerMetadata, action: ExposureAction, reviewId?: string) => {
@@ -138,7 +161,7 @@ export function useSkillagerExposure(options: Options) {
       if (!options.connection || !options.projectState || !options.visible) return
       if (
         action === 'update'
-          ? !reviewId || !eligibleSkillagerUpdate(metadata)
+          ? !reviewId || !currentUpdate(metadata)
           : action !== 'change' &&
             !actions(metadata).some((item) => item.action === action && !item.disabled)
       )
@@ -249,7 +272,7 @@ export function useSkillagerExposure(options: Options) {
         if (lease.current === owned) lease.current = undefined
       }
     },
-    [actions, close, release],
+    [actions, close, release, currentUpdate],
   )
   const start = useCallback(
     (metadata: SkillagerMetadata, action: ExposureAction, reviewId?: string): void => {

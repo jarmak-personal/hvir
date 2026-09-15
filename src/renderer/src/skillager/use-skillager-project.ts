@@ -12,6 +12,10 @@ import type {
 } from '../../../shared/skillager-project'
 import type { PreparedTerminalSession } from '../terminal/terminal-workspace-model'
 import type { TerminalInitialStart } from '../terminal/terminal-runtime-options'
+import {
+  skillagerObservationFreshness,
+  type SkillagerExposureObservation,
+} from './skillager-model'
 
 export type SkillagerSetupTerminal = (
   root: HostPath,
@@ -37,6 +41,10 @@ export function useSkillagerProject(options: {
   const [read, setRead] = useState<{
     loading: boolean
     result?: SkillagerResult<SkillagerProjectObservation>
+    observed?: SkillagerProjectObservation
+    observedExposures?: SkillagerExposureObservation & {
+      readonly requiresLibraryMetadata: boolean
+    }
   }>({ loading: false })
   const [starting, setStarting] = useState(false)
   const [running, setRunning] = useState(false)
@@ -62,19 +70,32 @@ export function useSkillagerProject(options: {
         requestId,
       })
       if (at === generation.current && requestId === sequence.current) {
-        setRead({ loading: false, result })
+        const observed = result.ok ? result.value : undefined
+        setRead((previous) => ({
+          loading: false,
+          result,
+          observed: observed ?? previous.observed,
+          observedExposures:
+            observed?.exposures !== undefined
+              ? {
+                  ...observed,
+                  exposures: observed.exposures,
+                }
+              : previous.observedExposures,
+        }))
         if (result.ok) setRunning(result.value.setupRunning)
       }
     } catch {
       if (at === generation.current && requestId === sequence.current)
-        setRead({
+        setRead((previous) => ({
+          ...previous,
           loading: false,
           result: {
             ok: false,
             reason: 'unavailable',
             message: 'Project metadata is unavailable. Refresh to check again.',
           },
-        })
+        }))
     }
   }, [])
 
@@ -207,7 +228,24 @@ export function useSkillagerProject(options: {
     }
   }, [refresh, running])
 
-  return { ...read, refresh, setup, starting, running, message }
+  return {
+    ...read,
+    freshness: skillagerObservationFreshness(
+      options.demand,
+      read.loading,
+      Boolean(read.result?.ok),
+    ),
+    exposureFreshness: skillagerObservationFreshness(
+      options.demand,
+      read.loading,
+      Boolean(read.result?.ok && read.result.value.exposures !== undefined),
+    ),
+    refresh,
+    setup,
+    starting,
+    running,
+    message,
+  }
 }
 
 function initialSetupStart(

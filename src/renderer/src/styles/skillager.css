@@ -122,6 +122,14 @@
   color: var(--text-muted);
   margin-left: 8px;
 }
+.skillager-refresh-status {
+  color: var(--text-muted);
+  font-size: calc(11px * var(--hvir-interface-scale));
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .skillager-section-notice,
 .skillager-pending-filter {
   margin: 3px 8px;

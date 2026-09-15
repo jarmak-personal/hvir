@@ -25,6 +25,7 @@ import { SkillagerCapability } from '../skillager/skillager-capability'
 import { SkillagerError } from '../skillager/skillager-port'
 import { createSkillagerProjectTerminal } from '../skillager/skillager-project-terminal'
 import { skillagerProjectFixture } from './skillager-project-fixture'
+import { skillagerObservationFixture } from './skillager-observation-fixture'
 
 /** Renderer interaction evidence only; real CLI performance has a separate fixture. */
 export function createSkillagerSmoke(
@@ -137,6 +138,8 @@ export function createSkillagerSmoke(
   const sync = skillagerLibrarySyncFixture()
   const real = realSkillagerSmokePort(host, cleanup)
   const project = skillagerProjectFixture(host, root, cleanup)
+  const observations = skillagerObservationFixture()
+  cleanup.defer('Skillager observation fixture', () => observations.dispose())
   const capability = new SkillagerCapability(
     real ?? {
       ...skillagerDocumentFixture(),
@@ -158,8 +161,9 @@ export function createSkillagerSmoke(
         calls.push('validate')
         return Promise.resolve()
       },
-      inventory(selected) {
+      async inventory(selected, signal) {
         calls.push('inventory')
+        await observations.wait('library', signal)
         return Promise.resolve(
           selected.library?.id === 'onboarding-library'
             ? sync.synced
@@ -291,7 +295,13 @@ export function createSkillagerSmoke(
       picker: { choose: () => Promise.resolve(localPath('/hvir-smoke/chosen library')) },
     },
     {
-      cli: real ?? project.cli,
+      cli: real ?? {
+        ...project.cli,
+        async projectMetadata(selected, root, agent, signal) {
+          await observations.wait('project', signal)
+          return project.cli.projectMetadata(selected, root, agent, signal)
+        },
+      },
       terminal: createSkillagerProjectTerminal(host, {
         ptySupervisor: terminal.ptys,
         profiles: terminal.profiles,
@@ -308,8 +318,13 @@ export function createSkillagerSmoke(
       projectFixture: Parameters<typeof verifySkillagerScenario>[2],
       emit: Parameters<typeof verifySkillagerScenario>[3],
     ) =>
-      verifySkillagerScenario(win, terminal.ptys, projectFixture, emit, () =>
-        sync.holdNextApply(),
+      verifySkillagerScenario(
+        win,
+        terminal.ptys,
+        projectFixture,
+        emit,
+        () => sync.holdNextApply(),
+        observations.holdNext,
       ),
   }
 }

@@ -47,6 +47,7 @@ function Harness({
   detailId = 'tab',
   showFirst = true,
   projects = projectState(),
+  projectRows = [],
 }: {
   visible?: boolean
   connected?: boolean
@@ -54,9 +55,11 @@ function Harness({
   detailId?: string
   showFirst?: boolean
   projects?: ProjectState
+  projectRows?: readonly SkillagerMetadata[]
 }) {
   controller = useSkillagerExposure({
     projectState: projects,
+    projectRows,
     agent: 'codex',
     visible,
     sidebarVisible: active,
@@ -505,6 +508,7 @@ describe('workspace skill action UI', () => {
           expectedSourceHash: 'a'.repeat(64),
         },
       }
+      await settle(() => root.render(<Harness projectRows={[selected]} />))
       await settle(() => controller.start(selected, 'update', 'review-id'))
       await settle(() => controller.preview())
       expect(

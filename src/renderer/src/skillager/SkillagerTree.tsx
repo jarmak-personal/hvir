@@ -16,7 +16,7 @@ import {
   type SkillagerExplorerRow,
 } from './skillager-explorer-model'
 import { trustLabel, skillagerOccurrenceLabel } from './skillager-model'
-import { workspaceSkillLabel } from './skillager-exposure-model'
+import { observedWorkspaceSkillLabel } from './skillager-exposure-model'
 
 const ROW_HEIGHT = 25
 const SEARCH_ROW_HEIGHT = 56
@@ -295,7 +295,9 @@ function SkillagerRowBadges({ metadata }: { readonly metadata: SkillagerMetadata
           : metadata.projectSkill
             ? 'Original'
             : undefined
-  const status = metadata.workspace ? workspaceSkillLabel(metadata) : trustLabel(metadata)
+  const status = metadata.workspace
+    ? observedWorkspaceSkillLabel(metadata)
+    : trustLabel(metadata)
   return (
     <span className="skillager-badges">
       {!metadata.search ? (

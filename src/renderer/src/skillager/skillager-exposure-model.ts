@@ -144,18 +144,29 @@ export function observedSkillagerUpdate(metadata: SkillagerMetadata): boolean {
 }
 
 export function workspaceSkillLabel(metadata: SkillagerMetadata): string {
-  const label = observedWorkspaceLabel(metadata)
+  return withReconciliation(
+    metadata,
+    metadata.workspaceFreshness && metadata.workspaceFreshness !== 'fresh'
+      ? metadata.workspaceFreshness === 'checking'
+        ? 'Checking workspace copy…'
+        : 'Workspace status stale / unavailable'
+      : observedWorkspaceLabel(metadata),
+  )
+}
+
+/** List labels describe the retained observation; header freshness and actions are separate. */
+export function observedWorkspaceSkillLabel(metadata: SkillagerMetadata): string {
+  return withReconciliation(metadata, observedWorkspaceLabel(metadata))
+}
+
+function withReconciliation(metadata: SkillagerMetadata, label: string): string {
   return metadata.workspace?.reconciliation
     ? `${label} · ${metadata.workspace.reconciliation === 'cleanup-pending' ? 'Cleanup retained' : 'Reconciliation pending'}`
     : label
 }
 
 function observedWorkspaceLabel(metadata: SkillagerMetadata): string {
-  if (metadata.workspaceFreshness && metadata.workspaceFreshness !== 'fresh')
-    return metadata.workspaceFreshness === 'checking'
-      ? 'Checking workspace copy…'
-      : 'Workspace status stale / unavailable'
-  if (eligibleSkillagerUpdate(metadata)) return 'Workspace copy behind'
+  if (observedSkillagerUpdate(metadata)) return 'Workspace copy behind'
   const status = metadata.workspace?.status
   if (status === 'removed') return 'Workspace copy removed'
   if (status === 'absent') return 'Workspace copy absent'

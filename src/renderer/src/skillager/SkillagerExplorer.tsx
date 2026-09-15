@@ -10,6 +10,7 @@ export function SkillagerExplorer({
   expanded,
   onExpanded,
   loading,
+  freshness,
   error,
   rows,
   known,
@@ -24,6 +25,7 @@ export function SkillagerExplorer({
   readonly expanded: boolean
   readonly onExpanded: (expanded: boolean) => void
   readonly loading: boolean
+  readonly freshness: SkillagerCanonicalObservation['freshness']
   readonly error?: string
   readonly rows: readonly SkillagerMetadata[]
   readonly known: SkillagerCanonicalObservation
@@ -34,6 +36,22 @@ export function SkillagerExplorer({
   readonly actions?: ReactNode
   readonly empty: ReactNode
 }) {
+  const observed = checkedAt !== undefined
+  const checked = observed
+    ? `Last checked ${new Date(checkedAt).toLocaleTimeString()}`
+    : 'Not checked'
+  const notice = loading
+    ? observed
+      ? 'Refreshing…'
+      : 'Checking…'
+    : error
+      ? 'Refresh failed'
+      : freshness !== 'fresh' && observed
+        ? 'Stale'
+        : ''
+  const explanation = error
+    ? `${error} ${checked}. Use Refresh to try again.`
+    : `${notice ? `${notice} · ` : ''}${checked}`
   return (
     <section
       className={`skillager-explorer-section${expanded ? ' expanded' : ''}`}
@@ -46,19 +64,24 @@ export function SkillagerExplorer({
           onClick={() => onExpanded(!expanded)}
         >
           <span aria-hidden="true">{expanded ? '⌄' : '›'}</span> {title}
-          {checkedAt ? <small>{rows.length}</small> : null}
+          {observed ? <small>{rows.length}</small> : null}
         </button>
         {actions}
+        <span
+          className="skillager-refresh-status"
+          role={notice ? (error && !loading ? 'alert' : 'status') : undefined}
+          title={explanation}
+          aria-label={notice ? explanation : undefined}
+        >
+          {notice}
+        </span>
         <button
           type="button"
           className="skillager-section-refresh"
           disabled={loading}
+          aria-busy={loading}
           aria-label={`Refresh ${title.toLowerCase()}`}
-          title={
-            checkedAt
-              ? `Checked ${new Date(checkedAt).toLocaleTimeString()}`
-              : 'Not checked'
-          }
+          title={explanation}
           onClick={onRefresh}
         >
           ↻
@@ -67,16 +90,6 @@ export function SkillagerExplorer({
       {expanded ? (
         <>
           {children}
-          {loading ? (
-            <p className="skillager-section-notice" role="status">
-              Checking metadata…
-            </p>
-          ) : null}
-          {error ? (
-            <p className="skillager-section-notice" role="alert">
-              {error}
-            </p>
-          ) : null}
           {rows.length ? (
             <SkillagerTree
               rows={rows}
@@ -88,7 +101,7 @@ export function SkillagerExplorer({
             />
           ) : (
             <div className="skillager-section-empty">
-              {!loading && !error ? empty : null}
+              {observed || (!loading && !error) ? empty : null}
             </div>
           )}
         </>

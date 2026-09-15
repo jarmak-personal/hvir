@@ -36,21 +36,12 @@ export function SkillagerSidebar({
 }): ReactElement {
   const [pending, setPending] = useState(false)
   const local = root.hostId === 'local'
-  const library = controller.inventory.result?.ok
-    ? controller.inventory.result.value
-    : undefined
+  const library = controller.inventory.observed
   const projectRead = local ? controller.project : controller.inventory
-  const project = projectRead.result?.ok ? projectRead.result.value : undefined
+  const project = projectRead.observed
   const search = controller.search.result?.ok ? controller.search.result.value : undefined
-  const libraryRows = useMemo(
-    () => metadataRows(library, controller.observing, controller.inventory.loading),
-    [library, controller.observing, controller.inventory.loading],
-  )
-  const projectRows = useMemo(
-    () =>
-      withFreshness(controller.projectRows, controller.observing, projectRead.loading),
-    [controller.projectRows, controller.observing, projectRead.loading],
-  )
+  const libraryRows = controller.libraryRows
+  const projectRows = controller.projectRows
   const searchRows = useMemo(
     () => metadataRows(search, controller.observing, controller.search.loading),
     [search, controller.observing, controller.search.loading],
@@ -151,21 +142,31 @@ export function SkillagerSidebar({
               expanded={controller.projectExpanded}
               onExpanded={controller.setProjectExpanded}
               loading={projectRead.loading}
+              freshness={controller.projectFreshness}
               error={
                 projectRead.result && !projectRead.result.ok
                   ? projectRead.result.message
-                  : project?.exposures &&
-                      local &&
-                      controller.project.result?.ok &&
-                      controller.project.result.value.requiresLibraryMetadata &&
-                      controller.inventory.result &&
-                      !controller.inventory.result.ok
-                    ? `Library source metadata is unavailable. ${controller.inventory.result.message}`
-                    : undefined
+                  : projectRead.result?.ok &&
+                      projectRead.result.value.exposures === undefined
+                    ? `Project copy status is unavailable.${projectRead.observedExposures ? ' Last observed copies are retained.' : ''}`
+                    : projectRead.observedExposures &&
+                        local &&
+                        controller.project.observedExposures?.requiresLibraryMetadata &&
+                        controller.inventory.result &&
+                        !controller.inventory.result.ok
+                      ? `Library source metadata is unavailable. ${controller.inventory.result.message}`
+                      : undefined
               }
               rows={projectRows}
               known={controller.canonical}
-              checkedAt={project?.checkedAt}
+              checkedAt={
+                project
+                  ? Math.min(
+                      project.checkedAt,
+                      projectRead.observedExposures?.checkedAt ?? project.checkedAt,
+                    )
+                  : undefined
+              }
               controller={controller}
               onRefresh={() =>
                 void (local ? controller.refreshProjectMetadata() : controller.refresh())
@@ -194,6 +195,7 @@ export function SkillagerSidebar({
               expanded={controller.libraryExpanded}
               onExpanded={controller.setLibraryExpanded}
               loading={controller.inventory.loading}
+              freshness={controller.canonical.freshness}
               error={
                 controller.inventory.result && !controller.inventory.result.ok
                   ? controller.inventory.result.message
