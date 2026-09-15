@@ -19,7 +19,10 @@ import { SkillagerCli } from '../src/main/skillager/skillager-cli'
 import { skillagerFixtureEnvironment } from '../src/main/smoke/skillager-fixture-environment'
 
 const release = process.env.HVIR_SKILLAGER_RELEASE
-it.runIf(Boolean(release)).each([true, false])(
+const executable =
+  process.env.HVIR_SKILLAGER_EXECUTABLE ??
+  (release ? join(release, '.venv/bin/skillager') : undefined)
+it.runIf(Boolean(executable)).each([true, false])(
   'verifies full review trees and exact acceptance using the public CLI (no Git: %s)',
   async (noGit) => {
     const root = await realpath(await mkdtemp(join(tmpdir(), 'hvir-skillager-review-')))
@@ -27,7 +30,6 @@ it.runIf(Boolean(release)).each([true, false])(
       catalog = join(root, 'catalog'),
       workspace = join(root, 'workspace'),
       scratch = join(root, 'scratch')
-    const executable = join(release!, '.venv/bin/skillager')
     const { env, unsetEnv } = skillagerFixtureEnvironment(localPath(root), process.env)
     let afterCanonicalPreview: (() => Promise<void>) | undefined
     class FixtureHost extends LocalHost {
@@ -62,7 +64,7 @@ it.runIf(Boolean(release)).each([true, false])(
       signal = AbortSignal.timeout(60_000)
     const run = async (args: readonly string[], cwd = workspace) => {
       const result = await host.exec(
-        executable,
+        executable!,
         ['--catalog-state-dir', catalog, '--state-dir', catalog, ...args],
         { cwd: localPath(cwd), signal, maxBuffer: 4 * 1024 * 1024 },
       )
@@ -92,7 +94,7 @@ it.runIf(Boolean(release)).each([true, false])(
       await writeFile(join(skill, 'helper.sh'), '#!/bin/sh\nprintf "fixture\\n"\n')
       await chmod(join(skill, 'helper.sh'), 0o755)
       await writeFile(join(skill, 'asset.bin'), Buffer.from([0xff, 0, 1]))
-      const selection = await cli.probe(localPath(executable), signal)
+      const selection = await cli.probe(localPath(executable!), signal)
       const first = await cli.review(selection, 'lib/fixture', signal)
       expect(first.detail.history.available).toBe(!noGit)
       expect(first.detail.history.versions).toEqual([])
@@ -154,8 +156,9 @@ it.runIf(Boolean(release)).each([true, false])(
         agent: 'codex' as const,
         query: 'acceptedneedle',
         scope: 'library' as const,
+        view: selection.searchView ? ('skills' as const) : ('legacy' as const),
       }
-      expect(await cli.search(selection, request, signal)).toHaveLength(1)
+      expect((await cli.search(selection, request, signal)).rows).toHaveLength(1)
       await third.dispose()
       const approved = await cli.review(selection, 'lib/fixture', signal)
       expect(approved.detail.canAccept).toBe(false)

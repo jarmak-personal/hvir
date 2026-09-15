@@ -7,10 +7,10 @@ import {
 } from '../../shared/host-path'
 import type { SkillagerContentSelection } from '../../shared/skillager-content'
 import { SKILLAGER_AGENTS } from '../../shared/skillager'
-import { SKILLAGER_REVIEW_FILE_BYTES } from '../../shared/skillager-review'
 import type { ProjectHost, ProjectFileTransferPort } from '../project-host/project-host'
 import { SkillagerError, type SkillagerCliSelection } from './skillager-port'
 import { skillagerLibrarySkillRoot } from './skillager-library-identity'
+import { readSkillagerFileBytes } from './skillager-file-read'
 
 export interface SkillagerDocumentAccess {
   readonly host: Pick<ProjectHost, 'hostId' | 'stat' | 'realpath'> & {
@@ -116,43 +116,26 @@ export async function readSkillagerDocument(
       'unavailable',
       'Bounded skill document access is unavailable.',
     )
-  const before = await host.stat(canonical)
-  if (before.type !== 'file' || before.size > SKILLAGER_REVIEW_FILE_BYTES)
-    throw new SkillagerError(
-      'output-limit',
-      'Skill documents must be regular files of at most 8 MiB.',
-    )
-  const chunks: Uint8Array[] = []
-  let size = 0
-  const stream = noFollow
-    ? transfer.readFileChunksNoFollow!(canonical, { signal })
-    : transfer.readFileChunks(canonical, { signal })
-  for await (const chunk of stream) {
-    current()
-    size += chunk.byteLength
-    if (size > SKILLAGER_REVIEW_FILE_BYTES || size > before.size)
-      throw new SkillagerError(
-        'output-limit',
-        'The skill document changed or exceeds 8 MiB.',
-      )
-    chunks.push(Uint8Array.from(chunk))
-  }
-  const after = await host.stat(canonical)
-  current()
-  if (
-    !hostPathEquals(await host.realpath(path), canonical) ||
-    after.type !== 'file' ||
-    size !== before.size ||
-    after.size !== before.size ||
-    after.mtimeMs !== before.mtimeMs ||
-    after.mode !== before.mode
+  const bytes = await readSkillagerFileBytes(
+    {
+      stat: (file) => host.stat(file),
+      readFileChunks: (file, at) =>
+        noFollow
+          ? transfer.readFileChunksNoFollow!(file, { signal: at })
+          : transfer.readFileChunks(file, { signal: at }),
+    },
+    canonical,
+    signal,
+    { assertCurrent: access.assertCurrent },
   )
+  current()
+  if (!hostPathEquals(await host.realpath(path), canonical))
     throw new SkillagerError(
       'stale-review',
       'The current skill file changed while it was read. Open it again.',
     )
   current()
-  return Buffer.concat(chunks)
+  return bytes
 }
 
 /** Automatic images remain descendants of the actual source document, including aliases. */
