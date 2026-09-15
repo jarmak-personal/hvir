@@ -1,6 +1,7 @@
 # ADR-046: Explicit Skillager library and workspace exposure authority
 
 > Lifecycle: Partially superseded
+> Superseded by: [ADR-051](ADR-051-quiet-skills-and-bounded-direct-add.md) | partial | Skills presentation, retained-observation freshness, and second confirmation only for exact accepted-source create-only Add; identity, token, approval and other mutation authority remain unchanged.
 > Superseded by: [ADR-050](ADR-050-explicit-skill-reading-and-search-defaults.md) | partial | Ordinary skill-body activation and confined reading grant, and logical-identity grouping and installed-skill search defaults only; verified review, acceptance and mutation authority remain unchanged.
 > Superseded by: [ADR-049](ADR-049-project-skill-explorer-and-curation.md) | partial | Skills explorer presentation, derived reusable library acceptance after explicit source approval or backfill, and named local native/router exposure operations only.
 > Superseded by: [ADR-048](ADR-048-explicit-skillager-project-setup.md) | partial | Local project setup terminal handoff and Working installation, existing-project metadata presentation, and post-handoff terminal lifetime only.

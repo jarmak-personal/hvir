@@ -1,3 +1,4 @@
+import { checkPolishStudy } from './polish-check.mjs'
 import { checkReadingStudy } from './reading-check.mjs'
 import nodeAssert from 'node:assert/strict'
 import { automaticRefreshAllowed } from './model.mjs'
@@ -52,6 +53,12 @@ const chrome = spawn(
 )
 // Observe close from acquisition so an already-signaled exit cannot be missed in cleanup.
 let childClosed = false
+let browserExit
+chrome.once('exit', (code, signal) => {
+  browserExit = { code, signal }
+  // Endpoint discovery is over; descendants may otherwise retain this inherited pipe.
+  chrome.stderr.destroy()
+})
 const childClose = new Promise((resolve) =>
   chrome.once('close', () => {
     childClosed = true
@@ -149,7 +156,7 @@ try {
   // New setup controls use actual pointer delivery and hit testing, not DOM click().
   const pointClick = async (selector) => {
     const point = await run(
-      `(()=>{const el=document.querySelector(${JSON.stringify(selector)});el.scrollIntoView({block:'nearest'});const r=el.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;if(!el.contains(document.elementFromPoint(x,y)))throw Error('Setup control is not reachable');return {x,y}})()`,
+      `(()=>{const dialog=document.querySelector('dialog[open]');const el=dialog?.querySelector(${JSON.stringify(selector)})||document.querySelector(${JSON.stringify(selector)});el.scrollIntoView({block:'nearest'});const r=el.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;if(!el.contains(document.elementFromPoint(x,y)))throw Error('Setup control is not reachable');return {x,y}})()`,
     )
     await call('Input.dispatchMouseEvent', {
       type: 'mousePressed',
@@ -192,7 +199,7 @@ try {
     const interval=window.setInterval,clear=window.clearInterval,timeout=window.setTimeout;
     window.setInterval=(fn,ms,...args)=>{const id=interval(fn,ms,...args);if(ms===60000)studyTimers.intervals.add(id);return id};
     window.clearInterval=id=>{studyTimers.intervals.delete(id);return clear(id)};
-    window.setTimeout=(fn,ms,...args)=>{if(ms===500)studyTimers.read=studyTimers.search=fn;if(ms===600)studyTimers.setup=fn;if(ms===400)studyTimers.projectSetup=fn;return timeout(fn,ms,...args)};
+    window.setTimeout=(fn,ms,...args)=>{if(ms===500)studyTimers.read=studyTimers.search=fn;if(ms===600)studyTimers.setup=fn;if(ms===400)studyTimers.projectSetup=fn;if(ms===450)studyTimers.refresh=fn;if(ms===200)studyTimers.add=fn;return timeout(fn,ms,...args)};
   `,
   })
   const capture = async (name) => {
@@ -352,14 +359,12 @@ try {
   await choose('#add-mode', 'stub')
   await choose('#add-agent', 'claude')
   await click('[data-action="preview-add"]')
-  await assert(
-    `document.querySelector('#dialog').textContent.includes('/work/hvir-worktrees/database-review/.claude') && document.querySelector('#dialog').textContent.includes('Supporting instructions: none')`,
-    'Preview names exact worktree/agent and supporting effects',
+  await waitFor(
+    `document.querySelector('.add-result')?.textContent.includes('Added to Claude Code')`,
   )
-  await click('[data-action="apply"]')
   await assert(
-    `document.querySelector('#explorer-workspace .project-managed-list').textContent.includes('incident-notes') && document.querySelector('#explorer-workspace .project-managed-list').textContent.includes('Stub')`,
-    'Add applies only to selected workspace and agent',
+    `!document.querySelector('#dialog').open && document.querySelector('.add-result').textContent.includes('/work/hvir-worktrees/database-review') && document.querySelector('#explorer-workspace .project-managed-list').textContent.includes('incident-notes')`,
+    'Direct Add creates only the selected worktree and agent copy without a confirmation modal',
   )
   await flow('switch')
   await click('[data-action="apply"]')
@@ -437,7 +442,12 @@ try {
     `document.querySelector('#add-mode option[value="stub"]').disabled`,
     'Remote Stub is unavailable',
   )
+  await click('#polish-prerequisites')
   await click('[data-action="preview-add"]')
+  await waitFor(
+    `document.querySelector('.add-result')?.textContent.includes('not checked')`,
+  )
+  await click('[data-action="review-add"]')
   await assert(
     `document.querySelector('#dialog').textContent.includes('Local · /home/example/.skillager/library') && document.querySelector('#dialog').textContent.includes('SSH · build-host') && document.querySelector('#dialog').textContent.includes('hvir checks this workspace') && document.querySelector('#dialog').textContent.includes('hvir’s deployment record for this workspace and agent') && !document.querySelector('#dialog').textContent.includes('skillager.materialized.yaml')`,
     'Remote preview names local source, remote destination and hvir deployment-record effects without a Skillager sidecar',
@@ -685,13 +695,14 @@ try {
   )
   await click('[data-action="close"]')
   await click('[data-select="incident-notes"]')
-  await click('#details [data-action="add"]')
-  await click('[data-action="preview-add"]')
-  await assert(
-    `document.querySelector('#dialog').textContent.includes('/library-new/skills/incident-notes')`,
-    'Reconnected exposure preview names the same selected source',
+  await click('#details [data-action="preview-add"]')
+  await waitFor(
+    `document.querySelector('.add-result')?.textContent.includes('Added to Codex')`,
   )
-  await click('[data-action="close"]')
+  await assert(
+    `document.querySelector('#skills-view').textContent.includes('/library-new/skills/incident-notes') && !document.querySelector('#dialog').open`,
+    'Reconnected direct Add retains the exact selected library identity',
+  )
   await click('#settings')
   await click('#enabled')
   await click('[data-action="close"]')
@@ -740,7 +751,9 @@ try {
   )
   await flow('add')
   await click('[data-action="preview-add"]')
-  await click('[data-action="apply"]')
+  await waitFor(
+    `document.querySelector('.add-result')?.textContent.includes('Added to Codex')`,
+  )
   await assert(
     `!document.querySelector('#toast').hidden`,
     'A completed sample action publishes its feature notification',
@@ -785,6 +798,18 @@ try {
     waitFor,
     capture,
     absent,
+  })
+  await flow('browse')
+  const polish = await checkPolishStudy({
+    flow,
+    click,
+    pointClick,
+    choose,
+    run,
+    call,
+    assert,
+    waitFor,
+    capture,
   })
   await flow('browse')
   await call('Emulation.setDeviceMetricsOverride', {
@@ -841,6 +866,7 @@ try {
   if (errors.length) throw new Error(errors.join(', '))
   const result = {
     checks,
+    pureOwnerChecks: polish,
     errors,
     limitations,
     scope: 'Synthetic standalone study only; no hvir, CLI or SSH execution.',
@@ -849,8 +875,13 @@ try {
   console.log(JSON.stringify(result, null, 2))
 } finally {
   clearTimeout(deadline)
-  socket?.close()
   try {
+    // Ask this isolated browser to retire its own child processes before signaling it.
+    if (!childClosed && socket?.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ id: 0, method: 'Browser.close' }))
+      await waitForClose(2000)
+    }
+    socket?.close()
     if (
       !childClosed &&
       chrome.pid &&
@@ -868,4 +899,7 @@ try {
   } finally {
     await rm(profile, { recursive: true, force: true })
   }
+  console.log(
+    JSON.stringify({ browserClosed: childClosed, browserExit, profileRemoved: true }),
+  )
 }

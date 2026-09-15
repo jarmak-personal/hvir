@@ -1,6 +1,7 @@
 # ADR-049: Project skill explorer and explicit curation
 
 > Lifecycle: Partially superseded
+> Superseded by: [ADR-051](ADR-051-quiet-skills-and-bounded-direct-add.md) | partial | Explorer and action presentation, and second confirmation only for exact accepted-source create-only Add; preservation, router and existing-copy review authority remain unchanged.
 > Superseded by: [ADR-050](ADR-050-explicit-skill-reading-and-search-defaults.md) | partial | Selected skill reading presentation, exposure action wording, logical-identity grouping and installed-skill search controls, and Search Preferred agent independence from browse trees and action agents only; explorer disclosure, preservation and exposure authority remain unchanged.
 > Supersedes: [ADR-030](ADR-030-bounded-project-file-operations.md) | partial | No-replacement rule only for explicitly confirmed preserved native-original adoption/removal through the named Skillager operation; ordinary Files operations remain unchanged.
 > Supersedes: [ADR-046](ADR-046-explicit-skillager-library-and-exposure-authority.md) | partial | Skills explorer presentation, derived reusable library acceptance after explicit source approval or backfill, and named local native/router exposure operations only.

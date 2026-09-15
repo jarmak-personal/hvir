@@ -12,7 +12,7 @@ export async function checkProjectSetupStudy({
 }) {
   await flow('project-existing')
   await assert(
-    `document.querySelectorAll('[data-native]').length===4 && document.querySelector('#project-skill-list').textContent.includes('Pending review') && document.querySelector('#project-skill-list').textContent.includes('Lint blocked') && document.querySelector('#project-skill-list').textContent.includes('Approved') && document.querySelector('#project-skill-list').textContent.includes('Blocked') && document.querySelector('#project-skill-list').textContent.includes('Claude Code') && document.querySelector('#project-skill-list').textContent.includes('Codex') && document.querySelector('#content').textContent.includes('Managed copy')`,
+    `document.querySelectorAll('[data-native]').length===4 && document.querySelector('#project-skill-list').textContent.includes('Pending review') && document.querySelector('#project-skill-list').textContent.includes('Lint blocked') && document.querySelector('#project-skill-list').textContent.includes('Approved') && document.querySelector('#project-skill-list').textContent.includes('Blocked') && document.querySelector('#project-skill-list [aria-label="Claude Code · Original"]') && document.querySelector('#project-skill-list [aria-label="Codex · Original"]') && document.querySelector('#content').textContent.includes('Managed copy')`,
     'Public project metadata includes existing approved, pending and lint-blocked native skills separately from managed copies before setup',
   )
   await run(

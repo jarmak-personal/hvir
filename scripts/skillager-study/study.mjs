@@ -1,3 +1,11 @@
+import {
+  createDirectAddController,
+  changeAddChoice,
+  addChoice,
+  reviewDirectAddSample,
+  applyReviewedDirectAddSample,
+} from './direct-add.mjs'
+import { createCurationActions } from './curation-actions.mjs'
 import { createSampleReader, readingView } from './reading.mjs'
 import { readingSearchFixture } from './search-sample.mjs'
 import {
@@ -5,25 +13,14 @@ import {
   curationSource,
   curationRouter,
   curationTarget,
-  standaloneCopyPresent,
   syncCurationSample,
   searchCurationSample,
-  prepareCurationSample,
-  applyCurationSample,
 } from './curation-model.mjs'
-import {
-  curationDetailView,
-  curationMenuView,
-  curationRouterMenuView,
-  curationPickerView,
-  curationPreviewView,
-  curationSyncView,
-} from './curation-views.mjs'
+import { curationDetailView, curationSyncView } from './curation-views.mjs'
 const { document, window, setTimeout, clearTimeout, setInterval, clearInterval } =
   globalThis
 import {
   initialState,
-  destinations,
   destinationFor,
   skillFor,
   exposuresFor,
@@ -46,7 +43,6 @@ import {
 } from './model.mjs'
 import {
   connectionView,
-  pickerView,
   previewView,
   detailView,
   skillsRailView,
@@ -57,14 +53,25 @@ import {
 } from './views.mjs'
 const $ = (selector) => document.querySelector(selector)
 let state = initialState(),
-  preview,
   searchTimer,
+  refreshTimer,
   setupTimer,
   projectSetupTimer,
   queryGeneration = 0,
   toastTimer,
   periodic
 const reader = createSampleReader(() => state, render)
+const directAdd = createDirectAddController(() => state, render, notify)
+const curate = createCurationActions(() => state, {
+  reader,
+  render,
+  modal,
+  closeDialog,
+  cancelSearch,
+  selectViewer,
+  revealSkillInFiles,
+  directAdd,
+})
 function notify(text) {
   if (!state.enabled) return
   clearTimeout(toastTimer)
@@ -85,19 +92,64 @@ function cancelSearch() {
 function closeDialog() {
   $('#dialog').close()
   $('#dialog').innerHTML = ''
-  preview = null
+  state.preview = null
 }
 function modal(html) {
   $('#dialog').innerHTML = html
   if (!$('#dialog').open) $('#dialog').showModal()
 }
+function showObservation() {
+  for (const button of document.querySelectorAll('.header-refresh')) {
+    button.setAttribute('aria-busy', String(!!state.refreshing))
+    button.title = state.lastChecked
+  }
+  if ($('#freshness')) $('#freshness').textContent = state.lastChecked
+  if ($('#observation-notice'))
+    $('#observation-notice').textContent = state.refreshError
+      ? `Stale observation · ${state.refreshError} · Retry with Refresh`
+      : ''
+}
 function refresh() {
   if (!state.connected || !skillsVisible(state)) return
-  refreshProjectSample(state)
-  state.lastChecked = `Checked at ${new Date().toLocaleTimeString()} · ${destinationFor(state).label}`
-  render()
+  clearTimeout(refreshTimer)
+  const snapshot = state,
+    generation = state.generation
+  state.refreshing = true
+  showObservation()
+  refreshTimer = setTimeout(() => {
+    if (
+      state !== snapshot ||
+      generation !== state.generation ||
+      !state.connected ||
+      !skillsVisible(state)
+    )
+      return
+    state.refreshing = false
+    state.refreshError = state.sampleRefreshFailure
+      ? 'Refresh unavailable; retained last successful list'
+      : null
+    if (!state.refreshError) {
+      const initial = state.initialLoading
+      state.initialLoading = false
+      const before = JSON.stringify(projectSampleFor(state))
+      refreshProjectSample(state)
+      state.lastChecked = `Checked at ${new Date().toLocaleTimeString()} · ${destinationFor(state).label}`
+      if (initial || before !== JSON.stringify(projectSampleFor(state))) render()
+    }
+    showObservation()
+  }, state.sampleRefreshDelay ?? 100)
 }
+
 function render() {
+  reader.remember()
+  const focused = document.activeElement,
+    row = focused?.closest('.skill-row')
+  const addFocus = focused?.closest('.direct-add-controls') ? focused.id : null
+  const rowIdentity = row ? JSON.stringify(row.dataset) : null
+  const rowButton = row ? [...row.querySelectorAll('button')].indexOf(focused) : -1
+  const scrolls = [...document.querySelectorAll('.explorer-scroll')].map(
+    (el) => el.scrollTop,
+  )
   const focusedSearch = document.activeElement?.id === 'search'
   const selection = focusedSearch
     ? [$('#search').selectionStart, $('#search').selectionEnd]
@@ -134,6 +186,9 @@ function render() {
       .forEach((b) => b.classList.toggle('active', state.railMode === rail))
   }
   $('#skills-rail').innerHTML = skillsRailView(state)
+  $('#polish-refresh-error').checked = !!state.sampleRefreshFailure
+  $('#polish-uncertain').checked = state.sampleDirectOutcome === 'uncertain'
+  $('#polish-prerequisites').checked = !!state.samplePrerequisites?.length
   $('#reading-delay').checked = state.sampleReadDelay === 500
   $('#reading-count').textContent = `${state.readCount || 0} explicit sample reads`
   $('#skills-view').innerHTML =
@@ -147,7 +202,20 @@ function render() {
             : `<article class="details" id="details">${detailView(state)}</article>`
       : ''
   if (state.enabled && state.connected && state.skillsOpen && !state.reviewOpen)
-    $('#skills-view').insertAdjacentHTML('afterbegin', readingView(state))
+    ($('#skills-view .source-status') || $('#skills-view .details'))?.insertAdjacentHTML(
+      $('#skills-view .source-status') ? 'beforebegin' : 'afterend',
+      readingView(state),
+    )
+  reader.restore()
+  document.querySelectorAll('.explorer-scroll').forEach((el, i) => {
+    el.scrollTop = scrolls[i] || 0
+  })
+  if (rowIdentity && rowButton >= 0)
+    [...document.querySelectorAll('.skill-row')]
+      .find((item) => JSON.stringify(item.dataset) === rowIdentity)
+      ?.querySelectorAll('button')
+      [rowButton]?.focus({ preventScroll: true })
+  if (addFocus) document.getElementById(addFocus)?.focus({ preventScroll: true })
   syncRefreshDemand()
   if (focusedSearch && $('#search')) {
     $('#search').focus()
@@ -158,8 +226,10 @@ function selectViewer(viewer, read = false) {
   if (viewer === 'skills' && (!state.enabled || !state.skillsOpen)) return
   closeDialog()
   state.viewer = viewer
-  if (viewer !== 'skills') reader.revoke()
-  else if (read) {
+  directAdd.revoke()
+  if (viewer !== 'skills') {
+    reader.revoke()
+  } else if (read) {
     state.reviewOpen = false
     reader.activate()
   }
@@ -175,6 +245,9 @@ function selectRail(rail) {
   render()
 }
 function revokeFeature() {
+  clearTimeout(refreshTimer)
+  state.refreshing = false
+  directAdd.revoke()
   reader.revoke()
   cancelSampleSetup(state)
   clearTimeout(setupTimer)
@@ -233,12 +306,12 @@ function search(legacy = false) {
   }, 500)
 }
 function prepare(action, mode) {
-  preview = previewSnapshot(
+  state.preview = previewSnapshot(
     state,
     action,
     mode || exposuresFor(state)[state.selected]?.mode || 'native',
   )
-  modal(previewView(state, preview))
+  modal(previewView(state, state.preview))
 }
 function action(name) {
   if (name === 'close') return closeDialog()
@@ -345,16 +418,39 @@ function action(name) {
     cancelSearch()
     return render()
   }
-  if (name === 'add') return modal(pickerView(state))
+  if (name === 'add') {
+    closeDialog()
+    cancelSearch()
+    return directAdd.start({ agent: state.agent, mode: 'native' })
+  }
+  if (name === 'review-add') {
+    state.preview = reviewDirectAddSample(state)
+    if (state.preview) return modal(previewView(state, state.preview))
+    return
+  }
+  if (
+    name === 'inspect-add' &&
+    state.directAddUncertain?.destination === state.destination
+  ) {
+    const plan = state.directAddUncertain
+    state.filesSelection = null
+    $('#files-selection').innerHTML =
+      `<p>Inspect ${escapeHtml(plan.destinationHost)} · ${escapeHtml(plan.targetPath)}</p><p>Add completion remains uncertain. Observing files does not prove this operation completed; no retry or removal was authorized.</p>`
+    return selectRail('files')
+  }
   if (name === 'preview-add') {
     cancelSearch()
-    state.destination = $('#add-destination').value
-    state.agent = $('#add-agent').value
-    const selectedMode = $('#add-mode').value
+    const { destination, agent, mode } = addChoice(state)
+    if (state.destination !== destination || state.agent !== agent) {
+      reader.revoke()
+      state.generation++
+    }
+    state.destination = destination
+    state.agent = agent
     if (destinationFor(state).host !== 'local') state.scope = 'personal'
-    state.generation++
     render()
-    return prepare('add', selectedMode)
+    closeDialog()
+    return directAdd.start({ agent: state.agent, mode })
   }
   if (name === 'switch')
     return prepare(
@@ -373,10 +469,12 @@ function action(name) {
     return modal(
       '<h2 id="dialog-title">Version history · metadata only</h2><p>Current accepted version and prior versions belong to Skillager.</p><p>Libraries without Git show history unavailable. A new draft has no previous version: review the full tree explicitly.</p><footer><button data-action="close">Close</button></footer>',
     )
-  if (name === 'apply' && preview) {
-    const requested = preview.action,
+  if (name === 'apply' && state.preview) {
+    const requested = state.preview.action,
       destination = destinationFor(state).label
-    const result = applySample(state, preview)
+    const result = state.preview.createOnly
+      ? applyReviewedDirectAddSample(state, state.preview)
+      : applySample(state, state.preview)
     if (result !== 'completed')
       return modal(
         `<h2 id="dialog-title">${result === 'stale' ? 'This preview is out of date' : 'Preserve this target'}</h2><p>No action applied. Refresh and review a new preview.</p><footer><button data-action="close">Close</button></footer>`,
@@ -401,126 +499,10 @@ function revealSkillInFiles(source) {
     `<p>Selected folder · Local · ${state.filesSelection.path}</p><p>◇ SKILL.md · use the existing Files viewer for content</p><button data-action="files-trash">Move to Trash…</button>`
   return selectRail('files')
 }
-function curate(name) {
-  if (!state.enabled || !state.connected) return
-  if (!state.curation) {
-    if (name !== 'sync-confirm' || !state.empty) return
-    state.curation = curationSample({ emptyLibrary: true })
-    state.empty = false
-  }
-  const c = state.curation
-  if (name === 'review') {
-    reader.revoke()
-    state.reviewOpen = true
-    return render()
-  }
-  if (['files-remove', 'review-files'].includes(name))
-    return revealSkillInFiles(curationSource(state))
-  if (name === 'menu') return modal(curationMenuView(state))
-  if (name === 'router-menu') return modal(curationRouterMenuView(state))
-  if (name === 'remove-router') {
-    preview = { ...prepareCurationSample(state, name), curation: true }
-    return modal(curationPreviewView(state, preview))
-  }
-  if (name === 'sync') return modal(curationSyncView(state))
-  if (name === 'sync-status') {
-    c.syncUncertain = false
-    c.outcomes = c.sources.map((row) => ({
-      id: row.id,
-      name: row.name,
-      agent: row.agent,
-      origin: row.origin,
-      outcome: row.preserved
-        ? `Observed library version: ${row.libraryVersion}`
-        : 'No preserved library version observed',
-    }))
-    return modal(curationSyncView(state))
-  }
-  if (name === 'sync-confirm') {
-    syncCurationSample(state)
-    cancelSearch()
-    render()
-    return modal(curationSyncView(state))
-  }
-  if (name === 'select-router') {
-    c.selectedRouter = true
-    state.reviewOpen = false
-    state.skillsOpen = true
-    return selectViewer('skills')
-  }
-  if (name === 'reconcile') {
-    c.uncertain = false
-    c.recoveryRequired = true
-    c.lastEffect = `Observed sample: originals retained; staging recovery remains required. Library unchanged; further conversion is unavailable.`
-    closeDialog()
-    return render()
-  }
-  if (name === 'apply' && preview?.curation) {
-    const failure = applyCurationSample(state, preview)
-    if (failure) {
-      preview = null
-      return modal(
-        `<h2 id="dialog-title">Check this result</h2><p>${failure}</p>${c.uncertain ? '<button data-curate="reconcile">Check result</button>' : ''}<footer><button data-action="close">Close</button></footer>`,
-      )
-    }
-    closeDialog()
-    cancelSearch()
-    return render()
-  }
-  if (['add', 'router', 'set-members', 'ungroup'].includes(name))
-    return modal(curationPickerView(state, name))
-  if (name === 'add-preview') {
-    preview = {
-      ...prepareCurationSample(state, 'add', {
-        agent: $('#curation-add-agent').value,
-        mode: $('#curation-mode').value,
-      }),
-      curation: true,
-    }
-    return modal(curationPreviewView(state, preview))
-  }
-  if (['router-preview', 'members-preview', 'ungroup-preview'].includes(name)) {
-    const router = curationRouter(state)
-    const options =
-      name === 'router-preview'
-        ? {
-            routerId: $('#curation-group').value,
-            name: $('#curation-name').value,
-            replace: $('#curation-replace').checked ? [c.selected] : [],
-          }
-        : {
-            routerId: router.id,
-            mode: $('#curation-mode').value,
-            members: [...document.querySelectorAll('[data-router-member]:checked')].map(
-              (el) => el.dataset.routerMember,
-            ),
-          }
-    if (name === 'members-preview')
-      options.replace = options.members.filter(
-        (id) =>
-          !router.members.includes(id) &&
-          standaloneCopyPresent(curationSource(state, id)),
-      )
-    preview = {
-      ...prepareCurationSample(
-        state,
-        name === 'router-preview'
-          ? 'router'
-          : name === 'members-preview'
-            ? 'set-members'
-            : 'ungroup',
-        options,
-      ),
-      curation: true,
-    }
-    return modal(curationPreviewView(state, preview))
-  }
-  if (['full', 'stub', 'update', 'remove'].includes(name)) {
-    preview = { ...prepareCurationSample(state, name), curation: true }
-    return modal(curationPreviewView(state, preview))
-  }
-}
+
 function scenario(name) {
+  clearTimeout(refreshTimer)
+  directAdd.revoke()
   reader.revoke()
   $('#files-selection').innerHTML = ''
   clearTimeout(toastTimer)
@@ -565,6 +547,12 @@ function scenario(name) {
       state.destination = 'remote-main'
       state.scope = 'personal'
     }
+  }
+  if (name === 'initial-loading') {
+    state.initialLoading = true
+    state.sampleRefreshDelay = 450
+    state.skillsOpen = false
+    state.viewer = state.lastOrdinaryViewer
   }
   if (name === 'empty') {
     state.empty = true
@@ -640,7 +628,12 @@ function scenario(name) {
   }
   render()
   if (name === 'search') search()
-  if (['add', 'remote'].includes(name)) action('add')
+  if (name === 'initial-loading') refresh()
+  if (['add', 'remote'].includes(name)) {
+    state.selectedScope = 'library'
+    reader.activate()
+    render()
+  }
   if (name === 'switch') prepare('switch', 'stub')
   if (name === 'remove') prepare('remove')
   if (name === 'pending') prepare('accept')
@@ -655,6 +648,7 @@ document.addEventListener('click', (event) => {
     state.selectedTerminal = button.dataset.terminal
     return render()
   }
+  if (button.dataset.reading) return reader.control(button.dataset.reading)
   if (button.dataset.curate) return curate(button.dataset.curate)
   if (button.dataset.action) return action(button.dataset.action)
   if (button.dataset.rail) return selectRail(button.dataset.rail)
@@ -678,6 +672,7 @@ document.addEventListener('click', (event) => {
       '[data-select],[data-native],[data-curation-select],[data-curation-router],[data-menu],[data-curation-menu],[data-router-menu]',
     )
   ) {
+    directAdd.revoke()
     reader.revoke()
     const result = state.results?.find((row) =>
       row.occurrenceId
@@ -713,6 +708,12 @@ document.addEventListener('click', (event) => {
     if (button.dataset.curationMenu) curate('menu')
     return
   }
+  if (button.dataset.nativeFilesId) {
+    state.nativeFileSelection = projectSampleFor(state).rows.find(
+      (row) => row.id === button.dataset.nativeFilesId,
+    )
+    return action('native-files')
+  }
   if (button.dataset.nativeActions) {
     state.nativeFileSelection = projectSampleFor(state).rows.find(
       (row) => row.id === button.dataset.nativeActions,
@@ -741,7 +742,7 @@ document.addEventListener('click', (event) => {
     state.reviewOpen = false
     render()
     return modal(
-      `<h2 id="dialog-title">Actions · ${state.selected}</h2>${detailView(state)}<footer><button data-action="close">Close</button></footer>`,
+      `<h2 id="dialog-title">Actions · ${state.selected}</h2>${detailView(state, true)}<footer><button data-action="close">Close</button></footer>`,
     )
   }
 })
@@ -786,6 +787,7 @@ document.addEventListener('change', (event) => {
   if ($('#search-advanced')) state.advancedOpen = $('#search-advanced').open
   if (event.target.id === 'library-git') state.setup.git = event.target.checked
   if (['destination', 'agent'].includes(event.target.id)) {
+    directAdd.revoke()
     reader.revoke()
     state.selectedSearchVersion = null
     clearTimeout(projectSetupTimer)
@@ -829,14 +831,11 @@ document.addEventListener('change', (event) => {
     state.scope = event.target.value
     render()
   }
-  if (event.target.id === 'add-destination') {
-    const d = destinations.find((d) => d.id === event.target.value)
-    const stub = $('#add-mode option[value="stub"]')
-    stub.disabled = d.host !== 'local'
-    if (stub.disabled) $('#add-mode').value = 'native'
-    $('#add-route').textContent =
-      `Local · ${state.library.path} → ${d.label}${stub.disabled ? ' · Remote Stub unavailable' : ''}`
-  }
+  if (
+    !event.target.closest('dialog') &&
+    changeAddChoice(state, event.target.id, event.target.value)
+  )
+    render()
 })
 document.addEventListener(
   'toggle',
@@ -864,7 +863,7 @@ document.addEventListener('keydown', (event) => {
   }
 })
 $('#dialog').addEventListener('cancel', () => {
-  preview = null
+  state.preview = null
 })
 $('#settings').onclick = () => action('settings')
 $('#reset').onclick = () => {
@@ -883,6 +882,23 @@ $('#curation-long-project').onclick = () => {
       name: `Observed project skill ${i}`,
     })
   render()
+}
+$('#polish-refresh').onclick = () => {
+  state.sampleRefreshDelay = 450
+  refresh()
+}
+$('#polish-refresh-error').onchange = (event) => {
+  state.sampleRefreshFailure = event.target.checked
+}
+$('#polish-prerequisites').onchange = (event) => {
+  state.samplePrerequisites = event.target.checked ? ['Python 3.12'] : []
+  render()
+}
+$('#polish-uncertain').onchange = (event) => {
+  state.sampleDirectOutcome = event.target.checked ? 'uncertain' : null
+}
+$('#polish-theme').onchange = (event) => {
+  document.documentElement.dataset.studyTheme = event.target.value
 }
 $('#reading-delay').onchange = (event) => {
   state.sampleReadDelay = event.target.checked ? 500 : 25
@@ -960,6 +976,10 @@ function syncRefreshDemand() {
     document.hasFocus(),
   )
   if (active && !periodic) periodic = setInterval(refreshIfActive, 60_000)
+  if (!skillsVisible(state)) {
+    clearTimeout(refreshTimer)
+    state.refreshing = false
+  }
   if (!active && periodic) {
     clearInterval(periodic)
     periodic = undefined

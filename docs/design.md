@@ -492,6 +492,7 @@ Markdown images remain within the canonical document directory and descendants.
 ### [ADR-046 — Explicit Skillager library and workspace exposure authority](adr/ADR-046-explicit-skillager-library-and-exposure-authority.md)
 
 > Lifecycle: Partially superseded
+> Superseded by: [ADR-051](adr/ADR-051-quiet-skills-and-bounded-direct-add.md) | partial | Skills presentation, retained-observation freshness, and second confirmation only for exact accepted-source create-only Add; identity, token, approval and other mutation authority remain unchanged.
 > Superseded by: [ADR-050](adr/ADR-050-explicit-skill-reading-and-search-defaults.md) | partial | Ordinary skill-body activation and confined reading grant, and logical-identity grouping and installed-skill search defaults only; verified review, acceptance and mutation authority remain unchanged.
 > Superseded by: [ADR-049](adr/ADR-049-project-skill-explorer-and-curation.md) | partial | Skills explorer presentation, derived reusable library acceptance after explicit source approval or backfill, and named local native/router exposure operations only.
 > Superseded by: [ADR-048](adr/ADR-048-explicit-skillager-project-setup.md) | partial | Local project setup terminal handoff and Working installation, existing-project metadata presentation, and post-handoff terminal lifetime only.
@@ -528,6 +529,7 @@ and agent; public readiness, rather than terminal output or exit status, determi
 ### [ADR-049 — Project skill explorer and explicit curation](adr/ADR-049-project-skill-explorer-and-curation.md)
 
 > Lifecycle: Partially superseded
+> Superseded by: [ADR-051](adr/ADR-051-quiet-skills-and-bounded-direct-add.md) | partial | Explorer and action presentation, and second confirmation only for exact accepted-source create-only Add; preservation, router and existing-copy review authority remain unchanged.
 > Superseded by: [ADR-050](adr/ADR-050-explicit-skill-reading-and-search-defaults.md) | partial | Selected skill reading presentation, exposure action wording, logical-identity grouping and installed-skill search controls, and Search Preferred agent independence from browse trees and action agents only; explorer disclosure, preservation and exposure authority remain unchanged.
 > Supersedes: [ADR-030](adr/ADR-030-bounded-project-file-operations.md) | partial | No-replacement rule only for explicitly confirmed preserved native-original adoption/removal through the named Skillager operation; ordinary Files operations remain unchanged.
 > Supersedes: [ADR-046](adr/ADR-046-explicit-skillager-library-and-exposure-authority.md) | partial | Skills explorer presentation, derived reusable library acceptance after explicit source approval or backfill, and named local native/router exposure operations only.
@@ -540,12 +542,24 @@ while unwanted unpreserved originals retain the separate Files removal path.
 
 ### [ADR-050 — Explicit skill reading and search defaults](adr/ADR-050-explicit-skill-reading-and-search-defaults.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-051](adr/ADR-051-quiet-skills-and-bounded-direct-add.md) | partial | Reader and action presentation, and exact accepted-source create-only Add interaction only; explicit current-file reading, review authority and search defaults remain unchanged.
 > Supersedes: [ADR-046](adr/ADR-046-explicit-skillager-library-and-exposure-authority.md) | partial | Ordinary skill-body activation and confined reading grant, and logical-identity grouping and installed-skill search defaults only; verified review, acceptance and mutation authority remain unchanged.
 > Supersedes: [ADR-049](adr/ADR-049-project-skill-explorer-and-curation.md) | partial | Selected skill reading presentation, exposure action wording, logical-identity grouping and installed-skill search controls, and Search Preferred agent independence from browse trees and action agents only; explorer disclosure, preservation and exposure authority remain unchanged.
 
 Explicit activation reads the selected current file without granting approval. Public identity
 groups search before ranking, with visible controls for installed skills and separate occurrences.
+
+### [ADR-051 — Quiet Skills presentation and bounded direct Add](adr/ADR-051-quiet-skills-and-bounded-direct-add.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-046](adr/ADR-046-explicit-skillager-library-and-exposure-authority.md) | partial | Skills presentation, retained-observation freshness, and second confirmation only for exact accepted-source create-only Add; identity, token, approval and other mutation authority remain unchanged.
+> Supersedes: [ADR-049](adr/ADR-049-project-skill-explorer-and-curation.md) | partial | Explorer and action presentation, and second confirmation only for exact accepted-source create-only Add; preservation, router and existing-copy review authority remain unchanged.
+> Supersedes: [ADR-050](adr/ADR-050-explicit-skill-reading-and-search-defaults.md) | partial | Reader and action presentation, and exact accepted-source create-only Add interaction only; explicit current-file reading, review authority and search defaults remain unchanged.
+
+Quiet observations preserve reading and list stability. Exact accepted-source create-only Add
+uses the existing token authority without a second modal; other reviews remain explicit.
+
 
 ## 5. Architecture
 
