@@ -1,6 +1,7 @@
 # ADR-050: Explicit skill reading and search defaults
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-051](ADR-051-quiet-skills-and-bounded-direct-add.md) | partial | Reader and action presentation, and exact accepted-source create-only Add interaction only; explicit current-file reading, review authority and search defaults remain unchanged.
 > Supersedes: [ADR-046](ADR-046-explicit-skillager-library-and-exposure-authority.md) | partial | Ordinary skill-body activation and confined reading grant, and logical-identity grouping and installed-skill search defaults only; verified review, acceptance and mutation authority remain unchanged.
 > Supersedes: [ADR-049](ADR-049-project-skill-explorer-and-curation.md) | partial | Selected skill reading presentation, exposure action wording, logical-identity grouping and installed-skill search controls, and Search Preferred agent independence from browse trees and action agents only; explorer disclosure, preservation and exposure authority remain unchanged.
 

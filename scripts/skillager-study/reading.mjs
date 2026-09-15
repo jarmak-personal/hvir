@@ -1,4 +1,5 @@
 import { escapeHtml as escape } from './html.mjs'
+import { instructionIcon } from './skill-icons.mjs'
 // Closed sample documents only. No filesystem, CLI, approval or snapshot authority.
 import { destinationFor, skillFor, exposuresFor, projectSampleFor } from './model.mjs'
 import { curationSource, curationRouter, curationTarget } from './curation-model.mjs'
@@ -135,16 +136,12 @@ export function selectedDocument(state) {
   )
 }
 const binding = (state) =>
-  JSON.stringify([
-    state.generation,
-    state.destination,
-    state.library.id,
-    selectedDocument(state),
-  ])
+  JSON.stringify([state.destination, state.library.id, selectedDocument(state)])
 export function createSampleReader(current, render) {
   let timer,
     generation = 0
   function revoke() {
+    remember()
     generation++
     globalThis.clearTimeout(timer)
     current().reading = null
@@ -192,7 +189,45 @@ export function createSampleReader(current, render) {
       render()
     }, state.sampleReadDelay ?? 25)
   }
-  return { activate, revoke }
+  function presentation() {
+    const state = current(),
+      source = state.reading?.source
+    const key = source ? `${source.host}:${source.path}` : 'none'
+    state.readingPresentation ||= {}
+    return (state.readingPresentation[key] ||= {
+      mode: 'rendered',
+      collapsed: false,
+      scroll: 0,
+    })
+  }
+  function remember() {
+    const viewport = globalThis.document?.querySelector('#skills-view')
+    const source = current().reading?.source
+    const shown = globalThis.document?.querySelector('.skill-reading')
+    if (
+      current().reading?.body &&
+      viewport &&
+      shown?.dataset.readingKey === `${source.host}:${source.path}` &&
+      !shown.querySelector('.instructions-body')?.hidden
+    )
+      presentation().scroll = viewport.scrollTop
+  }
+  function restore() {
+    const viewport = globalThis.document?.querySelector('#skills-view')
+    if (viewport && current().reading?.body) viewport.scrollTop = presentation().scroll
+  }
+  function control(name) {
+    if (!current().reading?.body) return
+    const value = presentation()
+    if (name === 'collapse') value.collapsed = !value.collapsed
+    else value.mode = name
+    render()
+    restore()
+    globalThis.document
+      ?.querySelector(`[data-reading="${name}"]`)
+      ?.focus({ preventScroll: true })
+  }
+  return { activate, revoke, remember, restore, control }
 }
 export function readingView(state) {
   const read = state.reading
@@ -200,7 +235,23 @@ export function readingView(state) {
     return '<p class="reading-empty">Activate a skill row or its tab to read that current file.</p>'
   const source = read.source
   if (read.error)
-    return `<section class="skill-reading"><h2>${escape(source.name || 'Selected skill')}</h2><p role="status">${escape(read.error)}</p></section>`
+    return `<section class="skill-reading"><p role="status">${escape(read.error)}</p></section>`
   const changed = JSON.stringify(source) !== JSON.stringify(selectedDocument(state))
-  return `<section class="skill-reading" aria-label="Selected skill current file"><header><h2>${escape(source.name)}</h2><p>${source.label} · Current file${source.member ? ` · selected member ${escape(source.member)}` : ''}</p><small>${escape(source.host)} · ${escape(source.path)}</small></header><p class="reading-status">${changed ? 'Source changed since this read. Activate again to read the current file.' : escape(source.status)} · ${escape(source.version)}</p>${read.pending ? `<p role="status">${changed ? 'The selected read is stale; activate the current source again.' : 'Reading selected file…'}</p>` : `<pre id="skill-current-body">${escape(read.body)}</pre>`}<small>Ordinary current-file view · no approval or verified tree snapshot.</small></section>`
+  const value = state.readingPresentation?.[`${source.host}:${source.path}`] || {
+    mode: 'rendered',
+    collapsed: false,
+  }
+  const root = source.library ? state.library.path : destinationFor(state).path
+  const path = source.path.startsWith(root + '/')
+    ? source.path.slice(root.length + 1)
+    : source.path
+  const rendered = (read.body || '')
+    .split('\n\n')
+    .map((part) =>
+      part.startsWith('# ')
+        ? `<h2>${escape(part.slice(2))}</h2>`
+        : `<p>${escape(part)}</p>`,
+    )
+    .join('')
+  return `<section class="skill-reading" data-reading-key="${escape(source.host)}:${escape(source.path)}" aria-label="Selected skill current file"><header><p>${source.label}${source.agent ? ` · ${source.agent === 'claude' ? 'Claude Code' : 'Codex'}` : ''} · Current file${source.member ? ` · selected member ${escape(source.member)}` : ''}</p><span class="source-path" title="${escape(source.host)} · ${escape(source.path)}">${instructionIcon}${escape(path)}</span></header><p class="reading-status">${changed ? 'Source changed since this read. Activate again to read the current file.' : escape(source.status)} · ${escape(source.version)}</p><div class="instructions-toolbar"><button data-reading="collapse" aria-expanded="${!value.collapsed}">${value.collapsed ? '›' : '⌄'} Instructions</button><span>SKILL.md</span><div role="group" aria-label="Instruction view mode"><button data-reading="rendered" aria-pressed="${value.mode === 'rendered'}">Rendered</button><button data-reading="source" aria-pressed="${value.mode === 'source'}">Source</button></div></div><div class="instructions-body" ${value.collapsed ? 'hidden' : ''}>${read.pending ? `<p role="status">${changed ? 'The selected read is stale; activate the current source again.' : 'Reading selected file…'}</p>` : value.mode === 'source' ? `<pre id="skill-current-body">${escape(read.body)}</pre>` : `<div id="skill-current-body" class="instruction-prose">${rendered}</div>`}</div><details class="reading-location"><summary>Details &amp; provenance</summary><p>${escape(source.host)} · ${escape(source.path)}</p><small>Ordinary current-file view · no approval or verified tree snapshot.</small></details></section>`
 }

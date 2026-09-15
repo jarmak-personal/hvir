@@ -130,13 +130,13 @@ export async function checkCurationStudy({
   await pointClick('#dialog [data-curate="sync"]')
   await pointClick('[data-curate="sync-confirm"]')
   await assert(
-    `document.querySelector('#sync-outcomes').textContent.includes('Conflict') && document.querySelector('[data-library-row="native-claude"]').textContent.includes('Review') && document.querySelector('#skills-view').textContent.includes('edited-v3')`,
+    `document.querySelector('#sync-outcomes').textContent.includes('Conflict') && document.querySelector('[data-library-row="native-claude"]').textContent.includes('Needs review') && document.querySelector('#skills-view').textContent.includes('edited-v3')`,
     'Explicit sync preserves a pending canonical edit and its unaccepted version',
   )
   await pointClick('[data-action="close"]')
   await run(`document.querySelector('#curation-approve').click()`)
   await assert(
-    `document.querySelector('[data-library-row="draft"]') && document.querySelector('[data-library-row="collection"]').textContent.includes('Conflict') && document.querySelector('[data-library-row="native-claude"]').textContent.includes('Review') && document.querySelector('#skills-view').textContent.includes('edited-v3')`,
+    `document.querySelector('[data-library-row="draft"]') && document.querySelector('[data-library-row="collection"]').textContent.includes('Conflict') && document.querySelector('[data-library-row="native-claude"]').textContent.includes('Needs review') && document.querySelector('#skills-view').textContent.includes('edited-v3')`,
     'Approval-triggered sync preserves pending and conflicting canonical copies while adding the newly approved source',
   )
   await flow('curation')
@@ -204,7 +204,7 @@ export async function checkCurationStudy({
   await pointClick('[data-curate="apply"]')
   await pointClick('[data-curation-router="review-router"]')
   await assert(
-    `document.querySelector('.router-group').textContent.includes('Release review') && document.querySelector('#skills-view').textContent.includes('native-codex') && document.querySelector('[data-curation-row="native-claude"]').textContent.includes('Original')`,
+    `document.querySelector('.router-group').textContent.includes('Release review') && document.querySelector('#skills-view').textContent.includes('native-codex') && document.querySelector('[data-curation-row="native-claude"] [aria-label="Claude Code · Original"]')`,
     'Router membership uses provided identities and leaves the other agent copy unchanged',
   )
   await pointClick('[data-curate="set-members"]')
@@ -217,7 +217,7 @@ export async function checkCurationStudy({
   )
   await pointClick('[data-curate="apply"]')
   await assert(
-    `document.querySelector('[data-curation-row="native-codex"]').textContent.includes('Stub') && !document.querySelector('.router-group').textContent.includes('Release review')`,
+    `document.querySelector('[data-curation-row="native-codex"] [aria-label="Codex · Stub"]') && !document.querySelector('.router-group').textContent.includes('Release review')`,
     'Membership apply preserves the departed source as the chosen standalone copy',
   )
   await pointClick('[data-curation-router="review-router"]')
@@ -230,7 +230,7 @@ export async function checkCurationStudy({
   )
   await pointClick('[data-curate="apply"]')
   await assert(
-    `!document.querySelector('.router-group') && document.querySelector('[data-curation-row="global"]').textContent.includes('Full') && document.querySelector('#skills-view').textContent.includes('Project tag retained')`,
+    `!document.querySelector('.router-group') && document.querySelector('[data-curation-row="global"] [aria-label="Codex · Full"]') && document.querySelector('#skills-view').textContent.includes('Project tag retained')`,
     'Confirmed ungrouping restores standalone copies while retaining the tag and preserved library content',
   )
   await flow('curation')
@@ -251,7 +251,7 @@ export async function checkCurationStudy({
   )
   await pointClick('[data-curate="apply"]')
   await assert(
-    `document.querySelectorAll('.router-group').length===2 && document.querySelector('[data-curation-row="native-codex"]').textContent.includes('Original') && document.querySelector('[data-curation-router="review-router"]')`,
+    `document.querySelectorAll('.router-group').length===2 && document.querySelector('[data-curation-row="native-codex"] [aria-label="Codex · Original"]') && document.querySelector('[data-curation-router="review-router"]')`,
     'Creating another named router retains the unrelated group and unselected standalone copy',
   )
   await click('[data-curation-menu="native-codex"]')
@@ -285,7 +285,7 @@ export async function checkCurationStudy({
   await pointClick('[data-curate="apply"]')
   await pointClick('[data-curation-select="native-codex"]')
   await assert(
-    `document.querySelector('[data-curation-row="native-codex"]').textContent.includes('Original') && document.querySelector('#curation-approval').textContent==='Original needs review' && document.querySelector('#skills-view').textContent.includes('Full skill · Original source') && !document.querySelector('[data-router-row="router-release-helpers"]') && document.querySelector('[data-library-row="native-codex"]')`,
+    `document.querySelector('[data-curation-row="native-codex"] [aria-label="Codex · Original"]') && document.querySelector('#curation-approval').textContent==='Original needs review' && document.querySelector('#skills-view').textContent.includes('Full skill · Original source') && !document.querySelector('[data-router-row="router-release-helpers"]') && document.querySelector('[data-library-row="native-codex"]')`,
     'Removing only membership retains the Full unmanaged standalone, its pending original state and canonical library copy',
   )
   await flow('curation')
@@ -398,10 +398,11 @@ export async function checkCurationStudy({
     `!document.querySelector('[data-curate="add"]').disabled && document.querySelector('#curation-approval').textContent.includes('Accepted library version')`,
     'A changed or blocked original does not revoke an independently accepted canonical library copy',
   )
-  await pointClick('[data-curate="add"]')
-  await pointClick('[data-curate="add-preview"]')
+  await pointClick('#dialog [data-curate="add"]')
   await run(`document.querySelector('#curation-change-source').click()`)
-  await pointClick('[data-curate="apply"]')
+  await waitFor(
+    `document.querySelector('.add-result')?.textContent.includes('Added to Codex')`,
+  )
   await pointClick('[data-curate="menu"]')
   await pointClick('#dialog [data-curate="router"]')
   await assert(
@@ -423,7 +424,7 @@ export async function checkCurationStudy({
   await pointClick('[data-curate="remove"]')
   await pointClick('[data-curate="apply"]')
   await assert(
-    `!document.querySelector('[data-curation-row="environment"]') && document.querySelector('[data-library-row="environment"]').textContent.includes('Review')`,
+    `!document.querySelector('[data-curation-row="environment"]') && document.querySelector('[data-library-row="environment"]').textContent.includes('Needs review')`,
     'Removing an unchanged managed copy preserves the still-pending canonical edit without approving it',
   )
   await click('#explorer-library [data-curation-menu="collection"]')
@@ -442,7 +443,7 @@ export async function checkCurationStudy({
   await run(`document.querySelector('#curation-change-source').click()`)
   await pointClick('[data-curate="menu"]')
   await assert(
-    `document.querySelector('[data-curate="stub"]').disabled && document.querySelector('[data-curate="files-remove"]')`,
+    `document.querySelector('#dialog [data-curate="stub"]').disabled && document.querySelector('#dialog [data-curate="files-remove"]')`,
     'Native conversion and preserved-native removal still refuse stale original-to-canonical proof',
   )
   await flow('curation')
@@ -487,19 +488,16 @@ export async function checkCurationStudy({
   await pointClick('#dialog [data-curate="sync"]')
   await pointClick('[data-curate="sync-confirm"]')
   await pointClick('[data-action="close"]')
-  await click('#explorer-library [data-curation-menu="environment"]')
-  await pointClick('[data-curate="add"]')
+  await click('#explorer-library [data-curation-select="environment"]')
   await choose('#curation-add-agent', 'claude')
   await choose('#curation-mode', 'Stub')
-  await pointClick('[data-curate="add-preview"]')
-  await assert(
-    `document.querySelector('#dialog').textContent.includes('/work/hvir/.claude/skills/lib-environment') && document.querySelector('#dialog').textContent.includes('absent') && document.querySelector('#dialog').textContent.includes('approved-v2')`,
-    'Library Add previews the active project, chosen agent/mode and exact accepted source',
+  await pointClick('#skills-view [data-curate="add"]')
+  await waitFor(
+    `document.querySelector('.add-result')?.textContent.includes('Added to Claude Code')`,
   )
-  await pointClick('[data-curate="apply"]')
   await assert(
-    `document.querySelector('[data-curation-row="environment"]').textContent.includes('Claude') && document.querySelector('[data-curation-row="environment"]').textContent.includes('Stub') && document.querySelector('[data-library-row="environment"]')`,
-    'Add publishes the selected project copy and retains its library entry',
+    `!document.querySelector('#dialog').open && document.querySelector('[data-curation-row="environment"] [aria-label="Claude Code · Stub"]') && document.querySelector('[data-library-row="environment"]')`,
+    'Direct library Add creates the chosen Claude Stub and retains the accepted library entry',
   )
   await flow('curation')
   await click('[data-curation-menu="managed"]')
@@ -591,12 +589,13 @@ export async function checkCurationStudy({
     mobile: false,
   })
   await pointClick('[data-curation-select="native-codex"]')
+  await capture('curation-compact-layout')
   await assert(
-    `(()=>{const rows=[...document.querySelectorAll('#explorer-workspace .skill-row,#explorer-library .skill-row')]; const visible=rows.filter(row=>{const r=row.getBoundingClientRect(),v=row.closest('.explorer-scroll').getBoundingClientRect();return r.height>0&&r.top>=v.top&&r.bottom<=Math.min(v.bottom,innerHeight)});return visible.length>=8&&visible.every(row=>row.getBoundingClientRect().height<=28)&&document.documentElement.scrollWidth<=innerWidth})()`,
+    `(()=>{const rows=[...document.querySelectorAll('#explorer-workspace .skill-row,#explorer-library .skill-row')]; const visible=rows.filter(row=>{const r=row.getBoundingClientRect(),v=row.closest('.explorer-scroll').getBoundingClientRect();return r.height>0&&r.top>=v.top&&r.bottom<=Math.min(v.bottom,innerHeight)});const heights=visible.map(row=>row.getBoundingClientRect().height),width=document.documentElement.scrollWidth;if(visible.length<8||heights.some(height=>height>28)||width>innerWidth)throw Error(JSON.stringify({visible:visible.length,heights,width,viewport:innerWidth}));return true})()`,
     'Compact explorer shows at least eight one-line skill rows across project/library sections without horizontal overflow',
   )
   await assert(
-    `['draft','managed'].every(id=>{const row=document.querySelector('[data-curation-row="'+id+'"]'),status=row.querySelector('.row-status'),r=status.getBoundingClientRect();return status.textContent===(id==='draft'?'Review':'Update')&&r.width>0&&r.right<=row.getBoundingClientRect().right})`,
+    `['draft','managed'].every(id=>{const row=document.querySelector('[data-curation-row="'+id+'"]'),status=row.querySelector('.row-status'),r=status.getBoundingClientRect();return status.textContent===(id==='draft'?'Needs review':'Update available')&&r.width>0&&r.right<=row.getBoundingClientRect().right})`,
     'Compact actionable Review and Update labels remain visible independently of truncated names and agent text',
   )
   await capture('curation-compact')

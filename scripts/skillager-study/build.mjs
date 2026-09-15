@@ -25,7 +25,7 @@ if (!script) throw new Error('Study entry chunk is missing')
 const html = (await readFile(resolve(root, 'shell.html'), 'utf8'))
   .replace(
     '<!-- STYLE -->',
-    `<style>${await readFile(resolve(root, 'study.css'), 'utf8')}</style>`,
+    `<style>${(await Promise.all(['study.css', 'explorer.css', 'reading.css'].map((file) => readFile(resolve(root, file), 'utf8')))).join('\n')}</style>`,
   )
   .replace(
     '<!-- SCRIPT -->',

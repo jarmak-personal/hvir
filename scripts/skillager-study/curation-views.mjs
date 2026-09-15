@@ -1,3 +1,4 @@
+import { instructionIcon, copyGlyphs } from './skill-icons.mjs'
 import { escapeHtml as escape } from './html.mjs'
 import { searchStatusView, matchedSourceView } from './search-views.mjs'
 import {
@@ -36,23 +37,23 @@ export function curationCatalogView(state) {
       linkedCopy = fromLibrary && !state.results && row.projectPresent,
       status = fromLibrary
         ? !row.libraryAccepted
-          ? 'Review'
+          ? 'Needs review'
           : row.conflict
             ? 'Conflict'
             : row.managed && row.exposedVersion !== row.libraryAcceptedVersion
-              ? 'Project update'
+              ? 'Update available'
               : ''
         : row.targetProtected
-          ? 'Modified'
+          ? 'Changed'
           : row.managed
             ? row.libraryAccepted && row.exposedVersion !== row.libraryAcceptedVersion
-              ? 'Update'
+              ? 'Update available'
               : ''
             : !row.approved || row.originBlocked || row.version !== row.approvedVersion
-              ? 'Review'
+              ? 'Needs review'
               : '',
       selected = c.selected === row.id && !c.selectedRouter && c.selectedScope === scope
-    return `<div class="skill-row ${selected ? 'selected' : ''}" ${fromLibrary ? 'data-library-row' : 'data-curation-row'}="${row.id}" data-row-scope="${scope}">${linkedCopy ? `<button class="disclosure" data-expand="${key}" aria-expanded="${!!open}" aria-label="Related copies of ${row.name}">${open ? '⌄' : '›'}</button>` : '<span class="tree-icon" aria-hidden="true">◇</span>'}<button data-curation-select="${row.id}" ${row.occurrenceId ? `data-occurrence="${row.occurrenceId}"` : ''} title="${row.name}"><span class="skill-name">${row.name}</span><small>${row.resultScope ? (fromLibrary ? 'Your library' : `${row.managed ? `Installed ${row.mode === 'Full skill' ? 'Full' : row.mode}` : row.origin === 'Project native' ? 'Original' : row.origin}${agent ? ` · ${agentLabel(agent)}` : ''}`) : library ? '' : `${row.managed ? (row.mode === 'Full skill' ? 'Full' : row.mode) : 'Original'} · ${agentLabel(agent)}`}</small>${status ? `<span class="row-status">${status}</span>` : ''}${row.resultScope ? matchedSourceView(row) : ''}</button><button class="more" data-curation-menu="${row.id}" ${row.occurrenceId ? `data-occurrence="${row.occurrenceId}"` : ''} aria-label="Actions for ${row.name}">⋯</button></div>${linkedCopy && open ? `<div class="explorer-child"><button data-curation-select="${row.id}" data-row-scope="workspace">↳ ${row.managed ? row.mode : 'Original'} · ${agentLabel(agent)} · In this project</button></div>` : ''}`
+    return `<div class="skill-row ${selected ? 'selected' : ''}" ${fromLibrary ? 'data-library-row' : 'data-curation-row'}="${row.id}" data-row-scope="${scope}">${linkedCopy ? `<button class="disclosure" data-expand="${key}" aria-expanded="${!!open}" aria-label="Related copies of ${row.name}">${open ? '⌄' : '›'}</button>` : `<span class="tree-icon">${instructionIcon}</span>`}<button data-curation-select="${row.id}" ${row.occurrenceId ? `data-occurrence="${row.occurrenceId}"` : ''} title="${row.name}"><span class="skill-name">${linkedCopy ? instructionIcon : ''}${row.name}</span><small>${row.resultScope ? (fromLibrary ? 'Your library' : `${row.managed ? `Installed ${row.mode === 'Full skill' ? 'Full' : row.mode}` : row.origin === 'Project native' ? 'Original' : row.origin}${agent ? ` · ${agentLabel(agent)}` : ''}`) : library ? '' : copyGlyphs(agent, row.managed ? (row.mode === 'Full skill' ? 'Full' : row.mode) : 'Original')}</small>${status ? `<span class="row-status">${status}</span>` : ''}${row.resultScope ? matchedSourceView(row) : ''}</button><button class="more" data-curation-menu="${row.id}" ${row.occurrenceId ? `data-occurrence="${row.occurrenceId}"` : ''} aria-label="Actions for ${row.name}">⋯</button></div>${linkedCopy && open ? `<div class="explorer-child"><button data-curation-select="${row.id}" data-row-scope="workspace">↳ ${row.managed ? row.mode : 'Original'} · ${agentLabel(agent)} · In this project</button></div>` : ''}`
   }
   return `${searchStatusView(state)}
     ${library && !libraryEmpty ? `<details class="library-actions"><summary>Library actions</summary>${action('sync', 'Sync approved skills…')}</details>` : ''}
@@ -65,7 +66,7 @@ export function curationCatalogView(state) {
             .map((router) => {
               const key = `router:${router.id}`,
                 open = state.expandedSkills[key]
-              return `<section class="router-group"><div class="skill-row" data-router-row="${router.id}"><button class="disclosure" data-expand="${key}" aria-expanded="${!!open}" aria-label="Members of ${escape(router.name)}">${open ? '⌄' : '›'}</button><button data-curation-router="${router.id}"><span class="skill-name">${escape(router.name)}</span><small>${agentLabel(router.agent)} · Router ${router.members.length}</small></button><button class="more" data-router-menu="${router.id}" aria-label="Actions for ${escape(router.name)}">⋯</button></div><div class="explorer-child" ${open ? '' : 'hidden'}>${router.members.map((id) => `<button data-curation-select="${id}" data-member-router="${router.id}" data-row-scope="workspace">◇ ${curationSource(state, id).name} · Router member</button>`).join('')}</div></section>`
+              return `<section class="router-group"><div class="skill-row" data-router-row="${router.id}"><button class="disclosure" data-expand="${key}" aria-expanded="${!!open}" aria-label="Members of ${escape(router.name)}">${open ? '⌄' : '›'}</button><button data-curation-router="${router.id}"><span class="skill-name">${instructionIcon}${escape(router.name)}</span><small>${copyGlyphs(router.agent, 'Router')} ${router.members.length} members</small></button><button class="more" data-router-menu="${router.id}" aria-label="Actions for ${escape(router.name)}">⋯</button></div><div class="explorer-child" ${open ? '' : 'hidden'}>${router.members.map((id) => `<button data-curation-select="${id}" data-member-router="${router.id}" data-row-scope="workspace">${instructionIcon}${curationSource(state, id).name} · Router member</button>`).join('')}</div></section>`
             })
             .join('')
         : ''
@@ -95,9 +96,9 @@ export function curationDetailView(state) {
         row.approved &&
         row.libraryVersion === row.version &&
         row.version === row.approvedVersion)
-  return `<article class="details curation-details"><header><h2>${row.name}</h2>${action('menu', 'Actions…')}</header><p>${row.description}</p>${state.curation.lastEffect ? `<p role="status">${escape(state.curation.lastEffect)}</p>` : ''}<details class="source-status"><summary>Source and status</summary><dl><dt>Selected copy</dt><dd>${row.managed && c.selectedScope !== 'library' ? 'Managed project copy' : canonicalSelection ? 'Canonical library source' : `Project original · ${agentLabel(row.projectAgent ?? row.agent)}`}</dd><dt>Approval</dt><dd id="curation-approval">${primaryApproval}</dd><dt>Library preservation</dt><dd>${row.preserved ? `Local · ${state.library.path}/skills/synced-${row.id} · ${row.libraryVersion}` : 'Not preserved yet'}</dd><dt>Original exposure</dt><dd>${row.projectPresent ? row.mode : 'Not in this project'} · ${row.managed ? 'Managed copy' : 'Original source'}</dd></dl><details class="provenance"><summary>Source and approval lineage</summary><p>Original ${row.origin} decision (${row.approved && !row.originBlocked && row.version === row.approvedVersion ? 'current' : 'changed or blocked'}): ${row.origin === 'Project native' ? 'project-only' : 'global'} · ${row.id} · ${row.approvedVersion}. ${row.libraryAcceptedVersion ? `Derived accepted library version: ${row.libraryAcceptedVersion} · reusable across projects. Current library version: ${row.libraryVersion}. Original scope and actual decision evidence retained.` : 'No derived library acceptance yet.'}</p></details></details>${row.preserved && row.logicalIdentity && !canonicalSelection ? '<button data-action="canonical-definition">Open library definition</button>' : ''}${state.reviewOpen && canReviewLibrary ? `<section class="review"><h3>Reviewed sample content</h3><p>Local · ${state.library.path}/skills/synced-${row.id} · ${row.libraryVersion}</p><pre id="curation-body"># ${escape(row.name)}\n\nSample instructions for ${escape(row.id)}.</pre></section>` : canReviewLibrary ? action('review', 'Review content') : row.origin === 'Project native' && row.projectPresent ? action('review-files', 'Review in Files…') : '<p>Review this source with Skillager in your local terminal.</p>'}${canonicalSelection ? (canonicalRefusal(row) ? `<p class="notice">${canonicalRefusal(row)}</p>` : '') : curationRefusal(state, row) ? `<p class="notice">${curationRefusal(state, row)}</p>` : ''}</article>`
+  return `<article class="details curation-details"><header><h2>${instructionIcon}${row.name}</h2>${action('menu', 'Actions…')}</header><p>${row.description}</p><div class="lifecycle-actions">${curationActionsView(state)}</div>${canonicalSelection && canonicalRefusal(row) && canReviewLibrary && !state.reviewOpen ? action('review', 'Needs review · Review content') : ''}${state.directAdd ? `<p class="add-result" role="status">${escape(state.directAdd.message)}</p>` : ''}${state.curation.lastEffect ? `<p role="status">${escape(state.curation.lastEffect)}</p>` : ''}<details class="source-status"><summary>Source and status</summary><dl><dt>Selected copy</dt><dd>${row.managed && c.selectedScope !== 'library' ? 'Managed project copy' : canonicalSelection ? 'Canonical library source' : `Project original · ${agentLabel(row.projectAgent ?? row.agent)}`}</dd><dt>Approval</dt><dd id="curation-approval">${primaryApproval}</dd><dt>Library preservation</dt><dd>${row.preserved ? `Local · ${state.library.path}/skills/synced-${row.id} · ${row.libraryVersion}` : 'Not preserved yet'}</dd><dt>Original exposure</dt><dd>${row.projectPresent ? row.mode : 'Not in this project'} · ${row.managed ? 'Managed copy' : 'Original source'}</dd></dl><details class="provenance"><summary>Source and approval lineage</summary><p>Original ${row.origin} decision (${row.approved && !row.originBlocked && row.version === row.approvedVersion ? 'current' : 'changed or blocked'}): ${row.origin === 'Project native' ? 'project-only' : 'global'} · ${row.id} · ${row.approvedVersion}. ${row.libraryAcceptedVersion ? `Derived accepted library version: ${row.libraryAcceptedVersion} · reusable across projects. Current library version: ${row.libraryVersion}. Original scope and actual decision evidence retained.` : 'No derived library acceptance yet.'}</p></details></details>${row.preserved && row.logicalIdentity && !canonicalSelection ? '<button data-action="canonical-definition">Open library definition</button>' : ''}${state.reviewOpen && canReviewLibrary ? `<section class="review"><h3>Reviewed sample content</h3><p>Local · ${state.library.path}/skills/synced-${row.id} · ${row.libraryVersion}</p><pre id="curation-body"># ${escape(row.name)}\n\nSample instructions for ${escape(row.id)}.</pre></section>` : canReviewLibrary ? (canonicalSelection && canonicalRefusal(row) ? '' : action('review', 'Review content')) : row.origin === 'Project native' && row.projectPresent ? action('review-files', 'Review in Files…') : '<p>Review this source with Skillager in your local terminal.</p>'}${canonicalSelection ? (canonicalRefusal(row) ? `<p class="notice">${canonicalRefusal(row)}</p>` : '') : curationRefusal(state, row) ? `<p class="notice">${curationRefusal(state, row)}</p>` : ''}</article>`
 }
-export function curationMenuView(state) {
+export function curationActionsView(state, menu = false) {
   const row = curationSource(state),
     reason = curationRefusal(state, row),
     present = row.projectPresent,
@@ -105,9 +106,16 @@ export function curationMenuView(state) {
     removeReason = curationRefusal(state, row, 'remove'),
     canRemove = present && !member && !removeReason,
     library = state.curation.selectedScope === 'library'
-  return `<h2 id="dialog-title">Actions · ${row.name}</h2><p>${row.projectAgent || row.agent ? agentLabel(row.projectAgent ?? row.agent) : 'Your library'} · ${present ? row.mode : 'Not in this project'}</p><h3>This project</h3>
-    ${!present ? action('add', 'Add to this project…', !!curationRefusal(state, row, 'add')) : action('full', 'Use as full skill…', !!reason || member) + action('stub', 'Use as stub…', !!reason || member) + action('router', 'Group in router…', !!reason) + action('update', 'Update…', !!reason || member || !row.managed || row.exposedVersion === row.libraryVersion) + (canRemove ? action('remove', 'Remove from this project…') : member ? '<p>Edit router members to restore or remove this membership.</p>' : action('files-remove', 'Remove in Files…'))}
-    ${(!present ? canonicalRefusal(row) : reason) ? `<p class="notice">${!present ? canonicalRefusal(row) : reason}</p>` : ''}${library ? `<p>Canonical library versions remain when project copies change.</p>` : ''}<h3>Your library</h3>${action('sync', 'Sync approved skills…')}<p>Sync preserves originals; changing an original requires separate review.</p><footer><button data-action="close">Close</button></footer>`
+  const addControls =
+    !present && !menu
+      ? `<section class="direct-add-controls"><span>Local · ${projectRoot(state)}</span><label>Agent<select id="curation-add-agent"><option value="codex" ${state.agent === 'codex' ? 'selected' : ''}>Codex</option><option value="claude" ${state.agent === 'claude' ? 'selected' : ''}>Claude Code</option></select></label><label>Use as<select id="curation-mode"><option>Full skill</option><option>Stub</option></select></label></section>`
+      : ''
+  return `${addControls}    ${!present ? action('add', state.directAdd?.pending ? 'Preparing Add…' : 'Add to project', !!curationRefusal(state, row, 'add') || !!state.directAdd?.pending || !!state.directAddUncertain) : action('full', 'Use as full skill…', !!reason || member) + action('stub', 'Use as stub…', !!reason || member) + action('router', 'Group in router…', !!reason) + action('update', 'Update…', !!reason || member || !row.managed || row.exposedVersion === row.libraryVersion) + (canRemove ? action('remove', 'Remove from this project…') : member ? '<p>Edit router members to restore or remove this membership.</p>' : action('files-remove', 'Remove in Files…'))}
+    ${(!present ? canonicalRefusal(row) : reason) ? `<p class="notice">${!present ? canonicalRefusal(row) : reason}</p>` : ''}${library && menu ? `<p>Canonical library versions remain when project copies change.</p>` : ''}`
+}
+export function curationMenuView(state) {
+  const row = curationSource(state)
+  return `<h2 id="dialog-title">Actions · ${row.name}</h2><p>${agentLabel(row.projectPresent ? row.projectAgent || row.agent || state.agent : state.agent)} · ${row.projectPresent ? row.mode : 'Full skill · not in this project'} · Local · ${projectRoot(state)}</p>${curationActionsView(state, true)}<h3>Your library</h3>${action('sync', 'Sync approved skills…')}<p>Sync preserves originals; changing an original requires separate review.</p><footer><button data-action="close">Close</button></footer>`
 }
 export function curationRouterMenuView(state) {
   const router = curationRouter(state)
@@ -119,8 +127,6 @@ export function curationPickerView(state, kind) {
     router = curationRouter(state)
   const modes =
     '<select id="curation-mode"><option>Full skill</option><option>Stub</option></select>'
-  if (kind === 'add')
-    return `<h2 id="dialog-title">Add ${row.name} to this project</h2><p>Local · ${projectRoot(state)}</p><label>Agent<select id="curation-add-agent"><option value="codex">Codex</option><option value="claude">Claude Code</option></select></label><label>Mode ${modes}</label><footer>${close}${action('add-preview', 'Preview changes')}</footer>`
   if (kind === 'ungroup')
     return `<h2 id="dialog-title">Ungroup ${escape(router.name)}</h2><p>${agentLabel(router.agent)} · ${router.members.map((id) => curationSource(state, id).name).join(', ')}</p><label>Standalone copies ${modes}</label><p>Remove this router after preparing the selected standalone copies. Keep project tag ${escape(router.tag)} and its curated members.</p><footer>${close}${action('ungroup-preview', 'Preview changes')}</footer>`
   if (kind === 'set-members')
@@ -202,7 +208,7 @@ export function curationPreviewView(state, plan) {
     )
     .join(
       '',
-    )}</ul><h3>Every sample effect</h3><ul>${effects.map((effect) => `<li>Local · ${escape(effect)}</li>`).join('')}</ul><p>Library versions and unselected copies stay unchanged. Any required source version, selected target, name or membership change refuses this preview.</p><small>Sample plan only. Interrupted changes may retain partial effects; inspect the actual result before another action.</small><footer>${close}${action('apply', 'Confirm exact changes')}</footer>`
+    )}</ul><details class="technical-details"><summary>Complete affected files, modes and exact paths</summary><ul>${effects.map((effect) => `<li>Local · ${escape(effect)}</li>`).join('')}</ul></details><p>Library versions and unselected copies stay unchanged. Any required source version, selected target, name or membership change refuses this preview.</p><small>Sample plan only. Interrupted changes may retain partial effects; inspect the actual result before another action.</small><footer>${close}${action('apply', 'Confirm exact changes')}</footer>`
 }
 export function curationSyncView(state) {
   const c = state.curation ?? { outcomes: [] }

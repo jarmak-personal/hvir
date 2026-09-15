@@ -1,13 +1,13 @@
 # Skills interaction study
 
-This maintained offline study illustrates ADR-046 through ADR-050. Its original reference was the
+This maintained offline study illustrates ADR-046 through ADR-051. Its original reference was the
 user-owned `skillager-integration.local/` study, whose originals remain untouched. The dark palette,
 normal viewer/terminal split and representative skills are retained.
 
 Skills is a left-sidebar peer of Files/Git. Its compact explorer shows In this project and Your
 library together, with independent collapsible sections and bounded scrolling. Rows use the Files
 visual language. Explicit row/tab activation opens the selected current file in the normal main
-viewer; source, status, provenance and actions are secondary. Exact acceptance review remains separate. The scenario harness stays outside the illustrated app shell.
+viewer; applicable actions sit beneath the title, while source and provenance stay secondary. Exact acceptance review remains separate. The scenario harness stays outside the illustrated app shell.
 
 Generate a standalone HTML file from the maintained sources:
 
@@ -27,12 +27,48 @@ owns the revocable explicit sample read and its current-file presentation. `sear
 illustrates public pre-limit grouped/occurrence responses; `search-views.mjs` owns submitted
 controls and matched-source disclosure. None of these modules implements production search or
 filesystem access. `reading-check.mjs` reuses the existing headless browser lifecycle.
+`curation-actions.mjs` composes the existing curation model/views through page ports, and
+`direct-add.mjs` illustrates only exact accepted-version create-only intent through the existing
+preview/apply model. `skill-icons.mjs` owns the small accessible glyph markup. Reader and explorer
+styles have their own leaves; no application or controller budget exception is introduced.
 The source model owns only illustrative state; views produce markup; the browser entry owns
 DOM events and page timers. The builder uses the declared Vite dependency to bundle these modules
 and stylesheet into a single self-contained artifact outside the maintained tree. Generated HTML,
 screenshots, and run evidence are not committed. Ordinary source and dependency checks cover the maintained JS
 and CSS; no source-policy exception or production dependency is introduced.
 
+
+## Quiet Skills and bounded direct Add
+
+The accepted polish uses shared explorer header bands and accessible instruction/agent/copy
+symbols while retaining independent browsing, explicit submitted search, match-source evidence
+and all previous failure scenarios. The small standalone concept is a visual reference only;
+its simplified search handlers were not adopted. Search rows keep their richer source context.
+
+Activate a library skill to see project/agent/mode immediately beneath its title. **Add to project**
+prepares and applies only an unchanged accepted source hash at the exact absent destination.
+It does not open a second modal for that create-only case. Existing copies, changes, removal,
+original conversion, routers and approval still use their existing reviews. After verified sample
+success, Remove from project remains available with current-target protections, not universal Undo.
+The declared-runtime-prerequisite fixture deliberately stops direct Add and offers explicit review;
+its requirements remain visibly unchecked on the host. No probe is invented.
+
+Instructions has one Rendered/Source toolbar and a whole-body disclosure. The viewer owns scrolling;
+only rendered prose has a line-length limit. Collapse/expand retains the same tab's mode and reading
+position without another read. Details retains exact host-qualified source and status. Settings uses
+aligned fields, a quiet connected-library row and collapsed details; disabled retains the enable field.
+
+The Release polish fixture controls are outside the illustrated app. Refresh retained observations
+starts a finite delayed sample check; its failure switch supplies an unavailable observation while
+retaining the list. Activity uses fixed header controls. Initial metadata loading has its own scenario,
+without an empty-library claim. The theme control supports dark/light inspection. These controls only
+supply page-memory observations, never runtime authority, filesystem effects or an extra polling loop.
+
+`polish-check.mjs` extends the same headless browser lifecycle with focus/scroll stability, stale/error
+retention and replacement context, nonzero body-position collapse/expand, responsive light/dark layout,
+direct Add and compact removal. Its pure owner cases cover hash/approval/target/context changes,
+accepted pinned creation, unchecked remote requirements and retained uncertainty. These are study
+contracts; production CLI, transport, capacity and mutation guarantees need their separate owners.
 
 ## Explicit reading and search refinement
 
@@ -110,8 +146,9 @@ CLI compatibility, aggregate completeness or 5,000-source performance.
   results, the 50-row window, and the 50,000-character accepted-body boundary. The eight-row
   synthetic dataset proves no scale or CLI behavior. This dedicated mixed-match scenario explicitly
   enables Include installed; the normal search default keeps it off.
-- Add to a selected worktree and agent, change mode, or remove its exposure. The preview names
-  source version, exact destination, existing state, and every sample effect. Protected targets
+- Add an accepted version to the displayed absent worktree/agent target directly, with the existing
+  exact preview/apply checks inside that action. Change mode or remove an exposure through the
+  separate review naming source version, destination, existing state and every sample effect. Protected targets
   cannot be replaced or removed through ordinary actions. Unmanaged presence has no recorded mode
   or version; source policy blocks remain distinct from the existing exposure's state. Changing
   destination or agent revokes a prepared dialog; a changed source version refuses apply.

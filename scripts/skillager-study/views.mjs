@@ -1,3 +1,4 @@
+import { instructionIcon, copyGlyphs } from './skill-icons.mjs'
 import { escapeHtml } from './html.mjs'
 import { searchView, searchStatusView, matchedSourceView } from './search-views.mjs'
 import { browseSampleRows } from './model.mjs'
@@ -32,17 +33,17 @@ function registeredLibraryView(state) {
 }
 export function connectionView(state) {
   return `<h2 id="dialog-title">Settings</h2>
-    <label class="inline"><input type="checkbox" id="enabled" ${state.enabled ? 'checked' : ''}>Enable Skillager</label>
+    <div class="settings-field"><span>Skillager</span><label class="inline"><input type="checkbox" id="enabled" ${state.enabled ? 'checked' : ''}>Enable Skillager</label></div>
     ${
       state.enabled
         ? state.missing
           ? missingCliView()
           : `
-      ${state.libraryMissing ? `<h3>Set up your personal library</h3><p>Create a local home for reusable skills.</p>${button('show-setup', 'Set up library')}` : registeredLibraryView(state) + button('change-library', 'Change library (sample)')}
+      ${state.libraryMissing ? `<h3>Set up your personal library</h3><p>Create a local home for reusable skills.</p>${button('show-setup', 'Set up library')}` : state.connected ? `<p class="settings-connection">Connected to your library</p><details><summary>Library connection</summary>${registeredLibraryView(state)}${button('change-library', 'Change library (sample)')}</details>` : registeredLibraryView(state) + button('change-library', 'Change library (sample)')}
       ${executableDetails()}`
         : ''
     }
-    <footer>${button('close', 'Close')}</footer>`
+    <footer>${button('close', 'Save app settings')}</footer>`
 }
 function setupView(state) {
   const setup = state.setup
@@ -68,6 +69,8 @@ export function catalogView(state) {
   if (!state.enabled) return ''
   if (state.missing) return missingCliView()
   if (state.libraryMissing) return setupView(state) + executableDetails()
+  if (state.initialLoading)
+    return '<p class="initial-observation" role="status">Loading initial skill metadata…</p>'
   if (state.curation && state.connected) return curationCatalogView(state)
   if (
     state.projectStudy &&
@@ -91,29 +94,22 @@ export function catalogView(state) {
   const rows = browseSampleRows(state)
   return `${remote ? `<details class="search-caption"><summary>Local library → ${escapeHtml(destinationFor(state).label)}</summary><p>hvir manages this SSH workspace with the same Add, Update, and Remove actions. Full skill files only; no Skillager installation is needed on this host.</p></details>` : ''}
     ${searchStatusView(state)}
-    <section class="${state.results || state.perspective === 'library' ? 'skill-list' : 'project-managed-list'}" aria-label="Skill list">${rows.map((s) => `<div class="skill-row ${s.id === state.selected && state.selectedScope === (s.resultScope || state.perspective) && (!s.rowAgent || s.rowAgent === state.agent) ? 'selected' : ''}" data-skill="${s.id}" data-row-scope="${s.resultScope || state.perspective}"><button data-select="${s.id}" ${state.results ? `data-occurrence="${s.occurrenceId}"` : ''} ${s.rowAgent ? `data-row-agent="${s.rowAgent}"` : ''}><span class="skill-name">◇ ${s.id}</span><small class="row-badges">${s.source ? `${s.source} · ` : ''}${state.results || state.perspective === 'library' ? (s.blocked ? 'Blocked source' : s.accepted ? 'Accepted' : 'Needs review') : s.rowUnmanaged ? 'Unmanaged target' : `${agentLabel(s.rowAgent)} · ${modeLabel(s.rowExposure?.mode)} · ${statusFor(s, s.rowExposure)}`}${state.results ? ` · ${s.match} match` : ''}</small>${state.results ? matchedSourceView(s) : ''}</button><button class="more" data-menu="${s.id}" ${state.results ? `data-occurrence="${s.occurrenceId}"` : ''} ${s.rowAgent ? `data-row-agent="${s.rowAgent}"` : ''} aria-label="Actions for ${s.id}">⋯</button></div>`).join('') || (state.searching || state.searchReport?.unavailable ? '' : '<p class="empty">No matching skills</p>')}</section>`
+    <section class="${state.results || state.perspective === 'library' ? 'skill-list' : 'project-managed-list'}" aria-label="Skill list">${rows.map((s) => `<div class="skill-row ${s.id === state.selected && state.selectedScope === (s.resultScope || state.perspective) && (!s.rowAgent || s.rowAgent === state.agent) ? 'selected' : ''}" data-skill="${s.id}" data-row-scope="${s.resultScope || state.perspective}"><button data-select="${s.id}" ${state.results ? `data-occurrence="${s.occurrenceId}"` : ''} ${s.rowAgent ? `data-row-agent="${s.rowAgent}"` : ''}><span class="skill-name">${instructionIcon}${s.id}</span><small class="row-badges">${s.source ? `${s.source} · ` : ''}${state.results || state.perspective === 'library' ? (s.blocked ? 'Blocked source' : s.accepted ? 'Accepted' : 'Needs review') : s.rowUnmanaged ? 'Unmanaged target' : `${copyGlyphs(s.rowAgent, modeLabel(s.rowExposure?.mode))} ${statusFor(s, s.rowExposure) === 'Current' ? '' : statusFor(s, s.rowExposure)}`}${state.results ? ` · ${s.match} match` : ''}</small>${state.results ? matchedSourceView(s) : ''}</button><button class="more" data-menu="${s.id}" ${state.results ? `data-occurrence="${s.occurrenceId}"` : ''} ${s.rowAgent ? `data-row-agent="${s.rowAgent}"` : ''} aria-label="Actions for ${s.id}">⋯</button></div>`).join('') || (state.searching || state.searchReport?.unavailable ? '' : '<p class="empty">No matching skills</p>')}</section>`
 }
-export function detailView(state) {
+export function detailView(state, menu = false) {
   const s = skillFor(state),
-    e = exposuresFor(state)[s.id]
-  const unmanaged = unmanagedFor(state, s.id)
+    e = exposuresFor(state)[s.id],
+    unmanaged = unmanagedFor(state, s.id)
   const blocked = !!e?.protected || unmanaged || !!s.blocked || !s.accepted || !!s.source
-  return `<h2>${s.id}</h2><p>${s.description}</p><details class="source-status"><summary>Source and status</summary><dl><dt>Source</dt><dd>${s.source || 'Local personal library'}</dd><dt>Library review</dt><dd>${s.accepted ? 'Accepted' : 'Needs review'}</dd><dt>Source status</dt><dd>${s.blocked ? 'Blocked by library policy' : 'Available for review'}</dd><dt>Accepted version</dt><dd>${s.accepted ? s.version : s.acceptedVersion}</dd></dl></details>
-    <hr><h3>${escapeHtml(destinationFor(state).label)} · ${agentLabel(state.agent)}</h3><p class="pill">${unmanaged ? 'Unmanaged target' : statusFor(s, e)}</p>${e ? `<dl><dt>Exposure</dt><dd>${modeLabel(e.mode)}</dd><dt>Exposed version</dt><dd>${e.version}</dd></dl>` : ''}
-    ${unmanaged ? `<p>No recorded ${destinationFor(state).host === 'local' ? 'Skillager exposure' : 'hvir deployment'} mode or version. Existing files are preserved.</p>` : ''}
-    ${s.source ? '<div class="notice">External ownership is preserved. Search does not import this skill.</div>' : ''}
-    ${state.selectedScope === 'workspace' && e ? button('canonical-definition', 'Open library definition') : ''}${button('read', 'Review content…')}${button('history', 'Version history')}
-    ${!s.accepted ? button('accept', 'Review library changes…', !!s.blocked) : ''}
-    ${button('add', 'Add to project…', blocked || !!e)}
-    ${e || unmanaged ? button('switch', e?.mode === 'stub' ? 'Use as full skill…' : 'Use as stub…', blocked || destinationFor(state).host !== 'local') + button('update', 'Review workspace update…', blocked || e?.version === s.version) + button('remove', 'Remove from workspace…', !!e?.protected || unmanaged || !!s.blocked) : ''}`
+  return `<h2>${instructionIcon}${s.id}</h2><p>${s.description}</p><div class="lifecycle-actions">${!e && !unmanaged ? pickerView(state, blocked, menu) : `<p>${escapeHtml(destinationFor(state).label)} · ${agentLabel(state.agent)} · ${unmanaged ? 'Unmanaged target' : modeLabel(e.mode)}</p>${button('switch', e?.mode === 'stub' ? 'Use as full skill…' : 'Use as stub…', blocked || destinationFor(state).host !== 'local')}${button('update', 'Review workspace update…', blocked || e?.version === s.version)}${button('remove', 'Remove from project…', !!e?.protected || unmanaged || !!s.blocked)}`}</div>
+    ${state.directAdd ? `<p class="add-result" role="status">${escapeHtml(state.directAdd.message)}</p>${state.directAdd.plan?.prerequisites?.length ? button('review-add', 'Review requirements and addition…') : ''}` : ''}
+    ${!s.accepted ? button('accept', 'Needs review · Review library changes…', !!s.blocked) : ''}
+    <details class="source-status"><summary>Source and status</summary><dl><dt>Source</dt><dd>${s.source || 'Local personal library'}</dd><dt>Library review</dt><dd>${s.accepted ? 'Accepted' : 'Needs review'}</dd><dt>Source status</dt><dd>${s.blocked ? 'Blocked by library policy' : 'Available for review'}</dd><dt>Accepted version</dt><dd>${s.accepted ? s.version : s.acceptedVersion}</dd><dt>Project state</dt><dd><span class="pill">${unmanaged ? 'Unmanaged target' : statusFor(s, e)}</span></dd>${e ? `<dt>Exposed version</dt><dd>${e.version}</dd>` : ''}</dl>${unmanaged ? '<p>No recorded Skillager exposure mode or version. Existing files are preserved.</p>' : ''}${s.source ? '<p>External ownership is preserved. Search does not import this skill.</p>' : ''}${state.selectedScope === 'workspace' && e ? button('canonical-definition', 'Open library definition') : ''}</details>${button('read', 'Review content…')}${button('history', 'Version history')}`
 }
-export function pickerView(state) {
-  return `<h2 id="dialog-title">Add ${state.selected}</h2><p>Choose an exact registered project/worktree and agent.</p>
-    <label>Destination<select id="add-destination">${destinations.map((d) => `<option value="${d.id}" ${d.id === state.destination ? 'selected' : ''}>${escapeHtml(d.label)}</option>`).join('')}</select></label>
-    <label>Agent<select id="add-agent"><option value="codex" ${state.agent === 'codex' ? 'selected' : ''}>Codex</option><option value="claude" ${state.agent === 'claude' ? 'selected' : ''}>Claude Code</option></select></label>
-    <label>Exposure mode<select id="add-mode"><option value="native">Full skill</option><option value="stub" ${destinationFor(state).host !== 'local' ? 'disabled' : ''}>Stub</option></select></label>
-    <p>Full skill copies the reviewed files. A Stub is a small activation handle requiring Skillager on the agent’s host.</p><div id="add-route" class="target">Local · ${state.library.path} → ${escapeHtml(destinationFor(state).label)}</div>
-    <footer>${button('close', 'Cancel')}${button('preview-add', 'Preview addition')}</footer>`
+export function pickerView(state, blocked = false, menu = false) {
+  if (menu)
+    return `<p>${escapeHtml(destinationFor(state).label)} · ${agentLabel(state.agent)} · Full skill · accepted ${escapeHtml(skillFor(state).version)}</p>${button('add', 'Add to project', blocked)}`
+  return `<section class="direct-add-controls"><label>Project<select id="add-destination">${destinations.map((d) => `<option value="${d.id}" ${d.id === state.destination ? 'selected' : ''}>${escapeHtml(d.label)}</option>`).join('')}</select></label><label>Agent<select id="add-agent"><option value="codex" ${state.agent === 'codex' ? 'selected' : ''}>Codex</option><option value="claude" ${state.agent === 'claude' ? 'selected' : ''}>Claude Code</option></select></label><label>Use as<select id="add-mode"><option value="native">Full skill</option><option value="stub" ${destinationFor(state).host !== 'local' ? 'disabled' : ''}>Stub</option></select></label>${button('preview-add', state.directAdd?.pending ? 'Preparing Add…' : 'Add to project', blocked || !!state.directAdd?.pending || !!state.directAddUncertain)}<small id="add-route">${escapeHtml(destinationFor(state).host)} · ${escapeHtml(destinationFor(state).path)} · accepted ${escapeHtml(skillFor(state).version)}</small>${state.samplePrerequisites?.length ? `<p class="notice">Declared runtime requirements: ${escapeHtml(state.samplePrerequisites.join(', '))}. Not checked on this host; explicit review is required.</p>` : ''}</section>`
 }
 export const sampleDiff = `<pre class="diff">  ## Review steps\n<span class="del">− Check the rollback plan.</span><span class="add">+ Verify rollback preserves existing data.</span><span class="add">+ Call out blocking operations before approval.</span></pre>`
 export function previewView(state, preview) {
@@ -138,13 +134,13 @@ export function previewView(state, preview) {
   const remote = destinationFor(state).host !== 'local'
   const recordEffect = remote
     ? `${removing ? 'Remove' : e ? 'Update' : 'Create'} hvir’s deployment record for this workspace and agent.`
-    : `${removing ? 'Remove' : e ? 'Replace' : 'Create'} ${target}/skillager.materialized.yaml`
-  return `<h2 id="dialog-title">${label} · ${s.id}</h2><p>Review the exact version and every sample file effect before confirming.</p>
-    <div class="target">Source<code>Local · ${state.library.path}/skills/${s.id}</code><p>Version ${s.version}</p></div>
-    ${accepting ? `<div class="notice">This accepts the exact reviewed library version. Workspace copies stay unchanged.</div>${sampleDiff}<p>Scan: low · Lint: passed · No override requested</p>` : `<div class="target">Destination: ${escapeHtml(destinationFor(state).label)} · ${agentLabel(state.agent)}<code>${target}</code><p>${modeLabel(preview.mode)} · existing ${e?.version || 'absent'}</p></div>`}
+    : `${removing ? 'Remove' : e ? 'Replace' : 'Create'} skillager.materialized.yaml`
+  return `<h2 id="dialog-title">${label} · ${s.id}</h2><p>Review these changes before confirming.</p>
+    ${accepting ? `<div class="notice">This accepts the exact reviewed library version. Workspace copies stay unchanged.</div>${sampleDiff}<p>Scan: low · Lint: passed · No override requested</p>` : `<p class="review-summary">${escapeHtml(destinationFor(state).label)} · ${agentLabel(state.agent)} · ${modeLabel(preview.mode)}</p><p>${removing ? 'Remove this project copy; keep the library skill.' : e ? 'Change this existing managed copy.' : 'Create a new project copy at the absent destination.'}</p>`}
     ${!accepting && ['update', 'switch'].includes(preview.action) ? sampleDiff : ''}
-    <h3>Changes in this preview</h3><ul>${accepting ? `<li>Record exact library approval and content history.</li><li>No workspace file writes.</li>` : removing ? `<li>Remove ${target}/SKILL.md</li><li>${recordEffect}</li><li>No library or other workspace writes.</li>` : `<li>${e ? 'Replace unchanged managed' : 'Create'} ${target}/SKILL.md</li><li>${recordEffect}</li><li>Supporting instructions: none in this sample package.</li>`}</ul>
-    ${remote && !accepting ? '<div class="notice">hvir checks this workspace before applying changes and preserves files changed here. Full skill only; no remote Skillager installation. Runtime requirements: none in this sample.</div>' : ''}
+    <details class="complete-effects" open><summary>Complete affected files</summary><ul>${accepting ? `<li>Record exact library approval and content history.</li><li>No workspace file writes.</li>` : removing ? `<li>Remove SKILL.md</li><li>${recordEffect}</li><li>Remove the empty skill folder.</li><li>No library or other workspace writes.</li>` : `<li>${e ? 'Replace unchanged managed' : 'Create'} SKILL.md</li><li>${recordEffect}</li><li>${e ? 'Retain' : 'Create'} the skill folder.</li><li>Supporting instructions: none in this sample package.</li>`}</ul></details>
+    <details class="technical-details"><summary>Technical details</summary><p>Source: Local · ${escapeHtml(state.library.path)}/skills/${escapeHtml(s.id)}. Source hash/version: ${escapeHtml(preview.version)}.</p>${!accepting ? `<p>Exact target: ${escapeHtml(destinationFor(state).host)} · ${escapeHtml(target)}. Existing version: ${escapeHtml(e?.version || 'absent')}. File modes 0644; target root 0755.</p>` : ''}<p>Token binds the complete source and target state. All listed project files are relative to the exact target above.</p></details>
+    ${remote && !accepting ? `<div class="notice">hvir checks this workspace before applying changes and preserves files changed here. Full skill only; no remote Skillager installation. Runtime requirements: ${state.samplePrerequisites?.length ? escapeHtml(state.samplePrerequisites.join(', ')) + ' · declared, not checked on this host' : 'none declared in this sample'}.</div>` : ''}
     ${protectedTarget ? `<div class="notice">${typeof protectedTarget === 'string' ? protectedTarget : 'Already added'}: preserve this target. Ordinary replacement and removal are unavailable.</div>` : ''}
     <small>Sample preview · no real files will change in this study.</small>
     <footer>${button('close', 'Cancel')}${button('apply', label, !!protectedTarget)}</footer>`
@@ -170,10 +166,10 @@ export function skillsRailView(state) {
   if (!state.connected)
     return `<div id="content">${catalogView(state)}<p id="connection-label">Skillager disconnected</p></div>`
   const section = (scope, title) =>
-    `<section class="explorer-section ${state.explorerOpen[scope] ? 'is-open' : ''}" id="explorer-${scope}"><button class="explorer-heading" id="${scope === 'library' ? 'library' : 'workspace'}-nav" data-perspective="${scope}" aria-expanded="${state.explorerOpen[scope] && !state.results && !state.searching}"><span aria-hidden="true">${state.explorerOpen[scope] && !state.results && !state.searching ? '⌄' : '›'}</span> ${title}</button><div class="explorer-scroll" ${state.explorerOpen[scope] && !state.results && !state.searching ? '' : 'hidden'}>${catalogView({ ...state, perspective: scope, results: null, submittedQuery: '', searching: false })}</div></section>`
+    `<section class="explorer-section ${state.explorerOpen[scope] ? 'is-open' : ''}" id="explorer-${scope}"><div class="explorer-heading-row"><button class="explorer-heading" id="${scope === 'library' ? 'library' : 'workspace'}-nav" data-perspective="${scope}" aria-expanded="${state.explorerOpen[scope] && !state.results && !state.searching}"><span aria-hidden="true">${state.explorerOpen[scope] && !state.results && !state.searching ? '⌄' : '›'}</span> ${title}</button><button class="header-refresh" data-action="refresh" aria-label="Refresh ${title}" aria-busy="${!!state.refreshing}" title="${escapeHtml(state.lastChecked)}">↻</button></div><div class="explorer-scroll" ${state.explorerOpen[scope] && !state.results && !state.searching ? '' : 'hidden'}>${catalogView({ ...state, perspective: scope, results: null, submittedQuery: '', searching: false })}</div></section>`
   return `<div class="explorer-tools">${searchView(state)}<details class="target-controls"><summary>Project actions · ${agentLabel(state.agent)}</summary><div class="rail-controls"><label>Active project<select id="destination">${destinations.map((d) => `<option value="${d.id}" ${d.id === state.destination ? 'selected' : ''}>${escapeHtml(d.label)}</option>`).join('')}</select></label><label>Action agent<select id="agent"><option value="codex" ${state.agent === 'codex' ? 'selected' : ''}>Codex</option><option value="claude" ${state.agent === 'claude' ? 'selected' : ''}>Claude Code</option></select></label></div>${button('refresh', 'Refresh')}<p id="freshness">${escapeHtml(state.lastChecked)}</p><label>Review filter<select id="filter"><option value="all">All metadata</option><option value="pending" ${state.filter === 'pending' ? 'selected' : ''}>Pending review</option></select></label></details></div>
     <div id="content" class="skill-explorer">${state.results || state.searching ? `<section class="explorer-search-results">${catalogView(state)}</section>` : ''}${section('workspace', 'In this project')}${section('library', 'Your library')}</div>
-    <div class="feature-badges"><span id="review-count">${pending} library review${pending === 1 ? '' : 's'}</span><span id="updates-count">${updates} project update${updates === 1 ? '' : 's'}</span></div><span id="connection-label" hidden>Local Skillager connected</span>`
+    <p id="observation-notice" role="status">${state.refreshError ? 'Stale observation · ' + escapeHtml(state.refreshError) + ' · Retry with Refresh' : ''}</p><div class="feature-badges"><span id="review-count">${pending} library review${pending === 1 ? '' : 's'}</span><span id="updates-count">${updates} project update${updates === 1 ? '' : 's'}</span></div><span id="connection-label" hidden>Local Skillager connected</span>`
 }
 export function reviewView(state) {
   const s = skillFor(state)
@@ -206,7 +202,7 @@ function projectWorkspaceView(state) {
             .filter((row) => row.projectPresent !== false)
             .map(
               (row) =>
-                `<div class="skill-row" data-native-row="${row.id}"><button data-native="${row.id}"><span class="skill-name">◇ ${row.id}</span><small> ${agentLabel(row.agent)} · ${row.review}</small></button><button class="more" data-native-actions="${row.id}" aria-label="Actions for ${row.id}">⋯</button></div>`,
+                `<div class="skill-row" data-native-row="${row.id}"><button data-native="${row.id}"><span class="skill-name">${instructionIcon}${row.id}</span><small> ${copyGlyphs(row.agent, 'Original')} · ${row.review}</small></button><button class="more" data-native-actions="${row.id}" aria-label="Actions for ${row.id}">⋯</button></div>`,
             )
             .join('') || '<p>No project skills reported by Skillager.</p>'
     }</section>
@@ -214,7 +210,7 @@ function projectWorkspaceView(state) {
       Object.entries(exposuresFor(state))
         .map(
           ([id, exposure]) =>
-            `<div class="skill-row"><button data-select="${id}"><span class="skill-name">◇ ${id}</span><small>Managed copy · ${modeLabel(exposure.mode)} · ${statusFor(skillFor(state, id), exposure)}</small></button></div>`,
+            `<div class="skill-row"><button data-select="${id}"><span class="skill-name">${instructionIcon}${id}</span><small>Managed copy · ${modeLabel(exposure.mode)} · ${statusFor(skillFor(state, id), exposure)}</small></button></div>`,
         )
         .join('') || '<p>No managed copies.</p>'
     }`
@@ -223,7 +219,7 @@ export function nativeProjectDetailView(state) {
   const row = projectSampleFor(state)?.rows.find((r) => r.id === state.nativeSelected)
   if (!row) return '<p>Project metadata is unavailable for this selection.</p>'
   const folder = row.agent === 'codex' ? '.agents' : '.claude'
-  return `<article class="details"><h2>${row.id}</h2><p>${row.description}</p><p>Project native · Unmanaged · ${agentLabel(row.agent)}</p><p>${row.review}</p><code>Local · ${destinationFor(state).path}/${folder}/skills/${row.id}</code><p>Existing project files are preserved. Their presence does not authorize managed Add, Update or Remove.</p><p>Use Set up in terminal for Skillager’s project review decisions.</p><button data-native-actions="${row.id}">Actions…</button></article>`
+  return `<article class="details"><h2>${row.id}</h2><p>${row.description}</p><p>Project native · Unmanaged · ${agentLabel(row.agent)}</p><p>${row.review}</p><code>Local · ${destinationFor(state).path}/${folder}/skills/${row.id}</code><p>Existing project files are preserved. Their presence does not authorize managed Add, Update or Remove.</p><p>Use Set up in terminal for Skillager’s project review decisions.</p><div class="lifecycle-actions"><button disabled>Use as full skill…</button><button disabled>Use as stub…</button><button disabled>Group in router…</button><button data-native-files-id="${row.id}">Remove in Files…</button><button data-native-actions="${row.id}">Actions…</button></div></article>`
 }
 export function projectTerminalView(state) {
   const terminal = state.setupTerminals.find((t) => t.id === state.selectedTerminal)

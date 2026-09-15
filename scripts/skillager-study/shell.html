@@ -22,6 +22,7 @@
           </option>
           <option value="project-empty">No project skills reported</option>
           <option value="project-unavailable">Project metadata unavailable</option>
+          <option value="initial-loading">Initial metadata loading</option>
           <option value="reading-search">Reading / three installed skill pairs</option>
           <option value="reading-legacy">Reading / unsupported search contract</option>
           <option value="reading-unknown">Reading / unknown installed presence</option>
@@ -70,6 +71,22 @@
         Recover terminal (sample · no replay)
       </button>
     </div>
+    <details class="lab">
+      <summary>Release polish fixtures</summary>
+      <button id="polish-refresh">Refresh retained observations</button
+      ><label
+        ><input type="checkbox" id="polish-refresh-error" />Fail the next
+        observation</label
+      ><label
+        ><input type="checkbox" id="polish-prerequisites" />Declared unchecked runtime
+        prerequisite</label
+      ><label
+        >Theme<select id="polish-theme">
+          <option value="dark">Dark</option>
+          <option value="light">Light</option>
+        </select></label
+      >
+    </details>
     <details id="curation-lab" class="lab" hidden>
       <summary>External curation outcomes (sample)</summary>
       <span id="reading-count">0 explicit sample reads</span

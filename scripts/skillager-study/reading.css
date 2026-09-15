@@ -1,0 +1,186 @@
+/* The viewer owns scrolling; only rendered prose has a reading measure. */
+#skills-view .details,
+#skills-view .skill-reading {
+  width: 100%;
+  max-width: none;
+}
+#skills-view .details {
+  padding: 20px 24px;
+}
+.details h2 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.skill-reading {
+  margin-top: 18px;
+}
+.details .skill-reading {
+  margin: 18px -24px 0;
+  width: calc(100% + 48px) !important;
+}
+.skill-reading header,
+.reading-status,
+.reading-location {
+  padding: 0 24px;
+}
+.skill-reading header p,
+.reading-status {
+  font-size: 12px;
+  color: var(--muted);
+}
+.source-path {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+.instructions-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 4px 12px;
+  background: var(--s2);
+  border-block: 1px solid var(--border);
+}
+.instructions-toolbar > button {
+  background: transparent;
+  border-color: transparent;
+  font-weight: 600;
+}
+.instructions-toolbar > span {
+  color: var(--muted);
+  font-size: 11px;
+}
+.instructions-toolbar [role='group'] {
+  margin-left: auto;
+  display: flex;
+}
+.instructions-toolbar button {
+  padding: 4px 8px;
+}
+.instructions-toolbar [aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--s0);
+}
+.instructions-body {
+  padding: 24px;
+}
+.instruction-prose {
+  max-width: 76ch;
+  line-height: 1.75;
+}
+.instruction-prose h2 {
+  margin-bottom: 24px;
+}
+.instructions-body pre {
+  white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.65;
+  max-height: none;
+  overflow: visible;
+}
+.reading-location,
+.source-status {
+  margin-block: 12px;
+  color: var(--muted);
+}
+.reading-location summary,
+.source-status summary {
+  cursor: pointer;
+}
+.reading-location p {
+  overflow-wrap: anywhere;
+}
+.reading-empty {
+  padding: 20px;
+  color: var(--muted);
+}
+.lifecycle-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  margin-block: 14px;
+}
+.lifecycle-actions > p {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0;
+}
+.lifecycle-actions [data-action='remove'],
+.lifecycle-actions [data-curate='remove'] {
+  margin-left: auto;
+  color: var(--text);
+}
+.direct-add-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+  max-width: 100%;
+}
+.direct-add-controls label {
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+  min-width: 0;
+}
+.direct-add-controls select {
+  width: auto;
+  max-width: 100%;
+  margin: 0;
+  color: var(--text);
+}
+.direct-add-controls small,
+.direct-add-controls .notice {
+  flex-basis: 100%;
+  overflow-wrap: anywhere;
+}
+.add-result {
+  font-size: 12px;
+  color: var(--accent);
+}
+.complete-effects,
+.technical-details {
+  margin-block: 14px;
+}
+.technical-details p {
+  font-family: ui-monospace, monospace;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+.settings-field {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+}
+.settings-field .inline {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.settings-field input {
+  width: auto;
+  margin: 0;
+}
+.settings-connection {
+  margin-block: 18px;
+  color: var(--muted);
+}
+
+.lifecycle-actions button,
+.instructions-toolbar button {
+  width: auto;
+  display: inline-flex;
+  margin: 0;
+}
+.details .direct-add-controls {
+  flex: 0 1 auto;
+}
