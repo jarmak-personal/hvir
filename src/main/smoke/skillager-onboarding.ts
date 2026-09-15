@@ -59,7 +59,40 @@ export async function verifySkillagerOnboarding(
   `,
   )
   const guidanceScroll = 'section[aria-label="Your library"] .skillager-section-empty'
+  // Guidance is published by the library lane; project/setup completes independently.
+  // Both observations must own their settled layout before selecting a wheel target.
+  await inspect(
+    win,
+    `await wait(() => {
+    const sections = [...document.querySelectorAll('.skillager-explorer-section')];
+    return sections.length === 2 && sections.every(section =>
+      section.querySelector('header small') &&
+      section.querySelector('.skillager-section-refresh')?.getAttribute('aria-busy') === 'false') &&
+      document.querySelector('.skillager-project-setup button')?.disabled === false;
+  });`,
+  )
   const at = await skillagerControlPoint(win, guidanceScroll, true)
+  const before = await inspect<{
+    readonly x: number
+    readonly y: number
+    readonly top: number
+    readonly left: number
+    readonly width: number
+    readonly height: number
+    readonly client: number
+    readonly total: number
+    readonly scrollTop: number
+  }>(
+    win,
+    `
+    const scroll = document.querySelector(${JSON.stringify(guidanceScroll)}), rect = scroll.getBoundingClientRect();
+    const point = ${JSON.stringify(at)}, hit = document.elementFromPoint(point.x, point.y);
+    if (hit !== scroll || scroll.scrollHeight <= scroll.clientHeight)
+      throw Error('Guidance wheel target changed or lost overflow before delivery: ' + JSON.stringify({ hitScroll: hit === scroll, client: scroll.clientHeight, total: scroll.scrollHeight }));
+    return { ...point, top: rect.top, left: rect.left, width: rect.width, height: rect.height, client: scroll.clientHeight, total: scroll.scrollHeight, scrollTop: scroll.scrollTop };
+  `,
+  )
+  console.log('[smoke] Skills guidance wheel target', JSON.stringify(before))
   win.webContents.sendInputEvent({ type: 'mouseMove', ...at })
   win.webContents.sendInputEvent({
     type: 'mouseWheel',
@@ -73,7 +106,7 @@ export async function verifySkillagerOnboarding(
     `try { await wait(() => { const sidebar = document.querySelector(${JSON.stringify(guidanceScroll)}); return sidebar.scrollTop + sidebar.clientHeight >= sidebar.scrollHeight - 1; }); }
     catch { const sidebar = document.querySelector(${JSON.stringify(guidanceScroll)}), prompt = document.querySelector('.skillager-first-skill textarea');
       const rect = sidebar.getBoundingClientRect(), promptRect = prompt.getBoundingClientRect(), rail = document.querySelector('.rail-content');
-      throw new Error('Guidance scroll geometry: ' + JSON.stringify({ top: sidebar.scrollTop, client: sidebar.clientHeight, total: sidebar.scrollHeight, height: rect.height, overflow: getComputedStyle(sidebar).overflowY, railClient: rail.clientHeight, railTotal: rail.scrollHeight, railTop: rail.scrollTop, promptHit: prompt.contains(document.elementFromPoint(promptRect.x + promptRect.width / 2, promptRect.y + promptRect.height / 2)), promptTop: promptRect.top, promptHeight: promptRect.height, viewport: innerHeight, focused: document.hasFocus() })); }`,
+      throw new Error('Guidance scroll geometry: ' + JSON.stringify({ before: ${JSON.stringify(before)}, afterHitScroll: document.elementFromPoint(${at.x}, ${at.y}) === sidebar, projectBusy: document.querySelector('section[aria-label="In this project"] .skillager-section-refresh')?.getAttribute('aria-busy'), libraryBusy: document.querySelector('section[aria-label="Your library"] .skillager-section-refresh')?.getAttribute('aria-busy'), setupEnabled: document.querySelector('.skillager-project-setup button')?.disabled === false, top: sidebar.scrollTop, client: sidebar.clientHeight, total: sidebar.scrollHeight, height: rect.height, overflow: getComputedStyle(sidebar).overflowY, railClient: rail.clientHeight, railTotal: rail.scrollHeight, railTop: rail.scrollTop, promptHit: prompt.contains(document.elementFromPoint(promptRect.x + promptRect.width / 2, promptRect.y + promptRect.height / 2)), promptTop: promptRect.top, promptHeight: promptRect.height, viewport: innerHeight, focused: document.hasFocus() })); }`,
   )
   const prompt = '.skillager-first-skill textarea'
   await click(win, prompt)
