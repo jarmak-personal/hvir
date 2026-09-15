@@ -7,6 +7,7 @@ import {
 import type {
   SkillagerMetadata,
   SkillagerMetadataResult,
+  SkillagerResult,
   SkillagerWorkspaceExposure,
 } from '../../../shared/skillager'
 
@@ -20,13 +21,44 @@ export interface SkillagerExposureObservation extends SkillagerMetadataResult {
   readonly exposures: readonly SkillagerWorkspaceExposure[]
 }
 
+export interface SkillagerObservationRead<
+  T extends SkillagerMetadataResult = SkillagerMetadataResult,
+> {
+  readonly loading: boolean
+  readonly result?: SkillagerResult<T>
+  readonly observed?: T
+  readonly observedExposures?: T & SkillagerExposureObservation
+}
+
+/** Complete one read without replacing either last success with an unknown observation. */
+export function retainSkillagerObservation<T extends SkillagerMetadataResult>(
+  result: SkillagerResult<T>,
+): (previous: SkillagerObservationRead<T>) => SkillagerObservationRead<T> {
+  const observed = result.ok ? result.value : undefined
+  return (previous) => ({
+    loading: false,
+    result,
+    observed: observed ?? previous.observed,
+    observedExposures:
+      observed?.exposures !== undefined
+        ? { ...observed, exposures: observed.exposures }
+        : previous.observedExposures,
+  })
+}
+
 /** Retained observations are display evidence; only the owning read can renew freshness. */
 export function skillagerObservationFreshness(
   demand: boolean,
-  loading: boolean,
-  succeeded: boolean,
-): NonNullable<SkillagerMetadata['workspaceFreshness']> {
-  return !demand ? 'stale' : loading ? 'checking' : succeeded ? 'fresh' : 'unavailable'
+  read: Pick<SkillagerObservationRead, 'loading' | 'result'>,
+) {
+  const freshness = (succeeded: boolean): SkillagerCanonicalObservation['freshness'] =>
+    !demand ? 'stale' : read.loading ? 'checking' : succeeded ? 'fresh' : 'unavailable'
+  return {
+    freshness: freshness(Boolean(read.result?.ok)),
+    exposureFreshness: freshness(
+      Boolean(read.result?.ok && read.result.value.exposures !== undefined),
+    ),
+  }
 }
 
 export function skillagerRowsFreshness(

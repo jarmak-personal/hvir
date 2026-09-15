@@ -146,16 +146,18 @@ export function SkillagerSidebar({
               error={
                 projectRead.result && !projectRead.result.ok
                   ? projectRead.result.message
-                  : projectRead.result?.ok &&
-                      projectRead.result.value.exposures === undefined
-                    ? `Project copy status is unavailable.${projectRead.observedExposures ? ' Last observed copies are retained.' : ''}`
-                    : projectRead.observedExposures &&
-                        local &&
-                        controller.project.observedExposures?.requiresLibraryMetadata &&
-                        controller.inventory.result &&
-                        !controller.inventory.result.ok
-                      ? `Library source metadata is unavailable. ${controller.inventory.result.message}`
-                      : undefined
+                  : undefined
+              }
+              warning={
+                projectRead.result?.ok && projectRead.result.value.exposures === undefined
+                  ? `Project copy status is unavailable.${projectRead.observedExposures ? ' Last observed copies are retained.' : ''}`
+                  : projectRead.observedExposures &&
+                      local &&
+                      controller.project.observedExposures?.requiresLibraryMetadata &&
+                      controller.inventory.result &&
+                      !controller.inventory.result.ok
+                    ? `Library source metadata is unavailable. ${controller.inventory.result.message}`
+                    : undefined
               }
               rows={projectRows}
               known={controller.canonical}

@@ -499,9 +499,9 @@ describe('Skills renderer demand and metadata views', () => {
       source: { ownership: 'library' },
     })
     expect(mount.querySelector('.skillager-details')?.textContent).toContain(
-      'Workspace status stale / unavailable',
+      'stale / unavailable',
     )
-    expect(mount.querySelector('.skillager-details')?.textContent).not.toContain(
+    expect(mount.querySelector('.skillager-details')?.textContent).toContain(
       'Workspace copy behind',
     )
   })

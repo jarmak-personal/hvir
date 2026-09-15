@@ -41,12 +41,17 @@ export function skillagerObservationFixture() {
     async wait(kind: Observation, signal: AbortSignal): Promise<void> {
       const read = held.get(kind)
       if (!read) return
-      const cancel = () => read.release()
+      let reject!: (error: SkillagerError) => void
+      const cancelled = new Promise<never>((_, fail) => {
+        reject = fail
+      })
+      const cancel = () =>
+        reject(new SkillagerError('cancelled', 'Fixture observation cancelled.'))
       signal.addEventListener('abort', cancel, { once: true })
       try {
         if (signal.aborted) cancel()
         else read.start()
-        const failed = await read.result
+        const failed = await Promise.race([read.result, cancelled])
         if (signal.aborted)
           throw new SkillagerError('cancelled', 'Fixture observation cancelled.')
         if (failed)

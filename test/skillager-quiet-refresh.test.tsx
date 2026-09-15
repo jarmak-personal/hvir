@@ -204,6 +204,9 @@ it('retains the bounded tree, focus, expanded copies and last check through peri
   expect(
     section('Your library').querySelector('header [role="alert"]')?.getAttribute('title'),
   ).toContain(failure.message)
+  expect(
+    section('Your library').querySelector('header [role="alert"]')?.textContent,
+  ).toBe('Refresh failed')
   expect(section('Your library').querySelector('.skillager-first-skill')).toBeNull()
   expect(current.projectRows[0]).toMatchObject({
     name: 'Guide',
@@ -496,11 +499,9 @@ it.each(['local', 'remote'] as const)(
       contentHash: selected.contentHash,
     })
     expect(eligibleSkillagerUpdate(current.active!.metadata)).toBe(false)
-    expect(
-      section('In this project')
-        .querySelector('header [role="alert"]')
-        ?.getAttribute('title'),
-    ).toContain('Last observed copies are retained')
+    const notice = section('In this project').querySelector('header [role="alert"]')
+    expect(notice?.getAttribute('title')).toContain('Last observed copies are retained')
+    expect(notice?.textContent).toBe('Status unavailable')
     if (kind === 'local')
       expect(current.projectRows.find((row) => row.projectSkill)).toMatchObject({
         name: 'Fresh original name',
@@ -534,6 +535,9 @@ it('keeps initially unknown remote copies distinct from a later authoritative em
   expect(current.inventory.observedExposures).toBeUndefined()
   expect(current.projectFreshness).toBe('unavailable')
   expect(current.projectRows).toEqual([])
+  expect(section('In this project').querySelector('[role="alert"]')?.textContent).toBe(
+    'Status unavailable',
+  )
   expect(section('In this project').textContent).not.toContain(
     'No managed project copies',
   )

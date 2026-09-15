@@ -2,7 +2,7 @@ import { SkillagerBody } from './SkillagerBody'
 import type { SkillagerContentController } from './use-skillager-content'
 import { SkillagerLineage } from './SkillagerLineage'
 import type { SkillagerLibrarySyncController } from './use-skillager-library-sync'
-import { workspaceSkillLabel } from './skillager-exposure-model'
+import { observedWorkspaceSkillLabel } from './skillager-exposure-model'
 import { SkillagerActions } from './SkillagerActions'
 import type { SkillagerExposureController } from './use-skillager-exposure'
 import { SkillagerReview } from './SkillagerReview'
@@ -160,7 +160,7 @@ export function SkillagerDetails({
               <dd>
                 {skillagerAgentLabel(metadata.workspace.agent)} ·{' '}
                 {metadata.workspace.mode === 'native' ? 'Full' : metadata.workspace.mode}{' '}
-                · {workspaceSkillLabel(metadata)}
+                · {observedWorkspaceSkillLabel(metadata)}
               </dd>
               <dt>Destination</dt>
               <dd>

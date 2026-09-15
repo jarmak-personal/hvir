@@ -19,7 +19,7 @@ it('holds only the named lane, reports entry, and releases failure for explicit 
   }
 })
 
-it('cancels a held read and bounds unentered or abandoned fixture holds', async () => {
+it('cancels only the waiter so a replacement read remains held until explicit failure', async () => {
   vi.useFakeTimers()
   const fixture = skillagerObservationFixture(),
     controller = new AbortController()
@@ -30,10 +30,48 @@ it('cancels a held read and bounds unentered or abandoned fixture holds', async 
     expect(await hold.entered).toBe(true)
     controller.abort()
     await rejected
+    expect(vi.getTimerCount()).toBe(1)
+    let completed = false
+    const replacement = fixture.wait('project', new AbortController().signal)
+    const replacementRejected = expect(replacement).rejects.toMatchObject({
+      reason: 'unavailable',
+    })
+    void replacement.then(
+      () => {
+        completed = true
+      },
+      () => {
+        completed = true
+      },
+    )
+    await Promise.resolve()
+    expect(completed).toBe(false)
+    hold.release(true)
+    await replacementRejected
     expect(vi.getTimerCount()).toBe(0)
+    await fixture.wait('project', new AbortController().signal)
+  } finally {
+    fixture.dispose()
+  }
+})
+
+it('bounds unentered holds and disposes the timer and waiter after an aborted read', async () => {
+  vi.useFakeTimers()
+  const fixture = skillagerObservationFixture()
+  try {
     const abandoned = fixture.holdNext('library')
     await vi.advanceTimersByTimeAsync(15_000)
     expect(await abandoned.entered).toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
+    const hold = fixture.holdNext('project')
+    await expect(fixture.wait('project', AbortSignal.abort())).rejects.toMatchObject({
+      reason: 'cancelled',
+    })
+    const replacement = fixture.wait('project', new AbortController().signal)
+    expect(await hold.entered).toBe(true)
+    expect(vi.getTimerCount()).toBe(1)
+    fixture.dispose()
+    await replacement
     expect(vi.getTimerCount()).toBe(0)
   } finally {
     fixture.dispose()

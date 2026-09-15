@@ -143,18 +143,7 @@ export function observedSkillagerUpdate(metadata: SkillagerMetadata): boolean {
   )
 }
 
-export function workspaceSkillLabel(metadata: SkillagerMetadata): string {
-  return withReconciliation(
-    metadata,
-    metadata.workspaceFreshness && metadata.workspaceFreshness !== 'fresh'
-      ? metadata.workspaceFreshness === 'checking'
-        ? 'Checking workspace copy…'
-        : 'Workspace status stale / unavailable'
-      : observedWorkspaceLabel(metadata),
-  )
-}
-
-/** List labels describe the retained observation; header freshness and actions are separate. */
+/** Observed labels stay consistent across rows/details; freshness and actions are separate. */
 export function observedWorkspaceSkillLabel(metadata: SkillagerMetadata): string {
   return withReconciliation(metadata, observedWorkspaceLabel(metadata))
 }

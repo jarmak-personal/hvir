@@ -1,5 +1,5 @@
 import { useSkillagerActions } from './use-skillager-actions'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { hostPathEquals, type HostPath } from '../../../shared/host-path'
 import type {
   SkillagerAgent,
@@ -72,6 +72,12 @@ interface Lease {
 export function useSkillagerExposure(options: Options) {
   const optionsRef = useRef(options)
   optionsRef.current = options
+  const projectRows = useMemo(
+    () => new Map(options.projectRows?.map((row) => [skillagerMetadataKey(row), row])),
+    [options.projectRows],
+  )
+  const projectRowsRef = useRef(projectRows)
+  projectRowsRef.current = projectRows
   const [state, setState] = useState<ActionState>()
   const stateRef = useRef(state)
   stateRef.current = state
@@ -124,9 +130,7 @@ export function useSkillagerExposure(options: Options) {
       close()
   }, [destinations, state?.destination, close])
   const currentUpdate = useCallback((metadata: SkillagerMetadata): boolean => {
-    const observed = optionsRef.current.projectRows?.find(
-      (row) => skillagerMetadataKey(row) === skillagerMetadataKey(metadata),
-    )
+    const observed = projectRowsRef.current.get(skillagerMetadataKey(metadata))
     return Boolean(
       observed &&
       eligibleSkillagerUpdate(metadata) &&

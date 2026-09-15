@@ -11,7 +11,7 @@ import {
 } from './fixtures/skillager-exposure-fixture'
 import {
   eligibleSkillagerUpdate,
-  workspaceSkillLabel,
+  observedWorkspaceSkillLabel,
 } from '../src/renderer/src/skillager/skillager-exposure-model'
 import {
   skillagerWorkspaceMetadata,
@@ -144,13 +144,16 @@ it('labels only fresh accepted source drift as behind and separates protected st
     durationMs: 1,
   })[0]!
   expect(eligibleSkillagerUpdate(row)).toBe(true)
-  expect(workspaceSkillLabel(row)).toBe('Workspace copy behind')
+  expect(observedWorkspaceSkillLabel(row)).toBe('Workspace copy behind')
   for (const trust of ['pinned', 'blocked', 'discovered', 'lint_blocked'] as const)
     expect(eligibleSkillagerUpdate({ ...row, trust })).toBe(false)
   for (const workspaceFreshness of ['stale', 'unavailable', 'checking'] as const)
     expect(eligibleSkillagerUpdate({ ...row, workspaceFreshness })).toBe(false)
   expect(
-    workspaceSkillLabel({ ...row, workspace: { ...f.exposure, status: 'local_edit' } }),
+    observedWorkspaceSkillLabel({
+      ...row,
+      workspace: { ...f.exposure, status: 'local_edit' },
+    }),
   ).toBe('Workspace copy modified')
 })
 
@@ -173,9 +176,9 @@ it.each([undefined, 'f'.repeat(64)])(
       workspace: { ...exposure, expectedSourceHash },
     }
     expect(eligibleSkillagerUpdate(row)).toBe(false)
-    expect(workspaceSkillLabel(row)).toBe('Update unverified')
+    expect(observedWorkspaceSkillLabel(row)).toBe('Update unverified')
     expect(
-      workspaceSkillLabel({
+      observedWorkspaceSkillLabel({
         ...row,
         workspace: { ...row.workspace, status: 'source_unavailable' },
       }),

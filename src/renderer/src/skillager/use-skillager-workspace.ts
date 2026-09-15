@@ -32,7 +32,8 @@ import {
   skillagerObservationFreshness,
   skillagerRowsFreshness,
   skillagerWorkspaceMetadata,
-  type SkillagerExposureObservation,
+  retainSkillagerObservation,
+  type SkillagerObservationRead,
 } from './skillager-model'
 
 interface Options {
@@ -81,12 +82,7 @@ export function useSkillagerWorkspace(input: Options) {
   const [submitted, setSubmitted] = useState('')
   const [submittedContext, setSubmittedContext] = useState<SkillagerSearchContext>()
   const [search, setSearch] = useState<ReadState>(emptyRead)
-  const [inventory, setInventory] = useState<
-    ReadState & {
-      readonly observed?: SkillagerMetadataResult
-      readonly observedExposures?: SkillagerExposureObservation
-    }
-  >(emptyRead)
+  const [inventory, setInventory] = useState<SkillagerObservationRead>(emptyRead)
   const [tabs, dispatchTabs] = useReducer(skillagerTabs, { tabs: [] })
   const [foreground, setForeground] = useState(
     () => document.visibilityState === 'visible' && document.hasFocus(),
@@ -284,28 +280,17 @@ export function useSkillagerWorkspace(input: Options) {
           browseAgent: 'all',
         })
         if (requestId !== requests.current.inventory || at !== generation.current) return
-        const observed = result.ok ? result.value : undefined
-        setInventory((previous) => ({
-          loading: false,
-          result,
-          observed: observed ?? previous.observed,
-          observedExposures:
-            observed?.exposures !== undefined
-              ? { ...observed, exposures: observed.exposures }
-              : previous.observedExposures,
-        }))
+        setInventory(retainSkillagerObservation(result))
         if (!result.ok && result.reason === 'library-changed') disconnect()
       } catch {
         if (requestId === requests.current.inventory && at === generation.current) {
-          setInventory((previous) => ({
-            ...previous,
-            loading: false,
-            result: {
+          setInventory(
+            retainSkillagerObservation({
               ok: false,
               reason: 'unavailable',
               message: 'Library metadata is unavailable. Try again.',
-            },
-          }))
+            }),
+          )
         }
       } finally {
         if (requestId === requests.current.inventory) inventoryPending.current = false
@@ -459,16 +444,8 @@ export function useSkillagerWorkspace(input: Options) {
     ) && options.viewerVisible,
   )
   const library = inventory.observed
-  const inventoryFreshness = skillagerObservationFreshness(
-    inventoryDemand,
-    inventory.loading,
-    Boolean(inventory.result?.ok),
-  )
-  const inventoryExposureFreshness = skillagerObservationFreshness(
-    inventoryDemand,
-    inventory.loading,
-    Boolean(inventory.result?.ok && inventory.result.value.exposures !== undefined),
-  )
+  const { freshness: inventoryFreshness, exposureFreshness: inventoryExposureFreshness } =
+    skillagerObservationFreshness(inventoryDemand, inventory)
   const libraryRows = useMemo(
     () =>
       skillagerRowsFreshness(

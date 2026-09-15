@@ -12,6 +12,7 @@ export function SkillagerExplorer({
   loading,
   freshness,
   error,
+  warning,
   rows,
   known,
   checkedAt,
@@ -27,6 +28,7 @@ export function SkillagerExplorer({
   readonly loading: boolean
   readonly freshness: SkillagerCanonicalObservation['freshness']
   readonly error?: string
+  readonly warning?: string
   readonly rows: readonly SkillagerMetadata[]
   readonly known: SkillagerCanonicalObservation
   readonly checkedAt?: number
@@ -46,12 +48,15 @@ export function SkillagerExplorer({
       : 'Checking…'
     : error
       ? 'Refresh failed'
-      : freshness !== 'fresh' && observed
-        ? 'Stale'
-        : ''
-  const explanation = error
-    ? `${error} ${checked}. Use Refresh to try again.`
-    : `${notice ? `${notice} · ` : ''}${checked}`
+      : warning
+        ? 'Status unavailable'
+        : freshness !== 'fresh' && observed
+          ? 'Stale'
+          : ''
+  const explanation =
+    error || warning
+      ? `${error ?? warning} ${checked}. Use Refresh to try again.`
+      : `${notice ? `${notice} · ` : ''}${checked}`
   return (
     <section
       className={`skillager-explorer-section${expanded ? ' expanded' : ''}`}
@@ -69,7 +74,9 @@ export function SkillagerExplorer({
         {actions}
         <span
           className="skillager-refresh-status"
-          role={notice ? (error && !loading ? 'alert' : 'status') : undefined}
+          role={
+            notice ? ((error || warning) && !loading ? 'alert' : 'status') : undefined
+          }
           title={explanation}
           aria-label={notice ? explanation : undefined}
         >
@@ -101,7 +108,7 @@ export function SkillagerExplorer({
             />
           ) : (
             <div className="skillager-section-empty">
-              {observed || (!loading && !error) ? empty : null}
+              {observed || (!loading && !error && !warning) ? empty : null}
             </div>
           )}
         </>

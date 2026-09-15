@@ -4,7 +4,6 @@ import {
   SKILLAGER_REFRESH_MS,
   type SkillagerAgent,
   type SkillagerConnection,
-  type SkillagerResult,
 } from '../../../shared/skillager'
 import type {
   SkillagerProjectObservation,
@@ -14,7 +13,8 @@ import type { PreparedTerminalSession } from '../terminal/terminal-workspace-mod
 import type { TerminalInitialStart } from '../terminal/terminal-runtime-options'
 import {
   skillagerObservationFreshness,
-  type SkillagerExposureObservation,
+  retainSkillagerObservation,
+  type SkillagerObservationRead,
 } from './skillager-model'
 
 export type SkillagerSetupTerminal = (
@@ -38,14 +38,11 @@ export function useSkillagerProject(options: {
     generation = useRef(0)
   const pending = useRef<AbortController>(undefined)
   const exitListener = useRef<(() => void) | undefined>(undefined)
-  const [read, setRead] = useState<{
-    loading: boolean
-    result?: SkillagerResult<SkillagerProjectObservation>
-    observed?: SkillagerProjectObservation
-    observedExposures?: SkillagerExposureObservation & {
-      readonly requiresLibraryMetadata: boolean
-    }
-  }>({ loading: false })
+  const [read, setRead] = useState<SkillagerObservationRead<SkillagerProjectObservation>>(
+    {
+      loading: false,
+    },
+  )
   const [starting, setStarting] = useState(false)
   const [running, setRunning] = useState(false)
   const [message, setMessage] = useState<string>()
@@ -70,32 +67,18 @@ export function useSkillagerProject(options: {
         requestId,
       })
       if (at === generation.current && requestId === sequence.current) {
-        const observed = result.ok ? result.value : undefined
-        setRead((previous) => ({
-          loading: false,
-          result,
-          observed: observed ?? previous.observed,
-          observedExposures:
-            observed?.exposures !== undefined
-              ? {
-                  ...observed,
-                  exposures: observed.exposures,
-                }
-              : previous.observedExposures,
-        }))
+        setRead(retainSkillagerObservation(result))
         if (result.ok) setRunning(result.value.setupRunning)
       }
     } catch {
       if (at === generation.current && requestId === sequence.current)
-        setRead((previous) => ({
-          ...previous,
-          loading: false,
-          result: {
+        setRead(
+          retainSkillagerObservation({
             ok: false,
             reason: 'unavailable',
             message: 'Project metadata is unavailable. Refresh to check again.',
-          },
-        }))
+          }),
+        )
     }
   }, [])
 
@@ -230,16 +213,7 @@ export function useSkillagerProject(options: {
 
   return {
     ...read,
-    freshness: skillagerObservationFreshness(
-      options.demand,
-      read.loading,
-      Boolean(read.result?.ok),
-    ),
-    exposureFreshness: skillagerObservationFreshness(
-      options.demand,
-      read.loading,
-      Boolean(read.result?.ok && read.result.value.exposures !== undefined),
-    ),
+    ...skillagerObservationFreshness(options.demand, read),
     refresh,
     setup,
     starting,
