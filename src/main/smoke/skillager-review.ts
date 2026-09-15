@@ -1,3 +1,5 @@
+import { captureSkillagerBody } from './skillager-onboarding'
+import { clickSkillagerControl, inspectSkillagerControls } from './skillager-settings'
 import { webContents, type BrowserWindow } from 'electron'
 
 export async function verifySkillagerReview(win: BrowserWindow): Promise<void> {
@@ -13,20 +15,54 @@ export async function verifySkillagerReview(win: BrowserWindow): Promise<void> {
     await wait(() => document.querySelector('.skillager-pending-filter input[type=checkbox]'));
     document.querySelector('.skillager-pending-filter input[type=checkbox]').click();
     await wait(() => document.querySelector('section[aria-label="Your library"] .skillager-row'));
-    document.querySelector('section[aria-label="Your library"] .skillager-row').click();
-    await wait(() => button('Version history'));
-    button('Version history').click();
+  `)
+  await clickSkillagerDetailControl(
+    win,
+    'section[aria-label="Your library"] .skillager-row',
+  )
+  await evaluate(`
+    await wait(() => document.querySelector('.skillager-body .markdown-body h1'));
+    if (document.querySelector('.skillager-secondary').open || document.querySelector('.skillager-review-content')) throw Error('Ordinary body opened review or metadata controls');
+  `)
+  await captureSkillagerBody(win, 'body-first')
+  const selectedTitle = await evaluate<string>(
+    `return document.querySelector('.skillager-tab.active .tab-main').title;`,
+  )
+  await clickSkillagerDetailControl(win, '.viewer-tab:not(.skillager-tab) .tab-main')
+  await evaluate(`await wait(() => !document.querySelector('.skillager-details'));`)
+  const retained = '.skillager-tab .tab-main[title=' + JSON.stringify(selectedTitle) + ']'
+  await evaluate(`
+    const tab = document.querySelector(${JSON.stringify(retained)}); tab.focus();
+    await wait(() => document.activeElement === tab);
+    if (document.querySelector('.skillager-body')) throw Error('Tab focus opened skill content without activation');
+  `)
+  await clickSkillagerDetailControl(win, retained)
+  await evaluate(`
+    await wait(() => document.querySelector('.skillager-body .markdown-body h1'));
+    if (document.querySelector('.skillager-review-content') || document.querySelector('.skillager-secondary').open) throw Error('Retained tab activation restored review authority');
+  `)
+  await clickSkillagerDetailControl(win, '.skillager-secondary > summary')
+  await clickSkillagerDetailControl(win, '.skillager-review button', 'Version history')
+  await evaluate(`
     await wait(() => document.querySelector('.skillager-review-history'));
     if (document.querySelector('.skillager-review-content')) throw new Error('History loaded content implicitly');
-    button('Review content').click();
+  `)
+  await clickSkillagerDetailControl(win, '.skillager-review button', 'Review content')
+  await evaluate(`
     await wait(() => document.querySelector('.skillager-review-version'));
-    await wait(() => document.querySelector('.skillager-review-markdown h1'));
+    await wait(() => document.querySelector('.skillager-review .skillager-review-markdown h1'));
     if (document.querySelector('.skillager-review').textContent.includes('fixture-private-token')) throw new Error('Main token leaked to renderer');
-    button('Source').click();
+  `)
+  await captureSkillagerBody(win, 'body-review')
+  await clickSkillagerDetailControl(win, '.skillager-review button', 'Source')
+  const htmlLabel = await evaluate<string>(`
     await wait(() => document.querySelector('.skillager-review-content .cm-editor'));
     const file = [...document.querySelectorAll('.skillager-review-files button')].find((element) => element.textContent.startsWith('demo.html'));
     if (!file) throw new Error('Review did not disclose supporting HTML');
-    file.click();
+    return file.textContent.trim();
+  `)
+  await clickSkillagerDetailControl(win, '.skillager-review-files button', htmlLabel)
+  await evaluate(`
     await wait(() => document.querySelector('.skillager-review-html'));
     const frame = document.querySelector('.skillager-review-html');
     if (frame.getAttribute('sandbox') !== 'allow-scripts' || !frame.src.startsWith('hvir-preview:')) throw new Error('Review HTML lost its opaque preview boundary');
@@ -49,17 +85,45 @@ export async function verifySkillagerReview(win: BrowserWindow): Promise<void> {
     confinement.text !== 'Reviewed HTML'
   )
     throw new Error('Reviewed HTML confinement failed')
+  await clickSkillagerDetailControl(
+    win,
+    '.skillager-review button',
+    'Accept library changes…',
+  )
   await evaluate(`
-    button('Accept library changes…').click();
     const dialog = await wait(() => document.querySelector('[aria-label="Accept reviewed library version"]'));
     if (!dialog.textContent.includes('Workspace copies stay unchanged')) throw new Error('Acceptance preview omitted its library-only effect');
-    button('Accept reviewed version').click();
+  `)
+  await clickSkillagerDetailControl(
+    win,
+    '.skillager-review button',
+    'Accept reviewed version',
+  )
+  await evaluate(`
     await wait(() => document.querySelector('.skillager-review [role="status"]')?.textContent.includes('Workspace copies are unchanged'));
     if (button('Accept library changes…')) throw new Error('Consumed acceptance remained actionable');
   `)
   if (!webContents.getAllWebContents().includes(win.webContents))
     throw new Error('Review displaced the workbench renderer')
   console.log(
-    '[smoke] Skill review OK (explicit content/history, supporting files, source viewer, opaque HTML/CSP, separate exact acceptance)',
+    '[smoke] Skill review OK (body-first ordinary read and retained-tab/focus distinction, separate physical review/history/accept gestures, supporting files, source viewer, opaque HTML/CSP, separate exact acceptance)',
   )
+}
+
+/** Focus scrolls the existing detail owner; activation remains a physical hit-tested click. */
+export async function clickSkillagerDetailControl(
+  win: BrowserWindow,
+  selector: string,
+  text?: string,
+): Promise<void> {
+  await inspectSkillagerControls(
+    win,
+    `
+    const target = await wait(() => [...document.querySelectorAll(${JSON.stringify(selector)})].find(item => ${text === undefined ? 'true' : `item.textContent.trim() === ${JSON.stringify(text)}`}));
+    await wait(() => !target.disabled);
+    target.focus();
+    await wait(() => document.activeElement === target);
+  `,
+  )
+  await clickSkillagerControl(win, selector, text)
 }

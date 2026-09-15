@@ -139,8 +139,9 @@ async function scrollSettings(win: BrowserWindow, deltaY: number): Promise<void>
 export async function clickSkillagerControl(
   win: BrowserWindow,
   selector: string,
+  text?: string,
 ): Promise<void> {
-  const location = await skillagerControlPoint(win, selector)
+  const location = await skillagerControlPoint(win, selector, false, text)
   win.webContents.sendInputEvent({ type: 'mouseMove', ...location })
   for (const type of ['mouseDown', 'mouseUp'] as const)
     win.webContents.sendInputEvent({ type, button: 'left', clickCount: 1, ...location })
@@ -167,11 +168,12 @@ export async function skillagerControlPoint(
   win: BrowserWindow,
   selector: string,
   padding = false,
+  text?: string,
 ): Promise<{ readonly x: number; readonly y: number }> {
   return inspectSkillagerControls(
     win,
     `
-    const element = await wait(() => document.querySelector(${JSON.stringify(selector)}));
+    const element = await wait(() => [...document.querySelectorAll(${JSON.stringify(selector)})].find(item => ${text === undefined ? 'true' : `item.textContent.trim() === ${JSON.stringify(text)}`}));
     await new Promise(requestAnimationFrame);
     const bounds = element.getBoundingClientRect();
     const x = Math.round(bounds.left + ${padding ? '4' : 'bounds.width / 2'}), y = Math.round(bounds.top + bounds.height / 2);

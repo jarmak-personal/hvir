@@ -142,10 +142,17 @@ export async function captureSkillagerCurationDialog(
   return captureSkillagerVisual(win, name, '.skillager-exposure-dialog')
 }
 
+export function captureSkillagerBody(
+  win: BrowserWindow,
+  name: 'body-first' | 'body-review',
+): Promise<void> {
+  return captureSkillagerVisual(win, name, '.skillager-details')
+}
+
 async function captureSkillagerVisual(
   win: BrowserWindow,
   name: string,
-  selector: '.tree-panel' | '.skillager-exposure-dialog',
+  selector: '.tree-panel' | '.skillager-exposure-dialog' | '.skillager-details',
 ): Promise<void> {
   const directory = process.env.HVIR_SKILLAGER_VISUAL_DIRECTORY
   if (!directory) return

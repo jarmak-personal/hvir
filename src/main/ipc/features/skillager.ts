@@ -1,3 +1,4 @@
+import { authorizeDocumentRead } from '../../viewer/document-read-authority'
 import type { SkillagerExposureActionRequest } from '../../../shared/skillager-exposure-plan'
 import type { SkillagerWorkspaceExposure } from '../../../shared/skillager'
 import type { SkillagerRequest, SkillagerSearchRequest } from '../../../shared/skillager'
@@ -7,6 +8,49 @@ import type { IpcDeps } from '../deps'
 type SkillagerIpcDeps = Pick<IpcDeps, 'skillager'>
 
 export function registerSkillagerIpc(ipc: IpcRegistrar, deps: SkillagerIpcDeps): void {
+  ipc.handle('skillager:open-document', (request, context) =>
+    deps.skillager.content.open(
+      context.owner(),
+      {
+        ...qualifySkillagerRequest(ipc.authority, request),
+        selection: {
+          kind: request.selection.kind,
+          skillId: boundedText(request.selection.skillId),
+          libraryId:
+            request.selection.libraryId === undefined
+              ? undefined
+              : boundedText(request.selection.libraryId),
+          expectedHash:
+            request.selection.expectedHash === undefined
+              ? undefined
+              : boundedText(request.selection.expectedHash),
+          agent: request.selection.agent,
+          root: ipc.authority.reconstructHostPath(request.selection.root),
+          path: ipc.authority.reconstructHostPath(request.selection.path),
+        },
+      },
+      (path) => authorizeDocumentRead(ipc.authority, { path }),
+    ),
+  )
+  ipc.handle('skillager:read-document', (request, context) =>
+    deps.skillager.content.read(context.owner(), {
+      ...qualifySkillagerRequest(ipc.authority, request),
+      contentId: boundedText(request.contentId),
+      entry: boundedText(request.entry),
+      documentEntry:
+        request.documentEntry === undefined
+          ? undefined
+          : boundedText(request.documentEntry),
+    }),
+  )
+  ipc.handle('skillager:release-document', (request, context) =>
+    deps.skillager.content.release(context.owner(), boundedText(request.contentId)),
+  )
+  ipc.handle('skillager:cancel-document', (request, context) => {
+    if (!request || !Number.isSafeInteger(request.requestId) || request.requestId < 1)
+      throw new Error('Invalid skill document cancellation.')
+    return deps.skillager.content.cancel(context.owner(), request.requestId)
+  })
   ipc.handle('skillager:sync-status', (request, context) =>
     deps.skillager.librarySync.observe(
       context.owner(),

@@ -1,3 +1,6 @@
+import type { SkillagerContentSelection } from '../../shared/skillager-content'
+import type { SkillagerDocumentAccess } from './skillager-document-read'
+import { validateSkillagerDocumentBody } from './skillager-document-contract'
 import { SkillagerSearchCommands } from './skillager-search-commands'
 import {
   SkillagerExposurePlanCommands,
@@ -83,6 +86,65 @@ export class SkillagerCli implements SkillagerCliPort, SkillagerSetupCliPort {
     signal: AbortSignal,
   ): Promise<SkillagerCliSelection> {
     return this.operate(() => this.probeLocal(selected, signal))
+  }
+  async documentAccess(
+    selection: SkillagerCliSelection,
+    source: SkillagerContentSelection,
+    signal: AbortSignal,
+  ): Promise<SkillagerDocumentAccess> {
+    await this.validate(selection, signal)
+    if (source.kind !== 'library' || !selection.library)
+      throw new SkillagerError('invalid-request', 'Select a connected library document.')
+    return {
+      host: this.host,
+      root: selection.library.skillsRoot,
+      assertCurrent: () => signal.throwIfAborted(),
+    }
+  }
+  validateDocument(
+    selection: SkillagerCliSelection,
+    source: SkillagerContentSelection,
+    workspace: HostPath,
+    bytes: Uint8Array,
+    signal: AbortSignal,
+  ): Promise<void> {
+    return this.operate(async () => {
+      await this.validateLocal(selection, signal)
+      if (!source.expectedHash) return
+      if (
+        source.path.hostId !== 'local' ||
+        (source.kind !== 'library' && workspace.hostId !== 'local')
+      )
+        throw new SkillagerError(
+          'unavailable',
+          'Accepted source validation is unavailable on this host.',
+        )
+      const result = await this.process.runResult(
+        selection.executable.path,
+        [
+          '--catalog-state-dir',
+          selection.catalog.path,
+          ...(source.kind === 'library' ? ['--state-dir', selection.catalog.path] : []),
+          'show',
+          source.skillId,
+          '--content',
+          '--full-json',
+        ],
+        {
+          cwd: source.kind === 'library' ? this.context : workspace,
+          env: selection.environment,
+          signal,
+        },
+        SKILLAGER_INVENTORY_LIMITS,
+      )
+      if (result.code !== 0)
+        throw new SkillagerError(
+          'stale-review',
+          'The selected accepted search source changed or is unavailable. Refresh search, or explicitly open its current file.',
+        )
+      validateSkillagerDocumentBody(parseSkillagerJson(result.stdout), source, bytes)
+      await this.validateLocal(selection, signal)
+    })
   }
   async defaultLibraryRoot(selection: SkillagerCliSelection): Promise<HostPath> {
     const home = selection.environment.HOME

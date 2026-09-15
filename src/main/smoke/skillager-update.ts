@@ -1,21 +1,43 @@
+import { clickSkillagerDetailControl } from './skillager-review'
 import type { BrowserWindow } from 'electron'
 
 /** Production review/exposure owners and real Chromium; only the immediate CLI port is synthetic. */
 export async function verifySkillagerUpdate(win: BrowserWindow): Promise<void> {
-  await win.webContents.executeJavaScript(`(async () => {
+  const evaluate = (body: string) =>
+    win.webContents.executeJavaScript(`(async () => {
     const wait = (read) => new Promise((resolve, reject) => { const until = Date.now() + 30000; const poll = () => { const value = read(); if (value) return resolve(value); if (Date.now() > until) return reject(new Error('Workspace update condition timed out: ' + read.toString())); requestAnimationFrame(poll) }; poll() });
     const button = (scope, label) => [...document.querySelectorAll(scope + ' button')].find((item) => item.textContent.trim() === label);
     const row = () => [...document.querySelectorAll('section[aria-label="In this project"] .skillager-row')].find((item) => item.querySelector('.skillager-name')?.textContent === 'Skill 0');
+    ${body}
+  })()`)
+  await evaluate(`
     const entry = await wait(() => document.querySelector('section[aria-label="In this project"] [role=treeitem]')); entry.focus(); entry.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
     await wait(() => row()?.textContent.includes('Workspace copy behind'));
     row().click();
+    await wait(() => document.querySelector('.skillager-secondary'));
+    if (document.querySelector('.skillager-secondary').open) throw Error('Ordinary copy selection expanded metadata implicitly');
+  `)
+  await clickSkillagerDetailControl(win, '.skillager-secondary > summary')
+  await evaluate(`
     await wait(() => button('.skillager-review', 'Review workspace update'));
     if (document.querySelector('.skillager-details').textContent.includes('Preview workspace update')) throw new Error('Update preview appeared before explicit update review');
-    button('.skillager-review', 'Review workspace update').click();
+  `)
+  await clickSkillagerDetailControl(
+    win,
+    '.skillager-review button',
+    'Review workspace update',
+  )
+  await evaluate(`
     await wait(() => button('.skillager-review', 'Preview workspace update…'));
     await wait(() => document.querySelector('.skillager-review-content .cm-editor'));
     if (!document.querySelector('.skillager-review').textContent.includes('Reviewed workspace version')) throw new Error('Exact workspace diff versions were not disclosed');
-    button('.skillager-review', 'Preview workspace update…').click();
+  `)
+  await clickSkillagerDetailControl(
+    win,
+    '.skillager-review button',
+    'Preview workspace update…',
+  )
+  await evaluate(`
     await wait(() => button('.skillager-exposure-dialog', 'Preview changes'));
     if (!document.querySelector('.skillager-exposure-dialog').textContent.includes('Full skill')) throw new Error('Update changed exposure mode');
     button('.skillager-exposure-dialog', 'Preview changes').click();
@@ -32,8 +54,8 @@ export async function verifySkillagerUpdate(win: BrowserWindow): Promise<void> {
     await wait(() => document.querySelector('.skillager-details'));
     if (document.querySelector('.skillager-review-content') || button('.skillager-review', 'Preview workspace update…')) throw new Error('Closing review retained update content or proof');
     if (!document.querySelector('.terminal-container canvas') || !document.querySelector('.viewer-tab:not(.skillager-tab)')) throw new Error('Update displaced terminal or ordinary viewer');
-  })()`)
+  `)
   console.log(
-    '[smoke] Skill updates OK (acceptance-triggered authoritative badge; exact source diff; complete preview; mode-preserving explicit update; refreshed badge clearance; review content/proof cleanup; terminal and ordinary viewer preserved)',
+    '[smoke] Skill updates OK (acceptance-triggered authoritative badge; separate physical exact-review gesture; complete preview; mode-preserving explicit update; refreshed badge clearance; review content/proof cleanup; terminal and ordinary viewer preserved)',
   )
 }

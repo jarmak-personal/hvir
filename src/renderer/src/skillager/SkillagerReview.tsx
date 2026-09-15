@@ -40,7 +40,11 @@ export function SkillagerReview({
       </p>
     )
   return (
-    <section className="skillager-review" aria-label="Library content review">
+    <section
+      className="skillager-review"
+      aria-label="Library content review"
+      tabIndex={-1}
+    >
       <div className="skillager-review-actions">
         <button
           onClick={() => void controller.review(tab)}
@@ -166,7 +170,12 @@ export function SkillagerReview({
               source={state.mode === 'source'}
               diff={state.mode === 'diff' ? state.diff?.text : undefined}
               diffPath={joinHostPath(detail.root, 'SKILL.md')}
-              controller={controller}
+              navigation={{
+                root: detail.root,
+                entries: detail.files,
+                asset: controller.asset,
+                open: controller.content,
+              }}
             />
           </div>
           {detail.update && exposures ? (

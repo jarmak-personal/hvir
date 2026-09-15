@@ -53,12 +53,16 @@ function fixture(
     ),
     exposures: vi.fn(() => Promise.resolve([])),
   }
-  const cli: SkillagerCliPort & SkillagerLibrarySyncCliPort = {
+  const cli = {
     ...calls,
     ...overrides,
+    documentAccess: () => Promise.reject(new Error('Unexpected document read')),
+    validateDocument: () => Promise.reject(new Error('Unexpected document validation')),
     syncStatus: () => Promise.reject(new Error('Unexpected sync observation')),
     syncApproved: () => Promise.reject(new Error('Unexpected library sync')),
-  }
+  } satisfies SkillagerCliPort &
+    SkillagerLibrarySyncCliPort &
+    import('../src/main/skillager/skillager-document-read').SkillagerDocumentCliPort
   let available = true
   const capability = new SkillagerCapability(
     cli,

@@ -1,3 +1,5 @@
+import { useSkillagerContent } from './use-skillager-content'
+import { skillagerCanonicalContent } from './skillager-content-model'
 import { revealSkillagerFolder } from './skillager-files-reveal'
 import { unwrapOperation } from '../../../shared'
 import { useSkillagerLibrarySync } from './use-skillager-library-sync'
@@ -507,14 +509,34 @@ export function useSkillagerWorkspace(input: Options) {
     cancel,
   ])
 
-  const select = useCallback((metadata: SkillagerMetadata) => {
-    dispatchTabs({ type: 'select', metadata })
-    optionsRef.current.onActivate()
-  }, [])
-  const activate = useCallback((id: string) => {
-    dispatchTabs({ type: 'activate', id })
-    optionsRef.current.onActivate()
-  }, [])
+  const content = useSkillagerContent({
+    connection: options.enabled ? connection : undefined,
+    root: options.root,
+    agent,
+    activeId: tabs.activeId,
+    visible: options.enabled && options.viewerVisible,
+    projectConnection: options.projectState?.connectionState,
+  })
+  const activateContent = content.activate
+  const tabsRef = useRef(tabs.tabs)
+  tabsRef.current = tabs.tabs
+  const select = useCallback(
+    (metadata: SkillagerMetadata) => {
+      activateContent(metadata)
+      dispatchTabs({ type: 'select', metadata })
+      optionsRef.current.onActivate()
+    },
+    [activateContent],
+  )
+  const activate = useCallback(
+    (id: string) => {
+      const tab = tabsRef.current.find((item) => item.id === id)
+      if (tab) activateContent(tab.metadata)
+      dispatchTabs({ type: 'activate', id })
+      optionsRef.current.onActivate()
+    },
+    [activateContent],
+  )
   const deactivate = useCallback(() => dispatchTabs({ type: 'deactivate' }), [])
   const close = useCallback((id: string) => dispatchTabs({ type: 'close', id }), [])
   const clearSearch = useCallback(() => {
@@ -566,16 +588,17 @@ export function useSkillagerWorkspace(input: Options) {
 
   const [updateSelection, setUpdateSelection] = useState<SkillagerMetadata>()
   useEffect(() => {
-    if (!updateSelection || tabs.activeId !== skillagerMetadataKey(updateSelection))
-      return
+    if (!updateSelection) return
     setUpdateSelection(undefined)
+    if (tabs.activeId !== skillagerMetadataKey(updateSelection)) return
     void reviews.review({ id: tabs.activeId, metadata: updateSelection }, true)
   }, [updateSelection, tabs.activeId, reviews])
   const exposures = useSkillagerExposure({
     rows: library?.rows ?? [],
     projectRows,
     onUpdateReview: (metadata) => {
-      select(metadata)
+      dispatchTabs({ type: 'select', metadata })
+      optionsRef.current.onActivate()
       setUpdateSelection(metadata)
     },
     onFiles: async (path, signal) => {
@@ -611,7 +634,25 @@ export function useSkillagerWorkspace(input: Options) {
     onCompleted: afterAcceptance,
   })
 
+  const canonicalContent =
+    activeDetail && connection
+      ? skillagerCanonicalContent(
+          activeDetail.metadata,
+          connection.library,
+          canonical.rows,
+          librarySync.state.report?.lineages ?? [],
+          options.root!,
+        )
+      : undefined
   return {
+    reviewRequested: Boolean(
+      updateSelection && tabs.activeId === skillagerMetadataKey(updateSelection),
+    ),
+    content,
+    canonicalContent,
+    openCanonical: () => {
+      if (canonicalContent) select(canonicalContent)
+    },
     librarySync,
     project,
     canonical,

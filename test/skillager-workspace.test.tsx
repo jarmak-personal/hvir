@@ -184,7 +184,7 @@ describe('Skills renderer demand and metadata views', () => {
   it('requeries the submitted search after acceptance and rejects its obsolete in-flight result', async () => {
     await render()
     await connect()
-    act(() => current.select(rows[0]!))
+    await act(() => Promise.resolve(current.select(rows[0]!)))
     const tab = current.active!
     const original = invoke.getMockImplementation()!
     let oldSearch!: (value: unknown) => void
@@ -319,13 +319,21 @@ describe('Skills renderer demand and metadata views', () => {
     expect(mount.querySelector('.skillager-sidebar')?.textContent).not.toContain(
       'Workspace copy behind',
     )
-    act(() => (mount.querySelector('.skillager-row') as HTMLButtonElement).click())
+    await act(() =>
+      Promise.resolve(
+        (mount.querySelector('.skillager-row') as HTMLButtonElement).click(),
+      ),
+    )
     expect(current.active?.metadata.workspaceFreshness).toBe('stale')
     act(() => current.setLibraryExpanded(false))
     expect(mount.querySelector('.skillager-sidebar')?.textContent).not.toContain(
       'Workspace copy behind',
     )
-    act(() => (mount.querySelector('.skillager-row') as HTMLButtonElement).click())
+    await act(() =>
+      Promise.resolve(
+        (mount.querySelector('.skillager-row') as HTMLButtonElement).click(),
+      ),
+    )
     expect(current.active?.metadata.workspaceFreshness).toBe('stale')
     vi.spyOn(document, 'hasFocus').mockReturnValue(true)
     act(() => {
@@ -342,7 +350,11 @@ describe('Skills renderer demand and metadata views', () => {
     expect(mount.querySelector('.skillager-sidebar')?.textContent).not.toContain(
       'Workspace copy behind',
     )
-    act(() => (mount.querySelector('.skillager-row') as HTMLButtonElement).click())
+    await act(() =>
+      Promise.resolve(
+        (mount.querySelector('.skillager-row') as HTMLButtonElement).click(),
+      ),
+    )
     expect(current.active?.metadata.workspaceFreshness).toBe('stale')
     await act(async () => current.refresh())
     expect(count()).toBe(disconnectedReads + 1)
@@ -451,7 +463,11 @@ describe('Skills renderer demand and metadata views', () => {
     })
     await render()
     await connect()
-    act(() => current.select(skillagerProjectRows(observed('current').value)[0]!))
+    await act(() =>
+      Promise.resolve(
+        current.select(skillagerProjectRows(observed('current').value)[0]!),
+      ),
+    )
     await act(async () => current.reviews.review(current.active!))
     let old!: Promise<void>
     act(() => {
@@ -535,7 +551,11 @@ describe('Skills renderer demand and metadata views', () => {
         new KeyboardEvent('keydown', { key: 'Home', bubbles: true }),
       )
     })
-    act(() => (mount.querySelector('.skillager-row') as HTMLButtonElement).click())
+    await act(() =>
+      Promise.resolve(
+        (mount.querySelector('.skillager-row') as HTMLButtonElement).click(),
+      ),
+    )
     expect(mount.querySelectorAll('.skillager-tab')).toHaveLength(1)
     expect(mount.querySelector('.skillager-details')?.textContent).toContain(
       'Pending review',
@@ -723,7 +743,11 @@ describe('Skills renderer demand and metadata views', () => {
       expect(mount.querySelector('.skillager-row')?.textContent).toContain(
         `${status === 'current' ? 'Current' : 'Workspace copy removed'} · Cleanup retained`,
       )
-      act(() => mount.querySelector<HTMLButtonElement>('.skillager-row')!.click())
+      await act(() =>
+        Promise.resolve(
+          mount.querySelector<HTMLButtonElement>('.skillager-row')!.click(),
+        ),
+      )
       expect(current.active?.metadata.workspace?.reconciliation).toBe('cleanup-pending')
       expect(mount.querySelector('.skillager-details')?.textContent).toContain(
         'Cleanup retained',
@@ -733,10 +757,10 @@ describe('Skills renderer demand and metadata views', () => {
   it('clears details and metadata on workspace changes and all surfaces on disable', async () => {
     await render()
     await connect()
-    act(() => current.select(rows[0]!))
+    await act(() => Promise.resolve(current.select(rows[0]!)))
     await render({ root: localPath('/second') })
     expect(current.tabs).toHaveLength(0)
-    act(() => current.select(rows[1]!))
+    await act(() => Promise.resolve(current.select(rows[1]!)))
     act(() =>
       (mount.querySelector('.skillager-settings input') as HTMLInputElement).click(),
     )
