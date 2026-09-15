@@ -4,7 +4,6 @@ import {
   SKILLAGER_REFRESH_MS,
   type SkillagerAgent,
   type SkillagerConnection,
-  type SkillagerResult,
 } from '../../../shared/skillager'
 import type {
   SkillagerProjectObservation,
@@ -12,6 +11,11 @@ import type {
 } from '../../../shared/skillager-project'
 import type { PreparedTerminalSession } from '../terminal/terminal-workspace-model'
 import type { TerminalInitialStart } from '../terminal/terminal-runtime-options'
+import {
+  skillagerObservationFreshness,
+  retainSkillagerObservation,
+  type SkillagerObservationRead,
+} from './skillager-model'
 
 export type SkillagerSetupTerminal = (
   root: HostPath,
@@ -34,10 +38,11 @@ export function useSkillagerProject(options: {
     generation = useRef(0)
   const pending = useRef<AbortController>(undefined)
   const exitListener = useRef<(() => void) | undefined>(undefined)
-  const [read, setRead] = useState<{
-    loading: boolean
-    result?: SkillagerResult<SkillagerProjectObservation>
-  }>({ loading: false })
+  const [read, setRead] = useState<SkillagerObservationRead<SkillagerProjectObservation>>(
+    {
+      loading: false,
+    },
+  )
   const [starting, setStarting] = useState(false)
   const [running, setRunning] = useState(false)
   const [message, setMessage] = useState<string>()
@@ -62,19 +67,18 @@ export function useSkillagerProject(options: {
         requestId,
       })
       if (at === generation.current && requestId === sequence.current) {
-        setRead({ loading: false, result })
+        setRead(retainSkillagerObservation(result))
         if (result.ok) setRunning(result.value.setupRunning)
       }
     } catch {
       if (at === generation.current && requestId === sequence.current)
-        setRead({
-          loading: false,
-          result: {
+        setRead(
+          retainSkillagerObservation({
             ok: false,
             reason: 'unavailable',
             message: 'Project metadata is unavailable. Refresh to check again.',
-          },
-        })
+          }),
+        )
     }
   }, [])
 
@@ -207,7 +211,15 @@ export function useSkillagerProject(options: {
     }
   }, [refresh, running])
 
-  return { ...read, refresh, setup, starting, running, message }
+  return {
+    ...read,
+    ...skillagerObservationFreshness(options.demand, read),
+    refresh,
+    setup,
+    starting,
+    running,
+    message,
+  }
 }
 
 function initialSetupStart(

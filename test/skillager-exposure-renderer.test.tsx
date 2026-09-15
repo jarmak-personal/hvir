@@ -18,7 +18,10 @@ import {
   request,
   selection,
 } from './fixtures/skillager-exposure-fixture'
-import type { SkillagerMetadata } from '../src/shared/skillager'
+import {
+  SKILLAGER_INVENTORY_LIMIT,
+  type SkillagerMetadata,
+} from '../src/shared/skillager'
 import { asHostId, hostPath } from '../src/shared/host-path'
 import type { ProjectState } from '../src/shared/workspace-types'
 
@@ -47,6 +50,7 @@ function Harness({
   detailId = 'tab',
   showFirst = true,
   projects = projectState(),
+  projectRows = [],
 }: {
   visible?: boolean
   connected?: boolean
@@ -54,9 +58,11 @@ function Harness({
   detailId?: string
   showFirst?: boolean
   projects?: ProjectState
+  projectRows?: readonly SkillagerMetadata[]
 }) {
   controller = useSkillagerExposure({
     projectState: projects,
+    projectRows,
     agent: 'codex',
     visible,
     sidebarVisible: active,
@@ -137,6 +143,62 @@ async function open(): Promise<void> {
   await settle(() => controller.preview())
 }
 describe('workspace skill action UI', () => {
+  it('indexes the supported copy observation once and keeps captured actions bound to current rows', async () => {
+    let pathReads = 0
+    const rows: readonly SkillagerMetadata[] = Array.from(
+      { length: SKILLAGER_INVENTORY_LIMIT },
+      (_, index) => ({
+        ...metadata,
+        contentHash: 'a'.repeat(64),
+        workspaceFreshness: 'fresh',
+        workspace: {
+          agent: 'codex',
+          id: `copy-${index}`,
+          skillId: metadata.id,
+          target: Object.defineProperty(
+            hostPath(
+              request.workspaceRoot.hostId,
+              `${request.workspaceRoot.path}/.agents/skills/copy-${index}`,
+            ),
+            'path',
+            {
+              get() {
+                pathReads++
+                return `${request.workspaceRoot.path}/.agents/skills/copy-${index}`
+              },
+            },
+          ),
+          mode: 'native',
+          status: 'source_update',
+          expectedSourceHash: 'a'.repeat(64),
+        },
+      }),
+    )
+    await settle(() => root.render(<Harness projectRows={rows} />))
+    expect(pathReads).toBe(SKILLAGER_INVENTORY_LIMIT)
+    pathReads = 0
+    const actions = controller.menu.actions
+    for (const row of rows.slice(-40))
+      expect(actions(row).find((item) => item.action === 'review-update')?.disabled).toBe(
+        false,
+      )
+    expect(pathReads).toBe(40)
+    await settle(() => root.render(<Harness projectRows={rows} showFirst={false} />))
+    expect(pathReads).toBe(40)
+    const captured = rows.at(-1)!
+    await settle(() =>
+      root.render(
+        <Harness projectRows={[{ ...captured, workspaceFreshness: 'unavailable' }]} />,
+      ),
+    )
+    expect(
+      actions(captured).find((item) => item.action === 'review-update')?.disabled,
+    ).toBe(true)
+    await settle(() => root.render(<Harness projectRows={[]} />))
+    expect(
+      actions(captured).find((item) => item.action === 'review-update')?.disabled,
+    ).toBe(true)
+  })
   it.each(['continue', 'close', 'disable'] as const)(
     'awaits the previous full release before a reopened preview (%s)',
     async (next) => {
@@ -505,6 +567,7 @@ describe('workspace skill action UI', () => {
           expectedSourceHash: 'a'.repeat(64),
         },
       }
+      await settle(() => root.render(<Harness projectRows={[selected]} />))
       await settle(() => controller.start(selected, 'update', 'review-id'))
       await settle(() => controller.preview())
       expect(

@@ -29,6 +29,11 @@ import {
   skillagerTabs,
   skillagerProjectRows,
   skillagerMetadataKey,
+  skillagerObservationFreshness,
+  skillagerRowsFreshness,
+  skillagerWorkspaceMetadata,
+  retainSkillagerObservation,
+  type SkillagerObservationRead,
 } from './skillager-model'
 
 interface Options {
@@ -77,7 +82,7 @@ export function useSkillagerWorkspace(input: Options) {
   const [submitted, setSubmitted] = useState('')
   const [submittedContext, setSubmittedContext] = useState<SkillagerSearchContext>()
   const [search, setSearch] = useState<ReadState>(emptyRead)
-  const [inventory, setInventory] = useState<ReadState>(emptyRead)
+  const [inventory, setInventory] = useState<SkillagerObservationRead>(emptyRead)
   const [tabs, dispatchTabs] = useReducer(skillagerTabs, { tabs: [] })
   const [foreground, setForeground] = useState(
     () => document.visibilityState === 'visible' && document.hasFocus(),
@@ -275,18 +280,17 @@ export function useSkillagerWorkspace(input: Options) {
           browseAgent: 'all',
         })
         if (requestId !== requests.current.inventory || at !== generation.current) return
-        setInventory({ loading: false, result })
+        setInventory(retainSkillagerObservation(result))
         if (!result.ok && result.reason === 'library-changed') disconnect()
       } catch {
         if (requestId === requests.current.inventory && at === generation.current) {
-          setInventory({
-            loading: false,
-            result: {
+          setInventory(
+            retainSkillagerObservation({
               ok: false,
               reason: 'unavailable',
               message: 'Library metadata is unavailable. Try again.',
-            },
-          })
+            }),
+          )
         }
       } finally {
         if (requestId === requests.current.inventory) inventoryPending.current = false
@@ -422,7 +426,7 @@ export function useSkillagerWorkspace(input: Options) {
     demand: projectDemand,
   })
   const requiresLibraryMetadata = Boolean(
-    projectDemand && project.result?.ok && project.result.value.requiresLibraryMetadata,
+    projectDemand && project.observedExposures?.requiresLibraryMetadata,
   )
   const inventoryDemand = skillagerObservationDemand(
     options.enabled,
@@ -439,7 +443,28 @@ export function useSkillagerWorkspace(input: Options) {
           !activeDetail.metadata.routerMembership),
     ) && options.viewerVisible,
   )
-  const library = inventory.result?.ok ? inventory.result.value : undefined
+  const library = inventory.observed
+  const { freshness: inventoryFreshness, exposureFreshness: inventoryExposureFreshness } =
+    skillagerObservationFreshness(inventoryDemand, inventory)
+  const libraryRows = useMemo(
+    () =>
+      skillagerRowsFreshness(
+        library
+          ? skillagerWorkspaceMetadata(
+              library,
+              inventory.observedExposures,
+              inventoryExposureFreshness,
+            )
+          : [],
+        inventoryFreshness,
+      ),
+    [
+      library,
+      inventoryFreshness,
+      inventory.observedExposures,
+      inventoryExposureFreshness,
+    ],
+  )
   const canonicalRows = useMemo(
     () => canonicalSkillagerMetadata(library?.rows ?? []),
     [library],
@@ -448,41 +473,89 @@ export function useSkillagerWorkspace(input: Options) {
     () => ({
       rows: canonicalRows,
       checkedAt: library?.checkedAt,
-      freshness: !observing
-        ? 'stale'
-        : inventory.loading
-          ? 'checking'
-          : library
-            ? 'fresh'
-            : 'unavailable',
+      freshness: inventoryFreshness,
     }),
-    [canonicalRows, library, observing, inventory.loading],
+    [canonicalRows, library, inventoryFreshness],
   )
-  const projectResult = localProject ? project.result : inventory.result
+  const projectObservation = localProject ? project.observed : library
+  const projectReadFreshness = localProject ? project.freshness : inventoryFreshness
+  const projectExposureFreshness = localProject
+    ? project.exposureFreshness
+    : inventoryExposureFreshness
+  const projectFreshness =
+    projectReadFreshness === 'fresh' ? projectExposureFreshness : projectReadFreshness
+  const projectExposures = localProject
+    ? project.observedExposures
+    : inventory.observedExposures
   const projectRows = useMemo(
-    () => (projectResult?.ok ? skillagerProjectRows(projectResult.value, canonical) : []),
-    [projectResult, canonical],
+    () =>
+      skillagerRowsFreshness(
+        projectObservation
+          ? skillagerProjectRows(
+              projectObservation,
+              canonical,
+              projectExposures,
+              projectExposureFreshness,
+            )
+          : [],
+        projectReadFreshness,
+      ),
+    [
+      projectObservation,
+      canonical,
+      projectReadFreshness,
+      projectExposures,
+      projectExposureFreshness,
+    ],
   )
   useEffect(() => {
-    if (library) dispatchTabs({ type: 'observe', result: library, canonical })
+    if (library)
+      dispatchTabs({
+        type: 'observe',
+        result: library,
+        canonical,
+        exposureObservation: inventory.observedExposures,
+        exposureFreshness: inventoryExposureFreshness,
+      })
     if (canonical.freshness !== 'fresh')
       dispatchTabs({
         type: 'invalidate',
         scope: 'library',
         freshness: canonical.freshness,
       })
-  }, [library, canonical])
+  }, [library, canonical, inventory.observedExposures, inventoryExposureFreshness])
   useEffect(() => {
-    if (project.result?.ok)
-      dispatchTabs({ type: 'observe-project', result: project.result.value, canonical })
-    else if (project.result?.reason === 'library-changed') disconnect()
-    if ((project.result && !project.result.ok) || project.loading || !projectDemand)
+    if (!localProject) return
+    if (project.observed)
+      dispatchTabs({
+        type: 'observe-project',
+        result: project.observed,
+        canonical,
+        exposureObservation: project.observedExposures,
+        exposureFreshness: project.exposureFreshness,
+      })
+    if (
+      project.result &&
+      !project.result.ok &&
+      project.result.reason === 'library-changed'
+    )
+      disconnect()
+    if (projectReadFreshness !== 'fresh')
       dispatchTabs({
         type: 'invalidate',
         scope: 'project',
-        freshness: project.loading ? 'checking' : projectDemand ? 'unavailable' : 'stale',
+        freshness: projectReadFreshness,
       })
-  }, [project.result, project.loading, projectDemand, canonical, disconnect])
+  }, [
+    localProject,
+    project.observed,
+    project.result,
+    projectReadFreshness,
+    project.observedExposures,
+    project.exposureFreshness,
+    canonical,
+    disconnect,
+  ])
   useEffect(() => {
     if (!inventoryDemand) {
       cancel('inventory')
@@ -658,6 +731,8 @@ export function useSkillagerWorkspace(input: Options) {
     canonical,
     projectRows,
     refreshProjectMetadata,
+    libraryRows,
+    projectFreshness,
     projectExpanded,
     setProjectExpanded,
     libraryExpanded,

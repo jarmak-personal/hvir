@@ -31,6 +31,7 @@ const row: SkillagerMetadata = {
   exposure: 'unknown',
 }
 async function fixture() {
+  const focus = vi.spyOn(document, 'hasFocus').mockReturnValue(true)
   const node = document.createElement('div'),
     root = createRoot(node)
   document.body.append(node)
@@ -93,6 +94,7 @@ async function fixture() {
     dispose: async () => {
       await act(() => Promise.resolve(root.unmount()))
       node.remove()
+      focus.mockRestore()
     },
   }
 }
@@ -190,7 +192,19 @@ it('reveals/focuses explicit top-menu update review once without opening an ordi
         ? new Promise((resolve) => {
             finish = resolve
           })
-        : normal(channel, request),
+        : ['skillager:inventory', 'skillager:project-metadata'].includes(channel)
+          ? Promise.resolve({
+              ok: true,
+              value: {
+                rows: [row],
+                exposures: [update.workspace],
+                checkedAt: 1,
+                durationMs: 1,
+                requiresLibraryMetadata: true,
+                setupRunning: false,
+              },
+            })
+          : normal(channel, request),
     )
     const update: SkillagerMetadata = {
       ...row,
@@ -206,6 +220,7 @@ it('reveals/focuses explicit top-menu update review once without opening an ordi
         expectedSourceHash: row.contentHash,
       },
     }
+    await act(() => f.current.refreshProjectMetadata())
     await act(() => Promise.resolve(f.current.exposures.start(update, 'review-update')))
     expect(f.node.querySelector<HTMLDetailsElement>('.skillager-secondary')?.open).toBe(
       true,

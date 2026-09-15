@@ -113,14 +113,43 @@
   min-width: 0;
   text-align: left;
 }
+.skillager-section-header .skillager-section-heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 4px;
+  min-width: min-content;
+  white-space: nowrap;
+}
+.skillager-section-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.skillager-section-header > button:not(.skillager-section-heading) {
+  flex: none;
+  white-space: nowrap;
+}
 .skillager-sidebar .skillager-section-header button {
   border: 0;
   border-radius: 0;
   background: transparent;
+  padding-inline: 4px;
 }
 .skillager-section-header small {
   color: var(--text-muted);
   margin-left: 8px;
+}
+.skillager-section-heading small {
+  margin-left: 0;
+}
+.skillager-refresh-status {
+  color: var(--text-muted);
+  font-size: calc(11px * var(--hvir-interface-scale));
+  max-width: 90px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .skillager-section-notice,
 .skillager-pending-filter {

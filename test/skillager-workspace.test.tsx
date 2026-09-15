@@ -316,7 +316,7 @@ describe('Skills renderer demand and metadata views', () => {
     await act(async () => vi.advanceTimersByTimeAsync(120_000))
     expect(count()).toBe(initial + 1)
     expect(current.active?.metadata.workspaceFreshness).toBe('stale')
-    expect(mount.querySelector('.skillager-sidebar')?.textContent).not.toContain(
+    expect(mount.querySelector('.skillager-sidebar')?.textContent).toContain(
       'Workspace copy behind',
     )
     await act(() =>
@@ -326,7 +326,7 @@ describe('Skills renderer demand and metadata views', () => {
     )
     expect(current.active?.metadata.workspaceFreshness).toBe('stale')
     act(() => current.setLibraryExpanded(false))
-    expect(mount.querySelector('.skillager-sidebar')?.textContent).not.toContain(
+    expect(mount.querySelector('.skillager-sidebar')?.textContent).toContain(
       'Workspace copy behind',
     )
     await act(() =>
@@ -347,7 +347,7 @@ describe('Skills renderer demand and metadata views', () => {
     await act(async () => vi.advanceTimersByTimeAsync(120_000))
     expect(count()).toBe(disconnectedReads)
     expect(current.active?.metadata.workspaceFreshness).toBe('stale')
-    expect(mount.querySelector('.skillager-sidebar')?.textContent).not.toContain(
+    expect(mount.querySelector('.skillager-sidebar')?.textContent).toContain(
       'Workspace copy behind',
     )
     await act(() =>
@@ -494,14 +494,14 @@ describe('Skills renderer demand and metadata views', () => {
     )
     await act(async () => current.refresh())
     expect(current.active?.metadata).toMatchObject({
-      workspaceFreshness: 'fresh',
-      trust: 'unknown',
-      source: { ownership: 'unknown' },
+      workspaceFreshness: 'unavailable',
+      trust: 'reviewed',
+      source: { ownership: 'library' },
     })
     expect(mount.querySelector('.skillager-details')?.textContent).toContain(
-      'Source metadata is unavailable.',
+      'stale / unavailable',
     )
-    expect(mount.querySelector('.skillager-details')?.textContent).not.toContain(
+    expect(mount.querySelector('.skillager-details')?.textContent).toContain(
       'Workspace copy behind',
     )
   })

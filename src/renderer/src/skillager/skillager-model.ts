@@ -7,6 +7,7 @@ import {
 import type {
   SkillagerMetadata,
   SkillagerMetadataResult,
+  SkillagerResult,
   SkillagerWorkspaceExposure,
 } from '../../../shared/skillager'
 
@@ -14,6 +15,59 @@ export interface SkillagerCanonicalObservation {
   readonly rows: ReadonlyMap<string, SkillagerMetadata>
   readonly checkedAt?: number
   readonly freshness: NonNullable<SkillagerMetadata['workspaceFreshness']>
+}
+
+export interface SkillagerExposureObservation extends SkillagerMetadataResult {
+  readonly exposures: readonly SkillagerWorkspaceExposure[]
+}
+
+export interface SkillagerObservationRead<
+  T extends SkillagerMetadataResult = SkillagerMetadataResult,
+> {
+  readonly loading: boolean
+  readonly result?: SkillagerResult<T>
+  readonly observed?: T
+  readonly observedExposures?: T & SkillagerExposureObservation
+}
+
+/** Complete one read without replacing either last success with an unknown observation. */
+export function retainSkillagerObservation<T extends SkillagerMetadataResult>(
+  result: SkillagerResult<T>,
+): (previous: SkillagerObservationRead<T>) => SkillagerObservationRead<T> {
+  const observed = result.ok ? result.value : undefined
+  return (previous) => ({
+    loading: false,
+    result,
+    observed: observed ?? previous.observed,
+    observedExposures:
+      observed?.exposures !== undefined
+        ? { ...observed, exposures: observed.exposures }
+        : previous.observedExposures,
+  })
+}
+
+/** Retained observations are display evidence; only the owning read can renew freshness. */
+export function skillagerObservationFreshness(
+  demand: boolean,
+  read: Pick<SkillagerObservationRead, 'loading' | 'result'>,
+) {
+  const freshness = (succeeded: boolean): SkillagerCanonicalObservation['freshness'] =>
+    !demand ? 'stale' : read.loading ? 'checking' : succeeded ? 'fresh' : 'unavailable'
+  return {
+    freshness: freshness(Boolean(read.result?.ok)),
+    exposureFreshness: freshness(
+      Boolean(read.result?.ok && read.result.value.exposures !== undefined),
+    ),
+  }
+}
+
+export function skillagerRowsFreshness(
+  rows: readonly SkillagerMetadata[],
+  freshness: NonNullable<SkillagerMetadata['workspaceFreshness']>,
+): readonly SkillagerMetadata[] {
+  return freshness === 'fresh'
+    ? rows
+    : rows.map((row) => ({ ...row, workspaceFreshness: freshness }))
 }
 
 export interface SkillagerDetailTab {
@@ -30,6 +84,8 @@ export type SkillagerTabAction =
       readonly type: 'observe' | 'observe-project'
       readonly result: SkillagerMetadataResult
       readonly canonical?: SkillagerCanonicalObservation
+      readonly exposureObservation?: SkillagerExposureObservation
+      readonly exposureFreshness?: SkillagerCanonicalObservation['freshness']
     }
   | {
       readonly type: 'invalidate'
@@ -83,10 +139,20 @@ export function skillagerTabs(
         checkedAt: action.result.checkedAt,
         freshness: 'fresh' as const,
       }
+      const exposureObservation = action.exposureObservation ?? action.result
       const rows = new Map(
         [
-          ...skillagerWorkspaceMetadata(action.result),
-          ...skillagerProjectRows(action.result, canonical),
+          ...skillagerWorkspaceMetadata(
+            action.result,
+            exposureObservation,
+            action.exposureFreshness,
+          ),
+          ...skillagerProjectRows(
+            action.result,
+            canonical,
+            exposureObservation,
+            action.exposureFreshness,
+          ),
         ].map((row) => [skillagerMetadataKey(row), row]),
       )
       return {
@@ -97,35 +163,49 @@ export function skillagerTabs(
             return tab.metadata.search.occurrence.exposure
               ? {
                   ...tab,
-                  metadata: searchOccurrenceMetadata(tab.metadata, action.result),
+                  metadata: searchOccurrenceMetadata(
+                    tab.metadata,
+                    {
+                      ...action.result,
+                      exposures: exposureObservation.exposures,
+                      checkedAt: Math.min(
+                        exposureObservation.checkedAt,
+                        canonical.checkedAt ?? exposureObservation.checkedAt,
+                      ),
+                    },
+                    action.exposureFreshness && action.exposureFreshness !== 'fresh'
+                      ? action.exposureFreshness
+                      : canonical.freshness,
+                  ),
                 }
               : tab
           if (
             (tab.metadata.workspace || tab.metadata.routerMembership) &&
-            !action.result.exposures
+            !exposureObservation.exposures
           )
             return {
               ...tab,
               metadata: unavailableOccurrence(
                 tab.metadata,
                 canonical.rows,
-                action.result.checkedAt,
+                exposureObservation.checkedAt,
               ),
             }
           if (tab.metadata.routerMembership) {
-            const router = rows.get(
+            const routerRow = rows.get(
               skillagerMetadataKey({
                 ...tab.metadata,
                 workspace: tab.metadata.routerMembership,
                 routerMembership: undefined,
               }),
-            )?.workspace
+            )
+            const router = routerRow?.workspace
             return router?.router?.skillIds.includes(tab.metadata.id)
               ? {
                   ...tab,
                   metadata: skillagerRouterMember(router, tab.metadata.id, canonical, {
-                    workspaceFreshness: 'fresh',
-                    workspaceCheckedAt: action.result.checkedAt,
+                    workspaceFreshness: routerRow?.workspaceFreshness,
+                    workspaceCheckedAt: exposureObservation.checkedAt,
                   }),
                 }
               : {
@@ -133,7 +213,7 @@ export function skillagerTabs(
                   metadata: unavailableOccurrence(
                     tab.metadata,
                     canonical.rows,
-                    action.result.checkedAt,
+                    exposureObservation.checkedAt,
                     'This router membership is no longer reported by Skillager.',
                   ),
                 }
@@ -146,7 +226,7 @@ export function skillagerTabs(
               metadata: unavailableOccurrence(
                 tab.metadata,
                 canonical.rows,
-                action.result.checkedAt,
+                exposureObservation.checkedAt,
                 'This project copy is no longer reported by Skillager.',
               ),
             }
@@ -219,9 +299,12 @@ export function trustLabel(row: SkillagerMetadata): string {
 
 export function skillagerWorkspaceMetadata(
   data: SkillagerMetadataResult,
+  observation: SkillagerMetadataResult = data,
+  freshness: SkillagerCanonicalObservation['freshness'] = 'fresh',
 ): readonly SkillagerMetadata[] {
   const exposures = new Map<string, SkillagerWorkspaceExposure[]>()
-  for (const copy of data.exposures ?? []) {
+  const observedSources = canonicalSkillagerMetadata(observation.rows)
+  for (const copy of observation.exposures ?? []) {
     const identity = skillagerSourceKey(copy.sourceLibraryId, copy.skillId)
     if (!identity || copy.router) continue
     const copies = exposures.get(identity) ?? []
@@ -229,17 +312,30 @@ export function skillagerWorkspaceMetadata(
     exposures.set(identity, copies)
   }
   return data.rows.map((row) => {
-    if (row.search) return searchOccurrenceMetadata(row, data)
+    if (row.search)
+      return searchOccurrenceMetadata(
+        row,
+        {
+          ...data,
+          exposures: observation.exposures,
+          checkedAt: Math.min(data.checkedAt, observation.checkedAt),
+        },
+        freshness,
+      )
     const key = skillagerSourceKey(row.source.libraryId, row.id)
     const copies = key ? (exposures.get(key) ?? []) : []
+    const workspaceRouterCount = key
+      ? observedSources.get(key)?.workspaceRouterCount
+      : undefined
     return {
       ...row,
       workspace: undefined,
       workspaceCopies: copies,
-      workspaceCheckedAt: data.checkedAt,
-      workspaceFreshness: data.exposures ? 'fresh' : 'unavailable',
-      exposure: data.exposures
-        ? copies.length || row.workspaceRouterCount
+      workspaceRouterCount,
+      workspaceCheckedAt: Math.min(data.checkedAt, observation.checkedAt),
+      workspaceFreshness: observation.exposures ? freshness : 'unavailable',
+      exposure: observation.exposures
+        ? copies.length || workspaceRouterCount
           ? 'project'
           : 'hidden'
         : row.exposure,
@@ -299,6 +395,7 @@ export function skillagerOccurrenceLabel(
 function searchOccurrenceMetadata(
   row: SkillagerMetadata,
   data: SkillagerMetadataResult,
+  freshness: SkillagerCanonicalObservation['freshness'] = 'fresh',
 ): SkillagerMetadata {
   const selected = row.search!.occurrence.exposure
   if (!selected)
@@ -337,7 +434,7 @@ function searchOccurrenceMetadata(
     workspace: selected.router ? undefined : copy,
     routerMembership: selected.router ? copy : undefined,
     workspaceCheckedAt: data.checkedAt,
-    workspaceFreshness: observed ? 'fresh' : 'unavailable',
+    workspaceFreshness: observed ? freshness : 'unavailable',
   }
 }
 
@@ -400,6 +497,8 @@ export function skillagerProjectRows(
     checkedAt: data.checkedAt,
     freshness: 'fresh',
   },
+  observation: Pick<SkillagerMetadataResult, 'exposures' | 'checkedAt'> = data,
+  exposureFreshness: SkillagerCanonicalObservation['freshness'] = 'fresh',
 ): readonly SkillagerMetadata[] {
   const metadata = data.rows.filter(isNativeProjectSkill)
   const owned = canonical.rows
@@ -409,7 +508,7 @@ export function skillagerProjectRows(
       workspaceCheckedAt: data.checkedAt,
       workspaceFreshness: 'fresh' as const,
     })),
-    ...(data.exposures ?? []).map((exposure) => {
+    ...(observation.exposures ?? []).map((exposure) => {
       const key = skillagerSourceKey(exposure.sourceLibraryId, exposure.skillId)
       return {
         ...((key ? owned.get(key) : undefined) ?? unavailableSource(exposure)),
@@ -417,10 +516,14 @@ export function skillagerProjectRows(
         workspaceCopies: undefined,
         exposure: exposure.mode,
         workspaceFreshness:
-          key && owned.has(key) ? canonical.freshness : ('fresh' as const),
+          exposureFreshness !== 'fresh'
+            ? exposureFreshness
+            : key && owned.has(key)
+              ? canonical.freshness
+              : ('fresh' as const),
         workspaceCheckedAt: Math.min(
-          data.checkedAt,
-          canonical.checkedAt ?? data.checkedAt,
+          observation.checkedAt,
+          canonical.checkedAt ?? observation.checkedAt,
         ),
       }
     }),

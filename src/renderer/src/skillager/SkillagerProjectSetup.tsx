@@ -17,7 +17,7 @@ export function SkillagerProjectSetup({
   const [expanded, setExpanded] = useState(false)
   if (root.hostId !== 'local') return null
   const project = controller.project
-  const status = project.result?.ok ? project.result.value.status : undefined
+  const status = project.observed?.status
   const ready = status?.canProceed && status.working === 'present'
   return (
     <div className="skillager-project-setup-scroll">
@@ -61,7 +61,9 @@ export function SkillagerProjectSetup({
             </p>
             <button
               type="button"
-              disabled={project.starting || project.running || project.loading}
+              disabled={
+                project.starting || project.running || project.freshness !== 'fresh'
+              }
               onClick={() => void project.setup()}
             >
               {project.starting

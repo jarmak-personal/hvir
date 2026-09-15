@@ -425,7 +425,9 @@ it('marks only canonical-dependent project metadata checking during the shared l
     await reading
   })
   expect(current.projectRows[0]!.workspaceFreshness).toBe('fresh')
-  expect(current.projectRows[1]!.source.ownership).toBe('unknown')
+  expect(current.projectRows[1]!.source.ownership).toBe('library')
+  expect(current.projectRows[1]!.workspaceFreshness).toBe('unavailable')
+  expect(eligibleSkillagerUpdate(current.projectRows[1]!)).toBe(false)
   expect(current.projectRows[2]!.workspaceFreshness).toBe('fresh')
 })
 
