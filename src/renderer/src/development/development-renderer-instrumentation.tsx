@@ -1,13 +1,5 @@
-import {
-  DevelopmentPerformanceFixture,
-  DEVELOPMENT_PERFORMANCE_FIXTURE_EVENT,
-} from './development-performance-fixture'
-import {
-  DevelopmentPerformanceMeasureBudget,
-  DEVELOPMENT_MEASURE_ENTRY_BUDGET,
-  DEVELOPMENT_MEASURE_INSPECTION_INTERVAL_MS,
-  DEVELOPMENT_PERFORMANCE_MEASURE_POLICY_ID,
-} from './performance-measure-budget'
+import { DevelopmentPerformanceFixture } from './development-performance-fixture'
+import { DEVELOPMENT_PERFORMANCE_FIXTURE_REQUEST_EVENT } from './development-performance-events'
 
 export interface DevelopmentRendererInstrumentation {
   readonly dispose: () => void
@@ -15,45 +7,33 @@ export interface DevelopmentRendererInstrumentation {
 
 const ACTIVE_INSTRUMENTATION_KEY = '__hvirDevelopmentRendererInstrumentation'
 
-/** Installs renderer-local development containment and its disposable Electron fixture. */
+/** Installs the disposable renderer fixture used by development Electron acceptance. */
 export function installDevelopmentRendererInstrumentation(): DevelopmentRendererInstrumentation {
   const registry = window as typeof window & {
     [ACTIVE_INSTRUMENTATION_KEY]?: DevelopmentRendererInstrumentation
   }
   registry[ACTIVE_INSTRUMENTATION_KEY]?.dispose()
-  const budget = new DevelopmentPerformanceMeasureBudget(performance, window)
   let fixture: DevelopmentPerformanceFixture | undefined
   let disposed = false
   const startFixture = (): void => {
-    if (disposed) return
-    fixture?.dispose()
+    if (disposed || fixture) return
     fixture = new DevelopmentPerformanceFixture()
     fixture.start()
   }
 
-  document.documentElement.dataset.hvirDevelopmentPerformanceMeasureBudget = String(
-    DEVELOPMENT_MEASURE_ENTRY_BUDGET,
-  )
-  document.documentElement.dataset.hvirDevelopmentPerformanceMeasureInterval = String(
-    DEVELOPMENT_MEASURE_INSPECTION_INTERVAL_MS,
-  )
-  document.documentElement.dataset.hvirDevelopmentPerformanceMeasurePolicy =
-    DEVELOPMENT_PERFORMANCE_MEASURE_POLICY_ID
-  window.addEventListener(DEVELOPMENT_PERFORMANCE_FIXTURE_EVENT, startFixture)
-  budget.start()
+  window.addEventListener(DEVELOPMENT_PERFORMANCE_FIXTURE_REQUEST_EVENT, startFixture)
 
   const instrumentation: DevelopmentRendererInstrumentation = {
     dispose: (): void => {
       if (disposed) return
       disposed = true
-      budget.dispose()
       fixture?.dispose()
       fixture = undefined
       window.removeEventListener('pagehide', instrumentation.dispose)
-      window.removeEventListener(DEVELOPMENT_PERFORMANCE_FIXTURE_EVENT, startFixture)
-      delete document.documentElement.dataset.hvirDevelopmentPerformanceMeasureBudget
-      delete document.documentElement.dataset.hvirDevelopmentPerformanceMeasureInterval
-      delete document.documentElement.dataset.hvirDevelopmentPerformanceMeasurePolicy
+      window.removeEventListener(
+        DEVELOPMENT_PERFORMANCE_FIXTURE_REQUEST_EVENT,
+        startFixture,
+      )
       if (registry[ACTIVE_INSTRUMENTATION_KEY] === instrumentation) {
         delete registry[ACTIVE_INSTRUMENTATION_KEY]
       }

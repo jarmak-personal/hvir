@@ -306,12 +306,13 @@ session, PTY, presentation, and focus lifecycles remain independently owned.
 
 ### [ADR-025 — Remove the renderer-responsiveness diagnostic](adr/ADR-025-remove-renderer-responsiveness-diagnostic.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
 > Supersedes: [ADR-016](adr/ADR-016-bounded-local-runtime-diagnostics.md) | partial | Responsiveness episode candidate and its opt-in renderer diagnostic experiment.
+> Superseded by: [ADR-046](adr/ADR-046-react-owned-development-measure-containment.md) | partial | Requirement to preserve hvir's development Performance Timeline containment owner and budget fixture.
 
 The low-confidence Long Tasks experiment and its complete opt-in runtime/reporting surface are
-removed; independent capacity coverage, development measure containment, and Electron's
-high-confidence unresponsive lifecycle remain at their owning seams.
+removed; independent capacity coverage and Electron's high-confidence unresponsive lifecycle
+remain at their owning seams, while ADR-046 replaces hvir's development measure owner.
 
 ### [ADR-026 — Explicit SSH image paste through private remote materialization](adr/ADR-026-explicit-ssh-image-paste.md)
 
@@ -484,6 +485,15 @@ including native updates and package-owned removal; legacy npm migration remains
 
 Explicit same-host file activation opens ephemeral read-only outside-project tabs; automatic
 Markdown images remain within the canonical document directory and descendants.
+
+### [ADR-046 — React-owned development measure containment](adr/ADR-046-react-owned-development-measure-containment.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-025](adr/ADR-025-remove-renderer-responsiveness-diagnostic.md) | partial | Requirement to preserve hvir's development Performance Timeline containment owner and budget fixture.
+
+React owns cleanup of its development Performance measures; a development-only Electron fixture
+uses browser observation to prove real React work and an empty retained React measure set without
+adding product instrumentation.
 
 ## 5. Architecture
 
