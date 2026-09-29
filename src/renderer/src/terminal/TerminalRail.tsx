@@ -1,4 +1,4 @@
-import { useRef, type ReactElement } from 'react'
+import { useEffect, useRef, useSyncExternalStore, type ReactElement } from 'react'
 
 import type {
   HarnessProfile,
@@ -6,22 +6,14 @@ import type {
   HarnessProviderDescriptor,
   HarnessProviderId,
   WorkspaceState,
-  HarnessFacet,
-  HarnessUsageFacet,
-  SessionsFact,
-  SessionsUsageFact,
 } from '../../../shared'
 import { CompactionMarkers } from '../harness/CompactionMarkers'
-import {
-  SessionDetailsPopover,
-  type SessionDetailsModel,
-} from '../harness/SessionDetailsPopover'
+import { SessionDetailsPopover } from '../harness/SessionDetailsPopover'
+import { sessionDetailsModel } from '../harness/session-details-model'
 import { useSessionDetailsPopover } from '../harness/use-session-details-popover'
-import {
-  useApplicationFocus,
-  useTerminalDetailsUsage,
-} from '../harness/use-session-details-usage'
+import { useSessionsDetailsUsage } from '../harness/use-session-details-usage'
 import type { SessionsProjectionCoordinator } from '../sessions/sessions-projection-coordinator'
+import { useSessionsForeground } from '../sessions/use-sessions-foreground'
 import { terminalAttentionBadgeText, terminalAttentionLabel } from './terminal-attention'
 import {
   compactHarnessCapabilityLabel,
@@ -78,7 +70,7 @@ export function TerminalRail({
   readonly recoveryReady: boolean
   readonly available: boolean
   readonly menuOpen: boolean
-  readonly sessionsProjection?: SessionsProjectionCoordinator
+  readonly sessionsProjection: SessionsProjectionCoordinator
   readonly moveMenuOpen: boolean
   readonly moveTargets: readonly WorkspaceState[]
   readonly launchMenuEntries: readonly TerminalLaunchMenuEntry[]
@@ -105,19 +97,39 @@ export function TerminalRail({
   const details = useSessionDetailsPopover(label, () => {
     rail.current?.querySelector<HTMLButtonElement>('.terminal-list-main')?.focus()
   })
-  const detailsSession =
-    visible && details.request
-      ? sessions.find((session) => session.id === details.request?.target)
-      : undefined
-  const applicationFocused = useApplicationFocus()
-  const detailsUsage = useTerminalDetailsUsage(
-    detailsSession?.id,
-    visible && applicationFocused && details.request !== undefined,
-    sessionsProjection,
+  const detailsRequest = details.request
+  const dismissDetails = details.dismiss
+  const foreground = useSessionsForeground()
+  const projection = useSyncExternalStore(
+    sessionsProjection.subscribe,
+    sessionsProjection.snapshot,
+    sessionsProjection.snapshot,
   )
-  const detailsModel = detailsSession
-    ? terminalDetailsModel(detailsSession, label, providers, profiles, detailsUsage)
-    : undefined
+  const surfaceActive = visible && !compact && foreground
+  const detailsActive = surfaceActive && detailsRequest !== undefined
+  useEffect(() => {
+    if (!surfaceActive) dismissDetails(false)
+  }, [dismissDetails, surfaceActive])
+  const detailsRow =
+    projection.status === 'available' && detailsRequest
+      ? projection.rows.find(
+          (candidate) => String(candidate.handle) === detailsRequest.target,
+        )
+      : undefined
+  useEffect(() => {
+    if (detailsRequest && projection.status === 'available' && !detailsRow) {
+      dismissDetails(false)
+    }
+  }, [detailsRequest, detailsRow, dismissDetails, projection.status])
+  const detailsUsage = useSessionsDetailsUsage(detailsRow, projection, detailsActive)
+  useEffect(() => {
+    if (detailsActive) return sessionsProjection.acquire()
+  }, [detailsActive, sessionsProjection])
+  const detailsModel = detailsRow
+    ? sessionDetailsModel(detailsRow, detailsUsage)
+    : detailsRequest && projection.status === 'available'
+      ? null
+      : undefined
   const { menuRef: launchMenuRef, menuStyle: launchMenuStyle } =
     useTerminalLaunchMenuLayout(menuOpen)
   const applyCompact = (next: boolean): void => {
@@ -291,6 +303,8 @@ export function TerminalRail({
         {sessions.map((session) => {
           const provider = providerDescriptor(providers, session.providerId)
           const contextPresentation = provider?.capabilities.contextPresentation
+          const showsContext =
+            contextPresentation === 'count' || contextPresentation === 'pressure'
           return (
             <div
               key={session.id}
@@ -315,21 +329,24 @@ export function TerminalRail({
                     · {session.status}
                     {identityLabel(session.identityStatus)}
                   </span>
-                  {contextPresentation === 'count' ||
-                  contextPresentation === 'pressure' ? (
-                    <TerminalContextMeter
-                      telemetry={session.telemetry}
-                      countOnly={contextPresentation === 'count'}
-                      pressurePolicy={provider?.capabilities.contextPressure}
-                    />
+                  {showsContext ? (
+                    <>
+                      <TerminalContextMeter
+                        telemetry={session.telemetry}
+                        countOnly={contextPresentation === 'count'}
+                        pressurePolicy={provider?.capabilities.contextPressure}
+                      />
+                      {session.capabilities.compactionObservation ? (
+                        <CompactionMarkers
+                          fact={
+                            session.telemetry?.facets.compactions ?? {
+                              status: 'unavailable',
+                            }
+                          }
+                        />
+                      ) : null}
+                    </>
                   ) : null}
-                  <CompactionMarkers
-                    fact={
-                      session.telemetry?.facets.compactions ?? {
-                        status: 'unavailable',
-                      }
-                    }
-                  />
                 </span>
                 {session.attention ? (
                   <span
@@ -375,78 +392,6 @@ export function TerminalRail({
       <SessionDetailsPopover controller={details} details={detailsModel} />
     </aside>
   )
-}
-
-function terminalDetailsModel(
-  session: TerminalSession,
-  workspace: string,
-  providers: readonly HarnessProviderDescriptor[],
-  profiles: readonly HarnessProfile[],
-  demandedUsage?: SessionsUsageFact,
-): SessionDetailsModel {
-  const provider = providerDescriptor(providers, session.providerId)
-  const telemetry = session.telemetry
-  return {
-    title: session.title,
-    provider: provider?.displayName ?? String(session.providerId),
-    profile: profileDisplayName(profiles, session.profileId),
-    model: harnessFact(telemetry?.facets.model),
-    workspace,
-    host: session.cwd.hostId,
-    state: session.dormant ? 'Retained' : session.status,
-    context: harnessFact(telemetry?.facets.context),
-    compactions: telemetry?.facets.compactions ?? { status: 'unavailable' },
-    freshness: telemetry
-      ? telemetry.freshness.state === 'stale'
-        ? {
-            status: 'stale',
-            value: { staleAfterMs: telemetry.freshness.staleAfterMs },
-            observedAt: telemetry.observedAt,
-            reason: 'source-stale',
-          }
-        : {
-            status: 'available',
-            value: { staleAfterMs: telemetry.freshness.staleAfterMs },
-          }
-      : { status: 'unavailable', reason: 'source-unavailable' },
-    usage: demandedUsage ?? harnessUsageFact(telemetry?.facets.usage),
-    pressurePolicy: provider?.capabilities.contextPressure,
-  }
-}
-
-function harnessFact<T>(facet: HarnessFacet<T> | undefined): SessionsFact<T> {
-  if (!facet) return { status: 'unavailable', reason: 'source-unavailable' }
-  switch (facet.status) {
-    case 'unsupported':
-      return facet
-    case 'pending':
-      return { status: 'pending', reason: 'telemetry-pending' }
-    case 'unavailable':
-      return { status: 'unavailable', reason: 'source-unavailable' }
-    case 'available':
-      return facet
-    case 'stale':
-      return { ...facet, reason: 'source-stale' }
-  }
-}
-
-function harnessUsageFact(facet: HarnessUsageFacet | undefined): SessionsUsageFact {
-  if (!facet) return { status: 'unavailable', reason: 'source-unavailable' }
-  switch (facet.status) {
-    case 'unsupported':
-      return facet
-    case 'pending':
-      return { status: 'pending', reason: 'observation-pending' }
-    case 'unavailable':
-      return { status: 'unavailable', reason: 'source-unavailable' }
-    case 'reset':
-      return { status: 'reset', reason: 'source-unavailable' }
-    case 'exact':
-    case 'partial':
-      return { ...facet, observedAt: Date.now() }
-    case 'stale':
-      return { ...facet, reason: 'source-unavailable' }
-  }
 }
 
 function providerDescriptor(

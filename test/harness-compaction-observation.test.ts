@@ -27,33 +27,27 @@ import { LocalHost } from '../src/main/project-host/local-host'
 const startedAt = Date.parse('2026-09-28T12:00:00.000Z')
 
 describe('completed harness compaction observation', () => {
-  it('counts only new completed identities, deduplicates replay, and retains gaps', () => {
+  it('counts completed identities independent of provider clock skew, deduplicates replay, and retains gaps', () => {
     const observation = new HarnessCompactionObservation(true, () => startedAt)
     const base = telemetry()
 
-    expect(
-      observation.accept(base, {
-        identity: 'before-period',
-        observedAt: startedAt - 1,
-      }),
-    ).toBeUndefined()
     const first = observation.accept(base, {
       identity: 'window-1',
-      observedAt: startedAt + 1,
+      observedAt: startedAt - 60_000,
     })!
     expect(first.facets.compactions).toEqual({
       status: 'available',
       value: {
         observedCount: 1,
         periodStartedAt: startedAt,
-        lastObservedAt: startedAt + 1,
+        lastObservedAt: startedAt,
         coverage: 'continuous',
       },
     })
     expect(
       observation.accept(first, {
         identity: 'window-1',
-        observedAt: startedAt + 1,
+        observedAt: startedAt - 60_000,
       }),
     ).toBeUndefined()
     expect(observation.gap(first).facets.compactions).toMatchObject({
@@ -99,13 +93,15 @@ describe('completed harness compaction observation', () => {
     const rolloutPath = localPath(join(directory, 'rollout.jsonl'))
     const host = new LocalHost()
     const emitted: HarnessTelemetry[] = []
+    const historicalAt = new Date(Date.now() - 120_000).toISOString()
     const firstAt = new Date(Date.now() + 1_000).toISOString()
     const secondAt = new Date(Date.now() + 2_000).toISOString()
-    await writeFile(rolloutPath.path, '')
+    await writeFile(rolloutPath.path, `${codexCompactionRecord(historicalAt)}\n`)
     await host.connect()
     let stop: (() => void | Promise<void>) | undefined
     try {
       stop = await observeCodexContext(host, observationContext(rolloutPath, emitted))
+      await vi.waitFor(() => expect(observedCompactions(emitted.at(-1))).toBe(0))
       await appendFile(
         rolloutPath.path,
         `${codexContextRecord(40_000)}\n${codexCompactionRecord(firstAt)}\n`,

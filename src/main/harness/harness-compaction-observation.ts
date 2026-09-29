@@ -1,4 +1,9 @@
-import type { HarnessCompactionFacet, HarnessFacet, HarnessTelemetry } from '../../shared'
+import type {
+  HarnessCompactionFacet,
+  HarnessFacet,
+  HarnessTelemetry,
+  HostPath,
+} from '../../shared'
 import type { ProjectHost } from '../project-host'
 
 const MAX_REPLAY_IDENTITIES = 512
@@ -20,7 +25,7 @@ export class HarnessCompactionObservation {
 
   constructor(
     private readonly supported: boolean,
-    now: () => number = Date.now,
+    private readonly now: () => number = Date.now,
   ) {
     this.periodStartedAt = now()
   }
@@ -40,21 +45,17 @@ export class HarnessCompactionObservation {
       !this.supported ||
       !boundedIdentity(record.identity) ||
       !validTimestamp(record.observedAt) ||
-      record.observedAt < this.periodStartedAt ||
       this.identities.has(record.identity)
     ) {
       return undefined
     }
-    this.identities.add(record.identity)
-    this.identityOrder.push(record.identity)
-    if (this.identityOrder.length > MAX_REPLAY_IDENTITIES) {
-      this.identities.delete(this.identityOrder.shift()!)
-    }
+    this.retainIdentity(record.identity)
     this.observedCount += 1
-    this.lastObservedAt = Math.max(this.lastObservedAt ?? 0, record.observedAt)
+    const observedAt = this.now()
+    this.lastObservedAt = Math.max(this.lastObservedAt ?? 0, observedAt)
     return this.merge({
       ...telemetry,
-      observedAt: Math.max(telemetry.observedAt, record.observedAt),
+      observedAt: Math.max(telemetry.observedAt, observedAt),
       facets: {
         ...telemetry.facets,
         context: {
@@ -63,6 +64,18 @@ export class HarnessCompactionObservation {
         },
       },
     })
+  }
+
+  seed(record: CompletedHarnessCompaction): void {
+    if (
+      !this.supported ||
+      !boundedIdentity(record.identity) ||
+      !validTimestamp(record.observedAt) ||
+      this.identities.has(record.identity)
+    ) {
+      return
+    }
+    this.retainIdentity(record.identity)
   }
 
   gap(telemetry: HarnessTelemetry): HarnessTelemetry {
@@ -87,6 +100,40 @@ export class HarnessCompactionObservation {
         coverage: this.coverage,
       },
     }
+  }
+
+  private retainIdentity(identity: string): void {
+    this.identities.add(identity)
+    this.identityOrder.push(identity)
+    if (this.identityOrder.length > MAX_REPLAY_IDENTITIES) {
+      this.identities.delete(this.identityOrder.shift()!)
+    }
+  }
+}
+
+/** Seed bounded existing identities so delayed follower replay cannot inflate the period. */
+export async function seedHarnessCompactionReplay(
+  host: ProjectHost,
+  path: HostPath,
+  signal: AbortSignal,
+  observation: HarnessCompactionObservation,
+  parse: (record: string) => CompletedHarnessCompaction | undefined,
+): Promise<void> {
+  try {
+    const result = await host.exec('tail', ['-n', '512', '--', path.path], {
+      signal,
+      maxBuffer: 8 * 1024 * 1024,
+    })
+    if (result.code !== 0 || result.outputTruncated || signal.aborted) {
+      observation.noteGap()
+      return
+    }
+    for (const line of result.stdout.split('\n')) {
+      const record = parse(line)
+      if (record) observation.seed(record)
+    }
+  } catch {
+    if (!signal.aborted) observation.noteGap()
   }
 }
 

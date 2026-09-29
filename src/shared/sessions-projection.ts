@@ -169,7 +169,10 @@ export interface SessionsObservedSession {
   readonly handle: SessionsTerminalHandle
   readonly workspaceId: SessionsWorkspaceHandle
   readonly providerId: HarnessProviderId
-  readonly profile: SessionsFact<{ readonly id: HarnessProfileId }>
+  readonly profile: SessionsFact<{
+    readonly id: HarnessProfileId
+    readonly displayName?: string
+  }>
   readonly title: string
   readonly lifecycle: 'retained' | 'live'
   readonly livePty?: SessionsLivePtyQualifier
@@ -287,7 +290,10 @@ export interface SessionsProjectionRow {
     readonly kind: 'agent' | 'shell' | 'unknown'
     readonly contextPressure?: HarnessContextPressurePolicy
   }
-  readonly profile: SessionsFact<{ readonly id: HarnessProfileId }>
+  readonly profile: SessionsFact<{
+    readonly id: HarnessProfileId
+    readonly displayName?: string
+  }>
   readonly title: string
   readonly lifecycle: SessionsLifecycle
   readonly lifecycleReason?: SessionsReasonCode

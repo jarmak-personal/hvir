@@ -61,7 +61,7 @@ describe('provider usage over an SSH-qualified host', () => {
           if (telemetry) emitted.push(telemetry)
         },
       })
-      const timestamp = new Date(Date.now() + 1_000).toISOString()
+      const timestamp = new Date(Date.now() - 60_000).toISOString()
       await appendFile(
         rollout,
         `${JSON.stringify({ timestamp, type: 'compacted', payload: { private: true } })}\n`,

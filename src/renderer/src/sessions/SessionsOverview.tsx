@@ -18,21 +18,15 @@ import type {
   SessionsTerminalHandle,
   SessionsWorkspaceQualifier,
 } from '../../../shared'
-import {
-  SessionDetailsPopover,
-  type SessionDetailsModel,
-} from '../harness/SessionDetailsPopover'
+import { SessionDetailsPopover } from '../harness/SessionDetailsPopover'
+import { sessionDetailsModel } from '../harness/session-details-model'
 import { useSessionDetailsPopover } from '../harness/use-session-details-popover'
 import { useSessionsDetailsUsage } from '../harness/use-session-details-usage'
 import { SessionsOverviewCard } from './SessionsOverviewCard'
 import { SessionsOverviewNotice } from './SessionsOverviewNotice'
 import { SessionsCollectionToolbar } from './SessionsCollectionToolbar'
 import { SessionsTerminalDetail } from './SessionsTerminalDetail'
-import {
-  SessionsProjectionCoordinator,
-  createSessionsMainObservationPort,
-} from './sessions-projection-coordinator'
-import type { SessionsRendererObservationPort } from './sessions-renderer-observation'
+import type { SessionsProjectionCoordinator } from './sessions-projection-coordinator'
 import { sessionsTerminalOverlayOrigin } from './sessions-terminal-overlay'
 import {
   sessionsTerminalSurfaceEligible,
@@ -54,8 +48,7 @@ import {
 } from './sessions-overview-model'
 
 interface SessionsOverviewProps {
-  readonly projection?: SessionsProjectionCoordinator
-  readonly observation?: SessionsRendererObservationPort
+  readonly projection: SessionsProjectionCoordinator
   readonly surface: SessionsTerminalSurfacePort
   readonly onOpened: (state: ProjectState) => void
   readonly onFocusOpened: (
@@ -68,21 +61,12 @@ interface SessionsOverviewProps {
 
 export function SessionsOverview({
   projection,
-  observation,
   surface,
   onOpened,
   onFocusOpened,
   onOpenFailed,
 }: SessionsOverviewProps): ReactElement {
-  const ownedProjection = useRef<SessionsProjectionCoordinator | undefined>(undefined)
-  if (!projection && !ownedProjection.current && observation) {
-    ownedProjection.current = new SessionsProjectionCoordinator(
-      createSessionsMainObservationPort(window.hvir),
-      observation,
-    )
-  }
-  const source = projection ?? ownedProjection.current
-  if (!source) throw new Error('Sessions projection is unavailable')
+  const source = projection
   const foreground = useSessionsForeground()
   const snapshot = useSyncExternalStore(
     source.subscribe,
@@ -530,36 +514,10 @@ export function SessionsOverview({
       ) : null}
       <SessionDetailsPopover
         controller={details}
-        details={detailsRow ? sessionsDetailsModel(detailsRow, detailsUsage) : undefined}
+        details={detailsRow ? sessionDetailsModel(detailsRow, detailsUsage) : undefined}
       />
     </>
   )
-}
-
-function sessionsDetailsModel(
-  row: SessionsProjectionRow,
-  usage?: SessionsProjectionRow['usage'],
-): SessionDetailsModel {
-  return {
-    title: row.title,
-    provider: row.provider.name,
-    profile:
-      row.profile.status === 'available' || row.profile.status === 'stale'
-        ? String(row.profile.value.id)
-        : 'Unavailable',
-    model: row.model,
-    workspace: `${row.project.name} / ${row.workspace.name}`,
-    host: `${row.host.label}${row.host.kind === 'ssh' ? ' · SSH' : ''}`,
-    state:
-      row.connectionState === 'connected'
-        ? row.lifecycle
-        : `${row.lifecycle} · ${row.connectionState}`,
-    context: row.context,
-    compactions: row.compactions ?? { status: 'unsupported' },
-    freshness: row.telemetryFreshness,
-    usage: usage ?? row.usage,
-    pressurePolicy: row.provider.contextPressure,
-  }
 }
 
 function openUnavailableMessage(reason: SessionsOpenUnavailableReason): string {

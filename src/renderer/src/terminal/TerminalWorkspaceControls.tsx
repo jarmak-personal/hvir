@@ -1,4 +1,4 @@
-import type { Dispatch, ReactElement, SetStateAction } from 'react'
+import { useEffect, type Dispatch, type ReactElement, type SetStateAction } from 'react'
 
 import type { TerminalPreferences } from '../settings/settings'
 import type { SessionsProjectionCoordinator } from '../sessions/sessions-projection-coordinator'
@@ -42,7 +42,7 @@ export function TerminalWorkspaceControls({
   readonly railCompact: boolean
   readonly onRailCompact: (compact: boolean) => void
   readonly menuOpen: boolean
-  readonly sessionsProjection?: SessionsProjectionCoordinator
+  readonly sessionsProjection: SessionsProjectionCoordinator
   readonly setMenuOpen: Dispatch<SetStateAction<boolean>>
   readonly model: TerminalWorkspaceModel
   readonly profileState: ReturnType<typeof useTerminalProfiles>
@@ -78,6 +78,14 @@ export function TerminalWorkspaceControls({
       state: harnessLaunchMenuState(profile, probe, pendingProbeIds.has(profile.id)),
     }
   })
+  useEffect(() => {
+    if (!menuOpen) return
+    const close = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setMenuOpen(false)
+    }
+    window.addEventListener('keydown', close)
+    return () => window.removeEventListener('keydown', close)
+  }, [menuOpen, setMenuOpen])
 
   return (
     <>

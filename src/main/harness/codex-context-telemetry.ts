@@ -38,6 +38,7 @@ import type { HarnessTelemetryFollowerHealth } from './harness-telemetry-protoco
 import { scheduleHarnessUsageRead } from './harness-usage-read-scheduler'
 import {
   HarnessCompactionObservationRegistry,
+  seedHarnessCompactionReplay,
   type CompletedHarnessCompaction,
 } from './harness-compaction-observation'
 
@@ -216,6 +217,14 @@ export async function observeCodexContext(
     context.sessionId,
     context.effectiveCapabilities?.compactionObservation === true,
   )
+  await seedHarnessCompactionReplay(
+    host,
+    rolloutPath,
+    context.signal,
+    compactions,
+    parseCodexCompletedCompaction,
+  )
+  if (context.signal.aborted) return () => undefined
   let latest = compactions.merge(
     codexContextHealth(context.sessionId, {
       status: 'pending',

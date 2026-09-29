@@ -18,9 +18,7 @@ const MAX_FOLLOWER_RESTARTS = 3
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /** A provider accepted a healthy record that does not itself publish telemetry. */
-export const HEALTHY_HARNESS_TELEMETRY_RECORD = Symbol(
-  'healthy-harness-telemetry-record',
-)
+export const HEALTHY_HARNESS_TELEMETRY_RECORD = Symbol('healthy-harness-telemetry-record')
 
 export interface HarnessTelemetrySubscription {
   readonly subscriptionId: string

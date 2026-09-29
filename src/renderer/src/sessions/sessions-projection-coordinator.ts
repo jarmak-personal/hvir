@@ -367,7 +367,15 @@ function projectRow(
       contextPressure: provider?.contextPressure,
     },
     profile: renderer
-      ? { status: 'available', value: { id: renderer.profileId } }
+      ? {
+          status: 'available',
+          value: {
+            id: renderer.profileId,
+            ...(renderer.profileDisplayName
+              ? { displayName: renderer.profileDisplayName }
+              : {}),
+          },
+        }
       : main!.profile,
     title: sessionsProjectionDisplayTitle(
       renderer?.title ?? main?.title,

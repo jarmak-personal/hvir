@@ -1,6 +1,12 @@
 // @vitest-environment happy-dom
 
-import { act, type ReactElement } from 'react'
+import {
+  act,
+  useEffect,
+  useSyncExternalStore,
+  type ComponentProps,
+  type ReactElement,
+} from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -8,13 +14,24 @@ import { CompactionMarkers } from '../src/renderer/src/harness/CompactionMarkers
 import { compactionMarkerPresentation } from '../src/renderer/src/harness/compaction-marker-presentation'
 import { SessionDetailsPopover } from '../src/renderer/src/harness/SessionDetailsPopover'
 import { useSessionDetailsPopover } from '../src/renderer/src/harness/use-session-details-popover'
-import { useTerminalDetailsUsage } from '../src/renderer/src/harness/use-session-details-usage'
+import { useSessionsDetailsUsage } from '../src/renderer/src/harness/use-session-details-usage'
+import { SessionsOverviewCard } from '../src/renderer/src/sessions/SessionsOverviewCard'
 import type { SessionsProjectionCoordinator } from '../src/renderer/src/sessions/sessions-projection-coordinator'
+import { TerminalRail } from '../src/renderer/src/terminal/TerminalRail'
 import {
+  asHarnessProfileId,
+  asHarnessProviderId,
+  asSessionsProjectHandle,
   asSessionsPtyHandle,
   asSessionsTerminalHandle,
+  asSessionsWorkspaceHandle,
+  contextHarnessSnapshot,
+  localPath,
+  sessionsWorkspaceQualifier,
+  type SessionsProjectionRow,
   type SessionsProjectionSnapshot,
 } from '../src/shared'
+import type { TerminalSession } from '../src/renderer/src/terminal/terminal-workspace-model'
 
 let root: Root
 let host: HTMLDivElement
@@ -73,6 +90,85 @@ describe('compaction marker presentation', () => {
       document.querySelector('.compaction-markers')?.getAttribute('aria-label'),
     ).toContain('unsupported')
   })
+
+  it('renders matching facts with independent overflow in a rail row and Sessions card', () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      const width = this.classList.contains('session-card-compactions') ? 400 : 40
+      return DOMRect.fromRect({ width, height: 10 })
+    })
+    const row = projectedRow(20)
+    act(() =>
+      root.render(
+        <>
+          <TerminalRail
+            label="main"
+            visible
+            compact={false}
+            onCompact={vi.fn()}
+            terminalTheme="app"
+            recoveryReady
+            available
+            menuOpen={false}
+            sessionsProjection={staticProjection(row)}
+            moveMenuOpen={false}
+            moveTargets={[]}
+            launchMenuEntries={[]}
+            split={false}
+            sessions={[terminalSession(20)]}
+            activeId="terminal-one"
+            providers={[
+              {
+                id: asHarnessProviderId('codex'),
+                displayName: 'Codex',
+                default: true,
+                capabilities: {
+                  sessionIdentity: 'preassigned',
+                  exactResume: true,
+                  contextPresentation: 'pressure',
+                  compactionObservation: true,
+                },
+                terminalInput: {
+                  modifiedKeyProtocol: 'csi-u',
+                  metaEnterAliasesControl: false,
+                },
+                profileGuidance: { reservedArguments: [] },
+              },
+            ]}
+            profiles={[]}
+            onSplit={vi.fn()}
+            onOpenSettings={vi.fn()}
+            onToggleMenu={vi.fn()}
+            onToggleMoveMenu={vi.fn()}
+            onPlanMove={vi.fn()}
+            onDismissNewTargets={vi.fn()}
+            onAddSession={vi.fn()}
+            onAddHarness={vi.fn()}
+            onRefreshProbes={vi.fn()}
+            onOpenHarnessSettings={vi.fn()}
+            onFocusSession={vi.fn()}
+            onMoveSession={vi.fn()}
+            onCloseSession={vi.fn()}
+          />
+          <article className="session-card">
+            <SessionsOverviewCard row={row} group="none" opening={false} />
+          </article>
+        </>,
+      ),
+    )
+
+    const markers = [...document.querySelectorAll<HTMLElement>('.compaction-markers')]
+    expect(markers).toHaveLength(2)
+    expect(markers.map((marker) => marker.getAttribute('aria-label'))).toEqual([
+      '20 observed compactions during this app observation period',
+      '20 observed compactions during this app observation period',
+    ])
+    expect(markers[0]?.dataset.state).toBe('summary')
+    expect(markers[0]?.textContent).toContain('×20')
+    expect(markers[1]?.dataset.state).toBe('circles')
+    expect(markers[1]?.querySelectorAll('.compaction-marker')).toHaveLength(20)
+  })
 })
 
 describe('session details popover interaction', () => {
@@ -126,6 +222,38 @@ describe('session details popover interaction', () => {
     expect(
       document.querySelector<HTMLButtonElement>('[aria-label="Close session details"]'),
     ).toBe(document.activeElement)
+  })
+
+  it('keeps a rail request open while its projection lease becomes available', async () => {
+    const calls: string[] = []
+    const projection = unavailableProjectionThenAvailable(projectedRow(0), calls)
+    Object.defineProperty(window, 'hvir', {
+      configurable: true,
+      value: {
+        invoke: vi.fn(() => Promise.resolve(true)),
+        on: vi.fn(() => () => undefined),
+      },
+    })
+    act(() => root.render(<TerminalRail {...terminalRailProps(projection)} />))
+
+    await act(async () => {
+      document
+        .querySelector<HTMLElement>('.terminal-list-row')
+        ?.dispatchEvent(
+          new MouseEvent('contextmenu', {
+            bubbles: true,
+            cancelable: true,
+            clientX: 30,
+            clientY: 40,
+          }),
+        )
+      await flushMicrotasks()
+    })
+
+    expect(calls).toEqual(['projection:acquire'])
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+      'Terminal one',
+    )
   })
 })
 
@@ -188,6 +316,87 @@ describe('session details usage demand', () => {
       )
       await flushMicrotasks()
     })
+    expect(calls.slice(-2)).toEqual(['sessions:usage-release', 'projection:release'])
+  })
+
+  it('does not demand usage for a disconnected projected host', async () => {
+    const terminal = asSessionsTerminalHandle('terminal-disconnected')
+    const pty = asSessionsPtyHandle('pty-disconnected')
+    const calls: string[] = []
+    const projection = projectionStub(terminal, pty, calls, 'disconnected')
+    const invoke = vi.fn(() => Promise.resolve(true))
+    Object.defineProperty(window, 'hvir', {
+      configurable: true,
+      value: { invoke, on: vi.fn(() => () => undefined) },
+    })
+
+    await act(async () => {
+      root.render(
+        <TerminalUsageFixture active terminalId={terminal} projection={projection} />,
+      )
+      await flushMicrotasks()
+    })
+
+    expect(calls).toEqual(['projection:acquire'])
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
+  it('rejects a late usage result after demand and identity are revoked', async () => {
+    const terminal = asSessionsTerminalHandle('terminal-late')
+    const pty = asSessionsPtyHandle('pty-late')
+    const calls: string[] = []
+    const projection = projectionStub(terminal, pty, calls)
+    let resolveObserve: ((value: unknown) => void) | undefined
+    Object.defineProperty(window, 'hvir', {
+      configurable: true,
+      value: {
+        invoke: vi.fn(
+          (channel: string, request: { demandGeneration: number }): Promise<unknown> => {
+            calls.push(channel)
+            if (channel !== 'sessions:usage-observe') return Promise.resolve(true)
+            return new Promise((resolve) => {
+              resolveObserve = resolve
+            }).then(() => ({
+              version: 1,
+              demandGeneration: request.demandGeneration,
+              revision: 1,
+              sampledAt: 10,
+              rows: [
+                {
+                  handle: terminal,
+                  usage: {
+                    status: 'exact',
+                    observedAt: 10,
+                    value: { freshInputTokens: 77 },
+                  },
+                },
+              ],
+            }))
+          },
+        ),
+        on: vi.fn(() => () => undefined),
+      },
+    })
+
+    await act(async () => {
+      root.render(
+        <TerminalUsageFixture active terminalId={terminal} projection={projection} />,
+      )
+      await flushMicrotasks()
+    })
+    await act(async () => {
+      root.render(
+        <TerminalUsageFixture
+          active={false}
+          terminalId={terminal}
+          projection={projection}
+        />,
+      )
+      resolveObserve?.(true)
+      await flushMicrotasks()
+    })
+
+    expect(document.querySelector('output')?.textContent).toBe('')
     expect(calls.slice(-2)).toEqual(['sessions:usage-release', 'projection:release'])
   })
 })
@@ -258,7 +467,19 @@ function TerminalUsageFixture({
   readonly terminalId: string
   readonly projection: SessionsProjectionCoordinator
 }): ReactElement {
-  const usage = useTerminalDetailsUsage(terminalId, active, projection)
+  const snapshot = useSyncExternalStore(
+    projection.subscribe,
+    projection.snapshot,
+    projection.snapshot,
+  )
+  const row =
+    snapshot.status === 'available'
+      ? snapshot.rows.find((candidate) => String(candidate.handle) === terminalId)
+      : undefined
+  const usage = useSessionsDetailsUsage(row, snapshot, active)
+  useEffect(() => {
+    if (active) return projection.acquire()
+  }, [active, projection])
   const value =
     usage?.status === 'exact' || usage?.status === 'partial' || usage?.status === 'stale'
       ? usage.value.freshInputTokens
@@ -270,6 +491,7 @@ function projectionStub(
   terminal: ReturnType<typeof asSessionsTerminalHandle>,
   pty: ReturnType<typeof asSessionsPtyHandle>,
   calls: string[],
+  connectionState: 'connected' | 'disconnected' = 'connected',
 ): SessionsProjectionCoordinator {
   let active = false
   let listener: (() => void) | undefined
@@ -290,6 +512,7 @@ function projectionStub(
     rows: [
       {
         handle: terminal,
+        connectionState,
         livePty: { handle: pty, rendererOwnerId: 1, rendererGeneration: 2 },
       },
     ],
@@ -318,4 +541,187 @@ async function flushMicrotasks(): Promise<void> {
   await Promise.resolve()
   await Promise.resolve()
   await Promise.resolve()
+}
+
+function projectedRow(count: number): SessionsProjectionRow {
+  return {
+    handle: asSessionsTerminalHandle('terminal-one'),
+    project: { id: asSessionsProjectHandle('project-one'), name: 'hvir' },
+    workspace: {
+      id: asSessionsWorkspaceHandle('workspace-one'),
+      name: 'main',
+      main: true,
+      qualifier: sessionsWorkspaceQualifier(1, 0, 0),
+    },
+    host: {
+      id: 'local',
+      label: 'Local',
+      kind: 'local',
+      connectionState: 'connected',
+    },
+    provider: {
+      id: asHarnessProviderId('codex'),
+      name: 'Codex',
+      kind: 'agent',
+      contextPressure: {
+        assumedWindowTokens: 100,
+        warningPercent: 40,
+        criticalPercent: 70,
+      },
+    },
+    profile: {
+      status: 'available',
+      value: {
+        id: asHarnessProfileId('codex-default'),
+        displayName: 'Codex default',
+      },
+    },
+    title: 'Terminal one',
+    lifecycle: 'live',
+    connectionState: 'connected',
+    attention: { status: 'available', value: 'none' },
+    working: { status: 'available', value: false },
+    model: { status: 'available', value: { id: 'gpt-5' } },
+    context: { status: 'available', value: { usedTokens: 10, windowTokens: 100 } },
+    compactions: {
+      status: 'available',
+      value: { observedCount: count, periodStartedAt: 1, coverage: 'continuous' },
+    },
+    turn: { status: 'available', value: { state: 'idle' } },
+    telemetryFreshness: { status: 'available', value: { staleAfterMs: 30_000 } },
+    usage: { status: 'pending', reason: 'identity-pending' },
+  }
+}
+
+function terminalSession(count: number): TerminalSession {
+  const telemetry = contextHarnessSnapshot({
+    providerId: asHarnessProviderId('codex'),
+    context: { usedTokens: 10, windowTokens: 100 },
+    sessionId: 'terminal-one',
+    provenance: 'test',
+  })
+  return {
+    id: 'terminal-one',
+    providerId: asHarnessProviderId('codex'),
+    profileId: asHarnessProfileId('codex-default'),
+    launchRevision: 1,
+    capabilities: {
+      sessionIdentity: 'preassigned',
+      exactResume: true,
+      contextPresentation: 'pressure',
+      compactionObservation: true,
+    },
+    fallbackTitle: 'Codex · main',
+    title: 'Terminal one',
+    status: 'running',
+    identityStatus: 'identified',
+    resumeOnStart: false,
+    pane: 'primary',
+    cwd: localPath('/repo'),
+    telemetry: {
+      ...telemetry,
+      facets: {
+        ...telemetry.facets,
+        compactions: {
+          status: 'available',
+          value: { observedCount: count, periodStartedAt: 1, coverage: 'continuous' },
+        },
+      },
+    },
+  }
+}
+
+function staticProjection(row: SessionsProjectionRow): SessionsProjectionCoordinator {
+  const snapshot: SessionsProjectionSnapshot = {
+    version: 1,
+    demandGeneration: 1,
+    revision: 1,
+    sourceRevision: 1,
+    status: 'available',
+    rows: [row],
+  }
+  return {
+    subscribe: () => () => undefined,
+    snapshot: () => snapshot,
+    acquire: () => () => undefined,
+  } as unknown as SessionsProjectionCoordinator
+}
+
+function unavailableProjectionThenAvailable(
+  row: SessionsProjectionRow,
+  calls: string[],
+): SessionsProjectionCoordinator {
+  let active = false
+  let listener: (() => void) | undefined
+  const unavailable: SessionsProjectionSnapshot = {
+    version: 1,
+    demandGeneration: 0,
+    revision: 0,
+    sourceRevision: 0,
+    status: 'unavailable',
+    rows: [],
+  }
+  const available: SessionsProjectionSnapshot = {
+    version: 1,
+    demandGeneration: 1,
+    revision: 1,
+    sourceRevision: 1,
+    status: 'available',
+    rows: [row],
+  }
+  return {
+    subscribe: (next: () => void) => {
+      listener = next
+      return () => {
+        listener = undefined
+      }
+    },
+    snapshot: () => (active ? available : unavailable),
+    acquire: () => {
+      calls.push('projection:acquire')
+      active = true
+      queueMicrotask(() => listener?.())
+      return () => {
+        calls.push('projection:release')
+        active = false
+      }
+    },
+  } as unknown as SessionsProjectionCoordinator
+}
+
+function terminalRailProps(
+  sessionsProjection: SessionsProjectionCoordinator,
+): ComponentProps<typeof TerminalRail> {
+  return {
+    label: 'main',
+    visible: true,
+    compact: false,
+    onCompact: vi.fn(),
+    terminalTheme: 'app',
+    recoveryReady: true,
+    available: true,
+    menuOpen: false,
+    sessionsProjection,
+    moveMenuOpen: false,
+    moveTargets: [],
+    launchMenuEntries: [],
+    split: false,
+    sessions: [terminalSession(0)],
+    activeId: 'terminal-one',
+    providers: [],
+    profiles: [],
+    onSplit: vi.fn(),
+    onOpenSettings: vi.fn(),
+    onToggleMenu: vi.fn(),
+    onToggleMoveMenu: vi.fn(),
+    onPlanMove: vi.fn(),
+    onDismissNewTargets: vi.fn(),
+    onAddSession: vi.fn(),
+    onAddHarness: vi.fn(),
+    onRefreshProbes: vi.fn(),
+    onOpenHarnessSettings: vi.fn(),
+    onFocusSession: vi.fn(),
+    onMoveSession: vi.fn(),
+    onCloseSession: vi.fn(),
+  }
 }

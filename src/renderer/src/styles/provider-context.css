@@ -96,6 +96,7 @@
   background: var(--surface-raised, #171b22);
   border: 1px solid var(--border-strong, #46505f);
   border-radius: 10px;
+  box-sizing: border-box;
   box-shadow: 0 14px 38px rgb(0 0 0 / 38%);
   color: var(--text-primary);
   max-height: calc(100vh - 16px);

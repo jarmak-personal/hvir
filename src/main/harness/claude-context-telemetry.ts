@@ -39,6 +39,7 @@ import type { HarnessTelemetryFollowerHealth } from './harness-telemetry-protoco
 import { scheduleHarnessUsageRead } from './harness-usage-read-scheduler'
 import {
   HarnessCompactionObservationRegistry,
+  seedHarnessCompactionReplay,
   type CompletedHarnessCompaction,
 } from './harness-compaction-observation'
 
@@ -265,6 +266,14 @@ export async function observeClaudeContext(
     )
     return () => undefined
   }
+  await seedHarnessCompactionReplay(
+    host,
+    location.transcript,
+    context.signal,
+    compactions,
+    (record) => parseClaudeCompletedCompaction(record, context.sessionId),
+  )
+  if (context.signal.aborted) return () => undefined
 
   let suppressInitialFollowerPending = true
 

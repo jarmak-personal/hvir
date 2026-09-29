@@ -18,6 +18,10 @@ export async function verifySessionDetailsPopover(win: BrowserWindow): Promise<s
         if (!(row instanceof HTMLElement) || !(origin instanceof HTMLButtonElement)) {
           return fail('active terminal row missing for session details');
         }
+        const initialRowHeight = row.getBoundingClientRect().height;
+        if (row.querySelector('.compaction-markers')) {
+          return fail('bare shell rendered a compaction marker strip');
+        }
         const activeSession = origin.dataset.terminalSession;
         const priorFocus = document.activeElement;
         row.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
@@ -30,15 +34,43 @@ export async function verifySessionDetailsPopover(win: BrowserWindow): Promise<s
           clientX: innerWidth - 2,
           clientY: innerHeight - 2,
         }));
+        let pointerBounds;
         const pointerPopover = await waitFor(
-          () => document.querySelector('.session-details-popover'),
-          'right-click did not open session details'
-        );
+          () => {
+            const candidate = document.querySelector('.session-details-popover');
+            if (!candidate) return undefined;
+            const candidateBounds = candidate.getBoundingClientRect();
+            pointerBounds = {
+              left: candidateBounds.left,
+              top: candidateBounds.top,
+              right: candidateBounds.right,
+              bottom: candidateBounds.bottom,
+              width: innerWidth,
+              height: innerHeight,
+              visibility: getComputedStyle(candidate).visibility,
+            };
+            return candidateBounds.left >= 0 && candidateBounds.top >= 0 &&
+              candidateBounds.right <= innerWidth && candidateBounds.bottom <= innerHeight
+              ? candidate
+              : undefined;
+          },
+          'right-click session details did not settle inside the viewport'
+        ).catch(() => fail(
+          'right-click session details did not settle inside the viewport: ' +
+          JSON.stringify(pointerBounds)
+        ));
         const bounds = pointerPopover.getBoundingClientRect();
         if (
           bounds.left < 0 || bounds.top < 0 ||
           bounds.right > innerWidth || bounds.bottom > innerHeight
-        ) return fail('session details escaped the viewport');
+        ) return fail('session details escaped the viewport: ' + JSON.stringify({
+          left: bounds.left,
+          top: bounds.top,
+          right: bounds.right,
+          bottom: bounds.bottom,
+          width: innerWidth,
+          height: innerHeight,
+        }));
         if (
           document.querySelector('.terminal-list-row.active .terminal-list-main')
             ?.dataset.terminalSession !== activeSession ||
@@ -58,7 +90,12 @@ export async function verifySessionDetailsPopover(win: BrowserWindow): Promise<s
           cancelable: true,
         }));
         const keyboardPopover = await waitFor(
-          () => document.querySelector('.session-details-popover'),
+          () => {
+            const candidate = document.querySelector('.session-details-popover');
+            return candidate && getComputedStyle(candidate).visibility !== 'hidden'
+              ? candidate
+              : undefined;
+          },
           'Shift+F10 did not open session details'
         );
         if (keyboardPopover.querySelector('button') !== document.activeElement) {
@@ -103,16 +140,40 @@ export async function verifySessionDetailsPopover(win: BrowserWindow): Promise<s
         );
         const selectedBefore = card.getAttribute('aria-current');
         const cardFocusBefore = document.activeElement;
+        if (card.querySelector('.compaction-markers')) {
+          return fail('bare-shell Sessions card rendered a compaction marker strip');
+        }
         card.dispatchEvent(new MouseEvent('contextmenu', {
           bubbles: true,
           cancelable: true,
           clientX: innerWidth - 2,
           clientY: innerHeight - 2,
         }));
+        let cardPointerBounds;
         const cardPopover = await waitFor(
-          () => document.querySelector('.session-details-popover'),
-          'Sessions right-click did not open session details'
-        );
+          () => {
+            const candidate = document.querySelector('.session-details-popover');
+            if (!candidate) return undefined;
+            const candidateBounds = candidate.getBoundingClientRect();
+            cardPointerBounds = {
+              left: candidateBounds.left,
+              top: candidateBounds.top,
+              right: candidateBounds.right,
+              bottom: candidateBounds.bottom,
+              width: innerWidth,
+              height: innerHeight,
+              visibility: getComputedStyle(candidate).visibility,
+            };
+            return candidateBounds.left >= 0 && candidateBounds.top >= 0 &&
+              candidateBounds.right <= innerWidth && candidateBounds.bottom <= innerHeight
+              ? candidate
+              : undefined;
+          },
+          'Sessions right-click details did not settle inside the viewport'
+        ).catch(() => fail(
+          'Sessions right-click details did not settle inside the viewport: ' +
+          JSON.stringify(cardPointerBounds)
+        ));
         const cardBounds = cardPopover.getBoundingClientRect();
         if (
           cardBounds.left < 0 || cardBounds.top < 0 ||
@@ -135,7 +196,12 @@ export async function verifySessionDetailsPopover(win: BrowserWindow): Promise<s
           cancelable: true,
         }));
         const cardKeyboardPopover = await waitFor(
-          () => document.querySelector('.session-details-popover'),
+          () => {
+            const candidate = document.querySelector('.session-details-popover');
+            return candidate && getComputedStyle(candidate).visibility !== 'hidden'
+              ? candidate
+              : undefined;
+          },
           'context-menu key did not open Sessions session details'
         );
         const close = cardKeyboardPopover.querySelector('button');
@@ -175,6 +241,11 @@ export async function verifySessionDetailsPopover(win: BrowserWindow): Promise<s
         if (returned.dataset.terminalSession !== activeSession) {
           return fail('session details navigation changed terminal selection');
         }
+        const returnedRow = returned.closest('.terminal-list-row');
+        if (
+          !(returnedRow instanceof HTMLElement) ||
+          returnedRow.getBoundingClientRect().height !== initialRowHeight
+        ) return fail('session details changed terminal row geometry');
         return resolve('rail + Sessions right-click + keyboard + viewport + focus + navigation');
       };
       void run().catch(reject);

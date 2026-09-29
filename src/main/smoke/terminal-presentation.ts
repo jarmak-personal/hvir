@@ -32,9 +32,6 @@ export async function verifyTerminalPresentationLifecycle(
   checkpoint('terminal-presentation-session-details-awaiting')
   const sessionDetailsStatus = await verifySessionDetailsPopover(win)
   checkpoint('terminal-presentation-session-details-ready')
-  if (process.env.HVIR_SESSION_DETAILS_SMOKE) {
-    return [explicitLaunch, sessionDetailsStatus].join(' · ')
-  }
   checkpoint('terminal-presentation-middle-click-close-awaiting')
   const middleClickCloseStatus = launchMenuOverflowRoot
     ? await verifyTerminalMiddleClickCloseGuard(win, supervisor, launchMenuOverflowRoot)
@@ -149,6 +146,7 @@ export async function verifyTerminalPresentationLifecycle(
     quiescentTerminal,
   )
   checkpoint('terminal-presentation-hidden-reveal-ready')
+
   let inputProbe = ''
   let inputExit: string | undefined
   const detachInputProbe = supervisor.attach(secondTerminal.id, secondTerminal.ownerId, {

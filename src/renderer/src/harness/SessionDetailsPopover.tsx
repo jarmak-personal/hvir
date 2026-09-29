@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactElement } from 'react'
+import { useEffect, useRef, type ReactElement, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 
 import type {
@@ -11,7 +11,10 @@ import type {
 import { useViewportContextMenuPosition } from '../context-menu/viewport-context-menu'
 import { ProviderContextMeter } from './ProviderContextMeter'
 import type { CompactionMarkerFact } from './CompactionMarkers'
-import type { SessionDetailsPopoverController } from './use-session-details-popover'
+import type {
+  SessionDetailsPopoverController,
+  SessionDetailsRequest,
+} from './use-session-details-popover'
 
 export interface SessionDetailsModel {
   readonly title: string
@@ -33,21 +36,17 @@ export function SessionDetailsPopover({
   details,
 }: {
   readonly controller: SessionDetailsPopoverController
-  readonly details?: SessionDetailsModel
+  /** Undefined is still loading; null means the requested session is unavailable. */
+  readonly details?: SessionDetailsModel | null
 }): ReactElement | null {
   const request = controller.request
   const requestAvailable = request !== undefined
   const dismiss = controller.dismiss
   const popover = useRef<HTMLDivElement>(null)
-  const position = useViewportContextMenuPosition(popover, request)
-  const detailsAvailable = details !== undefined
+  const detailsAvailable = details !== undefined && details !== null
   useEffect(() => {
-    if (requestAvailable && !detailsAvailable) dismiss(false)
-  }, [detailsAvailable, dismiss, requestAvailable])
-  useEffect(() => {
-    if (request?.focusPopover && detailsAvailable)
-      popover.current?.querySelector<HTMLButtonElement>('button')?.focus()
-  }, [detailsAvailable, request?.focusPopover, request?.id])
+    if (requestAvailable && details === null) dismiss(false)
+  }, [details, dismiss, requestAvailable])
   useEffect(() => {
     if (!requestAvailable || !detailsAvailable) return
     const pointer = (event: PointerEvent): void => {
@@ -70,13 +69,11 @@ export function SessionDetailsPopover({
 
   const compaction = factValue(details.compactions)
   return createPortal(
-    <div
-      ref={popover}
-      className="session-details-popover"
-      role="dialog"
-      aria-modal="false"
-      aria-label={`Session details for ${details.title}`}
-      style={position}
+    <PositionedSessionDetails
+      key={request.id}
+      popover={popover}
+      request={request}
+      title={details.title}
     >
       <header>
         <div>
@@ -155,8 +152,38 @@ export function SessionDetailsPopover({
         <Detail label="Session state" value={details.state} />
         <Detail label="Telemetry freshness" value={freshnessText(details.freshness)} />
       </dl>
-    </div>,
+    </PositionedSessionDetails>,
     document.body,
+  )
+}
+
+function PositionedSessionDetails({
+  popover,
+  request,
+  title,
+  children,
+}: {
+  readonly popover: RefObject<HTMLDivElement | null>
+  readonly request: SessionDetailsRequest
+  readonly title: string
+  readonly children: ReactNode
+}): ReactElement {
+  const position = useViewportContextMenuPosition(popover, request)
+  useEffect(() => {
+    if (!request.focusPopover) return
+    popover.current?.querySelector<HTMLButtonElement>('button')?.focus()
+  }, [popover, request.focusPopover])
+  return (
+    <div
+      ref={popover}
+      className="session-details-popover"
+      role="dialog"
+      aria-modal="false"
+      aria-label={`Session details for ${title}`}
+      style={position}
+    >
+      {children}
+    </div>
   )
 }
 

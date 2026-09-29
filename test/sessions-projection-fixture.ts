@@ -3,11 +3,7 @@ import {
   createSessionsMainObservationPort,
 } from '../src/renderer/src/sessions/sessions-projection-coordinator'
 import type { SessionsRendererObservationPort } from '../src/renderer/src/sessions/sessions-renderer-observation'
-import {
-  SESSIONS_PROJECTION_VERSION,
-  type HvirApi,
-  type SessionsObservationSnapshot,
-} from '../src/shared'
+import { SESSIONS_PROJECTION_VERSION, type HvirApi } from '../src/shared'
 
 const emptyRenderer: SessionsRendererObservationPort = {
   snapshot: () => [],
@@ -23,24 +19,17 @@ export function sessionsProjectionFixture(
       createSessionsMainObservationPort(api),
       renderer,
     )
-  return new SessionsProjectionCoordinator(
-    {
-      observe: (demandGeneration) => Promise.resolve(emptySnapshot(demandGeneration)),
-      snapshot: (demandGeneration) => Promise.resolve(emptySnapshot(demandGeneration)),
-      release: () => Promise.resolve(),
-      subscribe: () => () => undefined,
-    },
-    renderer,
-  )
-}
-
-function emptySnapshot(demandGeneration: number): SessionsObservationSnapshot {
-  return {
+  const snapshot = {
     version: SESSIONS_PROJECTION_VERSION,
-    demandGeneration,
-    revision: 0,
-    workspaces: [],
-    providers: [],
-    sessions: [],
-  }
+    demandGeneration: 1,
+    revision: 1,
+    sourceRevision: 1,
+    status: 'available',
+    rows: [],
+  } as const
+  return {
+    snapshot: () => snapshot,
+    subscribe: () => () => undefined,
+    acquire: () => () => undefined,
+  } as unknown as SessionsProjectionCoordinator
 }

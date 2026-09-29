@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import type {
   SessionsProjectionRow,
@@ -6,18 +6,6 @@ import type {
   SessionsUsageFact,
   SessionsUsageSnapshot,
 } from '../../../shared'
-import type { SessionsProjectionCoordinator } from '../sessions/sessions-projection-coordinator'
-
-const INACTIVE_PROJECTION: SessionsProjectionSnapshot = {
-  version: 1,
-  demandGeneration: 0,
-  revision: 0,
-  sourceRevision: 0,
-  status: 'inactive',
-  rows: [],
-}
-const EMPTY_SUBSCRIPTION = (): (() => void) => () => undefined
-const INACTIVE_SNAPSHOT = (): SessionsProjectionSnapshot => INACTIVE_PROJECTION
 
 let nextDemandGeneration = 10_000
 
@@ -44,7 +32,13 @@ export function useSessionsDetailsUsage(
   const livePtyGeneration = row?.livePty?.rendererGeneration
   useEffect(() => {
     setUsage(undefined)
-    if (!active || !rowHandle || projection.status !== 'available') return
+    if (
+      !active ||
+      !rowHandle ||
+      projection.status !== 'available' ||
+      row?.connectionState !== 'connected'
+    )
+      return
     const demand = demandGeneration()
     const currentEpoch = ++epoch.current
     let stopped = false
@@ -109,46 +103,9 @@ export function useSessionsDetailsUsage(
     livePtyHandle,
     livePtyOwner,
     rowHandle,
+    row?.connectionState,
   ])
-  return usage && usage.handle === String(rowHandle) ? usage.fact : undefined
-}
-
-/**
- * Terminal-rail usage borrows the read-only Sessions qualification only while
- * one details popover is visible. It creates no session, workspace, host, or PTY.
- */
-export function useTerminalDetailsUsage(
-  terminalId: string | undefined,
-  active: boolean,
-  source?: SessionsProjectionCoordinator,
-): SessionsUsageFact | undefined {
-  const projection = useSyncExternalStore(
-    source?.subscribe ?? EMPTY_SUBSCRIPTION,
-    source?.snapshot ?? INACTIVE_SNAPSHOT,
-    source?.snapshot ?? INACTIVE_SNAPSHOT,
-  )
-  const row =
-    projection.status === 'available'
-      ? projection.rows.find((candidate) => String(candidate.handle) === terminalId)
-      : undefined
-  const usage = useSessionsDetailsUsage(row, projection, active && source !== undefined)
-  useEffect(() => {
-    if (active && terminalId && source) return source.acquire()
-  }, [active, source, terminalId])
-  return usage
-}
-
-export function useApplicationFocus(): boolean {
-  const [focused, setFocused] = useState(() => document.hasFocus())
-  useEffect(() => {
-    const focus = (): void => setFocused(true)
-    const blur = (): void => setFocused(false)
-    window.addEventListener('focus', focus)
-    window.addEventListener('blur', blur)
-    return () => {
-      window.removeEventListener('focus', focus)
-      window.removeEventListener('blur', blur)
-    }
-  }, [])
-  return focused
+  return row?.connectionState === 'connected' && usage?.handle === String(rowHandle)
+    ? usage.fact
+    : undefined
 }

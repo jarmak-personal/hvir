@@ -16,6 +16,7 @@ import {
   type WorkspaceState,
 } from '../../../shared'
 import type { SessionsRendererSession } from '../sessions/sessions-renderer-observation'
+import type { SessionsProjectionCoordinator } from '../sessions/sessions-projection-coordinator'
 import { fitSplitPrimaryWidth } from '../layout/split-layout-policy'
 import type { TerminalPreferences } from '../settings/settings'
 import {
@@ -25,10 +26,7 @@ import {
 } from './terminal-file-link'
 import { TerminalDeck } from './TerminalDeck'
 import { TerminalWorkspaceControls } from './TerminalWorkspaceControls'
-import {
-  readTerminalSplitLayout,
-  writeTerminalSplitLayout,
-} from './terminal-split-persistence'
+import { readTerminalSplitLayout, writeTerminalSplitLayout } from './terminal-split-persistence'
 import {
   initialTerminalWorkspaceModel,
   settledTerminalSessions,
@@ -52,7 +50,6 @@ import {
   type TerminalWorkspaceController,
 } from './use-terminal-workspace-move'
 import { useTerminalSessionCommands } from './use-terminal-session-commands'
-import { useTerminalLaunchMenuEscape } from './use-terminal-launch-menu-layout'
 
 interface TerminalWorkspaceProps {
   readonly cwd: HostPath
@@ -78,7 +75,7 @@ interface TerminalWorkspaceProps {
   readonly onOpenHarnessSettings: () => void
   readonly onAddHarness: () => void
   readonly runtimes: TerminalRuntimeRegistry
-  readonly sessionsProjection?: import('../sessions/sessions-projection-coordinator').SessionsProjectionCoordinator
+  readonly sessionsProjection: SessionsProjectionCoordinator
   readonly moveTargets: readonly WorkspaceState[]
   readonly onMaterializationChange: (workspaceId: string, retained: boolean) => void
   readonly onSessionsSource: (
@@ -188,6 +185,8 @@ export function TerminalWorkspace({
           workspaceQualifier: sessionsWorkspaceQualifier,
           providerId: session.providerId,
           profileId: session.profileId,
+          profileDisplayName: profiles.find((profile) => profile.id === session.profileId)
+            ?.displayName,
           title: sessionsProjectionDisplayTitle(
             session.title,
             handle,
@@ -206,6 +205,7 @@ export function TerminalWorkspace({
   }, [
     label,
     onSessionsSource,
+    profiles,
     providers,
     runtimes,
     sessionsWorkspaceQualifier,
@@ -285,8 +285,6 @@ export function TerminalWorkspace({
     acknowledgeTargets: onAcknowledgeMoveTargets,
     onError,
   })
-  useTerminalLaunchMenuEscape(menuOpen, setMenuOpen)
-
   const terminalSplit = terminalWorkspaceSplit(model)
   const primaryActiveId = terminalPaneActiveId(model, 'primary')
   const secondaryActiveId = terminalPaneActiveId(model, 'secondary')
