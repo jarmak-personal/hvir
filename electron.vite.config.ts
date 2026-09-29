@@ -3,22 +3,22 @@ import { defineConfig, externalizeDepsPlugin, type UserConfig } from 'electron-v
 import react from '@vitejs/plugin-react'
 import type { Plugin } from 'vite'
 
-import { DEVELOPMENT_PERFORMANCE_MEASURE_POLICY_ID } from './src/renderer/src/development/performance-measure-budget'
+import { DEVELOPMENT_PERFORMANCE_FIXTURE_REQUEST_EVENT } from './src/renderer/src/development/development-performance-events'
 import type { ApplicationBuildChannel } from './src/shared'
 
-function excludeDevelopmentPerformancePolicyFromProduction(): Plugin {
+function excludeDevelopmentPerformanceFixtureFromProduction(): Plugin {
   return {
-    name: 'exclude-development-performance-policy-from-production',
+    name: 'exclude-development-performance-fixture-from-production',
     apply: 'build',
     generateBundle(_options, bundle): void {
       const retainedPolicy = Object.values(bundle).find(
         (output) =>
           output.type === 'chunk' &&
-          output.code.includes(DEVELOPMENT_PERFORMANCE_MEASURE_POLICY_ID),
+          output.code.includes(DEVELOPMENT_PERFORMANCE_FIXTURE_REQUEST_EVENT),
       )
       if (retainedPolicy) {
         this.error(
-          `Production renderer chunk ${retainedPolicy.fileName} retained development Performance Timeline policy`,
+          `Production renderer chunk ${retainedPolicy.fileName} retained the development Performance Timeline fixture`,
         )
       }
     },
@@ -111,7 +111,7 @@ const baseConfig: UserConfig = {
         },
       },
     },
-    plugins: [react(), excludeDevelopmentPerformancePolicyFromProduction()],
+    plugins: [react(), excludeDevelopmentPerformanceFixtureFromProduction()],
   },
 }
 

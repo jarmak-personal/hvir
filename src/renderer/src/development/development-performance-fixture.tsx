@@ -1,9 +1,7 @@
 import { createRoot, type Root } from 'react-dom/client'
 
 import { PerformanceMeasurePump } from './development-performance-pump'
-
-export const DEVELOPMENT_PERFORMANCE_FIXTURE_EVENT =
-  'hvir:development-performance-measure-fixture'
+import { DEVELOPMENT_PERFORMANCE_FIXTURE_COMPLETE_EVENT } from './development-performance-events'
 
 export class DevelopmentPerformanceFixture {
   private container?: HTMLDivElement
@@ -15,7 +13,6 @@ export class DevelopmentPerformanceFixture {
     if (this.disposed || this.root) return
     const container = document.createElement('div')
     container.hidden = true
-    container.dataset.hvirDevelopmentPerformanceFixture = 'running'
     document.body.append(container)
     const root = createRoot(container)
     this.container = container
@@ -26,7 +23,7 @@ export class DevelopmentPerformanceFixture {
           this.timer = window.setTimeout(callback)
         }}
         onComplete={() => {
-          container.dataset.hvirDevelopmentPerformanceFixture = 'complete'
+          window.dispatchEvent(new Event(DEVELOPMENT_PERFORMANCE_FIXTURE_COMPLETE_EVENT))
         }}
       />,
     )
