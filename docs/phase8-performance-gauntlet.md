@@ -97,6 +97,12 @@ timings or confirmation of completed canvas paint. Polling resolution is 20 ms p
 the existing frame/click, exact-input-echo, process-memory, and delivery-buffer evidence
 remains separately labeled. No Long Tasks or Event Timing observer is installed.
 
+Each readiness report also separates input-to-response latency from launch-to-echo:
+`inputResponse` records main's first synthesized key dispatch through the supervisor's
+observation of the exact PTY echo, using the existing subscription and ten samples.
+It reports p50/p95/max at millisecond clock resolution and excludes subsequent renderer
+parsing and paint. No additional PTY or polling loop is introduced for this measurement.
+
 Use clean known commits, identical artifact pins, geometry, load, machine, and power mode
 for comparisons. Run builds before measuring and avoid concurrent tests or builds. Record
 the fork release provenance (source, upstream, Ghostty commits and tarball SHA-256), local

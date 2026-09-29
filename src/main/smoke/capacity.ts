@@ -292,6 +292,7 @@ export async function runCapacityLoadSmoke(
       `max ${presentationCapacity.maxRunCells})`,
   )
   if (reflow) {
+    await activateCapacityTerminal(win, 0)
     win.setContentSize(CAPACITY_REFLOW_WIDTHS[0], CAPACITY_REFLOW_HEIGHT)
     const retained = await verifyCapacityTerminalSearch(win, supervisor, true)
     console.log(`[smoke:capacity:reflow-history] ${JSON.stringify(retained)}`)
