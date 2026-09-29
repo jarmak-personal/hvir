@@ -217,7 +217,7 @@ export async function observeCodexContext(
     context.sessionId,
     context.effectiveCapabilities?.compactionObservation === true,
   )
-  await seedHarnessCompactionReplay(
+  const compactionReplaySeeded = await seedHarnessCompactionReplay(
     host,
     rolloutPath,
     context.signal,
@@ -252,6 +252,7 @@ export async function observeCodexContext(
       }
       const completed = parseCodexCompletedCompaction(record)
       if (completed) {
+        if (!compactionReplaySeeded) return HEALTHY_HARNESS_TELEMETRY_RECORD
         const next = compactions.accept(latest, completed)
         if (next) latest = next
         return next ?? HEALTHY_HARNESS_TELEMETRY_RECORD

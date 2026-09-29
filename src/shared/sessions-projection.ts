@@ -1,6 +1,7 @@
 import type { HostConnectionState } from './fs-types'
 import type { HarnessProfileId } from './harness-profile'
 import type { HarnessContextPressurePolicy, HarnessProviderId } from './harness-provider'
+import type { HarnessCompactionFacet, HarnessTelemetry } from './harness-telemetry'
 import type { HarnessUsageValue } from './harness-usage'
 import type { ProjectState } from './workspace-types'
 
@@ -130,6 +131,77 @@ export interface SessionsTelemetryFacts {
   readonly compactions?: SessionsFact<SessionsCompactionFact>
   readonly turn: SessionsFact<SessionsTurnFact>
   readonly freshness: SessionsFact<SessionsFreshnessFact>
+}
+
+/** Normalize one provider compaction facet for every Sessions-backed surface. */
+export function sessionsCompactionFact(
+  supported: boolean,
+  live: boolean,
+  telemetry: HarnessTelemetry | undefined,
+  providerId: HarnessProviderId,
+  connectionState: HostConnectionState,
+): SessionsFact<SessionsCompactionFact> {
+  if (!supported) return { status: 'unsupported' }
+  if (!live) return { status: 'unavailable', reason: 'not-live' }
+  if (!telemetry) return { status: 'pending', reason: 'telemetry-pending' }
+  if (
+    telemetry.version !== 1 ||
+    telemetry.source.providerId !== providerId ||
+    !sessionsCompactionTimestamp(telemetry.observedAt)
+  ) {
+    return { status: 'unavailable', reason: 'source-unavailable' }
+  }
+  const facet = telemetry.facets.compactions ?? { status: 'unsupported' }
+  if (facet.status === 'unsupported') return { status: 'unsupported' }
+  if (facet.status === 'pending') {
+    return { status: 'pending', reason: 'telemetry-pending' }
+  }
+  if (facet.status === 'unavailable') {
+    return { status: 'unavailable', reason: 'source-unavailable' }
+  }
+  const value = sessionsCompactionValue(facet.value)
+  if (!value) return { status: 'unavailable', reason: 'source-unavailable' }
+  const observedAt =
+    facet.status === 'stale' && sessionsCompactionTimestamp(facet.observedAt)
+      ? facet.observedAt
+      : telemetry.observedAt
+  const disconnected = connectionState !== 'connected'
+  if (disconnected || telemetry.freshness.state === 'stale' || facet.status === 'stale') {
+    return {
+      status: 'stale',
+      value,
+      observedAt,
+      reason: disconnected ? 'connection-unavailable' : 'source-stale',
+    }
+  }
+  return { status: 'available', value, observedAt }
+}
+
+function sessionsCompactionValue(
+  value: HarnessCompactionFacet,
+): SessionsCompactionFact | undefined {
+  if (
+    !Number.isSafeInteger(value.observedCount) ||
+    value.observedCount < 0 ||
+    !sessionsCompactionTimestamp(value.periodStartedAt) ||
+    (value.lastObservedAt !== undefined &&
+      !sessionsCompactionTimestamp(value.lastObservedAt)) ||
+    (value.coverage !== 'continuous' && value.coverage !== 'gapped')
+  ) {
+    return undefined
+  }
+  return {
+    observedCount: value.observedCount,
+    periodStartedAt: value.periodStartedAt,
+    ...(value.lastObservedAt === undefined
+      ? {}
+      : { lastObservedAt: value.lastObservedAt }),
+    coverage: value.coverage,
+  }
+}
+
+function sessionsCompactionTimestamp(value: number): boolean {
+  return Number.isSafeInteger(value) && value >= 0
 }
 
 export interface SessionsProviderProjection {

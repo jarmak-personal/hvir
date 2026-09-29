@@ -1,4 +1,4 @@
-import { appendFile, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -18,7 +18,11 @@ import {
   observeCodexContext,
   parseCodexCompletedCompaction,
 } from '../src/main/harness/codex-context-telemetry'
-import { parseClaudeCompletedCompaction } from '../src/main/harness/claude-context-telemetry'
+import {
+  observeClaudeContext,
+  parseClaudeCompletedCompaction,
+} from '../src/main/harness/claude-context-telemetry'
+import { claudeProjectDirectoryName } from '../src/main/harness/claude-session-artifact'
 import { codexProvider } from '../src/main/harness/providers/codex'
 import { claudeCodeProvider } from '../src/main/harness/providers/claude-code'
 import type { ProjectHost } from '../src/main/project-host'
@@ -121,6 +125,104 @@ describe('completed harness compaction observation', () => {
       await vi.waitFor(() => expect(observedCompactions(emitted.at(-1))).toBe(2), {
         timeout: 4_000,
       })
+    } finally {
+      await stop?.()
+      await host.dispose()
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('fails closed when bounded replay seeding is truncated', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'hvir-compactions-truncated-'))
+    const rolloutPath = localPath(join(directory, 'rollout.jsonl'))
+    const host = new LocalHost()
+    const emitted: HarnessTelemetry[] = []
+    const historicalAt = new Date(Date.now() - 120_000).toISOString()
+    const liveAt = new Date(Date.now() + 1_000).toISOString()
+    const recoveredAt = new Date(Date.now() + 2_000).toISOString()
+    await writeFile(rolloutPath.path, `${codexCompactionRecord(historicalAt)}\n`)
+    await host.connect()
+    const originalExec = host.exec.bind(host)
+    const exec = vi.spyOn(host, 'exec').mockImplementationOnce(() =>
+      Promise.resolve({
+        code: 0,
+        signal: null,
+        stdout: codexCompactionRecord(historicalAt),
+        stderr: '',
+        outputTruncated: true,
+      }),
+    )
+    let stop: (() => void | Promise<void>) | undefined
+    try {
+      stop = await observeCodexContext(host, observationContext(rolloutPath, emitted))
+      await vi.waitFor(() =>
+        expect(emitted.at(-1)?.facets.compactions).toMatchObject({
+          value: { observedCount: 0, coverage: 'gapped' },
+        }),
+      )
+      await appendFile(
+        rolloutPath.path,
+        `${codexCompactionRecord(liveAt)}\n${codexContextRecord(30_000)}\n`,
+      )
+      await vi.waitFor(
+        () =>
+          expect(emitted.at(-1)?.facets.context).toMatchObject({
+            value: { usedTokens: 30_000 },
+          }),
+        { timeout: 4_000 },
+      )
+      expect(observedCompactions(emitted.at(-1))).toBe(0)
+      expect(exec).toHaveBeenCalled()
+      exec.mockImplementation(originalExec)
+      await stop()
+      stop = await observeCodexContext(host, observationContext(rolloutPath, emitted))
+      await appendFile(rolloutPath.path, `${codexCompactionRecord(recoveredAt)}\n`)
+      await vi.waitFor(() => expect(observedCompactions(emitted.at(-1))).toBe(1), {
+        timeout: 4_000,
+      })
+    } finally {
+      await stop?.()
+      await host.dispose()
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('observes Claude boundaries locally without counting replay or token changes', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'hvir-claude-compactions-'))
+    const cwd = join(directory, 'workspace')
+    await mkdir(cwd)
+    const sessionId = '22222222-2222-4222-8222-222222222222'
+    const projectDirectory = join(
+      directory,
+      'projects',
+      claudeProjectDirectoryName(await realpath(cwd)),
+    )
+    await mkdir(projectDirectory, { recursive: true })
+    const transcript = join(projectDirectory, `${sessionId}.jsonl`)
+    await writeFile(transcript, `${claudeCompactionRecord(sessionId, 'historical')}\n`)
+    const host = new LocalHost()
+    const emitted: HarnessTelemetry[] = []
+    await host.connect()
+    let stop: (() => void | Promise<void>) | undefined
+    try {
+      stop = await observeClaudeContext(
+        host,
+        claudeObservationContext(localPath(cwd), directory, sessionId, emitted),
+      )
+      await vi.waitFor(() => expect(observedCompactions(emitted.at(-1))).toBe(0))
+      await appendFile(
+        transcript,
+        `${claudeUsageRecord(sessionId, 2)}\n${claudeCompactionRecord(sessionId, 'live')}\n`,
+      )
+      await vi.waitFor(() => expect(observedCompactions(emitted.at(-1))).toBe(1), {
+        timeout: 4_000,
+      })
+      const emissionCount = emitted.length
+      await appendFile(transcript, `${claudeUsageRecord(sessionId, 1)}\n`)
+      await vi.waitFor(() => expect(emitted.length).toBeGreaterThan(emissionCount), {
+        timeout: 4_000,
+      })
+      expect(observedCompactions(emitted.at(-1))).toBe(1)
     } finally {
       await stop?.()
       await host.dispose()
@@ -236,6 +338,34 @@ function observationContext(
   }
 }
 
+function claudeObservationContext(
+  cwd: ReturnType<typeof localPath>,
+  configDirectory: string,
+  sessionId: string,
+  emitted: HarnessTelemetry[],
+) {
+  return {
+    subscriptionId: sessionId,
+    sessionId,
+    cwd,
+    artifact: {
+      identity: 'claude-compaction-fixture',
+      environment: { CLAUDE_CONFIG_DIR: configDirectory },
+      unsetEnvironment: [],
+    },
+    effectiveCapabilities: {
+      sessionIdentity: 'preassigned' as const,
+      exactResume: true,
+      contextPresentation: 'pressure' as const,
+      compactionObservation: true as const,
+    },
+    signal: new AbortController().signal,
+    emit: (value: HarnessTelemetry | undefined) => {
+      if (value) emitted.push(value)
+    },
+  }
+}
+
 function codexContextRecord(usedTokens: number): string {
   return JSON.stringify({
     type: 'event_msg',
@@ -254,6 +384,36 @@ function codexCompactionRecord(timestamp: string): string {
     timestamp,
     type: 'compacted',
     payload: { privateConversationContent: 'must not cross the provider boundary' },
+  })
+}
+
+function claudeCompactionRecord(sessionId: string, identity: string): string {
+  return JSON.stringify({
+    type: 'system',
+    subtype: 'compact_boundary',
+    uuid: identity,
+    timestamp: new Date().toISOString(),
+    sessionId,
+  })
+}
+
+function claudeUsageRecord(sessionId: string, inputTokens: number): string {
+  return JSON.stringify({
+    type: 'assistant',
+    isSidechain: false,
+    sessionId,
+    requestId: `request-${inputTokens}`,
+    message: {
+      id: `message-${inputTokens}`,
+      role: 'assistant',
+      model: 'claude-test',
+      usage: {
+        input_tokens: inputTokens,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+        output_tokens: 1,
+      },
+    },
   })
 }
 

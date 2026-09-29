@@ -41,7 +41,12 @@ export function SessionsOverviewCard({
       ) : null}
       {row.compactions?.status !== 'unsupported' ? (
         <CompactionMarkers
-          fact={row.compactions ?? { status: 'unavailable' }}
+          fact={
+            row.compactions ?? {
+              status: 'unavailable',
+              reason: 'source-unavailable',
+            }
+          }
           className="session-card-compactions"
         />
       ) : null}

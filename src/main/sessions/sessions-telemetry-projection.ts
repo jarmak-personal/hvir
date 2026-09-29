@@ -1,14 +1,13 @@
 import {
   sessionsProjectionOptionalText,
+  sessionsCompactionFact,
   type HarnessFacet,
   type HarnessModelFacet,
   type HarnessContextFacet,
-  type HarnessCompactionFacet,
   type HarnessTelemetry,
   type HarnessTurnFacet,
   type HostConnectionState,
   type SessionsContextFact,
-  type SessionsCompactionFact,
   type SessionsFact,
   type SessionsModelFact,
   type SessionsProviderProjection,
@@ -28,15 +27,22 @@ export function sessionsTelemetryFacts(
   providerId: SessionsProviderProjection['id'],
   connectionState: HostConnectionState,
 ): SessionsTelemetryFacts {
-  if (!supported) return unsupportedTelemetry()
-  if (!live) return unavailableTelemetry('not-live')
-  if (!telemetry) return pendingTelemetry()
+  const compactions = sessionsCompactionFact(
+    supported,
+    live,
+    telemetry,
+    providerId,
+    connectionState,
+  )
+  if (!supported) return { ...unsupportedTelemetry(), compactions }
+  if (!live) return { ...unavailableTelemetry('not-live'), compactions }
+  if (!telemetry) return { ...pendingTelemetry(), compactions }
   if (
     telemetry.version !== 1 ||
     telemetry.source.providerId !== providerId ||
     !sessionsProjectionTimestamp(telemetry.observedAt)
   ) {
-    return unavailableTelemetry('source-unavailable')
+    return { ...unavailableTelemetry('source-unavailable'), compactions }
   }
   const observedAt = telemetry.observedAt
   const disconnected = connectionState !== 'connected'
@@ -51,13 +57,7 @@ export function sessionsTelemetryFacts(
       reason,
       sanitizeContext,
     ),
-    compactions: projectFacet(
-      telemetry.facets.compactions ?? { status: 'unsupported' },
-      observedAt,
-      stale,
-      reason,
-      sanitizeCompactions,
-    ),
+    compactions,
     turn: projectFacet(telemetry.facets.turn, observedAt, stale, reason, sanitizeTurn),
     freshness:
       sessionsProjectionNonNegativeInteger(telemetry.freshness.staleAfterMs) !== undefined
@@ -124,28 +124,6 @@ function sanitizeContext(value: HarnessContextFacet): SessionsContextFact | unde
     usedTokens,
     ...(windowTokens === undefined ? {} : { windowTokens }),
     ...(usedPercent === undefined ? {} : { usedPercent }),
-  }
-}
-
-function sanitizeCompactions(
-  value: HarnessCompactionFacet,
-): SessionsCompactionFact | undefined {
-  const observedCount = sessionsProjectionNonNegativeInteger(value.observedCount)
-  const periodStartedAt = value.periodStartedAt
-  const lastObservedAt = value.lastObservedAt
-  if (
-    observedCount === undefined ||
-    !sessionsProjectionTimestamp(periodStartedAt) ||
-    (lastObservedAt !== undefined && !sessionsProjectionTimestamp(lastObservedAt)) ||
-    (value.coverage !== 'continuous' && value.coverage !== 'gapped')
-  ) {
-    return undefined
-  }
-  return {
-    observedCount,
-    periodStartedAt,
-    ...(lastObservedAt === undefined ? {} : { lastObservedAt }),
-    coverage: value.coverage,
   }
 }
 

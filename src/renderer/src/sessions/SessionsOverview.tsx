@@ -288,6 +288,11 @@ export function SessionsOverview({
     snapshot,
     foreground && details.request !== undefined,
   )
+  useEffect(() => {
+    if (details.request && snapshot.status === 'available' && !detailsRow) {
+      dismissDetails(false)
+    }
+  }, [details.request, detailsRow, dismissDetails, snapshot.status])
   return (
     <>
       <main
@@ -514,7 +519,13 @@ export function SessionsOverview({
       ) : null}
       <SessionDetailsPopover
         controller={details}
-        details={detailsRow ? sessionDetailsModel(detailsRow, detailsUsage) : undefined}
+        details={
+          detailsRow
+            ? sessionDetailsModel(detailsRow, detailsUsage)
+            : details.request && snapshot.status === 'available'
+              ? null
+              : undefined
+        }
       />
     </>
   )

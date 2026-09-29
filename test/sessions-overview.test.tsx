@@ -33,7 +33,6 @@ import { sessionsProjectionFixture } from './sessions-projection-fixture'
 let host: HTMLDivElement
 let root: Root
 let focused = true
-
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   vi.spyOn(document, 'hasFocus').mockImplementation(() => focused)
@@ -115,6 +114,12 @@ describe('SessionsOverview', () => {
       'AttentionBell',
     )
     expect(agentCard.querySelectorAll('.session-fact.available')).toHaveLength(1)
+    void act(() => agentCard.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })))
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+    act(() => button('Shells').click())
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    act(() => button('All sessions').click())
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
 
     const cards = [...host.querySelectorAll<HTMLElement>('.session-card')]
     act(() => {

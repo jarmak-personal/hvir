@@ -4,7 +4,10 @@ import { join } from 'node:path'
 
 import { describe, expect, it, vi } from 'vitest'
 
-import { observeClaudeUsage } from '../src/main/harness/claude-context-telemetry'
+import {
+  observeClaudeContext,
+  observeClaudeUsage,
+} from '../src/main/harness/claude-context-telemetry'
 import { claudeProjectDirectoryName } from '../src/main/harness/claude-session-artifact'
 import {
   observeCodexContext,
@@ -81,6 +84,101 @@ describe('provider usage over an SSH-qualified host', () => {
           observedCount: 1,
           coverage: 'gapped',
         }),
+      )
+    } finally {
+      await stop?.()
+      await fixture.dispose()
+      warning.mockRestore()
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('observes completed Claude compactions with bounded SSH reconnect continuity', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'hvir-claude-remote-compactions-'))
+    const cwd = join(directory, 'workspace')
+    await mkdir(cwd)
+    const projectDirectory = join(
+      directory,
+      'projects',
+      claudeProjectDirectoryName(await realpath(cwd)),
+    )
+    await mkdir(projectDirectory, { recursive: true })
+    const transcript = join(projectDirectory, `${CLAUDE_SESSION_ID}.jsonl`)
+    await writeFile(
+      transcript,
+      `${claudeCompaction(CLAUDE_SESSION_ID, 'historical-boundary')}\n`,
+    )
+    const fixture = await remoteHarnessHost()
+    const emitted: HarnessTelemetry[] = []
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    let stop: Disposer | undefined
+    const context = {
+      sessionId: CLAUDE_SESSION_ID,
+      cwd: fixture.path(cwd),
+      artifact: {
+        identity: 'claude-compaction-ssh-test',
+        environment: { CLAUDE_CONFIG_DIR: directory },
+        unsetEnvironment: [],
+      },
+      effectiveCapabilities: {
+        sessionIdentity: 'preassigned' as const,
+        exactResume: true,
+        contextPresentation: 'pressure' as const,
+        compactionObservation: true as const,
+      },
+    }
+    try {
+      stop = await observeClaudeContext(fixture.host, {
+        ...context,
+        subscriptionId: CLAUDE_SESSION_ID,
+        signal: new AbortController().signal,
+        emit: (telemetry) => {
+          if (telemetry) emitted.push(telemetry)
+        },
+      })
+      await vi.waitFor(() => expect(compactionFact(emitted.at(-1))?.observedCount).toBe(0))
+      await appendFile(
+        transcript,
+        `${claudeUsage(CLAUDE_SESSION_ID)}\n${claudeCompaction(CLAUDE_SESSION_ID, 'live-one')}\n`,
+      )
+      await vi.waitFor(
+        () => expect(compactionFact(emitted.at(-1))?.observedCount).toBe(1),
+        { timeout: 4_000 },
+      )
+
+      fixture.disconnect()
+      await vi.waitFor(() =>
+        expect(compactionFact(emitted.at(-1))).toMatchObject({
+          observedCount: 1,
+          coverage: 'gapped',
+        }),
+      )
+      await stop()
+      stop = undefined
+      fixture.reconnect()
+
+      const recovered: HarnessTelemetry[] = []
+      stop = await observeClaudeContext(fixture.host, {
+        ...context,
+        subscriptionId: RECOVERY_SUBSCRIPTION_ID,
+        signal: new AbortController().signal,
+        emit: (telemetry) => {
+          if (telemetry) recovered.push(telemetry)
+        },
+      })
+      await vi.waitFor(() =>
+        expect(compactionFact(recovered.at(-1))).toMatchObject({
+          observedCount: 1,
+          coverage: 'gapped',
+        }),
+      )
+      await appendFile(
+        transcript,
+        `${claudeCompaction(CLAUDE_SESSION_ID, 'live-two')}\n`,
+      )
+      await vi.waitFor(
+        () => expect(compactionFact(recovered.at(-1))?.observedCount).toBe(2),
+        { timeout: 4_000 },
       )
     } finally {
       await stop?.()
@@ -413,6 +511,16 @@ function claudeUsage(sessionId: string): string {
         output_tokens: 4,
       },
     },
+  })
+}
+
+function claudeCompaction(sessionId: string, identity: string): string {
+  return JSON.stringify({
+    type: 'system',
+    subtype: 'compact_boundary',
+    uuid: identity,
+    timestamp: new Date().toISOString(),
+    sessionId,
   })
 }
 

@@ -118,7 +118,7 @@ export async function seedHarnessCompactionReplay(
   signal: AbortSignal,
   observation: HarnessCompactionObservation,
   parse: (record: string) => CompletedHarnessCompaction | undefined,
-): Promise<void> {
+): Promise<boolean> {
   try {
     const result = await host.exec('tail', ['-n', '512', '--', path.path], {
       signal,
@@ -126,14 +126,16 @@ export async function seedHarnessCompactionReplay(
     })
     if (result.code !== 0 || result.outputTruncated || signal.aborted) {
       observation.noteGap()
-      return
+      return false
     }
     for (const line of result.stdout.split('\n')) {
       const record = parse(line)
       if (record) observation.seed(record)
     }
+    return true
   } catch {
     if (!signal.aborted) observation.noteGap()
+    return false
   }
 }
 

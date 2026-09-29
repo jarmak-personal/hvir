@@ -1,11 +1,13 @@
 import { useEffect, useRef, useSyncExternalStore, type ReactElement } from 'react'
 
-import type {
-  HarnessProfile,
-  HarnessProfileProbe,
-  HarnessProviderDescriptor,
-  HarnessProviderId,
-  WorkspaceState,
+import {
+  sessionsCompactionFact,
+  type HostConnectionState,
+  type HarnessProfile,
+  type HarnessProfileProbe,
+  type HarnessProviderDescriptor,
+  type HarnessProviderId,
+  type WorkspaceState,
 } from '../../../shared'
 import { CompactionMarkers } from '../harness/CompactionMarkers'
 import { SessionDetailsPopover } from '../harness/SessionDetailsPopover'
@@ -40,6 +42,7 @@ export function TerminalRail({
   available,
   menuOpen,
   sessionsProjection,
+  connectionState = 'connected',
   moveMenuOpen,
   moveTargets,
   launchMenuEntries,
@@ -71,6 +74,7 @@ export function TerminalRail({
   readonly available: boolean
   readonly menuOpen: boolean
   readonly sessionsProjection: SessionsProjectionCoordinator
+  readonly connectionState?: HostConnectionState
   readonly moveMenuOpen: boolean
   readonly moveTargets: readonly WorkspaceState[]
   readonly launchMenuEntries: readonly TerminalLaunchMenuEntry[]
@@ -116,15 +120,33 @@ export function TerminalRail({
           (candidate) => String(candidate.handle) === detailsRequest.target,
         )
       : undefined
-  useEffect(() => {
-    if (detailsRequest && projection.status === 'available' && !detailsRow) {
-      dismissDetails(false)
-    }
-  }, [detailsRequest, detailsRow, dismissDetails, projection.status])
   const detailsUsage = useSessionsDetailsUsage(detailsRow, projection, detailsActive)
   useEffect(() => {
     if (detailsActive) return sessionsProjection.acquire()
   }, [detailsActive, sessionsProjection])
+  useEffect(() => {
+    if (!detailsRequest) return
+    if (projection.status === 'available' && !detailsRow) {
+      dismissDetails(false)
+      return
+    }
+    if (projection.status !== 'unavailable') return
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled && sessionsProjection.snapshot().status === 'unavailable') {
+        dismissDetails(false)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [
+    detailsRequest,
+    detailsRow,
+    dismissDetails,
+    projection.status,
+    sessionsProjection,
+  ])
   const detailsModel = detailsRow
     ? sessionDetailsModel(detailsRow, detailsUsage)
     : detailsRequest && projection.status === 'available'
@@ -305,6 +327,13 @@ export function TerminalRail({
           const contextPresentation = provider?.capabilities.contextPresentation
           const showsContext =
             contextPresentation === 'count' || contextPresentation === 'pressure'
+          const compactionFact = sessionsCompactionFact(
+            session.capabilities.compactionObservation === true,
+            session.dormant !== true,
+            session.telemetry,
+            session.providerId,
+            connectionState,
+          )
           return (
             <div
               key={session.id}
@@ -337,13 +366,7 @@ export function TerminalRail({
                         pressurePolicy={provider?.capabilities.contextPressure}
                       />
                       {session.capabilities.compactionObservation ? (
-                        <CompactionMarkers
-                          fact={
-                            session.telemetry?.facets.compactions ?? {
-                              status: 'unavailable',
-                            }
-                          }
-                        />
+                        <CompactionMarkers fact={compactionFact} />
                       ) : null}
                     </>
                   ) : null}

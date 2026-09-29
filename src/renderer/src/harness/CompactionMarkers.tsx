@@ -1,18 +1,12 @@
 import { useLayoutEffect, useRef, useState, type ReactElement } from 'react'
 
-import type { HarnessCompactionFacet, SessionsCompactionFact } from '../../../shared'
+import type { SessionsCompactionFact, SessionsFact } from '../../../shared'
 import {
   compactionMarkerPresentation,
   DEFAULT_COMPACTION_MARKER_PITCH,
 } from './compaction-marker-presentation'
 
-export type CompactionMarkerFact =
-  | { readonly status: 'unsupported' }
-  | { readonly status: 'pending' | 'unavailable'; readonly reason?: string }
-  | {
-      readonly status: 'available' | 'stale'
-      readonly value: HarnessCompactionFacet | SessionsCompactionFact
-    }
+export type CompactionMarkerFact = SessionsFact<SessionsCompactionFact>
 
 export function CompactionMarkers({
   fact,

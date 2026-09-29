@@ -266,7 +266,7 @@ export async function observeClaudeContext(
     )
     return () => undefined
   }
-  await seedHarnessCompactionReplay(
+  const compactionReplaySeeded = await seedHarnessCompactionReplay(
     host,
     location.transcript,
     context.signal,
@@ -302,6 +302,7 @@ export async function observeClaudeContext(
       }
       const completed = parseClaudeCompletedCompaction(record, context.sessionId)
       if (completed) {
+        if (!compactionReplaySeeded) return HEALTHY_HARNESS_TELEMETRY_RECORD
         const next = compactions.accept(latest, completed)
         if (next) latest = next
         return next ?? HEALTHY_HARNESS_TELEMETRY_RECORD

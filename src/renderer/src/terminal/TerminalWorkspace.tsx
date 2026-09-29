@@ -369,6 +369,7 @@ export function TerminalWorkspace({
           onRailCompact={onRailCompact}
           menuOpen={menuOpen}
           sessionsProjection={sessionsProjection}
+          connectionState={connectionState}
           setMenuOpen={setMenuOpen}
           model={model}
           profileState={profileState}

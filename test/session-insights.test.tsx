@@ -82,7 +82,13 @@ describe('compaction marker presentation', () => {
       document.querySelector('.compaction-markers')?.getAttribute('aria-label'),
     ).toContain('0 observed')
 
-    act(() => root.render(<CompactionMarkers fact={{ status: 'unavailable' }} />))
+    act(() =>
+      root.render(
+        <CompactionMarkers
+          fact={{ status: 'unavailable', reason: 'source-unavailable' }}
+        />,
+      ),
+    )
     expect(document.querySelector('.compaction-marker-unknown')?.textContent).toBe('–')
 
     act(() => root.render(<CompactionMarkers fact={{ status: 'unsupported' }} />))
@@ -254,6 +260,36 @@ describe('session details popover interaction', () => {
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
       'Terminal one',
     )
+  })
+
+  it('dismisses an unavailable rail request and releases its projection lease', async () => {
+    const calls: string[] = []
+    const projection = unavailableProjection(calls)
+    Object.defineProperty(window, 'hvir', {
+      configurable: true,
+      value: {
+        invoke: vi.fn(() => Promise.resolve(true)),
+        on: vi.fn(() => () => undefined),
+      },
+    })
+    act(() => root.render(<TerminalRail {...terminalRailProps(projection)} />))
+
+    await act(async () => {
+      document
+        .querySelector<HTMLElement>('.terminal-list-row')
+        ?.dispatchEvent(
+          new MouseEvent('contextmenu', {
+            bubbles: true,
+            cancelable: true,
+            clientX: 30,
+            clientY: 40,
+          }),
+        )
+      await flushMicrotasks()
+    })
+
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(calls).toEqual(['projection:acquire', 'projection:release'])
   })
 })
 
@@ -685,6 +721,25 @@ function unavailableProjectionThenAvailable(
         calls.push('projection:release')
         active = false
       }
+    },
+  } as unknown as SessionsProjectionCoordinator
+}
+
+function unavailableProjection(calls: string[]): SessionsProjectionCoordinator {
+  const snapshot: SessionsProjectionSnapshot = {
+    version: 1,
+    demandGeneration: 1,
+    revision: 1,
+    sourceRevision: 1,
+    status: 'unavailable',
+    rows: [],
+  }
+  return {
+    subscribe: () => () => undefined,
+    snapshot: () => snapshot,
+    acquire: () => {
+      calls.push('projection:acquire')
+      return () => calls.push('projection:release')
     },
   } as unknown as SessionsProjectionCoordinator
 }
