@@ -120,10 +120,30 @@ export async function seedHarnessCompactionReplay(
   parse: (record: string) => CompletedHarnessCompaction | undefined,
 ): Promise<boolean> {
   try {
-    const result = await host.exec('tail', ['-n', '512', '--', path.path], {
-      signal,
-      maxBuffer: 8 * 1024 * 1024,
-    })
+    const result = await host.exec(
+      'sh',
+      [
+        '-c',
+        [
+          'if [ -e "$1" ]; then exec tail -n 512 -- "$1"; fi',
+          'probe=${1%/*}',
+          '[ -n "$probe" ] || probe=/',
+          'while [ ! -e "$probe" ]; do',
+          '  next=${probe%/*}',
+          '  [ -n "$next" ] || next=/',
+          '  [ "$next" != "$probe" ] || exit 1',
+          '  probe=$next',
+          'done',
+          '[ -d "$probe" ] && [ -x "$probe" ]',
+        ].join('\n'),
+        'hvir-compaction-replay',
+        path.path,
+      ],
+      {
+        signal,
+        maxBuffer: 8 * 1024 * 1024,
+      },
+    )
     if (result.code !== 0 || result.outputTruncated || signal.aborted) {
       observation.noteGap()
       return false

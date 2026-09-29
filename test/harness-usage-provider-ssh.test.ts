@@ -104,10 +104,6 @@ describe('provider usage over an SSH-qualified host', () => {
     )
     await mkdir(projectDirectory, { recursive: true })
     const transcript = join(projectDirectory, `${CLAUDE_SESSION_ID}.jsonl`)
-    await writeFile(
-      transcript,
-      `${claudeCompaction(CLAUDE_SESSION_ID, 'historical-boundary')}\n`,
-    )
     const fixture = await remoteHarnessHost()
     const emitted: HarnessTelemetry[] = []
     const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
@@ -137,7 +133,7 @@ describe('provider usage over an SSH-qualified host', () => {
         },
       })
       await vi.waitFor(() => expect(compactionFact(emitted.at(-1))?.observedCount).toBe(0))
-      await appendFile(
+      await writeFile(
         transcript,
         `${claudeUsage(CLAUDE_SESSION_ID)}\n${claudeCompaction(CLAUDE_SESSION_ID, 'live-one')}\n`,
       )

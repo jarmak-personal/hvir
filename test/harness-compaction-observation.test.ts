@@ -229,6 +229,44 @@ describe('completed harness compaction observation', () => {
       await rm(directory, { recursive: true, force: true })
     }
   })
+
+  it('observes the first Claude boundary when the transcript appears after launch', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'hvir-claude-fresh-compaction-'))
+    const cwd = join(directory, 'workspace')
+    await mkdir(cwd)
+    const sessionId = '33333333-3333-4333-8333-333333333333'
+    const projectDirectory = join(
+      directory,
+      'projects',
+      claudeProjectDirectoryName(await realpath(cwd)),
+    )
+    await mkdir(projectDirectory, { recursive: true })
+    const transcript = join(projectDirectory, `${sessionId}.jsonl`)
+    const host = new LocalHost()
+    const emitted: HarnessTelemetry[] = []
+    await host.connect()
+    let stop: (() => void | Promise<void>) | undefined
+    try {
+      stop = await observeClaudeContext(
+        host,
+        claudeObservationContext(localPath(cwd), directory, sessionId, emitted),
+      )
+      await writeFile(
+        transcript,
+        `${claudeUsageRecord(sessionId, 2)}\n${claudeCompactionRecord(sessionId, 'first-live')}\n`,
+      )
+      await vi.waitFor(() => expect(observedCompactions(emitted.at(-1))).toBe(1), {
+        timeout: 4_000,
+      })
+      expect(emitted.at(-1)?.facets.compactions).toMatchObject({
+        value: { coverage: 'continuous' },
+      })
+    } finally {
+      await stop?.()
+      await host.dispose()
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('provider compaction qualification', () => {
