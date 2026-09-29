@@ -1,32 +1,58 @@
 // @vitest-environment happy-dom
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { DEVELOPMENT_PERFORMANCE_FIXTURE_REQUEST_EVENT } from '../src/renderer/src/development/development-performance-events'
 import { installDevelopmentRendererInstrumentation } from '../src/renderer/src/development/development-renderer-instrumentation'
 
-describe('development renderer instrumentation ownership', () => {
-  afterEach(() => {
-    vi.useRealTimers()
+const fixtureInstances = vi.hoisted(
+  () => [] as Array<{ readonly dispose: () => void; readonly start: () => void }>,
+)
+
+vi.mock('../src/renderer/src/development/development-performance-fixture', () => ({
+  DevelopmentPerformanceFixture: class {
+    readonly dispose = vi.fn()
+    readonly start = vi.fn()
+
+    constructor() {
+      fixtureInstances.push(this)
+    }
+  },
+}))
+
+describe('development renderer fixture ownership', () => {
+  beforeEach(() => {
+    fixtureInstances.length = 0
   })
 
-  it('replaces the prior owner and disposes the current renderer lifetime once', () => {
-    vi.useFakeTimers()
+  afterEach(() => {
+    window.dispatchEvent(new Event('pagehide'))
+  })
+
+  it('replaces the prior owner and starts one disposable fixture per lifetime', () => {
     const first = installDevelopmentRendererInstrumentation()
-    expect(vi.getTimerCount()).toBe(1)
+    requestFixture()
+    expect(fixtureInstances).toHaveLength(1)
+    expect(fixtureInstances[0]?.start).toHaveBeenCalledOnce()
 
     const replacement = installDevelopmentRendererInstrumentation()
-    expect(vi.getTimerCount()).toBe(1)
-    expect(document.documentElement.dataset.hvirDevelopmentPerformanceMeasurePolicy).toBe(
-      'hvir:development-performance-measure-budget:v1',
-    )
+    expect(fixtureInstances[0]?.dispose).toHaveBeenCalledOnce()
+
+    requestFixture()
+    requestFixture()
+    expect(fixtureInstances).toHaveLength(2)
+    expect(fixtureInstances[1]?.start).toHaveBeenCalledOnce()
 
     first.dispose()
-    expect(vi.getTimerCount()).toBe(1)
     window.dispatchEvent(new Event('pagehide'))
     replacement.dispose()
-    expect(vi.getTimerCount()).toBe(0)
-    expect(
-      document.documentElement.dataset.hvirDevelopmentPerformanceMeasurePolicy,
-    ).toBeUndefined()
+    expect(fixtureInstances[1]?.dispose).toHaveBeenCalledOnce()
+
+    requestFixture()
+    expect(fixtureInstances).toHaveLength(2)
   })
 })
+
+function requestFixture(): void {
+  window.dispatchEvent(new Event(DEVELOPMENT_PERFORMANCE_FIXTURE_REQUEST_EVENT))
+}
