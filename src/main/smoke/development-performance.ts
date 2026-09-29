@@ -26,12 +26,12 @@ async function verifyDevelopmentPerformanceMeasures(win: BrowserWindow): Promise
 
         performance.clearMeasures();
         let observedMeasureCount = 0;
-        let observedReactMeasureCount = 0;
+        let observedFixtureReactMeasureCount = 0;
         const isFixtureReactMeasure = (entry) =>
-          entry.name === 'Update' || entry.name.startsWith('\u200bMeasuredCommit');
+          entry.name.startsWith('\u200bMeasuredCommit');
         const record = (entries) => {
           observedMeasureCount += entries.length;
-          observedReactMeasureCount += entries.filter(isFixtureReactMeasure).length;
+          observedFixtureReactMeasureCount += entries.filter(isFixtureReactMeasure).length;
         };
         const observer = new PerformanceObserver((list) => record(list.getEntries()));
         observer.observe({ type: 'measure' });
@@ -48,13 +48,11 @@ async function verifyDevelopmentPerformanceMeasures(win: BrowserWindow): Promise
           setTimeout(() => {
             record(observer.takeRecords());
             const retained = performance.getEntriesByType('measure');
-            const retainedReactMeasureCount = retained.filter(isFixtureReactMeasure).length;
             cleanup();
             resolve({
               observedMeasureCount,
-              observedReactMeasureCount,
+              observedFixtureReactMeasureCount,
               retainedMeasureCount: retained.length,
-              retainedReactMeasureCount,
             });
           }, 0);
         };
@@ -73,19 +71,20 @@ async function verifyDevelopmentPerformanceMeasures(win: BrowserWindow): Promise
     30_000,
   )) as {
     observedMeasureCount: number
-    observedReactMeasureCount: number
+    observedFixtureReactMeasureCount: number
     retainedMeasureCount: number
-    retainedReactMeasureCount: number
   }
-  if (result.observedReactMeasureCount < 1) {
-    throw new Error('development fixture did not produce React Performance measures')
-  }
-  if (result.retainedReactMeasureCount !== 0) {
+  if (result.observedFixtureReactMeasureCount < 1) {
     throw new Error(
-      `React retained ${result.retainedReactMeasureCount} development Performance measures`,
+      'development fixture did not produce fixture-specific React Performance measures',
     )
   }
-  return `${result.observedReactMeasureCount}/${result.observedMeasureCount} React/total measures observed · ${result.retainedReactMeasureCount}/${result.retainedMeasureCount} retained`
+  if (result.retainedMeasureCount !== 0) {
+    throw new Error(
+      `React retained ${result.retainedMeasureCount} development Performance measures`,
+    )
+  }
+  return `${result.observedFixtureReactMeasureCount}/${result.observedMeasureCount} fixture/total React measures observed · ${result.retainedMeasureCount} retained`
 }
 
 function withTimeout<T>(

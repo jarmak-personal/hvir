@@ -492,8 +492,8 @@ Markdown images remain within the canonical document directory and descendants.
 > Supersedes: [ADR-025](adr/ADR-025-remove-renderer-responsiveness-diagnostic.md) | partial | Requirement to preserve hvir's development Performance Timeline containment owner and budget fixture.
 
 React owns cleanup of its development Performance measures; a development-only Electron fixture
-uses browser observation to prove real React work and an empty retained React measure set without
-adding product instrumentation.
+uses browser observation to prove fixture-specific React work and an empty retained measure set
+without adding product instrumentation.
 
 ## 5. Architecture
 

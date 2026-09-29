@@ -28,9 +28,9 @@ periodically inspect, or clear those measures.
 
 Preserve one focused development Electron scenario as a dependency-compatibility contract. The
 scenario registers a browser `PerformanceObserver` before requesting repeated React rendering,
-proves that React measures were observed, and separately proves that no fixture React measures
-remain in the Performance Timeline after the workload completes. The observer belongs only to
-the scenario and disconnects when that bounded observation ends.
+proves that fixture-specific React measures were observed, and separately proves that no measures
+remain in the Performance Timeline after the workload completes. The observer belongs only to the
+scenario and disconnects when that bounded observation ends.
 
 The renderer retains only the development-only, event-triggered hidden React fixture needed to
 produce real work. Its request listener and render resources remain disposable with the renderer
