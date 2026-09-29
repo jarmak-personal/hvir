@@ -845,7 +845,7 @@ describe('ProjectRegistry session flow', () => {
     await registry.dispose()
   })
 
-  it('persists Git prunable reasons and clears them when a worktree recovers', async () => {
+  it('ignores new prunable records and admits the same path when it is present', async () => {
     const root = await mkdtemp(join(tmpdir(), 'hvir-registry-prunable-'))
     const canonicalRoot = await realpath(root)
     const staleRoot = localPath(`${canonicalRoot}-stale`)
@@ -873,13 +873,21 @@ describe('ProjectRegistry session flow', () => {
         },
       ],
     })
+    expect(
+      registry
+        .projectById(projectId)
+        ?.workspaces.find((workspace) => workspace.root.path === staleRoot.path),
+    ).toBeUndefined()
+    await registry.reconcileWorktrees(projectId, {
+      repository: true,
+      worktrees: [
+        { root: localPath(canonicalRoot), branch: 'main', detached: false, bare: false },
+        { root: staleRoot, branch: 'repaired', detached: false, bare: false },
+      ],
+    })
     expect(registry.projectById(projectId)?.workspaces).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          root: staleRoot,
-          missing: true,
-          prunableReason: 'gitdir file points to non-existent location',
-        }),
+        expect.objectContaining({ root: staleRoot, missing: false, branch: 'repaired' }),
       ]),
     )
     await registry.dispose()
@@ -890,14 +898,6 @@ describe('ProjectRegistry session flow', () => {
       join(root, 'known-hosts.json'),
       projectsFile,
       () => undefined,
-    )
-    expect(restored.projectById(projectId)?.workspaces).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          root: staleRoot,
-          prunableReason: 'gitdir file points to non-existent location',
-        }),
-      ]),
     )
     await restored.reconcileWorktrees(projectId, {
       repository: true,

@@ -382,8 +382,9 @@ export class ProjectRegistry {
         throw new Error('Git reported a worktree on another host')
       }
       const id = workspaceId(discovered.root)
-      seen.add(id)
       const existing = project.workspaces.find((candidate) => candidate.id === id)
+      if (discovered.prunable === true && !existing) continue
+      seen.add(id)
       const record: WorkspaceRecord = {
         id,
         root: discovered.root,
