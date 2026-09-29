@@ -109,6 +109,13 @@ export interface SessionsContextFact {
   readonly usedPercent?: number
 }
 
+export interface SessionsCompactionFact {
+  readonly observedCount: number
+  readonly periodStartedAt: number
+  readonly lastObservedAt?: number
+  readonly coverage: 'continuous' | 'gapped'
+}
+
 export interface SessionsTurnFact {
   readonly state: 'working' | 'waiting-for-user' | 'waiting-for-approval' | 'idle'
 }
@@ -120,6 +127,7 @@ export interface SessionsFreshnessFact {
 export interface SessionsTelemetryFacts {
   readonly model: SessionsFact<SessionsModelFact>
   readonly context: SessionsFact<SessionsContextFact>
+  readonly compactions?: SessionsFact<SessionsCompactionFact>
   readonly turn: SessionsFact<SessionsTurnFact>
   readonly freshness: SessionsFact<SessionsFreshnessFact>
 }
@@ -288,6 +296,7 @@ export interface SessionsProjectionRow {
   readonly working: SessionsFact<boolean>
   readonly model: SessionsFact<SessionsModelFact>
   readonly context: SessionsFact<SessionsContextFact>
+  readonly compactions?: SessionsFact<SessionsCompactionFact>
   readonly turn: SessionsFact<SessionsTurnFact>
   readonly telemetryFreshness: SessionsFact<SessionsFreshnessFact>
   /** Capability baseline; the active Usage lens overlays demanded observations. */

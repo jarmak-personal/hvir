@@ -59,6 +59,7 @@ export const claudeCodeProvider: HarnessProvider = {
     contextPressure: CLAUDE_CONTEXT_PRESSURE,
     reviewInsert: claudeCodeReviewInsert,
     supportsExactForkVersion: supportsClaudeExactForkVersion,
+    supportsCompactionObservationVersion,
   }),
   composerConfiguration: { configure: configureClaudeComposerSubmit },
   remoteImagePaste: pathImagePasteContract(),
@@ -104,5 +105,15 @@ function supportsClaudeExactForkVersion(version: string | undefined): boolean {
   return (
     parts[0]! > 2 ||
     (parts[0] === 2 && (parts[1]! > 1 || (parts[1] === 1 && parts[2]! >= 258)))
+  )
+}
+
+function supportsCompactionObservationVersion(version: string | undefined): boolean {
+  const match = /(?:^|\s)(\d+)\.(\d+)\.(\d+)(?:\b|[-+])/.exec(version ?? '')
+  if (!match) return false
+  const parts = match.slice(1).map(Number)
+  return (
+    parts[0]! > 2 ||
+    (parts[0] === 2 && (parts[1]! > 1 || (parts[1] === 1 && parts[2]! >= 39)))
   )
 }

@@ -27,6 +27,8 @@ export interface HarnessProviderCapabilities {
   readonly exactFork?: true
   readonly contextPresentation: HarnessContextPresentation
   readonly contextPressure?: HarnessContextPressurePolicy
+  /** Present only when the probed provider version persists completed compactions. */
+  readonly compactionObservation?: true
   /** Trusted effective launch contract; absent means document review is Copy-only. */
   readonly reviewInsertContractRevision?: number
   /** Exact provider/profile submit contract; absent keeps review delivery Insert-only. */

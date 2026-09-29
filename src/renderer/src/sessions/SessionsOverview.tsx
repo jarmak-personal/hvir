@@ -18,6 +18,12 @@ import type {
   SessionsTerminalHandle,
   SessionsWorkspaceQualifier,
 } from '../../../shared'
+import {
+  SessionDetailsPopover,
+  type SessionDetailsModel,
+} from '../harness/SessionDetailsPopover'
+import { useSessionDetailsPopover } from '../harness/use-session-details-popover'
+import { useSessionsDetailsUsage } from '../harness/use-session-details-usage'
 import { SessionsOverviewCard } from './SessionsOverviewCard'
 import { SessionsOverviewNotice } from './SessionsOverviewNotice'
 import { SessionsCollectionToolbar } from './SessionsCollectionToolbar'
@@ -48,7 +54,8 @@ import {
 } from './sessions-overview-model'
 
 interface SessionsOverviewProps {
-  readonly observation: SessionsRendererObservationPort
+  readonly projection?: SessionsProjectionCoordinator
+  readonly observation?: SessionsRendererObservationPort
   readonly surface: SessionsTerminalSurfacePort
   readonly onOpened: (state: ProjectState) => void
   readonly onFocusOpened: (
@@ -60,18 +67,22 @@ interface SessionsOverviewProps {
 }
 
 export function SessionsOverview({
+  projection,
   observation,
   surface,
   onOpened,
   onFocusOpened,
   onOpenFailed,
 }: SessionsOverviewProps): ReactElement {
-  const coordinator = useRef<SessionsProjectionCoordinator | undefined>(undefined)
-  coordinator.current ??= new SessionsProjectionCoordinator(
-    createSessionsMainObservationPort(window.hvir),
-    observation,
-  )
-  const source = coordinator.current
+  const ownedProjection = useRef<SessionsProjectionCoordinator | undefined>(undefined)
+  if (!projection && !ownedProjection.current && observation) {
+    ownedProjection.current = new SessionsProjectionCoordinator(
+      createSessionsMainObservationPort(window.hvir),
+      observation,
+    )
+  }
+  const source = projection ?? ownedProjection.current
+  if (!source) throw new Error('Sessions projection is unavailable')
   const foreground = useSessionsForeground()
   const snapshot = useSyncExternalStore(
     source.subscribe,
@@ -96,6 +107,10 @@ export function SessionsOverview({
   const rowElements = useRef(new Map<SessionsTerminalHandle, HTMLElement>())
   const collectionControl = useRef<HTMLButtonElement>(null)
   const openGeneration = useRef(0)
+  const details = useSessionDetailsPopover('sessions-overview', () => {
+    collectionControl.current?.focus()
+  })
+  const dismissDetails = details.dismiss
 
   useEffect(() => {
     if (!foreground) return
@@ -110,7 +125,8 @@ export function SessionsOverview({
     detailOrigin.current = undefined
     setFeedback(undefined)
     pendingFocus.current = undefined
-  }, [foreground])
+    dismissDetails(false)
+  }, [dismissDetails, foreground])
   useEffect(
     () => () => {
       openGeneration.current += 1
@@ -280,6 +296,14 @@ export function SessionsOverview({
 
   const policyLabel = sessionsOverviewPolicyLabel(policy)
   const detailActive = detailState.status !== 'inactive'
+  const detailsRow = details.request
+    ? page.rows.find((row) => String(row.handle) === details.request?.target)
+    : undefined
+  const detailsUsage = useSessionsDetailsUsage(
+    detailsRow,
+    snapshot,
+    foreground && details.request !== undefined,
+  )
   return (
     <>
       <main
@@ -441,7 +465,15 @@ export function SessionsOverview({
                                 }}
                                 onFocus={() => setSelected(row.handle)}
                                 onClick={() => setSelected(row.handle)}
+                                onContextMenu={(event) =>
+                                  details.openFromPointer(event, String(row.handle))
+                                }
                                 onKeyDown={(event) => {
+                                  if (
+                                    details.openFromKeyboard(event, String(row.handle))
+                                  ) {
+                                    return
+                                  }
                                   if (
                                     event.key === 'Enter' &&
                                     event.target === event.currentTarget
@@ -496,8 +528,38 @@ export function SessionsOverview({
           onOpenWorkspace={openDetailWorkspace}
         />
       ) : null}
+      <SessionDetailsPopover
+        controller={details}
+        details={detailsRow ? sessionsDetailsModel(detailsRow, detailsUsage) : undefined}
+      />
     </>
   )
+}
+
+function sessionsDetailsModel(
+  row: SessionsProjectionRow,
+  usage?: SessionsProjectionRow['usage'],
+): SessionDetailsModel {
+  return {
+    title: row.title,
+    provider: row.provider.name,
+    profile:
+      row.profile.status === 'available' || row.profile.status === 'stale'
+        ? String(row.profile.value.id)
+        : 'Unavailable',
+    model: row.model,
+    workspace: `${row.project.name} / ${row.workspace.name}`,
+    host: `${row.host.label}${row.host.kind === 'ssh' ? ' · SSH' : ''}`,
+    state:
+      row.connectionState === 'connected'
+        ? row.lifecycle
+        : `${row.lifecycle} · ${row.connectionState}`,
+    context: row.context,
+    compactions: row.compactions ?? { status: 'unsupported' },
+    freshness: row.telemetryFreshness,
+    usage: usage ?? row.usage,
+    pressurePolicy: row.provider.contextPressure,
+  }
 }
 
 function openUnavailableMessage(reason: SessionsOpenUnavailableReason): string {

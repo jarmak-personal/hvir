@@ -3,10 +3,12 @@ import {
   type HarnessFacet,
   type HarnessModelFacet,
   type HarnessContextFacet,
+  type HarnessCompactionFacet,
   type HarnessTelemetry,
   type HarnessTurnFacet,
   type HostConnectionState,
   type SessionsContextFact,
+  type SessionsCompactionFact,
   type SessionsFact,
   type SessionsModelFact,
   type SessionsProviderProjection,
@@ -48,6 +50,13 @@ export function sessionsTelemetryFacts(
       stale,
       reason,
       sanitizeContext,
+    ),
+    compactions: projectFacet(
+      telemetry.facets.compactions ?? { status: 'unsupported' },
+      observedAt,
+      stale,
+      reason,
+      sanitizeCompactions,
     ),
     turn: projectFacet(telemetry.facets.turn, observedAt, stale, reason, sanitizeTurn),
     freshness:
@@ -118,6 +127,28 @@ function sanitizeContext(value: HarnessContextFacet): SessionsContextFact | unde
   }
 }
 
+function sanitizeCompactions(
+  value: HarnessCompactionFacet,
+): SessionsCompactionFact | undefined {
+  const observedCount = sessionsProjectionNonNegativeInteger(value.observedCount)
+  const periodStartedAt = value.periodStartedAt
+  const lastObservedAt = value.lastObservedAt
+  if (
+    observedCount === undefined ||
+    !sessionsProjectionTimestamp(periodStartedAt) ||
+    (lastObservedAt !== undefined && !sessionsProjectionTimestamp(lastObservedAt)) ||
+    (value.coverage !== 'continuous' && value.coverage !== 'gapped')
+  ) {
+    return undefined
+  }
+  return {
+    observedCount,
+    periodStartedAt,
+    ...(lastObservedAt === undefined ? {} : { lastObservedAt }),
+    coverage: value.coverage,
+  }
+}
+
 function sanitizeTurn(value: HarnessTurnFacet): SessionsTurnFact | undefined {
   switch (value.state) {
     case 'working':
@@ -132,6 +163,7 @@ function unsupportedTelemetry(): SessionsTelemetryFacts {
   return {
     model: { status: 'unsupported' },
     context: { status: 'unsupported' },
+    compactions: { status: 'unsupported' },
     turn: { status: 'unsupported' },
     freshness: { status: 'unsupported' },
   }
@@ -141,6 +173,7 @@ function pendingTelemetry(): SessionsTelemetryFacts {
   return {
     model: { status: 'pending', reason: 'telemetry-pending' },
     context: { status: 'pending', reason: 'telemetry-pending' },
+    compactions: { status: 'pending', reason: 'telemetry-pending' },
     turn: { status: 'pending', reason: 'telemetry-pending' },
     freshness: { status: 'pending', reason: 'telemetry-pending' },
   }
@@ -152,6 +185,7 @@ function unavailableTelemetry(
   return {
     model: { status: 'unavailable', reason },
     context: { status: 'unavailable', reason },
+    compactions: { status: 'unavailable', reason },
     turn: { status: 'unavailable', reason },
     freshness: { status: 'unavailable', reason },
   }

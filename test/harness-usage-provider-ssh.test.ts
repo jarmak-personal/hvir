@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -6,7 +6,10 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { observeClaudeUsage } from '../src/main/harness/claude-context-telemetry'
 import { claudeProjectDirectoryName } from '../src/main/harness/claude-session-artifact'
-import { observeCodexUsage } from '../src/main/harness/codex-context-telemetry'
+import {
+  observeCodexContext,
+  observeCodexUsage,
+} from '../src/main/harness/codex-context-telemetry'
 import type {
   Disposer,
   ExecOptions,
@@ -28,6 +31,65 @@ const CLAUDE_SESSION_ID = '092bd463-4567-4890-abcd-ef0123456789'
 const RECOVERY_SUBSCRIPTION_ID = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
 
 describe('provider usage over an SSH-qualified host', () => {
+  it('observes completed Codex compactions with bounded SSH continuity', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'hvir-codex-remote-compactions-'))
+    const rollout = join(directory, `rollout-session-${CODEX_SESSION_ID}.jsonl`)
+    await writeFile(rollout, '')
+    const fixture = await remoteHarnessHost()
+    const emitted: HarnessTelemetry[] = []
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    let stop: Disposer | undefined
+    try {
+      stop = await observeCodexContext(fixture.host, {
+        subscriptionId: CODEX_SESSION_ID,
+        sessionId: CODEX_SESSION_ID,
+        cwd: fixture.path(directory),
+        sessionData: { rolloutPath: fixture.path(rollout) },
+        artifact: {
+          identity: 'compaction-ssh-test',
+          environment: {},
+          unsetEnvironment: [],
+        },
+        effectiveCapabilities: {
+          sessionIdentity: 'preassigned',
+          exactResume: true,
+          contextPresentation: 'pressure',
+          compactionObservation: true,
+        },
+        signal: new AbortController().signal,
+        emit: (telemetry) => {
+          if (telemetry) emitted.push(telemetry)
+        },
+      })
+      const timestamp = new Date(Date.now() + 1_000).toISOString()
+      await appendFile(
+        rollout,
+        `${JSON.stringify({ timestamp, type: 'compacted', payload: { private: true } })}\n`,
+      )
+      await vi.waitFor(
+        () =>
+          expect(compactionFact(emitted.at(-1))).toMatchObject({
+            observedCount: 1,
+            coverage: 'continuous',
+          }),
+        { timeout: 4_000 },
+      )
+
+      fixture.disconnect()
+      await vi.waitFor(() =>
+        expect(compactionFact(emitted.at(-1))).toMatchObject({
+          observedCount: 1,
+          coverage: 'gapped',
+        }),
+      )
+    } finally {
+      await stop?.()
+      await fixture.dispose()
+      warning.mockRestore()
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
   it('restores exact Codex counters after disconnect and explicit reconnect', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'hvir-codex-remote-usage-'))
     const canonicalDirectory = await realpath(directory)
@@ -157,6 +219,13 @@ describe('provider usage over an SSH-qualified host', () => {
     }
   })
 })
+
+function compactionFact(telemetry: HarnessTelemetry | undefined) {
+  const facet = telemetry?.facets.compactions
+  return facet?.status === 'available' || facet?.status === 'stale'
+    ? facet.value
+    : undefined
+}
 
 async function remoteHarnessHost(): Promise<{
   readonly host: ProjectHost

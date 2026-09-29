@@ -1,6 +1,7 @@
 import type { Dispatch, ReactElement, SetStateAction } from 'react'
 
 import type { TerminalPreferences } from '../settings/settings'
+import type { SessionsProjectionCoordinator } from '../sessions/sessions-projection-coordinator'
 import { useAppTheme } from '../theme'
 import { harnessLaunchMenuState } from './harness-launch-menu'
 import { profileProbe } from './terminal-probe-policy'
@@ -18,10 +19,12 @@ import type { useTerminalWorkspaceMove } from './use-terminal-workspace-move'
 
 export function TerminalWorkspaceControls({
   label,
+  visible,
   available,
   railCompact,
   onRailCompact,
   menuOpen,
+  sessionsProjection,
   setMenuOpen,
   model,
   profileState,
@@ -34,10 +37,12 @@ export function TerminalWorkspaceControls({
   onAddHarness,
 }: {
   readonly label: string
+  readonly visible: boolean
   readonly available: boolean
   readonly railCompact: boolean
   readonly onRailCompact: (compact: boolean) => void
   readonly menuOpen: boolean
+  readonly sessionsProjection?: SessionsProjectionCoordinator
   readonly setMenuOpen: Dispatch<SetStateAction<boolean>>
   readonly model: TerminalWorkspaceModel
   readonly profileState: ReturnType<typeof useTerminalProfiles>
@@ -78,13 +83,14 @@ export function TerminalWorkspaceControls({
     <>
       <TerminalRail
         label={label}
-        visible
+        visible={visible}
         compact={railCompact}
         onCompact={onRailCompact}
         terminalTheme={effectiveTerminalTheme}
         recoveryReady={recoveryReady}
         available={available}
         menuOpen={menuOpen}
+        sessionsProjection={sessionsProjection}
         moveMenuOpen={moving.menuOpen}
         moveTargets={moving.moveTargets}
         launchMenuEntries={launchMenuEntries}

@@ -244,6 +244,7 @@ export class PtySupervisor {
         providerId: info.providerId,
         cwd: req.cwd,
         artifact,
+        effectiveCapabilities,
         observe: telemetry
           ? (context) => telemetry.observe(req.host, context)
           : undefined,

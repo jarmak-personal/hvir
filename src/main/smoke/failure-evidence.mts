@@ -118,6 +118,8 @@ export const SMOKE_FAILURE_CHECKPOINTS = [
   'viewer-position-refresh-ready',
   'terminal-presentation-explicit-launch-awaiting',
   'terminal-presentation-explicit-launch-ready',
+  'terminal-presentation-session-details-awaiting',
+  'terminal-presentation-session-details-ready',
   'terminal-presentation-middle-click-close-awaiting',
   'terminal-presentation-middle-click-close-ready',
   'terminal-presentation-keyboard-awaiting',

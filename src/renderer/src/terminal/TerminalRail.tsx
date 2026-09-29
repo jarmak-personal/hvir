@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react'
+import { useRef, type ReactElement } from 'react'
 
 import type {
   HarnessProfile,
@@ -6,7 +6,22 @@ import type {
   HarnessProviderDescriptor,
   HarnessProviderId,
   WorkspaceState,
+  HarnessFacet,
+  HarnessUsageFacet,
+  SessionsFact,
+  SessionsUsageFact,
 } from '../../../shared'
+import { CompactionMarkers } from '../harness/CompactionMarkers'
+import {
+  SessionDetailsPopover,
+  type SessionDetailsModel,
+} from '../harness/SessionDetailsPopover'
+import { useSessionDetailsPopover } from '../harness/use-session-details-popover'
+import {
+  useApplicationFocus,
+  useTerminalDetailsUsage,
+} from '../harness/use-session-details-usage'
+import type { SessionsProjectionCoordinator } from '../sessions/sessions-projection-coordinator'
 import { terminalAttentionBadgeText, terminalAttentionLabel } from './terminal-attention'
 import {
   compactHarnessCapabilityLabel,
@@ -32,6 +47,7 @@ export function TerminalRail({
   recoveryReady,
   available,
   menuOpen,
+  sessionsProjection,
   moveMenuOpen,
   moveTargets,
   launchMenuEntries,
@@ -62,6 +78,7 @@ export function TerminalRail({
   readonly recoveryReady: boolean
   readonly available: boolean
   readonly menuOpen: boolean
+  readonly sessionsProjection?: SessionsProjectionCoordinator
   readonly moveMenuOpen: boolean
   readonly moveTargets: readonly WorkspaceState[]
   readonly launchMenuEntries: readonly TerminalLaunchMenuEntry[]
@@ -84,6 +101,23 @@ export function TerminalRail({
   readonly onMoveSession: (id: string) => void
   readonly onCloseSession: (id: string) => void
 }): ReactElement {
+  const rail = useRef<HTMLElement>(null)
+  const details = useSessionDetailsPopover(label, () => {
+    rail.current?.querySelector<HTMLButtonElement>('.terminal-list-main')?.focus()
+  })
+  const detailsSession =
+    visible && details.request
+      ? sessions.find((session) => session.id === details.request?.target)
+      : undefined
+  const applicationFocused = useApplicationFocus()
+  const detailsUsage = useTerminalDetailsUsage(
+    detailsSession?.id,
+    visible && applicationFocused && details.request !== undefined,
+    sessionsProjection,
+  )
+  const detailsModel = detailsSession
+    ? terminalDetailsModel(detailsSession, label, providers, profiles, detailsUsage)
+    : undefined
   const { menuRef: launchMenuRef, menuStyle: launchMenuStyle } =
     useTerminalLaunchMenuLayout(menuOpen)
   const applyCompact = (next: boolean): void => {
@@ -94,6 +128,7 @@ export function TerminalRail({
 
   return (
     <aside
+      ref={rail}
       className="terminal-rail"
       aria-label={`Open terminals in ${label}`}
       data-terminal-theme={terminalTheme}
@@ -262,12 +297,14 @@ export function TerminalRail({
               className={`terminal-list-row${session.id === activeId ? ' active' : ''}${session.dormant ? ' dormant' : ''}`}
               data-terminal-dormant={session.dormant ? 'true' : undefined}
               role="listitem"
+              onContextMenu={(event) => details.openFromPointer(event, session.id)}
             >
               <button
                 type="button"
                 className="terminal-list-main"
                 data-terminal-session={session.id}
                 onClick={() => onFocusSession(session.id)}
+                onKeyDown={(event) => details.openFromKeyboard(event, session.id)}
               >
                 <span className="terminal-list-copy">
                   <span className="terminal-list-title">{session.title}</span>
@@ -286,6 +323,13 @@ export function TerminalRail({
                       pressurePolicy={provider?.capabilities.contextPressure}
                     />
                   ) : null}
+                  <CompactionMarkers
+                    fact={
+                      session.telemetry?.facets.compactions ?? {
+                        status: 'unavailable',
+                      }
+                    }
+                  />
                 </span>
                 {session.attention ? (
                   <span
@@ -328,8 +372,81 @@ export function TerminalRail({
         onFocusSession={onFocusSession}
         onRestore={() => applyCompact(false)}
       />
+      <SessionDetailsPopover controller={details} details={detailsModel} />
     </aside>
   )
+}
+
+function terminalDetailsModel(
+  session: TerminalSession,
+  workspace: string,
+  providers: readonly HarnessProviderDescriptor[],
+  profiles: readonly HarnessProfile[],
+  demandedUsage?: SessionsUsageFact,
+): SessionDetailsModel {
+  const provider = providerDescriptor(providers, session.providerId)
+  const telemetry = session.telemetry
+  return {
+    title: session.title,
+    provider: provider?.displayName ?? String(session.providerId),
+    profile: profileDisplayName(profiles, session.profileId),
+    model: harnessFact(telemetry?.facets.model),
+    workspace,
+    host: session.cwd.hostId,
+    state: session.dormant ? 'Retained' : session.status,
+    context: harnessFact(telemetry?.facets.context),
+    compactions: telemetry?.facets.compactions ?? { status: 'unavailable' },
+    freshness: telemetry
+      ? telemetry.freshness.state === 'stale'
+        ? {
+            status: 'stale',
+            value: { staleAfterMs: telemetry.freshness.staleAfterMs },
+            observedAt: telemetry.observedAt,
+            reason: 'source-stale',
+          }
+        : {
+            status: 'available',
+            value: { staleAfterMs: telemetry.freshness.staleAfterMs },
+          }
+      : { status: 'unavailable', reason: 'source-unavailable' },
+    usage: demandedUsage ?? harnessUsageFact(telemetry?.facets.usage),
+    pressurePolicy: provider?.capabilities.contextPressure,
+  }
+}
+
+function harnessFact<T>(facet: HarnessFacet<T> | undefined): SessionsFact<T> {
+  if (!facet) return { status: 'unavailable', reason: 'source-unavailable' }
+  switch (facet.status) {
+    case 'unsupported':
+      return facet
+    case 'pending':
+      return { status: 'pending', reason: 'telemetry-pending' }
+    case 'unavailable':
+      return { status: 'unavailable', reason: 'source-unavailable' }
+    case 'available':
+      return facet
+    case 'stale':
+      return { ...facet, reason: 'source-stale' }
+  }
+}
+
+function harnessUsageFact(facet: HarnessUsageFacet | undefined): SessionsUsageFact {
+  if (!facet) return { status: 'unavailable', reason: 'source-unavailable' }
+  switch (facet.status) {
+    case 'unsupported':
+      return facet
+    case 'pending':
+      return { status: 'pending', reason: 'observation-pending' }
+    case 'unavailable':
+      return { status: 'unavailable', reason: 'source-unavailable' }
+    case 'reset':
+      return { status: 'reset', reason: 'source-unavailable' }
+    case 'exact':
+    case 'partial':
+      return { ...facet, observedAt: Date.now() }
+    case 'stale':
+      return { ...facet, reason: 'source-unavailable' }
+  }
 }
 
 function providerDescriptor(

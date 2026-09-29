@@ -52,6 +52,7 @@ import {
   type TerminalWorkspaceController,
 } from './use-terminal-workspace-move'
 import { useTerminalSessionCommands } from './use-terminal-session-commands'
+import { useTerminalLaunchMenuEscape } from './use-terminal-launch-menu-layout'
 
 interface TerminalWorkspaceProps {
   readonly cwd: HostPath
@@ -77,6 +78,7 @@ interface TerminalWorkspaceProps {
   readonly onOpenHarnessSettings: () => void
   readonly onAddHarness: () => void
   readonly runtimes: TerminalRuntimeRegistry
+  readonly sessionsProjection?: import('../sessions/sessions-projection-coordinator').SessionsProjectionCoordinator
   readonly moveTargets: readonly WorkspaceState[]
   readonly onMaterializationChange: (workspaceId: string, retained: boolean) => void
   readonly onSessionsSource: (
@@ -125,6 +127,7 @@ export function TerminalWorkspace({
   onOpenHarnessSettings,
   onAddHarness,
   runtimes,
+  sessionsProjection,
   moveTargets,
   onMaterializationChange,
   onSessionsSource,
@@ -282,21 +285,11 @@ export function TerminalWorkspace({
     acknowledgeTargets: onAcknowledgeMoveTargets,
     onError,
   })
-
-  useEffect(() => {
-    if (!menuOpen) return
-    const close = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape') return
-      setMenuOpen(false)
-    }
-    window.addEventListener('keydown', close)
-    return () => window.removeEventListener('keydown', close)
-  }, [menuOpen])
+  useTerminalLaunchMenuEscape(menuOpen, setMenuOpen)
 
   const terminalSplit = terminalWorkspaceSplit(model)
   const primaryActiveId = terminalPaneActiveId(model, 'primary')
   const secondaryActiveId = terminalPaneActiveId(model, 'secondary')
-
   const setTerminalPrimaryWidth = (width: number): void => {
     const deck = terminalDeckRef.current
     if (!deck) return
@@ -372,10 +365,12 @@ export function TerminalWorkspace({
       {visible ? (
         <TerminalWorkspaceControls
           label={label}
+          visible={presentationVisible}
           available={available}
           railCompact={railCompact}
           onRailCompact={onRailCompact}
           menuOpen={menuOpen}
+          sessionsProjection={sessionsProjection}
           setMenuOpen={setMenuOpen}
           model={model}
           profileState={profileState}

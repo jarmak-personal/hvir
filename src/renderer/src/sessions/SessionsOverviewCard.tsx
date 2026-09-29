@@ -2,6 +2,7 @@ import type { ReactElement } from 'react'
 
 import type { SessionsProjectionRow } from '../../../shared'
 import { ProviderContextMeter } from '../harness/ProviderContextMeter'
+import { CompactionMarkers } from '../harness/CompactionMarkers'
 import {
   sessionsOverviewCardFacts,
   sessionsOverviewCardIdentity,
@@ -38,6 +39,10 @@ export function SessionsOverviewCard({
           pressurePolicy={row.provider.contextPressure}
         />
       ) : null}
+      <CompactionMarkers
+        fact={row.compactions ?? { status: 'unavailable' }}
+        className="session-card-compactions"
+      />
       <footer className="session-card-footer">
         <dl className="session-facts">
           {presentation.facts.map((fact) => (

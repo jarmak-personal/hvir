@@ -380,6 +380,7 @@ function projectRow(
     working: attention.working,
     model: telemetry.model,
     context: telemetry.context,
+    compactions: telemetry.compactions ?? { status: 'unsupported' },
     turn: telemetry.turn,
     telemetryFreshness: telemetry.freshness,
     usage:
@@ -447,6 +448,7 @@ function rendererOnlyTelemetry(supported: boolean): SessionsTelemetryFacts {
   return {
     model: fact,
     context: fact,
+    compactions: fact,
     turn: fact,
     freshness: fact,
   }

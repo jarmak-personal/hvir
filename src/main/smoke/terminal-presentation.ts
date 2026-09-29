@@ -18,6 +18,7 @@ import { verifyTerminalSemanticNavigation } from './terminal-semantic-navigation
 import { verifyTerminalSearch } from './terminal-search'
 import { verifyTerminalThemeGalleryPresentation } from './terminal-theme-gallery-presentation'
 import { verifySynchronizedOutput } from './terminal-synchronized-output'
+import { verifySessionDetailsPopover } from './session-details-popover'
 
 export async function verifyTerminalPresentationLifecycle(
   win: BrowserWindow,
@@ -28,13 +29,15 @@ export async function verifyTerminalPresentationLifecycle(
   checkpoint('terminal-presentation-explicit-launch-awaiting')
   const explicitLaunch = await ensureExplicitBareShellLaunch(win, supervisor)
   checkpoint('terminal-presentation-explicit-launch-ready')
+  checkpoint('terminal-presentation-session-details-awaiting')
+  const sessionDetailsStatus = await verifySessionDetailsPopover(win)
+  checkpoint('terminal-presentation-session-details-ready')
+  if (process.env.HVIR_SESSION_DETAILS_SMOKE) {
+    return [explicitLaunch, sessionDetailsStatus].join(' · ')
+  }
   checkpoint('terminal-presentation-middle-click-close-awaiting')
   const middleClickCloseStatus = launchMenuOverflowRoot
-    ? await verifyTerminalMiddleClickCloseGuard(
-        win,
-        supervisor,
-        launchMenuOverflowRoot,
-      )
+    ? await verifyTerminalMiddleClickCloseGuard(win, supervisor, launchMenuOverflowRoot)
     : undefined
   checkpoint('terminal-presentation-middle-click-close-ready')
   checkpoint('terminal-presentation-keyboard-awaiting')
@@ -146,7 +149,6 @@ export async function verifyTerminalPresentationLifecycle(
     quiescentTerminal,
   )
   checkpoint('terminal-presentation-hidden-reveal-ready')
-
   let inputProbe = ''
   let inputExit: string | undefined
   const detachInputProbe = supervisor.attach(secondTerminal.id, secondTerminal.ownerId, {
@@ -248,6 +250,7 @@ export async function verifyTerminalPresentationLifecycle(
     switchStatus,
     synchronizedOutputStatus,
     revealStatus,
+    sessionDetailsStatus,
     cursorStatus,
     inputStatus,
     cursorPresentationStatus,

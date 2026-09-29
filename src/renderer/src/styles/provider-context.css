@@ -54,3 +54,99 @@
   text-align: right;
   white-space: nowrap;
 }
+
+.compaction-markers {
+  align-items: center;
+  color: var(--text-muted);
+  display: flex;
+  font-size: calc(10px * var(--hvir-interface-scale));
+  gap: 0.4em;
+  height: 1em;
+  min-width: 0;
+  overflow: hidden;
+  width: 100%;
+}
+
+.compaction-marker {
+  background: color-mix(in srgb, currentColor 24%, transparent);
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  box-sizing: border-box;
+  display: inline-block;
+  flex: 0 0 0.6em;
+  height: 0.6em;
+  width: 0.6em;
+}
+
+.compaction-marker-summary {
+  align-items: center;
+  display: inline-flex;
+  font-size: 1em;
+  gap: 0.4em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.compaction-marker-unknown {
+  font-size: 1em;
+  line-height: 1;
+}
+
+.session-details-popover {
+  background: var(--surface-raised, #171b22);
+  border: 1px solid var(--border-strong, #46505f);
+  border-radius: 10px;
+  box-shadow: 0 14px 38px rgb(0 0 0 / 38%);
+  color: var(--text-primary);
+  max-height: calc(100vh - 16px);
+  overflow: auto;
+  padding: 12px;
+  position: fixed;
+  width: min(360px, calc(100vw - 16px));
+  z-index: 120;
+}
+
+.session-details-popover > header {
+  align-items: flex-start;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.session-details-popover > header div {
+  display: grid;
+  gap: 2px;
+}
+.session-details-popover > header span {
+  color: var(--text-muted);
+  font-size: calc(11px * var(--hvir-interface-scale));
+  text-transform: uppercase;
+}
+.session-details-popover > header button {
+  font-size: calc(18px * var(--hvir-interface-scale));
+  height: 28px;
+  width: 28px;
+}
+.session-details-popover .provider-context {
+  margin-bottom: 10px;
+  width: 100%;
+}
+.session-details-popover dl {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+.session-details-popover dl > div {
+  display: grid;
+  gap: 1px;
+  grid-template-columns: minmax(110px, 0.8fr) minmax(0, 1.4fr);
+}
+.session-details-popover dt {
+  color: var(--text-muted);
+  font-size: calc(11px * var(--hvir-interface-scale));
+}
+.session-details-popover dd {
+  font-size: calc(12px * var(--hvir-interface-scale));
+  margin: 0;
+  overflow-wrap: anywhere;
+}

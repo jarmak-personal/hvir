@@ -8,6 +8,7 @@ import { builtInProfiles } from '../src/main/harness/harness-profile-store'
 import type { SessionsRendererSession } from '../src/renderer/src/sessions/sessions-renderer-observation'
 import { TerminalWorkspace } from '../src/renderer/src/terminal/TerminalWorkspace'
 import type { TerminalWorkspaceModel } from '../src/renderer/src/terminal/terminal-workspace-model'
+import { sessionsProjectionFixture } from './sessions-projection-fixture'
 import {
   localPath,
   sessionsWorkspaceQualifier,
@@ -154,6 +155,7 @@ describe('terminal workspace materialization bridge', () => {
         disposeSession: vi.fn(),
         sessionSnapshot: vi.fn(() => undefined),
       } as never,
+      sessionsProjection: sessionsProjectionFixture(),
       moveTargets: [],
       onMaterializationChange,
       onSessionsSource,

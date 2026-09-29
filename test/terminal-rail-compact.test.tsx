@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TerminalRail } from '../src/renderer/src/terminal/TerminalRail'
 import type { TerminalSession } from '../src/renderer/src/terminal/terminal-workspace-model'
 import { asHarnessProfileId, asHarnessProviderId, localPath } from '../src/shared'
+import { sessionsProjectionFixture } from './sessions-projection-fixture'
 
 let host: HTMLDivElement
 let root: Root
@@ -171,6 +172,7 @@ function renderRail(overrides: Partial<ComponentProps<typeof TerminalRail>> = {}
     recoveryReady: true,
     available: true,
     menuOpen: false,
+    sessionsProjection: sessionsProjectionFixture(),
     moveMenuOpen: false,
     moveTargets: [],
     launchMenuEntries: [],

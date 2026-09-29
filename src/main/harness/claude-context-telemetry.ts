@@ -37,6 +37,10 @@ import {
 } from './harness-telemetry-hub'
 import type { HarnessTelemetryFollowerHealth } from './harness-telemetry-protocol'
 import { scheduleHarnessUsageRead } from './harness-usage-read-scheduler'
+import {
+  HarnessCompactionObservationRegistry,
+  type CompletedHarnessCompaction,
+} from './harness-compaction-observation'
 
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const FOLLOW_USAGE_SCRIPT = buildTelemetryHubScript({
@@ -51,6 +55,9 @@ const FOLLOW_USAGE_SCRIPT = buildTelemetryHubScript({
   `,
   acceptRecord: `
       case "$line" in
+        *'"type":"compact_boundary"'*|*'"subtype":"compact_boundary"'*)
+          emit_frame "$line"
+          ;;
         *'"type":"assistant"'*)
           case "$line" in
             *'"usage"'*) emit_frame "$line" ;;
@@ -63,9 +70,13 @@ export const MAX_CLAUDE_CUMULATIVE_USAGE_RECORDS = 2_048
 const USAGE_ARTIFACT_RETRY_MS = 250
 const MAX_USAGE_ARTIFACT_RETRY_MS = 4_000
 const USAGE_CONTINUITY_RESCAN_DELAY_MS = 1_000
+const claudeCompactions = new HarnessCompactionObservationRegistry()
 
 interface ClaudeUsageEnvelope {
   readonly type?: unknown
+  readonly subtype?: unknown
+  readonly uuid?: unknown
+  readonly timestamp?: unknown
   readonly isSidechain?: unknown
   readonly sessionId?: unknown
   readonly session_id?: unknown
@@ -231,15 +242,26 @@ export async function observeClaudeContext(
   if (!SESSION_ID.test(context.sessionId) || context.signal.aborted) {
     return () => undefined
   }
-  context.emit(claudeContextHealth(context.sessionId, { status: 'pending' }))
+  const compactions = claudeCompactions.acquire(
+    host,
+    context.artifact.identity,
+    context.sessionId,
+    context.effectiveCapabilities?.compactionObservation === true,
+  )
+  let latest = compactions.merge(
+    claudeContextHealth(context.sessionId, { status: 'pending' }),
+  )
+  context.emit(latest)
   const location = await resolveClaudeSessionArtifact(host, context, context.signal)
   if (context.signal.aborted) return () => undefined
   if (!location) {
     context.emit(
-      claudeContextHealth(context.sessionId, {
-        status: 'unavailable',
-        reason: 'locator-unavailable',
-      }),
+      compactions.gap(
+        claudeContextHealth(context.sessionId, {
+          status: 'unavailable',
+          reason: 'locator-unavailable',
+        }),
+      ),
     )
     return () => undefined
   }
@@ -264,12 +286,28 @@ export async function observeClaudeContext(
     },
     parse: (record) => {
       const envelope = parseClaudeUsageEnvelope(record)
-      if (!envelope || !isClaudeAssistantUsage(envelope)) return null
+      if (!envelope) return null
       if (claudeIdentityDiverged(envelope, context.sessionId)) {
         context.identityDiverged?.()
         return null
       }
-      return parseClaudeUsage(record)
+      const completed = parseClaudeCompletedCompaction(record, context.sessionId)
+      if (completed) {
+        const next = compactions.accept(latest, completed)
+        if (next) latest = next
+        return next ?? HEALTHY_HARNESS_TELEMETRY_RECORD
+      }
+      if (!isClaudeAssistantUsage(envelope)) return null
+      const parsed = parseClaudeUsage(record)
+      if (!parsed) return null
+      latest = compactions.merge(parsed)
+      return latest
+    },
+    followerHealth: (health) => {
+      const next = claudeContextHealth(context.sessionId, health)
+      latest =
+        health.status === 'unavailable' ? compactions.gap(next) : compactions.merge(next)
+      return latest
     },
   })
 }
@@ -704,6 +742,32 @@ export function parseClaudeUsage(value: string): HarnessTelemetry | null {
     },
     modelId: boundedHarnessUsageString(envelope.message?.model),
   })
+}
+
+export function parseClaudeCompletedCompaction(
+  value: string,
+  expectedSessionId?: string,
+): CompletedHarnessCompaction | undefined {
+  const envelope = parseClaudeUsageEnvelope(value)
+  const compactBoundary =
+    envelope?.type === 'compact_boundary' ||
+    (envelope?.type === 'system' && envelope.subtype === 'compact_boundary')
+  if (
+    !compactBoundary ||
+    envelope?.isSidechain === true ||
+    (expectedSessionId && claudeIdentityDiverged(envelope, expectedSessionId))
+  ) {
+    return undefined
+  }
+  const observedAt =
+    typeof envelope.timestamp === 'string' ? Date.parse(envelope.timestamp) : NaN
+  const identity =
+    typeof envelope.uuid === 'string' && envelope.uuid.length <= 256
+      ? envelope.uuid
+      : envelope.timestamp
+  return typeof identity === 'string' && Number.isSafeInteger(observedAt)
+    ? { identity, observedAt }
+    : undefined
 }
 
 function claudeIdentityDiverged(
