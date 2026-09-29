@@ -79,6 +79,39 @@ loaded launch p95 exceeds twice baseline, an individual loaded launch exceeds on
 latency is >=100 ms, an unexplained stall exceeds 500 ms, net loaded-interval working-set growth
 exceeds 256 MiB. Ghostty scrollback is bounded to 10 MB per terminal.
 
+## Focused parsing and reflow investigation
+
+`HVIR_CAPACITY_REFLOW=1 npm run smoke:capacity` extends this same scenario for #775.
+It fills the selected terminal's existing 10 MB retained buffer with 120,000 long lines
+containing CJK, combining accents, and supplementary-plane emoji, verifies a retained search,
+then runs the ordinary visible/hidden mixed-output interval while alternating the window's
+content width between 1100 and 1300 pixels at height 800. Twelve changes use two-second
+spacing. Hidden panes retain their normal fit suppression. The original ASCII retained-search
+contract still runs after load. No product execution or scheduling behavior changes.
+
+The additional `[smoke:capacity:reflow]` record reports all twelve elapsed samples,
+observed terminal columns, and p50/p95/max. These timings run from main's resize request
+until the renderer reports changed terminal columns; they include OS/window layout, IPC,
+fit scheduling, native resize, and measurement polling. They are **not** native-operation
+timings or confirmation of completed canvas paint. Polling resolution is 20 ms plus IPC;
+the existing frame/click, exact-input-echo, process-memory, and delivery-buffer evidence
+remains separately labeled. No Long Tasks or Event Timing observer is installed.
+
+Use clean known commits, identical artifact pins, geometry, load, machine, and power mode
+for comparisons. Run builds before measuring and avoid concurrent tests or builds. Record
+the fork release provenance (source, upstream, Ghostty commits and tarball SHA-256), local
+WASM SHA-256, machine and power settings alongside the existing source/environment JSON.
+Record Linux and macOS separately; exploratory or unavailable environments cannot establish
+a controlled performance verdict. `HVIR_CAPACITY_REFLOW=1 npm run performance:capacity`
+uses the same extension with the existing quantitative gate.
+
+Main bounds each geometry read to five seconds and restores window size after the sequence
+or failure. The existing scenario launcher owns the finite process timeout and process-tree
+termination outside the renderer. A killed renderer supplies no in-process cleanup proof.
+Execution alternatives and detailed engine instrumentation belong in isolated experimental
+worktrees; retain their exact commits and measurement overhead in the issue, and do not
+promote them into the production adapter or dependency pin through this procedure.
+
 ## Workspace and error matrix
 
 Use five or more workspaces across at least two projects. Include a main checkout, a live

@@ -506,6 +506,7 @@ export async function verifyCapacityPaletteUpdate(
 export async function verifyCapacityTerminalSearch(
   win: BrowserWindow,
   supervisor: PtySupervisor,
+  unicodeWrapped = false,
 ): Promise<TerminalSearchCapacityReport> {
   const emittedRows = 120_000
   if (supervisor.list().length !== 12) {
@@ -521,7 +522,7 @@ export async function verifyCapacityTerminalSearch(
     terminal.ownerId,
     `awk 'BEGIN { for (i=0; i<${emittedRows}; i++) ` +
       `printf "capacity-retained-fill-%06d-` +
-      `abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqr\\r\\n", i }'; ` +
+      `${unicodeWrapped ? '界é🙂'.repeat(40) : 'abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqr'}\\r\\n", i }'; ` +
       `printf '\\033]0;Capacity retained ready\\007'; ` +
       `IFS= read -r hvir_capacity_search\n`,
   )

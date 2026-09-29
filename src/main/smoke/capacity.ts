@@ -13,6 +13,11 @@ import type { PtySupervisor } from '../pty/pty-supervisor'
 import { startCapacityOutputFixtures } from './capacity-output-fixtures'
 import { verifyCapacityLivePresentationUpdate } from './capacity-live-presentation'
 import {
+  CAPACITY_REFLOW_HEIGHT,
+  CAPACITY_REFLOW_WIDTHS,
+  measureCapacityReflow,
+} from './capacity-reflow'
+import {
   activateCapacityTerminal,
   addCapacityTerminals,
   measureAdditionalTerminalReadiness,
@@ -233,6 +238,7 @@ export async function runCapacityLoadSmoke(
     process.env[CAPACITY_PERFORMANCE_GATE_ENV],
   )
   const source = capacitySourceEvidence()
+  const reflow = process.env['HVIR_CAPACITY_REFLOW'] === '1'
   if (
     performanceMode === 'controlled' &&
     (source.commit === 'unknown' || source.dirty !== false)
@@ -285,6 +291,11 @@ export async function runCapacityLoadSmoke(
       `${presentationCapacity.shapedRuns} runs/${presentationCapacity.shapedCells} cells · ` +
       `max ${presentationCapacity.maxRunCells})`,
   )
+  if (reflow) {
+    win.setContentSize(CAPACITY_REFLOW_WIDTHS[0], CAPACITY_REFLOW_HEIGHT)
+    const retained = await verifyCapacityTerminalSearch(win, supervisor, true)
+    console.log(`[smoke:capacity:reflow-history] ${JSON.stringify(retained)}`)
+  }
   const outputFixtures = startCapacityOutputFixtures(supervisor)
   let churning = true
   const watchChurn = (async (): Promise<void> => {
@@ -316,7 +327,7 @@ export async function runCapacityLoadSmoke(
     )
     await activateCapacityTerminal(win, 0)
     const presentationBefore = await readTerminalPresentation(win)
-    const [rendererReport, processMetrics] = await Promise.all([
+    const [rendererResult, processResult, reflowResult] = await Promise.allSettled([
       withTimeout(
         win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
@@ -387,7 +398,17 @@ export async function runCapacityLoadSmoke(
         win.webContents.getOSProcessId(),
         CPU_SAMPLE_DURATION_MS,
       ),
+      reflow ? measureCapacityReflow(win) : Promise.resolve(undefined),
     ])
+    // Let every finite measurement release its resources before load cleanup.
+    if (rendererResult.status === 'rejected') throw rendererResult.reason
+    if (processResult.status === 'rejected') throw processResult.reason
+    if (reflowResult.status === 'rejected') throw reflowResult.reason
+    const rendererReport = rendererResult.value
+    const processMetrics = processResult.value
+    if (reflowResult.value) {
+      console.log(`[smoke:capacity:reflow] ${JSON.stringify(reflowResult.value)}`)
+    }
     const presentationAfter = await readTerminalPresentation(win)
     const terminalActivity = verifyTerminalActivity(
       presentationBefore,
