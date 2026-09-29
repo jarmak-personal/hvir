@@ -1,5 +1,6 @@
 import {
   sessionsProjectionOptionalText,
+  sessionsCompactionFact,
   type HarnessFacet,
   type HarnessModelFacet,
   type HarnessContextFacet,
@@ -26,15 +27,22 @@ export function sessionsTelemetryFacts(
   providerId: SessionsProviderProjection['id'],
   connectionState: HostConnectionState,
 ): SessionsTelemetryFacts {
-  if (!supported) return unsupportedTelemetry()
-  if (!live) return unavailableTelemetry('not-live')
-  if (!telemetry) return pendingTelemetry()
+  const compactions = sessionsCompactionFact(
+    supported,
+    live,
+    telemetry,
+    providerId,
+    connectionState,
+  )
+  if (!supported) return { ...unsupportedTelemetry(), compactions }
+  if (!live) return { ...unavailableTelemetry('not-live'), compactions }
+  if (!telemetry) return { ...pendingTelemetry(), compactions }
   if (
     telemetry.version !== 1 ||
     telemetry.source.providerId !== providerId ||
     !sessionsProjectionTimestamp(telemetry.observedAt)
   ) {
-    return unavailableTelemetry('source-unavailable')
+    return { ...unavailableTelemetry('source-unavailable'), compactions }
   }
   const observedAt = telemetry.observedAt
   const disconnected = connectionState !== 'connected'
@@ -49,6 +57,7 @@ export function sessionsTelemetryFacts(
       reason,
       sanitizeContext,
     ),
+    compactions,
     turn: projectFacet(telemetry.facets.turn, observedAt, stale, reason, sanitizeTurn),
     freshness:
       sessionsProjectionNonNegativeInteger(telemetry.freshness.staleAfterMs) !== undefined
@@ -132,6 +141,7 @@ function unsupportedTelemetry(): SessionsTelemetryFacts {
   return {
     model: { status: 'unsupported' },
     context: { status: 'unsupported' },
+    compactions: { status: 'unsupported' },
     turn: { status: 'unsupported' },
     freshness: { status: 'unsupported' },
   }
@@ -141,6 +151,7 @@ function pendingTelemetry(): SessionsTelemetryFacts {
   return {
     model: { status: 'pending', reason: 'telemetry-pending' },
     context: { status: 'pending', reason: 'telemetry-pending' },
+    compactions: { status: 'pending', reason: 'telemetry-pending' },
     turn: { status: 'pending', reason: 'telemetry-pending' },
     freshness: { status: 'pending', reason: 'telemetry-pending' },
   }
@@ -152,6 +163,7 @@ function unavailableTelemetry(
   return {
     model: { status: 'unavailable', reason },
     context: { status: 'unavailable', reason },
+    compactions: { status: 'unavailable', reason },
     turn: { status: 'unavailable', reason },
     freshness: { status: 'unavailable', reason },
   }

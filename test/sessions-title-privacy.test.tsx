@@ -20,6 +20,8 @@ import type {
   SessionsTerminalSurfaceLease,
   SessionsTerminalSurfacePort,
 } from '../src/renderer/src/sessions/sessions-terminal-surface'
+import type { SessionsRendererObservationPort } from '../src/renderer/src/sessions/sessions-renderer-observation'
+import { sessionsProjectionFixture } from './sessions-projection-fixture'
 
 const privateHandle = asSessionsTerminalHandle('terminal-private-agent')
 const privatePath = '/private/repo'
@@ -176,32 +178,38 @@ describe('Sessions title privacy', () => {
 
 async function renderOverview(
   surface: SessionsTerminalSurfacePort,
-  overrides: Partial<Parameters<typeof SessionsOverview>[0]> = {},
+  overrides: Omit<Partial<Parameters<typeof SessionsOverview>[0]>, 'projection'> & {
+    readonly observation?: SessionsRendererObservationPort
+  } = {},
 ): Promise<void> {
   await act(async () => {
+    const {
+      observation = {
+        snapshot: () => [
+          {
+            handle: privateHandle,
+            workspaceQualifier,
+            providerId,
+            profileId,
+            title: `Working in ${privatePath} for ${privateHandle}`,
+            dormant: false,
+            resumeOnStart: false,
+            exited: false,
+            recoveryUnavailable: false,
+          },
+        ],
+        subscribe: () => () => undefined,
+      },
+      ...props
+    } = overrides
     root.render(
       <SessionsOverview
-        observation={{
-          snapshot: () => [
-            {
-              handle: privateHandle,
-              workspaceQualifier,
-              providerId,
-              profileId,
-              title: `Working in ${privatePath} for ${privateHandle}`,
-              dormant: false,
-              resumeOnStart: false,
-              exited: false,
-              recoveryUnavailable: false,
-            },
-          ],
-          subscribe: () => () => undefined,
-        }}
+        projection={sessionsProjectionFixture(observation, window.hvir)}
         surface={surface}
         onOpened={vi.fn()}
         onFocusOpened={vi.fn(() => Promise.resolve(true))}
         onOpenFailed={vi.fn()}
-        {...overrides}
+        {...props}
       />,
     )
     await settle()

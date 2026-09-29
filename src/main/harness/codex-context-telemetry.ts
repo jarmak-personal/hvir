@@ -36,6 +36,11 @@ import {
 } from './harness-telemetry-hub'
 import type { HarnessTelemetryFollowerHealth } from './harness-telemetry-protocol'
 import { scheduleHarnessUsageRead } from './harness-usage-read-scheduler'
+import {
+  HarnessCompactionObservationRegistry,
+  seedHarnessCompactionReplay,
+  type CompletedHarnessCompaction,
+} from './harness-compaction-observation'
 
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const FIND_SESSION_SCRIPT = `
@@ -51,6 +56,10 @@ const FOLLOW_TOKEN_COUNTS_SCRIPT = buildTelemetryHubScript({
   acceptRecord: `
       case "$line" in
         *'"type":"session_meta"'*) emit_frame "$line" ;;
+        *'"type":"compacted"'*)
+          compaction_header=\${line%%,\\"payload\\":*}
+          [ "$compaction_header" != "$line" ] && emit_frame "$compaction_header}"
+          ;;
         *'"type":"event_msg"'*)
           case "$line" in
             *'"type":"token_count"'*) emit_frame "$line" ;;
@@ -62,6 +71,7 @@ const FOLLOW_TOKEN_COUNTS_SCRIPT = buildTelemetryHubScript({
 const FIND_MAX_BUFFER = 256 * 1024
 const USAGE_ARTIFACT_RETRY_MS = 250
 const MAX_USAGE_ARTIFACT_RETRY_MS = 4_000
+const codexCompactions = new HarnessCompactionObservationRegistry()
 
 interface CodexSessionData {
   readonly rolloutPath: HostPath
@@ -82,6 +92,7 @@ interface TokenCountEnvelope {
 }
 
 interface CodexUsageEnvelope {
+  readonly timestamp?: unknown
   readonly type?: unknown
   readonly payload?: {
     readonly id?: unknown
@@ -200,6 +211,28 @@ export async function observeCodexContext(
     (await findSessionPath(host, context.sessionId, context.signal, context.artifact))
   if (!rolloutPath || context.signal.aborted) return () => undefined
 
+  const compactions = codexCompactions.acquire(
+    host,
+    context.artifact.identity,
+    context.sessionId,
+    context.effectiveCapabilities?.compactionObservation === true,
+  )
+  const compactionReplaySeeded = await seedHarnessCompactionReplay(
+    host,
+    rolloutPath,
+    context.signal,
+    compactions,
+    parseCodexCompletedCompaction,
+  )
+  if (context.signal.aborted) return () => undefined
+  let latest = compactions.merge(
+    codexContextHealth(context.sessionId, {
+      status: 'pending',
+      reason: 'awaiting-source',
+    }),
+  )
+  context.emit(latest)
+
   return codexHubs.subscribe(host, {
     subscriptionId: context.subscriptionId,
     sessionId: context.sessionId,
@@ -217,7 +250,23 @@ export async function observeCodexContext(
         }
         return HEALTHY_HARNESS_TELEMETRY_RECORD
       }
-      return parseCodexTokenCount(record)
+      const completed = parseCodexCompletedCompaction(record)
+      if (completed) {
+        if (!compactionReplaySeeded) return HEALTHY_HARNESS_TELEMETRY_RECORD
+        const next = compactions.accept(latest, completed)
+        if (next) latest = next
+        return next ?? HEALTHY_HARNESS_TELEMETRY_RECORD
+      }
+      const parsed = parseCodexTokenCount(record)
+      if (!parsed) return null
+      latest = compactions.merge(parsed)
+      return latest
+    },
+    followerHealth: (health) => {
+      const next = codexContextHealth(context.sessionId, health)
+      latest =
+        health.status === 'unavailable' ? compactions.gap(next) : compactions.merge(next)
+      return latest
     },
   })
 }
@@ -496,6 +545,18 @@ export function parseCodexTokenCount(value: string): HarnessTelemetry | null {
   } catch {
     return null
   }
+}
+
+export function parseCodexCompletedCompaction(
+  value: string,
+): CompletedHarnessCompaction | undefined {
+  const envelope = parseCodexUsageEnvelope(value)
+  const observedAt =
+    typeof envelope?.timestamp === 'string' ? Date.parse(envelope.timestamp) : NaN
+  if (envelope?.type !== 'compacted' || !Number.isSafeInteger(observedAt)) {
+    return undefined
+  }
+  return { identity: envelope.timestamp as string, observedAt }
 }
 
 async function findSessionPath(

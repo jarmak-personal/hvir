@@ -4,6 +4,7 @@ import {
   type HostPath,
   type TerminalIdentityStatus,
   type HarnessProviderId,
+  type HarnessProviderCapabilities,
 } from '../../shared'
 import type { Disposer } from '../project-host/project-host'
 import type {
@@ -18,6 +19,7 @@ interface ObservationContext {
   readonly providerId: HarnessProviderId
   readonly cwd: HostPath
   readonly artifact: HarnessArtifactContext
+  readonly effectiveCapabilities: HarnessProviderCapabilities
   readonly observe?: (context: HarnessTelemetryContext) => Disposer | Promise<Disposer>
 }
 
@@ -99,6 +101,7 @@ export class PtySessionObservation {
           cwd: this.context.cwd,
           sessionData,
           artifact: this.context.artifact,
+          effectiveCapabilities: this.context.effectiveCapabilities,
           signal: controller.signal,
           emit: publishTelemetry,
           identityDiverged: () => {

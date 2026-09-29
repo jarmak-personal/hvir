@@ -24,6 +24,15 @@ export interface HarnessContextFacet {
   readonly usedPercent?: number
 }
 
+export interface HarnessCompactionFacet {
+  /** Completed compactions observed during this running-app period. */
+  readonly observedCount: number
+  readonly periodStartedAt: number
+  readonly lastObservedAt?: number
+  /** Gapped means the known count is exact, but the observation period was interrupted. */
+  readonly coverage: 'continuous' | 'gapped'
+}
+
 export type HarnessUsageFacet =
   | { readonly status: 'unsupported' }
   | { readonly status: 'pending'; readonly reason?: string }
@@ -52,6 +61,7 @@ export interface HarnessSnapshotFacets {
   readonly session: HarnessFacet<HarnessSessionFacet>
   readonly model: HarnessFacet<HarnessModelFacet>
   readonly context: HarnessFacet<HarnessContextFacet>
+  readonly compactions?: HarnessFacet<HarnessCompactionFacet>
   readonly usage: HarnessUsageFacet
   readonly turn: HarnessFacet<HarnessTurnFacet>
   readonly integrations: HarnessFacet<HarnessIntegrationsFacet>
@@ -181,6 +191,7 @@ function contextFacetHarnessSnapshot(input: {
         ? { status: 'available', value: { id: input.modelId } }
         : UNSUPPORTED_HARNESS_FACET,
       context: input.context,
+      compactions: UNSUPPORTED_HARNESS_FACET,
       usage: UNSUPPORTED_HARNESS_FACET,
       turn: UNSUPPORTED_HARNESS_FACET,
       integrations: UNSUPPORTED_HARNESS_FACET,

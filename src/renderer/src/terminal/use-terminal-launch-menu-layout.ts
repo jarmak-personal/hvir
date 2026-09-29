@@ -1,4 +1,10 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from 'react'
+import {
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type RefObject,
+} from 'react'
 
 const MAX_LAUNCH_MENU_HEIGHT = 460
 const VIEWPORT_GUTTER = 8

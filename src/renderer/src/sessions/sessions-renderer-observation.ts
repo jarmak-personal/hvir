@@ -11,6 +11,7 @@ export interface SessionsRendererSession {
   readonly workspaceQualifier: SessionsWorkspaceQualifier
   readonly providerId: HarnessProviderId
   readonly profileId: HarnessProfileId
+  readonly profileDisplayName?: string
   readonly title: string
   readonly dormant: boolean
   readonly resumeOnStart: boolean

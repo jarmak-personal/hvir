@@ -86,7 +86,7 @@
 .session-card {
   min-width: 0;
   content-visibility: auto;
-  contain-intrinsic-size: 92px;
+  contain-intrinsic-size: calc(104px * var(--hvir-interface-scale));
   padding: 0;
   border: 1px solid #333d4a;
   border-radius: 5px;
@@ -191,6 +191,12 @@
 .session-card > .provider-context {
   width: auto;
   margin: 5px 8px 0;
+}
+
+.session-card > .session-card-compactions {
+  box-sizing: border-box;
+  margin: 4px 8px 0;
+  width: calc(100% - 16px);
 }
 
 .session-facts {

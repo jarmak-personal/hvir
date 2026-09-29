@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { TerminalRail } from '../src/renderer/src/terminal/TerminalRail'
+import { sessionsProjectionFixture } from './sessions-projection-fixture'
 import {
   asHarnessProfileId,
   asHarnessProviderId,
@@ -62,6 +63,7 @@ describe('harness launch-menu view', () => {
           recoveryReady
           available
           menuOpen
+          sessionsProjection={sessionsProjectionFixture()}
           moveMenuOpen={false}
           moveTargets={[]}
           launchMenuEntries={[

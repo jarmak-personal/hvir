@@ -367,7 +367,15 @@ function projectRow(
       contextPressure: provider?.contextPressure,
     },
     profile: renderer
-      ? { status: 'available', value: { id: renderer.profileId } }
+      ? {
+          status: 'available',
+          value: {
+            id: renderer.profileId,
+            ...(renderer.profileDisplayName
+              ? { displayName: renderer.profileDisplayName }
+              : {}),
+          },
+        }
       : main!.profile,
     title: sessionsProjectionDisplayTitle(
       renderer?.title ?? main?.title,
@@ -380,6 +388,7 @@ function projectRow(
     working: attention.working,
     model: telemetry.model,
     context: telemetry.context,
+    compactions: telemetry.compactions ?? { status: 'unsupported' },
     turn: telemetry.turn,
     telemetryFreshness: telemetry.freshness,
     usage:
@@ -447,6 +456,7 @@ function rendererOnlyTelemetry(supported: boolean): SessionsTelemetryFacts {
   return {
     model: fact,
     context: fact,
+    compactions: fact,
     turn: fact,
     freshness: fact,
   }

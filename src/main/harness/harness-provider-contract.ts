@@ -131,6 +131,7 @@ export interface HarnessTelemetryContext {
   readonly cwd: HostPath
   readonly sessionData?: unknown
   readonly artifact: HarnessArtifactContext
+  readonly effectiveCapabilities?: HarnessProviderCapabilities
   readonly signal: AbortSignal
   readonly emit: (telemetry: HarnessTelemetry | undefined) => void
   /** Sticky terminal-scoped signal; the observer still discards the mismatched record. */
