@@ -18,15 +18,15 @@ import type {
   SessionsTerminalHandle,
   SessionsWorkspaceQualifier,
 } from '../../../shared'
+import { SessionDetailsPopover } from '../harness/SessionDetailsPopover'
+import { sessionDetailsModel } from '../harness/session-details-model'
+import { useSessionDetailsPopover } from '../harness/use-session-details-popover'
+import { useSessionsDetailsUsage } from '../harness/use-session-details-usage'
 import { SessionsOverviewCard } from './SessionsOverviewCard'
 import { SessionsOverviewNotice } from './SessionsOverviewNotice'
 import { SessionsCollectionToolbar } from './SessionsCollectionToolbar'
 import { SessionsTerminalDetail } from './SessionsTerminalDetail'
-import {
-  SessionsProjectionCoordinator,
-  createSessionsMainObservationPort,
-} from './sessions-projection-coordinator'
-import type { SessionsRendererObservationPort } from './sessions-renderer-observation'
+import type { SessionsProjectionCoordinator } from './sessions-projection-coordinator'
 import { sessionsTerminalOverlayOrigin } from './sessions-terminal-overlay'
 import {
   sessionsTerminalSurfaceEligible,
@@ -48,7 +48,7 @@ import {
 } from './sessions-overview-model'
 
 interface SessionsOverviewProps {
-  readonly observation: SessionsRendererObservationPort
+  readonly projection: SessionsProjectionCoordinator
   readonly surface: SessionsTerminalSurfacePort
   readonly onOpened: (state: ProjectState) => void
   readonly onFocusOpened: (
@@ -60,18 +60,13 @@ interface SessionsOverviewProps {
 }
 
 export function SessionsOverview({
-  observation,
+  projection,
   surface,
   onOpened,
   onFocusOpened,
   onOpenFailed,
 }: SessionsOverviewProps): ReactElement {
-  const coordinator = useRef<SessionsProjectionCoordinator | undefined>(undefined)
-  coordinator.current ??= new SessionsProjectionCoordinator(
-    createSessionsMainObservationPort(window.hvir),
-    observation,
-  )
-  const source = coordinator.current
+  const source = projection
   const foreground = useSessionsForeground()
   const snapshot = useSyncExternalStore(
     source.subscribe,
@@ -96,6 +91,10 @@ export function SessionsOverview({
   const rowElements = useRef(new Map<SessionsTerminalHandle, HTMLElement>())
   const collectionControl = useRef<HTMLButtonElement>(null)
   const openGeneration = useRef(0)
+  const details = useSessionDetailsPopover('sessions-overview', () => {
+    collectionControl.current?.focus()
+  })
+  const dismissDetails = details.dismiss
 
   useEffect(() => {
     if (!foreground) return
@@ -110,7 +109,8 @@ export function SessionsOverview({
     detailOrigin.current = undefined
     setFeedback(undefined)
     pendingFocus.current = undefined
-  }, [foreground])
+    dismissDetails(false)
+  }, [dismissDetails, foreground])
   useEffect(
     () => () => {
       openGeneration.current += 1
@@ -280,6 +280,19 @@ export function SessionsOverview({
 
   const policyLabel = sessionsOverviewPolicyLabel(policy)
   const detailActive = detailState.status !== 'inactive'
+  const detailsRow = details.request
+    ? page.rows.find((row) => String(row.handle) === details.request?.target)
+    : undefined
+  const detailsUsage = useSessionsDetailsUsage(
+    detailsRow,
+    snapshot,
+    foreground && details.request !== undefined,
+  )
+  useEffect(() => {
+    if (details.request && snapshot.status === 'available' && !detailsRow) {
+      dismissDetails(false)
+    }
+  }, [details.request, detailsRow, dismissDetails, snapshot.status])
   return (
     <>
       <main
@@ -441,7 +454,15 @@ export function SessionsOverview({
                                 }}
                                 onFocus={() => setSelected(row.handle)}
                                 onClick={() => setSelected(row.handle)}
+                                onContextMenu={(event) =>
+                                  details.openFromPointer(event, String(row.handle))
+                                }
                                 onKeyDown={(event) => {
+                                  if (
+                                    details.openFromKeyboard(event, String(row.handle))
+                                  ) {
+                                    return
+                                  }
                                   if (
                                     event.key === 'Enter' &&
                                     event.target === event.currentTarget
@@ -496,6 +517,16 @@ export function SessionsOverview({
           onOpenWorkspace={openDetailWorkspace}
         />
       ) : null}
+      <SessionDetailsPopover
+        controller={details}
+        details={
+          detailsRow
+            ? sessionDetailsModel(detailsRow, detailsUsage)
+            : details.request && snapshot.status === 'available'
+              ? null
+              : undefined
+        }
+      />
     </>
   )
 }

@@ -180,6 +180,7 @@ function usageFacetHarnessTelemetry(input: {
         ? { status: 'available', value: { id: input.modelId } }
         : UNSUPPORTED_HARNESS_FACET,
       context: UNSUPPORTED_HARNESS_FACET,
+      compactions: UNSUPPORTED_HARNESS_FACET,
       usage: input.usage,
       turn: UNSUPPORTED_HARNESS_FACET,
       integrations: UNSUPPORTED_HARNESS_FACET,

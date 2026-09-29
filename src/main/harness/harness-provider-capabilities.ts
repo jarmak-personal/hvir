@@ -33,6 +33,9 @@ export function harnessLaunchCapabilities(
     exactResume: probed.exactResume,
     contextPresentation: probed.contextPresentation,
     ...(probed.exactFork === true ? { exactFork: true as const } : {}),
+    ...(probed.compactionObservation === true
+      ? { compactionObservation: true as const }
+      : {}),
   }
   if (launch && insert && insert.revision === probed.reviewInsertContractRevision) {
     const candidate = { ...base, reviewInsertContractRevision: insert.revision }

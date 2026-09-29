@@ -37,6 +37,9 @@ export function versionProbe(
     readonly reviewSendNow?: HarnessDocumentReviewSendNowContract
     readonly supportsReviewSendNowVersion?: (version: string | undefined) => boolean
     readonly supportsExactForkVersion?: (version: string | undefined) => boolean
+    readonly supportsCompactionObservationVersion?: (
+      version: string | undefined,
+    ) => boolean
   } = {},
 ): HarnessProbeContract {
   return {
@@ -54,6 +57,9 @@ export function versionProbe(
       contextPressure: capabilities.contextPressure,
       ...(capabilities.supportsExactForkVersion?.(version)
         ? { exactFork: true as const }
+        : {}),
+      ...(capabilities.supportsCompactionObservationVersion?.(version)
+        ? { compactionObservation: true as const }
         : {}),
       reviewInsertContractRevision: capabilities.reviewInsert?.revision,
       reviewSendNowContractRevision:
