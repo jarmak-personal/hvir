@@ -100,6 +100,7 @@ describe('missing workspace removal flow', () => {
 
       await rm(linked, { recursive: true })
       await coordinator.refresh(projectId)
+      await coordinator.refresh(projectId)
 
       expect(registry.projectById(projectId)?.workspaces).toEqual([
         expect.objectContaining({ root, missing: false }),
