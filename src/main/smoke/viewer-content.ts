@@ -1,8 +1,9 @@
+import { verifyDiffReadability } from './diff-readability'
 import { verifyLiveReloadScroll } from './viewer-live-reload'
 import type { SmokeFailureCheckpoint } from './failure-evidence.mts'
 import type { BrowserWindow } from 'electron'
 
-import { HTML_PREVIEW_SCHEME, type HostPath } from '../../shared'
+import { HTML_PREVIEW_SCHEME, dirnameHostPath, type HostPath } from '../../shared'
 import type { ProjectHost } from '../project-host'
 import {
   verifyExternalDocuments,
@@ -617,7 +618,13 @@ export async function verifyViewerContent(options: {
     console.log('[smoke] source edit + Ctrl+S save OK')
     await verifyExternalDocuments(win, host, options.supervisor, options.projectState)
 
+    const diffReadability = await verifyDiffReadability(
+      win,
+      host,
+      dirnameHostPath(liveReloadPath),
+    )
     const result = [
+      diffReadability,
       viewerStatus,
       filenameSearchStatus,
       renderedFixture,
