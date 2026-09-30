@@ -37,19 +37,25 @@ describe('SshFileAccess', () => {
     expect(cache.size).toBe(0)
   })
 
-  it('rejects and closes an SFTP session from a stale connection generation', async () => {
+  it('closes a stale SFTP session and returns a fresh acquisition', async () => {
     let resolveSession!: (session: SFTPWrapper) => void
     const opening = new Promise<SFTPWrapper>((resolve) => {
       resolveSession = resolve
     })
-    const files = fileAccess(() => opening)
     const session = Object.assign(new EventEmitter(), { end: vi.fn() })
+    const fresh = Object.assign(new EventEmitter(), { end: vi.fn() })
+    const openSftp = vi
+      .fn<() => Promise<SFTPWrapper>>()
+      .mockReturnValueOnce(opening)
+      .mockResolvedValueOnce(fresh as unknown as SFTPWrapper)
+    const files = fileAccess(openSftp)
 
     const pending = files.getSftp()
     files.advanceGeneration()
     resolveSession(session as unknown as SFTPWrapper)
 
-    await expect(pending).rejects.toThrow('stale connection generation')
+    await expect(pending).resolves.toBe(fresh)
+    expect(openSftp).toHaveBeenCalledTimes(2)
     expect(session.end).toHaveBeenCalledOnce()
     files.dispose()
     expect(session.end).toHaveBeenCalledOnce()

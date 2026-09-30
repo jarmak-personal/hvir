@@ -9,7 +9,7 @@ import {
 
 interface SshExclusiveCreatePort {
   readonly hostId: HostId
-  getSftp(): Promise<SFTPWrapper>
+  getSftp(signal?: AbortSignal): Promise<SFTPWrapper>
   stat(path: HostPath): Promise<Stat>
   invalidate(path: string): void
 }
@@ -21,19 +21,23 @@ export class SshExclusiveCreate {
   async file(path: HostPath, opts: ExclusiveCreateOptions): Promise<void> {
     this.assertPath(path)
     opts.signal?.throwIfAborted()
+    const session = await this.port.getSftp(opts.signal)
+    opts.signal?.throwIfAborted()
     let handle: Buffer | undefined
     let created = false
     try {
-      handle = await this.perform<Buffer>((session, done) =>
-        session.open(path.path, 'wx', { mode: opts.mode }, done),
+      handle = await this.perform<Buffer>(
+        (session, done) => session.open(path.path, 'wx', { mode: opts.mode }, done),
+        session,
       )
       created = true
       opts.onCreated?.()
       opts.signal?.throwIfAborted()
-      await this.perform<void>((session, done) =>
-        session.fsetstat(handle!, { mode: opts.mode }, done),
+      await this.perform<void>(
+        (session, done) => session.fsetstat(handle!, { mode: opts.mode }, done),
+        session,
       )
-      await this.perform<void>((session, done) => session.close(handle!, done))
+      await this.perform<void>((session, done) => session.close(handle!, done), session)
       handle = undefined
       opts.signal?.throwIfAborted()
       const stat = await this.port.stat(path)
@@ -44,9 +48,10 @@ export class SshExclusiveCreate {
     } catch (reason) {
       if (!created) await this.rethrowCollision(path, reason)
       if (handle) {
-        await this.perform<void>((session, done) => session.close(handle!, done)).catch(
-          () => undefined,
-        )
+        await this.perform<void>(
+          (session, done) => session.close(handle!, done),
+          session,
+        ).catch(() => undefined)
       }
       await this.perform<void>((session, done) => session.unlink(path.path, done)).catch(
         () => undefined,
@@ -59,16 +64,20 @@ export class SshExclusiveCreate {
   async directory(path: HostPath, opts: ExclusiveCreateOptions): Promise<void> {
     this.assertPath(path)
     opts.signal?.throwIfAborted()
+    const session = await this.port.getSftp(opts.signal)
+    opts.signal?.throwIfAborted()
     let created = false
     try {
-      await this.perform<void>((session, done) =>
-        session.mkdir(path.path, { mode: opts.mode }, done),
+      await this.perform<void>(
+        (session, done) => session.mkdir(path.path, { mode: opts.mode }, done),
+        session,
       )
       created = true
       opts.onCreated?.()
       opts.signal?.throwIfAborted()
-      await this.perform<void>((session, done) =>
-        session.setstat(path.path, { mode: opts.mode }, done),
+      await this.perform<void>(
+        (session, done) => session.setstat(path.path, { mode: opts.mode }, done),
+        session,
       )
       opts.signal?.throwIfAborted()
       const stat = await this.port.stat(path)
@@ -98,18 +107,17 @@ export class SshExclusiveCreate {
     throw new ProjectPathExistsError()
   }
 
-  private perform<T>(
+  private async perform<T>(
     operation: (
       session: SFTPWrapper,
       done: (error: Error | null | undefined, value: T) => void,
     ) => void,
+    session?: SFTPWrapper,
   ): Promise<T> {
-    return this.port.getSftp().then(
-      (session) =>
-        new Promise<T>((resolve, reject) => {
-          operation(session, (error, value) => (error ? reject(error) : resolve(value)))
-        }),
-    )
+    const active = session ?? (await this.port.getSftp())
+    return new Promise<T>((resolve, reject) => {
+      operation(active, (error, value) => (error ? reject(error) : resolve(value)))
+    })
   }
 
   private assertPath(path: HostPath): void {
