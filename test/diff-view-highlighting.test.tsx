@@ -10,6 +10,7 @@ import { tokenDecorations } from '../src/renderer/src/viewer/source-highlighting
 import { SOURCE_HIGHLIGHT_BYTE_LIMIT } from '../src/renderer/src/viewer/viewer-workload-policy'
 import { setAppTheme } from '../src/renderer/src/theme'
 import type { ViewerPositionCapture } from '../src/renderer/src/viewer/viewer-position'
+import type { RegisterViewerFindTarget } from '../src/renderer/src/viewer/viewer-find'
 import {
   asHostId,
   hostPath,
@@ -125,6 +126,70 @@ describe('diff highlighting through the shared worker port', () => {
     expect(worker.requests.slice(2).map(({ theme }) => theme)).toEqual(['light', 'light'])
     expect(colors('base')).toEqual([])
     expect(colors('current')).toEqual([])
+    await update(() => {
+      for (const request of old) {
+        const event = new MessageEvent('message', {
+          data: {
+            type: 'batch',
+            id: request.id,
+            tokens: [{ from: 0, to: 5, color: '#fedcba' }],
+          },
+        })
+        for (const listener of queued) listener(event)
+      }
+    })
+    expect(colors('base')).toEqual([])
+    expect(colors('current')).toEqual([])
+    await color(2, '#456789')
+    await color(3, '#789abc')
+    expect(colors('base')).toEqual(['color:#456789'])
+    expect(colors('current')).toEqual(['color:#789abc'])
+  })
+
+  it('reuses stylesheet modules across wrapping changes and theme round trips', async () => {
+    await render()
+    const view = editor('current')
+    const darkModules = view.state.facet(EditorView.styleModule)
+    const toggleWrap = container.querySelector<HTMLButtonElement>('.diff-controls button')!
+    await update(() => toggleWrap.click())
+    expect(editor('current')).toBe(view)
+    expect(view.state.facet(EditorView.styleModule)).toEqual(darkModules)
+    expect(worker.requests).toHaveLength(2)
+    await update(() => setAppTheme('light'))
+    const lightModules = view.state.facet(EditorView.styleModule)
+    expect(lightModules).not.toEqual(darkModules)
+    await update(() => toggleWrap.click())
+    expect(view.state.facet(EditorView.styleModule)).toEqual(lightModules)
+    expect(worker.requests).toHaveLength(4)
+    await update(() => setAppTheme('dark'))
+    expect(view.state.facet(EditorView.styleModule)).toEqual(darkModules)
+    await update(() => setAppTheme('light'))
+    expect(view.state.facet(EditorView.styleModule)).toEqual(lightModules)
+    expect(editor('current')).toBe(view)
+  })
+
+  it.each([
+    { positionCapture: { current: undefined } },
+    { registerFindTarget: () => () => undefined },
+  ])('reattaches highlighting to replacement editors when bindings change: %o', async (next) => {
+    await render()
+    await color(0, '#123456')
+    await color(1, '#abcdef')
+    const former = editor('current')
+    const queued = [...worker.messages] as EventListener[]
+    const old = worker.requests.slice()
+    // Changing content in the replacement commit must not restart the destroyed editor.
+    response = inputs(response.baseInput.content, 'const replaced = 4\n')
+    await render({ ...next, dirty: true })
+    expect(editor('current')).not.toBe(former)
+    expect(worker.requests).toHaveLength(4)
+    expect(worker.requests.slice(2).map(({ code }) => code)).toEqual([
+      response.baseInput.content,
+      response.currentInput.content,
+    ])
+    expect(worker.messages.size).toBe(2)
+    expect(worker.errors.size).toBe(2)
+    expect(documentText('current')).toBe(response.currentInput.content)
     await update(() => {
       for (const request of old) {
         const event = new MessageEvent('message', {
@@ -273,6 +338,9 @@ async function render(
     base?: DiffBase
     revision?: string
     gitRefreshVersion?: number
+    dirty?: boolean
+    positionCapture?: ViewerPositionCapture
+    registerFindTarget?: RegisterViewerFindTarget
   } = {},
 ) {
   await update(() => {
@@ -285,11 +353,11 @@ async function render(
         currentContent={response.currentInput.content}
         currentSize={response.currentInput.byteLength}
         documentRefreshVersion={0}
-        dirty={false}
+        dirty={options.dirty ?? false}
         position={{ mode: 'diff', line: 1, scrollTop: 0 }}
         onPosition={() => undefined}
-        positionCapture={positionCapture}
-        registerFindTarget={registerFindTarget}
+        positionCapture={options.positionCapture ?? positionCapture}
+        registerFindTarget={options.registerFindTarget ?? registerFindTarget}
       />,
     )
   })

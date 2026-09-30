@@ -93,7 +93,13 @@ export function registerDiffContextControls(root: HTMLElement): () => void {
   }
 }
 
+const diffThemes = { dark: createDiffTheme('dark'), light: createDiffTheme('light') }
+
 export function diffTheme(theme: 'dark' | 'light') {
+  return diffThemes[theme]
+}
+
+function createDiffTheme(theme: 'dark' | 'light') {
   return EditorView.theme(
     {
       '&': { height: '100%', backgroundColor: 'var(--viewer-bg)', color: 'var(--text)' },

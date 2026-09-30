@@ -157,13 +157,12 @@ function InteractiveDiff({
   const [wrapLines, setWrapLines] = useState(true)
   const themeCompartment = useRef(new Compartment())
   const wrapCompartment = useRef(new Compartment())
-  const highlights = useRef<{ base?: () => void; current?: () => void }>({})
   const [baseStatus, setBaseStatus] = useState('')
   const [currentStatus, setCurrentStatus] = useState('')
   const presentationRef = useRef({ theme, wrapLines })
   presentationRef.current = { theme, wrapLines }
   const host = useRef<HTMLDivElement>(null)
-  const mergeRef = useRef<MergeView | undefined>(undefined)
+  const [editors, setEditors] = useState<{ readonly merge: MergeView; active: boolean }>()
   const contentRef = useRef({ base: baseContent, current: currentContent })
   const positionRef = useRef(position)
   const onPositionRef = useRef(onPosition)
@@ -174,7 +173,6 @@ function InteractiveDiff({
   useEffect(() => {
     const parent = host.current
     if (!parent) return
-    const highlightDisposers = highlights.current
     const extensions = [
       EditorState.readOnly.of(true),
       EditorView.editable.of(false),
@@ -198,7 +196,8 @@ function InteractiveDiff({
       highlightChanges: true,
       gutter: true,
     })
-    mergeRef.current = merge
+    const editors = { merge, active: true }
+    setEditors(editors)
     const unregisterContextControls = registerDiffContextControls(merge.dom)
     const findTarget = new CodeMirrorFindTarget(
       [
@@ -238,6 +237,8 @@ function InteractiveDiff({
     merge.dom.addEventListener('keydown', markKeyboardNavigation)
     restoreCodePosition(merge.b, merge.dom, restorePosition, 'diff')
     return () => {
+      // Effects may receive changed inputs in the same commit that replaces these editors.
+      editors.active = false
       merge.dom.removeEventListener('scroll', captureScroll)
       merge.dom.removeEventListener('pointerdown', markNavigation)
       merge.dom.removeEventListener('touchstart', markNavigation)
@@ -246,41 +247,44 @@ function InteractiveDiff({
       if (positionCapture.current === capturePosition) {
         positionCapture.current = undefined
       }
-      // Revoke child subscriptions before destroying editors; generation cleanup is idempotent.
-      highlightDisposers.base?.()
-      highlightDisposers.current?.()
       unregisterContextControls()
       unregisterFind()
       findTarget.clear()
-      mergeRef.current = undefined
       merge.destroy()
     }
   }, [positionCapture, registerFindTarget])
 
   useEffect(() => {
-    const merge = mergeRef.current
-    if (!merge) return
+    if (!editors?.active) return
+    const { merge } = editors
     replaceDocument(merge.a, baseContent)
     replaceDocument(merge.b, currentContent)
-  }, [baseContent, currentContent, positionCapture, registerFindTarget])
+  }, [editors, baseContent, currentContent])
 
   useEffect(() => {
-    const merge = mergeRef.current
-    if (!merge) return
+    if (!editors?.active) return
+    const { merge } = editors
     for (const view of [merge.a, merge.b]) {
       view.dispatch({
-        effects: [
-          themeCompartment.current.reconfigure(diffTheme(theme)),
-          wrapCompartment.current.reconfigure(wrapLines ? EditorView.lineWrapping : []),
-        ],
+        effects: themeCompartment.current.reconfigure(diffTheme(theme)),
       })
     }
-  }, [theme, wrapLines, positionCapture, registerFindTarget])
+  }, [editors, theme])
 
   useEffect(() => {
-    const view = mergeRef.current?.a
-    if (!view) return
-    const dispose = highlightSource(
+    if (!editors?.active) return
+    const { merge } = editors
+    for (const view of [merge.a, merge.b]) {
+      view.dispatch({
+        effects: wrapCompartment.current.reconfigure(wrapLines ? EditorView.lineWrapping : []),
+      })
+    }
+  }, [editors, wrapLines])
+
+  useEffect(() => {
+    if (!editors?.active) return
+    const view = editors.merge.a
+    return highlightSource(
       view,
       path,
       baseContent,
@@ -288,16 +292,14 @@ function InteractiveDiff({
       theme,
       setBaseStatus,
     )
-    highlights.current.base = dispose
-    return dispose
     // Equivalent host-qualified path objects do not restart the request.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathKey, baseContent, baseSize, theme, positionCapture, registerFindTarget])
+  }, [editors, pathKey, baseContent, baseSize, theme])
 
   useEffect(() => {
-    const view = mergeRef.current?.b
-    if (!view) return
-    const dispose = highlightSource(
+    if (!editors?.active) return
+    const view = editors.merge.b
+    return highlightSource(
       view,
       path,
       currentContent,
@@ -305,11 +307,9 @@ function InteractiveDiff({
       theme,
       setCurrentStatus,
     )
-    highlights.current.current = dispose
-    return dispose
     // Equivalent host-qualified path objects do not restart the request.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathKey, currentContent, currentSize, theme, positionCapture, registerFindTarget])
+  }, [editors, pathKey, currentContent, currentSize, theme])
 
   return (
     <div className="diff-shell">
