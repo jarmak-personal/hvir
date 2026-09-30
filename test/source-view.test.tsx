@@ -5,6 +5,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SourceView } from '../src/renderer/src/viewer/SourceView'
+import { tokenDecorations } from '../src/renderer/src/viewer/source-highlighting'
 import { setAppTheme } from '../src/renderer/src/theme'
 import { asHostId, hostPath, localPath } from '../src/shared'
 import { ViewerHighlightWorker } from './fixtures/viewer-highlight-worker'
@@ -120,6 +121,25 @@ describe('source presentation content and resource lifetime', () => {
     render(edited)
     expect(worker.requests).toHaveLength(3)
     expect(onContent).toHaveBeenCalledTimes(1)
+  })
+
+  it('clears streamed syntax tokens after a worker failure without changing source text', () => {
+    const editor = render('const value = 1')
+    const id = worker.requests[0]!.id
+    act(() =>
+      worker.respond({
+        type: 'batch',
+        id,
+        tokens: [{ from: 0, to: 5, color: '#abcdef' }],
+      }),
+    )
+    expect(editor.state.field(tokenDecorations).size).toBe(1)
+    act(() => worker.respond({ type: 'error', id, message: 'unavailable' }))
+    expect(editor.state.field(tokenDecorations).size).toBe(0)
+    expect(editor.state.doc.toString()).toBe('const value = 1')
+    expect(host.querySelector('.source-meta')?.textContent).toContain(
+      'highlight failed: unavailable',
+    )
   })
 
   it('highlights the current edited document for a new theme and rejects an obsolete theme response', () => {

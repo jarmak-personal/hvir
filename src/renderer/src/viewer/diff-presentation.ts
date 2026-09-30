@@ -51,15 +51,14 @@ function groupBoundaries(view: EditorView): DecorationSet {
 
 /** Preserve MergeView's expansion behavior while making its widgets keyboard reachable. */
 export function registerDiffContextControls(root: HTMLElement): () => void {
-  const exposeControls = (): void => {
-    for (const control of root.querySelectorAll<HTMLElement>('.cm-collapsedLines')) {
-      control.setAttribute('role', 'button')
-      control.tabIndex = 0
-      control.setAttribute(
-        'aria-label',
-        `Expand ${control.textContent ?? 'unchanged lines'}`,
-      )
-    }
+  const exposeControl = (control: HTMLElement): void => {
+    if (control.getAttribute('role') === 'button') return
+    control.setAttribute('role', 'button')
+    control.tabIndex = 0
+    control.setAttribute(
+      'aria-label',
+      `Expand ${control.textContent ?? 'unchanged lines'}`,
+    )
   }
   const onKeyDown = (event: KeyboardEvent): void => {
     if (
@@ -71,10 +70,23 @@ export function registerDiffContextControls(root: HTMLElement): () => void {
       event.target.click()
     }
   }
-  const observer = new MutationObserver(exposeControls)
-  observer.observe(root, { childList: true, subtree: true })
+  // Block widgets are direct content children. Token/find redraws inside lines need no observation.
+  const observer = new MutationObserver((records) => {
+    for (const record of records) {
+      for (const node of record.addedNodes) {
+        if (node instanceof HTMLElement && node.classList.contains('cm-collapsedLines')) {
+          exposeControl(node)
+        }
+      }
+    }
+  })
+  for (const content of root.querySelectorAll('.cm-content')) {
+    observer.observe(content, { childList: true })
+  }
   root.addEventListener('keydown', onKeyDown)
-  exposeControls()
+  for (const control of root.querySelectorAll<HTMLElement>('.cm-collapsedLines')) {
+    exposeControl(control)
+  }
   return () => {
     observer.disconnect()
     root.removeEventListener('keydown', onKeyDown)

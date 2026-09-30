@@ -33,6 +33,7 @@ export function requestSourceHighlight(
     readonly theme: 'dark' | 'light'
   },
   output: {
+    readonly reset: () => void
     readonly status: (status: string) => void
     readonly tokens: (tokens: readonly HighlightToken[]) => void
   },
@@ -64,13 +65,20 @@ export function requestSourceHighlight(
     } else if (message.type === 'done') {
       output.status(message.language)
     } else if (message.type === 'plain') {
+      dispose()
+      output.reset()
       output.status('plain text')
     } else {
+      dispose()
+      output.reset()
       output.status(`highlight failed: ${message.message}`)
     }
   }
   const onError = (event: ErrorEvent): void => {
-    if (active) output.status(`highlight worker failed: ${event.message}`)
+    if (!active) return
+    dispose()
+    output.reset()
+    output.status(`highlight worker failed: ${event.message}`)
   }
   try {
     worker = getWorker()
@@ -79,6 +87,7 @@ export function requestSourceHighlight(
     worker.postMessage({ id, code: input.content, language, theme: input.theme })
   } catch (reason) {
     dispose()
+    output.reset()
     output.status(
       `highlight worker failed: ${reason instanceof Error ? reason.message : String(reason)}`,
     )

@@ -55,6 +55,9 @@ export async function verifyDiffReadability(
               const body = document.querySelector('.viewer-body');
               body.style.width = '580px';
               await waitFor(() => shell.getBoundingClientRect().width <= 580, 'Narrow diff did not resize');
+              for (const status of shell.querySelectorAll('.diff-labels small')) {
+                if (getComputedStyle(status).display === 'none') throw new Error('Narrow diff hides highlight status');
+              }
               for (const side of ['a', 'b']) {
                 const editor = shell.querySelector('.cm-merge-' + side);
                 if (!editor.querySelector('.cm-content [style*="color"]')) throw new Error('Diff syntax colors missing');

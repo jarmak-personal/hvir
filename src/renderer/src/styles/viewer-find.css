@@ -1,24 +1,30 @@
+:root {
+  --viewer-find-match-bg: rgb(169 125 33 / 55%);
+  --viewer-find-active-bg: #f4bf4f;
+  --viewer-find-active-text: #11151b;
+}
+
 .find-control {
   position: relative;
 }
 
 ::highlight(hvir-find-match) {
-  background: rgb(169 125 33 / 55%);
+  background: var(--viewer-find-match-bg);
   color: inherit;
 }
 
 ::highlight(hvir-find-active) {
-  background: #f4bf4f;
-  color: #11151b;
+  background: var(--viewer-find-active-bg);
+  color: var(--viewer-find-active-text);
 }
 
 .cm-hvir-find-match {
-  background: rgb(169 125 33 / 55%);
+  background: var(--viewer-find-match-bg);
 }
 
 .cm-hvir-find-match-active {
-  background: #f4bf4f;
-  color: #11151b;
+  background: var(--viewer-find-active-bg);
+  color: var(--viewer-find-active-text);
 }
 
 .find-toggle {

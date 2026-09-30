@@ -10,7 +10,7 @@ const input = {
   size: 15,
   theme: 'dark' as const,
 }
-const sink = () => ({ status: vi.fn(), tokens: vi.fn() })
+const sink = () => ({ reset: vi.fn(), status: vi.fn(), tokens: vi.fn() })
 
 describe('source highlight request lifetime', () => {
   it('reuses the workload and language policy before acquiring a worker', () => {
@@ -76,28 +76,40 @@ describe('source highlight request lifetime', () => {
     expect(worker.errors.size).toBe(0)
   })
 
-  it('retains plain-text and request/worker failure presentation', () => {
-    const worker = new ViewerHighlightWorker()
-    const output = sink()
-    const release = requestSourceHighlight(() => worker, input, output)
-    const id = worker.requests[0]!.id
-    worker.respond({ type: 'plain', id })
-    expect(output.status).toHaveBeenLastCalledWith('plain text')
-    worker.respond({ type: 'error', id, message: 'grammar unavailable' })
-    expect(output.status).toHaveBeenLastCalledWith(
-      'highlight failed: grammar unavailable',
-    )
-    const event = Object.assign(new Event('error'), { message: 'worker unavailable' })
-    worker.dispatchEvent(event)
-    expect(output.status).toHaveBeenLastCalledWith(
-      'highlight worker failed: worker unavailable',
-    )
-    release()
-    output.status.mockClear()
-    worker.respond({ type: 'done', id, language: 'ts' })
-    worker.dispatchEvent(event)
-    expect(output.status).not.toHaveBeenCalled()
-  })
+  it.each(['plain', 'error', 'worker-error'] as const)(
+    'clears partial output on %s and rejects late queued tokens',
+    (failure) => {
+      const worker = new ViewerHighlightWorker()
+      const output = sink()
+      const release = requestSourceHighlight(() => worker, input, output)
+      const queued = [...worker.messages][0] as EventListener
+      const id = worker.requests[0]!.id
+      const tokens = [{ from: 0, to: 5, color: '#abcdef' }]
+      worker.respond({ type: 'batch', id, tokens })
+      if (failure === 'plain') {
+        worker.respond({ type: 'plain', id })
+        expect(output.status).toHaveBeenLastCalledWith('plain text')
+      } else if (failure === 'error') {
+        worker.respond({ type: 'error', id, message: 'grammar unavailable' })
+        expect(output.status).toHaveBeenLastCalledWith(
+          'highlight failed: grammar unavailable',
+        )
+      } else {
+        worker.dispatchEvent(
+          Object.assign(new Event('error'), { message: 'worker unavailable' }),
+        )
+        expect(output.status).toHaveBeenLastCalledWith(
+          'highlight worker failed: worker unavailable',
+        )
+      }
+      expect(output.reset).toHaveBeenCalledOnce()
+      expect(worker.messages.size).toBe(0)
+      expect(worker.errors.size).toBe(0)
+      queued(new MessageEvent('message', { data: { type: 'batch', id, tokens } }))
+      expect(output.tokens).toHaveBeenCalledOnce()
+      release()
+    },
+  )
 
   it('releases partial startup listeners when postMessage throws while a sibling remains active', () => {
     const worker = new ViewerHighlightWorker()

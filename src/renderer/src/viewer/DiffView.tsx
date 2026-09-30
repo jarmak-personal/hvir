@@ -246,6 +246,7 @@ function InteractiveDiff({
       if (positionCapture.current === capturePosition) {
         positionCapture.current = undefined
       }
+      // Revoke child subscriptions before destroying editors; generation cleanup is idempotent.
       highlightDisposers.base?.()
       highlightDisposers.current?.()
       unregisterContextControls()
