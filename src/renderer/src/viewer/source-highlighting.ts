@@ -47,7 +47,12 @@ export function highlightSource(
     getHighlightWorker,
     { path, content, size, theme },
     {
-      status: setStatus,
+      status: (status) => {
+        if (status === 'plain text' || status.includes('failed:')) {
+          view.dispatch({ effects: resetTokens.of(null) })
+        }
+        setStatus(status)
+      },
       tokens: (tokens) => view.dispatch({ effects: addTokens.of(tokens) }),
     },
   )
