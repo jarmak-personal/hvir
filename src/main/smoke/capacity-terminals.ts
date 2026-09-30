@@ -50,6 +50,12 @@ export interface TerminalReadinessSampleReport {
   readonly durationsMs: readonly number[]
   readonly p95Ms: number
   readonly maxMs: number
+  readonly inputResponse: {
+    readonly durationsMs: readonly number[]
+    readonly p50Ms: number
+    readonly p95Ms: number
+    readonly maxMs: number
+  }
 }
 
 export interface TerminalSearchCapacityReport {
@@ -506,6 +512,7 @@ export async function verifyCapacityPaletteUpdate(
 export async function verifyCapacityTerminalSearch(
   win: BrowserWindow,
   supervisor: PtySupervisor,
+  unicodeWrapped = false,
 ): Promise<TerminalSearchCapacityReport> {
   const emittedRows = 120_000
   if (supervisor.list().length !== 12) {
@@ -516,12 +523,15 @@ export async function verifyCapacityTerminalSearch(
   `)) as string
   const terminal = supervisor.list().find((candidate) => candidate.id === sessionId)
   if (!terminal) throw new Error('capacity terminal search has no selected PTY')
+  if (unicodeWrapped && terminal.id !== supervisor.list()[0]?.id) {
+    throw new Error('capacity reflow history must target the first load terminal')
+  }
   supervisor.write(
     terminal.id,
     terminal.ownerId,
     `awk 'BEGIN { for (i=0; i<${emittedRows}; i++) ` +
       `printf "capacity-retained-fill-%06d-` +
-      `abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqr\\r\\n", i }'; ` +
+      `${unicodeWrapped ? '界é🙂'.repeat(40) : 'abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqr'}\\r\\n", i }'; ` +
       `printf '\\033]0;Capacity retained ready\\007'; ` +
       `IFS= read -r hvir_capacity_search\n`,
   )
@@ -655,6 +665,7 @@ export async function measureAdditionalTerminalReadiness(
 ): Promise<TerminalReadinessSampleReport> {
   const baseCount = supervisor.list().length
   const durationsMs: number[] = []
+  const inputResponseDurationsMs: number[] = []
 
   for (let index = 0; index < sampleCount; index += 1) {
     const existingIds = new Set(supervisor.list().map((terminal) => terminal.id))
@@ -674,9 +685,18 @@ export async function measureAdditionalTerminalReadiness(
     const awaitingInputMarker = `ready-awaiting-input:${input}`
     const marker = `ready-input:${input}`
     let output = ''
+    let inputStartedAt: number | undefined
+    let inputResponseMs: number | undefined
     const detach = supervisor.attach(terminal.id, terminal.ownerId, {
       onData: (data) => {
         output = (output + data).slice(-16_384)
+        if (
+          inputStartedAt !== undefined &&
+          inputResponseMs === undefined &&
+          output.includes(marker)
+        ) {
+          inputResponseMs = Date.now() - inputStartedAt
+        }
       },
     })
     try {
@@ -698,6 +718,7 @@ export async function measureAdditionalTerminalReadiness(
           surface?.querySelector('.terminal-engine-host')?.focus();
         })()
       `)
+      inputStartedAt = Date.now()
       for (const keyCode of input.toUpperCase()) {
         win.webContents.sendInputEvent({ type: 'keyDown', keyCode })
         win.webContents.sendInputEvent({ type: 'keyUp', keyCode })
@@ -710,6 +731,9 @@ export async function measureAdditionalTerminalReadiness(
       )
       const durationMs = Date.now() - actionStartedAtMs
       durationsMs.push(durationMs)
+      if (inputResponseMs === undefined)
+        throw new Error('capacity input response was not timed')
+      inputResponseDurationsMs.push(inputResponseMs)
       await delay(250)
       if (countOccurrences(output, marker) !== 1) {
         throw new Error(
@@ -735,6 +759,12 @@ export async function measureAdditionalTerminalReadiness(
     durationsMs,
     p95Ms: percentile(durationsMs, 0.95),
     maxMs: Math.max(0, ...durationsMs),
+    inputResponse: {
+      durationsMs: inputResponseDurationsMs,
+      p50Ms: percentile(inputResponseDurationsMs, 0.5),
+      p95Ms: percentile(inputResponseDurationsMs, 0.95),
+      maxMs: Math.max(0, ...inputResponseDurationsMs),
+    },
   }
 }
 
