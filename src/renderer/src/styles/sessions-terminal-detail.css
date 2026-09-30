@@ -141,3 +141,72 @@
     animation: none;
   }
 }
+
+.sessions-change-workspace {
+  position: relative;
+}
+.sessions-change-workspace .terminal-move-menu {
+  z-index: 2;
+}
+.sessions-launch-dialog {
+  width: min(480px, calc(100vw - 48px));
+  margin: auto;
+  padding: 24px;
+  background: var(--surface-raised);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+}
+.sessions-launch-dialog h2 {
+  margin: 0;
+}
+.sessions-launch-dialog p {
+  color: var(--text-muted);
+}
+.sessions-launch-choices {
+  display: grid;
+  gap: 8px;
+  margin: 20px 0;
+}
+.sessions-launch-choices button {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  text-align: left;
+}
+.sessions-launch-choices small {
+  color: var(--text-muted);
+}
+.sessions-launch-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.sessions-project-header > button {
+  margin-left: auto;
+}
+
+.sessions-project-header > button,
+.sessions-launch-dialog button {
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  padding: 7px 10px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: calc(12px * var(--hvir-interface-scale));
+  cursor: pointer;
+}
+.sessions-project-header > button:hover,
+.sessions-launch-dialog button:not(:disabled):hover {
+  background: var(--surface-hover);
+}
+.sessions-launch-dialog button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.sessions-project-launchers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}

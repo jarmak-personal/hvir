@@ -66,6 +66,16 @@ async function originalMessages(owner: string, source: string) {
 
 describe('resolved adapter for existing dependency direction policy', () => {
   it.each([
+    [
+      'src/renderer/src/sessions/sessions-command-port.ts',
+      'src/renderer/src/terminal/sessions-terminal-command-coordinator.ts',
+      '../terminal/sessions-terminal-command-coordinator',
+    ],
+    [
+      'src/renderer/src/sessions/sessions-command-port.ts',
+      'src/renderer/src/sessions/SessionsOverview.tsx',
+      './SessionsOverview',
+    ],
     ['src/shared/diagnostics.ts', 'src/shared/ipc.ts', '../shared/ipc'],
     [
       'src/main/harness/harness-provider-contract.ts',

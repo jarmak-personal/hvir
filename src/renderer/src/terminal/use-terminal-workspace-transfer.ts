@@ -2,7 +2,7 @@ import { useCallback, useRef } from 'react'
 
 import type { MoveTerminalResponse } from '../../../shared'
 import type { TerminalWorkspaceRuntimeOwner } from './terminal-workspace-runtime-owner'
-import type { TerminalWorkspaceController } from './use-terminal-workspace-move'
+import type { TerminalWorkspaceController } from './terminal-workspace-command-port'
 
 export function useTerminalWorkspaceTransfer({
   owner,
@@ -17,7 +17,12 @@ export function useTerminalWorkspaceTransfer({
   readonly forgetWebViews: (terminalId: string) => void
   readonly onError: (message: string) => void
 }) {
-  const callbacks = useRef({ acceptProjectState, canMaterialize, forgetWebViews, onError })
+  const callbacks = useRef({
+    acceptProjectState,
+    canMaterialize,
+    forgetWebViews,
+    onError,
+  })
   callbacks.current = { acceptProjectState, canMaterialize, forgetWebViews, onError }
 
   const register = useCallback(

@@ -537,6 +537,7 @@ function projectionStub(
     revision: 0,
     sourceRevision: 0,
     status: 'inactive',
+    workspaces: [],
     rows: [],
   }
   const available = {
@@ -545,6 +546,7 @@ function projectionStub(
     revision: 1,
     sourceRevision: 1,
     status: 'available',
+    workspaces: [],
     rows: [
       {
         handle: terminal,
@@ -674,6 +676,7 @@ function staticProjection(row: SessionsProjectionRow): SessionsProjectionCoordin
     revision: 1,
     sourceRevision: 1,
     status: 'available',
+    workspaces: [],
     rows: [row],
   }
   return {
@@ -695,6 +698,7 @@ function unavailableProjectionThenAvailable(
     revision: 0,
     sourceRevision: 0,
     status: 'unavailable',
+    workspaces: [],
     rows: [],
   }
   const available: SessionsProjectionSnapshot = {
@@ -703,6 +707,7 @@ function unavailableProjectionThenAvailable(
     revision: 1,
     sourceRevision: 1,
     status: 'available',
+    workspaces: [],
     rows: [row],
   }
   return {
@@ -732,6 +737,7 @@ function unavailableProjection(calls: string[]): SessionsProjectionCoordinator {
     revision: 1,
     sourceRevision: 1,
     status: 'unavailable',
+    workspaces: [],
     rows: [],
   }
   return {

@@ -281,6 +281,15 @@ export default tseslint.config(
     },
   },
 
+  {
+    files: ['src/renderer/src/sessions/sessions-command-port.ts'],
+    rules: dependencyDirectionRules(
+      '(^|/)(main|preload|workers|terminal)(/|$)|^react$|(^|/)(Sessions[^/]*|use-sessions[^/]*|sessions-terminal-command-coordinator)(\\.[cm]?[jt]sx?)?$',
+      'Sessions command contracts depend only on shared values, never command adapters or views.',
+      true,
+    ),
+  },
+
   // Viewer presentation and effects depend inward, including erased imports.
   {
     files: ['src/renderer/src/viewer/**/*.{ts,tsx}'],

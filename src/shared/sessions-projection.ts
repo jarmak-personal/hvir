@@ -392,6 +392,7 @@ export interface SessionsProjectionSnapshot {
   readonly status: 'inactive' | 'pending' | 'available' | 'unavailable'
   readonly unavailableReason?: 'source-unavailable'
   readonly rows: readonly SessionsProjectionRow[]
+  readonly workspaces: readonly SessionsWorkspaceProjection[]
 }
 
 export function asSessionsTerminalHandle(value: string): SessionsTerminalHandle {

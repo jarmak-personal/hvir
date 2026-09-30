@@ -202,6 +202,39 @@ truthfully reports that one exact live `TerminalPane`/runtime/PTY capability exi
 Provider-specific launch, recovery, telemetry, and topology behavior remains behind the
 provider registry. This does not authorize a public plugin SDK or new extension boundary.
 
+## Explicit terminal commands
+
+Sessions offers New session at project headers and Change workspace in Interact through a
+narrow command port, separate from `SessionsProjectionCoordinator`. The projection also
+exposes the existing safe workspace catalog so projects with no sessions have launch controls;
+these controls do not require rows or terminal owners for every worktree.
+
+Opening a launch chooser reads the existing provider catalog, scoped profiles, and availability
+for the exact registered project root. It neither selects nor materializes a workspace, resumes
+recovery records, connects a host, or starts a process. Choosing an available profile selects
+that exact root through the existing main-owned workspace command, waits for its terminal
+command owner, and adds one fresh session through the existing launch command. There is no
+workspace picker or additional confirmation. Sessions remains visible and borrows the new
+session's existing surface for Interact once the live instance becomes available.
+
+A workspace change resolves the exact observed session through the main-owned Sessions open
+command before planning or confirming the existing terminal move. This establishes the source
+workspace context without leaving Sessions or transferring mutation authority to the projection.
+The move is qualified by the live PTY instance as well as the terminal and renderer owner.
+The existing move coordinator retains recovery metadata, PTY/resource reassignment, web-pane
+confirmation and cleanup, and rollback authority. Its original launch directory stays unchanged.
+Renderer transfer owners retain model and surface ownership; Interact reacquires its lease in
+the resulting workspace and displays that current context.
+
+Command views depend on the Sessions command port; the terminal capability's named command
+coordinator implements it using existing workspace, profile, launch, and transfer ports. Shared
+contracts depend on no renderer or main implementation. Runtime and erased imports obey the
+same directions, enforced by the existing process rules and a focused command-contract rule.
+Each command checks exact workspace identity and current connection/selection before delegating.
+Cancellation, hiding, departure, and stale results revoke pending UI work. A move that already
+committed still reconciles its terminal owners after the requesting view departs; navigation
+never stops the live session.
+
 ## Provider topology feasibility
 
 The evaluated status vocabulary is:

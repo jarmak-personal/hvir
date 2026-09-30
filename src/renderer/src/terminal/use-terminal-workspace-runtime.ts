@@ -10,6 +10,7 @@ import {
   createSessionsMainObservationPort,
 } from '../sessions/sessions-projection-coordinator'
 import { TerminalWorkspaceRuntimeOwner } from './terminal-workspace-runtime-owner'
+import { SessionsTerminalCommandCoordinator } from './sessions-terminal-command-coordinator'
 import { useNewWorktreeMoveBadge } from './use-new-worktree-move-badge'
 import { useTerminalWorkspaceTransfer } from './use-terminal-workspace-transfer'
 
@@ -58,6 +59,25 @@ export function useTerminalWorkspaceRuntime({
     forgetWebViews,
     onError,
   })
+  const commandContext = useRef({ projectState, acceptProjectState })
+  commandContext.current = { projectState, acceptProjectState }
+  const sessionsCommands = useRef<SessionsTerminalCommandCoordinator | undefined>(
+    undefined,
+  )
+  sessionsCommands.current ??= new SessionsTerminalCommandCoordinator({
+    api: window.hvir,
+    state: () => commandContext.current.projectState,
+    snapshot: sessionsProjection.snapshot,
+    accept: (state) => {
+      commandContext.current.projectState = state
+      commandContext.current.acceptProjectState(state)
+    },
+    prepare: (workspaceId, forLaunch, signal) =>
+      owner.prepareTransferTarget(workspaceId, forLaunch, signal),
+    release: owner.releaseTransferTarget,
+    controller: (workspaceId) => owner.controller(workspaceId),
+    complete: transfer.complete,
+  })
   useNewWorktreeMoveBadge({ projectState, acknowledgeWorkspaces, onError })
 
   useEffect(() => {
@@ -82,6 +102,7 @@ export function useTerminalWorkspaceRuntime({
   return {
     materializedWorkspaceIds,
     sessionsProjection,
+    sessionsCommands: sessionsCommands.current,
     sessionsObservation: owner.sessionsObservation,
     sessionsSurface: owner.sessionsSurface,
     focusProjectedSession: owner.focusProjectedSession.bind(owner),

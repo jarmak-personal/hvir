@@ -112,6 +112,7 @@ function createFixture(settings: FixtureOptions = {}) {
     get: vi.fn((id: string) =>
       id === recovery.id
         ? {
+            instanceId: 'live-instance',
             ownerId: OWNER.id,
             ownerGeneration: OWNER.generation,
             workspaceRoot: ptyRoot,
@@ -246,6 +247,54 @@ const request = {
 }
 
 describe('TerminalWorkspaceMoveCoordinator', () => {
+  it('rolls back metadata when the exact process changes during move persistence', async () => {
+    const fixture = createFixture()
+    const persist = fixture.sessions.move.getMockImplementation()!
+    fixture.sessions.move.mockImplementationOnce((request) => {
+      const persisted = persist(request)
+      fixture.ptys.get.mockReturnValueOnce({
+        instanceId: 'replacement-instance',
+        ownerId: OWNER.id,
+        ownerGeneration: OWNER.generation,
+        workspaceRoot: SOURCE_ROOT,
+      })
+      return persisted
+    })
+    await expect(
+      fixture.coordinator.move(
+        {
+          ...request,
+          expectedInstanceId: 'live-instance',
+          expectedWebPaneIds: ['web-a', 'web-b'],
+        },
+        OWNER,
+      ),
+    ).rejects.toThrow('live terminal changed')
+    expect(fixture.roots()).toEqual({
+      sessionRoot: SOURCE_ROOT,
+      ptyRoot: SOURCE_ROOT,
+      resourceRoot: SOURCE_ROOT,
+    })
+    expect(fixture.webPanes.closeTerminal).not.toHaveBeenCalled()
+    expect(fixture.ptys.reassignWorkspace).not.toHaveBeenCalled()
+  })
+
+  it('rejects an exact Sessions move when the live process has been replaced', async () => {
+    const fixture = createFixture()
+    await expect(
+      fixture.coordinator.move(
+        {
+          ...request,
+          expectedInstanceId: 'old-instance',
+          expectedWebPaneIds: ['web-a', 'web-b'],
+        },
+        OWNER,
+      ),
+    ).rejects.toThrow('no longer live')
+    expect(fixture.sessions.move).not.toHaveBeenCalled()
+    expect(fixture.ptys.reassignWorkspace).not.toHaveBeenCalled()
+  })
+
   it('plans and commits one transaction before closing dependent web panes', async () => {
     const fixture = createFixture()
     expect(fixture.coordinator.plan(request, OWNER)).toMatchObject({
