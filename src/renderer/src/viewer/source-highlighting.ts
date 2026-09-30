@@ -47,6 +47,7 @@ export function highlightSource(
     getHighlightWorker,
     { path, content, size, theme },
     {
+      reset: () => view.dispatch({ effects: resetTokens.of(null) }),
       status: setStatus,
       tokens: (tokens) => view.dispatch({ effects: addTokens.of(tokens) }),
     },
