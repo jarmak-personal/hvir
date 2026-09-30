@@ -14,16 +14,21 @@ export async function verifyDiffReadability(
   checkpoint: (checkpoint: SmokeFailureCheckpoint) => void,
 ): Promise<string> {
   const cleanup = new SmokeCleanup()
+  const originalFormats = clipboard.availableFormats()
+  const originalImage = originalFormats.includes('image/png')
+    ? clipboard.readImage()
+    : undefined
+  const originalBookmark =
+    process.platform === 'darwin' ? clipboard.readBookmark() : undefined
   const originalClipboard = {
-    text: clipboard.readText(),
-    html: clipboard.readHTML(),
-    rtf: clipboard.readRTF(),
-    image: clipboard.readImage(),
-    ...(process.platform === 'darwin'
-      ? { bookmark: clipboard.readBookmark().title }
+    ...(originalFormats.includes('text/plain') ? { text: clipboard.readText() } : {}),
+    ...(originalFormats.includes('text/html') ? { html: clipboard.readHTML() } : {}),
+    ...(originalFormats.includes('text/rtf') ? { rtf: clipboard.readRTF() } : {}),
+    ...(originalImage && !originalImage.isEmpty() ? { image: originalImage } : {}),
+    ...(originalBookmark?.title && originalBookmark.url
+      ? { bookmark: originalBookmark.title }
       : {}),
   }
-  const originalFormats = clipboard.availableFormats()
   cleanup.defer('diff readability clipboard', () => {
     clipboard.clear()
     if (originalFormats.length > 0) clipboard.write(originalClipboard)

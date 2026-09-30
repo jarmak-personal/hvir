@@ -20,12 +20,17 @@ vi.mock('electron', () => ({
     readText: () => native.data.text ?? '',
     readHTML: () => native.data.html ?? '',
     readRTF: () => native.data.rtf ?? '',
-    readImage: () => native.data.image,
+    readImage: () => native.data.image ?? { isEmpty: () => true },
     readBookmark: () => ({
       title: native.data.bookmark ?? '',
-      url: native.data.text ?? '',
+      url: native.data.bookmark ? (native.data.text ?? '') : '',
     }),
-    availableFormats: () => Object.keys(native.data),
+    availableFormats: () => [
+      ...('text' in native.data ? ['text/plain'] : []),
+      ...('html' in native.data ? ['text/html'] : []),
+      ...('rtf' in native.data ? ['text/rtf'] : []),
+      ...('image' in native.data ? ['image/png'] : []),
+    ],
     clear: () => {
       native.data = {}
     },
@@ -48,9 +53,14 @@ beforeEach(() => {
 
 // This adapter-level suite proves restoration and partial-startup cleanup, not browser selection.
 describe('diff readability owned resources', () => {
-  it.each(['success', 'presentation', 'copy', 'fixture-startup'])(
-    'restores the clipboard and disposable Git/filesystem state after %s',
-    async (outcome) => {
+  it.each(
+    ['success', 'presentation', 'copy', 'fixture-startup'].flatMap((outcome) =>
+      ['text-only', 'rich'].map((kind) => ({ outcome, kind })),
+    ),
+  )(
+    'restores the $kind clipboard and disposable Git/filesystem state after $outcome',
+    async ({ outcome, kind }) => {
+      if (kind === 'text-only') native.data = { text: 'prior clipboard' }
       const original = { ...native.data }
       const failure = new Error('named acceptance failure')
       const files = new Set<string>()
@@ -97,23 +107,35 @@ describe('diff readability owned resources', () => {
       else await expect(result).rejects.toBe(failure)
       expect(files.size).toBe(0)
       expect(indexed.size).toBe(0)
-      expect(native.data).toMatchObject(original)
+      expect(native.data).toEqual(original)
     },
   )
 
-  it('restores an initially empty clipboard without introducing formats', async () => {
-    native.data = {}
-    const host = {
-      writeFile: vi
-        .fn<ProjectHost['writeFile']>()
-        .mockRejectedValue(new Error('startup failed')),
-      exec: vi
-        .fn<ProjectHost['exec']>()
-        .mockResolvedValue({ code: 0, signal: null, stdout: '', stderr: '' }),
-    }
-    await expect(
-      verifyDiffReadability({} as BrowserWindow, host, localPath('/fixture'), vi.fn()),
-    ).rejects.toThrow('startup failed')
-    expect(native.data).toEqual({})
-  })
+  it.each([
+    {},
+    { html: '<b>HTML only</b>' },
+    { image: native.image },
+    { text: '' },
+    { html: '' },
+    ...(process.platform === 'darwin'
+      ? [{ text: 'https://example.test/page', bookmark: 'prior bookmark' }]
+      : []),
+  ])(
+    'restores %o exactly after startup failure without introducing formats',
+    async (original) => {
+      native.data = original
+      const host = {
+        writeFile: vi
+          .fn<ProjectHost['writeFile']>()
+          .mockRejectedValue(new Error('startup failed')),
+        exec: vi
+          .fn<ProjectHost['exec']>()
+          .mockResolvedValue({ code: 0, signal: null, stdout: '', stderr: '' }),
+      }
+      await expect(
+        verifyDiffReadability({} as BrowserWindow, host, localPath('/fixture'), vi.fn()),
+      ).rejects.toThrow('startup failed')
+      expect(native.data).toEqual(original)
+    },
+  )
 })

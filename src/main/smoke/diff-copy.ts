@@ -5,7 +5,12 @@ import type { SmokeFailureCheckpoint } from './failure-evidence.mts'
 /** Browser selection delivery and native clipboard remain real Electron contracts. */
 export async function verifyDiffCopy(
   win: BrowserWindow,
-  fixture: { readonly path: HostPath; readonly base: string; readonly current: string },
+  fixture: {
+    readonly path: HostPath
+    readonly language: string
+    readonly base: string
+    readonly current: string
+  },
   checkpoint: (checkpoint: SmokeFailureCheckpoint) => void,
 ): Promise<void> {
   try {
@@ -37,6 +42,10 @@ export async function verifyDiffCopy(
             base.dispatchEvent(new Event('change', { bubbles: true }));
           }
           const expected = ${JSON.stringify(expected)};
+          await waitFor(() => {
+            const labels = [...document.querySelectorAll('.diff-labels small')];
+            return labels.length === 2 && labels.every(node => node.textContent === ${JSON.stringify(fixture.language)});
+          }, 'Copy diff highlighting did not become ready');
           const line = await waitFor(() => [...document.querySelectorAll('.cm-merge-${side} .cm-line')].find(node => node.textContent === expected), 'Copy diff line missing');
           const content = line.closest('.cm-content');
           const probe = { delivered: false, outputExact: false, intercepted: false };
@@ -66,7 +75,15 @@ export async function verifyDiffCopy(
               }
             };
             const timer = setTimeout(() => {
-              dispose(); reject(new Error('Diff selection delivery did not become ready'));
+              const selection = getSelection();
+              const evidence = {
+                focused: document.hasFocus(), lineConnected: line.isConnected,
+                contentConnected: content.isConnected, browserExact: selection?.toString() === expected,
+                collapsed: selection?.isCollapsed === true,
+                anchorInside: content.contains(selection?.anchorNode),
+                focusInside: content.contains(selection?.focusNode),
+              };
+              dispose(); reject(new Error('Diff selection delivery did not become ready; evidence=' + JSON.stringify(evidence)));
             }, 1000);
             document.addEventListener('selectionchange', changed);
             const range = document.createRange(); range.selectNodeContents(line);
