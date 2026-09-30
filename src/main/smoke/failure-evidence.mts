@@ -16,6 +16,14 @@ export type SmokeFailurePhase = (typeof SMOKE_FAILURE_PHASES)[number]
 
 export const SMOKE_FAILURE_CHECKPOINTS = [
   ...DOCUMENT_REVIEW_CHECKPOINTS,
+  'viewer-content-diff-presentation-awaiting',
+  'viewer-content-diff-presentation-ready',
+  'viewer-content-diff-selection-awaiting',
+  'viewer-content-diff-selection-ready',
+  'viewer-content-diff-copy-delivery-awaiting',
+  'viewer-content-diff-copy-delivered',
+  'viewer-content-diff-copy-text-mismatch',
+  'viewer-content-diff-copy-exact',
   'viewer-content-reload-position-awaiting',
   'viewer-content-reload-position-ready',
   'viewer-content-reload-restoration-awaiting',

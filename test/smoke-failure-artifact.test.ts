@@ -51,6 +51,37 @@ describe('bounded smoke failure evidence', () => {
     ).toThrow()
   })
 
+  it.each([
+    'viewer-content-diff-selection-awaiting',
+    'viewer-content-diff-copy-delivery-awaiting',
+    'viewer-content-diff-copy-text-mismatch',
+  ] as const)(
+    'retains the distinct diff copy condition %s without clipboard content',
+    (checkpoint) => {
+      const collector = new SmokeAttemptEvidenceCollector()
+      reportSmokeFailureEvidence(
+        'scenario-active',
+        {
+          windowCount: 1,
+          ptyCount: 0,
+          watcherActive: true,
+          rendererOwnerActive: true,
+          rendererGeneration: 1,
+        },
+        checkpoint,
+        null,
+        (line) => collector.observe('stderr', line),
+      )
+      collector.observe('stderr', 'HVIR_SMOKE_FAIL private clipboard text\n')
+      collector.finish()
+      expect(collector.evidence().snapshot?.checkpoint).toBe(checkpoint)
+      expect(formatSmokeFailureEvidence(collector.evidence().snapshot)).toContain(
+        `condition=${checkpoint}`,
+      )
+      expect(JSON.stringify(collector.evidence())).not.toContain('private clipboard text')
+    },
+  )
+
   it('recognizes the success sentinel across stdout chunk boundaries', () => {
     const collector = new SmokeAttemptEvidenceCollector()
     collector.observe('stdout', 'HVIR_SM')
