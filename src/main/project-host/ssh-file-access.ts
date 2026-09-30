@@ -40,6 +40,7 @@ export class SshFileAccess {
   private readonly exclusiveCreate: SshExclusiveCreate
   private readonly projectTransfer: SshProjectFileTransfer
   private generation = 0
+  private disposalGeneration = 0
   private sftpSession?: Promise<SFTPWrapper>
   private readonly cache = new Map<
     string,
@@ -85,6 +86,7 @@ export class SshFileAccess {
   }
 
   dispose(): void {
+    this.disposalGeneration++
     this.advanceGeneration()
     this.pollingFiles.clear()
     this.readDigests.clear()
@@ -348,8 +350,11 @@ export class SshFileAccess {
 
   async getSftp(): Promise<SFTPWrapper> {
     if (this.sftpSession) return this.sftpSession
+    // Opening may synchronously start the replacement connection. That generation
+    // owns this acquisition; only a later replacement makes its completion stale.
+    const opening = this.owner.openSftp()
     const generation = this.generation
-    const pending = this.owner.openSftp().then((session) => {
+    const pending = opening.then((session) => {
       if (generation !== this.generation) {
         session.end()
         throw new Error('SSH SFTP session belongs to a stale connection generation')
@@ -395,7 +400,21 @@ export class SshFileAccess {
     op: (s: SFTPWrapper, done: (e: Error | null | undefined, value: T) => void) => void,
     signal?: AbortSignal,
   ): Promise<T> {
-    return withAbort(this.getSftp(), signal).then(
+    const generation = this.generation
+    const disposalGeneration = this.disposalGeneration
+    const session = withAbort(this.getSftp(), signal).catch((reason: unknown) => {
+      if (
+        generation === this.generation ||
+        disposalGeneration !== this.disposalGeneration ||
+        signal?.aborted
+      ) {
+        throw reason
+      }
+      // Acquisition crossed a reconnect. Retry once before submitting any operation;
+      // replaying a submitted mutation could repeat an indeterminate remote write.
+      return withAbort(this.getSftp(), signal)
+    })
+    return session.then(
       (session) =>
         new Promise<T>((resolve, reject) => {
           let settled = false
@@ -409,6 +428,10 @@ export class SshFileAccess {
           }
           if (signal?.aborted) {
             finish(abortError())
+            return
+          }
+          if (disposalGeneration !== this.disposalGeneration) {
+            finish(new Error('SSH file operation was disposed'))
             return
           }
           signal?.addEventListener('abort', abort, { once: true })
