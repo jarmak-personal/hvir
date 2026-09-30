@@ -211,11 +211,17 @@ these controls do not require rows or terminal owners for every worktree.
 
 Opening a launch chooser reads the existing provider catalog, scoped profiles, and availability
 for the exact registered project root. It neither selects nor materializes a workspace, resumes
-recovery records, connects a host, or starts a process. Choosing an available profile selects
+recovery records, connects a host, or starts a process. Choosing a profile selects
 that exact root through the existing main-owned workspace command, waits for its terminal
 command owner, and adds one fresh session through the existing launch command. There is no
 workspace picker or additional confirmation. Sessions remains visible and borrows the new
 session's existing surface for Interact once the live instance becomes available.
+
+Probe states are advisory in both launch surfaces and use the same terminal-owned labels.
+Unchecked, stale, or failed probes do not override the existing launch owner's authority;
+missing or changed profiles and actual launch failures retain its normal error behavior.
+Both move entry points share the terminal-owned target selector and transfer admission guard.
+Launch readiness and cancellation extend that guard's existing materialization path.
 
 A workspace change resolves the exact observed session through the main-owned Sessions open
 command before planning or confirming the existing terminal move. This establishes the source

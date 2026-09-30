@@ -33,13 +33,13 @@ export function useTerminalWorkspaceTransfer({
   )
 
   const prepare = useCallback(
-    (workspaceId: string): Promise<void> => {
+    (workspaceId: string, forLaunch = false, signal?: AbortSignal): Promise<void> => {
       if (!callbacks.current.canMaterialize(workspaceId)) {
         return Promise.reject(
           new Error(`Terminal move target '${workspaceId}' is no longer available`),
         )
       }
-      return owner.prepareTransferTarget(workspaceId)
+      return owner.prepareTransferTarget(workspaceId, forLaunch, signal)
     },
     [owner],
   )

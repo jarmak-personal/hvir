@@ -4,6 +4,7 @@ import type { HarnessProfile } from '../../../shared'
 import {
   harnessLaunchMenuState,
   compactHarnessCapabilityLabel,
+  launchAvailabilityLabel,
 } from '../terminal/harness-launch-menu'
 import { profileProbe } from '../terminal/terminal-probe-policy'
 import { useModalKeyboard } from '../workbench/use-modal-keyboard'
@@ -63,16 +64,14 @@ export function SessionsLaunchDialog({
               <button
                 key={profile.id}
                 type="button"
-                disabled={busy || !provider || state.availability !== 'available'}
+                disabled={busy || !provider}
                 onClick={() => onStart(profile)}
               >
                 <strong>{profile.displayName}</strong>
                 <small>
                   {[
                     capability,
-                    profile.builtIn
-                      ? undefined
-                      : (state.probe?.detail ?? state.availability),
+                    profile.builtIn ? undefined : launchAvailabilityLabel(state),
                   ]
                     .filter(Boolean)
                     .join(' · ')}

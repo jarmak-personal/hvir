@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import { builtInProfiles } from '../src/main/harness/harness-profile-store'
+import {
+  builtInProfiles,
+  providerTemplateProfiles,
+} from '../src/main/harness/harness-profile-store'
 import { harnessProviderCatalog } from '../src/main/harness/harness-provider'
 import { SessionsTerminalCommandCoordinator } from '../src/renderer/src/terminal/sessions-terminal-command-coordinator'
 import {
@@ -19,7 +22,7 @@ import {
   type TerminalMovePlan,
 } from '../src/shared'
 
-function fixture(hostId = 'local') {
+function fixture(hostId = 'local', profile = builtInProfiles()[0]!) {
   const root = hostPath(asHostId(hostId), '/repo')
   const worktree = hostPath(asHostId(hostId), '/repo-feature')
   let state: ProjectState = {
@@ -115,7 +118,6 @@ function fixture(hostId = 'local') {
       host: row.host,
     })),
   }
-  const profile = builtInProfiles()[0]!
   const plan: TerminalMovePlan = {
     terminalId: row.handle,
     terminalTitle: row.title,
@@ -229,6 +231,21 @@ describe('Sessions explicit terminal commands', () => {
     },
   )
 
+  it.each(['closed', 'missing'] as const)('withholds a %s move target', (condition) => {
+    const f = fixture()
+    f.setState({
+      ...f.state(),
+      projects: f.state().projects.map((project) => ({
+        ...project,
+        workspaces: project.workspaces.map((workspace) =>
+          workspace.id === 'root' ? { ...workspace, [condition]: true } : workspace,
+        ),
+      })),
+    })
+    expect(f.commands.moveChoices(f.row, f.snapshot())).toEqual([])
+    expect(f.prepare).not.toHaveBeenCalled()
+  })
+
   it('cancellation after choices starts no process or workspace selection', async () => {
     const f = fixture()
     const controller = new AbortController()
@@ -274,7 +291,7 @@ describe('Sessions explicit terminal commands', () => {
     },
   )
 
-  it('rejects a changed launch revision and an unavailable profile', async () => {
+  it('rejects a changed launch revision and a removed profile', async () => {
     const f = fixture()
     const choices = await f.commands.launchChoices(
       f.row.project.id,
@@ -284,16 +301,54 @@ describe('Sessions explicit terminal commands', () => {
     await expect(
       choices.start({ ...f.profile, launchRevision: 99 }, new AbortController().signal),
     ).rejects.toThrow('changed or is unavailable')
-    f.invoke.mockImplementation((channel) =>
-      Promise.resolve(
-        channel === 'harness:profiles' ? [{ ...f.profile, builtIn: false }] : [],
-      ),
+    f.invoke.mockImplementation(() => Promise.resolve([]))
+    await expect(choices.start(f.profile, new AbortController().signal)).rejects.toThrow(
+      'changed or is unavailable',
     )
-    await expect(
-      choices.start({ ...f.profile, builtIn: false }, new AbortController().signal),
-    ).rejects.toThrow('changed or is unavailable')
     expect(f.launchSession).not.toHaveBeenCalled()
   })
+
+  it.each(['unchecked', 'stale', 'failed'])(
+    'delegates a configured profile with an advisory %s probe to the existing launch owner',
+    async (availability) => {
+      const profile = { ...providerTemplateProfiles()[0]!, builtIn: false }
+      const f = fixture('local', profile)
+      const normal = f.invoke.getMockImplementation()!
+      f.invoke.mockImplementation((channel, request) =>
+        channel === 'harness:probe-profiles'
+          ? Promise.resolve(
+              availability === 'unchecked'
+                ? []
+                : [
+                    {
+                      providerId: profile.providerId,
+                      profileId: profile.id,
+                      launchRevision: profile.launchRevision,
+                      hostId: f.root.hostId,
+                      status: availability === 'stale' ? 'available' : 'timeout',
+                      checkedAt: 1,
+                      expiresAt: availability === 'stale' ? 2 : Date.now() + 60_000,
+                      capabilities: harnessProviderCatalog().find(
+                        (provider) => provider.id === profile.providerId,
+                      )!.capabilities,
+                    },
+                  ],
+            )
+          : normal(channel, request),
+      )
+      const signal = new AbortController().signal
+      const choices = await f.commands.launchChoices(
+        f.row.project.id,
+        f.snapshot(),
+        signal,
+      )
+      await expect(choices.start(profile, signal)).resolves.toBe('new-terminal')
+      expect(f.launchSession).toHaveBeenCalledExactlyOnceWith(
+        profile.id,
+        profile.launchRevision,
+      )
+    },
+  )
 
   it.each(['local', 'ssh-fixture'])(
     'targets the exact %s session and reuses main move authorization and web-pane confirmation',

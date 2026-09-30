@@ -16,8 +16,7 @@ import type {
   SessionsCommandPort,
   SessionsLaunchChoices,
 } from '../sessions/sessions-command-port'
-import { harnessLaunchMenuState } from './harness-launch-menu'
-import { profileProbe } from './terminal-probe-policy'
+import { terminalMoveTargets } from './terminal-move-targets'
 import type { TerminalWorkspaceController } from './terminal-workspace-command-port'
 
 interface CommandWorkspace {
@@ -95,13 +94,9 @@ export class SessionsTerminalCommandCoordinator implements SessionsCommandPort {
               candidate.id === profile.id &&
               candidate.launchRevision === profile.launchRevision,
           )
-          if (
-            !latest ||
-            harnessLaunchMenuState(latest, profileProbe(probes, latest), false)
-              .availability !== 'available'
-          ) {
+          if (!latest) {
             throw new Error(
-              'This launch profile changed or is unavailable. Refresh availability before starting it.',
+              'This launch profile changed or is unavailable. Reopen the launcher before starting it.',
             )
           }
           await this.select(target, nextSignal)
@@ -128,15 +123,8 @@ export class SessionsTerminalCommandCoordinator implements SessionsCommandPort {
     const project = this.ports
       .state()
       ?.projects.find((candidate) => candidate.id === source.projectId)
-    return (
-      project?.workspaces
-        .filter(
-          (workspace) =>
-            workspace.id !== source.workspaceId &&
-            !workspace.closed &&
-            !workspace.missing,
-        )
-        .map((workspace) => ({ id: workspace.id, name: workspace.name })) ?? []
+    return terminalMoveTargets(project?.workspaces ?? [], source.workspaceId).map(
+      (workspace) => ({ id: workspace.id, name: workspace.name }),
     )
   }
 
