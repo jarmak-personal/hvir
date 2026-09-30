@@ -18,7 +18,7 @@ import {
 
 export interface SshProjectFileTransferPort {
   readonly hostId: HostId
-  getSftp(): Promise<SFTPWrapper>
+  getSftp(signal?: AbortSignal): Promise<SFTPWrapper>
   stat(path: HostPath): Promise<Stat>
   invalidate(path: string): void
 }
@@ -32,14 +32,17 @@ export class SshProjectFileTransfer {
     opts: ProjectFileStreamOptions = {},
   ): AsyncIterable<Uint8Array> {
     this.assertPath(path)
-    const handle = await this.request<Buffer>(
-      (session, done) => session.open(path.path, 'r', done),
-      opts.signal,
+    const session = await this.port.getSftp(opts.signal)
+    opts.signal?.throwIfAborted()
+    const handle = await callbackRequest<Buffer>(session, (session, done) =>
+      session.open(path.path, 'r', done),
     )
     let position = 0
     try {
       for (;;) {
-        const value = await this.request<{ bytesRead: number; data: Buffer }>(
+        opts.signal?.throwIfAborted()
+        const value = await callbackRequest<{ bytesRead: number; data: Buffer }>(
+          session,
           (session, done) => {
             const buffer = Buffer.allocUnsafe(PROJECT_FILE_STREAM_CHUNK_BYTES)
             session.read(
@@ -52,7 +55,6 @@ export class SshProjectFileTransfer {
                 done(error, { bytesRead, data: Buffer.from(data) }),
             )
           },
-          opts.signal,
         )
         opts.signal?.throwIfAborted()
         if (value.bytesRead === 0) return
@@ -60,9 +62,9 @@ export class SshProjectFileTransfer {
         yield value.data.subarray(0, value.bytesRead)
       }
     } finally {
-      await this.perform<void>((session, done) => session.close(handle, done)).catch(
-        () => undefined,
-      )
+      await callbackRequest<void>(session, (session, done) =>
+        session.close(handle, done),
+      ).catch(() => undefined)
     }
   }
 
@@ -72,13 +74,14 @@ export class SshProjectFileTransfer {
     opts: ProjectFileWriteStreamOptions,
   ): Promise<void> {
     this.assertPath(path)
+    const session = await this.port.getSftp(opts.signal)
+    opts.signal?.throwIfAborted()
     let handle: Buffer | undefined
     let position = 0
     try {
       try {
-        handle = await this.request<Buffer>(
-          (session, done) => session.open(path.path, 'wx', { mode: opts.mode }, done),
-          opts.signal,
+        handle = await callbackRequest<Buffer>(session, (session, done) =>
+          session.open(path.path, 'wx', { mode: opts.mode }, done),
         )
         opts.onCreated?.()
       } catch (reason) {
@@ -94,31 +97,31 @@ export class SshProjectFileTransfer {
         opts.signal?.throwIfAborted()
         const value = Buffer.from(chunk)
         for (let offset = 0; offset < value.byteLength;) {
+          opts.signal?.throwIfAborted()
           const length = Math.min(
             PROJECT_FILE_STREAM_CHUNK_BYTES,
             value.byteLength - offset,
           )
-          await this.request<void>(
-            (session, done) =>
-              session.write(handle!, value, offset, length, position, done),
-            opts.signal,
+          await callbackRequest<void>(session, (session, done) =>
+            session.write(handle!, value, offset, length, position, done),
           )
           offset += length
           position += length
         }
       }
       opts.signal?.throwIfAborted()
-      await this.request<void>(
-        (session, done) => session.fsetstat(handle!, { mode: opts.mode }, done),
-        opts.signal,
+      await callbackRequest<void>(session, (session, done) =>
+        session.fsetstat(handle!, { mode: opts.mode }, done),
       )
-      await this.perform<void>((session, done) => session.close(handle!, done))
+      await callbackRequest<void>(session, (session, done) =>
+        session.close(handle!, done),
+      )
       handle = undefined
     } catch (reason) {
       if (handle) {
-        await this.perform<void>((session, done) => session.close(handle!, done)).catch(
-          () => undefined,
-        )
+        await callbackRequest<void>(session, (session, done) =>
+          session.close(handle!, done),
+        ).catch(() => undefined)
         await this.perform<void>((session, done) =>
           session.unlink(path.path, done),
         ).catch(() => undefined)
@@ -249,7 +252,7 @@ export class SshProjectFileTransfer {
     onSubmitted?: () => void,
   ): Promise<T> {
     signal?.throwIfAborted()
-    const session = await this.port.getSftp()
+    const session = await this.port.getSftp(signal)
     signal?.throwIfAborted()
     return callbackRequest(session, operation, onSubmitted)
   }

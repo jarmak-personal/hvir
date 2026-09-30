@@ -173,6 +173,7 @@ export class SshWatchService {
   ): Disposer {
     let stopped = false
     let priorityInitialized = false
+    const acquisition = new AbortController()
     let previousPriority = new Map<string, string>()
     let slowInitialized = false
     let previousSlow = new Map<string, string>()
@@ -232,7 +233,7 @@ export class SshWatchService {
     }
     const poll = async (): Promise<void> => {
       try {
-        const current = await this.pollPrioritySnapshot(path, opts)
+        const current = await this.pollPrioritySnapshot(path, opts, acquisition.signal)
         if (stopped) return
         if (!priorityInitialized) {
           this.files.invalidate(path.path)
@@ -261,7 +262,9 @@ export class SshWatchService {
               slowSnapshot,
               opts,
               directoryBatchSize,
+              acquisition.signal,
             )
+            if (stopped) return
             if (!slowQueue.length) {
               for (const file of current.keys()) slowSnapshot.delete(file)
               for (const file of this.files.pollingInterests()) {
@@ -277,6 +280,7 @@ export class SshWatchService {
               slowError = undefined
             }
           } catch (reason) {
+            if (stopped) return
             const error = asError(reason)
             if (error.message !== slowError) opts.onError?.(error)
             slowError = error.message
@@ -298,6 +302,7 @@ export class SshWatchService {
     void poll()
     return () => {
       stopped = true
+      acquisition.abort()
       if (timer) clearTimeout(timer)
     }
   }
@@ -305,8 +310,10 @@ export class SshWatchService {
   private async pollPrioritySnapshot(
     root: HostPath,
     opts: WatchOptions,
+    signal?: AbortSignal,
   ): Promise<Map<string, string>> {
-    const sftp = await this.files.getSftp()
+    const sftp = await this.files.getSftp(signal)
+    signal?.throwIfAborted()
     const result = new Map<string, string>()
     const roots = [root, ...(opts.additionalPaths ?? [])].filter(
       (candidate, index, values) =>
@@ -375,8 +382,10 @@ export class SshWatchService {
     result: Map<string, string>,
     opts: WatchOptions,
     limit: number,
+    signal?: AbortSignal,
   ): Promise<void> {
-    const sftp = await this.files.getSftp()
+    const sftp = await this.files.getSftp(signal)
+    signal?.throwIfAborted()
     const excluded = new Set(opts.excludeDirectoryNames ?? [])
     for (let count = 0; count < limit && queue.length; count++) {
       const directory = queue.shift()

@@ -10,6 +10,21 @@ const hostId = asHostId('ssh:reconnect')
 const path = hostPath(hostId, '/project')
 
 describe('SshFileAccess reconnect acquisition', () => {
+  it('preserves the original failure when acquisition itself starts the replacement connection', async () => {
+    const failure = new Error('replacement connection refused')
+    const openSftp = vi.fn<() => Promise<SFTPWrapper>>(() => {
+      files.advanceGeneration()
+      return Promise.reject(failure)
+    })
+    const files = new SshFileAccess({ hostId, openSftp }, {})
+    try {
+      await expect(files.stat(path)).rejects.toBe(failure)
+      expect(openSftp).toHaveBeenCalledOnce()
+    } finally {
+      files.dispose()
+    }
+  })
+
   it('retries concurrent metadata operations on one fresh session and closes the stale one', async () => {
     const opening = deferred<SFTPWrapper>()
     const stale = session()

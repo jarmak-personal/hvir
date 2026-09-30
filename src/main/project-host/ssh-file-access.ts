@@ -61,13 +61,13 @@ export class SshFileAccess {
   ) {
     this.exclusiveCreate = new SshExclusiveCreate({
       hostId: owner.hostId,
-      getSftp: () => this.getSftp(),
+      getSftp: (signal) => this.getSftp(signal),
       stat: (path) => this.stat(path),
       invalidate: (path) => this.invalidate(path),
     })
     this.projectTransfer = new SshProjectFileTransfer({
       hostId: owner.hostId,
-      getSftp: () => this.getSftp(),
+      getSftp: (signal) => this.getSftp(signal),
       stat: (path) => this.stat(path),
       invalidate: (path) => this.invalidate(path),
     })
@@ -128,7 +128,7 @@ export class SshFileAccess {
     opts.signal?.throwIfAborted()
     if (opts.pollingInterest) this.pollingFiles.add(path.path)
     const value = await readSshTextPrefix(
-      await this.getSftp(),
+      await this.getSftp(opts.signal),
       path.path,
       maxBytes,
       opts.signal,
@@ -348,7 +348,37 @@ export class SshFileAccess {
     return `${metadata}:${previous.digest}`
   }
 
-  async getSftp(): Promise<SFTPWrapper> {
+  /** Retry only acquisition; submitted operations and handles stay on their session. */
+  async getSftp(signal?: AbortSignal): Promise<SFTPWrapper> {
+    const disposalGeneration = this.disposalGeneration
+    for (let attempt = 0; ; attempt++) {
+      signal?.throwIfAborted()
+      const pending = this.openSftpSession()
+      // Acquisition itself may synchronously start a replacement connection.
+      const generation = this.generation
+      try {
+        const session = await withAbort(pending, signal)
+        if (disposalGeneration !== this.disposalGeneration) {
+          throw new Error('SSH file operation was disposed')
+        }
+        if (generation !== this.generation) {
+          throw new Error('SSH SFTP session belongs to a stale connection generation')
+        }
+        return session
+      } catch (reason) {
+        if (
+          attempt >= 1 ||
+          generation === this.generation ||
+          disposalGeneration !== this.disposalGeneration ||
+          signal?.aborted
+        ) {
+          throw reason
+        }
+      }
+    }
+  }
+
+  private async openSftpSession(): Promise<SFTPWrapper> {
     if (this.sftpSession) return this.sftpSession
     // Opening may synchronously start the replacement connection. That generation
     // owns this acquisition; only a later replacement makes its completion stale.
@@ -400,21 +430,8 @@ export class SshFileAccess {
     op: (s: SFTPWrapper, done: (e: Error | null | undefined, value: T) => void) => void,
     signal?: AbortSignal,
   ): Promise<T> {
-    const generation = this.generation
     const disposalGeneration = this.disposalGeneration
-    const session = withAbort(this.getSftp(), signal).catch((reason: unknown) => {
-      if (
-        generation === this.generation ||
-        disposalGeneration !== this.disposalGeneration ||
-        signal?.aborted
-      ) {
-        throw reason
-      }
-      // Acquisition crossed a reconnect. Retry once before submitting any operation;
-      // replaying a submitted mutation could repeat an indeterminate remote write.
-      return withAbort(this.getSftp(), signal)
-    })
-    return session.then(
+    return this.getSftp(signal).then(
       (session) =>
         new Promise<T>((resolve, reject) => {
           let settled = false
