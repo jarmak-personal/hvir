@@ -336,11 +336,16 @@ function createPane(
     revealEventLocation: () => false,
     searchRetainedBuffer: (query, options) => {
       state.searches.push({ query, caseSensitive: options.caseSensitive })
-      const match = { start: { row: 0, column: 0 }, end: { row: 0, column: 9 } }
+      const match = { id: 1, start: { row: 0, column: 0 }, end: { row: 0, column: 9 } }
       return Promise.resolve({
         query,
         caseSensitive: options.caseSensitive,
         matches: [match],
+        pending: false,
+        invalidated: false,
+        onUpdate: () => () => undefined,
+        resolve: (range) => (range === match ? match : undefined),
+        clearReveal: vi.fn(),
         reveal: (candidate) => candidate === match,
         extract: (candidate) =>
           candidate === match ? 'local and SSH exact text' : undefined,
