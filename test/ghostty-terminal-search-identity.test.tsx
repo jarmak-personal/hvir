@@ -17,9 +17,13 @@ const state = vi.hoisted(() => ({
   extracted: undefined as
     readonly [GhosttyTerminalEventProvenance, GhosttyTerminalEventProvenance] | undefined,
   searchRange: Object.freeze({
+    id: 1,
     start: Object.freeze({ row: 8, column: 79 }),
     end: Object.freeze({ row: 9, column: 3 }),
   }),
+  searchValid: true,
+  emitSearchUpdate: (): void => undefined,
+  searchListeners: 0,
   searchExtracted: undefined as IRetainedBufferRange | undefined,
   alternateScreen: false,
   emitScroll: (_viewportY: number): void => undefined,
@@ -125,15 +129,46 @@ vi.mock('ghostty-web', async () => {
       }
     }
     searchRetainedBuffer(query: string, options: { caseSensitive: boolean }) {
+      const listeners = new Set<() => void>()
+      let disposed = false
+      state.emitSearchUpdate = () => {
+        for (const listener of [...listeners]) listener()
+      }
       return Promise.resolve({
         query,
         caseSensitive: options.caseSensitive,
-        matches: [state.searchRange],
+        get matches() {
+          return state.searchValid ? [state.searchRange] : []
+        },
+        pending: false,
+        get invalidated() {
+          return !state.searchValid
+        },
+        onUpdate: (listener: () => void) => {
+          listeners.add(listener)
+          state.searchListeners = listeners.size
+          return {
+            dispose: () => {
+              listeners.delete(listener)
+              state.searchListeners = listeners.size
+            },
+          }
+        },
+        resolve: (range: IRetainedBufferRange) =>
+          !disposed && state.searchValid && range === state.searchRange
+            ? state.searchRange
+            : undefined,
         extract: (range: IRetainedBufferRange) => {
           state.searchExtracted = range
-          return range === state.searchRange ? 'e\u0301🙂wrap' : undefined
+          return !disposed && state.searchValid && range === state.searchRange
+            ? 'e\u0301🙂wrap'
+            : undefined
         },
-        dispose: () => undefined,
+        dispose: () => {
+          disposed = true
+          listeners.clear()
+          state.searchListeners = 0
+        },
       })
     }
     cancelRetainedBufferSearch(): void {}
@@ -168,6 +203,9 @@ describe('Ghostty terminal search identity', () => {
     state.resolved = undefined
     state.extracted = undefined
     state.searchExtracted = undefined
+    state.searchValid = true
+    state.searchListeners = 0
+    state.emitSearchUpdate = () => undefined
     state.alternateScreen = false
     state.emitScroll = () => undefined
     state.selectCalls = 0
@@ -221,12 +259,14 @@ describe('Ghostty terminal search identity', () => {
     pane.dispose()
   })
 
-  it('keeps native search ranges private while copying exact Unicode text', async () => {
+  it('reuses authenticated immutable cell metadata while copying exact Unicode text', async () => {
     const pane = await createPane()
     const search = await pane.searchRetainedBuffer('🙂wrap', { caseSensitive: false })
 
-    expect(search.matches[0]).not.toBe(state.searchRange)
+    expect(search.matches[0]).toBe(state.searchRange)
+    expect(Object.isFrozen(search.matches[0])).toBe(true)
     expect(search.matches[0]).toEqual({
+      id: 1,
       start: { row: 8, column: 79 },
       end: { row: 9, column: 3 },
     })
@@ -284,8 +324,44 @@ describe('Ghostty terminal search identity', () => {
     })
 
     expect(search.reveal(search.matches[0]!)).toBe(false)
-    expect(state.searchExtracted).toBe(state.searchRange)
     search.dispose()
+    pane.dispose()
+  })
+
+  it('validates highlights on updates without moving the viewport and revokes subscriptions', async () => {
+    const { Terminal } = await import('ghostty-web')
+    const scroll = vi.spyOn(Terminal.prototype, 'scrollToLine')
+    const pane = await createPane()
+    const search = await pane.searchRetainedBuffer('hit', { caseSensitive: false })
+    const selected = search.matches[0]!
+    expect(search.reveal(selected)).toBe(true)
+    expect(scroll).toHaveBeenCalledOnce()
+    scroll.mockClear()
+    const update = vi.fn()
+    const detach = search.onUpdate(update)
+    expect(state.searchListeners).toBe(1)
+    const highlight = document.querySelector('.terminal-search-match-highlight')
+    state.emitSearchUpdate()
+    expect(scroll).not.toHaveBeenCalled()
+    expect(document.querySelector('.terminal-search-match-highlight')).toBe(highlight)
+    expect(search.matches[0]).toBe(selected)
+    expect(search.resolve(selected)?.id).toBe(selected.id)
+    expect(search.reveal({ ...selected })).toBe(false)
+    expect(search.extract({ ...selected })).toBeUndefined()
+    expect(document.querySelectorAll('.terminal-search-match-highlight')).toHaveLength(2)
+    state.searchValid = false
+    state.emitSearchUpdate()
+    expect(scroll).not.toHaveBeenCalled()
+    expect(search.invalidated).toBe(true)
+    expect(search.matches).toEqual([])
+    expect(search.resolve(selected)).toBeUndefined()
+    expect(search.extract(selected)).toBeUndefined()
+    expect(document.querySelectorAll('.terminal-search-match-highlight')).toHaveLength(0)
+    expect(update).toHaveBeenCalledTimes(2)
+    detach()
+    search.dispose()
+    search.dispose()
+    expect(state.searchListeners).toBe(0)
     pane.dispose()
   })
 })

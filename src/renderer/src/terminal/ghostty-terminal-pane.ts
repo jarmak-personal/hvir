@@ -216,9 +216,10 @@ class GhosttyTerminalPane implements TerminalPane {
   private presentation: TerminalPresentation = 'visible'
   private searchHighlight?: Readonly<{
     owner: object
-    range: GhosttyRetainedBufferRange
+    resolve: () => GhosttyRetainedBufferRange | undefined
   }>
   private searchHighlightLayer?: HTMLDivElement
+  private searchHighlightLayout?: string
   private hasPresentedFrame = false
   private processingPtyOutput = 0
 
@@ -429,8 +430,10 @@ class GhosttyTerminalPane implements TerminalPane {
     const owner = {}
     return new GhosttyRetainedBufferSearch(
       result,
-      (match) => this.revealRetainedBufferRange(owner, match),
+      (match) =>
+        this.revealRetainedBufferRange(owner, match, () => result.resolve(match)),
       () => this.clearSearchHighlight(owner),
+      () => this.renderSearchHighlight(),
     )
   }
 
@@ -537,6 +540,7 @@ class GhosttyTerminalPane implements TerminalPane {
   private revealRetainedBufferRange(
     owner: object,
     match: GhosttyRetainedBufferRange,
+    resolve: () => GhosttyRetainedBufferRange | undefined,
   ): boolean {
     const revealed = this.revealEventLocation({
       screen: 'normal',
@@ -544,7 +548,7 @@ class GhosttyTerminalPane implements TerminalPane {
       column: match.start.column,
     })
     if (!revealed) return false
-    this.searchHighlight = { owner, range: match }
+    this.searchHighlight = { owner, resolve }
     this.renderSearchHighlight()
     return true
   }
@@ -556,15 +560,20 @@ class GhosttyTerminalPane implements TerminalPane {
 
   private releaseSearchHighlight(): void {
     this.searchHighlight = undefined
+    this.searchHighlightLayout = undefined
     this.searchHighlightLayer?.replaceChildren()
   }
 
   private renderSearchHighlight(): void {
     const highlight = this.searchHighlight
     if (!highlight) return
+    const range = highlight.resolve()
+    if (!range) {
+      this.releaseSearchHighlight()
+      return
+    }
     const layer = this.searchHighlightLayer
     if (!layer) return
-    layer.replaceChildren()
     const renderer = this.terminal.renderer
     if (
       !highlight ||
@@ -572,34 +581,50 @@ class GhosttyTerminalPane implements TerminalPane {
       this.activeEventScreen() !== 'normal' ||
       !renderer
     ) {
+      layer.replaceChildren()
+      this.searchHighlightLayout = undefined
       return
     }
     const metrics = renderer.getMetrics()
-    if (metrics.width <= 0 || metrics.height <= 0) return
+    if (metrics.width <= 0 || metrics.height <= 0) {
+      layer.replaceChildren()
+      this.searchHighlightLayout = undefined
+      return
+    }
     const scrollbackLength = this.terminal.getScrollbackLength()
     const viewportY = Math.max(0, Math.floor(this.terminal.getViewportY()))
     const firstVisibleRow = scrollbackLength - viewportY
     const lastVisibleRow = firstVisibleRow + this.terminal.rows - 1
-    const firstMatchRow = Math.max(highlight.range.start.row, firstVisibleRow)
-    const lastMatchRow = Math.min(highlight.range.end.row, lastVisibleRow)
+    const firstMatchRow = Math.max(range.start.row, firstVisibleRow)
+    const lastMatchRow = Math.min(range.end.row, lastVisibleRow)
     const canvas = renderer.getCanvas()
     const cols = this.terminal.cols
+    const layout = [
+      range.start.row,
+      range.start.column,
+      range.end.row,
+      range.end.column,
+      firstVisibleRow,
+      lastVisibleRow,
+      cols,
+      metrics.width,
+      metrics.height,
+      canvas.offsetLeft,
+      canvas.offsetTop,
+    ].join(':')
+    if (layout === this.searchHighlightLayout) return
+    this.searchHighlightLayout = layout
+    layer.replaceChildren()
     if (firstMatchRow > lastMatchRow || cols <= 0) return
 
     for (let row = firstMatchRow; row <= lastMatchRow; row += 1) {
       const startColumn = Math.max(
         0,
-        Math.min(
-          cols - 1,
-          row === highlight.range.start.row ? highlight.range.start.column : 0,
-        ),
+        Math.min(cols - 1, row === range.start.row ? range.start.column : 0),
       )
       const endColumn = Math.max(
         0,
-        Math.min(
-          cols - 1,
-          row === highlight.range.end.row ? highlight.range.end.column : cols - 1,
-        ),
+        Math.min(cols - 1, row === range.end.row ? range.end.column : cols - 1),
       )
       if (endColumn < startColumn) continue
       const segment = document.createElement('div')
@@ -642,52 +667,62 @@ class GhosttyTerminalPane implements TerminalPane {
 class GhosttyRetainedBufferSearch implements TerminalRetainedBufferSearch {
   readonly query: string
   readonly caseSensitive: boolean
-  readonly matches: readonly TerminalRetainedBufferRange[]
-  private readonly nativeRanges = new WeakMap<
-    TerminalRetainedBufferRange,
-    GhosttyRetainedBufferRange
-  >()
+  private readonly listeners = new Set<() => void>()
+  private readonly updates: { dispose(): void }
   private disposed = false
 
   constructor(
     private readonly native: GhosttyRetainedBufferSearchResult,
     private readonly revealRange: (match: GhosttyRetainedBufferRange) => boolean,
     private readonly clearRevealedRange: () => void,
+    private readonly refreshHighlight: () => void,
   ) {
     this.query = native.query
     this.caseSensitive = native.caseSensitive
-    this.matches = native.matches.map((match) => {
-      const retained: TerminalRetainedBufferRange = Object.freeze({
-        start: Object.freeze({ row: match.start.row, column: match.start.column }),
-        end: Object.freeze({ row: match.end.row, column: match.end.column }),
-      })
-      this.nativeRanges.set(retained, match)
-      return retained
+    this.updates = native.onUpdate(() => {
+      this.refreshHighlight()
+      for (const listener of [...this.listeners]) listener()
     })
   }
-
+  // The engine's immutable plain metadata already has the neutral contract's
+  // shape. Reuse it: native object authentication owns foreign/stale rejection,
+  // and a PTY write must not copy or traverse the entire match list.
+  get matches(): readonly TerminalRetainedBufferRange[] {
+    return this.disposed ? [] : this.native.matches
+  }
+  get pending(): boolean {
+    return this.native.pending
+  }
+  get invalidated(): boolean {
+    return this.native.invalidated
+  }
+  onUpdate(listener: () => void): () => void {
+    if (this.disposed) return () => undefined
+    this.listeners.add(listener)
+    return () => {
+      this.listeners.delete(listener)
+    }
+  }
+  resolve(match: TerminalRetainedBufferRange): TerminalRetainedBufferRange | undefined {
+    return this.disposed ? undefined : this.native.resolve(match)
+  }
+  clearReveal(): void {
+    this.clearRevealedRange()
+  }
   reveal(match: TerminalRetainedBufferRange): boolean {
-    const native = this.nativeRange(match)
-    if (!native || this.native.extract(native) === undefined) return false
-    return this.revealRange(native)
+    const current = this.resolve(match)
+    return current ? this.revealRange(current) : false
   }
-
   extract(match: TerminalRetainedBufferRange): string | undefined {
-    const native = this.nativeRange(match)
-    return native ? this.native.extract(native) : undefined
+    return this.disposed ? undefined : this.native.extract(match)
   }
-
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    this.updates.dispose()
+    this.listeners.clear()
     this.clearRevealedRange()
     this.native.dispose()
-  }
-
-  private nativeRange(
-    match: TerminalRetainedBufferRange,
-  ): GhosttyRetainedBufferRange | undefined {
-    return this.disposed ? undefined : this.nativeRanges.get(match)
   }
 }
 

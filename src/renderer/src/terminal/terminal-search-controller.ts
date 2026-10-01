@@ -1,4 +1,8 @@
-import type { TerminalPane, TerminalRetainedBufferSearch } from './terminal-pane'
+import type {
+  TerminalPane,
+  TerminalRetainedBufferRange,
+  TerminalRetainedBufferSearch,
+} from './terminal-pane'
 
 export interface TerminalSearchSnapshot {
   readonly open: boolean
@@ -7,6 +11,7 @@ export interface TerminalSearchSnapshot {
   readonly pending: boolean
   readonly matchCount: number
   readonly matchIndex?: number
+  readonly unavailable: boolean
 }
 
 const CLOSED_SEARCH: TerminalSearchSnapshot = {
@@ -15,20 +20,18 @@ const CLOSED_SEARCH: TerminalSearchSnapshot = {
   caseSensitive: false,
   pending: false,
   matchCount: 0,
+  unavailable: false,
 }
 
-// PTY delivery can arrive as many small chunks for one visible burst. One
-// refresh per bounded window keeps native retained-buffer scans off that hot
-// path without starving search while output remains continuous.
-const RETAINED_BUFFER_REFRESH_DELAY_MS = 75
-
-/** Owns one exact pane's ephemeral query, native snapshot, and cancellation. */
+/** Owns one pane's query subscription and selected logical occurrence. */
 export class TerminalSearchController {
   private pane?: TerminalPane
   private result?: TerminalRetainedBufferSearch
+  private resultUpdates?: () => void
+  private selected?: TerminalRetainedBufferRange
+  private matches?: readonly TerminalRetainedBufferRange[]
   private searchAbort?: AbortController
   private extractionAbort?: AbortController
-  private retainedBufferRefresh?: ReturnType<typeof setTimeout>
   private generation = 0
   private available = true
   private currentSnapshot = CLOSED_SEARCH
@@ -43,10 +46,11 @@ export class TerminalSearchController {
   ) {}
 
   snapshot = (): TerminalSearchSnapshot => this.currentSnapshot
-
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener)
-    return () => this.listeners.delete(listener)
+    return () => {
+      this.listeners.delete(listener)
+    }
   }
 
   bind(pane: TerminalPane): void {
@@ -54,29 +58,24 @@ export class TerminalSearchController {
     this.revoke()
     this.pane = pane
   }
-
   setAvailable(available: boolean): void {
     this.available = available
     if (!available) this.close(false)
   }
-
   open(): boolean {
     if (!this.pane || !this.available) return false
     if (!this.currentSnapshot.open) this.publish({ ...CLOSED_SEARCH, open: true })
     return true
   }
-
   close(restoreFocus = false): void {
     this.cancelOwnedWork()
     if (this.currentSnapshot !== CLOSED_SEARCH) this.publish(CLOSED_SEARCH)
     if (restoreFocus && this.pane && this.available) this.restoreFocus()
   }
-
   revoke(): void {
     this.close(false)
     this.pane = undefined
   }
-
   setQuery(query: string): void {
     if (!this.currentSnapshot.open || query === this.currentSnapshot.query) return
     this.publish({
@@ -85,49 +84,55 @@ export class TerminalSearchController {
       pending: query.length > 0,
       matchCount: 0,
       matchIndex: undefined,
+      unavailable: false,
     })
-    this.startSearch()
+    this.startSearch(true)
   }
-
   setCaseSensitive(caseSensitive: boolean): void {
     if (
       !this.currentSnapshot.open ||
       caseSensitive === this.currentSnapshot.caseSensitive
-    ) {
+    )
       return
-    }
     this.publish({
       ...this.currentSnapshot,
       caseSensitive,
       pending: this.currentSnapshot.query.length > 0,
       matchCount: 0,
       matchIndex: undefined,
+      unavailable: false,
     })
-    this.startSearch()
+    this.startSearch(true)
   }
 
   navigate(direction: 'previous' | 'next'): void {
     const result = this.result
     const count = result?.matches.length ?? 0
     if (!result || count === 0) return
-    const current = this.currentSnapshot.matchIndex ?? 0
+    const current = this.selected
+      ? result.matches.findIndex((match) => match.id === this.selected?.id)
+      : -1
     const index =
-      direction === 'previous' ? (current - 1 + count) % count : (current + 1) % count
+      current < 0
+        ? direction === 'next'
+          ? 0
+          : count - 1
+        : direction === 'previous'
+          ? (current - 1 + count) % count
+          : (current + 1) % count
     const match = result.matches[index]
     if (!match || !result.reveal(match)) {
-      this.settleUnrevealableResult()
+      if (this.selected && !result.resolve(this.selected)) this.loseSelection()
       return
     }
-    this.publish({ ...this.currentSnapshot, matchIndex: index })
+    this.selected = match
+    this.publish({ ...this.currentSnapshot, matchIndex: index, unavailable: false })
   }
 
   currentMatchText(): string {
-    const result = this.result
-    const index = this.currentSnapshot.matchIndex
-    const match = index === undefined ? undefined : result?.matches[index]
-    const text = match ? result?.extract(match) : undefined
+    const text = this.selected ? this.result?.extract(this.selected) : undefined
     if (text === undefined) {
-      this.invalidateAndRefresh()
+      this.loseSelection()
       throw new Error('The current terminal match is no longer retained')
     }
     return text
@@ -156,27 +161,18 @@ export class TerminalSearchController {
   }
 
   retainedBufferChanged(): void {
-    if (!this.currentSnapshot.open || this.currentSnapshot.query.length === 0) return
-    if (this.retainedBufferRefresh !== undefined) return
-    this.cancelSearchRequest()
-    if (!this.currentSnapshot.pending) {
-      this.publish({ ...this.currentSnapshot, pending: true })
-    }
-    this.retainedBufferRefresh = setTimeout(() => {
-      this.retainedBufferRefresh = undefined
-      this.startSearch(true)
-    }, RETAINED_BUFFER_REFRESH_DELAY_MS)
+    // Revalidate presentation-only changes. Writes and refresh scheduling are
+    // observed through the engine query subscription.
+    if (this.result) this.updateResult()
   }
 
-  private startSearch(preserveResult = false): void {
+  private startSearch(selectInitial: boolean): void {
     const pane = this.pane
     const query = this.currentSnapshot.query
-    this.cancelRetainedBufferRefresh()
-    if (!preserveResult) this.releaseResult()
+    this.releaseResult()
     this.cancelSearchRequest()
     const generation = this.generation
     if (!pane || !this.currentSnapshot.open || query.length === 0) {
-      this.releaseResult()
       this.publish({
         ...this.currentSnapshot,
         pending: false,
@@ -187,9 +183,11 @@ export class TerminalSearchController {
     }
     const controller = new AbortController()
     this.searchAbort = controller
-    const caseSensitive = this.currentSnapshot.caseSensitive
     void pane
-      .searchRetainedBuffer(query, { caseSensitive, signal: controller.signal })
+      .searchRetainedBuffer(query, {
+        caseSensitive: this.currentSnapshot.caseSensitive,
+        signal: controller.signal,
+      })
       .then(
         (result) => {
           if (
@@ -201,22 +199,17 @@ export class TerminalSearchController {
             result.dispose()
             return
           }
-          this.searchAbort = undefined
-          const previousResult = this.result
           this.result = result
-          if (previousResult !== result) previousResult?.dispose()
-          const matchIndex = result.matches.length > 0 ? 0 : undefined
-          const first = matchIndex === undefined ? undefined : result.matches[matchIndex]
-          if (first && !result.reveal(first)) {
-            this.settleUnrevealableResult()
-            return
-          }
-          this.publish({
-            ...this.currentSnapshot,
-            pending: false,
-            matchCount: result.matches.length,
-            matchIndex,
+          this.resultUpdates = result.onUpdate(() => {
+            if (this.result === result && generation === this.generation)
+              this.updateResult()
           })
+          const first = selectInitial ? result.matches[0] : undefined
+          if (first) {
+            if (result.reveal(first)) this.selected = first
+            else this.loseSelection()
+          }
+          this.updateResult()
         },
         () => {
           if (
@@ -224,10 +217,8 @@ export class TerminalSearchController {
             this.pane !== pane ||
             generation !== this.generation ||
             !this.currentSnapshot.open
-          ) {
+          )
             return
-          }
-          this.searchAbort = undefined
           this.releaseResult()
           this.publish({
             ...this.currentSnapshot,
@@ -239,58 +230,77 @@ export class TerminalSearchController {
       )
   }
 
-  private invalidateAndRefresh(): void {
+  private updateResult(): void {
+    const result = this.result
+    if (!result) return
+    if (result.invalidated) {
+      this.loseSelection()
+      this.publish({ ...this.currentSnapshot, pending: true, matchCount: 0 })
+      this.startSearch(false)
+      return
+    }
+    if (this.selected && !result.resolve(this.selected)) this.loseSelection()
+    const index = this.selected
+      ? result.matches === this.matches
+        ? (this.currentSnapshot.matchIndex ?? -1)
+        : result.matches.findIndex((match) => match.id === this.selected?.id)
+      : -1
+    this.matches = result.matches
+    // Updates adjust counts and coordinates without revealing any occurrence.
     this.publish({
       ...this.currentSnapshot,
-      pending: this.currentSnapshot.query.length > 0,
-      matchCount: 0,
-      matchIndex: undefined,
+      pending: result.pending,
+      matchCount: result.matches.length,
+      matchIndex: index >= 0 ? index : undefined,
     })
-    this.startSearch()
   }
 
-  private settleUnrevealableResult(): void {
-    this.releaseResult()
+  private loseSelection(): void {
+    const lost = this.selected !== undefined
+    this.selected = undefined
+    this.result?.clearReveal()
     this.publish({
       ...this.currentSnapshot,
-      pending: false,
-      matchCount: 0,
       matchIndex: undefined,
+      unavailable: this.currentSnapshot.unavailable || lost,
     })
   }
 
   private cancelOwnedWork(): void {
-    this.cancelRetainedBufferRefresh()
-    this.generation += 1
-    this.searchAbort?.abort()
-    this.searchAbort = undefined
+    this.releaseResult()
+    this.cancelSearchRequest()
     this.extractionAbort?.abort()
     this.extractionAbort = undefined
     this.pane?.cancelRetainedBufferSearch()
     this.pane?.cancelRetainedBufferExtraction()
-    this.releaseResult()
   }
-
   private cancelSearchRequest(): void {
     this.generation += 1
-    if (!this.searchAbort) return
-    this.searchAbort.abort()
+    this.searchAbort?.abort()
     this.searchAbort = undefined
     this.pane?.cancelRetainedBufferSearch()
   }
-
-  private cancelRetainedBufferRefresh(): void {
-    if (this.retainedBufferRefresh === undefined) return
-    clearTimeout(this.retainedBufferRefresh)
-    this.retainedBufferRefresh = undefined
-  }
-
   private releaseResult(): void {
-    this.result?.dispose()
+    this.resultUpdates?.()
+    this.resultUpdates = undefined
+    const result = this.result
     this.result = undefined
+    this.selected = undefined
+    this.matches = undefined
+    result?.dispose()
   }
-
   private publish(snapshot: TerminalSearchSnapshot): void {
+    const current = this.currentSnapshot
+    if (
+      current.open === snapshot.open &&
+      current.query === snapshot.query &&
+      current.caseSensitive === snapshot.caseSensitive &&
+      current.pending === snapshot.pending &&
+      current.matchCount === snapshot.matchCount &&
+      current.matchIndex === snapshot.matchIndex &&
+      current.unavailable === snapshot.unavailable
+    )
+      return
     this.currentSnapshot = snapshot
     for (const listener of this.listeners) listener()
   }

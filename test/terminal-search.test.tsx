@@ -8,6 +8,7 @@ import { TerminalSearch } from '../src/renderer/src/terminal/TerminalSearch'
 import type {
   TerminalPane,
   TerminalRetainedBufferRange,
+  TerminalRetainedBufferSearch,
 } from '../src/renderer/src/terminal/terminal-pane'
 import { TerminalSearchController } from '../src/renderer/src/terminal/terminal-search-controller'
 
@@ -26,6 +27,88 @@ afterEach(() => {
 })
 
 describe('terminal search surface', () => {
+  it('reports lost selection and disables Copy Match while leaving explicit navigation available', async () => {
+    const match = range(7, 3, 7, 6)
+    let retained = true
+    let refreshing = false
+    let matches = [match]
+    const listeners = new Set<() => void>()
+    const update = () => {
+      for (const listener of listeners) listener()
+    }
+    const pane = paneFixture(
+      match,
+      'hit',
+      () => retained,
+      () => refreshing,
+      (listener) => {
+        listeners.add(listener)
+        return () => {
+          listeners.delete(listener)
+        }
+      },
+      () => matches,
+    )
+    const controller = new TerminalSearchController(vi.fn(), vi.fn())
+    controller.bind(pane)
+    const root = createRoot(host)
+    const writeText = vi.fn(() => Promise.resolve())
+    act(() =>
+      root.render(
+        <TerminalSearch
+          controller={controller}
+          canCopyRegion={false}
+          writeText={writeText}
+        />,
+      ),
+    )
+    act(() => {
+      controller.open()
+      controller.setQuery('hit')
+    })
+    await act(async () => {
+      await vi.waitFor(() => expect(controller.snapshot().matchIndex).toBe(0))
+    })
+    refreshing = true
+    act(update)
+    expect(controller.snapshot().pending).toBe(true)
+    expect(button('Copy Match').disabled).toBe(false)
+    expect(
+      host.querySelector<HTMLButtonElement>('[aria-label="Previous terminal match"]')
+        ?.disabled,
+    ).toBe(false)
+    expect(
+      host.querySelector<HTMLButtonElement>('[aria-label="Next terminal match"]')
+        ?.disabled,
+    ).toBe(false)
+    const unchanged = controller.snapshot()
+    act(update)
+    expect(controller.snapshot()).toBe(unchanged)
+    retained = false
+    act(update)
+    expect(host.querySelector('.terminal-search-status')?.textContent).toBe('1 match')
+    expect(host.querySelector('.terminal-search-unavailable')?.textContent).toBe(
+      'Selected match is no longer available',
+    )
+    expect(button('Copy Match').disabled).toBe(true)
+    expect(
+      host.querySelector<HTMLButtonElement>('[aria-label="Next terminal match"]')
+        ?.disabled,
+    ).toBe(false)
+    matches = [
+      { ...range(9, 0, 9, 2), id: 2 },
+      { ...range(10, 0, 10, 2), id: 3 },
+    ]
+    refreshing = false
+    act(update)
+    expect(host.querySelector('.terminal-search-status')?.textContent).toBe('2 matches')
+    expect(host.querySelector('.terminal-search-unavailable')).not.toBeNull()
+    expect(controller.snapshot().matchIndex).toBeUndefined()
+    expect(writeText).not.toHaveBeenCalled()
+    act(() => root.unmount())
+    controller.close()
+  })
+
   it('keeps the exact current result and surface when clipboard writing fails', async () => {
     const match = range(7, 3, 8, 2)
     const pane = paneFixture(match, 'e\u0301🙂\nwrapped')
@@ -207,12 +290,20 @@ function range(
   endColumn: number,
 ): TerminalRetainedBufferRange {
   return {
+    id: 1,
     start: { row: startRow, column: startColumn },
     end: { row: endRow, column: endColumn },
   }
 }
 
-function paneFixture(match: TerminalRetainedBufferRange, text: string): TerminalPane {
+function paneFixture(
+  match: TerminalRetainedBufferRange,
+  text: string,
+  retained = () => true,
+  pending = () => false,
+  onUpdate: TerminalRetainedBufferSearch['onUpdate'] = () => () => undefined,
+  matches: () => readonly TerminalRetainedBufferRange[] = () => [match],
+): TerminalPane {
   const listen = () => () => undefined
   return {
     mount: vi.fn(),
@@ -233,7 +324,16 @@ function paneFixture(match: TerminalRetainedBufferRange, text: string): Terminal
       Promise.resolve({
         query,
         caseSensitive: options.caseSensitive,
-        matches: [match],
+        get matches() {
+          return matches()
+        },
+        get pending() {
+          return pending()
+        },
+        invalidated: false,
+        onUpdate,
+        resolve: (range) => (retained() && range === match ? match : undefined),
+        clearReveal: vi.fn(),
         reveal: (candidate: TerminalRetainedBufferRange) => candidate === match,
         extract: (candidate: TerminalRetainedBufferRange) =>
           candidate === match ? text : undefined,
