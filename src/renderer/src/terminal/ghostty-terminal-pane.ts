@@ -1,5 +1,6 @@
 import {
   Terminal as GhosttyTerminal,
+  FitAddon,
   init,
   type CursorBlink as GhosttyCursorBlink,
   type CursorStyle as GhosttyCursorStyle,
@@ -42,13 +43,11 @@ import {
   isFileUri,
   isTerminalWebTarget,
 } from './terminal-file-link'
-import { TerminalFitController } from './ghostty-terminal-fit'
 import { resolveGhosttyTerminalFilePaste } from './ghostty-terminal-file-paste'
 import {
   ghosttyClipboardPasteFallback,
   ghosttyKeyboardOverride,
 } from './ghostty-terminal-keyboard'
-import { TerminalWheelController } from './terminal-wheel'
 
 let initializeGhostty: Promise<void> | undefined
 const TERMINAL_SCROLLBACK_BYTES = 10_000_000
@@ -155,7 +154,7 @@ class DataListenerSet {
 
 class GhosttyTerminalPane implements TerminalPane {
   private readonly terminal: GhosttyTerminal
-  private readonly fit: TerminalFitController
+  private readonly fit: FitAddon
   private readonly nativeProvenance = new WeakMap<
     TerminalEventProvenance,
     GhosttyTerminalEventProvenance
@@ -180,10 +179,18 @@ class GhosttyTerminalPane implements TerminalPane {
       scrollbackBytes: TERMINAL_SCROLLBACK_BYTES,
       theme: toGhosttyTheme(theme),
       disableContextMenu: true,
+      wheelScroll: {
+        linesPerStep: 3,
+        maxMouseReports: 5,
+        maxFallbackKeys: 1,
+        alternateScreenFallback: 'page',
+        mouseEncoding: 'sgr',
+      },
       resolveClipboardFilePaste: (file) =>
         resolveGhosttyTerminalFilePaste(window.hvir, file),
     })
-    this.fit = new TerminalFitController(this.terminal)
+    this.fit = new FitAddon({ resizeDebounceMs: 75 })
+    this.terminal.loadAddon(this.fit)
     this.terminal.attachCustomKeyEventHandler((event) => {
       const pasteFallback = ghosttyClipboardPasteFallback(event)
       if (pasteFallback !== undefined) {
@@ -207,7 +214,6 @@ class GhosttyTerminalPane implements TerminalPane {
   private mounted = false
   private disposed = false
   private presentation: TerminalPresentation = 'visible'
-  private readonly wheel = new TerminalWheelController()
   private searchHighlight?: Readonly<{
     owner: object
     range: GhosttyRetainedBufferRange
@@ -238,6 +244,9 @@ class GhosttyTerminalPane implements TerminalPane {
         ...this.terminal.getRenderStats(),
         cols: this.terminal.cols,
         rows: this.terminal.rows,
+        cellWidth: this.terminal.renderer?.getMetrics().width,
+        cellHeight: this.terminal.renderer?.getMetrics().height,
+        hasSelection: this.terminal.hasSelection(),
         retainedRows: this.terminal.getScrollbackLength(),
         retainedByteLimit: this.disposed ? 0 : this.terminal.getScrollbackByteLimit(),
         palette: this.theme,
@@ -259,10 +268,7 @@ class GhosttyTerminalPane implements TerminalPane {
     this.terminal.setRenderPaused(true)
     this.engineDisposers.push(
       this.terminal.onData((data) =>
-        this.emitData(
-          data,
-          this.processingPtyOutput > 0 ? 'terminal-response' : 'user',
-        ),
+        this.emitData(data, this.processingPtyOutput > 0 ? 'terminal-response' : 'user'),
       ),
       this.terminal.onResize((size) => {
         this.resizeListeners.emit(size)
@@ -285,10 +291,10 @@ class GhosttyTerminalPane implements TerminalPane {
     this.terminal.registerLinkProvider(
       new FileLinkProvider(this.terminal, (target) => this.linkListeners.emit(target)),
     )
-    this.terminal.attachCustomWheelEventHandler((event) => this.handleWheel(event))
     const canvas = this.terminal.renderer?.getCanvas()
     if (canvas) canvas.style.visibility = 'hidden'
     this.fit.fit()
+    if (this.presentation === 'hidden') this.fit.suspend()
     // A fresh pane must begin from an explicitly reset VT buffer. Depending on
     // WASM allocator reuse, construction can expose cells and rendition from
     // the terminal just freed during reconnect. Reset only after the initial
@@ -367,7 +373,7 @@ class GhosttyTerminalPane implements TerminalPane {
     if (this.disposed || presentation === this.presentation) return
     this.presentation = presentation
     if (presentation === 'hidden') {
-      this.fit.suspend()
+      if (this.mounted) this.fit.suspend()
       this.terminal.setRenderPaused(true)
       const canvas = this.terminal.renderer?.getCanvas()
       if (canvas) canvas.style.visibility = 'hidden'
@@ -490,7 +496,7 @@ class GhosttyTerminalPane implements TerminalPane {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
-    this.fit.dispose()
+    this.fit.suspend()
     for (const disposer of this.engineDisposers) disposer.dispose()
     this.engineDisposers.length = 0
     const renderer = this.terminal.renderer
@@ -612,24 +618,6 @@ class GhosttyTerminalPane implements TerminalPane {
   private emitClipboardPaste(fallbackData: string): void {
     this.terminal.resetCursorBlink()
     this.clipboardPasteListeners.emit(fallbackData)
-  }
-
-  private handleWheel(event: WheelEvent): boolean {
-    const term = this.terminal.wasmTerm
-    const renderer = this.terminal.renderer
-    const result = this.wheel.handle(event, {
-      alternateScreen: term?.isAlternateScreen() ?? false,
-      mouseTracking: term?.hasMouseTracking() ?? false,
-      sgrMouse: term?.getMode(1006) ?? false,
-      cols: this.terminal.cols,
-      rows: this.terminal.rows,
-      cellWidth: renderer?.charWidth ?? 1,
-      cellHeight: renderer?.charHeight ?? 16,
-    })
-    for (const data of result.data) {
-      this.emitData(data, 'user')
-    }
-    return result.handled
   }
 
   private revealAfterSettledFit(): void {

@@ -1,4 +1,8 @@
-import type { TerminalEvent as GhosttyTerminalEvent } from 'ghostty-web'
+import type {
+  ITerminalAddon,
+  WheelScrollOptions,
+  TerminalEvent as GhosttyTerminalEvent,
+} from 'ghostty-web'
 import { vi } from 'vitest'
 
 export const ghosttyState = {
@@ -15,6 +19,7 @@ export const ghosttyState = {
     readonly scrollbackLines: number | undefined
     readonly themes: unknown[]
     readonly writes: string[]
+    readonly wheelScroll: WheelScrollOptions | undefined
     cursorBlinkResets: number
     focusCalls: number
     emitData(data: string): void
@@ -45,6 +50,7 @@ class MockTerminal {
     fontSize?: number
     scrollback?: number
     scrollbackBytes?: number
+    wheelScroll?: WheelScrollOptions
     resolveClipboardFilePaste?: (file: File) => string | undefined
   }
   readonly buffer = { active: { getLine: () => undefined } }
@@ -68,9 +74,10 @@ class MockTerminal {
     setTheme(theme: unknown): void
   }
   private canvas?: HTMLCanvasElement
-  private textarea?: HTMLTextAreaElement
+  textarea?: HTMLTextAreaElement
   private readonly state: (typeof ghosttyState.instances)[number]
   private presentationPaused = false
+  private readonly addons: ITerminalAddon[] = []
 
   constructor(options: {
     theme?: unknown
@@ -81,6 +88,7 @@ class MockTerminal {
     fontSize?: number
     scrollback?: number
     scrollbackBytes?: number
+    wheelScroll?: WheelScrollOptions
     resolveClipboardFilePaste?: (file: File) => string | undefined
   }) {
     this.state = {
@@ -96,6 +104,7 @@ class MockTerminal {
       scrollbackLines: options.scrollback,
       themes: [options.theme],
       writes: [],
+      wheelScroll: options.wheelScroll,
       cursorBlinkResets: 0,
       focusCalls: 0,
       emitData: () => undefined,
@@ -148,7 +157,18 @@ class MockTerminal {
     this.state.emitCustomKey = callback
   }
 
-  attachCustomWheelEventHandler(): void {}
+  loadAddon(addon: ITerminalAddon): void {
+    this.addons.push(addon)
+    addon.activate(this)
+  }
+
+  hasSelection(): boolean {
+    return false
+  }
+
+  attachCustomWheelEventHandler(): void {
+    throw new Error('wheel routing belongs to the engine')
+  }
 
   onData(callback: (data: string) => void): { dispose(): void } {
     this.state.emitData = callback
@@ -177,6 +197,18 @@ class MockTerminal {
 
   open(element: HTMLElement): void {
     this.element = element
+    // Happy DOM has no layout; expose a measurable initial viewport at this port.
+    const initialFontSize = this.options.fontSize ?? 13
+    Object.defineProperties(element, {
+      clientWidth: {
+        configurable: true,
+        get: () => element.parentElement?.clientWidth || 80 * initialFontSize * 0.6,
+      },
+      clientHeight: {
+        configurable: true,
+        get: () => element.parentElement?.clientHeight || 24 * initialFontSize * 1.2,
+      },
+    })
     element.setAttribute('contenteditable', 'true')
     this.canvas = document.createElement('canvas')
     this.textarea = document.createElement('textarea')
@@ -278,6 +310,7 @@ class MockTerminal {
 
   dispose(): void {
     this.state.disposed = true
+    for (const addon of this.addons) addon.dispose()
     this.canvas?.remove()
     this.textarea?.remove()
     this.element?.removeAttribute('contenteditable')
@@ -288,7 +321,11 @@ class MockTerminal {
   }
 }
 
+// Keep fitting at its actual engine boundary; only the terminal port is faked.
+const { FitAddon } = await vi.importActual<typeof import('ghostty-web')>('ghostty-web')
+
 export const ghosttyWebMock = {
+  FitAddon,
   init: vi.fn((_options?: { readonly wasmUrl?: string | URL }) => Promise.resolve()),
   Terminal: MockTerminal,
 }

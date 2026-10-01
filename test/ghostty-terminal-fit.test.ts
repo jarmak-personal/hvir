@@ -2,7 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { TerminalFitController } from '../src/renderer/src/terminal/ghostty-terminal-fit'
+import { FitAddon } from 'ghostty-web'
 
 class ObservedResize {
   static readonly instances: ObservedResize[] = []
@@ -20,7 +20,7 @@ class ObservedResize {
   }
 }
 
-describe('TerminalFitController presentation lifecycle', () => {
+describe('engine FitAddon presentation lifecycle', () => {
   let frames: Map<number, FrameRequestCallback>
   let nextFrame: number
 
@@ -46,7 +46,7 @@ describe('TerminalFitController presentation lifecycle', () => {
 
   it('keeps initialization fitting available while observation is suspended', () => {
     const fixture = terminalFixture(900, 400)
-    const controller = new TerminalFitController(fixture.terminal)
+    const controller = activateFit(fixture.terminal)
 
     controller.fit()
 
@@ -56,7 +56,7 @@ describe('TerminalFitController presentation lifecycle', () => {
 
   it('coalesces visible geometry into one settled fit and completion', () => {
     const fixture = terminalFixture(800, 480)
-    const controller = new TerminalFitController(fixture.terminal)
+    const controller = activateFit(fixture.terminal)
     const settled = vi.fn()
 
     controller.resume(settled)
@@ -84,7 +84,7 @@ describe('TerminalFitController presentation lifecycle', () => {
 
   it('disconnects and rejects stale timer or frame work after suspension', () => {
     const fixture = terminalFixture(900, 400)
-    const controller = new TerminalFitController(fixture.terminal)
+    const controller = activateFit(fixture.terminal)
     const settled = vi.fn()
 
     controller.resume(settled)
@@ -107,7 +107,7 @@ describe('TerminalFitController presentation lifecycle', () => {
 
   it('creates a fresh observation and fit generation after resumption', () => {
     const fixture = terminalFixture(900, 400)
-    const controller = new TerminalFitController(fixture.terminal)
+    const controller = activateFit(fixture.terminal)
 
     controller.resume()
     controller.suspend()
@@ -153,4 +153,10 @@ function runOnlyFrame(frames: Map<number, FrameRequestCallback>): void {
   const [id, callback] = [...frames.entries()][0]!
   frames.delete(id)
   callback(0)
+}
+
+function activateFit(terminal: ReturnType<typeof terminalFixture>['terminal']): FitAddon {
+  const addon = new FitAddon({ resizeDebounceMs: 75 })
+  addon.activate(terminal)
+  return addon
 }

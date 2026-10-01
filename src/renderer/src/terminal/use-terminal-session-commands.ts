@@ -53,13 +53,17 @@ export function useTerminalSessionCommands({
   readonly runtimes: TerminalRuntimeRegistry
   readonly onError: (message: string) => void
 }) {
-  const launch = (profile: HarnessProfile, provider: HarnessProviderDescriptor): void => {
+  const launch = (
+    profile: HarnessProfile,
+    provider: HarnessProviderDescriptor,
+  ): string => {
+    const id = crypto.randomUUID()
     const current = modelRef.current
     const pane = terminalWorkspaceSplit(current) ? current.activePane : 'primary'
     send({
       type: 'session-added',
       session: createTerminalSession(
-        crypto.randomUUID(),
+        id,
         profile,
         provider,
         workspaceRoot,
@@ -68,16 +72,26 @@ export function useTerminalSessionCommands({
       ),
     })
     closeLaunchMenu()
+    return id
   }
 
-  const add = (profileId: HarnessProfileId): void => {
+  const add = (
+    profileId: HarnessProfileId,
+    expectedLaunchRevision?: number,
+  ): string | undefined => {
     if (!available) return
     const profile = profiles.find((candidate) => candidate.id === profileId)
     const provider = profile
       ? providers.find((candidate) => candidate.id === profile.providerId)
       : undefined
-    if (!provider || !profile) return
-    launch(profile, provider)
+    if (
+      !provider ||
+      !profile ||
+      (expectedLaunchRevision !== undefined &&
+        profile.launchRevision !== expectedLaunchRevision)
+    )
+      return
+    return launch(profile, provider)
   }
 
   const failForkStart = (id: string, reason: string): void => {

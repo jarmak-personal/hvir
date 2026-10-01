@@ -76,6 +76,72 @@ describe('diff highlighting through the shared worker port', () => {
     },
   )
 
+  it.each(['base', 'current'] as const)(
+    'preserves complete text and a Unicode/whitespace selection on the %s side through presentation changes',
+    async (side) => {
+      const line = `  \tconst description = 'café e\u0301 漢字 🚀 ${'long text '.repeat(40)}';  \t`
+      const context = Array.from(
+        { length: 24 },
+        (_, index) => `// context ${index}`,
+      ).join('\n')
+      response = inputs(
+        `const limit = 12\n${context}\n${line}\nconst old = true\n`,
+        `const limit = 24\n${context}\n${line.replace('description', 'readable')}\nconst next = true\n`,
+      )
+      await render()
+      const view = editor(side)
+      const original = view.state.doc.toString()
+      const selected = view.state.doc.line(26)
+      // Include leading/trailing whitespace and a newline; reverse one side's range.
+      const from = selected.from
+      const to = selected.to + 1
+      const anchor = side === 'base' ? from : to
+      const head = side === 'base' ? to : from
+      await update(() => view.dispatch({ selection: { anchor, head } }))
+      const assertPreserved = () => {
+        expect(editor(side)).toBe(view)
+        expect(view.state.doc.toString()).toBe(original)
+        expect(view.state.selection.main.anchor).toBe(anchor)
+        expect(view.state.selection.main.head).toBe(head)
+        expect(view.state.sliceDoc(from, to)).toBe(original.slice(from, to))
+      }
+      assertPreserved()
+      await update(() => worker.respond({
+        type: 'batch',
+        id: worker.requests[side === 'base' ? 0 : 1]!.id,
+        tokens: [{ from: selected.from, to: selected.to, color: '#abcdef' }],
+      }))
+      assertPreserved()
+      const wrap = container.querySelector<HTMLButtonElement>('.diff-controls button')!
+      await update(() => wrap.click())
+      expect(wrap.getAttribute('aria-pressed')).toBe('false')
+      expect(view.contentDOM.classList.contains('cm-lineWrapping')).toBe(false)
+      assertPreserved()
+      await update(() => wrap.click())
+      expect(view.contentDOM.classList.contains('cm-lineWrapping')).toBe(true)
+      assertPreserved()
+      await update(() => setAppTheme('light'))
+      assertPreserved()
+      await color(2, '#456789')
+      await color(3, '#789abc')
+      assertPreserved()
+      await update(() => setAppTheme('dark'))
+      assertPreserved()
+      const collapsed = container.querySelector<HTMLElement>('.cm-collapsedLines')
+      expect(collapsed).not.toBeNull()
+      await update(() =>
+        collapsed!.dispatchEvent(
+          new KeyboardEvent('keydown', {
+            key: 'Enter',
+            bubbles: true,
+          }),
+        ),
+      )
+      expect(collapsed!.isConnected).toBe(false)
+      assertPreserved()
+    },
+  )
+
   it('refreshes only changed-side highlighting and rejects callbacks queued before replacement', async () => {
     await render()
     await color(0, '#123456')

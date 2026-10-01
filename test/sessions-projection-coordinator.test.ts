@@ -164,6 +164,7 @@ describe('SessionsProjectionCoordinator', () => {
       sourceRevision: 0,
       status: 'inactive',
       rows: [],
+      workspaces: [],
     })
     expect(rendererSource.listenerCount()).toBe(0)
     expect(main.listenerCount()).toBe(0)

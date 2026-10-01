@@ -26,7 +26,10 @@ import {
 } from './terminal-file-link'
 import { TerminalDeck } from './TerminalDeck'
 import { TerminalWorkspaceControls } from './TerminalWorkspaceControls'
-import { readTerminalSplitLayout, writeTerminalSplitLayout } from './terminal-split-persistence'
+import {
+  readTerminalSplitLayout,
+  writeTerminalSplitLayout,
+} from './terminal-split-persistence'
 import {
   initialTerminalWorkspaceModel,
   settledTerminalSessions,
@@ -157,8 +160,7 @@ export function TerminalWorkspace({
     connectionState,
     menuOpen,
   })
-  const { providers, profiles, probes, acceptCatalog, acceptRecoveryProbes } =
-    profileState
+  const { providers, profiles, probes } = profileState
   const send = useCallback(
     (action: TerminalWorkspaceAction): void => {
       const current = modelRef.current
@@ -248,8 +250,8 @@ export function TerminalWorkspace({
     probes,
     splitLayout: restoredSplitLayout.current,
     ports: {
-      acceptCatalog,
-      acceptProbes: acceptRecoveryProbes,
+      acceptCatalog: profileState.acceptCatalog,
+      acceptProbes: profileState.acceptRecoveryProbes,
       resetAttention,
       send,
     },
@@ -274,6 +276,7 @@ export function TerminalWorkspace({
   })
   const moving = useTerminalWorkspaceMove({
     workspaceId,
+    launchSession: recoveryReady ? commands.add : undefined,
     modelRef,
     send,
     forgetAttention: forgetAttentionSession,
@@ -285,9 +288,6 @@ export function TerminalWorkspace({
     acknowledgeTargets: onAcknowledgeMoveTargets,
     onError,
   })
-  const terminalSplit = terminalWorkspaceSplit(model)
-  const primaryActiveId = terminalPaneActiveId(model, 'primary')
-  const secondaryActiveId = terminalPaneActiveId(model, 'secondary')
   const setTerminalPrimaryWidth = (width: number): void => {
     const deck = terminalDeckRef.current
     if (!deck) return
@@ -322,9 +322,9 @@ export function TerminalWorkspace({
         sessions={sessions}
         providers={providers}
         activeId={activeId}
-        primaryActiveId={primaryActiveId}
-        secondaryActiveId={secondaryActiveId}
-        split={terminalSplit}
+        primaryActiveId={terminalPaneActiveId(model, 'primary')}
+        secondaryActiveId={terminalPaneActiveId(model, 'secondary')}
+        split={terminalWorkspaceSplit(model)}
         primaryWidth={model.primaryWidth}
         terminalTheme={preferences.terminalTheme}
         terminalLightThemeId={preferences.terminalLightThemeId}

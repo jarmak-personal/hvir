@@ -1,4 +1,6 @@
 import { clipboard, type BrowserWindow } from 'electron'
+import type { SmokeFailureCheckpoint } from './failure-evidence.mts'
+import { verifyDiffCopy } from './diff-copy'
 import type { HostPath } from '../../shared'
 import type { ProjectHost } from '../project-host'
 import { SmokeCleanup } from './cleanup'
@@ -7,16 +9,49 @@ import { createDiffReadabilityFixtures } from './diff-readability-fixture'
 /** Real production-composed Git inputs, Shiki worker, CodeMirror, selection, and paint. */
 export async function verifyDiffReadability(
   win: BrowserWindow,
-  host: ProjectHost,
+  host: Pick<ProjectHost, 'exec' | 'writeFile'>,
   root: HostPath,
+  checkpoint: (checkpoint: SmokeFailureCheckpoint) => void,
 ): Promise<string> {
   const cleanup = new SmokeCleanup()
-  const originalClipboard = clipboard.readText()
-  cleanup.defer('diff readability clipboard', () =>
-    clipboard.writeText(originalClipboard),
-  )
+  const originalFormats = clipboard.availableFormats()
+  const originalImage = originalFormats.includes('image/png')
+    ? clipboard.readImage()
+    : undefined
+  const originalBookmark =
+    process.platform === 'darwin' ? clipboard.readBookmark() : undefined
+  const originalClipboard = {
+    ...(originalFormats.includes('text/plain') ? { text: clipboard.readText() } : {}),
+    ...(originalFormats.includes('text/html') ? { html: clipboard.readHTML() } : {}),
+    ...(originalFormats.includes('text/rtf') ? { rtf: clipboard.readRTF() } : {}),
+    ...(originalImage && !originalImage.isEmpty() ? { image: originalImage } : {}),
+    ...(originalBookmark?.title && originalBookmark.url
+      ? { bookmark: originalBookmark.title }
+      : {}),
+  }
+  cleanup.defer('diff readability clipboard', () => {
+    clipboard.clear()
+    if (originalFormats.length > 0) clipboard.write(originalClipboard)
+  })
   try {
     const fixtures = await createDiffReadabilityFixtures(host, root, cleanup)
+    cleanup.defer('diff readability tabs', async () => {
+      if (win.isDestroyed() || win.webContents.isDestroyed()) return
+      await win.webContents.executeJavaScript(`
+        (async () => {
+          const paths = ${JSON.stringify(fixtures.map((fixture) => fixture.path.path))};
+          const tabs = () => [...document.querySelectorAll('.viewer-tab')].filter(tab =>
+            paths.includes(tab.querySelector('.tab-main')?.getAttribute('title')));
+          tabs().forEach(tab => tab.querySelector('.tab-close')?.click());
+          const deadline = Date.now() + 5000;
+          while (tabs().length && Date.now() < deadline) {
+            await new Promise(resolve => setTimeout(resolve, 25));
+          }
+          if (tabs().length) throw new Error('Diff fixture tabs did not close');
+        })()
+      `)
+    })
+    checkpoint('viewer-content-diff-presentation-awaiting')
     await win.webContents.executeJavaScript(`
       (async () => {
         const waitFor = async (test, message) => {
@@ -94,46 +129,8 @@ export async function verifyDiffReadability(
         }
       })()
     `)
-    const fixture = fixtures[0]!
-    await win.webContents.executeJavaScript(`
-      (async () => {
-        const waitFor = async (test, message) => {
-          const deadline = Date.now() + 10000;
-          while (Date.now() < deadline) {
-            const value = test(); if (value) return value;
-            await new Promise(resolve => setTimeout(resolve, 25));
-          }
-          throw new Error(message);
-        };
-        [...document.querySelectorAll('.file-row')].find(node => node.getAttribute('title') === ${JSON.stringify(fixture.path.path)}).click();
-        await waitFor(() => document.querySelector('.viewer-tab.active .tab-main')?.getAttribute('title') === ${JSON.stringify(fixture.path.path)}, 'Copy fixture did not activate');
-        [...document.querySelectorAll('.mode-control button')].find(node => node.textContent?.trim() === 'diff').click();
-        const base = await waitFor(() => document.querySelector('.diff-base-select'), 'Copy base control missing');
-        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(base, 'working-tree');
-        base.dispatchEvent(new Event('change', { bubbles: true }));
-        const control = await waitFor(() => document.querySelector('.cm-collapsedLines[role="button"]'), 'Copy context control missing');
-        control.click();
-        const line = await waitFor(() => [...document.querySelectorAll('.cm-merge-b .cm-line')].find(node => node.textContent?.includes('original line readable')), 'Long diff line missing');
-        const range = document.createRange(); range.selectNodeContents(line);
-        const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range);
-      })()
-    `)
-    win.webContents.copy()
-    const expected = fixture.current
-      .split('\n')
-      .find((line) => line.includes('original line readable'))
-    // Clipboard copy runs in the renderer; observe the actual clipboard value, bounded by a deadline.
-    const deadline = Date.now() + 1000
-    while (clipboard.readText() !== expected && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 10))
-    }
-    if (clipboard.readText() !== expected)
-      throw new Error('Copy changed the original diff line')
-    await win.webContents.executeJavaScript(`
-      [...document.querySelectorAll('.viewer-tab')].filter(tab =>
-        ${JSON.stringify(fixtures.map((fixture) => fixture.path.path))}.includes(tab.querySelector('.tab-main')?.getAttribute('title'))
-      ).forEach(tab => tab.querySelector('.tab-close')?.click())
-    `)
+    checkpoint('viewer-content-diff-presentation-ready')
+    await verifyDiffCopy(win, fixtures[0]!, checkpoint)
   } catch (error) {
     try {
       await cleanup.run()

@@ -24,6 +24,7 @@ interface TerminalConstructor {
 interface TerminalRuntimeModule {
   readonly Terminal: TerminalConstructor
   readonly GhosttyTerminal: TerminalConstructor
+  readonly FitAddon: TerminalConstructor
 }
 
 type LoadTerminalRuntime = () => Promise<unknown>
@@ -80,6 +81,13 @@ export function assertTerminalRuntimeContract(runtime: TerminalRuntimeModule): v
         typeof Reflect.get(runtime.GhosttyTerminal.prototype, method) !== 'function',
     ),
   )
+  missing.push(
+    ...GHOSTTY_TERMINAL_CAPABILITY_PROFILE.fitting.addonMethods
+      .filter(
+        (method) => typeof Reflect.get(runtime.FitAddon.prototype, method) !== 'function',
+      )
+      .map((method) => `FitAddon.${method}`),
+  )
   if (!hasCustomLinkProviderPriorityAndForcedRender(runtime.Terminal.prototype)) {
     missing.push('custom link-provider priority and forced render')
   }
@@ -124,12 +132,21 @@ export async function verifyTerminalRuntimeContract(
   }
   const terminal = Reflect.get(Object(runtime), 'Terminal') as unknown
   const parser = Reflect.get(Object(runtime), 'GhosttyTerminal') as unknown
-  if (!isTerminalConstructor(terminal) || !isTerminalConstructor(parser)) {
+  const fit = Reflect.get(Object(runtime), 'FitAddon') as unknown
+  if (
+    !isTerminalConstructor(terminal) ||
+    !isTerminalConstructor(parser) ||
+    !isTerminalConstructor(fit)
+  ) {
     throw new Error(
-      `Installed dependencies do not match this checkout: ghostty-web does not export the required Terminal and GhosttyTerminal constructors. ${RECOVERY}`,
+      `Installed dependencies do not match this checkout: ghostty-web does not export the required Terminal, GhosttyTerminal, and FitAddon constructors. ${RECOVERY}`,
     )
   }
-  assertTerminalRuntimeContract({ Terminal: terminal, GhosttyTerminal: parser })
+  assertTerminalRuntimeContract({
+    Terminal: terminal,
+    GhosttyTerminal: parser,
+    FitAddon: fit,
+  })
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

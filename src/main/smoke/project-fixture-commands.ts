@@ -121,7 +121,34 @@ export function createProjectFixtureCommands(options: {
       openedFolderSelections.push({ hostId, path })
       return Promise.resolve(setSmokeProjectState(smokeProjectState()))
     },
-    switchWorkspace: (projectId) => {
+    switchWorkspace: (projectId, workspaceId) => {
+      const current = projectFixture.get()
+      const project = current.projects.find((candidate) => candidate.id === projectId)
+      const workspace = project?.workspaces.find(
+        (candidate) => candidate.id === workspaceId,
+      )
+      if (
+        !preserveSelection &&
+        !projectReturn &&
+        project &&
+        workspace &&
+        !workspace.closed &&
+        !workspace.missing
+      ) {
+        const selected = setSmokeProjectState({
+          ...current,
+          root: workspace.root,
+          activeProjectId: project.id,
+          activeWorkspaceId: workspace.id,
+          projects: current.projects.map((candidate) =>
+            candidate.id === project.id
+              ? { ...candidate, activeWorkspaceId: workspace.id }
+              : candidate,
+          ),
+        })
+        emit('project:state', selected)
+        return Promise.resolve(selected)
+      }
       const state = setSmokeProjectState(
         preserveSelection
           ? projectFixture.get()

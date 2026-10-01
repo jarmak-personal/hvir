@@ -20,7 +20,7 @@ const terminalState = vi.hoisted(() => ({
   }>,
 }))
 
-vi.mock('ghostty-web', () => {
+vi.mock('ghostty-web', async () => {
   class MockTerminal {
     readonly options: Record<string, unknown>
     readonly buffer = { active: { getLine: () => undefined } }
@@ -56,6 +56,11 @@ vi.mock('ghostty-web', () => {
     }
 
     attachCustomKeyEventHandler(): void {}
+    private readonly addons: Array<{ dispose(): void }> = []
+    loadAddon(addon: { activate(terminal: unknown): void; dispose(): void }): void {
+      this.addons.push(addon)
+      addon.activate(this)
+    }
     attachCustomWheelEventHandler(): void {}
     registerLinkProvider(): void {}
     onData(): { dispose(): void } {
@@ -132,6 +137,7 @@ vi.mock('ghostty-web', () => {
       this.element?.focus()
     }
     dispose(): void {
+      for (const addon of this.addons) addon.dispose()
       this.state.disposed = true
       this.canvas?.remove()
       this.element = undefined
@@ -139,7 +145,12 @@ vi.mock('ghostty-web', () => {
     }
   }
 
-  return { init: vi.fn(() => Promise.resolve()), Terminal: MockTerminal }
+  return {
+    init: vi.fn(() => Promise.resolve()),
+    Terminal: MockTerminal,
+    FitAddon: (await vi.importActual<typeof import('ghostty-web')>('ghostty-web'))
+      .FitAddon,
+  }
 })
 
 describe('semantic transcript navigation', () => {

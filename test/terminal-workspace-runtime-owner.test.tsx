@@ -79,6 +79,30 @@ describe('TerminalWorkspaceRuntimeOwner', () => {
     owner.dispose()
   })
 
+  it('waits for launch readiness and cancels an unready workspace without allocating a session', async () => {
+    const owner = new TerminalWorkspaceRuntimeOwner()
+    const request = new AbortController()
+    const prepared = owner.prepareTransferTarget('launch-target', true, request.signal)
+    owner.registerController('launch-target', controller())
+    let ready = false
+    void prepared.then(
+      () => {
+        ready = true
+      },
+      () => undefined,
+    )
+    await Promise.resolve()
+    expect(ready).toBe(false)
+    request.abort(new Error('Launcher closed'))
+    await expect(prepared).rejects.toThrow('Launcher closed')
+    owner.releaseTransferTarget('launch-target')
+    const launchSession = vi.fn(() => 'terminal')
+    owner.registerController('launch-target', { ...controller(), launchSession })
+    expect(launchSession).not.toHaveBeenCalled()
+    expect(owner.snapshot()).toEqual([])
+    owner.dispose()
+  })
+
   it('rejects late transfer admission when a workspace is removed', async () => {
     const owner = new TerminalWorkspaceRuntimeOwner()
     const prepared = owner.prepareTransferTarget('workspace-removed')

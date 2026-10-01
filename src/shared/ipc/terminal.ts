@@ -114,6 +114,8 @@ export interface ForgetTerminalRequest {
 }
 
 export interface PlanTerminalMoveRequest {
+  /** Optional exact live process qualifier for commands originating in Sessions. */
+  readonly expectedInstanceId?: string
   readonly terminalId: string
   readonly sourceWorkspaceId: string
   readonly targetWorkspaceId: string

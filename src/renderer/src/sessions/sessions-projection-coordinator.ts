@@ -32,6 +32,7 @@ const INACTIVE_SNAPSHOT: SessionsProjectionSnapshot = {
   sourceRevision: 0,
   status: 'inactive',
   rows: [],
+  workspaces: [],
 }
 
 /** Renderer-owned, immutable derived projection with one explicit demand lifetime. */
@@ -198,7 +199,11 @@ export class SessionsProjectionCoordinator {
   private publishJoined(): void {
     if (!this.mainSnapshot) return
     const rows = joinSessionsProjection(this.mainSnapshot, this.renderer.snapshot())
-    const fingerprint = JSON.stringify([this.mainSnapshot.activeProject, rows])
+    const fingerprint = JSON.stringify([
+      this.mainSnapshot.activeProject,
+      this.mainSnapshot.workspaces,
+      rows,
+    ])
     if (
       fingerprint === this.projectionFingerprint &&
       this.current.status === 'available'
@@ -217,6 +222,7 @@ export class SessionsProjectionCoordinator {
         : {}),
       status: 'available',
       rows,
+      workspaces: this.mainSnapshot.workspaces,
     }
     this.publish()
   }
@@ -231,6 +237,7 @@ export class SessionsProjectionCoordinator {
       sourceRevision: 0,
       status: 'pending',
       rows: [],
+      workspaces: [],
     }
     this.publish()
   }
@@ -246,6 +253,7 @@ export class SessionsProjectionCoordinator {
       status: 'unavailable',
       unavailableReason: 'source-unavailable',
       rows: [],
+      workspaces: [],
     }
     this.publish()
   }

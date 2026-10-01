@@ -12,6 +12,7 @@ import {
   verifyStructuredProfiles,
   verifyHarnessProfileEditor,
 } from './harness-profile-workflow'
+import { verifySessionsTerminalCommands } from './sessions-terminal-commands'
 import { verifyTerminalMoveSmoke } from './terminal-move'
 
 export async function verifyTerminalThemeScenario(
@@ -60,4 +61,6 @@ export async function verifyTerminalMoveScenario(
   await prepareTerminalScenario(options.win, options.supervisor)
   const result = await verifyTerminalMoveSmoke(options)
   console.log(`[smoke] terminal move OK (${result})`)
+  const sessions = await verifySessionsTerminalCommands(options)
+  console.log(`[smoke] Sessions terminal commands OK (${sessions})`)
 }
