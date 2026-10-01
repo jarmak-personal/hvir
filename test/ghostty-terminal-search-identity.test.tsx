@@ -339,7 +339,11 @@ describe('Ghostty terminal search identity', () => {
     const pane = await createPane()
     const search = await pane.searchRetainedBuffer('match', { caseSensitive: true })
     expect(
-      search.reveal({ start: { row: 8, column: 79 }, end: { row: 9, column: 3 } }),
+      search.reveal({
+        id: state.searchRange.id,
+        start: { row: 8, column: 79 },
+        end: { row: 9, column: 3 },
+      }),
     ).toBe(false)
     expect(state.revealCalls).toEqual([])
     state.rangeCurrent = false

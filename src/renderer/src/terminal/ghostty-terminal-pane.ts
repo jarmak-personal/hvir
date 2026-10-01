@@ -224,6 +224,8 @@ class GhosttyTerminalPane implements TerminalPane {
     handle: { dispose(): void }
   }>
   private hasPresentedFrame = false
+  private userDataEvents = 0
+  private terminalResponseDataEvents = 0
 
   readonly events: TerminalPaneEvents = {
     onData: (callback) => this.dataListeners.on(callback),
@@ -245,6 +247,10 @@ class GhosttyTerminalPane implements TerminalPane {
       configurable: true,
       get: () => ({
         ...this.terminal.getRenderStats(),
+        dataEvents: {
+          user: this.userDataEvents,
+          terminalResponse: this.terminalResponseDataEvents,
+        },
         cols: this.terminal.cols,
         rows: this.terminal.rows,
         cellWidth: this.terminal.renderer?.getMetrics().width,
@@ -503,7 +509,10 @@ class GhosttyTerminalPane implements TerminalPane {
 
   private emitData(data: string, source: TerminalPaneDataSource): void {
     if (this.disposed) return
-    if (source === 'user') this.terminal.resetCursorBlink()
+    if (source === 'user') {
+      this.userDataEvents += 1
+      this.terminal.resetCursorBlink()
+    } else this.terminalResponseDataEvents += 1
     this.dataListeners.emit(data, source)
   }
 

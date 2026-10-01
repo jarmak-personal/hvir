@@ -1,6 +1,7 @@
 import { clipboard, type BrowserWindow } from 'electron'
 
 import type { PtySupervisor } from '../pty/pty-supervisor'
+import { terminalSearchHighlightReader } from './terminal-search-highlight'
 
 const READY = '__HVIR_SEARCH_READY__'
 const MATCH = 'hvir-search-match'
@@ -81,38 +82,7 @@ export async function verifyTerminalSearch(
             !(canvas instanceof HTMLCanvasElement) ||
             !(container instanceof HTMLElement)
           ) return fail('terminal search fixtures missing');
-          const readHighlight = () => {
-            const highlight = engine.querySelector('canvas[data-ghostty-retained-range-highlight]');
-            if (!(highlight instanceof HTMLCanvasElement) ||
-                getComputedStyle(highlight).visibility === 'hidden') return undefined;
-            const context = highlight.getContext('2d');
-            if (!context || !highlight.width || !highlight.height) return undefined;
-            const pixels = context.getImageData(0, 0, highlight.width, highlight.height).data;
-            let left = highlight.width, top = highlight.height, right = -1, bottom = -1;
-            for (let y = 0; y < highlight.height; y++) {
-              for (let x = 0; x < highlight.width; x++) {
-                if (pixels[(y * highlight.width + x) * 4 + 3] === 0) continue;
-                left = Math.min(left, x); right = Math.max(right, x);
-                top = Math.min(top, y); bottom = Math.max(bottom, y);
-              }
-            }
-            if (right < left) return undefined;
-            const metrics = engine.__hvirTerminalPerformance;
-            const expectedWidth = canvas.width / metrics.cols * ${MATCH.length};
-            const expectedHeight = canvas.height / metrics.rows;
-            if (Math.abs(right - left + 1 - expectedWidth) > 1 ||
-                Math.abs(bottom - top + 1 - expectedHeight) > 1) {
-              throw new Error('engine search highlight pixel bounds do not match the cell grid');
-            }
-            const sourceBounds = canvas.getBoundingClientRect();
-            const highlightBounds = highlight.getBoundingClientRect();
-            if (Math.abs(sourceBounds.left - highlightBounds.left) > 1 ||
-                Math.abs(sourceBounds.top - highlightBounds.top) > 1 ||
-                highlight.width !== canvas.width || highlight.height !== canvas.height) {
-              throw new Error('engine search highlight surface does not align with its canvas');
-            }
-            return { canvas: highlight, top, left, right, bottom };
-          };
+          const readHighlight = ${terminalSearchHighlightReader(MATCH.length)};
           const selection = document.getSelection()?.toString() || '';
           const openPointerMenu = () => {
             canvas.dispatchEvent(new MouseEvent('contextmenu', {
@@ -178,7 +148,7 @@ export async function verifyTerminalSearch(
                           input.dispatchEvent(new Event('input', { bubbles: true }));
                           poll(
                             () => search.querySelector('.terminal-search-status')
-                              ?.textContent?.trim() === '1 of 3' && readHighlight(),
+                              ?.textContent?.trim() === '1 of 3' && readHighlight(engine),
                             'terminal search did not publish three exact matches',
                             (firstHighlight) => {
                               const next = search.querySelector(
@@ -194,7 +164,7 @@ export async function verifyTerminalSearch(
                               next.click();
                               poll(
                                 () => search.querySelector('.terminal-search-status')
-                                  ?.textContent?.trim() === '2 of 3' && readHighlight(),
+                                  ?.textContent?.trim() === '2 of 3' && readHighlight(engine),
                                 'terminal search next navigation failed',
                                 (nextHighlight) => {
                                   if (nextHighlight.canvas === firstHighlight.canvas || firstHighlight.canvas.isConnected)
@@ -202,7 +172,7 @@ export async function verifyTerminalSearch(
                                   previous.click();
                                   poll(
                                     () => search.querySelector('.terminal-search-status')
-                                      ?.textContent?.trim() === '1 of 3' && readHighlight(),
+                                      ?.textContent?.trim() === '1 of 3' && readHighlight(engine),
                                     'terminal search previous navigation failed',
                                     (previousHighlight) => {
                                       if (previousHighlight.top !== firstHighlight.top ||
