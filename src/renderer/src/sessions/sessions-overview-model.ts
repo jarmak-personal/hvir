@@ -2,6 +2,7 @@ import type {
   SessionsFact,
   SessionsProjectionRow,
   SessionsTerminalHandle,
+  SessionsWorkspaceProjection,
 } from '../../../shared'
 
 export type SessionsOverviewFilter =
@@ -17,6 +18,7 @@ export interface SessionsOverviewPolicy {
 
 export interface SessionsOverviewGroupModel {
   readonly key: string
+  readonly project?: SessionsWorkspaceProjection
   readonly label?: string
   readonly rows: readonly SessionsProjectionRow[]
 }
@@ -189,6 +191,7 @@ function sentenceCase(value: string): string {
 export function sessionsOverviewGroups(
   rows: readonly SessionsProjectionRow[],
   policy: SessionsOverviewPolicy,
+  workspaces: readonly SessionsWorkspaceProjection[] = [],
 ): readonly SessionsOverviewGroupModel[] {
   const ordered = rows
     .filter((row) => sessionsOverviewMatchesFilter(row, policy.filter))
@@ -207,6 +210,16 @@ export function sessionsOverviewGroups(
       label: row.project.name,
       rows: [row],
     })
+  }
+  for (const workspace of workspaces) {
+    const key = `project:${workspace.projectId}`
+    const existing = groups.get(key)
+    groups.set(
+      key,
+      existing
+        ? { ...existing, project: workspace }
+        : { key, label: workspace.projectName, project: workspace, rows: [] },
+    )
   }
   return [...groups.values()].map((group) =>
     policy.group === 'workspace'
@@ -250,7 +263,9 @@ export function sessionsOverviewPage(
   const visibleHandles = new Set(allRows.slice(start, end).map((row) => row.handle))
   const visibleGroups = groups.flatMap((group) => {
     const rows = group.rows.filter((row) => visibleHandles.has(row.handle))
-    return rows.length > 0 ? [{ ...group, rows }] : []
+    return rows.length > 0 || (group.rows.length === 0 && pageIndex === 0)
+      ? [{ ...group, rows }]
+      : []
   })
   return {
     pageIndex,

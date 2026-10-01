@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { TerminalRail } from '../src/renderer/src/terminal/TerminalRail'
+import { SessionsLaunchDialog } from '../src/renderer/src/sessions/SessionsLaunchDialog'
 import { sessionsProjectionFixture } from './sessions-projection-fixture'
 import {
   asHarnessProfileId,
@@ -30,6 +31,54 @@ afterEach(() => {
 })
 
 describe('harness launch-menu view', () => {
+  it('keeps Sessions profiles launchable and uses the same advisory labels', () => {
+    const provider = launchProvider()
+    const profiles = ['unchecked', 'available', 'stale', 'failed'].map((id) =>
+      launchProfile(provider, id, `${id} profile`),
+    )
+    const onStart = vi.fn<(profile: HarnessProfile) => void>()
+    act(() =>
+      root.render(
+        <SessionsLaunchDialog
+          projectName="Repo"
+          busy={false}
+          onStart={onStart}
+          onRefresh={vi.fn()}
+          onCancel={vi.fn()}
+          choices={{
+            profiles,
+            providers: [provider],
+            probes: profiles.slice(1).map((profile) => ({
+              providerId: profile.providerId,
+              profileId: profile.id,
+              launchRevision: profile.launchRevision,
+              hostId: localPath('/repo').hostId,
+              status: profile.id === 'failed' ? 'timeout' : 'available',
+              checkedAt: 1,
+              expiresAt: profile.id === 'stale' ? 2 : Date.now() + 60_000,
+              version: '1.2.3',
+              capabilities: provider.capabilities,
+            })),
+            start: vi.fn(),
+            refresh: vi.fn(),
+          }}
+        />,
+      ),
+    )
+    const buttons = [
+      ...host.querySelectorAll<HTMLButtonElement>('.sessions-launch-choices button'),
+    ]
+    expect(buttons.map((button) => button.disabled)).toEqual([false, false, false, false])
+    expect(buttons.map((button) => button.textContent)).toEqual([
+      expect.stringContaining('Unchecked'),
+      expect.stringContaining('Available · 1.2.3'),
+      expect.stringContaining('Stale · 1.2.3'),
+      expect.stringContaining('Failed · Probe timed out'),
+    ])
+    act(() => buttons.forEach((button) => button.click()))
+    expect(onStart.mock.calls.map(([profile]) => profile)).toEqual(profiles)
+  })
+
   it('shows every advisory state without blocking a failed profile', () => {
     const provider = launchProvider()
     const profiles = [

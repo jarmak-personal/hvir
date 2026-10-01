@@ -109,6 +109,25 @@ describe('useTerminalWorkspaceRuntime', () => {
     document.body.replaceChildren()
   })
 
+  it('offers only other open, present workspaces as move targets', () => {
+    const source = projectState.projects[0]!.workspaces[0]!
+    const project = {
+      ...projectState.projects[0]!,
+      workspaces: [
+        source,
+        { ...source, id: 'target', root: localPath('/repo-target') },
+        { ...source, id: 'closed', closed: true },
+        { ...source, id: 'missing', missing: true },
+      ],
+    }
+    act(() =>
+      reactRoot.render(<Harness state={{ ...projectState, projects: [project] }} />),
+    )
+    expect(
+      current.moveProps(project, source).moveTargets.map((workspace) => workspace.id),
+    ).toEqual(['target'])
+  })
+
   it('keeps its window-scoped terminal owner live through StrictMode effect replay', async () => {
     act(() =>
       reactRoot.render(
@@ -159,9 +178,9 @@ describe('useTerminalWorkspaceRuntime', () => {
   })
 })
 
-function Harness(): null {
+function Harness({ state = projectState }: { readonly state?: ProjectState }): null {
   current = useTerminalWorkspaceRuntime({
-    projectState,
+    projectState: state,
     acceptProjectState: vi.fn(),
     forgetWebViews: vi.fn(),
     acknowledgeWorkspaces: vi.fn(() => Promise.resolve()),

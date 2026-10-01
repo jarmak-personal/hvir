@@ -1,5 +1,9 @@
 import { useCallback, useRef, type CSSProperties, type ReactElement } from 'react'
 
+import type { SessionsProjectionRow, SessionsProjectionSnapshot } from '../../../shared'
+import type { SessionsCommandPort } from './sessions-command-port'
+import { useSessionsMove } from './use-sessions-move'
+import { TerminalMoveDialog } from '../terminal/TerminalMoveDialog'
 import { useModalKeyboard } from '../workbench/use-modal-keyboard'
 import type {
   SessionsTerminalDetailController,
@@ -8,11 +12,19 @@ import type {
 
 export function SessionsTerminalDetail({
   controller,
+  commands,
+  row,
+  snapshot,
+  foreground,
   state,
   origin,
   onBack,
   onOpenWorkspace,
 }: {
+  readonly commands?: SessionsCommandPort
+  readonly row?: SessionsProjectionRow
+  readonly snapshot: SessionsProjectionSnapshot
+  readonly foreground: boolean
   readonly controller: SessionsTerminalDetailController
   readonly state: Exclude<SessionsTerminalDetailState, { readonly status: 'inactive' }>
   readonly origin?: {
@@ -25,7 +37,8 @@ export function SessionsTerminalDetail({
   readonly onOpenWorkspace: () => void
 }): ReactElement {
   const dialog = useRef<HTMLElement>(null)
-  useModalKeyboard(dialog, onBack)
+  const moving = useSessionsMove(commands, row, snapshot, foreground)
+  useModalKeyboard(dialog, onBack, true, !moving.pending && !moving.targets)
   const setContainer = useCallback(
     (container: HTMLDivElement | null) => controller.setContainer(container ?? undefined),
     [controller],
@@ -46,7 +59,9 @@ export function SessionsTerminalDetail({
         className="sessions-terminal-detail"
         role="dialog"
         tabIndex={-1}
-        aria-modal="true"
+        aria-modal={moving.pending ? undefined : true}
+        aria-hidden={moving.pending ? true : undefined}
+        inert={moving.pending ? true : undefined}
         aria-labelledby="sessions-detail-title"
       >
         <header className="sessions-detail-header">
@@ -59,6 +74,34 @@ export function SessionsTerminalDetail({
             </p>
           </div>
           <div className="sessions-detail-actions">
+            {commands && row?.lifecycle === 'live' ? (
+              <div className="sessions-change-workspace">
+                <button
+                  type="button"
+                  disabled={!foreground || !ready || moving.busy}
+                  onClick={moving.open}
+                >
+                  Change workspace
+                </button>
+                {moving.targets ? (
+                  <div className="terminal-move-menu" role="menu">
+                    {moving.targets.map((target) => (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        key={target.id}
+                        onClick={() => moving.plan(target.id)}
+                      >
+                        {target.name}
+                      </button>
+                    ))}
+                    <button type="button" role="menuitem" onClick={moving.cancel}>
+                      Cancel
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             <button type="button" autoFocus onClick={onBack}>
               Close
             </button>
@@ -67,6 +110,7 @@ export function SessionsTerminalDetail({
             </button>
           </div>
         </header>
+        {moving.feedback ? <p role="status">{moving.feedback}</p> : null}
         <p className="sessions-detail-status" role="status">
           {state.message ??
             (state.status === 'resolving' ? 'Attaching the exact live terminal…' : '')}
@@ -86,6 +130,14 @@ export function SessionsTerminalDetail({
           ) : null}
         </section>
       </section>
+      {moving.pending ? (
+        <TerminalMoveDialog
+          plan={moving.pending.plan}
+          actionLabel="Change workspace"
+          onCancel={moving.cancel}
+          onMove={moving.confirm}
+        />
+      ) : null}
     </div>
   )
 }

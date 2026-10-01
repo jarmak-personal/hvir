@@ -5,9 +5,11 @@ import { ConfirmationDialog } from '../workbench/ConfirmationDialog'
 
 export function TerminalMoveDialog({
   plan,
+  actionLabel = 'Move terminal here and open',
   onCancel,
   onMove,
 }: {
+  readonly actionLabel?: string
   readonly plan: TerminalMovePlan
   readonly onCancel: () => void
   readonly onMove: () => Promise<void>
@@ -45,7 +47,7 @@ export function TerminalMoveDialog({
       actions={[
         { label: 'Cancel', kind: 'cancel', onSelect: onCancel },
         {
-          label: 'Move terminal here and open',
+          label: actionLabel,
           kind: 'primary',
           onSelect: move,
         },

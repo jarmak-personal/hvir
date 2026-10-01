@@ -7,20 +7,16 @@ import {
   type WorkspaceState,
 } from '../../../shared'
 import type {
-  TerminalSession,
   TerminalWorkspaceAction,
   TerminalWorkspaceModel,
 } from './terminal-workspace-model'
 
-export interface TerminalWorkspaceController {
-  readonly hasSession: (id: string) => boolean
-  readonly selectSession: (id: string) => boolean
-  readonly transferOut: (id: string) => TerminalSession | undefined
-  readonly transferIn: (session: TerminalSession) => void
-}
+import type { TerminalWorkspaceController } from './terminal-workspace-command-port'
+export type { TerminalWorkspaceController } from './terminal-workspace-command-port'
 
 export function useTerminalWorkspaceMove({
   workspaceId,
+  launchSession,
   modelRef,
   send,
   forgetAttention,
@@ -32,6 +28,7 @@ export function useTerminalWorkspaceMove({
   acknowledgeTargets,
   onError,
 }: {
+  readonly launchSession?: TerminalWorkspaceController['launchSession']
   readonly workspaceId: string
   readonly modelRef: RefObject<TerminalWorkspaceModel>
   readonly send: (action: TerminalWorkspaceAction) => void
@@ -58,6 +55,7 @@ export function useTerminalWorkspaceMove({
 
   useEffect(() => {
     const controller: TerminalWorkspaceController = {
+      launchSession,
       hasSession: (id) => modelRef.current.sessions.some((session) => session.id === id),
       selectSession: (id) => {
         if (!modelRef.current.sessions.some((session) => session.id === id)) return false
@@ -79,7 +77,7 @@ export function useTerminalWorkspaceMove({
     }
     registerController(workspaceId, controller)
     return () => registerController(workspaceId, undefined)
-  }, [forgetAttention, modelRef, registerController, send, workspaceId])
+  }, [forgetAttention, launchSession, modelRef, registerController, send, workspaceId])
 
   useEffect(() => {
     if (!menuOpen) return

@@ -62,3 +62,44 @@ export function compactHarnessCapabilityLabel(
   }
   return 'Launch only'
 }
+
+function probeLabel(probe: HarnessProfileProbe | undefined): string {
+  if (!probe) return 'Unchecked'
+  switch (probe.status) {
+    case 'available':
+      return probe.version ?? 'Available'
+    case 'executable-missing':
+      return 'Executable missing'
+    case 'version-unsupported':
+      return 'Version incompatible'
+    case 'capability-absent':
+      return 'Capability unavailable'
+    case 'authentication-required':
+      return 'Authentication needed'
+    case 'disconnected':
+      return 'Host disconnected'
+    case 'timeout':
+      return 'Probe timed out'
+    case 'malformed-output':
+      return 'Version unknown'
+    case 'probe-failed':
+      return 'Probe failed'
+    case 'unchecked':
+      return 'Unchecked'
+  }
+}
+
+export function launchAvailabilityLabel(state: HarnessLaunchMenuState): string {
+  switch (state.availability) {
+    case 'unchecked':
+      return 'Unchecked'
+    case 'checking':
+      return 'Checking…'
+    case 'available':
+      return state.probe?.version ? `Available · ${state.probe.version}` : 'Available'
+    case 'stale':
+      return `Stale · ${probeLabel(state.probe)}`
+    case 'failed':
+      return `Failed · ${probeLabel(state.probe)}`
+  }
+}

@@ -22,6 +22,10 @@ import { SessionDetailsPopover } from '../harness/SessionDetailsPopover'
 import { sessionDetailsModel } from '../harness/session-details-model'
 import { useSessionDetailsPopover } from '../harness/use-session-details-popover'
 import { useSessionsDetailsUsage } from '../harness/use-session-details-usage'
+import type { SessionsCommandPort } from './sessions-command-port'
+import { SessionsProjectLaunchers } from './SessionsProjectLaunchers'
+import { SessionsLaunchDialog } from './SessionsLaunchDialog'
+import { useSessionsLaunch } from './use-sessions-launch'
 import { SessionsOverviewCard } from './SessionsOverviewCard'
 import { SessionsOverviewNotice } from './SessionsOverviewNotice'
 import { SessionsCollectionToolbar } from './SessionsCollectionToolbar'
@@ -48,6 +52,7 @@ import {
 } from './sessions-overview-model'
 
 interface SessionsOverviewProps {
+  readonly commands?: SessionsCommandPort
   readonly projection: SessionsProjectionCoordinator
   readonly surface: SessionsTerminalSurfacePort
   readonly onOpened: (state: ProjectState) => void
@@ -60,6 +65,7 @@ interface SessionsOverviewProps {
 }
 
 export function SessionsOverview({
+  commands,
   projection,
   surface,
   onOpened,
@@ -78,6 +84,26 @@ export function SessionsOverview({
     snapshot,
     foreground,
   })
+  const [startedHandle, setStartedHandle] = useState<SessionsTerminalHandle>()
+  const launch = useSessionsLaunch(commands, snapshot, foreground, setStartedHandle)
+  useEffect(() => {
+    if (!foreground) {
+      setStartedHandle(undefined)
+      return
+    }
+    if (!startedHandle) return
+    const row = snapshot.rows.find((candidate) => candidate.handle === startedHandle)
+    if (!row) return
+    if (row.lifecycle === 'live') {
+      detail.open(row, snapshot, foreground)
+      setStartedHandle(undefined)
+    } else if (row.lifecycle === 'stopped' || row.lifecycle === 'unavailable') {
+      setFeedback(
+        'The new session could not be started. Check its workspace for details.',
+      )
+      setStartedHandle(undefined)
+    }
+  }, [detail, foreground, snapshot, startedHandle])
   const [policy, setPolicy] = useState<SessionsOverviewPolicy>(
     DEFAULT_SESSIONS_OVERVIEW_POLICY,
   )
@@ -119,8 +145,9 @@ export function SessionsOverview({
   )
 
   const allGroups = useMemo(
-    () => sessionsOverviewGroups(snapshot.rows, policy),
-    [policy, snapshot.rows],
+    () =>
+      sessionsOverviewGroups(snapshot.rows, policy, commands ? snapshot.workspaces : []),
+    [commands, policy, snapshot.rows, snapshot.workspaces],
   )
   const rows = useMemo(() => sessionsOverviewRows(allGroups), [allGroups])
   const handles = useMemo(() => rows.map((row) => row.handle), [rows])
@@ -293,6 +320,33 @@ export function SessionsOverview({
       dismissDetails(false)
     }
   }, [details.request, detailsRow, dismissDetails, snapshot.status])
+  const emptyNotice = (
+    <SessionsOverviewNotice
+      title={snapshot.rows.length === 0 ? 'No hvir sessions' : 'No sessions match'}
+      detail={
+        snapshot.rows.length === 0
+          ? commands
+            ? 'Start a session from a project header.'
+            : 'Start a terminal from a workspace to see it here.'
+          : policyLabel
+      }
+      action={
+        snapshot.rows.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => {
+              setPolicy(DEFAULT_SESSIONS_OVERVIEW_POLICY)
+              setSelected(undefined)
+              setPageIndex(0)
+              setFeedback(undefined)
+            }}
+          >
+            Reset filters
+          </button>
+        ) : undefined
+      }
+    />
+  )
   return (
     <>
       <main
@@ -308,6 +362,12 @@ export function SessionsOverview({
           onGroup={(value) => updatePolicy('group', value)}
           onSort={(value) => updatePolicy('sort', value)}
         />
+        {commands && policy.group === 'none' && snapshot.status === 'available' ? (
+          <SessionsProjectLaunchers
+            workspaces={snapshot.workspaces}
+            onNew={launch.open}
+          />
+        ) : null}
         {feedback ? (
           <p className="sessions-feedback" role="status">
             {feedback}
@@ -333,34 +393,18 @@ export function SessionsOverview({
               </button>
             }
           />
-        ) : snapshot.status === 'available' && snapshot.rows.length === 0 ? (
-          <SessionsOverviewNotice
-            title="No hvir sessions"
-            detail="Start a terminal from a workspace to see it here."
-          />
-        ) : snapshot.status === 'available' && rows.length === 0 ? (
-          <SessionsOverviewNotice
-            title="No sessions match"
-            detail={policyLabel}
-            action={
-              <button
-                type="button"
-                onClick={() => {
-                  setPolicy(DEFAULT_SESSIONS_OVERVIEW_POLICY)
-                  setSelected(undefined)
-                  setPageIndex(0)
-                  setFeedback(undefined)
-                }}
-              >
-                Reset filters
-              </button>
-            }
-          />
+        ) : snapshot.status === 'available' &&
+          rows.length === 0 &&
+          allGroups.length === 0 ? (
+          emptyNotice
         ) : (
           <>
+            {rows.length === 0 ? emptyNotice : null}
             <nav className="sessions-pagination" aria-label="Sessions pages">
               <p aria-live="polite">
-                Showing {page.start + 1}–{page.end} of {page.totalRows} sessions
+                {page.totalRows === 0
+                  ? '0 sessions'
+                  : `Showing ${page.start + 1}–${page.end} of ${page.totalRows} sessions`}
               </p>
               {page.pageCount > 1 ? (
                 <div>
@@ -404,13 +448,27 @@ export function SessionsOverview({
                           {group.rows.length}{' '}
                           {group.rows.length === 1 ? 'session' : 'sessions'}
                         </span>
-                        {group.rows[0]?.host.kind === 'ssh' ? (
+                        {(group.project?.host.kind ?? group.rows[0]?.host.kind) ===
+                        'ssh' ? (
                           <span
                             className="sessions-project-host"
-                            title={group.rows[0].host.label}
+                            title={group.project?.host.label ?? group.rows[0]?.host.label}
                           >
                             SSH
                           </span>
+                        ) : null}
+                        {commands && group.project ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              launch.open(
+                                group.project!.projectId,
+                                group.project!.projectName,
+                              )
+                            }
+                          >
+                            New session
+                          </button>
                         ) : null}
                       </header>
                     ) : null}
@@ -506,6 +564,10 @@ export function SessionsOverview({
       </main>
       {detailState.status !== 'inactive' ? (
         <SessionsTerminalDetail
+          commands={commands}
+          row={snapshot.rows.find((row) => row.handle === detail.selectedHandle())}
+          snapshot={snapshot}
+          foreground={foreground}
           controller={detail}
           state={detailState}
           origin={detailOrigin.current}
@@ -515,6 +577,17 @@ export function SessionsOverview({
             detailOrigin.current = undefined
           }}
           onOpenWorkspace={openDetailWorkspace}
+        />
+      ) : null}
+      {launch.menu ? (
+        <SessionsLaunchDialog
+          projectName={launch.menu.projectName}
+          choices={launch.menu.choices}
+          busy={launch.busy}
+          feedback={launch.feedback}
+          onStart={launch.start}
+          onRefresh={launch.refresh}
+          onCancel={launch.cancel}
         />
       ) : null}
       <SessionDetailsPopover

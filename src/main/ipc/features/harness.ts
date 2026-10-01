@@ -22,7 +22,8 @@ export function registerHarnessIpc(ipc: IpcRegistrar, deps: HarnessIpcDeps): voi
   ipc.handle('harness:probe-snapshot', (req) => {
     const workspaceRoot = ipc.authority.workspaceRoot(req.root)
     const projectRoot = ipc.authority.projectRoot(workspaceRoot)
-    const { host } = deps.getProject()
+    const host = deps.getHost(workspaceRoot.hostId)
+    if (!host) throw new Error('Harness launch host is unavailable')
     return deps.harnessProbes.snapshotProfiles({
       host,
       projectRoot,
@@ -33,7 +34,8 @@ export function registerHarnessIpc(ipc: IpcRegistrar, deps: HarnessIpcDeps): voi
   ipc.handle('harness:probe-profiles', async (req) => {
     const root = ipc.authority.workspaceRoot(req.root)
     const projectRoot = ipc.authority.projectRoot(root)
-    const { host } = deps.getProject()
+    const host = deps.getHost(root.hostId)
+    if (!host) throw new Error('Harness launch host is unavailable')
     const requested = new Set(req.profileIds ?? [])
     if (requested.size > 200) throw new Error('Too many harness profiles to probe')
     const profiles = deps.harnessProfiles
@@ -51,7 +53,8 @@ export function registerHarnessIpc(ipc: IpcRegistrar, deps: HarnessIpcDeps): voi
   ipc.handle('harness:probe-templates', async (req) => {
     const root = ipc.authority.workspaceRoot(req.root)
     const projectRoot = ipc.authority.projectRoot(root)
-    const { host } = deps.getProject()
+    const host = deps.getHost(root.hostId)
+    if (!host) throw new Error('Harness launch host is unavailable')
     const requested = new Set(req.providerIds ?? [])
     if (requested.size > 200) throw new Error('Too many harness templates to probe')
     const profiles = providerTemplateProfiles().filter(

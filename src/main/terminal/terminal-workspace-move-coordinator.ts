@@ -33,6 +33,7 @@ export interface TerminalMoveWorkspacePort {
 export interface TerminalMovePtyPort {
   get(id: string):
     | {
+        readonly instanceId?: string
         readonly ownerId: number
         readonly ownerGeneration: number
         readonly workspaceRoot: HostPath
@@ -108,6 +109,8 @@ export class TerminalWorkspaceMoveCoordinator {
     const live = this.options.ptys.get(request.terminalId)
     if (
       !live ||
+      (request.expectedInstanceId !== undefined &&
+        live.instanceId !== request.expectedInstanceId) ||
       live.ownerId !== owner.id ||
       live.ownerGeneration !== owner.generation ||
       !hostPathEquals(live.workspaceRoot, source.root)
@@ -163,6 +166,7 @@ export class TerminalWorkspaceMoveCoordinator {
           targetRoot: plan.targetRoot,
         })
         try {
+          this.assertExpectedInstance(request)
           for (const paneId of plan.webPaneIds) {
             await this.options.resources.disposeResource(owner, 'web-pane', paneId)
           }
@@ -183,6 +187,7 @@ export class TerminalWorkspaceMoveCoordinator {
         let ptyMoved = false
         let resourceMoved = false
         try {
+          this.assertExpectedInstance(request)
           this.options.ptys.reassignWorkspace(
             plan.terminalId,
             owner.id,
@@ -241,6 +246,17 @@ export class TerminalWorkspaceMoveCoordinator {
         releaseWebPaneBlock()
       }
     })
+  }
+
+  private assertExpectedInstance(request: PlanTerminalMoveRequest): void {
+    if (
+      request.expectedInstanceId !== undefined &&
+      this.options.ptys.get(request.terminalId)?.instanceId !== request.expectedInstanceId
+    ) {
+      throw new Error(
+        'The live terminal changed while its workspace move was being prepared',
+      )
+    }
   }
 
   private resolveWorkspaces(request: PlanTerminalMoveRequest) {

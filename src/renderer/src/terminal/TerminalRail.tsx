@@ -4,7 +4,6 @@ import {
   sessionsCompactionFact,
   type HostConnectionState,
   type HarnessProfile,
-  type HarnessProfileProbe,
   type HarnessProviderDescriptor,
   type HarnessProviderId,
   type WorkspaceState,
@@ -19,6 +18,7 @@ import { useSessionsForeground } from '../sessions/use-sessions-foreground'
 import { terminalAttentionBadgeText, terminalAttentionLabel } from './terminal-attention'
 import {
   compactHarnessCapabilityLabel,
+  launchAvailabilityLabel,
   type HarnessLaunchMenuState,
 } from './harness-launch-menu'
 import { TerminalContextMeter } from './TerminalContextMeter'
@@ -439,32 +439,6 @@ function identityLabel(status: TerminalSession['identityStatus']): string {
   return ''
 }
 
-function probeLabel(probe: HarnessProfileProbe | undefined): string {
-  if (!probe) return 'Unchecked'
-  switch (probe.status) {
-    case 'available':
-      return probe.version ?? 'Available'
-    case 'executable-missing':
-      return 'Executable missing'
-    case 'version-unsupported':
-      return 'Version incompatible'
-    case 'capability-absent':
-      return 'Capability unavailable'
-    case 'authentication-required':
-      return 'Authentication needed'
-    case 'disconnected':
-      return 'Host disconnected'
-    case 'timeout':
-      return 'Probe timed out'
-    case 'malformed-output':
-      return 'Version unknown'
-    case 'probe-failed':
-      return 'Probe failed'
-    case 'unchecked':
-      return 'Unchecked'
-  }
-}
-
 function launchMenuDescription(
   profile: HarnessProfile,
   provider: HarnessProviderDescriptor | undefined,
@@ -483,19 +457,4 @@ function launchMenuDescription(
   ]
     .filter((value): value is string => Boolean(value))
     .join(' · ')
-}
-
-function launchAvailabilityLabel(state: HarnessLaunchMenuState): string {
-  switch (state.availability) {
-    case 'unchecked':
-      return 'Unchecked'
-    case 'checking':
-      return 'Checking…'
-    case 'available':
-      return state.probe?.version ? `Available · ${state.probe.version}` : 'Available'
-    case 'stale':
-      return `Stale · ${probeLabel(state.probe)}`
-    case 'failed':
-      return `Failed · ${probeLabel(state.probe)}`
-  }
 }

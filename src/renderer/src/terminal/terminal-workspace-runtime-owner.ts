@@ -1,5 +1,5 @@
 import { TerminalRuntimeRegistry } from './terminal-runtime-registry'
-import type { TerminalWorkspaceController } from './use-terminal-workspace-move'
+import type { TerminalWorkspaceController } from './terminal-workspace-command-port'
 import type { SessionsRendererSession } from '../sessions/sessions-renderer-observation'
 import type {
   SessionsTerminalSurfacePort,
@@ -12,6 +12,7 @@ import type {
 } from '../../../shared'
 
 interface ControllerWaiter {
+  readonly forLaunch: boolean
   readonly resolve: () => void
   readonly reject: (reason: Error) => void
 }
@@ -167,25 +168,58 @@ export class TerminalWorkspaceRuntimeOwner {
     this.controllers.set(workspaceId, controller)
     const waiters = this.controllerWaiters.get(workspaceId)
     if (!waiters) return
-    this.controllerWaiters.delete(workspaceId)
-    for (const waiter of waiters) waiter.resolve()
+    for (const waiter of waiters) {
+      if (waiter.forLaunch && !controller.launchSession) continue
+      waiters.delete(waiter)
+      waiter.resolve()
+    }
+    if (waiters.size === 0) this.controllerWaiters.delete(workspaceId)
   }
 
   controller(workspaceId: string): TerminalWorkspaceController | undefined {
     return this.controllers.get(workspaceId)
   }
 
-  prepareTransferTarget(workspaceId: string): Promise<void> {
+  prepareTransferTarget(
+    workspaceId: string,
+    forLaunch = false,
+    signal?: AbortSignal,
+  ): Promise<void> {
     if (this.disposed) {
       return Promise.reject(new Error('Terminal workspace runtime owner is disposed'))
     }
+    const cancellationReason = (): Error =>
+      signal?.reason instanceof Error
+        ? signal.reason
+        : new Error('Terminal workspace request was cancelled')
+    if (signal?.aborted) return Promise.reject(cancellationReason())
     this.transferWorkspaceIds.add(workspaceId)
     this.publishMaterialized()
-    if (this.controllers.has(workspaceId)) return Promise.resolve()
+    const controller = this.controllers.get(workspaceId)
+    if (controller && (!forLaunch || controller.launchSession)) return Promise.resolve()
     return new Promise<void>((resolve, reject) => {
       const waiters = this.controllerWaiters.get(workspaceId) ?? new Set()
-      waiters.add({ resolve, reject })
+      const cleanup = (): void => signal?.removeEventListener('abort', abort)
+      const waiter: ControllerWaiter = {
+        forLaunch,
+        resolve: () => {
+          cleanup()
+          resolve()
+        },
+        reject: (reason) => {
+          cleanup()
+          reject(reason)
+        },
+      }
+      const abort = (): void => {
+        waiters.delete(waiter)
+        if (waiters.size === 0) this.controllerWaiters.delete(workspaceId)
+        cleanup()
+        reject(cancellationReason())
+      }
+      waiters.add(waiter)
       this.controllerWaiters.set(workspaceId, waiters)
+      signal?.addEventListener('abort', abort, { once: true })
     })
   }
 
