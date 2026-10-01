@@ -272,7 +272,7 @@ describe('ghostty demand render scheduler contract', () => {
     Object.assign(terminal, {
       addons: [],
       cleanupComponents: vi.fn(),
-      dataEmitter: disposable,
+      dataChannel: disposable,
       resizeEmitter: disposable,
       bellEmitter: disposable,
       selectionChangeEmitter: disposable,

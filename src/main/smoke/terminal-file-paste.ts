@@ -6,6 +6,7 @@ import { isLocal, joinHostPath, type HostPath } from '../../shared'
 import { plainShellProvider } from '../harness/harness-provider'
 import type { ManagedPty, PtySupervisor } from '../pty/pty-supervisor'
 import { URI_LIST_FORMAT } from '../terminal/electron-clipboard-file-paste'
+import { terminalProbeSourceDelivery } from './terminal-probe-source'
 
 const INPUT_ID = '__hvir-terminal-file-paste-probe'
 const READY_MARKER = '__HVIR_FILE_PASTE_READY__'
@@ -13,6 +14,7 @@ const SUCCESS_MARKER = '__HVIR_FILE_PASTE_OK__'
 const FAILURE_PREFIX = '__HVIR_FILE_PASTE_FAIL__:'
 const CLOSED_PREFIX = '__HVIR_FILE_PASTE_CLOSED__:'
 const CLOSED_SUCCESS_MARKER = `${CLOSED_PREFIX}0`
+const SHELL_READY_MARKER = '__HVIR_FILE_PASTE_SHELL_READY__'
 
 const FILE_PASTE_PROBE_SOURCE = `
 const expected = Buffer.from(process.argv[2], 'base64');
@@ -90,6 +92,19 @@ export async function verifyTerminalClipboardFilePaste(
   })
 
   try {
+    for (const { command, marker } of terminalProbeSourceDelivery(
+      FILE_PASTE_PROBE_SOURCE,
+      'HVIR_FILE_PASTE_PROBE_B64',
+      '__HVIR_FILE_PASTE_DELIVERY_',
+    )) {
+      supervisor.write(terminal.id, terminal.ownerId, command)
+      await waitForObservation(
+        observation,
+        () => terminalExit,
+        marker,
+        'file-paste source delivery failed',
+      )
+    }
     supervisor.write(
       terminal.id,
       terminal.ownerId,
@@ -117,6 +132,13 @@ export async function verifyTerminalClipboardFilePaste(
       () => terminalExit,
       CLOSED_SUCCESS_MARKER,
       'terminal file-paste probe did not restore its terminal state',
+    )
+
+    await waitForObservation(
+      observation,
+      () => terminalExit,
+      SHELL_READY_MARKER,
+      'file-paste probe did not return input ownership to its shell',
     )
 
     const retained = supervisor.get(terminal.id)
@@ -152,9 +174,8 @@ function requireSolePlainShellTerminal(
 }
 
 function filePasteProbeLaunchCommand(expectedPath: string): string {
-  const source = Buffer.from(FILE_PASTE_PROBE_SOURCE).toString('base64')
   const expected = Buffer.from(expectedPath).toString('base64')
-  return `node -e "eval(Buffer.from(process.argv[1],'base64').toString())" '${source}' '${expected}'\n`
+  return `node -e "eval(Buffer.from(process.argv[1],'base64').toString())" "$HVIR_FILE_PASTE_PROBE_B64" '${expected}'; unset HVIR_FILE_PASTE_PROBE_B64; printf '%s%s\\n' '__HVIR_FILE_PASTE_' 'SHELL_READY__'\n`
 }
 
 async function dispatchNativeLinuxFilePaste(
@@ -316,18 +337,24 @@ async function removeProbeInput(win: BrowserWindow): Promise<void> {
 
 class FilePasteObservation {
   private suffix = ''
+  private readonly markers = new Set<string>()
   failed = false
   hasClosed = false
 
   consume(data: string): void {
     const combined = this.suffix + data
+    for (const marker of combined.match(
+      /__HVIR_FILE_PASTE_(?:DELIVERY_\d+__|READY__|OK__|SHELL_READY__|CLOSED__:\d+)/g,
+    ) ?? []) {
+      this.markers.add(marker)
+    }
     this.failed ||= combined.includes(FAILURE_PREFIX)
     this.hasClosed ||= combined.includes(CLOSED_PREFIX)
     this.suffix = combined.slice(-256)
   }
 
   has(marker: string): boolean {
-    return this.suffix.includes(marker)
+    return this.markers.has(marker)
   }
 }
 
@@ -337,6 +364,7 @@ async function waitForObservation(
   marker: string,
   message: string,
 ): Promise<void> {
+  const deadline = Date.now() + 10_000
   await new Promise<void>((resolve, reject) => {
     const poll = (): void => {
       if (observation.failed) {
@@ -352,6 +380,7 @@ async function waitForObservation(
         resolve()
         return
       }
+      if (Date.now() >= deadline) return reject(new Error(message))
       setTimeout(poll, 25)
     }
     poll()
