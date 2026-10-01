@@ -21,7 +21,9 @@ export async function verifyTerminalEngineGestures(
   for (const mode of [1000, 1002, 1003]) {
     await verifyMouseMode(win, supervisor, terminal, mode)
   }
-  return 'canvas wheel modes 1000/1002/1003 + Shift + context-menu ownership'
+  await verifyMouseMode(win, supervisor, terminal, 'alternate-fallback')
+  await verifyMouseMode(win, supervisor, terminal, 'unsupported-encoding')
+  return 'canvas wheel modes 1000/1002/1003 + Shift + context-menu ownership + pixel page fallback + unsupported encoding'
 }
 
 /** Exercise content-box sizing and Chromium DPR changes with the retained live canvas. */
@@ -72,7 +74,7 @@ async function verifyMouseMode(
   win: BrowserWindow,
   supervisor: PtySupervisor,
   terminal: ManagedPty,
-  mode: number,
+  mode: number | 'alternate-fallback' | 'unsupported-encoding',
 ): Promise<void> {
   let output = ''
   let exited = false
@@ -85,13 +87,21 @@ async function verifyMouseMode(
     },
   })
   const prefix = `__HVIR_MOUSE_${mode}__`
+  const resetModes = '\\x1b[?1000l\\x1b[?1002l\\x1b[?1003l\\x1b[?1006l'
+  const setupModes =
+    mode === 'alternate-fallback'
+      ? '\\x1b[?1049h'
+      : mode === 'unsupported-encoding'
+        ? '\\x1b[?1000h'
+        : `\\x1b[?${mode}h\\x1b[?1006h`
+  const cleanupModes = resetModes + (mode === 'alternate-fallback' ? '\\x1b[?1049l' : '')
   // The status query round-trip proves that the renderer parsed the modes before gestures.
   const source = `
     process.stdin.setRawMode(true); process.stdin.resume();
     let queried = false, input = Buffer.alloc(0);
-    const abort = () => { process.stdin.setRawMode(false); process.stdout.write('\\x1b[?${mode}l\\x1b[?1006l'); process.exit(2); };
+    const abort = () => { process.stdin.setRawMode(false); process.stdout.write('${cleanupModes}'); process.exit(2); };
     const timeout = setTimeout(abort, 10000);
-    process.stdout.write('\\x1b[2J\\x1b[Hhello local selection\\r\\n\\x1b[?${mode}h\\x1b[?1006h\\x1b[5n');
+    process.stdout.write('${resetModes}${setupModes}\\x1b[2J\\x1b[Hhello local selection\\r\\n\\x1b[5n');
     process.stdin.on('data', data => {
       if (data.includes(3)) return abort();
       input = Buffer.concat([input, data]);
@@ -104,7 +114,7 @@ async function verifyMouseMode(
       if (input.at(-1) !== 122) return;
       const hex = input.subarray(0, -1).toString('hex');
       clearTimeout(timeout); process.stdin.setRawMode(false);
-      process.stdout.write('\\x1b[?${mode}l\\x1b[?1006l${prefix}INPUT:' + hex + '\\r\\n', () => process.exit(0));
+      process.stdout.write('${cleanupModes}${prefix}INPUT:' + hex + '\\r\\n', () => process.exit(0));
     });
   `
   try {
@@ -145,6 +155,22 @@ async function verifyMouseMode(
         bubbles: true, cancelable: true, button: 0,
         clientX: rect.left + 1, clientY: rect.top + 1, ...extra,
       }));
+      const finish = () => textarea.dispatchEvent(new KeyboardEvent('keydown', {
+        bubbles: true, code: 'KeyZ', key: 'z',
+      }));
+      if (${JSON.stringify(mode)} === 'alternate-fallback') {
+        const pixel = units => wheel(units * stats.cellHeight, { deltaMode: 0 });
+        pixel(0.5); pixel(0.5); pixel(2); // Retain fractional pixels through one step.
+        pixel(100); // One PageDown, discard capped overflow.
+        pixel(1); pixel(-1); pixel(-1); pixel(-1); // Direction change resets the remainder.
+        finish();
+        return '\\x1b[6~\\x1b[6~\\x1b[5~';
+      }
+      if (${JSON.stringify(mode)} === 'unsupported-encoding') {
+        wheel(3); wheel(1000, { deltaMode: 0 });
+        finish();
+        return '';
+      }
       mouse('mousedown', { buttons: 1, shiftKey: true });
       mouse('mousemove', { buttons: 1, shiftKey: true, clientX: rect.left + 8 * stats.cellWidth });
       mouse('mouseup', { shiftKey: true, clientX: rect.left + 8 * stats.cellWidth });
@@ -156,7 +182,7 @@ async function verifyMouseMode(
       wheel(10000, { shiftKey: true }); // Restore the viewport after the local-scroll proof.
       canvas.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 2 }));
       canvas.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 2 }));
-      textarea.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, code: 'KeyZ', key: 'z' }));
+      finish();
       return '\\x1b[<0;1;1M\\x1b[<0;1;1m\\x1b[<65;1;1M' + ('\\x1b[<89;' + stats.cols + ';1M').repeat(5);
     })()`)) as string
     await waitFor(
