@@ -83,7 +83,15 @@ export const GHOSTTY_TERMINAL_CAPABILITY_PROFILE = {
       'cancelRetainedBufferExtraction',
       'captureRetainedBufferBoundary',
       'getScrollbackByteLimit',
+      'revealRetainedBufferRange',
+      'highlightRetainedBufferRange',
     ],
+  },
+  dataProvenance: {
+    owner: 'ghostty-web-input-and-response-producers',
+    terminalMethods: ['onDataWithSource'],
+    sources: ['user', 'terminal-response'],
+    legacyOnDataCompatible: true,
   },
   palette: {
     baseOwner: 'hvir-terminal-presentation',

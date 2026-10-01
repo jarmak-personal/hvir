@@ -22,7 +22,7 @@ export const ghosttyState = {
     readonly wheelScroll: WheelScrollOptions | undefined
     cursorBlinkResets: number
     focusCalls: number
-    emitData(data: string): void
+    emitData(data: string, source?: 'user' | 'terminal-response'): void
     emitTerminalEvent(event: GhosttyTerminalEvent): void
     emitCustomKey(event: {
       readonly code: string
@@ -170,8 +170,10 @@ class MockTerminal {
     throw new Error('wheel routing belongs to the engine')
   }
 
-  onData(callback: (data: string) => void): { dispose(): void } {
-    this.state.emitData = callback
+  onDataWithSource(
+    callback: (event: { data: string; source: 'user' | 'terminal-response' }) => void,
+  ): { dispose(): void } {
+    this.state.emitData = (data, source = 'user') => callback({ data, source })
     return {
       dispose: () => {
         this.state.emitData = () => undefined
@@ -292,7 +294,7 @@ class MockTerminal {
 
   write(data: string): void {
     this.state.writes.push(data)
-    if (data.includes('\x1b[6n')) this.state.emitData('\x1b[1;1R')
+    if (data.includes('\x1b[6n')) this.state.emitData('\x1b[1;1R', 'terminal-response')
   }
 
   resize(cols: number, rows: number): void {

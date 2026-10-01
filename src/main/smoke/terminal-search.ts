@@ -59,9 +59,13 @@ export async function verifyTerminalSearch(
         new Promise((resolve, reject) => {
           const fail = (message) => reject(new Error(message));
           const poll = (predicate, message, next) => {
-            const value = predicate();
-            if (value) return next(value);
-            setTimeout(() => poll(predicate, message, next), 20);
+            try {
+              const value = predicate();
+              if (value) return next(value);
+              setTimeout(() => poll(predicate, message, next), 20);
+            } catch (error) {
+              reject(error);
+            }
           };
           const surface = document.querySelector(
             '.terminal-surface.active[data-terminal-session=' + JSON.stringify(${JSON.stringify(
@@ -77,6 +81,38 @@ export async function verifyTerminalSearch(
             !(canvas instanceof HTMLCanvasElement) ||
             !(container instanceof HTMLElement)
           ) return fail('terminal search fixtures missing');
+          const readHighlight = () => {
+            const highlight = engine.querySelector('canvas[data-ghostty-retained-range-highlight]');
+            if (!(highlight instanceof HTMLCanvasElement) ||
+                getComputedStyle(highlight).visibility === 'hidden') return undefined;
+            const context = highlight.getContext('2d');
+            if (!context || !highlight.width || !highlight.height) return undefined;
+            const pixels = context.getImageData(0, 0, highlight.width, highlight.height).data;
+            let left = highlight.width, top = highlight.height, right = -1, bottom = -1;
+            for (let y = 0; y < highlight.height; y++) {
+              for (let x = 0; x < highlight.width; x++) {
+                if (pixels[(y * highlight.width + x) * 4 + 3] === 0) continue;
+                left = Math.min(left, x); right = Math.max(right, x);
+                top = Math.min(top, y); bottom = Math.max(bottom, y);
+              }
+            }
+            if (right < left) return undefined;
+            const metrics = engine.__hvirTerminalPerformance;
+            const expectedWidth = canvas.width / metrics.cols * ${MATCH.length};
+            const expectedHeight = canvas.height / metrics.rows;
+            if (Math.abs(right - left + 1 - expectedWidth) > 1 ||
+                Math.abs(bottom - top + 1 - expectedHeight) > 1) {
+              throw new Error('engine search highlight pixel bounds do not match the cell grid');
+            }
+            const sourceBounds = canvas.getBoundingClientRect();
+            const highlightBounds = highlight.getBoundingClientRect();
+            if (Math.abs(sourceBounds.left - highlightBounds.left) > 1 ||
+                Math.abs(sourceBounds.top - highlightBounds.top) > 1 ||
+                highlight.width !== canvas.width || highlight.height !== canvas.height) {
+              throw new Error('engine search highlight surface does not align with its canvas');
+            }
+            return { canvas: highlight, top, left, right, bottom };
+          };
           const selection = document.getSelection()?.toString() || '';
           const openPointerMenu = () => {
             canvas.dispatchEvent(new MouseEvent('contextmenu', {
@@ -142,18 +178,9 @@ export async function verifyTerminalSearch(
                           input.dispatchEvent(new Event('input', { bubbles: true }));
                           poll(
                             () => search.querySelector('.terminal-search-status')
-                              ?.textContent?.trim() === '1 of 3',
+                              ?.textContent?.trim() === '1 of 3' && readHighlight(),
                             'terminal search did not publish three exact matches',
-                            () => {
-                              const firstHighlight = engine.querySelector(
-                                '.terminal-search-match-highlight'
-                              );
-                              const firstHighlightRow = firstHighlight?.dataset.retainedRow;
-                              if (
-                                !(firstHighlight instanceof HTMLElement) ||
-                                !firstHighlightRow ||
-                                firstHighlight.getBoundingClientRect().width <= 0
-                              ) return fail('current terminal search match was not highlighted');
+                            (firstHighlight) => {
                               const next = search.querySelector(
                                 'button[aria-label="Next terminal match"]'
                               );
@@ -167,31 +194,21 @@ export async function verifyTerminalSearch(
                               next.click();
                               poll(
                                 () => search.querySelector('.terminal-search-status')
-                                  ?.textContent?.trim() === '2 of 3',
+                                  ?.textContent?.trim() === '2 of 3' && readHighlight(),
                                 'terminal search next navigation failed',
-                                () => {
-                                  const nextHighlight = engine.querySelector(
-                                    '.terminal-search-match-highlight'
-                                  );
-                                  if (
-                                    !(nextHighlight instanceof HTMLElement) ||
-                                    nextHighlight.dataset.retainedRow === firstHighlightRow
-                                  ) return fail('terminal search highlight did not follow next match');
+                                (nextHighlight) => {
+                                  if (nextHighlight.canvas === firstHighlight.canvas || firstHighlight.canvas.isConnected)
+                                    return fail('terminal search highlight did not replace the prior range');
                                   previous.click();
                                   poll(
                                     () => search.querySelector('.terminal-search-status')
-                                      ?.textContent?.trim() === '1 of 3',
+                                      ?.textContent?.trim() === '1 of 3' && readHighlight(),
                                     'terminal search previous navigation failed',
-                                    () => {
-                                      const previousHighlight = engine.querySelector(
-                                        '.terminal-search-match-highlight'
-                                      );
-                                      if (
-                                        !(previousHighlight instanceof HTMLElement) ||
-                                        previousHighlight.dataset.retainedRow !== firstHighlightRow
-                                      ) return fail(
-                                        'terminal search highlight did not return to previous match'
-                                      );
+                                    (previousHighlight) => {
+                                      if (previousHighlight.top !== firstHighlight.top ||
+                                          previousHighlight.left !== firstHighlight.left ||
+                                          nextHighlight.canvas.isConnected)
+                                        return fail('terminal search highlight did not return to previous geometry');
                                       const copy = [...search.querySelectorAll('button')].find(
                                         (button) => button.textContent?.trim() === 'Copy Match'
                                       );
@@ -267,7 +284,7 @@ export async function verifyTerminalSearch(
                       '.terminal-surface.active .terminal-search'
                     )) {
                       if (document.querySelector(
-                        '.terminal-surface.active .terminal-search-match-highlight'
+                        '.terminal-surface.active canvas[data-ghostty-retained-range-highlight]'
                       )) return reject(new Error('search highlight survived search close'));
                       return resolve(undefined);
                     }
@@ -296,7 +313,7 @@ export async function verifyTerminalSearch(
     if (!retained || retained.instanceId !== instanceId) {
       throw new Error('terminal search replaced the supervised PTY')
     }
-    return `${result} · current-match highlight · Copy Semantic Region · retained Canvas and PTY`
+    return `${result} · engine-owned highlight pixel geometry · Copy Semantic Region · retained Canvas and PTY`
   } finally {
     await detach()
   }
