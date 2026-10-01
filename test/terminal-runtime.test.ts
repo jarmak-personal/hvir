@@ -11,6 +11,14 @@ import {
 } from '../scripts/check-terminal-runtime.mts'
 import { GHOSTTY_TERMINAL_CAPABILITY_PROFILE } from '../scripts/ghostty-terminal-capability-profile.mts'
 
+class CompatibleFit {
+  activate(): void {}
+  fit(): void {}
+  resume(): void {}
+  suspend(): void {}
+  dispose(): void {}
+}
+
 class CompatibleParser {
   isSynchronizedOutput(): void {}
   getSynchronizedOutputGeneration(): void {}
@@ -65,9 +73,10 @@ describe('terminal runtime capability preflight', () => {
       assertTerminalRuntimeContract({
         Terminal: IncompatibleTerminal,
         GhosttyTerminal: IncompatibleTerminal,
+        FitAddon: IncompatibleTerminal,
       }),
     ).toThrow(
-      /requestRender, setRenderPaused, resetCursorBlink, getRenderStats, resolveEventProvenance, hasSelection, getSelection, paste, selectAll, clear, reset, searchRetainedBuffer, cancelRetainedBufferSearch, extractRetainedBufferRange, cancelRetainedBufferExtraction, captureRetainedBufferBoundary, getScrollbackByteLimit, isSynchronizedOutput, getSynchronizedOutputGeneration, resetSynchronizedOutput, custom link-provider priority and forced render.*npm ci.*retry the command/,
+      /requestRender, setRenderPaused, resetCursorBlink, getRenderStats, resolveEventProvenance, hasSelection, getSelection, paste, selectAll, clear, reset, searchRetainedBuffer, cancelRetainedBufferSearch, extractRetainedBufferRange, cancelRetainedBufferExtraction, captureRetainedBufferBoundary, getScrollbackByteLimit, isSynchronizedOutput, getSynchronizedOutputGeneration, resetSynchronizedOutput, FitAddon\.activate, FitAddon\.fit, FitAddon\.resume, FitAddon\.suspend, FitAddon\.dispose, custom link-provider priority and forced render.*npm ci.*retry the command/,
     )
   })
 
@@ -80,6 +89,7 @@ describe('terminal runtime capability preflight', () => {
       assertTerminalRuntimeContract({
         Terminal: UnprioritizedTerminal,
         GhosttyTerminal: CompatibleParser,
+        FitAddon: CompatibleFit,
       }),
     ).toThrow(/custom link-provider priority/)
   })
@@ -98,6 +108,7 @@ describe('terminal runtime capability preflight', () => {
       assertTerminalRuntimeContract({
         Terminal: UnrenderedTerminal,
         GhosttyTerminal: CompatibleParser,
+        FitAddon: CompatibleFit,
       }),
     ).toThrow(/custom link-provider priority and forced render/)
   })
@@ -120,6 +131,7 @@ describe('terminal runtime capability preflight', () => {
       assertTerminalRuntimeContract({
         Terminal: UnprioritizedRenderedTerminal,
         GhosttyTerminal: CompatibleParser,
+        FitAddon: CompatibleFit,
       }),
     ).toThrow(/custom link-provider priority and forced render/)
   })
@@ -136,7 +148,7 @@ describe('terminal runtime capability preflight', () => {
     await expect(
       verifyTerminalRuntimeContract(() => Promise.resolve(undefined)),
     ).rejects.toThrow(
-      /ghostty-web does not export the required Terminal and GhosttyTerminal constructors.*npm ci.*retry the command/,
+      /ghostty-web does not export the required Terminal, GhosttyTerminal, and FitAddon constructors.*npm ci.*retry the command/,
     )
   })
 
