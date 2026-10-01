@@ -233,6 +233,48 @@ describe('terminal search controller', () => {
     expect(fresh.reveal).not.toHaveBeenCalled()
   })
 
+  it.each(['previous', 'next'] as const)(
+    'preserves a valid selection when %s cannot reveal the normal buffer',
+    async (direction) => {
+      const matches = [range(1, 0, 1, 3), range(2, 0, 2, 3), range(3, 0, 3, 3)]
+      const live = liveResult(matches, new Map([[matches[1]!, 'second']]))
+      const search = vi.fn<TerminalPane['searchRetainedBuffer']>().mockResolvedValue(live)
+      const controller = new TerminalSearchController(vi.fn(), vi.fn())
+      controller.bind(paneFixture(search))
+      controller.open()
+      controller.setQuery('hit')
+      await vi.waitFor(() => expect(controller.snapshot().matchCount).toBe(3))
+      controller.navigate('next')
+      const selected = controller.snapshot()
+      expect(selected.matchIndex).toBe(1)
+
+      live.reveal.mockReturnValue(false)
+      controller.navigate(direction)
+      expect(controller.snapshot()).toBe(selected)
+      expect(controller.currentMatchText()).toBe('second')
+      expect(live.clearReveal).not.toHaveBeenCalled()
+
+      live.reveal.mockReturnValue(true)
+      controller.navigate(direction)
+      expect(controller.snapshot()).toMatchObject({
+        matchIndex: direction === 'previous' ? 0 : 2,
+        unavailable: false,
+      })
+      expect(search).toHaveBeenCalledOnce()
+
+      // A failed reveal must still clear a selection whose identity was revoked.
+      live.reveal.mockReturnValue(false)
+      vi.spyOn(live, 'resolve').mockReturnValue(undefined)
+      controller.navigate(direction)
+      expect(controller.snapshot()).toMatchObject({
+        matchIndex: undefined,
+        unavailable: true,
+      })
+      expect(live.clearReveal).toHaveBeenCalledOnce()
+      controller.close()
+    },
+  )
+
   it('keeps unavailable alternate-screen matches navigable after returning to normal', async () => {
     const match = range(3, 0, 3, 4)
     const live = liveResult([match])

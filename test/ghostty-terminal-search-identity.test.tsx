@@ -329,17 +329,20 @@ describe('Ghostty terminal search identity', () => {
   })
 
   it('validates highlights on updates without moving the viewport and revokes subscriptions', async () => {
+    const { Terminal } = await import('ghostty-web')
+    const scroll = vi.spyOn(Terminal.prototype, 'scrollToLine')
     const pane = await createPane()
     const search = await pane.searchRetainedBuffer('hit', { caseSensitive: false })
     const selected = search.matches[0]!
     expect(search.reveal(selected)).toBe(true)
-    const scroll = vi.fn()
-    pane.events.onResize(scroll)
+    expect(scroll).toHaveBeenCalledOnce()
+    scroll.mockClear()
     const update = vi.fn()
     const detach = search.onUpdate(update)
     expect(state.searchListeners).toBe(1)
     const highlight = document.querySelector('.terminal-search-match-highlight')
     state.emitSearchUpdate()
+    expect(scroll).not.toHaveBeenCalled()
     expect(document.querySelector('.terminal-search-match-highlight')).toBe(highlight)
     expect(search.matches[0]).toBe(selected)
     expect(search.resolve(selected)?.id).toBe(selected.id)
@@ -348,6 +351,7 @@ describe('Ghostty terminal search identity', () => {
     expect(document.querySelectorAll('.terminal-search-match-highlight')).toHaveLength(2)
     state.searchValid = false
     state.emitSearchUpdate()
+    expect(scroll).not.toHaveBeenCalled()
     expect(search.invalidated).toBe(true)
     expect(search.matches).toEqual([])
     expect(search.resolve(selected)).toBeUndefined()

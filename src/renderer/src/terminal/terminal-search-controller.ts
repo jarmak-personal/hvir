@@ -122,7 +122,7 @@ export class TerminalSearchController {
           : (current + 1) % count
     const match = result.matches[index]
     if (!match || !result.reveal(match)) {
-      this.loseSelection()
+      if (this.selected && !result.resolve(this.selected)) this.loseSelection()
       return
     }
     this.selected = match
