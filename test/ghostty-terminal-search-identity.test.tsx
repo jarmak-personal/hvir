@@ -17,13 +17,21 @@ const state = vi.hoisted(() => ({
   extracted: undefined as
     readonly [GhosttyTerminalEventProvenance, GhosttyTerminalEventProvenance] | undefined,
   searchRange: Object.freeze({
+    id: 1,
     start: Object.freeze({ row: 8, column: 79 }),
     end: Object.freeze({ row: 9, column: 3 }),
   }),
+  searchValid: true,
+  emitSearchUpdate: (): void => undefined,
+  searchListeners: 0,
   searchExtracted: undefined as IRetainedBufferRange | undefined,
   alternateScreen: false,
   emitScroll: (_viewportY: number): void => undefined,
   selectCalls: 0,
+  revealCalls: [] as IRetainedBufferRange[],
+  highlightCalls: [] as Array<{ range: IRetainedBufferRange; style: unknown }>,
+  highlightDisposers: [] as ReturnType<typeof vi.fn>[],
+  rangeCurrent: true,
   scrollbackLength: 12,
 }))
 
@@ -56,7 +64,7 @@ vi.mock('ghostty-web', async () => {
     }
     attachCustomWheelEventHandler(): void {}
     registerLinkProvider(): void {}
-    onData(): { dispose(): void } {
+    onDataWithSource(): { dispose(): void } {
       return { dispose: () => undefined }
     }
     onResize(): { dispose(): void } {
@@ -125,16 +133,58 @@ vi.mock('ghostty-web', async () => {
       }
     }
     searchRetainedBuffer(query: string, options: { caseSensitive: boolean }) {
+      const listeners = new Set<() => void>()
+      let disposed = false
+      state.emitSearchUpdate = () => {
+        for (const listener of [...listeners]) listener()
+      }
       return Promise.resolve({
         query,
         caseSensitive: options.caseSensitive,
-        matches: [state.searchRange],
+        get matches() {
+          return state.searchValid ? [state.searchRange] : []
+        },
+        pending: false,
+        get invalidated() {
+          return !state.searchValid
+        },
+        onUpdate: (listener: () => void) => {
+          listeners.add(listener)
+          state.searchListeners = listeners.size
+          return {
+            dispose: () => {
+              listeners.delete(listener)
+              state.searchListeners = listeners.size
+            },
+          }
+        },
+        resolve: (range: IRetainedBufferRange) =>
+          !disposed && state.searchValid && range === state.searchRange
+            ? state.searchRange
+            : undefined,
         extract: (range: IRetainedBufferRange) => {
           state.searchExtracted = range
-          return range === state.searchRange ? 'e\u0301🙂wrap' : undefined
+          return !disposed && state.searchValid && range === state.searchRange
+            ? 'e\u0301🙂wrap'
+            : undefined
         },
-        dispose: () => undefined,
+        dispose: () => {
+          disposed = true
+          listeners.clear()
+          state.searchListeners = 0
+        },
       })
+    }
+    revealRetainedBufferRange(range: IRetainedBufferRange): boolean {
+      state.revealCalls.push(range)
+      return state.rangeCurrent && !state.alternateScreen && range === state.searchRange
+    }
+    highlightRetainedBufferRange(range: IRetainedBufferRange, style: unknown) {
+      state.highlightCalls.push({ range, style })
+      if (!state.rangeCurrent) return undefined
+      const dispose = vi.fn()
+      state.highlightDisposers.push(dispose)
+      return { dispose }
     }
     cancelRetainedBufferSearch(): void {}
     captureRetainedBufferBoundary(): GhosttyTerminalEventProvenance {
@@ -168,9 +218,16 @@ describe('Ghostty terminal search identity', () => {
     state.resolved = undefined
     state.extracted = undefined
     state.searchExtracted = undefined
+    state.searchValid = true
+    state.searchListeners = 0
+    state.emitSearchUpdate = () => undefined
     state.alternateScreen = false
     state.emitScroll = () => undefined
     state.selectCalls = 0
+    state.revealCalls = []
+    state.highlightCalls = []
+    state.highlightDisposers = []
+    state.rangeCurrent = true
     state.scrollbackLength = 12
     vi.stubGlobal(
       'ResizeObserver',
@@ -221,12 +278,14 @@ describe('Ghostty terminal search identity', () => {
     pane.dispose()
   })
 
-  it('keeps native search ranges private while copying exact Unicode text', async () => {
+  it('reuses authenticated immutable cell metadata while copying exact Unicode text', async () => {
     const pane = await createPane()
     const search = await pane.searchRetainedBuffer('🙂wrap', { caseSensitive: false })
 
-    expect(search.matches[0]).not.toBe(state.searchRange)
+    expect(search.matches[0]).toBe(state.searchRange)
+    expect(Object.isFrozen(search.matches[0])).toBe(true)
     expect(search.matches[0]).toEqual({
+      id: 1,
       start: { row: 8, column: 79 },
       end: { row: 9, column: 3 },
     })
@@ -236,43 +295,61 @@ describe('Ghostty terminal search identity', () => {
     pane.dispose()
   })
 
-  it('highlights only the revealed retained range without mutating selection', async () => {
+  it('delegates authenticated range presentation without extracting text or changing selection', async () => {
     const pane = await createPane()
     const search = await pane.searchRetainedBuffer('🙂wrap', { caseSensitive: false })
-
     expect(search.reveal(search.matches[0]!)).toBe(true)
-    const segments = [
-      ...document.querySelectorAll<HTMLElement>('.terminal-search-match-highlight'),
-    ]
-    expect(segments).toHaveLength(2)
-    expect(segments.map((segment) => segment.dataset.retainedRow)).toEqual(['8', '9'])
-    expect(segments[0]!.style.cssText).toContain(
-      'left: 632px; top: 0px; width: 8px; height: 16px',
-    )
-    expect(segments[1]!.style.cssText).toContain(
-      'left: 0px; top: 16px; width: 32px; height: 16px',
-    )
+    expect(state.revealCalls).toEqual([state.searchRange])
+    expect(state.highlightCalls).toEqual([
+      {
+        range: state.searchRange,
+        style: {
+          fill: 'color-mix(in srgb, var(--accent) 42%, transparent)',
+          border: 'color-mix(in srgb, var(--accent) 86%, white 14%)',
+          borderWidth: 1,
+        },
+      },
+    ])
+    expect(state.searchExtracted).toBeUndefined()
     expect(state.selectCalls).toBe(0)
-
-    state.emitScroll(3)
-    const shifted = [
-      ...document.querySelectorAll<HTMLElement>('.terminal-search-match-highlight'),
-    ]
-    expect(shifted).toHaveLength(1)
-    expect(shifted[0]!.dataset.retainedRow).toBe('9')
-    expect(shifted[0]!.style.top).toBe('0px')
-
-    state.alternateScreen = true
-    pane.write('\u001b[?1049h')
-    expect(document.querySelectorAll('.terminal-search-match-highlight')).toHaveLength(0)
-    state.alternateScreen = false
-    state.scrollbackLength = 13
-    pane.write('new output')
-    expect(document.querySelectorAll('.terminal-search-match-highlight')).toHaveLength(0)
-
-    expect(search.reveal(search.matches[0]!)).toBe(true)
+    expect(document.querySelector('.terminal-search-match-highlight-layer')).toBeNull()
     search.dispose()
-    expect(document.querySelectorAll('.terminal-search-match-highlight')).toHaveLength(0)
+    search.dispose()
+    expect(state.highlightDisposers[0]).toHaveBeenCalledOnce()
+    expect(search.reveal(search.matches[0]!)).toBe(false)
+    pane.dispose()
+  })
+
+  it('older queries cannot clear a newer highlight and pane disposal releases the current handle', async () => {
+    const pane = await createPane()
+    const first = await pane.searchRetainedBuffer('first', { caseSensitive: true })
+    expect(first.reveal(first.matches[0]!)).toBe(true)
+    const second = await pane.searchRetainedBuffer('second', { caseSensitive: true })
+    expect(second.reveal(second.matches[0]!)).toBe(true)
+    expect(state.highlightDisposers[0]).toHaveBeenCalledOnce()
+    first.dispose()
+    expect(state.highlightDisposers[1]).not.toHaveBeenCalled()
+    pane.dispose()
+    expect(state.highlightDisposers[1]).toHaveBeenCalledOnce()
+    second.dispose()
+    expect(second.reveal(second.matches[0]!)).toBe(false)
+  })
+
+  it('forged and engine-invalidated ranges cannot acquire highlight authority', async () => {
+    const pane = await createPane()
+    const search = await pane.searchRetainedBuffer('match', { caseSensitive: true })
+    expect(
+      search.reveal({
+        id: state.searchRange.id,
+        start: { row: 8, column: 79 },
+        end: { row: 9, column: 3 },
+      }),
+    ).toBe(false)
+    expect(state.revealCalls).toEqual([])
+    state.rangeCurrent = false
+    expect(search.reveal(search.matches[0]!)).toBe(false)
+    expect(state.highlightCalls).toEqual([])
+    search.dispose()
     pane.dispose()
   })
 
@@ -284,8 +361,47 @@ describe('Ghostty terminal search identity', () => {
     })
 
     expect(search.reveal(search.matches[0]!)).toBe(false)
-    expect(state.searchExtracted).toBe(state.searchRange)
+    expect(state.searchExtracted).toBeUndefined()
+    expect(state.highlightCalls).toEqual([])
     search.dispose()
+    pane.dispose()
+  })
+
+  it('publishes native updates without re-revealing and revokes subscriptions', async () => {
+    const { Terminal } = await import('ghostty-web')
+    const reveal = vi.spyOn(Terminal.prototype, 'revealRetainedBufferRange')
+    const pane = await createPane()
+    const search = await pane.searchRetainedBuffer('hit', { caseSensitive: false })
+    const selected = search.matches[0]!
+    expect(search.reveal(selected)).toBe(true)
+    expect(reveal).toHaveBeenCalledOnce()
+    reveal.mockClear()
+    const update = vi.fn()
+    const detach = search.onUpdate(update)
+    expect(state.searchListeners).toBe(1)
+    const highlight = state.highlightDisposers[0]!
+    state.emitSearchUpdate()
+    expect(reveal).not.toHaveBeenCalled()
+    expect(highlight).not.toHaveBeenCalled()
+    expect(search.matches[0]).toBe(selected)
+    expect(search.resolve(selected)?.id).toBe(selected.id)
+    expect(search.reveal({ ...selected })).toBe(false)
+    expect(search.extract({ ...selected })).toBeUndefined()
+    expect(state.highlightCalls).toHaveLength(1)
+    state.searchValid = false
+    state.emitSearchUpdate()
+    expect(reveal).not.toHaveBeenCalled()
+    expect(search.invalidated).toBe(true)
+    expect(search.matches).toEqual([])
+    expect(search.resolve(selected)).toBeUndefined()
+    expect(search.extract(selected)).toBeUndefined()
+    expect(state.highlightCalls).toHaveLength(1)
+    expect(update).toHaveBeenCalledTimes(2)
+    detach()
+    search.dispose()
+    search.dispose()
+    expect(state.searchListeners).toBe(0)
+    expect(highlight).toHaveBeenCalledOnce()
     pane.dispose()
   })
 })

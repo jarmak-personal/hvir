@@ -69,9 +69,12 @@ export const GHOSTTY_TERMINAL_CAPABILITY_PROFILE = {
     addonMethods: ['activate', 'fit', 'resume', 'suspend', 'dispose'],
   },
   retainedBuffer: {
-    owner: 'ghostty-web-native-snapshot',
+    owner: 'ghostty-web-native-query',
     scrollbackBytes: 10_000_000,
     maxQueryBytes: 64 * 1024,
+    occurrenceIdentity: 'native-cell-incarnation',
+    updates: 'finite-coalesced-scans',
+    reflow: 'revoke-selection',
     maxExtractionBytes: 4 * 1024 * 1024,
     terminalMethods: [
       'searchRetainedBuffer',
@@ -80,7 +83,15 @@ export const GHOSTTY_TERMINAL_CAPABILITY_PROFILE = {
       'cancelRetainedBufferExtraction',
       'captureRetainedBufferBoundary',
       'getScrollbackByteLimit',
+      'revealRetainedBufferRange',
+      'highlightRetainedBufferRange',
     ],
+  },
+  dataProvenance: {
+    owner: 'ghostty-web-input-and-response-producers',
+    terminalMethods: ['onDataWithSource'],
+    sources: ['user', 'terminal-response'],
+    legacyOnDataCompatible: true,
   },
   palette: {
     baseOwner: 'hvir-terminal-presentation',

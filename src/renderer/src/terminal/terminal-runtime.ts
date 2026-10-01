@@ -439,7 +439,6 @@ export class TerminalRuntime {
       }),
       pane.events.onResize(({ cols, rows }) => {
         if (this.pane !== pane) return
-        this.interactions.retainedBufferChanged()
         this.terminalSize = { cols, rows }
         if (!this.surface.canFocus() || !this.started) return
         if (this.resizeTimer !== undefined) window.clearTimeout(this.resizeTimer)
@@ -488,7 +487,6 @@ export class TerminalRuntime {
         onData: (data) => {
           this.options.onOutput()
           pane.write(data)
-          this.interactions.retainedBufferChanged()
         },
         onExit: (exitCode) => {
           this.revokeSessionsSurface('terminal-unavailable')

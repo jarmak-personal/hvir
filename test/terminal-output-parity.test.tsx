@@ -104,6 +104,35 @@ describe('terminal output host parity', () => {
     expect(ssh.ptyWrites).toEqual(local.ptyWrites)
   })
 
+  it.each([
+    ['local', localPath('/repo')],
+    ['SSH', hostPath(asHostId('ssh-parity'), '/srv/repo')],
+  ] as const)(
+    'accounts only user data and writes each source once for %s',
+    async (_host, root) => {
+      const { runtime, options, send } = await startRuntime(root, 'source-routing')
+      try {
+        const pane = paneState.panes.at(-1)!
+        pane.emitData('\x1b[1;1R', 'terminal-response')
+        expect(send).toHaveBeenCalledExactlyOnceWith('pty:write', {
+          id: 'source-routing',
+          data: '\x1b[1;1R',
+        })
+        expect(options.onInput).not.toHaveBeenCalled()
+
+        send.mockClear()
+        pane.emitData('\r', 'user')
+        expect(send).toHaveBeenCalledExactlyOnceWith('pty:write', {
+          id: 'source-routing',
+          data: '\r',
+        })
+        expect(options.onInput).toHaveBeenCalledExactlyOnceWith('\r')
+      } finally {
+        runtime.dispose()
+      }
+    },
+  )
+
   it('applies the latest palette when pane construction finishes', async () => {
     const runtimeOptions = runtimeOptionsForStartupRace()
     const route = {
@@ -187,6 +216,55 @@ async function deliver(
   readonly ptyWrites: readonly string[]
   readonly disposed: boolean
 }> {
+  const { runtime, options, send, handlers, routeDisposed } = await startRuntime(
+    root,
+    sessionId,
+  )
+
+  const target = runtime.interactions.contextMenuTarget()!
+  expect(target.paste('line one\nline two')).toBe(true)
+  expect(target.selectAll()).toBe(true)
+  expect(target.clear()).toBe(true)
+  expect(target.reset()).toBe(true)
+
+  expect(runtime.interactions.search.open()).toBe(true)
+  runtime.interactions.search.setQuery('exact text')
+  await vi.waitFor(() =>
+    expect(runtime.interactions.search.snapshot().matchCount).toBe(1),
+  )
+  const searchText = runtime.interactions.search.currentMatchText()
+  runtime.interactions.search.close()
+  runtime.update({
+    ...options,
+    theme: BUNDLED_THEME.palette,
+    cursorDefaults: { shape: 'bar', blink: 'steady' },
+    ligatures: false,
+  })
+
+  for (const chunk of chunks) handlers.onData(chunk)
+  const pane = paneState.panes.at(-1)!
+  runtime.dispose()
+
+  expect(routeDisposed()).toBe(true)
+  return {
+    writes: pane.writes,
+    outputEvents: vi.mocked(options.onOutput).mock.calls.length,
+    presentations: pane.presentations,
+    pastes: pane.pastes,
+    terminalActions: pane.terminalActions,
+    searches: pane.searches,
+    themes: pane.themes,
+    cursorDefaults: pane.cursorDefaults,
+    ligatures: pane.ligatures,
+    searchText,
+    ptyWrites: send.mock.calls
+      .filter(([channel]) => channel === 'pty:write')
+      .map(([, payload]) => (payload as { readonly data: string }).data),
+    disposed: pane.disposed,
+  }
+}
+
+async function startRuntime(root: HostPath, sessionId: string) {
   let handlers: TerminalEventHandlers | undefined
   let routeDisposed = false
   const route: TerminalEventRoute = {
@@ -248,53 +326,23 @@ async function deliver(
   const container = document.createElement('div')
   document.body.append(container)
   runtime.attach(container)
-  await vi.waitFor(() => expect(handlers).toBeDefined())
-  await vi.waitFor(() => expect(runtime.interactions.contextMenuTarget()).toBeDefined())
-  expect(invoke).toHaveBeenCalledWith(
-    'pty:start',
-    expect.objectContaining({ cwd: root, sessionId }),
-  )
-
-  const target = runtime.interactions.contextMenuTarget()!
-  expect(target.paste('line one\nline two')).toBe(true)
-  expect(target.selectAll()).toBe(true)
-  expect(target.clear()).toBe(true)
-  expect(target.reset()).toBe(true)
-
-  expect(runtime.interactions.search.open()).toBe(true)
-  runtime.interactions.search.setQuery('exact text')
-  await vi.waitFor(() =>
-    expect(runtime.interactions.search.snapshot().matchCount).toBe(1),
-  )
-  const searchText = runtime.interactions.search.currentMatchText()
-  runtime.interactions.search.close()
-  runtime.update({
-    ...options,
-    theme: BUNDLED_THEME.palette,
-    cursorDefaults: { shape: 'bar', blink: 'steady' },
-    ligatures: false,
-  })
-
-  for (const chunk of chunks) handlers!.onData(chunk)
-  const pane = paneState.panes.at(-1)!
-  runtime.dispose()
-
-  expect(routeDisposed).toBe(true)
-  return {
-    writes: pane.writes,
-    outputEvents: vi.mocked(options.onOutput).mock.calls.length,
-    presentations: pane.presentations,
-    pastes: pane.pastes,
-    terminalActions: pane.terminalActions,
-    searches: pane.searches,
-    themes: pane.themes,
-    cursorDefaults: pane.cursorDefaults,
-    ligatures: pane.ligatures,
-    searchText,
-    ptyWrites: send.mock.calls
-      .filter(([channel]) => channel === 'pty:write')
-      .map(([, payload]) => (payload as { readonly data: string }).data),
-    disposed: pane.disposed,
+  try {
+    await vi.waitFor(() => expect(handlers).toBeDefined())
+    await vi.waitFor(() => expect(runtime.interactions.contextMenuTarget()).toBeDefined())
+    expect(invoke).toHaveBeenCalledWith(
+      'pty:start',
+      expect.objectContaining({ cwd: root, sessionId }),
+    )
+    return {
+      runtime,
+      options,
+      send,
+      handlers: handlers!,
+      routeDisposed: () => routeDisposed,
+    }
+  } catch (error) {
+    runtime.dispose()
+    throw error
   }
 }
 
@@ -336,11 +384,16 @@ function createPane(
     revealEventLocation: () => false,
     searchRetainedBuffer: (query, options) => {
       state.searches.push({ query, caseSensitive: options.caseSensitive })
-      const match = { start: { row: 0, column: 0 }, end: { row: 0, column: 9 } }
+      const match = { id: 1, start: { row: 0, column: 0 }, end: { row: 0, column: 9 } }
       return Promise.resolve({
         query,
         caseSensitive: options.caseSensitive,
         matches: [match],
+        pending: false,
+        invalidated: false,
+        onUpdate: () => () => undefined,
+        resolve: (range) => (range === match ? match : undefined),
+        clearReveal: vi.fn(),
         reveal: (candidate) => candidate === match,
         extract: (candidate) =>
           candidate === match ? 'local and SSH exact text' : undefined,

@@ -42,6 +42,10 @@ class CompatibleTerminal {
   extractRetainedBufferRange(): void {}
   cancelRetainedBufferExtraction(): void {}
   captureRetainedBufferBoundary(): void {}
+  getScrollbackByteLimit(): void {}
+  revealRetainedBufferRange(): void {}
+  highlightRetainedBufferRange(): void {}
+  onDataWithSource(): void {}
 
   registerLinkProvider(provider: object): void {
     const target = this as unknown as {
@@ -76,8 +80,24 @@ describe('terminal runtime capability preflight', () => {
         FitAddon: IncompatibleTerminal,
       }),
     ).toThrow(
-      /requestRender, setRenderPaused, resetCursorBlink, getRenderStats, resolveEventProvenance, hasSelection, getSelection, paste, selectAll, clear, reset, searchRetainedBuffer, cancelRetainedBufferSearch, extractRetainedBufferRange, cancelRetainedBufferExtraction, captureRetainedBufferBoundary, getScrollbackByteLimit, isSynchronizedOutput, getSynchronizedOutputGeneration, resetSynchronizedOutput, FitAddon\.activate, FitAddon\.fit, FitAddon\.resume, FitAddon\.suspend, FitAddon\.dispose, custom link-provider priority and forced render.*npm ci.*retry the command/,
+      /requestRender, setRenderPaused, resetCursorBlink, getRenderStats, resolveEventProvenance, hasSelection, getSelection, paste, selectAll, clear, reset, searchRetainedBuffer, cancelRetainedBufferSearch, extractRetainedBufferRange, cancelRetainedBufferExtraction, captureRetainedBufferBoundary, getScrollbackByteLimit, revealRetainedBufferRange, highlightRetainedBufferRange, onDataWithSource, isSynchronizedOutput, getSynchronizedOutputGeneration, resetSynchronizedOutput, FitAddon\.activate, FitAddon\.fit, FitAddon\.resume, FitAddon\.suspend, FitAddon\.dispose, custom link-provider priority and forced render.*npm ci.*retry the command/,
     )
+  })
+
+  it.each([
+    'revealRetainedBufferRange',
+    'highlightRetainedBufferRange',
+    'onDataWithSource',
+  ])('rejects an artifact without %s before starting the adapter', (method) => {
+    class MissingCapability extends CompatibleTerminal {}
+    Object.defineProperty(MissingCapability.prototype, method, { value: undefined })
+    expect(() =>
+      assertTerminalRuntimeContract({
+        Terminal: MissingCapability,
+        GhosttyTerminal: CompatibleParser,
+        FitAddon: CompatibleFit,
+      }),
+    ).toThrow(method)
   })
 
   it('rejects a runtime that lets built-in links override custom routing', () => {

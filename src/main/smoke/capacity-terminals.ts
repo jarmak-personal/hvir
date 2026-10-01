@@ -1,6 +1,9 @@
-import { app, type BrowserWindow } from 'electron'
+import type { BrowserWindow } from 'electron'
 
 import type { PtySupervisor } from '../pty/pty-supervisor'
+import { verifyStreamingTerminalSearch } from './terminal-search-streaming'
+import { verifyHighMatchTerminalSearch } from './terminal-search-high-match'
+import { focusSmokeWindow } from './window-focus'
 
 export interface TerminalRenderStats {
   readonly parsedWrites: number
@@ -209,17 +212,7 @@ export async function verifyCapacitySessionsTerminalDetail(
   if (supervisor.list().length !== 12) {
     throw new Error('Sessions capacity detail requires twelve live terminals')
   }
-  win.show()
-  const focusDeadline = Date.now() + 5_000
-  while (!((await win.webContents.executeJavaScript(`document.hasFocus()`)) as boolean)) {
-    app.focus({ steal: true })
-    win.focus()
-    win.webContents.focus()
-    if (Date.now() > focusDeadline) {
-      throw new Error('Sessions capacity detail window did not regain focus')
-    }
-    await delay(25)
-  }
+  await focusSmokeWindow(win)
   return (await withTimeout(
     win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
@@ -535,8 +528,9 @@ export async function verifyCapacityTerminalSearch(
       `printf '\\033]0;Capacity retained ready\\007'; ` +
       `IFS= read -r hvir_capacity_search\n`,
   )
+  let report: TerminalSearchCapacityReport
   try {
-    return (await withTimeout(
+    report = (await withTimeout(
       win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
           const deadline = Date.now() + 60000;
@@ -655,6 +649,13 @@ export async function verifyCapacityTerminalSearch(
   } finally {
     supervisor.write(terminal.id, terminal.ownerId, '\n')
   }
+  if (!unicodeWrapped) {
+    const highMatch = await verifyHighMatchTerminalSearch(win, supervisor, terminal.id)
+    console.log(`[smoke:capacity:high-match-search] ${highMatch}`)
+  }
+  const streaming = await verifyStreamingTerminalSearch(win, supervisor, terminal.id)
+  console.log(`[smoke:capacity:streaming-search] ${streaming}`)
+  return report
 }
 
 export async function measureAdditionalTerminalReadiness(

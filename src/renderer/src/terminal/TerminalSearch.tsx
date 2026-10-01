@@ -71,13 +71,16 @@ export function TerminalSearch({
   }
 
   if (!snapshot.open) return null
-  const status = snapshot.pending
-    ? 'Searching…'
-    : snapshot.query.length === 0
+  const status =
+    snapshot.query.length === 0
       ? 'Type to search this terminal'
-      : snapshot.matchCount === 0
-        ? 'No matches'
-        : `${(snapshot.matchIndex ?? 0) + 1} of ${snapshot.matchCount}`
+      : snapshot.matchCount > 0
+        ? snapshot.matchIndex === undefined
+          ? `${snapshot.matchCount} ${snapshot.matchCount === 1 ? 'match' : 'matches'}`
+          : `${snapshot.matchIndex + 1} of ${snapshot.matchCount}`
+        : snapshot.pending
+          ? 'Searching…'
+          : 'No matches'
 
   return (
     <div
@@ -113,7 +116,7 @@ export function TerminalSearch({
           type="button"
           aria-label="Previous terminal match"
           title="Previous match (Shift+Enter)"
-          disabled={snapshot.matchCount === 0 || snapshot.pending}
+          disabled={snapshot.matchCount === 0}
           onClick={() => controller.navigate('previous')}
         >
           ↑
@@ -122,7 +125,7 @@ export function TerminalSearch({
           type="button"
           aria-label="Next terminal match"
           title="Next match (Enter)"
-          disabled={snapshot.matchCount === 0 || snapshot.pending}
+          disabled={snapshot.matchCount === 0}
           onClick={() => controller.navigate('next')}
         >
           ↓
@@ -147,7 +150,7 @@ export function TerminalSearch({
         </label>
         <button
           type="button"
-          disabled={snapshot.matchCount === 0 || pendingCopy !== undefined}
+          disabled={snapshot.matchIndex === undefined || pendingCopy !== undefined}
           onClick={() => copy('match')}
         >
           Copy Match
@@ -161,6 +164,14 @@ export function TerminalSearch({
           >
             Copy Semantic Region
           </button>
+        ) : null}
+        {snapshot.unavailable ? (
+          <span
+            className="terminal-search-feedback terminal-search-unavailable"
+            role="status"
+          >
+            Selected match is no longer available
+          </span>
         ) : null}
         {feedback ? (
           <span

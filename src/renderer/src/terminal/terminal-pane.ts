@@ -77,15 +77,26 @@ export interface TerminalEventLocation {
 }
 
 export interface TerminalRetainedBufferRange {
+  /** Opaque occurrence identity scoped to one query; coordinates are never identity. */
+  readonly id: number
+  /** First-materialization endpoints; resolve through the query before using coordinates. */
   readonly start: Readonly<{ row: number; column: number }>
   readonly end: Readonly<{ row: number; column: number }>
 }
 
-/** One immutable, pane-owned native search snapshot. */
+/** One pane-owned live query with finite result updates and authenticated ranges. */
 export interface TerminalRetainedBufferSearch {
   readonly query: string
   readonly caseSensitive: boolean
   readonly matches: readonly TerminalRetainedBufferRange[]
+  readonly pending: boolean
+  /** Revoked by reflow/reset; an engine unable to preserve identity must set this. */
+  readonly invalidated: boolean
+  /** Query-owned subscription, revoked with the result. */
+  onUpdate(listener: () => void): () => void
+  /** Resolve current coordinates, or fail after overwrite/eviction/revocation. */
+  resolve(match: TerminalRetainedBufferRange): TerminalRetainedBufferRange | undefined
+  clearReveal(): void
   /** Reveal a current match without mutating terminal selection. */
   reveal(match: TerminalRetainedBufferRange): boolean
   /** Extract exact plain text, or fail closed for stale/foreign ranges. */

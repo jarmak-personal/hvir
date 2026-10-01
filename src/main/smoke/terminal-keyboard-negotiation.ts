@@ -267,6 +267,9 @@ export async function verifyNegotiatedTerminalKeyboard(
         `keyboard probe delivery ${index} was not acknowledged`,
       )
     }
+    const baseline = await readTerminalDataEvents(win, terminal.id)
+    let userEvents = 0
+    let responseEvents = 0
     supervisor.write(terminal.id, terminal.ownerId, keyboardProbeLaunchCommand())
 
     await waitForProbeObservation(
@@ -276,6 +279,7 @@ export async function verifyNegotiatedTerminalKeyboard(
       'keyboard probe client did not execute',
     )
     for (const phase of KEYBOARD_PROBE_PHASES) {
+      responseEvents += 1
       for (const input of phase.inputs) {
         const marker = keyboardProbeInputMarker(phase, input)
         await waitForProbeObservation(
@@ -284,6 +288,10 @@ export async function verifyNegotiatedTerminalKeyboard(
           marker,
           `${phase.name} ${input.name} keyboard input did not become ready`,
         )
+        await assertTerminalDataEvents(win, terminal.id, baseline, {
+          user: userEvents,
+          terminalResponse: responseEvents,
+        })
         await requireActiveTerminalEngine(win, terminal.id)
         win.webContents.sendInputEvent({
           type: 'keyDown',
@@ -295,6 +303,7 @@ export async function verifyNegotiatedTerminalKeyboard(
           keyCode: input.keyCode,
           modifiers: [...input.modifiers],
         })
+        userEvents += 1
       }
     }
 
@@ -317,6 +326,10 @@ export async function verifyNegotiatedTerminalKeyboard(
       'keyboard probe did not return input ownership to its shell',
     )
     observation.assertExactEvents()
+    await assertTerminalDataEvents(win, terminal.id, baseline, {
+      user: userEvents,
+      terminalResponse: responseEvents,
+    })
 
     const retained = supervisor.get(terminal.id)
     if (
@@ -338,6 +351,59 @@ export async function verifyNegotiatedTerminalKeyboard(
       }
     }
     await detach()
+  }
+}
+
+interface TerminalDataEvents {
+  readonly user: number
+  readonly terminalResponse: number
+}
+
+async function readTerminalDataEvents(
+  win: BrowserWindow,
+  sessionId: string,
+): Promise<TerminalDataEvents> {
+  const counts: unknown = await win.webContents.executeJavaScript(`
+    (() => {
+      const surface = document.querySelector(
+        '.terminal-surface[data-terminal-session="' +
+        CSS.escape(${JSON.stringify(sessionId)}) + '"]'
+      );
+      return surface?.querySelector('.terminal-engine-host')
+        ?.__hvirTerminalPerformance?.dataEvents;
+    })()
+  `)
+  if (
+    !counts ||
+    typeof counts !== 'object' ||
+    !('user' in counts) ||
+    !('terminalResponse' in counts) ||
+    !Number.isSafeInteger(counts.user) ||
+    !Number.isSafeInteger(counts.terminalResponse)
+  ) {
+    throw new Error('keyboard probe data-source counts unavailable')
+  }
+  return counts as TerminalDataEvents
+}
+
+async function assertTerminalDataEvents(
+  win: BrowserWindow,
+  sessionId: string,
+  baseline: TerminalDataEvents,
+  expected: TerminalDataEvents,
+): Promise<void> {
+  const current = await readTerminalDataEvents(win, sessionId)
+  const observed = {
+    user: current.user - baseline.user,
+    terminalResponse: current.terminalResponse - baseline.terminalResponse,
+  }
+  if (
+    observed.user !== expected.user ||
+    observed.terminalResponse !== expected.terminalResponse
+  ) {
+    throw new Error(
+      `keyboard probe emitted duplicate or misclassified PTY-bound data: expected ${JSON.stringify(expected)}, observed ${JSON.stringify(observed)}`,
+    )
   }
 }
 

@@ -1,6 +1,7 @@
 import { clipboard, type BrowserWindow } from 'electron'
 
 import type { PtySupervisor } from '../pty/pty-supervisor'
+import { terminalSearchHighlightReader } from './terminal-search-highlight'
 
 const READY = '__HVIR_SEARCH_READY__'
 const MATCH = 'hvir-search-match'
@@ -59,9 +60,13 @@ export async function verifyTerminalSearch(
         new Promise((resolve, reject) => {
           const fail = (message) => reject(new Error(message));
           const poll = (predicate, message, next) => {
-            const value = predicate();
-            if (value) return next(value);
-            setTimeout(() => poll(predicate, message, next), 20);
+            try {
+              const value = predicate();
+              if (value) return next(value);
+              setTimeout(() => poll(predicate, message, next), 20);
+            } catch (error) {
+              reject(error);
+            }
           };
           const surface = document.querySelector(
             '.terminal-surface.active[data-terminal-session=' + JSON.stringify(${JSON.stringify(
@@ -77,6 +82,7 @@ export async function verifyTerminalSearch(
             !(canvas instanceof HTMLCanvasElement) ||
             !(container instanceof HTMLElement)
           ) return fail('terminal search fixtures missing');
+          const readHighlight = ${terminalSearchHighlightReader(MATCH.length)};
           const selection = document.getSelection()?.toString() || '';
           const openPointerMenu = () => {
             canvas.dispatchEvent(new MouseEvent('contextmenu', {
@@ -142,18 +148,9 @@ export async function verifyTerminalSearch(
                           input.dispatchEvent(new Event('input', { bubbles: true }));
                           poll(
                             () => search.querySelector('.terminal-search-status')
-                              ?.textContent?.trim() === '1 of 3',
+                              ?.textContent?.trim() === '1 of 3' && readHighlight(engine),
                             'terminal search did not publish three exact matches',
-                            () => {
-                              const firstHighlight = engine.querySelector(
-                                '.terminal-search-match-highlight'
-                              );
-                              const firstHighlightRow = firstHighlight?.dataset.retainedRow;
-                              if (
-                                !(firstHighlight instanceof HTMLElement) ||
-                                !firstHighlightRow ||
-                                firstHighlight.getBoundingClientRect().width <= 0
-                              ) return fail('current terminal search match was not highlighted');
+                            (firstHighlight) => {
                               const next = search.querySelector(
                                 'button[aria-label="Next terminal match"]'
                               );
@@ -167,31 +164,21 @@ export async function verifyTerminalSearch(
                               next.click();
                               poll(
                                 () => search.querySelector('.terminal-search-status')
-                                  ?.textContent?.trim() === '2 of 3',
+                                  ?.textContent?.trim() === '2 of 3' && readHighlight(engine),
                                 'terminal search next navigation failed',
-                                () => {
-                                  const nextHighlight = engine.querySelector(
-                                    '.terminal-search-match-highlight'
-                                  );
-                                  if (
-                                    !(nextHighlight instanceof HTMLElement) ||
-                                    nextHighlight.dataset.retainedRow === firstHighlightRow
-                                  ) return fail('terminal search highlight did not follow next match');
+                                (nextHighlight) => {
+                                  if (nextHighlight.canvas === firstHighlight.canvas || firstHighlight.canvas.isConnected)
+                                    return fail('terminal search highlight did not replace the prior range');
                                   previous.click();
                                   poll(
                                     () => search.querySelector('.terminal-search-status')
-                                      ?.textContent?.trim() === '1 of 3',
+                                      ?.textContent?.trim() === '1 of 3' && readHighlight(engine),
                                     'terminal search previous navigation failed',
-                                    () => {
-                                      const previousHighlight = engine.querySelector(
-                                        '.terminal-search-match-highlight'
-                                      );
-                                      if (
-                                        !(previousHighlight instanceof HTMLElement) ||
-                                        previousHighlight.dataset.retainedRow !== firstHighlightRow
-                                      ) return fail(
-                                        'terminal search highlight did not return to previous match'
-                                      );
+                                    (previousHighlight) => {
+                                      if (previousHighlight.top !== firstHighlight.top ||
+                                          previousHighlight.left !== firstHighlight.left ||
+                                          nextHighlight.canvas.isConnected)
+                                        return fail('terminal search highlight did not return to previous geometry');
                                       const copy = [...search.querySelectorAll('button')].find(
                                         (button) => button.textContent?.trim() === 'Copy Match'
                                       );
@@ -267,7 +254,7 @@ export async function verifyTerminalSearch(
                       '.terminal-surface.active .terminal-search'
                     )) {
                       if (document.querySelector(
-                        '.terminal-surface.active .terminal-search-match-highlight'
+                        '.terminal-surface.active canvas[data-ghostty-retained-range-highlight]'
                       )) return reject(new Error('search highlight survived search close'));
                       return resolve(undefined);
                     }
@@ -296,7 +283,7 @@ export async function verifyTerminalSearch(
     if (!retained || retained.instanceId !== instanceId) {
       throw new Error('terminal search replaced the supervised PTY')
     }
-    return `${result} · current-match highlight · Copy Semantic Region · retained Canvas and PTY`
+    return `${result} · engine-owned highlight pixel geometry · Copy Semantic Region · retained Canvas and PTY`
   } finally {
     await detach()
   }
