@@ -2,6 +2,7 @@ import { clipboard, type BrowserWindow } from 'electron'
 
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import { focusSmokeWindow } from './window-focus'
+import { terminalSearchHighlightReader } from './terminal-search-highlight'
 
 const MATCH = 'hvir-streaming-search-match'
 const READY = '__HVIR_STREAM_READY__'
@@ -76,15 +77,18 @@ export async function verifyStreamingTerminalSearch(
       input.dispatchEvent(new Event('input', { bubbles: true }));
       const status = () => search.querySelector('.terminal-search-status')?.textContent?.trim();
       await wait(() => status() === '1 of 3', 'initial streaming search did not complete with three matches');
+      const readHighlight = ${terminalSearchHighlightReader(MATCH.length)};
+      await wait(() => readHighlight(engine), 'initial streaming highlight missing');
+      const initialHighlight = readHighlight(engine).canvas;
       search.querySelector('[aria-label="Next terminal match"]').click();
-      await wait(() => status() === '2 of 3', 'non-first streaming occurrence not selected');
-      const highlight = () => engine.querySelector('.terminal-search-match-highlight');
-      const selectedRow = highlight()?.dataset.retainedRow;
-      const selectedTop = highlight()?.style.top;
-      if (!selectedRow || !selectedTop) throw new Error('selected streaming highlight missing');
+      await wait(() => status() === '2 of 3' && readHighlight(engine)?.canvas !== initialHighlight && readHighlight(engine), 'non-first streaming occurrence not painted');
+      const selected = readHighlight(engine);
       await wait(() => status() === '2 of 4', 'appended occurrence did not update the count while streaming');
       for (let i = 0; i < 12; i++) {
-        if (highlight()?.dataset.retainedRow !== selectedRow || highlight()?.style.top !== selectedTop) {
+        const current = readHighlight(engine);
+        if (!current || current.canvas !== selected.canvas ||
+            current.top !== selected.top || current.left !== selected.left ||
+            current.right !== selected.right || current.bottom !== selected.bottom) {
           throw new Error('unrelated output moved the selected occurrence or viewport');
         }
         await new Promise(resolve => setTimeout(resolve, 20));
@@ -101,8 +105,8 @@ export async function verifyStreamingTerminalSearch(
       engine.querySelector('canvas').dispatchEvent(new WheelEvent('wheel', {
         deltaY: 1000000, bubbles: true, cancelable: true
       }));
-      return { selectedRow, selectedTop, elapsedMs: Math.round(2500 - (deadline - performance.now())) };
-    })()`)) as { selectedRow: string; selectedTop: string; elapsedMs: number }
+      return { elapsedMs: Math.round(2500 - (deadline - performance.now())) };
+    })()`)) as { elapsedMs: number }
     if (completed) throw new Error('streaming search finished after the finite producer')
     if (clipboard.readText() !== MATCH)
       throw new Error('streaming Copy Match returned different text')

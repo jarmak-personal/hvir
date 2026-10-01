@@ -12,6 +12,7 @@ const REQUIRED_TERMINAL_METHODS = [
   ...GHOSTTY_TERMINAL_CAPABILITY_PROFILE.synchronizedOutput.terminalMethods,
   ...GHOSTTY_TERMINAL_CAPABILITY_PROFILE.hostOwnedContextMenu.terminalMethods,
   ...GHOSTTY_TERMINAL_CAPABILITY_PROFILE.retainedBuffer.terminalMethods,
+  ...GHOSTTY_TERMINAL_CAPABILITY_PROFILE.dataProvenance.terminalMethods,
 ] as const
 const REQUIRED_PARSER_METHODS =
   GHOSTTY_TERMINAL_CAPABILITY_PROFILE.synchronizedOutput.parserMethods

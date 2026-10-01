@@ -63,7 +63,7 @@ vi.mock('ghostty-web', async () => {
     }
     attachCustomWheelEventHandler(): void {}
     registerLinkProvider(): void {}
-    onData(): { dispose(): void } {
+    onDataWithSource(): { dispose(): void } {
       return { dispose: () => undefined }
     }
     onResize(): { dispose(): void } {
