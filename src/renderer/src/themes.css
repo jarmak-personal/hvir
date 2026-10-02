@@ -198,6 +198,10 @@
   border-color: var(--border-strong);
 }
 
+:root[data-theme='light'] .terminal-rail-compact-marker.bell {
+  color: #e5b65f;
+}
+
 :root[data-theme='light'] .settings-keybindings small,
 :root[data-theme='light'] .settings-number {
   color: var(--text-muted);

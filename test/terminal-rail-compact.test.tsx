@@ -33,6 +33,27 @@ afterEach(() => {
 })
 
 describe('compact terminal rail', () => {
+  it('shows a labelled bell icon in the expanded rail and keeps Ready and Working text', () => {
+    renderRail({
+      sessions: [
+        session('terminal-ready', 'idle'),
+        session('terminal-bell', 'bell'),
+        session('terminal-working', 'working'),
+      ],
+    })
+
+    const badge = host.querySelector<HTMLElement>('.terminal-list [aria-label="Bell"]')
+    expect(badge?.title).toBe('Bell')
+    expect(badge?.textContent).toBe('')
+    expect(badge?.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
+    expect(host.querySelector('.terminal-list [aria-label="Ready"]')?.textContent).toBe(
+      'ready',
+    )
+    expect(host.querySelector('.terminal-list [aria-label="Working"]')?.textContent).toBe(
+      'working',
+    )
+  })
+
   it('closes both menus and exposes labelled native transition controls', () => {
     const onCompact = vi.fn()
     const onToggleMenu = vi.fn()
@@ -87,7 +108,10 @@ describe('compact terminal rail', () => {
     expect(strip?.querySelector('[aria-label="1 terminal ready"]')?.textContent).toBe(
       'R1',
     )
-    expect(strip?.querySelector('[aria-label="1 terminal bell"]')?.textContent).toBe('B1')
+    const bell = strip?.querySelector<HTMLElement>('[aria-label="1 terminal bell"]')
+    expect(bell?.textContent).toBe('1')
+    expect(bell?.title).toBe('1 terminal bell')
+    expect(bell?.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
     expect(
       strip?.querySelector('.terminal-rail-compact-rollups')?.getAttribute('aria-label'),
     ).toBe('1 ready, 1 bell')
@@ -113,7 +137,8 @@ describe('compact terminal rail', () => {
       'terminal-ready',
       'terminal-bell',
     ])
-    expect(markers.map((marker) => marker.textContent)).toEqual(['', '…', 'R', 'B'])
+    expect(markers.map((marker) => marker.textContent)).toEqual(['', '…', 'R', ''])
+    expect(markers[3]?.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
     expect(markers.map((marker) => marker.getAttribute('aria-label'))).toEqual([
       'terminal-neutral, Neutral',
       'terminal-working, Working, active terminal',
