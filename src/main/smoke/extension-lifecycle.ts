@@ -1,14 +1,79 @@
 import { BrowserWindow, type WebContents } from 'electron'
 import type { ExtensionApplicationRuntime } from '../extensions/extension-application'
+import { EXTENSION_LIMITS } from '../../shared/extensions/contract'
 import { DEFAULT_EXTENSION_PRESENTATION } from '../extensions/guest-owner'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
 
 const pause = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms))
 
+/** Appended only to the owned smoke copy, never the shipped reference package. */
+export const EXTENSION_LIFECYCLE_PROBE_SCRIPT = `
+  window.extensionInitialTicks = 0;
+  window.extensionLifecycleEvents = [];
+  document.addEventListener('freeze', () => {
+    window.extensionLifecycleEvents.push({ kind: 'freeze', at: performance.now(), ticks: window.extensionInitialTicks });
+    if (window.extensionLifecycleEvents.length > 16) window.extensionLifecycleEvents.shift();
+  });
+  document.addEventListener('resume', () => {
+    window.extensionLifecycleEvents.push({ kind: 'resume', at: performance.now(), ticks: window.extensionInitialTicks });
+    if (window.extensionLifecycleEvents.length > 16) window.extensionLifecycleEvents.shift();
+  });
+  setInterval(() => window.extensionInitialTicks++, 20);
+`
+
+interface LifecycleEvent {
+  kind: string
+  at: number
+  ticks: number
+}
+interface LifecycleObservation {
+  ticks: number
+  events: LifecycleEvent[]
+}
+const engineCommands = new WeakMap<WebContents, string[]>()
+
+function observeEngineCommands(guest: WebContents): void {
+  if (engineCommands.has(guest)) return
+  const commands: string[] = []
+  engineCommands.set(guest, commands)
+  const send = guest.debugger.sendCommand.bind(guest.debugger)
+  // Test-owned observation of the existing fixed production transport, no changed commands.
+  guest.debugger.sendCommand = async (...args: Parameters<typeof send>) => {
+    const result: unknown = await send(...args)
+    if (args[0] === 'Page.setWebLifecycleState') {
+      commands.push(`${Date.now()} ACK ${JSON.stringify(args[1])}`)
+      if (commands.length > 16) commands.shift()
+    }
+    return result
+  }
+}
+
+async function observation(guest: WebContents): Promise<LifecycleObservation> {
+  const result = (await guest.debugger.sendCommand('Runtime.evaluate', {
+    expression:
+      '({ticks:window.extensionInitialTicks,events:window.extensionLifecycleEvents})',
+    returnByValue: true,
+  })) as { result: { value: LifecycleObservation } }
+  return result.result.value
+}
+
+async function waitForFreeze(guest: WebContents): Promise<LifecycleObservation> {
+  const deadline = Date.now() + EXTENSION_LIMITS.requestTimeoutMs
+  while (Date.now() < deadline) {
+    const value = await observation(guest)
+    if (value.events.some((event) => event.kind === 'freeze')) return value
+    await pause(50)
+  }
+  throw new Error(
+    `Guest never observed native freeze: ${JSON.stringify({ observation: await observation(guest), commands: engineCommands.get(guest) })}`,
+  )
+}
+
 export async function startExtensionTimer(guest: WebContents): Promise<void> {
+  observeEngineCommands(guest)
   await guest.executeJavaScript(
-    'window.extensionSmokeTicks = 0; setInterval(() => window.extensionSmokeTicks++, 20)',
+    'window.extensionLifecycleEvents = []; window.extensionSmokeTicks = 0; setInterval(() => window.extensionSmokeTicks++, 20)',
   )
   const deadline = Date.now() + 5000
   while (Date.now() < deadline) {
@@ -32,7 +97,7 @@ export async function verifyHiddenExtensionLifecycle(
   const parentBefore = (await win.webContents.executeJavaScript(
     'window.extensionSmokeTicks',
   )) as number
-  await pause(150)
+  const native = await waitForFreeze(guest)
   const frozen = await ticks(guest)
   await pause(2200)
   if (
@@ -42,7 +107,9 @@ export async function verifyHiddenExtensionLifecycle(
   )
     throw new Error('Hidden lifecycle froze an active sibling or trusted workbench')
   if ((await ticks(guest)) !== frozen)
-    throw new Error('Inactive guest timer continued running')
+    throw new Error(
+      `Inactive guest timer continued running: ${JSON.stringify({ before: native, after: await observation(guest), commands: engineCommands.get(guest) })}`,
+    )
   if (!guest.getBackgroundThrottling())
     throw new Error('Guest disabled engine background throttling')
   const bounds = win.getBounds()
@@ -55,7 +122,9 @@ export async function verifyHiddenExtensionLifecycle(
   const restored = await ticks(guest)
   await pause(2200)
   if ((await ticks(guest)) !== restored)
-    throw new Error('Window restore or sizing resumed an inactive guest')
+    throw new Error(
+      `Window restore or sizing resumed an inactive guest: ${JSON.stringify({ before: restored, after: await observation(guest), commands: engineCommands.get(guest) })}`,
+    )
   win.setBounds(bounds)
   await pause(150)
   await guest.debugger.sendCommand('Runtime.evaluate', {
@@ -171,7 +240,8 @@ export async function verifyInitiallyHiddenExtension(
       }
     }
     while (Date.now() < deadline && (await read()).state !== 'complete') await pause(50)
-    await pause(150)
+    observeEngineCommands(guest)
+    await waitForFreeze(guest)
     const loaded = await read()
     if (loaded.state !== 'complete' || typeof loaded.ticks !== 'number')
       throw new Error('Initially hidden guest did not finish its captured document')

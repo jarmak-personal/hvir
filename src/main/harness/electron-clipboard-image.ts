@@ -1,5 +1,4 @@
 import { clipboard } from 'electron'
-import type { WorkbenchRuntime } from '../workbench-runtime'
 
 import {
   REMOTE_IMAGE_PASTE_MAX_BYTES,
@@ -42,16 +41,4 @@ export function createElectronRemoteImagePasteCoordinator(
     ...options,
     clipboard: new ElectronClipboardPngSource(),
   })
-}
-
-/** Registers the existing clipboard adapter and coordinator with application lifetime. */
-export function installElectronRemoteImagePaste(
-  runtime: WorkbenchRuntime,
-  options: Omit<RemoteImagePasteCoordinatorOptions, 'clipboard'>,
-): RemoteImagePasteCoordinator {
-  return runtime.own(
-    'remote image paste coordinator',
-    createElectronRemoteImagePasteCoordinator(options),
-    (coordinator) => coordinator.dispose(),
-  )
 }

@@ -3,16 +3,16 @@ import { app } from 'electron'
 
 import { localPath } from '../shared'
 import { configureApplicationRuntime } from './application-runtime-policy'
+import { registerApplicationProtocols } from './application-document-protocols'
 import { LocalHost } from './project-host/local-host'
+
+registerApplicationProtocols()
 
 /** The compiled application identity and storage authority, selected during module load. */
 export const applicationRuntime = configureApplicationRuntime(
   app,
   __HVIR_BUILD_CHANNEL__,
   (path) => LocalHost.ensureBootstrapDirectory(localPath(path)),
-  process.argv
-    .find((argument) => argument.startsWith('--hvir-user-data-dir='))
-    ?.slice('--hvir-user-data-dir='.length),
 )
 
 /** Resolves one application-owned state file beneath the selected runtime root. */

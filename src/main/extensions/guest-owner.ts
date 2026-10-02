@@ -1,3 +1,4 @@
+import { MAX_INTERFACE_FONT_STACK_LENGTH } from '../../shared/interface-typography'
 import { randomUUID } from 'node:crypto'
 import {
   EXTENSION_CAPABILITIES,
@@ -250,6 +251,10 @@ export class ExtensionGuestOwner {
   ): void {
     const record = this.records.get(viewId)
     if (!record || !sameOwner(record.owner, owner) || !this.current(record)) return
+    // Visibility authority is independent of parsing the latest appearance snapshot.
+    record.visible = visible === true
+    if (record.guestId !== undefined)
+      this.surface.visibility(record.guestId, record.visible)
     const colors = extensionObject(value.colors)
     const color = (key: keyof ExtensionPresentation['colors']): string => {
       const text = extensionText(colors[key], 'presentation color', 80)
@@ -276,14 +281,16 @@ export class ExtensionGuestOwner {
         muted: color('muted'),
         accent: color('accent'),
       },
-      fontFamily: extensionText(value.fontFamily, 'interface font', 160),
+      fontFamily: extensionText(
+        value.fontFamily,
+        'interface font',
+        MAX_INTERFACE_FONT_STACK_LENGTH,
+      ),
       fontSize: value.fontSize,
       width: value.width,
       height: value.height,
     }
-    record.visible = visible === true
     if (record.guestId !== undefined) {
-      this.surface.visibility(record.guestId, record.visible)
       if (record.negotiated && record.visible)
         this.surface.send(record.guestId, {
           kind: 'presentation',

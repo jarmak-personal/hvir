@@ -22,9 +22,7 @@ export class ExtensionApplicationRuntime {
     private readonly scopes: RendererResourceScopes,
     private readonly events: RendererEventPublisher,
     private readonly userData: HostPath,
-  ) {
-    ElectronExtensionGuestSurface.registerScheme()
-  }
+  ) {}
 
   start(host: ProjectHost): Promise<void> {
     return (this.starting ??= this.initialize(host).catch(async (reason: unknown) => {

@@ -100,7 +100,7 @@ if [[ "${HVIR_SMOKE_SCENARIO}" == 'development-performance' ]]; then
     HVIR_SMOKE_SCENARIO=development-performance \
     HVIR_PROJECT_ROOT="$project_root" \
     ELECTRON_ENTRY="$source_checkout" \
-    ELECTRON_CLI_ARGS="[\"--hvir-user-data-dir=$user_data_root\",\"--user-data-dir=$user_data_root\"]" \
+    ELECTRON_CLI_ARGS="[\"--user-data-dir=$user_data_root\"]" \
     "$source_checkout/node_modules/.bin/electron-vite" \
     "$source_checkout" \
     --mode smoke \
@@ -118,7 +118,7 @@ else
     "$source_checkout/node_modules/.bin/electron" "$source_checkout" \
     --project-root="$project_root" \
     --no-sandbox \
-    --hvir-user-data-dir="$user_data_root" --user-data-dir="$user_data_root" &
+    --user-data-dir="$user_data_root" &
   smoke_pid=$!
   wait "$smoke_pid"
   smoke_pid=''

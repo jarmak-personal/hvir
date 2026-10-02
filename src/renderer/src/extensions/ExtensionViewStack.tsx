@@ -81,27 +81,7 @@ function ExtensionViewPane({
     publish()
     const observer = new ResizeObserver(publish)
     if (root.current) observer.observe(root.current)
-    return () => {
-      observer.disconnect()
-      window.hvir.send('extensions:presentation', {
-        viewId: view.id,
-        presentation: {
-          appearance: theme,
-          colors: {
-            background: '#000',
-            surface: '#000',
-            text: '#fff',
-            muted: '#aaa',
-            accent: '#fff',
-          },
-          fontFamily: 'system-ui',
-          fontSize: 13,
-          width: 0,
-          height: 0,
-        },
-        visible: false,
-      })
-    }
+    return () => observer.disconnect()
   }, [view.id, visible, theme, settings.interfaceScale, settings.interfaceFont])
   return (
     <div

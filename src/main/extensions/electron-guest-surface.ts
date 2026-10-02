@@ -1,7 +1,6 @@
 import { join } from 'node:path'
 import {
   app,
-  protocol,
   session,
   webContents,
   type Session,
@@ -37,7 +36,7 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
   private readonly cleanups = new Set<Promise<void>>()
   private owner?: ExtensionGuestOwner
 
-  static registerScheme(): void {
+  static configureEngine(): void {
     // Chromium 150 requires its browser-side origin-trial override; enabling
     // only Blink does not activate policy-container enforcement.
     const features = new Set(
@@ -46,17 +45,16 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
     features.add('ConnectionAllowlists')
     features.add('OverrideConnectionAllowlistOriginTrial')
     app.commandLine.appendSwitch('enable-features', [...features].join(','))
-    protocol.registerSchemesAsPrivileged([
-      {
-        scheme: 'hvir-extension',
-        privileges: {
-          standard: true,
-          secure: true,
-          supportFetchAPI: true,
-          corsEnabled: true,
-        },
-      },
-    ])
+  }
+
+  static readonly privilegedScheme: Electron.CustomScheme = {
+    scheme: 'hvir-extension',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+    },
   }
 
   connect(owner: ExtensionGuestOwner): void {

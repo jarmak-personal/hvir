@@ -26,8 +26,9 @@ Only one instance per user-data directory can operate extensions. A second insta
 can use ordinary workbench features but cannot change extension state or open guests.
 The kernel-held writer lock releases on exit, including an abandoned process; hvir
 never expires a live owner's lock. If its lock path changes, hvir revokes extension
-work. For development, launch with `--hvir-user-data-dir=/absolute/separate-directory`
-(see the application's runtime options) rather than sharing a release directory.
+work. For development, launch with `--user-data-dir=/absolute/separate-directory`
+rather than sharing a release directory. SSH acceptance builds retain their separate
+application-owned data root.
 
 ## Package contract
 
@@ -81,6 +82,10 @@ and a 32 KiB manifest. Links and nonregular files are refused. Discovery admits 
 Messages are bounded to 16 KiB and thirty per second; pending requests are bounded to
 eight per view, sixteen per extension, and sixty-four application-wide, with a ten
 second deadline. hvir refuses excess work instead of maintaining unbounded queues.
+
+The application registers the HTML preview and extension scheme descriptors together
+once before Electron readiness. Their protocols, origins, policies and resources
+remain feature-owned and independent.
 
 Guests use separate ephemeral sessions, an hvir-owned preload, response-header CSP,
 and captured assets only. The response `Connection-Allowlist: (response-origin);webrtc=block`

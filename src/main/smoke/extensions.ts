@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { app, webContents, type BrowserWindow, type WebContents } from 'electron'
+import { app, BrowserWindow, webContents, type WebContents } from 'electron'
 import { joinHostPath, localPath } from '../../shared/host-path'
 import type { ExtensionView } from '../../shared/extensions/workbench'
 import type { ProjectHost } from '../project-host/project-host'
@@ -7,6 +7,7 @@ import type { ElectronSmokeDependencies } from './bootstrap-contract'
 import { verifyExtensionWebRtc } from './extension-webrtc'
 import { verifyExtensionNetwork } from './extension-network'
 import {
+  EXTENSION_LIFECYCLE_PROBE_SCRIPT,
   startExtensionTimer,
   verifyHiddenExtensionLifecycle,
   verifyInitiallyHiddenExtension,
@@ -15,11 +16,15 @@ import {
 /** Uses ordinary Settings and public guest contracts in the production-composed window. */
 export async function verifyExtensionScenario(
   win: BrowserWindow,
-  ports: Pick<ElectronSmokeDependencies, 'mode' | 'extensions' | 'rendererResources'>,
+  ports: Pick<
+    ElectronSmokeDependencies,
+    'mode' | 'extensions' | 'rendererResources' | 'htmlPreviews'
+  >,
   host: ProjectHost,
 ): Promise<boolean> {
   const { mode, extensions, rendererResources: scopes } = ports
   if (mode !== 'extensions') return false
+  await verifyCombinedDocumentProtocols(ports.htmlPreviews)
   await extensions.start(host)
   const directory = extensions.activations?.directory
   if (!directory) throw new Error('Extension application did not start')
@@ -39,7 +44,7 @@ export async function verifyExtensionScenario(
   const referenceScript = joinHostPath(reference, 'reference.js')
   await host.writeFile(
     referenceScript,
-    `${(await host.readFile(referenceScript)).toString('utf8')}\nwindow.extensionInitialTicks = 0; setInterval(() => window.extensionInitialTicks++, 20);`,
+    `${(await host.readFile(referenceScript)).toString('utf8')}\n${EXTENSION_LIFECYCLE_PROBE_SCRIPT}`,
   )
   // A malformed neighboring package must not break the ordinary walkthrough.
   const bad = joinHostPath(directory, 'bad')
@@ -313,7 +318,7 @@ async function verifyPresentation(win: BrowserWindow, guest: WebContents): Promi
   await win.webContents.executeJavaScript(`(() => {
     const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
     const family = document.getElementById('settings-interface-font');
-    set.call(family, 'Arial'); family.dispatchEvent(new Event('input', { bubbles: true }));
+    set.call(family, 'A'.repeat(100)); family.dispatchEvent(new Event('input', { bubbles: true }));
     const scale = document.getElementById('settings-interface-scale');
     set.call(scale, '1.1'); scale.dispatchEvent(new Event('input', { bubbles: true }));
   })()`)
@@ -322,7 +327,7 @@ async function verifyPresentation(win: BrowserWindow, guest: WebContents): Promi
     async () =>
       Boolean(
         (await guest.executeJavaScript(
-          "document.documentElement.style.getPropertyValue('--extension-font').includes('Arial') && parseFloat(document.documentElement.style.getPropertyValue('--extension-font-size')) > 13",
+          "document.documentElement.style.getPropertyValue('--extension-font').includes('A'.repeat(100)) && parseFloat(document.documentElement.style.getPropertyValue('--extension-font-size')) > 13",
         )) as unknown,
       ),
     'live hvir typography presentation',
@@ -373,5 +378,34 @@ async function waitFor(
   while (!(await predicate())) {
     if (Date.now() >= deadline) throw new Error(`Extension smoke timed out: ${label}`)
     await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+}
+
+/** Both preready descriptors must survive Electron's single privileged registration. */
+async function verifyCombinedDocumentProtocols(
+  previews: ElectronSmokeDependencies['htmlPreviews'],
+): Promise<void> {
+  const preview = previews.create(
+    '<!doctype html><p id="combined-preview">Preview stays isolated</p>',
+  )
+  const fixture = new BrowserWindow({
+    show: false,
+    webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+  })
+  try {
+    await fixture.loadURL(preview.url)
+    const result = (await fixture.webContents.executeJavaScript(
+      `({secure:isSecureContext, origin:location.origin, text:document.getElementById('combined-preview')?.textContent, node:typeof require})`,
+    )) as { secure: boolean; origin: string; text?: string; node: string }
+    if (
+      !result.secure ||
+      result.origin !== 'hvir-preview://document' ||
+      result.text !== 'Preview stays isolated' ||
+      result.node !== 'undefined'
+    )
+      throw new Error('Existing HTML preview privileged scheme or isolation regressed')
+  } finally {
+    fixture.destroy()
+    previews.release(preview.id)
   }
 }

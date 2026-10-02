@@ -1,3 +1,8 @@
+import {
+  MAX_FONT_FAMILY_LENGTH,
+  MAX_INTERFACE_FONT_STACK_LENGTH,
+} from '../src/shared/interface-typography'
+import { fontFamilyStack } from '../src/renderer/src/settings/typography-settings'
 import { describe, expect, it, vi } from 'vitest'
 import {
   ExtensionGuestOwner,
@@ -63,6 +68,39 @@ async function attached(data: ReturnType<typeof fixture>, guestId = 10) {
 }
 
 describe('extension guest capability and lifetime owner', () => {
+  it('accepts the longest escaped Settings font stack and applies visibility even for rejected presentation', async () => {
+    const visibility = vi.fn()
+    const data = fixture({ visibility })
+    const view = await attached(data)
+    data.owner.receive(10, { kind: 'hello', contract: '1.0' })
+    const fontFamily = fontFamilyStack(
+      { mode: 'custom', family: '\\'.repeat(MAX_FONT_FAMILY_LENGTH) },
+      'interface',
+    )
+    expect(fontFamily.length).toBe(MAX_INTERFACE_FONT_STACK_LENGTH)
+    data.owner.presentation(
+      data.renderer,
+      view.id,
+      { ...DEFAULT_EXTENSION_PRESENTATION, fontFamily },
+      true,
+    )
+    expect(data.sent.at(-1)).toMatchObject({
+      message: { kind: 'presentation', presentation: { fontFamily } },
+    })
+    expect(() =>
+      data.owner.presentation(
+        data.renderer,
+        view.id,
+        {
+          ...DEFAULT_EXTENSION_PRESENTATION,
+          fontFamily: 'x'.repeat(MAX_INTERFACE_FONT_STACK_LENGTH + 1),
+        },
+        false,
+      ),
+    ).toThrow('interface font')
+    expect(visibility).toHaveBeenLastCalledWith(10, false)
+    await data.owner.dispose()
+  })
   it('retains only the latest hidden presentation and publishes it on selection', async () => {
     const data = fixture()
     const view = await attached(data)
