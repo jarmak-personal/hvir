@@ -4,6 +4,7 @@ import { isDeepStrictEqual } from 'node:util'
 import {
   POLICY_PATH,
   assertCoverageNotReduced,
+  disposableDirectory,
   evaluateInventory,
   isRelaxation,
   inScope,
@@ -82,7 +83,8 @@ export function admitPolicyProposal({
   source?: ArchitectureInventory
 }) {
   const changes = changedPaths(root, base, head)
-  if (!changes.length || changes.some((path) => !policyOnlyPath(path))) {
+  const adoptsCoverage = changesSourceCoverage(before, after)
+  if (!changes.length || changes.some((path) => !policyOnlyPath(path, adoptsCoverage))) {
     throw new Error(
       'Unaccepted policy relaxation: a separate policy-only PR with unchanged consuming source is required',
     )
@@ -99,7 +101,7 @@ export function admitPolicyProposal({
           }
         })()
   for (const path of changes)
-    admitArchitectureWiring(path, source.blob(base, path), read(path))
+    admitArchitectureWiring(path, source.blob(base, path), read(path), adoptsCoverage)
   for (const path of relaxedPaths(
     before,
     after,
@@ -114,9 +116,13 @@ export function admitPolicyProposal({
       throw new Error(`Policy proposal changes its newly authorized source: ${path}`)
     }
   }
+  // A changed Cargo output role must not hide current source from proposal inspection.
+  if (before.rustClient && !isDeepStrictEqual(before.rustClient, after.rustClient))
+    source.collectInventory(before, head)
   for (const [path, bytes] of inventory) {
     const newlyCovered =
       !inScope(path, before) ||
+      (disposableDirectory(path, before) && !disposableDirectory(path, after)) ||
       (!before.extensions.includes(extname(path)) &&
         after.extensions.includes(extname(path)))
     if (newlyCovered && !source.blob(base, path)?.equals(bytes))
@@ -154,6 +160,14 @@ export function replayPolicyDelta(
     throw new Error('Accepted epic default conflicts with current main policy')
   }
   const next = globalThis.structuredClone(current)
+  if (!isDeepStrictEqual(before.rustClient, after.rustClient)) {
+    if (
+      !isDeepStrictEqual(current.rustClient, before.rustClient) &&
+      !isDeepStrictEqual(current.rustClient, after.rustClient)
+    )
+      throw new Error('Accepted Rust client authority conflicts with current main policy')
+    next.rustClient = after.rustClient
+  }
   if (before.defaultMaximum !== after.defaultMaximum)
     next.defaultMaximum = after.defaultMaximum
   next.roots = [...new Set([...current.roots, ...after.roots])]
@@ -195,6 +209,17 @@ export function replayPolicyDelta(
   return next
 }
 
+function changesSourceCoverage(
+  before: ArchitecturePolicy,
+  after: ArchitecturePolicy,
+): boolean {
+  return (
+    after.roots.some((root) => !before.roots.includes(root)) ||
+    after.extensions.some((extension) => !before.extensions.includes(extension)) ||
+    !isDeepStrictEqual(before.rustClient, after.rustClient)
+  )
+}
+
 // New language/root authority must precede its consuming source, just like a budget.
 function needsPolicyProposal(
   before: ArchitecturePolicy,
@@ -203,8 +228,7 @@ function needsPolicyProposal(
   counts: ComparisonCounts,
 ): boolean {
   return (
-    after.roots.some((root) => !before.roots.includes(root)) ||
-    after.extensions.some((extension) => !before.extensions.includes(extension)) ||
+    changesSourceCoverage(before, after) ||
     after.defaultMaximum > before.defaultMaximum ||
     relaxedPaths(before, after, inventory.keys(), counts).length > 0
   )

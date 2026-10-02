@@ -188,24 +188,77 @@ describe('architecture verification and bounded proposal wiring', () => {
     expect(report.admission.kind).toBe('policy-proposal')
     expect(report.violations).toEqual([])
   })
-  it('admits only the exact Rust policy records alongside language adoption', async () => {
+  it('admits language-policy lifecycle/index changes while preserving product and dependency text', async () => {
     const r = repository()
     fixtures.push(r)
-    const base = r.initial,
+    const design =
+      '# Product design\n\n### [ADR-040 — Existing]\n\n> Lifecycle: Active\n\n## Product\n\nExisting behavior.\n'
+    const decision =
+      '# ADR-040\n\n> Lifecycle: Active\n\n## Decision\n\nExisting budget policy.\n'
+    r.write('docs/design.md', design)
+    r.write('docs/architecture-dependencies.md', 'Existing graph policy.\n')
+    r.write('docs/adr/ADR-040-complete-source-budgets-and-dependency-policy.md', decision)
+    const base = r.commit(),
       policy = ordinaryPolicy()
     policy.extensions.push('.rs')
+    policy.rustClient = {
+      root: 'packages/hvir-agent',
+      cargoOutput: 'packages/hvir-agent/target',
+    }
     r.policy(policy)
-    for (const path of [
-      'docs/architecture-budgets.md',
-      'docs/architecture-dependencies.md',
+    const proposedDesign = design
+      .replace('Lifecycle: Active', 'Lifecycle: Partially superseded')
+      .replace('## Product', '### [ADR-048 — Rust]\n\nRust policy.\n\n## Product')
+    r.write('docs/design.md', proposedDesign)
+    r.write(
       'docs/adr/ADR-040-complete-source-budgets-and-dependency-policy.md',
-      'docs/adr/ADR-048-rust-client-source-policy.md',
-      'docs/design.md',
-    ])
-      r.write(path, 'Rust policy record\n')
+      decision.replace(
+        'Lifecycle: Active',
+        'Lifecycle: Partially superseded\n> Superseded by: [ADR-048](ADR-048-rust-client-source-policy.md) | partial | Rust coverage.',
+      ),
+    )
+    r.write(
+      'docs/architecture-dependencies.md',
+      'Existing graph policy.\n\n## Rust client boundary\n\nRust dependency evidence.\n',
+    )
+    r.write('docs/adr/ADR-048-rust-client-source-policy.md', 'Rust policy record\n')
     expect((await r.check(base)).admission.kind).toBe('policy-proposal')
-    r.write('docs/packaging.md', 'Unrelated product behavior\n')
+    r.write(
+      'docs/design.md',
+      proposedDesign.replace('Existing behavior.', 'New product behavior.'),
+    )
+    await expect(r.check(base)).rejects.toThrow(/unrelated verification wiring/)
+    r.write('docs/design.md', proposedDesign)
+    r.write(
+      'docs/architecture-dependencies.md',
+      'Weakened graph policy.\n\n## Rust client boundary\n\nRust evidence.\n',
+    )
+    await expect(r.check(base)).rejects.toThrow(/unrelated verification wiring/)
+  })
+  it('rejects extra policy documents during plain budget relaxation, preserving budget-guide admission', async () => {
+    const r = repository()
+    fixtures.push(r)
+    r.source(1400)
+    r.write('docs/design.md', 'Existing product behavior.\n')
+    const base = r.commit(),
+      policy = ordinaryPolicy()
+    policy.budgets.push(budget())
+    r.policy(policy)
+    r.write('docs/design.md', 'Different product behavior.\n')
     await expect(r.check(base)).rejects.toThrow(/policy-only/)
+    r.write('docs/design.md', 'Existing product behavior.\n')
+    r.write('docs/architecture-budgets.md', 'Budget policy explanation.\n')
+    expect((await r.check(base)).admission.kind).toBe('policy-proposal')
+  })
+  it('does not let coverage adoption rewrite an accepted Rust ADR', () => {
+    expect(() =>
+      admitArchitectureWiring(
+        'docs/adr/ADR-048-rust-client-source-policy.md',
+        Buffer.from('Accepted decision'),
+        Buffer.from('Different decision'),
+        true,
+      ),
+    ).toThrow(/rewrite an accepted Rust decision/)
   })
   it('preserves the exact bootstrap lint insertion without extending native authority to current graph owners', () => {
     const marker = "      'scripts/run-smoke-scenarios.mts',\n"

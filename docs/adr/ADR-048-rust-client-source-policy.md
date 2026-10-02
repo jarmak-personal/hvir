@@ -20,8 +20,14 @@ The client's named maintained root is `packages/hvir-agent/`, inside ADR-040's e
 `packages/` inventory root. Recognize `.rs` throughout the existing maintained-source
 inventory so Rust outside the named client root fails coverage, even inside another existing
 source root or at repository root. Inside the client, count Rust build scripts, tests, examples,
-and added or ignored local source. Source outside the declared roots still fails coverage. An unsupported source suffix still fails
-classification. No new inventory owner, root exemption, or exceptional budget is introduced.
+and added or ignored local source. Source outside the declared roots still fails coverage.
+An unsupported source suffix still fails classification. No new inventory owner, root exemption, or exceptional budget is introduced.
+
+The existing policy data records `rustClient.root` and `rustClient.cargoOutput`. The closed
+schema requires `.rs` coverage, a root inside the maintained inventory, and the exact
+`<root>/target` Cargo output path. Initial adoption and later root/output changes require
+separate policy-only admission before source consumption. Cumulative replay preserves that
+accepted authority and rejects an independently conflicting main disposition.
 
 Rust uses ADR-040's physical-line count, 500-line comfort target, and ordinary 1,000-line
 blocking maximum. Any stricter or exceptional budget follows its existing exact classification
@@ -30,8 +36,9 @@ and separate acceptance rules. The policy checker and its fixtures retain their 
 `Cargo.toml` manifests and `Cargo.lock` lockfiles are dependency metadata, not executable
 source or generated Rust. Cargo's client-local `packages/hvir-agent/target/` is disposable
 build output; it contains no maintained source. Any tracked file under that output role fails
-inventory, including tracked Rust or metadata. A nested `target/` directory or one elsewhere receives no Cargo exemption;
-Rust outside the named client root fails coverage regardless of that directory name. Ignored maintained source outside that exact output role still counts.
+inventory, including tracked Rust or metadata. A nested `target/` directory or one elsewhere
+receives no Cargo exemption. Rust outside the named client root fails coverage regardless of
+that directory name. Ignored maintained source outside that exact output role still counts.
 Keep maintained inputs outside disposable output and do not redirect build output onto them.
 
 A generated Rust banner supplies no classification. Without an exact accepted generated rule,
@@ -57,7 +64,11 @@ checks remain blocking and unchanged.
 
 New source-language coverage uses ADR-040's policy-only admission before any consuming source
 is added. Its exact documentation identities may include this decision, ADR-040's lifecycle
-notice, the design index, and the architecture guides. This grants no general documentation,
+notice, the design index, and the architecture guides. Additional documentation admission
+requires actual language/root adoption: ADR-040 admits only lifecycle notice changes, the
+design document only the relevant decision-index entries, and the dependency guide only its
+Rust boundary section. An accepted ADR-048 cannot be rewritten. Ordinary budget relaxation
+retains the original budget-guide admission without these additional records. This grants no general documentation,
 product-source, unrelated-tooling, or relaxed-check exception. Cumulative delivery validates
 separately accepted language-policy integrations through the existing provenance owner.
 

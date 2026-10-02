@@ -252,6 +252,10 @@ describe('complete architecture budget policy', () => {
     const r = repo(),
       policy = ordinaryPolicy()
     policy.extensions.push('.rs')
+    policy.rustClient = {
+      root: 'packages/hvir-agent',
+      cargoOutput: 'packages/hvir-agent/target',
+    }
     r.write('.gitignore', 'packages/hvir-agent/src/ignored.rs\n')
     r.source(1001, 'packages/hvir-agent/src/ignored.rs')
     r.write('packages/hvir-agent/build.rs', 'fn main() {}\n')
@@ -290,6 +294,10 @@ describe('complete architecture budget policy', () => {
     const r = repo(),
       policy = ordinaryPolicy()
     policy.extensions.push('.rs')
+    policy.rustClient = {
+      root: 'packages/hvir-agent',
+      cargoOutput: 'packages/hvir-agent/target',
+    }
     r.write(path, 'fn main() {}\n')
     expect(() => collectInventory(r.root, policy)).toThrow(/outside declared roots/)
     const head = r.commit()
@@ -301,6 +309,10 @@ describe('complete architecture budget policy', () => {
       const r = repo(),
         policy = ordinaryPolicy()
       policy.extensions.push('.rs')
+      policy.rustClient = {
+        root: 'packages/hvir-agent',
+        cargoOutput: 'packages/hvir-agent/target',
+      }
       r.write(`packages/hvir-agent/target/${filename}`, 'maintained input\n')
       const head = r.commit()
       expect(() => collectInventory(r.root, policy)).toThrow(/Tracked files hidden/)
@@ -311,6 +323,10 @@ describe('complete architecture budget policy', () => {
     const r = repo(),
       policy = ordinaryPolicy()
     policy.extensions.push('.rs')
+    policy.rustClient = {
+      root: 'packages/hvir-agent',
+      cargoOutput: 'packages/hvir-agent/target',
+    }
     r.write('packages/hvir-agent/tests/target/source.rs', '// @generated\n'.repeat(1001))
     const [row] = evaluateInventory(policy, collectInventory(r.root, policy))
     expect(row).toMatchObject({ governingRule: 'ordinary', lines: 1001, status: 'over' })
@@ -336,6 +352,29 @@ describe('complete architecture budget policy', () => {
         row.path.endsWith('.rs'),
       ),
     ).toMatchObject({ governingRule: 'generated', status: 'ok' })
+  })
+  it('requires closed explicit Rust ownership and its derived Cargo output authority', () => {
+    const policy = ordinaryPolicy()
+    policy.extensions.push('.rs')
+    expect(() => validatePolicy(policy)).toThrow(/Rust client policy/)
+    for (const disposition of [
+      { root: 'undeclared/client', cargoOutput: 'undeclared/client/target' },
+      { root: 'packages/hvir-agent', cargoOutput: 'packages/hvir-agent/src' },
+      {
+        root: 'packages/hvir-agent',
+        cargoOutput: 'packages/hvir-agent/target',
+        exclusion: '**',
+      },
+    ]) {
+      expect(() => validatePolicy({ ...policy, rustClient: disposition })).toThrow()
+    }
+    policy.rustClient = {
+      root: 'packages/hvir-agent',
+      cargoOutput: 'packages/hvir-agent/target',
+    }
+    expect(validatePolicy(policy).rustClient).toEqual(policy.rustClient)
+    policy.extensions.pop()
+    expect(() => validatePolicy(policy)).toThrow(/requires .rs source coverage/)
   })
   it('text and structured reports expose comfort, exceptions, and failures', () => {
     const policy = ordinaryPolicy()
