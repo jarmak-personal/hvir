@@ -286,9 +286,15 @@ export function ExtensionLeftRail({
         .map((view) => ({ extension, view })),
     ) ?? []
   useEffect(() => {
+    for (const view of model?.views ?? [])
+      if (
+        view.context?.surface === 'left' &&
+        view.context.workspace?.id !== model?.workspaceId
+      )
+        void window.hvir.invoke('extensions:close-view', { viewId: view.id })
     if (selected && selected.context?.workspace?.id !== model?.workspaceId)
       setSelectedId(undefined)
-  }, [model?.workspaceId, selected])
+  }, [model?.workspaceId, model?.views, selected])
   useContributionDemand(
     'left',
     selected && visible && model?.foreground && !model.obscured

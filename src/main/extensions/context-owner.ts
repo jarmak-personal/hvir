@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { hostPathEquals, type ProjectState, type HostPath } from '../../shared'
+import { hostPathEquals, type HostPath } from '../../shared'
 import {
   EXTENSION_LIMITS,
   type ExtensionContext,
@@ -7,19 +7,9 @@ import {
   type ExtensionWorkspaceContext,
 } from '../../shared/extensions/contract'
 import type { ExtensionSurfaceRequest } from '../../shared/extensions/workbench'
-import type { PtyObservationSource } from '../pty/pty-supervisor'
 import type { RendererOwner } from '../renderer-resource-scopes'
-import type {
-  TerminalSessionObservationSource,
-  TerminalSessionStore,
-} from '../terminal/session-registry'
+import type { LiveSessionMetadataSources } from '../terminal/live-session-metadata'
 
-export interface ExtensionContextSources {
-  readonly projectState: () => ProjectState
-  readonly ptys: PtyObservationSource
-  readonly sessions: Pick<TerminalSessionStore, 'get'> & TerminalSessionObservationSource
-  readonly observeProjects: (listener: () => void) => () => void
-}
 export interface AdmittedExtensionContext {
   readonly value: ExtensionContext
   readonly root?: HostPath
@@ -28,9 +18,15 @@ export interface AdmittedExtensionContext {
 
 /** Read-only metadata adaptation. Existing project and PTY owners retain identity and authority. */
 export class ExtensionContextOwner {
-  constructor(private readonly sources: ExtensionContextSources) {}
+  revision = 0
+  constructor(private readonly sources: LiveSessionMetadataSources) {
+    if (!sources) throw new Error('Extension context admission is unavailable')
+  }
 
   sessions(owner: RendererOwner): readonly ExtensionSessionContext[] {
+    const titles = new Map(
+      this.sources.sessions.observationSnapshot().map((entry) => [entry.id, entry.title]),
+    )
     return boundedExtensionSessions(
       this.sources.ptys
         .observationSnapshot()
@@ -39,11 +35,10 @@ export class ExtensionContextOwner {
             return []
           const workspace = this.workspaceForRoot(info.workspaceRoot)
           if (!workspace) return []
-          const stored = this.sources.sessions.get(info.id)
           return [
             {
               id: sessionIdentity(info),
-              title: (stored?.title ?? 'Terminal').slice(0, 80),
+              title: (titles.get(info.id) ?? 'Terminal').slice(0, 80),
               workspace: workspace.value,
             },
           ]
@@ -120,12 +115,60 @@ export class ExtensionContextOwner {
   }
 
   observe(listener: () => void): () => void {
+    const signature = () => {
+      const titles = new Map(
+        this.sources.sessions
+          .observationSnapshot()
+          .map((entry) => [entry.id, entry.title]),
+      )
+      return JSON.stringify({
+        workspaces: this.sources
+          .projectState()
+          .projects.flatMap((project) =>
+            project.workspaces.map((workspace) => [
+              workspace.id,
+              workspace.root,
+              workspace.name,
+              workspace.closed,
+              workspace.missing,
+              project.connectionState,
+            ]),
+          ),
+        sessions: this.sources.ptys
+          .observationSnapshot()
+          .map(({ info }) => [
+            info.id,
+            info.instanceId,
+            info.ownerId,
+            info.ownerGeneration,
+            info.workspaceRoot,
+            titles.get(info.id),
+          ]),
+      })
+    }
+    let previous = signature(),
+      pending = false,
+      disposed = false
+    const changed = () => {
+      if (pending || disposed) return
+      pending = true
+      queueMicrotask(() => {
+        pending = false
+        if (disposed) return
+        const current = signature()
+        if (current === previous) return
+        previous = current
+        this.revision++
+        listener()
+      })
+    }
     const disposers = [
-      this.sources.ptys.observe(listener),
-      this.sources.sessions.observe(listener),
-      this.sources.observeProjects(listener),
+      this.sources.ptys.observe(changed),
+      this.sources.sessions.observe(changed),
+      this.sources.observeProjects(changed),
     ]
     return () => {
+      disposed = true
       for (const dispose of disposers.reverse()) void dispose()
     }
   }

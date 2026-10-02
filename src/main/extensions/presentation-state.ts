@@ -26,16 +26,20 @@ export class ExtensionPresentationState {
   ) {}
 
   async restore(): Promise<void> {
-    const value = await this.persistence.read()
+    let value: unknown
+    try {
+      value = await this.persistence.read()
+    } catch {
+      return
+    }
     if (
       !value ||
       typeof value !== 'object' ||
       Array.isArray(value) ||
       Buffer.byteLength(JSON.stringify(value)) > EXTENSION_LIMITS.presentationTotalBytes
     )
-      throw new Error('Invalid saved extension presentation')
-    if (Object.keys(value).length > EXTENSION_LIMITS.installations)
-      throw new Error('Invalid saved extension presentation')
+      return
+    if (Object.keys(value).length > EXTENSION_LIMITS.installations) return
     for (const [id, values] of Object.entries(value)) {
       if (
         !/^[a-f0-9-]{36}$/u.test(id) ||
@@ -43,13 +47,27 @@ export class ExtensionPresentationState {
         values.length > EXTENSION_LIMITS.railItems ||
         Buffer.byteLength(JSON.stringify(values)) > EXTENSION_LIMITS.presentationBytes
       )
-        throw new Error('Invalid saved extension presentation')
-      const parsed = values.map(validateExtensionItemValue)
+        continue
+      let parsed: ExtensionItemValue[]
+      try {
+        parsed = values.map((entry: unknown) => {
+          const saved = entry as ExtensionItemValue
+          return validateExtensionItemValue(
+            typeof saved?.observedAt === 'number' &&
+              Number.isFinite(saved.observedAt) &&
+              saved.observedAt > Date.now()
+              ? { ...saved, observedAt: Date.now() }
+              : saved,
+          )
+        })
+      } catch {
+        continue
+      }
       if (
         new Set(parsed.map((entry) => entry.item)).size !== parsed.length ||
         parsed.some((entry) => entry.session)
       )
-        throw new Error('Session presentation cannot persist')
+        continue
       this.application.set(
         id,
         parsed.map((entry) =>
@@ -123,9 +141,14 @@ export class ExtensionPresentationState {
           EXTENSION_LIMITS.presentationTotalBytes
       )
         throw new Error('Application presentation capacity is full')
-      if (!value.session) {
-        const saved = Object.fromEntries(this.application)
-        saved[activation.installationId] = next
+      if (!value.session && item.kind === 'control') {
+        const saved = Object.fromEntries(
+          [...this.application].map(([id, entries]) => [
+            id,
+            entries.filter((entry) => !entry.availability),
+          ]),
+        )
+        saved[activation.installationId] = next.filter((entry) => !entry.availability)
         if (
           Buffer.byteLength(JSON.stringify(saved)) >
           EXTENSION_LIMITS.presentationTotalBytes
@@ -148,22 +171,34 @@ export class ExtensionPresentationState {
   }
 
   pruneSessions(ids: readonly string[]): void {
-    for (const [id, values] of this.session)
-      this.session.set(
-        id,
-        values.filter((value) => ids.includes(value.session!)),
-      )
-    this.changed()
+    let changed = false
+    for (const [id, values] of this.session) {
+      const next = values.filter((value) => ids.includes(value.session!))
+      if (next.length !== values.length) {
+        this.session.set(id, next)
+        changed = true
+      }
+    }
+    if (changed) this.changed()
   }
-  stale(id: string): void {
-    for (const map of [this.application, this.session])
-      map.set(
-        id,
-        (map.get(id) ?? []).map((value) =>
-          value.availability === 'current' ? { ...value, availability: 'stale' } : value,
-        ),
-      )
-    this.changed()
+  stale(id: string): boolean {
+    let changed = false
+    for (const map of [this.application, this.session]) {
+      const values = map.get(id)
+      if (values?.some((value) => value.availability === 'current')) {
+        map.set(
+          id,
+          values.map((value) =>
+            value.availability === 'current'
+              ? { ...value, availability: 'stale' }
+              : value,
+          ),
+        )
+        changed = true
+      }
+    }
+    if (changed) this.changed()
+    return changed
   }
   failed(id: string): void {
     for (const map of [this.application, this.session])
@@ -181,7 +216,7 @@ export class ExtensionPresentationState {
     this.changed()
   }
   revoke(id: string): void {
-    this.session.delete(id)
-    this.stale(id)
+    const removed = this.session.delete(id)
+    if (!this.stale(id) && removed) this.changed()
   }
 }

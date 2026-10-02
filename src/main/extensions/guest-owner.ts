@@ -87,7 +87,6 @@ export class ExtensionGuestOwner {
   updaterSessions?: (
     installation: string,
   ) => readonly import('../../shared/extensions/contract').ExtensionSessionContext[]
-  contexts?: ExtensionContextOwner
   updaterFailed?: (view: ExtensionView) => void
   visibleContributionsChanged?: () => void
   actions?: ExtensionActionOwner
@@ -106,7 +105,10 @@ export class ExtensionGuestOwner {
       selectedId?: string,
       focus?: boolean,
     ) => void,
-  ) {}
+    readonly contexts: ExtensionContextOwner,
+  ) {
+    if (!contexts) throw new Error('Extension context admission is unavailable')
+  }
 
   snapshot(owner: RendererOwner): readonly ExtensionView[] {
     return [...this.records.values()]
@@ -141,7 +143,7 @@ export class ExtensionGuestOwner {
       throw new Error('Enable this extension before opening its declared view')
     const context = options.updater
       ? undefined
-      : this.contexts?.admit(owner, options.context ?? { surface: 'viewer' })
+      : this.contexts.admit(owner, options.context ?? { surface: 'viewer' })
     if (
       contribution &&
       'placement' in contribution &&
@@ -585,20 +587,25 @@ export class ExtensionGuestOwner {
     assertOrigin()
     if (capability === 'presentation.read') return record.presentation
     if (capability === 'context.read') return this.contextValue(record)
-    if (capability === 'contributions.read')
-      return this.presentationState?.values(record.activation) ?? []
+    if (capability === 'contributions.read') {
+      if (!this.presentationState) throw new Error('Contribution state is unavailable')
+      return this.presentationState.values(record.activation)
+    }
     if (capability === 'contributions.publish') {
-      await this.presentationState?.publish(
+      if (!this.presentationState) throw new Error('Contribution state is unavailable')
+      await this.presentationState.publish(
         record.activation,
         input,
         () =>
           (record.view.role === 'updater'
             ? (this.updaterSessions?.(record.activation.installationId) ?? [])
-            : (this.contexts?.sessions(record.owner) ?? []).filter((session) =>
-                record.context?.value.session
-                  ? session.id === record.context.value.session.id
-                  : session.workspace.id === record.context?.value.workspace?.id,
-              )
+            : this.contexts
+                .sessions(record.owner)
+                .filter((session) =>
+                  record.context?.value.session
+                    ? session.id === record.context.value.session.id
+                    : session.workspace.id === record.context?.value.workspace?.id,
+                )
           ).map((session) => session.id),
         () => {
           assertOrigin()
@@ -613,8 +620,9 @@ export class ExtensionGuestOwner {
       return null
     }
     if (capability === 'actions.invoke') {
+      if (!this.actions) throw new Error('Extension actions are unavailable')
       const target = extensionObject(input)
-      return this.actions?.invoke(
+      return this.actions.invoke(
         record.owner,
         record.activation,
         extensionId(target['action']),

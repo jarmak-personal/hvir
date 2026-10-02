@@ -29,27 +29,3 @@ export function installDocumentSurfaces(
   )
   return { htmlPreviews, extensions }
 }
-
-/** Concrete read-only sources supplied to the extension context owner at application wiring. */
-export function contextPorts(
-  projects: {
-    state(): import('../shared').ProjectState
-    observe(listener: () => void): () => void
-  },
-  sessions: import('./terminal/session-registry').TerminalSessionStore &
-    import('./terminal/session-registry').TerminalSessionObservationSource,
-  ptys: import('./pty/pty-supervisor').PtyObservationSource,
-): {
-  getProjectState: () => import('../shared').ProjectState
-  extensionContexts: import('./extensions/context-owner').ExtensionContextSources
-} {
-  return {
-    getProjectState: () => projects.state(),
-    extensionContexts: {
-      projectState: () => projects.state(),
-      observeProjects: (listener) => projects.observe(listener),
-      sessions,
-      ptys,
-    },
-  }
-}

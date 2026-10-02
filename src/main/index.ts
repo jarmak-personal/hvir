@@ -4,7 +4,7 @@ import { createProjectCommands } from './ipc/project-commands'
 import { GitMutationCoordinator } from './git/mutation-coordinator'
 import { GitMutationAuthorization } from './git/mutation-authorization'
 import { GitWorkerHostRouter } from './git/worker-host-router'
-import { installDocumentSurfaces, contextPorts } from './application-document-surfaces'
+import { installDocumentSurfaces } from './application-document-surfaces'
 import { createWorkerClient, workerPath, type WorkerClient } from './worker-host'
 import { electronTrash, ProjectHostCatalog, RendererSshPrompter } from './project-host'
 import { ProjectFolderPickerCoordinator as FolderPicker } from './project-folder-picker'
@@ -369,7 +369,7 @@ function createWorkbenchEntry(): void {
         connectedHosts: () => hostCatalog?.connectedHosts() ?? [],
         getRegisteredWorkspaceRoot: (root) => registry.registeredWorkspaceRoot(root),
         revealLocalEntry: electronReveal(shell),
-        ...contextPorts(registry, terminalSessionRegistry, ptySupervisor),
+        getProjectState: () => registry.state(),
         listHosts: () => hostCatalog?.listHosts() ?? [],
         ...projectCommands,
         respondSshPrompt: (owner, id, answers) =>
@@ -406,7 +406,7 @@ function createWorkbenchEntry(): void {
       (router) => router.dispose(),
     )
     createWindow() // Paint before background watch and Git discovery touches a slow directory.
-    void surfaces.extensions.start(hostCatalog.local)
+    void surfaces.extensions.start(hostCatalog.local, sessionsPorts.context)
     if (projectRegistry.active.host.connectionState === 'connected') {
       void workspaceCoordinator
         .replaceWatch(projectRegistry.active)

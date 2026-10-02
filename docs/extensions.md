@@ -207,8 +207,10 @@ without queueing events and receive the latest snapshot on resume. `contribution
 takes `{ item, session?, icon?, label?, tooltip?, availability?, observedAt? }`. Omit `session`
 for an all-sessions value. Observations declare `current`, `stale`, `disconnected` or `failed`;
 `current` requires a timestamp. Controls cannot claim observation freshness. All-sessions
-presentation persists under the extension state writer, at most 16 KiB per installation
-and 256 KiB globally including live session values. Restored observations are stale.
+control presentation persists under the extension state writer. Observations remain in memory;
+restored historical observations are stale. Presentation is bounded to 16 KiB per installation
+and 256 KiB globally including live session values. Invalid saved presentation is discarded
+without preventing other extensions from starting or setup from being forgotten.
 **Forget saved setup** removes only this platform-owned presentation and identity; keeping
 setup preserves them through reinstall. Queued writes cannot restore forgotten identities.
 

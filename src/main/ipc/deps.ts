@@ -51,7 +51,6 @@ export interface SystemClipboardPort {
 
 export interface IpcDeps extends IpcRouterAuthorityPort {
   readonly extensions?: ExtensionApplicationRuntime
-  readonly extensionContexts?: import('../extensions/context-owner').ExtensionContextSources
   readonly echoWorker: WorkerClient<EchoWorkerProtocol>
   readonly gitWorker: WorkerClient<GitWorkerProtocol>
   readonly filenameSearch: Pick<FilenameSearchCoordinator, 'search' | 'cancel' | 'revoke'>

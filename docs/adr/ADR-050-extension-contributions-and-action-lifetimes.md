@@ -25,8 +25,10 @@ context before runnable work resumes. Updaters can observe context and publish p
 but cannot open views, invoke actions, mutate files, or hand work to terminals.
 
 A focused presentation owner validates finite data: bounded glyph icons, short labels and
-tooltips, observation availability and timestamps. Application values may persist under the
-extension state-write lease; retained observations resume stale. Session values are tied to
+tooltips, observation availability and timestamps. Application control values may persist under the
+extension state-write lease. Observation publications remain in memory, avoiding periodic
+cache writes; any restored observation is stale. Saved presentation is untrusted cache: invalid
+entries are discarded and clock rollback cannot prevent platform startup or forgetting setup. Session values are tied to
 an exact live PTY instance and renderer generation and end on its revocation. Existing session,
 project, and PTY owners provide metadata through read-only ports, without another session registry
 or Sessions destination demand. No terminal content, process handle, or control callback is public.
@@ -46,7 +48,7 @@ subscriptions and updates use the existing bounded bridge. Per-view/extension/ap
 and rate limits remain enforced. Actions permit four concurrent invocations per extension,
 sixteen globally, 8 KiB input/result, and a default 120-second deadline, with an optional declared deadline of 1–180 seconds.
 The finite bound permits supported later CLI actions whose measured runtime exceeds one minute. Context contains at most 128 live
-sessions within a 7 KiB public context bound, leaving room for an 8 KiB action input and bridge envelope. Hidden subscriptions retain current data without queueing updates; resume publishes that current snapshot. A failed updater marks its observations failed and requires an explicit activation revision or disable/enable to restart. Forgetting platform setup removes that installation's saved presentation under the existing writer transaction. Persisted presentation is at most 16 KiB per installation and 256 KiB globally.
+sessions within a 7 KiB public context bound, leaving room for an 8 KiB action input and bridge envelope. Hidden subscriptions retain current data without queueing updates; resume publishes that current snapshot. A failed updater marks its observations failed and remains latched while its hosting renderer generation is live. Explicit activation revision or disable/enable recovers it; revoking that exact hosting generation also permits successor hosting after old physical disposal drains. Forgetting platform setup removes that installation's saved presentation under the existing writer transaction. Persisted presentation is at most 16 KiB per installation and 256 KiB globally.
 
 Disable, replacement, renderer turnover, writer loss, and exit revoke authority before native
 disposal. Dependent workspace/session work ends independently; application contributions survive

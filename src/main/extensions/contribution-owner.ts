@@ -35,7 +35,7 @@ export class ExtensionContributionOwner {
   constructor(
     private readonly activations: ExtensionActivationOwner,
     private readonly guests: ExtensionGuestOwner,
-    private readonly contexts: () => ExtensionContextOwner | undefined,
+    private readonly contexts: () => ExtensionContextOwner,
     private readonly presentation: ExtensionPresentationState,
     private readonly scopes: import('../renderer-resource-scopes').RendererResourceScopes,
     private readonly changed: () => void,
@@ -60,28 +60,32 @@ export class ExtensionContributionOwner {
       values.length > EXTENSION_LIMITS.installations * (EXTENSION_LIMITS.sessions + 16)
     )
       throw new Error('Contribution demand exceeds its bound')
-    const entries = values.map((value: ExtensionDemand) => {
-      const activation = this.activations.active.get(value.installationId)
-      if (!activation) throw new Error('Contribution activation is unavailable')
-      if (value.surface === 'rail') {
-        const item = activation.revision.manifest.railItems?.find(
-          (item) => item.id === value.contributionId,
-        )
-        if (!item || (item.placement === 'session' && !value.sessionId))
-          throw new Error('Invalid rail demand')
-      } else {
-        const view = activation.revision.manifest.views.find(
-          (view) => view.id === value.contributionId,
-        )
-        if (!view || view.navigation !== value.surface)
-          throw new Error('Invalid navigation demand')
+    const entries = values.flatMap((value: ExtensionDemand) => {
+      try {
+        const activation = this.activations.active.get(value.installationId)
+        if (!activation) throw new Error('Contribution activation is unavailable')
+        if (value.surface === 'rail') {
+          const item = activation.revision.manifest.railItems?.find(
+            (item) => item.id === value.contributionId,
+          )
+          if (!item || (item.placement === 'session' && !value.sessionId))
+            throw new Error('Invalid rail demand')
+        } else {
+          const view = activation.revision.manifest.views.find(
+            (view) => view.id === value.contributionId,
+          )
+          if (!view || view.navigation !== value.surface)
+            throw new Error('Invalid navigation demand')
+        }
+        this.contexts().admit(owner, {
+          surface: value.surface === 'rail' ? 'viewer' : value.surface,
+          ...(value.workspaceId ? { workspaceId: value.workspaceId } : {}),
+          ...(value.sessionId ? { sessionId: value.sessionId } : {}),
+        })
+        return [value]
+      } catch {
+        return []
       }
-      this.contexts()?.admit(owner, {
-        surface: value.surface === 'rail' ? 'viewer' : value.surface,
-        ...(value.workspaceId ? { workspaceId: value.workspaceId } : {}),
-        ...(value.sessionId ? { sessionId: value.sessionId } : {}),
-      })
-      return value
     })
     this.demands.set(key(owner), { owner, entries })
     if (!this.leases.has(key(owner)))
@@ -129,8 +133,8 @@ export class ExtensionContributionOwner {
         ...demand,
         entries: demand.entries.filter((entry) => {
           try {
-            return !!this.contexts()
-              ?.admit(demand.owner, {
+            return this.contexts()
+              .admit(demand.owner, {
                 surface: entry.surface === 'rail' ? 'viewer' : entry.surface,
                 ...(entry.workspaceId ? { workspaceId: entry.workspaceId } : {}),
                 ...(entry.sessionId ? { sessionId: entry.sessionId } : {}),
@@ -154,7 +158,7 @@ export class ExtensionContributionOwner {
     for (const demand of this.currentDemands()) {
       if (!this.scopes.isCurrent(demand.owner)) continue
       for (const entry of demand.entries.filter((entry) => entry.installationId === id)) {
-        for (const session of this.contexts()?.sessions(demand.owner) ?? []) {
+        for (const session of this.contexts().sessions(demand.owner)) {
           if (
             entry.sessionId === session.id ||
             (!entry.sessionId && entry.workspaceId === session.workspace.id)
@@ -169,22 +173,20 @@ export class ExtensionContributionOwner {
   private currentDemands(): readonly DemandRecord[] {
     return [
       ...this.demands.values(),
-      ...this.guests
-        .visibleViewContributions()
-        .map(({ owner, view }): DemandRecord => ({
-          owner,
-          entries: [
-            {
-              installationId: view.installationId,
-              contributionId: view.contributionId,
-              surface: 'viewer',
-              ...(view.context?.workspace
-                ? { workspaceId: view.context.workspace.id }
-                : {}),
-              ...(view.context?.session ? { sessionId: view.context.session.id } : {}),
-            },
-          ],
-        })),
+      ...this.guests.visibleViewContributions().map(({ owner, view }): DemandRecord => ({
+        owner,
+        entries: [
+          {
+            installationId: view.installationId,
+            contributionId: view.contributionId,
+            surface: 'viewer',
+            ...(view.context?.workspace
+              ? { workspaceId: view.context.workspace.id }
+              : {}),
+            ...(view.context?.session ? { sessionId: view.context.session.id } : {}),
+          },
+        ],
+      })),
     ]
   }
 
@@ -205,7 +207,7 @@ export class ExtensionContributionOwner {
                 ),
             )
             let existing = this.updaters.get(activation.installationId)
-            if (existing?.failure) continue
+            if (existing?.failure && this.scopes.isCurrent(existing.owner)) continue
             if (existing) {
               try {
                 this.guests.assertView(existing.view.id)

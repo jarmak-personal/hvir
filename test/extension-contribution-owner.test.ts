@@ -56,9 +56,14 @@ function fixture() {
     visibility: vi.fn(),
     send: vi.fn(),
   }
-  const guests = new ExtensionGuestOwner(activations, scopes, surface, () => undefined)
   const contexts = contextFixture().contexts
-  guests.contexts = contexts
+  const guests = new ExtensionGuestOwner(
+    activations,
+    scopes,
+    surface,
+    () => undefined,
+    contexts,
+  )
   const presentation = new ExtensionPresentationState(
     { read: () => Promise.resolve({}), save: () => Promise.resolve() },
     () => undefined,
@@ -86,27 +91,81 @@ function fixture() {
 }
 
 describe('one shared updater from visible contribution demand', () => {
+  it('withdraws old demand and admits independent valid entries when a session races publication', async () => {
+    const data = fixture(),
+      live = data.guests.contexts.sessions(data.a)[0]!.id
+    await data.contributions.demand(data.a, data.demand(live))
+    const first = data.guests.snapshot(data.a)[0]!
+    data.guests.claim(data.a, first.partition, first.url, first.id)
+    data.guests.bind(data.a, first.partition, 10)
+    data.active.set('two', { ...data.active.get('one')!, installationId: 'two' })
+    await expect(
+      data.contributions.demand(data.a, [
+        ...data.demand('ended'),
+        { ...data.demand(live)[0]!, installationId: 'two' },
+      ]),
+    ).resolves.toBeUndefined()
+    expect(data.surface.visibility).toHaveBeenCalledWith(10, false)
+    expect(data.contributions.updaterSessions('one')).toEqual([])
+    expect(
+      data.guests.snapshot(data.a).some((view) => view.installationId === 'two'),
+    ).toBe(true)
+    await data.guests.dispose()
+  })
+  it('recovers a failed updater only after its exact hosting generation is revoked and physical disposal drains', async () => {
+    const data = fixture(),
+      aDemand = data.demand(data.guests.contexts.sessions(data.a)[0]!.id)
+    await data.contributions.demand(data.a, aDemand)
+    await data.contributions.demand(
+      data.b,
+      data.demand(data.guests.contexts.sessions(data.b)[0]!.id),
+    )
+    const first = data.guests.snapshot(data.a)[0]!
+    data.guests.claim(data.a, first.partition, first.url, first.id)
+    data.guests.bind(data.a, first.partition, 10)
+    let finish!: () => void
+    data.surface.destroy.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve
+        }),
+    )
+    data.guests.failed(10, 'Failed exact host')
+    await data.contributions.demand(data.a, [])
+    await data.contributions.demand(data.a, aDemand)
+    expect(data.surface.prepare).toHaveBeenCalledTimes(1)
+    const revoked = data.scopes.revokeOwner(data.a.id)
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(data.surface.prepare).toHaveBeenCalledTimes(1)
+    finish()
+    await revoked
+    await vi.waitFor(() => expect(data.surface.prepare).toHaveBeenCalledTimes(2))
+    expect(data.guests.snapshot(data.b)).toHaveLength(1)
+    expect(data.contributions.snapshot()[0]!.error).toBeUndefined()
+    await data.guests.dispose()
+  })
   it('runs one updater for several owners/rows and observes only current admitted demand', async () => {
     const data = fixture()
     await data.contributions.demand(
       data.a,
-      data.demand(data.guests.contexts!.sessions(data.a)[0]!.id),
+      data.demand(data.guests.contexts.sessions(data.a)[0]!.id),
     )
     await data.contributions.demand(
       data.b,
-      data.demand(data.guests.contexts!.sessions(data.b)[0]!.id),
+      data.demand(data.guests.contexts.sessions(data.b)[0]!.id),
     )
     expect(data.surface.prepare).toHaveBeenCalledTimes(1)
     expect(
       data.contributions.updaterSessions('one').map((session) => session.id),
     ).toEqual([
-      data.guests.contexts!.sessions(data.a)[0]!.id,
-      data.guests.contexts!.sessions(data.b)[0]!.id,
+      data.guests.contexts.sessions(data.a)[0]!.id,
+      data.guests.contexts.sessions(data.b)[0]!.id,
     ])
     await data.contributions.demand(data.a, [])
     expect(
       data.contributions.updaterSessions('one').map((session) => session.id),
-    ).toEqual([data.guests.contexts!.sessions(data.b)[0]!.id])
+    ).toEqual([data.guests.contexts.sessions(data.b)[0]!.id])
     expect(data.surface.prepare).toHaveBeenCalledTimes(1)
     await data.contributions.demand(data.b, [])
     expect(data.contributions.updaterSessions('one')).toEqual([])
@@ -115,7 +174,7 @@ describe('one shared updater from visible contribution demand', () => {
 
   it('uses an exact visible ordinary viewer as independent demand and pauses the same updater on hide or failure', async () => {
     const data = fixture()
-    const session = data.guests.contexts!.sessions(data.a)[0]!
+    const session = data.guests.contexts.sessions(data.a)[0]!
     const viewer = await data.guests.open(data.a, 'one', 'detail', undefined, {
       context: {
         surface: 'viewer',
@@ -200,7 +259,7 @@ describe('one shared updater from visible contribution demand', () => {
   })
   it('coalesces same-turn pause and resume after an existing updater reconciles', async () => {
     const data = fixture()
-    const visible = data.demand(data.guests.contexts!.sessions(data.a)[0]!.id)
+    const visible = data.demand(data.guests.contexts.sessions(data.a)[0]!.id)
     await data.contributions.demand(data.a, visible)
     const view = data.guests.snapshot(data.a)[0]!
     data.guests.claim(data.a, view.partition, view.url, view.id)
@@ -221,11 +280,11 @@ describe('one shared updater from visible contribution demand', () => {
     const data = fixture()
     await data.contributions.demand(
       data.a,
-      data.demand(data.guests.contexts!.sessions(data.a)[0]!.id),
+      data.demand(data.guests.contexts.sessions(data.a)[0]!.id),
     )
     await data.contributions.demand(
       data.b,
-      data.demand(data.guests.contexts!.sessions(data.b)[0]!.id),
+      data.demand(data.guests.contexts.sessions(data.b)[0]!.id),
     )
     let finish!: () => void
     const disposal = new Promise<void>((resolve) => {
@@ -244,7 +303,7 @@ describe('one shared updater from visible contribution demand', () => {
   })
   it('marks unchanged-demand observations failed without automatically restarting an updater', async () => {
     const data = fixture()
-    const demand = data.demand(data.guests.contexts!.sessions(data.a)[0]!.id)
+    const demand = data.demand(data.guests.contexts.sessions(data.a)[0]!.id)
     await data.contributions.demand(data.a, demand)
     const view = data.guests.snapshot(data.a)[0]!
     data.guests.claim(data.a, view.partition, view.url, view.id)
@@ -279,9 +338,9 @@ describe('one shared updater from visible contribution demand', () => {
         : Promise.resolve(),
     )
     await data.contributions.demand(data.a, [
-      ...data.demand(data.guests.contexts!.sessions(data.a)[0]!.id),
+      ...data.demand(data.guests.contexts.sessions(data.a)[0]!.id),
       {
-        ...data.demand(data.guests.contexts!.sessions(data.a)[0]!.id)[0]!,
+        ...data.demand(data.guests.contexts.sessions(data.a)[0]!.id)[0]!,
         installationId: 'two',
       },
     ])

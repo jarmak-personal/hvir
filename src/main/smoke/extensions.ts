@@ -1,9 +1,16 @@
 import { join } from 'node:path'
 import { app, BrowserWindow, webContents, type WebContents } from 'electron'
 import { joinHostPath, localPath } from '../../shared/host-path'
+import type { ProjectState } from '../../shared'
+import type { PtySupervisor } from '../pty/pty-supervisor'
+import type {
+  TerminalSessionStore,
+  TerminalSessionObservationSource,
+} from '../terminal/session-registry'
 import type { ExtensionView } from '../../shared/extensions/workbench'
 import type { ProjectHost } from '../project-host/project-host'
 import type { ElectronSmokeDependencies } from './bootstrap-contract'
+import type { LiveSessionMetadataSources } from '../terminal/live-session-metadata'
 import { focusSmokeWindow } from './window-focus'
 import { verifyExtensionWebRtc } from './extension-webrtc'
 import { verifyExtensionPackages } from './extension-packages'
@@ -30,12 +37,13 @@ export async function verifyExtensionScenario(
     'mode' | 'extensions' | 'rendererResources' | 'htmlPreviews'
   >,
   host: ProjectHost,
+  sources: { readonly context: LiveSessionMetadataSources },
 ): Promise<boolean> {
   const { mode, extensions, rendererResources: scopes } = ports
   if (mode !== 'extensions') return false
   await verifyCombinedDocumentProtocols(ports.htmlPreviews)
   await focusSmokeWindow(win)
-  await extensions.start(host)
+  await extensions.start(host, sources.context)
   const directory = extensions.activations?.directory
   if (!directory) throw new Error('Extension application did not start')
   const reference = joinHostPath(directory, 'reference')
@@ -471,5 +479,18 @@ async function verifyCombinedDocumentProtocols(
   } finally {
     fixture.destroy()
     previews.release(preview.id)
+  }
+}
+
+/** Smoke composes the same read-only metadata port from its existing domain sources. */
+export function extensionPtyPorts(
+  ptySupervisor: PtySupervisor,
+  terminalSessions: TerminalSessionStore & TerminalSessionObservationSource,
+  projects: { get(): ProjectState; observe(listener: () => void): () => void },
+) {
+  return {
+    ptySupervisor,
+    terminalSessions,
+    getProjectState: () => projects.get(),
   }
 }

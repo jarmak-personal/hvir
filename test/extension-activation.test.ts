@@ -6,6 +6,60 @@ import { readInstallationState } from '../src/main/extensions/installation-state
 import { extensionInstallationFixture as fixture } from './fixtures/extension-installation'
 
 describe('extension activation and state owner', () => {
+  it.each(['truncated', 'oversized', 'invalid shape'] as const)(
+    'keeps unrelated installations usable and forgettable with %s presentation cache',
+    async (condition) => {
+      const data = await fixture(),
+        owner = data.make(),
+        successor = data.make()
+      try {
+        await data.packageAt('a')
+        await data.packageAt('b', { id: 'other.reference' })
+        await owner.start(data.lock)
+        for (const source of ['a', 'b'])
+          await owner.enable(
+            source,
+            owner.snapshot().installations.find((entry) => entry.source === source)!
+              .revision!,
+          )
+        await owner.dispose()
+        await fs.writeFile(
+          join(data.root, 'presentation.json'),
+          condition === 'truncated'
+            ? '{broken'
+            : condition === 'oversized'
+              ? 'x'.repeat(256 * 1024 + 1)
+              : '[]',
+        )
+        await successor.start(data.lock)
+        const presentation = new ExtensionPresentationState(
+          {
+            read: () => successor.readPresentation(),
+            save: (value, current, signal) =>
+              successor.savePresentation(value, current, signal),
+          },
+          vi.fn(),
+        )
+        await expect(presentation.restore()).resolves.toBeUndefined()
+        expect(successor.active.size).toBe(2)
+        const selected = successor
+          .snapshot()
+          .installations.find((entry) => entry.source === 'a')!
+        await expect(
+          successor.remove('a', selected.sourceIdentity, true),
+        ).resolves.toBeDefined()
+        expect(successor.active.size).toBe(1)
+        expect(
+          successor.snapshot().installations.find((entry) => entry.source === 'b')!
+            .enabled,
+        ).toBe(true)
+        expect(await successor.readPresentation()).toEqual({})
+      } finally {
+        await Promise.all([owner.dispose(), successor.dispose()])
+        await data.dispose()
+      }
+    },
+  )
   it.each([false, true])(
     'keeps presentation and identity together across remove/reinstall/restart (forget=%s)',
     async (forget) => {

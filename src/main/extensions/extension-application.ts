@@ -7,7 +7,8 @@ import type { ExtensionPlatformState } from '../../shared/extensions/workbench'
 import { ExtensionActivationOwner } from './activation'
 import { ElectronExtensionGuestSurface } from './electron-guest-surface'
 import { ExtensionGuestOwner } from './guest-owner'
-import { ExtensionContextOwner, type ExtensionContextSources } from './context-owner'
+import { ExtensionContextOwner } from './context-owner'
+import type { LiveSessionMetadataSources } from '../terminal/live-session-metadata'
 import { ExtensionActionOwner } from './action-owner'
 import { ExtensionContributionOwner } from './contribution-owner'
 import { ExtensionPresentationState } from './presentation-state'
@@ -22,12 +23,13 @@ export class ExtensionApplicationRuntime {
   contributions?: ExtensionContributionOwner
   contexts?: ExtensionContextOwner
   private disposeContext?: () => void
+  private publishedContributions?: string
 
-  connectContext(sources: ExtensionContextSources): void {
+  private connectContext(sources: LiveSessionMetadataSources): void {
     this.disposeContext?.()
     this.contexts = new ExtensionContextOwner(sources)
-    if (this.guests) this.guests.contexts = this.contexts
     this.disposeContext = this.contexts.observe(() => {
+      if (!this.activations?.active.size) return
       this.actions?.revalidate()
       this.guests?.updateContext()
       this.guests?.presentationState?.pruneSessions(this.contexts!.sessionsForAll())
@@ -37,10 +39,11 @@ export class ExtensionApplicationRuntime {
   }
 
   private publishContributions(): void {
-    this.events.toWindows(
-      'extensions:contributions-changed',
-      this.contributions?.snapshot() ?? [],
-    )
+    const snapshot = this.contributions?.snapshot() ?? []
+    const current = JSON.stringify([this.contexts?.revision, snapshot])
+    if (current === this.publishedContributions) return
+    this.publishedContributions = current
+    this.events.toWindows('extensions:contributions-changed', snapshot)
     this.guests?.publishValues()
   }
   private starting?: Promise<void>
@@ -53,14 +56,16 @@ export class ExtensionApplicationRuntime {
     private readonly userData: HostPath,
   ) {}
 
-  start(host: ProjectHost): Promise<void> {
-    return (this.starting ??= this.initialize(host).catch(async (reason: unknown) => {
-      this.failure = `Extensions could not start: ${reason instanceof Error ? reason.message.slice(0, 240) : 'storage unavailable'}. Check the extensions and extension-state folders in this data directory.`
-      await this.activations?.dispose()
-      await this.guests?.dispose()
-      await this.surface.dispose()
-      this.events.toWindows('extensions:state-changed', this.snapshot())
-    }))
+  start(host: ProjectHost, sources: LiveSessionMetadataSources): Promise<void> {
+    return (this.starting ??= this.initialize(host, sources).catch(
+      async (reason: unknown) => {
+        this.failure = `Extensions could not start: ${reason instanceof Error ? reason.message.slice(0, 240) : 'storage unavailable'}. Check the extensions and extension-state folders in this data directory.`
+        await this.activations?.dispose()
+        await this.guests?.dispose()
+        await this.surface.dispose()
+        this.events.toWindows('extensions:state-changed', this.snapshot())
+      },
+    ))
   }
 
   snapshot(): ExtensionPlatformState {
@@ -90,7 +95,13 @@ export class ExtensionApplicationRuntime {
     await this.surface.dispose()
   }
 
-  private async initialize(host: ProjectHost): Promise<void> {
+  private async initialize(
+    host: ProjectHost,
+    sources: LiveSessionMetadataSources,
+  ): Promise<void> {
+    this.connectContext(sources)
+    const contexts = this.contexts
+    if (!contexts) throw new Error('Extension context admission is unavailable')
     const directory = joinHostPath(this.userData, 'extensions')
     const storage = joinHostPath(this.userData, 'extension-state')
     const packagesRoot = joinHostPath(storage, 'packages')
@@ -133,9 +144,9 @@ export class ExtensionApplicationRuntime {
           views,
           ...(selectedId ? { selectedId, focus: focus !== false } : {}),
         }),
+      contexts,
     )
     this.guests = guests
-    guests.contexts = this.contexts
     const presentation = new ExtensionPresentationState(
       {
         read: () => activations.readPresentation(),
@@ -157,7 +168,7 @@ export class ExtensionApplicationRuntime {
     this.contributions = new ExtensionContributionOwner(
       activations,
       guests,
-      () => this.contexts,
+      () => contexts,
       presentation,
       this.scopes,
       () => this.publishContributions(),

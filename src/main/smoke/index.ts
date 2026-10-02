@@ -35,7 +35,6 @@ import {
 } from '../harness/harness-provider'
 import { HarnessUsageDemandController } from '../harness/harness-usage-demand-controller'
 import { sendRendererEvent } from '../renderer-event-delivery'
-import { extensionPtyPorts } from './extension-context-fixture'
 import { registerIpcHandlers } from '../ipc'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import { PtySupervisor } from '../pty/pty-supervisor'
@@ -74,7 +73,7 @@ import { createTerminalMoveSmokeHarness } from './terminal-move'
 import { createSmokeTerminalSessionStore } from './terminal-session-store'
 import { verifyTerminalPresentationLifecycle } from './terminal-presentation'
 import { RendererEventPublisher } from '../renderer-event-publisher'
-import { verifyExtensionScenario } from './extensions'
+import { extensionPtyPorts, verifyExtensionScenario } from './extensions'
 import { verifyWebPaneWorkflow } from './web-pane'
 import { verifyWorkspaceRemoteWorkflow } from './workspace-remote'
 import { workspaceCloseSmokeCommands } from './workspace-close'
@@ -480,7 +479,8 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     })
     recordSmokePhase('scenario-active')
     if (await verifyDevelopmentPerformanceMode(win, mode)) return 0
-    if (await verifyExtensionScenario(win, dependencies, host)) return 0
+    if (await verifyExtensionScenario(win, dependencies, host, sessionsObservation))
+      return 0
     if (mode === 'renderer-recovery') {
       const result = await verifyRendererRecoveryScenario({
         win,

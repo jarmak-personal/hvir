@@ -51,6 +51,91 @@ const view: ExtensionView = {
 }
 
 describe('extension contribution placement and focus', () => {
+  it('keeps same-workspace hide/reopen but closes every inaccessible old-workspace left guest', async () => {
+    const manifest = validateExtensionManifest(
+      exampleManifest({
+        views: [
+          { ...exampleManifest().views[0]!, navigation: 'left', placement: 'workspace' },
+        ],
+      }),
+    ).manifest
+    const left = {
+      ...view,
+      id: 'left',
+      contributionId: manifest.views[0]!.id,
+      context: { ...view.context!, surface: 'left' as const },
+    }
+    const hiddenLeft = { ...left, id: 'hidden-left', installationId: 'two' }
+    const independent = {
+      ...view,
+      id: 'independent',
+      context: { surface: 'top' as const, visible: false },
+    }
+    const invoke = vi.fn(() => Promise.resolve()),
+      open = vi.fn(() => Promise.resolve(left))
+    const model: Contributions = {
+      state: [{ installationId: 'one', extensionName: 'Example', manifest, values: [] }],
+      views: [left, hiddenLeft, independent, view],
+      topActive: false,
+      obscured: false,
+      terminalIds: {},
+      sessions: [],
+      workspaceId: 'workspace',
+      foreground: true,
+      open,
+      demand: () => () => undefined,
+      closeTop: vi.fn(),
+      selectTop: vi.fn(),
+    }
+    vi.stubGlobal('hvir', { invoke, send: vi.fn() })
+    const element = document.createElement('div')
+    document.body.append(element)
+    const root = createRoot(element)
+    const render = (workspaceId: string) =>
+      root.render(
+        createElement(ExtensionContributionContext.Provider, {
+          value: { ...model, workspaceId },
+          children: createElement(ExtensionLeftRail, {
+            visible: true,
+            children: createElement('div'),
+          }),
+        }),
+      )
+    try {
+      act(() => render('workspace'))
+      await act(async () => {
+        element.querySelector<HTMLButtonElement>('nav button')!.click()
+        await Promise.resolve()
+      })
+      expect(element.querySelector('[aria-current=page]')).not.toBeNull()
+      act(() =>
+        [...element.querySelectorAll<HTMLButtonElement>('nav button')]
+          .find((button) => button.textContent === 'Project views')!
+          .click(),
+      )
+      expect(element.querySelector('[aria-current=page]')).toBeNull()
+      expect(invoke).not.toHaveBeenCalled()
+      await act(async () => {
+        element.querySelector<HTMLButtonElement>('nav button')!.click()
+        await Promise.resolve()
+      })
+      expect(open).toHaveBeenCalledTimes(2)
+      act(() =>
+        [...element.querySelectorAll<HTMLButtonElement>('nav button')]
+          .find((button) => button.textContent === 'Project views')!
+          .click(),
+      )
+      act(() => render('next-workspace'))
+      expect(invoke.mock.calls).toEqual([
+        ['extensions:close-view', { viewId: left.id }],
+        ['extensions:close-view', { viewId: hiddenLeft.id }],
+      ])
+    } finally {
+      act(() => root.unmount())
+      element.remove()
+      vi.unstubAllGlobals()
+    }
+  })
   it.each(['missing', 'failed'] as const)(
     'dismisses an exact %s popup snapshot and returns focus without activating its terminal',
     async (condition) => {

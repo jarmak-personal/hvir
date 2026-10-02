@@ -449,8 +449,6 @@ export class ExtensionActivationOwner {
       }
       if (forget && prior) {
         const saved = await this.readPresentationFile()
-        if (!saved || typeof saved !== 'object' || Array.isArray(saved))
-          throw new Error('Invalid saved extension presentation')
         const next = { ...saved } as Record<string, unknown>
         delete next[prior.installationId]
         await this.assertWritable()
@@ -539,7 +537,7 @@ export class ExtensionActivationOwner {
     return joinHostPath(this.stateFile, '..', 'presentation.json')
   }
 
-  private async readPresentationFile(): Promise<unknown> {
+  private async readPresentationFile(): Promise<Record<string, unknown>> {
     await this.assertWritable()
     try {
       const value = await this.host.readTextFilePrefix(
@@ -549,10 +547,13 @@ export class ExtensionActivationOwner {
       if (!value.complete || value.validUtf8 === false)
         throw new Error('Saved presentation exceeds its bound')
       await this.assertWritable()
-      return JSON.parse(value.content) as unknown
-    } catch (reason) {
-      if ((reason as { code?: unknown }).code === 'ENOENT') return {}
-      throw reason
+      const parsed: unknown = JSON.parse(value.content)
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : {}
+    } catch {
+      await this.assertWritable()
+      return {}
     }
   }
 

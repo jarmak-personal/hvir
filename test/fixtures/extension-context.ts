@@ -1,8 +1,11 @@
+import { ExtensionContextOwner } from '../../src/main/extensions/context-owner'
+import type { LiveSessionMetadataSources } from '../../src/main/terminal/live-session-metadata'
 import {
-  ExtensionContextOwner,
-  type ExtensionContextSources,
-} from '../../src/main/extensions/context-owner'
-import { localPath, type ProjectState } from '../../src/shared'
+  localPath,
+  asHarnessProviderId,
+  asHarnessProfileId,
+  type ProjectState,
+} from '../../src/shared'
 import type { ObservedManagedPty } from '../../src/main/pty/pty-supervisor'
 
 export function contextFixture() {
@@ -19,24 +22,55 @@ export function contextFixture() {
       listeners[index] = listeners[index]!.filter((value) => value !== callback)
     }
   }
-  const sources: ExtensionContextSources = {
+  const sources: LiveSessionMetadataSources = {
     projectState: () =>
       ({
-        revision: 1, root, connectionState: disconnected ? 'disconnected' : 'connected', watchTier: 'native', activeProjectId: 'project', activeWorkspaceId: 'workspace',
+        revision: 1,
+        root,
+        connectionState: disconnected ? 'disconnected' : 'connected',
+        watchTier: 'native',
+        activeProjectId: 'project',
+        activeWorkspaceId: 'workspace',
         projects: [
           {
-            id: 'project', registeredRoot: root, displayName: 'Project', watchTier: 'native', activeWorkspaceId: 'workspace',
+            id: 'project',
+            registeredRoot: root,
+            displayName: 'Project',
+            watchTier: 'native',
+            activeWorkspaceId: 'workspace',
             connectionState: disconnected ? 'disconnected' : 'connected',
             workspaces: [
-              { id: 'workspace', root, name: 'Workspace', main: true, closed, missing: false, repository: false, changedFiles: 0 },
+              {
+                id: 'workspace',
+                root,
+                name: 'Workspace',
+                main: true,
+                closed,
+                missing: false,
+                repository: false,
+                changedFiles: 0,
+              },
             ],
           },
         ],
       }) satisfies ProjectState,
     observeProjects: subscribe(0),
     sessions: {
-      get: () => ({ title }) as ReturnType<ExtensionContextSources['sessions']['get']>,
-      observationSnapshot: () => [],
+      observationSnapshot: () =>
+        [1, 2].map((id) => ({
+          id: `terminal-${id}`,
+          title,
+          workspaceRoot: root,
+          cwd: root,
+          providerId: asHarnessProviderId('hvir.shell'),
+          profileId: asHarnessProfileId('shell-default'),
+          launchRevision: 1,
+          recoverySkipCount: 0,
+          hostId: 'local',
+          position: id,
+          active: false,
+          updatedAt: 1,
+        })),
       observe: subscribe(1),
     },
     ptys: {

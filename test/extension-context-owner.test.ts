@@ -45,16 +45,37 @@ describe('extension metadata from existing context owners', () => {
       ).toBe(true)
     },
   )
-  it('subscribes to project, registry, and live PTY changes and releases every source', () => {
+  it('subscribes to relevant project, registry, and live PTY changes and releases every source', async () => {
     const data = contextFixture(),
       listener = vi.fn()
     const dispose = data.contexts.observe(listener)
     data.change('title')
+    await Promise.resolve()
     data.change('exit')
+    await Promise.resolve()
     data.change('close')
+    await Promise.resolve()
     expect(listener).toHaveBeenCalledTimes(3)
     dispose()
     expect(data.listeners.flat()).toHaveLength(0)
+  })
+  it('ignores telemetry-only publications and coalesces actual metadata changes', async () => {
+    const data = contextFixture(),
+      listener = vi.fn()
+    const dispose = data.contexts.observe(listener)
+    for (let index = 0; index < 40; index++)
+      for (const callback of data.listeners[2]!) callback()
+    await Promise.resolve()
+    expect(listener).not.toHaveBeenCalled()
+    data.change('title')
+    data.change('exit')
+    await Promise.resolve()
+    expect(listener).toHaveBeenCalledTimes(1)
+    expect(data.contexts.revision).toBe(1)
+    data.change('close')
+    dispose()
+    await Promise.resolve()
+    expect(listener).toHaveBeenCalledTimes(1)
   })
   it('bounds qualified metadata by encoded bytes even below the session count limit', () => {
     const source = contextFixture().contexts.sessions({ id: 1, generation: 1 })[0]!

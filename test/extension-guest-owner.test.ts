@@ -16,6 +16,7 @@ import { contextFixture } from './fixtures/extension-context'
 import { ExtensionPresentationState } from '../src/main/extensions/presentation-state'
 import { ExtensionActionOwner } from '../src/main/extensions/action-owner'
 import { exampleManifest } from './fixtures/extension-package'
+import { localPath } from '../src/shared/host-path'
 
 function fixture(
   overrides: Partial<ExtensionGuestSurfacePort> = {},
@@ -49,14 +50,17 @@ function fixture(
   }
   const publish = vi.fn()
   const assertWritable = vi.fn(() => Promise.resolve())
+  const context = contextFixture()
   const owner = new ExtensionGuestOwner(
     { active, assertWritable },
     scopes,
     surface,
     publish,
+    context.contexts,
   )
   return {
     owner,
+    context,
     renderer,
     active,
     scopes,
@@ -83,6 +87,72 @@ async function attached(data: ReturnType<typeof fixture>, guestId = 10) {
 }
 
 describe('extension guest capability and lifetime owner', () => {
+  it('refuses construction without the required context admission owner', () => {
+    const data = fixture()
+    expect(
+      () =>
+        new ExtensionGuestOwner(
+          { active: data.active, assertWritable: data.assertWritable },
+          data.scopes,
+          data.surface,
+          data.publish,
+          undefined as unknown as ReturnType<typeof contextFixture>['contexts'],
+        ),
+    ).toThrow('context admission')
+  })
+  it('reclaims capacity from exact previous-workspace left guests after physical disposal', async () => {
+    const data = fixture(
+      {},
+      {
+        views: [
+          { ...exampleManifest().views[0]!, navigation: 'left', placement: 'workspace' },
+        ],
+      },
+    )
+    const state = data.context.sources.projectState(),
+      project = state.projects[0]!,
+      workspace = project.workspaces[0]!
+    vi.spyOn(data.context.sources, 'projectState').mockReturnValue({
+      ...state,
+      projects: [
+        {
+          ...project,
+          workspaces: Array.from({ length: 9 }, (_, index) => ({
+            ...workspace,
+            id: `workspace-${index}`,
+            root: localPath(`/project-${index}`),
+          })),
+        },
+      ],
+    })
+    const open = (index: number) =>
+      data.owner.open(data.renderer, 'installation', 'reference', undefined, {
+        context: { surface: 'left', workspaceId: `workspace-${index}` },
+      })
+    const retained = await Promise.all(
+      Array.from({ length: 8 }, (_, index) => open(index)),
+    )
+    await expect(open(8)).rejects.toThrow('Close an extension view')
+    let finish!: () => void
+    const drained = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    data.destroy.mockImplementation(() => drained)
+    const closed = Promise.all(
+      retained.map((view) => data.owner.close(data.renderer, view.id)),
+    )
+    let settled = false
+    void closed.then(() => {
+      settled = true
+    })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    finish()
+    await closed
+    expect((await open(8)).context?.workspace?.id).toBe('workspace-8')
+    expect(data.owner.snapshot(data.renderer)).toHaveLength(1)
+    await data.owner.dispose()
+  })
   it('discards expired action results without failing the view or cancelling current siblings', async () => {
     const data = fixture(
       {},
@@ -278,8 +348,7 @@ describe('extension guest capability and lifetime owner', () => {
           ],
         },
       )
-      const context = contextFixture()
-      data.owner.contexts = context.contexts
+      const context = data.context
       const state = new ExtensionPresentationState(
         { read: () => Promise.resolve({}), save: () => Promise.resolve() },
         () => data.owner.publishValues(),
