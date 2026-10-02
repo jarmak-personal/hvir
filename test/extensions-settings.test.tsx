@@ -88,7 +88,8 @@ describe('package lifecycle Settings intent', () => {
           revision: 'candidate',
           acceptedRevision: 'accepted',
           warnings: [],
-          enabled: true,
+          enabled: false,
+          retainedIdentity: true,
         },
       ],
     }
@@ -101,6 +102,9 @@ describe('package lifecycle Settings intent', () => {
       root!.render(createElement(ExtensionsSettings))
       await Promise.resolve()
     })
+    expect(element.textContent).toContain('The package changed. Use Reload or Replace')
+    expect(element.textContent).toContain('Saved setup is kept')
+    expect(element.textContent).not.toContain('kept for reinstall')
     const button = (name: string) =>
       [...element!.querySelectorAll<HTMLButtonElement>('button')].find(
         (entry) => entry.textContent === name,
@@ -135,5 +139,40 @@ describe('package lifecycle Settings intent', () => {
       forget: true,
     })
     expect(element.querySelector('[role="dialog"]')).toBeNull()
+  })
+  it('gives a missing accepted source a repair and discovery step before revision acceptance', async () => {
+    const state: ExtensionPlatformState = {
+      writable: true,
+      installations: [
+        {
+          source: 'missing',
+          enabled: false,
+          warnings: [],
+          acceptedRevision: 'accepted',
+          retainedIdentity: true,
+          error: 'Package is missing',
+        },
+      ],
+    }
+    vi.stubGlobal('hvir', {
+      invoke: vi.fn(() => Promise.resolve(state)),
+      on: vi.fn(() => vi.fn()),
+    })
+    element = document.createElement('div')
+    document.body.append(element)
+    root = createRoot(element)
+    await act(async () => {
+      root!.render(createElement(ExtensionsSettings))
+      await Promise.resolve()
+    })
+    expect(element.textContent).toContain(
+      'Restore or repair the package, then choose Discover extensions',
+    )
+    expect(element.textContent).not.toContain('The package changed. Use Reload')
+    expect(
+      [...element.querySelectorAll('button')].some(
+        (button) => button.textContent === 'Reload',
+      ),
+    ).toBe(false)
   })
 })

@@ -62,7 +62,10 @@ Keep installation identity for reinstall, or select **Forget saved setup for thi
 its saved platform package state. Libraries, project skills, issue databases and other domain
 data are kept. Reappearing packages remain inactive until explicit Enable or Replace. An
 unfinished removal remains visible and retryable across restart; cleanup failure cannot
-restore authority. Ordinary removal requires recoverable OS trash.
+restore authority. Ordinary removal requires recoverable OS trash. Trash receives a visible
+`remove-UUID` directory or `remove-UUID.zip` archive. After **Put Back** or recovery from
+Trash, choose **Discover extensions**, then explicitly **Enable**. The recovered source
+name changes; its manifest ID still identifies the same saved setup.
 
 Captured storage keeps at most three revisions per package, 96 revisions and 128 MiB globally.
 Accepted/live revisions and the current preparation are protected under the same writer lease.

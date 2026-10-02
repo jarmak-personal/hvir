@@ -30,7 +30,7 @@ export async function collectExtensionPackages(
     if (/^\.capture-[a-f0-9-]{36}$/u.test(name)) {
       const captured = await storage.captureDirectory(path, EXTENSION_LIMITS, signal)
       await assertWritable()
-      await storage.collectDirectory(path, captured, EXTENSION_LIMITS.files, signal)
+      await storage.collectDirectory(path, captured, EXTENSION_LIMITS, signal)
     } else if (/^[a-f0-9]{64}$/u.test(name)) {
       const revision = await packages.load(name).catch((reason: unknown) => {
         throw new Error(
@@ -127,7 +127,7 @@ export async function collectExtensionPackages(
     await storage.collectDirectory(
       joinHostPath(packages.root, entry.name),
       entry.revision,
-      EXTENSION_LIMITS.files,
+      EXTENSION_LIMITS,
       signal,
     )
   }

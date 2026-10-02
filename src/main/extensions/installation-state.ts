@@ -72,7 +72,7 @@ export function readInstallationState(value: unknown): {
       typeof item['source'] !== 'string' ||
       !/^[^/\\.][^/\\]{0,254}$/u.test(item['source']) ||
       typeof item['staging'] !== 'string' ||
-      !/^\.remove-[a-f0-9-]{36}$/u.test(item['staging']) ||
+      !/^remove-[a-f0-9-]{36}(?:\.zip)?$/u.test(item['staging']) ||
       typeof item['identity'] !== 'string' ||
       !/^\d+:\d+$/u.test(item['identity']) ||
       !['directory', 'zip', 'development'].includes(item['kind'] as string) ||

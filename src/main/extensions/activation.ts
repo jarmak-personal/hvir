@@ -163,13 +163,12 @@ export class ExtensionActivationOwner {
       this.directory,
       EXTENSION_LIMITS.installations * 2,
     )
+    const staged = new Set(this.removals.map((entry) => entry.staging))
+    const ordinary = entries.filter((name) => !name.startsWith('.') && !staged.has(name))
     this.discovered.clear()
     this.sourceIdentities.clear()
     this.installations = []
-    if (
-      entries.filter((name) => !name.startsWith('.')).length >
-      EXTENSION_LIMITS.installations
-    ) {
+    if (ordinary.length > EXTENSION_LIMITS.installations) {
       this.installations = [
         {
           source: 'extensions',
@@ -181,8 +180,7 @@ export class ExtensionActivationOwner {
       this.publish()
       return this.snapshot()
     }
-    for (const name of [...entries].sort()) {
-      if (name.startsWith('.')) continue
+    for (const name of [...ordinary].sort()) {
       try {
         const path = joinHostPath(this.directory, name)
         const entryIdentity = await this.host.extensionStorage!.entryIdentity(path)
@@ -416,7 +414,7 @@ export class ExtensionActivationOwner {
           )
         removal = {
           source,
-          staging: `.remove-${randomUUID()}`,
+          staging: `remove-${randomUUID()}${type === 'file' ? '.zip' : ''}`,
           identity,
           forget,
           kind: type === 'symlink' ? 'development' : type === 'dir' ? 'directory' : 'zip',

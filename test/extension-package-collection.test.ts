@@ -41,7 +41,7 @@ describe('stored package collection at the native filesystem boundary', () => {
             data.host.extensionStorage.collectDirectory(
               source,
               captured,
-              EXTENSION_LIMITS.files,
+              EXTENSION_LIMITS,
             ),
           ).rejects.toThrow()
           if (mutation === 'insert')

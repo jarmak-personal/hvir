@@ -215,7 +215,7 @@ describe('explicit package revision and removal lifetime', () => {
     const intercepted = vi
       .spyOn(data.host.fileTransfer, 'renameNoReplace')
       .mockImplementation(async (source, destination, options) => {
-        if (!raced && destination.path.includes('.remove-')) {
+        if (!raced && destination.path.includes('remove-')) {
           raced = true
           await fs.rename(source.path, join(data.root, 'original-link'))
           await fs.symlink(join(data.root, 'unrelated'), source.path)
@@ -481,6 +481,14 @@ describe('retention cleanup failure recovery', () => {
     const fail = vi
       .spyOn(data.host.fileDeletion, 'trashEntry')
       .mockRejectedValueOnce(new Error('held trash'))
+    const rename = data.host.fileTransfer.renameNoReplace.bind(data.host.fileTransfer)
+    const holdRestore = vi
+      .spyOn(data.host.fileTransfer, 'renameNoReplace')
+      .mockImplementation((source, destination, options) => {
+        if (source.path.includes('/remove-'))
+          return Promise.reject(new Error('restore held'))
+        return rename(source, destination, options)
+      })
     try {
       for (let index = 0; index < 32; index++)
         await data.packageAt(`package-${index}`, { id: `example.package-${index}` })
@@ -501,6 +509,7 @@ describe('retention cleanup failure recovery', () => {
         state.installations.find((entry) => entry.source === 'package-0')?.removalPending,
       ).toBe(true)
     } finally {
+      holdRestore.mockRestore()
       fail.mockRestore()
       await owner.dispose()
       await data.dispose()

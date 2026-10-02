@@ -139,19 +139,10 @@ export class LocalExtensionStorage implements ExtensionStoragePort {
   async collectDirectory(
     path: HostPath,
     expected: CapturedExtensionBytes,
-    maxEntries: number,
+    bounds: Parameters<ExtensionStoragePort['captureDirectory']>[1],
     signal?: AbortSignal,
   ): Promise<void> {
-    const current = await this.captureDirectory(
-      path,
-      {
-        files: maxEntries,
-        depth: 12,
-        fileBytes: 2 * 1024 * 1024,
-        packageBytes: 16 * 1024 * 1024,
-      },
-      signal,
-    )
+    const current = await this.captureDirectory(path, bounds, signal)
     if (
       current.sourceIdentity !== expected.sourceIdentity ||
       current.files.size !== expected.files.size ||
@@ -174,10 +165,10 @@ export class LocalExtensionStorage implements ExtensionStoragePort {
     }
     let entries = 0
     const visit = async (fd: number, depth: number, prefix: string): Promise<void> => {
-      if (depth > 12) throw new Error('Stored package cleanup is too deep')
-      for (const name of native.entryNames(fd, maxEntries + 1)) {
+      if (depth > bounds.depth) throw new Error('Stored package cleanup is too deep')
+      for (const name of native.entryNames(fd, bounds.files + 1)) {
         signal?.throwIfAborted()
-        if (++entries > maxEntries)
+        if (++entries > bounds.files)
           throw new Error('Stored package cleanup has too many entries')
         const child = native.openChild(fd, name, false)
         try {

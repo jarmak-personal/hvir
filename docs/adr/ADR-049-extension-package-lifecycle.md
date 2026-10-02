@@ -44,9 +44,11 @@ Interrupted temporary captures are collected under the next writer after bounded
 inspection. Unexpected or changed stored trees fail visibly instead of widening cleanup.
 
 Remove revokes activation before cleanup. Stage the selected top-level entry under a unique
-private removal name with no-replace rename, verify its exact identity, and only then trash an
-ordinary directory/ZIP or unlink a development link. An identity mismatch refuses deletion and
-attempts a no-replace restoration. Author targets are never removed. Persist the narrow removal
+visible removal name (preserving the ZIP suffix) with no-replace rename, verify its exact identity,
+and only then trash an ordinary directory/ZIP or unlink a development link. Check recoverable
+trash availability before staging ordinary packages. An identity mismatch refuses deletion;
+failed trash attempts exact-identity, no-replace restoration. If restoration cannot finish,
+retain the visible staged entry and report its exact location without replacing a foreign source. Author targets are never removed. Persist the narrow removal
 intent before staging so an interrupted cleanup remains visible and retryable. The user can keep
 installation identity for reinstall or explicitly forget its platform package state. This never
 removes libraries, project skills, issue databases or other domain data. Later managed-delivery

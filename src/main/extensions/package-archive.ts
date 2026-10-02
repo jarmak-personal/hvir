@@ -60,7 +60,7 @@ export async function captureExtensionArchive(
       aborted,
     ])
     const files = new Map<string, Uint8Array>()
-    const destinations = new Map<string, boolean>()
+    const explicitNames = new Set<string>()
     const topology = new Map<string, boolean>()
 
     let total = 0
@@ -77,25 +77,8 @@ export async function captureExtensionArchive(
       const name = extensionAssetPath(
         directory ? entry.fileName.slice(0, -1) : entry.fileName,
       )
-      const parts = name.split('/')
-      if (parts.length - (directory ? 0 : 1) > EXTENSION_LIMITS.depth)
-        throw new Error('ZIP directories are too deep')
-      const portable = name.normalize('NFC').toLowerCase()
-      if (destinations.has(portable)) throw new Error('ZIP destinations conflict')
-      for (let index = 1; index < parts.length; index++) {
-        if (
-          destinations.get(
-            parts.slice(0, index).join('/').normalize('NFC').toLowerCase(),
-          ) === false
-        )
-          throw new Error('ZIP file and directory destinations conflict')
-      }
-      if (
-        !directory &&
-        [...destinations.keys()].some((prior) => prior.startsWith(`${portable}/`))
-      )
-        throw new Error('ZIP file and directory destinations conflict')
-      destinations.set(portable, directory)
+      if (explicitNames.has(name)) throw new Error('ZIP contains duplicate entries')
+      explicitNames.add(name)
       topology.set(name, directory)
       validateExtensionAssetTopology(topology)
       const type = (entry.externalFileAttributes >>> 16) & 0o170000

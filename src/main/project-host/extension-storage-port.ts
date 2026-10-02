@@ -6,6 +6,13 @@ export interface CapturedExtensionBytes {
   readonly directories?: readonly string[]
 }
 
+export interface ExtensionCaptureBounds {
+  readonly files: number
+  readonly depth: number
+  readonly fileBytes: number
+  readonly packageBytes: number
+}
+
 export interface ExtensionWriterLease {
   /** Detect path replacement before each authority-bearing admission or effect. */
   readonly assertCurrent: () => Promise<void>
@@ -33,7 +40,7 @@ export interface ExtensionStoragePort {
   collectDirectory(
     path: HostPath,
     expected: CapturedExtensionBytes,
-    maxEntries: number,
+    bounds: ExtensionCaptureBounds,
     signal?: AbortSignal,
   ): Promise<void>
   installationNames(path: HostPath, limit: number): Promise<readonly string[]>
@@ -43,12 +50,7 @@ export interface ExtensionStoragePort {
   ): Promise<ExtensionWriterLease | undefined>
   captureDirectory(
     path: HostPath,
-    bounds: {
-      readonly files: number
-      readonly depth: number
-      readonly fileBytes: number
-      readonly packageBytes: number
-    },
+    bounds: ExtensionCaptureBounds,
     signal?: AbortSignal,
   ): Promise<CapturedExtensionBytes>
 }

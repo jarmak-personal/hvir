@@ -106,7 +106,15 @@ export function ExtensionsSettings(): ReactElement {
             </p>
           ) : null}
           {installation.retainedIdentity ? (
-            <p>Saved setup kept for reinstall. Choose Enable before opening views.</p>
+            <p>Saved setup is kept. Choose Enable before opening views.</p>
+          ) : null}
+          {installation.acceptedRevision &&
+          installation.acceptedRevision !== installation.revision ? (
+            <p>
+              {installation.revision && !installation.error
+                ? 'The package changed. Use Reload or Replace to accept the new revision.'
+                : 'Restore or repair the package, then choose Discover extensions and explicitly Enable, Reload or Replace it.'}
+            </p>
           ) : null}
           {installation.error ? (
             <p role="alert">{installation.error}</p>
@@ -128,13 +136,6 @@ export function ExtensionsSettings(): ReactElement {
                 Optional capabilities:{' '}
                 {installation.manifest?.optionalCapabilities.join(', ') || 'None'}
               </p>
-              {installation.enabled &&
-              installation.acceptedRevision !== installation.revision ? (
-                <p>
-                  The package changed outside hvir. Use Reload or Replace to accept the
-                  discovered revision.
-                </p>
-              ) : null}
               {installation.warnings.map((warning) => (
                 <p key={warning}>{warning}</p>
               ))}
