@@ -334,6 +334,7 @@ export function TerminalRail({
             session.providerId,
             connectionState,
           )
+          const status = session.status.replace(/(?:^| · )pid -?\d+$/, '')
           return (
             <div
               key={session.id}
@@ -354,21 +355,20 @@ export function TerminalRail({
                   <span className="terminal-list-meta">
                     <span className="terminal-list-profile">
                       {profileDisplayName(profiles, session.profileId)}
-                    </span>{' '}
-                    · {session.status}
-                    {identityLabel(session.identityStatus)}
+                      {status ? ` · ${status}` : ''}
+                      {identityLabel(session.identityStatus)}
+                    </span>
+                    <CompactionMarkers
+                      fact={compactionFact}
+                      className="terminal-list-compactions"
+                    />
                   </span>
                   {showsContext ? (
-                    <>
-                      <TerminalContextMeter
-                        telemetry={session.telemetry}
-                        countOnly={contextPresentation === 'count'}
-                        pressurePolicy={provider?.capabilities.contextPressure}
-                      />
-                      {session.capabilities.compactionObservation ? (
-                        <CompactionMarkers fact={compactionFact} />
-                      ) : null}
-                    </>
+                    <TerminalContextMeter
+                      telemetry={session.telemetry}
+                      countOnly={contextPresentation === 'count'}
+                      pressurePolicy={provider?.capabilities.contextPressure}
+                    />
                   ) : null}
                 </span>
                 {session.attention ? (
