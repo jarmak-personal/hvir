@@ -7,6 +7,7 @@ import {
 } from './HarnessProfilesSettings'
 import type { SettingsDraft, SettingsDraftValidation } from './settings-draft'
 import type { SettingsSection } from './settings-navigation'
+import { ExtensionsSettings } from './sections/ExtensionsSettings'
 import { AppearanceSettings } from './sections/AppearanceSettings'
 import { GitSettings } from './sections/GitSettings'
 import { KeybindingsSettings } from './sections/KeybindingsSettings'
@@ -39,6 +40,8 @@ export function SettingsActiveSection({
   onComposerSubmitMode,
 }: SettingsActiveSectionProps): ReactElement {
   switch (activeSection) {
+    case 'extensions':
+      return <ExtensionsSettings />
     case 'appearance':
       return <AppearanceSettings draft={draft} onChange={onChange} />
     case 'terminal':

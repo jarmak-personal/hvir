@@ -11,6 +11,7 @@ import {
   type PreloadOnlyChannel,
 } from './ipc-contract'
 import { appIpc } from './ipc/app'
+import { extensionsIpc } from './ipc/extensions'
 import { diagnosticsIpc } from './ipc/diagnostics'
 import { projectIpc } from './ipc/project'
 import { filesystemIpc } from './ipc/filesystem'
@@ -105,6 +106,7 @@ export type { TerminalAttentionState } from './terminal-attention'
 
 const contract = composeIpcContracts(
   appIpc,
+  extensionsIpc,
   diagnosticsIpc,
   projectIpc,
   filesystemIpc,

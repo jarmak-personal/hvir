@@ -22,6 +22,7 @@ import { basename, dirname, join, relative, sep } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import { getSystemErrorName } from 'node:util'
 import chokidar from 'chokidar'
+import { LocalExtensionStorage } from './local-extension-storage'
 
 import {
   assertProjectHostTextPrefixByteLimit,
@@ -87,6 +88,7 @@ interface AtomicRenameBinding {
 }
 
 export class LocalHost implements ProjectHost {
+  readonly extensionStorage = new LocalExtensionStorage()
   readonly hostId: HostId = LOCAL_HOST_ID
   readonly connectionState: HostConnectionState = 'connected'
   readonly watchTier: HostWatchTier = 'native'

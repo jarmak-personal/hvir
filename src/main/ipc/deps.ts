@@ -14,6 +14,7 @@ import type {
   RenderContainmentDiagnosticBatch,
   WorkbenchHealthSnapshot,
 } from '../../shared'
+import type { ExtensionApplicationRuntime } from '../extensions/extension-application'
 import type { HarnessProfileStoreContract } from '../harness/harness-profile-store'
 import type { HarnessProbeManager } from '../harness/harness-probe'
 import type { RemoteImagePasteCoordinator } from '../harness/remote-image-paste'
@@ -49,6 +50,7 @@ export interface SystemClipboardPort {
 }
 
 export interface IpcDeps extends IpcRouterAuthorityPort {
+  readonly extensions?: ExtensionApplicationRuntime
   readonly echoWorker: WorkerClient<EchoWorkerProtocol>
   readonly gitWorker: WorkerClient<GitWorkerProtocol>
   readonly filenameSearch: Pick<FilenameSearchCoordinator, 'search' | 'cancel' | 'revoke'>

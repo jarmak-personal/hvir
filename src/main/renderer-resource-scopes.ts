@@ -9,6 +9,7 @@ export type RendererResourceQualifier =
   | {
       readonly lifetime: 'renderer'
       readonly type:
+        | 'extension-views'
         | 'attention'
         | 'ssh-prompt-presentation'
         | 'diagnostic-report'

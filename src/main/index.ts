@@ -4,7 +4,7 @@ import { createProjectCommands } from './ipc/project-commands'
 import { GitMutationCoordinator } from './git/mutation-coordinator'
 import { GitMutationAuthorization } from './git/mutation-authorization'
 import { GitWorkerHostRouter } from './git/worker-host-router'
-import { HtmlPreviewProtocol } from './html-preview-protocol'
+import { installDocumentSurfaces } from './application-document-surfaces'
 import { createWorkerClient, workerPath, type WorkerClient } from './worker-host'
 import { electronTrash, ProjectHostCatalog, RendererSshPrompter } from './project-host'
 import { ProjectFolderPickerCoordinator as FolderPicker } from './project-folder-picker'
@@ -48,7 +48,6 @@ import {
   type EchoWorkerProtocol,
   type GitWorkerProtocol,
 } from '../shared'
-HtmlPreviewProtocol.registerScheme()
 function createWorkbenchEntry(): void {
   const runtime = new WorkbenchRuntime({
     start: startup,
@@ -56,11 +55,6 @@ function createWorkbenchEntry(): void {
     reopen: reopenWorkbench,
     shutdown,
   })
-  const htmlPreviews = runtime.own(
-    'HTML preview protocol',
-    new HtmlPreviewProtocol(),
-    (previews) => previews.dispose(),
-  )
   const harnessProbeManager = runtime.own(
     'harness probe manager',
     new HarnessProbeManager(),
@@ -72,6 +66,7 @@ function createWorkbenchEntry(): void {
     (scopes) => scopes.dispose(),
   )
   const rendererEvents = new RendererEventPublisher(rendererScopes)
+  const surfaces = installDocumentSurfaces(runtime, rendererScopes, rendererEvents)
   const diagnostics = RuntimeDiagnostics.create(
     applicationRuntime.userDataRoot,
     app.isPackaged || __HVIR_SMOKE_BUILD__,
@@ -109,7 +104,8 @@ function createWorkbenchEntry(): void {
   const windowManager = runtime.own(
     'Electron window manager',
     createElectronWindowManager({
-      htmlPreviews,
+      htmlPreviews: surfaces.htmlPreviews,
+      extensionGuests: surfaces.extensions.surface,
       activateRenderer: (ownerId) =>
         installRendererPresentation(rendererScopes.activateOwner(ownerId)),
       rolloverRenderer: (owner) => {
@@ -146,7 +142,7 @@ function createWorkbenchEntry(): void {
   )
   const { routes: webPaneRoutes, createWindow } = windowManager
   async function startup(): Promise<void> {
-    htmlPreviews.register()
+    surfaces.htmlPreviews.register()
     const emit = rendererEvents.toWindows
     sshPrompter = runtime.own(
       'SSH prompter',
@@ -277,7 +273,7 @@ function createWorkbenchEntry(): void {
       resources: rendererScopes,
       sessions: terminalSessionRegistry,
       webPanes: webPaneRoutes,
-      releaseHtmlPreviews: (root) => htmlPreviews.releaseWorkspace(root),
+      releaseHtmlPreviews: (root) => surfaces.htmlPreviews.releaseWorkspace(root),
     })
     const removal = new WorkspaceRemovalCoordinator(projectRegistry, workspaceCleanup)
     workspaceCoordinator = runtime.own(
@@ -360,6 +356,7 @@ function createWorkbenchEntry(): void {
     runtime.own(
       'IPC authority router',
       registerIpcHandlers({
+        extensions: surfaces.extensions,
         echoWorker,
         gitWorker,
         filenameSearch,
@@ -401,7 +398,7 @@ function createWorkbenchEntry(): void {
           windowManager.updateWebPaneBindings(owner.id, bindings),
         updateWebPaneFullPage: (owner, paneId) =>
           windowManager.updateWebPaneFullPage(owner.id, paneId),
-        htmlPreviews,
+        htmlPreviews: surfaces.htmlPreviews,
         webPanes: webPaneRoutes,
         openExternal: (url) => shell.openExternal(url),
         emit,
@@ -409,6 +406,7 @@ function createWorkbenchEntry(): void {
       (router) => router.dispose(),
     )
     createWindow() // Paint before background watch and Git discovery touches a slow directory.
+    void surfaces.extensions.start(hostCatalog.local)
     if (projectRegistry.active.host.connectionState === 'connected') {
       void workspaceCoordinator
         .replaceWatch(projectRegistry.active)
@@ -438,9 +436,10 @@ function createWorkbenchEntry(): void {
         const code = await runElectronSmokeScenario({
           scenario: process.env['HVIR_SMOKE_SCENARIO'],
           projectRoot: localPath(projectRootArgument() ?? process.cwd()),
+          extensions: surfaces.extensions,
           createWindow,
           harnessProbeManager,
-          htmlPreviews,
+          htmlPreviews: surfaces.htmlPreviews,
           rendererResources: rendererScopes,
           diagnostics: diagnosticIpc,
           runtimeDiagnostics: diagnostics,
@@ -497,7 +496,7 @@ function createWorkbenchEntry(): void {
         ) ?? []
     await Promise.all(roots.map((root) => rendererScopes.revokeWorkspace(root)))
     ptySupervisor?.disposeSessions()
-    htmlPreviews.clear()
+    surfaces.htmlPreviews.clear()
     await webPaneRoutes
       .closeAll()
       .catch((error) => console.error('[web-pane] suspend cleanup failed', error))

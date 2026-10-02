@@ -16,12 +16,17 @@ const productionEntries = [
   '/out/main/git-worker.js',
   '/out/main/chunks/git-branches.js',
   '/out/renderer/index.js',
+  '/out/preload/extension-guest.js',
+  '/node_modules/@hvir/extension-storage/index.js',
+  '/node_modules/@hvir/extension-storage/package.json',
+  '/node_modules/@hvir/extension-storage/LICENSE',
   '/node_modules/node-pty/build/Release/pty.node',
   '/node_modules/node-pty/build/Release/spawn-helper',
   '/node_modules/@hvir/rename-noreplace/index.js',
   '/node_modules/@hvir/rename-noreplace/package.json',
   '/node_modules/@hvir/rename-noreplace/LICENSE',
   '/node_modules/@hvir/rename-noreplace/build/Release/rename_noreplace.node',
+  '/node_modules/@hvir/extension-storage/build/Release/extension_storage.node',
 ]
 const buildConfig = readFileSync(
   new URL('../electron.vite.config.ts', import.meta.url),
@@ -143,6 +148,7 @@ describe('packaged runtime inspection', () => {
         '/node_modules/node-pty/build/Release/pty.node',
         '/node_modules/node-pty/build/Release/spawn-helper',
         '/node_modules/@hvir/rename-noreplace/build/Release/rename_noreplace.node',
+        '/node_modules/@hvir/extension-storage/build/Release/extension_storage.node',
       ],
     })
   })
@@ -157,6 +163,7 @@ describe('packaged runtime inspection', () => {
       nativeEntries: [
         '/node_modules/node-pty/build/Release/pty.node',
         '/node_modules/@hvir/rename-noreplace/build/Release/rename_noreplace.node',
+        '/node_modules/@hvir/extension-storage/build/Release/extension_storage.node',
       ],
     })
     expect(() =>
@@ -170,6 +177,7 @@ describe('packaged runtime inspection', () => {
     '/node_modules/node-pty/build/Release/pty.node',
     '/node_modules/node-pty/build/Release/spawn-helper',
     '/node_modules/@hvir/rename-noreplace/build/Release/rename_noreplace.node',
+    '/node_modules/@hvir/extension-storage/build/Release/extension_storage.node',
     '/node_modules/@hvir/rename-noreplace/index.js',
     '/node_modules/@hvir/rename-noreplace/package.json',
     '/node_modules/@hvir/rename-noreplace/LICENSE',

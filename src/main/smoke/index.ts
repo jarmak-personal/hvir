@@ -72,6 +72,8 @@ import { sessionsUsageSmokeProvider } from './sessions-usage-provider'
 import { createTerminalMoveSmokeHarness } from './terminal-move'
 import { createSmokeTerminalSessionStore } from './terminal-session-store'
 import { verifyTerminalPresentationLifecycle } from './terminal-presentation'
+import { RendererEventPublisher } from '../renderer-event-publisher'
+import { verifyExtensionScenario } from './extensions'
 import { verifyWebPaneWorkflow } from './web-pane'
 import { verifyWorkspaceRemoteWorkflow } from './workspace-remote'
 import { workspaceCloseSmokeCommands } from './workspace-close'
@@ -83,8 +85,6 @@ import {
   type Disposer,
   type EchoWorkerProtocol,
   type GitWorkerProtocol,
-  type IpcEventChannel,
-  type IpcEventPayload,
 } from '../../shared'
 
 /** Production-composed Electron acceptance workflow selected by `HVIR_SMOKE=1`. */
@@ -252,10 +252,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       mode === 'document-review',
     )
     if (mode === 'workspace-remote') await prepareProjectFiles()
-    const emit: EmitSmokeEvent = (channel, payload) => {
-      if (smokeWindow && !smokeWindow.isDestroyed())
-        sendRendererEvent(smokeWindow.webContents, channel, payload)
-    }
+    const emit = new RendererEventPublisher(rendererResources).toWindows
     const smokeTerminalSessionHarness = createSmokeTerminalSessionStore(smokeRoot)
     const smokeTerminalSessions = smokeTerminalSessionHarness.store
     const smokeSessionsProviders = new HarnessProviderRegistry([
@@ -394,6 +391,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     )
     const readiness = new SmokeRendererReadiness()
     const ipcRouter = registerIpcHandlers({
+      extensions: dependencies.extensions,
       echoWorker: worker,
       gitWorker: git,
       filenameSearch,
@@ -482,6 +480,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     })
     recordSmokePhase('scenario-active')
     if (await verifyDevelopmentPerformanceMode(win, mode)) return 0
+    if (await verifyExtensionScenario(win, dependencies, host)) return 0
     if (mode === 'renderer-recovery') {
       const result = await verifyRendererRecoveryScenario({
         win,
@@ -813,8 +812,3 @@ function smokeOwnedResourceEvidence(
     rendererGeneration,
   }
 }
-
-type EmitSmokeEvent = <E extends IpcEventChannel>(
-  channel: E,
-  payload: IpcEventPayload<E>,
-) => void

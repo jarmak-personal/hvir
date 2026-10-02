@@ -75,6 +75,7 @@ const baseConfig: UserConfig = {
       rollupOptions: {
         input: {
           index: resolve('src/preload/index.ts'),
+          'extension-guest': resolve('src/preload/extension-guest.ts'),
         },
       },
     },

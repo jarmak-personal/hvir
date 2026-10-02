@@ -9,6 +9,7 @@ import {
   guardMiddleClickClosePointerDown,
 } from '../workbench/middle-click-close'
 import type { ViewerPaneId, ViewerTab } from './tab-state'
+import type { ExtensionView } from '../../../shared/extensions/workbench'
 
 const VIEWER_TAB_DRAG_TYPE = 'application/x-hvir-viewer-tab'
 
@@ -33,6 +34,10 @@ interface TabStripProps {
   readonly activeWebId?: string
   readonly onActivateWeb?: (id: string) => void
   readonly onCloseWeb?: (id: string) => void
+  readonly contributedTabs?: readonly ExtensionView[]
+  readonly activeContributionId?: string
+  readonly onActivateContribution?: (id: string) => void
+  readonly onCloseContribution?: (id: string) => void
 }
 
 export function TabStrip({
@@ -56,6 +61,10 @@ export function TabStrip({
   activeWebId,
   onActivateWeb,
   onCloseWeb,
+  contributedTabs = [],
+  activeContributionId,
+  onActivateContribution,
+  onCloseContribution,
 }: TabStripProps): ReactElement {
   const [pendingCloseId, setPendingCloseId] = useState<string>()
   const pathCopyMenu = usePathCopyMenu(pathCopyRoot)
@@ -211,7 +220,38 @@ export function TabStrip({
             </button>
           </div>
         ))}
-        {tabs.length === 0 && !graphOpen && webTabs.length === 0 ? (
+        {contributedTabs.map((view) => (
+          <div
+            key={view.id}
+            className={`viewer-tab${view.id === activeContributionId ? ' active' : ''}`}
+            role="tab"
+            aria-selected={view.id === activeContributionId}
+          >
+            <button
+              className="tab-main"
+              type="button"
+              title={`${view.extensionName} · ${view.title}`}
+              onClick={() => onActivateContribution?.(view.id)}
+            >
+              <span className="tab-status" aria-hidden="true">
+                ◇
+              </span>
+              <span className="tab-name">{view.title}</span>
+            </button>
+            <button
+              className="tab-close"
+              type="button"
+              aria-label={`Close ${view.title}`}
+              onClick={() => onCloseContribution?.(view.id)}
+            >
+              ×
+            </button>
+          </div>
+        ))}
+        {tabs.length === 0 &&
+        !graphOpen &&
+        webTabs.length === 0 &&
+        contributedTabs.length === 0 ? (
           <span className="tab-strip-empty">{split ? 'Drop a tab here' : 'Viewer'}</span>
         ) : null}
         <span className="tab-strip-spacer" />
