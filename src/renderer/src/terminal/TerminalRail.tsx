@@ -334,7 +334,7 @@ export function TerminalRail({
             session.providerId,
             connectionState,
           )
-          const status = session.status.replace(/(?:^| · )pid \d+$/, '')
+          const status = session.status.replace(/(?:^| · )pid -?\d+$/, '')
           return (
             <div
               key={session.id}

@@ -17,6 +17,7 @@ import { useSessionsDetailsUsage } from '../src/renderer/src/harness/use-session
 import { SessionsOverviewCard } from '../src/renderer/src/sessions/SessionsOverviewCard'
 import type { SessionsProjectionCoordinator } from '../src/renderer/src/sessions/sessions-projection-coordinator'
 import { TerminalRail } from '../src/renderer/src/terminal/TerminalRail'
+import { terminalStartedStatus } from '../src/renderer/src/terminal/terminal-runtime-launch'
 import {
   asHarnessProfileId,
   asHarnessProviderId,
@@ -29,6 +30,7 @@ import {
   sessionsWorkspaceQualifier,
   type SessionsProjectionRow,
   type SessionsProjectionSnapshot,
+  type StartPtyResponse,
 } from '../src/shared'
 import type { TerminalSession } from '../src/renderer/src/terminal/terminal-workspace-model'
 
@@ -156,11 +158,75 @@ describe('compaction marker presentation', () => {
     expect(document.querySelector('.terminal-attention-badge')?.textContent).toBe('ready')
   })
 
+  it.each(
+    [
+      { mode: 'fresh', result: {}, context: {}, label: '' },
+      {
+        mode: 'reattached',
+        result: { reattached: true },
+        context: {},
+        label: 'Reattached',
+      },
+      { mode: 'resumed', result: { resumed: true }, context: {}, label: 'Resumed' },
+      {
+        mode: 'replacement',
+        result: {},
+        context: { replacement: { sessionId: 'new', replacesSessionId: 'old' } },
+        label: 'New session',
+      },
+      { mode: 'fork', result: {}, context: { fork: true }, label: 'Forked' },
+      {
+        mode: 'resume fallback',
+        result: {},
+        context: { resume: true },
+        label: 'New session',
+      },
+      {
+        mode: 'manual restart',
+        result: {},
+        context: { manualRestart: true },
+        label: 'Restarted',
+      },
+      { mode: 'reconnect', result: {}, context: { reconnect: true }, label: 'New shell' },
+    ].flatMap((variant) => [4321, -1].map((pid) => ({ ...variant, pid }))),
+  )('hides the real $mode launch PID $pid while retaining its status', (variant) => {
+    const session = terminalSession(1)
+    const result: Extract<StartPtyResponse, { outcome: 'started' }> = {
+      outcome: 'started',
+      id: session.id,
+      instanceId: 'pty-one',
+      pid: variant.pid,
+      resumed: false,
+      reattached: false,
+      identityStatus: 'identified',
+      capabilities: session.capabilities,
+      ...variant.result,
+    }
+    const status = terminalStartedStatus(result, {
+      fork: false,
+      resume: false,
+      manualRestart: false,
+      reconnect: false,
+      ...variant.context,
+    })
+    act(() =>
+      root.render(
+        <TerminalRail
+          {...terminalRailProps(staticProjection(projectedRow(1)))}
+          sessions={[{ ...session, status, identityStatus: 'unavailable' }]}
+        />,
+      ),
+    )
+    expect(document.querySelector('.terminal-list-profile')?.textContent).toBe(
+      `Missing (codex-default)${variant.label ? ` · ${variant.label}` : ''} · resume unavailable`,
+    )
+    expect(document.querySelector('.terminal-list-meta')?.textContent).not.toContain(
+      'pid',
+    )
+    expect(document.querySelector('.compaction-markers')?.textContent?.trim()).toBe('×1')
+  })
+
   it.each([
-    ['pid 4321', ''],
-    ['Resumed · pid 4321', 'Resumed'],
-    ['Reattached · pid 4321', 'Reattached'],
-    ['Forked · pid 4321', 'Forked'],
     ['Starting…', 'Starting…'],
     ['Resuming…', 'Resuming…'],
     ['disconnected', 'disconnected'],
