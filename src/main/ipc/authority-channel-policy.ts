@@ -71,7 +71,8 @@ export const OWNER_SCOPED_INVOKE_CHANNELS = [
 ] as const satisfies readonly IpcInvokeChannel[]
 
 export const OWNER_SCOPED_SEND_CHANNELS = SEND_CHANNELS.filter(
-  (channel) => channel !== 'extension-guest:message',
+  (channel) =>
+    channel !== 'extension-guest:message' && channel !== 'extension-guest:visible',
 )
 
 export const AUTHORITY_SCOPED_INVOKE_CHANNELS = [

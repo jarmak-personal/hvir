@@ -11,6 +11,9 @@ import {
   startExtensionTimer,
   verifyHiddenExtensionLifecycle,
   verifyInitiallyHiddenExtension,
+  prepareExtensionReplacementFixtures,
+  verifyExtensionDocumentReplacement,
+  verifyExtensionEngineStartup,
 } from './extension-lifecycle'
 
 /** Uses ordinary Settings and public guest contracts in the production-composed window. */
@@ -46,6 +49,7 @@ export async function verifyExtensionScenario(
     referenceScript,
     `${(await host.readFile(referenceScript)).toString('utf8')}\n${EXTENSION_LIFECYCLE_PROBE_SCRIPT}`,
   )
+  await prepareExtensionReplacementFixtures(host, reference)
   // A malformed neighboring package must not break the ordinary walkthrough.
   const bad = joinHostPath(directory, 'bad')
   await host.createDirectoryExclusive(bad, { mode: 0o755 })
@@ -163,8 +167,25 @@ export async function verifyExtensionScenario(
     .guests!.snapshot(owner)
     .find((view) => view.contributionId === 'detail')!
   const detailGuest = await guestFor(detail)
+  await detailGuest.executeJavaScript(`(() => {
+    const frame = document.createElement('iframe'); document.body.append(frame);
+    frame.contentDocument.open(); frame.contentDocument.write('<body>child only</body>'); frame.contentDocument.close(); frame.remove();
+  })()`)
+  if (
+    detailGuest.isDestroyed() ||
+    extensions.guests!.snapshot(owner).find((view) => view.id === detail.id)?.failure
+  )
+    throw new Error('Child document replacement revoked the main guest')
   await verifyHiddenExtensionLifecycle(win, guest, detailGuest)
   await verifyInitiallyHiddenExtension(extensions, scopes, initial.installationId)
+  await verifyExtensionEngineStartup(extensions, scopes, initial.installationId, guest)
+  await verifyExtensionDocumentReplacement(
+    win,
+    extensions,
+    scopes,
+    initial.installationId,
+  )
+  await extensions.guests!.open(owner, initial.installationId, 'detail')
   if (detailGuest.session === guest.session)
     throw new Error('Two guest views shared an Electron session')
   const crossExtension: unknown = await detailGuest.executeJavaScript(

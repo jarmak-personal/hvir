@@ -61,4 +61,7 @@ export function registerExtensionsIpc(
   ipc.handleSend('extension-guest:message', (value, context) => {
     extensions?.guests?.receive(context.sender.id, value)
   })
+  ipc.handleSend('extension-guest:visible', (_value, context) => {
+    extensions?.guests?.nativeVisibilityChanged(context.sender.id)
+  })
 }

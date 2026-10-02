@@ -299,6 +299,13 @@ export class ExtensionGuestOwner {
     }
   }
 
+  /** A fixed isolated-preload signal invalidates state, never supplies visibility authority. */
+  nativeVisibilityChanged(guestId: number): void {
+    const record = this.byGuest(guestId)
+    if (record && this.current(record) && !record.visible)
+      this.surface.visibility(guestId, false)
+  }
+
   receive(guestId: number, value: unknown): void {
     const record = this.byGuest(guestId)
     if (!record || !this.current(record)) return

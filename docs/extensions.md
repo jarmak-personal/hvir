@@ -65,12 +65,27 @@ or open further views. Inactive guests are frozen by Chromium and resume on sele
 hvir retains their latest presentation rather than queueing hidden updates. CSS hiding
 and `document.visibilityState` do not reliably reflect Electron webview inactivity.
 The private main-owned surface uses Electron's [debugger transport](https://github.com/electron/electron/blob/v43.5.0/docs/api/debugger.md)
-solely for fixed Chromium `Page.setWebLifecycleState` active/frozen commands. Engine
+for fixed Chromium `Page.setWebLifecycleState` active/frozen commands and native
+`Page.documentOpened` observer-loss monitoring enabled by `Page.enable`. Engine
 control is bounded and coalesced; loss, refusal, or timeout fails the view closed.
 Initial captured-document bootstrap completes before freezing, while hidden refresh
 and further-view requests remain denied. Document completion, trusted geometry
 updates and native window show/restore/focus/resize events invalidate earlier
-engine state; the surface reapplies the latest target without polling. Native
+engine state. Chromium may also thaw an embedded guest when its native widget
+becomes visible. The isolated preload observes trusted native visibility with a
+captured engine getter, independently of Electron's public visibility mask; main
+reapplies hidden intent only for that exact current guest. Reapplication is bounded
+and coalesced without polling. Scheduled timers, one-shots and bridge deliveries
+remain retained rather than discarded. A native invalidation can briefly run them
+before the new freeze takes effect; hidden capability admission remains denied
+throughout that transition. Sustained hidden execution remains suspended after
+reapplication. The isolated window capture listener signals before package event
+handlers, without deferring to guest-scheduled microtasks. Captured responses wait
+for native monitoring before releasing package code. Replacing the main document
+with `document.open()` or implicit document writing destroys isolated listeners;
+this fails only the affected view closed, including an open without a later close.
+Authors should update the existing DOM rather than replace its document. Ordinary
+DOM changes remain supported. Native
 DevTools target identity must resolve to that exact guest before each command.
 No debugger API or remote debugging endpoint is exposed. This engine lifecycle
 choice provides actual timer suspension independently of guest cooperation.

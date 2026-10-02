@@ -1,8 +1,77 @@
 import { BrowserWindow, type WebContents } from 'electron'
 import type { ExtensionApplicationRuntime } from '../extensions/extension-application'
-import { EXTENSION_LIMITS } from '../../shared/extensions/contract'
+import {
+  EXTENSION_LIMITS,
+  type ExtensionManifest,
+} from '../../shared/extensions/contract'
 import { DEFAULT_EXTENSION_PRESENTATION } from '../extensions/guest-owner'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
+import type { ProjectHost } from '../project-host/project-host'
+import { joinHostPath, type HostPath } from '../../shared/host-path'
+
+/** Observer-loss fixtures are captured with the ordinary package, never shipped. */
+export async function prepareExtensionReplacementFixtures(
+  host: ProjectHost,
+  root: HostPath,
+): Promise<void> {
+  const path = joinHostPath(root, 'hvir-extension.json')
+  const manifest = JSON.parse(
+    (await host.readFile(path)).toString('utf8'),
+  ) as ExtensionManifest
+  const views = [...manifest.views]
+  for (const mode of ['open', 'close']) {
+    views.push({
+      id: `replace-${mode}`,
+      title: `Replace document ${mode}`,
+      entry: `replace-${mode}.html`,
+      placement: 'application',
+      representations: ['view'],
+    })
+    await host.writeFile(
+      joinHostPath(root, `replace-${mode}.html`),
+      `<script src="replace-${mode}.js"></script>`,
+    )
+    await host.writeFile(
+      joinHostPath(root, `replace-${mode}.js`),
+      `setTimeout(() => { document.open(); document.write('<body>replacement</body>'); ${mode === 'close' ? 'document.close();' : ''} }, 0);`,
+    )
+  }
+  await host.writeFile(path, JSON.stringify({ ...manifest, views }))
+}
+
+export async function verifyExtensionDocumentReplacement(
+  win: BrowserWindow,
+  extensions: ExtensionApplicationRuntime,
+  scopes: RendererResourceScopes,
+  installationId: string,
+): Promise<void> {
+  const owner = scopes.currentOwner(win.webContents.id)
+  for (const mode of ['open', 'close']) {
+    const view = await extensions.guests!.open(owner, installationId, `replace-${mode}`)
+    const deadline = Date.now() + EXTENSION_LIMITS.requestTimeoutMs
+    while (
+      Date.now() < deadline &&
+      !extensions.guests!.snapshot(owner).find((entry) => entry.id === view.id)?.failure
+    )
+      await pause(20)
+    if (
+      !extensions
+        .guests!.snapshot(owner)
+        .find((entry) => entry.id === view.id)
+        ?.failure?.includes('replaced its page')
+    )
+      throw new Error(
+        `Initial document.${mode} did not fail only the affected view closed`,
+      )
+    if (
+      !(await win.webContents.executeJavaScript(
+        'Boolean(document.querySelector(".app-shell"))',
+      ))
+    )
+      throw new Error('Document replacement blocked the trusted workbench')
+    extensions.guests!.close(owner, view.id)
+  }
+}
 
 const pause = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms))
@@ -19,6 +88,18 @@ export const EXTENSION_LIFECYCLE_PROBE_SCRIPT = `
     window.extensionLifecycleEvents.push({ kind: 'resume', at: performance.now(), ticks: window.extensionInitialTicks });
     if (window.extensionLifecycleEvents.length > 16) window.extensionLifecycleEvents.shift();
   });
+  const nativeVisibility = Object.getOwnPropertyDescriptor(Document.prototype, 'visibilityState').get;
+  window.addEventListener('visibilitychange', event => {
+    if (!event.isTrusted || nativeVisibility.call(document) !== 'visible') return;
+    window.extensionLifecycleEvents.push({ kind: 'native-visible', at: performance.now(), ticks: window.extensionInitialTicks });
+    if (window.extensionLifecycleEvents.length > 16) window.extensionLifecycleEvents.shift();
+  }, true);
+  window.addEventListener('visibilitychange', event => {
+    if (!event.isTrusted || !window.extensionHostileVisibility) return;
+    event.stopImmediatePropagation();
+    const until = performance.now() + 200;
+    while (performance.now() < until) {}
+  }, true);
   setInterval(() => window.extensionInitialTicks++, 20);
 `
 
@@ -58,11 +139,19 @@ async function observation(guest: WebContents): Promise<LifecycleObservation> {
   return result.result.value
 }
 
-async function waitForFreeze(guest: WebContents): Promise<LifecycleObservation> {
+async function waitForFreeze(
+  guest: WebContents,
+  requireInvalidation = false,
+): Promise<LifecycleObservation> {
   const deadline = Date.now() + EXTENSION_LIMITS.requestTimeoutMs
   while (Date.now() < deadline) {
     const value = await observation(guest)
-    if (value.events.some((event) => event.kind === 'freeze')) return value
+    const visible = value.events.findLastIndex((event) => event.kind === 'native-visible')
+    if (
+      (!requireInvalidation || visible >= 0) &&
+      value.events.some((event, index) => index > visible && event.kind === 'freeze')
+    )
+      return value
     await pause(50)
   }
   throw new Error(
@@ -113,18 +202,25 @@ export async function verifyHiddenExtensionLifecycle(
   if (!guest.getBackgroundThrottling())
     throw new Error('Guest disabled engine background throttling')
   const bounds = win.getBounds()
+  await guest.debugger.sendCommand('Runtime.evaluate', {
+    expression:
+      'window.extensionLifecycleEvents = []; window.extensionHostileVisibility = true; window.extensionRetainedOneShot = 0; setTimeout(() => window.extensionRetainedOneShot++, 500)',
+  })
   win.hide()
   await pause(50)
   win.show()
   win.setSize(bounds.width + 20, bounds.height + 20)
   win.focus()
-  await pause(250)
+  const invalidated = await waitForFreeze(guest, true)
   const restored = await ticks(guest)
   await pause(2200)
   if ((await ticks(guest)) !== restored)
     throw new Error(
-      `Window restore or sizing resumed an inactive guest: ${JSON.stringify({ before: restored, after: await observation(guest), commands: engineCommands.get(guest) })}`,
+      `Window restore or sizing resumed an inactive guest: ${JSON.stringify({ before: invalidated, ticks: restored, after: await observation(guest), commands: engineCommands.get(guest) })}`,
     )
+  console.log(
+    `[smoke] hidden native invalidation re-freeze ${JSON.stringify({ events: invalidated.events, ticksBefore: restored, ticksAfter: await ticks(guest), commands: engineCommands.get(guest) })}`,
+  )
   win.setBounds(bounds)
   await pause(150)
   await guest.debugger.sendCommand('Runtime.evaluate', {
@@ -146,7 +242,7 @@ export async function verifyHiddenExtensionLifecycle(
   const deadline = Date.now() + 10_000
   while (Date.now() < deadline) {
     const result = (await guest.debugger.sendCommand('Runtime.evaluate', {
-      expression: `({ticks:window.extensionSmokeTicks, appearance:document.documentElement.style.colorScheme, hidden:window.extensionHiddenReply})`,
+      expression: `({ticks:window.extensionSmokeTicks, appearance:document.documentElement.style.colorScheme, hidden:window.extensionHiddenReply, oneShot:window.extensionRetainedOneShot})`,
       returnByValue: true,
     })) as {
       result: {
@@ -154,12 +250,14 @@ export async function verifyHiddenExtensionLifecycle(
           ticks: number
           appearance: string
           hidden?: { ok: boolean; error?: string }
+          oneShot: number
         }
       }
     }
     if (
       result.result.value.ticks > frozen &&
-      result.result.value.appearance === 'light'
+      result.result.value.appearance === 'light' &&
+      result.result.value.oneShot === 1
     ) {
       if (
         result.result.value.hidden?.ok !== false ||
@@ -184,12 +282,11 @@ async function ticks(guest: WebContents): Promise<number> {
   return result.result.value
 }
 
-/** Same production storage, owner, surface, preload and IPC; only the trusted embedding fixture differs. */
-export async function verifyInitiallyHiddenExtension(
+/** Same production owner, surface, preload and IPC; only trusted embedding differs. */
+function createExtensionGuestFixture(
   extensions: ExtensionApplicationRuntime,
   scopes: RendererResourceScopes,
-  installationId: string,
-): Promise<void> {
+) {
   const fixture = new BrowserWindow({
     show: false,
     webPreferences: {
@@ -210,13 +307,24 @@ export async function verifyInitiallyHiddenExtension(
       contents.close({ waitForBeforeUnload: false })
     else guest = contents
   })
+  return { fixture, owner, guest: () => guest }
+}
+
+export async function verifyInitiallyHiddenExtension(
+  extensions: ExtensionApplicationRuntime,
+  scopes: RendererResourceScopes,
+  installationId: string,
+): Promise<void> {
+  const captured = createExtensionGuestFixture(extensions, scopes)
+  const { fixture, owner } = captured
   try {
     const view = await extensions.guests!.open(owner, installationId, 'reference')
     await fixture.loadURL(
       `data:text/html,${encodeURIComponent(`<webview style="display:flex;width:300px;height:300px" src="${view.url}" name="${view.id}" partition="${view.partition}"></webview>`)}`,
     )
     let deadline = Date.now() + 10_000
-    while (!guest && Date.now() < deadline) await pause(20)
+    while (!captured.guest() && Date.now() < deadline) await pause(20)
+    const guest = captured.guest()
     if (!guest) throw new Error('Initially hidden guest did not bind')
     const read = async (): Promise<{
       state: string
@@ -224,7 +332,7 @@ export async function verifyInitiallyHiddenExtension(
       status?: string
     }> => {
       try {
-        const result = (await guest!.debugger.sendCommand('Runtime.evaluate', {
+        const result = (await guest.debugger.sendCommand('Runtime.evaluate', {
           expression:
             "({state:document.readyState,ticks:window.extensionInitialTicks,status:document.getElementById('status')?.textContent})",
           returnByValue: true,
@@ -260,5 +368,88 @@ export async function verifyInitiallyHiddenExtension(
   } finally {
     await scopes.revokeOwner(owner.id)
     if (!fixture.isDestroyed()) fixture.destroy()
+  }
+}
+
+/** Fault only the fixed Page.enable operation on a real guest; preserve every other engine operation. */
+export async function verifyExtensionEngineStartup(
+  extensions: ExtensionApplicationRuntime,
+  scopes: RendererResourceScopes,
+  installationId: string,
+  control: WebContents,
+): Promise<void> {
+  const admitted = await control.session.fetch(control.getURL())
+  const admittedBytes = await admitted.text()
+  if (!admitted.ok || !admittedBytes.includes('reference.js'))
+    throw new Error('Engine startup Session.fetch positive asset control failed')
+  for (const mode of ['refuse', 'close']) {
+    const captured = createExtensionGuestFixture(extensions, scopes)
+    const { fixture, owner } = captured
+    let settle: (() => void) | undefined
+    let setupStarted = false
+    let observedAsset: Promise<string> | undefined
+    let viewUrl = ''
+    fixture.webContents.prependOnceListener(
+      'did-attach-webview',
+      (_event: Electron.Event, guest: WebContents) => {
+        const send = guest.debugger.sendCommand.bind(guest.debugger)
+        guest.debugger.sendCommand = (method, ...args) => {
+          if (method !== 'Page.enable') return send(method, ...args)
+          setupStarted = true
+          if (mode === 'refuse') return Promise.reject(new Error('Owned setup refusal'))
+          return new Promise((resolve) => {
+            settle = () => resolve({})
+          })
+        }
+        observedAsset = guest.session.fetch(viewUrl).then(
+          (response) => response.text(),
+          () => 'unavailable',
+        )
+      },
+    )
+    try {
+      const view = await extensions.guests!.open(owner, installationId, 'reference')
+      viewUrl = view.url
+      await fixture.loadURL(
+        `data:text/html,${encodeURIComponent(`<webview style="display:flex;width:300px;height:300px" src="${view.url}" name="${view.id}" partition="${view.partition}"></webview>`)}`,
+      )
+      const deadline = Date.now() + EXTENSION_LIMITS.requestTimeoutMs
+      while (!setupStarted && Date.now() < deadline) await pause(20)
+      if (!setupStarted) throw new Error('Guest engine setup never began')
+      if (mode === 'close') {
+        extensions.guests!.close(owner, view.id)
+        settle!() // A late fixed setup success cannot reopen captured asset authority.
+      }
+      while (
+        Date.now() < deadline &&
+        captured.guest() &&
+        !captured.guest()!.isDestroyed()
+      )
+        await pause(20)
+      if (captured.guest() && !captured.guest()!.isDestroyed())
+        throw new Error('Failed or canceled engine setup retained a guest')
+      if (
+        mode === 'refuse' &&
+        !extensions.guests!.snapshot(owner).find((entry) => entry.id === view.id)?.failure
+      )
+        throw new Error('Engine setup refusal lacked an actionable failed view')
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const asset = await Promise.race([
+        observedAsset!,
+        new Promise<string>((_resolve, reject) => {
+          timer = setTimeout(
+            () => reject(new Error('Canceled captured response did not settle')),
+            EXTENSION_LIMITS.requestTimeoutMs,
+          )
+        }),
+      ]).finally(() => clearTimeout(timer))
+      if (asset === admittedBytes || asset.includes('reference.js'))
+        throw new Error('Revoked engine setup served captured package bytes')
+      console.log(`[smoke] fixed engine setup ${mode} released no captured bytes`)
+    } finally {
+      settle?.()
+      await scopes.revokeOwner(owner.id)
+      if (!fixture.isDestroyed()) fixture.destroy()
+    }
   }
 }

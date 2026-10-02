@@ -26,6 +26,7 @@ export const extensionsIpc = {
   },
   send: {
     'extension-guest:message': payload<unknown>(),
+    'extension-guest:visible': payload<void>(),
     'extensions:presentation': payload<{
       readonly viewId: string
       readonly presentation: ExtensionPresentation

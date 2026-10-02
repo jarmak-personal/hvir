@@ -1,10 +1,13 @@
 /** hvir-owned isolated preload. No internal workbench bridge or arbitrary Electron API. */
 import { contextBridge, ipcRenderer } from 'electron'
+import { observeExtensionGuestVisibility } from './extension-guest-visibility'
 import {
   EXTENSION_LIMITS,
   type ExtensionGuestBridge,
   type ExtensionReply,
 } from '../shared/extensions/contract'
+
+observeExtensionGuestVisibility(() => ipcRenderer.send('extension-guest:visible'))
 
 // Remove the ordinary socket API before package scripts as defense in depth.
 // Engine-enforced Connection-Allowlist blocks original constructors and fresh realms.

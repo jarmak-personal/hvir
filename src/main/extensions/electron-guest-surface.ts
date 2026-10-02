@@ -22,6 +22,8 @@ interface SurfaceRecord {
   readonly session: Session
   readonly revision: ExtensionRevision
   readonly denyDownload: (event: Electron.Event) => void
+  readonly engineReady: Promise<void>
+  readonly settleEngine: (error?: Error) => void
   guest?: WebContents
   visible: boolean
   owner?: RendererOwner
@@ -68,11 +70,18 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
       )
     const guestSession = session.fromPartition(view.partition, { cache: false })
     const denyDownload = (event: Electron.Event): void => event.preventDefault()
+    let settleEngine!: SurfaceRecord['settleEngine']
+    const engineReady = new Promise<void>((resolve, reject) => {
+      settleEngine = (error) => (error ? reject(error) : resolve())
+    })
+    void engineReady.catch(() => undefined)
     const record: SurfaceRecord = {
       view,
       session: guestSession,
       revision,
       denyDownload,
+      engineReady,
+      settleEngine,
       visible: false,
     }
     this.surfaces.set(view.id, record)
@@ -87,10 +96,21 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
     guestSession.webRequest.onBeforeRequest((details, callback) => {
       callback({ cancel: !this.assetName(record, details.url) })
     })
-    guestSession.protocol.handle('hvir-extension', (request) => {
+    guestSession.protocol.handle('hvir-extension', async (request) => {
       const name = this.assetName(record, request.url)
       const bytes = name && record.revision.files.get(name)
       if (!bytes || request.method !== 'GET') return new Response(null, { status: 404 })
+      try {
+        await record.engineReady
+      } catch {
+        return new Response(null, { status: 404 })
+      }
+      if (
+        this.surfaces.get(view.id) !== record ||
+        !record.guest ||
+        record.guest.isDestroyed()
+      )
+        return new Response(null, { status: 404 })
       return new Response(new Uint8Array(bytes), {
         headers: {
           'Content-Type': contentType(name),
@@ -162,6 +182,31 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
     }
     try {
       guest.debugger.attach('1.3')
+      guest.debugger.on(
+        'message',
+        (_event, method, params: { frame?: { id?: string; parentId?: string } }) => {
+          if (
+            method === 'Page.documentOpened' &&
+            typeof params['frame']?.id === 'string' &&
+            params['frame'].parentId === undefined &&
+            this.surfaces.get(view.id) === record
+          )
+            this.owner?.failed(
+              guest.id,
+              'This extension replaced its page. Close it and use an updated extension that preserves its original document.',
+            )
+        },
+      )
+      // The captured response cannot release package code until this exact guest
+      // has native observer-loss monitoring. This does not await document load.
+      void this.assertEngineTarget(record, guest)
+        .then(() => guest.debugger.sendCommand('Page.enable'))
+        .then(
+          () => record.settleEngine(),
+          (error: unknown) => {
+            record.settleEngine(error instanceof Error ? error : new Error(String(error)))
+          },
+        )
       // Bootstrap may negotiate, but hidden capability admission remains denied.
       // Freezing before navigation can prevent the initial context from loading.
       const loaded = new Promise<void>((resolve, reject) => {
@@ -186,17 +231,9 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
       void loaded.catch(() => undefined)
       record.lifecycle = new ExtensionGuestLifecycle(
         async (state) => {
+          await record.engineReady
           if (state === 'frozen') await loaded
-          const { targetInfo } = (await guest.debugger.sendCommand(
-            'Target.getTargetInfo',
-          )) as { targetInfo: { targetId: string; type: string } }
-          if (
-            this.surfaces.get(view.id) !== record ||
-            guest.isDestroyed() ||
-            targetInfo.type !== 'webview' ||
-            webContents.fromDevToolsTargetId(targetInfo.targetId)?.id !== guest.id
-          )
-            throw new Error('Extension engine target ownership changed')
+          await this.assertEngineTarget(record, guest)
           await guest.debugger.sendCommand('Page.setWebLifecycleState', { state })
         },
         () => this.flushPresentation(record),
@@ -230,6 +267,12 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
     guest.on('will-prevent-unload', (event) => event.preventDefault())
     guest.on('devtools-opened', () => guest.closeDevTools())
     guest.on('render-process-gone', () => this.owner?.failed(guest.id))
+    guest.on('preload-error', () =>
+      this.owner?.failed(
+        guest.id,
+        'Extension isolated lifecycle observation is unavailable. Close and reopen the view.',
+      ),
+    )
     guest.on('did-fail-load', (_event, code, _description, _url, isMainFrame) => {
       if (isMainFrame && code !== -3) this.owner?.failed(guest.id)
     })
@@ -268,6 +311,22 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
         record.lifecycle?.setVisible(record.visible)
   }
 
+  private async assertEngineTarget(
+    record: SurfaceRecord,
+    guest: WebContents,
+  ): Promise<void> {
+    const { targetInfo } = (await guest.debugger.sendCommand('Target.getTargetInfo')) as {
+      targetInfo: { targetId: string; type: string }
+    }
+    if (
+      this.surfaces.get(record.view.id) !== record ||
+      guest.isDestroyed() ||
+      targetInfo.type !== 'webview' ||
+      webContents.fromDevToolsTargetId(targetInfo.targetId)?.id !== guest.id
+    )
+      throw new Error('Extension engine target ownership changed')
+  }
+
   send(guestId: number, reply: ExtensionReply): void {
     const guest = webContents.fromId(guestId)
     if (!guest || guest.isDestroyed()) return
@@ -304,6 +363,7 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
     const record = this.surfaces.get(viewId)
     if (!record) return
     this.surfaces.delete(viewId)
+    record.settleEngine(new Error('Extension view was closed'))
     record.lifecycle?.dispose()
     record.presentation = undefined
     const destroyed =

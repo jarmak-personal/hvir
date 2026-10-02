@@ -523,7 +523,11 @@ describe('IpcAuthorityRouter', () => {
     )
     expect(new Set(OWNER_SCOPED_SEND_CHANNELS)).toEqual(
       new Set<IpcSendChannel>(
-        SEND_CHANNELS.filter((channel) => channel !== 'extension-guest:message'),
+        SEND_CHANNELS.filter(
+          (channel) =>
+            channel !== 'extension-guest:message' &&
+            channel !== 'extension-guest:visible',
+        ),
       ),
     )
     expect(new Set(AUTHORITY_SCOPED_INVOKE_CHANNELS)).toEqual(
