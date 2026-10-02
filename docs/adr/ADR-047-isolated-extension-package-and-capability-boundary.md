@@ -72,8 +72,9 @@ insufficient. D3 extends this same owner for ZIPs, development links, replacemen
 bounded retention; it does not introduce another validation or activation path.
 
 An installation has a persisted identity distinct from its manifest ID and source path.
-Explicit Enable, Reload, or Replace accepts a validated revision for that installation. Discovery
-never activates an externally replaced or reappearing package. The ordinary enable/replace
+D2 owns explicit Enable of the captured directory revision. D3 owns Reload and Replace through
+the same revision-acceptance owner. Each action accepts a validated revision for that installation.
+Discovery never activates an externally replaced or reappearing package. The ordinary enable/replace
 action explicitly accepts its revision and installation identity. A changed source cannot
 silently change a live activation. Revocation precedes retiring its guest resources.
 
