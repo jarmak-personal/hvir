@@ -24,7 +24,7 @@ import type { ExtensionRevision } from './package-store'
 
 export interface ExtensionGuestSurfacePort {
   prepare(view: ExtensionView, revision: ExtensionRevision): Promise<void>
-  destroy(viewId: string): void
+  destroy(viewId: string): Promise<void>
   send(guestId: number, reply: ExtensionReply): void
   visibility(guestId: number, visible: boolean): void
 }
@@ -42,6 +42,7 @@ interface GuestRecord {
   visible: boolean
   rateStart: number
   messages: number
+  disposal?: Promise<void>
 }
 
 export const DEFAULT_EXTENSION_PRESENTATION: ExtensionPresentation = {
@@ -63,6 +64,7 @@ export const DEFAULT_EXTENSION_PRESENTATION: ExtensionPresentation = {
 export class ExtensionGuestOwner {
   private readonly records = new Map<string, GuestRecord>()
   private readonly rendererLeases = new Map<string, RendererResourceLease>()
+  private readonly closing = new Set<GuestRecord>()
   private disposed = false
 
   constructor(
@@ -209,10 +211,16 @@ export class ExtensionGuestOwner {
     return record.view
   }
 
-  close(owner: RendererOwner, viewId: string): void {
+  close(owner: RendererOwner, viewId: string): Promise<void> {
     const record = this.records.get(viewId)
-    if (!record || !sameOwner(record.owner, owner)) return
+    if (!record || !sameOwner(record.owner, owner))
+      return (
+        [...this.closing].find(
+          (entry) => entry.view.id === viewId && sameOwner(entry.owner, owner),
+        )?.disposal ?? Promise.resolve()
+      )
     this.closeRecord(record)
+    return record.disposal!
   }
 
   revokeInstallation(installationId: string): void {
@@ -220,11 +228,14 @@ export class ExtensionGuestOwner {
       if (record.activation.installationId === installationId) this.closeRecord(record)
   }
 
-  closeOwner(owner: RendererOwner): void {
+  closeOwner(owner: RendererOwner): Promise<void> {
     for (const record of [...this.records.values()])
       if (sameOwner(record.owner, owner)) this.closeRecord(record)
     this.rendererLeases.get(ownerKey(owner))?.release()
     this.rendererLeases.delete(ownerKey(owner))
+    return this.awaitDisposals(
+      [...this.closing].filter((record) => sameOwner(record.owner, owner)),
+    )
   }
 
   failed(guestId: number, explanation?: string): void {
@@ -239,7 +250,7 @@ export class ExtensionGuestOwner {
     for (const controller of record.requests.values()) controller.abort()
     record.requests.clear()
     record.guestId = undefined
-    this.surface.destroy(record.view.id)
+    this.destroySurface(record)
     this.publish(record.owner, this.snapshot(record.owner))
   }
 
@@ -439,7 +450,7 @@ export class ExtensionGuestOwner {
     for (const record of [...this.records.values()]) this.closeRecord(record)
     for (const lease of this.rendererLeases.values()) lease.release()
     this.rendererLeases.clear()
-    return Promise.resolve()
+    return this.awaitDisposals(this.closing)
   }
 
   private async request(
@@ -492,6 +503,25 @@ export class ExtensionGuestOwner {
   private assertRecord(record: GuestRecord): void {
     if (!this.current(record)) throw new Error('Extension view was revoked')
   }
+  private async awaitDisposals(records: Iterable<GuestRecord>): Promise<void> {
+    const settled = await Promise.allSettled(
+      [...records].map((record) => record.disposal!),
+    )
+    const failures: unknown[] = []
+    for (const result of settled)
+      if (result.status === 'rejected') failures.push(result.reason as unknown)
+    if (failures.length)
+      throw new AggregateError(failures, 'Extension guest cleanup failed')
+  }
+  private destroySurface(record: GuestRecord): void {
+    if (record.disposal) return
+    record.disposal = this.surface.destroy(record.view.id)
+    this.closing.add(record)
+    void record.disposal.then(
+      () => this.closing.delete(record),
+      () => undefined, // A rejected receipt remains observable by its owner.
+    )
+  }
   private closeRecord(record: GuestRecord, notify = true): void {
     if (this.records.get(record.view.id) !== record) return
     this.records.delete(record.view.id)
@@ -499,7 +529,7 @@ export class ExtensionGuestOwner {
     record.requests.clear()
     if (record.guestId !== undefined)
       this.surface.send(record.guestId, { kind: 'revoked' })
-    this.surface.destroy(record.view.id)
+    this.destroySurface(record)
     if (notify) this.publish(record.owner, this.snapshot(record.owner))
   }
 }

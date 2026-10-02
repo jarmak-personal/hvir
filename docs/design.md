@@ -525,6 +525,13 @@ unrelated contributor verification.
 
 ---
 
+### [ADR-049 — Extension package lifecycle and bounded retention](adr/ADR-049-extension-package-lifecycle.md)
+
+> Lifecycle: Active
+
+Directory, ZIP and development-link sources share explicit revision acceptance, durable identity,
+exact removal and bounded retention under the extension state writer.
+
 ## 5. Architecture
 
 ### Process model

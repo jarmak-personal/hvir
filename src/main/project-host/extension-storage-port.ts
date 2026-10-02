@@ -3,6 +3,14 @@ import type { HostPath } from '../../shared/host-path'
 export interface CapturedExtensionBytes {
   readonly sourceIdentity: string
   readonly files: ReadonlyMap<string, Uint8Array>
+  readonly directories?: readonly string[]
+}
+
+export interface ExtensionCaptureBounds {
+  readonly files: number
+  readonly depth: number
+  readonly fileBytes: number
+  readonly packageBytes: number
 }
 
 export interface ExtensionWriterLease {
@@ -11,7 +19,30 @@ export interface ExtensionWriterLease {
   readonly release: () => Promise<void>
 }
 
+export interface ExtensionSource {
+  readonly kind: 'directory' | 'zip' | 'development'
+  readonly identity: string
+  readonly resolved: HostPath
+}
+
 export interface ExtensionStoragePort {
+  removeDevelopmentLink(
+    path: HostPath,
+    identity: string,
+    signal?: AbortSignal,
+  ): Promise<void>
+  entryIdentity(path: HostPath): Promise<string>
+  inspectSource(path: HostPath): Promise<ExtensionSource>
+  readArchive(
+    path: HostPath,
+    maxBytes: number,
+  ): Promise<{ readonly bytes: Uint8Array; readonly identity: string }>
+  collectDirectory(
+    path: HostPath,
+    expected: CapturedExtensionBytes,
+    bounds: ExtensionCaptureBounds,
+    signal?: AbortSignal,
+  ): Promise<void>
   installationNames(path: HostPath, limit: number): Promise<readonly string[]>
   acquireWriter(
     path: HostPath,
@@ -19,11 +50,7 @@ export interface ExtensionStoragePort {
   ): Promise<ExtensionWriterLease | undefined>
   captureDirectory(
     path: HostPath,
-    bounds: {
-      readonly files: number
-      readonly depth: number
-      readonly fileBytes: number
-      readonly packageBytes: number
-    },
+    bounds: ExtensionCaptureBounds,
+    signal?: AbortSignal,
   ): Promise<CapturedExtensionBytes>
 }

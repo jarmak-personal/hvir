@@ -31,6 +31,17 @@ export function registerExtensionsIpc(
     context.owner()
     return extensions?.activations?.enable(req.source, req.revision) ?? unavailable()
   })
+  ipc.handle('extensions:reload', (req, context) => {
+    context.owner()
+    return extensions?.activations?.reload(req.source, req.revision) ?? unavailable()
+  })
+  ipc.handle('extensions:remove', (req, context) => {
+    context.owner()
+    return (
+      extensions?.activations?.remove(req.source, req.identity, req.forget) ??
+      unavailable()
+    )
+  })
   ipc.handle('extensions:disable', (req, context) => {
     context.owner()
     return extensions?.activations?.disable(req.installationId) ?? unavailable()
@@ -42,7 +53,7 @@ export function registerExtensionsIpc(
       unavailable(),
   )
   ipc.handle('extensions:close-view', (req, context) => {
-    extensions?.guests?.close(context.owner(), req.viewId)
+    return extensions?.guests?.close(context.owner(), req.viewId)
   })
   ipc.handle(
     'extensions:views',

@@ -5,6 +5,7 @@ import type { ExtensionView } from '../../shared/extensions/workbench'
 import type { ProjectHost } from '../project-host/project-host'
 import type { ElectronSmokeDependencies } from './bootstrap-contract'
 import { verifyExtensionWebRtc } from './extension-webrtc'
+import { verifyExtensionPackages } from './extension-packages'
 import { verifyExtensionNetwork } from './extension-network'
 import {
   EXTENSION_LIFECYCLE_PROBE_SCRIPT,
@@ -271,6 +272,11 @@ export async function verifyExtensionScenario(
     () => hung.isDestroyed() && extensions.activations!.active.size === 0,
     'trusted Disable',
   )
+  await verifyExtensionPackages(win, extensions, scopes, host, {
+    click: (name) => click(win, name),
+    wait: waitFor,
+    guest: guestFor,
+  })
   console.log(
     `[smoke] directory extension capture, public viewer, guest isolation, TCP/UDP WebRTC denial, presentation, hidden timers, crash/hang and revocation OK (Electron ${process.versions.electron}; Chromium ${process.versions.chrome})`,
   )

@@ -6,9 +6,11 @@ import {
 import {
   extensionAssetPath,
   validateExtensionManifest,
+  validateExtensionAssetTopology,
 } from '../../shared/extensions/manifest'
 import { joinHostPath, type HostPath } from '../../shared/host-path'
 import type { ProjectHost } from '../project-host/project-host'
+import { captureExtensionArchive } from './package-archive'
 import type { CapturedExtensionBytes } from '../project-host/extension-storage-port'
 
 export interface ExtensionRevision {
@@ -29,15 +31,13 @@ export function validateCapturedExtension(
     JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(manifestBytes)),
   )
   const hash = createHash('sha256')
-  const portableNames = new Set<string>()
+  validateExtensionAssetTopology(
+    [...capture.files.keys()].map((name) => [name, false] as const),
+  )
   for (const [name, bytes] of [...capture.files].sort(([left], [right]) =>
     left < right ? -1 : left > right ? 1 : 0,
   )) {
     extensionAssetPath(name)
-    const portable = name.normalize('NFC').toLowerCase()
-    if (portableNames.has(portable))
-      throw new Error('Package asset paths collide across supported platforms')
-    portableNames.add(portable)
     hash.update(`${Buffer.byteLength(name)}:${name}:${bytes.byteLength}:`)
     hash.update(bytes)
   }
@@ -54,7 +54,7 @@ export function validateCapturedExtension(
   }
 }
 
-/** One directory capture/validation/store path, extended by later package lifecycle work. */
+/** One package capture/validation/store path for directory, ZIP and development sources. */
 export class ExtensionPackageStore {
   constructor(
     private readonly host: ProjectHost,
@@ -67,6 +67,39 @@ export class ExtensionPackageStore {
     return validateCapturedExtension(
       await this.host.extensionStorage.captureDirectory(source, EXTENSION_LIMITS),
     )
+  }
+
+  async captureSource(
+    source: HostPath,
+    signal?: AbortSignal,
+  ): Promise<ExtensionRevision & { readonly kind: 'directory' | 'zip' | 'development' }> {
+    const storage = this.host.extensionStorage
+    if (!storage) throw new Error('Local extension storage is unavailable')
+    const inspected = await storage.inspectSource(source)
+    const archive =
+      inspected.kind === 'zip'
+        ? await storage.readArchive(inspected.resolved, EXTENSION_LIMITS.archiveBytes)
+        : undefined
+    if (archive && archive.identity !== inspected.identity)
+      throw new Error('ZIP source changed before capture')
+    const capture = archive
+      ? {
+          sourceIdentity: archive.identity,
+          files: await captureExtensionArchive(archive.bytes, signal),
+        }
+      : await storage.captureDirectory(inspected.resolved, EXTENSION_LIMITS, signal)
+    const after = await storage.inspectSource(source)
+    if (
+      inspected.identity !== after.identity ||
+      inspected.resolved.path !== after.resolved.path ||
+      (inspected.kind !== 'zip' &&
+        capture.sourceIdentity !== inspected.identity.split(':').slice(-2).join(':'))
+    )
+      throw new Error('Package source changed during capture; discover it again')
+    return {
+      ...validateCapturedExtension({ ...capture, sourceIdentity: inspected.identity }),
+      kind: inspected.kind,
+    }
   }
 
   async retain(revision: ExtensionRevision, signal?: AbortSignal): Promise<void> {

@@ -30,7 +30,7 @@ function fixture(overrides: Partial<ExtensionGuestSurfacePort> = {}) {
   const scopes = new RendererResourceScopes()
   const renderer = scopes.activateOwner(1)
   const sent: { guestId: number; message: ExtensionReply }[] = []
-  const destroy = vi.fn<(id: string) => void>()
+  const destroy = vi.fn<(id: string) => Promise<void>>(() => Promise.resolve())
   const surface: ExtensionGuestSurfacePort = {
     prepare: () => Promise.resolve(),
     destroy,
@@ -101,7 +101,7 @@ describe('extension guest capability and lifetime owner', () => {
     visibility.mockClear()
     data.owner.failed(10)
     data.owner.nativeVisibilityChanged(10)
-    data.owner.close(data.renderer, view.id)
+    await data.owner.close(data.renderer, view.id)
     data.owner.nativeVisibilityChanged(10)
     expect(visibility).not.toHaveBeenCalled()
     await data.owner.dispose()
@@ -337,7 +337,7 @@ describe('extension guest capability and lifetime owner', () => {
     for (let index = 0; index < 31; index++)
       data.owner.receive(10, { kind: 'cancel', id: `cancel-${index}` })
     expect(data.owner.snapshot(data.renderer)[0]?.failure).toContain('stopped')
-    data.owner.close(data.renderer, view.id)
+    await data.owner.close(data.renderer, view.id)
     expect(data.owner.snapshot(data.renderer)).toEqual([])
     expect(data.destroy).toHaveBeenCalled()
   })
@@ -414,5 +414,86 @@ describe('extension guest capability and lifetime owner', () => {
         (entry) => entry.message.kind === 'result' && entry.message.id === 'cancel-me',
       ),
     ).toBe(false)
+  })
+  it('renderer revocation waits for its actual per-view disposal receipt without draining another owner', async () => {
+    const receipts = new Map<string, { promise: Promise<void>; finish: () => void }>()
+    const data = fixture({
+      destroy: (id) => {
+        let finish!: () => void
+        const promise = new Promise<void>((resolve) => {
+          finish = resolve
+        })
+        receipts.set(id, { promise, finish })
+        return promise
+      },
+    })
+    const first = await attached(data)
+    const other = data.scopes.activateOwner(2)
+    const second = await data.owner.open(other, 'installation', 'reference')
+    const closingOther = data.owner.close(other, second.id)
+    expect(data.owner.close(other, second.id)).toBe(closingOther)
+    const revoked = data.scopes.rolloverOwner(data.renderer.id)
+    expect(data.owner.snapshot(data.renderer)).toEqual([])
+    expect(data.sent.at(-1)?.message).toEqual({ kind: 'revoked' })
+    let complete = false
+    void revoked.cleanup.then(() => {
+      complete = true
+    })
+    await Promise.resolve()
+    expect(complete).toBe(false)
+    receipts.get(first.id)!.finish()
+    await revoked.cleanup
+    expect(complete).toBe(true)
+    let otherComplete = false
+    void closingOther.then(() => {
+      otherComplete = true
+    })
+    await Promise.resolve()
+    expect(otherComplete).toBe(false)
+    receipts.get(second.id)!.finish()
+    await closingOther
+    await data.owner.dispose()
+  })
+  it('retains a failed native disposal receipt for later renderer-scoped cleanup', async () => {
+    const failure = new Error('native cleanup refused')
+    const data = fixture({ destroy: () => Promise.reject(failure) })
+    const view = await attached(data)
+    const receipt = data.owner.close(data.renderer, view.id)
+    await expect(receipt).rejects.toBe(failure)
+    expect(data.owner.close(data.renderer, view.id)).toBe(receipt)
+    await expect(data.scopes.revokeOwner(data.renderer.id)).rejects.toMatchObject({
+      errors: [{ errors: [failure] }],
+    })
+    await expect(data.owner.dispose()).rejects.toMatchObject({ errors: [failure] })
+  })
+  it('reports one failed disposal only after every affected view receipt settles', async () => {
+    const failure = new Error('native cleanup refused')
+    let finish!: () => void
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    let firstId = ''
+    const data = fixture({
+      destroy: (id) => (id === firstId ? Promise.reject(failure) : pending),
+    })
+    firstId = (await attached(data)).id
+    await data.owner.open(data.renderer, 'installation', 'detail')
+    const draining = data.scopes.revokeOwner(data.renderer.id)
+    let complete = false
+    void draining.then(
+      () => {
+        complete = true
+      },
+      () => {
+        complete = true
+      },
+    )
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(complete).toBe(false)
+    finish()
+    await expect(draining).rejects.toMatchObject({ errors: [{ errors: [failure] }] })
+    expect(complete).toBe(true)
+    await expect(data.owner.dispose()).rejects.toMatchObject({ errors: [failure] })
   })
 })

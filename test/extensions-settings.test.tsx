@@ -64,3 +64,115 @@ describe('extension Settings observation order', () => {
     },
   )
 })
+
+describe('package lifecycle Settings intent', () => {
+  it('provides direct Reload and a nested, cancellable removal decision bound to the selected entry', async () => {
+    const state: ExtensionPlatformState = {
+      writable: true,
+      installations: [
+        {
+          source: 'development',
+          sourceIdentity: '1:2',
+          kind: 'development',
+          installationId: 'installed',
+          manifest: {
+            id: 'example.reference',
+            name: 'Reference',
+            version: '0.1.0',
+            contract: '1.0',
+            requiredCapabilities: [],
+            optionalCapabilities: [],
+            access: [],
+            views: [],
+          },
+          revision: 'candidate',
+          acceptedRevision: 'accepted',
+          warnings: [],
+          enabled: false,
+          retainedIdentity: true,
+        },
+      ],
+    }
+    const invoke = vi.fn(() => Promise.resolve(state))
+    vi.stubGlobal('hvir', { invoke, on: vi.fn(() => vi.fn()) })
+    element = document.createElement('div')
+    document.body.append(element)
+    root = createRoot(element)
+    await act(async () => {
+      root!.render(createElement(ExtensionsSettings))
+      await Promise.resolve()
+    })
+    expect(element.textContent).toContain('The package changed. Use Reload or Replace')
+    expect(element.textContent).toContain('Saved setup is kept')
+    expect(element.textContent).not.toContain('kept for reinstall')
+    const button = (name: string) =>
+      [...element!.querySelectorAll<HTMLButtonElement>('button')].find(
+        (entry) => entry.textContent === name,
+      )!
+    await act(async () => {
+      button('Reload').click()
+      await Promise.resolve()
+    })
+    expect(invoke).toHaveBeenCalledWith('extensions:reload', {
+      source: 'development',
+      revision: 'candidate',
+    })
+    act(() => button('Remove').click())
+    expect(element.querySelector('.modal-backdrop.nested')).not.toBeNull()
+    expect(element.textContent).toContain('Only the development link is deleted')
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      )
+    })
+    expect(element.querySelector('[role="dialog"]')).toBeNull()
+    act(() => button('Remove').click())
+    const checkbox = element.querySelector<HTMLInputElement>('input[type="checkbox"]')!
+    act(() => checkbox.click())
+    await act(async () => {
+      button('Confirm remove').click()
+      await Promise.resolve()
+    })
+    expect(invoke).toHaveBeenCalledWith('extensions:remove', {
+      source: 'development',
+      identity: '1:2',
+      forget: true,
+    })
+    expect(element.querySelector('[role="dialog"]')).toBeNull()
+  })
+  it('gives a missing accepted source a repair and discovery step before revision acceptance', async () => {
+    const state: ExtensionPlatformState = {
+      writable: true,
+      installations: [
+        {
+          source: 'missing',
+          enabled: false,
+          warnings: [],
+          acceptedRevision: 'accepted',
+          retainedIdentity: true,
+          error: 'Package is missing',
+        },
+      ],
+    }
+    vi.stubGlobal('hvir', {
+      invoke: vi.fn(() => Promise.resolve(state)),
+      on: vi.fn(() => vi.fn()),
+    })
+    element = document.createElement('div')
+    document.body.append(element)
+    root = createRoot(element)
+    await act(async () => {
+      root!.render(createElement(ExtensionsSettings))
+      await Promise.resolve()
+    })
+    expect(element.textContent).toContain(
+      'Restore or repair the package, then choose Discover extensions',
+    )
+    expect(element.textContent).not.toContain('The package changed. Use Reload')
+    expect(
+      [...element.querySelectorAll('button')].some(
+        (button) => button.textContent === 'Reload',
+      ),
+    ).toBe(false)
+  })
+})

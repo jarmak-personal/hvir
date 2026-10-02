@@ -5,6 +5,11 @@ export type ExtensionCapability = (typeof EXTENSION_CAPABILITIES)[number]
 
 export const EXTENSION_LIMITS = {
   installations: 32,
+  archiveBytes: 20 * 1024 * 1024,
+  archiveTimeoutMs: 10_000,
+  retainedRevisions: 96,
+  retainedBytes: 128 * 1024 * 1024,
+  revisionsPerInstallation: 3,
   files: 256,
   depth: 12,
   fileBytes: 2 * 1024 * 1024,

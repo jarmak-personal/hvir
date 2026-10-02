@@ -20,6 +20,7 @@ export function createProjectFileFixture(smokeRoot: HostPath, cleanup: SmokeClea
       if (smokeTrashFailurePath && hostPathEquals(path, smokeTrashFailurePath)) {
         throw new Error('Injected recoverable Trash failure')
       }
+      await prepareTrash()
       const recovered = joinHostPath(
         smokeTrashRecoveryRoot,
         `${(smokeTrashSequence += 1)}-${basenameHostPath(path)}`,
@@ -28,6 +29,11 @@ export function createProjectFileFixture(smokeRoot: HostPath, cleanup: SmokeClea
       smokeRecoveredPaths.add(recovered)
     },
   })
+  let trashReady: Promise<void> | undefined
+  const prepareTrash = (): Promise<void> =>
+    (trashReady ??= host.createDirectoryExclusive(smokeTrashRecoveryRoot, {
+      mode: 0o755,
+    }))
   cleanup.defer('local host', () => host.dispose())
   cleanup.defer('recoverable deletion fixture', async () => {
     for (const recovered of smokeRecoveredPaths) {
@@ -73,7 +79,7 @@ export function createProjectFileFixture(smokeRoot: HostPath, cleanup: SmokeClea
         renamedPointerPath.path,
         createdSnapshotPath.path,
       ])
-      await host.createDirectoryExclusive(smokeTrashRecoveryRoot, { mode: 0o755 })
+      await prepareTrash()
       await host.exec('rm', [
         '-rf',
         '--',

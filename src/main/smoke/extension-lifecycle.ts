@@ -69,7 +69,7 @@ export async function verifyExtensionDocumentReplacement(
       ))
     )
       throw new Error('Document replacement blocked the trusted workbench')
-    extensions.guests!.close(owner, view.id)
+    await extensions.guests!.close(owner, view.id)
   }
 }
 
@@ -317,57 +317,87 @@ export async function verifyInitiallyHiddenExtension(
 ): Promise<void> {
   const captured = createExtensionGuestFixture(extensions, scopes)
   const { fixture, owner } = captured
+  let disposeReadiness = (): void => undefined
   try {
     const view = await extensions.guests!.open(owner, installationId, 'reference')
+    // Attachment can still have the initial about:blank context. Observe the exact
+    // captured document's completed navigation before any privileged evaluation.
+    const loaded = new Promise<WebContents>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        disposeReadiness()
+        reject(new Error('Initially hidden captured document did not finish loading'))
+      }, EXTENSION_LIMITS.requestTimeoutMs)
+      const attached = (_event: Electron.Event, guest: WebContents): void => {
+        const ready = (): void => {
+          if (guest.getURL() !== view.url) return
+          disposeReadiness()
+          resolve(guest)
+        }
+        const closed = (): void => {
+          disposeReadiness()
+          reject(
+            new Error(
+              'Initially hidden guest closed before its captured document loaded',
+            ),
+          )
+        }
+        disposeReadiness = (): void => {
+          clearTimeout(timer)
+          fixture.webContents.removeListener('did-attach-webview', attached)
+          guest.removeListener('did-finish-load', ready)
+          guest.removeListener('destroyed', closed)
+        }
+        guest.on('did-finish-load', ready)
+        guest.once('destroyed', closed)
+      }
+      disposeReadiness = (): void => {
+        clearTimeout(timer)
+        fixture.webContents.removeListener('did-attach-webview', attached)
+      }
+      fixture.webContents.once('did-attach-webview', attached)
+    })
+    void loaded.catch(() => undefined)
     await fixture.loadURL(
       `data:text/html,${encodeURIComponent(`<webview style="display:flex;width:300px;height:300px" src="${view.url}" name="${view.id}" partition="${view.partition}"></webview>`)}`,
     )
-    let deadline = Date.now() + 10_000
-    while (!captured.guest() && Date.now() < deadline) await pause(20)
-    const guest = captured.guest()
-    if (!guest) throw new Error('Initially hidden guest did not bind')
+    const guest = await loaded
     const read = async (): Promise<{
       state: string
       ticks?: number
       status?: string
     }> => {
-      try {
-        const result = (await guest.debugger.sendCommand('Runtime.evaluate', {
-          expression:
-            "({state:document.readyState,ticks:window.extensionInitialTicks,status:document.getElementById('status')?.textContent})",
-          returnByValue: true,
-        })) as { result: { value: { state: string; ticks?: number; status?: string } } }
-        return result.result.value
-      } catch (reason) {
-        if (
-          reason instanceof Error &&
-          reason.message.includes('Cannot find default execution context')
-        )
-          return { state: 'loading' }
-        throw reason
-      }
+      const result = (await guest.debugger.sendCommand('Runtime.evaluate', {
+        expression:
+          "({state:document.readyState,ticks:window.extensionInitialTicks,status:document.getElementById('status')?.textContent})",
+        returnByValue: true,
+      })) as { result: { value: { state: string; ticks?: number; status?: string } } }
+      return result.result.value
     }
-    while (Date.now() < deadline && (await read()).state !== 'complete') await pause(50)
     observeEngineCommands(guest)
     await waitForFreeze(guest)
-    const loaded = await read()
-    if (loaded.state !== 'complete' || typeof loaded.ticks !== 'number')
+    const initial = await read()
+    if (initial.state !== 'complete' || typeof initial.ticks !== 'number')
       throw new Error('Initially hidden guest did not finish its captured document')
     await pause(2200)
-    if ((await read()).ticks !== loaded.ticks)
+    if ((await read()).ticks !== initial.ticks)
       throw new Error('Initially hidden document ran timers after loading')
     extensions.guests!.presentation(owner, view.id, DEFAULT_EXTENSION_PRESENTATION, true)
     fixture.show()
-    deadline = Date.now() + 10_000
+    const deadline = Date.now() + 10_000
     while (Date.now() < deadline) {
       const next = await read()
-      if (next.ticks! > loaded.ticks && next.status === 'Connected · contract 1.0') return
+      if (next.ticks! > initial.ticks && next.status === 'Connected · contract 1.0')
+        return
       await pause(100)
     }
     throw new Error('Initially hidden guest could not resume public negotiation')
   } finally {
-    await scopes.revokeOwner(owner.id)
-    if (!fixture.isDestroyed()) fixture.destroy()
+    disposeReadiness()
+    try {
+      await scopes.revokeOwner(owner.id)
+    } finally {
+      if (!fixture.isDestroyed()) fixture.destroy()
+    }
   }
 }
 
@@ -417,7 +447,7 @@ export async function verifyExtensionEngineStartup(
       while (!setupStarted && Date.now() < deadline) await pause(20)
       if (!setupStarted) throw new Error('Guest engine setup never began')
       if (mode === 'close') {
-        extensions.guests!.close(owner, view.id)
+        await extensions.guests!.close(owner, view.id)
         settle!() // A late fixed setup success cannot reopen captured asset authority.
       }
       while (
@@ -448,8 +478,11 @@ export async function verifyExtensionEngineStartup(
       console.log(`[smoke] fixed engine setup ${mode} released no captured bytes`)
     } finally {
       settle?.()
-      await scopes.revokeOwner(owner.id)
-      if (!fixture.isDestroyed()) fixture.destroy()
+      try {
+        await scopes.revokeOwner(owner.id)
+      } finally {
+        if (!fixture.isDestroyed()) fixture.destroy()
+      }
     }
   }
 }

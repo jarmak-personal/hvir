@@ -1,10 +1,10 @@
-# Directory extensions
+# Extension packages
 
 Open **Settings → Extensions → Open extensions folder**. Place one ready-to-run
-package directory there, then choose **Discover extensions**. Inspect its contract,
+package directory or ZIP there, then choose **Discover extensions**. Inspect its contract,
 capabilities, and requested access before choosing **Enable** and **Open**. Discovery
-reads data and executes no package code. This first slice supports directory packages;
-ZIPs, development links, Reload, Replace, and removal follow in package management.
+reads data and executes no package code. Directories, ZIPs and development links share one validation and activation contract.
+Duplicate package IDs are all refused; hvir never guesses which candidate you meant.
 
 The ready-to-run example is `packages/extension-reference` in a checkout. Installed
 macOS packages include it at `/Applications/hvir.app/Contents/Resources/extension-reference`;
@@ -18,8 +18,10 @@ access. A crashed view remains independently closable and can be opened again.
 
 hvir captures an enabled package in its content-addressed store. Running views serve
 the accepted bytes, not mutable source files. Discovering external edits does not
-execute them. Disable and enable after inspecting the discovered revision to accept
-those bytes. Extension state lives separately in `extension-state/` beneath user data.
+execute them. **Reload** accepts fresh directory or development bytes; **Replace**
+accepts the selected ZIP revision. An explicit revision action revokes old guests before
+admitting the next activation. Failed candidate validation keeps a valid current activation.
+A source changed during discovery becomes inactive until an explicit revision action. Extension state lives separately in `extension-state/` beneath user data.
 Do not edit that directory while hvir is running.
 
 Only one instance per user-data directory can operate extensions. A second instance
@@ -29,6 +31,50 @@ never expires a live owner's lock. If its lock path changes, hvir revokes extens
 work. For development, launch with `--user-data-dir=/absolute/separate-directory`
 rather than sharing a release directory. SSH acceptance builds retain their separate
 application-owned data root.
+
+## ZIP, development, replacement and removal
+
+To package the reference example, run `zip -r ../extension-reference.zip .` from inside
+its directory, so `hvir-extension.json` is at ZIP root. Copy the completed archive into
+the extensions folder and choose **Discover extensions → Enable → Open Extension reference**.
+Do not leave the same package ID in both directory and ZIP forms. An incomplete copied ZIP
+is rejected; finish the copy and discover again. ZIPs have at most 20 MiB compressed input,
+16 MiB expanded assets, 256 materialized entries including implicit directories, 12 directory
+levels, and ten seconds of decoding work. File sizes and CRCs are verified. Traversal,
+absolute paths, links, encryption and conflicting portable destinations are refused. Preparation
+runs no package scripts and serves only the captured validated revision.
+
+For author development, create one top-level symbolic link in the extensions folder pointing
+to the package directory. On Linux/macOS, `ln -s /absolute/author/package /absolute/user-data/extensions/development`
+creates it. Settings labels it **Development package**. Edit the author directory and choose
+**Reload**, then open the view again to see the change. A missing target is shown as missing;
+restore the target or choose **Remove** to delete only the link. Interior links are refused.
+
+To replace a ZIP, replace its source archive, discover it, and choose **Replace**. The manifest
+ID retains the installation identity even when the source name or source kind changes. Current
+contract 1.0 requests no access or connectors, so a valid explicit revision action needs no
+additional permission decision. Unsupported broader access remains refused before execution;
+package hashes are not executable approval.
+
+**Remove** names the selected package and explains its file/data effects. An ordinary package
+is moved to the OS trash. A development package loses only its link; author files remain.
+Keep installation identity for reinstall, or select **Forget saved setup for this extension** to release
+its saved platform package state. Libraries, project skills, issue databases and other domain
+data are kept. Reappearing packages remain inactive until explicit Enable or Replace. An
+unfinished removal remains visible and retryable across restart; cleanup failure cannot
+restore authority. Ordinary removal requires recoverable OS trash. Trash receives a visible
+`remove-UUID` directory or `remove-UUID.zip` archive. After **Put Back** or recovery from
+Trash, choose **Discover extensions**, then explicitly **Enable**. The recovered source
+name changes; its manifest ID still identifies the same saved setup.
+
+Captured storage keeps at most three revisions per package, 96 revisions and 128 MiB globally.
+Accepted/live revisions and the current preparation are protected under the same writer lease.
+If protected bytes fill capacity, remove unused saved installation state before retrying.
+Interrupted preparation is bounded and collected by the next writer. A failed collection of
+an unused obsolete revision identifies its exact hash and repair instruction: close hvir,
+move only that named `extension-state/packages/<hash>` directory outside the package store,
+then restart and retry. Do not move accepted or live revisions. Uncertain changed files are
+preserved, and unrelated accepted views remain usable.
 
 ## Package contract
 
@@ -92,7 +138,7 @@ choice provides actual timer suspension independently of guest cooperation.
 hvir owns reserved close shortcuts and guest disposal.
 
 Packages have at most 256 entries, 12 nested directories, 2 MiB per file, 16 MiB total,
-and a 32 KiB manifest. Links and nonregular files are refused. Discovery admits at most
+and a 32 KiB manifest. Interior links and nonregular assets are refused; the explicit top-level development link is resolved once per capture. Discovery admits at most
 32 installations. Each extension has at most four views; the application has sixteen.
 Messages are bounded to 16 KiB and thirty per second; pending requests are bounded to
 eight per view, sixteen per extension, and sixty-four application-wide, with a ten
