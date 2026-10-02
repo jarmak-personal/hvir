@@ -66,14 +66,10 @@
 }
 
 .compaction-marker {
-  background: color-mix(in srgb, currentColor 24%, transparent);
-  border: 1px solid currentColor;
-  border-radius: 50%;
-  box-sizing: border-box;
   display: inline-block;
-  flex: 0 0 0.6em;
-  height: 0.6em;
-  width: 0.6em;
+  flex: 0 0 1em;
+  height: 1em;
+  width: 1em;
 }
 
 .compaction-marker-summary {

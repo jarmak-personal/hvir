@@ -113,7 +113,7 @@ describe('compaction marker presentation', () => {
     },
   )
 
-  it.each([1, 5, 237])('renders one circle and ×%i on both surfaces', (count) => {
+  it.each([1, 5, 237])('renders one icon and ×%i on both surfaces', (count) => {
     const row = projectedRow(count)
     act(() =>
       root.render(
