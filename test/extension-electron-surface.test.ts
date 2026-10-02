@@ -70,7 +70,10 @@ function viewFor(index = 0): ExtensionView {
     url: `hvir-extension://view-${index}/index.html`,
   }
 }
-async function fixture(send?: (method: string) => Promise<unknown>) {
+async function fixture(
+  send?: (method: string) => Promise<unknown>,
+  admittedDuringBind = false,
+) {
   const surface = new ElectronExtensionGuestSurface()
   const view = viewFor(),
     session = sessionFor(view)
@@ -78,10 +81,11 @@ async function fixture(send?: (method: string) => Promise<unknown>) {
     attach: vi.fn(),
     isAttached: vi.fn(() => true),
     detach: vi.fn(),
-    sendCommand: vi.fn((method: string) =>
-      send
-        ? send(method)
-        : Promise.resolve({ targetInfo: { targetId: 'target', type: 'webview' } }),
+    sendCommand: vi.fn<(method: string, params?: { state?: string }) => Promise<unknown>>(
+      (method) =>
+        send
+          ? send(method)
+          : Promise.resolve({ targetInfo: { targetId: 'target', type: 'webview' } }),
     ),
   })
   let destroyed = false
@@ -111,7 +115,10 @@ async function fixture(send?: (method: string) => Promise<unknown>) {
   })
   surface.connect({
     claim: () => view,
-    bind: () => view,
+    bind: () => {
+      surface.runnable(guest.id, admittedDuringBind)
+      return view
+    },
     failed,
   } as unknown as ExtensionGuestOwner)
   await surface.prepare(view, revision)
@@ -145,6 +152,25 @@ afterEach(() => {
 })
 
 describe('Electron extension response, native teardown and closing capacity', () => {
+  it('preserves finite work admitted during native bind before lifecycle creation and freezes when it ends', async () => {
+    const data = await fixture(undefined, true)
+    try {
+      await turn()
+      const states = () =>
+        data.debuggerPort.sendCommand.mock.calls
+          .filter(([method]) => method === 'Page.setWebLifecycleState')
+          .map((call) => (call[1] as { state: string }).state)
+      expect(states().length).toBeGreaterThan(0)
+      expect(states().every((state) => state === 'active')).toBe(true)
+      data.surface.runnable(data.guest.id, false)
+      await turn()
+      expect(states().at(-1)).toBe('frozen')
+      expect(data.failed).not.toHaveBeenCalled()
+    } finally {
+      await data.surface.destroy(data.view.id)
+    }
+  })
+
   it('revokes captured responses on the debugger callback stack and closes outside it with a true session receipt', async () => {
     const data = await fixture()
     await turn()
