@@ -69,7 +69,7 @@ export async function verifyExtensionDocumentReplacement(
       ))
     )
       throw new Error('Document replacement blocked the trusted workbench')
-    extensions.guests!.close(owner, view.id)
+    await extensions.guests!.close(owner, view.id)
   }
 }
 
@@ -393,8 +393,11 @@ export async function verifyInitiallyHiddenExtension(
     throw new Error('Initially hidden guest could not resume public negotiation')
   } finally {
     disposeReadiness()
-    await scopes.revokeOwner(owner.id)
-    if (!fixture.isDestroyed()) fixture.destroy()
+    try {
+      await scopes.revokeOwner(owner.id)
+    } finally {
+      if (!fixture.isDestroyed()) fixture.destroy()
+    }
   }
 }
 
@@ -444,7 +447,7 @@ export async function verifyExtensionEngineStartup(
       while (!setupStarted && Date.now() < deadline) await pause(20)
       if (!setupStarted) throw new Error('Guest engine setup never began')
       if (mode === 'close') {
-        extensions.guests!.close(owner, view.id)
+        await extensions.guests!.close(owner, view.id)
         settle!() // A late fixed setup success cannot reopen captured asset authority.
       }
       while (
@@ -475,8 +478,11 @@ export async function verifyExtensionEngineStartup(
       console.log(`[smoke] fixed engine setup ${mode} released no captured bytes`)
     } finally {
       settle?.()
-      await scopes.revokeOwner(owner.id)
-      if (!fixture.isDestroyed()) fixture.destroy()
+      try {
+        await scopes.revokeOwner(owner.id)
+      } finally {
+        if (!fixture.isDestroyed()) fixture.destroy()
+      }
     }
   }
 }

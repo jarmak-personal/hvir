@@ -53,7 +53,7 @@ export function registerExtensionsIpc(
       unavailable(),
   )
   ipc.handle('extensions:close-view', (req, context) => {
-    extensions?.guests?.close(context.owner(), req.viewId)
+    return extensions?.guests?.close(context.owner(), req.viewId)
   })
   ipc.handle(
     'extensions:views',

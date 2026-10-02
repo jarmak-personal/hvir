@@ -24,6 +24,8 @@ interface SurfaceRecord {
   readonly denyDownload: (event: Electron.Event) => void
   readonly engineReady: Promise<void>
   readonly settleEngine: (error?: Error) => void
+  readonly revoked: Promise<never>
+  readonly revoke: () => void
   guest?: WebContents
   visible: boolean
   owner?: RendererOwner
@@ -35,7 +37,7 @@ interface SurfaceRecord {
 export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort {
   private readonly surfaces = new Map<string, SurfaceRecord>()
   private readonly partitions = new WeakMap<Session, string>()
-  private readonly cleanups = new Set<Promise<void>>()
+  private readonly cleanups = new Map<string, Promise<void>>()
   private owner?: ExtensionGuestOwner
 
   static configureEngine(): void {
@@ -66,7 +68,9 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
   prepare(view: ExtensionView, revision: ExtensionRevision): Promise<void> {
     if (this.surfaces.size + this.cleanups.size >= EXTENSION_LIMITS.views)
       return Promise.reject(
-        new Error('Extension views are still closing. Try again shortly.'),
+        new Error(
+          'Extension views are still closing or cleanup failed. If this continues, restart hvir.',
+        ),
       )
     const guestSession = session.fromPartition(view.partition, { cache: false })
     const denyDownload = (event: Electron.Event): void => event.preventDefault()
@@ -75,6 +79,11 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
       settleEngine = (error) => (error ? reject(error) : resolve())
     })
     void engineReady.catch(() => undefined)
+    let revoke!: () => void
+    const revoked = new Promise<never>((_resolve, reject) => {
+      revoke = () => reject(new Error('Extension view was closed'))
+    })
+    void revoked.catch(() => undefined)
     const record: SurfaceRecord = {
       view,
       session: guestSession,
@@ -82,6 +91,8 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
       denyDownload,
       engineReady,
       settleEngine,
+      revoked,
+      revoke,
       visible: false,
     }
     this.surfaces.set(view.id, record)
@@ -199,14 +210,15 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
       )
       // The captured response cannot release package code until this exact guest
       // has native observer-loss monitoring. This does not await document load.
-      void this.assertEngineTarget(record, guest)
-        .then(() => guest.debugger.sendCommand('Page.enable'))
-        .then(
-          () => record.settleEngine(),
-          (error: unknown) => {
-            record.settleEngine(error instanceof Error ? error : new Error(String(error)))
-          },
-        )
+      void (async () => {
+        await this.assertEngineTarget(record, guest)
+        this.assertLiveGuest(record, guest)
+        await this.sendEngineCommand(record, guest, 'Page.enable')
+        this.assertLiveGuest(record, guest)
+        record.settleEngine()
+      })().catch((error: unknown) => {
+        record.settleEngine(error instanceof Error ? error : new Error(String(error)))
+      })
       // Bootstrap may negotiate, but hidden capability admission remains denied.
       // Freezing before navigation can prevent the initial context from loading.
       const loaded = new Promise<void>((resolve, reject) => {
@@ -232,9 +244,13 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
       record.lifecycle = new ExtensionGuestLifecycle(
         async (state) => {
           await record.engineReady
-          if (state === 'frozen') await loaded
+          if (state === 'frozen') await Promise.race([loaded, record.revoked])
           await this.assertEngineTarget(record, guest)
-          await guest.debugger.sendCommand('Page.setWebLifecycleState', { state })
+          this.assertLiveGuest(record, guest)
+          await this.sendEngineCommand(record, guest, 'Page.setWebLifecycleState', {
+            state,
+          })
+          this.assertLiveGuest(record, guest)
         },
         () => this.flushPresentation(record),
         () =>
@@ -278,7 +294,9 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
     })
     guest.on('did-finish-load', () => this.reapplyWindow(owner))
     guest.once('destroyed', () => this.owner?.failed(guest.id))
-    reserveKeys(() => this.owner?.close(owner, view.id))
+    reserveKeys(() => {
+      void this.owner?.close(owner, view.id)
+    })
     return true
   }
 
@@ -311,16 +329,39 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
         record.lifecycle?.setVisible(record.visible)
   }
 
+  private assertLiveGuest(record: SurfaceRecord, guest: WebContents): void {
+    if (
+      this.surfaces.get(record.view.id) !== record ||
+      record.guest !== guest ||
+      guest.isDestroyed()
+    )
+      throw new Error('Extension view was closed')
+  }
+
+  private sendEngineCommand(
+    record: SurfaceRecord,
+    guest: WebContents,
+    method: 'Target.getTargetInfo' | 'Page.enable' | 'Page.setWebLifecycleState',
+    parameters?: { state: 'active' | 'frozen' },
+  ): Promise<unknown> {
+    this.assertLiveGuest(record, guest)
+    return Promise.race([guest.debugger.sendCommand(method, parameters), record.revoked])
+  }
+
   private async assertEngineTarget(
     record: SurfaceRecord,
     guest: WebContents,
   ): Promise<void> {
-    const { targetInfo } = (await guest.debugger.sendCommand('Target.getTargetInfo')) as {
+    this.assertLiveGuest(record, guest)
+    const { targetInfo } = (await this.sendEngineCommand(
+      record,
+      guest,
+      'Target.getTargetInfo',
+    )) as {
       targetInfo: { targetId: string; type: string }
     }
+    this.assertLiveGuest(record, guest)
     if (
-      this.surfaces.get(record.view.id) !== record ||
-      guest.isDestroyed() ||
       targetInfo.type !== 'webview' ||
       webContents.fromDevToolsTargetId(targetInfo.targetId)?.id !== guest.id
     )
@@ -359,36 +400,68 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
     record.presentation = undefined
   }
 
-  destroy(viewId: string): void {
+  destroy(viewId: string): Promise<void> {
+    const pending = this.cleanups.get(viewId)
+    if (pending) return pending
     const record = this.surfaces.get(viewId)
-    if (!record) return
+    if (!record) return Promise.resolve()
     this.surfaces.delete(viewId)
+    record.revoke()
     record.settleEngine(new Error('Extension view was closed'))
     record.lifecycle?.dispose()
     record.presentation = undefined
-    const destroyed =
-      record.guest && !record.guest.isDestroyed()
-        ? new Promise<void>((resolve) => record.guest!.once('destroyed', resolve))
-        : Promise.resolve()
-    if (record.guest && !record.guest.isDestroyed())
-      record.guest.close({ waitForBeforeUnload: false })
+    const guest = record.guest
+    // Revocation above is synchronous. Native guest destruction must not reenter
+    // the debugger/Chromium notification stack that reported a failed document.
+    const destroyed = new Promise<void>((resolve, reject) => {
+      setImmediate(() => {
+        if (!guest || guest.isDestroyed()) {
+          resolve()
+          return
+        }
+        const closed = (): void => resolve()
+        guest.once('destroyed', closed)
+        try {
+          try {
+            if (guest.debugger.isAttached()) guest.debugger.detach()
+          } catch {
+            // Detach refusal cannot veto closing a revoked guest.
+          }
+          if (!guest.isDestroyed()) guest.close({ waitForBeforeUnload: false })
+        } catch (reason) {
+          guest.removeListener('destroyed', closed)
+          reject(
+            reason instanceof Error
+              ? reason
+              : new Error('Native extension guest close failed', { cause: reason }),
+          )
+        }
+      })
+    })
     const cleanup = destroyed.then(async () => {
       record.session.protocol.unhandle('hvir-extension')
       record.session.off('will-download', record.denyDownload)
       await record.session.closeAllConnections()
       await record.session.clearStorageData()
       await record.session.clearCache()
-      // No guest survives now. Break the callback→record→session cycle only
-      // after revocation, destruction and transport cleanup have completed.
       record.session.webRequest.onBeforeRequest(null)
     })
-    this.cleanups.add(cleanup)
-    void cleanup.finally(() => this.cleanups.delete(cleanup)).catch(() => undefined)
+    this.cleanups.set(viewId, cleanup)
+    void cleanup.then(
+      () => this.cleanups.delete(viewId),
+      () => undefined, // Uncertain teardown keeps its slot and rejected receipt.
+    )
+    return cleanup
   }
 
   async dispose(): Promise<void> {
-    for (const id of [...this.surfaces.keys()]) this.destroy(id)
-    await Promise.allSettled([...this.cleanups])
+    for (const id of [...this.surfaces.keys()]) void this.destroy(id)
+    const settled = await Promise.allSettled([...this.cleanups.values()])
+    const failures: unknown[] = []
+    for (const result of settled)
+      if (result.status === 'rejected') failures.push(result.reason as unknown)
+    if (failures.length)
+      throw new AggregateError(failures, 'Extension guest cleanup failed; restart hvir.')
   }
 
   private assetName(record: SurfaceRecord, url: string): string | undefined {
