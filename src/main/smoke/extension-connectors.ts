@@ -188,7 +188,25 @@ export async function verifyExtensionConnectors(
         views: guests
           .snapshot(owner)
           .filter((entry) => entry.installationId === current.installationId)
-          .map((entry) => ({ role: entry.role, failed: !!entry.failure })),
+          .map((entry) => ({
+            role: entry.role,
+            failed: !!entry.failure,
+            failureKind: !entry.failure
+              ? undefined
+              : entry.failure.startsWith(
+                    'Extension engine lifecycle control is unavailable.',
+                  )
+                ? 'lifecycle-unavailable'
+                : entry.failure.startsWith('Extension engine lifecycle control was lost.')
+                  ? 'lifecycle-lost'
+                  : entry.failure.startsWith('Extension isolated lifecycle observation')
+                    ? 'isolated-observer'
+                    : entry.failure.startsWith('This extension replaced its page.')
+                      ? 'document-replaced'
+                      : entry.failure.startsWith('Extension contract ')
+                        ? 'contract'
+                        : 'stopped',
+          })),
         values: extensions
           .contributions!.snapshot()
           .find((entry) => entry.installationId === current.installationId)
