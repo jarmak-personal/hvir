@@ -9,13 +9,19 @@ import {
   type ProjectHostOption,
   type ProjectState,
 } from '../../../shared'
+import { AddSshHostForm } from './AddSshHostForm'
+import {
+  sshConfigurationClient,
+  type SshHostChooserPort,
+} from './ssh-configuration-client'
+import { useSshHostChooser } from './use-ssh-host-chooser'
 import { DirectoryTree } from '../tree/DirectoryTree'
 import { useModalKeyboard } from '../workbench/use-modal-keyboard'
 import { RemoteConnectionBadge } from './ConnectionStatus'
 import type { ProjectFolderPickerPort } from './project-folder-picker-client'
 
 export function SessionDialog({
-  hosts,
+  sshConfiguration = sshConfigurationClient,
   currentRoot,
   suspended,
   onCancel,
@@ -26,7 +32,7 @@ export function SessionDialog({
   onOpen,
   onOpened,
 }: {
-  readonly hosts: readonly ProjectHostOption[]
+  readonly sshConfiguration?: SshHostChooserPort
   readonly currentRoot: HostPath
   readonly suspended: boolean
   readonly onCancel: () => void
@@ -41,11 +47,12 @@ export function SessionDialog({
   const pathInputRef = useRef<HTMLInputElement>(null)
   const nextRevealToken = useRef(0)
   const [stage, setStage] = useState<'host' | 'folder'>('host')
-  const [hostId, setHostId] = useState(
-    hosts.some((host) => host.hostId === currentRoot.hostId)
-      ? currentRoot.hostId
-      : (hosts[0]?.hostId ?? 'local'),
+  const chooser = useSshHostChooser(
+    sshConfiguration,
+    currentRoot.hostId,
+    stage === 'host',
   )
+  const { hosts, hostId, setHostId } = chooser
   const [connected, setConnected] = useState<ConnectedHost>()
   const [pickerId, setPickerId] = useState<string>()
   const [pathInput, setPathInput] = useState('')
@@ -207,7 +214,12 @@ export function SessionDialog({
     }
   }, [busy, newFolderName, stage])
 
-  useModalKeyboard(dialogRef, () => void cancel(), !busy, !suspended)
+  useModalKeyboard(
+    dialogRef,
+    () => (chooser.adding ? chooser.cancelAdding() : void cancel()),
+    !busy && !chooser.busy,
+    !suspended,
+  )
 
   return (
     <div className="modal-backdrop">
@@ -223,37 +235,72 @@ export function SessionDialog({
       >
         <h2 id="session-dialog-title">
           {stage === 'host'
-            ? 'Connect to a host'
+            ? chooser.adding
+              ? 'Add SSH host'
+              : 'Connect to a host'
             : `Open folder on ${connected?.host.label ?? hostId}`}
         </h2>
         {error ? <p className="dialog-error">{error}</p> : null}
-        {stage === 'host' ? (
-          <div className="session-hosts" role="listbox" aria-label="Hosts">
-            {hosts.map((host) => (
-              <button
-                type="button"
-                role="option"
-                aria-selected={hostId === host.hostId}
-                className={`session-host-option${hostId === host.hostId ? ' selected' : ''}`}
-                key={host.hostId}
-                onClick={() => setHostId(host.hostId)}
-              >
-                <span className="session-host-copy">
-                  {host.kind === 'ssh' ? (
-                    <RemoteConnectionBadge
-                      state={host.connectionState}
-                      hostLabel={`ssh:${host.label}`}
-                    />
-                  ) : (
-                    <strong>Local</strong>
-                  )}
-                  <small>
-                    {host.kind === 'ssh' ? host.connectionState : 'this machine'}
-                  </small>
-                </span>
-              </button>
-            ))}
-          </div>
+        {chooser.refreshError ? (
+          <p className="dialog-error" role="alert">
+            {chooser.refreshError}
+          </p>
+        ) : null}
+        {chooser.error ? (
+          <p className="dialog-error" role="alert">
+            {chooser.error}
+          </p>
+        ) : null}
+        {chooser.feedback ? (
+          <p className="dialog-note" role="status">
+            {chooser.feedback}
+          </p>
+        ) : null}
+        {stage === 'host' && chooser.adding ? (
+          <AddSshHostForm
+            fields={chooser.fields}
+            busy={chooser.busy}
+            onChange={chooser.setFields}
+            onSave={() => void chooser.save()}
+            onCancel={chooser.cancelAdding}
+            onPickIdentity={() => void chooser.pickIdentity()}
+          />
+        ) : stage === 'host' ? (
+          <>
+            <div className="session-hosts" role="listbox" aria-label="Hosts">
+              {hosts.map((host) => (
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={hostId === host.hostId}
+                  className={`session-host-option${hostId === host.hostId ? ' selected' : ''}`}
+                  key={host.hostId}
+                  onClick={() => setHostId(host.hostId)}
+                >
+                  <span className="session-host-copy">
+                    {host.kind === 'ssh' ? (
+                      <RemoteConnectionBadge
+                        state={host.connectionState}
+                        hostLabel={`ssh:${host.label}`}
+                      />
+                    ) : (
+                      <strong>Local</strong>
+                    )}
+                    <small>
+                      {host.kind === 'ssh' ? host.connectionState : 'this machine'}
+                    </small>
+                  </span>
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void chooser.startAdding()}
+            >
+              Add SSH host
+            </button>
+          </>
         ) : (
           <>
             <form
@@ -369,26 +416,32 @@ export function SessionDialog({
             </div>
           </>
         )}
-        <div className="dialog-actions">
-          {stage === 'folder' ? (
-            <button type="button" disabled={busy} onClick={() => void back()}>
-              Back
+        {!chooser.adding ? (
+          <div className="dialog-actions">
+            {stage === 'folder' ? (
+              <button type="button" disabled={busy} onClick={() => void back()}>
+                Back
+              </button>
+            ) : null}
+            <button type="button" disabled={busy} onClick={() => void cancel()}>
+              Cancel
             </button>
-          ) : null}
-          <button type="button" disabled={busy} onClick={() => void cancel()}>
-            Cancel
-          </button>
-          {stage === 'host' ? (
-            <button type="button" disabled={busy} onClick={() => void connect()}>
-              {busy
-                ? 'Working…'
-                : selectedHost?.kind === 'local' ||
-                    selectedHost?.connectionState === 'connected'
-                  ? 'Choose folder'
-                  : 'Connect'}
-            </button>
-          ) : null}
-        </div>
+            {stage === 'host' ? (
+              <button
+                type="button"
+                disabled={busy || !selectedHost}
+                onClick={() => void connect()}
+              >
+                {busy
+                  ? 'Working…'
+                  : selectedHost?.kind === 'local' ||
+                      selectedHost?.connectionState === 'connected'
+                    ? 'Choose folder'
+                    : 'Connect'}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </section>
     </div>
   )
