@@ -8,6 +8,7 @@ import {
   type HarnessProviderId,
   type WorkspaceState,
 } from '../../../shared'
+import { ExtensionTerminalItems } from '../extensions/ExtensionTerminalItems'
 import { CompactionMarkers } from '../harness/CompactionMarkers'
 import { SessionDetailsPopover } from '../harness/SessionDetailsPopover'
 import { sessionDetailsModel } from '../harness/session-details-model'
@@ -140,13 +141,7 @@ export function TerminalRail({
     return () => {
       cancelled = true
     }
-  }, [
-    detailsRequest,
-    detailsRow,
-    dismissDetails,
-    projection.status,
-    sessionsProjection,
-  ])
+  }, [detailsRequest, detailsRow, dismissDetails, projection.status, sessionsProjection])
   const detailsModel = detailsRow
     ? sessionDetailsModel(detailsRow, detailsUsage)
     : detailsRequest && projection.status === 'available'
@@ -172,6 +167,7 @@ export function TerminalRail({
       <header className="terminal-rail-header" hidden={compact}>
         <span>Terminals</span>
         <div className="terminal-header-actions">
+          <ExtensionTerminalItems placement="header" active={surfaceActive} />
           <button
             type="button"
             className="terminal-icon-button terminal-rail-collapse"
@@ -381,6 +377,11 @@ export function TerminalRail({
                   </span>
                 ) : null}
               </button>
+              <ExtensionTerminalItems
+                placement="session"
+                terminalId={session.id}
+                active={surfaceActive}
+              />
               {split ? (
                 <button
                   type="button"

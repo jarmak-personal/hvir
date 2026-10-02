@@ -72,6 +72,31 @@ afterEach(() => {
 })
 
 describe('SettingsDialog section workflow', () => {
+  it('exposes initial dialog focus after controls mount even when subsequent control focus obscures it', () => {
+    let observed = false
+    const focused = (event: FocusEvent): void => {
+      if ((event.target as HTMLElement).classList.contains('settings-dialog'))
+        observed = true
+    }
+    document.addEventListener('focusin', focused, true)
+    try {
+      renderDialog()
+      const input = document.querySelector<HTMLInputElement>('#settings-interface-scale')!
+      expect(input).toBeTruthy()
+      input.focus()
+      expect(document.activeElement).toBe(input)
+      expect(observed).toBe(false)
+      flushFrames()
+      expect(document.activeElement).toBe(document.querySelector('.settings-dialog'))
+      expect(observed).toBe(true)
+      input.focus()
+      expect(document.activeElement).toBe(input)
+      expect(observed).toBe(true)
+    } finally {
+      document.removeEventListener('focusin', focused, true)
+    }
+  })
+
   it('targets Harnesses without scroll alignment and preserves app drafts across sections', async () => {
     renderDialog({ section: 'harnesses' })
     flushFrames()

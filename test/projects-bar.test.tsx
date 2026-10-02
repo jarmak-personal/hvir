@@ -4,6 +4,10 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import {
+  ExtensionContributionContext,
+  type Contributions,
+} from '../src/renderer/src/extensions/extension-contribution-context'
 import { ProjectsBar } from '../src/renderer/src/workspaces/ProjectsBar'
 import {
   asHostId,
@@ -49,6 +53,40 @@ describe('ProjectsBar status presentation', () => {
     expect(callbacks.sessions).toHaveBeenCalledOnce()
   })
 
+  it('leaves builtin destination selection and workspace chrome inactive for an independent top destination', () => {
+    const model: Contributions = {
+      topActive: true,
+      obscured: false,
+      state: [],
+      views: [],
+      sessions: [],
+      terminalIds: {},
+      foreground: true,
+      open: vi.fn(),
+      demand: () => () => undefined,
+      close: vi.fn(),
+      closeTop: vi.fn(),
+      selectTop: vi.fn(),
+    }
+    const callbacks = renderProjectsBar(projectState(0, 0), {}, { contributions: model })
+    expect(host.querySelector('.projects-bar [aria-current=page]')).toBeNull()
+    expect(host.querySelector('.project-tab.active')).toBeNull()
+    expect(host.querySelector('.workspaces-bar')).toBeNull()
+    act(() => host.querySelector<HTMLButtonElement>('.project-tab-main')!.click())
+    expect(callbacks.switchWorkspace).toHaveBeenCalledWith(
+      'project:local:/repo',
+      'workspace:local:/repo',
+    )
+    renderProjectsBar(
+      projectState(0, 0),
+      {},
+      { contributions: { ...model, topActive: false } },
+    )
+    expect(host.querySelector('.project-tab-main')?.getAttribute('aria-current')).toBe(
+      'page',
+    )
+    expect(host.querySelector('.workspaces-bar')).not.toBeNull()
+  })
   it('omits Git change counts while keeping actionable attention', () => {
     renderProjectsBar(projectState(2, 3), {
       'workspace:local:/repo': { actionable: 1, working: 0 },
@@ -393,7 +431,11 @@ function renderProjectsBar(
   rollups: Readonly<
     Record<string, { readonly actionable: number; readonly working: number }>
   >,
-  options: { readonly busy?: boolean; readonly sessionsActive?: boolean } = {},
+  options: {
+    readonly busy?: boolean
+    readonly sessionsActive?: boolean
+    readonly contributions?: Contributions
+  } = {},
 ) {
   const callbacks = {
     plan: vi.fn(() => Promise.resolve({ terminalCount: 0 })),
@@ -406,29 +448,31 @@ function renderProjectsBar(
   }
   act(() => {
     root.render(
-      <ProjectsBar
-        state={state}
-        rollups={rollups}
-        busy={options.busy ?? false}
-        onAdd={vi.fn()}
-        onSwitch={callbacks.switchWorkspace}
-        onRefresh={vi.fn()}
-        onCloseProject={callbacks.closeProject}
-        onPrune={vi.fn()}
-        onDismiss={callbacks.dismiss}
-        onPlanCloseWorkspace={callbacks.plan}
-        onCloseWorkspace={callbacks.close}
-        onReopenWorkspace={callbacks.reopen}
-        watchTier="native"
-        onChangeConnection={vi.fn()}
-        onDisconnect={vi.fn()}
-        onReconnect={vi.fn()}
-        theme="dark"
-        onTheme={vi.fn()}
-        onSettings={vi.fn()}
-        sessionsActive={options.sessionsActive ?? false}
-        onSessions={callbacks.sessions}
-      />,
+      <ExtensionContributionContext.Provider value={options.contributions}>
+        <ProjectsBar
+          state={state}
+          rollups={rollups}
+          busy={options.busy ?? false}
+          onAdd={vi.fn()}
+          onSwitch={callbacks.switchWorkspace}
+          onRefresh={vi.fn()}
+          onCloseProject={callbacks.closeProject}
+          onPrune={vi.fn()}
+          onDismiss={callbacks.dismiss}
+          onPlanCloseWorkspace={callbacks.plan}
+          onCloseWorkspace={callbacks.close}
+          onReopenWorkspace={callbacks.reopen}
+          watchTier="native"
+          onChangeConnection={vi.fn()}
+          onDisconnect={vi.fn()}
+          onReconnect={vi.fn()}
+          theme="dark"
+          onTheme={vi.fn()}
+          onSettings={vi.fn()}
+          sessionsActive={options.sessionsActive ?? false}
+          onSessions={callbacks.sessions}
+        />
+      </ExtensionContributionContext.Provider>,
     )
   })
   return callbacks

@@ -381,8 +381,14 @@ export async function verifyInitiallyHiddenExtension(
     await pause(2200)
     if ((await read()).ticks !== initial.ticks)
       throw new Error('Initially hidden document ran timers after loading')
-    extensions.guests!.presentation(owner, view.id, DEFAULT_EXTENSION_PRESENTATION, true)
-    fixture.show()
+    extensions.guests!.presentation(
+      owner,
+      view.id,
+      DEFAULT_EXTENSION_PRESENTATION,
+      true,
+      true,
+    )
+    fixture.showInactive()
     const deadline = Date.now() + 10_000
     while (Date.now() < deadline) {
       const next = await read()

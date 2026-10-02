@@ -12,11 +12,21 @@ import {
 import { validateCapturedExtension } from '../src/main/extensions/package-store'
 import { RendererResourceScopes } from '../src/main/renderer-resource-scopes'
 import type { ExtensionReply } from '../src/shared/extensions/contract'
+import { contextFixture } from './fixtures/extension-context'
+import { ExtensionPresentationState } from '../src/main/extensions/presentation-state'
+import { ExtensionActionOwner } from '../src/main/extensions/action-owner'
 import { exampleManifest } from './fixtures/extension-package'
+import { localPath } from '../src/shared/host-path'
 
-function fixture(overrides: Partial<ExtensionGuestSurfacePort> = {}) {
+function fixture(
+  overrides: Partial<ExtensionGuestSurfacePort> = {},
+  manifest: Record<string, unknown> = {},
+) {
   const files = new Map([
-    ['hvir-extension.json', new TextEncoder().encode(JSON.stringify(exampleManifest()))],
+    [
+      'hvir-extension.json',
+      new TextEncoder().encode(JSON.stringify(exampleManifest(manifest))),
+    ],
     ['index.html', new TextEncoder().encode('original')],
     ['detail.html', new TextEncoder().encode('detail')],
   ])
@@ -40,14 +50,17 @@ function fixture(overrides: Partial<ExtensionGuestSurfacePort> = {}) {
   }
   const publish = vi.fn()
   const assertWritable = vi.fn(() => Promise.resolve())
+  const context = contextFixture()
   const owner = new ExtensionGuestOwner(
     { active, assertWritable },
     scopes,
     surface,
     publish,
+    context.contexts,
   )
   return {
     owner,
+    context,
     renderer,
     active,
     scopes,
@@ -63,11 +76,357 @@ async function attached(data: ReturnType<typeof fixture>, guestId = 10) {
   const view = await data.owner.open(data.renderer, 'installation', 'reference')
   expect(data.owner.claim(data.renderer, view.partition, view.url, view.id)).toEqual(view)
   expect(data.owner.bind(data.renderer, view.partition, guestId)).toEqual(view)
-  data.owner.presentation(data.renderer, view.id, DEFAULT_EXTENSION_PRESENTATION, true)
+  data.owner.presentation(
+    data.renderer,
+    view.id,
+    DEFAULT_EXTENSION_PRESENTATION,
+    true,
+    true,
+  )
   return view
 }
 
 describe('extension guest capability and lifetime owner', () => {
+  it('refuses construction without the required context admission owner', () => {
+    const data = fixture()
+    expect(
+      () =>
+        new ExtensionGuestOwner(
+          { active: data.active, assertWritable: data.assertWritable },
+          data.scopes,
+          data.surface,
+          data.publish,
+          undefined as unknown as ReturnType<typeof contextFixture>['contexts'],
+        ),
+    ).toThrow('context admission')
+  })
+  it('reclaims capacity from exact previous-workspace left guests after physical disposal', async () => {
+    const data = fixture(
+      {},
+      {
+        views: [
+          { ...exampleManifest().views[0]!, navigation: 'left', placement: 'workspace' },
+        ],
+      },
+    )
+    const state = data.context.sources.projectState(),
+      project = state.projects[0]!,
+      workspace = project.workspaces[0]!
+    vi.spyOn(data.context.sources, 'projectState').mockReturnValue({
+      ...state,
+      projects: [
+        {
+          ...project,
+          workspaces: Array.from({ length: 9 }, (_, index) => ({
+            ...workspace,
+            id: `workspace-${index}`,
+            root: localPath(`/project-${index}`),
+          })),
+        },
+      ],
+    })
+    const open = (index: number) =>
+      data.owner.open(data.renderer, 'installation', 'reference', undefined, {
+        context: { surface: 'left', workspaceId: `workspace-${index}` },
+      })
+    const retained = await Promise.all(
+      Array.from({ length: 8 }, (_, index) => open(index)),
+    )
+    await expect(open(8)).rejects.toThrow('Close an extension view')
+    let finish!: () => void
+    const drained = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    data.destroy.mockImplementation(() => drained)
+    const closed = Promise.all(
+      retained.map((view) => data.owner.close(data.renderer, view.id)),
+    )
+    let settled = false
+    void closed.then(() => {
+      settled = true
+    })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    finish()
+    await closed
+    expect((await open(8)).context?.workspace?.id).toBe('workspace-8')
+    expect(data.owner.snapshot(data.renderer)).toHaveLength(1)
+    await data.owner.dispose()
+  })
+  it('discards expired action results without failing the view or cancelling current siblings', async () => {
+    const data = fixture(
+      {},
+      {
+        requiredCapabilities: ['presentation.read', 'context.read'],
+        actions: [
+          {
+            id: 'describe',
+            title: 'Describe',
+            view: 'reference',
+            agents: true,
+            effects: { delete: false, replace: false },
+          },
+        ],
+      },
+    )
+    const view = await attached(data)
+    const actions = new ExtensionActionOwner({
+      open: (owner, installation, contribution, options, admit) =>
+        data.owner.open(owner, installation, contribution, admit, options),
+      dispatch: (id, invocation) => data.owner.dispatch(id, invocation),
+      runnable: (id, action, admitted) => data.owner.runnable(id, action, admitted),
+      cancelAction: (id, action) => data.owner.cancelAction(id, action),
+      assertView: (id) => data.owner.assertView(id),
+    })
+    data.owner.actions = actions
+    data.owner.receive(10, { kind: 'hello', contract: '1.0' })
+    const activation = data.active.get('installation')!
+    const cancelled = new AbortController()
+    const invoke = (signal?: AbortSignal) =>
+      actions.invoke(
+        data.renderer,
+        activation,
+        'describe',
+        null,
+        { surface: 'viewer' },
+        'agent',
+        'standing',
+        () => undefined,
+        signal,
+      )
+    const expired = invoke(cancelled.signal)
+    const rejected = expect(expired).rejects.toThrow('cancelled')
+    await vi.waitFor(() =>
+      expect(data.sent.filter((entry) => entry.message.kind === 'action')).toHaveLength(
+        1,
+      ),
+    )
+    const old = data.sent.find((entry) => entry.message.kind === 'action')!.message
+    expect(old.kind).toBe('action')
+    if (old.kind !== 'action') throw new Error('missing action')
+    cancelled.abort()
+    await rejected
+    const sibling = invoke()
+    await vi.waitFor(() =>
+      expect(data.sent.filter((entry) => entry.message.kind === 'action')).toHaveLength(
+        2,
+      ),
+    )
+    const latest = data.sent
+      .filter((entry) => entry.message.kind === 'action')
+      .at(-1)!.message
+    if (latest.kind !== 'action') throw new Error('missing sibling')
+    data.owner.receive(10, {
+      kind: 'action-result',
+      id: old.invocation.id,
+      value: 'late',
+    })
+    expect(data.owner.snapshot(data.renderer)).toEqual([view])
+    expect(actions.provenance(view.id, latest.invocation.id)).toBeDefined()
+    data.owner.receive(10, {
+      kind: 'action-result',
+      id: latest.invocation.id,
+      value: 'current',
+    })
+    await expect(sibling).resolves.toBe('current')
+    expect(data.destroy).not.toHaveBeenCalled()
+    await data.owner.dispose()
+  })
+
+  it('revokes inherited child action authority when its originating invocation completes', async () => {
+    const data = fixture(
+      {},
+      {
+        requiredCapabilities: ['actions.invoke', 'context.read'],
+        actions: [
+          {
+            id: 'describe',
+            title: 'Describe',
+            view: 'reference',
+            agents: true,
+            effects: { delete: false, replace: false },
+          },
+        ],
+      },
+    )
+    const view = await attached(data)
+    const actions = new ExtensionActionOwner({
+      open: (owner, installation, contribution, options, admit) =>
+        data.owner.open(owner, installation, contribution, admit, options),
+      dispatch: (id, invocation) => data.owner.dispatch(id, invocation),
+      runnable: (id, action, admitted) => data.owner.runnable(id, action, admitted),
+      cancelAction: (id, action) => data.owner.cancelAction(id, action),
+      assertView: (id) => data.owner.assertView(id),
+    })
+    data.owner.actions = actions
+    data.owner.receive(10, { kind: 'hello', contract: '1.0' })
+    const parent = actions.invoke(
+      data.renderer,
+      data.active.get('installation')!,
+      'describe',
+      null,
+      { surface: 'viewer' },
+      'agent',
+      'standing',
+      () => undefined,
+    )
+    await vi.waitFor(() =>
+      expect(data.sent.filter((entry) => entry.message.kind === 'action')).toHaveLength(
+        1,
+      ),
+    )
+    const parentMessage = data.sent.find(
+      (entry) => entry.message.kind === 'action',
+    )!.message
+    if (parentMessage.kind !== 'action') throw new Error('missing parent')
+    data.owner.receive(10, {
+      kind: 'request',
+      id: 'child-request',
+      capability: 'actions.invoke',
+      actionId: parentMessage.invocation.id,
+      input: { action: 'describe', input: 'child' },
+    })
+    await vi.waitFor(() =>
+      expect(data.sent.filter((entry) => entry.message.kind === 'action')).toHaveLength(
+        2,
+      ),
+    )
+    const child = data.sent
+      .filter((entry) => entry.message.kind === 'action')
+      .at(-1)!.message
+    if (child.kind !== 'action') throw new Error('missing child')
+    expect(child.invocation).toMatchObject({
+      caller: 'agent',
+      authorization: 'standing',
+      input: 'child',
+    })
+    data.owner.receive(10, {
+      kind: 'action-result',
+      id: parentMessage.invocation.id,
+      value: 'finished',
+    })
+    await expect(parent).resolves.toBe('finished')
+    await vi.waitFor(() =>
+      expect(data.sent).toContainEqual({
+        guestId: 10,
+        message: {
+          kind: 'result',
+          id: 'child-request',
+          ok: false,
+          error: 'Originating action was revoked',
+          warnings: [],
+        },
+      }),
+    )
+    expect(actions.provenance(view.id, child.invocation.id)).toBeUndefined()
+    data.owner.receive(10, {
+      kind: 'action-result',
+      id: child.invocation.id,
+      value: 'late child',
+    })
+    expect(data.owner.snapshot(data.renderer)).toEqual([view])
+    await data.owner.dispose()
+  })
+
+  it('withholds undeclared metadata and subscriptions and retains only current hidden snapshots', async () => {
+    for (const declared of [false, true]) {
+      const data = fixture(
+        {},
+        {
+          requiredCapabilities: declared
+            ? ['context.read', 'contributions.read']
+            : ['presentation.read'],
+          railItems: [
+            {
+              id: 'state',
+              placement: 'header',
+              kind: 'control',
+              icon: '◇',
+              tooltip: 'State',
+              click: { view: 'reference', placement: 'viewer' },
+            },
+          ],
+        },
+      )
+      const context = data.context
+      const state = new ExtensionPresentationState(
+        { read: () => Promise.resolve({}), save: () => Promise.resolve() },
+        () => data.owner.publishValues(),
+      )
+      data.owner.presentationState = state
+      const view = await data.owner.open(
+        data.renderer,
+        'installation',
+        'reference',
+        undefined,
+        {
+          context: {
+            surface: 'viewer',
+            workspaceId: 'workspace',
+            sessionId: context.id(1),
+          },
+        },
+      )
+      data.owner.claim(data.renderer, view.partition, view.url, view.id)
+      data.owner.bind(data.renderer, view.partition, 10)
+      data.owner.presentation(
+        data.renderer,
+        view.id,
+        DEFAULT_EXTENSION_PRESENTATION,
+        true,
+        true,
+      )
+      data.owner.receive(10, { kind: 'hello', contract: '1.0' })
+      const initial = data.sent.find((entry) => entry.message.kind === 'context')!.message
+      if (initial.kind !== 'context') throw new Error('missing context')
+      expect(initial.context.session?.id).toBe(declared ? context.id(1) : undefined)
+      expect(initial.context.workspace?.id).toBe(declared ? 'workspace' : undefined)
+      expect(data.sent.some((entry) => entry.message.kind === 'contributions')).toBe(
+        declared,
+      )
+      data.owner.presentation(
+        data.renderer,
+        view.id,
+        DEFAULT_EXTENSION_PRESENTATION,
+        false,
+        false,
+      )
+      data.sent.length = 0
+      context.change('title')
+      data.owner.updateContext()
+      for (let index = 0; index < 20; index++)
+        await state.publish(
+          data.active.get('installation')!,
+          { item: 'state', label: `Latest ${index}` },
+          () => [],
+          () => undefined,
+          new AbortController().signal,
+        )
+      expect(data.sent).toEqual([])
+      data.owner.presentation(
+        data.renderer,
+        view.id,
+        DEFAULT_EXTENSION_PRESENTATION,
+        true,
+        true,
+      )
+      const contexts = data.sent.filter((entry) => entry.message.kind === 'context')
+      const values = data.sent.filter((entry) => entry.message.kind === 'contributions')
+      if (declared) {
+        expect(contexts).toMatchObject([
+          { message: { context: { session: { title: 'Updated' } } } },
+        ])
+        expect(values).toMatchObject([{ message: { values: [{ label: 'Latest 19' }] } }])
+      } else {
+        expect(values).toEqual([])
+        expect(contexts).toMatchObject([
+          { message: { context: { surface: 'viewer', visible: true } } },
+        ])
+      }
+      await data.owner.dispose()
+    }
+  })
+
   it('reapplies hidden intent only for the exact current physical guest and activation', async () => {
     const visibility = vi.fn()
     const data = fixture({ visibility })
@@ -76,7 +435,13 @@ describe('extension guest capability and lifetime owner', () => {
     data.owner.nativeVisibilityChanged(99)
     data.owner.nativeVisibilityChanged(10)
     expect(visibility).not.toHaveBeenCalled()
-    data.owner.presentation(data.renderer, view.id, DEFAULT_EXTENSION_PRESENTATION, false)
+    data.owner.presentation(
+      data.renderer,
+      view.id,
+      DEFAULT_EXTENSION_PRESENTATION,
+      false,
+      false,
+    )
     visibility.mockClear()
     data.owner.nativeVisibilityChanged(10)
     expect(visibility.mock.calls).toEqual([[10, false]])
@@ -97,7 +462,13 @@ describe('extension guest capability and lifetime owner', () => {
     const visibility = vi.fn()
     const data = fixture({ visibility })
     const view = await attached(data)
-    data.owner.presentation(data.renderer, view.id, DEFAULT_EXTENSION_PRESENTATION, false)
+    data.owner.presentation(
+      data.renderer,
+      view.id,
+      DEFAULT_EXTENSION_PRESENTATION,
+      false,
+      false,
+    )
     visibility.mockClear()
     data.owner.failed(10)
     data.owner.nativeVisibilityChanged(10)
@@ -121,6 +492,7 @@ describe('extension guest capability and lifetime owner', () => {
       view.id,
       { ...DEFAULT_EXTENSION_PRESENTATION, fontFamily },
       true,
+      true,
     )
     expect(data.sent.at(-1)).toMatchObject({
       message: { kind: 'presentation', presentation: { fontFamily } },
@@ -133,6 +505,7 @@ describe('extension guest capability and lifetime owner', () => {
           ...DEFAULT_EXTENSION_PRESENTATION,
           fontFamily: 'x'.repeat(MAX_INTERFACE_FONT_STACK_LENGTH + 1),
         },
+        false,
         false,
       ),
     ).toThrow('interface font')
@@ -150,15 +523,17 @@ describe('extension guest capability and lifetime owner', () => {
         view.id,
         { ...DEFAULT_EXTENSION_PRESENTATION, fontSize },
         false,
+        false,
       )
-    expect(data.sent).toEqual([])
+    expect(data.sent.filter((entry) => entry.message.kind === 'presentation')).toEqual([])
     data.owner.presentation(
       data.renderer,
       view.id,
       { ...DEFAULT_EXTENSION_PRESENTATION, fontSize: 16 },
       true,
+      true,
     )
-    expect(data.sent).toEqual([
+    expect(data.sent.filter((entry) => entry.message.kind === 'presentation')).toEqual([
       {
         guestId: 10,
         message: {
@@ -180,15 +555,23 @@ describe('extension guest capability and lifetime owner', () => {
       detail.id,
       DEFAULT_EXTENSION_PRESENTATION,
       true,
+      true,
     )
     const otherRenderer = data.scopes.activateOwner(2)
     const third = await data.owner.open(otherRenderer, 'installation', 'reference')
     data.owner.claim(otherRenderer, third.partition, third.url, third.id)
     data.owner.bind(otherRenderer, third.partition, 12)
-    data.owner.presentation(otherRenderer, third.id, DEFAULT_EXTENSION_PRESENTATION, true)
-    await data.owner.open(data.scopes.activateOwner(3), 'installation', 'reference')
+    data.owner.presentation(
+      otherRenderer,
+      third.id,
+      DEFAULT_EXTENSION_PRESENTATION,
+      true,
+      true,
+    )
+    for (let id = 3; id < 8; id++)
+      await data.owner.open(data.scopes.activateOwner(id), 'installation', 'reference')
     await expect(
-      data.owner.open(data.scopes.activateOwner(4), 'installation', 'reference'),
+      data.owner.open(data.scopes.activateOwner(8), 'installation', 'reference'),
     ).rejects.toThrow('Close an extension view')
     for (const guestId of [10, 11, 12])
       data.owner.receive(guestId, { kind: 'hello', contract: '1.0' })
@@ -270,7 +653,9 @@ describe('extension guest capability and lifetime owner', () => {
     })
     expect(data.sent).toEqual([])
     data.owner.receive(10, { kind: 'hello', contract: '1.0', userApproved: true })
-    expect(data.sent.at(-1)?.message).toMatchObject({
+    expect(
+      data.sent.find((entry) => entry.message.kind === 'hello')?.message,
+    ).toMatchObject({
       kind: 'hello',
       capabilities: ['presentation.read', 'viewer.open-own'],
       warnings: ['Ignored unknown field: userApproved'],
@@ -327,7 +712,13 @@ describe('extension guest capability and lifetime owner', () => {
     const data = fixture()
     const view = await attached(data)
     data.owner.receive(10, { kind: 'hello', contract: '1.0' })
-    data.owner.presentation(data.renderer, view.id, DEFAULT_EXTENSION_PRESENTATION, false)
+    data.owner.presentation(
+      data.renderer,
+      view.id,
+      DEFAULT_EXTENSION_PRESENTATION,
+      false,
+      false,
+    )
     data.owner.receive(10, {
       kind: 'request',
       id: 'hidden',

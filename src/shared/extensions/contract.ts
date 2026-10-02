@@ -1,6 +1,13 @@
 /** Public, process-independent extension contract. No workbench IPC is an author API. */
 export const EXTENSION_CONTRACT = '1.0'
-export const EXTENSION_CAPABILITIES = ['presentation.read', 'viewer.open-own'] as const
+export const EXTENSION_CAPABILITIES = [
+  'presentation.read',
+  'viewer.open-own',
+  'context.read',
+  'contributions.read',
+  'contributions.publish',
+  'actions.invoke',
+] as const
 export type ExtensionCapability = (typeof EXTENSION_CAPABILITIES)[number]
 
 export const EXTENSION_LIMITS = {
@@ -16,21 +23,33 @@ export const EXTENSION_LIMITS = {
   packageBytes: 16 * 1024 * 1024,
   manifestBytes: 32 * 1024,
   warnings: 16,
-  viewsPerExtension: 4,
-  views: 16,
+  viewsPerExtension: 8,
+  views: 32,
   messageBytes: 16 * 1024,
   requestsPerView: 8,
   requestsPerExtension: 16,
   requests: 64,
   messagesPerSecond: 30,
   requestTimeoutMs: 10_000,
+  railItems: 8,
+  actions: 8,
+  sessions: 128,
+  contextBytes: 7 * 1024,
+  actionBytes: 8 * 1024,
+  actionsPerExtension: 4,
+  actionsPending: 16,
+  actionTimeoutMs: 120_000,
+  actionMaximumMs: 180_000,
+  presentationBytes: 16 * 1024,
+  presentationTotalBytes: 256 * 1024,
 } as const
 
 export interface ExtensionContribution {
   readonly id: string
   readonly title: string
   readonly entry: string
-  readonly placement: 'application'
+  readonly placement: 'application' | 'workspace'
+  readonly navigation?: 'top' | 'left'
   readonly representations: readonly ['view']
 }
 
@@ -44,6 +63,9 @@ export interface ExtensionManifest {
   readonly optionalCapabilities: readonly string[]
   readonly access: readonly []
   readonly views: readonly ExtensionContribution[]
+  readonly railItems?: readonly ExtensionRailItem[]
+  readonly actions?: readonly ExtensionAction[]
+  readonly updater?: string
 }
 
 export interface ExtensionPresentation {
@@ -64,8 +86,15 @@ export type ExtensionRequest =
       readonly id: string
       readonly capability: string
       readonly input?: unknown
+      readonly actionId?: string
     }
   | { readonly kind: 'cancel'; readonly id: string }
+  | {
+      readonly kind: 'action-result'
+      readonly id: string
+      readonly value?: unknown
+      readonly error?: string
+    }
 
 export type ExtensionReply =
   | {
@@ -90,10 +119,67 @@ export type ExtensionReply =
       readonly warnings: readonly string[]
     }
   | { readonly kind: 'presentation'; readonly presentation: ExtensionPresentation }
+  | { readonly kind: 'context'; readonly context: ExtensionContext }
+  | { readonly kind: 'contributions'; readonly values: readonly ExtensionItemValue[] }
+  | { readonly kind: 'action'; readonly invocation: ExtensionInvocation }
+  | { readonly kind: 'action-cancelled'; readonly id: string }
   | { readonly kind: 'revoked' }
 
 export interface ExtensionGuestBridge {
   /** Negotiate before requesting any capability. */
   send(message: ExtensionRequest): void
   onMessage(callback: (message: ExtensionReply) => void): () => void
+}
+
+export interface ExtensionRailItem {
+  readonly id: string
+  readonly placement: 'header' | 'session'
+  readonly icon: string
+  readonly tooltip: string
+  readonly label?: string
+  readonly kind: 'control' | 'observation'
+  readonly click: { readonly view: string; readonly placement: 'popup' | 'viewer' }
+}
+export interface ExtensionAction {
+  readonly id: string
+  readonly title: string
+  readonly view: string
+  readonly agents: boolean
+  readonly timeoutMs?: number
+  readonly effects: { readonly delete: boolean; readonly replace: boolean }
+}
+export interface ExtensionWorkspaceContext {
+  readonly id: string
+  readonly name: string
+  readonly host: string
+}
+export interface ExtensionSessionContext {
+  /** Exact live spawn identity, never a persisted terminal id or recycled projection handle. */
+  readonly id: string
+  readonly title: string
+  readonly workspace: ExtensionWorkspaceContext
+}
+export interface ExtensionContext {
+  readonly surface: 'viewer' | 'left' | 'top' | 'popup' | 'updater'
+  readonly visible: boolean
+  readonly workspace?: ExtensionWorkspaceContext
+  readonly session?: ExtensionSessionContext
+  readonly sessions?: readonly ExtensionSessionContext[]
+}
+export interface ExtensionItemValue {
+  readonly item: string
+  readonly session?: string
+  readonly icon?: string
+  readonly label?: string
+  readonly tooltip?: string
+  readonly availability?: 'current' | 'stale' | 'disconnected' | 'failed'
+  readonly observedAt?: number
+}
+export interface ExtensionInvocation {
+  readonly id: string
+  readonly action: string
+  readonly input: unknown
+  readonly context: ExtensionContext
+  readonly caller: 'human' | 'agent' | 'guest'
+  readonly authorization: 'interactive' | 'standing' | 'unapproved'
 }

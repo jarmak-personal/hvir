@@ -81,10 +81,12 @@ preserved, and unrelated accepted views remain usable.
 The package contains `hvir-extension.json`, HTML entries, and ready-to-run relative
 assets. The example manifest shows all required fields. Identity and contribution IDs
 are stable lowercase names. `contract` declares a major and minor, independently of
-the package's semantic `version`. This slice offers application placement and a single
-`view` representation. `access` is empty: no project files, PTYs, executables, or network.
+the package's semantic `version`. Views declare `application` or `workspace` placement and a single
+`view` representation. Optional `navigation: 'top'` creates an independent application
+destination; `navigation: 'left'` creates a workspace rail view. `access` is empty: no project files, PTYs, executables, or network.
 
-Contract 1.0 provides `presentation.read` and `viewer.open-own`. List required and
+Contract 1.0 provides `presentation.read`, `viewer.open-own`, `context.read`,
+`contributions.read`, `contributions.publish`, and `actions.invoke`. List required and
 optional capabilities explicitly. Same-major older or equal minor contracts activate;
 a newer minor also activates when every required capability exists. Unsupported major
 or missing required capabilities refuse only that package, with an explanation.
@@ -107,7 +109,7 @@ new authority.
 `viewer.open-own` takes `{ contributionId: 'detail' }` and opens only the caller's
 declared contribution. hvir selects and identifies the tab. Guest identity, approval,
 host, or URL fields cannot manufacture permission. Hidden views cannot request refresh
-or open further views. Inactive guests are frozen by Chromium and resume on selection;
+or open further views without the provenance of a current finite invocation. Inactive guests are frozen by Chromium and resume on selection;
 hvir retains their latest presentation rather than queueing hidden updates. CSS hiding
 and `document.visibilityState` do not reliably reflect Electron webview inactivity.
 The private main-owned surface uses Electron's [debugger transport](https://github.com/electron/electron/blob/v43.5.0/docs/api/debugger.md)
@@ -139,7 +141,7 @@ hvir owns reserved close shortcuts and guest disposal.
 
 Packages have at most 256 entries, 12 nested directories, 2 MiB per file, 16 MiB total,
 and a 32 KiB manifest. Interior links and nonregular assets are refused; the explicit top-level development link is resolved once per capture. Discovery admits at most
-32 installations. Each extension has at most four views; the application has sixteen.
+32 installations. Each extension has at most eight views; the application has thirty-two (including updaters).
 Messages are bounded to 16 KiB and thirty per second; pending requests are bounded to
 eight per view, sixteen per extension, and sixty-four application-wide, with a ten
 second deadline. hvir refuses excess work instead of maintaining unbounded queues.
@@ -157,6 +159,80 @@ requires the browser override; a Blink flag or constructor deletion alone provid
 transport guarantee. Node, Electron, workbench IPC, other packages, direct network
 (including WebRTC), frames, workers, downloads, popups, and browser permissions are
 unavailable. A guest failure cannot veto trusted close or disable controls.
+
+## Rails, observations and named actions
+
+The reference package contributes **Reference workspace** in the project rail and
+**Reference library** beside **Sessions**. hvir owns their navigation, sizing and close
+controls. Selecting a built-in view hides its retained guest; closing it destroys the
+guest. Application destinations need no workspace or project grant and remain independent
+of workspace selection. A removed contribution returns to the built-in destination.
+
+`railItems` declare `header` or `session` placement, `control` or `observation` kind,
+`icon`, `tooltip`, optional `label`, and `click: { view, placement: 'popup' | 'viewer' }`.
+Icons are one or two plain Unicode glyphs, at most eight UTF-16 units; labels are at most
+24 characters and tooltips 160. Each package has at most eight items. Static items require
+no guest and appear only in a full, visible terminal rail. Popups have hvir-owned bounds,
+outside dismissal, Escape (including from focused guest content), close controls and
+focus return. Their focus does not select a terminal or clear its attention.
+
+For the reference walkthrough, explicitly launch an ordinary **Shell** using the terminal
+rail. No Sessions destination or harness observer is needed. Click the row's diamond,
+then **Mark this session**: its label and icon change for that exact live session. Close
+the popup; the header observation continues updating. A session value ends when its
+instance, renderer owner or workspace context ends, including a move. Selection cannot
+retarget an existing popup or action. Old session IDs are refused.
+
+An optional `updater` names a captured HTML entry. At most one isolated updater serves
+an active installation across its visible contributions and windows. Visible header/row
+items create demand without a popup. A visible ordinary viewer also creates demand when
+the terminal rail is compact or collapsed. Settings-obscured guests supply no refresh demand,
+while their finite admitted actions can finish. Compact, collapsed, hidden and background surfaces
+provide no demand. No demand freezes native execution and refuses refresh; resumed demand
+supplies current context before work resumes. The reference timer demonstrates this with
+**Live N**. A stopped updater leaves a visible failed observation; use **Disable → Enable**
+or **Reload** to restart it. Updaters cannot open views or invoke actions.
+
+`context.read` admits opaque workspace IDs, names and host identities, and exact live
+session IDs/titles when the owning surface has that context. Independent application
+content receives no automatic workspace/session context. The shared updater receives
+only the aggregate of current admitted visible demand. Context holds at most 128 sessions
+within 7 KiB; it contains no paths, PTY handles, terminal content or controls. hvir sends
+`{ kind: 'context', context }` on relevant changes. Surface and visibility descriptors
+are ordinary presentation; undeclared context capabilities receive no privileged metadata.
+
+`contributions.read` returns the installation's admitted presentation values and enables
+`{ kind: 'contributions', values }` updates. Hidden subscriptions retain current data
+without queueing events and receive the latest snapshot on resume. `contributions.publish`
+takes `{ item, session?, icon?, label?, tooltip?, availability?, observedAt? }`. Omit `session`
+for an all-sessions value. Observations declare `current`, `stale`, `disconnected` or `failed`;
+`current` requires a timestamp. Controls cannot claim observation freshness. All-sessions
+control presentation persists under the extension state writer. Observations remain in memory;
+restored historical observations are stale. Presentation is bounded to 16 KiB per installation
+and 256 KiB globally including live session values. Invalid saved presentation is discarded
+without preventing other extensions from starting or setup from being forgotten.
+**Forget saved setup** removes only this platform-owned presentation and identity; keeping
+setup preserves them through reinstall. Queued writes cannot restore forgotten identities.
+
+`actions` declare `id`, `title`, a named `view`, whether `agents` may call it, and
+`effects: { delete: boolean, replace: boolean }`. These declarations grant no host access
+or trusted decision. Each package has at most eight actions. A finite invocation opens its
+ordinary closable viewer without taking keyboard focus. Hiding stops refresh while the
+admitted invocation continues; close, context revocation, Disable or replacement cancels it.
+Settings offers **Run Describe session** with an application or exact live-session target,
+including when no rail view is open. The reference action returns the admitted session and
+caller. Its optional `delayMs` input is bounded to 500–5000 ms for observing hide/close behavior.
+
+The public `actions.invoke` request takes `{ action, input? }` and returns its bounded result.
+hvir sends the target guest `{ kind: 'action', invocation }`; reply with
+`{ kind: 'action-result', id: invocation.id, value }` or an `error`. A hidden handler includes
+`actionId: invocation.id` on hvir-mediated capability requests. hvir retains the originating
+caller, authorization and context through those requests and any child invocation; expired
+provenance grants nothing. Invocation IDs are delivered once to their negotiated guest,
+and late results cannot settle newer or sibling work. At most four invocations run per
+extension and sixteen globally. Inputs/results are at most 8 KiB. A deadline starts before
+opening: 120 seconds by default, or declared `timeoutMs` from 1000 through 180000. Later
+agent authorization consumes this same main-owned seam.
 
 ## Local implementation evidence
 

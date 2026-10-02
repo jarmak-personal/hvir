@@ -1,6 +1,7 @@
 import { useEffect, useRef, type ReactElement, type ComponentType } from 'react'
 import type { ExtensionView } from '../../../shared/extensions/workbench'
 import type { ExtensionPresentation } from '../../../shared/extensions/contract'
+import { useExtensionContributions } from './extension-contribution-context'
 import { useAppTheme } from '../theme'
 import { useAppSettings } from '../settings/settings'
 import {
@@ -22,13 +23,14 @@ export function ExtensionViewStack({
   readonly onClose: (id: string) => void
   readonly Surface?: ComponentType<ExtensionGuestSurfaceProps>
 }): ReactElement {
+  const model = useExtensionContributions()
   return (
     <>
       {views.map((view) => (
         <ExtensionViewPane
           key={view.id}
           view={view}
-          visible={active && view.id === activeId}
+          visible={active && view.id === activeId && (!model || !model.obscured)}
           onClose={() => onClose(view.id)}
           Surface={Surface}
         />
@@ -37,7 +39,7 @@ export function ExtensionViewStack({
   )
 }
 
-function ExtensionViewPane({
+export function ExtensionViewPane({
   view,
   visible,
   onClose,
@@ -48,6 +50,7 @@ function ExtensionViewPane({
   readonly onClose: () => void
   readonly Surface: ComponentType<ExtensionGuestSurfaceProps>
 }): ReactElement {
+  const foreground = useExtensionContributions()?.foreground ?? true
   const root = useRef<HTMLDivElement>(null)
   const theme = useAppTheme()
   const settings = useAppSettings()
@@ -76,13 +79,21 @@ function ExtensionViewPane({
         viewId: view.id,
         presentation,
         visible,
+        refreshDemand: visible && foreground,
       })
     }
     publish()
     const observer = new ResizeObserver(publish)
     if (root.current) observer.observe(root.current)
     return () => observer.disconnect()
-  }, [view.id, visible, theme, settings.interfaceScale, settings.interfaceFont])
+  }, [
+    view.id,
+    visible,
+    foreground,
+    theme,
+    settings.interfaceScale,
+    settings.interfaceFont,
+  ])
   return (
     <div
       className="extension-view workspace-view"

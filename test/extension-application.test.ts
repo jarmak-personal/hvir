@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { contextFixture } from './fixtures/extension-context'
 import { localPath } from '../src/shared/host-path'
 import type { ProjectHost } from '../src/main/project-host/project-host'
 import { RendererResourceScopes } from '../src/main/renderer-resource-scopes'
@@ -12,6 +13,23 @@ vi.mock('electron', () => ({
 import { ExtensionApplicationRuntime } from '../src/main/extensions/extension-application'
 
 describe('extension application startup containment', () => {
+  it('contains missing context sources before creating any runtime or touching storage', async () => {
+    const scopes = new RendererResourceScopes(),
+      events = new RendererEventPublisher(scopes)
+    vi.spyOn(events, 'toWindows').mockImplementation(() => undefined)
+    const runtime = new ExtensionApplicationRuntime(scopes, events, localPath('/data'))
+    const create = vi.fn()
+    await expect(
+      runtime.start(
+        { createDirectoryExclusive: create } as unknown as ProjectHost,
+        undefined as unknown as ReturnType<typeof contextFixture>['sources'],
+      ),
+    ).resolves.toBeUndefined()
+    expect(create).not.toHaveBeenCalled()
+    expect(runtime.snapshot().writable).toBe(false)
+    expect(runtime.guests).toBeUndefined()
+    await runtime.dispose()
+  })
   it.each(['creation', 'invalid folder'] as const)(
     'contains %s failure without rejecting ordinary application startup',
     async (condition) => {
@@ -26,7 +44,7 @@ describe('extension application startup containment', () => {
             : Promise.resolve(),
         stat: () => Promise.resolve({ type: 'symlink' }),
       } as unknown as ProjectHost
-      await expect(runtime.start(host)).resolves.toBeUndefined()
+      await expect(runtime.start(host, contextFixture().sources)).resolves.toBeUndefined()
       expect(runtime.snapshot()).toMatchObject({ writable: false, installations: [] })
       expect(runtime.snapshot().explanation).toContain(
         'Check the extensions and extension-state folders',

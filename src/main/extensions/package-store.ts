@@ -41,7 +41,10 @@ export function validateCapturedExtension(
     hash.update(`${Buffer.byteLength(name)}:${name}:${bytes.byteLength}:`)
     hash.update(bytes)
   }
-  for (const view of manifest.views) {
+  for (const view of [
+    ...manifest.views,
+    ...(manifest.updater ? [{ entry: manifest.updater }] : []),
+  ]) {
     if (!capture.files.has(view.entry) || !view.entry.endsWith('.html'))
       throw new Error(`Viewer entry ${view.entry} must be an existing HTML asset`)
   }

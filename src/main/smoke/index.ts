@@ -73,7 +73,7 @@ import { createTerminalMoveSmokeHarness } from './terminal-move'
 import { createSmokeTerminalSessionStore } from './terminal-session-store'
 import { verifyTerminalPresentationLifecycle } from './terminal-presentation'
 import { RendererEventPublisher } from '../renderer-event-publisher'
-import { verifyExtensionScenario } from './extensions'
+import { extensionPtyPorts, verifyExtensionScenario } from './extensions'
 import { verifyWebPaneWorkflow } from './web-pane'
 import { verifyWorkspaceRemoteWorkflow } from './workspace-remote'
 import { workspaceCloseSmokeCommands } from './workspace-close'
@@ -421,8 +421,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       diagnostics: dependencies.diagnostics,
       recordIpcContractDiagnostic: () => undefined,
       recordRenderContainment: () => undefined,
-      ptySupervisor: supervisor,
-      terminalSessions: smokeTerminalSessions,
+      ...extensionPtyPorts(supervisor, smokeTerminalSessions, projectFixture),
       sessionsObservation,
       sessionsUsage,
       terminalMoves: terminalMoveSmoke.coordinator,
@@ -480,7 +479,8 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     })
     recordSmokePhase('scenario-active')
     if (await verifyDevelopmentPerformanceMode(win, mode)) return 0
-    if (await verifyExtensionScenario(win, dependencies, host)) return 0
+    if (await verifyExtensionScenario(win, dependencies, host, sessionsObservation))
+      return 0
     if (mode === 'renderer-recovery') {
       const result = await verifyRendererRecoveryScenario({
         win,

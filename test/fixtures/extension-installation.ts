@@ -22,7 +22,7 @@ export async function extensionInstallationFixture() {
     },
   })
   const revoke = vi.fn()
-  const make = () =>
+  const make = (forgotten?: (id: string) => void) =>
     new ExtensionActivationOwner(
       host,
       localPath(directory),
@@ -30,6 +30,7 @@ export async function extensionInstallationFixture() {
       new ExtensionPackageStore(host, localPath(packages)),
       revoke,
       vi.fn(),
+      forgotten,
     )
   const packageAt = async (name: string, overrides: Record<string, unknown> = {}) => {
     const path = join(directory, name)

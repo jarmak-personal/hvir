@@ -3,7 +3,14 @@
   "name": "hvir Reference",
   "version": "0.1.0",
   "contract": "1.0",
-  "requiredCapabilities": ["presentation.read", "viewer.open-own"],
+  "requiredCapabilities": [
+    "presentation.read",
+    "viewer.open-own",
+    "context.read",
+    "contributions.read",
+    "contributions.publish",
+    "actions.invoke"
+  ],
   "optionalCapabilities": [],
   "access": [],
   "views": [
@@ -20,6 +27,67 @@
       "entry": "detail.html",
       "placement": "application",
       "representations": ["view"]
+    },
+    {
+      "id": "workspace",
+      "title": "Reference workspace",
+      "entry": "index.html",
+      "placement": "workspace",
+      "navigation": "left",
+      "representations": ["view"]
+    },
+    {
+      "id": "library",
+      "title": "Reference library",
+      "entry": "index.html",
+      "placement": "application",
+      "navigation": "top",
+      "representations": ["view"]
+    },
+    {
+      "id": "session",
+      "title": "Reference session",
+      "entry": "session.html",
+      "placement": "workspace",
+      "representations": ["view"]
     }
-  ]
+  ],
+  "railItems": [
+    {
+      "id": "pulse",
+      "placement": "header",
+      "icon": "\u25f7",
+      "tooltip": "Reference observation",
+      "label": "Waiting",
+      "kind": "observation",
+      "click": {
+        "view": "reference",
+        "placement": "viewer"
+      }
+    },
+    {
+      "id": "session",
+      "placement": "session",
+      "icon": "\u25c7",
+      "tooltip": "Reference session popup",
+      "kind": "control",
+      "click": {
+        "view": "session",
+        "placement": "popup"
+      }
+    }
+  ],
+  "actions": [
+    {
+      "id": "describe-session",
+      "title": "Describe session",
+      "view": "detail",
+      "agents": true,
+      "effects": {
+        "delete": false,
+        "replace": false
+      }
+    }
+  ],
+  "updater": "updater.html"
 }

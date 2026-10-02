@@ -28,6 +28,7 @@ interface SurfaceRecord {
   readonly revoke: () => void
   guest?: WebContents
   visible: boolean
+  admittedWork: boolean
   owner?: RendererOwner
   lifecycle?: ExtensionGuestLifecycle
   presentation?: Extract<ExtensionReply, { kind: 'presentation' }>
@@ -94,6 +95,7 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
       revoked,
       revoke,
       visible: false,
+      admittedWork: false,
     }
     this.surfaces.set(view.id, record)
     this.partitions.set(guestSession, view.partition)
@@ -266,6 +268,7 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
             'Extension engine lifecycle control was lost. Close and reopen the view.',
           )
       })
+      if (record.admittedWork) record.lifecycle.setAdmittedWork(true)
       record.lifecycle.setVisible(record.visible)
     } catch {
       this.owner?.failed(
@@ -294,6 +297,13 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
     })
     guest.on('did-finish-load', () => this.reapplyWindow(owner))
     guest.once('destroyed', () => this.owner?.failed(guest.id))
+    if (view.context?.surface === 'popup')
+      guest.on('before-input-event', (event, input) => {
+        if (input.type === 'keyDown' && input.key === 'Escape') {
+          event.preventDefault()
+          void this.owner?.close(owner, view.id)
+        }
+      })
     reserveKeys(() => {
       void this.owner?.close(owner, view.id)
     })
@@ -386,6 +396,15 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
     if (!record || record.guest?.isDestroyed()) return
     record.visible = visible
     record.lifecycle?.setVisible(visible)
+  }
+
+  runnable(guestId: number, admitted: boolean): void {
+    const record = [...this.surfaces.values()].find(
+      (record) => record.guest?.id === guestId,
+    )
+    if (!record || record.guest?.isDestroyed()) return
+    record.admittedWork = admitted
+    record.lifecycle?.setAdmittedWork(admitted)
   }
 
   private flushPresentation(record: SurfaceRecord): void {

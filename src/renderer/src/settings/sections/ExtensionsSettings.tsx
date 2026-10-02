@@ -1,3 +1,4 @@
+import { ExtensionActions } from '../../extensions/ExtensionActions'
 import { ConfirmationDialog } from '../../workbench/ConfirmationDialog'
 import { useEffect, useState, type ReactElement } from 'react'
 import type {
@@ -177,23 +178,30 @@ export function ExtensionsSettings(): ReactElement {
                   >
                     Disable
                   </button>
-                  {installation.manifest?.views.map((view) => (
-                    <button
-                      type="button"
-                      key={view.id}
-                      disabled={busy || !state.writable || installation.removalPending}
-                      onClick={() =>
-                        void run(() =>
-                          window.hvir.invoke('extensions:open-view', {
-                            installationId: installation.installationId!,
-                            contributionId: view.id,
-                          }),
-                        )
-                      }
-                    >
-                      Open {view.title}
-                    </button>
-                  ))}
+                  {installation.installationId ? (
+                    <ExtensionActions installationId={installation.installationId} />
+                  ) : null}
+                  {installation.manifest?.views
+                    .filter(
+                      (view) => view.placement === 'application' && !view.navigation,
+                    )
+                    .map((view) => (
+                      <button
+                        type="button"
+                        key={view.id}
+                        disabled={busy || !state.writable || installation.removalPending}
+                        onClick={() =>
+                          void run(() =>
+                            window.hvir.invoke('extensions:open-view', {
+                              installationId: installation.installationId!,
+                              contributionId: view.id,
+                            }),
+                          )
+                        }
+                      >
+                        Open {view.title}
+                      </button>
+                    ))}
                 </>
               ) : (
                 <button

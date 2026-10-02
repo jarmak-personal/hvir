@@ -36,3 +36,48 @@
 .extension-installation button {
   margin: 4px;
 }
+
+.extension-updater {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  left: -100px;
+  top: -100px;
+  overflow: hidden;
+  pointer-events: none;
+}
+.extension-terminal-items {
+  display: inline-flex;
+  gap: 2px;
+}
+.extension-item-popup {
+  position: fixed;
+  z-index: 1100;
+  width: min(440px, calc(100vw - 16px));
+  height: min(320px, calc(100vh - 16px));
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.extension-item-popup .extension-view {
+  height: 100%;
+}
+.extension-top-destination {
+  flex: 1;
+  min-height: 0;
+  background: var(--app-bg);
+}
+.extension-top-destination .extension-view {
+  height: 100%;
+}
+
+.extension-top-destination[hidden] {
+  display: none;
+}
+.extension-rail-builtins {
+  display: contents;
+}
+.extension-rail-builtins[hidden] {
+  display: none;
+}

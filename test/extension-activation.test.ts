@@ -1,10 +1,267 @@
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
+import { ExtensionPresentationState } from '../src/main/extensions/presentation-state'
 import { readInstallationState } from '../src/main/extensions/installation-state'
 import { extensionInstallationFixture as fixture } from './fixtures/extension-installation'
 
 describe('extension activation and state owner', () => {
+  it.each(['truncated', 'oversized', 'invalid shape'] as const)(
+    'keeps unrelated installations usable and forgettable with %s presentation cache',
+    async (condition) => {
+      const data = await fixture(),
+        owner = data.make(),
+        successor = data.make()
+      try {
+        await data.packageAt('a')
+        await data.packageAt('b', { id: 'other.reference' })
+        await owner.start(data.lock)
+        for (const source of ['a', 'b'])
+          await owner.enable(
+            source,
+            owner.snapshot().installations.find((entry) => entry.source === source)!
+              .revision!,
+          )
+        await owner.dispose()
+        await fs.writeFile(
+          join(data.root, 'presentation.json'),
+          condition === 'truncated'
+            ? '{broken'
+            : condition === 'oversized'
+              ? 'x'.repeat(256 * 1024 + 1)
+              : '[]',
+        )
+        await successor.start(data.lock)
+        const presentation = new ExtensionPresentationState(
+          {
+            read: () => successor.readPresentation(),
+            save: (value, current, signal) =>
+              successor.savePresentation(value, current, signal),
+          },
+          vi.fn(),
+        )
+        await expect(presentation.restore()).resolves.toBeUndefined()
+        expect(successor.active.size).toBe(2)
+        const selected = successor
+          .snapshot()
+          .installations.find((entry) => entry.source === 'a')!
+        await expect(
+          successor.remove('a', selected.sourceIdentity, true),
+        ).resolves.toBeDefined()
+        expect(successor.active.size).toBe(1)
+        expect(
+          successor.snapshot().installations.find((entry) => entry.source === 'b')!
+            .enabled,
+        ).toBe(true)
+        expect(await successor.readPresentation()).toEqual({})
+      } finally {
+        await Promise.all([owner.dispose(), successor.dispose()])
+        await data.dispose()
+      }
+    },
+  )
+  it.each([false, true])(
+    'keeps presentation and identity together across remove/reinstall/restart (forget=%s)',
+    async (forget) => {
+      const data = await fixture()
+      const owner = data.make((id) => presentation.forget(id))
+      const presentation = new ExtensionPresentationState(
+        {
+          read: () => owner.readPresentation(),
+          save: (value, current, signal) =>
+            owner.savePresentation(value, current, signal),
+        },
+        vi.fn(),
+      )
+      const successor = data.make()
+      try {
+        const declaration = {
+          railItems: [
+            {
+              id: 'state',
+              placement: 'header',
+              kind: 'control',
+              icon: '◇',
+              tooltip: 'Saved state',
+              click: { view: 'reference', placement: 'viewer' },
+            },
+          ],
+        }
+        await data.packageAt('valid', declaration)
+        await fs.writeFile(join(data.root, 'domain-data.txt'), 'User domain data')
+        await owner.start(data.lock)
+        await presentation.restore()
+        await owner.enable('valid', owner.snapshot().installations[0]!.revision!)
+        const first = [...owner.active.values()][0]!
+        await presentation.publish(
+          first,
+          { item: 'state', label: 'Saved' },
+          () => [],
+          () => {
+            if (owner.active.get(first.installationId) !== first)
+              throw new Error('revoked')
+          },
+          new AbortController().signal,
+        )
+        const selected = owner
+          .snapshot()
+          .installations.find((entry) => entry.source === 'valid')!
+        await owner.remove('valid', selected.sourceIdentity, forget)
+        expect(presentation.values(first)).toHaveLength(forget ? 0 : 1)
+        expect(Object.keys((await owner.readPresentation()) as object)).toHaveLength(
+          forget ? 0 : 1,
+        )
+        await data.packageAt('valid', declaration)
+        await owner.discover()
+        await owner.enable(
+          'valid',
+          owner.snapshot().installations.find((entry) => entry.source === 'valid')!
+            .revision!,
+        )
+        const reinstalled = [...owner.active.values()][0]!
+        expect(reinstalled.installationId === first.installationId).toBe(!forget)
+        await owner.dispose()
+        await successor.start(data.lock)
+        const restored = new ExtensionPresentationState(
+          {
+            read: () => successor.readPresentation(),
+            save: (value, current, signal) =>
+              successor.savePresentation(value, current, signal),
+          },
+          vi.fn(),
+        )
+        await restored.restore()
+        const active = [...successor.active.values()][0]!
+        expect(active.installationId).toBe(reinstalled.installationId)
+        expect(restored.values(active)).toEqual(
+          forget ? [] : [{ item: 'state', label: 'Saved' }],
+        )
+        await restored.publish(
+          active,
+          { item: 'state', label: 'New saved value' },
+          () => [],
+          () => undefined,
+          new AbortController().signal,
+        )
+        expect(Object.keys((await successor.readPresentation()) as object)).toEqual([
+          active.installationId,
+        ])
+        expect(await fs.readFile(join(data.root, 'domain-data.txt'), 'utf8')).toBe(
+          'User domain data',
+        )
+      } finally {
+        await Promise.all([owner.dispose(), successor.dispose()])
+        await data.dispose()
+      }
+    },
+  )
+
+  it('cannot resurrect forgotten presentation through an unrelated queued publication', async () => {
+    const data = await fixture()
+    const owner = data.make((id) => presentation.forget(id))
+    const presentation = new ExtensionPresentationState(
+      {
+        read: () => owner.readPresentation(),
+        save: (value, current, signal) => owner.savePresentation(value, current, signal),
+      },
+      vi.fn(),
+    )
+    const successor = data.make()
+    let finish: (() => void) | undefined
+    const write = data.host.writeFile.bind(data.host)
+    try {
+      const declaration = {
+        railItems: [
+          {
+            id: 'state',
+            placement: 'header',
+            kind: 'control',
+            icon: '◇',
+            tooltip: 'State',
+            click: { view: 'reference', placement: 'viewer' },
+          },
+        ],
+      }
+      await data.packageAt('a', declaration)
+      await data.packageAt('b', { ...declaration, id: 'other.reference' })
+      await owner.start(data.lock)
+      await presentation.restore()
+      for (const source of ['a', 'b'])
+        await owner.enable(
+          source,
+          owner.snapshot().installations.find((entry) => entry.source === source)!
+            .revision!,
+        )
+      const a = [...owner.active.values()].find(
+        (entry) => entry.revision.manifest.id === 'example.reference',
+      )!
+      const b = [...owner.active.values()].find(
+        (entry) => entry.revision.manifest.id === 'other.reference',
+      )!
+      for (const active of [a, b])
+        await presentation.publish(
+          active,
+          { item: 'state', label: active === a ? 'A' : 'B' },
+          () => [],
+          () => undefined,
+          new AbortController().signal,
+        )
+      const saved = vi.spyOn(owner, 'savePresentation')
+      const intercepted = vi
+        .spyOn(data.host, 'writeFile')
+        .mockImplementation(async (path, bytes, options) => {
+          if (path.path === join(data.root, 'presentation.json') && !finish)
+            await new Promise<void>((resolve) => {
+              finish = resolve
+            })
+          return write(path, bytes, options)
+        })
+      const removing = owner.remove(
+        'a',
+        owner.snapshot().installations.find((entry) => entry.source === 'a')!
+          .sourceIdentity,
+        true,
+      )
+      await vi.waitFor(() => expect(finish).toBeDefined())
+      const publishing = presentation.publish(
+        b,
+        { item: 'state', label: 'B after forget' },
+        () => [],
+        () => {
+          if (owner.active.get(b.installationId) !== b) throw new Error('B revoked')
+        },
+        new AbortController().signal,
+      )
+      await vi.waitFor(() => expect(saved).toHaveBeenCalledTimes(1))
+      expect(saved.mock.calls[0]![0]).toHaveProperty(a.installationId)
+      finish!()
+      await Promise.all([removing, publishing])
+      intercepted.mockRestore()
+      expect(Object.keys((await owner.readPresentation()) as object)).toEqual([
+        b.installationId,
+      ])
+      await owner.dispose()
+      await successor.start(data.lock)
+      const restored = new ExtensionPresentationState(
+        {
+          read: () => successor.readPresentation(),
+          save: (value, current, signal) =>
+            successor.savePresentation(value, current, signal),
+        },
+        vi.fn(),
+      )
+      await restored.restore()
+      expect(restored.values([...successor.active.values()][0]!)).toEqual([
+        { item: 'state', label: 'B after forget' },
+      ])
+    } finally {
+      finish?.()
+      vi.restoreAllMocks()
+      await Promise.all([owner.dispose(), successor.dispose()])
+      await data.dispose()
+    }
+  })
+
   it('aborts an unpublished authority-state write on lock replacement and never admits its activation', async () => {
     const data = await fixture()
     const owner = data.make()
