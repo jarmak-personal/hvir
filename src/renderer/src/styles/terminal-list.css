@@ -96,11 +96,6 @@
   gap: 2px;
 }
 
-.terminal-list-copy > .compaction-markers {
-  margin-top: 1px;
-  max-width: 100%;
-}
-
 .terminal-list-title,
 .terminal-list-meta {
   overflow: hidden;
@@ -115,8 +110,25 @@
 }
 
 .terminal-list-meta {
+  align-items: center;
   color: #77818f;
+  display: flex;
   font-size: calc(9px * var(--hvir-interface-scale));
+}
+
+.terminal-list-profile {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.terminal-list-compactions {
+  font-size: inherit;
+}
+
+.terminal-list-compactions::before {
+  content: '·';
+  margin: 0 0.15em;
 }
 
 .terminal-close-button {
