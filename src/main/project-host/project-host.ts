@@ -67,6 +67,15 @@ export interface ExecStreamHandle {
   dispose(): void
 }
 
+export interface FiniteExecPort {
+  /** Independent host capacity: refuse immediately rather than queue; settle after physical close. */
+  tryExec(
+    command: string,
+    args: readonly string[],
+    opts?: ExecOptions,
+  ): Promise<ExecResult> | undefined
+}
+
 export interface WatchOptions {
   readonly recursive?: boolean
   /**
@@ -251,6 +260,7 @@ export function assertLoopbackEndpoint(endpoint: LoopbackEndpoint): void {
 export interface ProjectHost {
   /** Local application-owned extension storage; never a guest filesystem grant. */
   readonly extensionStorage?: ExtensionStoragePort
+  readonly finiteExec?: FiniteExecPort
   readonly hostId: HostId
   readonly connectionState: HostConnectionState
   readonly watchTier: HostWatchTier

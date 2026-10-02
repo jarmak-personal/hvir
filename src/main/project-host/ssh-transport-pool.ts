@@ -1,6 +1,7 @@
 import { type Client, type ClientChannel, type SFTPWrapper } from 'ssh2'
 
 import type { Disposer } from './project-host'
+import { FINITE_EXEC_HOST_LIMIT } from './finite-exec-admission'
 
 export const SSH_MAX_PHYSICAL_TRANSPORTS = 8
 export const SSH_MAX_CONTROL_TRANSPORTS = 2
@@ -59,6 +60,7 @@ export class SshTransportPool {
   private readonly channels = new Set<ClientChannel>()
   private readonly transports = new Set<SshTransport>()
   private nextTransportId = 1
+  private finiteChannels = 0
   private transportGrowthTail: Promise<void> = Promise.resolve()
   private readonly refusedChannels = new Map<number, number>()
 
@@ -102,6 +104,53 @@ export class SshTransportPool {
     )
     this.activateChannel(reservation, channel)
     return channel
+  }
+
+  /** Finite commands never wait for ordinary exec slots; charge through physical channel close. */
+  tryOpenFiniteChannel(
+    open: (client: Client) => Promise<ClientChannel>,
+    signal?: AbortSignal,
+  ): Promise<ClientChannel> | undefined {
+    if (this.finiteChannels >= FINITE_EXEC_HOST_LIMIT) return undefined
+    const transport = this.availableTransport('control', new Set())
+    if (!transport) return undefined
+    const reservation = this.reserveOnTransport(transport)
+    this.finiteChannels++
+    let released = false
+    const release = (): void => {
+      if (released) return
+      released = true
+      this.finiteChannels--
+    }
+    return Promise.resolve()
+      .then(() => {
+        throwIfAborted(signal, this.owner.lifecycleSignal())
+        return open(transport.client)
+      })
+      .then((channel) => {
+        channel.once('close', release)
+        if (transport.closed) {
+          return new Promise<ClientChannel>((_resolve, reject) => {
+            // This retired stream never reaches a collector; own its errors until physical close.
+            const drainError = (): void => undefined
+            channel.on('error', drainError)
+            channel.once('close', () => {
+              channel.removeListener('error', drainError)
+              reject(
+                new Error('SSH finite command transport retired during channel opening'),
+              )
+            })
+            channel.close()
+          })
+        }
+        this.activateChannel(reservation, channel)
+        return channel
+      })
+      .catch((error: unknown) => {
+        reservation.release()
+        release()
+        throw error
+      })
   }
 
   async openSftp(): Promise<SFTPWrapper> {

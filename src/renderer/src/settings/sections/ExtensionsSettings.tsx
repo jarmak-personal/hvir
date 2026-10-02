@@ -1,3 +1,4 @@
+import { ConnectorSettings } from './ConnectorSettings'
 import { ExtensionActions } from '../../extensions/ExtensionActions'
 import { ConfirmationDialog } from '../../workbench/ConfirmationDialog'
 import { useEffect, useState, type ReactElement } from 'react'
@@ -126,8 +127,9 @@ export function ExtensionsSettings(): ReactElement {
                 {installation.manifest?.contract}
               </p>
               <p>
-                Requested access: package-local views only. No project files, terminals,
-                network, or executable access.
+                Requested UI access: package-local views and declared observations. No
+                project files, terminals or direct network access. Native connectors
+                require separate approval below.
               </p>
               <p>
                 Required capabilities:{' '}
@@ -178,6 +180,7 @@ export function ExtensionsSettings(): ReactElement {
                   >
                     Disable
                   </button>
+                  <ConnectorSettings installation={installation} />
                   {installation.installationId ? (
                     <ExtensionActions installationId={installation.installationId} />
                   ) : null}

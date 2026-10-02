@@ -1,3 +1,8 @@
+import type {
+  ExtensionConnectorExecutionOwner,
+  ConnectorCaller,
+} from './connector-execution'
+import { CONNECTOR_LIMITS } from '../../shared/extensions/connectors'
 import { MAX_INTERFACE_FONT_STACK_LENGTH } from '../../shared/interface-typography'
 import { randomUUID } from 'node:crypto'
 import {
@@ -89,6 +94,8 @@ export class ExtensionGuestOwner {
   ) => readonly import('../../shared/extensions/contract').ExtensionSessionContext[]
   updaterFailed?: (view: ExtensionView) => void
   visibleContributionsChanged?: () => void
+  connectors?: ExtensionConnectorExecutionOwner
+  connectorDemand?: (installation: string, workspace?: string) => boolean
   actions?: ExtensionActionOwner
   presentationState?: ExtensionPresentationState
 
@@ -345,6 +352,7 @@ export class ExtensionGuestOwner {
     // Visibility authority is independent of parsing the latest appearance snapshot.
     record.visible = record.view.role === 'updater' ? record.visible : visible === true
     record.refreshDemand = record.visible && refreshDemand === true
+    this.connectors?.revalidate()
     if (record.refreshDemand !== previousDemand) this.visibleContributionsChanged?.()
     if (record.guestId !== undefined)
       this.surface.visibility(record.guestId, record.visible)
@@ -508,9 +516,11 @@ export class ExtensionGuestOwner {
       record.requests.set(id, controller)
       const timer = setTimeout(
         () => controller.abort(),
-        capability === 'actions.invoke'
-          ? EXTENSION_LIMITS.actionMaximumMs
-          : EXTENSION_LIMITS.requestTimeoutMs,
+        capability.startsWith('connector.')
+          ? CONNECTOR_LIMITS.timeoutMs + EXTENSION_LIMITS.requestTimeoutMs
+          : capability === 'actions.invoke'
+            ? EXTENSION_LIMITS.actionMaximumMs
+            : EXTENSION_LIMITS.requestTimeoutMs,
       )
       void this.request(
         record,
@@ -585,6 +595,51 @@ export class ExtensionGuestOwner {
         throw new Error('Originating action was revoked')
     }
     assertOrigin()
+    if (capability.startsWith('connector.')) {
+      if (!this.connectors) throw new Error('Connector execution is unavailable')
+      const caller: ConnectorCaller = {
+        activation: record.activation,
+        view: record.view.id,
+        signal,
+        ...(invocation ? { action: invocation.id } : {}),
+        current: assertOrigin,
+        context: (workspace) => {
+          if (
+            !workspace ||
+            (record.view.role !== 'updater' &&
+              workspace !== record.context?.value.workspace?.id)
+          )
+            return undefined
+          if (
+            record.view.role === 'updater' &&
+            !this.connectorDemand?.(record.activation.installationId, workspace)
+          )
+            return undefined
+          return this.contexts.admit(record.owner, {
+            surface: 'viewer',
+            workspaceId: workspace,
+          })
+        },
+        demand: (workspace) =>
+          record.view.role === 'updater'
+            ? record.visible &&
+              this.connectorDemand?.(record.activation.installationId, workspace) === true
+            : record.visible &&
+              record.refreshDemand &&
+              (!workspace || workspace === record.context?.value.workspace?.id),
+      }
+      if (capability === 'connector.status')
+        return this.connectors.approvals
+          .status(record.activation)
+          .map((entry) => ({
+            connector: entry.connector,
+            availability: entry.availability,
+            ...(entry.host ? { host: entry.host } : {}),
+            ...(entry.explanation ? { explanation: entry.explanation } : {}),
+          }))
+      if (capability === 'connector.output') return this.connectors.output(caller, input)
+      return this.connectors.execute(caller, input)
+    }
     if (capability === 'presentation.read') return record.presentation
     if (capability === 'context.read') return this.contextValue(record)
     if (capability === 'contributions.read') {
@@ -723,6 +778,7 @@ export class ExtensionGuestOwner {
       this.surface.runnable?.(record.guestId, record.actions.size > 0)
   }
   updateContext(): void {
+    this.connectors?.revalidate()
     for (const record of [...this.records.values()]) {
       if (!this.current(record)) this.closeRecord(record)
       else this.sendContext(record)
@@ -754,6 +810,7 @@ export class ExtensionGuestOwner {
     )
       return
     record.visible = demanded
+    this.connectors?.revalidate()
     this.sendContext(record)
     this.sendValues(record)
     if (record.guestId !== undefined) this.surface.visibility(record.guestId, demanded)
@@ -854,6 +911,7 @@ export class ExtensionGuestOwner {
   private closeRecord(record: GuestRecord, notify = true): void {
     if (this.records.get(record.view.id) !== record) return
     this.records.delete(record.view.id)
+    this.connectors?.revalidate()
     if (record.visible && record.view.role !== 'updater')
       this.visibleContributionsChanged?.()
     this.actions?.revokeView(record.view.id)

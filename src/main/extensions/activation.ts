@@ -1,3 +1,5 @@
+import type { ExtensionConnectorApproval } from '../../shared/extensions/connectors'
+import { CONNECTOR_LIMITS } from '../../shared/extensions/connectors'
 import { randomUUID } from 'node:crypto'
 import {
   EXTENSION_LIMITS,
@@ -49,7 +51,9 @@ export class ExtensionActivationOwner {
     readonly packages: ExtensionPackageStore,
     private readonly revoke: (installationId: string) => void,
     private readonly changed: (state: ExtensionPlatformState) => void,
-    private readonly forgotten: (installationId: string) => void = () => undefined,
+    private readonly forgotten: (
+      installationId: string,
+    ) => readonly ExtensionConnectorApproval[] | void = () => undefined,
   ) {}
 
   start(lock: HostPath): Promise<void> {
@@ -456,7 +460,9 @@ export class ExtensionActivationOwner {
           signal: this.authority.signal,
         })
         await this.assertWritable()
-        this.forgotten(prior.installationId)
+        const approvals = this.forgotten(prior.installationId)
+        if (approvals !== undefined)
+          await this.writeConnectorApprovals(approvals, () => undefined)
       }
       await this.save(
         forget
@@ -531,6 +537,50 @@ export class ExtensionActivationOwner {
     }
     if (this.disposed || !this.writer)
       throw new Error('Extension state write ownership was revoked')
+  }
+
+  readConnectorApprovals(): Promise<unknown> {
+    return this.serialize(async () => {
+      await this.assertWritable()
+      try {
+        const data = await this.host.readTextFilePrefix(
+          joinHostPath(this.stateFile, '..', 'connectors.json'),
+          CONNECTOR_LIMITS.stateBytes,
+        )
+        await this.assertWritable()
+        if (!data.complete || data.validUtf8 === false)
+          throw new Error('Connector approval state exceeds its bound')
+        return JSON.parse(data.content) as unknown
+      } catch (reason) {
+        await this.assertWritable()
+        if ((reason as { code?: unknown }).code === 'ENOENT') return []
+        throw new Error('Connector approval state cannot be read safely', {
+          cause: reason,
+        })
+      }
+    })
+  }
+
+  saveConnectorApprovals(value: unknown, current: () => void): Promise<void> {
+    return this.serialize(() => this.writeConnectorApprovals(value, current))
+  }
+
+  private async writeConnectorApprovals(
+    value: unknown,
+    current: () => void,
+  ): Promise<void> {
+    await this.assertWritable()
+    current()
+    const content = JSON.stringify(value)
+    if (Buffer.byteLength(content) > CONNECTOR_LIMITS.stateBytes)
+      throw new Error('Connector approval state exceeds its bound')
+    await this.host.writeFile(
+      joinHostPath(this.stateFile, '..', 'connectors.json'),
+      content,
+      { signal: this.authority.signal },
+    )
+    await this.assertWritable()
+    current()
   }
 
   private presentationFile(): HostPath {

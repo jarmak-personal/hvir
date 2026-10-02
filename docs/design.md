@@ -176,6 +176,7 @@ the appropriate unseen child attention.
 
 > Lifecycle: Partially superseded
 > Superseded by: [ADR-045](adr/ADR-045-explicit-outside-project-viewing.md) | partial | Temporary document viewing addendum: location, document-type, and automatic image-read scope.
+> Superseded by: [ADR-051](adr/ADR-051-approved-finite-connector-execution.md) | partial | Registered-root requirement for explicit approved connector execution and its application-local working context only.
 
 All project operations and paths are host-qualified behind `ProjectHost`; SSH remains a
 bounded transport owned by one logical host, not an installed remote service.
@@ -538,6 +539,14 @@ exact removal and bounded retention under the extension state writer.
 
 Visible contribution demand owns one isolated updater; finite named actions retain caller and
 context through ordinary non-focusing viewer placement, hiding, and explicit close.
+
+### [ADR-051 — Approved finite connector execution](adr/ADR-051-approved-finite-connector-execution.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-010](adr/ADR-010-project-host-remote-boundary.md) | partial | Registered-root requirement for explicit approved connector execution and its application-local working context only.
+
+Native connector approval pins host-account trust and explicit contexts; finite execution stays behind ProjectHost.
+
 
 ## 5. Architecture
 

@@ -1,3 +1,4 @@
+import { verifyExtensionConnectors } from './extension-connectors'
 import { join } from 'node:path'
 import { app, BrowserWindow, webContents, type WebContents } from 'electron'
 import { joinHostPath, localPath } from '../../shared/host-path'
@@ -43,7 +44,24 @@ export async function verifyExtensionScenario(
   if (mode !== 'extensions') return false
   await verifyCombinedDocumentProtocols(ports.htmlPreviews)
   await focusSmokeWindow(win)
-  await extensions.start(host, sources.context)
+  await extensions.start(host, sources.context, {
+    local: host,
+    hostById: (id) => (id === host.hostId ? host : undefined),
+    listHosts: () => [
+      {
+        hostId: host.hostId,
+        label: 'Local',
+        kind: 'local',
+        connectionState: host.connectionState,
+        watchTier: host.watchTier,
+      },
+    ],
+    materializeHost: (id) => {
+      if (id !== host.hostId) throw new Error('Unknown host')
+      return Promise.resolve(host)
+    },
+    onHostStateChange: (listener) => host.onConnectionState(listener),
+  })
   const directory = extensions.activations?.directory
   if (!directory) throw new Error('Extension application did not start')
   const reference = joinHostPath(directory, 'reference')
@@ -300,6 +318,11 @@ export async function verifyExtensionScenario(
   })
   await reportParentFocus('after-package-teardown')
   await verifyExtensionContributions(win, extensions, scopes, host, source, {
+    click: (name) => click(win, name),
+    wait: waitFor,
+    guest: guestFor,
+  })
+  await verifyExtensionConnectors(win, extensions, scopes, host, source, {
     click: (name) => click(win, name),
     wait: waitFor,
     guest: guestFor,

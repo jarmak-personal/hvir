@@ -1,3 +1,8 @@
+import {
+  ExtensionConnectorApprovalOwner,
+  type ConnectorHostCatalog,
+} from './connector-approval'
+import { ExtensionConnectorExecutionOwner } from './connector-execution'
 import { shell } from 'electron'
 import { joinHostPath, type HostPath } from '../../shared/host-path'
 import type { ProjectHost } from '../project-host/project-host'
@@ -16,6 +21,7 @@ import { ExtensionPackageStore } from './package-store'
 
 /** Application composition and lifetime of the extension platform; no extension package code. */
 export class ExtensionApplicationRuntime {
+  connectors?: ExtensionConnectorExecutionOwner
   readonly surface = new ElectronExtensionGuestSurface()
   activations?: ExtensionActivationOwner
   guests?: ExtensionGuestOwner
@@ -56,10 +62,16 @@ export class ExtensionApplicationRuntime {
     private readonly userData: HostPath,
   ) {}
 
-  start(host: ProjectHost, sources: LiveSessionMetadataSources): Promise<void> {
-    return (this.starting ??= this.initialize(host, sources).catch(
+  start(
+    host: ProjectHost,
+    sources: LiveSessionMetadataSources,
+    hosts: ConnectorHostCatalog,
+  ): Promise<void> {
+    return (this.starting ??= this.initialize(host, sources, hosts).catch(
       async (reason: unknown) => {
         this.failure = `Extensions could not start: ${reason instanceof Error ? reason.message.slice(0, 240) : 'storage unavailable'}. Check the extensions and extension-state folders in this data directory.`
+        this.connectors?.dispose()
+        this.connectors?.approvals.dispose()
         await this.activations?.dispose()
         await this.guests?.dispose()
         await this.surface.dispose()
@@ -90,6 +102,8 @@ export class ExtensionApplicationRuntime {
     this.disposed = true
     this.disposeContext?.()
     await this.starting?.catch(() => undefined)
+    this.connectors?.dispose()
+    this.connectors?.approvals.dispose()
     await this.activations?.dispose()
     await this.guests?.dispose()
     await this.surface.dispose()
@@ -98,6 +112,7 @@ export class ExtensionApplicationRuntime {
   private async initialize(
     host: ProjectHost,
     sources: LiveSessionMetadataSources,
+    hosts: ConnectorHostCatalog,
   ): Promise<void> {
     this.connectContext(sources)
     const contexts = this.contexts
@@ -123,6 +138,8 @@ export class ExtensionApplicationRuntime {
       joinHostPath(storage, 'state.json'),
       packages,
       (id) => {
+        this.connectors?.approvals.discardPrepared(id)
+        this.connectors?.revoke(id)
         this.actions?.revokeInstallation(id)
         this.guests?.revokeInstallation(id)
         this.contributions?.revokeInstallation(id)
@@ -132,9 +149,28 @@ export class ExtensionApplicationRuntime {
         this.events.toWindows('extensions:state-changed', state)
         this.publishContributions()
       },
-      (id) => this.guests?.presentationState?.forget(id),
+      (id) => {
+        this.guests?.presentationState?.forget(id)
+        return this.connectors?.approvals.forget(id)
+      },
     )
     this.activations = activations
+    const scratch = joinHostPath(storage, 'connector-scratch')
+    try {
+      await host.createDirectoryExclusive(scratch, { mode: 0o755 })
+    } catch (reason) {
+      if ((reason as { code?: unknown }).code !== 'EEXIST') throw reason
+    }
+    if ((await host.stat(scratch)).type !== 'dir')
+      throw new Error('Connector scratch must be an ordinary local directory')
+    const approvals = new ExtensionConnectorApprovalOwner(
+      hosts,
+      activations,
+      (id, connector) => this.connectors?.revoke(id, connector),
+    )
+    this.connectors = new ExtensionConnectorExecutionOwner(approvals, scratch, () =>
+      activations.assertWritable(),
+    )
     const guests = new ExtensionGuestOwner(
       activations,
       this.scopes,
@@ -147,6 +183,7 @@ export class ExtensionApplicationRuntime {
       contexts,
     )
     this.guests = guests
+    guests.connectors = this.connectors
     const presentation = new ExtensionPresentationState(
       {
         read: () => activations.readPresentation(),
@@ -165,6 +202,7 @@ export class ExtensionApplicationRuntime {
       assertView: (view) => guests.assertView(view),
     })
     guests.actions = this.actions
+    this.actions.changed = () => this.connectors?.revalidate()
     this.contributions = new ExtensionContributionOwner(
       activations,
       guests,
@@ -173,12 +211,17 @@ export class ExtensionApplicationRuntime {
       this.scopes,
       () => this.publishContributions(),
     )
+    guests.connectorDemand = (id, workspace) =>
+      this.contributions?.connectorDemand(id, workspace) === true
     guests.updaterFailed = (view) => this.contributions?.failed(view)
     guests.visibleContributionsChanged = () => this.contributions?.contextChanged()
     guests.updaterSessions = (id) => this.contributions?.updaterSessions(id) ?? []
     this.surface.connect(guests)
     await activations.start(joinHostPath(storage, 'writer.lock'))
-    if (activations.snapshot().writable) await presentation.restore()
+    if (activations.snapshot().writable) {
+      await approvals.start()
+      await presentation.restore()
+    }
     this.publishContributions()
     if (!this.disposed) this.events.toWindows('extensions:state-changed', this.snapshot())
   }

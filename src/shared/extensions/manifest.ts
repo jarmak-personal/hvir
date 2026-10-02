@@ -1,3 +1,4 @@
+import { validateConnectorDeclarations } from './connectors'
 import {
   EXTENSION_CAPABILITIES,
   EXTENSION_CONTRACT,
@@ -105,6 +106,7 @@ export function validateExtensionManifest(value: unknown): ManifestValidation {
     'railItems',
     'actions',
     'updater',
+    'connectors',
   ])
   const requiredCapabilities = capabilities(object['requiredCapabilities'])
   const optionalCapabilities = capabilities(object['optionalCapabilities'])
@@ -170,6 +172,14 @@ export function validateExtensionManifest(value: unknown): ManifestValidation {
       optionalCapabilities,
       access: [],
       views,
+      ...(object['connectors'] === undefined
+        ? {}
+        : {
+            connectors: validateConnectorDeclarations(
+              object['connectors'],
+              (value, known) => warnings.push(...unknownExtensionFields(value, known)),
+            ),
+          }),
       ...validateContributionDeclarations(object, views, (value, known) =>
         warnings.push(...unknownExtensionFields(value, known)),
       ),
