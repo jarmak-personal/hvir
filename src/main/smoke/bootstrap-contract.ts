@@ -9,6 +9,7 @@ import type { SmokeInterruptionCheckpoint } from './interruption-checkpoint'
 import type { ElectronSmokeMode } from './scenario-selection.mts'
 
 export interface ElectronSmokeDependencies {
+  readonly extensions: import('../extensions/extension-application').ExtensionApplicationRuntime
   readonly mode: ElectronSmokeMode
   readonly projectRoot: HostPath
   readonly createWindow: (

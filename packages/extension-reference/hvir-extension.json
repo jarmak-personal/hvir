@@ -1,0 +1,25 @@
+{
+  "id": "hvir.reference",
+  "name": "hvir Reference",
+  "version": "0.1.0",
+  "contract": "1.0",
+  "requiredCapabilities": ["presentation.read", "viewer.open-own"],
+  "optionalCapabilities": [],
+  "access": [],
+  "views": [
+    {
+      "id": "reference",
+      "title": "Extension reference",
+      "entry": "index.html",
+      "placement": "application",
+      "representations": ["view"]
+    },
+    {
+      "id": "detail",
+      "title": "Reference detail",
+      "entry": "detail.html",
+      "placement": "application",
+      "representations": ["view"]
+    }
+  ]
+}

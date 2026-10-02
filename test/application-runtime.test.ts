@@ -12,6 +12,19 @@ import {
 import { LocalHost } from '../src/main/project-host/local-host'
 
 describe('application runtime build channel', () => {
+  it('selects an explicit absolute development data directory before creating any feature state', () => {
+    const setPath = vi.fn(),
+      prepare = vi.fn()
+    const paths = { getPath: () => '/default', setPath }
+    expect(
+      configureApplicationRuntime(paths, 'development', prepare, '/separate'),
+    ).toEqual({ buildChannel: 'development', userDataRoot: '/separate' })
+    expect(prepare).toHaveBeenCalledWith('/separate')
+    expect(setPath).toHaveBeenCalledWith('userData', '/separate')
+    expect(() =>
+      configureApplicationRuntime(paths, 'development', prepare, 'relative'),
+    ).toThrow('absolute')
+  })
   it.each(['release', 'development', 'smoke'] as const)(
     'preserves the existing user-data authority for %s builds',
     (buildChannel) => {

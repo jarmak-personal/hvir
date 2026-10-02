@@ -5,6 +5,7 @@ export const ELECTRON_SMOKE_SCENARIOS = [
   'git-workflow',
   'workspace-remote',
   'web-pane',
+  'extensions',
   'renderer-authority',
   'platform-contracts',
   'diagnostic-report-restart',

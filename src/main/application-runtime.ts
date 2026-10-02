@@ -10,6 +10,9 @@ export const applicationRuntime = configureApplicationRuntime(
   app,
   __HVIR_BUILD_CHANNEL__,
   (path) => LocalHost.ensureBootstrapDirectory(localPath(path)),
+  process.argv
+    .find((argument) => argument.startsWith('--hvir-user-data-dir='))
+    ?.slice('--hvir-user-data-dir='.length),
 )
 
 /** Resolves one application-owned state file beneath the selected runtime root. */

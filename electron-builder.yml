@@ -11,7 +11,15 @@ files:
   - node_modules/@hvir/rename-noreplace/package.json
   - node_modules/@hvir/rename-noreplace/LICENSE
   - node_modules/@hvir/rename-noreplace/build/Release/rename_noreplace.node
+  - '!node_modules/@hvir/extension-storage/**'
+  - node_modules/@hvir/extension-storage/index.js
+  - node_modules/@hvir/extension-storage/package.json
+  - node_modules/@hvir/extension-storage/LICENSE
+  - node_modules/@hvir/extension-storage/build/Release/extension_storage.node
 extraResources:
+  - from: packages/extension-reference
+    to: extension-reference
+    filter: ['**/*']
   - from: THIRD_PARTY_NOTICES.md
     to: THIRD_PARTY_NOTICES.md
   - from: build/native/hvir-command

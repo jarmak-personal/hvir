@@ -41,6 +41,7 @@ const expectedOrder = [
   'terminal-pane.css',
   'terminal-search.css',
   'web-pane.css',
+  'extension-views.css',
   'scrollbars.css',
 ] as const
 

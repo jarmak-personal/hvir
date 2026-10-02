@@ -27,6 +27,20 @@ const APPROVED_RENAME_PACKAGE_ENTRIES = new Set([
   ...REQUIRED_RENAME_PACKAGE_ENTRIES,
   RENAME_NATIVE_ENTRY,
 ])
+const EXTENSION_STORAGE_ROOT = '/node_modules/@hvir/extension-storage'
+const EXTENSION_STORAGE_NATIVE = `${EXTENSION_STORAGE_ROOT}/build/Release/extension_storage.node`
+const REQUIRED_EXTENSION_STORAGE_ENTRIES = [
+  `${EXTENSION_STORAGE_ROOT}/index.js`,
+  `${EXTENSION_STORAGE_ROOT}/package.json`,
+  `${EXTENSION_STORAGE_ROOT}/LICENSE`,
+]
+const APPROVED_EXTENSION_STORAGE_ENTRIES = new Set([
+  EXTENSION_STORAGE_ROOT,
+  `${EXTENSION_STORAGE_ROOT}/build`,
+  `${EXTENSION_STORAGE_ROOT}/build/Release`,
+  EXTENSION_STORAGE_NATIVE,
+  ...REQUIRED_EXTENSION_STORAGE_ENTRIES,
+])
 const runtimeRequire = createRequire(import.meta.url)
 const FORBIDDEN_RUNTIME_MARKERS = [
   'HVIR_SMOKE',
@@ -156,8 +170,13 @@ export function requiredNativeEntries(
   _architecture: string,
 ): readonly string[] {
   return platform === 'darwin'
-    ? [PTY_NATIVE_ENTRY, PTY_SPAWN_HELPER_ENTRY, RENAME_NATIVE_ENTRY]
-    : [PTY_NATIVE_ENTRY, RENAME_NATIVE_ENTRY]
+    ? [
+        PTY_NATIVE_ENTRY,
+        PTY_SPAWN_HELPER_ENTRY,
+        RENAME_NATIVE_ENTRY,
+        EXTENSION_STORAGE_NATIVE,
+      ]
+    : [PTY_NATIVE_ENTRY, RENAME_NATIVE_ENTRY, EXTENSION_STORAGE_NATIVE]
 }
 
 export function inspectRenameNoReplaceApi(binding: unknown): void {
@@ -201,6 +220,22 @@ export function inspectPackagedRuntimeGraph(
       throw new Error(`Packaged runtime is missing no-replace helper entry ${required}`)
     }
   }
+  for (const required of [
+    '/out/preload/extension-guest.js',
+    ...REQUIRED_EXTENSION_STORAGE_ENTRIES,
+  ]) {
+    if (!entries.includes(required))
+      throw new Error(`Packaged runtime is missing extension support ${required}`)
+  }
+  const unexpectedExtensionEntry = entries.find(
+    (entry) =>
+      entry.startsWith(`${EXTENSION_STORAGE_ROOT}/`) &&
+      !APPROVED_EXTENSION_STORAGE_ENTRIES.has(entry),
+  )
+  if (unexpectedExtensionEntry)
+    throw new Error(
+      `Packaged extension storage retained unexpected build entry ${unexpectedExtensionEntry}`,
+    )
   const unexpectedRenameEntry = entries.find(
     (entry) =>
       entry.startsWith(`${RENAME_PACKAGE_ROOT}/`) &&
@@ -297,6 +332,23 @@ function main(): void {
   inspectRenameNoReplaceApi(
     runtimeRequire(`${values.archive}.unpacked${RENAME_NATIVE_ENTRY}`),
   )
+  const extensionStorage = runtimeRequire(
+    `${values.archive}.unpacked${EXTENSION_STORAGE_NATIVE}`,
+  ) as {
+    metadata(): string
+    lockWriter?: unknown
+    openChild?: unknown
+    entryNames?: unknown
+  }
+  if (
+    extensionStorage.metadata() !== 'hvir.extension-storage.v1' ||
+    [
+      extensionStorage.lockWriter,
+      extensionStorage.openChild,
+      extensionStorage.entryNames,
+    ].some((entry) => typeof entry !== 'function')
+  )
+    throw new Error('Packaged extension storage does not expose its approved private API')
   console.log(
     `Verified packaged production graph (${inspection.mainEntries.length} entries) and native payload (${inspection.nativeEntries.length} files).`,
   )

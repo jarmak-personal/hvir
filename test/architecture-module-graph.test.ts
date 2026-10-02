@@ -42,6 +42,38 @@ function fixture() {
 }
 
 describe('maintained module graph', () => {
+  it('classifies only the exact private extension-storage output and requires its maintained build inputs', () => {
+    const repo = fixture()
+    repo.write(
+      'packages/extension-storage/index.js',
+      "module.exports = require('./build/Release/extension_storage.node')",
+    )
+    repo.write('packages/extension-storage/binding.gyp', '{}')
+    repo.write(
+      'packages/extension-storage/extension_storage.c',
+      '// private kernel primitives',
+    )
+    expect(repo.graph().loading).toContainEqual(
+      expect.objectContaining({
+        from: 'packages/extension-storage/index.js',
+        target: 'packages/extension-storage/build/Release/extension_storage.node',
+        disposition: 'native-build-output',
+      }),
+    )
+    repo.write(
+      'packages/extension-storage/index.js',
+      "module.exports = require('./build/Release/other.node')",
+    )
+    expect(repo.graph().violations).toContainEqual(
+      expect.objectContaining({ rule: 'unresolved-internal' }),
+    )
+    repo.write(
+      'packages/extension-storage/index.js',
+      "module.exports = require('./build/Release/extension_storage.node')",
+    )
+    repo.remove('packages/extension-storage/extension_storage.c')
+    expect(() => repo.graph()).toThrow('Missing required native build input')
+  })
   it('includes every maintained TS/JS and declaration suffix', () => {
     const repo = fixture()
     repo.write('src/leaf.ts', 'export const value = 1')

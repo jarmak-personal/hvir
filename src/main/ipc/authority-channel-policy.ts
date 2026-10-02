@@ -1,6 +1,14 @@
 import { SEND_CHANNELS, type IpcInvokeChannel } from '../../shared'
 
 export const OWNER_SCOPED_INVOKE_CHANNELS = [
+  'extensions:state',
+  'extensions:discover',
+  'extensions:open-folder',
+  'extensions:enable',
+  'extensions:disable',
+  'extensions:open-view',
+  'extensions:close-view',
+  'extensions:views',
   'workbench-health:acknowledge',
   'diagnostic-evidence:get',
   'diagnostic-evidence:delete',
@@ -62,7 +70,9 @@ export const OWNER_SCOPED_INVOKE_CHANNELS = [
   'pty:start',
 ] as const satisfies readonly IpcInvokeChannel[]
 
-export const OWNER_SCOPED_SEND_CHANNELS = SEND_CHANNELS
+export const OWNER_SCOPED_SEND_CHANNELS = SEND_CHANNELS.filter(
+  (channel) => channel !== 'extension-guest:message',
+)
 
 export const AUTHORITY_SCOPED_INVOKE_CHANNELS = [
   'project:watch-interests',

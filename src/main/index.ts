@@ -16,7 +16,7 @@ import { AttentionBadge } from './attention-badge'
 import { HarnessProfileStore } from './harness/harness-profile-store'
 import { HarnessProbeManager } from './harness/harness-probe'
 import { harnessProviders } from './harness/harness-provider'
-import { createElectronRemoteImagePasteCoordinator } from './harness/electron-clipboard-image'
+import { installElectronRemoteImagePaste } from './harness/electron-clipboard-image'
 import { ProjectWatchController } from './project-watch'
 import { WorkspaceCoordinator } from './workspace-coordinator'
 import { createWorkspaceCleanup } from './workspace-cleanup'
@@ -36,7 +36,9 @@ import { createProjectFileOperationCoordinator } from './project-file-operations
 import type { DocumentReviewRuntime } from './document-review'
 import { installApplicationDocumentReviewRuntime } from './document-review/document-review-application'
 import { installApplicationSessionsObservation } from './sessions/sessions-observation-application'
+import { installExtensions } from './extensions/extension-application-install'
 import { applicationRuntime, applicationUserDataPath } from './application-runtime'
+import { projectRootArgument } from './application-runtime-policy'
 import {
   GIT_WORKSPACE_ACTIVITY_TYPE,
   GIT_FETCH_TYPE,
@@ -72,6 +74,7 @@ function createWorkbenchEntry(): void {
     (scopes) => scopes.dispose(),
   )
   const rendererEvents = new RendererEventPublisher(rendererScopes)
+  const extensions = installExtensions(runtime, rendererScopes, rendererEvents)
   const diagnostics = RuntimeDiagnostics.create(
     applicationRuntime.userDataRoot,
     app.isPackaged || __HVIR_SMOKE_BUILD__,
@@ -110,6 +113,7 @@ function createWorkbenchEntry(): void {
     'Electron window manager',
     createElectronWindowManager({
       htmlPreviews,
+      extensionGuests: extensions.surface,
       activateRenderer: (ownerId) =>
         installRendererPresentation(rendererScopes.activateOwner(ownerId)),
       rolloverRenderer: (owner) => {
@@ -263,15 +267,11 @@ function createWorkbenchEntry(): void {
       harnessProviders,
       harnessProfileStore,
     )
-    const remoteImagePaste = runtime.own(
-      'remote image paste coordinator',
-      createElectronRemoteImagePasteCoordinator({
-        ptys: ptySupervisor,
-        resources: rendererScopes,
-        getHost: (hostId) => hostCatalog?.hostById(hostId),
-      }),
-      (coordinator) => coordinator.dispose(),
-    )
+    const remoteImagePaste = installElectronRemoteImagePaste(runtime, {
+      ptys: ptySupervisor,
+      resources: rendererScopes,
+      getHost: (hostId) => hostCatalog?.hostById(hostId),
+    })
     const workspaceCleanup = createWorkspaceCleanup({
       ptys: ptySupervisor,
       resources: rendererScopes,
@@ -360,6 +360,7 @@ function createWorkbenchEntry(): void {
     runtime.own(
       'IPC authority router',
       registerIpcHandlers({
+        extensions,
         echoWorker,
         gitWorker,
         filenameSearch,
@@ -409,6 +410,7 @@ function createWorkbenchEntry(): void {
       (router) => router.dispose(),
     )
     createWindow() // Paint before background watch and Git discovery touches a slow directory.
+    void extensions.start(hostCatalog.local)
     if (projectRegistry.active.host.connectionState === 'connected') {
       void workspaceCoordinator
         .replaceWatch(projectRegistry.active)
@@ -426,10 +428,6 @@ function createWorkbenchEntry(): void {
     }
     createWindow()
   }
-  function projectRootArgument(): string | undefined {
-    const fromFlag = process.argv.find((arg) => arg.startsWith('--project-root='))
-    return fromFlag?.slice('--project-root='.length) || process.env.HVIR_PROJECT_ROOT
-  }
   void app
     .whenReady()
     .then(async () => {
@@ -438,6 +436,7 @@ function createWorkbenchEntry(): void {
         const code = await runElectronSmokeScenario({
           scenario: process.env['HVIR_SMOKE_SCENARIO'],
           projectRoot: localPath(projectRootArgument() ?? process.cwd()),
+          extensions,
           createWindow,
           harnessProbeManager,
           htmlPreviews,

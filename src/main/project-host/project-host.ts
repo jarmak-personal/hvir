@@ -9,6 +9,7 @@
  */
 
 import type { Duplex } from 'node:stream'
+import type { ExtensionStoragePort } from './extension-storage-port'
 
 import type {
   HostId,
@@ -248,6 +249,8 @@ export function assertLoopbackEndpoint(endpoint: LoopbackEndpoint): void {
 }
 
 export interface ProjectHost {
+  /** Local application-owned extension storage; never a guest filesystem grant. */
+  readonly extensionStorage?: ExtensionStoragePort
   readonly hostId: HostId
   readonly connectionState: HostConnectionState
   readonly watchTier: HostWatchTier

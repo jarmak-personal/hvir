@@ -67,6 +67,36 @@ async function originalMessages(owner: string, source: string) {
 describe('resolved adapter for existing dependency direction policy', () => {
   it.each([
     [
+      'src/main/extensions/guest-owner.ts',
+      'packages/extension-storage/index.js',
+      '@hvir/extension-storage',
+    ],
+    [
+      'src/main/project-host/local-host.ts',
+      'packages/extension-storage/index.js',
+      '@hvir/extension-storage',
+    ],
+    [
+      'src/main/extensions/guest-owner.ts',
+      'src/main/extensions/electron-guest-surface.ts',
+      './electron-guest-surface',
+    ],
+    [
+      'src/main/extensions/package-store.ts',
+      'src/main/project-host/local-extension-storage.ts',
+      '../project-host/local-extension-storage',
+    ],
+    [
+      'src/main/index.ts',
+      'packages/extension-reference/reference.js',
+      '../../packages/extension-reference/reference',
+    ],
+    [
+      'src/shared/extensions/contract.ts',
+      'packages/extension-reference/reference.js',
+      '../../../packages/extension-reference/reference',
+    ],
+    [
       'src/renderer/src/sessions/sessions-command-port.ts',
       'src/renderer/src/terminal/sessions-terminal-command-coordinator.ts',
       '../terminal/sessions-terminal-command-coordinator',

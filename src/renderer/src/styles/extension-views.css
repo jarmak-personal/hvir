@@ -1,0 +1,38 @@
+.extension-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+.extension-view[hidden] {
+  display: none;
+}
+.extension-view-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 12px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.extension-view-heading button {
+  color: var(--text);
+  background: var(--surface-1);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  padding: 4px 8px;
+}
+.extension-guest {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+.extension-installation {
+  border-top: 1px solid var(--border-subtle);
+  padding: 12px 0;
+  overflow-wrap: anywhere;
+}
+.extension-installation button {
+  margin: 4px;
+}

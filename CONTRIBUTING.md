@@ -266,14 +266,14 @@ blocking score threshold, and uses only Node and the locally installed test depe
 not launch Electron, require a display, or access the network.
 
 `npm run smoke` runs the focused `pty-native`, `viewer-position`, `viewer-content`,
-`git-workflow`, `workspace-remote`, `web-pane`, `renderer-authority`, `renderer-recovery`,
+`git-workflow`, `workspace-remote`, `web-pane`, `extensions`, `renderer-authority`, `renderer-recovery`,
 `sessions-projection`, `document-review`, `terminal-presentation`, and `terminal-lifecycle` groups plus the focused
 `native-host-worker`, `workbench-health`, `platform-contracts`, `terminal-theme`,
 `terminal-move`, `workbench-layout`, `terminal-split`, `app-settings`, and `harness-profiles` groups in separate Electron processes with fresh project and user-data roots, then
 reports a result for every scheduled group. Direct single-process invocations require
 `HVIR_SMOKE_SCENARIO`; missing and invalid names fail with a selection diagnostic. Select one group locally with
 `npm run smoke:scenario -- <name>`; the complete name set is `pty-native`, `viewer-position`, `viewer-content`,
-`git-workflow`, `workspace-remote`, `web-pane`, `renderer-authority`, `platform-contracts`,
+`git-workflow`, `workspace-remote`, `web-pane`, `extensions`, `renderer-authority`, `platform-contracts`,
 `diagnostic-report-restart`, `renderer-recovery`, `sessions-projection`, `document-review`, `development-performance`,
 `terminal-presentation`, `terminal-lifecycle`, `native-host-worker`, `workbench-health`,
 `terminal-theme`, `terminal-move`, `workbench-layout`, `terminal-split`, `app-settings`,
@@ -301,6 +301,9 @@ reconnect, watcher, and late-completion policy remains in direct Vitest suites a
 real SSH host. `web-pane` starts its own authorized terminal source and proves guest isolation,
 authenticated routing, blocked navigation, ordinary input, full-page controls, workspace
 hide/restore without reload, bounded redacted diagnostics, reserved close, and route cleanup.
+`extensions` exercises the ordinary directory-package Settings workflow, captured-byte
+isolation, public guest protocol, reachable HTTP/WebSocket and TCP/UDP WebRTC denial,
+presentation, inactive timer suspension, and trusted lifecycle controls against Electron.
 `renderer-authority` owns real renderer reload/destruction revocation for routes and HTML previews;
 it does not depend on a terminal scenario. Each focused process records a bounded semantic
 snapshot when readiness fails.

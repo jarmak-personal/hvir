@@ -1,6 +1,4 @@
-/* Root-owned cascade order. Feature files retain the original rule order.
- * primitives.css is limited to pane resizers, panel headers, and dialog controls
- * shared by multiple feature surfaces. */
+/* Explicit feature cascade; primitives.css is limited to pane resizers, shared headers, and dialog controls. */
 @import './styles/base.css';
 @import './styles/projects.css';
 @import './styles/provider-context.css';
@@ -38,4 +36,5 @@
 @import './styles/terminal-pane.css';
 @import './styles/terminal-search.css';
 @import './styles/web-pane.css';
+@import './styles/extension-views.css';
 @import './styles/scrollbars.css';
