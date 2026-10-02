@@ -131,11 +131,15 @@ export class SshTransportPool {
         channel.once('close', release)
         if (transport.closed) {
           return new Promise<ClientChannel>((_resolve, reject) => {
-            channel.once('close', () =>
+            // This retired stream never reaches a collector; own its errors until physical close.
+            const drainError = (): void => undefined
+            channel.on('error', drainError)
+            channel.once('close', () => {
+              channel.removeListener('error', drainError)
               reject(
                 new Error('SSH finite command transport retired during channel opening'),
-              ),
-            )
+              )
+            })
             channel.close()
           })
         }

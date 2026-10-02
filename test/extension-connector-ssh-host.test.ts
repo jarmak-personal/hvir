@@ -1,9 +1,10 @@
 import { EventEmitter } from 'node:events'
-import type { Client, SFTPWrapper } from 'ssh2'
+import type { Client, ClientChannel, SFTPWrapper } from 'ssh2'
 import { describe, expect, it, vi } from 'vitest'
 import { connectorFixture } from './fixtures/extension-connector'
 import { createTestSshHost } from './ssh-host-test-fixture'
 import { FINITE_EXEC_HOST_LIMIT } from '../src/main/project-host/finite-exec-admission'
+import { SshTransportPool } from '../src/main/project-host/ssh-transport-pool'
 
 /** Actual SshHost methods over fake SSH2 channels, without credentials or a claimed real server. */
 function fixture(maxConcurrentExecs = 4) {
@@ -117,6 +118,58 @@ function channel(
 }
 
 describe('approved connectors through the actual SSH adapter', () => {
+  it('retains late-channel admission across transport replacement and errors until actual close', async () => {
+    const client = new EventEmitter() as Client
+    const pool = new SshTransportPool({
+      connected: () => Promise.resolve(client),
+      lifecycleSignal: () => new AbortController().signal,
+      assertTransportGrowthAllowed: () => undefined,
+      openAuxiliaryTransport: () => Promise.reject(new Error('No transport growth')),
+    })
+    pool.registerPrimary(client)
+    const opened: Array<(stream: ClientChannel) => void> = []
+    const late = Array.from({ length: 4 }, () => {
+      const stream = channel('', 'hanging')
+      stream.deferredClose = true
+      return stream
+    })
+    const pending = late.map(() => {
+      const admitted = pool.tryOpenFiniteChannel(
+        () =>
+          new Promise<ClientChannel>((resolve) => {
+            opened.push(resolve)
+          }),
+      )
+      expect(admitted).toBeDefined()
+      return admitted!
+    })
+    const outcomes = Promise.allSettled(pending)
+    await Promise.resolve()
+    expect(opened).toHaveLength(4)
+    pool.dispose()
+    pool.registerPrimary(new EventEmitter() as Client)
+    opened.forEach((resolve, index) => resolve(late[index]! as unknown as ClientChannel))
+    await vi.waitFor(() =>
+      expect(late.every((stream) => stream.close.mock.calls.length === 1)).toBe(true),
+    )
+    expect(() => late[0]!.emit('error', new Error('late stream error'))).not.toThrow()
+    expect(
+      pool.tryOpenFiniteChannel(() => Promise.reject(new Error('Must not dispatch'))),
+    ).toBeUndefined()
+    expect(late.every((stream) => stream.end.mock.calls.length === 0)).toBe(true)
+    late[0]!.emit('close')
+    const replacement = channel('', 'hanging')
+    const admitted = pool.tryOpenFiniteChannel(() =>
+      Promise.resolve(replacement as unknown as ClientChannel),
+    )
+    expect(admitted).toBeDefined()
+    await admitted
+    replacement.close()
+    for (const stream of late.slice(1)) stream.emit('close')
+    expect((await outcomes).every((result) => result.status === 'rejected')).toBe(true)
+    expect(late.every((stream) => stream.listenerCount('error') === 0)).toBe(true)
+    pool.dispose()
+  })
   it.each([
     ['empty', 1],
     ['success', 14],
@@ -181,13 +234,23 @@ describe('approved connectors through the actual SSH adapter', () => {
       expect(interrupted.receipt).toBeUndefined()
       await f.host.dispose()
       const late = channel('', 'hanging')
+      late.deferredClose = true
       opened(undefined, late)
       await vi.waitFor(() => expect(late.close).toHaveBeenCalledOnce())
       expect(late.end).not.toHaveBeenCalled()
       expect(f.host.transportDiagnostics()).toEqual([])
-      await expect(f.owner.finiteExec.tryExec.mock.results[0]!.value).rejects.toThrow(
-        'transport retired',
-      )
+      const underlying = f.owner.finiteExec.tryExec.mock.results[0]!
+        .value as Promise<unknown>
+      let settled = false
+      void underlying.finally(() => (settled = true)).catch(() => undefined)
+      expect(() => late.emit('error', new Error('late stream failure'))).not.toThrow()
+      expect(() => late.emit('error', new Error('another late failure'))).not.toThrow()
+      await Promise.resolve()
+      expect(settled).toBe(false)
+      late.emit('close')
+      await expect(underlying).rejects.toThrow('transport retired')
+      expect(late.listenerCount('error')).toBe(0)
+      expect(late.end).not.toHaveBeenCalled()
     } finally {
       await f.dispose()
     }
