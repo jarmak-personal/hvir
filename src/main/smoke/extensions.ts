@@ -370,14 +370,14 @@ async function verifyPresentation(win: BrowserWindow, guest: WebContents): Promi
     width?: number
     height?: number
     fontFamily?: string
-    fontSize?: number
+    interfaceScale?: number
   }
   if (
     !initial.ok ||
     !value.width ||
     !value.height ||
     !value.fontFamily ||
-    !value.fontSize
+    !value.interfaceScale
   )
     throw new Error('Public guest presentation lacked geometry or typography')
   await click(win, 'Use light theme')

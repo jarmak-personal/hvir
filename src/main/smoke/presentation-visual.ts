@@ -208,6 +208,13 @@ export async function captureActivePresentationVisuals(
   const theme: unknown = await win.webContents.executeJavaScript(
     'document.documentElement.dataset.theme',
   )
+  const reviewState: unknown = name.startsWith('review-')
+    ? await win.webContents.executeJavaScript(`(() => {
+        const comment = document.querySelector('.document-review-inline .document-review-comment');
+        return { body: comment?.querySelector('.document-review-comment-body')?.textContent,
+          moved: comment?.classList.contains('review-anchor-moved') };
+      })()`)
+    : undefined
   try {
     win.setContentSize(1280, 800)
     for (const appearance of ['dark', 'light']) {
@@ -215,6 +222,20 @@ export async function captureActivePresentationVisuals(
         if (document.documentElement.dataset.theme !== ${JSON.stringify(appearance)}) document.querySelector('.theme-toggle').click();
         requestAnimationFrame(() => requestAnimationFrame(resolve));
       })`)
+      if (name.startsWith('review-'))
+        await win.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+          const deadline = Date.now() + 10000;
+          const expected = ${JSON.stringify(reviewState)};
+          const poll = () => {
+            const comment = document.querySelector('.document-review-inline .document-review-comment');
+            if (comment instanceof HTMLElement && comment.getBoundingClientRect().height > 0 &&
+                comment.querySelector('.document-review-comment-body')?.textContent === expected.body &&
+                comment.classList.contains('review-anchor-moved') === expected.moved)
+              return requestAnimationFrame(() => requestAnimationFrame(resolve));
+            if (Date.now() > deadline) return reject(new Error('Themed review capture card not ready'));
+            setTimeout(poll, 25);
+          }; poll();
+        })`)
       await host.writeFile(
         joinHostPath(localPath(output), `${name}-${appearance}.png`),
         (await win.webContents.capturePage()).toPNG(),
