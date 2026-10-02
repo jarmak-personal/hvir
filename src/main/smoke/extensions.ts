@@ -1,3 +1,4 @@
+import { verifyExtensionPresentationUi } from './extension-presentation-ui'
 import { verifyExtensionConnectors } from './extension-connectors'
 import { join } from 'node:path'
 import { app, BrowserWindow, webContents, type WebContents } from 'electron'
@@ -167,6 +168,7 @@ export async function verifyExtensionScenario(
   await verifyExtensionWebRtc(guest)
   await verifyExtensionNetwork(guest)
   await verifyPresentation(win, guest)
+  await verifyExtensionPresentationUi(win, guest, waitFor)
   guest.focus()
   guest.sendInputEvent({
     type: 'keyDown',
@@ -418,7 +420,7 @@ async function verifyPresentation(win: BrowserWindow, guest: WebContents): Promi
     async () =>
       Boolean(
         (await guest.executeJavaScript(
-          "document.documentElement.style.getPropertyValue('--extension-font').includes('A'.repeat(100)) && parseFloat(document.documentElement.style.getPropertyValue('--extension-font-size')) > 13",
+          "document.documentElement.style.getPropertyValue('--hvir-interface-font').includes('A'.repeat(100)) && parseFloat(document.documentElement.style.getPropertyValue('--hvir-interface-scale')) > 1",
         )) as unknown,
       ),
     'live hvir typography presentation',

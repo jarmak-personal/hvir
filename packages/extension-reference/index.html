@@ -4,12 +4,14 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Extension reference</title>
+    <link rel="stylesheet" href="presentation.css" />
     <link rel="stylesheet" href="reference.css" />
+    <script defer src="guest-ui.js"></script>
     <script defer src="reference.js"></script>
   </head>
-  <body>
-    <main>
-      <p class="eyebrow">hvir extension contract 1.0</p>
+  <body class="hvir-guest">
+    <main class="hvir-content hvir-stack">
+      <p class="hvir-meta">hvir extension contract 1.0</p>
       <h1>Bring a useful view into your workbench</h1>
       <p>
         This ordinary directory package runs in an isolated view. It can request its own
@@ -17,20 +19,85 @@
         or direct network access. Native tool execution requires a separate decision in
         Settings.
       </p>
-      <button type="button" id="open-detail">Open reference detail</button>
+      <button
+        class="hvir-button hvir-focus"
+        data-variant="regular"
+        type="button"
+        id="open-detail"
+      >
+        Open reference detail
+      </button>
+      <section class="hvir-panel hvir-content" aria-label="Local clock">
+        <p class="hvir-meta">Local clock</p>
+        <time id="clock-time" aria-label="Current local time"
+          >Waiting for this view…</time
+        >
+      </section>
       <p id="observation"></p>
-      <p id="status" role="status">Connecting to hvir…</p>
+      <p id="status" class="hvir-state" data-state="loading" role="status">
+        Connecting to hvir…
+      </p>
+      <section class="hvir-stack" aria-label="Presentation examples">
+        <h2>Browse examples</h2>
+        <label class="hvir-field" for="catalog-search"
+          >Search examples
+          <input
+            id="catalog-search"
+            class="hvir-focus"
+            type="search"
+            autocomplete="off"
+          />
+        </label>
+        <div class="hvir-list-detail">
+          <div
+            id="catalog-list"
+            class="hvir-scroll"
+            role="listbox"
+            aria-label="Examples"
+          ></div>
+          <article id="catalog-detail" class="hvir-panel hvir-content" aria-live="polite">
+            Choose an example to read its details.
+          </article>
+        </div>
+        <p id="catalog-state" class="hvir-state" data-state="loading" role="status">
+          Loading examples…
+        </p>
+        <button
+          id="catalog-reload"
+          class="hvir-button hvir-focus"
+          data-variant="regular"
+          type="button"
+        >
+          Reload examples
+        </button>
+      </section>
       <h2>Try an approved native tool</h2>
       <p>
         Configure the optional installed-tool connector in Settings → Extensions.
         Approving it grants host-account authority. The updater requests its version only
         while a contribution is visible.
       </p>
-      <label
+      <label class="hvir-field"
         >Structured arguments (JSON)<input id="native-args" value='["--version"]'
       /></label>
-      <button type="button" id="native-run" disabled>Run approved tool</button>
-      <button type="button" id="native-next" disabled>Next output page</button>
+      <button
+        class="hvir-button hvir-focus"
+        data-variant="regular"
+        type="button"
+        id="native-run"
+        disabled
+      >
+        Run approved tool
+      </button>
+      <button
+        class="hvir-button hvir-focus"
+        data-variant="regular"
+        type="button"
+        id="native-next"
+        disabled
+      >
+        Next output page
+      </button>
       <p id="native-status" role="status">
         Native execution is separate from enabling this view.
       </p>

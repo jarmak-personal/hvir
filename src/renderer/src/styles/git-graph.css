@@ -1,5 +1,5 @@
 .git-graph-tab .tab-status {
-  color: #69a7ff;
+  color: var(--accent-text);
   font-size: calc(12px * var(--hvir-interface-scale));
 }
 
@@ -10,7 +10,7 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: #15181e;
+  background: var(--viewer-bg);
 }
 
 .git-graph-toolbar {
@@ -20,9 +20,9 @@
   justify-content: space-between;
   gap: 12px;
   padding: 0 12px;
-  border-bottom: 1px solid #282d36;
-  background: #181b21;
-  color: #cbd0d8;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--toolbar-surface);
+  color: var(--text);
   font-size: calc(11px * var(--hvir-interface-scale));
 }
 
@@ -36,7 +36,7 @@
 .git-graph-toolbar > div span,
 .git-graph-count {
   overflow: hidden;
-  color: #747e8d;
+  color: var(--text-muted);
   font-size: calc(10px * var(--hvir-interface-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -59,7 +59,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #282d36;
+  border-right: 1px solid var(--border-subtle);
 }
 
 .git-graph-columns {
@@ -69,9 +69,9 @@
   grid-template-columns: minmax(180px, 1fr) minmax(100px, 0.28fr) 92px 70px;
   align-items: center;
   padding-right: 8px;
-  border-bottom: 1px solid #242933;
-  background: #13161b;
-  color: #697383;
+  border-bottom: 1px solid var(--code-border);
+  background: var(--chrome-surface);
+  color: var(--text-muted);
   font-size: calc(9px * var(--hvir-interface-scale));
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -91,7 +91,7 @@
 }
 
 .git-graph-viewport:focus-visible {
-  box-shadow: inset 0 0 0 1px #4d8fd8;
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 .git-graph-window {
@@ -112,22 +112,24 @@
   align-items: center;
   padding: 0 8px 0 0;
   overflow: hidden;
-  border: 0;
-  border-bottom: 1px solid #1e232b;
-  background: transparent;
-  color: #b9c0ca;
+  border-width: 0;
+  border-bottom-width: 1px;
+  border-bottom-style: solid;
+  --hvir-control-border-bottom-color: var(--border-subtle);
+  --hvir-control-surface: transparent;
+  --hvir-control-color: var(--text);
   font-size: calc(11px * var(--hvir-interface-scale));
   text-align: left;
 }
 
 .git-graph-row:hover {
-  background: #1b2027;
+  --hvir-control-surface: var(--surface-hover);
 }
 
 .git-graph-row.active {
-  background: #242b35;
-  box-shadow: inset 2px 0 #4d8fd8;
-  color: #eef1f5;
+  --hvir-control-surface: var(--surface-active);
+  box-shadow: inset 2px 0 var(--accent);
+  --hvir-control-color: var(--text-strong);
 }
 
 .git-graph-row > span,
@@ -143,7 +145,7 @@
 .git-graph-row > time,
 .git-graph-row > code,
 .git-graph-author {
-  color: #7f8897;
+  color: var(--text-muted);
   font-size: calc(10px * var(--hvir-interface-scale));
 }
 
@@ -190,7 +192,7 @@
 .git-graph-disclosure {
   width: 9px;
   flex: 0 0 9px;
-  color: #788392;
+  color: var(--text-muted);
   font-size: calc(12px * var(--hvir-interface-scale));
   font-style: normal;
 }
@@ -219,10 +221,10 @@
   flex: 0 1 auto;
   overflow: hidden;
   padding: 1px 5px;
-  border: 1px solid #365a75;
+  border: 1px solid var(--accent);
   border-radius: 8px;
-  background: #172532;
-  color: #8fc3e8;
+  background: var(--surface-hover);
+  color: var(--accent-text);
   font-size: calc(9px * var(--hvir-interface-scale));
   line-height: 14px;
   text-overflow: ellipsis;
@@ -230,33 +232,33 @@
 }
 
 .git-ref.tag {
-  border-color: #6b5530;
-  background: #292215;
-  color: #d8b56e;
+  border-color: var(--warning-border);
+  background: var(--surface-raised);
+  color: var(--warning-text);
 }
 
 .git-ref.head {
-  border-color: #39704b;
-  background: #17291e;
-  color: #8bd49d;
+  border-color: var(--success-border);
+  background: var(--surface-raised);
+  color: var(--success-text);
 }
 
 .git-graph-load-more {
   width: calc(100% - 20px);
   margin: 8px 10px;
   padding: 6px 8px;
-  border: 1px solid #343a45;
+  border: 1px solid var(--border-strong);
   border-radius: 4px;
-  background: #171b21;
-  color: #9ba4b1;
+  background: var(--surface-1);
+  color: var(--text-secondary);
   font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .git-graph-banner {
   padding: 5px 10px;
-  border-bottom: 1px solid #67383e;
-  background: #25171a;
-  color: #d98289;
+  border-bottom: 1px solid var(--danger-border);
+  background: var(--danger-surface);
+  color: var(--danger-text);
   font-size: calc(10px * var(--hvir-interface-scale));
 }
 
@@ -266,11 +268,11 @@
   display: grid;
   place-items: center;
   padding: 20px;
-  color: #747e8d;
+  color: var(--text-muted);
   font-size: calc(11px * var(--hvir-interface-scale));
   text-align: center;
 }
 
 .git-graph-empty.error {
-  color: #dc7b82;
+  color: var(--danger-text);
 }

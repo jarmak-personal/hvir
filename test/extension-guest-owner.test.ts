@@ -87,6 +87,53 @@ async function attached(data: ReturnType<typeof fixture>, guestId = 10) {
 }
 
 describe('extension guest capability and lifetime owner', () => {
+  it('admits bounded resolved semantic colors, scale and monospace typography', async () => {
+    const data = fixture()
+    const view = await attached(data)
+    data.owner.receive(10, { kind: 'hello', contract: '1.0' })
+    const presentation = {
+      ...DEFAULT_EXTENSION_PRESENTATION,
+      colors: {
+        ...DEFAULT_EXTENSION_PRESENTATION.colors,
+        '--accent': 'color(srgb 0.2 0.4 0.6)',
+      },
+      monospaceFontFamily: '"Example Mono", monospace',
+      interfaceScale: 1.2,
+    }
+    data.owner.presentation(data.renderer, view.id, presentation, true, true)
+    expect(data.sent.at(-1)).toMatchObject({
+      message: { kind: 'presentation', presentation },
+    })
+    for (const color of [
+      'var(--accent)',
+      'color-mix(in srgb, red, blue)',
+      'url(file:///secret)',
+      '#12345',
+    ])
+      expect(() =>
+        data.owner.presentation(
+          data.renderer,
+          view.id,
+          {
+            ...presentation,
+            colors: { ...presentation.colors, '--accent': color },
+          },
+          true,
+          true,
+        ),
+      ).toThrow('presentation color')
+    for (const interfaceScale of [0.79, 1.51, NaN, Infinity])
+      expect(() =>
+        data.owner.presentation(
+          data.renderer,
+          view.id,
+          { ...presentation, interfaceScale },
+          true,
+          true,
+        ),
+      ).toThrow('presentation size')
+    await data.owner.dispose()
+  })
   it('refuses construction without the required context admission owner', () => {
     const data = fixture()
     expect(

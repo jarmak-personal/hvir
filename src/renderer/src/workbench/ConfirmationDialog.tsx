@@ -69,7 +69,11 @@ export function ConfirmationDialog({
         <div className="dialog-actions confirmation-dialog-actions">
           {actions.map((action) => (
             <button
-              className={`confirmation-action confirmation-action-${action.kind}`}
+              className={
+                `confirmation-action confirmation-action-${action.kind}` +
+                ' hvir-button' +
+                ' hvir-control'
+              }
               type="button"
               autoFocus={action === initialAction}
               disabled={busy || action.disabled}

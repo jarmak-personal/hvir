@@ -548,6 +548,13 @@ context through ordinary non-focusing viewer placement, hiding, and explicit clo
 Native connector approval pins host-account trust and explicit contexts; finite execution stays behind ProjectHost.
 
 
+### [ADR-052 — Shared workbench and guest presentation](adr/ADR-052-shared-workbench-and-guest-presentation.md)
+
+> Lifecycle: Active
+
+Browser-safe semantic tokens and primitive styles serve built-in views and revision-captured
+optional guest assets; theme/settings, feature layout and authority retain their existing owners.
+
 ## 5. Architecture
 
 ### Process model

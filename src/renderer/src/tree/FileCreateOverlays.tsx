@@ -80,6 +80,7 @@ export function FileCreateOverlays({
             role="menuitem"
             disabled={controller.pending}
             onClick={() => controller.beginCreate('file')}
+            className="hvir-button"
           >
             New File…
           </button>
@@ -88,6 +89,7 @@ export function FileCreateOverlays({
             role="menuitem"
             disabled={controller.pending}
             onClick={() => controller.beginCreate('directory')}
+            className="hvir-button"
           >
             New Folder…
           </button>
@@ -97,6 +99,7 @@ export function FileCreateOverlays({
             role="menuitem"
             disabled={controller.pending || !controller.canOrganizeMenu('rename')}
             onClick={() => controller.beginOrganization('rename')}
+            className="hvir-button"
           >
             Rename…
           </button>
@@ -105,6 +108,7 @@ export function FileCreateOverlays({
             role="menuitem"
             disabled={controller.pending || !controller.canOrganizeMenu('move')}
             onClick={() => controller.beginOrganization('move')}
+            className="hvir-button"
           >
             Move…
           </button>
@@ -113,6 +117,7 @@ export function FileCreateOverlays({
             role="menuitem"
             disabled={controller.pending || !controller.canOrganizeMenu('duplicate')}
             onClick={() => controller.beginOrganization('duplicate')}
+            className="hvir-button"
           >
             Duplicate…
           </button>
@@ -128,6 +133,7 @@ export function FileCreateOverlays({
                 : undefined
             }
             onClick={() => controller.beginDeletion()}
+            className="hvir-button"
           >
             {deletionMenuLabel(controller.deletion.menu)}
           </button>
@@ -137,6 +143,7 @@ export function FileCreateOverlays({
             role="menuitem"
             disabled={controller.pending}
             onClick={() => controller.pasteFilesFromMenu()}
+            className="hvir-button"
           >
             Paste Files
           </button>
@@ -145,6 +152,7 @@ export function FileCreateOverlays({
             role="menuitem"
             disabled={controller.pending}
             onClick={() => controller.beginExternalMove()}
+            className="hvir-button"
           >
             Move External Items Here…
           </button>
@@ -156,6 +164,7 @@ export function FileCreateOverlays({
               role="menuitem"
               disabled={controller.pending}
               onClick={() => controller.copyPath(kind)}
+              className="hvir-button"
             >
               {PATH_COPY_LABELS[kind]}
             </button>
@@ -168,6 +177,7 @@ export function FileCreateOverlays({
                 role="menuitem"
                 disabled={controller.pending}
                 onClick={() => controller.revealInFileManager()}
+                className="hvir-button"
               >
                 {fileManagerRevealLabel()}
               </button>
@@ -216,6 +226,7 @@ export function FileCreateOverlays({
                   disabled={controller.pending}
                   aria-invalid={Boolean(name && validation)}
                   onChange={(event) => setName(event.currentTarget.value)}
+                  className="hvir-input hvir-control"
                 />
               </label>
               {(controller.dialogError ?? (name ? validation : undefined)) ? (
@@ -226,14 +237,14 @@ export function FileCreateOverlays({
             </div>
             <div className="dialog-actions confirmation-dialog-actions">
               <button
-                className="confirmation-action confirmation-action-cancel"
+                className="confirmation-action confirmation-action-cancel hvir-button hvir-control"
                 type="button"
                 onClick={() => controller.dismissDialog()}
               >
                 Cancel
               </button>
               <button
-                className="confirmation-action confirmation-action-primary"
+                className="confirmation-action confirmation-action-primary hvir-button hvir-control"
                 type="submit"
                 disabled={controller.pending || Boolean(validation)}
               >
@@ -264,7 +275,11 @@ export function FileCreateOverlays({
             </ul>
           ) : null}
           {feedback.kind === 'error' || feedback.details?.length ? (
-            <button type="button" onClick={() => controller.dismissFeedback()}>
+            <button
+              type="button"
+              onClick={() => controller.dismissFeedback()}
+              className="hvir-button"
+            >
               Dismiss
             </button>
           ) : null}
@@ -281,6 +296,7 @@ export function FileCreateOverlays({
             type="button"
             disabled={copyProgress.phase === 'cancelling'}
             onClick={() => controller.cancelCopy()}
+            className="hvir-button"
           >
             Cancel
           </button>

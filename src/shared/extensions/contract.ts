@@ -1,3 +1,4 @@
+import type { PresentationColorToken } from '../presentation/tokens'
 /** Public, process-independent extension contract. No workbench IPC is an author API. */
 export const EXTENSION_CONTRACT = '1.0'
 export const EXTENSION_CAPABILITIES = [
@@ -74,11 +75,11 @@ export interface ExtensionManifest {
 
 export interface ExtensionPresentation {
   readonly appearance: 'light' | 'dark'
-  readonly colors: Readonly<
-    Record<'background' | 'surface' | 'text' | 'muted' | 'accent', string>
-  >
+  readonly colors: Readonly<Record<PresentationColorToken, string>>
   readonly fontFamily: string
   readonly fontSize: number
+  readonly monospaceFontFamily: string
+  readonly interfaceScale: number
   readonly width: number
   readonly height: number
 }

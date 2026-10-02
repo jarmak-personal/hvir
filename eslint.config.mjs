@@ -193,6 +193,15 @@ export default tseslint.config(
     },
   },
 
+  // Public presentation imports browser-safe leaves only, including erased edges.
+  {
+    files: ['src/shared/presentation/**/*.{ts,tsx,mts,cts,js,mjs}'],
+    rules: dependencyDirectionRules(
+      '^node:|^react(?:/|$)|^electron$|(^|/)(main|workers|renderer|preload)(/|$)|(^|/)packages(/|$)',
+      'Shared presentation depends only on public presentation leaves and browser code, never private workbench, native or package implementations.',
+    ),
+  },
+
   // Extension package policy and caller lifetime consume ports, never their Electron/native edges.
   {
     files: [
@@ -567,6 +576,7 @@ export default tseslint.config(
       'scripts/prepare-release-linux-package.mts',
       'scripts/validate-release-pr.mts',
       'scripts/generate-terminal-theme-catalog.mts',
+      'scripts/prepare-extension-ui.mts',
       'scripts/check-terminal-runtime.mts',
       'scripts/agent-work-checkpoint-store.mts',
       'scripts/ghostty-web-update/candidate-bundle.mts',

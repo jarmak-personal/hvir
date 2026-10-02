@@ -23,7 +23,7 @@ export function TerminalRailCompact({
     <div className="terminal-rail-compact-strip" hidden={hidden}>
       <button
         type="button"
-        className="terminal-rail-restore"
+        className="terminal-rail-restore hvir-button"
         aria-label="Restore terminal rail"
         title="Restore terminal rail"
         onClick={onRestore}
@@ -75,7 +75,10 @@ export function TerminalRailCompact({
             >
               <button
                 type="button"
-                className={`terminal-rail-compact-marker ${state}${active ? ' active' : ''}`}
+                className={
+                  `terminal-rail-compact-marker ${state}${active ? ' active' : ''}` +
+                  ' hvir-button'
+                }
                 data-terminal-session={session.id}
                 data-terminal-state={state}
                 aria-current={active ? 'true' : undefined}

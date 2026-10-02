@@ -4,7 +4,7 @@
   inset: 0;
   display: grid;
   place-items: center;
-  background: rgb(5 7 10 / 72%);
+  background: var(--overlay-surface);
 }
 
 .modal-backdrop.nested {
@@ -17,10 +17,10 @@
   flex-direction: column;
   gap: 14px;
   padding: 20px;
-  border: 1px solid #343a45;
+  border: 1px solid var(--border-strong);
   border-radius: 7px;
-  background: #181b21;
-  box-shadow: 0 18px 60px #000a;
+  background: var(--surface-0);
+  box-shadow: 0 18px 60px var(--shadow);
 }
 
 .project-dialog h2,
@@ -174,11 +174,13 @@
 
 .harness-folder-list button {
   padding: 7px 9px;
-  border: 0;
-  border-bottom: 1px solid var(--border-subtle);
+  border-width: 0;
+  --hvir-control-border-bottom-color: var(--border-subtle);
+  border-bottom-width: 1px;
+  border-bottom-style: solid;
   border-radius: 0;
-  background: transparent;
-  color: var(--text);
+  --hvir-control-surface: transparent;
+  --hvir-control-color: var(--text);
   text-align: left;
 }
 
@@ -206,20 +208,22 @@
   align-items: center;
   gap: 9px;
   padding: 8px 9px;
-  border: 1px solid transparent;
+  --hvir-control-border-color: transparent;
+  border-width: 1px;
+  border-style: solid;
   border-radius: 5px;
-  background: #12151a;
-  color: #b8bec8;
+  --hvir-control-surface: var(--surface-1);
+  --hvir-control-color: var(--text-secondary);
   text-align: left;
 }
 
 .session-host-option:hover {
-  background: #20242c;
+  --hvir-control-surface: var(--surface-hover);
 }
 
 .session-host-option.selected {
-  border-color: #4d8fd8;
-  background: #1b2632;
+  --hvir-control-border-color: var(--accent);
+  --hvir-control-surface: var(--surface-active);
 }
 
 .session-host-copy {
@@ -229,7 +233,7 @@
 }
 
 .session-host-option small {
-  color: #747e8d;
+  color: var(--text-muted);
   font-size: calc(10px * var(--hvir-interface-scale));
 }
 
@@ -260,10 +264,12 @@
   flex: 0 0 auto;
   overflow: hidden;
   padding: 3px 7px;
-  border: 1px solid #343a45;
+  --hvir-control-border-color: var(--border-strong);
+  border-width: 1px;
+  border-style: solid;
   border-radius: 10px;
-  background: #14181e;
-  color: #8c96a4;
+  --hvir-control-surface: var(--surface-2);
+  --hvir-control-color: var(--text-muted);
   font-size: calc(9px * var(--hvir-interface-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -273,9 +279,9 @@
   min-height: 260px;
   flex: 1;
   padding: 5px;
-  border: 1px solid #2b3039;
+  border: 1px solid var(--border-subtle);
   border-radius: 5px;
-  background: #101318;
+  background: var(--surface-0);
 }
 
 .folder-selection {
@@ -286,18 +292,18 @@
   flex-direction: column;
   gap: 2px;
   padding: 6px 7px;
-  border-bottom: 1px solid #272d36;
-  background: #101318;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-0);
 }
 
 .folder-selection small {
-  color: #747e8d;
+  color: var(--text-muted);
   font-size: calc(9px * var(--hvir-interface-scale));
 }
 
 .folder-selection code {
   overflow: hidden;
-  color: #b8c0cb;
+  color: var(--text-secondary);
   font-size: calc(10px * var(--hvir-interface-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -318,7 +324,7 @@
   min-width: 0;
 }
 .project-dialog p {
-  color: #949dab;
+  color: var(--text-muted);
   font-size: calc(12px * var(--hvir-interface-scale));
 }
 .project-dialog label {
@@ -400,43 +406,61 @@
 .confirmation-dialog-actions .confirmation-action {
   min-height: 32px;
   padding: 5px 11px;
-  border: 1px solid var(--border-strong);
+  --hvir-control-border-color: var(--border-strong);
+  border-width: 1px;
+  border-style: solid;
   border-radius: 5px;
   outline: none;
-  background: var(--surface-2);
-  color: var(--text);
+  --hvir-control-surface: var(--surface-2);
+  --hvir-control-color: var(--text);
   cursor: pointer;
   font-size: calc(10px * var(--hvir-interface-scale));
   font-weight: 560;
 }
 
 .confirmation-dialog-actions .confirmation-action:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--accent) 58%, var(--border-strong));
-  background: var(--surface-hover);
-  color: var(--text-strong);
+  --hvir-control-border-color: color-mix(
+    in srgb,
+    var(--accent) 58%,
+    var(--border-strong)
+  );
+  --hvir-control-surface: var(--surface-hover);
+  --hvir-control-color: var(--text-strong);
 }
 
 .confirmation-dialog-actions .confirmation-action:focus-visible {
-  border-color: var(--accent);
+  --hvir-control-border-color: var(--accent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .confirmation-dialog-actions .confirmation-action-primary {
-  border-color: color-mix(in srgb, var(--accent) 72%, var(--border-strong));
-  background: var(--accent-soft);
-  color: var(--text-strong);
+  --hvir-control-border-color: color-mix(
+    in srgb,
+    var(--accent) 72%,
+    var(--border-strong)
+  );
+  --hvir-control-surface: var(--accent-soft);
+  --hvir-control-color: var(--text-strong);
 }
 
 .confirmation-dialog-actions .confirmation-action-destructive {
-  border-color: color-mix(in srgb, var(--danger-text) 55%, var(--border-strong));
-  background: color-mix(in srgb, var(--danger-text) 14%, var(--surface-2));
-  color: var(--danger-text);
+  --hvir-control-border-color: color-mix(
+    in srgb,
+    var(--danger-text) 55%,
+    var(--border-strong)
+  );
+  --hvir-control-surface: color-mix(in srgb, var(--danger-text) 14%, var(--surface-2));
+  --hvir-control-color: var(--danger-text);
 }
 
 .confirmation-dialog-actions .confirmation-action-destructive:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--danger-text) 75%, var(--border-strong));
-  background: color-mix(in srgb, var(--danger-text) 21%, var(--surface-2));
-  color: color-mix(in srgb, var(--danger-text) 86%, var(--text-strong));
+  --hvir-control-border-color: color-mix(
+    in srgb,
+    var(--danger-text) 75%,
+    var(--border-strong)
+  );
+  --hvir-control-surface: color-mix(in srgb, var(--danger-text) 21%, var(--surface-2));
+  --hvir-control-color: color-mix(in srgb, var(--danger-text) 86%, var(--text-strong));
 }
 
 .confirmation-dialog-actions .confirmation-action:disabled {

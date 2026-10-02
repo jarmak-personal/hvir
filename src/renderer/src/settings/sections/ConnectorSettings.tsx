@@ -110,6 +110,7 @@ function ConnectorSetup({
             setHost(event.target.value)
             setDecision(undefined)
           }}
+          className="hvir-input"
         >
           {hosts
             .filter(
@@ -131,6 +132,7 @@ function ConnectorSetup({
             setPath(event.target.value)
             setDecision(undefined)
           }}
+          className="hvir-input"
         />
       </label>
       <label>
@@ -142,6 +144,7 @@ function ConnectorSetup({
             setConfiguration(event.target.value)
             setDecision(undefined)
           }}
+          className="hvir-input"
         />
       </label>
       <button
@@ -161,6 +164,7 @@ function ConnectorSetup({
             )
           })
         }
+        className="hvir-button"
       >
         Inspect native access
       </button>
@@ -188,6 +192,7 @@ function ConnectorSetup({
                 )
               })
             }
+            className="hvir-button"
           >
             Approve native execution
           </button>
@@ -205,6 +210,7 @@ function ConnectorSetup({
             setStatus(undefined)
           })
         }
+        className="hvir-button"
       >
         Revoke native access
       </button>

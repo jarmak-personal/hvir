@@ -1,3 +1,6 @@
+import { verifyPresentationFeedback } from './presentation-feedback'
+import { focusSmokeWindow } from './window-focus'
+import { capturePresentationVisuals } from './presentation-visual'
 import { verifyDiffReadability } from './diff-readability'
 import { verifyLiveReloadScroll } from './viewer-live-reload'
 import type { SmokeFailureCheckpoint } from './failure-evidence.mts'
@@ -29,8 +32,7 @@ export async function verifyViewerContent(options: {
   try {
     // Establish real Chromium keyboard modality before moving focus to the
     // active tab. Programmatic focus alone does not guarantee :focus-visible.
-    win.focus()
-    win.webContents.focus()
+    await focusSmokeWindow(win)
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' })
     win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' })
     const viewerStatus = (await win.webContents.executeJavaScript(`
@@ -219,6 +221,11 @@ export async function verifyViewerContent(options: {
         })
       `)) as string
     console.log(`[smoke] richer rendered views OK (${richerViewerStatus})`)
+    await verifyPresentationFeedback(win)
+    console.log(
+      '[smoke] presentation state feedback OK (dark/light tasks · checkbox accent · progress states · live halo)',
+    )
+    await capturePresentationVisuals(win, host)
 
     const stablePngSource = (await win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {

@@ -1,3 +1,4 @@
+import { captureActivePresentationVisuals } from './presentation-visual'
 import { clipboard, type BrowserWindow } from 'electron'
 import type { SmokeFailureCheckpoint } from './failure-evidence.mts'
 import { verifyDiffCopy } from './diff-copy'
@@ -129,6 +130,26 @@ export async function verifyDiffReadability(
         }
       })()
     `)
+    if (process.env['HVIR_PRESENTATION_CAPTURE_DIRECTORY']) {
+      await win.webContents.executeJavaScript(`(async () => {
+        const path = ${JSON.stringify(fixtures[0]!.path.path)};
+        const deadline = Date.now() + 10000;
+        [...document.querySelectorAll('.file-row')].find(row => row.getAttribute('title') === path).click();
+        while (document.querySelector('.viewer-tab.active .tab-main')?.getAttribute('title') !== path) {
+          if (Date.now() > deadline) throw new Error('Diff capture tab did not activate');
+          await new Promise(resolve => setTimeout(resolve, 25));
+        }
+        [...document.querySelectorAll('.mode-control button')].find(button => button.textContent?.trim() === 'diff').click();
+        while (!document.querySelector('.diff-shell .cm-changedText')) {
+          if (Date.now() > deadline) throw new Error('Diff capture did not become ready');
+          await new Promise(resolve => setTimeout(resolve, 25));
+        }
+      })()`)
+      await captureActivePresentationVisuals(win, host, 'diff')
+      await win.webContents.executeJavaScript(
+        `[...document.querySelectorAll('.mode-control button')].find(button => button.textContent?.trim() === 'source').click()`,
+      )
+    }
     checkpoint('viewer-content-diff-presentation-ready')
     await verifyDiffCopy(win, fixtures[0]!, checkpoint)
   } catch (error) {

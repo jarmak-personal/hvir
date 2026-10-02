@@ -259,7 +259,7 @@ export function ExtensionTopRail(): ReactElement | null {
         <button
           key={`${extension.installationId}:${view.id}`}
           type="button"
-          className="sessions-destination"
+          className="sessions-destination hvir-button"
           aria-current={
             model.topActive &&
             model.selectedTop?.installationId === extension.installationId &&
@@ -350,12 +350,17 @@ export function ExtensionLeftRail({
                     })
                     .catch(() => undefined)
               }}
+              className="hvir-button"
             >
               {view.title}
             </button>
           ))}
           {selected ? (
-            <button type="button" onClick={() => setSelectedId(undefined)}>
+            <button
+              type="button"
+              onClick={() => setSelectedId(undefined)}
+              className="hvir-button"
+            >
               Project views
             </button>
           ) : null}

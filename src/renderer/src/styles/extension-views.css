@@ -17,9 +17,11 @@
   border-bottom: 1px solid var(--border-subtle);
 }
 .extension-view-heading button {
-  color: var(--text);
-  background: var(--surface-1);
-  border: 1px solid var(--border-strong);
+  --hvir-control-color: var(--text);
+  --hvir-control-surface: var(--surface-1);
+  --hvir-control-border-color: var(--border-strong);
+  border-width: 1px;
+  border-style: solid;
   border-radius: 4px;
   padding: 4px 8px;
 }

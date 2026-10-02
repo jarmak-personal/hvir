@@ -35,6 +35,7 @@ export function SessionsCollectionToolbar({
                 type="button"
                 aria-pressed={policy.filter === filter}
                 onClick={() => onFilter(filter)}
+                className="hvir-button"
               >
                 {filterLabel(filter)}
               </button>
@@ -48,6 +49,7 @@ export function SessionsCollectionToolbar({
             onChange={(event) =>
               onGroup(event.currentTarget.value as SessionsOverviewGroup)
             }
+            className="hvir-input"
           >
             <option value="workspace">Project → worktree</option>
             <option value="project">Project</option>
@@ -61,6 +63,7 @@ export function SessionsCollectionToolbar({
             onChange={(event) =>
               onSort(event.currentTarget.value as SessionsOverviewSort)
             }
+            className="hvir-input"
           >
             <option value="priority">Attention and activity</option>
             <option value="title">Title</option>

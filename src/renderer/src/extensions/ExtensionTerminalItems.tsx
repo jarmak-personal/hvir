@@ -128,7 +128,7 @@ export function ExtensionTerminalItems({
           <button
             key={`${extension.installationId}:${item.id}`}
             type="button"
-            className="terminal-icon-button"
+            className="terminal-icon-button hvir-button"
             title={tooltip}
             aria-label={tooltip}
             aria-haspopup={item.click.placement === 'popup' ? 'dialog' : undefined}

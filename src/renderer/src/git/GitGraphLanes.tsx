@@ -64,7 +64,7 @@ export function GitGraphCell({
         cx={laneX(row.lane)}
         cy={centerY}
         r={4}
-        fill="#15181e"
+        fill="var(--viewer-bg)"
         stroke={graphColor(row.color)}
         strokeWidth={2.5}
       />

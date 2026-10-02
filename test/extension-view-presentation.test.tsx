@@ -13,6 +13,17 @@ import { ExtensionViewStack } from '../src/renderer/src/extensions/ExtensionView
 
 describe('extension presentation observation', () => {
   it('updates real presentation without a fabricated hide on appearance changes, and hides on selection', () => {
+    const observers: (() => void)[] = []
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: () => void) {
+          observers.push(callback)
+        }
+        observe() {}
+        disconnect() {}
+      },
+    )
     const send = vi.fn()
     vi.stubGlobal('hvir', { send })
     const element = document.createElement('div')
@@ -48,6 +59,8 @@ describe('extension presentation observation', () => {
         presentation: { appearance: 'light', fontSize: 14.3 },
       })
       send.mockClear()
+      observers[0]!()
+      expect(send).not.toHaveBeenCalled()
       render(false)
       expect(send).toHaveBeenCalledTimes(1)
       expect(send.mock.calls[0]?.[1]).toMatchObject({
@@ -56,6 +69,7 @@ describe('extension presentation observation', () => {
       })
       send.mockClear()
       act(() => root.unmount())
+      observers.at(-1)!()
       expect(send).not.toHaveBeenCalled()
     } finally {
       if (element.childNodes.length) act(() => root.unmount())

@@ -30,7 +30,7 @@ export function WorkbenchProjectRail({
       : undefined
   return (
     <aside
-      className="tree-panel"
+      className="tree-panel hvir-panel"
       aria-label="Project rail"
       data-diagnostic-capture="project-navigation"
       tabIndex={-1}
@@ -39,7 +39,7 @@ export function WorkbenchProjectRail({
         <nav className="rail-nav" aria-label="Project views">
           <button
             type="button"
-            className={mode === 'files' ? 'active' : ''}
+            className={(mode === 'files' ? 'active' : '') + ' hvir-button'}
             aria-current={mode === 'files' ? 'page' : undefined}
             onClick={() => onMode('files')}
           >
@@ -48,7 +48,7 @@ export function WorkbenchProjectRail({
           {gitEnabled ? (
             <button
               type="button"
-              className={mode === 'git' ? 'active' : ''}
+              className={(mode === 'git' ? 'active' : '') + ' hvir-button'}
               aria-current={mode === 'git' ? 'page' : undefined}
               onClick={() => onMode('git')}
             >

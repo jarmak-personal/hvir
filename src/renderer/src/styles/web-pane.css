@@ -1,7 +1,7 @@
 /* --- Web panes (agent-link servers) ------------------------------------- */
 
 .web-pane-tab .tab-status {
-  color: #58b26a;
+  color: var(--success-text);
   font-size: calc(11px * var(--hvir-interface-scale));
 }
 
@@ -35,15 +35,17 @@
 
 .web-pane-toolbar button {
   padding: 2px 7px;
-  border: 1px solid var(--border-strong);
+  --hvir-control-border-color: var(--border-strong);
+  border-width: 1px;
+  border-style: solid;
   border-radius: 4px;
-  background: var(--surface-raised);
-  color: var(--text);
+  --hvir-control-surface: var(--surface-raised);
+  --hvir-control-color: var(--text);
   cursor: pointer;
 }
 
 .web-pane-toolbar button:hover {
-  background: var(--surface-hover);
+  --hvir-control-surface: var(--surface-hover);
 }
 
 .web-pane-frame {
@@ -95,16 +97,18 @@ webview.web-pane-frame {
   flex: 1;
   min-width: 0;
   padding: 2px 7px;
-  border: 1px solid var(--border-subtle);
+  --hvir-control-border-color: var(--border-subtle);
+  border-width: 1px;
+  border-style: solid;
   border-radius: 4px;
-  background: var(--surface-1);
-  color: var(--text);
+  --hvir-control-surface: var(--surface-1);
+  --hvir-control-color: var(--text);
   font-size: calc(11px * var(--hvir-interface-scale));
   font-family: inherit;
 }
 
 .web-pane-path input:focus {
-  border-color: var(--accent);
+  --hvir-control-border-color: var(--accent);
   outline: none;
 }
 
@@ -124,10 +128,12 @@ webview.web-pane-frame {
 .web-pane-diagnostics button {
   flex: 0 0 auto;
   padding: 3px 8px;
-  border: 1px solid var(--border-strong);
+  --hvir-control-border-color: var(--border-strong);
+  border-width: 1px;
+  border-style: solid;
   border-radius: 4px;
-  background: var(--surface-raised);
-  color: var(--text);
+  --hvir-control-surface: var(--surface-raised);
+  --hvir-control-color: var(--text);
   cursor: pointer;
 }
 

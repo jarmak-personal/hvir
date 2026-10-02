@@ -146,7 +146,7 @@ export function FilenameSearch({
     return (
       <button
         type="button"
-        className="filename-search-trigger"
+        className="filename-search-trigger hvir-button"
         data-filename-search-trigger
         aria-label="Find file"
         title="Find file"
@@ -184,11 +184,12 @@ export function FilenameSearch({
               closeSearch()
             }
           }}
+          className="hvir-input"
         />
         {query ? (
           <button
             type="button"
-            className="filename-search-clear"
+            className="filename-search-clear hvir-button"
             aria-label="Clear filename search"
             onClick={() => {
               setQuery('')
@@ -200,7 +201,7 @@ export function FilenameSearch({
         ) : null}
         <button
           type="button"
-          className="filename-search-close"
+          className="filename-search-close hvir-button"
           aria-label="Close filename search"
           title="Close filename search"
           onClick={closeSearch}
@@ -214,6 +215,7 @@ export function FilenameSearch({
             type="checkbox"
             checked={includeIgnored}
             onChange={(event) => setIncludeIgnored(event.currentTarget.checked)}
+            className="hvir-input"
           />
           Include ignored files
         </label>
@@ -258,7 +260,7 @@ function FilenameResult({
   return (
     <button
       type="button"
-      className="filename-search-result"
+      className="filename-search-result hvir-button"
       title={result.path.path}
       onClick={() => onOpen(result.path, false)}
       onKeyDown={(event) => handleResultKey(event, onMove, onEscape)}

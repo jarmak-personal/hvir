@@ -38,6 +38,7 @@ export function TerminalSettings({
                   event.currentTarget.value as SettingsDraft['terminalCursorShape'],
                 )
               }
+              className="hvir-input"
             >
               <option value="block">Block</option>
               <option value="hollow-block">Hollow block</option>
@@ -57,6 +58,7 @@ export function TerminalSettings({
                     event.currentTarget.value as SettingsDraft['terminalCursorBlink'],
                   )
                 }
+                className="hvir-input"
               >
                 <option value="terminal">Terminal-controlled</option>
                 <option value="blinking">Blinking default</option>
@@ -79,6 +81,7 @@ export function TerminalSettings({
                   onChange={(event) =>
                     onChange('terminalLigatures', event.currentTarget.checked)
                   }
+                  className="hvir-input"
                 />
                 Enable compatible terminal line shaping
               </span>
@@ -98,6 +101,7 @@ export function TerminalSettings({
                 type="checkbox"
                 checked={draft.composerSubmitMode === 'ctrl-enter'}
                 onChange={(event) => onComposerSubmitMode(event.currentTarget.checked)}
+                className="hvir-input"
               />
               Send messages with Ctrl+Enter or Command+Enter; Enter inserts a new line
             </span>
@@ -120,6 +124,7 @@ export function TerminalSettings({
               aria-invalid={idleError}
               aria-describedby={idleError ? 'settings-idle-threshold-error' : undefined}
               onChange={(event) => onChange('idleSeconds', event.currentTarget.value)}
+              className="hvir-input"
             />
             seconds
           </span>
@@ -140,6 +145,7 @@ export function TerminalSettings({
                 event.currentTarget.value as SettingsDraft['recoveryMode'],
               )
             }
+            className="hvir-input"
           >
             <option value="prompt">Ask which terminals to restore</option>
             <option value="auto">Restore all terminals automatically</option>

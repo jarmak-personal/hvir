@@ -83,6 +83,7 @@ function ExecutableEditor({
                   : { kind: 'path', path: hostPath(hostId, '/') },
             )
           }}
+          className="hvir-input"
         >
           <option value="provider-default">Provider default</option>
           <option value="command">Command on PATH</option>
@@ -97,6 +98,7 @@ function ExecutableEditor({
           onChange={(event) =>
             onChange({ kind: 'command', command: event.currentTarget.value })
           }
+          className="hvir-input"
         />
       ) : executable.kind === 'path' ? (
         <>
@@ -109,8 +111,9 @@ function ExecutableEditor({
                 path: hostPath(hostId, event.currentTarget.value),
               })
             }
+            className="hvir-input"
           />
-          <button type="button" onClick={onAuthorize}>
+          <button type="button" onClick={onAuthorize} className="hvir-button">
             Authorize path
           </button>
         </>
@@ -135,6 +138,7 @@ function EnvironmentEditor({
           onClick={() =>
             onChange([...bindings, { kind: 'literal', name: '', value: '' }])
           }
+          className="hvir-button"
         >
           Add
         </button>
@@ -156,6 +160,7 @@ function EnvironmentEditor({
                 }),
               )
             }
+            className="hvir-input"
           />
           <select
             value={binding.kind}
@@ -175,6 +180,7 @@ function EnvironmentEditor({
                       }
               onChange(replaceHarnessValue(bindings, index, next))
             }}
+            className="hvir-input"
           >
             <option value="literal">Plaintext value</option>
             <option value="reference">Secret reference</option>
@@ -192,6 +198,7 @@ function EnvironmentEditor({
                   }),
                 )
               }
+              className="hvir-input"
             />
           ) : binding.kind === 'reference' ? (
             <>
@@ -206,6 +213,7 @@ function EnvironmentEditor({
                     }),
                   )
                 }
+                className="hvir-input"
               >
                 <option value="host">Target host</option>
                 <option value="local-forward">Forward local</option>
@@ -221,6 +229,7 @@ function EnvironmentEditor({
                     }),
                   )
                 }
+                className="hvir-input"
               />
             </>
           ) : (
@@ -232,6 +241,7 @@ function EnvironmentEditor({
             onClick={() =>
               onChange(bindings.filter((_, candidate) => candidate !== index))
             }
+            className="hvir-button"
           >
             ×
           </button>
@@ -261,6 +271,7 @@ function PathBindingsEditor({
           onClick={() =>
             onChange([...bindings, { name: '', path: hostPath(hostId, '/') }])
           }
+          className="hvir-button"
         >
           Add
         </button>
@@ -279,9 +290,10 @@ function PathBindingsEditor({
                 }),
               )
             }
+            className="hvir-input"
           />
           <code>{binding.path.path}</code>
-          <button type="button" onClick={() => onPick(index)}>
+          <button type="button" onClick={() => onPick(index)} className="hvir-button">
             Choose on host…
           </button>
           <button
@@ -290,6 +302,7 @@ function PathBindingsEditor({
             onClick={() =>
               onChange(bindings.filter((_, candidate) => candidate !== index))
             }
+            className="hvir-button"
           >
             ×
           </button>

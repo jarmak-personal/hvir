@@ -30,10 +30,12 @@
 .find-toggle {
   min-height: 24px;
   padding: 3px 8px;
-  border: 1px solid #343a44;
+  --hvir-control-border-color: var(--border-strong);
+  border-width: 1px;
+  border-style: solid;
   border-radius: 4px;
-  background: #15181e;
-  color: #8e97a5;
+  --hvir-control-surface: var(--surface-2);
+  --hvir-control-color: var(--text-muted);
   cursor: pointer;
   font-size: calc(10px * var(--hvir-interface-scale));
 }
@@ -47,28 +49,30 @@
   display: grid;
   gap: 6px;
   padding: 9px;
-  border: 1px solid #3b4552;
+  border: 1px solid var(--border-strong);
   border-radius: 5px;
-  background: #11151b;
-  color: #aeb6c2;
-  box-shadow: 0 8px 24px rgb(0 0 0 / 45%);
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  box-shadow: 0 8px 24px var(--shadow);
   font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .find-popover > input {
   min-width: 0;
   padding: 5px 7px;
-  border: 1px solid #414b59;
+  --hvir-control-border-color: var(--border-strong);
+  border-width: 1px;
+  border-style: solid;
   border-radius: 4px;
   outline: none;
-  background: #171c23;
-  color: #edf0f5;
+  --hvir-control-surface: var(--surface-raised);
+  --hvir-control-color: var(--text-strong);
   font: calc(12px * var(--hvir-interface-scale)) / 1.35 var(--hvir-monospace-font);
 }
 
 .find-popover > input:focus {
-  border-color: #4d8fd8;
-  box-shadow: 0 0 0 1px #4d8fd8;
+  --hvir-control-border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 
 .find-actions {
@@ -87,10 +91,12 @@
 .find-actions button {
   min-height: 23px;
   padding: 2px 6px;
-  border: 1px solid #343a44;
+  --hvir-control-border-color: var(--border-strong);
+  border-width: 1px;
+  border-style: solid;
   border-radius: 4px;
-  background: #171c23;
-  color: #b8bec8;
+  --hvir-control-surface: var(--surface-raised);
+  --hvir-control-color: var(--text-secondary);
   cursor: pointer;
   font-size: calc(10px * var(--hvir-interface-scale));
 }
@@ -101,5 +107,5 @@
 }
 
 .find-popover small {
-  color: #768190;
+  color: var(--text-muted);
 }

@@ -6,12 +6,12 @@
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
-  background: #0f1115;
+  background: var(--chrome-surface);
 }
 
 .projects-shell {
   min-width: 0;
-  background: #101318;
+  background: var(--chrome-surface);
 }
 
 .projects-bar,
@@ -42,7 +42,7 @@
 .workspaces-refresh {
   border: 0;
   background: transparent;
-  color: #929ba8;
+  color: var(--text-muted);
 }
 
 .project-tab {
@@ -66,9 +66,9 @@
   align-items: center;
   gap: 7px;
   padding: 0 6px 0 11px;
-  border: 0;
-  background: transparent;
-  color: inherit;
+  border-width: 0;
+  --hvir-control-surface: transparent;
+  --hvir-control-color: inherit;
 }
 
 .project-tab-main:focus-visible,
@@ -83,9 +83,9 @@
   height: 100%;
   flex: 0 0 24px;
   padding: 0;
-  border: 0;
-  background: transparent;
-  color: #77808e;
+  border-width: 0;
+  --hvir-control-surface: transparent;
+  --hvir-control-color: var(--text-muted);
   opacity: 0;
 }
 
@@ -96,8 +96,8 @@
 }
 
 .project-close:hover:not(:disabled) {
-  background: #2b313a;
-  color: #eef1f5;
+  --hvir-control-surface: var(--surface-hover);
+  --hvir-control-color: var(--text-strong);
 }
 
 .project-close:disabled {
@@ -116,15 +116,15 @@
   gap: 1px;
   overflow: hidden;
   padding: 0 2px;
-  border: 0;
-  background: transparent;
-  color: #77808e;
+  border-width: 0;
+  --hvir-control-surface: transparent;
+  --hvir-control-color: var(--text-muted);
 }
 
 .project-connection-trigger:hover:not(:disabled),
 .project-connection-trigger[aria-expanded='true'] {
-  background: #252b34;
-  color: #dce1e8;
+  --hvir-control-surface: var(--surface-hover);
+  --hvir-control-color: var(--text-strong);
 }
 
 .project-connection-trigger:disabled {
@@ -138,22 +138,22 @@
 }
 
 .project-tab:hover {
-  background: #171b21;
-  color: #e3e7ed;
+  background: var(--surface-hover);
+  color: var(--text-strong);
 }
 
 .project-tab.active {
   border-color: var(--border-strong);
-  border-bottom-color: #111419;
-  background: #111419;
-  color: #e3e7ed;
+  border-bottom-color: var(--border-subtle);
+  background: var(--navigation-active-surface);
+  color: var(--text-strong);
 }
 
 /* Open into the row actually below: the workspaces bar when present,
  * otherwise the rail-nav / tab-strip band. */
 .projects-shell:has(.workspaces-bar) .project-tab.active {
-  border-bottom-color: #14171c;
-  background: #14171c;
+  border-bottom-color: var(--border-subtle);
+  background: var(--navigation-active-surface);
 }
 
 .project-tab strong {
@@ -219,8 +219,8 @@
 .workspaces-catalog:hover,
 .workspaces-refresh:hover,
 .workspace-tab > button:hover {
-  background: #20262e;
-  color: #eef1f5;
+  --hvir-control-surface: var(--surface-hover);
+  --hvir-control-color: var(--text-strong);
 }
 
 .settings-toggle {
@@ -238,8 +238,8 @@
   align-items: center;
   gap: 3px;
   padding: 3px 7px 4px;
-  border-bottom: 1px solid #303641;
-  background: #14171c;
+  border-bottom: 1px solid var(--border-strong);
+  background: var(--chrome-surface);
 }
 
 .project-connection-backdrop {
@@ -256,11 +256,11 @@
   flex-direction: column;
   gap: 8px;
   padding: 11px;
-  border: 1px solid #3a424e;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
   outline: 0;
-  background: #181c23;
-  box-shadow: 0 12px 32px #050608b8;
+  background: var(--surface-raised);
+  box-shadow: 0 12px 32px var(--shadow);
 }
 
 .project-connection-menu header {
@@ -273,7 +273,7 @@
 .project-connection-menu header strong {
   min-width: 0;
   overflow: hidden;
-  color: #dce1e8;
+  color: var(--text-strong);
   font-size: calc(11px * var(--hvir-interface-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -281,13 +281,13 @@
 
 .project-connection-menu header span,
 .project-connection-menu > small {
-  color: #8792a1;
+  color: var(--text-muted);
   font-size: calc(9px * var(--hvir-interface-scale));
 }
 
 .project-connection-menu p {
   margin: 0;
-  color: #d76d76;
+  color: var(--danger-text);
   font-size: calc(9px * var(--hvir-interface-scale));
   line-height: 1.35;
 }
@@ -300,17 +300,19 @@
 .project-connection-actions button {
   flex: 1 1 0;
   padding: 5px 7px;
-  border: 1px solid #3a424e;
+  --hvir-control-border-color: var(--border-strong);
+  border-width: 1px;
+  border-style: solid;
   border-radius: 4px;
-  background: #20252d;
-  color: #b9c0ca;
+  --hvir-control-surface: var(--surface-hover);
+  --hvir-control-color: var(--text-secondary);
   font-size: calc(9px * var(--hvir-interface-scale));
 }
 
 .project-connection-actions button:hover:not(:disabled) {
-  border-color: #536174;
-  background: #29313b;
-  color: #eef1f5;
+  --hvir-control-border-color: var(--border-strong);
+  --hvir-control-surface: var(--surface-hover);
+  --hvir-control-color: var(--text-strong);
 }
 
 .project-connection-actions button:disabled {
@@ -327,12 +329,12 @@
 }
 
 .workspace-tab.active {
-  border-color: #3c526c;
-  background: #243142;
+  border-color: var(--accent);
+  background: var(--surface-active);
 }
 
 .workspace-tab.missing {
-  border-color: #343941;
+  border-color: var(--border-strong);
   opacity: 0.58;
   filter: grayscale(0.45);
 }
@@ -355,7 +357,7 @@
 }
 
 .workspace-tab small {
-  color: #687384;
+  color: var(--text-muted);
   font-size: calc(8px * var(--hvir-interface-scale));
 }
 
@@ -363,16 +365,18 @@
 .workspace-close {
   width: 23px;
   padding: 0;
-  border: 0;
-  border-left: 1px solid #343941;
-  background: transparent;
-  color: #a7adb7;
+  border-width: 0;
+  --hvir-control-border-left-color: var(--border-strong);
+  border-left-width: 1px;
+  border-left-style: solid;
+  --hvir-control-surface: transparent;
+  --hvir-control-color: var(--text-secondary);
 }
 
 .workspace-dismiss:hover,
 .workspace-close:hover:not(:disabled) {
-  background: #563238;
-  color: #f1c2c6;
+  --hvir-control-surface: var(--danger-surface);
+  --hvir-control-color: var(--danger-text);
 }
 
 .workspace-close:disabled {
@@ -392,7 +396,7 @@
   max-width: min(320px, 35vw);
   overflow: hidden;
   padding: 0 6px;
-  color: #d76d76;
+  color: var(--danger-text);
   font-size: calc(9px * var(--hvir-interface-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -408,7 +412,7 @@
 }
 
 .workspaces-prune {
-  color: #d6b16e;
+  --hvir-control-color: var(--warning-text);
 }
 
 .terminal-attention-count {
@@ -420,10 +424,10 @@
   justify-content: center;
   gap: 2px;
   padding: 0 5px;
-  border: 1px solid #71552d;
+  border: 1px solid var(--warning-border);
   border-radius: 8px;
-  background: #2a2114;
-  color: #efbd67;
+  background: var(--surface-raised);
+  color: var(--warning-text);
   font-size: calc(8px * var(--hvir-interface-scale));
   font-weight: 750;
   font-variant-numeric: tabular-nums;

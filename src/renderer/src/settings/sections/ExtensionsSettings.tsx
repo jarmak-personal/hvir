@@ -67,6 +67,7 @@ export function ExtensionsSettings(): ReactElement {
           onClick={() =>
             void run(() => window.hvir.invoke('extensions:open-folder', undefined))
           }
+          className="hvir-button"
         >
           Open extensions folder
         </button>
@@ -78,6 +79,7 @@ export function ExtensionsSettings(): ReactElement {
               setState(await window.hvir.invoke('extensions:discover', undefined)),
             )
           }
+          className="hvir-button"
         >
           Discover extensions
         </button>
@@ -156,6 +158,7 @@ export function ExtensionsSettings(): ReactElement {
                       ),
                     )
                   }
+                  className="hvir-button"
                 >
                   {installation.kind === 'zip' ? 'Replace' : 'Reload'}
                 </button>
@@ -177,6 +180,7 @@ export function ExtensionsSettings(): ReactElement {
                         ),
                       )
                     }
+                    className="hvir-button"
                   >
                     Disable
                   </button>
@@ -201,6 +205,7 @@ export function ExtensionsSettings(): ReactElement {
                             }),
                           )
                         }
+                        className="hvir-button"
                       >
                         Open {view.title}
                       </button>
@@ -220,6 +225,7 @@ export function ExtensionsSettings(): ReactElement {
                       ),
                     )
                   }
+                  className="hvir-button"
                 >
                   Enable
                 </button>
@@ -233,6 +239,7 @@ export function ExtensionsSettings(): ReactElement {
               setForget(false)
               setRemoving(installation)
             }}
+            className="hvir-button"
           >
             Remove
           </button>
@@ -283,6 +290,7 @@ export function ExtensionsSettings(): ReactElement {
               type="checkbox"
               checked={forget}
               onChange={(event) => setForget(event.target.checked)}
+              className="hvir-input"
             />
             Forget saved setup for this extension
           </label>

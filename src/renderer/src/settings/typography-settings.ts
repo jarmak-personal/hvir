@@ -1,8 +1,12 @@
 import {
   MAX_FONT_FAMILY_LENGTH,
   SYSTEM_INTERFACE_FONT_STACK,
+  SYSTEM_MONOSPACE_FONT_STACK,
 } from '../../../shared/interface-typography'
-export { SYSTEM_INTERFACE_FONT_STACK } from '../../../shared/interface-typography'
+export {
+  SYSTEM_INTERFACE_FONT_STACK,
+  SYSTEM_MONOSPACE_FONT_STACK,
+} from '../../../shared/interface-typography'
 
 import type { FontPreference } from './settings-model'
 
@@ -12,9 +16,6 @@ export const MAX_INTERFACE_SCALE = 1.5
 export const DEFAULT_TERMINAL_TEXT_SIZE = 13
 export const MIN_TERMINAL_TEXT_SIZE = 10
 export const MAX_TERMINAL_TEXT_SIZE = 24
-
-export const SYSTEM_MONOSPACE_FONT_STACK =
-  'ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace'
 
 export function systemFontPreference(): FontPreference {
   return { mode: 'system', family: '' }

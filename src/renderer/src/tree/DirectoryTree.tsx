@@ -222,9 +222,7 @@ function DirectoryNode({
   )
   const rowRef = useRef<HTMLButtonElement>(null)
   const gitDecoration = gitDecorations?.directories.get(treeGitPathKey(stablePath))
-  const isDropTarget = Boolean(
-    dropTarget && hostPathEquals(dropTarget.path, stablePath),
-  )
+  const isDropTarget = Boolean(dropTarget && hostPathEquals(dropTarget.path, stablePath))
   const entryNames = useMemo(() => entries.map((entry) => entry.name), [entries])
 
   useEffect(() => {
@@ -316,7 +314,10 @@ function DirectoryNode({
           !pathTraversesSymlink &&
           (isDraggable?.(stablePath, linked ? 'symlink' : 'dir') ?? false)
         }
-        className={`tree-row directory-row${isSelected ? ' selected' : ''}${linked ? ' symlink-row' : ''}${gitIgnored ? ' gitignored' : ''}${gitDecoration ? ` git-status-${gitDecoration.tone}` : ''}${isDropTarget ? ' file-drop-target-row' : ''}`}
+        className={
+          `tree-row directory-row${isSelected ? ' selected' : ''}${linked ? ' symlink-row' : ''}${gitIgnored ? ' gitignored' : ''}${gitDecoration ? ` git-status-${gitDecoration.tone}` : ''}${isDropTarget ? ' file-drop-target-row' : ''}` +
+          ' hvir-button hvir-row'
+        }
         style={{ paddingLeft: 10 + depth * 14, zIndex: depth + 1 }}
         onContextMenu={(event) =>
           entryActions?.openFromPointer(
@@ -467,7 +468,10 @@ function DirectoryNode({
                   (isDraggable?.(child, entry.type) ?? false)
                 }
                 key={`${child.hostId}:${child.path}`}
-                className={`tree-row file-row${fileSelected ? ' selected' : ''}${childGitIgnored ? ' gitignored' : ''}${fileGitDecoration ? ` git-status-${fileGitDecoration.tone}` : ''}`}
+                className={
+                  `tree-row file-row${fileSelected ? ' selected' : ''}${childGitIgnored ? ' gitignored' : ''}${fileGitDecoration ? ` git-status-${fileGitDecoration.tone}` : ''}` +
+                  ' hvir-button hvir-row'
+                }
                 style={{ paddingLeft: 24 + (depth + 1) * 14 }}
                 onContextMenu={(event) =>
                   entryActions?.openFromPointer(event, child, entry.name, entry.type)
@@ -600,10 +604,12 @@ function SymlinkNode({
         data-file-type="symlink"
         data-project-file-unavailable={pathTraversesSymlink ? 'true' : undefined}
         draggable={
-          !pathTraversesSymlink &&
-          (isDraggable?.(stablePath, 'symlink') ?? false)
+          !pathTraversesSymlink && (isDraggable?.(stablePath, 'symlink') ?? false)
         }
-        className={`tree-row file-row symlink-row${fileSelected ? ' selected' : ''}${gitIgnored ? ' gitignored' : ''}${fileGitDecoration ? ` git-status-${fileGitDecoration.tone}` : ''}`}
+        className={
+          `tree-row file-row symlink-row${fileSelected ? ' selected' : ''}${gitIgnored ? ' gitignored' : ''}${fileGitDecoration ? ` git-status-${fileGitDecoration.tone}` : ''}` +
+          ' hvir-button hvir-row'
+        }
         style={{ paddingLeft: 24 + depth * 14 }}
         onContextMenu={(event) =>
           entryActions?.openFromPointer(event, stablePath, label, 'symlink')
@@ -639,7 +645,10 @@ function SymlinkNode({
       data-file-path={stablePath.path}
       data-file-type="symlink"
       draggable={false}
-      className={`tree-row file-row symlink-row${gitIgnored ? ' gitignored' : ''}`}
+      className={
+        `tree-row file-row symlink-row${gitIgnored ? ' gitignored' : ''}` +
+        ' hvir-button hvir-row'
+      }
       style={{ paddingLeft: 24 + depth * 14 }}
       onContextMenu={(event) =>
         entryActions?.openFromPointer(event, stablePath, label, 'symlink')
