@@ -640,7 +640,9 @@ export async function verifyExtensionContributions(
             dialog: active?.classList.contains('settings-dialog'),
             heading: active?.id === 'settings-extensions-title',
             terminal: !!active?.closest('.terminal-container'),
-            guest: active?.tagName === 'WEBVIEW'
+            guest: active?.tagName === 'WEBVIEW',
+            ...(window.__extensionSettingsFocus ?
+              { initialSettingsFocus: window.__extensionSettingsFocus.completed } : {})
           };
         })()`),
         new Promise<never>((_resolve, reject) => {
@@ -657,6 +659,7 @@ export async function verifyExtensionContributions(
         heading: boolean
         terminal: boolean
         guest: boolean
+        initialSettingsFocus?: boolean
       }
       console.log(
         '[smoke] named action focus',
@@ -679,11 +682,36 @@ export async function verifyExtensionContributions(
     }
   }
   async function settings(): Promise<void> {
-    await controls.click('Open settings')
-    await controls.wait(
-      () => dom("document.activeElement?.classList.contains('settings-dialog')"),
-      'Settings initial focus completed',
-    )
+    await win.webContents.executeJavaScript(`(() => {
+      window.__extensionSettingsFocus?.dispose();
+      const receipt = { completed: false, dispose: () =>
+        document.removeEventListener('focusin', focused, true) };
+      const focused = event => {
+        if (!event.target?.classList?.contains('settings-dialog')) return;
+        receipt.completed = true;
+        receipt.dispose();
+      };
+      window.__extensionSettingsFocus = receipt;
+      document.addEventListener('focusin', focused, true);
+    })()`)
+    try {
+      await controls.click('Open settings')
+      await controls.wait(
+        () => dom('window.__extensionSettingsFocus.completed'),
+        'Settings initial focus completed',
+      )
+      await actionFocus('settings-initial-focus-completed')
+    } catch (reason) {
+      await actionFocus('settings-initial-focus-failed').catch(() => undefined)
+      throw reason
+    } finally {
+      await win.webContents
+        .executeJavaScript(
+          `window.__extensionSettingsFocus?.dispose();
+          delete window.__extensionSettingsFocus`,
+        )
+        .catch(() => undefined)
+    }
     await controls.click('Extensions')
   }
   async function connected(guest: WebContents): Promise<void> {
