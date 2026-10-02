@@ -4,9 +4,14 @@ import { joinHostPath, localPath } from '../../shared/host-path'
 import type { ExtensionView } from '../../shared/extensions/workbench'
 import type { ProjectHost } from '../project-host/project-host'
 import type { ElectronSmokeDependencies } from './bootstrap-contract'
+import { focusSmokeWindow } from './window-focus'
 import { verifyExtensionWebRtc } from './extension-webrtc'
 import { verifyExtensionPackages } from './extension-packages'
 import { verifyExtensionNetwork } from './extension-network'
+import {
+  prepareExtensionViewerFixture,
+  verifyExtensionContributions,
+} from './extension-contributions'
 import {
   EXTENSION_LIFECYCLE_PROBE_SCRIPT,
   startExtensionTimer,
@@ -29,6 +34,7 @@ export async function verifyExtensionScenario(
   const { mode, extensions, rendererResources: scopes } = ports
   if (mode !== 'extensions') return false
   await verifyCombinedDocumentProtocols(ports.htmlPreviews)
+  await focusSmokeWindow(win)
   await extensions.start(host)
   const directory = extensions.activations?.directory
   if (!directory) throw new Error('Extension application did not start')
@@ -45,6 +51,7 @@ export async function verifyExtensionScenario(
       await host.readFile(joinHostPath(source, entry.name)),
     )
   }
+  await prepareExtensionViewerFixture(host, reference)
   const referenceScript = joinHostPath(reference, 'reference.js')
   await host.writeFile(
     referenceScript,
@@ -80,6 +87,7 @@ export async function verifyExtensionScenario(
   await waitFor(() => extensions.guests!.snapshot(owner).length === 1, 'viewer placement')
   const initial = extensions.guests!.snapshot(owner)[0]!
   const guest = await guestFor(initial)
+  console.log('[smoke] initial ordinary guest attached in foreground')
   await waitFor(
     async () =>
       (await guest.executeJavaScript(
@@ -177,8 +185,11 @@ export async function verifyExtensionScenario(
     extensions.guests!.snapshot(owner).find((view) => view.id === detail.id)?.failure
   )
     throw new Error('Child document replacement revoked the main guest')
+  await reportParentFocus('before-hidden-proof')
   await verifyHiddenExtensionLifecycle(win, guest, detailGuest)
+  await reportParentFocus('after-hidden-proof')
   await verifyInitiallyHiddenExtension(extensions, scopes, initial.installationId)
+  await reportParentFocus('after-auxiliary-window')
   await verifyExtensionEngineStartup(extensions, scopes, initial.installationId, guest)
   await verifyExtensionDocumentReplacement(
     win,
@@ -212,6 +223,7 @@ export async function verifyExtensionScenario(
   )
   win.webContents.reload()
   await loaded
+  await reportParentFocus('after-renderer-reload')
   await waitFor(() => detailGuest.isDestroyed(), 'renderer replacement guest revocation')
   if (extensions.guests!.snapshot(owner).length)
     throw new Error('Old renderer retained views')
@@ -272,7 +284,14 @@ export async function verifyExtensionScenario(
     () => hung.isDestroyed() && extensions.activations!.active.size === 0,
     'trusted Disable',
   )
+  await reportParentFocus('after-crash-hang-teardown')
   await verifyExtensionPackages(win, extensions, scopes, host, {
+    click: (name) => click(win, name),
+    wait: waitFor,
+    guest: guestFor,
+  })
+  await reportParentFocus('after-package-teardown')
+  await verifyExtensionContributions(win, extensions, scopes, host, source, {
     click: (name) => click(win, name),
     wait: waitFor,
     guest: guestFor,
@@ -282,6 +301,20 @@ export async function verifyExtensionScenario(
   )
   console.log('HVIR_SMOKE_OK')
   return true
+
+  async function reportParentFocus(phase: string): Promise<void> {
+    console.log(
+      '[smoke] extension parent focus',
+      JSON.stringify({
+        phase,
+        window: win.isFocused(),
+        visible: win.isVisible(),
+        parent: (await win.webContents.executeJavaScript(
+          '({focus:document.hasFocus(),active:document.activeElement?.tagName})',
+        )) as { focus: boolean; active: string | undefined },
+      }),
+    )
+  }
 }
 
 async function publicRequest(
@@ -385,16 +418,20 @@ async function guestFor(view: ExtensionView): Promise<WebContents> {
 }
 
 async function click(win: BrowserWindow, name: string): Promise<void> {
-  await waitFor(
-    async () =>
-      Boolean(
-        (await win.webContents.executeJavaScript(`(() => {
+  try {
+    await waitFor(
+      async () =>
+        Boolean(
+          (await win.webContents.executeJavaScript(`(() => {
     const button = [...document.querySelectorAll('button')].find((element) => element.getAttribute('aria-label') === ${JSON.stringify(name)} || element.textContent.trim() === ${JSON.stringify(name)});
     if (!button || button.disabled) return false; button.click(); return true;
   })()`)) as unknown,
-      ),
-    `ordinary ${name} control`,
-  )
+        ),
+      `ordinary ${name} control`,
+    )
+  } catch (reason) {
+    throw new Error(`Extension ordinary control failed: ${name}`, { cause: reason })
+  }
 }
 
 async function waitFor(

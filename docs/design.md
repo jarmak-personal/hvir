@@ -532,6 +532,13 @@ unrelated contributor verification.
 Directory, ZIP and development-link sources share explicit revision acceptance, durable identity,
 exact removal and bounded retention under the extension state writer.
 
+### [ADR-050 — Extension contributions and action lifetimes](adr/ADR-050-extension-contributions-and-action-lifetimes.md)
+
+> Lifecycle: Active
+
+Visible contribution demand owns one isolated updater; finite named actions retain caller and
+context through ordinary non-focusing viewer placement, hiding, and explicit close.
+
 ## 5. Architecture
 
 ### Process model

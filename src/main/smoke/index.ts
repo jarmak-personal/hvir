@@ -35,6 +35,7 @@ import {
 } from '../harness/harness-provider'
 import { HarnessUsageDemandController } from '../harness/harness-usage-demand-controller'
 import { sendRendererEvent } from '../renderer-event-delivery'
+import { extensionPtyPorts } from './extension-context-fixture'
 import { registerIpcHandlers } from '../ipc'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import { PtySupervisor } from '../pty/pty-supervisor'
@@ -421,8 +422,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       diagnostics: dependencies.diagnostics,
       recordIpcContractDiagnostic: () => undefined,
       recordRenderContainment: () => undefined,
-      ptySupervisor: supervisor,
-      terminalSessions: smokeTerminalSessions,
+      ...extensionPtyPorts(supervisor, smokeTerminalSessions, projectFixture),
       sessionsObservation,
       sessionsUsage,
       terminalMoves: terminalMoveSmoke.coordinator,

@@ -28,6 +28,7 @@ export function registerIpcHandlers(
   const router = new IpcAuthorityRouter(deps, transport)
   try {
     registerAppIpc(router, deps)
+    if (deps.extensionContexts) deps.extensions?.connectContext(deps.extensionContexts)
     registerExtensionsIpc(router, deps.extensions)
     registerDiagnosticReportIpc(router, deps)
     registerDocumentReviewIpc(router, deps)

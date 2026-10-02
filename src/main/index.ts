@@ -4,7 +4,7 @@ import { createProjectCommands } from './ipc/project-commands'
 import { GitMutationCoordinator } from './git/mutation-coordinator'
 import { GitMutationAuthorization } from './git/mutation-authorization'
 import { GitWorkerHostRouter } from './git/worker-host-router'
-import { installDocumentSurfaces } from './application-document-surfaces'
+import { installDocumentSurfaces, contextPorts } from './application-document-surfaces'
 import { createWorkerClient, workerPath, type WorkerClient } from './worker-host'
 import { electronTrash, ProjectHostCatalog, RendererSshPrompter } from './project-host'
 import { ProjectFolderPickerCoordinator as FolderPicker } from './project-folder-picker'
@@ -369,7 +369,7 @@ function createWorkbenchEntry(): void {
         connectedHosts: () => hostCatalog?.connectedHosts() ?? [],
         getRegisteredWorkspaceRoot: (root) => registry.registeredWorkspaceRoot(root),
         revealLocalEntry: electronReveal(shell),
-        getProjectState: () => registry.state(),
+        ...contextPorts(registry, terminalSessionRegistry, ptySupervisor),
         listHosts: () => hostCatalog?.listHosts() ?? [],
         ...projectCommands,
         respondSshPrompt: (owner, id, answers) =>

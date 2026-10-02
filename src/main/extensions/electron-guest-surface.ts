@@ -294,6 +294,13 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
     })
     guest.on('did-finish-load', () => this.reapplyWindow(owner))
     guest.once('destroyed', () => this.owner?.failed(guest.id))
+    if (view.context?.surface === 'popup')
+      guest.on('before-input-event', (event, input) => {
+        if (input.type === 'keyDown' && input.key === 'Escape') {
+          event.preventDefault()
+          void this.owner?.close(owner, view.id)
+        }
+      })
     reserveKeys(() => {
       void this.owner?.close(owner, view.id)
     })
@@ -386,6 +393,13 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
     if (!record || record.guest?.isDestroyed()) return
     record.visible = visible
     record.lifecycle?.setVisible(visible)
+  }
+
+  runnable(guestId: number, admitted: boolean): void {
+    const record = [...this.surfaces.values()].find(
+      (record) => record.guest?.id === guestId,
+    )
+    record?.lifecycle?.setAdmittedWork(admitted)
   }
 
   private flushPresentation(record: SurfaceRecord): void {

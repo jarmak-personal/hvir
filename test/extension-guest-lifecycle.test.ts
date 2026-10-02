@@ -55,6 +55,23 @@ describe('bounded extension engine lifecycle', () => {
     },
   )
 
+  it('uses the same engine driver for finite hidden work and freezes after its final admission ends', async () => {
+    const apply = vi.fn(() => Promise.resolve())
+    const lifecycle = new ExtensionGuestLifecycle(apply, vi.fn(), vi.fn())
+    lifecycle.setVisible(false)
+    await vi.waitFor(() => expect(apply).toHaveBeenLastCalledWith('frozen'))
+    lifecycle.setAdmittedWork(true)
+    await vi.waitFor(() => expect(lifecycle.isActive).toBe(true))
+    lifecycle.setVisible(false)
+    await vi.waitFor(() => expect(lifecycle.isActive).toBe(true))
+    lifecycle.setAdmittedWork(false)
+    await vi.waitFor(() => expect(apply).toHaveBeenLastCalledWith('frozen'))
+    expect(lifecycle.isActive).toBe(false)
+    lifecycle.dispose()
+    lifecycle.setAdmittedWork(true)
+    expect(lifecycle.isActive).toBe(false)
+  })
+
   it.each(['refusal', 'timeout'] as const)(
     'fails closed on engine %s',
     async (condition) => {

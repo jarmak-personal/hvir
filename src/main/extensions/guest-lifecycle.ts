@@ -3,6 +3,7 @@ import { EXTENSION_LIMITS } from '../../shared/extensions/contract'
 /** One in-flight engine transition and one latest target, private to the guest surface. */
 export class ExtensionGuestLifecycle {
   private visible = false
+  private admittedWork = false
   private applied?: boolean
   private revision = 0
   private appliedRevision = -1
@@ -19,7 +20,7 @@ export class ExtensionGuestLifecycle {
   get isActive(): boolean {
     return (
       !this.disposed &&
-      this.visible &&
+      (this.visible || this.admittedWork) &&
       this.applied === true &&
       this.appliedRevision === this.revision
     )
@@ -34,6 +35,11 @@ export class ExtensionGuestLifecycle {
     void this.transition()
   }
 
+  setAdmittedWork(admitted: boolean): void {
+    this.admittedWork = admitted
+    this.setVisible(this.visible)
+  }
+
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
@@ -43,7 +49,7 @@ export class ExtensionGuestLifecycle {
   private async transition(): Promise<void> {
     try {
       while (!this.disposed && this.appliedRevision !== this.revision) {
-        const target = this.visible
+        const target = this.visible || this.admittedWork
         const revision = this.revision
         let timer: ReturnType<typeof setTimeout> | undefined
         try {
@@ -62,7 +68,7 @@ export class ExtensionGuestLifecycle {
         if (this.disposed) return
         this.applied = target
         this.appliedRevision = revision
-        if (target && this.visible) this.active()
+        if (target && (this.visible || this.admittedWork)) this.active()
       }
     } catch {
       if (!this.disposed) {

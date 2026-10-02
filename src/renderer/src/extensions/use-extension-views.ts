@@ -9,10 +9,11 @@ interface ViewPlacement {
 
 /** Transient application-level viewer placement, independent of workspace selection. */
 export function useExtensionViews(ports: {
-  readonly onActivate: () => void
+  readonly onActivate: (focus?: boolean) => void
   readonly onError: (message: string) => void
 }) {
   const [placement, setPlacement] = useState<ViewPlacement>({ views: [], active: false })
+  const [guests, setGuests] = useState<readonly ExtensionView[]>([])
   const activeRef = useRef(false)
   const portsRef = useRef(ports)
   portsRef.current = ports
@@ -23,24 +24,42 @@ export function useExtensionViews(ports: {
       updated = false
     const dispose = window.hvir.on(
       'extensions:views-changed',
-      ({ views, selectedId }) => {
+      ({ views, selectedId, focus }) => {
         updated = true
+        setGuests(views)
+        const placed = views.filter(
+          (view) =>
+            view.role !== 'updater' &&
+            (!view.context || view.context.surface === 'viewer'),
+        )
+        if (selectedId && !placed.some((view) => view.id === selectedId))
+          selectedId = undefined
         setPlacement((previous) => {
           const activeId = selectedId ?? previous.activeId
           const retained = !!activeId && views.some((view) => view.id === activeId)
           return {
-            views,
+            views: placed,
             activeId: retained ? activeId : undefined,
             active: retained && (!!selectedId || previous.active),
           }
         })
-        if (selectedId) portsRef.current.onActivate()
+        if (selectedId) portsRef.current.onActivate(focus)
       },
     )
     void window.hvir.invoke('extensions:views', undefined).then(
       (views) => {
         // A live publication wins over an older initial snapshot response.
-        if (current && !updated) setPlacement((previous) => ({ ...previous, views }))
+        if (current && !updated) {
+          setGuests(views)
+          setPlacement((previous) => ({
+            ...previous,
+            views: views.filter(
+              (view) =>
+                view.role !== 'updater' &&
+                (!view.context || view.context.surface === 'viewer'),
+            ),
+          }))
+        }
       },
       (reason: unknown) => {
         if (current) portsRef.current.onError(errorText(reason))
@@ -65,7 +84,7 @@ export function useExtensionViews(ports: {
       .invoke('extensions:close-view', { viewId: id })
       .catch((reason: unknown) => portsRef.current.onError(errorText(reason)))
   }, [])
-  return { ...placement, activeRef, activate, deactivate, close }
+  return { ...placement, guests, activeRef, activate, deactivate, close }
 }
 
 function errorText(reason: unknown): string {

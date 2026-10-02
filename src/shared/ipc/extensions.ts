@@ -1,7 +1,13 @@
 import { invoke, payload, type IpcFeatureContract } from '../ipc-contract'
 import type { KeybindingAction } from '../keybindings'
 import type { ExtensionPresentation } from '../extensions/contract'
-import type { ExtensionPlatformState, ExtensionView } from '../extensions/workbench'
+import type {
+  ExtensionPlatformState,
+  ExtensionView,
+  ExtensionContributionState,
+  ExtensionSurfaceRequest,
+  ExtensionDemand,
+} from '../extensions/workbench'
 
 /** Trusted Settings/viewer transport. This contract is never exposed to a guest. */
 export const extensionsIpc = {
@@ -26,10 +32,31 @@ export const extensionsIpc = {
       ExtensionPlatformState
     >(),
     'extensions:open-view': invoke<
-      { readonly installationId: string; readonly contributionId: string },
+      {
+        readonly installationId: string
+        readonly contributionId: string
+        readonly context?: ExtensionSurfaceRequest
+      },
       ExtensionView
     >(),
     'extensions:close-view': invoke<{ readonly viewId: string }, void>(),
+    'extensions:contributions': invoke<void, readonly ExtensionContributionState[]>(),
+    'extensions:context': invoke<
+      void,
+      import('../extensions/contract').ExtensionContext & {
+        readonly terminalIds: Readonly<Record<string, string>>
+      }
+    >(),
+    'extensions:action': invoke<
+      {
+        readonly installationId: string
+        readonly action: string
+        readonly input?: unknown
+        readonly context: ExtensionSurfaceRequest
+      },
+      { readonly value: unknown }
+    >(),
+    'extensions:demand': invoke<readonly ExtensionDemand[], void>(),
     'extensions:views': invoke<void, readonly ExtensionView[]>(),
   },
   send: {
@@ -39,14 +66,17 @@ export const extensionsIpc = {
       readonly viewId: string
       readonly presentation: ExtensionPresentation
       readonly visible: boolean
+      readonly refreshDemand: boolean
     }>(),
   },
   event: {
+    'extensions:contributions-changed': payload<readonly ExtensionContributionState[]>(),
     'extensions:command': payload<KeybindingAction>(),
     'extensions:state-changed': payload<ExtensionPlatformState>(),
     'extensions:views-changed': payload<{
       readonly views: readonly ExtensionView[]
       readonly selectedId?: string
+      readonly focus?: boolean
     }>(),
   },
 } satisfies IpcFeatureContract

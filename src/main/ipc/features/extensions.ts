@@ -49,9 +49,54 @@ export function registerExtensionsIpc(
   ipc.handle(
     'extensions:open-view',
     (req, context) =>
-      extensions?.guests?.open(context.owner(), req.installationId, req.contributionId) ??
-      unavailable(),
+      extensions?.guests?.open(
+        context.owner(),
+        req.installationId,
+        req.contributionId,
+        undefined,
+        { context: req.context },
+      ) ?? unavailable(),
   )
+  ipc.handle('extensions:contributions', (_req, context) => {
+    context.owner()
+    return extensions?.contributions?.snapshot() ?? []
+  })
+  ipc.handle('extensions:context', (_req, context) => ({
+    surface: 'viewer' as const,
+    visible: true,
+    terminalIds: extensions?.contexts?.terminalIds(context.owner()) ?? {},
+    sessions: extensions?.contexts?.sessions(context.owner()) ?? [],
+  }))
+  ipc.handle(
+    'extensions:demand',
+    (req, context) =>
+      extensions?.contributions?.demand(context.owner(), req) ?? unavailable(),
+  )
+  ipc.handle('extensions:action', (req, context) => {
+    const owner = context.owner()
+    const activation = extensions?.activations?.active.get(req.installationId)
+    const admitted = extensions?.contexts?.admit(owner, req.context)
+    if (!activation || !admitted) return unavailable()
+    const operation =
+      extensions?.actions?.invoke(
+        owner,
+        activation,
+        req.action,
+        req.input ?? null,
+        req.context,
+        'human',
+        'interactive',
+        () => {
+          if (
+            extensions.activations?.active.get(req.installationId) !== activation ||
+            !admitted.current()
+          )
+            throw new Error('Action context was revoked')
+          extensions.guests?.assertOwner(owner)
+        },
+      ) ?? unavailable()
+    return operation.then((value) => ({ value }))
+  })
   ipc.handle('extensions:close-view', (req, context) => {
     return extensions?.guests?.close(context.owner(), req.viewId)
   })
@@ -65,6 +110,7 @@ export function registerExtensionsIpc(
       req.viewId,
       req.presentation,
       req.visible,
+      req.refreshDemand,
     )
   })
   // Only the exact main-frame guest WebContents identity, bound once during

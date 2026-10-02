@@ -7,6 +7,10 @@ import type { ExtensionPlatformState } from '../../shared/extensions/workbench'
 import { ExtensionActivationOwner } from './activation'
 import { ElectronExtensionGuestSurface } from './electron-guest-surface'
 import { ExtensionGuestOwner } from './guest-owner'
+import { ExtensionContextOwner, type ExtensionContextSources } from './context-owner'
+import { ExtensionActionOwner } from './action-owner'
+import { ExtensionContributionOwner } from './contribution-owner'
+import { ExtensionPresentationState } from './presentation-state'
 import { ExtensionPackageStore } from './package-store'
 
 /** Application composition and lifetime of the extension platform; no extension package code. */
@@ -14,6 +18,31 @@ export class ExtensionApplicationRuntime {
   readonly surface = new ElectronExtensionGuestSurface()
   activations?: ExtensionActivationOwner
   guests?: ExtensionGuestOwner
+  actions?: ExtensionActionOwner
+  contributions?: ExtensionContributionOwner
+  contexts?: ExtensionContextOwner
+  private disposeContext?: () => void
+
+  connectContext(sources: ExtensionContextSources): void {
+    this.disposeContext?.()
+    this.contexts = new ExtensionContextOwner(sources)
+    if (this.guests) this.guests.contexts = this.contexts
+    this.disposeContext = this.contexts.observe(() => {
+      this.actions?.revalidate()
+      this.guests?.updateContext()
+      this.guests?.presentationState?.pruneSessions(this.contexts!.sessionsForAll())
+      this.contributions?.contextChanged()
+      this.publishContributions()
+    })
+  }
+
+  private publishContributions(): void {
+    this.events.toWindows(
+      'extensions:contributions-changed',
+      this.contributions?.snapshot() ?? [],
+    )
+    this.guests?.publishValues()
+  }
   private starting?: Promise<void>
   private disposed = false
   private failure?: string
@@ -54,6 +83,7 @@ export class ExtensionApplicationRuntime {
 
   async dispose(): Promise<void> {
     this.disposed = true
+    this.disposeContext?.()
     await this.starting?.catch(() => undefined)
     await this.activations?.dispose()
     await this.guests?.dispose()
@@ -81,23 +111,64 @@ export class ExtensionApplicationRuntime {
       directory,
       joinHostPath(storage, 'state.json'),
       packages,
-      (id) => this.guests?.revokeInstallation(id),
-      (state) => this.events.toWindows('extensions:state-changed', state),
+      (id) => {
+        this.actions?.revokeInstallation(id)
+        this.guests?.revokeInstallation(id)
+        this.contributions?.revokeInstallation(id)
+        this.publishContributions()
+      },
+      (state) => {
+        this.events.toWindows('extensions:state-changed', state)
+        this.publishContributions()
+      },
+      (id) => this.guests?.presentationState?.forget(id),
     )
     this.activations = activations
     const guests = new ExtensionGuestOwner(
       activations,
       this.scopes,
       this.surface,
-      (owner, views, selectedId) =>
+      (owner, views, selectedId, focus) =>
         this.events.toRenderer(owner, 'extensions:views-changed', {
           views,
-          ...(selectedId ? { selectedId } : {}),
+          ...(selectedId ? { selectedId, focus: focus !== false } : {}),
         }),
     )
     this.guests = guests
+    guests.contexts = this.contexts
+    const presentation = new ExtensionPresentationState(
+      {
+        read: () => activations.readPresentation(),
+        save: (value, current, signal) =>
+          activations.savePresentation(value, current, signal),
+      },
+      () => this.publishContributions(),
+    )
+    guests.presentationState = presentation
+    this.actions = new ExtensionActionOwner({
+      open: (owner, installation, contribution, options, admit) =>
+        guests.open(owner, installation, contribution, admit, options),
+      dispatch: (view, invocation) => guests.dispatch(view, invocation),
+      runnable: (view, id, admitted) => guests.runnable(view, id, admitted),
+      cancelAction: (view, id) => guests.cancelAction(view, id),
+      assertView: (view) => guests.assertView(view),
+    })
+    guests.actions = this.actions
+    this.contributions = new ExtensionContributionOwner(
+      activations,
+      guests,
+      () => this.contexts,
+      presentation,
+      this.scopes,
+      () => this.publishContributions(),
+    )
+    guests.updaterFailed = (view) => this.contributions?.failed(view)
+    guests.visibleContributionsChanged = () => this.contributions?.contextChanged()
+    guests.updaterSessions = (id) => this.contributions?.updaterSessions(id) ?? []
     this.surface.connect(guests)
     await activations.start(joinHostPath(storage, 'writer.lock'))
+    if (activations.snapshot().writable) await presentation.restore()
+    this.publishContributions()
     if (!this.disposed) this.events.toWindows('extensions:state-changed', this.snapshot())
   }
 }

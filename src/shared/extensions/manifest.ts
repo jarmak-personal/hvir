@@ -5,54 +5,25 @@ import {
   type ExtensionManifest,
   type ExtensionContribution,
 } from './contract'
+import { validateContributionDeclarations } from './contributions'
 
 export interface ManifestValidation {
   readonly manifest: ExtensionManifest
   readonly warnings: readonly string[]
 }
 
-export function extensionObject(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value))
-    throw new Error('Expected an object')
-  return value as Record<string, unknown>
-}
-
-export function extensionText(value: unknown, name: string, max = 120): string {
-  if (
-    typeof value !== 'string' ||
-    !value.trim() ||
-    value.length > max ||
-    [...value].some(
-      (character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127,
-    )
-  ) {
-    throw new Error(`Invalid ${name}`)
-  }
-  return value
-}
-
-export function extensionId(value: unknown): string {
-  const text = extensionText(value, 'identity', 80)
-  if (!/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/u.test(text))
-    throw new Error('Invalid extension identity')
-  return text
-}
-
-export function extensionAssetPath(value: unknown): string {
-  const text = extensionText(value, 'asset path', 240)
-  if (
-    text.startsWith('/') ||
-    text.includes('\\') ||
-    text.includes('%') ||
-    text.includes('?') ||
-    text.includes('#') ||
-    text.includes(':') ||
-    text.split('/').some((part) => !part || part === '.' || part === '..')
-  ) {
-    throw new Error('Asset paths must stay inside the package')
-  }
-  return text
-}
+import {
+  extensionObject,
+  extensionText,
+  extensionId,
+  extensionAssetPath,
+} from './validation'
+export {
+  extensionObject,
+  extensionText,
+  extensionId,
+  extensionAssetPath,
+} from './validation'
 
 /** One portable materialized topology for captured directories and ZIP entries. */
 export function validateExtensionAssetTopology(
@@ -131,6 +102,9 @@ export function validateExtensionManifest(value: unknown): ManifestValidation {
     'optionalCapabilities',
     'access',
     'views',
+    'railItems',
+    'actions',
+    'updater',
   ])
   const requiredCapabilities = capabilities(object['requiredCapabilities'])
   const optionalCapabilities = capabilities(object['optionalCapabilities'])
@@ -162,20 +136,24 @@ export function validateExtensionManifest(value: unknown): ManifestValidation {
         'entry',
         'placement',
         'representations',
+        'navigation',
       ]),
     )
     if (
-      view['placement'] !== 'application' ||
+      !['application', 'workspace'].includes(view['placement'] as string) ||
       !Array.isArray(view['representations']) ||
       view['representations'].length !== 1 ||
       view['representations'][0] !== 'view'
     )
-      throw new Error('This contract supports application-level view representations')
+      throw new Error(
+        'This contract supports application or workspace view representations',
+      )
     return {
       id: extensionId(view['id']),
       title: extensionText(view['title'], 'view title', 80),
       entry: extensionAssetPath(view['entry']),
-      placement: 'application',
+      placement: view['placement'] as 'application' | 'workspace',
+      ...(view['navigation'] === undefined ? {} : { navigation: readNavigation(view) }),
       representations: ['view'],
     }
   })
@@ -192,7 +170,21 @@ export function validateExtensionManifest(value: unknown): ManifestValidation {
       optionalCapabilities,
       access: [],
       views,
+      ...validateContributionDeclarations(object, views, (value, known) =>
+        warnings.push(...unknownExtensionFields(value, known)),
+      ),
     },
     warnings: warnings.slice(0, EXTENSION_LIMITS.warnings),
   }
+}
+
+function readNavigation(view: Record<string, unknown>): 'top' | 'left' {
+  if (
+    (view['navigation'] === 'top' && view['placement'] === 'application') ||
+    (view['navigation'] === 'left' && view['placement'] === 'workspace')
+  )
+    return view['navigation']
+  throw new Error(
+    'Top destinations are application-level; left views are workspace-scoped',
+  )
 }

@@ -8,6 +8,8 @@ import {
   type WorkspaceState,
   type WorkspaceClosePlan,
 } from '../../../shared'
+import { useExtensionContributions } from '../extensions/extension-contribution-context'
+import { ExtensionTopRail } from '../extensions/ExtensionContributions'
 import { RemoteConnectionBadge } from './ConnectionStatus'
 import { connectionStateLabel } from './connection-status'
 import type { WorkspaceAttentionRollups } from './project-session-model'
@@ -82,6 +84,8 @@ export function ProjectsBar({
   sessionsActive,
   onSessions,
 }: ProjectsBarProps): ReactElement {
+  const extensionDestination = useExtensionContributions()?.topActive
+  const workspaceActive = !sessionsActive && !extensionDestination
   const [pruneProjectId, setPruneProjectId] = useState<string>()
   const [closeProjectId, setCloseProjectId] = useState<string>()
   const [catalogProjectId, setCatalogProjectId] = useState<string>()
@@ -195,8 +199,9 @@ export function ProjectsBar({
           >
             Sessions
           </button>
+          <ExtensionTopRail />
           {state.projects.map((project) => {
-            const active = !sessionsActive && project.id === state.activeProjectId
+            const active = workspaceActive && project.id === state.activeProjectId
             const remote = project.registeredRoot.hostId !== 'local'
             const workspaceIds = project.workspaces.map((workspace) => workspace.id)
             const actionable = aggregateActionableWorkspaceAttention(
@@ -314,7 +319,7 @@ export function ProjectsBar({
           </button>
           <span className="projects-bar-spacer" />
         </nav>
-        {activeProject && showWorkspacesBar && !sessionsActive ? (
+        {activeProject && showWorkspacesBar && workspaceActive ? (
           <nav
             className="workspaces-bar"
             aria-label="Workspaces"
@@ -322,7 +327,7 @@ export function ProjectsBar({
           >
             {openWorkspaces.map((workspace) => (
               <div
-                className={`workspace-tab${!sessionsActive && workspace.id === state.activeWorkspaceId ? ' active' : ''}${workspace.missing ? ' missing' : ''}`}
+                className={`workspace-tab${workspaceActive && workspace.id === state.activeWorkspaceId ? ' active' : ''}${workspace.missing ? ' missing' : ''}`}
                 key={workspace.id}
                 title={workspaceStatusTitle(workspace)}
                 onMouseDown={(event) => {

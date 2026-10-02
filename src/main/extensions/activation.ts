@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import { EXTENSION_LIMITS } from '../../shared/extensions/contract'
+import {
+  EXTENSION_LIMITS,
+  type ExtensionItemValue,
+} from '../../shared/extensions/contract'
 import type {
   ExtensionInstallation,
   ExtensionPlatformState,
@@ -46,6 +49,7 @@ export class ExtensionActivationOwner {
     readonly packages: ExtensionPackageStore,
     private readonly revoke: (installationId: string) => void,
     private readonly changed: (state: ExtensionPlatformState) => void,
+    private readonly forgotten: (installationId: string) => void = () => undefined,
   ) {}
 
   start(lock: HostPath): Promise<void> {
@@ -443,6 +447,19 @@ export class ExtensionActivationOwner {
         )
         forget = removal.forget
       }
+      if (forget && prior) {
+        const saved = await this.readPresentationFile()
+        if (!saved || typeof saved !== 'object' || Array.isArray(saved))
+          throw new Error('Invalid saved extension presentation')
+        const next = { ...saved } as Record<string, unknown>
+        delete next[prior.installationId]
+        await this.assertWritable()
+        await this.host.writeFile(this.presentationFile(), JSON.stringify(next), {
+          signal: this.authority.signal,
+        })
+        await this.assertWritable()
+        this.forgotten(prior.installationId)
+      }
       await this.save(
         forget
           ? this.accepted.filter(
@@ -516,6 +533,54 @@ export class ExtensionActivationOwner {
     }
     if (this.disposed || !this.writer)
       throw new Error('Extension state write ownership was revoked')
+  }
+
+  private presentationFile(): HostPath {
+    return joinHostPath(this.stateFile, '..', 'presentation.json')
+  }
+
+  private async readPresentationFile(): Promise<unknown> {
+    await this.assertWritable()
+    try {
+      const value = await this.host.readTextFilePrefix(
+        this.presentationFile(),
+        EXTENSION_LIMITS.presentationTotalBytes,
+      )
+      if (!value.complete || value.validUtf8 === false)
+        throw new Error('Saved presentation exceeds its bound')
+      await this.assertWritable()
+      return JSON.parse(value.content) as unknown
+    } catch (reason) {
+      if ((reason as { code?: unknown }).code === 'ENOENT') return {}
+      throw reason
+    }
+  }
+
+  readPresentation(): Promise<unknown> {
+    return this.serialize(() => this.readPresentationFile())
+  }
+
+  savePresentation(
+    value: Readonly<Record<string, readonly ExtensionItemValue[]>>,
+    current: () => void,
+    signal: AbortSignal,
+  ): Promise<void> {
+    return this.serialize(async () => {
+      await this.assertWritable()
+      current()
+      signal.throwIfAborted()
+      const retained = Object.fromEntries(
+        Object.entries(value).filter(([id]) =>
+          this.accepted.some((entry) => entry.installationId === id),
+        ),
+      )
+      await this.host.writeFile(this.presentationFile(), JSON.stringify(retained), {
+        signal: AbortSignal.any([this.authority.signal, signal]),
+      })
+      await this.assertWritable()
+      current()
+      signal.throwIfAborted()
+    })
   }
 
   dispose(): Promise<void> {
