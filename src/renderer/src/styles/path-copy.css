@@ -16,8 +16,8 @@
   padding: 0 8px;
   border-width: 0;
   border-radius: 3px;
-  --hvir-control-surface: transparent;
-  --hvir-control-color: var(--text);
+  background-color: transparent;
+  color: var(--text);
   font: inherit;
   font-size: calc(11px * var(--hvir-interface-scale));
   text-align: left;
@@ -26,11 +26,11 @@
 .path-copy-menu button:hover,
 .path-copy-menu button:focus-visible {
   outline: none;
-  --hvir-control-surface: var(--surface-hover);
+  background-color: var(--surface-hover);
 }
 
 .path-copy-menu button:disabled {
-  --hvir-control-color: var(--text-muted);
+  color: var(--text-muted);
 }
 
 .path-copy-feedback {

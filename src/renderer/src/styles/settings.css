@@ -70,8 +70,8 @@
   padding: 8px 10px;
   border-width: 0;
   border-radius: 3px;
-  --hvir-control-color: var(--text);
-  --hvir-control-surface: transparent;
+  color: var(--text);
+  background-color: transparent;
   font-size: calc(11px * var(--hvir-interface-scale));
   font-weight: 540;
   text-align: left;
@@ -79,14 +79,14 @@
 
 .project-dialog.settings-dialog .settings-section-index button:hover,
 .project-dialog.settings-dialog .settings-section-index button:focus-visible {
-  --hvir-control-color: var(--text);
-  --hvir-control-surface: var(--surface-hover);
+  color: var(--text);
+  background-color: var(--surface-hover);
   outline: none;
 }
 
 .project-dialog.settings-dialog .settings-section-index button.active {
-  --hvir-control-color: var(--text-strong);
-  --hvir-control-surface: var(--accent-soft);
+  color: var(--text-strong);
+  background-color: var(--accent-soft);
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
@@ -95,9 +95,9 @@
 }
 
 .settings-dialog .settings-section-selector select {
-  --hvir-control-border-color: var(--border-strong);
-  --hvir-control-surface: var(--surface-2);
-  --hvir-control-color: var(--text);
+  border-color: var(--border-strong);
+  background-color: var(--surface-2);
+  color: var(--text);
 }
 
 .settings-content {
@@ -251,13 +251,11 @@
   width: 100%;
   min-width: 0;
   padding: 7px 9px;
-  --hvir-control-border-color: var(--border-strong);
-  border-width: 1px;
-  border-style: solid;
+  border: 1px solid var(--border-strong);
   border-radius: 4px;
   outline: none;
-  --hvir-control-color: var(--text);
-  --hvir-control-surface: var(--surface-2);
+  color: var(--text);
+  background-color: var(--surface-2);
   font: inherit;
 }
 
@@ -358,15 +356,15 @@
 }
 
 .project-dialog.settings-dialog button {
-  --hvir-control-border-color: var(--border-strong);
-  --hvir-control-surface: var(--surface-2);
-  --hvir-control-color: var(--text);
+  border-color: var(--border-strong);
+  background-color: var(--surface-2);
+  color: var(--text);
 }
 
 .project-dialog.settings-dialog button:hover:not(:disabled),
 .project-dialog.settings-dialog button:focus-visible {
-  --hvir-control-surface: var(--surface-hover);
-  --hvir-control-color: var(--text-strong);
+  background-color: var(--surface-hover);
+  color: var(--text-strong);
 }
 
 @media (max-width: 800px) {

@@ -175,12 +175,10 @@
 .harness-folder-list button {
   padding: 7px 9px;
   border-width: 0;
-  --hvir-control-border-bottom-color: var(--border-subtle);
-  border-bottom-width: 1px;
-  border-bottom-style: solid;
+  border-bottom: 1px solid var(--border-subtle);
   border-radius: 0;
-  --hvir-control-surface: transparent;
-  --hvir-control-color: var(--text);
+  background-color: transparent;
+  color: var(--text);
   text-align: left;
 }
 
@@ -208,22 +206,20 @@
   align-items: center;
   gap: 9px;
   padding: 8px 9px;
-  --hvir-control-border-color: transparent;
-  border-width: 1px;
-  border-style: solid;
+  border: 1px solid transparent;
   border-radius: 5px;
-  --hvir-control-surface: var(--surface-1);
-  --hvir-control-color: var(--text-secondary);
+  background-color: var(--surface-1);
+  color: var(--text-secondary);
   text-align: left;
 }
 
 .session-host-option:hover {
-  --hvir-control-surface: var(--surface-hover);
+  background-color: var(--surface-hover);
 }
 
 .session-host-option.selected {
-  --hvir-control-border-color: var(--accent);
-  --hvir-control-surface: var(--surface-active);
+  border-color: var(--accent);
+  background-color: var(--surface-active);
 }
 
 .session-host-copy {
@@ -264,12 +260,10 @@
   flex: 0 0 auto;
   overflow: hidden;
   padding: 3px 7px;
-  --hvir-control-border-color: var(--border-strong);
-  border-width: 1px;
-  border-style: solid;
+  border: 1px solid var(--border-strong);
   border-radius: 10px;
-  --hvir-control-surface: var(--surface-2);
-  --hvir-control-color: var(--text-muted);
+  background-color: var(--surface-2);
+  color: var(--text-muted);
   font-size: calc(9px * var(--hvir-interface-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -406,61 +400,43 @@
 .confirmation-dialog-actions .confirmation-action {
   min-height: 32px;
   padding: 5px 11px;
-  --hvir-control-border-color: var(--border-strong);
-  border-width: 1px;
-  border-style: solid;
+  border: 1px solid var(--border-strong);
   border-radius: 5px;
   outline: none;
-  --hvir-control-surface: var(--surface-2);
-  --hvir-control-color: var(--text);
+  background-color: var(--surface-2);
+  color: var(--text);
   cursor: pointer;
   font-size: calc(10px * var(--hvir-interface-scale));
   font-weight: 560;
 }
 
 .confirmation-dialog-actions .confirmation-action:hover:not(:disabled) {
-  --hvir-control-border-color: color-mix(
-    in srgb,
-    var(--accent) 58%,
-    var(--border-strong)
-  );
-  --hvir-control-surface: var(--surface-hover);
-  --hvir-control-color: var(--text-strong);
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--border-strong));
+  background-color: var(--surface-hover);
+  color: var(--text-strong);
 }
 
 .confirmation-dialog-actions .confirmation-action:focus-visible {
-  --hvir-control-border-color: var(--accent);
+  border-color: var(--accent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .confirmation-dialog-actions .confirmation-action-primary {
-  --hvir-control-border-color: color-mix(
-    in srgb,
-    var(--accent) 72%,
-    var(--border-strong)
-  );
-  --hvir-control-surface: var(--accent-soft);
-  --hvir-control-color: var(--text-strong);
+  border-color: color-mix(in srgb, var(--accent) 72%, var(--border-strong));
+  background-color: var(--accent-soft);
+  color: var(--text-strong);
 }
 
 .confirmation-dialog-actions .confirmation-action-destructive {
-  --hvir-control-border-color: color-mix(
-    in srgb,
-    var(--danger-text) 55%,
-    var(--border-strong)
-  );
-  --hvir-control-surface: color-mix(in srgb, var(--danger-text) 14%, var(--surface-2));
-  --hvir-control-color: var(--danger-text);
+  border-color: color-mix(in srgb, var(--danger-text) 55%, var(--border-strong));
+  background-color: color-mix(in srgb, var(--danger-text) 14%, var(--surface-2));
+  color: var(--danger-text);
 }
 
 .confirmation-dialog-actions .confirmation-action-destructive:hover:not(:disabled) {
-  --hvir-control-border-color: color-mix(
-    in srgb,
-    var(--danger-text) 75%,
-    var(--border-strong)
-  );
-  --hvir-control-surface: color-mix(in srgb, var(--danger-text) 21%, var(--surface-2));
-  --hvir-control-color: color-mix(in srgb, var(--danger-text) 86%, var(--text-strong));
+  border-color: color-mix(in srgb, var(--danger-text) 75%, var(--border-strong));
+  background-color: color-mix(in srgb, var(--danger-text) 21%, var(--surface-2));
+  color: color-mix(in srgb, var(--danger-text) 86%, var(--text-strong));
 }
 
 .confirmation-dialog-actions .confirmation-action:disabled {

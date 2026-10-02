@@ -16,8 +16,8 @@
   padding: 0 8px;
   border-width: 0;
   border-radius: 3px;
-  --hvir-control-surface: transparent;
-  --hvir-control-color: var(--text);
+  background-color: transparent;
+  color: var(--text);
   font: inherit;
   font-size: calc(11px * var(--hvir-interface-scale));
   text-align: left;
@@ -26,11 +26,11 @@
 .file-action-menu button:hover,
 .file-action-menu button:focus-visible {
   outline: none;
-  --hvir-control-surface: var(--surface-hover);
+  background-color: var(--surface-hover);
 }
 
 .file-action-menu button:disabled {
-  --hvir-control-color: var(--text-muted);
+  color: var(--text-muted);
 }
 
 .file-action-menu-separator {
@@ -190,7 +190,7 @@
 .tree-row.file-drop-target-row {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
-  --hvir-control-surface: var(--surface-hover);
+  background-color: var(--surface-hover);
 }
 
 .tree-drop-target-marker {

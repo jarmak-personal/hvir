@@ -1,18 +1,8 @@
 /* Browser-only presentation shared by hvir and optional guest UI. Feature layout remains private. */
 :where(.hvir-button, .hvir-input) {
-  --hvir-control-color: inherit;
-  --hvir-control-surface: transparent;
-  --hvir-control-border-color: currentColor;
-  --hvir-control-border-top-color: var(--hvir-control-border-color);
-  --hvir-control-border-bottom-color: var(--hvir-control-border-color);
-  --hvir-control-border-left-color: var(--hvir-control-border-color);
-  --hvir-control-border-right-color: var(--hvir-control-border-color);
-  color: var(--hvir-control-color);
-  background-color: var(--hvir-control-surface);
-  border-top-color: var(--hvir-control-border-top-color);
-  border-bottom-color: var(--hvir-control-border-bottom-color);
-  border-left-color: var(--hvir-control-border-left-color);
-  border-right-color: var(--hvir-control-border-right-color);
+  color: inherit;
+  background-color: transparent;
+  border-color: currentColor;
   font: inherit;
 }
 :where(.hvir-button:disabled, .hvir-input:disabled) {
@@ -21,20 +11,14 @@
 }
 :where(.hvir-row) {
   min-width: 0;
-  color: var(--hvir-row-color, inherit);
-  background-color: var(--hvir-row-surface, transparent);
-}
-:where(.hvir-button.hvir-row) {
-  --hvir-row-color: var(--hvir-control-color);
-  --hvir-row-surface: var(--hvir-control-surface);
+  color: inherit;
+  background-color: transparent;
 }
 :where(.hvir-control) {
-  --hvir-control-border-color: var(--border-strong);
-  --hvir-control-surface: var(--surface-2);
-  --hvir-control-color: var(--text-secondary);
-  border-width: 1px;
-  border-style: solid;
+  border: 1px solid var(--border-strong);
   border-radius: 4px;
+  background-color: var(--surface-2);
+  color: var(--text-secondary);
 }
 :where(.hvir-toolbar) {
   display: flex;

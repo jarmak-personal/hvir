@@ -6,21 +6,19 @@
   flex: 0 0 auto;
   align-self: end;
   padding: 0 13px;
-  --hvir-control-border-color: var(--border-strong);
-  border-width: 1px;
-  border-style: solid;
-  --hvir-control-border-bottom-color: var(--border-strong);
+  border: 1px solid var(--border-strong);
+  border-bottom-color: var(--border-strong);
   border-radius: 5px 5px 0 0;
-  --hvir-control-surface: var(--surface-0);
-  --hvir-control-color: var(--text-secondary);
+  background-color: var(--surface-0);
+  color: var(--text-secondary);
   font-size: calc(11px * var(--hvir-interface-scale));
   font-weight: 680;
 }
 
 .sessions-destination:hover,
 .sessions-destination:focus-visible {
-  --hvir-control-surface: var(--surface-hover);
-  --hvir-control-color: var(--text-strong);
+  background-color: var(--surface-hover);
+  color: var(--text-strong);
 }
 
 .sessions-destination:focus-visible {
@@ -29,9 +27,9 @@
 }
 
 .sessions-destination.active {
-  --hvir-control-border-bottom-color: var(--border-subtle);
-  --hvir-control-surface: var(--surface-active);
-  --hvir-control-color: var(--text-strong);
+  border-bottom-color: var(--border-subtle);
+  background-color: var(--surface-active);
+  color: var(--text-strong);
 }
 
 .sessions-overview {
@@ -49,12 +47,10 @@
 .sessions-controls button,
 .sessions-controls select,
 .sessions-notice button {
-  --hvir-control-border-color: var(--border-strong);
-  border-width: 1px;
-  border-style: solid;
+  border: 1px solid var(--border-strong);
   border-radius: 5px;
-  --hvir-control-surface: var(--surface-raised);
-  --hvir-control-color: var(--text);
+  background-color: var(--surface-raised);
+  color: var(--text);
   font: inherit;
 }
 
@@ -111,9 +107,9 @@
 }
 
 .sessions-controls button[aria-pressed='true'] {
-  --hvir-control-border-color: var(--accent);
-  --hvir-control-surface: var(--accent-soft);
-  --hvir-control-color: var(--text-strong);
+  border-color: var(--accent);
+  background-color: var(--accent-soft);
+  color: var(--text-strong);
 }
 
 .sessions-policy,
@@ -158,12 +154,10 @@
 
 .sessions-pagination button {
   padding: 5px 9px;
-  --hvir-control-border-color: var(--border-strong);
-  border-width: 1px;
-  border-style: solid;
+  border: 1px solid var(--border-strong);
   border-radius: 5px;
-  --hvir-control-surface: var(--surface-raised);
-  --hvir-control-color: var(--text);
+  background-color: var(--surface-raised);
+  color: var(--text);
   font: inherit;
 }
 
@@ -175,9 +169,9 @@
 .sessions-overview button:hover:not(:disabled),
 .sessions-detail-actions button:hover:not(:disabled),
 .sessions-detail-actions button:focus-visible {
-  --hvir-control-border-color: var(--accent);
-  --hvir-control-surface: var(--surface-hover);
-  --hvir-control-color: var(--text-strong);
+  border-color: var(--accent);
+  background-color: var(--surface-hover);
+  color: var(--text-strong);
 }
 
 .sessions-notice {

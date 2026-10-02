@@ -564,11 +564,11 @@ describe('extension guest capability and lifetime owner', () => {
     const view = await attached(data)
     data.owner.receive(10, { kind: 'hello', contract: '1.0' })
     data.sent.length = 0
-    for (const fontSize of [14, 15, 16])
+    for (const interfaceScale of [1.1, 1.2, 1.3])
       data.owner.presentation(
         data.renderer,
         view.id,
-        { ...DEFAULT_EXTENSION_PRESENTATION, fontSize },
+        { ...DEFAULT_EXTENSION_PRESENTATION, interfaceScale },
         false,
         false,
       )
@@ -576,7 +576,7 @@ describe('extension guest capability and lifetime owner', () => {
     data.owner.presentation(
       data.renderer,
       view.id,
-      { ...DEFAULT_EXTENSION_PRESENTATION, fontSize: 16 },
+      { ...DEFAULT_EXTENSION_PRESENTATION, interfaceScale: 1.3 },
       true,
       true,
     )
@@ -585,7 +585,7 @@ describe('extension guest capability and lifetime owner', () => {
         guestId: 10,
         message: {
           kind: 'presentation',
-          presentation: { ...DEFAULT_EXTENSION_PRESENTATION, fontSize: 16 },
+          presentation: { ...DEFAULT_EXTENSION_PRESENTATION, interfaceScale: 1.3 },
         },
       },
     ])

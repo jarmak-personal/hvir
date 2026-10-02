@@ -31,32 +31,39 @@ window.hvirUI = Object.freeze({
   },
   bindList(list, onSelect) {
     let disposed = false
-    const visible = (row) => {
-      for (let node = row; node; node = node.parentElement) {
+    const rows = () => {
+      const visibility = new Map()
+      const visible = (node) => {
+        if (!node) return true
+        if (visibility.has(node)) return visibility.get(node)
         const style = window.getComputedStyle(node)
-        if (node.hidden || style.display === 'none' || style.visibility === 'hidden')
-          return false
+        const result =
+          !node.hidden &&
+          style.display !== 'none' &&
+          style.visibility !== 'hidden' &&
+          visible(node.parentElement)
+        visibility.set(node, result)
+        return result
       }
-      return true
-    }
-    const rows = () =>
-      [...list.children].filter(
+      return [...list.children].filter(
         (row) =>
           row.getAttribute('role') === 'option' &&
           !row.disabled &&
           row.getAttribute('aria-disabled') !== 'true' &&
           visible(row),
       )
-    const select = (row, focus) => {
-      if (disposed || !row || !rows().includes(row)) return
-      for (const option of rows()) {
+    }
+    const select = (row, focus, options) => {
+      if (disposed || !row || !options.includes(row)) return
+      for (const option of options) {
         option.tabIndex = option === row ? 0 : -1
         option.setAttribute('aria-selected', String(option === row))
       }
       if (focus) row.focus()
       onSelect(row)
     }
-    const click = (event) => select(event.target.closest('[role="option"]'), false)
+    const click = (event) =>
+      select(event.target.closest('[role="option"]'), false, rows())
     const keydown = (event) => {
       const options = rows()
       const index = options.indexOf(event.target.closest('[role="option"]'))
@@ -70,7 +77,7 @@ window.hvirUI = Object.freeze({
       else return
       if (target) {
         event.preventDefault()
-        select(target, true)
+        select(target, true, options)
       }
     }
     const refresh = () => {

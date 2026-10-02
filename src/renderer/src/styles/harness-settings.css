@@ -81,12 +81,10 @@
   gap: 3px;
   padding: 9px 10px;
   border-width: 0;
-  --hvir-control-border-bottom-color: var(--border-subtle);
-  border-bottom-width: 1px;
-  border-bottom-style: solid;
+  border-bottom: 1px solid var(--border-subtle);
   border-radius: 0;
-  --hvir-control-surface: transparent;
-  --hvir-control-color: var(--text);
+  background-color: transparent;
+  color: var(--text);
   text-align: left;
 }
 
@@ -94,7 +92,7 @@
 .settings-profile-list button:hover,
 .settings-profile-list button:focus-visible {
   outline: none;
-  --hvir-control-surface: var(--accent-soft);
+  background-color: var(--accent-soft);
 }
 
 .settings-profile-list strong,

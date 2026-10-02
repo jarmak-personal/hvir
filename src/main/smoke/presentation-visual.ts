@@ -70,14 +70,6 @@ export async function capturePresentationVisuals(
             poll();
           })
         `)
-        if (name === 'markdown')
-          console.log(
-            '[smoke] presentation computed',
-            appearance,
-            await win.webContents.executeJavaScript(
-              `(() => { const tab = document.querySelector('.viewer-tab.active'), nav = document.querySelector('.rail-nav button.active'); return [tab,nav].map(node => { const css = getComputedStyle(node); return {class:node.className,border:css.borderTop,bottom:css.borderBottom,background:css.backgroundColor,color:css.color,font:css.fontSize}; }); })()`,
-            ),
-          )
         await host.writeFile(
           joinHostPath(localPath(output), `${name}-${appearance}.png`),
           (await win.webContents.capturePage()).toPNG(),
@@ -196,11 +188,17 @@ export async function captureSessionPresentationVisuals(
   }
 }
 
-/** Capture an already prepared ordinary graph or diff; restore appearance and extent. */
+/** Capture an already prepared feature state; restore appearance and extent. */
 export async function captureActivePresentationVisuals(
   win: BrowserWindow,
   host: Pick<ProjectHost, 'writeFile'>,
-  name: 'graph' | 'diff',
+  name:
+    | 'graph'
+    | 'diff'
+    | 'review-rendered'
+    | 'review-source'
+    | 'review-moved'
+    | 'state-feedback',
 ): Promise<void> {
   const output = process.env['HVIR_PRESENTATION_CAPTURE_DIRECTORY']
   if (!output) return
@@ -227,5 +225,33 @@ export async function captureActivePresentationVisuals(
       `if (document.documentElement.dataset.theme !== ${JSON.stringify(theme)}) document.querySelector('.theme-toggle').click()`,
     )
     win.setContentSize(size[0]!, size[1]!)
+  }
+}
+
+/** Closed style fixture for signals not all reachable in one native workflow.
+ * Actual review workflow captures above remain distinct from this cascade evidence.
+ */
+export async function captureStatePresentationVisuals(
+  win: BrowserWindow,
+  host: ProjectHost,
+): Promise<void> {
+  if (!process.env['HVIR_PRESENTATION_CAPTURE_DIRECTORY']) return
+  await win.webContents.executeJavaScript(`(() => {
+    const fixture = document.createElement('section');
+    fixture.id = 'hvir-presentation-state-capture';
+    fixture.style.cssText = 'position:fixed;inset:80px 80px;z-index:10000;overflow:auto;padding:24px;background:var(--viewer-bg);color:var(--text);font-family:var(--hvir-interface-font);font-size:13px';
+    fixture.innerHTML = '<h2>Closed Chromium state fixture</h2>' +
+      '<p>Review markers: current / moved / stale</p><div style="display:flex;gap:28px;padding:20px 60px">' +
+      ['', 'review-anchor-moved', 'review-anchor-stale'].map(state => '<div class="review-block" style="width:110px"><button class="review-block-badge ' + state + '">1</button><span class="cm-review-marker ' + state + '">1</span><span class="cm-review-anchor ' + state + '">reviewed text</span></div>').join('') + '</div>' +
+      '<section class="workbench-health-dialog"><div class="workbench-health-heading"><h2>Workbench health</h2><span class="workbench-health-evidence">Available</span></div><ul class="workbench-health-list"><li class="workbench-health-item"><strong>Ordinary incident</strong><code>closed-fixture</code></li><li class="workbench-health-item critical"><strong>Critical incident</strong><code>closed-fixture</code></li><li class="workbench-health-item resolved"><strong>Resolved incident</strong><code>closed-fixture</code></li></ul></section>' +
+      '<section class="terminal-move-dialog" style="position:static;margin-top:24px"><h2>Move terminal</h2><p><i class="terminal-move-live-dot"></i> Live terminal</p><div class="terminal-move-continuity"><span class="terminal-move-continuity-mark">✓</span><p><strong>Same terminal process</strong><span>Original launch directory remains unchanged</span></p></div><div class="terminal-move-warning"><span class="terminal-move-warning-mark">!</span><p><strong>Workspace changes</strong><span>Closed fixture warning</span></p></div></section>';
+    document.body.append(fixture);
+  })()`)
+  try {
+    await captureActivePresentationVisuals(win, host, 'state-feedback')
+  } finally {
+    await win.webContents.executeJavaScript(
+      `document.getElementById('hvir-presentation-state-capture')?.remove()`,
+    )
   }
 }

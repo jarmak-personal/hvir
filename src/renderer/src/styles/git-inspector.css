@@ -31,14 +31,14 @@
   padding: 0;
   border-width: 0;
   border-radius: 3px;
-  --hvir-control-surface: transparent;
-  --hvir-control-color: var(--text-muted);
+  background-color: transparent;
+  color: var(--text-muted);
   font-size: calc(17px * var(--hvir-interface-scale));
 }
 
 .git-commit-inspector > header button:hover {
-  --hvir-control-surface: var(--surface-hover);
-  --hvir-control-color: var(--text-strong);
+  background-color: var(--surface-hover);
+  color: var(--text-strong);
 }
 
 .git-inspector-summary {
@@ -227,14 +227,14 @@
   padding-right: 10px;
   overflow: hidden;
   border-width: 0;
-  --hvir-control-surface: transparent;
-  --hvir-control-color: var(--text-secondary);
+  background-color: transparent;
+  color: var(--text-secondary);
   font-size: calc(10px * var(--hvir-interface-scale));
   text-align: left;
 }
 
 .git-commit-tree-row:hover {
-  --hvir-control-surface: var(--surface-hover);
+  background-color: var(--surface-hover);
 }
 
 .git-commit-tree-row.directory > span {

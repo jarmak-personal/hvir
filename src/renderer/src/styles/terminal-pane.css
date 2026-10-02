@@ -47,19 +47,17 @@
   width: 24px;
   height: 22px;
   padding: 0;
-  --hvir-control-border-color: transparent;
-  border-width: 1px;
-  border-style: solid;
+  border: 1px solid transparent;
   border-radius: 3px;
-  --hvir-control-surface: transparent;
-  --hvir-control-color: var(--text-muted);
+  background-color: transparent;
+  color: var(--text-muted);
 }
 
 .terminal-semantic-navigation button:hover,
 .terminal-semantic-navigation button:focus-visible {
-  --hvir-control-border-color: var(--accent);
-  --hvir-control-surface: var(--accent-soft);
-  --hvir-control-color: var(--text-strong);
+  border-color: var(--accent);
+  background-color: var(--accent-soft);
+  color: var(--text-strong);
 }
 
 .terminal-semantic-region {
@@ -92,25 +90,23 @@
 .terminal-restart,
 .terminal-start-fresh {
   padding: 4px 8px;
-  --hvir-control-border-color: var(--border-strong);
-  border-width: 1px;
-  border-style: solid;
+  border: 1px solid var(--border-strong);
   border-radius: 3px;
-  --hvir-control-surface: var(--surface-raised);
-  --hvir-control-color: var(--text-secondary);
+  background-color: var(--surface-raised);
+  color: var(--text-secondary);
   font-size: calc(9px * var(--hvir-interface-scale));
 }
 
 .terminal-start-fresh {
-  --hvir-control-border-color: var(--accent);
-  --hvir-control-surface: var(--accent-soft);
-  --hvir-control-color: var(--text-strong);
+  border-color: var(--accent);
+  background-color: var(--accent-soft);
+  color: var(--text-strong);
 }
 
 .terminal-restart:hover,
 .terminal-start-fresh:hover {
-  --hvir-control-border-color: var(--accent);
-  --hvir-control-color: var(--text-strong);
+  border-color: var(--accent);
+  color: var(--text-strong);
 }
 
 @media (max-width: 1000px) {

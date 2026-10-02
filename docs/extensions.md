@@ -102,7 +102,7 @@ to cancel pending work. Revocation rejects late completion; canceled work publis
 new authority.
 
 `presentation.read` returns appearance, the closed semantic CSS color vocabulary,
-interface and monospace font stacks, interface scale, base font size, and available
+interface and monospace font stacks, interface scale, and available
 width/height. `kind: 'presentation'` updates these values when theme, typography, or
 geometry changes. Colors are resolved bounded browser color values; they convey no
 host authority. The workbench keeps theme and typography preferences in Settings.
@@ -147,7 +147,9 @@ The reference package includes `presentation.css`, `tokens.css`, `primitives.css
 and load `guest-ui.js` before the consumer script. They require no framework, build,
 network, or font service. Repository maintainers refresh package copies with
 `npm run extension:ui -- /absolute/package-directory`; authors can use the shipped
-copies directly. Activation captures their exact bytes with the rest of the package.
+copies directly. Copying does not modify the shared source tree. Contributors regenerate
+`tokens.css` separately with `npm run extension:ui:tokens` after canonical token edits.
+Activation captures their exact bytes with the rest of the package.
 
 Use `hvir-guest` on the body and call
 `const dispose = window.hvirUI.bindPresentation(window.hvirExtension)` once.

@@ -31,9 +31,11 @@ export async function presentationTokenCss(): Promise<string> {
     parser: 'css',
   })
 }
-export async function prepareExtensionUi(directory: string): Promise<void> {
-  const source = resolve('src/shared/presentation')
+const source = fileURLToPath(new URL('../src/shared/presentation/', import.meta.url))
+export async function regeneratePresentationTokens(): Promise<void> {
   await writeFile(join(source, 'tokens.css'), await presentationTokenCss())
+}
+export async function prepareExtensionUi(directory: string): Promise<void> {
   await mkdir(directory, { recursive: true })
   for (const asset of PRESENTATION_ASSETS)
     await copyFile(join(source, asset), join(directory, asset))
@@ -42,5 +44,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const directory = process.argv[2]
   if (!directory || process.argv.length !== 3)
     throw new Error('Usage: npm run extension:ui -- /absolute/package-directory')
-  await prepareExtensionUi(resolve(directory))
+  if (directory === '--tokens') await regeneratePresentationTokens()
+  else await prepareExtensionUi(resolve(directory))
 }

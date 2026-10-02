@@ -1,6 +1,9 @@
 import { verifyPresentationFeedback } from './presentation-feedback'
 import { focusSmokeWindow } from './window-focus'
-import { capturePresentationVisuals } from './presentation-visual'
+import {
+  capturePresentationVisuals,
+  captureStatePresentationVisuals,
+} from './presentation-visual'
 import { verifyDiffReadability } from './diff-readability'
 import { verifyLiveReloadScroll } from './viewer-live-reload'
 import type { SmokeFailureCheckpoint } from './failure-evidence.mts'
@@ -226,6 +229,7 @@ export async function verifyViewerContent(options: {
       '[smoke] presentation state feedback OK (dark/light tasks · checkbox accent · progress states · live halo)',
     )
     await capturePresentationVisuals(win, host)
+    await captureStatePresentationVisuals(win, host)
 
     const stablePngSource = (await win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {

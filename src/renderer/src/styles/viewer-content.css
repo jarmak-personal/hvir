@@ -94,20 +94,18 @@
 
 .diff-controls button {
   padding: 3px 8px;
-  --hvir-control-border-color: var(--border-strong);
-  border-width: 1px;
-  border-style: solid;
+  border: 1px solid var(--border-strong);
   border-radius: 4px;
-  --hvir-control-surface: var(--surface-1);
-  --hvir-control-color: var(--text-muted);
+  background-color: var(--surface-1);
+  color: var(--text-muted);
   font-size: calc(10px * var(--hvir-interface-scale));
   cursor: pointer;
 }
 
 .diff-controls button[aria-pressed='true'] {
-  --hvir-control-border-color: var(--accent);
-  --hvir-control-surface: var(--accent-soft);
-  --hvir-control-color: var(--text-strong);
+  border-color: var(--accent);
+  background-color: var(--accent-soft);
+  color: var(--text-strong);
 }
 
 .diff-controls button:focus-visible,
@@ -650,19 +648,17 @@
 .json-more {
   margin: 5px 0;
   padding: 3px 8px;
-  --hvir-control-border-color: var(--border-strong);
-  border-width: 1px;
-  border-style: solid;
+  border: 1px solid var(--border-strong);
   border-radius: 4px;
-  --hvir-control-surface: var(--surface-hover);
-  --hvir-control-color: var(--text-secondary);
+  background-color: var(--surface-hover);
+  color: var(--text-secondary);
   font-family: inherit;
   font-size: calc(11px * var(--hvir-interface-scale));
 }
 
 .json-more:hover {
-  --hvir-control-surface: var(--surface-hover);
-  --hvir-control-color: var(--text);
+  background-color: var(--surface-hover);
+  color: var(--text);
 }
 
 .json-error {

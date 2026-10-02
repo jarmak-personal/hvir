@@ -11,11 +11,11 @@
   align-items: stretch;
   border-bottom: 1px solid var(--border-subtle);
   box-shadow: inset 1px 0 var(--border-subtle);
-  --hvir-row-surface: var(--surface-0);
+  background-color: var(--surface-0);
 }
 
 .terminal-list-row:hover {
-  --hvir-row-surface: var(--surface-hover);
+  background-color: var(--surface-hover);
 }
 
 .terminal-list-row.dormant {
@@ -51,8 +51,8 @@
   gap: 8px;
   padding: 6px 2px 6px 11px;
   border-width: 0;
-  --hvir-control-surface: transparent;
-  --hvir-control-color: inherit;
+  background-color: transparent;
+  color: inherit;
   text-align: left;
 }
 
@@ -151,11 +151,9 @@
 
 .terminal-empty button {
   padding: 5px 9px;
-  --hvir-control-border-color: var(--border-strong);
-  border-width: 1px;
-  border-style: solid;
+  border: 1px solid var(--border-strong);
   border-radius: 3px;
-  --hvir-control-surface: var(--surface-raised);
-  --hvir-control-color: var(--text);
+  background-color: var(--surface-raised);
+  color: var(--text);
   font-size: calc(10px * var(--hvir-interface-scale));
 }

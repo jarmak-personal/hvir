@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactElement, type ComponentType } from 'react'
 import type { ExtensionView } from '../../../shared/extensions/workbench'
-import { readExtensionPresentation } from './extension-presentation'
+import { createExtensionPresentationReader } from './extension-presentation'
 import { useExtensionContributions } from './extension-contribution-context'
 import { useAppTheme } from '../theme'
 import { useAppSettings } from '../settings/settings'
@@ -56,14 +56,11 @@ export function ExtensionViewPane({
   const settings = useAppSettings()
   useEffect(() => {
     let disposed = false
+    const readPresentation = createExtensionPresentationReader()
     const publish = (): void => {
       const element = root.current
       if (disposed || !element) return
-      const presentation = readExtensionPresentation(
-        theme,
-        settings.interfaceScale,
-        element,
-      )
+      const presentation = readPresentation(theme, settings.interfaceScale, element)
       window.hvir.send('extensions:presentation', {
         viewId: view.id,
         presentation,

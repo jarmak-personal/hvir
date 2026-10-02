@@ -30,12 +30,10 @@
 .find-toggle {
   min-height: 24px;
   padding: 3px 8px;
-  --hvir-control-border-color: var(--border-strong);
-  border-width: 1px;
-  border-style: solid;
+  border: 1px solid var(--border-strong);
   border-radius: 4px;
-  --hvir-control-surface: var(--surface-2);
-  --hvir-control-color: var(--text-muted);
+  background-color: var(--surface-2);
+  color: var(--text-muted);
   cursor: pointer;
   font-size: calc(10px * var(--hvir-interface-scale));
 }
@@ -60,18 +58,16 @@
 .find-popover > input {
   min-width: 0;
   padding: 5px 7px;
-  --hvir-control-border-color: var(--border-strong);
-  border-width: 1px;
-  border-style: solid;
+  border: 1px solid var(--border-strong);
   border-radius: 4px;
   outline: none;
-  --hvir-control-surface: var(--surface-raised);
-  --hvir-control-color: var(--text-strong);
+  background-color: var(--surface-raised);
+  color: var(--text-strong);
   font: calc(12px * var(--hvir-interface-scale)) / 1.35 var(--hvir-monospace-font);
 }
 
 .find-popover > input:focus {
-  --hvir-control-border-color: var(--accent);
+  border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent);
 }
 
@@ -91,12 +87,10 @@
 .find-actions button {
   min-height: 23px;
   padding: 2px 6px;
-  --hvir-control-border-color: var(--border-strong);
-  border-width: 1px;
-  border-style: solid;
+  border: 1px solid var(--border-strong);
   border-radius: 4px;
-  --hvir-control-surface: var(--surface-raised);
-  --hvir-control-color: var(--text-secondary);
+  background-color: var(--surface-raised);
+  color: var(--text-secondary);
   cursor: pointer;
   font-size: calc(10px * var(--hvir-interface-scale));
 }

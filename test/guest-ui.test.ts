@@ -105,7 +105,10 @@ describe('browser-local guest UI ownership', () => {
     const first = document.getElementById('first')!
     const last = document.getElementById('last')!
     first.focus()
+    const styleReads = vi.spyOn(window, 'getComputedStyle')
     first.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    expect(styleReads.mock.calls.filter(([element]) => element === list)).toHaveLength(1)
+    expect(styleReads.mock.calls.filter(([element]) => element === first)).toHaveLength(1)
     expect(document.activeElement).toBe(last)
     expect(last.getAttribute('aria-selected')).toBe('true')
     expect(select).toHaveBeenCalledOnce()

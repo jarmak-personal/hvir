@@ -84,7 +84,6 @@ export const DEFAULT_EXTENSION_PRESENTATION: ExtensionPresentation = {
   fontFamily: SYSTEM_INTERFACE_FONT_STACK,
   monospaceFontFamily: SYSTEM_MONOSPACE_FONT_STACK,
   interfaceScale: 1,
-  fontSize: 13,
   width: 0,
   height: 0,
 }
@@ -372,11 +371,9 @@ export class ExtensionGuestOwner {
     if (value.appearance !== 'light' && value.appearance !== 'dark')
       throw new Error('Invalid appearance')
     if (
-      ![value.width, value.height, value.fontSize].every(
+      ![value.width, value.height].every(
         (number) => Number.isFinite(number) && number >= 0 && number <= 16_384,
       ) ||
-      value.fontSize < 8 ||
-      value.fontSize > 48 ||
       !Number.isFinite(value.interfaceScale) ||
       value.interfaceScale < 0.8 ||
       value.interfaceScale > 1.5
@@ -398,7 +395,6 @@ export class ExtensionGuestOwner {
         'interface font',
         MAX_INTERFACE_FONT_STACK_LENGTH,
       ),
-      fontSize: value.fontSize,
       width: value.width,
       height: value.height,
     }

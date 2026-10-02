@@ -28,22 +28,20 @@
   min-width: 0;
   height: 25px;
   padding: 0 22px 0 7px;
-  --hvir-control-border-color: var(--border-strong);
-  border-width: 1px;
-  border-style: solid;
+  border: 1px solid var(--border-strong);
   border-radius: 4px;
   outline: none;
-  --hvir-control-surface: var(--surface-raised);
-  --hvir-control-color: var(--text);
+  background-color: var(--surface-raised);
+  color: var(--text);
   font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .git-branch-control select:focus-visible {
-  --hvir-control-border-color: var(--accent);
+  border-color: var(--accent);
 }
 
 .git-branch-control select:disabled {
-  --hvir-control-color: var(--text-muted);
+  color: var(--text-muted);
   opacity: 0.72;
 }
 
@@ -109,8 +107,8 @@
 }
 
 .git-tabs button.active {
-  --hvir-control-border-color: var(--accent);
-  --hvir-control-color: var(--text-strong);
+  border-color: var(--accent);
+  color: var(--text-strong);
 }
 
 .git-tabs button:disabled {
@@ -156,14 +154,14 @@
   gap: 4px;
   padding: 0;
   border-width: 0;
-  --hvir-control-surface: transparent;
-  --hvir-control-color: inherit;
+  background-color: transparent;
+  color: inherit;
   font: inherit;
   text-transform: inherit;
 }
 
 .git-group-toggle:hover {
-  --hvir-control-color: var(--text-secondary);
+  color: var(--text-secondary);
 }
 
 .git-group-chevron {
@@ -191,7 +189,7 @@
 }
 
 .git-file:hover {
-  --hvir-control-surface: var(--surface-hover);
+  background-color: var(--surface-hover);
 }
 
 .git-file-copy {

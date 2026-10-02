@@ -6,12 +6,10 @@
 .document-review-toolbar button,
 .document-review-inline button,
 .document-review-chrome button {
-  --hvir-control-border-color: var(--border-strong);
-  border-width: 1px;
-  border-style: solid;
+  border: 1px solid var(--border-strong);
   border-radius: 4px;
-  --hvir-control-color: var(--text);
-  --hvir-control-surface: var(--surface-raised);
+  color: var(--text);
+  background-color: var(--surface-raised);
   font: inherit;
 }
 
@@ -22,9 +20,9 @@
 
 .document-review-toolbar button.active,
 .document-review-toolbar button[aria-pressed='true'] {
-  --hvir-control-border-color: var(--accent);
-  --hvir-control-color: var(--text-strong);
-  --hvir-control-surface: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--text-strong);
+  background-color: var(--accent-soft);
 }
 
 .document-review-toolbar button:focus-visible,
@@ -72,9 +70,9 @@
 }
 
 .document-review-tray > .document-review-primary {
-  --hvir-control-border-color: var(--accent);
-  --hvir-control-color: var(--text-strong);
-  --hvir-control-surface: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--text-strong);
+  background-color: var(--accent-soft);
 }
 
 .document-review-notice {
@@ -190,17 +188,17 @@
   width: 100%;
   margin: 0;
   padding: 3px 2px;
-  --hvir-control-border-color: transparent;
+  border-color: transparent;
   text-align: left;
   white-space: pre-wrap;
-  --hvir-control-color: var(--text-strong);
-  --hvir-control-surface: transparent;
+  color: var(--text-strong);
+  background-color: transparent;
 }
 
 .document-review-comment .document-review-comment-body:hover,
 .document-review-comment .document-review-comment-body:focus-visible {
-  --hvir-control-border-color: var(--border-strong);
-  --hvir-control-surface: var(--surface-hover);
+  border-color: var(--border-strong);
+  background-color: var(--surface-hover);
 }
 
 .document-review-comment textarea,
@@ -209,17 +207,15 @@
   width: 100%;
   min-height: 74px;
   resize: vertical;
-  --hvir-control-border-color: var(--border-strong);
-  border-width: 1px;
-  border-style: solid;
+  border: 1px solid var(--border-strong);
   border-radius: 4px;
-  --hvir-control-color: var(--text-strong);
-  --hvir-control-surface: var(--surface-0);
+  color: var(--text-strong);
+  background-color: var(--surface-0);
   font: inherit;
 }
 
 .document-review-inline textarea:focus-visible {
-  --hvir-control-border-color: var(--accent);
+  border-color: var(--accent);
   outline: none;
 }
 
@@ -263,9 +259,9 @@
 
 .document-review-comment-meta .document-review-comment-location {
   padding: 0;
-  --hvir-control-border-color: transparent;
-  --hvir-control-color: var(--text-muted);
-  --hvir-control-surface: transparent;
+  border-color: transparent;
+  color: var(--text-muted);
+  background-color: transparent;
 }
 
 .document-review-comment-meta .document-review-comment-delete {
@@ -273,14 +269,14 @@
 }
 
 .document-review-comment-meta .document-review-comment-location:hover {
-  --hvir-control-color: var(--text-strong);
+  color: var(--text-strong);
   text-decoration: underline;
 }
 
 .document-review-comment-meta .document-review-comment-delete:hover {
-  --hvir-control-border-color: var(--danger-border);
-  --hvir-control-color: var(--danger-text);
-  --hvir-control-surface: var(--surface-hover);
+  border-color: var(--danger-border);
+  color: var(--danger-text);
+  background-color: var(--surface-hover);
 }
 
 .document-review-batch-state {

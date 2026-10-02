@@ -113,23 +113,21 @@
   padding: 0 8px 0 0;
   overflow: hidden;
   border-width: 0;
-  border-bottom-width: 1px;
-  border-bottom-style: solid;
-  --hvir-control-border-bottom-color: var(--border-subtle);
-  --hvir-control-surface: transparent;
-  --hvir-control-color: var(--text);
+  border-bottom: 1px solid var(--border-subtle);
+  background-color: transparent;
+  color: var(--text);
   font-size: calc(11px * var(--hvir-interface-scale));
   text-align: left;
 }
 
 .git-graph-row:hover {
-  --hvir-control-surface: var(--surface-hover);
+  background-color: var(--surface-hover);
 }
 
 .git-graph-row.active {
-  --hvir-control-surface: var(--surface-active);
+  background-color: var(--surface-active);
   box-shadow: inset 2px 0 var(--accent);
-  --hvir-control-color: var(--text-strong);
+  color: var(--text-strong);
 }
 
 .git-graph-row > span,

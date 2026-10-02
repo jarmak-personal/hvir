@@ -189,20 +189,18 @@
 
 .sessions-project-header > button,
 .sessions-launch-dialog button {
-  --hvir-control-border-color: var(--border-strong);
-  border-width: 1px;
-  border-style: solid;
+  border: 1px solid var(--border-strong);
   border-radius: 5px;
   padding: 7px 10px;
-  --hvir-control-surface: var(--surface-raised);
-  --hvir-control-color: var(--text);
+  background-color: var(--surface-raised);
+  color: var(--text);
   font: inherit;
   font-size: calc(12px * var(--hvir-interface-scale));
   cursor: pointer;
 }
 .sessions-project-header > button:hover,
 .sessions-launch-dialog button:not(:disabled):hover {
-  --hvir-control-surface: var(--surface-hover);
+  background-color: var(--surface-hover);
 }
 .sessions-launch-dialog button:disabled {
   opacity: 0.5;

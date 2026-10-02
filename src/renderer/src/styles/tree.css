@@ -23,20 +23,18 @@
   display: grid;
   place-items: center;
   padding: 0;
-  --hvir-control-border-color: transparent;
-  border-width: 1px;
-  border-style: solid;
+  border: 1px solid transparent;
   border-radius: 4px;
-  --hvir-control-surface: transparent;
-  --hvir-control-color: var(--text-muted);
+  background-color: transparent;
+  color: var(--text-muted);
 }
 
 .filename-search-trigger:hover,
 .filename-search-trigger:focus-visible {
-  --hvir-control-border-color: var(--border-subtle);
+  border-color: var(--border-subtle);
   outline: none;
-  --hvir-control-surface: var(--surface-hover);
-  --hvir-control-color: var(--text);
+  background-color: var(--surface-hover);
+  color: var(--text);
 }
 
 .filename-search-trigger svg {
@@ -80,23 +78,21 @@
   min-width: 0;
   height: 26px;
   padding: 0 26px 0 8px;
-  --hvir-control-border-color: var(--border-subtle);
-  border-width: 1px;
-  border-style: solid;
+  border: 1px solid var(--border-subtle);
   border-radius: 4px;
   outline: none;
-  --hvir-control-surface: var(--surface-0);
-  --hvir-control-color: var(--text);
+  background-color: var(--surface-0);
+  color: var(--text);
   font: inherit;
   font-size: calc(12px * var(--hvir-interface-scale));
 }
 
 .filename-search-field input:focus {
-  --hvir-control-border-color: var(--accent);
+  border-color: var(--accent);
 }
 
 .filename-search-field input:disabled {
-  --hvir-control-color: var(--text-muted);
+  color: var(--text-muted);
 }
 
 .filename-search-clear {
@@ -106,8 +102,8 @@
   right: 38px;
   bottom: 7px;
   border-width: 0;
-  --hvir-control-surface: transparent;
-  --hvir-control-color: var(--text-muted);
+  background-color: transparent;
+  color: var(--text-muted);
   font-size: calc(16px * var(--hvir-interface-scale));
 }
 
@@ -115,21 +111,19 @@
   width: 24px;
   height: 24px;
   padding: 0;
-  --hvir-control-border-color: transparent;
-  border-width: 1px;
-  border-style: solid;
+  border: 1px solid transparent;
   border-radius: 4px;
-  --hvir-control-surface: transparent;
-  --hvir-control-color: var(--text-muted);
+  background-color: transparent;
+  color: var(--text-muted);
   font-size: calc(16px * var(--hvir-interface-scale));
 }
 
 .filename-search-close:hover,
 .filename-search-close:focus-visible {
-  --hvir-control-border-color: var(--border-subtle);
+  border-color: var(--border-subtle);
   outline: none;
-  --hvir-control-surface: var(--surface-hover);
-  --hvir-control-color: var(--text);
+  background-color: var(--surface-hover);
+  color: var(--text);
 }
 
 .filename-search-ignored {
@@ -176,15 +170,15 @@
   gap: 1px;
   padding: 0 10px;
   border-width: 0;
-  --hvir-control-surface: transparent;
-  --hvir-control-color: var(--text);
+  background-color: transparent;
+  color: var(--text);
   text-align: left;
 }
 
 .filename-search-result:hover,
 .filename-search-result:focus {
   outline: none;
-  --hvir-control-surface: var(--surface-hover);
+  background-color: var(--surface-hover);
 }
 
 .filename-search-parent {
@@ -211,8 +205,8 @@
   padding-right: 8px;
   padding-bottom: 0;
   border-width: 0;
-  --hvir-control-color: var(--text-secondary);
-  --hvir-control-surface: transparent;
+  color: var(--text-secondary);
+  background-color: transparent;
   font-size: calc(12px * var(--hvir-interface-scale));
   text-align: left;
   cursor: default;
@@ -221,20 +215,20 @@
 .directory-row {
   position: sticky;
   top: 0;
-  --hvir-control-surface: var(--surface-1);
+  background-color: var(--surface-1);
 }
 
 .tree-row:hover {
-  --hvir-control-surface: var(--surface-hover);
+  background-color: var(--surface-hover);
 }
 
 .tree-row.selected {
-  --hvir-control-color: var(--text-strong);
-  --hvir-control-surface: var(--surface-active);
+  color: var(--text-strong);
+  background-color: var(--surface-active);
 }
 
 .tree-row.gitignored:not(.selected) {
-  --hvir-control-color: var(--text-muted);
+  color: var(--text-muted);
 }
 
 .tree-row.gitignored:not(.selected) .tree-chevron,
@@ -244,7 +238,7 @@
 
 .tree-row:disabled,
 .tree-row[aria-disabled='true'] {
-  --hvir-control-color: var(--text-disabled);
+  color: var(--text-disabled);
 }
 
 .tree-chevron {

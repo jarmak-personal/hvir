@@ -6,26 +6,24 @@
   justify-content: center;
   gap: 3px;
   border-width: 0;
-  --hvir-control-border-bottom-color: var(--border-strong);
-  border-bottom-width: 1px;
-  border-bottom-style: solid;
-  --hvir-control-surface: transparent;
-  --hvir-control-color: var(--accent-text);
+  border-bottom: 1px solid var(--border-strong);
+  background-color: transparent;
+  color: var(--accent-text);
 }
 
 .workbench-health-toggle:hover,
 .workbench-health-toggle:focus-visible,
 .workbench-health-toggle.new {
-  --hvir-control-surface: var(--surface-hover);
-  --hvir-control-color: var(--accent-text);
+  background-color: var(--surface-hover);
+  color: var(--accent-text);
 }
 
 .workbench-health-toggle.critical {
-  --hvir-control-color: var(--danger-text);
+  color: var(--danger-text);
 }
 
 .workbench-health-toggle.unavailable {
-  --hvir-control-color: var(--warning-text);
+  color: var(--warning-text);
 }
 
 .workbench-health-toggle b {

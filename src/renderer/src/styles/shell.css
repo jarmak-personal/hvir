@@ -87,32 +87,30 @@
   margin-bottom: -1px;
   padding: 0 5px;
   overflow: hidden;
-  --hvir-control-border-color: transparent;
-  border-width: 1px;
-  border-style: solid;
-  --hvir-control-border-bottom-color: var(--border-strong);
+  border: 1px solid transparent;
+  border-bottom-color: var(--border-strong);
   border-radius: 5px 5px 0 0;
-  --hvir-control-surface: transparent;
-  --hvir-control-color: var(--text-muted);
+  background-color: transparent;
+  color: var(--text-muted);
   font-size: calc(10px * var(--hvir-interface-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .rail-nav button:hover:not(:disabled) {
-  --hvir-control-color: var(--text);
-  --hvir-control-surface: var(--surface-hover);
+  color: var(--text);
+  background-color: var(--surface-hover);
 }
 
 .rail-nav button.active {
-  --hvir-control-border-color: var(--border-strong);
-  --hvir-control-border-bottom-color: var(--panel-surface);
-  --hvir-control-surface: var(--navigation-active-surface);
-  --hvir-control-color: var(--text-strong);
+  border-color: var(--border-strong);
+  border-bottom-color: var(--panel-surface);
+  background-color: var(--navigation-active-surface);
+  color: var(--text-strong);
 }
 
 .rail-nav button:disabled {
-  --hvir-control-color: var(--text-disabled);
+  color: var(--text-disabled);
 }
 
 .rail-content,
@@ -302,8 +300,8 @@
 .terminal-collapse-toggle,
 .tree-collapse-toggle {
   border-width: 0;
-  --hvir-control-surface: var(--surface-raised);
-  --hvir-control-color: var(--text-muted);
+  background-color: var(--surface-raised);
+  color: var(--text-muted);
   cursor: pointer;
 }
 
@@ -333,8 +331,8 @@
 .tree-collapse-toggle:hover,
 .tree-collapse-toggle:focus-visible {
   outline: none;
-  --hvir-control-surface: var(--surface-hover);
-  --hvir-control-color: var(--text-strong);
+  background-color: var(--surface-hover);
+  color: var(--text-strong);
 }
 
 .terminal-focus-toggle:focus-visible,
@@ -349,7 +347,7 @@
 
 .tree-collapse-toggle:hover,
 .tree-collapse-toggle:focus-visible {
-  --hvir-control-border-color: var(--accent);
+  border-color: var(--accent);
 }
 
 .terminal-focus-toggle svg,

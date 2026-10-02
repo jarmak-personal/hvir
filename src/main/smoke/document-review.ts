@@ -9,6 +9,7 @@ import type { ProjectHost } from '../project-host'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import { DocumentReviewDriver } from './document-review-driver'
+import { captureActivePresentationVisuals } from './presentation-visual'
 import type { DocumentReviewCondition } from './document-review-evidence.mts'
 import type { SmokeFailureCheckpoint } from './failure-evidence.mts'
 import { waitForPtyOutput } from './pty-lifecycle'
@@ -112,6 +113,7 @@ export async function verifyDocumentReviewWorkflow(options: {
       `document.querySelector('[aria-label^="Review and send 1 comment"]')`,
       'new comment did not join the pending review',
     )
+    await captureActivePresentationVisuals(window, host, 'review-rendered')
 
     await activateMode(win, 'source')
     await waitForRenderer(
@@ -122,6 +124,7 @@ export async function verifyDocumentReviewWorkflow(options: {
       'source view did not project the rendered anchor with accessible review semantics',
     )
     await proveSourceInlineFollowsLine(win)
+    await captureActivePresentationVisuals(window, host, 'review-source')
     await captureSourceLineNumber(win, 2)
     await waitForRenderer(
       win,
@@ -145,6 +148,7 @@ export async function verifyDocumentReviewWorkflow(options: {
         `/Moved from Lines?/.test(document.querySelector('.document-review-comment')?.textContent || '')`,
       'unique file edit did not expose the prior review location',
     )
+    await captureActivePresentationVisuals(window, host, 'review-moved')
 
     await activateControl(win, `.viewer-tab.active .tab-close`)
     await waitForRenderer(
