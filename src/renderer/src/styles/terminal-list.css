@@ -80,6 +80,9 @@
 }
 
 .terminal-attention-badge.bell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: #2a2114;
   color: #e5b65f;
 }
