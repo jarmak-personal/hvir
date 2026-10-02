@@ -86,6 +86,16 @@
       "effects": {
         "delete": false,
         "replace": false
+      },
+      "description": "Describe the exact admitted session and caller; no connector or mutation is involved.",
+      "inputSchema": {
+        "type": ["object", "null"],
+        "properties": {
+          "delayMs": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false
       }
     }
   ],

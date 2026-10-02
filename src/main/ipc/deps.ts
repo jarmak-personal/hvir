@@ -14,6 +14,7 @@ import type {
   RenderContainmentDiagnosticBatch,
   WorkbenchHealthSnapshot,
 } from '../../shared'
+import type { AgentApplicationRuntime } from '../agent/agent-application'
 import type { ExtensionApplicationRuntime } from '../extensions/extension-application'
 import type { HarnessProfileStoreContract } from '../harness/harness-profile-store'
 import type { HarnessProbeManager } from '../harness/harness-probe'
@@ -50,6 +51,7 @@ export interface SystemClipboardPort {
 }
 
 export interface IpcDeps extends IpcRouterAuthorityPort {
+  readonly agents?: AgentApplicationRuntime
   readonly extensions?: ExtensionApplicationRuntime
   readonly echoWorker: WorkerClient<EchoWorkerProtocol>
   readonly gitWorker: WorkerClient<GitWorkerProtocol>

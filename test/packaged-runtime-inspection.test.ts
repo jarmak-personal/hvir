@@ -12,6 +12,7 @@ import {
 
 const productionEntries = [
   '/out/main/index.js',
+  '/out/main/agent-cli.js',
   '/out/main/echo-worker.js',
   '/out/main/git-worker.js',
   '/out/main/chunks/git-branches.js',
@@ -141,6 +142,7 @@ describe('packaged runtime inspection', () => {
     ).toEqual({
       mainEntries: [
         '/out/main/index.js',
+        '/out/main/agent-cli.js',
         '/out/main/echo-worker.js',
         '/out/main/git-worker.js',
       ],

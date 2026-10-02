@@ -141,6 +141,11 @@ export interface PtySupervisorOptions {
   readonly cancelSessionIdentityRegistration?: (terminalId: string) => void
 }
 
+export type PtyAgentTarget = Pick<
+  ManagedPty,
+  'instanceId' | 'ownerId' | 'ownerGeneration' | 'workspaceRoot'
+>
+
 export type PtyStartUnavailableReason = 'identity-baseline-unavailable'
 
 export class PtyStartUnavailableError extends Error {

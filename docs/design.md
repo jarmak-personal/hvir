@@ -168,6 +168,7 @@ worktree orchestrator.
 
 > Lifecycle: Partially superseded
 > Superseded by: [ADR-019](adr/ADR-019-working-output-is-not-actionable-attention.md) | partial | Classifying ongoing post-submission output as actionable new-output attention.
+> Superseded by: [ADR-053](adr/ADR-053-local-agent-workbench-access.md) | partial | Terminal-only attention vocabulary: add separate quiet report attention, cleared by viewing that report.
 
 Terminal focus is the single clearing rule; workspace/project and OS surfaces only aggregate
 the appropriate unseen child attention.
@@ -196,6 +197,7 @@ Apple-silicon macOS targets.
 > Superseded by: [ADR-024](adr/ADR-024-demand-driven-terminal-workspace-lifecycle.md) | partial | Bare Shell defaults implicitly launching a session in an empty workspace.
 > Superseded by: [ADR-036](adr/ADR-036-retire-static-harness-risk-classification.md) | partial | Provider launch-risk rules, derived risk in profile launch revision, and risk classification and acknowledgment.
 > Superseded by: [ADR-047](adr/ADR-047-isolated-extension-package-and-capability-boundary.md) | partial | General extension-platform prohibition only; trusted bundled harness providers and their separate SDK decision remain unchanged.
+> Superseded by: [ADR-053](adr/ADR-053-local-agent-workbench-access.md) | partial | Protected terminal environment vocabulary only: add instance endpoint and exact workspace/session targeting.
 
 Trusted main-owned providers supply exact harness semantics; data-only profiles customize
 launches without opaque shell commands or third-party harness providers. General extension
@@ -554,6 +556,15 @@ Native connector approval pins host-account trust and explicit contexts; finite 
 
 Browser-safe semantic tokens and primitive styles serve built-in views and revision-captured
 optional guest assets; theme/settings, feature layout and authority retain their existing owners.
+
+### [ADR-053 — Local agent workbench access](adr/ADR-053-local-agent-workbench-access.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-012](adr/ADR-012-harness-providers-launch-profiles.md) | partial | Protected terminal environment vocabulary only: add instance endpoint and exact workspace/session targeting.
+> Supersedes: [ADR-009](adr/ADR-009-hierarchical-attention.md) | partial | Terminal-only attention vocabulary: add separate quiet report attention, cleared by viewing that report.
+
+Private local sockets adapt existing public capability owners with independent standing
+agent access, exact finite destructive confirmation and workspace-owned inert reports.
 
 ## 5. Architecture
 

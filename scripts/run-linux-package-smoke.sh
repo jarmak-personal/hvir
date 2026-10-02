@@ -233,6 +233,8 @@ assert_package_contract() {
     '/opt/hvir/resources/hvir-command' \
     'command target'
   require_contains /usr/bin/hvir 'hvir-native-package-command-v1' 'command marker'
+  require_equal "$(readlink -f /usr/bin/hvir-agent)" '/opt/hvir/resources/hvir-agent-command' 'agent command target'
+  require_contains /usr/bin/hvir-agent 'hvir-native-agent-command-v1' 'agent command marker'
   binary_description=$(file /opt/hvir/hvir)
   if [[ "$binary_description" != *"$binary_arch"* ]]; then
     echo \
@@ -361,6 +363,7 @@ HOME="$home_root" \
   "$current_installer" 2>&1 | tee "$update_log"
 assert_package_contract "$package_version"
 assert_packaged_runtime
+HOME="$home_root" node scripts/agent-installed-reference-probe.mts --command /usr/bin/hvir-agent
 run_installed_startup current
 
 if HOME="$home_root" \

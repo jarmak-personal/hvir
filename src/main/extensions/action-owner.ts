@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { validateActionInput } from '../../shared/extensions/action-input'
 import {
   EXTENSION_LIMITS,
   type ExtensionInvocation,
@@ -61,6 +62,7 @@ export class ExtensionActionOwner {
     if (!action || (caller === 'agent' && !action.agents))
       throw new Error('Action is unavailable to this caller')
     boundedValue(input)
+    if (action.inputSchema) validateActionInput(input, action.inputSchema)
     if (
       this.pending.size >= EXTENSION_LIMITS.actionsPending ||
       [...this.pending.values()].filter((entry) => entry.activation === activation)

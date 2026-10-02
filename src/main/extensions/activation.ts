@@ -43,6 +43,9 @@ export class ExtensionActivationOwner {
   private releaseTask: Promise<void> = Promise.resolve()
   private stopping?: Promise<void>
   private readonly authority = new AbortController()
+  private readonly agentLifetimes = new Map<string, AbortController>()
+  private readonly agentRevoked = new Set<string>()
+  private readonly agentIntents = new Map<string, object>()
 
   constructor(
     private readonly host: ProjectHost,
@@ -346,6 +349,7 @@ export class ExtensionActivationOwner {
         kind: current.kind,
         revision: current.hash,
         enabled: true,
+        agentAccess: prior?.agentAccess ?? false,
       }
       if (prior) this.revokeActivation(prior.installationId)
       await this.save([...this.accepted.filter((entry) => entry !== prior), record])
@@ -496,6 +500,11 @@ export class ExtensionActivationOwner {
     await this.assertWritable()
     this.accepted = next
     this.removals = removals
+    const retained = new Set(next.map((entry) => entry.installationId))
+    for (const id of this.agentRevoked)
+      if (!retained.has(id)) this.agentRevoked.delete(id)
+    for (const id of this.agentIntents.keys())
+      if (!retained.has(id)) this.agentIntents.delete(id)
   }
 
   private collect(candidate?: ExtensionRevision): Promise<void> {
@@ -522,6 +531,58 @@ export class ExtensionActivationOwner {
       await this.save(next)
       this.publish()
       return this.snapshot()
+    })
+  }
+
+  agentAccess(): readonly string[] {
+    if (!this.writer || this.disposed) return []
+    return this.accepted
+      .filter(
+        (entry) => entry.agentAccess && !this.agentRevoked.has(entry.installationId),
+      )
+      .map((entry) => entry.installationId)
+  }
+
+  agentSignal(installationId: string): AbortSignal {
+    if (!this.agentAccess().includes(installationId))
+      throw new Error('Agent access for this extension is off')
+    let lifetime = this.agentLifetimes.get(installationId)
+    if (!lifetime) {
+      lifetime = new AbortController()
+      this.agentLifetimes.set(installationId, lifetime)
+    }
+    return AbortSignal.any([this.authority.signal, lifetime.signal])
+  }
+
+  configureAgentAccess(installationId: string, enabled: boolean): Promise<void> {
+    if (typeof installationId !== 'string' || typeof enabled !== 'boolean')
+      return Promise.reject(new Error('Invalid extension agent access'))
+    if (this.disposed || !this.writer) return this.assertWritable()
+    if (!this.accepted.some((entry) => entry.installationId === installationId))
+      return Promise.reject(new Error('Extension installation is unavailable'))
+    const intent = {}
+    this.agentIntents.set(installationId, intent)
+    // Stricter trusted intent revokes actions before queued persistence can run.
+    if (!enabled) {
+      this.agentRevoked.add(installationId)
+      this.agentLifetimes.get(installationId)?.abort()
+      this.agentLifetimes.delete(installationId)
+      this.publish()
+    }
+    return this.serialize(async () => {
+      await this.assertWritable()
+      if (!this.accepted.some((entry) => entry.installationId === installationId))
+        throw new Error('Extension installation is unavailable')
+      await this.save(
+        this.accepted.map((entry) =>
+          entry.installationId === installationId
+            ? { ...entry, agentAccess: enabled }
+            : entry,
+        ),
+      )
+      if (enabled && this.agentIntents.get(installationId) === intent)
+        this.agentRevoked.delete(installationId)
+      this.publish()
     })
   }
 
@@ -656,6 +717,8 @@ export class ExtensionActivationOwner {
   }
 
   private revokeActivation(id: string): void {
+    this.agentLifetimes.get(id)?.abort()
+    this.agentLifetimes.delete(id)
     this.active.delete(id)
     this.revoke(id)
   }

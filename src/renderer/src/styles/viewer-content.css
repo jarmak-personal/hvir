@@ -685,3 +685,18 @@
 .startup-error {
   color: var(--danger-text);
 }
+
+.agent-report-view {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+}
+.agent-report-view pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.agent-report-badge {
+  margin-inline-start: 6px;
+  font-size: 0.85em;
+}

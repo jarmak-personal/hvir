@@ -30,6 +30,14 @@ export function resolveRenderedLink(
   documentPath: HostPath,
   rawHref: string,
 ): RenderedLinkTarget {
+  return resolveRenderedDirectoryLink(dirnameHostPath(documentPath), rawHref)
+}
+
+/** Scratch content has a real workspace directory base, without inventing a document path. */
+export function resolveRenderedDirectoryLink(
+  directory: HostPath,
+  rawHref: string,
+): RenderedLinkTarget {
   const href = rawHref.trim()
   if (!href) return { kind: 'blocked' }
   if (href.startsWith('#')) {
@@ -40,7 +48,7 @@ export function resolveRenderedLink(
   if (href.startsWith('file://')) {
     const path = fileUriPath(href)
     return path
-      ? { kind: 'file', path: hostPath(documentPath.hostId, path) }
+      ? { kind: 'file', path: hostPath(directory.hostId, path) }
       : { kind: 'blocked' }
   }
   if (/^[a-z][a-z\d+.-]*:/i.test(href)) return { kind: 'blocked' }
@@ -53,8 +61,8 @@ export function resolveRenderedLink(
   const decodedPath = decode(rawPath)
   if (!decodedPath || decodedPath.includes('\0')) return { kind: 'blocked' }
   const path = decodedPath.startsWith('/')
-    ? hostPath(documentPath.hostId, decodedPath)
-    : joinHostPath(dirnameHostPath(documentPath), decodedPath)
+    ? hostPath(directory.hostId, decodedPath)
+    : joinHostPath(directory, decodedPath)
   const fragment = rawFragment === undefined ? undefined : decode(rawFragment)
   return { kind: 'file', path, fragment: fragment ?? rawFragment }
 }

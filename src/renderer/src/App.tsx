@@ -28,7 +28,7 @@ import { WorkbenchViewer } from './viewer/WorkbenchViewer'
 import { useExtensionViews } from './extensions/use-extension-views'
 import { useViewerWorkspace } from './viewer/use-viewer-workspace'
 import { setAppTheme, useAppTheme } from './theme'
-import { SettingsDialog } from './settings/SettingsDialog'
+import { WorkbenchAccessDialogs } from './workbench/WorkbenchAccessDialogs'
 import { setAppSettings, terminalPreferences, useAppSettings } from './settings/settings'
 import { useWorkbenchCommands } from './workbench/use-workbench-commands'
 import { focusVisibleActiveTerminalAfterLayout } from './workbench/active-terminal-focus'
@@ -508,21 +508,20 @@ export function App(): ReactElement {
             onOpened={() => (setDestination('workspace'), overlays.closeProjectPicker())}
           />
         ) : null}
-        {overlays.settingsOpen ? (
-          <SettingsDialog
-            theme={theme}
-            settings={settings}
-            workspaceRoot={root}
-            projectRoot={session.activeProject?.registeredRoot}
-            initialDestination={overlays.settingsDestination}
-            onClose={overlays.closeSettings}
-            onSave={(nextTheme, nextSettings) => {
-              setAppTheme(nextTheme)
-              setAppSettings(nextSettings)
-              overlays.closeSettings()
-            }}
-          />
-        ) : null}
+        <WorkbenchAccessDialogs
+          open={overlays.settingsOpen}
+          theme={theme}
+          settings={settings}
+          workspaceRoot={root}
+          projectRoot={session.activeProject?.registeredRoot}
+          initialDestination={overlays.settingsDestination}
+          onClose={overlays.closeSettings}
+          onSave={(nextTheme, nextSettings) => {
+            setAppTheme(nextTheme)
+            setAppSettings(nextSettings)
+            overlays.closeSettings()
+          }}
+        />
         {session.prompts[0] ? (
           <SshPromptDialog
             key={session.prompts[0].id}

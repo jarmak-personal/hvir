@@ -16,7 +16,12 @@ async function render(request: MarkdownRenderRequest): Promise<void> {
     post({
       id: request.id,
       ok: true,
-      html: await renderMarkdownDocument(request.markdown, request.theme, grammars),
+      html: await renderMarkdownDocument(
+        request.markdown,
+        request.theme,
+        grammars,
+        request.resources,
+      ),
     })
   } catch (error) {
     post({

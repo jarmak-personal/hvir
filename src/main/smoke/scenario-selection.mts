@@ -6,6 +6,7 @@ export const ELECTRON_SMOKE_SCENARIOS = [
   'workspace-remote',
   'web-pane',
   'extensions',
+  'agent-workbench',
   'renderer-authority',
   'platform-contracts',
   'diagnostic-report-restart',

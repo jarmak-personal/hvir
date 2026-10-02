@@ -1,3 +1,4 @@
+import { AgentAccessSettings } from './AgentAccessSettings'
 import { ConnectorSettings } from './ConnectorSettings'
 import { ExtensionActions } from '../../extensions/ExtensionActions'
 import { ConfirmationDialog } from '../../workbench/ConfirmationDialog'
@@ -53,6 +54,7 @@ export function ExtensionsSettings(): ReactElement {
       className="settings-section extension-settings"
       aria-labelledby="settings-extensions-title"
     >
+      <AgentAccessSettings />
       <h3 id="settings-extensions-title" tabIndex={-1}>
         Extensions
       </h3>
@@ -184,6 +186,7 @@ export function ExtensionsSettings(): ReactElement {
                   >
                     Disable
                   </button>
+                  <AgentAccessSettings installation={installation.installationId} />
                   <ConnectorSettings installation={installation} />
                   {installation.installationId ? (
                     <ExtensionActions installationId={installation.installationId} />

@@ -1,6 +1,14 @@
 import { SEND_CHANNELS, type IpcInvokeChannel } from '../../shared'
 
 export const OWNER_SCOPED_INVOKE_CHANNELS = [
+  'agent:access',
+  'agent:configure',
+  'agent:extension-configure',
+  'agent:decide',
+  'agent:reports',
+  'agent:report-read',
+  'agent:report-viewed',
+  'agent:report-close',
   'extensions:connector-settings',
   'extensions:connector-prepare',
   'extensions:connector-approve',

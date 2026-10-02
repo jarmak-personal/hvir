@@ -67,6 +67,50 @@ export class ExtensionContextOwner {
       .map((entry) => sessionIdentity(entry.info))
   }
 
+  workspaces(): readonly ExtensionWorkspaceContext[] {
+    return this.sources.projectState().projects.flatMap((project) =>
+      project.workspaces.flatMap((entry) => {
+        const workspace = this.workspace(entry.id)
+        return workspace ? [workspace.value] : []
+      }),
+    )
+  }
+
+  sessionsForAgents(): readonly ExtensionSessionContext[] {
+    const owners = new Map<string, RendererOwner>()
+    for (const { info } of this.sources.ptys.observationSnapshot())
+      owners.set(`${info.ownerId}:${info.ownerGeneration}`, {
+        id: info.ownerId,
+        generation: info.ownerGeneration,
+      })
+    return boundedExtensionSessions(
+      [...owners.values()].flatMap((owner) => this.sessions(owner)),
+    )
+  }
+
+  /** Exact live target lookup supplies a presentation qualifier, never an agent credential. */
+  sessionOwner(id: string): RendererOwner | undefined {
+    const entry = this.sources.ptys
+      .observationSnapshot()
+      .find(
+        ({ info }) =>
+          sessionIdentity(info) === id && this.workspaceForRoot(info.workspaceRoot),
+      )
+    return entry
+      ? { id: entry.info.ownerId, generation: entry.info.ownerGeneration }
+      : undefined
+  }
+
+  /** Shared protected launch identity, computed from supervisor-owned immutable spawn metadata. */
+  launchTarget(
+    info: import('../pty/pty-contract').PtyAgentTarget,
+  ): { workspace: string; session: string } | undefined {
+    const workspace = this.workspaceForRoot(info.workspaceRoot)
+    return workspace
+      ? { workspace: workspace.value.id, session: sessionIdentity(info) }
+      : undefined
+  }
+
   admit(
     owner: RendererOwner,
     request: ExtensionSurfaceRequest,
@@ -204,7 +248,7 @@ export class ExtensionContextOwner {
   }
 }
 
-function sessionIdentity(info: import('../pty/pty-supervisor').ManagedPty): string {
+function sessionIdentity(info: import('../pty/pty-contract').PtyAgentTarget): string {
   const context = createHash('sha256')
     .update(
       JSON.stringify([
