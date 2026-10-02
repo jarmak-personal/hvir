@@ -1,17 +1,19 @@
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { extname, join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import {
   POLICY_PATH,
   assertCoverageNotReduced,
   evaluateInventory,
   isRelaxation,
+  inScope,
   readAcceptedPolicy,
   relaxedPaths,
   ruleFor,
   validatePolicy,
   type ArchitecturePolicy,
   type ArchitectureRule,
+  type ComparisonCounts,
   type SourceInventory,
 } from './architecture-policy.mts'
 import {
@@ -112,6 +114,14 @@ export function admitPolicyProposal({
       throw new Error(`Policy proposal changes its newly authorized source: ${path}`)
     }
   }
+  for (const [path, bytes] of inventory) {
+    const newlyCovered =
+      !inScope(path, before) ||
+      (!before.extensions.includes(extname(path)) &&
+        after.extensions.includes(extname(path)))
+    if (newlyCovered && !source.blob(base, path)?.equals(bytes))
+      throw new Error(`Policy proposal changes its newly authorized source: ${path}`)
+  }
   const changedSource = new Map([...inventory].filter(([path]) => changes.includes(path)))
   const priorRows = evaluateInventory(
     before,
@@ -183,6 +193,21 @@ export function replayPolicyDelta(
     } else if (proposed.kind !== 'ordinary') next.budgets.push(proposed)
   }
   return next
+}
+
+// New language/root authority must precede its consuming source, just like a budget.
+function needsPolicyProposal(
+  before: ArchitecturePolicy,
+  after: ArchitecturePolicy,
+  inventory: SourceInventory,
+  counts: ComparisonCounts,
+): boolean {
+  return (
+    after.roots.some((root) => !before.roots.includes(root)) ||
+    after.extensions.some((extension) => !before.extensions.includes(extension)) ||
+    after.defaultMaximum > before.defaultMaximum ||
+    relaxedPaths(before, after, inventory.keys(), counts).length > 0
+  )
 }
 
 export async function authorizeCandidate({
@@ -257,13 +282,12 @@ export async function authorizeCandidate({
         const after = validatePolicy(JSON.parse(afterBytes.toString()))
         const integratedInventory = source.collectInventory(after, evidence.head)
         if (
-          after.defaultMaximum > before.defaultMaximum ||
-          relaxedPaths(
+          needsPolicyProposal(
             before,
             after,
-            integratedInventory.keys(),
+            integratedInventory,
             source.comparisonCounts(integratedInventory, [evidence.base]),
-          ).length
+          )
         ) {
           admitPolicyProposal({
             root,
@@ -293,10 +317,7 @@ export async function authorizeCandidate({
     source.comparisonCounts(inventory, revisions),
   )
   let admission: { kind: string; paths?: string[] } = { kind: 'accepted-policy' }
-  if (
-    candidate.defaultMaximum > accepted.defaultMaximum ||
-    relaxedPaths(accepted, candidate, inventory.keys(), counts).length
-  ) {
+  if (needsPolicyProposal(accepted, candidate, inventory, counts)) {
     if (context.kind === 'cumulative')
       throw new Error(
         'Cumulative policy conflicts with independently changed main policy or lacks separately accepted authorization',

@@ -30,11 +30,19 @@ export const ARCHITECTURE_TESTS = [
   'test/architecture-module-directions.test.ts',
   'test/architecture-command.test.ts',
 ] as const
+// Exact records needed to admit the Rust language policy; no general docs exemption.
+const POLICY_DOCUMENTS = [
+  'docs/architecture-budgets.md',
+  'docs/architecture-dependencies.md',
+  'docs/adr/ADR-040-complete-source-budgets-and-dependency-policy.md',
+  'docs/adr/ADR-048-rust-client-source-policy.md',
+  'docs/design.md',
+]
 const WIRING_PATHS = ['package.json', '.github/workflows/ci.yml', 'eslint.config.mjs']
 export function policyOnlyPath(path: string): boolean {
   return (
     path === 'scripts/architecture-hotspots.json' ||
-    path === 'docs/architecture-budgets.md' ||
+    POLICY_DOCUMENTS.includes(path) ||
     [...ARCHITECTURE_MODULES, ...ARCHITECTURE_TESTS, ...WIRING_PATHS].includes(path)
   )
 }

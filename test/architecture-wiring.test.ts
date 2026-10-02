@@ -161,6 +161,8 @@ describe('architecture verification and bounded proposal wiring', () => {
     'test/architecture-module-product.test.ts',
     'test/fixtures/architecture/product.ts',
     'vitest.config.ts',
+    'docs/adr/ADR-049-unrelated-product.md',
+    'docs/packaging.md',
   ])('rejects invented policy-only identity %s', (path) => {
     expect(policyOnlyPath(path)).toBe(false)
   })
@@ -185,6 +187,25 @@ describe('architecture verification and bounded proposal wiring', () => {
     const report = await r.check(base)
     expect(report.admission.kind).toBe('policy-proposal')
     expect(report.violations).toEqual([])
+  })
+  it('admits only the exact Rust policy records alongside language adoption', async () => {
+    const r = repository()
+    fixtures.push(r)
+    const base = r.initial,
+      policy = ordinaryPolicy()
+    policy.extensions.push('.rs')
+    r.policy(policy)
+    for (const path of [
+      'docs/architecture-budgets.md',
+      'docs/architecture-dependencies.md',
+      'docs/adr/ADR-040-complete-source-budgets-and-dependency-policy.md',
+      'docs/adr/ADR-048-rust-client-source-policy.md',
+      'docs/design.md',
+    ])
+      r.write(path, 'Rust policy record\n')
+    expect((await r.check(base)).admission.kind).toBe('policy-proposal')
+    r.write('docs/packaging.md', 'Unrelated product behavior\n')
+    await expect(r.check(base)).rejects.toThrow(/policy-only/)
   })
   it('preserves the exact bootstrap lint insertion without extending native authority to current graph owners', () => {
     const marker = "      'scripts/run-smoke-scenarios.mts',\n"

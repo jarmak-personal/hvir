@@ -1,6 +1,6 @@
 # Architecture budgets
 
-ADR-040 owns the policy. `scripts/architecture-hotspots.json` records exact budgets.
+ADR-040 owns the policy; [ADR-048](adr/ADR-048-rust-client-source-policy.md) adds Rust client coverage. `scripts/architecture-hotspots.json` records exact budgets.
 The companion [dependency guide](architecture-dependencies.md) describes the same commands'
 complete module graph, resolution/loading limits, and reused direction checks.
 
@@ -39,7 +39,7 @@ changed target, then reverify; supplied or cached SHAs cannot establish authorit
 its PR merge-ref checkout and proves its two parents, candidate tree, live PR metadata, and
 event base/head before using the same evaluator. Credentials are never policy-file inputs.
 
-All maintained TypeScript/declarations, JavaScript, CSS, shell scripts and shell-shebang hooks
+All maintained TypeScript/declarations, JavaScript, CSS, Rust, shell scripts and shell-shebang hooks
 are included across the ADR's roots and repository root. Existing native package C/header
 source is explicitly governed by the same ordinary 1,000-line ceiling. An unknown extension
 or non-shell executable shebang requires an explicit language disposition. JSON/YAML, prose,
@@ -52,7 +52,14 @@ extensions take precedence, and executable shell shebangs remain source even wit
 Repository-owned aliases resolve once to their target; broken or escaping
 aliases fail. Installed `node_modules`, Git internals, `out`, `dist`, coverage, and native
 `packages/*/build` output are excluded by their disposable role. A tracked file under one of
-those roles is an error, never a silent exemption. Git caches belong to one bounded evaluation;
+those roles is an error, never a silent exemption. The Rust client's named maintained root
+is `packages/hvir-agent/`, within the existing `packages/` root. All `.rs` files, including
+build scripts, tests, and ignored local additions, receive ordinary budgets unless separately
+classified. Rust outside that named client root fails coverage, including inside another
+otherwise accepted root. `Cargo.toml` and `Cargo.lock` are dependency metadata. Only that client's exact
+`packages/hvir-agent/target/` receives the Cargo disposable-build-output role; tracked content
+fails, and other `target/` directories remain inventoried. A generated Rust banner does not
+change classification or replace exact generator provenance. Git caches belong to one bounded evaluation;
 historical reads select source, alias, executable, and policy inputs without loading unrelated
 binary/data bodies. Every applicable accepted historical ratchet remains included.
 
@@ -70,8 +77,9 @@ ordinary ceiling is a true tightening; retain a stricter named budget if removin
 reopen a ratcheted ceiling below 1,000. Durable reservations may precede a new source path,
 but the reserving policy PR cannot add that source itself.
 
-A relaxation requires a separate policy-only PR. Its complete diff may touch only architecture
-policy/checker modules, dedicated architecture tests/fixtures, this usage guide, and the exact
+A relaxation or newly adopted source language/root requires a separate policy-only PR. Its complete diff may touch only architecture
+policy/checker modules, dedicated architecture tests/fixtures, the exact architecture guides,
+ADR-040/048 and design-index records, and the exact
 package/CI/lint verification wiring. Whole-file eligibility does not authorize arbitrary changes:
 dependency/product-script changes, unrelated jobs, weakened CI, and invented checker/fixture
 names are rejected. Normal Vitest discovery remains unchanged. Newly authorized consuming files must be

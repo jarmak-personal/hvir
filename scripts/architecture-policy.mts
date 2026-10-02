@@ -3,6 +3,7 @@ import { extname, basename } from 'node:path'
 import type { Buffer } from 'node:buffer'
 
 export const POLICY_PATH = 'scripts/architecture-hotspots.json'
+export const RUST_CLIENT_ROOT = 'packages/hvir-agent'
 export const SOURCE_ROOTS = [
   'src',
   'test',
@@ -104,7 +105,9 @@ export interface ArchitectureRow {
 export function disposableDirectory(path: string): boolean {
   return (
     path.split('/').some((part) => Object.hasOwn(DISPOSABLE_ROLES, part)) ||
-    /^packages\/[^/]+\/build(?:\/|$)/.test(path)
+    /^packages\/[^/]+\/build(?:\/|$)/.test(path) ||
+    path === `${RUST_CLIENT_ROOT}/target` ||
+    path.startsWith(`${RUST_CLIENT_ROOT}/target/`)
   )
 }
 
@@ -117,6 +120,8 @@ export function sourceDisposition(
   const extension = extname(path)
   if (policy.extensions.includes(extension)) return 'source'
   if (
+    // Cargo.lock is dependency metadata, not generated Rust or executable source.
+    basename(path) === 'Cargo.lock' ||
     DATA_EXTENSIONS.has(extension) ||
     ['.log', '.tsbuildinfo'].includes(extension) ||
     /^\.env(?:\.[a-zA-Z0-9_-]+)*$/.test(basename(path))
@@ -143,6 +148,8 @@ export function isSource(
   return false
 }
 export function inScope(path: string, policy: ArchitecturePolicy): boolean {
+  // Recognizing the suffix reports Rust elsewhere as a coverage error, not an exemption.
+  if (extname(path) === '.rs' && !path.startsWith(`${RUST_CLIENT_ROOT}/`)) return false
   return !path.includes('/') || policy.roots.some((root) => path.startsWith(`${root}/`))
 }
 

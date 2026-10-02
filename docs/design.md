@@ -442,7 +442,8 @@ provider-derived branches of registered identities; ambient transitions are neve
 
 ### [ADR-040 — Complete source budgets and dependency policy](adr/ADR-040-complete-source-budgets-and-dependency-policy.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-048](adr/ADR-048-rust-client-source-policy.md) | partial | Maintained-source language list: add Rust and Cargo dispositions; all existing budget, provenance, and TypeScript/JavaScript dependency rules remain authoritative.
 > Supersedes: [ADR-014](adr/ADR-014-modular-monolith-ownership.md) | partial | Architecture hotspot budgets paragraph: complete source budgets and extended dependency enforcement; authority/seam checks stay blocking.
 
 Every maintained source file has a blocking budget, with a 500-line comfort signal, a 1,000-line
@@ -511,6 +512,16 @@ without adding product instrumentation.
 Validated immutable packages run in isolated guests through a scoped public capability contract.
 Explicit revision and permission decisions retain separate authority; application-level viewing
 does not grant project access. The initial directory-to-view slice needs no later capability.
+
+### [ADR-048 — Rust client source coverage and dependency evidence](adr/ADR-048-rust-client-source-policy.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-040](adr/ADR-040-complete-source-budgets-and-dependency-policy.md) | partial | Maintained-source language list: add Rust and Cargo dispositions; all existing budget, provenance, and TypeScript/JavaScript dependency rules remain authoritative.
+
+Rust client source receives ordinary physical-line budgets under `packages/hvir-agent/`.
+Cargo metadata and exact disposable output remain distinct from maintained or generated source;
+the client owns Rust build, dependency, and protocol evidence without requiring a toolchain for
+unrelated contributor verification.
 
 ---
 
