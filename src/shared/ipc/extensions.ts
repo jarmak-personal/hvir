@@ -13,6 +13,14 @@ export const extensionsIpc = {
       { readonly source: string; readonly revision: string },
       ExtensionPlatformState
     >(),
+    'extensions:reload': invoke<
+      { readonly source: string; readonly revision: string },
+      ExtensionPlatformState
+    >(),
+    'extensions:remove': invoke<
+      { readonly source: string; readonly identity?: string; readonly forget: boolean },
+      ExtensionPlatformState
+    >(),
     'extensions:disable': invoke<
       { readonly installationId: string },
       ExtensionPlatformState

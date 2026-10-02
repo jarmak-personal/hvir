@@ -1,5 +1,6 @@
 #include <node_api.h>
 #include <sys/file.h>
+#include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <dirent.h>
@@ -46,6 +47,28 @@ static napi_value open_child(napi_env env, napi_callback_info info) {
   return result;
 }
 
+static napi_value unlink_child(napi_env env, napi_callback_info info) {
+  size_t count = 5, length;
+  napi_value args[5], result;
+  char name[256];
+  int parent;
+  bool directory;
+  double dev, ino;
+  struct stat current;
+  napi_get_cb_info(env, info, &count, args, NULL, NULL);
+  if (count != 5 || !get_fd(env, args[0], &parent) ||
+      napi_get_value_string_utf8(env, args[1], NULL, 0, &length) != napi_ok || length == 0 || length >= sizeof(name) ||
+      napi_get_value_bool(env, args[2], &directory) != napi_ok ||
+      napi_get_value_double(env, args[3], &dev) != napi_ok || napi_get_value_double(env, args[4], &ino) != napi_ok) return failure(env, "Invalid cleanup entry");
+  napi_get_value_string_utf8(env, args[1], name, sizeof(name), &length);
+  if (strlen(name) != length || strchr(name, '/') || strcmp(name, ".") == 0 || strcmp(name, "..") == 0) return failure(env, "Invalid cleanup entry name");
+  if (fstatat(parent, name, &current, AT_SYMLINK_NOFOLLOW) != 0 || current.st_dev != (dev_t) dev || current.st_ino != (ino_t) ino ||
+      (directory ? !S_ISDIR(current.st_mode) : (!S_ISREG(current.st_mode) && !S_ISLNK(current.st_mode)))) return failure(env, "Stored package entry changed before cleanup");
+  if (unlinkat(parent, name, directory ? AT_REMOVEDIR : 0) != 0) return failure(env, "Stored package cleanup failed");
+  napi_get_undefined(env, &result);
+  return result;
+}
+
 static napi_value entry_names(napi_env env, napi_callback_info info) {
   size_t count = 2;
   napi_value args[2], result;
@@ -86,6 +109,7 @@ static napi_value initialize(napi_env env, napi_value exports) {
   napi_property_descriptor properties[] = {
     {"lockWriter", NULL, lock_writer, NULL, NULL, NULL, napi_default, NULL},
     {"openChild", NULL, open_child, NULL, NULL, NULL, napi_default, NULL},
+    {"unlinkChild", NULL, unlink_child, NULL, NULL, NULL, napi_default, NULL},
     {"entryNames", NULL, entry_names, NULL, NULL, NULL, napi_default, NULL},
     {"metadata", NULL, metadata, NULL, NULL, NULL, napi_default, NULL}
   };

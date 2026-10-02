@@ -6,6 +6,8 @@ export const OWNER_SCOPED_INVOKE_CHANNELS = [
   'extensions:open-folder',
   'extensions:enable',
   'extensions:disable',
+  'extensions:reload',
+  'extensions:remove',
   'extensions:open-view',
   'extensions:close-view',
   'extensions:views',

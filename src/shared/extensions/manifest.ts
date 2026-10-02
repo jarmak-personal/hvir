@@ -54,6 +54,31 @@ export function extensionAssetPath(value: unknown): string {
   return text
 }
 
+/** One portable materialized topology for captured directories and ZIP entries. */
+export function validateExtensionAssetTopology(
+  entries: Iterable<readonly [string, boolean]>,
+): void {
+  const paths = new Map<string, { name: string; directory: boolean }>()
+  const admit = (name: string, directory: boolean): void => {
+    const key = name.normalize('NFC').toLowerCase()
+    const prior = paths.get(key)
+    if (prior && (prior.name !== name || prior.directory !== directory))
+      throw new Error('Package asset paths conflict across supported platforms')
+    paths.set(key, { name, directory })
+    if (paths.size > EXTENSION_LIMITS.files)
+      throw new Error('Package has too many materialized entries, including directories')
+  }
+  for (const [name, directory] of entries) {
+    extensionAssetPath(name)
+    const parts = name.split('/')
+    if (parts.length - (directory ? 0 : 1) > EXTENSION_LIMITS.depth)
+      throw new Error('Package directories are too deep')
+    for (let index = 1; index < parts.length; index++)
+      admit(parts.slice(0, index).join('/'), true)
+    admit(name, directory)
+  }
+}
+
 export function unknownExtensionFields(
   object: Record<string, unknown>,
   known: readonly string[],

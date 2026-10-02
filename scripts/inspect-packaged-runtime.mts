@@ -339,6 +339,7 @@ function main(): void {
     lockWriter?: unknown
     openChild?: unknown
     entryNames?: unknown
+    unlinkChild?: unknown
   }
   if (
     extensionStorage.metadata() !== 'hvir.extension-storage.v1' ||
@@ -346,6 +347,7 @@ function main(): void {
       extensionStorage.lockWriter,
       extensionStorage.openChild,
       extensionStorage.entryNames,
+      extensionStorage.unlinkChild,
     ].some((entry) => typeof entry !== 'function')
   )
     throw new Error('Packaged extension storage does not expose its approved private API')

@@ -2,6 +2,10 @@ import type { ExtensionManifest } from './contract'
 
 export interface ExtensionInstallation {
   readonly source: string
+  readonly sourceIdentity?: string
+  readonly kind?: 'directory' | 'zip' | 'development'
+  readonly retainedIdentity?: boolean
+  readonly removalPending?: boolean
   readonly installationId?: string
   readonly manifest?: ExtensionManifest
   readonly revision?: string

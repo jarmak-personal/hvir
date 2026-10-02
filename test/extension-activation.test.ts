@@ -1,51 +1,8 @@
 import { promises as fs } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { localPath } from '../src/shared/host-path'
-import { LocalHost } from '../src/main/project-host/local-host'
-import { ExtensionPackageStore } from '../src/main/extensions/package-store'
-import { ExtensionActivationOwner } from '../src/main/extensions/activation'
-import { exampleManifest } from './fixtures/extension-package'
-
-async function fixture() {
-  const root = await fs.mkdtemp(join(tmpdir(), 'hvir-activation-'))
-  const directory = join(root, 'extensions')
-  const packages = join(root, 'packages')
-  await fs.mkdir(directory)
-  await fs.mkdir(packages)
-  const host = new LocalHost()
-  const revoke = vi.fn()
-  const make = () =>
-    new ExtensionActivationOwner(
-      host,
-      localPath(directory),
-      localPath(join(root, 'state.json')),
-      new ExtensionPackageStore(host, localPath(packages)),
-      revoke,
-      vi.fn(),
-    )
-  const packageAt = async (name: string, overrides: Record<string, unknown> = {}) => {
-    const path = join(directory, name)
-    await fs.mkdir(path)
-    await fs.writeFile(
-      join(path, 'hvir-extension.json'),
-      JSON.stringify(exampleManifest(overrides)),
-    )
-    await fs.writeFile(join(path, 'index.html'), 'original')
-    await fs.writeFile(join(path, 'detail.html'), 'detail')
-  }
-  return {
-    root,
-    directory,
-    make,
-    packageAt,
-    revoke,
-    host,
-    lock: localPath(join(root, 'writer.lock')),
-    dispose: () => fs.rm(root, { recursive: true, force: true }),
-  }
-}
+import { readInstallationState } from '../src/main/extensions/installation-state'
+import { extensionInstallationFixture as fixture } from './fixtures/extension-installation'
 
 describe('extension activation and state owner', () => {
   it('aborts an unpublished authority-state write on lock replacement and never admits its activation', async () => {
@@ -116,7 +73,9 @@ describe('extension activation and state owner', () => {
       expect(owner.active.size).toBe(0)
       await successor.start(data.lock)
       expect(successor.active.size).toBe(1)
-      expect(JSON.parse(await fs.readFile(state, 'utf8'))).toHaveLength(1)
+      expect(
+        readInstallationState(JSON.parse(await fs.readFile(state, 'utf8'))).installations,
+      ).toHaveLength(1)
     } finally {
       finish?.()
       submitted.mockRestore()
@@ -170,14 +129,17 @@ describe('extension activation and state owner', () => {
       const original = [...first.active.values()][0]!
       await fs.writeFile(join(data.directory, 'valid', 'index.html'), 'external-change')
       await first.discover()
-      expect([...first.active.values()][0]).toBe(original)
+      expect(first.active.size).toBe(0)
+      // Even restoring the accepted bytes cannot restore authority after observed edits.
+      await fs.writeFile(join(data.directory, 'valid', 'index.html'), 'original')
       await first.dispose()
       await successor.start(data.lock)
+      expect(successor.active.size).toBe(0)
+      const candidate = successor.snapshot().installations[0]!
+      await successor.enable('valid', candidate.revision!)
       const restored = [...successor.active.values()][0]!
+      expect(restored.installationId).toBe(original.installationId)
       expect(restored.revision.hash).toBe(original.revision.hash)
-      expect(new TextDecoder().decode(restored.revision.files.get('index.html'))).toBe(
-        'original',
-      )
       await successor.disable(restored.installationId)
       expect(successor.active.size).toBe(0)
       expect(data.revoke).toHaveBeenCalledWith(restored.installationId)

@@ -1,9 +1,15 @@
+import { ConfirmationDialog } from '../../workbench/ConfirmationDialog'
 import { useEffect, useState, type ReactElement } from 'react'
-import type { ExtensionPlatformState } from '../../../../shared/extensions/workbench'
+import type {
+  ExtensionInstallation,
+  ExtensionPlatformState,
+} from '../../../../shared/extensions/workbench'
 
 export function ExtensionsSettings(): ReactElement {
   const [state, setState] = useState<ExtensionPlatformState>()
   const [error, setError] = useState<string>()
+  const [removing, setRemoving] = useState<ExtensionInstallation>()
+  const [forget, setForget] = useState(false)
   const [busy, setBusy] = useState(false)
   const run = async (operation: () => Promise<unknown>): Promise<void> => {
     setBusy(true)
@@ -49,8 +55,8 @@ export function ExtensionsSettings(): ReactElement {
         Extensions
       </h3>
       <p>
-        Place a ready-to-run extension directory in the extensions folder, then discover
-        it and inspect its requested access.
+        Place a ready-to-run extension directory, ZIP, or development link in the
+        extensions folder, then discover it and inspect its requested access.
       </p>
       <div className="settings-actions">
         <button
@@ -78,12 +84,30 @@ export function ExtensionsSettings(): ReactElement {
       {error ? <p role="alert">{error}</p> : null}
       {state?.installations.length === 0 ? (
         <p>
-          No extensions found. Add an unpacked package, then choose Discover extensions.
+          No extensions found. Add a directory or ZIP package, then choose Discover
+          extensions.
         </p>
       ) : null}
       {state?.installations.map((installation) => (
         <article className="extension-installation" key={installation.source}>
           <h4>{installation.manifest?.name ?? installation.source}</h4>
+          <p>
+            Source: {installation.source}
+            {installation.kind === 'development'
+              ? ' · Development package (linked author directory)'
+              : installation.kind === 'zip'
+                ? ' · ZIP package'
+                : ''}
+          </p>
+          {installation.acceptedRevision ? (
+            <p>
+              Accepted revision: {installation.acceptedRevision.slice(0, 12)} · Candidate:{' '}
+              {installation.revision?.slice(0, 12) ?? 'unavailable'}
+            </p>
+          ) : null}
+          {installation.retainedIdentity ? (
+            <p>Saved setup kept for reinstall. Choose Enable before opening views.</p>
+          ) : null}
           {installation.error ? (
             <p role="alert">{installation.error}</p>
           ) : (
@@ -107,18 +131,39 @@ export function ExtensionsSettings(): ReactElement {
               {installation.enabled &&
               installation.acceptedRevision !== installation.revision ? (
                 <p>
-                  The package changed outside hvir. Open views continue using the accepted
-                  revision. Disable and enable to accept the discovered revision.
+                  The package changed outside hvir. Use Reload or Replace to accept the
+                  discovered revision.
                 </p>
               ) : null}
               {installation.warnings.map((warning) => (
                 <p key={warning}>{warning}</p>
               ))}
+              {installation.installationId && installation.revision ? (
+                <button
+                  type="button"
+                  disabled={busy || !state.writable || installation.removalPending}
+                  onClick={() =>
+                    void run(async () =>
+                      setState(
+                        await window.hvir.invoke('extensions:reload', {
+                          source: installation.source,
+                          revision: installation.revision!,
+                        }),
+                      ),
+                    )
+                  }
+                >
+                  {installation.kind === 'zip' ? 'Replace' : 'Reload'}
+                </button>
+              ) : null}
+              {installation.removalPending ? (
+                <p>Package removal is unfinished. Retry Remove to finish cleanup.</p>
+              ) : null}
               {installation.enabled ? (
                 <>
                   <button
                     type="button"
-                    disabled={busy || !state.writable}
+                    disabled={busy || !state.writable || installation.removalPending}
                     onClick={() =>
                       void run(async () =>
                         setState(
@@ -135,7 +180,7 @@ export function ExtensionsSettings(): ReactElement {
                     <button
                       type="button"
                       key={view.id}
-                      disabled={busy || !state.writable}
+                      disabled={busy || !state.writable || installation.removalPending}
                       onClick={() =>
                         void run(() =>
                           window.hvir.invoke('extensions:open-view', {
@@ -152,7 +197,7 @@ export function ExtensionsSettings(): ReactElement {
               ) : (
                 <button
                   type="button"
-                  disabled={busy || !state.writable}
+                  disabled={busy || !state.writable || installation.removalPending}
                   onClick={() =>
                     void run(async () =>
                       setState(
@@ -169,8 +214,73 @@ export function ExtensionsSettings(): ReactElement {
               )}
             </>
           )}
+          <button
+            type="button"
+            disabled={busy || !state.writable}
+            onClick={() => {
+              setForget(false)
+              setRemoving(installation)
+            }}
+          >
+            Remove
+          </button>
         </article>
       ))}
+      {removing ? (
+        <ConfirmationDialog
+          nested
+          busy={busy}
+          labelledBy="extension-remove-title"
+          actions={[
+            { label: 'Cancel', kind: 'cancel', onSelect: () => setRemoving(undefined) },
+            {
+              label: 'Confirm remove',
+              kind: 'destructive',
+              disabled: !state?.writable,
+              onSelect: () =>
+                void run(async () => {
+                  setState(
+                    await window.hvir.invoke('extensions:remove', {
+                      source: removing.source,
+                      ...(removing.sourceIdentity
+                        ? { identity: removing.sourceIdentity }
+                        : {}),
+                      forget,
+                    }),
+                  )
+                  setRemoving(undefined)
+                }),
+            },
+          ]}
+        >
+          <h4 id="extension-remove-title">
+            Remove {removing.manifest?.name ?? removing.source}?
+          </h4>
+          <p>
+            {removing.kind === 'development'
+              ? 'Only the development link is deleted. Files in the author directory are kept.'
+              : 'The selected package directory or ZIP is moved to the trash.'}
+          </p>
+          <p>
+            Extension views close and access is turned off first. Libraries, project
+            skills, issue databases and other data created by the extension are kept.
+          </p>
+
+          <label>
+            <input
+              type="checkbox"
+              checked={forget}
+              onChange={(event) => setForget(event.target.checked)}
+            />
+            Forget saved setup for this extension
+          </label>
+          <p>
+            {forget
+              ? 'Reinstall starts with fresh setup and requires Enable.'
+              : 'Keep saved setup for reinstall. Enable is still required.'}
+          </p>
+        </ConfirmationDialog>
+      ) : null}
     </section>
   )
 }
