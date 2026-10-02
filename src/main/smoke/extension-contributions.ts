@@ -420,7 +420,7 @@ export async function verifyExtensionContributions(
   )
   if (
     !(await dom(
-      "document.activeElement?.getAttribute('aria-label') === 'Extension action context'",
+      "document.hasFocus() && document.activeElement?.getAttribute('aria-label') === 'Extension action context'",
     ))
   )
     throw new Error('Settings action focus positive control failed')
@@ -447,7 +447,7 @@ export async function verifyExtensionContributions(
   await actionFocus('completed', detailGuest)
   if (
     !(await dom(
-      "document.activeElement?.getAttribute('aria-label') === 'Extension action context'",
+      "document.hasFocus() && document.activeElement?.getAttribute('aria-label') === 'Extension action context'",
     ))
   )
     throw new Error('Named action stole actual Settings keyboard focus')
@@ -628,12 +628,10 @@ export async function verifyExtensionContributions(
       ?.values.find((value) => value.item === 'pulse')
   }
   async function actionFocus(phase: string, guest?: WebContents): Promise<void> {
-    console.log(
-      '[smoke] named action focus',
-      JSON.stringify({
-        phase,
-        window: win.isFocused(),
-        parent: (await win.webContents.executeJavaScript(`(() => {
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    try {
+      const parent = (await Promise.race([
+        win.webContents.executeJavaScript(`(() => {
           const active = document.activeElement;
           return {
             focused: document.hasFocus(),
@@ -644,25 +642,34 @@ export async function verifyExtensionContributions(
             terminal: !!active?.closest('.terminal-container'),
             guest: active?.tagName === 'WEBVIEW'
           };
-        })()`)) as {
-          focused: boolean
-          tag: string
-          context: boolean
-          dialog: boolean
-          heading: boolean
-          terminal: boolean
-          guest: boolean
-        },
-        ...(guest
-          ? {
-              guest: guest.isFocused(),
-              guestDocument: (await guest.executeJavaScript(
-                'document.hasFocus()',
-              )) as boolean,
-            }
-          : {}),
-      }),
-    )
+        })()`),
+        new Promise<never>((_resolve, reject) => {
+          timeout = setTimeout(
+            () => reject(new Error(`Named action focus diagnostic timed out: ${phase}`)),
+            5000,
+          )
+        }),
+      ])) as {
+        focused: boolean
+        tag: string
+        context: boolean
+        dialog: boolean
+        heading: boolean
+        terminal: boolean
+        guest: boolean
+      }
+      console.log(
+        '[smoke] named action focus',
+        JSON.stringify({
+          phase,
+          window: win.isFocused(),
+          parent,
+          ...(guest ? { guest: guest.isFocused() } : {}),
+        }),
+      )
+    } finally {
+      clearTimeout(timeout)
+    }
   }
   async function dom(expression: string): Promise<boolean> {
     try {
