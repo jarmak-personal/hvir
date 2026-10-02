@@ -352,6 +352,7 @@ function createWorkbenchEntry(): void {
       return sshPrompter.runForOwner(owner, operation)
     }
     const projectCommands = createProjectCommands({
+      hosts: hostCatalog,
       projects,
       workspaces: workspaceCoordinator,
       git: gitMutations,
@@ -373,7 +374,6 @@ function createWorkbenchEntry(): void {
         getRegisteredWorkspaceRoot: (root) => registry.registeredWorkspaceRoot(root),
         revealLocalEntry: electronReveal(shell),
         getProjectState: () => registry.state(),
-        listHosts: () => hostCatalog?.listHosts() ?? [],
         ...projectCommands,
         respondSshPrompt: (owner, id, answers) =>
           sshPrompter?.respond(owner, id, answers),

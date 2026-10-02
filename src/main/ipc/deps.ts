@@ -1,3 +1,4 @@
+import type { SshConfigurationPort } from '../project-host/ssh-configuration-port'
 import type {
   BrowseHostResponse,
   ConnectedHost,
@@ -82,6 +83,7 @@ export interface IpcDeps extends IpcRouterAuthorityPort {
   readonly getHost: (hostId: string) => ProjectHost | undefined
   readonly connectedHosts: () => readonly ProjectHost[]
   readonly revealLocalEntry: (path: HostPath) => void
+  readonly sshConfiguration: SshConfigurationPort
   readonly listHosts: () => readonly ProjectHostOption[]
   readonly connectHost: (hostId: string, owner: RendererOwner) => Promise<ConnectedHost>
   readonly disconnectHost: (hostId: string) => Promise<ProjectHostOption>

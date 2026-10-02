@@ -516,11 +516,11 @@ export class LocalHost implements ProjectHost {
   async writeFile(
     path: HostPath,
     data: Uint8Array | string,
-    opts: WriteFileOptions = {},
+    opts: WriteFileOptions & { createOnly?: boolean; mode?: number } = {},
   ): Promise<void> {
     opts.signal?.throwIfAborted()
     const destination = this.resolve(path)
-    let mode: number | undefined
+    let mode: number | undefined = opts.mode
     try {
       mode = (await fsp.lstat(destination)).mode & 0o777
     } catch (reason) {
@@ -541,7 +541,10 @@ export class LocalHost implements ProjectHost {
         const current = await fsp.lstat(destination)
         if (current.mtimeMs !== opts.expectedMtimeMs) throw fileChangedError()
       }
-      await fsp.rename(temporary, destination)
+      if (opts.createOnly) {
+        await fsp.link(temporary, destination)
+        await fsp.unlink(temporary)
+      } else await fsp.rename(temporary, destination)
     } catch (reason) {
       await fsp.unlink(temporary).catch(() => undefined)
       throw reason
@@ -578,7 +581,7 @@ export class LocalHost implements ProjectHost {
 
   async createDirectoryExclusive(
     path: HostPath,
-    opts: ExclusiveCreateOptions,
+    opts: Omit<ExclusiveCreateOptions, 'mode'> & { mode: number },
   ): Promise<void> {
     opts.signal?.throwIfAborted()
     const destination = this.resolve(path)
