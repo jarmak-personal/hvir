@@ -37,6 +37,7 @@ interface PendingAction {
 
 /** Finite invocation provenance and lifetime; declarations never confer host capabilities. */
 export class ExtensionActionOwner {
+  changed?: () => void
   private revalidationScheduled = false
   private readonly pending = new Map<string, PendingAction>()
   constructor(private readonly guests: ExtensionActionGuestPort) {}
@@ -177,6 +178,7 @@ export class ExtensionActionOwner {
     queueMicrotask(() => {
       this.revalidationScheduled = false
       this.revalidate()
+      this.changed?.()
     })
   }
   private deliver(pending: PendingAction): void {

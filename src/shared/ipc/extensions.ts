@@ -1,3 +1,9 @@
+import type { ProjectHostOption } from './project'
+import type {
+  ExtensionConnectorSelection,
+  ExtensionConnectorApproval,
+  ExtensionConnectorStatus,
+} from '../extensions/connectors'
 import { invoke, payload, type IpcFeatureContract } from '../ipc-contract'
 import type { KeybindingAction } from '../keybindings'
 import type { ExtensionPresentation } from '../extensions/contract'
@@ -12,6 +18,22 @@ import type {
 /** Trusted Settings/viewer transport. This contract is never exposed to a guest. */
 export const extensionsIpc = {
   invoke: {
+    'extensions:connector-settings': invoke<
+      { readonly installationId: string },
+      {
+        readonly hosts: readonly ProjectHostOption[]
+        readonly connectors: readonly ExtensionConnectorStatus[]
+      }
+    >(),
+    'extensions:connector-prepare': invoke<
+      ExtensionConnectorSelection,
+      { readonly token: string; readonly approval: ExtensionConnectorApproval }
+    >(),
+    'extensions:connector-approve': invoke<{ readonly token: string }, void>(),
+    'extensions:connector-revoke': invoke<
+      { readonly installationId: string; readonly connector: string },
+      void
+    >(),
     'extensions:state': invoke<void, ExtensionPlatformState>(),
     'extensions:discover': invoke<void, ExtensionPlatformState>(),
     'extensions:open-folder': invoke<void, void>(),

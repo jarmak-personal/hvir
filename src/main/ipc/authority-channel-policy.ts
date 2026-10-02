@@ -1,6 +1,10 @@
 import { SEND_CHANNELS, type IpcInvokeChannel } from '../../shared'
 
 export const OWNER_SCOPED_INVOKE_CHANNELS = [
+  'extensions:connector-settings',
+  'extensions:connector-prepare',
+  'extensions:connector-approve',
+  'extensions:connector-revoke',
   'extensions:state',
   'extensions:discover',
   'extensions:open-folder',

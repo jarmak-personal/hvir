@@ -9,6 +9,35 @@ export function registerExtensionsIpc(
   const unavailable = (): never => {
     throw new Error('Extensions are unavailable')
   }
+  ipc.handle('extensions:connector-settings', (req, context) => {
+    context.owner()
+    const activation = extensions?.activations?.active.get(req.installationId)
+    const approvals = extensions?.connectors?.approvals
+    if (!activation || !approvals) return unavailable()
+    return {
+      hosts: approvals.hosts.listHosts(),
+      connectors: approvals.status(activation),
+    }
+  })
+  ipc.handle('extensions:connector-prepare', (req, context) => {
+    const owner = context.owner()
+    return (
+      extensions?.connectors?.approvals.prepare(req, () =>
+        extensions.guests?.assertOwner(owner),
+      ) ?? unavailable()
+    )
+  })
+  ipc.handle('extensions:connector-approve', (req, context) => {
+    context.owner()
+    return extensions?.connectors?.approvals.approve(req.token) ?? unavailable()
+  })
+  ipc.handle('extensions:connector-revoke', (req, context) => {
+    context.owner()
+    return (
+      extensions?.connectors?.approvals.revoke(req.installationId, req.connector) ??
+      unavailable()
+    )
+  })
   ipc.handle('extensions:state', (_req, context) => {
     context.owner()
     return (

@@ -13,12 +13,28 @@
       <h1>Bring a useful view into your workbench</h1>
       <p>
         This ordinary directory package runs in an isolated view. It can request its own
-        declared detail tab and read presentation values. It has no project-file,
-        terminal, network, or executable access.
+        declared detail tab and read presentation values. It has no project-file, terminal
+        or direct network access. Native tool execution requires a separate decision in
+        Settings.
       </p>
       <button type="button" id="open-detail">Open reference detail</button>
       <p id="observation"></p>
       <p id="status" role="status">Connecting to hvir…</p>
+      <h2>Try an approved native tool</h2>
+      <p>
+        Configure the optional installed-tool connector in Settings → Extensions.
+        Approving it grants host-account authority. The updater requests its version only
+        while a contribution is visible.
+      </p>
+      <label
+        >Structured arguments (JSON)<input id="native-args" value='["--version"]'
+      /></label>
+      <button type="button" id="native-run" disabled>Run approved tool</button>
+      <button type="button" id="native-next" disabled>Next output page</button>
+      <p id="native-status" role="status">
+        Native execution is separate from enabling this view.
+      </p>
+      <pre id="native-output"></pre>
       <h2>Try the lifecycle</h2>
       <p>
         Close either tab through hvir's controls. Disable the extension in Settings to

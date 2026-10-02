@@ -148,6 +148,29 @@ export class ExtensionContributionOwner {
     void this.reconcile().catch(() => undefined)
   }
 
+  connectorDemand(installation: string, workspace?: string): boolean {
+    return this.currentDemands().some(
+      (demand) =>
+        this.scopes.isCurrent(demand.owner) &&
+        demand.entries.some((entry) => {
+          if (entry.installationId !== installation) return false
+          try {
+            const context = this.contexts().admit(demand.owner, {
+              surface: 'viewer',
+              ...(entry.workspaceId ? { workspaceId: entry.workspaceId } : {}),
+              ...(entry.sessionId ? { sessionId: entry.sessionId } : {}),
+            })
+            return (
+              context.current() &&
+              (!workspace || context.value.workspace?.id === workspace)
+            )
+          } catch {
+            return false
+          }
+        }),
+    )
+  }
+
   updaterSessions(
     id: string,
   ): readonly import('../../shared/extensions/contract').ExtensionSessionContext[] {

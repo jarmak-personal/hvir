@@ -11,7 +11,7 @@
     "contributions.publish",
     "actions.invoke"
   ],
-  "optionalCapabilities": [],
+  "optionalCapabilities": ["connector.execute", "connector.output", "connector.status"],
   "access": [],
   "views": [
     {
@@ -89,5 +89,15 @@
       }
     }
   ],
-  "updater": "updater.html"
+  "updater": "updater.html",
+  "connectors": [
+    {
+      "id": "installed-tool",
+      "description": "Run a separately approved user-installed tool and show its finite result. The optional updater reads its version while contributions are visible.",
+      "context": "application",
+      "timeoutMs": 180000,
+      "outputBytes": 4194304,
+      "environment": []
+    }
+  ]
 }

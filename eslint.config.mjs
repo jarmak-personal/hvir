@@ -196,6 +196,8 @@ export default tseslint.config(
   // Extension package policy and caller lifetime consume ports, never their Electron/native edges.
   {
     files: [
+      'src/main/extensions/connector-approval.ts',
+      'src/main/extensions/connector-execution.ts',
       'src/main/extensions/activation.ts',
       'src/main/extensions/guest-owner.ts',
       'src/main/extensions/guest-lifecycle.ts',

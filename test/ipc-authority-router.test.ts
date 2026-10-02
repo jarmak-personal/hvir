@@ -452,6 +452,10 @@ describe('IpcAuthorityRouter', () => {
   it('keeps the reviewed owner and authority channel policies explicit', () => {
     expect(new Set(OWNER_SCOPED_INVOKE_CHANNELS)).toEqual(
       new Set<IpcInvokeChannel>([
+        'extensions:connector-settings',
+        'extensions:connector-prepare',
+        'extensions:connector-approve',
+        'extensions:connector-revoke',
         'extensions:state',
         'extensions:discover',
         'extensions:open-folder',

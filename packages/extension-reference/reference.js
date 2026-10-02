@@ -87,3 +87,75 @@ document.getElementById('mark-session')?.addEventListener('click', () => {
     },
   })
 })
+
+// Native results have explicit process status; output pages remain caller-bound.
+const nativeRun = document.getElementById('native-run')
+const nativeNext = document.getElementById('native-next')
+const nativeStatus = document.getElementById('native-status')
+const nativeOutput = document.getElementById('native-output')
+let nativeReceipt,
+  nativeOffset = 0
+function nativeRequest(capability, input) {
+  const id = `native-${++serial}`
+  return new Promise((resolve, reject) => {
+    const dispose = bridge.onMessage((message) => {
+      if (message.kind !== 'result' || message.id !== id) return
+      dispose()
+      if (message.ok) resolve(message.value)
+      else reject(new Error(message.error))
+    })
+    bridge.send({ kind: 'request', id, capability, input })
+  })
+}
+async function releaseNativeReceipt() {
+  const receipt = nativeReceipt
+  nativeReceipt = undefined
+  if (receipt)
+    await nativeRequest('connector.output', { receipt, release: true }).catch(() => {})
+}
+async function nativePage() {
+  const page = await nativeRequest('connector.output', {
+    receipt: nativeReceipt,
+    stream: 'stdout',
+    offset: nativeOffset,
+  })
+  nativeOutput.textContent = page.data
+  nativeOffset = page.nextOffset
+  nativeNext.disabled = nativeOffset === null
+  if (nativeOffset === null) {
+    await releaseNativeReceipt()
+  }
+}
+bridge.onMessage((message) => {
+  if (message.kind === 'hello' && nativeRun)
+    nativeRun.disabled = !['connector.execute', 'connector.output'].every((capability) =>
+      message.capabilities.includes(capability),
+    )
+})
+nativeRun?.addEventListener('click', async () => {
+  nativeRun.disabled = true
+  try {
+    await releaseNativeReceipt()
+    const result = await nativeRequest('connector.execute', {
+      connector: 'installed-tool',
+      host: 'local',
+      args: JSON.parse(document.getElementById('native-args').value),
+    })
+    nativeStatus.textContent = `${result.outcome} · ${result.host || 'no approved host'} · exit ${result.code ?? 'unknown'}${result.truncated ? ' · truncated' : ''}${result.reason ? ` · ${result.reason}` : ''}`
+    nativeOutput.textContent = ''
+    nativeReceipt = result.receipt
+    nativeOffset = 0
+    nativeNext.disabled = true
+    if (nativeReceipt) await nativePage()
+  } catch (error) {
+    nativeStatus.textContent = error.message
+  } finally {
+    nativeRun.disabled = false
+  }
+})
+nativeNext?.addEventListener('click', () => {
+  void nativePage().catch((error) => {
+    nativeStatus.textContent = error.message
+    nativeNext.disabled = true
+  })
+})

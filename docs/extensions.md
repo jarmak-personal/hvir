@@ -51,10 +51,7 @@ creates it. Settings labels it **Development package**. Edit the author director
 restore the target or choose **Remove** to delete only the link. Interior links are refused.
 
 To replace a ZIP, replace its source archive, discover it, and choose **Replace**. The manifest
-ID retains the installation identity even when the source name or source kind changes. Current
-contract 1.0 requests no access or connectors, so a valid explicit revision action needs no
-additional permission decision. Unsupported broader access remains refused before execution;
-package hashes are not executable approval.
+ID retains the installation identity even when the source name or source kind changes. An explicit revision action reuses native approval only when the connector declaration, host, canonical executable path and configuration remain unchanged. Changed access requires a separate native decision; package hashes are not executable approval.
 
 **Remove** names the selected package and explains its file/data effects. An ordinary package
 is moved to the OS trash. A development package loses only its link; author files remain.
@@ -83,10 +80,11 @@ assets. The example manifest shows all required fields. Identity and contributio
 are stable lowercase names. `contract` declares a major and minor, independently of
 the package's semantic `version`. Views declare `application` or `workspace` placement and a single
 `view` representation. Optional `navigation: 'top'` creates an independent application
-destination; `navigation: 'left'` creates a workspace rail view. `access` is empty: no project files, PTYs, executables, or network.
+destination; `navigation: 'left'` creates a workspace rail view. `access` stays empty: no project files, PTYs or direct guest network. Optional `connectors` declare finite native operations and require separate approval.
 
 Contract 1.0 provides `presentation.read`, `viewer.open-own`, `context.read`,
-`contributions.read`, `contributions.publish`, and `actions.invoke`. List required and
+`contributions.read`, `contributions.publish`, `actions.invoke`, `connector.status`,
+`connector.execute`, and `connector.output`. List required and
 optional capabilities explicitly. Same-major older or equal minor contracts activate;
 a newer minor also activates when every required capability exists. Unsupported major
 or missing required capabilities refuse only that package, with an explanation.
@@ -144,7 +142,7 @@ and a 32 KiB manifest. Interior links and nonregular assets are refused; the exp
 32 installations. Each extension has at most eight views; the application has thirty-two (including updaters).
 Messages are bounded to 16 KiB and thirty per second; pending requests are bounded to
 eight per view, sixteen per extension, and sixty-four application-wide, with a ten
-second deadline. hvir refuses excess work instead of maintaining unbounded queues.
+second ordinary deadline. Finite actions and connectors use their separately bounded lifetimes. hvir refuses excess work instead of maintaining unbounded queues.
 
 The application registers the HTML preview and extension scheme descriptors together
 once before Electron readiness. Their protocols, origins, policies and resources
@@ -246,3 +244,93 @@ limits, revision identity, and grants remain TypeScript-owned. It is not a guest
 and does not add remote package authority. Normal builds include its exact native
 payload. Real Electron coverage proves the environment boundary in addition to direct
 policy, storage, and lifecycle tests.
+
+## Approved finite native connectors
+
+An optional `connectors` array declares at most eight installed-tool connectors:
+
+```json
+{
+  "id": "installed-tool",
+  "description": "Read information from my installed tool",
+  "context": "application",
+  "timeoutMs": 180000,
+  "outputBytes": 4194304,
+  "environment": []
+}
+```
+
+Declare `connector.execute`, `connector.output` and `connector.status` in required or optional
+capabilities and check the guest handshake. Optional native capabilities leave unrelated views
+usable when the executable is unapproved or disconnected. Discovery and status read metadata;
+no executable probes run. hvir installs neither a tool nor a remote service.
+
+In **Settings → Extensions**, enable the package, choose its configured host and an absolute
+installed executable path, and enter configuration as `{ "args": [], "env": {} }`. The argument
+prefix precedes each request's structured arguments. Environment overrides use only names declared
+by the connector; the selected host account's ordinary environment is inherited. An SSH command
+never receives a copied local environment. **Inspect native access** resolves the canonical path
+without executing the tool. Inspect the declaration, host, canonical path and configuration,
+then choose **Approve native execution**. Inspection of a configured SSH host may ask for its
+ordinary SSH connection/authentication. Guest discovery and status cannot cause those prompts.
+Use **Revoke native access** to stop new admissions and revoke pending requests and output pages.
+
+Native code runs with the selected host account's authority, including its files, credentials,
+network and subprocesses. A working directory, action title, or claimed read-only effect is not
+confinement. UI enablement does not approve native execution. Executable selection uses an absolute
+path rather than probing ambient PATH. A symlink binds its canonical target: changing the target
+requires another decision. Updating the tool in place at the same canonical path requires no
+new approval. hvir never hashes interpreted-tool contents. Explicit Reload or Replace reuses an
+unchanged declaration/path/configuration binding and pins every execution to the new activation.
+Forget saved setup removes native grants and platform identity while preserving tool/domain data.
+
+`application` connectors run locally in hvir's scratch directory without registering a project,
+regardless of the selected workspace's host. `workspace` connectors require an explicit live
+workspace ID and separate native approval on that workspace's host. Their working directory is
+the pinned host-qualified workspace root. A grant on local conveys no SSH grant, and disconnect
+never retargets or automatically replays a command. `connector.status` returns per-connector
+`supported`, `unavailable` or `disconnected` availability and an achievable setup explanation.
+
+Send `connector.execute` with `{ connector: 'installed-tool', host: 'local', args: ['--version'] }` for an
+application connector. The requested host must exactly match its approval; forged or different hosts are refused before execution. For a workspace connector, include `workspace: context.workspace.id` from
+its admitted context. A visible view may refresh only its own workspace; an updater can use only
+current trusted visible contribution demand for that workspace. Multiple items share identical
+refresh sources. There is no native work without visible demand. Explicit finite action handlers
+include `actionId: invocation.id`; they retain their initiating caller and context while hidden,
+and execute independently of refreshes. Updaters cannot manufacture actions or agent authority.
+Effect declarations support presentation and later agent confirmation; they do not verify native
+read-only execution.
+
+The result contains `outcome`, `host`, `code`, `signal`, `truncated`, bounded byte counts, and an
+optional `receipt`. `not-started` means admission refused before dispatch. `completed` means the
+process returned an exit status, including nonzero: it does not claim tool-domain success.
+`interrupted-uncertain` covers cancellation, deadline, truncation or dispatched transport failure;
+changes may already have occurred. SSH channel closure does not prove descendant termination or
+rollback. Treat `truncated: true` as an incomplete response even when an exit code is present.
+
+Retrieve output with `connector.output` using `{ receipt, stream: 'stdout', offset: 0 }` (or
+`stderr`). It returns `data`, a UTF-8 byte `nextOffset` or `null`, and the same explicit execution
+result. Continue from exactly the returned offset. Pages fit the full 16 KiB JSON bridge envelope,
+including encoding and metadata. Receipts belong to the initiating view/action and exact grant,
+activation, host and context; they are not transferable to another guest. Send `{ receipt,
+release: true }` when finished. They expire after 30 seconds and earlier when caller authority,
+action lifetime, visible refresh demand or context ends. No page read extends an action.
+
+Declarations choose a deadline of 1–180 seconds and up to 4 MiB combined output. Canonical
+admission has a ten-second bound. At most four native executions run per extension and sixteen
+globally; hvir queues none. At most four output receipts per extension, sixteen globally and
+32 MiB including reserved execution output are admitted. A shared source has a one-second minimum
+refresh interval and the source table is bounded. Output capacity is reserved before dispatch.
+Canceled transports remain charged until they settle, even after the caller receives an uncertain
+outcome. No stdin, PTY, filesystem API, persistent connector server or automatic command retry is
+exposed.
+
+The ordinary reference package works without native approval. To try native execution, configure
+its optional `installed-tool` connector, then use **Run approved tool** and its JSON arguments.
+The view displays the process outcome and bounded output pages. Its updater requests `--version`
+while a contribution is visible and shows **Tool exit N** without opening a popup. Configure a
+version-capable executable, such as an installed Skillager CLI. Native failure leaves the view and
+ordinary navigation usable; revoke or repair the connector in Settings. A local real-tool
+walkthrough should record the actual CLI source/version and use isolated user state. A separately
+approved SSH workspace connector must record its real host and tool version for release acceptance;
+local fixtures or an SSH label do not prove a real remote server.

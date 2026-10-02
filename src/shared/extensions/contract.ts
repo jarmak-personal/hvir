@@ -7,6 +7,9 @@ export const EXTENSION_CAPABILITIES = [
   'contributions.read',
   'contributions.publish',
   'actions.invoke',
+  'connector.execute',
+  'connector.output',
+  'connector.status',
 ] as const
 export type ExtensionCapability = (typeof EXTENSION_CAPABILITIES)[number]
 
@@ -66,6 +69,7 @@ export interface ExtensionManifest {
   readonly railItems?: readonly ExtensionRailItem[]
   readonly actions?: readonly ExtensionAction[]
   readonly updater?: string
+  readonly connectors?: readonly import('./connectors').ExtensionConnectorDeclaration[]
 }
 
 export interface ExtensionPresentation {
