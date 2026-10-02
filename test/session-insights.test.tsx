@@ -10,7 +10,6 @@ import {
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { CompactionMarkers } from '../src/renderer/src/harness/CompactionMarkers'
 import { compactionMarkerPresentation } from '../src/renderer/src/harness/compaction-marker-presentation'
 import { SessionDetailsPopover } from '../src/renderer/src/harness/SessionDetailsPopover'
 import { useSessionDetailsPopover } from '../src/renderer/src/harness/use-session-details-popover'
@@ -18,6 +17,7 @@ import { useSessionsDetailsUsage } from '../src/renderer/src/harness/use-session
 import { SessionsOverviewCard } from '../src/renderer/src/sessions/SessionsOverviewCard'
 import type { SessionsProjectionCoordinator } from '../src/renderer/src/sessions/sessions-projection-coordinator'
 import { TerminalRail } from '../src/renderer/src/terminal/TerminalRail'
+import { terminalStartedStatus } from '../src/renderer/src/terminal/terminal-runtime-launch'
 import {
   asHarnessProfileId,
   asHarnessProviderId,
@@ -30,6 +30,7 @@ import {
   sessionsWorkspaceQualifier,
   type SessionsProjectionRow,
   type SessionsProjectionSnapshot,
+  type StartPtyResponse,
 } from '../src/shared'
 import type { TerminalSession } from '../src/renderer/src/terminal/terminal-workspace-model'
 
@@ -51,90 +52,83 @@ afterEach(() => {
 })
 
 describe('compaction marker presentation', () => {
-  it('keeps zero empty and switches exact 20 and 200+ totals at narrow widths', () => {
-    expect(compactionMarkerPresentation(0, 100)).toEqual({ kind: 'empty', count: 0 })
-    expect(compactionMarkerPresentation(1, 10)).toEqual({ kind: 'circles', count: 1 })
-    expect(compactionMarkerPresentation(5, 50)).toEqual({ kind: 'circles', count: 5 })
-    expect(compactionMarkerPresentation(5, 50, 12)).toEqual({
-      kind: 'summary',
-      count: 5,
-    })
-    expect(compactionMarkerPresentation(20, 100)).toEqual({ kind: 'summary', count: 20 })
-    expect(compactionMarkerPresentation(237, 800)).toEqual({
-      kind: 'summary',
-      count: 237,
-    })
+  it.each([1, 5, 20, 237])('keeps the exact positive count %i', (count) => {
+    expect(compactionMarkerPresentation(count)).toEqual({ kind: 'summary', count })
   })
 
-  it('distinguishes known zero from unavailable without rendering a zero circle', () => {
-    act(() =>
-      root.render(
-        <CompactionMarkers
-          fact={{
-            status: 'available',
-            value: { observedCount: 0, periodStartedAt: 1, coverage: 'continuous' },
-          }}
-        />,
-      ),
-    )
-    expect(document.querySelector('.compaction-marker')).toBeNull()
-    expect(
-      document.querySelector('.compaction-markers')?.getAttribute('aria-label'),
-    ).toContain('0 observed')
+  it.each([0, -1, NaN, Infinity, 1.5, Number.MAX_SAFE_INTEGER + 1])(
+    'hides an invalid or nonpositive count %s',
+    (count) => {
+      expect(compactionMarkerPresentation(count)).toEqual({ kind: 'empty', count: 0 })
+    },
+  )
 
-    act(() =>
-      root.render(
-        <CompactionMarkers
-          fact={{ status: 'unavailable', reason: 'source-unavailable' }}
-        />,
-      ),
-    )
-    expect(document.querySelector('.compaction-marker-unknown')?.textContent).toBe('–')
+  it.each([undefined, 'pending', 'unavailable', 'unsupported', 'zero'] as const)(
+    'leaves no indicator or separator on either surface for %s',
+    (state) => {
+      const row = projectedRow(0)
+      const fact: SessionsProjectionRow['compactions'] =
+        state === undefined
+          ? undefined
+          : state === 'zero'
+            ? row.compactions
+            : state === 'unsupported'
+              ? { status: state }
+              : { status: state, reason: 'source-unavailable' }
+      const session = terminalSession(0)
+      const telemetry = session.telemetry!
+      act(() =>
+        root.render(
+          <>
+            <TerminalRail
+              {...terminalRailProps(staticProjection(row))}
+              sessions={[
+                {
+                  ...session,
+                  status: 'pid 4321',
+                  telemetry:
+                    state === undefined
+                      ? undefined
+                      : {
+                          ...telemetry,
+                          facets: { ...telemetry.facets, compactions: fact },
+                        },
+                },
+              ]}
+            />
+            <article className="session-card">
+              <SessionsOverviewCard
+                row={{ ...row, compactions: fact }}
+                group="none"
+                opening={false}
+              />
+            </article>
+          </>,
+        ),
+      )
+      expect(document.querySelector('.compaction-markers')).toBeNull()
+      expect(document.querySelector('.terminal-list-meta')?.textContent).toBe(
+        'Missing (codex-default)',
+      )
+    },
+  )
 
-    act(() => root.render(<CompactionMarkers fact={{ status: 'unsupported' }} />))
-    expect(
-      document.querySelector('.compaction-markers')?.getAttribute('aria-label'),
-    ).toContain('unsupported')
-  })
-
-  it('renders matching facts with independent overflow in a rail row and Sessions card', () => {
-    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
-      this: HTMLElement,
-    ) {
-      const width = this.classList.contains('session-card-compactions') ? 400 : 40
-      return DOMRect.fromRect({ width, height: 10 })
-    })
-    const row = projectedRow(20)
+  it.each([1, 5, 237])('renders one icon and ×%i on both surfaces', (count) => {
+    const row = projectedRow(count)
     act(() =>
       root.render(
         <>
           <TerminalRail
-            label="main"
-            visible
-            compact={false}
-            onCompact={vi.fn()}
-            terminalTheme="app"
-            recoveryReady
-            available
-            menuOpen={false}
-            sessionsProjection={staticProjection(row)}
-            moveMenuOpen={false}
-            moveTargets={[]}
-            launchMenuEntries={[]}
-            split={false}
-            sessions={[terminalSession(20)]}
-            activeId="terminal-one"
+            {...terminalRailProps(staticProjection(row))}
+            sessions={[
+              { ...terminalSession(count), status: 'pid 4321', attention: 'idle' },
+            ]}
             providers={[
               {
                 id: asHarnessProviderId('codex'),
                 displayName: 'Codex',
                 default: true,
-                capabilities: {
-                  sessionIdentity: 'preassigned',
-                  exactResume: true,
-                  contextPresentation: 'pressure',
-                  compactionObservation: true,
-                },
+                capabilities: terminalSession(count).capabilities,
                 terminalInput: {
                   modifiedKeyProtocol: 'csi-u',
                   metaEnterAliasesControl: false,
@@ -142,20 +136,6 @@ describe('compaction marker presentation', () => {
                 profileGuidance: { reservedArguments: [] },
               },
             ]}
-            profiles={[]}
-            onSplit={vi.fn()}
-            onOpenSettings={vi.fn()}
-            onToggleMenu={vi.fn()}
-            onToggleMoveMenu={vi.fn()}
-            onPlanMove={vi.fn()}
-            onDismissNewTargets={vi.fn()}
-            onAddSession={vi.fn()}
-            onAddHarness={vi.fn()}
-            onRefreshProbes={vi.fn()}
-            onOpenHarnessSettings={vi.fn()}
-            onFocusSession={vi.fn()}
-            onMoveSession={vi.fn()}
-            onCloseSession={vi.fn()}
           />
           <article className="session-card">
             <SessionsOverviewCard row={row} group="none" opening={false} />
@@ -163,17 +143,160 @@ describe('compaction marker presentation', () => {
         </>,
       ),
     )
-
     const markers = [...document.querySelectorAll<HTMLElement>('.compaction-markers')]
     expect(markers).toHaveLength(2)
-    expect(markers.map((marker) => marker.getAttribute('aria-label'))).toEqual([
-      '20 observed compactions during this app observation period',
-      '20 observed compactions during this app observation period',
-    ])
-    expect(markers[0]?.dataset.state).toBe('summary')
-    expect(markers[0]?.textContent).toContain('×20')
-    expect(markers[1]?.dataset.state).toBe('circles')
-    expect(markers[1]?.querySelectorAll('.compaction-marker')).toHaveLength(20)
+    for (const marker of markers) {
+      expect(marker.textContent?.trim()).toBe(`×${count}`)
+      expect(marker.querySelectorAll('.compaction-marker')).toHaveLength(1)
+      expect(marker.getAttribute('aria-label')).toContain(`${count} observed compaction`)
+    }
+    expect(markers[0]?.closest('.terminal-list-meta')).not.toBeNull()
+    expect(document.querySelector('.terminal-list-meta')?.textContent).not.toContain(
+      'pid',
+    )
+    expect(document.querySelectorAll('.provider-context')).toHaveLength(2)
+    expect(document.querySelector('.terminal-attention-badge')?.textContent).toBe('ready')
+  })
+
+  it.each(
+    [
+      { mode: 'fresh', result: {}, context: {}, label: '' },
+      {
+        mode: 'reattached',
+        result: { reattached: true },
+        context: {},
+        label: 'Reattached',
+      },
+      { mode: 'resumed', result: { resumed: true }, context: {}, label: 'Resumed' },
+      {
+        mode: 'replacement',
+        result: {},
+        context: { replacement: { sessionId: 'new', replacesSessionId: 'old' } },
+        label: 'New session',
+      },
+      { mode: 'fork', result: {}, context: { fork: true }, label: 'Forked' },
+      {
+        mode: 'resume fallback',
+        result: {},
+        context: { resume: true },
+        label: 'New session',
+      },
+      {
+        mode: 'manual restart',
+        result: {},
+        context: { manualRestart: true },
+        label: 'Restarted',
+      },
+      { mode: 'reconnect', result: {}, context: { reconnect: true }, label: 'New shell' },
+    ].flatMap((variant) => [4321, -1].map((pid) => ({ ...variant, pid }))),
+  )('hides the real $mode launch PID $pid while retaining its status', (variant) => {
+    const session = terminalSession(1)
+    const result: Extract<StartPtyResponse, { outcome: 'started' }> = {
+      outcome: 'started',
+      id: session.id,
+      instanceId: 'pty-one',
+      pid: variant.pid,
+      resumed: false,
+      reattached: false,
+      identityStatus: 'identified',
+      capabilities: session.capabilities,
+      ...variant.result,
+    }
+    const status = terminalStartedStatus(result, {
+      fork: false,
+      resume: false,
+      manualRestart: false,
+      reconnect: false,
+      ...variant.context,
+    })
+    act(() =>
+      root.render(
+        <TerminalRail
+          {...terminalRailProps(staticProjection(projectedRow(1)))}
+          sessions={[{ ...session, status, identityStatus: 'unavailable' }]}
+        />,
+      ),
+    )
+    expect(document.querySelector('.terminal-list-profile')?.textContent).toBe(
+      `Missing (codex-default)${variant.label ? ` · ${variant.label}` : ''} · resume unavailable`,
+    )
+    expect(document.querySelector('.terminal-list-meta')?.textContent).not.toContain(
+      'pid',
+    )
+    expect(document.querySelector('.compaction-markers')?.textContent?.trim()).toBe('×1')
+  })
+
+  it.each([
+    ['Starting…', 'Starting…'],
+    ['Resuming…', 'Resuming…'],
+    ['disconnected', 'disconnected'],
+    ['Exited (1)', 'Exited (1)'],
+    [
+      'Resume unavailable · session data is missing',
+      'Resume unavailable · session data is missing',
+    ],
+  ])('preserves meaningful status from %s', (status, expected) => {
+    act(() =>
+      root.render(
+        <TerminalRail
+          {...terminalRailProps(staticProjection(projectedRow(1)))}
+          sessions={[{ ...terminalSession(1), status, identityStatus: 'unavailable' }]}
+        />,
+      ),
+    )
+    expect(document.querySelector('.terminal-list-profile')?.textContent).toBe(
+      `Missing (codex-default)${expected ? ` · ${expected}` : ''} · resume unavailable`,
+    )
+    expect(document.querySelector('.terminal-list-meta')?.textContent).not.toContain(
+      'pid',
+    )
+  })
+
+  it('retains a positive stale, gapped observation and its details', async () => {
+    Object.defineProperty(window, 'hvir', {
+      configurable: true,
+      value: {
+        invoke: vi.fn(() => Promise.resolve(true)),
+        on: vi.fn(() => () => undefined),
+      },
+    })
+    const row = projectedRow(237)
+    const fact = {
+      status: 'stale' as const,
+      observedAt: 1,
+      reason: 'source-stale' as const,
+      value: { observedCount: 237, periodStartedAt: 1, coverage: 'gapped' as const },
+    }
+    const session = terminalSession(237)
+    act(() =>
+      root.render(
+        <TerminalRail
+          {...terminalRailProps(staticProjection({ ...row, compactions: fact }))}
+          sessions={[
+            {
+              ...session,
+              telemetry: {
+                ...session.telemetry!,
+                facets: { ...session.telemetry!.facets, compactions: fact },
+              },
+            },
+          ]}
+        />,
+      ),
+    )
+    expect(document.querySelector('.compaction-markers')?.textContent?.trim()).toBe(
+      '×237',
+    )
+    const button = document.querySelector<HTMLButtonElement>('.terminal-list-main')!
+    await act(async () => {
+      button.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'F10', shiftKey: true, bubbles: true }),
+      )
+      await flushMicrotasks()
+    })
+    const dialog = document.querySelector('[role="dialog"]')!
+    expect(dialog.textContent).toContain('Observed compactions237')
+    expect(dialog.textContent).toContain('Current app period · gaps observed')
   })
 })
 
@@ -243,16 +366,14 @@ describe('session details popover interaction', () => {
     act(() => root.render(<TerminalRail {...terminalRailProps(projection)} />))
 
     await act(async () => {
-      document
-        .querySelector<HTMLElement>('.terminal-list-row')
-        ?.dispatchEvent(
-          new MouseEvent('contextmenu', {
-            bubbles: true,
-            cancelable: true,
-            clientX: 30,
-            clientY: 40,
-          }),
-        )
+      document.querySelector<HTMLElement>('.terminal-list-row')?.dispatchEvent(
+        new MouseEvent('contextmenu', {
+          bubbles: true,
+          cancelable: true,
+          clientX: 30,
+          clientY: 40,
+        }),
+      )
       await flushMicrotasks()
     })
 
@@ -275,16 +396,14 @@ describe('session details popover interaction', () => {
     act(() => root.render(<TerminalRail {...terminalRailProps(projection)} />))
 
     await act(async () => {
-      document
-        .querySelector<HTMLElement>('.terminal-list-row')
-        ?.dispatchEvent(
-          new MouseEvent('contextmenu', {
-            bubbles: true,
-            cancelable: true,
-            clientX: 30,
-            clientY: 40,
-          }),
-        )
+      document.querySelector<HTMLElement>('.terminal-list-row')?.dispatchEvent(
+        new MouseEvent('contextmenu', {
+          bubbles: true,
+          cancelable: true,
+          clientX: 30,
+          clientY: 40,
+        }),
+      )
       await flushMicrotasks()
     })
 

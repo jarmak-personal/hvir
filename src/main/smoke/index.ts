@@ -1,3 +1,4 @@
+import { createSshHostChooserSmoke, verifySshHostChooserSmoke } from './ssh-host-chooser'
 import {
   verifyTerminalThemeScenario,
   verifyTerminalMoveScenario,
@@ -10,7 +11,10 @@ import type { ElectronSmokeDependencies } from './bootstrap-contract'
 import { SmokeRendererReadiness } from './renderer-readiness-observer'
 import { verifyTerminalLifecycleScenario } from './terminal-lifecycle-scenario'
 import { verifyCapacityScenario } from './capacity-scenario'
-import { createProjectFixtureCommands } from './project-fixture-commands'
+import {
+  createProjectFixtureCommands,
+  smokeProjectHostOptions,
+} from './project-fixture-commands'
 import { verifyNativeHostWorker } from './native-host-worker'
 import { verifyRendererReadiness } from './renderer-readiness'
 import { createProjectFileFixture } from './project-file-fixture'
@@ -279,22 +283,13 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       },
     )
     cleanup.defer('document review', () => documentReview.dispose())
-    const smokeHostOptions = () => [
-      {
-        hostId: host.hostId,
-        label: 'Local',
-        kind: 'local' as const,
-        connectionState: host.connectionState,
-        watchTier: host.watchTier,
-      },
-      {
-        hostId: smokeRemoteHost.hostId,
-        label: 'Smoke SSH',
-        kind: 'ssh' as const,
-        connectionState: smokeRemoteHost.connectionState,
-        watchTier: smokeRemoteHost.watchTier,
-      },
-    ]
+    const smokeHostOptions = smokeProjectHostOptions(host, smokeRemoteHost)
+    const sshChooser = await createSshHostChooserSmoke(
+      host,
+      smokeRoot,
+      smokeHostOptions,
+      cleanup,
+    )
     const sessionsObservation = new SessionsObservationPort({
       projectState: () => projectFixture.get(),
       hosts: smokeHostOptions,
@@ -371,6 +366,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       openedFolderSelections,
       revealedEntries,
     } = createProjectFixtureCommands({
+      sshChooser,
       host,
       smokeRemoteHost,
       smokeRoot,
@@ -537,6 +533,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       return 0
     }
     if (mode === 'workspace-remote') {
+      console.log('[smoke] ' + (await verifySshHostChooserSmoke(win, host, sshChooser)))
       const projectFilesResult = await verifyProjectFileOperationsSmoke({
         win,
         localHost: host,

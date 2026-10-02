@@ -140,14 +140,7 @@ export function App(): ReactElement {
     isIgnoreRulePath: isGitIgnoreRulePath,
   })
   const accept = session.acceptProjectState
-  const {
-    projectState,
-    root,
-    activeWorkspace,
-    connectionState,
-    rootError,
-    refreshHosts,
-  } = session
+  const { projectState, root, activeWorkspace, connectionState, rootError } = session
   const documentReview = review.useReviewWorkspace(activeWorkspace, reviewWatch)
   const { watch: watchVersion, ignored: ignoredRefreshVersion } = session.versions
   const { content: contentVersion, git: gitVersion } = session.versions
@@ -230,9 +223,6 @@ export function App(): ReactElement {
   resetGitGraphRef.current = resetGitGraph
   deactivateGitGraphRef.current = deactivateGitGraph
   deactivateWebPaneRef.current = () => setWebViewActive(false)
-  useEffect(() => {
-    if (overlays.projectPickerOpen) void refreshHosts()
-  }, [overlays.projectPickerOpen, refreshHosts])
   useEffect(() => {
     if (root) setWebWorkspaceRoot(root)
   }, [root, setWebWorkspaceRoot])
@@ -647,7 +637,6 @@ export function App(): ReactElement {
       />
       {overlays.projectPickerOpen ? (
         <SessionDialog
-          hosts={session.hosts}
           currentRoot={root}
           suspended={session.prompts.length > 0}
           onCancel={overlays.closeProjectPicker}

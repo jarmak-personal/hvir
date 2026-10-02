@@ -10,6 +10,9 @@ codebase, and review what your agents changed, all in one window.
 
 ![hvir showing the file tree, a working Codex session, and live terminal status](docs/screenshots/workbench-agents.png)
 
+This historical capture predates the compact compaction display. Current terminal-rail
+metadata omits PIDs and shows a compression icon followed by `×N` for positive observed counts.
+
 ## Why hvir?
 
 Hand work to your agents, then read the code, inspect their changes, and respond when

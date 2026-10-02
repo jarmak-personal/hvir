@@ -6,6 +6,7 @@ type ProjectIpcDeps = Pick<
   IpcDeps,
   | 'getProjectState'
   | 'listHosts'
+  | 'sshConfiguration'
   | 'connectHost'
   | 'disconnectHost'
   | 'browseHost'
@@ -27,6 +28,35 @@ type ProjectIpcDeps = Pick<
 export function registerProjectIpc(ipc: IpcRegistrar, deps: ProjectIpcDeps): void {
   ipc.handle('project:root', () => deps.getProjectState())
   ipc.handle('project:hosts', () => deps.listHosts())
+  ipc.handle('ssh:configuration-defaults', (_req, context) => {
+    context.owner()
+    return deps.sshConfiguration.defaults()
+  })
+  ipc.handle('ssh:refresh-hosts', (_req, context) =>
+    operationResult(async () => {
+      context.owner()
+      const hosts = await deps.sshConfiguration.refreshHosts()
+      context.owner()
+      return hosts
+    }),
+  )
+  ipc.handle('ssh:add-host', (req, context) =>
+    operationResult(async () => {
+      context.owner()
+      const hosts = await deps.sshConfiguration.addSshHost(req, () => {
+        context.owner()
+      })
+      context.owner()
+      return hosts
+    }),
+  )
+  ipc.handle('ssh:pick-identity', (_req, context) =>
+    operationResult(() =>
+      deps.sshConfiguration.pickIdentity(() => {
+        context.owner()
+      }),
+    ),
+  )
   ipc.handle('project:connect-host', (req, context) =>
     operationResult(() => deps.connectHost(req.hostId, context.owner())),
   )
