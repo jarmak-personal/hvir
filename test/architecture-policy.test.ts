@@ -248,6 +248,134 @@ describe('complete architecture budget policy', () => {
       true,
     )
   })
+  it('counts maintained Rust, build scripts and ignored additions with ordinary budgets', () => {
+    const r = repo(),
+      policy = ordinaryPolicy()
+    policy.extensions.push('.rs')
+    policy.rustClient = {
+      root: 'packages/hvir-agent',
+      cargoOutput: 'packages/hvir-agent/target',
+    }
+    r.write('.gitignore', 'packages/hvir-agent/src/ignored.rs\n')
+    r.source(1001, 'packages/hvir-agent/src/ignored.rs')
+    r.write('packages/hvir-agent/build.rs', 'fn main() {}\n')
+    r.write('packages/hvir-agent/Cargo.toml', '[package]\nname = "hvir-agent"\n')
+    r.write('packages/hvir-agent/Cargo.lock', 'version = 4\n')
+    r.write(
+      'packages/hvir-agent/target/debug/generated.rs',
+      '// disposable Cargo output\n',
+    )
+    const rows = evaluateInventory(policy, collectInventory(r.root, policy))
+    expect(rows.map((row) => row.path)).toEqual([
+      'packages/hvir-agent/build.rs',
+      'packages/hvir-agent/src/ignored.rs',
+    ])
+    expect(rows[1]).toMatchObject({
+      governingRule: 'ordinary',
+      effectiveLimit: 1000,
+      lines: 1001,
+      status: 'over',
+    })
+    r.remove('packages/hvir-agent/target/debug/generated.rs')
+    const head = r.commit()
+    expect([...collectInventory(r.root, policy, head).keys()]).toEqual([
+      'packages/hvir-agent/build.rs',
+    ])
+    expect(() => collectInventory(r.root, ordinaryPolicy())).toThrow(/Unclassified/)
+    r.write('undeclared/client.rs', 'fn main() {}\n')
+    expect(() => collectInventory(r.root, policy)).toThrow(/outside declared roots/)
+  })
+  it.each([
+    'src/client.rs',
+    'scripts/client.rs',
+    'packages/other/client.rs',
+    'client.rs',
+  ])('rejects Rust outside its accepted client root: %s', (path) => {
+    const r = repo(),
+      policy = ordinaryPolicy()
+    policy.extensions.push('.rs')
+    policy.rustClient = {
+      root: 'packages/hvir-agent',
+      cargoOutput: 'packages/hvir-agent/target',
+    }
+    r.write(path, 'fn main() {}\n')
+    expect(() => collectInventory(r.root, policy)).toThrow(/outside declared roots/)
+    const head = r.commit()
+    expect(() => collectInventory(r.root, policy, head)).toThrow(/outside declared roots/)
+  })
+  it.each(['maintained.rs', 'Cargo.lock'])(
+    'rejects tracked Cargo output %s in both local and historical inventory',
+    (filename) => {
+      const r = repo(),
+        policy = ordinaryPolicy()
+      policy.extensions.push('.rs')
+      policy.rustClient = {
+        root: 'packages/hvir-agent',
+        cargoOutput: 'packages/hvir-agent/target',
+      }
+      r.write(`packages/hvir-agent/target/${filename}`, 'maintained input\n')
+      const head = r.commit()
+      expect(() => collectInventory(r.root, policy)).toThrow(/Tracked files hidden/)
+      expect(() => collectInventory(r.root, policy, head)).toThrow(/Tracked files hidden/)
+    },
+  )
+  it('does not exempt other target roots or let a Rust generated banner hide maintained source', () => {
+    const r = repo(),
+      policy = ordinaryPolicy()
+    policy.extensions.push('.rs')
+    policy.rustClient = {
+      root: 'packages/hvir-agent',
+      cargoOutput: 'packages/hvir-agent/target',
+    }
+    r.write('packages/hvir-agent/tests/target/source.rs', '// @generated\n'.repeat(1001))
+    const [row] = evaluateInventory(policy, collectInventory(r.root, policy))
+    expect(row).toMatchObject({ governingRule: 'ordinary', lines: 1001, status: 'over' })
+    policy.generated.push({
+      path: row!.path,
+      maxLines: 1500,
+      owner: 'Rust fixture generator',
+      rationale: 'Deterministic output.',
+      reconsiderWhen: 'Generator changes.',
+      generator: 'scripts/generate.mjs',
+      command: 'node scripts/generate.mjs',
+      inputs: [{ path: 'scripts/generate.mjs', sha256: 'f'.repeat(64) }],
+    })
+    expect(() => validateGeneratedOwnership(policy, r.read)).toThrow()
+    r.write('scripts/generate.mjs', '// generator\n')
+    expect(() => validateGeneratedOwnership(policy, r.read)).toThrow(/identity mismatch/)
+    policy.generated[0]!.inputs[0]!.sha256 = createHash('sha256')
+      .update(r.read('scripts/generate.mjs'))
+      .digest('hex')
+    validateGeneratedOwnership(policy, r.read)
+    expect(
+      evaluateInventory(policy, collectInventory(r.root, policy)).find((row) =>
+        row.path.endsWith('.rs'),
+      ),
+    ).toMatchObject({ governingRule: 'generated', status: 'ok' })
+  })
+  it('requires closed explicit Rust ownership and its derived Cargo output authority', () => {
+    const policy = ordinaryPolicy()
+    policy.extensions.push('.rs')
+    expect(() => validatePolicy(policy)).toThrow(/Rust client policy/)
+    for (const disposition of [
+      { root: 'undeclared/client', cargoOutput: 'undeclared/client/target' },
+      { root: 'packages/hvir-agent', cargoOutput: 'packages/hvir-agent/src' },
+      {
+        root: 'packages/hvir-agent',
+        cargoOutput: 'packages/hvir-agent/target',
+        exclusion: '**',
+      },
+    ]) {
+      expect(() => validatePolicy({ ...policy, rustClient: disposition })).toThrow()
+    }
+    policy.rustClient = {
+      root: 'packages/hvir-agent',
+      cargoOutput: 'packages/hvir-agent/target',
+    }
+    expect(validatePolicy(policy).rustClient).toEqual(policy.rustClient)
+    policy.extensions.pop()
+    expect(() => validatePolicy(policy)).toThrow(/requires .rs source coverage/)
+  })
   it('text and structured reports expose comfort, exceptions, and failures', () => {
     const policy = ordinaryPolicy()
     policy.budgets.push(budget('stricter', 100))

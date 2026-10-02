@@ -101,3 +101,19 @@ capability vocabulary and neither module gains runtime authority over the other.
 this relationship if a reference begins importing runtime behavior or either contract acquires
 concrete implementation dependencies. This rationale does not authorize another component or
 override any forbidden direction.
+
+## Rust client boundary
+
+[ADR-048](adr/ADR-048-rust-client-source-policy.md) governs Rust under the maintained client
+root `packages/hvir-agent/`. The source-budget inventory includes `.rs`; the module graph
+continues to analyze only TypeScript/JavaScript. Its cycle/direction gates remain blocking and
+provide no Rust import or Cargo dependency proof.
+
+The client imports no hvir process implementation. It uses the platform-owned public framing
+and capability contract while owning argument parsing and native client transport. D13 (#861)
+owns focused compilation, tests, locked Cargo dependency review, and protocol-boundary evidence.
+Those checks run for client source/manifest/lock/build-input changes and release builds. Review
+Cargo manifest/lock changes and module ownership at that focused boundary. Unrelated contributor
+checks and normal architecture policy verification require no Rust toolchain. Adding a new
+client capability owner or exceptional budget returns to the existing issue/policy alignment
+path rather than inferring approval from a green TypeScript/JavaScript graph.
