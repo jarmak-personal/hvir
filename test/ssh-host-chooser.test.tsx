@@ -96,7 +96,6 @@ async function mount(
   await settle(() =>
     root.render(
       <SessionDialog
-        hosts={initialHosts}
         sshConfiguration={wrapped}
         currentRoot={localPath('/project')}
         suspended={false}
@@ -161,6 +160,38 @@ async function submit() {
 }
 
 describe('SSH host chooser', () => {
+  it('waits for catalog metadata before enabling connection and retains it while refreshing', async () => {
+    const snapshot = deferred<readonly ProjectHostOption[]>()
+    const refresh = deferred<readonly ProjectHostOption[]>()
+    await mount({ snapshot: () => snapshot.promise, refresh: () => refresh.promise })
+    expect(container.querySelectorAll('[role="option"]')).toHaveLength(0)
+    expect(button('Connect').disabled).toBe(true)
+
+    await settle(() =>
+      snapshot.resolve([
+        local,
+        { ...remote('catalog-alias'), connectionState: 'connected' },
+      ]),
+    )
+    await settle(() =>
+      container.querySelectorAll<HTMLButtonElement>('[role="option"]')[1]!.click(),
+    )
+    expect(selected()).toContain('catalog-alias')
+    expect(button('Choose folder').disabled).toBe(false)
+    await settle(() => refresh.resolve([local, remote('catalog-alias')]))
+    expect(selected()).toContain('catalog-alias')
+    expect(button('Connect').disabled).toBe(false)
+  })
+
+  it('rejects a catalog snapshot delivered after dismissal', async () => {
+    const snapshot = deferred<readonly ProjectHostOption[]>()
+    const { port } = await mount({ snapshot: () => snapshot.promise })
+    await settle(() => root.render(null))
+    await settle(() => snapshot.resolve([local, remote('late')]))
+    expect(container.textContent).toBe('')
+    expect(port.refresh).not.toHaveBeenCalled()
+  })
+
   it('defaults to the local username and port, supports options, and cancels without writing', async () => {
     const { port, onCancel } = await mount()
     await fill()

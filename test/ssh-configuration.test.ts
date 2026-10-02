@@ -146,6 +146,48 @@ describe('local SSH configuration', () => {
     expect(await readFile(target, 'utf8')).toBe('Host protected\n')
   })
 
+  it('discovers symlinked configs at startup and refresh without granting save authority', async () => {
+    const { file, configuration, home } = await fixture('')
+    await rm(file)
+    const target = join(home, 'managed-config')
+    await writeFile(target, 'Host managed\n  HostName managed.example.test\n')
+    await symlink(target, file)
+    const catalog = await ProjectHostCatalog.create({
+      home,
+      trustFile: localPath(join(home, 'trust.json')),
+      agentSocket: '',
+      prompter: { prompt: () => Promise.resolve(undefined) },
+    })
+    cleanups.push(() => catalog.dispose())
+    expect(catalog.listHosts().map(({ hostId }) => hostId)).toEqual(['local', 'managed'])
+
+    const updated = 'Host managed external\n  HostName managed.example.test\n'
+    await writeFile(target, updated)
+    expect((await catalog.refreshHosts()).map(({ hostId }) => hostId)).toEqual([
+      'local',
+      'managed',
+      'external',
+    ])
+    await expect(configuration.save(request, () => undefined)).rejects.toThrow(
+      'regular file',
+    )
+    expect(await readFile(target, 'utf8')).toBe(updated)
+    expect((await configuration.refresh()).map(({ alias }) => alias)).toEqual([
+      'managed',
+      'external',
+    ])
+
+    await writeFile(target, '#'.repeat(256 * 1024 + 1))
+    await expect(catalog.refreshHosts()).rejects.toThrow('256 KiB')
+    await rm(target)
+    await expect(catalog.refreshHosts()).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(catalog.listHosts().map(({ hostId }) => hostId)).toEqual([
+      'local',
+      'managed',
+      'external',
+    ])
+  })
+
   it('serializes saves so only one request can claim an alias', async () => {
     const { configuration } = await fixture()
     const results = await Promise.allSettled([

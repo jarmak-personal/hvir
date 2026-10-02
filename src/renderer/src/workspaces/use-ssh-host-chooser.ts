@@ -11,28 +11,11 @@ const message = (reason: unknown): string =>
 /** Owns chooser requests and feedback; configuration and connection effects stay behind ports. */
 export function useSshHostChooser(
   port: SshHostChooserPort,
-  initialHosts: readonly ProjectHostOption[],
   initialHostId: string,
   active: boolean,
 ) {
-  const [hosts, setHosts] = useState<readonly ProjectHostOption[]>(
-    initialHosts.length
-      ? initialHosts
-      : [
-          {
-            hostId: 'local',
-            label: 'Local',
-            kind: 'local',
-            connectionState: 'connected',
-            watchTier: 'native',
-          },
-        ],
-  )
-  const [hostId, setHostId] = useState(
-    !initialHosts.length || initialHosts.some((host) => host.hostId === initialHostId)
-      ? initialHostId
-      : (initialHosts[0]?.hostId ?? 'local'),
-  )
+  const [hosts, setHosts] = useState<readonly ProjectHostOption[]>([])
+  const [hostId, setHostId] = useState(initialHostId)
   const [adding, setAdding] = useState(false)
   const [fields, setFields] = useState(emptyFields)
   const [busy, setBusy] = useState(false)

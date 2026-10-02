@@ -21,7 +21,6 @@ import { RemoteConnectionBadge } from './ConnectionStatus'
 import type { ProjectFolderPickerPort } from './project-folder-picker-client'
 
 export function SessionDialog({
-  hosts: initialHosts = [],
   sshConfiguration = sshConfigurationClient,
   currentRoot,
   suspended,
@@ -34,7 +33,6 @@ export function SessionDialog({
   onOpened,
 }: {
   readonly sshConfiguration?: SshHostChooserPort
-  readonly hosts?: readonly ProjectHostOption[]
   readonly currentRoot: HostPath
   readonly suspended: boolean
   readonly onCancel: () => void
@@ -51,7 +49,6 @@ export function SessionDialog({
   const [stage, setStage] = useState<'host' | 'folder'>('host')
   const chooser = useSshHostChooser(
     sshConfiguration,
-    initialHosts,
     currentRoot.hostId,
     stage === 'host',
   )

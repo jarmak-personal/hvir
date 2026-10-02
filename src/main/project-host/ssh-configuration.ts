@@ -26,7 +26,9 @@ export class SshConfiguration {
   }
 
   refresh(): Promise<readonly SshAliasConfig[]> {
-    return this.enqueue(async () => parseSshConfig((await this.read()).text, this.home))
+    return this.enqueue(async () =>
+      parseSshConfig((await this.read('discovery')).text, this.home),
+    )
   }
 
   save(
@@ -36,7 +38,7 @@ export class SshConfiguration {
     const fields = validateSshHostRequest(request)
     return this.enqueue(async () => {
       assertActive()
-      const snapshot = await this.read()
+      const snapshot = await this.read('save')
       const text = prependSshHost(snapshot.text, fields, this.home)
       if (Buffer.byteLength(text) > MAX_SSH_CONFIG_BYTES)
         throw new Error('SSH config is too large to add a host here')
@@ -52,7 +54,7 @@ export class SshConfiguration {
         )
           throw reason
       }
-      const current = await this.read()
+      const current = await this.read('save')
       if (current.text !== snapshot.text || current.mtimeMs !== snapshot.mtimeMs) {
         throw new Error(
           'SSH config changed while saving. Review your fields and try again',
@@ -110,22 +112,30 @@ export class SshConfiguration {
     return result
   }
 
-  private async read(): Promise<{ text: string; mtimeMs?: number }> {
+  private async read(
+    purpose: 'discovery' | 'save',
+  ): Promise<{ text: string; mtimeMs?: number }> {
+    let path = this.file
     let before
     try {
-      before = await this.local.stat(this.file)
+      before = await this.local.stat(path)
     } catch (reason) {
       if ((reason as NodeJS.ErrnoException).code === 'ENOENT') return { text: '' }
       throw reason
     }
+    // Resolve existing links outside the missing-config catch: broken links are refresh failures.
+    if (purpose === 'discovery' && before.type === 'symlink') {
+      path = await this.local.realpath(path)
+      before = await this.local.stat(path)
+    }
     if (before.type !== 'file')
       throw new Error('SSH config must be a regular file. Check ~/.ssh/config')
-    const prefix = await this.local.readTextFilePrefix(this.file, MAX_SSH_CONFIG_BYTES, {
+    const prefix = await this.local.readTextFilePrefix(path, MAX_SSH_CONFIG_BYTES, {
       signal: this.abort.signal,
     })
     if (!prefix.complete || !prefix.validUtf8)
       throw new Error('SSH config must be valid UTF-8 and at most 256 KiB')
-    const after = await this.local.stat(this.file)
+    const after = await this.local.stat(path)
     if (
       after.type !== 'file' ||
       before.mtimeMs !== after.mtimeMs ||

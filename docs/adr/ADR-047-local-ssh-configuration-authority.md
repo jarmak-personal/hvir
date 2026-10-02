@@ -20,8 +20,9 @@ All local reads and writes pass through host-qualified LocalHost operations. Rea
 Saving preserves existing text and puts the new exact host before wildcard defaults so its
 explicit connection fields take precedence. Current-file duplicate validation and optimistic
 version checks reject observed external changes; absent files are published without replacement.
-New SSH directories and config files use private permissions. Nonregular config entries are
-rejected rather than replaced. This authority does not expand general project-file editing.
+New SSH directories and config files use private permissions. Discovery follows symlinked configs;
+saves reject nonregular config entries rather than replacing them or their targets. This authority
+does not expand general project-file editing.
 
 ProjectHostCatalog retains discovery and logical-host lifetime ownership. Chooser activation
 and window focus request fresh discovery. Failed refresh retains the last usable list and
@@ -36,8 +37,9 @@ the chooser owns and cancels its temporary success-feedback timer.
 
 SSH config remains the durable source of truth. Existing host behavior and live resources
 survive refresh. Optimistic checks detect observed conflicts, without claiming an OS-level
-compare-and-swap against arbitrary external writers. Large or nonregular configurations require
-external maintenance. Discovery retains the existing parser's supported directive scope.
+compare-and-swap against arbitrary external writers. Large configurations require external
+maintenance; symlinked configurations remain discoverable but require external editing. Discovery
+retains the existing parser's supported directive scope.
 
 ## Rejected alternatives
 

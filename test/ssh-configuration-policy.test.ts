@@ -47,6 +47,51 @@ describe('SSH configuration policy', () => {
     ])
   })
 
+  it.each([
+    '# header comment\nHost old\n  User picard\n',
+    '\n# wildcard defaults\nHost *\n  User picard\nHost old\n',
+    '# match defaults\nMatch all\n  User picard\nHost old\n',
+    '# comments only\n\n',
+  ])(
+    'does not add empty wildcard sections to a config without global directives: %j',
+    (text) => {
+      const first = prependSshHost(text, request, '/home/test')
+      const second = prependSshHost(first, { ...request, alias: 'another' }, '/home/test')
+      expect(second.endsWith(text)).toBe(true)
+      expect(second.match(/^Host \*$/gm) ?? []).toEqual(text.match(/^Host \*$/gm) ?? [])
+      expect(
+        SSHConfig.parse(second).compute('old', { ignoreCase: true, matchExec: false }),
+      ).toEqual(
+        SSHConfig.parse(text).compute('old', { ignoreCase: true, matchExec: false }),
+      )
+    },
+  )
+
+  it('restores global directive scope once across repeated additions', () => {
+    const text = '# global defaults\nUser picard\nHost old\n  Port 2200\n'
+    const first = prependSshHost(text, request, '/home/test')
+    const second = prependSshHost(first, { ...request, alias: 'another' }, '/home/test')
+    expect(second.endsWith(text)).toBe(true)
+    expect(second.match(/^Host \*$/gm)).toHaveLength(1)
+    for (const alias of ['old', 'unnamed']) {
+      const before = SSHConfig.parse(text).compute(alias, {
+        ignoreCase: true,
+        matchExec: false,
+      })
+      const after = SSHConfig.parse(second).compute(alias, {
+        ignoreCase: true,
+        matchExec: false,
+      })
+      // The parser's Host metadata names the first matching section, not a setting.
+      delete before['host']
+      delete after['host']
+      expect(after).toEqual(before)
+    }
+    expect(
+      parseSshConfig(second, '/home/test').find(({ alias }) => alias === 'added'),
+    ).toEqual(parseSshConfig(first, '/home/test').find(({ alias }) => alias === 'added'))
+  })
+
   it('rejects duplicates from current multi-alias entries case insensitively', () => {
     expect(() =>
       prependSshHost('Host original Added\n  User picard\n', request, '/home/test'),

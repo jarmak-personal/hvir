@@ -1,4 +1,5 @@
 import { isAbsolute } from 'node:path'
+import SSHConfig from 'ssh-config'
 
 import type { AddSshHostRequest } from '../../shared/ssh-configuration'
 import { parseSshConfig } from './ssh-config'
@@ -77,5 +78,15 @@ export function prependSshHost(
       .replaceAll('"', '\\"')
     lines.push(`  IdentityFile "${quoted}"`)
   }
-  return lines.join(newline) + newline + newline + (text ? `Host *${newline}` + text : '')
+  // Only original global directives need their all-host scope restored after the new block.
+  const hasGlobalDirectives = SSHConfig.parse(text).some(
+    (line) => 'param' in line && Boolean(line.param) && !('config' in line),
+  )
+  return (
+    lines.join(newline) +
+    newline +
+    newline +
+    (hasGlobalDirectives ? `Host *${newline}` : '') +
+    text
+  )
 }
