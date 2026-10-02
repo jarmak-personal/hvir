@@ -74,7 +74,11 @@ export async function verifyExtensionConnectors(
     (entry) => entry.revision.manifest.id === 'hvir.connector-reference',
   )!
   await clickInInstallation('Open Extension reference')
-  await controls.click('Close settings')
+  // Normal viewer activation closes Settings itself; wait for the resulting placement.
+  await controls.wait(
+    () => dom("!document.querySelector('.settings-dialog')"),
+    'native viewer activation closes Settings',
+  )
   const owner = scopes.currentOwner(win.webContents.id)
   await controls.wait(
     () =>
@@ -166,16 +170,37 @@ export async function verifyExtensionConnectors(
   )) as string | undefined
   if (output !== 'connector evidence\n')
     throw new Error('Connector result was not displayed through ordinary public controls')
-  await controls.wait(
-    () =>
-      extensions
-        .contributions!.snapshot()
-        .find((entry) => entry.installationId === current.installationId)
-        ?.values.some(
-          (entry) => entry.item === 'pulse' && entry.label === 'Tool exit 0',
-        ) === true,
-    'approved updater observation without popup',
-  )
+  try {
+    await controls.wait(
+      () =>
+        extensions
+          .contributions!.snapshot()
+          .find((entry) => entry.installationId === current.installationId)
+          ?.values.some(
+            (entry) => entry.item === 'pulse' && entry.label === 'Tool exit 0',
+          ) === true,
+      'approved updater observation without popup',
+    )
+  } catch (error) {
+    console.log(
+      '[smoke] connector updater admission evidence',
+      JSON.stringify({
+        views: guests
+          .snapshot(owner)
+          .filter((entry) => entry.installationId === current.installationId)
+          .map((entry) => ({ role: entry.role, failed: !!entry.failure })),
+        values: extensions
+          .contributions!.snapshot()
+          .find((entry) => entry.installationId === current.installationId)
+          ?.values.map((entry) => ({
+            item: entry.item,
+            availability: entry.availability,
+            nativeCompleted: entry.label === 'Tool exit 0',
+          })),
+      }),
+    )
+    throw error
+  }
   if (
     guests
       .snapshot(owner)

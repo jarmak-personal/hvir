@@ -4,8 +4,10 @@ let serial = 0
 let context = { visible: false, sessions: [] }
 let nativePending = false
 let nativeAvailable = false
+let nextUpdate = 0
 function update() {
-  if (!context.visible) return
+  if (!context.visible || Date.now() < nextUpdate) return
+  nextUpdate = Date.now() + 1000
   if (nativeAvailable) {
     void updateNative()
     return
@@ -27,6 +29,7 @@ function update() {
 bridge.onMessage((message) => {
   if (message.kind === 'context') {
     context = message.context
+    // Publication also reconciles demand. The clock bounds feedback and permits renewal after freezing.
     update()
   }
 })
@@ -71,6 +74,11 @@ async function updateNative() {
     if (result.receipt)
       await request('connector.output', { receipt: result.receipt, release: true })
     if (!context.visible) return
+    if (
+      result.outcome === 'not-started' &&
+      ['frequency', 'capacity'].includes(result.reason)
+    )
+      return
     await request('contributions.publish', {
       item: 'pulse',
       label:

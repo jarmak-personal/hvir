@@ -138,6 +138,7 @@ export class ExtensionApplicationRuntime {
       joinHostPath(storage, 'state.json'),
       packages,
       (id) => {
+        this.connectors?.approvals.discardPrepared(id)
         this.connectors?.revoke(id)
         this.actions?.revokeInstallation(id)
         this.guests?.revokeInstallation(id)

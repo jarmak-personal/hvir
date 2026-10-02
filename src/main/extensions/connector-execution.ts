@@ -100,6 +100,7 @@ export class ExtensionConnectorExecutionOwner {
     if (hostId !== approval.host) return unavailable('unavailable')
     const host = this.approvals.hosts.hostById(approval.host)
     if (!host || host.connectionState !== 'connected') return unavailable('disconnected')
+    if (!host.finiteExec) return unavailable('unavailable')
     if (!this.consumerCapacity(caller.activation, approval.declaration.outputBytes))
       return unavailable('capacity')
     let context: AdmittedExtensionContext | undefined
@@ -166,6 +167,18 @@ export class ExtensionConnectorExecutionOwner {
     )
       return unavailable('capacity')
     const controller = new AbortController()
+    const task = host.finiteExec.tryExec(
+      approval.canonicalExecutable,
+      [...approval.configuration.args, ...args],
+      {
+        cwd,
+        env: { ...approval.configuration.env },
+        signal: controller.signal,
+        maxBuffer: approval.declaration.outputBytes,
+        allowTruncatedOutput: true,
+      },
+    )
+    if (!task) return unavailable('capacity')
     const execution: Execution = {
       activation: caller.activation,
       approval,
@@ -182,14 +195,7 @@ export class ExtensionConnectorExecutionOwner {
     if (source) this.sources.set(source, { started: Date.now(), execution })
     const result = this.join(execution, caller, workspace, context)
     // Dispatch is the conservative boundary: even a rejected exec can have native effects.
-    void host
-      .exec(approval.canonicalExecutable, [...approval.configuration.args, ...args], {
-        cwd,
-        env: { ...approval.configuration.env },
-        signal: controller.signal,
-        maxBuffer: approval.declaration.outputBytes,
-        allowTruncatedOutput: true,
-      })
+    void task
       .then(
         (value) => {
           const limit = approval.declaration.outputBytes
@@ -328,7 +334,6 @@ export class ExtensionConnectorExecutionOwner {
       if (!this.valid(receipt.consumer)) this.release(id)
   }
   revoke(installation: string, connector?: string): void {
-    this.approvals.discardPrepared(installation, connector)
     for (const admission of this.admissions)
       if (
         admission.caller.activation.installationId === installation &&

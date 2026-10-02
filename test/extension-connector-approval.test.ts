@@ -13,6 +13,151 @@ function fixture(context: 'application' | 'workspace' = 'application') {
   return value
 }
 describe('native connector approval', () => {
+  it.each(['writable', 'canonical'] as const)(
+    'cannot publish a prepared decision revoked during %s inspection',
+    async (boundary) => {
+      const f = fixture()
+      await f.approvals.start()
+      let resume!: () => void
+      const blocked = new Promise<void>((resolve) => {
+        resume = resolve
+      })
+      let entered!: () => void
+      const reached = new Promise<void>((resolve) => {
+        entered = resolve
+      })
+      if (boundary === 'writable')
+        f.authority.assertWritable.mockImplementationOnce(async () => {
+          entered()
+          await blocked
+        })
+      else
+        f.host.realpath.mockImplementationOnce(async (path) => {
+          entered()
+          await blocked
+          return path
+        })
+      const preparing = f.approvals.prepare(
+        {
+          installationId: 'installation',
+          connector: 'tool',
+          host: 'local',
+          executable: '/installed/tool',
+          configuration: { args: [], env: {} },
+        },
+        () => undefined,
+      )
+      const rejected = expect(preparing).rejects.toThrow()
+      await reached
+      const revoking = f.approvals.revoke('installation', 'tool')
+      resume()
+      await rejected
+      await revoking
+      expect(f.approvals.get(f.activation, 'tool')).toBeUndefined()
+      expect(f.state()).toEqual([])
+      expect(f.host.exec).not.toHaveBeenCalled()
+    },
+  )
+  it.each(['writable', 'canonical', 'save'] as const)(
+    'cannot restore a captured decision revoked during %s',
+    async (boundary) => {
+      const f = fixture()
+      await f.approvals.start()
+      const prepared = await f.approvals.prepare(
+        {
+          installationId: 'installation',
+          connector: 'tool',
+          host: 'local',
+          executable: '/installed/tool',
+          configuration: { args: [], env: {} },
+        },
+        () => undefined,
+      )
+      let resume!: () => void
+      const blocked = new Promise<void>((resolve) => {
+        resume = resolve
+      })
+      let entered!: () => void
+      const reached = new Promise<void>((resolve) => {
+        entered = resolve
+      })
+      if (boundary === 'writable')
+        f.authority.assertWritable.mockImplementationOnce(async () => {
+          entered()
+          await blocked
+        })
+      else if (boundary === 'canonical')
+        f.host.realpath.mockImplementationOnce(async (path) => {
+          entered()
+          await blocked
+          return path
+        })
+      else
+        f.write.mockImplementationOnce(async (_value, current) => {
+          entered()
+          await blocked
+          current()
+        })
+      const approving = f.approvals.approve(prepared.token)
+      const rejected = expect(approving).rejects.toThrow()
+      await reached
+      const revoking = f.approvals.revoke('installation', 'tool')
+      expect(f.approvals.get(f.activation, 'tool')).toBeUndefined()
+      resume()
+      await rejected
+      await revoking
+      expect(f.approvals.get(f.activation, 'tool')).toBeUndefined()
+      expect(f.state()).toEqual([])
+      expect(f.host.exec).not.toHaveBeenCalled()
+    },
+  )
+  it('does not restore another revoked connector from an in-flight approval snapshot', async () => {
+    const f = fixture()
+    await f.approve()
+    Object.assign(f.activation.revision.manifest, {
+      connectors: [
+        ...f.activation.revision.manifest.connectors!,
+        { ...f.activation.revision.manifest.connectors![0]!, id: 'other' },
+      ],
+    })
+    const prepared = await f.approvals.prepare(
+      {
+        installationId: 'installation',
+        connector: 'other',
+        host: 'local',
+        executable: '/installed/other',
+        configuration: { args: [], env: {} },
+      },
+      () => undefined,
+    )
+    let resume!: () => void
+    const blocked = new Promise<void>((resolve) => {
+      resume = resolve
+    })
+    let entered!: () => void
+    const reached = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    f.write.mockImplementationOnce(async (value, current) => {
+      entered()
+      await blocked
+      current()
+      f.setState(value)
+    })
+    const approving = f.approvals.approve(prepared.token)
+    await reached
+    const revoking = f.approvals.revoke('installation', 'tool')
+    resume()
+    await approving
+    expect(f.approvals.get(f.activation, 'tool')).toBeUndefined()
+    expect(await f.execution.execute(f.caller, f.input)).toMatchObject({
+      outcome: 'not-started',
+      reason: 'unapproved',
+    })
+    await revoking
+    expect(f.state()).toEqual([prepared.approval])
+    expect(f.host.exec).not.toHaveBeenCalled()
+  })
   it('cannot accept a prepared native decision after its trusted renderer origin ends', async () => {
     const f = fixture()
     await f.approvals.start()
@@ -134,6 +279,8 @@ describe('native connector approval', () => {
     await f.approvals.start()
     expect(f.approvals.status(f.activation)[0]!.availability).toBe('unavailable')
     expect(f.active.get('installation')).toBe(f.activation)
+    expect(f.approvals.forget('installation')).toBeUndefined()
+    expect(f.write).not.toHaveBeenCalled()
     await expect(
       f.approvals.prepare(
         {

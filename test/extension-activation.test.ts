@@ -2,10 +2,62 @@ import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { ExtensionPresentationState } from '../src/main/extensions/presentation-state'
+import { ExtensionConnectorApprovalOwner } from '../src/main/extensions/connector-approval'
+import { connectorFixture } from './fixtures/extension-connector'
 import { readInstallationState } from '../src/main/extensions/installation-state'
 import { extensionInstallationFixture as fixture } from './fixtures/extension-installation'
 
 describe('extension activation and state owner', () => {
+  it('forgets an independent installation without rewriting malformed native approval state', async () => {
+    const data = await fixture(),
+      native = connectorFixture()
+    const owner = data.make((id) => approvals.forget(id))
+    const approvals = new ExtensionConnectorApprovalOwner(
+      native.hosts,
+      owner,
+      () => undefined,
+    )
+    try {
+      await data.packageAt('a')
+      await data.packageAt('b', { id: 'other.reference' })
+      await owner.start(data.lock)
+      for (const source of ['a', 'b'])
+        await owner.enable(
+          source,
+          owner.snapshot().installations.find((entry) => entry.source === source)!
+            .revision!,
+        )
+      await fs.writeFile(join(data.root, 'connectors.json'), '{broken')
+      await fs.writeFile(join(data.root, 'domain-data.txt'), 'User domain data')
+      await approvals.start()
+      const selected = owner
+        .snapshot()
+        .installations.find((entry) => entry.source === 'a')!
+      await expect(
+        owner.remove('a', selected.sourceIdentity, true),
+      ).resolves.toBeDefined()
+      expect(owner.active.size).toBe(1)
+      expect(
+        owner.snapshot().installations.find((entry) => entry.source === 'b')!.enabled,
+      ).toBe(true)
+      expect(
+        readInstallationState(
+          JSON.parse(await fs.readFile(join(data.root, 'state.json'), 'utf8')),
+        ).installations.some((entry) => entry.installationId === selected.installationId),
+      ).toBe(false)
+      expect(await fs.readFile(join(data.root, 'connectors.json'), 'utf8')).toBe(
+        '{broken',
+      )
+      expect(await fs.readFile(join(data.root, 'domain-data.txt'), 'utf8')).toBe(
+        'User domain data',
+      )
+    } finally {
+      approvals.dispose()
+      native.dispose()
+      await owner.dispose()
+      await data.dispose()
+    }
+  })
   it.each(['truncated', 'oversized', 'invalid shape'] as const)(
     'keeps unrelated installations usable and forgettable with %s presentation cache',
     async (condition) => {

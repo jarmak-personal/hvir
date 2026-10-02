@@ -19,7 +19,7 @@ import type { ExtensionActivationOwner, ExtensionActivation } from './activation
 
 export type ConnectorHostPort = Pick<
   ProjectHost,
-  'hostId' | 'connectionState' | 'realpath' | 'stat' | 'exec' | 'connect'
+  'hostId' | 'connectionState' | 'realpath' | 'stat' | 'finiteExec' | 'connect'
 >
 
 export interface ConnectorHostCatalog {
@@ -34,16 +34,22 @@ interface PreparedApproval {
   readonly activation: ExtensionActivation
   readonly expires: number
   readonly current: () => void
+  readonly decision: ApprovalDecision
+}
+interface ApprovalDecision {
+  readonly installationId: string
+  readonly connector: string
+  readonly controller: AbortController
 }
 
 /** Durable native trust, separate from package/UI enablement and transport mechanics. */
 export class ExtensionConnectorApprovalOwner {
   private approvals: ExtensionConnectorApproval[] = []
   private readonly prepared = new Map<string, PreparedApproval>()
+  private readonly decisions = new Set<ApprovalDecision>()
   private pending: Promise<unknown> = Promise.resolve()
   private failure?: string
   private disposed = false
-  private preparing = 0
   constructor(
     readonly hosts: ConnectorHostCatalog,
     private readonly activations: Pick<
@@ -94,13 +100,20 @@ export class ExtensionConnectorApprovalOwner {
     selection: ExtensionConnectorSelection,
     current: () => void,
   ): Promise<{ token: string; approval: ExtensionConnectorApproval }> {
-    await this.assertWritable()
-    current()
     this.prune()
-    if (this.prepared.size + this.preparing >= 4)
+    if (this.decisions.size >= 4)
       throw new Error('Too many pending native approval decisions')
-    this.preparing++
+    const decision: ApprovalDecision = {
+      installationId: selection.installationId,
+      connector: selection.connector,
+      controller: new AbortController(),
+    }
+    this.decisions.add(decision)
+    let retained = false
     try {
+      await this.assertWritable()
+      decision.controller.signal.throwIfAborted()
+      current()
       const activation = this.activations.active.get(selection.installationId)
       const declaration = activation?.revision.manifest.connectors?.find(
         (entry) => entry.id === selection.connector,
@@ -120,6 +133,7 @@ export class ExtensionConnectorApprovalOwner {
       await host.connect()
       const canonicalExecutable = await canonicalExecutablePath(host, executable)
       await this.assertWritable()
+      decision.controller.signal.throwIfAborted()
       if (this.activations.active.get(selection.installationId) !== activation)
         throw new Error('Extension activation changed during native setup')
       const approval: ExtensionConnectorApproval = {
@@ -138,10 +152,12 @@ export class ExtensionConnectorApprovalOwner {
         activation,
         expires: Date.now() + 60_000,
         current,
+        decision,
       })
+      retained = true
       return { token, approval }
     } finally {
-      this.preparing--
+      if (!retained) this.decisions.delete(decision)
     }
   }
 
@@ -151,45 +167,49 @@ export class ExtensionConnectorApprovalOwner {
       const prepared = this.prepared.get(token)
       this.prepared.delete(token)
       if (!prepared) throw new Error('Inspect native access again before approving')
-      await this.assertWritable()
-      const { approval, activation } = prepared
-      const host = this.hosts.hostById(approval.host)
-      if (
-        !host ||
-        host.connectionState !== 'connected' ||
-        (await canonicalExecutablePath(host, approval.executable)) !==
-          approval.canonicalExecutable
-      )
-        throw new Error('Executable target changed; inspect it again')
-      const current = () => {
-        prepared.current()
+      try {
+        await this.assertWritable()
+        const { approval, activation } = prepared
+        const host = this.hosts.hostById(approval.host)
         if (
-          this.disposed ||
-          this.activations.active.get(activation.installationId) !== activation
+          !host ||
+          host.connectionState !== 'connected' ||
+          (await canonicalExecutablePath(host, approval.executable)) !==
+            approval.canonicalExecutable
         )
-          throw new Error('Native approval context ended')
+          throw new Error('Executable target changed; inspect it again')
+        const current = () => {
+          prepared.decision.controller.signal.throwIfAborted()
+          prepared.current()
+          if (
+            this.disposed ||
+            this.activations.active.get(activation.installationId) !== activation
+          )
+            throw new Error('Native approval context ended')
+        }
+        current()
+        this.revoked(approval.installationId, approval.connector)
+        this.approvals = this.approvals.filter((entry) => key(entry) !== key(approval))
+        const next = [
+          ...this.approvals.filter((entry) => key(entry) !== key(approval)),
+          approval,
+        ]
+        await this.activations.saveConnectorApprovals(next, current)
+        current()
+        // Apply only this decision's delta; other synchronous revocations win over a saved snapshot.
+        this.approvals = [
+          ...this.approvals.filter((entry) => key(entry) !== key(approval)),
+          approval,
+        ]
+      } finally {
+        this.decisions.delete(prepared.decision)
       }
-      current()
-      this.revoked(approval.installationId, approval.connector)
-      this.approvals = this.approvals.filter((entry) => key(entry) !== key(approval))
-      const next = [
-        ...this.approvals.filter((entry) => key(entry) !== key(approval)),
-        approval,
-      ]
-      await this.activations.saveConnectorApprovals(next, current)
-      current()
-      this.approvals = next
     })
   }
 
   revoke(installation: string, connector?: string): Promise<void> {
     this.revoked(installation, connector)
-    for (const [token, entry] of this.prepared)
-      if (
-        entry.approval.installationId === installation &&
-        (!connector || entry.approval.connector === connector)
-      )
-        this.prepared.delete(token)
+    this.discardPrepared(installation, connector)
     this.approvals = this.approvals.filter(
       (entry) =>
         entry.installationId !== installation ||
@@ -211,22 +231,29 @@ export class ExtensionConnectorApprovalOwner {
   }
 
   discardPrepared(installation: string, connector?: string): void {
+    for (const decision of this.decisions)
+      if (
+        decision.installationId === installation &&
+        (!connector || decision.connector === connector)
+      )
+        decision.controller.abort()
     for (const [token, entry] of this.prepared)
       if (
         entry.approval.installationId === installation &&
         (!connector || entry.approval.connector === connector)
-      )
+      ) {
         this.prepared.delete(token)
+        this.decisions.delete(entry.decision)
+      }
   }
 
-  forget(installation: string): readonly ExtensionConnectorApproval[] {
-    if (this.failure) throw new Error(this.failure)
+  forget(installation: string): readonly ExtensionConnectorApproval[] | undefined {
     this.revoked(installation)
+    this.discardPrepared(installation)
+    if (this.failure) return undefined
     this.approvals = this.approvals.filter(
       (entry) => entry.installationId !== installation,
     )
-    for (const [token, entry] of this.prepared)
-      if (entry.approval.installationId === installation) this.prepared.delete(token)
     return [...this.approvals]
   }
 
@@ -280,6 +307,7 @@ export class ExtensionConnectorApprovalOwner {
   }
   dispose(): void {
     this.disposed = true
+    for (const decision of this.decisions) decision.controller.abort()
     this.prepared.clear()
     this.approvals = []
   }
@@ -290,7 +318,11 @@ export class ExtensionConnectorApprovalOwner {
   }
   private prune(): void {
     for (const [id, entry] of this.prepared)
-      if (entry.expires <= Date.now()) this.prepared.delete(id)
+      if (entry.expires <= Date.now()) {
+        entry.decision.controller.abort()
+        this.decisions.delete(entry.decision)
+        this.prepared.delete(id)
+      }
   }
   private serialize<T>(operation: () => Promise<T>): Promise<T> {
     const task = this.pending.then(operation)

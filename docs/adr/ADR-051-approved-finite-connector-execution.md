@@ -45,7 +45,17 @@ replays on reconnect. Trusted setup may explicitly connect a configured SSH host
 guest status queries cannot trigger authentication or tool probes.
 
 At most four executions run per extension and sixteen application-wide, with no execution
-queue. A declaration chooses 1–180 seconds and 1 byte–4 MiB combined output. Capacity remains
+queue. ProjectHost offers separate immediate finite admission, limited to four commands per
+logical host across installations. SSH's existing transport capacity owner reserves these
+channels independently of the configurable ordinary buffered-exec slots; finite work never
+enters their queue. It reserves available established control-channel capacity immediately and
+refuses when unavailable, without queuing transport growth or authentication. Four finite
+channels leave room on a six-channel primary control transport
+for its SFTP session and an ordinary command, without claiming availability against preexisting
+ordinary saturation. No separate transport pool or authentication path is created. A refusal
+before dispatch reports not-started/capacity. Finite channel reservations and execution promises
+remain owned through actual close, even when cancellation has ended caller authority.
+A declaration chooses 1–180 seconds and 1 byte–4 MiB combined output. Capacity remains
 reserved until underlying transport work settles, even when the caller has been interrupted.
 The public owner clips actual returned bytes because transport limits can overshoot a chunk.
 Completed output is retrieved in bounded UTF-8 pages using caller-bound opaque receipts, at

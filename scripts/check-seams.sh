@@ -66,18 +66,18 @@ report "IPC features use central owner/path authority" "$hits"
 # consumers continue to depend on ProjectHost and host-qualified paths only.
 hits=$(grep -rnE "from ['\"]ssh2['\"]|import\(['\"]ssh2['\"]\)" \
   "$SRC" --include='*.ts' --include='*.tsx' --include='*.mts' \
-  | grep -vE '^src/main/project-host/ssh-(client-lifecycle|host|host-options|file-access|exclusive-create|project-file-transfer|abort|transport-pool|watch-service)\.ts' || true)
+  | grep -vE '^src/main/project-host/ssh-(client-lifecycle|host|host-options|file-access|exclusive-create|project-file-transfer|abort|transport-pool|watch-service|buffered-exec)\.ts' || true)
 report "ssh2 details stay inside the SshHost adapter" "$hits"
 
 # 9. Host-local collaborators share SshHost's authentication lifecycle. They
 # receive authenticated clients through narrow ports and never construct one.
 hits=$(grep -rnE '\bnew Client\(|clientFactory' \
-  src/main/project-host/ssh-{client-lifecycle,file-access,exclusive-create,project-file-transfer,transport-pool,watch-service}.ts || true)
+  src/main/project-host/ssh-{client-lifecycle,file-access,exclusive-create,project-file-transfer,transport-pool,watch-service,buffered-exec}.ts || true)
 report "SSH collaborators do not create independent clients" "$hits"
 
 # 10. The collaborators are private composition details, not parallel
 # ProjectHost façades exposed to consumers through the package barrel.
-hits=$(grep -nE 'Ssh(FileAccess|TransportPool|WatchService|AuthenticationLifecycle)|startSshAuthentication' \
+hits=$(grep -nE 'Ssh(FileAccess|TransportPool|WatchService|AuthenticationLifecycle)|startSshAuthentication|startBufferedSshExec|remoteCommand|quoteSshArgument' \
   src/main/project-host/index.ts || true)
 report "only SshHost is exported as the remote host façade" "$hits"
 

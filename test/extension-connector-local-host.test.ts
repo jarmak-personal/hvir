@@ -16,8 +16,8 @@ describe('connector execution through real local process mechanics', () => {
       const stat = await host.stat(path)
       return { ...stat, type: stat.type }
     })
-    fixture.host.exec.mockImplementation((command, args, options) =>
-      host.exec(command, args, options),
+    fixture.finiteExec.tryExec.mockImplementation((command, args, options) =>
+      host.finiteExec.tryExec(command, args, options)!,
     )
   })
   afterEach(async () => {

@@ -85,6 +85,22 @@ export function connectorFixture(
       }),
     ),
   }
+  const finiteExec = {
+    tryExec: vi.fn(
+      (
+        command: string,
+        args: readonly string[],
+        opts?: Parameters<ProjectHost['exec']>[2],
+      ) => host.exec(command, args, opts),
+    ),
+  }
+  const connectorHost = {
+    ...host,
+    finiteExec,
+    get connectionState() {
+      return host.connectionState
+    },
+  }
   const hosts: ConnectorHostCatalog = {
     local: { hostId: asHostId('local') },
     listHosts: () => [
@@ -96,10 +112,10 @@ export function connectorFixture(
         watchTier: 'polling',
       },
     ],
-    hostById: (id) => (id === host.hostId ? host : undefined),
+    hostById: (id) => (id === host.hostId ? connectorHost : undefined),
     materializeHost: (id) => {
       if (id !== host.hostId) throw new Error('Unknown host')
-      return Promise.resolve(host)
+      return Promise.resolve(connectorHost)
     },
     onHostStateChange: (listener) => {
       listeners.add(listener)
@@ -186,6 +202,7 @@ export function connectorFixture(
     active,
     host,
     hosts,
+    finiteExec,
     authority,
     approvals,
     execution,

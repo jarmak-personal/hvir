@@ -318,7 +318,11 @@ action lifetime, visible refresh demand or context ends. No page read extends an
 
 Declarations choose a deadline of 1–180 seconds and up to 4 MiB combined output. Canonical
 admission has a ten-second bound. At most four native executions run per extension and sixteen
-globally; hvir queues none. At most four output receipts per extension, sixteen globally and
+globally, with at most four finite commands per logical host across installations; hvir queues
+none. SSH finite channel reservations use the existing transport capacity owner independently
+of ordinary buffered-exec slots and remain charged through actual close. They leave room for
+ordinary work on the primary control transport without claiming availability against
+preexisting saturation. At most four output receipts per extension, sixteen globally and
 32 MiB including reserved execution output are admitted. A shared source has a one-second minimum
 refresh interval and the source table is bounded. Output capacity is reserved before dispatch.
 Canceled transports remain charged until they settle, even after the caller receives an uncertain

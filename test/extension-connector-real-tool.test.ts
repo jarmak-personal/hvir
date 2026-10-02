@@ -17,8 +17,8 @@ it.runIf(!!process.env['HVIR_CONNECTOR_SKILLAGER'])(
       fixture = connectorFixture('application', 4 * 1024 * 1024, root)
     fixture.host.realpath.mockImplementation((path) => host.realpath(path))
     fixture.host.stat.mockImplementation((path) => host.stat(path))
-    fixture.host.exec.mockImplementation((command, args, options) =>
-      host.exec(command, args, options),
+    fixture.finiteExec.tryExec.mockImplementation((command, args, options) =>
+      host.finiteExec.tryExec(command, args, options)!,
     )
     const env = {
       HOME: root,

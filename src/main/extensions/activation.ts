@@ -1,4 +1,5 @@
 import type { ExtensionConnectorApproval } from '../../shared/extensions/connectors'
+import { CONNECTOR_LIMITS } from '../../shared/extensions/connectors'
 import { randomUUID } from 'node:crypto'
 import {
   EXTENSION_LIMITS,
@@ -544,7 +545,7 @@ export class ExtensionActivationOwner {
       try {
         const data = await this.host.readTextFilePrefix(
           joinHostPath(this.stateFile, '..', 'connectors.json'),
-          256 * 1024,
+          CONNECTOR_LIMITS.stateBytes,
         )
         await this.assertWritable()
         if (!data.complete || data.validUtf8 === false)
@@ -571,7 +572,7 @@ export class ExtensionActivationOwner {
     await this.assertWritable()
     current()
     const content = JSON.stringify(value)
-    if (Buffer.byteLength(content) > 256 * 1024)
+    if (Buffer.byteLength(content) > CONNECTOR_LIMITS.stateBytes)
       throw new Error('Connector approval state exceeds its bound')
     await this.host.writeFile(
       joinHostPath(this.stateFile, '..', 'connectors.json'),
