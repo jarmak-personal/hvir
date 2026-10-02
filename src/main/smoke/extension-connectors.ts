@@ -156,15 +156,66 @@ export async function verifyExtensionConnectors(
     'native run control ready',
   )
   await guest.executeJavaScript("document.getElementById('native-run').click()")
-  await controls.wait(
-    async () =>
-      (
-        (await guest.executeJavaScript(
-          "document.getElementById('native-status')?.textContent",
-        )) as string | undefined
-      )?.includes('completed') === true,
-    'approved native public result',
-  )
+  try {
+    await controls.wait(
+      async () =>
+        (
+          (await guest.executeJavaScript(
+            "document.getElementById('native-status')?.textContent",
+          )) as string | undefined
+        )?.includes('completed') === true,
+      'approved native public result',
+    )
+  } catch (error) {
+    let sample: unknown
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      sample = await Promise.race([
+        guest.executeJavaScript(`(() => ({
+          status:document.getElementById('native-status')?.textContent?.slice(0,120),
+          disabled:document.getElementById('native-run')?.disabled,
+          deliveredContextVisible:typeof context==='undefined'?null:context?.visible,
+          requests:typeof requests==='undefined'?null:requests.size
+        }))()`),
+        new Promise((resolve) => {
+          timer = setTimeout(() => resolve({ deadline: true }), 1000)
+        }),
+      ])
+    } catch {
+      sample = { unavailable: true }
+    } finally {
+      clearTimeout(timer)
+    }
+    let markerBytes: number | null = null
+    try {
+      markerBytes = (await host.stat(marker)).size
+    } catch {
+      // Unavailable marker evidence must not replace the original checkpoint failure.
+    }
+    console.log(
+      '[smoke] connector public result evidence',
+      JSON.stringify({
+        sample,
+        markerBytes,
+        views: guests
+          .snapshot(owner)
+          .filter(
+            (entry) =>
+              entry.installationId === current.installationId &&
+              (entry.id === view.id || entry.role === 'updater'),
+          )
+          .slice(0, 2)
+          .map((entry) => ({
+            target: entry.id === view.id,
+            role: entry.role,
+            admittedContextVisible: entry.context?.visible,
+            failed: !!entry.failure,
+            failureKind: failureKind(entry.failure),
+          })),
+      }).slice(0, 1500),
+    )
+    throw error
+  }
   const output = (await guest.executeJavaScript(
     "document.getElementById('native-output')?.textContent",
   )) as string | undefined
@@ -191,21 +242,7 @@ export async function verifyExtensionConnectors(
           .map((entry) => ({
             role: entry.role,
             failed: !!entry.failure,
-            failureKind: !entry.failure
-              ? undefined
-              : entry.failure.startsWith(
-                    'Extension engine lifecycle control is unavailable.',
-                  )
-                ? 'lifecycle-unavailable'
-                : entry.failure.startsWith('Extension engine lifecycle control was lost.')
-                  ? 'lifecycle-lost'
-                  : entry.failure.startsWith('Extension isolated lifecycle observation')
-                    ? 'isolated-observer'
-                    : entry.failure.startsWith('This extension replaced its page.')
-                      ? 'document-replaced'
-                      : entry.failure.startsWith('Extension contract ')
-                        ? 'contract'
-                        : 'stopped',
+            failureKind: failureKind(entry.failure),
           })),
         values: extensions
           .contributions!.snapshot()
@@ -275,6 +312,19 @@ export async function verifyExtensionConnectors(
     '[smoke] native connector discovery/unapproved/probe denial, canonical Settings decision, public result, shared updater without popup and revocation OK',
   )
 
+  function failureKind(failure?: string): string | undefined {
+    if (!failure) return undefined
+    if (failure.startsWith('Extension engine lifecycle control is unavailable.'))
+      return 'lifecycle-unavailable'
+    if (failure.startsWith('Extension engine lifecycle control was lost.'))
+      return 'lifecycle-lost'
+    if (failure.startsWith('Extension isolated lifecycle observation'))
+      return 'isolated-observer'
+    if (failure.startsWith('This extension replaced its page.'))
+      return 'document-replaced'
+    if (failure.startsWith('Extension contract ')) return 'contract'
+    return 'stopped'
+  }
   async function exists(path: HostPath): Promise<boolean> {
     try {
       await host.stat(path)
