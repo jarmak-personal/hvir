@@ -425,8 +425,18 @@ export async function verifyExtensionContributions(
   )
     throw new Error('Settings action focus positive control failed')
   console.log('[smoke] Settings exact action target selected')
+  await actionFocus('before-invocation')
   await controls.click('Run Describe session')
   console.log('[smoke] Settings action control invoked')
+  await controls.wait(
+    () => guests.snapshot(renderer).some((view) => view.contributionId === 'detail'),
+    'named action detail admitted',
+  )
+  const detail = guests
+    .snapshot(renderer)
+    .find((view) => view.contributionId === 'detail')!
+  const detailGuest = await controls.guest(detail)
+  await actionFocus('native-attached', detailGuest)
   await controls.wait(
     () =>
       dom(
@@ -434,6 +444,7 @@ export async function verifyExtensionContributions(
       ),
     'ordinary Settings action',
   )
+  await actionFocus('completed', detailGuest)
   if (
     !(await dom(
       "document.activeElement?.getAttribute('aria-label') === 'Extension action context'",
@@ -447,10 +458,6 @@ export async function verifyExtensionContributions(
     ))
   )
     throw new Error('Named action stole Settings placement')
-  const detail = guests
-    .snapshot(renderer)
-    .find((view) => view.contributionId === 'detail')!
-  const detailGuest = await controls.guest(detail)
   console.log('[smoke] named action native guest attached')
   await controls.click('Close settings')
   await controls.wait(
@@ -620,6 +627,43 @@ export async function verifyExtensionContributions(
       .find((entry) => entry.installationId === installationId)
       ?.values.find((value) => value.item === 'pulse')
   }
+  async function actionFocus(phase: string, guest?: WebContents): Promise<void> {
+    console.log(
+      '[smoke] named action focus',
+      JSON.stringify({
+        phase,
+        window: win.isFocused(),
+        parent: (await win.webContents.executeJavaScript(`(() => {
+          const active = document.activeElement;
+          return {
+            focused: document.hasFocus(),
+            tag: active?.tagName,
+            context: active?.getAttribute('aria-label') === 'Extension action context',
+            dialog: active?.classList.contains('settings-dialog'),
+            heading: active?.id === 'settings-extensions-title',
+            terminal: !!active?.closest('.terminal-container'),
+            guest: active?.tagName === 'WEBVIEW'
+          };
+        })()`)) as {
+          focused: boolean
+          tag: string
+          context: boolean
+          dialog: boolean
+          heading: boolean
+          terminal: boolean
+          guest: boolean
+        },
+        ...(guest
+          ? {
+              guest: guest.isFocused(),
+              guestDocument: (await guest.executeJavaScript(
+                'document.hasFocus()',
+              )) as boolean,
+            }
+          : {}),
+      }),
+    )
+  }
   async function dom(expression: string): Promise<boolean> {
     try {
       return Boolean(await win.webContents.executeJavaScript(expression))
@@ -629,6 +673,10 @@ export async function verifyExtensionContributions(
   }
   async function settings(): Promise<void> {
     await controls.click('Open settings')
+    await controls.wait(
+      () => dom("document.activeElement?.classList.contains('settings-dialog')"),
+      'Settings initial focus completed',
+    )
     await controls.click('Extensions')
   }
   async function connected(guest: WebContents): Promise<void> {

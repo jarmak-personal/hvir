@@ -72,6 +72,20 @@ afterEach(() => {
 })
 
 describe('SettingsDialog section workflow', () => {
+  it('completes initial focus after controls mount, before consumers may assume their own focus is stable', () => {
+    renderDialog({ section: 'harnesses' })
+    const input = document.querySelector<HTMLInputElement>(
+      '[aria-label="Harness profile name"]',
+    )!
+    expect(input).toBeTruthy()
+    input.focus()
+    expect(document.activeElement).toBe(input)
+    flushFrames()
+    expect(document.activeElement).toBe(
+      document.querySelector('#settings-harnesses-title'),
+    )
+  })
+
   it('targets Harnesses without scroll alignment and preserves app drafts across sections', async () => {
     renderDialog({ section: 'harnesses' })
     flushFrames()
