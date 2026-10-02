@@ -3,6 +3,7 @@
 > Lifecycle: Partially superseded
 > Superseded by: [ADR-035](ADR-035-bounded-osc52-clipboard-write.md) | partial | Expiry and removal metadata requirement for the named terminal-runtime.ts 600-line non-growth cap.
 > Superseded by: [ADR-040](ADR-040-complete-source-budgets-and-dependency-policy.md) | partial | Architecture hotspot budgets paragraph: complete source budgets and extended dependency enforcement; authority/seam checks stay blocking.
+> Superseded by: [ADR-047](ADR-047-isolated-extension-package-and-capability-boundary.md) | partial | Excluding a plugin platform or additional isolation boundary; capability ownership, inward dependencies, lifecycle, styles, and test discipline remain unchanged.
 
 ## Context
 
