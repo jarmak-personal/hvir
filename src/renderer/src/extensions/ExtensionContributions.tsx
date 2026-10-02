@@ -324,41 +324,43 @@ export function ExtensionLeftRail({
   )
   return (
     <>
-      <nav className="rail-nav" aria-label="Extension project views">
-        {entries.map(({ extension, view }) => (
-          <button
-            key={`${extension.installationId}:${view.id}`}
-            type="button"
-            aria-current={
-              selected?.installationId === extension.installationId &&
-              selected.contributionId === view.id
-                ? 'page'
-                : undefined
-            }
-            onClick={() => {
-              if (model?.workspaceId)
-                void model
-                  .open(extension.installationId, view.id, {
-                    surface: 'left',
-                    workspaceId: model.workspaceId,
-                  })
-                  .then((view) => {
-                    if (view.context?.workspace?.id === modelRef.current?.workspaceId)
-                      setSelectedId(view.id)
-                    else modelRef.current?.close(view.id)
-                  })
-                  .catch(() => undefined)
-            }}
-          >
-            {view.title}
-          </button>
-        ))}
-        {selected ? (
-          <button type="button" onClick={() => setSelectedId(undefined)}>
-            Project views
-          </button>
-        ) : null}
-      </nav>
+      {entries.length || selected ? (
+        <nav className="rail-nav" aria-label="Extension project views">
+          {entries.map(({ extension, view }) => (
+            <button
+              key={`${extension.installationId}:${view.id}`}
+              type="button"
+              aria-current={
+                selected?.installationId === extension.installationId &&
+                selected.contributionId === view.id
+                  ? 'page'
+                  : undefined
+              }
+              onClick={() => {
+                if (model?.workspaceId)
+                  void model
+                    .open(extension.installationId, view.id, {
+                      surface: 'left',
+                      workspaceId: model.workspaceId,
+                    })
+                    .then((view) => {
+                      if (view.context?.workspace?.id === modelRef.current?.workspaceId)
+                        setSelectedId(view.id)
+                      else modelRef.current?.close(view.id)
+                    })
+                    .catch(() => undefined)
+              }}
+            >
+              {view.title}
+            </button>
+          ))}
+          {selected ? (
+            <button type="button" onClick={() => setSelectedId(undefined)}>
+              Project views
+            </button>
+          ) : null}
+        </nav>
+      ) : null}
       <div className="extension-rail-builtins" hidden={!!selected}>
         {children}
       </div>

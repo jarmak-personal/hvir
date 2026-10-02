@@ -52,6 +52,78 @@ const view: ExtensionView = {
 }
 
 describe('extension contribution placement and focus', () => {
+  it.each(['empty', 'top-only'] as const)(
+    'preserves builtin rail controls without an empty extension navigation strip for %s contributions',
+    async (contributions) => {
+      const manifest = validateExtensionManifest(
+        exampleManifest({
+          views: [{ ...exampleManifest().views[0]!, navigation: 'top' }],
+        }),
+      ).manifest
+      const invoke = vi.fn((channel: string) =>
+        Promise.resolve(
+          channel === 'extensions:contributions'
+            ? contributions === 'top-only'
+              ? [
+                  {
+                    installationId: 'one',
+                    extensionName: 'Example',
+                    manifest,
+                    values: [],
+                  },
+                ]
+              : []
+            : channel === 'extensions:context'
+              ? { terminalIds: {}, sessions: [] }
+              : undefined,
+        ),
+      )
+      vi.stubGlobal('hvir', { invoke, on: () => () => undefined, send: vi.fn() })
+      const element = document.createElement('div')
+      document.body.append(element)
+      const root = createRoot(element)
+      try {
+        await act(async () => {
+          root.render(
+            createElement(ExtensionContributionsProvider, {
+              workspaceId: 'workspace',
+              views: [],
+              topActive: false,
+              obscured: false,
+              onTop: vi.fn(),
+              onWorkspace: vi.fn(),
+              onError: vi.fn(),
+              children: createElement(ExtensionLeftRail, {
+                visible: true,
+                children: createElement(
+                  'nav',
+                  { className: 'rail-nav', 'aria-label': 'Project views' },
+                  createElement('button', null, 'Files'),
+                  createElement('button', null, 'Git'),
+                ),
+              }),
+            }),
+          )
+          await Promise.resolve()
+        })
+        expect(element.querySelector('[aria-label="Extension project views"]')).toBeNull()
+        expect(element.querySelectorAll('.rail-nav')).toHaveLength(1)
+        expect(
+          [...element.querySelectorAll('[aria-label="Project views"] button')].map(
+            (button) => button.textContent,
+          ),
+        ).toEqual(['Files', 'Git'])
+      } finally {
+        await act(async () => {
+          root.unmount()
+          await Promise.resolve()
+        })
+        element.remove()
+        vi.unstubAllGlobals()
+      }
+    },
+  )
+
   it.each(['workspace', 'manual-left', 'top'] as const)(
     'reports %s close rejection without retrying failed physical disposal',
     async (path) => {
