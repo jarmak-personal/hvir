@@ -130,7 +130,7 @@ export function TabStrip({
             onAuxClick={(event) => closeOnMiddleClick(event, () => requestClose(tab))}
           >
             <button
-              className="tab-main"
+              className="tab-main hvir-button"
               type="button"
               onClick={() => onActivate(tab.id)}
               onKeyDown={(event) => {
@@ -150,7 +150,7 @@ export function TabStrip({
               <span className="tab-name">{basenameHostPath(tab.path)}</span>
             </button>
             <button
-              className="tab-close"
+              className="tab-close hvir-button"
               type="button"
               aria-label={`Close ${basenameHostPath(tab.path)}`}
               onClick={() => requestClose(tab)}
@@ -168,7 +168,7 @@ export function TabStrip({
             onAuxClick={(event) => closeOnMiddleClick(event, onCloseGraph)}
           >
             <button
-              className="tab-main"
+              className="tab-main hvir-button"
               type="button"
               onClick={onActivateGraph}
               title="Repository history graph"
@@ -179,7 +179,7 @@ export function TabStrip({
               <span className="tab-name">Git history</span>
             </button>
             <button
-              className="tab-close"
+              className="tab-close hvir-button"
               type="button"
               aria-label="Close Git history"
               onClick={onCloseGraph}
@@ -200,7 +200,7 @@ export function TabStrip({
             }
           >
             <button
-              className="tab-main"
+              className="tab-main hvir-button"
               type="button"
               onClick={() => onActivateWeb?.(webTab.id)}
               title={webTab.title}
@@ -211,7 +211,7 @@ export function TabStrip({
               <span className="tab-name">{webTab.title}</span>
             </button>
             <button
-              className="tab-close"
+              className="tab-close hvir-button"
               type="button"
               aria-label={`Close ${webTab.title}`}
               onClick={() => onCloseWeb?.(webTab.id)}
@@ -228,7 +228,7 @@ export function TabStrip({
             aria-selected={view.id === activeContributionId}
           >
             <button
-              className="tab-main"
+              className="tab-main hvir-button"
               type="button"
               title={`${view.extensionName} · ${view.title}`}
               onClick={() => onActivateContribution?.(view.id)}
@@ -239,7 +239,7 @@ export function TabStrip({
               <span className="tab-name">{view.title}</span>
             </button>
             <button
-              className="tab-close"
+              className="tab-close hvir-button"
               type="button"
               aria-label={`Close ${view.title}`}
               onClick={() => onCloseContribution?.(view.id)}
@@ -257,7 +257,7 @@ export function TabStrip({
         <span className="tab-strip-spacer" />
         {pane === 'primary' && !split ? (
           <button
-            className="viewer-pane-action"
+            className="viewer-pane-action hvir-button"
             type="button"
             aria-label="Split viewer right"
             title="Split viewer right"
@@ -268,7 +268,7 @@ export function TabStrip({
         ) : null}
         {pane === 'secondary' && onClosePane ? (
           <button
-            className="viewer-pane-action"
+            className="viewer-pane-action hvir-button"
             type="button"
             aria-label="Close secondary viewer"
             title="Close secondary viewer"

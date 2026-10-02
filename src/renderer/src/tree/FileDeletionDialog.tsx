@@ -58,6 +58,7 @@ export function FileDeletionDialog({
                 value={confirmation}
                 disabled={controller.pending}
                 onChange={(event) => setConfirmation(event.currentTarget.value)}
+                className="hvir-input hvir-control"
               />
             </label>
           ) : null}
@@ -70,7 +71,7 @@ export function FileDeletionDialog({
         <div className="dialog-actions confirmation-dialog-actions">
           <button
             ref={cancelRef}
-            className="confirmation-action confirmation-action-cancel"
+            className="confirmation-action confirmation-action-cancel hvir-button hvir-control"
             type="button"
             disabled={controller.pending}
             onClick={() => controller.dismiss()}
@@ -79,7 +80,7 @@ export function FileDeletionDialog({
           </button>
           <button
             type="submit"
-            className="confirmation-action confirmation-action-destructive"
+            className="confirmation-action confirmation-action-destructive hvir-button hvir-control"
             disabled={controller.pending || (permanent && confirmation !== entryName)}
           >
             {controller.pending

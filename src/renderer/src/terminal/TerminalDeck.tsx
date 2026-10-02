@@ -155,7 +155,7 @@ export function TerminalDeck({
       {ready && sessions.length === 0 ? (
         <div className="terminal-empty">
           {available && onCreateDefault ? (
-            <button type="button" onClick={onCreateDefault}>
+            <button type="button" onClick={onCreateDefault} className="hvir-button">
               New terminal
             </button>
           ) : (

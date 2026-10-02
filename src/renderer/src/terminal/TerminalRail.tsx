@@ -158,19 +158,19 @@ export function TerminalRail({
   return (
     <aside
       ref={rail}
-      className="terminal-rail"
+      className="terminal-rail hvir-panel"
       aria-label={`Open terminals in ${label}`}
       data-terminal-theme={terminalTheme}
       data-diagnostic-capture="terminal"
       hidden={!visible}
     >
-      <header className="terminal-rail-header" hidden={compact}>
+      <header className="terminal-rail-header hvir-panel" hidden={compact}>
         <span>Terminals</span>
         <div className="terminal-header-actions">
           <ExtensionTerminalItems placement="header" active={surfaceActive} />
           <button
             type="button"
-            className="terminal-icon-button terminal-rail-collapse"
+            className="terminal-icon-button terminal-rail-collapse hvir-button hvir-panel"
             aria-label="Collapse terminal rail"
             title="Collapse terminal rail"
             onClick={() => applyCompact(true)}
@@ -182,7 +182,10 @@ export function TerminalRail({
           <div className="terminal-move-control">
             <button
               type="button"
-              className={`terminal-icon-button terminal-workspace-move-button${moveTargets.some((target) => target.newlyDiscovered) ? ' has-new-target' : ''}`}
+              className={
+                `terminal-icon-button terminal-workspace-move-button${moveTargets.some((target) => target.newlyDiscovered) ? ' has-new-target' : ''}` +
+                ' hvir-button'
+              }
               aria-label={
                 moveTargets.some((target) => target.newlyDiscovered)
                   ? 'Move terminal, new worktree available'
@@ -216,6 +219,7 @@ export function TerminalRail({
                     type="button"
                     role="menuitem"
                     onClick={() => onPlanMove(target)}
+                    className="hvir-button"
                   >
                     <span>
                       <strong>{target.name}</strong>
@@ -226,7 +230,12 @@ export function TerminalRail({
                 ))}
                 {moveTargets.some((target) => target.newlyDiscovered) ? (
                   <div className="terminal-move-menu-actions">
-                    <button type="button" role="menuitem" onClick={onDismissNewTargets}>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={onDismissNewTargets}
+                      className="hvir-button"
+                    >
                       Dismiss new-worktree indicator
                     </button>
                   </div>
@@ -236,7 +245,7 @@ export function TerminalRail({
           </div>
           <button
             type="button"
-            className="terminal-icon-button terminal-split-button"
+            className="terminal-icon-button terminal-split-button hvir-button"
             aria-label="Split terminal"
             title="Open a shell in the other terminal split"
             disabled={!recoveryReady || !available}
@@ -246,7 +255,7 @@ export function TerminalRail({
           </button>
           <button
             type="button"
-            className="terminal-icon-button terminal-settings-button"
+            className="terminal-icon-button terminal-settings-button hvir-button"
             aria-label="Open settings"
             title="Settings"
             onClick={onOpenSettings}
@@ -256,7 +265,7 @@ export function TerminalRail({
           <div className="terminal-new-control">
             <button
               type="button"
-              className="terminal-icon-button"
+              className="terminal-icon-button hvir-button"
               aria-label="New terminal"
               title="New terminal"
               aria-haspopup="menu"
@@ -293,6 +302,7 @@ export function TerminalRail({
                       data-harness-availability={state.availability}
                       title={launchMenuDescription(profile, provider, state)}
                       onClick={() => onAddSession(profile)}
+                      className="hvir-button"
                     >
                       <span>
                         <strong>{profile.displayName}</strong>
@@ -302,13 +312,28 @@ export function TerminalRail({
                   )
                 })}
                 <div className="terminal-new-menu-actions">
-                  <button type="button" role="menuitem" onClick={onAddHarness}>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={onAddHarness}
+                    className="hvir-button"
+                  >
                     Add a harness…
                   </button>
-                  <button type="button" role="menuitem" onClick={onRefreshProbes}>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={onRefreshProbes}
+                    className="hvir-button"
+                  >
                     Refresh availability
                   </button>
-                  <button type="button" role="menuitem" onClick={onOpenHarnessSettings}>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={onOpenHarnessSettings}
+                    className="hvir-button"
+                  >
                     Configure harnesses…
                   </button>
                 </div>
@@ -333,14 +358,17 @@ export function TerminalRail({
           return (
             <div
               key={session.id}
-              className={`terminal-list-row${session.id === activeId ? ' active' : ''}${session.dormant ? ' dormant' : ''}`}
+              className={
+                `terminal-list-row${session.id === activeId ? ' active' : ''}${session.dormant ? ' dormant' : ''}` +
+                ' hvir-row'
+              }
               data-terminal-dormant={session.dormant ? 'true' : undefined}
               role="listitem"
               onContextMenu={(event) => details.openFromPointer(event, session.id)}
             >
               <button
                 type="button"
-                className="terminal-list-main"
+                className="terminal-list-main hvir-button"
                 data-terminal-session={session.id}
                 onClick={() => onFocusSession(session.id)}
                 onKeyDown={(event) => details.openFromKeyboard(event, session.id)}
@@ -385,7 +413,7 @@ export function TerminalRail({
               {split ? (
                 <button
                   type="button"
-                  className="terminal-move-button"
+                  className="terminal-move-button hvir-button"
                   aria-label={`Move ${session.title} to ${session.pane === 'primary' ? 'right' : 'left'} split`}
                   title={`Move to ${session.pane === 'primary' ? 'right' : 'left'} split`}
                   onClick={() => onMoveSession(session.id)}
@@ -395,7 +423,7 @@ export function TerminalRail({
               ) : null}
               <button
                 type="button"
-                className="terminal-close-button"
+                className="terminal-close-button hvir-button"
                 aria-label={`Close ${session.title}`}
                 title="Close terminal"
                 onClick={() => onCloseSession(session.id)}

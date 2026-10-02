@@ -2,7 +2,7 @@
   position: relative;
   overflow: hidden;
   padding: 3px 2px;
-  background: #111318;
+  background: var(--surface-0);
 }
 
 .terminal-engine-host {
@@ -49,14 +49,14 @@
   padding: 0;
   border: 1px solid transparent;
   border-radius: 3px;
-  background: transparent;
+  background-color: transparent;
   color: var(--text-muted);
 }
 
 .terminal-semantic-navigation button:hover,
 .terminal-semantic-navigation button:focus-visible {
   border-color: var(--accent);
-  background: var(--accent-soft);
+  background-color: var(--accent-soft);
   color: var(--text-strong);
 }
 
@@ -81,7 +81,7 @@
 .terminal-recovery-status {
   max-width: 280px;
   overflow: hidden;
-  color: #aeb7c3;
+  color: var(--text-secondary);
   font-size: calc(9px * var(--hvir-interface-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -90,23 +90,23 @@
 .terminal-restart,
 .terminal-start-fresh {
   padding: 4px 8px;
-  border: 1px solid #3b4654;
+  border: 1px solid var(--border-strong);
   border-radius: 3px;
-  background: #191e25;
-  color: #aeb7c3;
+  background-color: var(--surface-raised);
+  color: var(--text-secondary);
   font-size: calc(9px * var(--hvir-interface-scale));
 }
 
 .terminal-start-fresh {
-  border-color: #3975b7;
-  background: #17304c;
-  color: #edf0f5;
+  border-color: var(--accent);
+  background-color: var(--accent-soft);
+  color: var(--text-strong);
 }
 
 .terminal-restart:hover,
 .terminal-start-fresh:hover {
-  border-color: #4d8fd8;
-  color: #edf0f5;
+  border-color: var(--accent);
+  color: var(--text-strong);
 }
 
 @media (max-width: 1000px) {

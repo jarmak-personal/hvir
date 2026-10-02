@@ -80,10 +80,10 @@
   display: grid;
   gap: 3px;
   padding: 9px 10px;
-  border: 0;
+  border-width: 0;
   border-bottom: 1px solid var(--border-subtle);
   border-radius: 0;
-  background: transparent;
+  background-color: transparent;
   color: var(--text);
   text-align: left;
 }
@@ -92,7 +92,7 @@
 .settings-profile-list button:hover,
 .settings-profile-list button:focus-visible {
   outline: none;
-  background: var(--accent-soft);
+  background-color: var(--accent-soft);
 }
 
 .settings-profile-list strong,

@@ -317,7 +317,7 @@ export function App(): ReactElement {
           />
         ) : null}
         <main
-          className={`workbench${connectionState === 'connected' ? '' : ' project-stale'}${terminalMode === 'maximized' ? ' terminal-focused' : ''}${terminalMode === 'collapsed' ? ' terminal-collapsed' : ''}${treeCollapsed ? ' tree-collapsed' : ''}${layout.terminalRailCompact ? ' terminal-rail-compact' : ''}${webViewFocused && webViewActive ? ' web-focused' : ''}`}
+          className={`workbench hvir-panel${connectionState === 'connected' ? '' : ' project-stale'}${terminalMode === 'maximized' ? ' terminal-focused' : ''}${terminalMode === 'collapsed' ? ' terminal-collapsed' : ''}${treeCollapsed ? ' tree-collapsed' : ''}${layout.terminalRailCompact ? ' terminal-rail-compact' : ''}${webViewFocused && webViewActive ? ' web-focused' : ''}`}
           ref={workbenchRef}
           hidden={destination !== 'workspace'}
         >
@@ -396,7 +396,7 @@ export function App(): ReactElement {
             action={
               <button
                 type="button"
-                className="tree-collapse-toggle"
+                className="tree-collapse-toggle hvir-button"
                 data-resizer-action
                 aria-label={
                   treeCollapsed ? 'Restore file explorer' : 'Collapse file explorer'

@@ -1,9 +1,19 @@
+import {
+  PRESENTATION_COLOR_DEFAULTS,
+  PRESENTATION_COLOR_TOKENS,
+  PRESENTATION_COLOR_PATTERN,
+} from '../../shared/presentation/tokens'
 import type {
   ExtensionConnectorExecutionOwner,
   ConnectorCaller,
 } from './connector-execution'
 import { CONNECTOR_LIMITS } from '../../shared/extensions/connectors'
-import { MAX_INTERFACE_FONT_STACK_LENGTH } from '../../shared/interface-typography'
+import {
+  MAX_INTERFACE_FONT_STACK_LENGTH,
+  MAX_MONOSPACE_FONT_STACK_LENGTH,
+  SYSTEM_INTERFACE_FONT_STACK,
+  SYSTEM_MONOSPACE_FONT_STACK,
+} from '../../shared/interface-typography'
 import { randomUUID } from 'node:crypto'
 import {
   EXTENSION_CAPABILITIES,
@@ -70,15 +80,10 @@ interface GuestRecord {
 
 export const DEFAULT_EXTENSION_PRESENTATION: ExtensionPresentation = {
   appearance: 'dark',
-  colors: {
-    background: '#0f1115',
-    surface: '#191c23',
-    text: '#e5e7eb',
-    muted: '#a3a8b8',
-    accent: '#7aa2f7',
-  },
-  fontFamily: 'system-ui',
-  fontSize: 13,
+  colors: PRESENTATION_COLOR_DEFAULTS,
+  fontFamily: SYSTEM_INTERFACE_FONT_STACK,
+  monospaceFontFamily: SYSTEM_MONOSPACE_FONT_STACK,
+  interfaceScale: 1,
   width: 0,
   height: 0,
 }
@@ -359,35 +364,37 @@ export class ExtensionGuestOwner {
     const colors = extensionObject(value.colors)
     const color = (key: keyof ExtensionPresentation['colors']): string => {
       const text = extensionText(colors[key], 'presentation color', 80)
-      if (!/^(#[a-f0-9]{3,8}|rgba?\([\d\s.,%]+\))$/iu.test(text))
+      if (!PRESENTATION_COLOR_PATTERN.test(text))
         throw new Error('Invalid presentation color')
       return text
     }
     if (value.appearance !== 'light' && value.appearance !== 'dark')
       throw new Error('Invalid appearance')
     if (
-      ![value.width, value.height, value.fontSize].every(
+      ![value.width, value.height].every(
         (number) => Number.isFinite(number) && number >= 0 && number <= 16_384,
       ) ||
-      value.fontSize < 8 ||
-      value.fontSize > 48
+      !Number.isFinite(value.interfaceScale) ||
+      value.interfaceScale < 0.8 ||
+      value.interfaceScale > 1.5
     )
       throw new Error('Invalid view presentation size')
     record.presentation = {
       appearance: value.appearance,
-      colors: {
-        background: color('background'),
-        surface: color('surface'),
-        text: color('text'),
-        muted: color('muted'),
-        accent: color('accent'),
-      },
+      colors: Object.fromEntries(
+        PRESENTATION_COLOR_TOKENS.map((token) => [token, color(token)]),
+      ) as ExtensionPresentation['colors'],
+      monospaceFontFamily: extensionText(
+        value.monospaceFontFamily,
+        'monospace font',
+        MAX_MONOSPACE_FONT_STACK_LENGTH,
+      ),
+      interfaceScale: value.interfaceScale,
       fontFamily: extensionText(
         value.fontFamily,
         'interface font',
         MAX_INTERFACE_FONT_STACK_LENGTH,
       ),
-      fontSize: value.fontSize,
       width: value.width,
       height: value.height,
     }
@@ -629,14 +636,12 @@ export class ExtensionGuestOwner {
               (!workspace || workspace === record.context?.value.workspace?.id),
       }
       if (capability === 'connector.status')
-        return this.connectors.approvals
-          .status(record.activation)
-          .map((entry) => ({
-            connector: entry.connector,
-            availability: entry.availability,
-            ...(entry.host ? { host: entry.host } : {}),
-            ...(entry.explanation ? { explanation: entry.explanation } : {}),
-          }))
+        return this.connectors.approvals.status(record.activation).map((entry) => ({
+          connector: entry.connector,
+          availability: entry.availability,
+          ...(entry.host ? { host: entry.host } : {}),
+          ...(entry.explanation ? { explanation: entry.explanation } : {}),
+        }))
       if (capability === 'connector.output') return this.connectors.output(caller, input)
       return this.connectors.execute(caller, input)
     }

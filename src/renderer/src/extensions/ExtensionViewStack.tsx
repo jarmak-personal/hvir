@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactElement, type ComponentType } from 'react'
 import type { ExtensionView } from '../../../shared/extensions/workbench'
-import type { ExtensionPresentation } from '../../../shared/extensions/contract'
+import { createExtensionPresentationReader } from './extension-presentation'
 import { useExtensionContributions } from './extension-contribution-context'
 import { useAppTheme } from '../theme'
 import { useAppSettings } from '../settings/settings'
@@ -55,26 +55,12 @@ export function ExtensionViewPane({
   const theme = useAppTheme()
   const settings = useAppSettings()
   useEffect(() => {
+    let disposed = false
+    const readPresentation = createExtensionPresentationReader()
     const publish = (): void => {
       const element = root.current
-      if (!element) return
-      const style = getComputedStyle(document.documentElement)
-      const rect = element.getBoundingClientRect()
-      const color = (token: string): string => style.getPropertyValue(token).trim()
-      const presentation: ExtensionPresentation = {
-        appearance: theme,
-        colors: {
-          background: color('--app-bg'),
-          surface: color('--surface-1'),
-          text: color('--text'),
-          muted: color('--text-muted'),
-          accent: color('--accent'),
-        },
-        fontFamily: color('--hvir-interface-font') || 'system-ui',
-        fontSize: 13 * settings.interfaceScale,
-        width: Math.round(rect.width),
-        height: Math.round(rect.height),
-      }
+      if (disposed || !element) return
+      const presentation = readPresentation(theme, settings.interfaceScale, element)
       window.hvir.send('extensions:presentation', {
         viewId: view.id,
         presentation,
@@ -85,7 +71,10 @@ export function ExtensionViewPane({
     publish()
     const observer = new ResizeObserver(publish)
     if (root.current) observer.observe(root.current)
-    return () => observer.disconnect()
+    return () => {
+      disposed = true
+      observer.disconnect()
+    }
   }, [
     view.id,
     visible,
@@ -93,10 +82,11 @@ export function ExtensionViewPane({
     theme,
     settings.interfaceScale,
     settings.interfaceFont,
+    settings.monospaceFont,
   ])
   return (
     <div
-      className="extension-view workspace-view"
+      className="extension-view workspace-view hvir-panel"
       ref={root}
       hidden={!visible}
       data-extension-view={view.id}
@@ -105,7 +95,12 @@ export function ExtensionViewPane({
         <span>
           {view.extensionName} · {view.title}
         </span>
-        <button type="button" onClick={onClose} aria-label={`Close ${view.title}`}>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label={`Close ${view.title}`}
+          className="hvir-button"
+        >
           Close
         </button>
       </div>

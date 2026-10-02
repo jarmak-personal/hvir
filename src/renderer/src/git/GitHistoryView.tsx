@@ -48,25 +48,23 @@ interface GitHistoryViewProps {
 }
 
 export function GitHistoryView(props: GitHistoryViewProps): ReactElement {
-  const {
-    commits,
-    error,
-    initialLoading,
-    repositoryState,
-    onOpenGraph,
-  } = props
+  const { commits, error, initialLoading, repositoryState, onOpenGraph } = props
   return (
     <div className="git-history">
-      <button type="button" className="git-open-graph" onClick={() => onOpenGraph()}>
+      <button
+        type="button"
+        className="git-open-graph hvir-button"
+        onClick={() => onOpenGraph()}
+      >
         Open full graph <span aria-hidden="true">→</span>
       </button>
       {error ? <div className="tree-error">History unavailable: {error}</div> : null}
       {initialLoading ? (
-        <div className="git-empty">Loading history…</div>
+        <div className="git-empty hvir-state">Loading history…</div>
       ) : !error && repositoryState === 'not-git' ? (
-        <div className="git-empty">Not a Git repository</div>
+        <div className="git-empty hvir-state">Not a Git repository</div>
       ) : !error && commits.length === 0 ? (
-        <div className="git-empty">
+        <div className="git-empty hvir-state">
           {repositoryState === 'unborn' ? 'No commits yet' : 'No history'}
         </div>
       ) : null}
@@ -287,7 +285,7 @@ function HistoryCommitList({
               >
                 <button
                   type="button"
-                  className="git-rail-commit"
+                  className="git-rail-commit hvir-button"
                   aria-expanded={isExpanded}
                   title={commit.subject || '(no subject)'}
                   style={{ gridTemplateColumns: `${graphWidth}px minmax(0, 1fr)` }}
@@ -325,7 +323,7 @@ function HistoryCommitList({
                 </button>
                 <button
                   type="button"
-                  className="git-rail-open-full"
+                  className="git-rail-open-full hvir-button"
                   aria-label={`Open ${commit.shortHash} in full history`}
                   title="Open in full history"
                   onClick={() => onOpenGraph(commit.hash)}
@@ -358,7 +356,11 @@ function HistoryCommitList({
         })}
       </div>
       {hasMore ? (
-        <button type="button" className="git-load-more" onClick={onLoadMore}>
+        <button
+          type="button"
+          className="git-load-more hvir-button hvir-control"
+          onClick={onLoadMore}
+        >
           Load more
         </button>
       ) : null}
@@ -399,7 +401,7 @@ function RailHistoryChild({
     return (
       <button
         type="button"
-        className="git-rail-history-tree directory"
+        className="git-rail-history-tree directory hvir-button"
         aria-expanded={entry.expanded}
         style={{ paddingLeft: 4 + entry.depth * 12 }}
         onClick={() => onToggleDirectory(item.commitHash, entry.path)}
@@ -412,7 +414,7 @@ function RailHistoryChild({
   return (
     <button
       type="button"
-      className="git-rail-history-tree file"
+      className="git-rail-history-tree file hvir-button"
       title={entry.file.path.path}
       style={{ paddingLeft: 16 + entry.depth * 12 }}
       onClick={() => onOpenFile(entry.file.path, item.commitHash)}

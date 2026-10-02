@@ -152,7 +152,7 @@ export function WorkbenchViewer({
         onCloseContribution={extensions.close}
       />
       {graphPane && gitGraphOpen ? (
-        <div className="workspace-view" hidden={!gitGraphActive}>
+        <div className="workspace-view hvir-panel" hidden={!gitGraphActive}>
           <GitGraphView
             root={root}
             refreshVersion={gitVersion}
@@ -186,7 +186,7 @@ export function WorkbenchViewer({
         />
       ) : null}
       <div
-        className="workspace-view"
+        className="workspace-view hvir-panel"
         hidden={
           (graphPane && gitGraphActive) ||
           (pane === 'primary' && (webViewActive || extensions.active))
@@ -222,7 +222,7 @@ export function WorkbenchViewer({
     </section>
   )
   return (
-    <section className="viewer-panel" aria-label="File viewer">
+    <section className="viewer-panel hvir-panel" aria-label="File viewer">
       <div
         className={`viewer-groups${viewerSplit ? ' split' : ''}`}
         ref={viewerGroupsRef}

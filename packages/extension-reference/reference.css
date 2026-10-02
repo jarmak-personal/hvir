@@ -1,42 +1,14 @@
-:root {
-  color-scheme: dark light;
-}
-body {
-  margin: 0;
-  background: var(--extension-background, #0f1115);
-  color: var(--extension-text, #e5e7eb);
-  font-family: var(--extension-font, system-ui);
-  font-size: var(--extension-font-size, 13px);
-}
+/* Reference-specific content extent; controls and presentation come from the shared kit. */
 main {
   max-width: 48rem;
   margin: 0 auto;
-  padding: clamp(16px, 5vw, 40px);
 }
 h1 {
-  font-size: 2rem;
+  font-size: 2em;
   line-height: 1.2;
 }
-p {
-  line-height: 1.65;
-}
-.eyebrow,
-#status {
-  color: var(--extension-muted, #a3a8b8);
-}
-button {
-  font: inherit;
-  color: var(--extension-text, #e5e7eb);
-  background: var(--extension-surface, #191c23);
-  border: 1px solid var(--extension-accent, #7aa2f7);
-  border-radius: 6px;
-  padding: 8px 12px;
-  cursor: pointer;
-}
-button:focus-visible {
-  outline: 2px solid var(--extension-accent, #7aa2f7);
-  outline-offset: 3px;
-}
-button:disabled {
-  opacity: 0.5;
+#native-output {
+  font-family: var(--hvir-monospace-font);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }

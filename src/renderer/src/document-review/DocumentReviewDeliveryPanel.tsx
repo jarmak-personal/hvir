@@ -13,7 +13,7 @@ export function DocumentReviewDeliveryPanel({
     <section className="document-review-delivery" aria-label="Review handoff preview">
       <header>
         <strong>Review and send</strong>
-        <button type="button" onClick={delivery.close}>
+        <button type="button" onClick={delivery.close} className="hvir-button">
           Close preview
         </button>
       </header>
@@ -24,6 +24,7 @@ export function DocumentReviewDeliveryPanel({
           value={delivery.selectedTerminalId ?? ''}
           disabled={delivery.loading || delivery.destinations.length === 0}
           onChange={(event) => delivery.selectDestination(event.currentTarget.value)}
+          className="hvir-input"
         >
           <option value="">Choose a live terminal…</option>
           {delivery.destinations.map((destination) => (
@@ -84,7 +85,12 @@ export function DocumentReviewDeliveryPanel({
             Exact UTF-8 body · {delivery.payload.byteLength.toLocaleString()} bytes
           </p>
           <div className="document-review-delivery-actions">
-            <button type="button" disabled={delivery.loading} onClick={delivery.copy}>
+            <button
+              type="button"
+              disabled={delivery.loading}
+              onClick={delivery.copy}
+              className="hvir-button"
+            >
               {delivery.copied ? 'Copied' : 'Copy review'}
             </button>
             <button
@@ -103,6 +109,7 @@ export function DocumentReviewDeliveryPanel({
                     : 'Choose an Insert-supported terminal'
               }
               onClick={delivery.insert}
+              className="hvir-button"
             >
               {delivery.inserted ? 'Inserted' : 'Insert review'}
             </button>
@@ -120,6 +127,7 @@ export function DocumentReviewDeliveryPanel({
                   : 'This provider/launch has no proven submission contract'
               }
               onClick={delivery.sendNow}
+              className="hvir-button"
             >
               {delivery.sent ? 'Sent' : 'Send review now'}
             </button>

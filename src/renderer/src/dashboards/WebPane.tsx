@@ -90,6 +90,7 @@ export function WebPane({
           aria-label="Back"
           title="Back"
           onClick={() => surfaceRef.current?.back()}
+          className="hvir-button"
         >
           ←
         </button>
@@ -98,6 +99,7 @@ export function WebPane({
           aria-label="Forward"
           title="Forward"
           onClick={() => surfaceRef.current?.forward()}
+          className="hvir-button"
         >
           →
         </button>
@@ -124,6 +126,7 @@ export function WebPane({
             }}
             onChange={(event) => setPathInput(event.target.value)}
             placeholder="/"
+            className="hvir-input"
           />
         </form>
         <button
@@ -131,6 +134,7 @@ export function WebPane({
           aria-label={`Reload ${view.title}`}
           title="Reload"
           onClick={() => surfaceRef.current?.reload()}
+          className="hvir-button"
         >
           ⟳
         </button>
@@ -139,6 +143,7 @@ export function WebPane({
           aria-label="Reveal source terminal"
           title="Back to terminal"
           onClick={onRevealTerminal}
+          className="hvir-button"
         >
           &gt;_
         </button>
@@ -148,6 +153,7 @@ export function WebPane({
           aria-pressed={diagnosticsOpen}
           title="Diagnostics"
           onClick={() => setDiagnosticsOpen((open) => !open)}
+          className="hvir-button"
         >
           {diagnostics.length > 0 ? `!${diagnostics.length}` : 'ⓘ'}
         </button>
@@ -161,6 +167,7 @@ export function WebPane({
           aria-pressed={focused}
           title={focused ? 'Restore workbench' : 'Full page'}
           onClick={onToggleFocus}
+          className="hvir-button"
         >
           {focused ? '⇲' : '⛶'}
         </button>
@@ -174,6 +181,7 @@ export function WebPane({
           }
           disabled={!browserHandoffAvailable}
           onClick={() => onOpenBrowser(currentUrl)}
+          className="hvir-button"
         >
           ↗
         </button>
@@ -188,6 +196,7 @@ export function WebPane({
           <button
             type="button"
             onClick={() => onBlockedNavigation(view.blockedNavigation!)}
+            className="hvir-button"
           >
             {view.blockedNavigation.kind === 'external'
               ? 'Open in system browser'
@@ -207,6 +216,7 @@ export function WebPane({
                   webPaneDiagnosticReport(view, diagnostics),
                 )
               }
+              className="hvir-button"
             >
               Copy report
             </button>

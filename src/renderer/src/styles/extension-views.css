@@ -18,7 +18,7 @@
 }
 .extension-view-heading button {
   color: var(--text);
-  background: var(--surface-1);
+  background-color: var(--surface-1);
   border: 1px solid var(--border-strong);
   border-radius: 4px;
   padding: 4px 8px;

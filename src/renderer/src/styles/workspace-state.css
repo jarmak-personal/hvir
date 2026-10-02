@@ -8,8 +8,8 @@
   overflow: hidden;
   padding: 0 6px 0 4px;
   border-radius: 8px;
-  background: #252c36;
-  color: #8fa6c2;
+  background: var(--surface-hover);
+  color: var(--accent-text);
   font-size: calc(8px * var(--hvir-interface-scale));
   font-weight: 600;
   line-height: 1;
@@ -18,7 +18,7 @@
 .remote-connection-mark {
   width: 10px;
   flex: 0 0 10px;
-  color: #75bd84;
+  color: var(--success-text);
   font-size: calc(9px * var(--hvir-interface-scale));
   font-weight: 800;
   text-align: center;
@@ -32,15 +32,15 @@
 
 .remote-connection-badge.connecting .remote-connection-mark,
 .remote-connection-badge.reconnecting .remote-connection-mark {
-  color: #d4a85f;
+  color: var(--warning-text);
 }
 
 .remote-connection-badge.failed .remote-connection-mark {
-  color: #df7b83;
+  color: var(--danger-text);
 }
 
 .remote-connection-badge.disconnected .remote-connection-mark {
-  color: #8993a0;
+  color: var(--text-muted);
 }
 
 .session-host-option .remote-connection-badge {
@@ -54,10 +54,10 @@
   right: 12px;
   bottom: 12px;
   padding: 5px 8px;
-  border: 1px solid #6e4e2e;
+  border: 1px solid var(--warning-border);
   border-radius: 4px;
-  background: #211b15;
-  color: #d4a85f;
+  background: var(--panel-surface);
+  color: var(--warning-text);
   font-size: calc(10px * var(--hvir-interface-scale));
   pointer-events: none;
 }

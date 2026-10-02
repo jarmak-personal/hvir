@@ -38,6 +38,7 @@ export function AppearanceSettings({
             id="settings-app-theme"
             value={draft.theme}
             onChange={(event) => onChange('theme', event.currentTarget.value as AppTheme)}
+            className="hvir-input"
           >
             <option value="dark">Dark</option>
             <option value="light">Light</option>
@@ -54,6 +55,7 @@ export function AppearanceSettings({
                 event.currentTarget.value as SettingsDraft['terminalTheme'],
               )
             }
+            className="hvir-input"
           >
             <option value="app">Follow app theme</option>
             <option value="dark">Always dark</option>
@@ -99,6 +101,7 @@ export function AppearanceSettings({
               step="0.05"
               value={draft.interfaceScale}
               onChange={(event) => onChange('interfaceScale', event.currentTarget.value)}
+              className="hvir-input"
             />
             <output htmlFor="settings-interface-scale">
               {Math.round(interfacePreviewScale * 100)}%
@@ -118,6 +121,7 @@ export function AppearanceSettings({
               onChange={(event) =>
                 onChange('terminalTextSize', event.currentTarget.value)
               }
+              className="hvir-input"
             />
             <output htmlFor="settings-terminal-text-size">
               {Number.isFinite(previewTerminalTextSize)

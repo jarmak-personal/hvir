@@ -101,9 +101,12 @@ unique `id`, a `capability`, and optional `input`. Results retain that `id`, con
 to cancel pending work. Revocation rejects late completion; canceled work publishes no
 new authority.
 
-`presentation.read` returns appearance, semantic colors (`background`, `surface`,
-`text`, `muted`, `accent`), interface font and pixel size, and available width/height.
-`kind: 'presentation'` updates these values when appearance or geometry changes.
+`presentation.read` returns appearance, the closed semantic CSS color vocabulary,
+interface and monospace font stacks, interface scale, and available
+width/height. `kind: 'presentation'` updates these values when theme, typography, or
+geometry changes. Colors are resolved bounded browser color values; they convey no
+host authority. The workbench keeps theme and typography preferences in Settings.
+
 `viewer.open-own` takes `{ contributionId: 'detail' }` and opens only the caller's
 declared contribution. hvir selects and identifies the tab. Guest identity, approval,
 host, or URL fields cannot manufacture permission. Hidden views cannot request refresh
@@ -136,6 +139,38 @@ DevTools target identity must resolve to that exact guest before each command.
 No debugger API or remote debugging endpoint is exposed. This engine lifecycle
 choice provides actual timer suspension independently of guest cooperation.
 hvir owns reserved close shortcuts and guest disposal.
+
+### Optional offline UI kit
+
+The reference package includes `presentation.css`, `tokens.css`, `primitives.css`, and
+`guest-ui.js`. Copy these ready-to-use files into a package, link `presentation.css`,
+and load `guest-ui.js` before the consumer script. They require no framework, build,
+network, or font service. Repository maintainers refresh package copies with
+`npm run extension:ui -- /absolute/package-directory`; authors can use the shipped
+copies directly. Copying does not modify the shared source tree. Contributors regenerate
+`tokens.css` separately with `npm run extension:ui:tokens` after canonical token edits.
+Activation captures their exact bytes with the rest of the package.
+
+Use `hvir-guest` on the body and call
+`const dispose = window.hvirUI.bindPresentation(window.hvirExtension)` once.
+Call `dispose()` on page teardown or revocation. The binding owns one public-bridge
+subscription and ignores late messages after disposal. The reference consumes the same
+shared controls, fields, rows, panels, metadata, status, focus, and scrolling rules as
+the built-in UI. Feature layout stays with the consumer.
+
+The supported examples are a searchable list/detail view and a simple clock. Use a
+labeled `hvir-field`, `hvir-list-detail`, a labeled listbox, and direct child buttons
+with `role="option"`, `hvir-row hvir-button hvir-focus`, and
+`data-variant="selectable"`. `window.hvirUI.bindList(list, onSelect)` owns ordinary
+click and Arrow/Home/End handlers; call `refresh()` after replacing rows and
+`dispose()` before releasing the view. It skips disabled and hidden rows and never
+sends host requests. A clock can use `hvir-panel`, `hvir-content`, and `hvir-meta`
+with the existing visibility/timer lifecycle described above.
+
+Controls use ordinary guest DOM events. Host actions explicitly use the existing
+public bridge. These classes cannot grant access, place or activate views, show trusted
+permission surfaces, run native tools, or read files. Custom guest HTML can continue
+using the public presentation contract without this optional kit.
 
 Packages have at most 256 entries, 12 nested directories, 2 MiB per file, 16 MiB total,
 and a 32 KiB manifest. Interior links and nonregular assets are refused; the explicit top-level development link is resolved once per capture. Discovery admits at most

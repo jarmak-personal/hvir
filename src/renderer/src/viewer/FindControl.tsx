@@ -113,7 +113,7 @@ export function FindControl({
     <div ref={root} className="find-control">
       <button
         type="button"
-        className="find-toggle"
+        className="find-toggle hvir-button"
         title="Find in file · Ctrl/Cmd+F"
         aria-expanded={open}
         onClick={() => (open ? close(true) : show())}
@@ -150,6 +150,7 @@ export function FindControl({
                 navigate(event.shiftKey ? -1 : 1)
               }
             }}
+            className="hvir-input"
           />
           <div className="find-actions">
             <label>
@@ -161,6 +162,7 @@ export function FindControl({
                   setCaseSensitive(event.currentTarget.checked)
                   setRequestedIndex(0)
                 }}
+                className="hvir-input"
               />
               Match case
             </label>
@@ -168,6 +170,7 @@ export function FindControl({
               type="button"
               disabled={result.total === 0}
               onClick={() => navigate(-1)}
+              className="hvir-button"
             >
               Previous
             </button>
@@ -175,6 +178,7 @@ export function FindControl({
               type="button"
               disabled={result.total === 0}
               onClick={() => navigate(1)}
+              className="hvir-button"
             >
               Next
             </button>

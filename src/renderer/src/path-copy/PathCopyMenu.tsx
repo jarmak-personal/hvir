@@ -115,6 +115,7 @@ export function PathCopyMenu({
               disabled={pending !== undefined}
               onPointerDown={(event) => event.preventDefault()}
               onClick={() => copy(kind)}
+              className="hvir-button"
             >
               {PATH_COPY_LABELS[kind]}
             </button>

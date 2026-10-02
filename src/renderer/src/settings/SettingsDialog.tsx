@@ -121,10 +121,18 @@ export function SettingsDialog({
             )}
           </div>
           <div className="dialog-actions">
-            <button type="button" onClick={controller.requestClose}>
+            <button
+              type="button"
+              onClick={controller.requestClose}
+              className="hvir-button hvir-control"
+            >
               Close settings
             </button>
-            <button type="button" onClick={() => void controller.save()}>
+            <button
+              type="button"
+              onClick={() => void controller.save()}
+              className="hvir-button hvir-control"
+            >
               Save app settings
             </button>
           </div>

@@ -22,6 +22,7 @@ export function ExtensionActions({
           aria-label="Extension action context"
           value={selected?.id ?? ''}
           onChange={(event) => setSessionId(event.target.value)}
+          className="hvir-input"
         >
           <option value="">Application</option>
           {model?.sessions.map((session) => (
@@ -60,6 +61,7 @@ export function ExtensionActions({
               )
               .finally(() => setBusy(false))
           }}
+          className="hvir-button"
         >
           Run {action.title}
         </button>

@@ -101,7 +101,12 @@ export function AddHarnessDialog({
             <h3 id="add-harness-title">Add a harness</h3>
             <p>Choose installed harnesses to add as editable global profiles.</p>
           </div>
-          <button type="button" disabled={busy || pending.size > 0} onClick={onRefresh}>
+          <button
+            type="button"
+            disabled={busy || pending.size > 0}
+            onClick={onRefresh}
+            className="hvir-button hvir-control"
+          >
             Refresh
           </button>
         </div>
@@ -119,6 +124,7 @@ export function AddHarnessDialog({
                   disabled={checking || busy || alreadyConfigured}
                   checked={!alreadyConfigured && selected.has(provider.id)}
                   onChange={(event) => onToggle(provider.id, event.currentTarget.checked)}
+                  className="hvir-input hvir-control"
                 />
                 <span>
                   <strong>{provider.profileTemplate?.displayName}</strong>
@@ -142,7 +148,12 @@ export function AddHarnessDialog({
             <strong>Shell</strong>
             <small>Create an editable shell profile using the host default.</small>
           </span>
-          <button type="button" disabled={busy || !shellAvailable} onClick={onShell}>
+          <button
+            type="button"
+            disabled={busy || !shellAvailable}
+            onClick={onShell}
+            className="hvir-button hvir-control"
+          >
             Add a shell
           </button>
         </div>
@@ -155,6 +166,7 @@ export function AddHarnessDialog({
               onChange={(event) =>
                 onManualProvider(event.currentTarget.value as HarnessProviderId)
               }
+              className="hvir-input hvir-control"
             >
               {providers.map((provider) => (
                 <option key={provider.id} value={provider.id}>
@@ -173,19 +185,26 @@ export function AddHarnessDialog({
             onClick={() => {
               if (manualProviderId) onManual(manualProviderId)
             }}
+            className="hvir-button hvir-control"
           >
             Configure manually…
           </button>
         </div>
         {error ? <p className="dialog-error">{error}</p> : null}
         <div className="dialog-actions">
-          <button type="button" disabled={busy} onClick={onCancel}>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onCancel}
+            className="hvir-button hvir-control"
+          >
             Cancel
           </button>
           <button
             type="button"
             disabled={busy || selected.size === 0}
             onClick={() => void onMaterialize()}
+            className="hvir-button hvir-control"
           >
             Add selected
           </button>
@@ -233,6 +252,7 @@ export function HarnessFolderPicker({
             type="button"
             disabled={current.path === '/'}
             onClick={() => onNavigate(parent)}
+            className="hvir-button hvir-control"
           >
             ../
           </button>
@@ -248,6 +268,7 @@ export function HarnessFolderPicker({
                   ),
                 )
               }
+              className="hvir-button hvir-control"
             >
               {directory.name}/
             </button>
@@ -255,10 +276,14 @@ export function HarnessFolderPicker({
         </div>
         {error ? <p className="dialog-error">{error}</p> : null}
         <div className="dialog-actions">
-          <button type="button" onClick={onCancel}>
+          <button type="button" onClick={onCancel} className="hvir-button hvir-control">
             Cancel
           </button>
-          <button type="button" onClick={() => void onSelect(current)}>
+          <button
+            type="button"
+            onClick={() => void onSelect(current)}
+            className="hvir-button hvir-control"
+          >
             Use this folder
           </button>
         </div>
