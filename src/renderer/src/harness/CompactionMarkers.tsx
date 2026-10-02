@@ -1,10 +1,7 @@
-import { useLayoutEffect, useRef, useState, type ReactElement } from 'react'
+import type { ReactElement } from 'react'
 
 import type { SessionsCompactionFact, SessionsFact } from '../../../shared'
-import {
-  compactionMarkerPresentation,
-  DEFAULT_COMPACTION_MARKER_PITCH,
-} from './compaction-marker-presentation'
+import { compactionMarkerPresentation } from './compaction-marker-presentation'
 
 export type CompactionMarkerFact = SessionsFact<SessionsCompactionFact>
 
@@ -15,71 +12,34 @@ export function CompactionMarkers({
   readonly fact?: CompactionMarkerFact
   readonly className?: string
 }): ReactElement | null {
-  const root = useRef<HTMLSpanElement>(null)
-  const [metrics, setMetrics] = useState({
-    width: 0,
-    markerPitch: DEFAULT_COMPACTION_MARKER_PITCH,
-  })
-  useLayoutEffect(() => {
-    const element = root.current
-    if (!element) return
-    const measure = (): void => {
-      const next = {
-        width: element.getBoundingClientRect().width,
-        markerPitch:
-          Number.parseFloat(getComputedStyle(element).fontSize) ||
-          DEFAULT_COMPACTION_MARKER_PITCH,
-      }
-      setMetrics((current) =>
-        current.width === next.width && current.markerPitch === next.markerPitch
-          ? current
-          : next,
-      )
-    }
-    measure()
-    const observer =
-      typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measure)
-    observer?.observe(element)
-    return () => observer?.disconnect()
-  }, [])
-
-  if (!fact) return null
   const value =
-    fact.status === 'available' || fact.status === 'stale' ? fact.value : undefined
-  const presentation = compactionMarkerPresentation(
-    value?.observedCount ?? 0,
-    metrics.width,
-    metrics.markerPitch,
-  )
-  const label = value
-    ? `${value.observedCount} observed ${value.observedCount === 1 ? 'compaction' : 'compactions'} during this app observation period${value.coverage === 'gapped' ? '; observation has gaps' : ''}`
-    : fact.status === 'pending'
-      ? 'Compaction observation pending'
-      : fact.status === 'unsupported'
-        ? 'Compaction observation unsupported by this provider version'
-        : 'Compaction observation unavailable'
+    fact?.status === 'available' || fact?.status === 'stale' ? fact.value : undefined
+  const presentation = compactionMarkerPresentation(value?.observedCount ?? 0)
+  if (presentation.kind === 'empty') return null
+
+  const label = `${presentation.count} observed ${presentation.count === 1 ? 'compaction' : 'compactions'} during this app observation period${value?.coverage === 'gapped' ? '; observation has gaps' : ''}`
   return (
     <span
-      ref={root}
       className={`compaction-markers ${className}`.trim()}
       role="img"
       aria-label={label}
-      data-state={value ? presentation.kind : fact.status}
       title={label}
     >
-      {!value ? (
-        <span className="compaction-marker-unknown" aria-hidden="true">
-          {fact.status === 'pending' ? '…' : '–'}
-        </span>
-      ) : presentation.kind === 'circles' ? (
-        Array.from({ length: presentation.count }, (_, index) => (
-          <span className="compaction-marker" aria-hidden="true" key={index} />
-        ))
-      ) : presentation.kind === 'summary' ? (
-        <span className="compaction-marker-summary" aria-hidden="true">
-          <span className="compaction-marker" /> ×{presentation.count}
-        </span>
-      ) : null}
+      <span className="compaction-marker-summary" aria-hidden="true">
+        <svg
+          className="compaction-marker"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <path d="M1.5 3v10m13-10v10M1.5 8h3m-2-2 2 2-2 2m12-2h-3m2-2-2 2 2 2M6.5 4.5h3m-3 3.5h3m-3 3.5h3" />
+        </svg>{' '}
+        ×{presentation.count}
+      </span>
     </span>
   )
 }

@@ -6,7 +6,7 @@
 }
 
 .terminal-list-row {
-  min-height: calc(60px * var(--hvir-interface-scale));
+  min-height: calc(50px * var(--hvir-interface-scale));
   display: flex;
   align-items: stretch;
   border-bottom: 1px solid #22272f;
@@ -47,8 +47,9 @@
   flex: 1;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 2px 6px 11px;
+  gap: 6px;
+  padding: calc(3px * var(--hvir-interface-scale)) 2px
+    calc(3px * var(--hvir-interface-scale)) 9px;
   border: 0;
   background: transparent;
   color: inherit;
@@ -63,7 +64,7 @@
 .terminal-attention-badge {
   flex: 0 0 auto;
   align-self: center;
-  padding: 2px 5px;
+  padding: 2px 3px;
   border: 1px solid currentColor;
   border-radius: 3px;
   font-size: calc(7px * var(--hvir-interface-scale));
@@ -96,11 +97,6 @@
   gap: 2px;
 }
 
-.terminal-list-copy > .compaction-markers {
-  margin-top: 1px;
-  max-width: 100%;
-}
-
 .terminal-list-title,
 .terminal-list-meta {
   overflow: hidden;
@@ -115,8 +111,21 @@
 }
 
 .terminal-list-meta {
+  align-items: center;
   color: #77818f;
+  display: flex;
   font-size: calc(9px * var(--hvir-interface-scale));
+}
+
+.terminal-list-profile {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.terminal-list-compactions {
+  font-size: inherit;
+  margin-left: 0.8em;
 }
 
 .terminal-close-button {
