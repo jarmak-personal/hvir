@@ -56,18 +56,19 @@ export function ExtensionTerminalItems({
         }))
       : [],
   )
-  const close = useCallback((restore = true): void => {
-    generation.current++
-    const current = currentPopup.current
-    setPopup(undefined)
-    if (current) {
-      void window.hvir
-        .invoke('extensions:close-view', { viewId: current.view.id })
-        .catch(() => undefined)
-      if (restore && current.returnFocus.isConnected)
-        current.returnFocus.focus({ preventScroll: true })
-    }
-  }, [])
+  const close = useCallback(
+    (restore = true): void => {
+      generation.current++
+      const current = currentPopup.current
+      setPopup(undefined)
+      if (current) {
+        model?.close(current.view.id)
+        if (restore && current.returnFocus.isConnected)
+          current.returnFocus.focus({ preventScroll: true })
+      }
+    },
+    [model?.close],
+  )
   const currentView = popup
     ? model?.views.find((view) => view.id === popup.view.id)
     : undefined
@@ -147,7 +148,7 @@ export function ExtensionTerminalItems({
                 .then((view) => {
                   if (item.click.placement !== 'popup') return
                   if (generation.current !== opening) {
-                    void window.hvir.invoke('extensions:close-view', { viewId: view.id })
+                    model.close(view.id)
                     return
                   }
                   setPopup({

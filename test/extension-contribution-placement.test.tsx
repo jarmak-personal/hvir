@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement } from 'react'
+import { act, createElement, Fragment } from 'react'
 import { createRoot } from 'react-dom/client'
 import { describe, expect, it, vi } from 'vitest'
 import type { ExtensionView } from '../src/shared/extensions/workbench'
@@ -23,6 +23,7 @@ import {
 import {
   ExtensionLeftRail,
   ExtensionTopRail,
+  ExtensionTopDestination,
   ExtensionContributionsProvider,
 } from '../src/renderer/src/extensions/ExtensionContributions'
 import { ExtensionViewStack } from '../src/renderer/src/extensions/ExtensionViewStack'
@@ -51,6 +52,121 @@ const view: ExtensionView = {
 }
 
 describe('extension contribution placement and focus', () => {
+  it.each(['workspace', 'manual-left', 'top'] as const)(
+    'reports %s close rejection without retrying failed physical disposal',
+    async (path) => {
+      const top = path === 'top'
+      const manifest = validateExtensionManifest(
+        exampleManifest({
+          views: [
+            {
+              ...exampleManifest().views[0]!,
+              navigation: top ? 'top' : 'left',
+              placement: top ? 'application' : 'workspace',
+            },
+          ],
+        }),
+      ).manifest
+      const guest: ExtensionView = {
+        ...view,
+        id: 'owned',
+        contributionId: manifest.views[0]!.id,
+        context: top
+          ? { surface: 'top', visible: true }
+          : { ...view.context!, surface: 'left' },
+      }
+      const failure = 'Native disposal failed; capacity retained'
+      const invoke = vi.fn((channel: string) => {
+        if (channel === 'extensions:close-view') return Promise.reject(new Error(failure))
+        return Promise.resolve(
+          channel === 'extensions:contributions'
+            ? [{ installationId: 'one', extensionName: 'Example', manifest, values: [] }]
+            : channel === 'extensions:context'
+              ? { terminalIds: {}, sessions: [] }
+              : channel === 'extensions:open-view'
+                ? guest
+                : undefined,
+        )
+      })
+      vi.stubGlobal('hvir', { invoke, on: () => () => undefined, send: vi.fn() })
+      const element = document.createElement('div')
+      document.body.append(element)
+      const root = createRoot(element)
+      const onError = vi.fn()
+      const render = (workspaceId: string, retained = guest): void => {
+        root.render(
+          createElement(ExtensionContributionsProvider, {
+            workspaceId,
+            views: [retained],
+            topActive: top,
+            obscured: false,
+            onTop: vi.fn(),
+            onWorkspace: vi.fn(),
+            onError,
+            children: top
+              ? createElement(
+                  Fragment,
+                  null,
+                  createElement(ExtensionTopRail),
+                  createElement(ExtensionTopDestination),
+                )
+              : createElement(ExtensionLeftRail, {
+                  visible: true,
+                  children: createElement('div'),
+                }),
+          }),
+        )
+      }
+      try {
+        await act(async () => {
+          render('workspace')
+          await Promise.resolve()
+        })
+        await act(async () => {
+          element
+            .querySelector<HTMLButtonElement>(
+              top ? '.sessions-destination' : 'nav button',
+            )!
+            .click()
+          await Promise.resolve()
+        })
+        expect(element.querySelector('[aria-current=page]')).not.toBeNull()
+        await act(async () => {
+          if (path === 'workspace') render('next-workspace')
+          else
+            element
+              .querySelector<HTMLButtonElement>('[aria-label="Close Detail"]')!
+              .click()
+          await Promise.resolve()
+        })
+        expect(
+          invoke.mock.calls.filter(([channel]) => channel === 'extensions:close-view'),
+        ).toEqual([['extensions:close-view', { viewId: guest.id }]])
+        expect(onError).toHaveBeenCalledExactlyOnceWith(failure)
+        // A failed receipt remains in the native snapshot; it must not trigger a retry.
+        await act(async () => {
+          render(path === 'workspace' ? 'next-workspace' : 'workspace', {
+            ...guest,
+            failure,
+          })
+          await Promise.resolve()
+        })
+        expect(
+          invoke.mock.calls.filter(([channel]) => channel === 'extensions:close-view'),
+        ).toHaveLength(1)
+        expect(onError).toHaveBeenCalledTimes(1)
+        expect(element.querySelector('[data-extension-view="owned"]')).not.toBeNull()
+      } finally {
+        await act(async () => {
+          root.unmount()
+          await Promise.resolve()
+        })
+        element.remove()
+        vi.unstubAllGlobals()
+      }
+    },
+  )
+
   it('keeps same-workspace hide/reopen but closes every inaccessible old-workspace left guest', async () => {
     const manifest = validateExtensionManifest(
       exampleManifest({
@@ -84,6 +200,9 @@ describe('extension contribution placement and focus', () => {
       foreground: true,
       open,
       demand: () => () => undefined,
+      close: (id) => {
+        void window.hvir.invoke('extensions:close-view', { viewId: id })
+      },
       closeTop: vi.fn(),
       selectTop: vi.fn(),
     }
@@ -312,6 +431,7 @@ describe('extension contribution placement and focus', () => {
         foreground: true,
         open,
         demand: () => () => undefined,
+        close: vi.fn(),
         closeTop: vi.fn(),
         selectTop: vi.fn(),
       }
@@ -370,6 +490,7 @@ describe('extension contribution placement and focus', () => {
       foreground: true,
       open: vi.fn(),
       demand: () => () => undefined,
+      close: vi.fn(),
       closeTop: vi.fn(),
       selectTop: vi.fn(),
     }

@@ -42,6 +42,8 @@ export function ExtensionContributionsProvider({
   readonly views: readonly ExtensionView[]
   readonly onError: (message: string) => void
 }): ReactElement {
+  const errorRef = useRef(onError)
+  errorRef.current = onError
   const [topId, setTopId] = useState<string>()
   const selectedTop = views.find((view) => view.id === topId)
   const selectTop = useCallback(
@@ -160,6 +162,15 @@ export function ExtensionContributionsProvider({
     },
     [onError],
   )
+  const close = useCallback((id: string): void => {
+    void window.hvir
+      .invoke('extensions:close-view', { viewId: id })
+      .catch((reason: unknown) => {
+        errorRef.current(
+          reason instanceof Error ? reason.message : 'Extension view could not close',
+        )
+      })
+  }, [])
   return (
     <ExtensionContributionContext.Provider
       value={{
@@ -167,8 +178,9 @@ export function ExtensionContributionsProvider({
         obscured,
         selectedTop,
         selectTop,
+        close,
         closeTop: (id) => {
-          void window.hvir.invoke('extensions:close-view', { viewId: id })
+          close(id)
           if (id === topId) onWorkspace()
         },
         views,
@@ -277,6 +289,8 @@ export function ExtensionLeftRail({
   readonly visible: boolean
 }): ReactElement {
   const model = useExtensionContributions()
+  const modelRef = useRef(model)
+  modelRef.current = model
   const [selectedId, setSelectedId] = useState<string>()
   const selected = model?.views.find((view) => view.id === selectedId)
   const entries =
@@ -286,15 +300,15 @@ export function ExtensionLeftRail({
         .map((view) => ({ extension, view })),
     ) ?? []
   useEffect(() => {
-    for (const view of model?.views ?? [])
-      if (
+    const current = modelRef.current
+    const inaccessible = (current?.views ?? []).filter(
+      (view) =>
         view.context?.surface === 'left' &&
-        view.context.workspace?.id !== model?.workspaceId
-      )
-        void window.hvir.invoke('extensions:close-view', { viewId: view.id })
-    if (selected && selected.context?.workspace?.id !== model?.workspaceId)
-      setSelectedId(undefined)
-  }, [model?.workspaceId, model?.views, selected])
+        view.context.workspace?.id !== current?.workspaceId,
+    )
+    for (const view of inaccessible) current?.close(view.id)
+    setSelectedId((id) => (inaccessible.some((view) => view.id === id) ? undefined : id))
+  }, [model?.workspaceId, model?.close])
   useContributionDemand(
     'left',
     selected && visible && model?.foreground && !model.obscured
@@ -328,7 +342,11 @@ export function ExtensionLeftRail({
                     surface: 'left',
                     workspaceId: model.workspaceId,
                   })
-                  .then((view) => setSelectedId(view.id))
+                  .then((view) => {
+                    if (view.context?.workspace?.id === modelRef.current?.workspaceId)
+                      setSelectedId(view.id)
+                    else modelRef.current?.close(view.id)
+                  })
                   .catch(() => undefined)
             }}
           >
@@ -354,7 +372,7 @@ export function ExtensionLeftRail({
               view.id === selected?.id && visible && model.foreground && !model.obscured
             }
             onClose={() => {
-              void window.hvir.invoke('extensions:close-view', { viewId: view.id })
+              model.close(view.id)
               setSelectedId(undefined)
             }}
             Surface={ElectronExtensionGuestSurface}

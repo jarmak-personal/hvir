@@ -64,6 +64,7 @@ describe('ProjectsBar status presentation', () => {
       foreground: true,
       open: vi.fn(),
       demand: () => () => undefined,
+      close: vi.fn(),
       closeTop: vi.fn(),
       selectTop: vi.fn(),
     }

@@ -11,6 +11,7 @@ export interface Contributions {
   readonly topActive: boolean
   readonly obscured: boolean
   readonly selectedTop?: ExtensionView
+  readonly close: (id: string) => void
   readonly closeTop: (id: string) => void
   readonly selectTop: (view: ExtensionView) => void
   readonly views: readonly ExtensionView[]
