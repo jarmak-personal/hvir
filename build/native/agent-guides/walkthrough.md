@@ -7,13 +7,17 @@ Open a project in hvir. In Settings > Extensions enable Agent access. From its t
 `hvir-agent workspaces`, `hvir-agent sessions`, `hvir-agent open --path README.md`, then
 `printf '# Agent result\n' | hvir-agent report --title Result --stdin`.
 Focus stays in the terminal. Select the report tab to clear its quiet badge, then close it.
-Outside hvir run `hvir-agent instances`; use `--instance ENDPOINT` and `--workspace ID` for
-the same operations. A disconnected registered SSH workspace refuses work without local fallback.
+Outside hvir run `hvir-agent instances`, then `hvir-agent workspaces --instance ENDPOINT`
+and `hvir-agent sessions --instance ENDPOINT --workspace ID`. Supply `--instance ENDPOINT`
+and `--workspace ID` to document opening and report publication. Workspace, view and action
+lists do not accept workspace/session flags; `help COMMAND` lists each command's supported
+flags. A disconnected registered SSH workspace refuses work without local fallback.
 
 Copy the shipped extension-reference package into the extensions folder, Discover it, Enable
 its reviewed revision and turn on its separate agent access control. No connector, Skillager,
 visible rail or open Sessions destination is needed. Run `hvir-agent actions`, then
 `hvir-agent action --extension INSTALLATION --action describe-session` for the declared reference action.
 Use its reported action ID and schema with `hvir-agent run --extension INSTALLATION --action ID
---input null`. If an action is unavailable, workspace inspection and reports
+--input null`. Outside hvir also supply the instance, workspace and reported session ID for
+this session-qualified action. If an action is unavailable, workspace inspection and reports
 remain usable. Detailed extension authoring/starter topics are supplied by the authoring capability.
