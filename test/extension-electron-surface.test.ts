@@ -71,8 +71,10 @@ function viewFor(index = 0): ExtensionView {
   }
 }
 async function fixture(
-  send?: (method: string) => Promise<unknown>,
+  send?: (method: string, params?: { state?: string }) => Promise<unknown>,
   admittedDuringBind = false,
+  loading = false,
+  committed = true,
 ) {
   const surface = new ElectronExtensionGuestSurface()
   const view = viewFor(),
@@ -82,9 +84,9 @@ async function fixture(
     isAttached: vi.fn(() => true),
     detach: vi.fn(),
     sendCommand: vi.fn<(method: string, params?: { state?: string }) => Promise<unknown>>(
-      (method) =>
+      (method, params) =>
         send
-          ? send(method)
+          ? send(method, params)
           : Promise.resolve({ targetInfo: { targetId: 'target', type: 'webview' } }),
     ),
   })
@@ -96,8 +98,8 @@ async function fixture(
     session,
     debugger: debuggerPort,
     isDestroyed: () => destroyed,
-    getURL: () => view.url,
-    isLoading: () => false,
+    getURL: () => (committed ? view.url : 'about:blank'),
+    isLoading: () => loading,
     close: vi.fn(() => {
       if (dispatching)
         throw new Error('Native guest deletion reentered debugger dispatch')
@@ -136,6 +138,18 @@ async function fixture(
     debuggerPort,
     response,
     failed,
+    states: () =>
+      debuggerPort.sendCommand.mock.calls
+        .filter(([method]) => method === 'Page.setWebLifecycleState')
+        .map((call) => (call[1] as { state: string }).state),
+    finishLoad: () => {
+      loading = false
+      guest.emit('did-finish-load')
+    },
+    commit: (url = view.url) => {
+      if (url === view.url) committed = true
+      guest.emit('did-navigate', {}, url)
+    },
     replace: () => {
       dispatching = true
       try {
@@ -149,9 +163,540 @@ async function fixture(
 afterEach(() => {
   electron.sessions.clear()
   electron.guests.clear()
+  vi.restoreAllMocks()
 })
 
 describe('Electron extension response, native teardown and closing capacity', () => {
+  it('commit barrier releases observed bytes first, then activates only the exact committed main frame', async () => {
+    let nativeCommitted = false
+    const data = await fixture(
+      (method) =>
+        method === 'Page.setWebLifecycleState' && !nativeCommitted
+          ? Promise.reject(new Error('Not attached to an active page'))
+          : Promise.resolve({ targetInfo: { targetId: 'target', type: 'webview' } }),
+      false,
+      true,
+      false,
+    )
+    data.surface.visibility(data.guest.id, true)
+    await turn()
+    expect(await (await data.response()).text()).toBe('captured')
+    expect(data.debuggerPort.sendCommand.mock.calls.some(([method]) => method === 'Page.enable')).toBe(true)
+    expect(data.states()).toEqual([])
+    data.guest.emit('did-frame-navigate', {}, data.view.url, 200, 'OK', false)
+    data.commit('hvir-extension://foreign/index.html')
+    await turn()
+    expect(data.states()).toEqual([])
+    nativeCommitted = true
+    data.commit()
+    await turn()
+    expect(data.states()).toEqual(['active'])
+    expect(data.guest.isLoading()).toBe(true)
+    expect(data.failed).not.toHaveBeenCalled()
+    expect(data.guest.listenerCount('did-navigate')).toBe(0)
+    await data.surface.destroy(data.view.id)
+  })
+
+  it('commit barrier does not suppress an active native refusal after commit', async () => {
+    const data = await fixture(
+      (method) =>
+        method === 'Page.setWebLifecycleState'
+          ? Promise.reject(new Error('Not attached to an active page'))
+          : Promise.resolve({ targetInfo: { targetId: 'target', type: 'webview' } }),
+      true,
+      true,
+      false,
+    )
+    await turn()
+    expect(data.failed).not.toHaveBeenCalled()
+    data.commit()
+    await turn()
+    expect(data.states()).toEqual(['active'])
+    expect(data.failed).toHaveBeenCalledWith(
+      data.guest.id,
+      'Extension engine lifecycle control is unavailable. Close and reopen the view.',
+    )
+    expect((await data.response()).status).toBe(404)
+    await data.surface.destroy(data.view.id)
+    expect(data.guest.listenerCount('did-navigate')).toBe(0)
+    expect(data.session.clearCache).toHaveBeenCalledTimes(1)
+  })
+
+  it('commit barrier at nine seconds retains the original ten-second native command deadline', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const pending = deferred<unknown>()
+    const report = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const data = await fixture(
+      (method) =>
+        method === 'Page.setWebLifecycleState'
+          ? pending.promise
+          : Promise.resolve({ targetInfo: { targetId: 'target', type: 'webview' } }),
+      true,
+      true,
+      false,
+    )
+    try {
+      await turn()
+      await vi.advanceTimersByTimeAsync(9000)
+      expect(data.states()).toEqual([])
+      data.commit()
+      await turn()
+      expect(data.states()).toEqual(['active'])
+      await vi.advanceTimersByTimeAsync(999)
+      expect(data.failed).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(report).toHaveBeenCalledTimes(1)
+      expect(JSON.parse(report.mock.calls[0]![1] as string)).toMatchObject({
+        stage: 'state-command',
+        category: 'timeout',
+        attemptedState: 'active',
+      })
+      expect(JSON.parse(report.mock.calls[0]![1] as string)).not.toHaveProperty('nativeRefusal')
+      pending.resolve({})
+      await turn()
+      expect(data.states()).toEqual(['active'])
+      await data.surface.destroy(data.view.id)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('commit barrier close removes its listener and ignores late commit/load events', async () => {
+    const data = await fixture(undefined, true, true, false)
+    await turn()
+    expect(data.states()).toEqual([])
+    await data.surface.destroy(data.view.id)
+    expect(data.guest.listenerCount('did-navigate')).toBe(0)
+    data.commit()
+    data.finishLoad()
+    await turn()
+    expect(data.states()).toEqual([])
+    expect((await data.response()).status).toBe(404)
+    expect(data.session.clearCache).toHaveBeenCalledTimes(1)
+  })
+
+  it('commit barrier without a matching commit fails closed at the original deadline', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const report = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const data = await fixture(undefined, true, true, false)
+    try {
+      await turn()
+      expect(await (await data.response()).text()).toBe('captured')
+      await vi.advanceTimersByTimeAsync(EXTENSION_LIMITS.requestTimeoutMs - 1)
+      expect(data.failed).not.toHaveBeenCalled()
+      expect(data.states()).toEqual([])
+      await vi.advanceTimersByTimeAsync(1)
+      expect(report).toHaveBeenCalledTimes(1)
+      expect(JSON.parse(report.mock.calls[0]![1] as string)).toEqual({
+        stage: 'initial-commit',
+        category: 'timeout',
+        role: 'view',
+        visible: false,
+        admittedWork: true,
+        loading: true,
+        urlMatches: false,
+        debuggerAttached: true,
+      })
+      expect(data.failed).toHaveBeenCalledWith(
+        data.guest.id,
+        'Extension engine lifecycle control is unavailable. Close and reopen the view.',
+      )
+      await data.surface.destroy(data.view.id)
+      expect(data.guest.listenerCount('did-navigate')).toBe(0)
+      data.commit()
+      data.finishLoad()
+      await turn()
+      expect(data.states()).toEqual([])
+      expect((await data.response()).status).toBe(404)
+      expect(data.session.clearCache).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('commit barrier keeps observer refusal ahead of commit and captured code', async () => {
+    const data = await fixture(
+      (method) =>
+        method === 'Page.enable'
+          ? Promise.reject(new Error('Observer refused'))
+          : Promise.resolve({ targetInfo: { targetId: 'target', type: 'webview' } }),
+      true,
+      true,
+      false,
+    )
+    await turn()
+    expect((await data.response()).status).toBe(404)
+    expect(data.states()).toEqual([])
+    await data.surface.destroy(data.view.id)
+    data.commit()
+    await turn()
+    expect(data.states()).toEqual([])
+    expect(data.guest.listenerCount('did-navigate')).toBe(0)
+  })
+
+  it.each(['visible', 'finite-work'] as const)(
+    'bootstrap renewal by %s retires only a pre-load freeze and preserves later hidden freezing',
+    async (demand) => {
+      const data = await fixture(undefined, false, true)
+      try {
+        expect(await (await data.response()).text()).toBe('captured')
+        await turn()
+        expect(data.states()).toEqual([])
+        if (demand === 'visible') data.surface.visibility(data.guest.id, true)
+        else data.surface.runnable(data.guest.id, true)
+        await turn()
+        expect(data.states()).toEqual(['active'])
+        expect(data.failed).not.toHaveBeenCalled()
+        if (demand === 'visible') data.surface.visibility(data.guest.id, false)
+        else data.surface.runnable(data.guest.id, false)
+        await turn()
+        expect(data.states()).toEqual(['active'])
+        data.finishLoad()
+        await turn()
+        expect(data.states().at(-1)).toBe('frozen')
+        expect(data.failed).not.toHaveBeenCalled()
+      } finally {
+        await data.surface.destroy(data.view.id)
+      }
+    },
+  )
+
+  it('bootstrap renewal at nine seconds keeps the original ten-second deadline for its native command', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const report = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const pending = deferred<unknown>()
+    const data = await fixture(
+      (method) =>
+        method === 'Page.setWebLifecycleState'
+          ? pending.promise
+          : Promise.resolve({ targetInfo: { targetId: 'target', type: 'webview' } }),
+      false,
+      true,
+    )
+    try {
+      await turn()
+      await vi.advanceTimersByTimeAsync(9000)
+      data.surface.visibility(data.guest.id, true)
+      await turn()
+      expect(data.states()).toEqual(['active'])
+      await vi.advanceTimersByTimeAsync(999)
+      expect(report).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(report).toHaveBeenCalledTimes(1)
+      expect(JSON.parse(report.mock.calls[0]![1] as string)).toMatchObject({
+        stage: 'state-command',
+        category: 'timeout',
+        visible: true,
+        loading: true,
+      })
+      const commands = data.debuggerPort.sendCommand.mock.calls.length
+      pending.resolve(undefined)
+      data.finishLoad()
+      await turn()
+      expect(data.debuggerPort.sendCommand.mock.calls).toHaveLength(commands)
+      expect((await data.response()).status).toBe(404)
+    } finally {
+      vi.useRealTimers()
+      await data.surface.destroy(data.view.id)
+    }
+  })
+
+  it('coalesces bootstrap renewals that return to hidden without premature freeze or deadline reset', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const report = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const data = await fixture(undefined, false, true)
+    try {
+      await turn()
+      await vi.advanceTimersByTimeAsync(9000)
+      for (let index = 0; index < 100; index++) {
+        data.surface.visibility(data.guest.id, true)
+        data.surface.visibility(data.guest.id, false)
+      }
+      await turn()
+      expect(data.states()).toEqual([])
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(report).toHaveBeenCalledTimes(1)
+      expect(JSON.parse(report.mock.calls[0]![1] as string)).toMatchObject({
+        stage: 'load-before-freeze',
+        category: 'timeout',
+        visible: false,
+      })
+      data.finishLoad()
+      await turn()
+      expect(data.states()).toEqual([])
+      expect((await data.response()).status).toBe(404)
+    } finally {
+      vi.useRealTimers()
+      await data.surface.destroy(data.view.id)
+    }
+  })
+
+  it('observer refusal wins over bootstrap renewal and releases no captured bytes', async () => {
+    const report = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const pending = deferred<unknown>()
+    const data = await fixture(
+      (method) =>
+        method === 'Page.enable'
+          ? pending.promise
+          : Promise.resolve({ targetInfo: { targetId: 'target', type: 'webview' } }),
+      false,
+      true,
+    )
+    data.surface.visibility(data.guest.id, true)
+    pending.resolve(Promise.reject(new Error('Observer refused after demand renewal')))
+    await turn()
+    expect(JSON.parse(report.mock.calls[0]![1] as string)).toMatchObject({
+      stage: 'observer-command',
+      category: 'refusal',
+    })
+    expect(data.states()).toEqual([])
+    expect((await data.response()).status).toBe(404)
+    await data.surface.destroy(data.view.id)
+    expect(data.guest.isDestroyed()).toBe(true)
+  })
+
+  it.each(['target', 'state'] as const)(
+    'does not retire an issued frozen %s command when visible demand returns',
+    async (held) => {
+      const pending = deferred<unknown>()
+      let targets = 0
+      const data = await fixture((method, params) => {
+        if (method === 'Target.getTargetInfo') targets++
+        if (
+          (held === 'target' && method === 'Target.getTargetInfo' && targets === 2) ||
+          (held === 'state' &&
+            method === 'Page.setWebLifecycleState' &&
+            params?.state === 'frozen')
+        )
+          return pending.promise
+        return Promise.resolve({ targetInfo: { targetId: 'target', type: 'webview' } })
+      })
+      await turn()
+      const commands = data.debuggerPort.sendCommand.mock.calls.length
+      data.surface.visibility(data.guest.id, true)
+      await turn()
+      expect(data.debuggerPort.sendCommand.mock.calls).toHaveLength(commands)
+      expect(data.states()).toEqual(held === 'state' ? ['frozen'] : [])
+      pending.resolve({ targetInfo: { targetId: 'target', type: 'webview' } })
+      await turn()
+      expect(data.states()).toEqual(['frozen', 'active'])
+      expect(data.failed).not.toHaveBeenCalled()
+      await data.surface.destroy(data.view.id)
+    },
+  )
+
+  it('close after bootstrap renewal rejects late loading without any successor native command', async () => {
+    const data = await fixture(undefined, false, true)
+    expect(await (await data.response()).text()).toBe('captured')
+    await turn()
+    data.surface.visibility(data.guest.id, true)
+    const receipt = data.surface.destroy(data.view.id)
+    const commands = data.debuggerPort.sendCommand.mock.calls.length
+    await receipt
+    data.finishLoad()
+    await turn()
+    expect(data.debuggerPort.sendCommand.mock.calls).toHaveLength(commands)
+    expect(data.states()).toEqual([])
+    expect((await data.response()).status).toBe(404)
+    expect(data.session.clearCache).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['observer-command', 'load-before-freeze', 'state-command'] as const)(
+    'reports the stalled %s stage at the unchanged lifecycle deadline',
+    async (stage) => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      const report = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+      const pending = deferred<unknown>()
+      const data = await fixture(
+        (method) =>
+          (stage === 'observer-command' && method === 'Page.enable') ||
+          (stage === 'state-command' && method === 'Page.setWebLifecycleState')
+            ? pending.promise
+            : Promise.resolve({ targetInfo: { targetId: 'target', type: 'webview' } }),
+        false,
+        stage === 'load-before-freeze',
+      )
+      try {
+        await turn()
+        await vi.advanceTimersByTimeAsync(EXTENSION_LIMITS.requestTimeoutMs - 1)
+        expect(report).not.toHaveBeenCalled()
+        await vi.advanceTimersByTimeAsync(1)
+        expect(report).toHaveBeenCalledTimes(1)
+        expect(JSON.parse(report.mock.calls[0]![1] as string)).toEqual({
+          stage,
+          category: 'timeout',
+          ...(stage === 'state-command' ? { attemptedState: 'frozen' } : {}),
+          role: 'view',
+          visible: false,
+          admittedWork: false,
+          loading: stage === 'load-before-freeze',
+          urlMatches: true,
+          debuggerAttached: true,
+        })
+        expect((await data.response()).status).toBe(404)
+        const commands = data.debuggerPort.sendCommand.mock.calls.length
+        pending.resolve({ targetInfo: { targetId: 'target', type: 'webview' } })
+        data.guest.emit('did-finish-load')
+        await vi.advanceTimersByTimeAsync(0)
+        expect(data.debuggerPort.sendCommand.mock.calls).toHaveLength(commands)
+        expect(report).toHaveBeenCalledTimes(1)
+        await data.surface.destroy(data.view.id)
+        expect(data.guest.isDestroyed()).toBe(true)
+        expect(data.session.clearCache).toHaveBeenCalledTimes(1)
+      } finally {
+        vi.useRealTimers()
+      }
+    },
+  )
+
+  it.each([
+    'bootstrap-target',
+    'observer-command',
+    'transition-target',
+    'state-command',
+  ] as const)(
+    'reports one closed %s refusal without exception or package data',
+    async (stage) => {
+      const report = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+      let targets = 0
+      const data = await fixture((method) => {
+        if (method === 'Target.getTargetInfo') targets++
+        if (
+          (stage === 'bootstrap-target' && targets === 1) ||
+          (stage === 'observer-command' && method === 'Page.enable') ||
+          (stage === 'transition-target' && targets === 2) ||
+          (stage === 'state-command' && method === 'Page.setWebLifecycleState')
+        )
+          return Promise.reject(new Error('Unreviewed package/URL/exception data'))
+        return Promise.resolve({ targetInfo: { targetId: 'target', type: 'webview' } })
+      })
+      await turn()
+      expect(report).toHaveBeenCalledTimes(1)
+      expect(report.mock.calls[0]?.[0]).toBe('[extensions:engine-lifecycle-failure]')
+      expect(JSON.parse(report.mock.calls[0]![1] as string)).toEqual({
+        stage,
+        category: 'refusal',
+        ...(stage === 'state-command'
+          ? { attemptedState: 'frozen', nativeRefusal: 'other' }
+          : {}),
+        role: 'view',
+        visible: false,
+        admittedWork: false,
+        loading: false,
+        urlMatches: true,
+        debuggerAttached: true,
+      })
+      expect(data.failed).toHaveBeenCalledWith(
+        data.guest.id,
+        'Extension engine lifecycle control is unavailable. Close and reopen the view.',
+      )
+      expect((await data.response()).status).toBe(404)
+      await data.surface.destroy(data.view.id)
+      expect(data.guest.isDestroyed()).toBe(true)
+      expect(data.session.clearCache).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it.each([
+    ['Not attached to a page', 'no-frame'],
+    ['Not attached to an active page', 'inactive-frame'],
+    ['Command can only be executed on top-level targets', 'not-top-level'],
+  ] as const)(
+    'reports only the closed native state-command reason for %s',
+    async (message, reason) => {
+      const report = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+      const data = await fixture(
+        (method) =>
+          method === 'Page.setWebLifecycleState'
+            ? Promise.reject(new Error(message))
+            : Promise.resolve({ targetInfo: { targetId: 'target', type: 'webview' } }),
+        true,
+        true,
+      )
+      await turn()
+      expect(report).toHaveBeenCalledTimes(1)
+      expect(JSON.parse(report.mock.calls[0]![1] as string)).toEqual({
+        stage: 'state-command',
+        category: 'refusal',
+        attemptedState: 'active',
+        nativeRefusal: reason,
+        role: 'view',
+        visible: false,
+        admittedWork: true,
+        loading: true,
+        urlMatches: true,
+        debuggerAttached: true,
+      })
+      expect(report.mock.calls[0]![1]).not.toContain(message)
+      expect((await data.response()).status).toBe(404)
+      await data.surface.destroy(data.view.id)
+      expect(data.guest.isDestroyed()).toBe(true)
+      expect(data.session.clearCache).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it('an unreadable native error preserves refusal and cleanup without invented details', async () => {
+    const report = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const error = new Error()
+    Object.defineProperty(error, 'message', {
+      get: () => {
+        throw new Error('Unreviewed package/URL/exception data')
+      },
+    })
+    const data = await fixture((method) =>
+      method === 'Page.setWebLifecycleState'
+        ? Promise.reject(error)
+        : Promise.resolve({ targetInfo: { targetId: 'target', type: 'webview' } }),
+    )
+    await turn()
+    expect(report).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(report.mock.calls[0]![1] as string)).toMatchObject({
+      stage: 'state-command',
+      category: 'refusal',
+      attemptedState: 'frozen',
+      nativeRefusal: 'other',
+    })
+    expect(report.mock.calls[0]![1]).not.toContain('Unreviewed')
+    expect(data.failed).toHaveBeenCalledWith(
+      data.guest.id,
+      'Extension engine lifecycle control is unavailable. Close and reopen the view.',
+    )
+    expect((await data.response()).status).toBe(404)
+    await data.surface.destroy(data.view.id)
+    expect(data.guest.isDestroyed()).toBe(true)
+    expect(data.session.clearCache).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['collection', 'logging'] as const)(
+    'diagnostic %s failure preserves engine refusal and native cleanup',
+    async (failure) => {
+      const pending = deferred<unknown>()
+      const report = vi.spyOn(console, 'warn').mockImplementation(() => {
+        if (failure === 'logging') throw new Error('Diagnostic logger unavailable')
+      })
+      const data = await fixture((method) =>
+        method === 'Page.enable'
+          ? pending.promise
+          : Promise.resolve({ targetInfo: { targetId: 'target', type: 'webview' } }),
+      )
+      if (failure === 'collection')
+        vi.spyOn(data.guest, 'isLoading').mockImplementation(() => {
+          throw new Error('Diagnostic native getter unavailable')
+        })
+      pending.resolve(Promise.reject(new Error('Observer setup refused')))
+      await turn()
+      expect(data.failed).toHaveBeenCalledWith(
+        data.guest.id,
+        'Extension engine lifecycle control is unavailable. Close and reopen the view.',
+      )
+      expect(report).toHaveBeenCalledTimes(failure === 'logging' ? 1 : 0)
+      expect((await data.response()).status).toBe(404)
+      await data.surface.destroy(data.view.id)
+      expect(data.guest.isDestroyed()).toBe(true)
+      expect(data.session.clearCache).toHaveBeenCalledTimes(1)
+    },
+  )
+
   it('preserves finite work admitted during native bind before lifecycle creation and freezes when it ends', async () => {
     const data = await fixture(undefined, true)
     try {

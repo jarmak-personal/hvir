@@ -34,6 +34,19 @@ interface SurfaceRecord {
   presentation?: Extract<ExtensionReply, { kind: 'presentation' }>
 }
 
+type EngineFailureStage =
+  | 'attach'
+  | 'observer-setup'
+  | 'bootstrap-target'
+  | 'observer-command'
+  | 'engine-ready'
+  | 'initial-commit'
+  | 'load-before-freeze'
+  | 'transition-target'
+  | 'state-command'
+  | 'complete'
+  | 'isolated-observer'
+
 /** Replaceable Electron webview edge. Sessions and URLs are never borrowed from loopback panes. */
 export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort {
   private readonly surfaces = new Map<string, SurfaceRecord>()
@@ -193,8 +206,52 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
       record.guest = undefined
       return false
     }
+    let setupStage: 'attach' | 'observer-setup' = 'attach'
+    let bootstrapStage: 'bootstrap-target' | 'observer-command' | 'engine-ready' =
+      'bootstrap-target'
+    let transitionStage:
+      | 'engine-ready'
+      | 'initial-commit'
+      | 'load-before-freeze'
+      | 'transition-target'
+      | 'state-command'
+      | 'complete' = 'engine-ready'
+    let attemptedState: 'active' | 'frozen' | undefined
+    let nativeRefusal: 'no-frame' | 'inactive-frame' | 'not-top-level' | 'other' | undefined
+    let reported = false
+    const reportFailure = (
+      stage: EngineFailureStage,
+      category: 'timeout' | 'refusal',
+    ): void => {
+      if (reported || this.surfaces.get(view.id) !== record) return
+      reported = true
+      try {
+        const live = !guest.isDestroyed()
+        console.warn(
+          '[extensions:engine-lifecycle-failure]',
+          JSON.stringify({
+            stage,
+            category,
+            attemptedState: stage === 'state-command' ? attemptedState : undefined,
+            nativeRefusal:
+              stage === 'state-command' && category === 'refusal'
+                ? nativeRefusal
+                : undefined,
+            role: view.role === 'updater' ? 'updater' : 'view',
+            visible: record.visible,
+            admittedWork: record.admittedWork,
+            loading: live && guest.isLoading(),
+            urlMatches: live && guest.getURL() === view.url,
+            debuggerAttached: live && guest.debugger.isAttached(),
+          }),
+        )
+      } catch {
+        // Diagnostic collection cannot replace refusal or strand native cleanup.
+      }
+    }
     try {
       guest.debugger.attach('1.3')
+      setupStage = 'observer-setup'
       guest.debugger.on(
         'message',
         (_event, method, params: { frame?: { id?: string; parentId?: string } }) => {
@@ -210,17 +267,31 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
             )
         },
       )
-      // The captured response cannot release package code until this exact guest
-      // has native observer-loss monitoring. This does not await document load.
-      void (async () => {
-        await this.assertEngineTarget(record, guest)
-        this.assertLiveGuest(record, guest)
-        await this.sendEngineCommand(record, guest, 'Page.enable')
-        this.assertLiveGuest(record, guest)
-        record.settleEngine()
-      })().catch((error: unknown) => {
-        record.settleEngine(error instanceof Error ? error : new Error(String(error)))
+      // A lifecycle command requires a committed active native frame, not page load.
+      // Observe before async engine setup; captured code still releases via engineReady.
+      const committed = new Promise<void>((resolve, reject) => {
+        const cleanup = (): void => {
+          guest.removeListener('did-navigate', ready)
+          guest.removeListener('destroyed', closed)
+        }
+        const ready = (_event: Electron.Event, url: string): void => {
+          if (url !== view.url || guest.getURL() !== view.url) return
+          cleanup()
+          resolve()
+        }
+        const closed = (): void => {
+          cleanup()
+          reject(new Error('Guest closed before initial commit'))
+        }
+        // did-navigate is only a successfully committed main-frame navigation.
+        guest.on('did-navigate', ready)
+        guest.once('destroyed', closed)
+        if (guest.getURL() === view.url) {
+          cleanup()
+          resolve()
+        }
       })
+      void committed.catch(() => undefined)
       // Bootstrap may negotiate, but hidden capability admission remains denied.
       // Freezing before navigation can prevent the initial context from loading.
       const loaded = new Promise<void>((resolve, reject) => {
@@ -243,23 +314,81 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
       })
       // A visible bootstrap need not await loaded in its first transition.
       void loaded.catch(() => undefined)
+      // The captured response cannot release package code until this exact guest
+      // has native observer-loss monitoring. This does not await commit or page load.
+      void (async () => {
+        await this.assertEngineTarget(record, guest)
+        this.assertLiveGuest(record, guest)
+        bootstrapStage = 'observer-command'
+        await this.sendEngineCommand(record, guest, 'Page.enable')
+        this.assertLiveGuest(record, guest)
+        bootstrapStage = 'engine-ready'
+        record.settleEngine()
+      })().catch((error: unknown) => {
+        record.settleEngine(error instanceof Error ? error : new Error(String(error)))
+      })
       record.lifecycle = new ExtensionGuestLifecycle(
-        async (state) => {
+        async (state, renewed) => {
+          transitionStage = 'engine-ready'
           await record.engineReady
-          if (state === 'frozen') await Promise.race([loaded, record.revoked])
+          transitionStage = 'initial-commit'
+          await Promise.race([committed, record.revoked])
+          this.assertLiveGuest(record, guest)
+          transitionStage = 'load-before-freeze'
+          if (state === 'frozen') {
+            // Renewal retires only this wait; issued transition commands stay awaited.
+            if (renewed.aborted) return 'superseded'
+            let resume!: () => void
+            const resumed = new Promise<void>((resolve) => {
+              resume = resolve
+            })
+            renewed.addEventListener('abort', resume, { once: true })
+            try {
+              await Promise.race([loaded, record.revoked, resumed])
+            } finally {
+              renewed.removeEventListener('abort', resume)
+            }
+            if (renewed.aborted) return 'superseded'
+          }
+          transitionStage = 'transition-target'
           await this.assertEngineTarget(record, guest)
           this.assertLiveGuest(record, guest)
-          await this.sendEngineCommand(record, guest, 'Page.setWebLifecycleState', {
-            state,
-          })
+          transitionStage = 'state-command'
+          attemptedState = state
+          try {
+            await this.sendEngineCommand(record, guest, 'Page.setWebLifecycleState', {
+              state,
+            })
+          } catch (error) {
+            nativeRefusal = 'other'
+            try {
+              const message = error instanceof Error ? error.message : undefined
+              // Electron forwards the pinned Chromium protocol message unchanged.
+              if (message === 'Not attached to a page') nativeRefusal = 'no-frame'
+              else if (message === 'Not attached to an active page')
+                nativeRefusal = 'inactive-frame'
+              else if (message === 'Command can only be executed on top-level targets')
+                nativeRefusal = 'not-top-level'
+            } catch {
+              // Even an unreadable error must preserve the original native refusal.
+            }
+            throw error
+          }
           this.assertLiveGuest(record, guest)
+          transitionStage = 'complete'
+          return 'applied'
         },
         () => this.flushPresentation(record),
-        () =>
+        (category) => {
+          reportFailure(
+            transitionStage === 'engine-ready' ? bootstrapStage : transitionStage,
+            category,
+          )
           this.owner?.failed(
             guest.id,
             'Extension engine lifecycle control is unavailable. Close and reopen the view.',
-          ),
+          )
+        },
       )
       guest.debugger.on('detach', () => {
         if (this.surfaces.get(view.id) === record && !guest.isDestroyed())
@@ -271,6 +400,7 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
       if (record.admittedWork) record.lifecycle.setAdmittedWork(true)
       record.lifecycle.setVisible(record.visible)
     } catch {
+      reportFailure(setupStage, 'refusal')
       this.owner?.failed(
         guest.id,
         'Extension engine lifecycle control is unavailable. Close and reopen the view.',
@@ -286,12 +416,13 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
     guest.on('will-prevent-unload', (event) => event.preventDefault())
     guest.on('devtools-opened', () => guest.closeDevTools())
     guest.on('render-process-gone', () => this.owner?.failed(guest.id))
-    guest.on('preload-error', () =>
+    guest.on('preload-error', () => {
+      reportFailure('isolated-observer', 'refusal')
       this.owner?.failed(
         guest.id,
         'Extension isolated lifecycle observation is unavailable. Close and reopen the view.',
-      ),
-    )
+      )
+    })
     guest.on('did-fail-load', (_event, code, _description, _url, isMainFrame) => {
       if (isMainFrame && code !== -3) this.owner?.failed(guest.id)
     })
