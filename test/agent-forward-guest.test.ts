@@ -248,18 +248,23 @@ async function fixture() {
     access,
   }
 }
-it('remote-opened guests keep their origin after CLI EOF and local reuse, denying connector laundering without an action ID', async () => {
+it('remote-opened guests retain their origin after same-origin reuse, CLI EOF and refused local reuse, denying connector laundering without an action ID', async () => {
   const f = await fixture(),
     view = await f.view()
   expect(f.workspace.length).toBeGreaterThan(128)
+  expect(
+    (await f.run(['view', '--extension', 'installation', '--view', 'main'])).exitStatus,
+  ).toBe(0)
   f.cli.abort()
   expect(await f.request('context', 'context.read', null)).toMatchObject({
     ok: true,
     value: { workspace: { id: f.workspace, host: 'remote' } },
   })
-  await f.guests.open(f.renderer, 'installation', 'main', undefined, {
-    context: { surface: 'viewer', workspaceId: f.workspace },
-  })
+  await expect(
+    f.guests.open(f.renderer, 'installation', 'main', undefined, {
+      context: { surface: 'viewer', workspaceId: f.workspace },
+    }),
+  ).rejects.toThrow('different origin')
   expect(await f.request('local', 'connector.execute', f.connector.input)).toMatchObject({
     ok: false,
   })
@@ -316,7 +321,7 @@ it('a specifically granted nested action can run a local connector for its admit
   })
   await Promise.resolve()
   expect(f.connector.host.exec).toHaveBeenCalledOnce()
-  expect(f.guests.snapshot(f.renderer)).toEqual([])
+  expect(f.guests.snapshot(f.renderer)).toHaveLength(1)
 })
 it('nested destructive actions without invocation IDs still require the main confirmation and Off revokes queued work', async () => {
   const f = await fixture()
@@ -379,4 +384,110 @@ it('the command owner filters multi-host discovery and rejects origin spoofing, 
     ).exitStatus,
   ).toBe(69)
   expect(() => f.scopes.configure(f.grant, true)).toThrow('stale')
+})
+
+it('refuses remote reuse without narrowing or closing a local view, including an opening view', async () => {
+  const f = await fixture()
+  const local = await f.guests.open(f.renderer, 'installation', 'main', undefined, {
+    context: { surface: 'viewer', workspaceId: f.workspace },
+  })
+  const refusedOpening = await f.run([
+    'view',
+    '--extension',
+    'installation',
+    '--view',
+    'main',
+  ])
+  expect(refusedOpening.exitStatus).toBe(69)
+  f.guests.claim(f.renderer, local.partition, local.url, local.id)
+  f.guests.bind(f.renderer, local.partition, 10)
+  f.guests.presentation(f.renderer, local.id, DEFAULT_EXTENSION_PRESENTATION, true, true)
+  f.guests.receive(10, { kind: 'hello', contract: '1.0' })
+  const refusedReady = await f.run([
+    'view',
+    '--extension',
+    'installation',
+    '--view',
+    'main',
+  ])
+  expect(refusedReady.exitStatus).toBe(69)
+  f.lifetime.abort()
+  await f.access.configure({ enabled: false, confirmDestructive: false })
+  f.guests.assertView(local.id)
+  expect(
+    await f.request('local-survives', 'connector.execute', f.connector.input),
+  ).toMatchObject({ ok: true })
+  expect(f.connector.host.exec).toHaveBeenCalledOnce()
+})
+
+it('relevant grant removal cancels the real connector admission and queued action while additions and unrelated removal preserve the view', async () => {
+  const f = await fixture()
+  f.scopes.configure(f.grant, true)
+  const view = await f.view()
+  f.guests.receive(10, {
+    kind: 'request',
+    id: 'nested-flight',
+    capability: 'actions.invoke',
+    input: { action: 'allowed', input: null },
+  })
+  await vi.waitFor(() =>
+    expect(f.sent.some((message) => message.kind === 'action')).toBe(true),
+  )
+  const action = f.sent.find((message) => message.kind === 'action') as {
+    invocation: ExtensionInvocation
+  }
+  f.scopes.configure(f.grant, true)
+  f.scopes.configure({ ...f.grant, action: 'delete' }, true)
+  f.scopes.configure({ ...f.grant, action: 'delete' }, false)
+  f.guests.assertView(view.id)
+  expect(f.sent.some((message) => message.kind === 'action-cancelled')).toBe(false)
+  let resolve!: (value: {
+    code: number
+    signal: null
+    stdout: string
+    stderr: string
+  }) => void
+  const pending = new Promise<{
+    code: number
+    signal: null
+    stdout: string
+    stderr: string
+  }>((done) => {
+    resolve = done
+  })
+  let nativeSignal: AbortSignal | undefined
+  f.connector.host.exec.mockImplementationOnce((_command, _args, options) => {
+    nativeSignal = options?.signal
+    return pending
+  })
+  f.guests.receive(10, {
+    kind: 'request',
+    id: 'execute-flight',
+    capability: 'connector.execute',
+    input: f.connector.input,
+    actionId: action.invocation.id,
+  })
+  await vi.waitFor(() => expect(f.connector.host.exec).toHaveBeenCalledOnce())
+  expect(nativeSignal?.aborted).toBe(false)
+  f.scopes.configure(f.grant, false)
+  expect(nativeSignal?.aborted).toBe(true)
+  expect(
+    f.sent.some(
+      (message) =>
+        message.kind === 'action-cancelled' && message.id === action.invocation.id,
+    ),
+  ).toBe(true)
+  f.guests.assertView(view.id)
+  f.scopes.configure(f.grant, true)
+  expect(nativeSignal?.aborted).toBe(true)
+  expect(
+    await f.request(
+      'revoked-action',
+      'connector.execute',
+      f.connector.input,
+      action.invocation.id,
+    ),
+  ).toMatchObject({ ok: false })
+  expect(f.connector.host.exec).toHaveBeenCalledOnce()
+  resolve({ code: 0, signal: null, stdout: '', stderr: '' })
 })

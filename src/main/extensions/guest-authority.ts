@@ -10,6 +10,12 @@ export class ExtensionGuestAuthority {
   get restricted(): boolean {
     return this.authorities.size > 0
   }
+  assertReuse(authority: ExtensionViewAuthority | undefined): void {
+    if (Boolean(authority) !== this.restricted)
+      throw new Error(
+        'This view has a different origin; close it before opening it again',
+      )
+  }
   private readonly authorities = new Map<
     string,
     { authority: ExtensionViewAuthority; release(): void }
@@ -62,6 +68,9 @@ export class ExtensionGuestAuthority {
       ({ authority }) => authority.forAction?.(action) ?? authority,
     )
     return {
+      signal: AbortSignal.any(
+        children.flatMap((child) => (child.signal ? [child.signal] : [])),
+      ),
       view: this.view(),
       authorizeAction: async (binding, current, signal) => {
         let result: 'standing' | 'interactive' = 'standing'

@@ -114,6 +114,8 @@ it('bounds unavailable metadata/assets and Off while retaining unfinished physic
   await vi.advanceTimersByTimeAsync(30_001)
   expect((await starting).env.HVIR_AGENT_UNAVAILABLE).toContain('30 second')
   expect(f.owner.snapshot()[0]?.availability).toBe('unavailable')
+  expect((await f.environment()).env.HVIR_AGENT_UNAVAILABLE).toContain('30 second')
+  expect(f.detect).toHaveBeenCalledOnce()
   await f.owner.revoke()
   f.detect.mockResolvedValue({ target: 'macos-arm64', base: f.cached.directory })
   const assets = Array.from({ length: 3 }, () =>
@@ -208,6 +210,18 @@ it('bounds a deferred socket receipt, revokes late authority and preserves a new
   await vi.advanceTimersByTimeAsync(0)
   expect(f.scopes.grantStates()[0]?.generation).toBe(generation)
   expect(f.owner.snapshot()[0]?.availability).toBe('ready')
+  await f.owner.dispose()
+  f.admission.dispose()
+})
+
+it('retries a settled transient preparation failure on later demand without repeating unresolved work', async () => {
+  const f = fixture()
+  f.detect.mockRejectedValueOnce(new Error('transient metadata failure'))
+  expect((await f.environment()).env.HVIR_AGENT_UNAVAILABLE).toContain('transient')
+  const old = f.owner.snapshot()[0]!.generation
+  expect((await f.environment()).env.HVIR_AGENT_ENDPOINT).toBe('/tmp/a.sock')
+  expect(f.detect).toHaveBeenCalledTimes(2)
+  expect(f.owner.snapshot()[0]!.generation).not.toBe(old)
   await f.owner.dispose()
   f.admission.dispose()
 })

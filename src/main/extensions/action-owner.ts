@@ -43,6 +43,7 @@ interface PendingAction {
 }
 /** Main-only execution authority, deliberately absent from guest invocation data. */
 export interface ExtensionActionAuthority {
+  readonly signal?: AbortSignal
   readonly authorizeAction?: (
     binding: {
       readonly title: string
@@ -76,6 +77,8 @@ export class ExtensionActionOwner {
     signal?: AbortSignal,
     authority?: ExtensionActionAuthority,
   ): Promise<unknown> {
+    if (authority?.signal)
+      signal = signal ? AbortSignal.any([signal, authority.signal]) : authority.signal
     current()
     signal?.throwIfAborted()
     const action = activation.revision.manifest.actions?.find(

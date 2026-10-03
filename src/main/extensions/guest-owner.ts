@@ -177,11 +177,12 @@ export class ExtensionGuestOwner {
         entry.context?.value.surface === context?.value.surface,
     )
     if (existing) {
-      existing.authority.add(options.authority, () => this.closeRecord(existing))
       if (!existing.ready || existing.view.failure)
         throw new Error(
           'This view is opening or stopped; close it before opening it again',
         )
+      existing.authority.assertReuse(options.authority)
+      existing.authority.add(options.authority, () => this.closeRecord(existing))
       this.publish(
         owner,
         this.snapshot(owner),
@@ -605,6 +606,11 @@ export class ExtensionGuestOwner {
     invocation?: ExtensionInvocation,
   ): Promise<unknown> {
     await this.activations.assertWritable()
+    const invocationAuthority = invocation
+      ? this.actions?.authority(record.view.id, invocation.id)
+      : undefined
+    if (invocationAuthority?.signal)
+      signal = AbortSignal.any([signal, invocationAuthority.signal])
     const assertOrigin = (): void => {
       this.assertRecord(record)
       signal.throwIfAborted()
@@ -616,12 +622,12 @@ export class ExtensionGuestOwner {
       if (!this.connectors) throw new Error('Connector execution is unavailable')
       const caller: ConnectorCaller = {
         authorizeHost: (host, workspace) => {
-          const authority = invocation
-            ? (record.authority.forAction(invocation.action) ??
-              this.actions?.authority(record.view.id, invocation.id))
-            : undefined
-          if (authority) authority.assertCapability('connector.execute', host, workspace)
-          else record.authority.assertCapability('connector.execute', host, workspace)
+          if (invocation) {
+            invocationAuthority?.assertCapability('connector.execute', host, workspace)
+            record.authority
+              .forAction(invocation.action)
+              ?.assertCapability('connector.execute', host, workspace)
+          } else record.authority.assertCapability('connector.execute', host, workspace)
         },
         activation: record.activation,
         view: record.view.id,

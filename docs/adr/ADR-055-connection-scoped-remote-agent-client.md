@@ -42,8 +42,11 @@ Reuse ADR-026's checked user-owned 0700 hvir directory selection. A dedicated ag
 subdirectory retains at most three client revisions and 48 MiB, with each client bounded
 to 16 MiB. Upload to an exclusively created random leaf, verify size, digest and mode,
 then atomically publish without replacement. Exact ownership markers bind retained objects
-and cleanup. Live forward leases prevent client deletion; interrupted transfers never
-execute. Reconciliation inspects only bounded immediate entries in this dedicated namespace;
+and cleanup. Physically settled failed transfers use exact recorded identities for immediate
+bounded cleanup. If disconnect or uncertain ownership prevents cleanup, a new exclusive revision
+can prepare the same hash while preserving the abandoned leaf; every pending revision counts
+against the same revision, byte and entry bounds. Live forward leases prevent client deletion;
+interrupted transfers never execute. Reconciliation inspects only bounded immediate entries in this dedicated namespace;
 unsafe or excessive contents refuse preparation rather than scan or delete unrelated files.
 Only proven unleased obsolete objects are removed. Offline hosts may retain material until
 a later supported reconciliation. Unavailable ABI, no-exec storage and cleanup failures are
@@ -64,6 +67,10 @@ execution requires a separate trusted, explicit grant bound to forward generatio
 installation and accepted revision, action, capability, execution host and destination
 workspace. Grants are reused while unchanged and revocation interrupts dependent work.
 The trusted Settings surface manages finite grants; socket and guest protocols cannot.
+Actions capture their standing additional grants at admission. Adding grants does not widen or
+interrupt admitted work; removing a grant fences actions bound to it while unrelated actions
+and views retain their forward lifetime. Views refuse reuse across local and restricted origin
+classes; same restricted-origin reuse retains its restrictions.
 
 Off, disconnect and application exit revoke forward admission before releasing streams and
 the socket. Late preparation or results cannot restore it. Known completed effects remain

@@ -67,7 +67,7 @@ it('publishes verified private files, reuses one upload, and bounds unleased rev
   for (const version of ['two', 'three', 'four'])
     await (await f.acquire(f.asset(version))).release()
   expect(await readdir(join(f.directory, 'agent-client'))).toHaveLength(3)
-})
+}, 20_000)
 it('recovers exact interrupted upload and publication objects without executing a partial client', async () => {
   for (const publication of [false, true]) {
     const f = await fixture(),
@@ -102,55 +102,44 @@ it('recovers exact interrupted upload and publication objects without executing 
     await expect(f.acquire()).rejects.toThrow('interrupted')
     spy.mockRestore()
     if (publication) vi.restoreAllMocks()
-    const path = join(f.directory, 'agent-client', `c.${f.asset().sha256}`, 'owned.json'),
-      marker = JSON.parse(await readFile(path, 'utf8')) as {
-        pending: boolean
-        createdAt: number
-        upload: { name: string; identity: string }
-      }
-    expect(marker.pending).toBe(true)
-    expect(marker.upload.identity).toMatch(/^\d+:\d+:\d+$/)
-    await writeFile(
-      path,
-      JSON.stringify({ ...marker, createdAt: Date.now() - 86_400_001 }),
-    )
+    expect(await readdir(join(f.directory, 'agent-client'))).toEqual([])
     const recovered = await f.acquire()
     expect(await readFile(recovered.client.path)).toEqual(f.asset().bytes)
     await recovered.release()
   }
 })
-it('preserves an externally replaced upload leaf during stale cleanup', async () => {
+it('preserves an externally replaced failed upload and admits unrelated hashes within cache limits', async () => {
   const f = await fixture(),
     original = f.host.fileTransfer.writeFileChunksExclusive.bind(f.host.fileTransfer)
+  let upload = ''
   const spy = vi
     .spyOn(f.host.fileTransfer, 'writeFileChunksExclusive')
     .mockImplementationOnce((...args) => original(...args))
-    .mockImplementationOnce((path, chunks, options) =>
-      original(
-        path,
-        (async function* () {
-          for await (const chunk of chunks) {
-            yield chunk.subarray(0, 8)
-            throw new Error('interrupted')
-          }
-        })(),
-        options,
-      ),
-    )
+    .mockImplementationOnce(async (path, chunks, options) => {
+      upload = path.path
+      try {
+        await original(
+          path,
+          (async function* () {
+            for await (const chunk of chunks) {
+              yield chunk.subarray(0, 8)
+              throw new Error('interrupted')
+            }
+          })(),
+          options,
+        )
+      } catch (reason) {
+        await rename(upload, upload + '.original')
+        await writeFile(upload, 'foreign')
+        throw reason
+      }
+    })
   await expect(f.acquire()).rejects.toThrow('interrupted')
   spy.mockRestore()
-  const directory = join(f.directory, 'agent-client', `c.${f.asset().sha256}`),
-    path = join(directory, 'owned.json'),
-    marker = JSON.parse(await readFile(path, 'utf8')) as {
-      pending: boolean
-      createdAt: number
-      upload: { name: string; identity: string }
-    },
-    upload = join(directory, marker.upload.name)
-  await rename(upload, upload + '.original')
-  await writeFile(upload, 'foreign')
-  await writeFile(path, JSON.stringify({ ...marker, createdAt: Date.now() - 86_400_001 }))
-  await expect(f.acquire()).rejects.toThrow('preserved')
+  const sameHash = await f.acquire()
+  await sameHash.release()
+  const unrelated = await f.acquire(f.asset('two'))
+  await unrelated.release()
   expect(await readFile(upload, 'utf8')).toBe('foreign')
 })
 it('preserves live leases, reconciles old dead sockets by actual transport probe, and uses a short socket namespace', async () => {
@@ -287,4 +276,71 @@ it('reconciles a stale dead receipted socket and its exact lease after interrupt
     (await readdir(client.directory.path)).some((name) => name.startsWith('lease.')),
   ).toBe(false)
   await next.release()
+}, 20_000)
+
+it('retries the same hash in a fresh bounded revision after disconnect prevents settled upload cleanup', async () => {
+  const f = await fixture(),
+    original = f.host.fileTransfer.writeFileChunksExclusive.bind(f.host.fileTransfer)
+  const execute = f.host.exec.bind(f.host)
+  let disconnected = false,
+    partial = ''
+  vi.spyOn(f.host, 'exec').mockImplementation((...args) => {
+    if (disconnected) return Promise.reject(new Error('host disconnected'))
+    return execute(...args)
+  })
+  const upload = vi
+    .spyOn(f.host.fileTransfer, 'writeFileChunksExclusive')
+    .mockImplementationOnce((...args) => original(...args))
+    .mockImplementationOnce((path, chunks, options) => {
+      partial = path.path
+      return original(
+        path,
+        (async function* () {
+          for await (const chunk of chunks) {
+            yield chunk.subarray(0, 8)
+            disconnected = true
+            throw new Error('host disconnected')
+          }
+        })(),
+        options,
+      )
+    })
+  await expect(f.acquire()).rejects.toThrow('disconnected')
+  const preserved = await readFile(partial)
+  upload.mockRestore()
+  disconnected = false
+  const recovered = await f.acquire()
+  expect(recovered.directory.path).not.toBe(partial.slice(0, partial.lastIndexOf('/')))
+  expect(await readFile(partial)).toEqual(preserved)
+  expect(await readFile(recovered.client.path)).toEqual(f.asset().bytes)
+  await recovered.release()
+  expect(await readdir(join(f.directory, 'agent-client'))).toHaveLength(2)
+})
+
+it('serializes concurrent same-host cache acquisition across forward generations, reuses one upload and maintains revision bounds', async () => {
+  const f = await fixture(),
+    upload = vi.spyOn(f.host.fileTransfer, 'writeFileChunksExclusive')
+  const clients = await Promise.all(
+    Array.from({ length: 6 }, (_, index) =>
+      f.cache.acquire(
+        f.host,
+        localPath(f.directory),
+        f.asset(),
+        'instance',
+        `forward:${index}`,
+        new AbortController().signal,
+      ),
+    ),
+  )
+  expect(
+    upload.mock.calls.filter(([path]) => path.path.includes('/upload.')),
+  ).toHaveLength(1)
+  expect(new Set(clients.map((client) => client.directory.path)).size).toBe(1)
+  expect(new Set(clients.map((client) => client.socket.path)).size).toBe(6)
+  await Promise.all(clients.map((client) => client.release()))
+  const revisions = await Promise.all(
+    ['two', 'three', 'four'].map((version) => f.acquire(f.asset(version))),
+  )
+  expect(await readdir(join(f.directory, 'agent-client'))).toHaveLength(3)
+  await Promise.all(revisions.map((client) => client.release()))
 }, 20_000)

@@ -4,6 +4,11 @@ import { resolve } from 'node:path'
 import { SshHost } from '../src/main/project-host/ssh-host'
 import { LocalSshIdentitySource } from '../src/main/project-host/ssh-identity-source'
 import { RemoteAgentClientOwner } from '../src/main/agent/remote-client-owner'
+import {
+  RemoteClientCache,
+  type CachedRemoteClient,
+} from '../src/main/agent/remote-client-cache'
+import { identity as cacheIdentity } from '../src/main/agent/remote-client-cache-control'
 import { AgentStreamAdmission } from '../src/main/agent/stream-admission'
 import { AgentForwardScopeOwner } from '../src/main/agent/forward-scope'
 import { AgentWorkbenchCommandOwner } from '../src/main/agent/command-owner'
@@ -183,17 +188,27 @@ async function main(): Promise<void> {
     forwardScopes: scopes,
     reference: (command) => Promise.resolve(staticAgentReference(command, () => ({}))!),
   })
+  const cache = new RemoteClientCache(),
+    acquire = cache.acquire.bind(cache)
+  let cacheWork: Promise<CachedRemoteClient> | undefined
+  cache.acquire = (...args) => {
+    cacheWork = acquire(...args)
+    return cacheWork
+  }
   const admission = new AgentStreamAdmission((request, connection) =>
       commands.run(request, connection),
     ),
-    remote = new RemoteAgentClientOwner({
-      instance,
-      enabled: () => access.snapshot().enabled,
-      assets: () => Promise.resolve({ bytes, sha256, target: target! }),
-      admission,
-      scopes,
-      changed: () => undefined,
-    })
+    remote = new RemoteAgentClientOwner(
+      {
+        instance,
+        enabled: () => access.snapshot().enabled,
+        assets: () => Promise.resolve({ bytes, sha256, target: target! }),
+        admission,
+        scopes,
+        changed: () => undefined,
+      },
+      cache,
+    )
   async function invoke(
     environment: Awaited<ReturnType<typeof remote.environment>>,
     argv: string[],
@@ -250,8 +265,99 @@ async function main(): Promise<void> {
   try {
     await host.connect()
     await access.configure({ enabled: true, confirmDestructive: false })
+    // Interrupt a real SFTP upload after its first physical write. Cleanup is unavailable while
+    // disconnected; a same-hash reconnect must use a fresh bounded revision, preserving that leaf.
+    operation = 'interrupted-upload-reconnect'
+    const write = host.fileTransfer.writeFileChunksExclusive.bind(host.fileTransfer)
+    let interrupted = false
+    let disconnected: Promise<void> | undefined
+    let partial: import('../src/shared/host-path').HostPath | undefined,
+      partialIdentity = '',
+      partialSha256 = '',
+      partialBytes = 0
+    host.fileTransfer.writeFileChunksExclusive = (path, chunks, options) => {
+      if (!path.path.includes('/upload.')) return write(path, chunks, options)
+      return write(
+        path,
+        (async function* () {
+          for await (const chunk of chunks) {
+            yield chunk
+            partial = path
+            partialIdentity = await cacheIdentity(host, path, lifetime.signal)
+            partialSha256 = createHash('sha256').update(chunk).digest('hex')
+            partialBytes = chunk.length
+            interrupted = true
+            disconnected = host.dispose()
+            await disconnected
+            throw new Error('Owned SSH upload fixture disconnected')
+          }
+        })(),
+        options,
+      )
+    }
+    const failed = await remote.environment(host, lifetime.signal)
+    host.fileTransfer.writeFileChunksExclusive = write
+    operation = `interrupted-upload-outcome-${interrupted}-${Boolean(failed.env.HVIR_AGENT_UNAVAILABLE)}`
+    if (!interrupted || !failed.env.HVIR_AGENT_UNAVAILABLE)
+      throw new Error('Interrupted SSH upload did not return unavailable')
+    await disconnected
+    await cacheWork?.catch(() => undefined)
+    operation = 'interrupted-upload-reconnect-connect'
+    await host.connect()
+    operation = 'interrupted-upload-reconnect-retained-identity'
+    if (
+      !partial ||
+      (await cacheIdentity(host, partial, lifetime.signal)) !== partialIdentity
+    )
+      throw new Error('Original interrupted SSH upload identity was not preserved')
+    operation = 'interrupted-upload-reconnect-retained-marker'
+    const pendingMarker = await host.readTextFilePrefix(
+      joinHostPath(partial, '..', 'owned.json'),
+      4096,
+    )
+    const pending = JSON.parse(pendingMarker.content) as {
+      pending?: boolean
+      hash?: string
+      upload?: { identity?: string }
+    }
+    if (
+      !pendingMarker.complete ||
+      pending.pending !== true ||
+      pending.hash !== sha256 ||
+      pending.upload?.identity !== partialIdentity
+    )
+      throw new Error('Original interrupted SSH revision marker was not preserved')
+    operation = 'interrupted-upload-reconnect-retained-bytes'
+    const retainedHash = createHash('sha256')
+    let retainedBytes = 0
+    for await (const chunk of host.fileTransfer.readFileChunks(partial, {
+      signal: lifetime.signal,
+    })) {
+      retainedBytes += chunk.length
+      retainedHash.update(chunk)
+    }
+    if (retainedBytes !== partialBytes || retainedHash.digest('hex') !== partialSha256)
+      throw new Error('Original interrupted SSH bytes were changed')
+    operation = 'interrupted-upload-reconnect-prepare'
     const a = await remote.environment(host, lifetime.signal),
       b = await remote.environment(host, lifetime.signal)
+    if (!a.env.HVIR_AGENT_CLIENT || !b.env.HVIR_AGENT_CLIENT) {
+      const reason = a.env.HVIR_AGENT_UNAVAILABLE ?? ''
+      operation = reason.includes('unrecognized')
+        ? 'prepare-unrecognized'
+        : reason.includes('replaced')
+          ? 'prepare-replaced'
+          : reason.includes('capacity')
+            ? 'prepare-capacity'
+            : reason.includes('revoked')
+              ? 'prepare-revoked'
+              : 'prepare-unavailable'
+      throw new Error('Fresh SSH client preparation failed')
+    }
+    if (a.env.HVIR_AGENT_CLIENT === joinHostPath(partial, '..', 'hvir-agent').path)
+      throw new Error('Fresh SSH client reused the pending revision')
+    if ((await cacheIdentity(host, partial, lifetime.signal)) !== partialIdentity)
+      throw new Error('Fresh preparation removed the preserved partial upload')
     if (a.env.HVIR_AGENT_CLIENT !== b.env.HVIR_AGENT_CLIENT)
       throw new Error('Second terminal did not reuse the exact client')
     const listing = await invoke(a, ['workspaces'])
@@ -313,6 +419,7 @@ async function main(): Promise<void> {
         commands: ['workspaces', 'open', 'report', 'run', 'help'],
         privateMarkerMode: '0600',
         cacheReuse: true,
+        interruptedUploadReconnect: true,
         ownedSocketCleanup: true,
         revokeAndFreshForward: true,
       }),

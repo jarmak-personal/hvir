@@ -24,6 +24,7 @@ interface Entry {
   readonly signal: AbortSignal
   readonly disposeState: () => void | Promise<void>
   work?: Promise<PtyAgentEnvironment>
+  settled?: boolean
   cached?: CachedRemoteClient
   forwardUncertain?: boolean
   forward?: StreamLocalForward
@@ -66,7 +67,9 @@ export class RemoteAgentClientOwner {
     let entry = this.entries.get(host.hostId)
     if (
       entry &&
-      (entry.host !== host || entry.binding.generation !== binding.generation)
+      (entry.host !== host ||
+        entry.binding.generation !== binding.generation ||
+        (entry.state.availability === 'unavailable' && entry.settled))
     ) {
       await this.close(entry)
       entry = undefined
@@ -113,7 +116,10 @@ export class RemoteAgentClientOwner {
       const physical = this.prepare(entry, preparationSignal)
       this.preparations.add(physical)
       void physical
-        .finally(() => this.preparations.delete(physical))
+        .finally(() => {
+          created.settled = true
+          this.preparations.delete(physical)
+        })
         .catch(() => undefined)
       entry.work = boundedPreparation(physical, preparationSignal).catch(
         (reason: unknown) => {

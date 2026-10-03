@@ -40,10 +40,13 @@ verified owned obsolete objects. An unreachable host can retain files until late
 
 A long per-user temporary directory keeps the client cache there and uses a separately checked
 0700 /tmp/hvir-$UID directory for the short socket name. macOS socket paths stay below 104 bytes.
-The cache limits each client to 16 MiB and bounds directory entries. Fresh interrupted transfers
-and lease records are preserved for 24 hours; older exact owned transfers can be reconciled,
-and older leases are removed only when the bundled client confirms the socket is dead. Unknown
-or externally replaced objects are preserved and setup reports unavailable. Live streams keep
+The cache limits each client to 16 MiB and bounds directory entries. A settled failed upload is
+cleaned using exact ownership receipts when the host is reachable. If cleanup is unavailable,
+a reconnect can prepare the same hash in a fresh private revision while preserving the partial
+leaf. Pending revisions count toward the same cache limits; older exact owned transfers can
+be reconciled after 24 hours. Fresh lease records are protected for 24 hours, and older leases
+are removed only when the bundled client confirms the socket is dead. Unknown or externally
+replaced objects are preserved; exhausted or unsafe namespaces report unavailable. Live streams keep
 their lease until physical close. Turning access Off and enabling it again creates a new forward
 identity, so a queued decision cannot grant a later connection accidentally.
 

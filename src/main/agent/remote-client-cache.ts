@@ -1,6 +1,25 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { hostPath, joinHostPath, type HostPath } from '../../shared/host-path'
 import type { ProjectHost } from '../project-host/project-host'
+import {
+  identity,
+  control,
+  DETECT,
+  PRIVATE_DIRECTORY,
+  CREATE_REVISION,
+  VERIFY_MARKER,
+  VERIFY_PUBLICATION,
+  CREATE_LEASE,
+  SHORT_SOCKET_BASE,
+  UPDATE_MARKER,
+  CHECK_LEASE,
+  UPDATE_LEASE,
+  SOCKET_IDENTITY,
+  SOCKET_ABSENT,
+  REMOVE_EXACT_SOCKET,
+  REMOVE_EXACT_FILE,
+  RETIRE,
+} from './remote-client-cache-control'
 
 export const REMOTE_CLIENT_CACHE_LIMITS = {
   revisions: 3,
@@ -36,6 +55,31 @@ interface Marker {
 
 /** Private client files and exact-object retention. All effects stay behind ProjectHost. */
 export class RemoteClientCache {
+  private readonly acquisitions = new Map<string, Promise<void>>()
+  acquire(
+    host: ProjectHost,
+    base: HostPath,
+    asset: RemoteClientAsset,
+    instance: string,
+    generation: string,
+    signal: AbortSignal,
+  ): Promise<CachedRemoteClient> {
+    const key = JSON.stringify([host.hostId, base.path])
+    const work = (this.acquisitions.get(key) ?? Promise.resolve()).then(() => {
+      signal.throwIfAborted()
+      return this.prepare(host, base, asset, instance, generation, signal)
+    })
+    // The actual physical operation owns this queue slot until settlement, even after caller timeout.
+    const settled = work.then(
+      () => undefined,
+      () => undefined,
+    )
+    this.acquisitions.set(key, settled)
+    void settled.then(() => {
+      if (this.acquisitions.get(key) === settled) this.acquisitions.delete(key)
+    })
+    return work
+  }
   async detect(
     host: ProjectHost,
     signal: AbortSignal,
@@ -55,7 +99,7 @@ export class RemoteClientCache {
       throw new Error('hvir-agent private directory is unsafe')
     return { target: `${platform}-${arch}`, base: hostPath(host.hostId, path) }
   }
-  async acquire(
+  private async prepare(
     host: ProjectHost,
     base: HostPath,
     asset: RemoteClientAsset,
@@ -77,25 +121,32 @@ export class RemoteClientCache {
     for (const entry of entries) {
       signal.throwIfAborted()
       const path = joinHostPath(root, entry.name)
-      if (!/^c\.[a-f0-9]{64}$/.test(entry.name) || entry.type !== 'dir')
+      if (!/^c\.[a-f0-9]{64}\.[a-f0-9-]{36}$/.test(entry.name) || entry.type !== 'dir')
         throw new Error(
           'hvir-agent cache contains an unrecognized entry; preserve it and inspect the private directory',
         )
       const marker = await this.marker(host, path, signal)
       if (marker.pending) {
         if (
-          typeof marker.createdAt !== 'number' ||
-          Date.now() - marker.createdAt < 24 * 60 * 60 * 1000
-        )
-          throw new Error(
-            'hvir-agent upload is pending or interrupted; partial clients are never executed',
-          )
-        await this.retire(host, root, path, marker, signal)
+          typeof marker.createdAt === 'number' &&
+          Date.now() - marker.createdAt >= 24 * 60 * 60 * 1000
+        ) {
+          try {
+            await this.retire(host, root, path, marker, signal)
+            continue
+          } catch {
+            signal.throwIfAborted()
+            // Uncertain/replaced leaves remain charged; they do not deny unrelated revisions.
+          }
+        }
+        retained.push({ path, marker, leased: true })
         continue
       }
       retained.push({ path, marker, leased: await this.leased(host, path, signal) })
     }
-    let cached = retained.find((entry) => entry.marker.hash === asset.sha256)
+    let cached = retained.find(
+      (entry) => !entry.marker.pending && entry.marker.hash === asset.sha256,
+    )
     let count = retained.length,
       bytes = retained.reduce((sum, entry) => sum + entry.marker.bytes, 0)
     if (!cached) {
@@ -115,9 +166,9 @@ export class RemoteClientCache {
         bytes + asset.bytes.length > REMOTE_CLIENT_CACHE_LIMITS.bytes
       )
         throw new Error('hvir-agent cache capacity is full; live clients are preserved')
-      const path = joinHostPath(root, `c.${asset.sha256}`)
+      const path = joinHostPath(root, `c.${asset.sha256}.${randomUUID()}`)
       await control(host, CREATE_REVISION, [path.path], signal)
-      const pending: Marker = {
+      let pending: Marker = {
         hash: asset.sha256,
         bytes: asset.bytes.length,
         directory: await identity(host, path, signal),
@@ -128,57 +179,80 @@ export class RemoteClientCache {
       const temporary = joinHostPath(path, `upload.${randomUUID()}`),
         client = joinHostPath(path, 'hvir-agent')
       await this.writeMarker(host, path, pending, signal)
-      const transfer = host.fileTransfer
-      if (!transfer) throw new Error('hvir-agent requires supported SFTP transfer')
-      let uploadIdentity: string | undefined
-      const assertUpload = async (): Promise<void> => {
-        if (
-          !uploadIdentity ||
-          (await identity(host, temporary, signal)) !== uploadIdentity
-        )
-          throw new Error('hvir-agent upload was replaced; it has been preserved')
-      }
-      // Preserve uncertain objects; reconciliation requires exact recorded identities.
-      await transfer.writeFileChunksExclusive(
-        temporary,
-        (async function* (cache: RemoteClientCache) {
-          const created = await host.stat(temporary)
-          if (created.type !== 'file' || created.size !== 0)
-            throw new Error('hvir-agent upload ownership is uncertain; partial preserved')
-          const upload = {
-            name: temporary.path.slice(temporary.path.lastIndexOf('/') + 1),
-            identity: await identity(host, temporary, signal),
-          }
-          uploadIdentity = upload.identity
-          await cache.writeMarker(host, path, { ...pending, upload }, signal)
-          yield* chunks(asset.bytes)
-        })(this),
-        {
-          mode: 0o644,
-          signal,
-          preserveOnFailure: true,
-        },
-      )
-      await assertUpload()
-      await this.digest(host, temporary, asset.sha256, asset.bytes.length, signal)
-      await transfer.setMetadata(temporary, {
-        mode: 0o755,
-        mtimeSeconds: Math.floor(Date.now() / 1000),
+      const markerIdentity = await identity(
+        host,
+        joinHostPath(path, 'owned.json'),
         signal,
-      })
-      await assertUpload()
-      await transfer.renameNoReplace(temporary, client, { signal })
-      if ((await identity(host, client, signal)) !== uploadIdentity)
-        throw new Error('hvir-agent published client was replaced; it has been preserved')
-      const marker: Marker = {
-        hash: asset.sha256,
-        bytes: asset.bytes.length,
-        directory: await identity(host, path, signal),
-        client: await identity(host, client, signal),
+      )
+      try {
+        const transfer = host.fileTransfer
+        if (!transfer) throw new Error('hvir-agent requires supported SFTP transfer')
+        let uploadIdentity: string | undefined
+        const assertUpload = async (): Promise<void> => {
+          if (
+            !uploadIdentity ||
+            (await identity(host, temporary, signal)) !== uploadIdentity
+          )
+            throw new Error('hvir-agent upload was replaced; it has been preserved')
+        }
+        // Preserve uncertain objects; reconciliation requires exact recorded identities.
+        await transfer.writeFileChunksExclusive(
+          temporary,
+          (async function* (cache: RemoteClientCache) {
+            const created = await host.stat(temporary)
+            if (created.type !== 'file' || created.size !== 0)
+              throw new Error(
+                'hvir-agent upload ownership is uncertain; partial preserved',
+              )
+            const upload = {
+              name: temporary.path.slice(temporary.path.lastIndexOf('/') + 1),
+              identity: await identity(host, temporary, signal),
+            }
+            uploadIdentity = upload.identity
+            pending = { ...pending, upload }
+            await cache.writeMarker(host, path, pending, signal)
+            yield* chunks(asset.bytes)
+          })(this),
+          {
+            mode: 0o644,
+            signal,
+            preserveOnFailure: true,
+          },
+        )
+        await assertUpload()
+        await this.digest(host, temporary, asset.sha256, asset.bytes.length, signal)
+        await transfer.setMetadata(temporary, {
+          mode: 0o755,
+          mtimeSeconds: Math.floor(Date.now() / 1000),
+          signal,
+        })
+        await assertUpload()
+        await transfer.renameNoReplace(temporary, client, { signal })
+        if ((await identity(host, client, signal)) !== uploadIdentity)
+          throw new Error(
+            'hvir-agent published client was replaced; it has been preserved',
+          )
+        const marker: Marker = {
+          hash: asset.sha256,
+          bytes: asset.bytes.length,
+          directory: await identity(host, path, signal),
+          client: await identity(host, client, signal),
+        }
+        await this.writeMarker(host, path, marker, signal)
+        await control(host, VERIFY_PUBLICATION, [path.path], signal)
+        cached = { path, marker, leased: false }
+      } catch (reason) {
+        // This awaited upload/publication has settled. An aborted preparation cannot cancel cleanup.
+        await this.retire(
+          host,
+          root,
+          path,
+          pending,
+          AbortSignal.timeout(8000),
+          markerIdentity,
+        ).catch(() => undefined)
+        throw reason
       }
-      await this.writeMarker(host, path, marker, signal)
-      await control(host, VERIFY_PUBLICATION, [path.path], signal)
-      cached = { path, marker, leased: false }
     }
     const client = joinHostPath(cached.path, 'hvir-agent')
     await this.digest(host, client, asset.sha256, asset.bytes.length, signal)
@@ -316,7 +390,7 @@ export class RemoteClientCache {
       (!marker.pending &&
         marker.client !==
           (await identity(host, joinHostPath(path, 'hvir-agent'), signal))) ||
-      !path.path.endsWith(`c.${marker.hash}`)
+      !new RegExp(`(?:^|/)c\\.${marker.hash}\\.[a-f0-9-]{36}$`).test(path.path)
     )
       throw new Error('hvir-agent cache object was replaced; it has been preserved')
     if (!marker.pending) await control(host, VERIFY_PUBLICATION, [path.path], signal)
@@ -385,6 +459,7 @@ export class RemoteClientCache {
     path: HostPath,
     marker: Marker,
     signal: AbortSignal,
+    markerIdentity?: string,
   ): Promise<void> {
     await control(
       host,
@@ -395,7 +470,8 @@ export class RemoteClientCache {
         marker.directory,
         marker.client,
         randomUUID(),
-        await identity(host, joinHostPath(path, 'owned.json'), signal),
+        markerIdentity ??
+          (await identity(host, joinHostPath(path, 'owned.json'), signal)),
         marker.upload?.name ?? '',
         marker.upload?.identity ?? '',
       ],
@@ -407,93 +483,3 @@ async function* chunks(bytes: Uint8Array): AsyncIterable<Uint8Array> {
   for (let offset = 0; offset < bytes.length; offset += 65536)
     yield await Promise.resolve(bytes.subarray(offset, offset + 65536))
 }
-async function identity(
-  host: ProjectHost,
-  path: HostPath,
-  signal?: AbortSignal,
-): Promise<string> {
-  return control(host, `${STAT}\nkey "$1"`, [path.path], signal)
-}
-async function control(
-  host: ProjectHost,
-  script: string,
-  args: readonly string[],
-  parent?: AbortSignal,
-): Promise<string> {
-  const result = await host.exec(
-    'sh',
-    ['-c', `set -eu\numask 077\n${script}`, 'hvir-agent-cache', ...args],
-    {
-      signal: parent
-        ? AbortSignal.any([parent, AbortSignal.timeout(8000)])
-        : AbortSignal.timeout(8000),
-      maxBuffer: 8192,
-    },
-  )
-  if (result.code !== 0)
-    throw new Error(
-      'hvir-agent private cache setup or exact cleanup is unavailable; existing files were preserved',
-    )
-  return result.stdout.trim()
-}
-const STAT = String.raw`
-key() { stat -c '%u:%d:%i' "$1" 2>/dev/null || stat -f '%u:%d:%i' "$1"; }
-mode() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }
-owner() { stat -c '%u' "$1" 2>/dev/null || stat -f '%u' "$1"; }
-private() { [ -d "$1" ] && [ ! -L "$1" ] && [ "$(owner "$1")" = "$(id -u)" ] && [ "$(mode "$1")" = 700 ]; }
-`
-const PRIVATE_DIRECTORY = `${STAT}\n[ -e "$1" ] || mkdir "$1"\nprivate "$1"`
-const DETECT = `${STAT}
-safe() { case "$1" in /*) ;; *) return 1;; esac; case "$1" in *[!A-Za-z0-9_./-]*) return 1;; esac; }
-uid=$(id -u)
-if safe "\${XDG_RUNTIME_DIR-}"; then parent=$XDG_RUNTIME_DIR; base=$parent/hvir
-else parent=\${TMPDIR:-/tmp}; safe "$parent" || parent=/tmp; base=$parent/hvir-$uid; fi
-[ -d "$parent" ] || exit 70
-[ -e "$base" ] || mkdir "$base"
-private "$base" || exit 71
-uname -s; uname -m; printf '%s\n' "$base"
-`
-const CREATE_REVISION = `${STAT}\nmkdir "$1"\nprivate "$1"`
-const VERIFY_MARKER = `${STAT}\nprivate "$1"\n[ -f "$1/owned.json" ] && [ ! -L "$1/owned.json" ]\n[ "$(owner "$1/owned.json")" = "$(id -u)" ] && [ "$(mode "$1/owned.json")" = 600 ]`
-const VERIFY_PUBLICATION = `${STAT}\nprivate "$1"\n[ -f "$1/hvir-agent" ] && [ ! -L "$1/hvir-agent" ]\n[ "$(owner "$1/hvir-agent")" = "$(id -u)" ] && [ "$(mode "$1/hvir-agent")" = 755 ]\n[ -f "$1/owned.json" ] && [ ! -L "$1/owned.json" ]\n[ "$(owner "$1/owned.json")" = "$(id -u)" ] && [ "$(mode "$1/owned.json")" = 600 ]`
-const CREATE_LEASE = `${STAT}\n[ ! -e "$1" ]\n(set -C; printf '%s\\n' "$2" > "$1")\n[ "$(mode "$1")" = 600 ]`
-const SHORT_SOCKET_BASE = `${STAT}\nbase=/tmp/hvir-$(id -u)\n[ -e "$base" ] || mkdir "$base"\nprivate "$base"\nprintf '%s\\n' "$base"`
-const UPDATE_MARKER = `${STAT}\nprivate "$1"\n[ ! -L "$1/owned.json" ] && [ "$(key "$1/owned.json")" = "$2" ] && [ "$(mode "$1/owned.json")" = 600 ]\nprintf '%s' "$3" > "$1/owned.json"`
-const CHECK_LEASE = `${STAT}\n[ ! -L "$1" ] && [ "$(owner "$1")" = "$(id -u)" ] && [ "$(mode "$1")" = 600 ]`
-const UPDATE_LEASE = `${CHECK_LEASE}\n[ "$(key "$1")" = "$2" ]\nprintf '%s' "$3" > "$1"`
-const SOCKET_IDENTITY = `${STAT}\n[ -S "$1" ] && [ ! -L "$1" ] && [ "$(owner "$1")" = "$(id -u)" ]\nkey "$1"`
-const SOCKET_ABSENT = '[ ! -e "$1" ] && [ ! -L "$1" ]'
-const REMOVE_EXACT_SOCKET = `${STAT}
-[ ! -e "$1" ] && [ ! -L "$1" ] && exit 0
-[ -S "$1" ] && [ ! -L "$1" ] && [ "$(key "$1")" = "$2" ] || exit 71
-quarantine="$1.retired"
-[ ! -e "$quarantine" ] && [ ! -L "$quarantine" ] || exit 71
-mv "$1" "$quarantine"
-[ -S "$quarantine" ] && [ ! -L "$quarantine" ] && [ "$(key "$quarantine")" = "$2" ] || exit 71
-rm "$quarantine"`
-const REMOVE_EXACT_FILE = `${STAT}\n[ ! -e "$1" ] && exit 0\n[ ! -L "$1" ] && [ "$(key "$1")" = "$2" ] || exit 71\nquarantine="$1.retired"\n[ ! -e "$quarantine" ] || exit 71\nmv "$1" "$quarantine"\n[ "$(key "$quarantine")" = "$2" ] || exit 71\nrm "$quarantine"`
-const RETIRE = `${STAT}
-private "$1" && private "$2"
-[ "$(key "$2")" = "$3" ] && [ "$(key "$2/owned.json")" = "$6" ] || exit 71
-check() {
-  count=0
-  for entry in "$1"/* "$1"/.[!.]* "$1"/..?*; do
-    [ -e "$entry" ] || [ -L "$entry" ] || continue
-    case "\${entry##*/}" in
-      owned.json) [ ! -L "$entry" ] && [ "$(key "$entry")" = "$6" ] || exit 71;;
-      hvir-agent) expected=$4; [ -n "$expected" ] || expected=$8; [ -n "$expected" ] && [ ! -L "$entry" ] && [ "$(key "$entry")" = "$expected" ] || exit 71;;
-      upload.*) [ "\${entry##*/}" = "$7" ] && [ -n "$8" ] && [ ! -L "$entry" ] && [ "$(key "$entry")" = "$8" ] || exit 71;;
-      *) exit 71;;
-    esac
-    count=$((count+1))
-  done
-  [ "$count" -le 2 ] && [ "$count" -ge 1 ]
-}
-check "$2" "$2" "$3" "$4" "$5" "$6" "$7" "$8"
-quarantine="$1/retired.$5"
-[ ! -e "$quarantine" ] || exit 71
-mv "$2" "$quarantine"
-[ "$(key "$quarantine")" = "$3" ] || exit 71
-check "$quarantine" "$2" "$3" "$4" "$5" "$6" "$7" "$8"
-for entry in "$quarantine"/*; do rm "$entry"; done
-rmdir "$quarantine"`

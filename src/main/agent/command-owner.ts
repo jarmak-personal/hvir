@@ -364,22 +364,23 @@ export class AgentWorkbenchCommandOwner {
     workspace?: string,
   ): ExtensionActionAuthority | undefined {
     if (connection.origin === 'application-local') return undefined
+    const admitted = this.ports.forwardScopes!.actionAuthority(connection, {
+      installation,
+      revision,
+      action,
+      workspace,
+    })
     return {
+      signal: admitted.signal,
       view: this.viewAuthority(connection, installation, revision, workspace),
       authorizeAction: (binding, current, signal) =>
         this.ports.access.authorizeAction(
           { installation, ...binding, workspace },
           current,
-          AbortSignal.any([signal, this.ports.forwardScopes!.viewSignal(connection)]),
+          AbortSignal.any([signal, admitted.signal]),
         ),
       assertCapability: (capability, host, destination) =>
-        this.ports.forwardScopes!.assertCapability(
-          connection,
-          { installation, revision, action, workspace },
-          capability,
-          host,
-          destination,
-        ),
+        admitted.assertCapability(capability, host, destination),
       forAction: (next) =>
         this.actionAuthority(connection, installation, revision, next, workspace)!,
     }

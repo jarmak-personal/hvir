@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events'
 import { expect, it, vi } from 'vitest'
 import type { SFTPWrapper } from 'ssh2'
 import { SshProjectFileTransfer } from '../src/main/project-host/ssh-project-file-transfer'
@@ -20,14 +21,21 @@ function fixture(closeFailure = false) {
     ),
     unlink = vi.fn((_path, done: (error?: Error) => void) => done()),
     fsetstat = vi.fn((_handle, _attributes, done: (error?: Error) => void) => done())
-  const session = { open, write, close, unlink, fsetstat } as unknown as SFTPWrapper
+  const session = Object.assign(new EventEmitter(), {
+    open,
+    write,
+    close,
+    unlink,
+    fsetstat,
+  })
+  const sftp = session as unknown as SFTPWrapper
   const transfer = new SshProjectFileTransfer({
     hostId: asHostId('ssh'),
-    getSftp: () => Promise.resolve(session),
+    getSftp: () => Promise.resolve(sftp),
     stat: () => Promise.reject(new Error('missing')),
     invalidate: () => undefined,
   })
-  return { transfer, open, write, close, unlink, fsetstat }
+  return { transfer, open, write, close, unlink, fsetstat, session }
 }
 it('sends an explicit private SFTP marker mode, independent of shell umask', async () => {
   const f = fixture()
@@ -83,4 +91,22 @@ it('preserves uncertain created paths on pre-first-yield cancellation and failed
     expect(f.close).toHaveBeenCalled()
     if (!failedClose) expect(f.write).not.toHaveBeenCalled()
   }
+})
+
+it('settles pending SFTP callbacks at physical session close and never submits handle cleanup on a closed session', async () => {
+  const f = fixture()
+  f.write.mockImplementationOnce(() => undefined)
+  const pending = f.transfer.writeFileChunksExclusive(
+    hostPath(asHostId('ssh'), '/private/upload'),
+    (async function* () {
+      yield await Promise.resolve(Buffer.from('partial'))
+    })(),
+    { mode: 0o644, preserveOnFailure: true },
+  )
+  await vi.waitFor(() => expect(f.write).toHaveBeenCalledOnce())
+  const rejected = expect(pending).rejects.toThrow('session closed')
+  f.session.emit('close')
+  await rejected
+  expect(f.close).not.toHaveBeenCalled()
+  expect(f.unlink).not.toHaveBeenCalled()
 })
