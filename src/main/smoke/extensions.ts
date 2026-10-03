@@ -15,6 +15,7 @@ import type { ElectronSmokeDependencies } from './bootstrap-contract'
 import type { LiveSessionMetadataSources } from '../terminal/live-session-metadata'
 import { focusSmokeWindow } from './window-focus'
 import { verifyExtensionWebRtc } from './extension-webrtc'
+import { verifyExtensionAuthoring } from './extension-authoring'
 import { verifyExtensionPackages } from './extension-packages'
 import { verifyExtensionNetwork } from './extension-network'
 import {
@@ -314,6 +315,11 @@ export async function verifyExtensionScenario(
   )
   await reportParentFocus('after-crash-hang-teardown')
   await verifyExtensionPackages(win, extensions, scopes, host, {
+    click: (name) => click(win, name),
+    wait: waitFor,
+    guest: guestFor,
+  })
+  await verifyExtensionAuthoring(win, extensions, scopes, host, {
     click: (name) => click(win, name),
     wait: waitFor,
     guest: guestFor,

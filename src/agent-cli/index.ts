@@ -3,7 +3,11 @@ import {
   listAgentEndpoints,
   validateSelectedAgentEndpoint,
 } from '../agent-transport/endpoint-directory'
-import { readAgentGuide } from '../agent-transport/reference-assets'
+import { localPath } from '../shared/host-path'
+import {
+  readAgentGuide,
+  installedAuthoringAssets,
+} from '../agent-transport/reference-assets'
 import {
   AGENT_CONTRACT,
   AGENT_LIMITS,
@@ -12,7 +16,11 @@ import {
   type AgentRequest,
   type AgentResponse,
 } from '../shared/agent/contract'
-import { parseAgentCommand, staticAgentReference } from '../shared/agent/commands'
+import {
+  parseAgentCommand,
+  staticAgentReference,
+  isLocalAuthoringCommand,
+} from '../shared/agent/commands'
 
 async function invoke(endpoint: string, request: AgentRequest): Promise<AgentResponse> {
   const frame = `${JSON.stringify(request)}\n`
@@ -86,6 +94,19 @@ async function command(): Promise<AgentResponse> {
   }
   const reference = staticAgentReference(parsed, readAgentGuide)
   if (reference) return reference
+  if (isLocalAuthoringCommand(parsed.name)) {
+    const [{ LocalHost }, { ExtensionAuthoring }] = await Promise.all([
+      import('../main/project-host/local-host'),
+      import('../main/extensions/extension-authoring'),
+    ])
+    const host = new LocalHost()
+    try {
+      const assets = localPath(installedAuthoringAssets())
+      return await new ExtensionAuthoring(host, assets).command(parsed)
+    } finally {
+      await host.dispose()
+    }
+  }
   const explicit = parsed.instance,
     inherited = process.env['HVIR_AGENT_ENDPOINT']
   let endpoint = explicit ?? inherited

@@ -56,7 +56,7 @@
     {
       "id": "pulse",
       "placement": "header",
-      "icon": "\u25f7",
+      "icon": "◷",
       "tooltip": "Reference observation",
       "label": "Waiting",
       "kind": "observation",
@@ -68,7 +68,7 @@
     {
       "id": "session",
       "placement": "session",
-      "icon": "\u25c7",
+      "icon": "◇",
       "tooltip": "Reference session popup",
       "kind": "control",
       "click": {
@@ -96,6 +96,17 @@
           }
         },
         "additionalProperties": false
+      }
+    },
+    {
+      "id": "preview-replacement",
+      "title": "Preview replacement",
+      "view": "detail",
+      "agents": true,
+      "description": "Inert replacement preview for inspecting optional destructive confirmation; does not mutate user data.",
+      "effects": {
+        "delete": false,
+        "replace": true
       }
     }
   ],

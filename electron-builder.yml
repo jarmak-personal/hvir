@@ -25,6 +25,9 @@ extraResources:
   - from: packages/extension-reference
     to: extension-reference
     filter: ['**/*']
+  - from: packages/extension-authoring
+    to: extension-authoring
+    filter: ['**/*']
   - from: THIRD_PARTY_NOTICES.md
     to: THIRD_PARTY_NOTICES.md
   - from: build/native/hvir-command

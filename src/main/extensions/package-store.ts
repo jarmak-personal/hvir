@@ -57,6 +57,41 @@ export function validateCapturedExtension(
   }
 }
 
+/** Capture and validate an ordinary source without allocating revision-storage authority. */
+export async function captureExtensionSource(
+  host: ProjectHost,
+  source: HostPath,
+  signal?: AbortSignal,
+): Promise<ExtensionRevision & { readonly kind: 'directory' | 'zip' | 'development' }> {
+  const storage = host.extensionStorage
+  if (!storage) throw new Error('Local extension storage is unavailable')
+  const inspected = await storage.inspectSource(source)
+  const archive =
+    inspected.kind === 'zip'
+      ? await storage.readArchive(inspected.resolved, EXTENSION_LIMITS.archiveBytes)
+      : undefined
+  if (archive && archive.identity !== inspected.identity)
+    throw new Error('ZIP source changed before capture')
+  const capture = archive
+    ? {
+        sourceIdentity: archive.identity,
+        files: await captureExtensionArchive(archive.bytes, signal),
+      }
+    : await storage.captureDirectory(inspected.resolved, EXTENSION_LIMITS, signal)
+  const after = await storage.inspectSource(source)
+  if (
+    inspected.identity !== after.identity ||
+    inspected.resolved.path !== after.resolved.path ||
+    (inspected.kind !== 'zip' &&
+      capture.sourceIdentity !== inspected.identity.split(':').slice(-2).join(':'))
+  )
+    throw new Error('Package source changed during capture; discover it again')
+  return {
+    ...validateCapturedExtension({ ...capture, sourceIdentity: inspected.identity }),
+    kind: inspected.kind,
+  }
+}
+
 /** One package capture/validation/store path for directory, ZIP and development sources. */
 export class ExtensionPackageStore {
   constructor(
@@ -72,37 +107,11 @@ export class ExtensionPackageStore {
     )
   }
 
-  async captureSource(
+  captureSource(
     source: HostPath,
     signal?: AbortSignal,
   ): Promise<ExtensionRevision & { readonly kind: 'directory' | 'zip' | 'development' }> {
-    const storage = this.host.extensionStorage
-    if (!storage) throw new Error('Local extension storage is unavailable')
-    const inspected = await storage.inspectSource(source)
-    const archive =
-      inspected.kind === 'zip'
-        ? await storage.readArchive(inspected.resolved, EXTENSION_LIMITS.archiveBytes)
-        : undefined
-    if (archive && archive.identity !== inspected.identity)
-      throw new Error('ZIP source changed before capture')
-    const capture = archive
-      ? {
-          sourceIdentity: archive.identity,
-          files: await captureExtensionArchive(archive.bytes, signal),
-        }
-      : await storage.captureDirectory(inspected.resolved, EXTENSION_LIMITS, signal)
-    const after = await storage.inspectSource(source)
-    if (
-      inspected.identity !== after.identity ||
-      inspected.resolved.path !== after.resolved.path ||
-      (inspected.kind !== 'zip' &&
-        capture.sourceIdentity !== inspected.identity.split(':').slice(-2).join(':'))
-    )
-      throw new Error('Package source changed during capture; discover it again')
-    return {
-      ...validateCapturedExtension({ ...capture, sourceIdentity: inspected.identity }),
-      kind: inspected.kind,
-    }
+    return captureExtensionSource(this.host, source, signal)
   }
 
   async retain(revision: ExtensionRevision, signal?: AbortSignal): Promise<void> {

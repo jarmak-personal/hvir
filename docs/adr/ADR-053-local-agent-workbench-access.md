@@ -2,6 +2,7 @@
 
 > Lifecycle: Partially superseded
 > Superseded by: [ADR-055](ADR-055-connection-scoped-remote-agent-client.md) | partial | Application-local transport and client-only reference response ownership, only for SSH-forwarded requests and live remote reference commands, plus protected client-path/unavailable metadata and transport-owned PATH setup.
+> Superseded by: [ADR-056](ADR-056-explicit-local-extension-authoring.md) | partial | Standalone CLI physical filesystem edge limited to fixed shipped reference reads, for explicit local scaffold, validate and skill export only.
 > Supersedes: [ADR-012](ADR-012-harness-providers-launch-profiles.md) | partial | Protected terminal environment vocabulary only: add instance endpoint and exact workspace/session targeting.
 > Supersedes: [ADR-009](ADR-009-hierarchical-attention.md) | partial | Terminal-only attention vocabulary: add separate quiet report attention, cleared by viewing that report.
 
