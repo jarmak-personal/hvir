@@ -1,7 +1,7 @@
 # ADR-007: Explicit rendered, source, and diff view modes
 
 > Lifecycle: Partially superseded
-> Superseded by: [ADR-047](ADR-047-isolated-extension-package-and-capability-boundary.md) | partial | Requiring rendered, source, or diff modes for every viewer tab; extension UI uses only its declared meaningful representations.
+> Superseded by: [ADR-054](ADR-054-isolated-extension-package-and-capability-boundary.md) | partial | Requiring rendered, source, or diff modes for every viewer tab; extension UI uses only its declared meaningful representations.
 
 ## Context
 

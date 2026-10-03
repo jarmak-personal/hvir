@@ -1,4 +1,4 @@
-# ADR-047: Isolated extension packages and the public capability boundary
+# ADR-054: Isolated extension packages and the public capability boundary
 
 > Lifecycle: Active
 > Supersedes: [ADR-007](ADR-007-explicit-view-modes.md) | partial | Requiring rendered, source, or diff modes for every viewer tab; extension UI uses only its declared meaningful representations.

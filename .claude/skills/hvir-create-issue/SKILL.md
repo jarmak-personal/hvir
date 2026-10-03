@@ -49,7 +49,7 @@ State one of these conclusions before drafting:
   decision only if the reporter intends that discussion.
 - **Out of scope:** the outcome would turn hvir into an IDE, editor, task runner, or session
   orchestrator, or otherwise violates an explicit non-goal. Extension packages must follow
-  [ADR-047](../../../docs/adr/ADR-047-isolated-extension-package-and-capability-boundary.md):
+  [ADR-054](../../../docs/adr/ADR-054-isolated-extension-package-and-capability-boundary.md):
   package code runs in isolated guests through scoped public capabilities. Code in main or the
   trusted workbench renderer, third-party harness providers, and terminal engines remain excluded.
   Explain an out-of-scope outcome directly instead of manufacturing an implementation issue.
