@@ -95,7 +95,7 @@ export async function verifyAgentWorkbench(
     () =>
       dom(
         win,
-        `(() => { const input = [...document.querySelectorAll('input[type="checkbox"]')].find(input => input.parentElement.textContent.includes('Allow local agents')); if (!input || input.disabled) return false; if (!input.checked) input.click(); return true; })()`,
+        `(() => { const input = [...document.querySelectorAll('input[type="checkbox"]')].find(input => input.parentElement.textContent.includes('Allow agents to inspect and present workspace content')); if (!input || input.disabled) return false; if (!input.checked) input.click(); return true; })()`,
       ),
     'ordinary ready agent access control',
   )
@@ -369,7 +369,7 @@ async function setAgentAccess(win: BrowserWindow, enabled: boolean): Promise<voi
     () =>
       dom(
         win,
-        `(() => { const input = [...document.querySelectorAll('input[type="checkbox"]')].find(input => input.parentElement.textContent.includes('Allow local agents')); if (!input || input.disabled) return false; if (input.checked !== ${JSON.stringify(enabled)}) input.click(); return true; })()`,
+        `(() => { const input = [...document.querySelectorAll('input[type="checkbox"]')].find(input => input.parentElement.textContent.includes('Allow agents to inspect and present workspace content')); if (!input || input.disabled) return false; if (input.checked !== ${JSON.stringify(enabled)}) input.click(); return true; })()`,
       ),
     'ordinary ready agent access control',
   )
