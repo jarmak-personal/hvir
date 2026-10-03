@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { type HostPath } from '../../shared/host-path'
+import { WORKSPACE_IDENTITY_CHARS, type HostPath } from '../../shared/host-path'
 import { EXTENSION_LIMITS } from '../../shared/extensions/contract'
 import {
   extensionId,
@@ -21,6 +21,7 @@ import {
 } from './connector-approval'
 
 export interface ConnectorCaller {
+  readonly authorizeHost?: (host: string, workspace?: string) => void
   readonly activation: ExtensionActivation
   readonly view: string
   readonly action?: string
@@ -90,8 +91,13 @@ export class ExtensionConnectorExecutionOwner {
     const workspace =
       input['workspace'] === undefined
         ? undefined
-        : extensionText(input['workspace'], 'workspace identity', 128)
+        : extensionText(
+            input['workspace'],
+            'workspace identity',
+            WORKSPACE_IDENTITY_CHARS,
+          )
     const approval = this.approvals.get(caller.activation, connector)
+    if (approval) caller.authorizeHost?.(approval.host, workspace)
     const unavailable = (
       reason: ExtensionConnectorResult['reason'],
       host = approval?.host ?? '',
@@ -108,6 +114,7 @@ export class ExtensionConnectorExecutionOwner {
       try {
         await this.writable()
         caller.current()
+        caller.authorizeHost?.(approval.host, workspace)
         signal.throwIfAborted()
         if (this.disposed || !this.approvals.current(caller.activation, approval))
           return unavailable('unapproved')

@@ -191,6 +191,15 @@ jobs:
       - name: Analyze
         uses: github/codeql-action/analyze@v4.38.2
 
+  agent-clients:
+    name: Remote client verification
+    needs: release-version-integrity
+    if: always() && needs.release-version-integrity.result == 'skipped'
+    uses: ./.github/workflows/agent-clients.yml
+    with:
+      source_sha: ${{ github.event.pull_request.head.sha }}
+      base_sha: ${{ github.event.pull_request.base.sha }}
+
   merge-acceptance:
     name: Merge acceptance
     needs:
@@ -199,6 +208,7 @@ jobs:
       - electron-smoke
       - macos-electron-smoke
       - codeql
+      - agent-clients
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -213,6 +223,13 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Require focused client verification
+        env:
+          RELEASE: ${{ needs.release-version-integrity.result }}
+          CLIENTS: ${{ needs.agent-clients.result }}
+        run: |
+          if [ "$RELEASE" = success ]; then [ "$CLIENTS" = skipped ]; else [ "$CLIENTS" = success ]; fi
 
       - name: Require one coherent CI attempt
         env:

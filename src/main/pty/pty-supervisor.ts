@@ -28,7 +28,7 @@ import {
   type PtyStreamHandlers,
   type PtySupervisorDiagnostic,
   type PtySupervisorOptions,
-  type PtyAgentTarget,
+  type PtyAgentEnvironmentProvider,
 } from './pty-contract'
 import { PtyLaunchAdmission } from './pty-launch-admission'
 import { PtyStreamAttachment } from './pty-stream-attachment'
@@ -49,12 +49,8 @@ interface Entry {
 }
 
 export class PtySupervisor {
-  private agentTargetEnvironment?: (
-    target: PtyAgentTarget,
-  ) => Readonly<Record<string, string>> | undefined
-  agentEnvironment(
-    provider: (target: PtyAgentTarget) => Readonly<Record<string, string>> | undefined,
-  ): () => void {
+  private agentTargetEnvironment?: PtyAgentEnvironmentProvider
+  agentEnvironment(provider: PtyAgentEnvironmentProvider): () => void {
     this.agentTargetEnvironment = provider
     return () => {
       if (this.agentTargetEnvironment === provider)
@@ -182,6 +178,18 @@ export class PtySupervisor {
             args: harnessShellCommandArgs(spec.file, spec.args),
           }
         : spec
+      const agent = this.agentTargetEnvironment
+        ? await this.agentTargetEnvironment(
+            {
+              instanceId,
+              ownerId: req.ownerId,
+              ownerGeneration: req.ownerGeneration ?? 0,
+              workspaceRoot: req.workspaceRoot ?? req.cwd,
+            },
+            pending.signal,
+          )
+        : undefined
+      pending.assertCurrent()
       launchedAtMs = Date.now()
       pty = await req.host.spawnPty({
         file: launch.file,
@@ -192,21 +200,17 @@ export class PtySupervisor {
           TERM: 'xterm-256color',
           COLORTERM: 'truecolor',
           TERM_PROGRAM: 'hvir',
-          ...(req.host.hostId === LOCAL_HOST_ID
-            ? this.agentTargetEnvironment?.({
-                instanceId,
-                ownerId: req.ownerId,
-                ownerGeneration: req.ownerGeneration ?? 0,
-                workspaceRoot: req.workspaceRoot ?? req.cwd,
-              })
-            : {}),
+          ...agent?.env,
         },
         unsetEnv: [
           ...(req.unsetEnvironment ?? []),
           'HVIR_AGENT_ENDPOINT',
           'HVIR_AGENT_WORKSPACE',
           'HVIR_AGENT_SESSION',
+          'HVIR_AGENT_CLIENT',
+          'HVIR_AGENT_UNAVAILABLE',
         ],
+        pathPrefix: agent?.pathPrefix,
         cols: req.cols,
         rows: req.rows,
       })

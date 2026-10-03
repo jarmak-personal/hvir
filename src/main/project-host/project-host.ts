@@ -27,6 +27,14 @@ import type {
 
 export type { Disposer }
 
+/** The adapter proved no usable socket/accepted stream was created; a cache lease is unused. */
+export class StreamLocalForwardUnusedError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'StreamLocalForwardUnusedError'
+  }
+}
+
 /** Maximum UTF-8 payload accepted by one duplex exec-stream write. */
 export const MAX_EXEC_STREAM_WRITE_BYTES = 256 * 1024
 
@@ -97,7 +105,7 @@ export interface WriteFileOptions {
   readonly signal?: AbortSignal
 }
 
-export type ProjectFileMode = 0o644 | 0o755
+export type ProjectFileMode = 0o600 | 0o644 | 0o755
 
 export const PROJECT_FILE_STREAM_CHUNK_BYTES = 64 * 1024
 
@@ -109,6 +117,8 @@ export interface ProjectFileWriteStreamOptions extends ProjectFileStreamOptions 
   readonly mode: ProjectFileMode
   /** Exact destination ownership begins immediately after exclusive creation. */
   readonly onCreated?: () => void
+  /** An owning transaction retains uncertain partials for exact-object reconciliation. */
+  readonly preserveOnFailure?: boolean
 }
 
 export interface ProjectFileMetadataOptions extends ProjectFileStreamOptions {
@@ -209,6 +219,8 @@ export interface SpawnPtyOptions {
   readonly env?: Record<string, string>
   /** Remove inherited variables before applying `env`. */
   readonly unsetEnv?: readonly string[]
+  /** Trusted, same-host command directory prepended by the transport before shell startup. */
+  readonly pathPrefix?: HostPath
   readonly cols?: number
   readonly rows?: number
   /** TERM name; defaults to `xterm-256color`. */
@@ -258,6 +270,8 @@ export function assertLoopbackEndpoint(endpoint: LoopbackEndpoint): void {
 }
 
 export interface ProjectHost {
+  /** Optional, immutable current SSH-generation authority; local hosts expose no forward. */
+  readonly streamLocal?: StreamLocalBinding
   /** Local application-owned extension storage; never a guest filesystem grant. */
   readonly extensionStorage?: ExtensionStoragePort
   readonly finiteExec?: FiniteExecPort
@@ -332,4 +346,16 @@ export interface ProjectHost {
 
   /** Watch a path; returns a disposer that stops watching. */
   watch(path: HostPath, onEvent: (e: WatchEvent) => void, opts?: WatchOptions): Disposer
+}
+
+export interface StreamLocalBinding {
+  readonly host: HostId
+  readonly generation: string
+  readonly signal: AbortSignal
+  assertCurrent(): void
+  forward(path: HostPath, accept: (stream: Duplex) => void): Promise<StreamLocalForward>
+}
+export interface StreamLocalForward {
+  readonly signal: AbortSignal
+  dispose(): Promise<void>
 }

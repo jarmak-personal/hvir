@@ -177,6 +177,7 @@ the appropriate unseen child attention.
 
 > Lifecycle: Partially superseded
 > Superseded by: [ADR-045](adr/ADR-045-explicit-outside-project-viewing.md) | partial | Temporary document viewing addendum: location, document-type, and automatic image-read scope.
+> Superseded by: [ADR-055](adr/ADR-055-connection-scoped-remote-agent-client.md) | partial | Prohibition on cached remote helper files, only for the bundled connection-scoped hvir-agent client; no remote service or daemon is authorized.
 > Superseded by: [ADR-051](adr/ADR-051-approved-finite-connector-execution.md) | partial | Registered-root requirement for explicit approved connector execution and its application-local working context only.
 
 All project operations and paths are host-qualified behind `ProjectHost`; SSH remains a
@@ -548,7 +549,8 @@ optional guest assets; theme/settings, feature layout and authority retain their
 
 ### [ADR-053 — Local agent workbench access](adr/ADR-053-local-agent-workbench-access.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-055](adr/ADR-055-connection-scoped-remote-agent-client.md) | partial | Application-local transport and client-only reference response ownership, only for SSH-forwarded requests and live remote reference commands, plus protected client-path/unavailable metadata and transport-owned PATH setup.
 > Supersedes: [ADR-012](adr/ADR-012-harness-providers-launch-profiles.md) | partial | Protected terminal environment vocabulary only: add instance endpoint and exact workspace/session targeting.
 > Supersedes: [ADR-009](adr/ADR-009-hierarchical-attention.md) | partial | Terminal-only attention vocabulary: add separate quiet report attention, cleared by viewing that report.
 
@@ -565,6 +567,15 @@ agent access, exact finite destructive confirmation and workspace-owned inert re
 Validated immutable packages run in isolated guests through a scoped public capability contract.
 Explicit revision and permission decisions retain separate authority; application-level viewing
 does not grant project access. The initial directory-to-view slice needs no later capability.
+
+### [ADR-055 — Connection-scoped remote agent client](adr/ADR-055-connection-scoped-remote-agent-client.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-010](adr/ADR-010-project-host-remote-boundary.md) | partial | Prohibition on cached remote helper files, only for the bundled connection-scoped hvir-agent client; no remote service or daemon is authorized.
+> Supersedes: [ADR-053](adr/ADR-053-local-agent-workbench-access.md) | partial | Application-local transport and client-only reference response ownership, only for SSH-forwarded requests and live remote reference commands, plus protected client-path/unavailable metadata and transport-owned PATH setup.
+
+A transport-only bundled Rust client reaches one host-scoped, generation-pinned SSH forward,
+with bounded private cache retention and explicit additional capability grants.
 
 ## 5. Architecture
 

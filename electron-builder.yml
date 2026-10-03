@@ -4,7 +4,9 @@ directories:
   output: dist
   buildResources: build
 files:
-  - out/**
+  - out/main/**
+  - out/preload/**
+  - out/renderer/**
   - package.json
   - '!node_modules/@hvir/rename-noreplace/**'
   - node_modules/@hvir/rename-noreplace/index.js
@@ -17,6 +19,9 @@ files:
   - node_modules/@hvir/extension-storage/LICENSE
   - node_modules/@hvir/extension-storage/build/Release/extension_storage.node
 extraResources:
+  - from: out/agent-clients
+    to: agent-clients
+    filter: ['**/*']
   - from: packages/extension-reference
     to: extension-reference
     filter: ['**/*']
@@ -37,7 +42,9 @@ asarUnpack:
 # packaging from also rebuilding ssh2's optional cpu-features acceleration module;
 # ssh2 has a supported JavaScript fallback when that optional module is absent.
 npmRebuild: false
+beforePack: build/native/prepare-agent-clients.cjs
 mac:
+  sign: build/native/sign-agent-clients.cjs
   icon: build/icon-macos.icns
   category: public.app-category.developer-tools
   target:

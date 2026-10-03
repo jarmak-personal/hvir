@@ -1,4 +1,4 @@
-import type { HostPath } from '../host-path'
+import { WORKSPACE_IDENTITY_CHARS, type HostPath } from '../host-path.ts'
 
 /** Process-neutral command transport. Origin and authorization are never wire fields. */
 export const AGENT_CONTRACT = '1.0'
@@ -16,7 +16,7 @@ export const AGENT_LIMITS = {
   reportTotalBytes: 4 * 1024 * 1024,
   pageSize: 32,
   // Workspace identities include the registered host and complete path.
-  workspaceIdentityChars: 8192,
+  workspaceIdentityChars: WORKSPACE_IDENTITY_CHARS,
 } as const
 export interface AgentTarget {
   readonly workspace?: string
@@ -48,6 +48,8 @@ export interface AgentConfirmation {
   readonly input: string
 }
 export interface AgentAccessState extends AgentSettings {
+  readonly forwards?: readonly AgentForwardState[]
+  readonly forwardOptions?: readonly AgentForwardGrant[]
   readonly extensions: readonly string[]
   readonly extensionsWritable: boolean
   readonly ready: boolean
@@ -55,6 +57,23 @@ export interface AgentAccessState extends AgentSettings {
   readonly instance: string
   readonly confirmations: readonly AgentConfirmation[]
   readonly explanation?: string
+}
+export interface AgentForwardGrant {
+  readonly host: string
+  readonly generation: string
+  readonly installation: string
+  readonly revision: string
+  readonly action: string
+  readonly capability: 'connector.execute'
+  readonly executionHost: string
+  readonly workspace: string
+}
+export interface AgentForwardState {
+  readonly host: string
+  readonly generation: string
+  readonly availability: 'ready' | 'unavailable' | 'preparing'
+  readonly explanation?: string
+  readonly grants: readonly AgentForwardGrant[]
 }
 export interface AgentReport {
   readonly id: string

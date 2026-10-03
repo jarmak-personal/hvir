@@ -1,5 +1,8 @@
 import { useEffect, useState, type ReactElement } from 'react'
-import type { AgentAccessState } from '../../../../shared/agent/contract'
+import type {
+  AgentAccessState,
+  AgentForwardGrant,
+} from '../../../../shared/agent/contract'
 
 /** Trusted workbench controls; guest/public transport cannot configure or decide access. */
 export function AgentAccessSettings({
@@ -67,6 +70,20 @@ export function AgentAccessSettings({
       setBusy(false)
     }
   }
+  const configureForward = async (
+    grant: AgentForwardGrant,
+    enabled: boolean,
+  ): Promise<void> => {
+    setBusy(true)
+    setError('')
+    try {
+      setState(await window.hvir.invoke('agent:forward-grant', { grant, enabled }))
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'SSH grant change failed')
+    } finally {
+      setBusy(false)
+    }
+  }
   return (
     <div className="agent-access-settings">
       {installation ? (
@@ -103,7 +120,7 @@ export function AgentAccessSettings({
                 state && void configure(event.target.checked, state.confirmDestructive)
               }
             />
-            Allow local agents to inspect and present workspace content
+            Allow agents to inspect and present workspace content
           </label>
           <label>
             <select
@@ -128,6 +145,53 @@ export function AgentAccessSettings({
             Terminal defaults: HVIR_AGENT_ENDPOINT, HVIR_AGENT_WORKSPACE,
             HVIR_AGENT_SESSION. Use hvir-agent guide targeting for command setup.
           </p>
+          {(state?.forwards ?? []).map((forward) => (
+            <div key={forward.host}>
+              <p>
+                SSH agent access: {forward.host} — {forward.availability}
+                {forward.explanation ? `: ${forward.explanation}` : ''}
+              </p>
+              <p>
+                Processes under that SSH account and remote root can use its socket.
+                Default access stays on that host.
+              </p>
+              {[
+                ...(state?.forwardOptions ?? []),
+                ...forward.grants.filter(
+                  (grant) =>
+                    !(state?.forwardOptions ?? []).some(
+                      (choice) => JSON.stringify(choice) === JSON.stringify(grant),
+                    ),
+                ),
+              ]
+                .filter(
+                  (grant, index, all) =>
+                    grant.host === forward.host &&
+                    all.findIndex(
+                      (choice) => JSON.stringify(choice) === JSON.stringify(grant),
+                    ) === index,
+                )
+                .map((grant) => (
+                  <label key={JSON.stringify(grant)}>
+                    <input
+                      type="checkbox"
+                      className="hvir-input"
+                      disabled={
+                        busy || !state?.enabled || forward.availability !== 'ready'
+                      }
+                      checked={forward.grants.some(
+                        (choice) => JSON.stringify(choice) === JSON.stringify(grant),
+                      )}
+                      onChange={(event) =>
+                        void configureForward(grant, event.target.checked)
+                      }
+                    />
+                    Allow {grant.installation}/{grant.action} to run its approved native
+                    connector on {grant.executionHost} for {grant.workspace}
+                  </label>
+                ))}
+            </div>
+          ))}
           {state?.endpoint ? (
             <p className="hvir-meta">Instance endpoint: {state.endpoint}</p>
           ) : null}

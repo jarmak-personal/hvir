@@ -11,19 +11,24 @@ export function registerAgentIpc(
   }
   ipc.handle('agent:access', (_req, context) => {
     context.owner()
-    return runtime().access.snapshot()
+    return runtime().snapshot()
   })
   ipc.handle('agent:configure', async (req, context) => {
     context.owner()
     await runtime().configure(req)
     context.owner()
-    return runtime().access.snapshot()
+    return runtime().snapshot()
   })
   ipc.handle('agent:extension-configure', async (req, context) => {
     context.owner()
     await runtime().configureExtension(req.installation, req.enabled)
     context.owner()
-    return runtime().access.snapshot()
+    return runtime().snapshot()
+  })
+  ipc.handle('agent:forward-grant', (req, context) => {
+    context.owner()
+    runtime().configureForward(req.grant, req.enabled)
+    return runtime().snapshot()
   })
   ipc.handle('agent:decide', (req, context) => {
     context.owner()

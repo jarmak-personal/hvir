@@ -122,9 +122,10 @@ export class SshProjectFileTransfer {
         await callbackRequest<void>(session, (session, done) =>
           session.close(handle!, done),
         ).catch(() => undefined)
-        await this.perform<void>((session, done) =>
-          session.unlink(path.path, done),
-        ).catch(() => undefined)
+        if (!opts.preserveOnFailure)
+          await this.perform<void>((session, done) =>
+            session.unlink(path.path, done),
+          ).catch(() => undefined)
       }
       throw reason
     }

@@ -660,7 +660,8 @@ export class LocalHost implements ProjectHost {
       handle = undefined
     } catch (reason) {
       await handle?.close().catch(() => undefined)
-      if (created) await fsp.unlink(destination).catch(() => undefined)
+      if (created && !opts.preserveOnFailure)
+        await fsp.unlink(destination).catch(() => undefined)
       if ((reason as NodeJS.ErrnoException).code === 'EEXIST') {
         throw new ProjectPathExistsError()
       }
