@@ -30,6 +30,7 @@ function fixture() {
     client: hostPath(asHostId('ssh'), '/tmp/client'),
     directory: hostPath(asHostId('ssh'), '/tmp/cache'),
     socket: hostPath(asHostId('ssh'), '/tmp/a.sock'),
+    recordSocket: vi.fn(() => Promise.resolve()),
     release: vi.fn(() => Promise.resolve()),
   }
   const forward: StreamLocalForward = {
@@ -172,5 +173,41 @@ it('retains a lease when physical forward close is uncertain', async () => {
   vi.spyOn(f.forward, 'dispose').mockRejectedValue(new Error('physical close uncertain'))
   await f.owner.dispose()
   expect(f.cached.release).not.toHaveBeenCalled()
+  f.admission.dispose()
+})
+it('receipt failure closes the actual forward without publishing an endpoint', async () => {
+  const f = fixture()
+  const dispose = vi.spyOn(f.forward, 'dispose')
+  f.cached.recordSocket.mockRejectedValue(new Error('receipt unavailable'))
+  expect((await f.environment()).env.HVIR_AGENT_UNAVAILABLE).toContain(
+    'receipt unavailable',
+  )
+  expect(dispose).toHaveBeenCalledOnce()
+  await f.owner.dispose()
+  f.admission.dispose()
+})
+it('bounds a deferred socket receipt, revokes late authority and preserves a newer forward scope', async () => {
+  vi.useFakeTimers()
+  vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
+    const controller = new AbortController()
+    setTimeout(() => controller.abort(), ms)
+    return controller.signal
+  })
+  const f = fixture(),
+    receipt = deferred<void>()
+  const dispose = vi.spyOn(f.forward, 'dispose')
+  f.cached.recordSocket.mockReturnValueOnce(receipt.promise)
+  const old = f.environment()
+  await vi.advanceTimersByTimeAsync(30_001)
+  expect((await old).env.HVIR_AGENT_UNAVAILABLE).toContain('30 second')
+  await f.owner.revoke()
+  expect(dispose).toHaveBeenCalledOnce()
+  await f.environment()
+  const generation = f.owner.snapshot()[0]!.generation
+  receipt.resolve()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(f.scopes.grantStates()[0]?.generation).toBe(generation)
+  expect(f.owner.snapshot()[0]?.availability).toBe('ready')
+  await f.owner.dispose()
   f.admission.dispose()
 })

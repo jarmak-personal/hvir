@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import {
   mkdtemp,
   chmod,
@@ -17,12 +17,13 @@ import { RemoteClientCache } from '../src/main/agent/remote-client-cache'
 
 const cleanups: (() => Promise<void>)[] = []
 afterEach(async () => {
-  for (const cleanup of cleanups.splice(0)) await cleanup()
+  for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
 })
-async function fixture() {
-  const directory = await mkdtemp(join(tmpdir(), 'hvir-cache-')),
+async function fixture(parent = tmpdir()) {
+  const directory = await mkdtemp(join(parent, 'hvir-cache-')),
     host = new LocalHost(),
-    cache = new RemoteClientCache()
+    cache = new RemoteClientCache(),
+    instance = randomUUID()
   await chmod(directory, 0o700)
   cleanups.push(async () => {
     await host.dispose()
@@ -43,7 +44,7 @@ async function fixture() {
       host,
       localPath(directory),
       value,
-      'instance',
+      instance,
       'host-object:1',
       new AbortController().signal,
     )
@@ -205,3 +206,85 @@ it('preserves a leaf replaced after quarantine starts instead of deleting an ext
     retired = (await readdir(root)).find((entry) => entry.startsWith('retired.'))!
   expect(await readFile(join(root, retired, 'hvir-agent'), 'utf8')).toBe('foreign')
 })
+
+it('removes only receipted dead socket leaves and preserves replacements during socket quarantine', async () => {
+  const { createServer } = await import('node:net')
+  for (const replace of [false, true]) {
+    const f = await fixture('/tmp'),
+      client = await f.acquire(),
+      server = createServer()
+    cleanups.push(
+      () =>
+        new Promise<void>((done) =>
+          server.listening ? server.close(() => done()) : done(),
+        ),
+    )
+    await new Promise<void>((done, reject) => {
+      server.once('error', reject)
+      server.listen(client.socket.path, done)
+    })
+    await client.recordSocket(new AbortController().signal)
+    // Node normally unlinks on close: retain the same dead inode to model OpenSSH's leftover leaf.
+    await rename(client.socket.path, client.socket.path + '.holding')
+    await new Promise<void>((done) => server.close(() => done()))
+    await rename(client.socket.path + '.holding', client.socket.path)
+    if (replace) {
+      const original = f.host.exec.bind(f.host)
+      vi.spyOn(f.host, 'exec').mockImplementation((command, args, options) => {
+        if (args[1]?.includes('[ -S "$quarantine" ]')) {
+          const script = args[1].replace(
+            'mv "$1" "$quarantine"',
+            'mv "$1" "$quarantine"\nmv "$quarantine" "$quarantine.original"\nprintf foreign > "$quarantine"',
+          )
+          return original(command, [args[0]!, script, ...args.slice(2)], options)
+        }
+        return original(command, args, options)
+      })
+      await expect(client.release()).rejects.toThrow('preserved')
+      expect(await readFile(client.socket.path + '.retired', 'utf8')).toBe('foreign')
+    } else {
+      await client.release()
+      const { stat } = await import('node:fs/promises')
+      await expect(stat(client.socket.path)).rejects.toMatchObject({ code: 'ENOENT' })
+    }
+  }
+}, 20_000)
+it('bounds the separate socket namespace without deleting unrecognized leaves', async () => {
+  const f = await fixture('/tmp')
+  for (let index = 0; index < 63; index++)
+    await writeFile(join(f.directory, `foreign-${index}`), 'preserve')
+  await expect(f.acquire()).rejects.toThrow('socket namespace capacity')
+  expect(await readdir(f.directory)).toHaveLength(64)
+  expect(await readFile(join(f.directory, 'foreign-0'), 'utf8')).toBe('preserve')
+}, 20_000)
+it('reconciles a stale dead receipted socket and its exact lease after interrupted application cleanup', async () => {
+  const { createServer } = await import('node:net'),
+    { utimes, stat } = await import('node:fs/promises')
+  const f = await fixture('/tmp'),
+    client = await f.acquire(),
+    server = createServer()
+  cleanups.push(
+    () =>
+      new Promise<void>((done) =>
+        server.listening ? server.close(() => done()) : done(),
+      ),
+  )
+  await new Promise<void>((done, reject) => {
+    server.once('error', reject)
+    server.listen(client.socket.path, done)
+  })
+  await client.recordSocket(new AbortController().signal)
+  await rename(client.socket.path, client.socket.path + '.holding')
+  await new Promise<void>((done) => server.close(() => done()))
+  await rename(client.socket.path + '.holding', client.socket.path)
+  const lease = (await readdir(client.directory.path)).find((name) =>
+    name.startsWith('lease.'),
+  )!
+  await utimes(join(client.directory.path, lease), 0, 0)
+  const next = await f.acquire(f.asset('two'))
+  await expect(stat(client.socket.path)).rejects.toMatchObject({ code: 'ENOENT' })
+  expect(
+    (await readdir(client.directory.path)).some((name) => name.startsWith('lease.')),
+  ).toBe(false)
+  await next.release()
+}, 20_000)

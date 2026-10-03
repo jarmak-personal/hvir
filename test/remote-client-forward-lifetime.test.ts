@@ -50,6 +50,7 @@ it('retains a rejected physical forward lease and fences new physical work until
     client: hostPath(hostId, '/private/client'),
     directory: hostPath(hostId, '/private/cache'),
     socket: hostPath(hostId, '/private/a.sock'),
+    recordSocket: vi.fn(() => Promise.resolve()),
     release: vi.fn(() => Promise.resolve()),
   }
   const cache = new RemoteClientCache(),

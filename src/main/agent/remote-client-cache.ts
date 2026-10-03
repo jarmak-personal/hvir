@@ -17,7 +17,12 @@ export interface CachedRemoteClient {
   readonly client: HostPath
   readonly directory: HostPath
   readonly socket: HostPath
+  recordSocket(signal: AbortSignal): Promise<void>
   release(): Promise<void>
+}
+interface Lease {
+  readonly socket: string
+  readonly identity?: string
 }
 interface Marker {
   readonly hash: string
@@ -198,14 +203,42 @@ export class RemoteClientCache {
       throw new Error(
         'hvir-agent cache lease capacity is full; existing clients are preserved',
       )
+    const socketParent = joinHostPath(socket, '..')
+    await control(host, PRIVATE_DIRECTORY, [socketParent.path], signal)
+    if ((await host.readdir(socketParent)).length >= REMOTE_CLIENT_CACHE_LIMITS.entries)
+      throw new Error(
+        'hvir-agent socket namespace capacity is full; existing objects are preserved',
+      )
     const lease = joinHostPath(cached.path, `lease.${randomUUID()}`)
-    await control(host, CREATE_LEASE, [lease.path, socket.path], signal)
+    await control(
+      host,
+      CREATE_LEASE,
+      [lease.path, JSON.stringify({ socket: socket.path })],
+      signal,
+    )
     const leaseIdentity = await identity(host, lease, signal)
+    let socketIdentity: string | undefined
     return {
       client,
       directory: cached.path,
       socket,
+      recordSocket: async (lifetime) => {
+        socketIdentity = await control(host, SOCKET_IDENTITY, [socket.path], lifetime)
+        await control(
+          host,
+          UPDATE_LEASE,
+          [
+            lease.path,
+            leaseIdentity,
+            JSON.stringify({ socket: socket.path, identity: socketIdentity }),
+          ],
+          lifetime,
+        )
+      },
       release: async () => {
+        if (socketIdentity)
+          await control(host, REMOVE_EXACT_SOCKET, [socket.path, socketIdentity])
+        else await control(host, SOCKET_ABSENT, [socket.path])
         await control(host, REMOVE_EXACT_FILE, [lease.path, leaseIdentity])
       },
     }
@@ -312,15 +345,31 @@ export class RemoteClientCache {
         stat = await host.stat(file)
       // Fresh lease markers protect preparation before its socket starts. Older live sockets stay protected.
       if (Date.now() - stat.mtimeMs < 24 * 60 * 60 * 1000) return true
-      const socket = await control(host, CHECK_LEASE, [file.path], signal)
+      await control(host, CHECK_LEASE, [file.path], signal)
+      const read = await host.readTextFilePrefix(file, 4096, { signal })
+      if (!read.complete || read.validUtf8 === false)
+        throw new Error('hvir-agent lease is invalid')
+      const lease = JSON.parse(read.content) as Lease
+      if (
+        typeof lease.socket !== 'string' ||
+        !/^\/[A-Za-z0-9_./-]+\/a\.[A-Za-z0-9-]+\.[a-f0-9]{12}\.sock$/.test(
+          lease.socket,
+        ) ||
+        Buffer.byteLength(lease.socket) >= 104 ||
+        (lease.identity !== undefined && !/^\d+:\d+:\d+$/.test(lease.identity))
+      )
+        throw new Error('hvir-agent lease ownership is invalid; preserved')
       const probe = await host.exec(
         joinHostPath(path, 'hvir-agent').path,
-        ['--hvir-client-probe-socket', socket],
+        ['--hvir-client-probe-socket', lease.socket],
         { signal: AbortSignal.any([signal, AbortSignal.timeout(8000)]), maxBuffer: 4096 },
       )
       if (probe.code !== 0 || !['live', 'stale'].includes(probe.stdout.trim()))
         throw new Error('hvir-agent cache lease liveness is uncertain; client preserved')
       if (probe.stdout.trim() === 'live') return true
+      if (lease.identity)
+        await control(host, REMOVE_EXACT_SOCKET, [lease.socket, lease.identity], signal)
+      // A never-receipted stale socket is uncertain: preserve its leaf, retire only the owned lease.
       await control(
         host,
         REMOVE_EXACT_FILE,
@@ -410,7 +459,18 @@ const VERIFY_PUBLICATION = `${STAT}\nprivate "$1"\n[ -f "$1/hvir-agent" ] && [ !
 const CREATE_LEASE = `${STAT}\n[ ! -e "$1" ]\n(set -C; printf '%s\\n' "$2" > "$1")\n[ "$(mode "$1")" = 600 ]`
 const SHORT_SOCKET_BASE = `${STAT}\nbase=/tmp/hvir-$(id -u)\n[ -e "$base" ] || mkdir "$base"\nprivate "$base"\nprintf '%s\\n' "$base"`
 const UPDATE_MARKER = `${STAT}\nprivate "$1"\n[ ! -L "$1/owned.json" ] && [ "$(key "$1/owned.json")" = "$2" ] && [ "$(mode "$1/owned.json")" = 600 ]\nprintf '%s' "$3" > "$1/owned.json"`
-const CHECK_LEASE = `${STAT}\n[ ! -L "$1" ] && [ "$(owner "$1")" = "$(id -u)" ] && [ "$(mode "$1")" = 600 ]\nsocket=$(cat "$1")\ncase "$socket" in /*/a.*.sock) ;; *) exit 71;; esac\nprintf '%s' "$socket"`
+const CHECK_LEASE = `${STAT}\n[ ! -L "$1" ] && [ "$(owner "$1")" = "$(id -u)" ] && [ "$(mode "$1")" = 600 ]`
+const UPDATE_LEASE = `${CHECK_LEASE}\n[ "$(key "$1")" = "$2" ]\nprintf '%s' "$3" > "$1"`
+const SOCKET_IDENTITY = `${STAT}\n[ -S "$1" ] && [ ! -L "$1" ] && [ "$(owner "$1")" = "$(id -u)" ]\nkey "$1"`
+const SOCKET_ABSENT = '[ ! -e "$1" ] && [ ! -L "$1" ]'
+const REMOVE_EXACT_SOCKET = `${STAT}
+[ ! -e "$1" ] && [ ! -L "$1" ] && exit 0
+[ -S "$1" ] && [ ! -L "$1" ] && [ "$(key "$1")" = "$2" ] || exit 71
+quarantine="$1.retired"
+[ ! -e "$quarantine" ] && [ ! -L "$quarantine" ] || exit 71
+mv "$1" "$quarantine"
+[ -S "$quarantine" ] && [ ! -L "$quarantine" ] && [ "$(key "$quarantine")" = "$2" ] || exit 71
+rm "$quarantine"`
 const REMOVE_EXACT_FILE = `${STAT}\n[ ! -e "$1" ] && exit 0\n[ ! -L "$1" ] && [ "$(key "$1")" = "$2" ] || exit 71\nquarantine="$1.retired"\n[ ! -e "$quarantine" ] || exit 71\nmv "$1" "$quarantine"\n[ "$(key "$quarantine")" = "$2" ] || exit 71\nrm "$quarantine"`
 const RETIRE = `${STAT}
 private "$1" && private "$2"

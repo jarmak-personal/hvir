@@ -72,6 +72,11 @@ running under the remote SSH account, and remote root, can use that socket. Ther
 per-agent or per-session authentication and native connectors retain their account's OS
 authority; a grant is not OS confinement.
 
+Successful socket creation adds an inode receipt to the private lease. Physical close precedes
+exact socket and lease cleanup; stale dead receipted sockets are reconciled conservatively.
+The socket namespace shares the finite directory-entry bound. Unacknowledged or replaced
+socket objects are preserved rather than attributed from their pathname alone.
+
 ## Consequences
 
 Local and SSH agents adapt the same workbench owners, with trusted transport provenance

@@ -46,3 +46,8 @@ and older leases are removed only when the bundled client confirms the socket is
 or externally replaced objects are preserved and setup reports unavailable. Live streams keep
 their lease until physical close. Turning access Off and enabling it again creates a new forward
 identity, so a queued decision cannot grant a later connection accidentally.
+
+Successful setup records the socket inode in its private lease. After physical stream close,
+cleanup removes only that exact socket object. The socket namespace has a finite entry bound;
+unknown or replaced leaves remain preserved. Old dead receipted sockets can be reconciled,
+while a socket whose creation was never acknowledged retains uncertain ownership.

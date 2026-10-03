@@ -202,6 +202,7 @@ export class RemoteAgentClientOwner {
         }
       })
       entry.forwardUncertain = false
+      await entry.cached.recordSocket(signal)
       current()
       entry.state = { ...entry.state, availability: 'ready' }
       this.ports.changed()

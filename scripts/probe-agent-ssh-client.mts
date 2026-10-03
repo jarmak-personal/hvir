@@ -282,6 +282,20 @@ async function main(): Promise<void> {
     if ((markerStat.mode & 0o777) !== 0o600)
       throw new Error('Actual SFTP cache marker mode is not private')
     await remote.revoke()
+    await host.stat(hostPath(host.hostId, a.env.HVIR_AGENT_ENDPOINT!)).then(
+      () => {
+        throw new Error('Owned SSH socket leaf survived revocation')
+      },
+      (reason: unknown) => {
+        if (
+          !reason ||
+          typeof reason !== 'object' ||
+          !('code' in reason) ||
+          !['2', 'ENOENT'].includes(String(reason.code))
+        )
+          throw new Error('SSH socket removal could not be verified')
+      },
+    )
     const stale = await host.exec(clientPath, ['workspaces'], {
       env: { ...a.env, HVIR_AGENT_WORKSPACE: workspace },
       signal: AbortSignal.timeout(12_000),
@@ -299,6 +313,7 @@ async function main(): Promise<void> {
         commands: ['workspaces', 'open', 'report', 'run', 'help'],
         privateMarkerMode: '0600',
         cacheReuse: true,
+        ownedSocketCleanup: true,
         revokeAndFreshForward: true,
       }),
     )
