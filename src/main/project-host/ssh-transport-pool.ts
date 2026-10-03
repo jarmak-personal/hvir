@@ -1,4 +1,4 @@
-import { type Client, type ClientChannel, type SFTPWrapper } from 'ssh2'
+import { type Client, type ClientChannel, type Channel, type SFTPWrapper } from 'ssh2'
 
 import type { Disposer } from './project-host'
 import { FINITE_EXEC_HOST_LIMIT } from './finite-exec-admission'
@@ -20,7 +20,7 @@ interface SshTransport {
   readonly role: SshTransportRole
   readonly client: Client
   readonly primary: boolean
-  readonly channels: Set<ClientChannel>
+  readonly channels: Set<Channel>
   readonly failureListeners: Set<() => void>
   pendingChannels: number
   readonly channelBudget: number
@@ -57,7 +57,7 @@ export interface SshTransportPoolOwner {
  * host's one connection lifecycle.
  */
 export class SshTransportPool {
-  private readonly channels = new Set<ClientChannel>()
+  private readonly channels = new Set<Channel>()
   private readonly transports = new Set<SshTransport>()
   private nextTransportId = 1
   private finiteChannels = 0
@@ -88,6 +88,22 @@ export class SshTransportPool {
   retireClient(client: Client): void {
     const transport = this.transportForClient(client)
     if (transport) this.retireTransport(transport)
+  }
+
+  /** Incoming forwarding consumes the originating physical transport, never a guessed role. */
+  acceptIncoming(client: Client, accept: () => Channel): Channel | undefined {
+    const transport = this.transportForClient(client)
+    if (!transport || this.transportLoad(transport) >= transport.channelBudget)
+      return undefined
+    const reservation = this.reserveOnTransport(transport)
+    try {
+      const channel = accept()
+      this.activateChannel(reservation, channel)
+      return channel
+    } catch (reason) {
+      reservation.release()
+      throw reason
+    }
   }
 
   async openChannel(
@@ -364,10 +380,7 @@ export class SshTransportPool {
     throw sshCapacityError(role)
   }
 
-  private activateChannel(
-    reservation: SshTransportReservation,
-    channel: ClientChannel,
-  ): void {
+  private activateChannel(reservation: SshTransportReservation, channel: Channel): void {
     reservation.release()
     const { transport } = reservation
     if (transport.closed) {

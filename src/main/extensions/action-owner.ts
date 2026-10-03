@@ -10,6 +10,7 @@ import type {
 } from '../../shared/extensions/workbench'
 import type { RendererOwner } from '../renderer-resource-scopes'
 import type { ExtensionActivation } from './activation'
+import type { ExtensionViewAuthority } from './guest-authority'
 
 export interface ExtensionActionGuestPort {
   open(
@@ -17,7 +18,11 @@ export interface ExtensionActionGuestPort {
     owner: RendererOwner,
     installation: string,
     contribution: string,
-    options: { context: ExtensionSurfaceRequest; focus: boolean },
+    options: {
+      context: ExtensionSurfaceRequest
+      focus: boolean
+      authority?: ExtensionViewAuthority
+    },
     admit: () => void,
   ): Promise<ExtensionView>
   dispatch(this: void, viewId: string, invocation: ExtensionInvocation): boolean
@@ -26,6 +31,7 @@ export interface ExtensionActionGuestPort {
   assertView(this: void, viewId: string): void
 }
 interface PendingAction {
+  readonly authority?: ExtensionActionAuthority
   readonly activation: ExtensionActivation
   viewId?: string
   invocation?: ExtensionInvocation
@@ -34,6 +40,22 @@ interface PendingAction {
   readonly resolve: (value: unknown) => void
   readonly reject: (reason: unknown) => void
   readonly timer: ReturnType<typeof setTimeout>
+}
+/** Main-only execution authority, deliberately absent from guest invocation data. */
+export interface ExtensionActionAuthority {
+  readonly signal?: AbortSignal
+  readonly authorizeAction?: (
+    binding: {
+      readonly title: string
+      readonly input: string
+      readonly effects: { readonly delete: boolean; readonly replace: boolean }
+    },
+    current: () => void,
+    signal: AbortSignal,
+  ) => Promise<'standing' | 'interactive'>
+  readonly view?: ExtensionViewAuthority
+  readonly forAction?: (action: string) => ExtensionActionAuthority
+  assertCapability(capability: string, host: string, workspace?: string): void
 }
 
 /** Finite invocation provenance and lifetime; declarations never confer host capabilities. */
@@ -53,7 +75,10 @@ export class ExtensionActionOwner {
     authorization: ExtensionInvocation['authorization'],
     current: () => void,
     signal?: AbortSignal,
+    authority?: ExtensionActionAuthority,
   ): Promise<unknown> {
+    if (authority?.signal)
+      signal = signal ? AbortSignal.any([signal, authority.signal]) : authority.signal
     current()
     signal?.throwIfAborted()
     const action = activation.revision.manifest.actions?.find(
@@ -83,6 +108,7 @@ export class ExtensionActionOwner {
         current()
       }
       const pending: PendingAction = {
+        ...(authority ? { authority } : {}),
         activation,
         delivered: false,
         current: assert,
@@ -97,7 +123,7 @@ export class ExtensionActionOwner {
           owner,
           activation.installationId,
           action.view,
-          { context, focus: false },
+          { context, focus: false, authority: authority?.view },
           assert,
         )
         .then((view) => {
@@ -132,6 +158,10 @@ export class ExtensionActionOwner {
       return undefined
     }
     return pending.invocation
+  }
+  authority(viewId: string, id: string): ExtensionActionAuthority | undefined {
+    if (!this.provenance(viewId, id)) throw new Error('Originating action was revoked')
+    return this.pending.get(id)?.authority
   }
   result(viewId: string, id: string, value: unknown, error?: string): void {
     const pending = this.pending.get(id)

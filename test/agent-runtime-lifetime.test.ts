@@ -7,7 +7,10 @@ import { ExtensionApplicationRuntime } from '../src/main/extensions/extension-ap
 import { LocalHost } from '../src/main/project-host/local-host'
 import { RendererResourceScopes } from '../src/main/renderer-resource-scopes'
 import { RendererEventPublisher } from '../src/main/renderer-event-publisher'
-import type { PtySupervisor, PtyAgentTarget } from '../src/main/pty/pty-supervisor'
+import type {
+  PtySupervisor,
+  PtyAgentEnvironmentProvider,
+} from '../src/main/pty/pty-supervisor'
 import { localPath } from '../src/shared/host-path'
 import { contextFixture } from './fixtures/extension-context'
 
@@ -22,9 +25,7 @@ it('installs startup defaults before storage resolves, keeps inspection independ
   const events = new RendererEventPublisher(scopes),
     extensions = new ExtensionApplicationRuntime(scopes, events, localPath(directory)),
     agents = new AgentApplicationRuntime(scopes, events, localPath(directory), extensions)
-  let environment:
-      | ((target: PtyAgentTarget) => Readonly<Record<string, string>> | undefined)
-      | undefined,
+  let environment: PtyAgentEnvironmentProvider | undefined,
     releaseRead: (() => void) | undefined
   const ptys = {
     agentEnvironment: (provider: typeof environment) => {
@@ -56,11 +57,13 @@ it('installs startup defaults before storage resolves, keeps inspection independ
     const packages = extensions.start(host, context.sources, hosts)
     const startup = agents.start(host, context.sources, hosts, ptys)
     const target = context.sources.ptys.observationSnapshot()[0]!.info
-    const defaults = environment!(target)!
+    const defaults = (await environment!(target, new AbortController().signal))!.env
     expect(defaults.HVIR_AGENT_WORKSPACE).toBe('workspace')
     expect(defaults.HVIR_AGENT_SESSION).toBe(context.id(1))
     context.change('disconnect')
-    expect(environment!(target)).toEqual(defaults)
+    expect((await environment!(target, new AbortController().signal))!.env).toEqual(
+      defaults,
+    )
     const endpoint = defaults.HVIR_AGENT_ENDPOINT!
     await expect(fs.lstat(endpoint)).rejects.toMatchObject({ code: 'ENOENT' })
     expect(agents.access.snapshot().ready).toBe(false)

@@ -90,7 +90,7 @@ describe('native release automation', () => {
     expect(releaseWorkflow).toContain('node scripts/prepare-release-pr.mjs "$VERSION"')
     expect(
       releaseWorkflow.match(/if: needs\.prepare\.outputs\.ready == 'true'/g),
-    ).toHaveLength(2)
+    ).toHaveLength(3)
     expect(releaseWorkflow).not.toContain(
       'git push origin "HEAD:${{ github.event.repository.default_branch }}"',
     )
@@ -213,7 +213,7 @@ describe('native release automation', () => {
     const producer = release.jobs['build-linux']
     expect(producer).toMatchObject({
       name: 'Build and accept Linux package (${{ matrix.name }})',
-      needs: 'prepare',
+      needs: ['prepare', 'agent-clients'],
       if: "needs.prepare.outputs.ready == 'true'",
       'timeout-minutes': 25,
       env: { HVIR_LINUX_PACKAGE_ACCEPTANCE: '1' },
@@ -528,4 +528,33 @@ describe('native release automation', () => {
     expect(releaseWorkflow).not.toMatch(/\bnpm deprecate\b/)
     expect(releaseWorkflow).not.toMatch(/\bnpm unpublish\b/)
   })
+})
+
+it('assembles all four exact-source remote clients before either desktop producer packages or accepts', () => {
+  const clientJob = release.jobs['agent-clients'] as unknown as {
+    needs: string
+    uses: string
+    with: { source_sha: string }
+  }
+  expect(clientJob.needs).toBe('prepare')
+  expect(clientJob.uses).toBe('./.github/workflows/agent-clients.yml')
+  expect(clientJob.with.source_sha).toBe('${{ needs.prepare.outputs.sha }}')
+  expect(release.jobs['build-linux']?.needs).toEqual(['prepare', 'agent-clients'])
+  expect(release.jobs['build-macos']?.needs).toEqual(['prepare', 'agent-clients'])
+  for (const source of [releaseWorkflow, macosWorkflow]) {
+    const download = source.indexOf('name: Download all exact-source client targets')
+    const assemble = source.indexOf(
+      'run: node scripts/assemble-agent-clients.mts',
+      download,
+    )
+    const next = source.indexOf(
+      source === releaseWorkflow
+        ? 'name: Build native package'
+        : 'name: Require protected signing credentials',
+      assemble,
+    )
+    expect(download).toBeGreaterThan(0)
+    expect(assemble).toBeGreaterThan(download)
+    expect(next).toBeGreaterThan(assemble)
+  }
 })

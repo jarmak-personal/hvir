@@ -19,9 +19,14 @@ import type { ProjectHost } from '../project-host/project-host'
 import { authorizeAgentDocument } from '../viewer/document-read-authority'
 import type { AgentConnection } from './socket-server'
 import type { LocalAgentAccessOwner } from './access-owner'
+import type { AgentForwardScopeOwner } from './forward-scope'
+import type { ExtensionViewAuthority } from '../extensions/guest-authority'
+import type { ExtensionActionAuthority } from '../extensions/action-owner'
 import type { AgentReportOwner } from '../viewer/agent-report-owner'
 
 export interface AgentWorkbenchPorts {
+  readonly forwardScopes?: AgentForwardScopeOwner
+  readonly reference?: (command: ParsedAgentCommand) => Promise<AgentResponse>
   readonly contexts: () => ExtensionContextOwner | undefined
   readonly activeInstallations: () => readonly ExtensionActivation[]
   readonly activeInstallation: (id: string) => ExtensionActivation | undefined
@@ -45,21 +50,54 @@ export class AgentWorkbenchCommandOwner {
     try {
       command = parseAgentCommand(request.argv)
     } catch (reason) {
-      return agentFailure('invalid-command', message(reason), 64)
+      return agentFailure(
+        'invalid-command',
+        connection.origin === 'ssh-forward'
+          ? `${message(reason)}. Extension authoring runs on the local machine; SSH agents use live workbench commands`
+          : message(reason),
+        64,
+      )
     }
-    if (['help', 'commands', 'guide'].includes(command.name))
+    if (connection.origin === 'ssh-forward' && !this.ports.forwardScopes)
+      return agentFailure('unavailable', 'SSH agent scope is unavailable')
+    if (
+      ['help', 'commands', 'guide'].includes(command.name) &&
+      connection.origin === 'application-local'
+    )
       return agentFailure(
         'client-reference',
         'Static reference commands are answered by hvir-agent without a live connection',
         64,
       )
     try {
+      if (connection.origin === 'ssh-forward') connection.current()
+      if (
+        connection.origin === 'ssh-forward' &&
+        ['help', 'commands', 'guide'].includes(command.name)
+      ) {
+        const admitted = this.ports.access.admit(
+          this.ports.forwardScopes!.signal(connection),
+        )
+        admitted.current()
+        if (!this.ports.reference)
+          throw new Error(
+            'Installed live reference is unavailable; authoring runs on the local machine',
+          )
+        const reference = await this.ports.reference(command)
+        admitted.current()
+        connection.current()
+        return reference
+      }
       if (command.name === 'instances')
         return agentOutput({
           instance: this.ports.access.instance,
-          endpoint: this.ports.access.endpoint,
+          ...(connection.origin === 'application-local'
+            ? { endpoint: this.ports.access.endpoint }
+            : { host: connection.host, generation: connection.generation }),
         })
-      const admitted = this.ports.access.admit(connection.signal)
+      const admitted = this.ports.access.admit(
+        this.ports.forwardScopes?.signal(connection) ?? connection.signal,
+      )
       admitted.current()
       const contexts = this.ports.contexts()
       if (!contexts) throw new Error('Workspace context is unavailable')
@@ -81,21 +119,41 @@ export class AgentWorkbenchCommandOwner {
         ...(workspace ? { workspaceId: workspace } : {}),
         ...(session ? { sessionId: session } : {}),
       })
+      this.ports.forwardScopes?.assertTarget(connection, target.root?.hostId)
       const current = (): void => {
+        this.ports.forwardScopes?.assertTarget(connection, target.root?.hostId)
         admitted.current()
         this.ports.assertOwner(owner)
         if (!target.current()) throw new Error('Agent target was revoked')
       }
       current()
       if (command.name === 'workspaces')
-        return agentOutput(this.page(command, contexts.workspaces()))
+        return agentOutput(
+          this.page(
+            command,
+            contexts
+              .workspaces()
+              .filter(
+                (entry) =>
+                  connection.origin === 'application-local' ||
+                  entry.host === connection.host,
+              ),
+            connection,
+          ),
+        )
       if (command.name === 'sessions')
         return agentOutput(
           this.page(
             command,
             contexts
               .sessionsForAgents()
-              .filter((entry) => !workspace || entry.workspace.id === workspace),
+              .filter(
+                (entry) =>
+                  (!workspace || entry.workspace.id === workspace) &&
+                  (connection.origin === 'application-local' ||
+                    entry.workspace.host === connection.host),
+              ),
+            connection,
           ),
         )
       if (['views', 'actions'].includes(command.name)) {
@@ -123,7 +181,7 @@ export class AgentWorkbenchCommandOwner {
                 effects: action.effects,
               }))
           })
-        return agentOutput(this.page(command, entries))
+        return agentOutput(this.page(command, entries, connection))
       }
       if (command.name === 'report') {
         if (!target.root || !target.value.workspace)
@@ -197,6 +255,12 @@ export class AgentWorkbenchCommandOwner {
               sessionId: session,
             },
             focus: false,
+            authority: this.viewAuthority(
+              connection,
+              installation,
+              activation.revision.hash,
+              target.value.workspace?.id,
+            ),
           },
           extensionCurrent,
         )
@@ -244,6 +308,13 @@ export class AgentWorkbenchCommandOwner {
         authorization,
         extensionCurrent,
         extensionSignal,
+        this.actionAuthority(
+          connection,
+          installation,
+          activation.revision.hash,
+          action.id,
+          target.value.workspace?.id,
+        ),
       )
       extensionCurrent()
       return agentOutput({ value })
@@ -255,9 +326,69 @@ export class AgentWorkbenchCommandOwner {
       )
     }
   }
+  private viewAuthority(
+    connection: AgentConnection,
+    installation: string,
+    revision: string,
+    workspace?: string,
+  ): ExtensionViewAuthority | undefined {
+    if (connection.origin === 'application-local') return undefined
+    const signal = AbortSignal.any([
+      this.ports.forwardScopes!.viewSignal(connection),
+      this.ports.access.admit(connection.lifetime ?? connection.signal).signal,
+      this.ports.access.extensionSignal(installation),
+    ])
+    return {
+      key: `${connection.host}:${connection.generation}:${installation}:${workspace ?? ''}`,
+      signal,
+      current: () => {
+        signal.throwIfAborted()
+        connection.current()
+        this.ports.access.assertExtension(installation)
+      },
+      assertCapability: (_capability, host, destination) => {
+        signal.throwIfAborted()
+        this.ports.forwardScopes!.assertTarget(connection, host)
+        if (destination && destination !== workspace)
+          throw new Error('SSH view cannot change its admitted destination')
+      },
+      forAction: (action) =>
+        this.actionAuthority(connection, installation, revision, action, workspace)!,
+    }
+  }
+  private actionAuthority(
+    connection: AgentConnection,
+    installation: string,
+    revision: string,
+    action: string,
+    workspace?: string,
+  ): ExtensionActionAuthority | undefined {
+    if (connection.origin === 'application-local') return undefined
+    const admitted = this.ports.forwardScopes!.actionAuthority(connection, {
+      installation,
+      revision,
+      action,
+      workspace,
+    })
+    return {
+      signal: admitted.signal,
+      view: this.viewAuthority(connection, installation, revision, workspace),
+      authorizeAction: (binding, current, signal) =>
+        this.ports.access.authorizeAction(
+          { installation, ...binding, workspace },
+          current,
+          AbortSignal.any([signal, admitted.signal]),
+        ),
+      assertCapability: (capability, host, destination) =>
+        admitted.assertCapability(capability, host, destination),
+      forAction: (next) =>
+        this.actionAuthority(connection, installation, revision, next, workspace)!,
+    }
+  }
   private page(
     command: ParsedAgentCommand,
     values: readonly unknown[],
+    connection: AgentConnection,
   ): { items: readonly unknown[]; nextCursor?: string } {
     const filter = command.flags['filter']?.toLowerCase() ?? ''
     const filtered = values.filter(
@@ -265,7 +396,15 @@ export class AgentWorkbenchCommandOwner {
     )
     const identity = createHash('sha256')
       .update(
-        JSON.stringify([this.ports.access.instance, command.name, filter, filtered]),
+        JSON.stringify([
+          this.ports.access.instance,
+          connection.origin === 'ssh-forward'
+            ? [connection.host, connection.generation]
+            : 'local',
+          command.name,
+          filter,
+          filtered,
+        ]),
       )
       .digest('hex')
       .slice(0, 24)

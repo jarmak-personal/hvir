@@ -26,6 +26,8 @@ const PROTECTED_ENVIRONMENT = new Set([
   'HVIR_AGENT_ENDPOINT',
   'HVIR_AGENT_WORKSPACE',
   'HVIR_AGENT_SESSION',
+  'HVIR_AGENT_CLIENT',
+  'HVIR_AGENT_UNAVAILABLE',
 ])
 
 export interface ResolvedHarnessLaunch {

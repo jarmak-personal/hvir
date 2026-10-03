@@ -1,17 +1,27 @@
 import { BrowserWindow } from 'electron'
-import { joinHostPath, type HostPath } from '../../shared/host-path'
+import { joinHostPath, LOCAL_HOST_ID, type HostPath } from '../../shared/host-path'
 import type { ProjectHost } from '../project-host/project-host'
 import type { ProjectHostCatalog } from '../project-host/project-host-catalog'
 import type { LiveSessionMetadataSources } from '../terminal/live-session-metadata'
 import type { RendererResourceScopes, RendererOwner } from '../renderer-resource-scopes'
 import type { RendererEventPublisher } from '../renderer-event-publisher'
 import type { ExtensionApplicationRuntime } from '../extensions/extension-application'
-import type { PtySupervisor, PtyAgentTarget } from '../pty/pty-supervisor'
+import type {
+  PtySupervisor,
+  PtyAgentTarget,
+  PtyAgentEnvironment,
+  PtyAgentEnvironmentProvider,
+} from '../pty/pty-supervisor'
 import { plannedAgentEndpoint } from '../project-host/local-agent-endpoint'
 import { AgentReportOwner } from '../viewer/agent-report-owner'
 import { LocalAgentAccessOwner } from './access-owner'
 import { AgentWorkbenchCommandOwner } from './command-owner'
 import { LocalAgentSocketServer } from './socket-server'
+import { AgentStreamAdmission } from './stream-admission'
+import { AgentForwardScopeOwner } from './forward-scope'
+import { RemoteAgentClientOwner } from './remote-client-owner'
+import { InstalledAgentAssets } from './installed-agent-assets'
+import type { AgentForwardGrant } from '../../shared/agent/contract'
 
 /** Application composition for access/transport and viewer-owned content lifetimes. */
 export class AgentApplicationRuntime {
@@ -19,6 +29,10 @@ export class AgentApplicationRuntime {
   readonly access: LocalAgentAccessOwner
   private socket?: LocalAgentSocketServer
   private commands?: AgentWorkbenchCommandOwner
+  private admission?: AgentStreamAdmission
+  private remote?: RemoteAgentClientOwner
+  private hosts?: Pick<ProjectHostCatalog, 'hostById'>
+  readonly forwardScopes = new AgentForwardScopeOwner(() => this.publishAccess())
   private socketWork: Promise<void> = Promise.resolve()
   private host?: ProjectHost
   private starting?: Promise<void>
@@ -36,9 +50,11 @@ export class AgentApplicationRuntime {
     )
     this.access = new LocalAgentAccessOwner(
       () => {
-        if (!this.access.snapshot().enabled)
+        if (!this.access.snapshot().enabled) {
           void this.closeEndpoint().catch(() => undefined)
-        events.toWindows('agent:access-changed', this.access.snapshot())
+          void this.remote?.revoke().catch(() => undefined)
+        }
+        this.publishAccess()
       },
       async (settings) => {
         if (!this.host || this.stopped)
@@ -68,15 +84,15 @@ export class AgentApplicationRuntime {
   ): Promise<void> {
     if (!this.disposeEnvironment) {
       this.access.endpoint = plannedAgentEndpoint(this.access.instance)
-      this.disposeEnvironment = ptys.agentEnvironment((target) =>
-        this.terminalEnvironment(target),
+      this.disposeEnvironment = ptys.agentEnvironment((target, signal) =>
+        this.terminalEnvironment(target, signal),
       )
     }
     return (this.starting ??= this.initialize(host, sources, hosts).catch(
       (reason: unknown) => {
         this.access.explanation = `Agent access could not start: ${reason instanceof Error ? reason.message.slice(0, 160) : 'endpoint unavailable'}`
         this.access.dispose()
-        this.events.toWindows('agent:access-changed', this.access.snapshot())
+        this.publishAccess()
         void this.socket?.dispose()
       },
     ))
@@ -87,6 +103,7 @@ export class AgentApplicationRuntime {
     hosts: Pick<ProjectHostCatalog, 'hostById'>,
   ): Promise<void> {
     this.host = host
+    this.hosts = hosts
     try {
       const stored = await host.readTextFilePrefix(
         joinHostPath(this.userData, 'agent-access.json'),
@@ -99,7 +116,10 @@ export class AgentApplicationRuntime {
       this.access.restore(undefined)
     }
     if (this.stopped) return
+    const assets = new InstalledAgentAssets(host)
     this.commands = new AgentWorkbenchCommandOwner({
+      forwardScopes: this.forwardScopes,
+      reference: (command) => assets.reference(command),
       contexts: () => this.extensions.contexts,
       activeInstallations: () => [
         ...(this.extensions.activations?.active.values() ?? []),
@@ -127,6 +147,18 @@ export class AgentApplicationRuntime {
       openDocument: (owner, document) =>
         this.events.toRenderer(owner, 'agent:document-opened', document),
     })
+    const commands = this.commands
+    this.admission = new AgentStreamAdmission((request, connection) =>
+      commands.run(request, connection),
+    )
+    this.remote = new RemoteAgentClientOwner({
+      instance: this.access.instance,
+      enabled: () => this.access.snapshot().enabled,
+      assets: (target) => assets.client(target),
+      admission: this.admission,
+      scopes: this.forwardScopes,
+      changed: () => this.publishAccess(),
+    })
     await this.reconcileEndpoint()
     if (this.stopped) return
     this.access.ready = true
@@ -142,16 +174,14 @@ export class AgentApplicationRuntime {
       )
       this.reports.retainWorkspaces(ids)
     }
-    const disposeExtensions = this.extensions.observeState(() =>
-      this.events.toWindows('agent:access-changed', this.access.snapshot()),
-    )
+    const disposeExtensions = this.extensions.observeState(() => this.publishAccess())
     const disposeProjects = sources.observeProjects(retainReports)
     this.disposeProjects = () => {
       disposeExtensions()
       disposeProjects()
     }
     retainReports()
-    this.events.toWindows('agent:access-changed', this.access.snapshot())
+    this.publishAccess()
   }
   private closeEndpoint(): Promise<void> {
     const socket = this.socket
@@ -176,8 +206,9 @@ export class AgentApplicationRuntime {
         )
           return
         const commands = this.commands
-        const socket = new LocalAgentSocketServer((request, connection) =>
-          commands.run(request, connection),
+        const socket = new LocalAgentSocketServer(
+          (request, connection) => commands.run(request, connection),
+          this.admission,
         )
         this.socket = socket
         await socket.start(this.access.instance)
@@ -212,15 +243,87 @@ export class AgentApplicationRuntime {
   }
   private terminalEnvironment(
     target: PtyAgentTarget,
-  ): Readonly<Record<string, string>> | undefined {
+    signal: AbortSignal,
+  ): ReturnType<PtyAgentEnvironmentProvider> {
     const context = this.extensions.contexts?.launchTarget(target)
-    if (!this.access.endpoint || this.stopped) return undefined
-    return {
-      HVIR_AGENT_ENDPOINT: this.access.endpoint,
-      ...(context
-        ? { HVIR_AGENT_WORKSPACE: context.workspace, HVIR_AGENT_SESSION: context.session }
-        : {}),
+    const defaults: Readonly<Record<string, string>> = context
+      ? { HVIR_AGENT_WORKSPACE: context.workspace, HVIR_AGENT_SESSION: context.session }
+      : {}
+    if (this.stopped) return undefined
+    if (target.workspaceRoot.hostId === LOCAL_HOST_ID) {
+      return this.access.endpoint
+        ? { env: { HVIR_AGENT_ENDPOINT: this.access.endpoint, ...defaults } }
+        : undefined
     }
+    return (async (): Promise<PtyAgentEnvironment> => {
+      await this.starting
+      const host = this.hosts?.hostById(target.workspaceRoot.hostId)
+      if (!host || !this.remote || this.stopped)
+        return { env: { HVIR_AGENT_UNAVAILABLE: 'SSH agent access is unavailable' } }
+      const remote = await this.remote.environment(host, signal)
+      return { ...remote, env: { ...remote.env, ...defaults } }
+    })()
+  }
+  private publishAccess(): void {
+    this.events.toWindows('agent:access-changed', this.snapshot())
+  }
+  snapshot() {
+    return {
+      ...this.access.snapshot(),
+      forwards: this.remote?.snapshot() ?? [],
+      forwardOptions: this.forwardOptions(),
+    }
+  }
+  private forwardOptions(): AgentForwardGrant[] {
+    const choices: AgentForwardGrant[] = []
+    for (const forward of this.remote?.snapshot() ?? []) {
+      if (forward.availability !== 'ready') continue
+      for (const activation of this.extensions.activations?.active.values() ?? []) {
+        if (!this.access.snapshot().extensions.includes(activation.installationId))
+          continue
+        for (const workspace of this.extensions.contexts?.workspaces() ?? []) {
+          if (workspace.host !== forward.host) continue
+          for (const action of activation.revision.manifest.actions ?? []) {
+            if (!action.agents) continue
+            for (const status of this.extensions.connectors?.approvals.status(
+              activation,
+            ) ?? []) {
+              if (
+                status.availability !== 'supported' ||
+                !status.host ||
+                status.host === forward.host
+              )
+                continue
+              if (choices.length >= 128) return choices
+              choices.push({
+                host: forward.host,
+                generation: forward.generation,
+                installation: activation.installationId,
+                revision: activation.revision.hash,
+                action: action.id,
+                capability: 'connector.execute',
+                executionHost: status.host,
+                workspace: workspace.id,
+              })
+            }
+          }
+        }
+      }
+    }
+    return choices
+  }
+  configureForward(value: AgentForwardGrant, enabled: boolean): void {
+    if (typeof enabled !== 'boolean' || !value || typeof value !== 'object')
+      throw new Error('Invalid SSH capability grant')
+    const known = this.forwardOptions().find(
+      (choice) => JSON.stringify(choice) === JSON.stringify(value),
+    )
+    const existing = this.forwardScopes
+      .grants(value.host)
+      .find((choice) => JSON.stringify(choice) === JSON.stringify(value))
+    if (!known && !(existing && !enabled))
+      throw new Error('SSH grant binding is stale or unavailable')
+    this.forwardScopes.configure(known ?? existing!, enabled)
   }
   async dispose(): Promise<void> {
     if (this.stopped) return
@@ -229,7 +332,9 @@ export class AgentApplicationRuntime {
     this.disposeEnvironment?.()
     this.disposeProjects?.()
     await this.starting?.catch(() => undefined)
+    await this.remote?.dispose()
     await this.closeEndpoint()
+    this.admission?.dispose()
     this.reports.dispose()
   }
 }

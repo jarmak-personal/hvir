@@ -455,6 +455,7 @@ describe('IpcAuthorityRouter', () => {
         'agent:access',
         'agent:configure',
         'agent:extension-configure',
+        'agent:forward-grant',
         'agent:decide',
         'agent:reports',
         'agent:report-read',

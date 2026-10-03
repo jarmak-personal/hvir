@@ -207,18 +207,21 @@ describe('harness launch composition', () => {
     expect(preview.command).not.toContain('forwarded-secret')
   })
 
-  it.each(['HVIR_AGENT_ENDPOINT', 'HVIR_AGENT_WORKSPACE', 'HVIR_AGENT_SESSION'])(
-    'refuses agent default override and unset for %s',
-    async (name) => {
-      for (const environment of [
-        [{ kind: 'unset' as const, name }],
-        [{ kind: 'literal' as const, name, value: 'forged' }],
-      ]) {
-        const profile = await store.save({ input: input({ environment }) })
-        await expect(resolve(profile, 'fresh')).rejects.toThrow(/owned by hvir/)
-      }
-    },
-  )
+  it.each([
+    'HVIR_AGENT_ENDPOINT',
+    'HVIR_AGENT_WORKSPACE',
+    'HVIR_AGENT_SESSION',
+    'HVIR_AGENT_CLIENT',
+    'HVIR_AGENT_UNAVAILABLE',
+  ])('refuses agent default override and unset for %s', async (name) => {
+    for (const environment of [
+      [{ kind: 'unset' as const, name }],
+      [{ kind: 'literal' as const, name, value: 'forged' }],
+    ]) {
+      const profile = await store.save({ input: input({ environment }) })
+      await expect(resolve(profile, 'fresh')).rejects.toThrow(/owned by hvir/)
+    }
+  })
 
   it('rejects protected terminal variables and ungranted outside paths', async () => {
     const protectedProfile = await store.save({

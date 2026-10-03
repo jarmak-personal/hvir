@@ -23,6 +23,33 @@ function pending() {
 }
 const successful: ExecResult = { code: 0, signal: null, stdout: 'ok', stderr: '' }
 describe('finite connector execution', () => {
+  it('retains complete host-qualified workspace identities through connector authorization and native dispatch', async () => {
+    const f = fixture('workspace')
+    await f.approve()
+    const workspace = 'workspace:remote:/' + 'nested-project/'.repeat(16),
+      admitted = f.caller.context('42-workspace')!
+    const authorizeHost = vi.fn()
+    const caller = {
+      ...f.caller,
+      authorizeHost,
+      context: (id: string | undefined) =>
+        id === workspace
+          ? {
+              ...admitted,
+              value: {
+                ...admitted.value,
+                workspace: { ...admitted.value.workspace!, id: workspace },
+              },
+            }
+          : undefined,
+    }
+    expect((await f.execution.execute(caller, { ...f.input, workspace })).outcome).toBe(
+      'completed',
+    )
+    expect(authorizeHost).toHaveBeenCalledWith('remote', workspace)
+    expect(f.host.exec).toHaveBeenCalledOnce()
+  })
+
   it('bounds application-wide native admission across installations without queueing', async () => {
     const f = fixture('application', 1024),
       deferred = pending()

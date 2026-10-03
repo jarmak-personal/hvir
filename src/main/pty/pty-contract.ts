@@ -158,3 +158,12 @@ export class PtyStartUnavailableError extends Error {
     super('Harness launch identity baseline is unavailable', { cause })
   }
 }
+
+export interface PtyAgentEnvironment {
+  readonly env: Readonly<Record<string, string>>
+  readonly pathPrefix?: HostPath
+}
+export type PtyAgentEnvironmentProvider = (
+  target: PtyAgentTarget,
+  signal: AbortSignal,
+) => PtyAgentEnvironment | undefined | Promise<PtyAgentEnvironment | undefined>

@@ -1,6 +1,7 @@
 import { invoke, payload, type IpcFeatureContract } from '../ipc-contract'
 import type {
   AgentAccessState,
+  AgentForwardGrant,
   AgentSettings,
   AgentReport,
   AgentReportSummary,
@@ -13,6 +14,10 @@ export const agentIpc = {
     'agent:configure': invoke<AgentSettings, AgentAccessState>(),
     'agent:extension-configure': invoke<
       { readonly installation: string; readonly enabled: boolean },
+      AgentAccessState
+    >(),
+    'agent:forward-grant': invoke<
+      { readonly grant: AgentForwardGrant; readonly enabled: boolean },
       AgentAccessState
     >(),
     'agent:decide': invoke<{ readonly id: string; readonly accept: boolean }, void>(),

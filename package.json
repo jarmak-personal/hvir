@@ -39,6 +39,7 @@
     "pack:mac:arm64:signed": "npm run build && electron-builder --mac pkg --arm64 --publish never --config.forceCodeSigning=true",
     "build:macos:ssh-acceptance": "bash scripts/run-macos-ssh-acceptance.sh --build-only",
     "acceptance:ssh:macos": "bash scripts/run-macos-ssh-acceptance.sh",
+    "probe:agent:ssh": "esbuild scripts/probe-agent-ssh-client.mts --bundle --packages=external --platform=node --format=cjs --outfile=out/agent-ssh-probe.cjs && node out/agent-ssh-probe.cjs",
     "acceptance:ssh:macos:identity": "bash scripts/record-macos-ssh-identity.sh",
     "pack:linux:x64": "npm run build && electron-builder --linux deb --x64 --publish never",
     "pack:linux:arm64": "npm run build && electron-builder --linux deb --arm64 --publish never",

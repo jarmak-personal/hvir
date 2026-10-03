@@ -43,6 +43,7 @@ import {
 import { SshWatchService } from './ssh-watch-service'
 import { startBufferedSshExec } from './ssh-buffered-exec'
 import { remoteCommand } from './ssh-command'
+import { SshStreamLocalOwner } from './ssh-stream-local'
 
 export {
   SSH_CONTROL_CHANNEL_BUDGET,
@@ -104,6 +105,7 @@ export class SshHost implements ProjectHost {
     abort?: () => void
   }> = []
   private readonly transportPool: SshTransportPool
+  private readonly streamLocalOwner: SshStreamLocalOwner
   private readonly files: SshFileAccess
   private readonly watches: SshWatchService
   constructor(private readonly options: SshHostOptions) {
@@ -114,6 +116,7 @@ export class SshHost implements ProjectHost {
       openAuxiliaryTransport: (role) => this.openAuxiliaryTransport(role),
       lifecycleSignal: () => this.lifecycleAbort.signal,
     })
+    this.streamLocalOwner = new SshStreamLocalOwner(this.transportPool)
     this.files = new SshFileAccess(
       {
         hostId: this.hostId,
@@ -159,6 +162,21 @@ export class SshHost implements ProjectHost {
       ),
     )
   }
+  get streamLocal() {
+    const client = this.client,
+      generation = this.clientGeneration
+    if (!client || this.state !== 'connected') return undefined
+    return this.streamLocalOwner.binding(
+      this.hostId,
+      generation,
+      client,
+      () =>
+        this.client === client &&
+        this.clientGeneration === generation &&
+        this.state === 'connected' &&
+        !this.disposed,
+    )
+  }
   get connectionState(): HostConnectionState {
     return this.state
   }
@@ -199,6 +217,7 @@ export class SshHost implements ProjectHost {
     this.disposed = true
     this.lifecycleAbort.abort()
     this.promptAbort?.abort()
+    this.streamLocalOwner.revoke()
     this.clientGeneration++
     this.cancelConnecting?.(new Error('SSH connection cancelled'))
     this.cancelConnecting = undefined
@@ -472,24 +491,18 @@ export class SshHost implements ProjectHost {
           }
           stopExit = subscribe(exits, () =>
             finish(
-              new PtyWriteIndeterminateError(
-                'SSH PTY exited before write completion',
-              ),
+              new PtyWriteIndeterminateError('SSH PTY exited before write completion'),
             ),
           )
           timer = setTimeout(
             () =>
               finish(
-                new PtyWriteIndeterminateError(
-                  'SSH PTY write completion timed out',
-                ),
+                new PtyWriteIndeterminateError('SSH PTY write completion timed out'),
               ),
             SSH_PTY_WRITE_CONFIRM_TIMEOUT_MS,
           )
           try {
-            channel.write(value, (error?: Error | null) =>
-              finish(error ?? undefined),
-            )
+            channel.write(value, (error?: Error | null) => finish(error ?? undefined))
           } catch (error) {
             finish(asError(error))
           }
@@ -544,6 +557,7 @@ export class SshHost implements ProjectHost {
     this.promptAbort = promptAbort
     const client = this.options.clientFactory?.() ?? new Client()
     this.pendingClients.add(client)
+    this.streamLocalOwner.revoke()
     const generation = ++this.clientGeneration
     const previousClient = this.client
     this.client = client
@@ -579,6 +593,7 @@ export class SshHost implements ProjectHost {
         this.transportPool.retireClient(client)
         const current = this.client === client && this.clientGeneration === generation
         if (current) {
+          this.streamLocalOwner.revoke()
           this.client = undefined
           this.files.advanceGeneration()
         }
@@ -845,6 +860,7 @@ export class SshHost implements ProjectHost {
                 cwd: opts.cwd,
                 env: opts.env,
                 unsetEnv: opts.unsetEnv,
+                pathPrefix: opts.pathPrefix,
               }),
               {
                 pty: {

@@ -48,6 +48,7 @@ import {
 import type { ExtensionActionOwner } from './action-owner'
 import type { ExtensionPresentationState } from './presentation-state'
 import type { ExtensionRevision } from './package-store'
+import { ExtensionGuestAuthority, type ExtensionViewAuthority } from './guest-authority'
 
 export interface ExtensionGuestSurfacePort {
   prepare(view: ExtensionView, revision: ExtensionRevision): Promise<void>
@@ -58,6 +59,7 @@ export interface ExtensionGuestSurfacePort {
 }
 
 interface GuestRecord {
+  readonly authority: ExtensionGuestAuthority
   view: ExtensionView
   readonly owner: RendererOwner
   readonly activation: ExtensionActivation
@@ -137,6 +139,7 @@ export class ExtensionGuestOwner {
       context?: ExtensionSurfaceRequest
       focus?: boolean
       updater?: boolean
+      authority?: ExtensionViewAuthority
     } = {},
   ): Promise<ExtensionView> {
     this.scopes.assertCurrent(owner)
@@ -178,6 +181,8 @@ export class ExtensionGuestOwner {
         throw new Error(
           'This view is opening or stopped; close it before opening it again',
         )
+      existing.authority.assertReuse(options.authority)
+      existing.authority.add(options.authority, () => this.closeRecord(existing))
       this.publish(
         owner,
         this.snapshot(owner),
@@ -206,6 +211,7 @@ export class ExtensionGuestOwner {
       ...(context ? { context: context.value } : {}),
     }
     const record: GuestRecord = {
+      authority: new ExtensionGuestAuthority(),
       view,
       owner,
       activation,
@@ -221,7 +227,12 @@ export class ExtensionGuestOwner {
       context,
       actions: new Set(),
     }
+    record.authority.add(options.authority, () => this.closeRecord(record))
     this.records.set(id, record)
+    if (!record.authority.current()) {
+      this.closeRecord(record)
+      throw new Error('Extension forward origin was revoked')
+    }
     if (context?.root)
       record.contextLease = this.scopes.register(
         owner,
@@ -595,6 +606,11 @@ export class ExtensionGuestOwner {
     invocation?: ExtensionInvocation,
   ): Promise<unknown> {
     await this.activations.assertWritable()
+    const invocationAuthority = invocation
+      ? this.actions?.authority(record.view.id, invocation.id)
+      : undefined
+    if (invocationAuthority?.signal)
+      signal = AbortSignal.any([signal, invocationAuthority.signal])
     const assertOrigin = (): void => {
       this.assertRecord(record)
       signal.throwIfAborted()
@@ -605,6 +621,14 @@ export class ExtensionGuestOwner {
     if (capability.startsWith('connector.')) {
       if (!this.connectors) throw new Error('Connector execution is unavailable')
       const caller: ConnectorCaller = {
+        authorizeHost: (host, workspace) => {
+          if (invocation) {
+            invocationAuthority?.assertCapability('connector.execute', host, workspace)
+            record.authority
+              .forAction(invocation.action)
+              ?.assertCapability('connector.execute', host, workspace)
+          } else record.authority.assertCapability('connector.execute', host, workspace)
+        },
         activation: record.activation,
         view: record.view.id,
         signal,
@@ -682,6 +706,28 @@ export class ExtensionGuestOwner {
     if (capability === 'actions.invoke') {
       if (!this.actions) throw new Error('Extension actions are unavailable')
       const target = extensionObject(input)
+      const action = extensionId(target['action'])
+      const authority =
+        record.authority.forAction(action) ??
+        (invocation
+          ? this.actions.authority(record.view.id, invocation.id)?.forAction?.(action)
+          : undefined)
+      const declaration = record.activation.revision.manifest.actions?.find(
+        (action) => action.id === target['action'],
+      )
+      const authorization =
+        authority?.authorizeAction && declaration
+          ? await authority.authorizeAction(
+              {
+                title: declaration.title,
+                input: JSON.stringify(target['input'] ?? null),
+                effects: declaration.effects,
+              },
+              assertOrigin,
+              signal,
+            )
+          : (invocation?.authorization ?? 'unapproved')
+      assertOrigin()
       return this.actions.invoke(
         record.owner,
         record.activation,
@@ -696,8 +742,8 @@ export class ExtensionGuestOwner {
             ? { sessionId: record.context.value.session.id }
             : {}),
         },
-        invocation?.caller ?? 'guest',
-        invocation?.authorization ?? 'unapproved',
+        invocation?.caller ?? (record.authority.restricted ? 'agent' : 'guest'),
+        authorization,
         () => {
           this.assertRecord(record)
           signal.throwIfAborted()
@@ -705,6 +751,7 @@ export class ExtensionGuestOwner {
             throw new Error('Originating action was revoked')
         },
         signal,
+        authority,
       )
     }
     if (capability === 'viewer.open-own') {
@@ -720,6 +767,11 @@ export class ExtensionGuestOwner {
         },
         {
           focus: !invocation,
+          authority:
+            record.authority.view() ??
+            (invocation
+              ? this.actions?.authority(record.view.id, invocation.id)?.view
+              : undefined),
           context: {
             surface: 'viewer',
             ...(record.context?.value.workspace
@@ -884,6 +936,7 @@ export class ExtensionGuestOwner {
   private current(record: GuestRecord): boolean {
     return (
       !this.disposed &&
+      record.authority.current() &&
       !record.view.failure &&
       (!record.context || record.context.current()) &&
       this.records.get(record.view.id) === record &&
@@ -916,6 +969,7 @@ export class ExtensionGuestOwner {
   private closeRecord(record: GuestRecord, notify = true): void {
     if (this.records.get(record.view.id) !== record) return
     this.records.delete(record.view.id)
+    record.authority.dispose()
     this.connectors?.revalidate()
     if (record.visible && record.view.role !== 'updater')
       this.visibleContributionsChanged?.()
