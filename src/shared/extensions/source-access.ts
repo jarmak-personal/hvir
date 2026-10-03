@@ -22,16 +22,19 @@ export interface ExtensionSourceGrant {
   readonly installationId: string
   readonly declaration: ExtensionSourceDeclaration
   readonly root?: HostPath
+  readonly workspaceId?: string
 }
 export interface ExtensionSourceSelection {
   readonly installationId: string
   readonly source: string
   readonly root?: HostPath
+  readonly workspaceId?: string
 }
 export interface ExtensionSourceStatus {
   readonly source: string
   readonly granted: boolean
   readonly root?: HostPath
+  readonly workspaceId?: string
   readonly explanation?: string
 }
 export function validateSourceDeclarations(

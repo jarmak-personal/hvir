@@ -7,6 +7,7 @@ import {
   type ExtensionSourceSelection,
   type ExtensionSourceStatus,
 } from '../../shared/extensions/source-access'
+import type { ExtensionContextOwner } from './context-owner'
 import { extensionObject, extensionText } from '../../shared/extensions/validation'
 import { assertNormalizedAbsoluteProjectPath } from '../project-file-operations/project-file-confinement'
 import type { ProjectHost } from '../project-host/project-host'
@@ -46,6 +47,7 @@ export class ExtensionSourceApprovalOwner {
       'active' | 'assertWritable' | 'readSourceGrants' | 'saveSourceGrants'
     >,
     private readonly revoked: (installation: string, source?: string) => void,
+    private readonly contexts?: Pick<ExtensionContextOwner, 'workspaces'>,
   ) {}
   async start(): Promise<void> {
     try {
@@ -55,14 +57,21 @@ export class ExtensionSourceApprovalOwner {
       const grants = value.map((entry: unknown): ExtensionSourceGrant => {
         const item = extensionObject(entry)
         const declaration = validateSourceDeclarations([item['declaration']])[0]!
-        const root =
-          declaration.context === 'application' ? readSourcePath(item['root']) : undefined
-        if (root && root.hostId !== this.hosts.local.hostId)
+        const root = readSourcePath(item['root'])
+        const workspaceId =
+          declaration.context === 'workspace'
+            ? extensionText(item['workspaceId'], 'registered workspace', 256)
+            : undefined
+        if (
+          declaration.context === 'application' &&
+          root.hostId !== this.hosts.local.hostId
+        )
           throw new Error('Application sources require the local host')
         return {
           installationId: extensionText(item['installationId'], 'installation', 80),
           declaration,
-          ...(root ? { root } : {}),
+          root,
+          ...(workspaceId ? { workspaceId } : {}),
         }
       })
       if (new Set(grants.map(key)).size !== grants.length)
@@ -95,8 +104,20 @@ export class ExtensionSourceApprovalOwner {
       )
       if (!activation || !declaration)
         throw new Error('Enable the declared extension before granting source access')
-      let root: HostPath | undefined
-      if (declaration.context === 'application') {
+      let root: HostPath
+      let workspaceId: string | undefined
+      if (declaration.context === 'workspace') {
+        if (selection.root !== undefined)
+          throw new Error('Workspace roots come only from registered project context')
+        workspaceId = extensionText(selection.workspaceId, 'registered workspace', 256)
+        const workspace = this.contexts
+          ?.workspaces()
+          .find((entry) => entry.id === workspaceId)
+        if (!workspace?.root) throw new Error('Choose an available registered workspace')
+        root = readSourcePath(workspace.root)
+      } else {
+        if (selection.workspaceId !== undefined)
+          throw new Error('Application source has no workspace')
         const selected = readSourcePath(selection.root)
         if (selected.hostId !== this.hosts.local.hostId)
           throw new Error('Application source roots are local')
@@ -107,8 +128,6 @@ export class ExtensionSourceApprovalOwner {
         assertNormalizedAbsoluteProjectPath(root)
         if (root.hostId !== selected.hostId || (await host.stat(root)).type !== 'dir')
           throw new Error('Choose an accessible source directory')
-      } else if (selection.root !== undefined) {
-        throw new Error('Workspace scope comes only from registered project context')
       }
       await this.assertWritable()
       assertIntent()
@@ -117,8 +136,19 @@ export class ExtensionSourceApprovalOwner {
       const grant: ExtensionSourceGrant = {
         installationId: selection.installationId,
         declaration,
-        ...(root ? { root } : {}),
+        root,
+        ...(workspaceId ? { workspaceId } : {}),
       }
+      const host = this.hosts.hostById(root.hostId)
+      if (
+        !host ||
+        host.connectionState !== 'connected' ||
+        !hostPathEquals(await host.realpath(root), root) ||
+        (await host.stat(root)).type !== 'dir'
+      )
+        throw new Error('Source root changed; inspect it again')
+      assertIntent()
+      if (!this.scopeCurrent(grant)) throw new Error('Registered workspace changed')
       const token = randomUUID()
       this.prepared.set(token, {
         grant,
@@ -145,7 +175,8 @@ export class ExtensionSourceApprovalOwner {
           throw new Error('Source decision was revoked')
         if (
           this.disposed ||
-          this.activations.active.get(grant.installationId) !== activation
+          this.activations.active.get(grant.installationId) !== activation ||
+          !this.scopeCurrent(grant)
         )
           throw new Error('Source decision ended')
       }
@@ -215,7 +246,8 @@ export class ExtensionSourceApprovalOwner {
       (entry) =>
         entry.installationId === activation.installationId &&
         entry.declaration.id === source &&
-        JSON.stringify(entry.declaration) === JSON.stringify(declaration),
+        JSON.stringify(entry.declaration) === JSON.stringify(declaration) &&
+        this.scopeCurrent(entry),
     )
   }
   status(activation: ExtensionActivation): readonly ExtensionSourceStatus[] {
@@ -225,6 +257,7 @@ export class ExtensionSourceApprovalOwner {
         source: entry.id,
         granted: !!grant,
         ...(grant?.root ? { root: grant.root } : {}),
+        ...(grant?.workspaceId ? { workspaceId: grant.workspaceId } : {}),
         ...(!grant
           ? {
               explanation:
@@ -233,6 +266,17 @@ export class ExtensionSourceApprovalOwner {
           : {}),
       }
     })
+  }
+  private scopeCurrent(grant: ExtensionSourceGrant): boolean {
+    if (!grant.root) return false
+    const host = this.hosts.hostById(grant.root.hostId)
+    if (!host || host.connectionState !== 'connected') return false
+    if (grant.declaration.context === 'application')
+      return grant.root.hostId === this.hosts.local.hostId
+    const workspace = this.contexts
+      ?.workspaces()
+      .find((entry) => entry.id === grant.workspaceId)
+    return !!workspace?.root && hostPathEquals(workspace.root, grant.root)
   }
   dispose(): void {
     this.disposed = true

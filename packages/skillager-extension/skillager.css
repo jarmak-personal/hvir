@@ -52,6 +52,10 @@ form,
   line-height: 1.55;
   overflow-wrap: anywhere;
 }
+#instructions:not([data-mode='source']) {
+  width: min(100%, 76ch);
+  align-self: center;
+}
 #instructions[data-mode='source'] {
   white-space: pre-wrap;
   font-family: var(--hvir-monospace-font);
@@ -69,6 +73,9 @@ form,
   height: auto;
 }
 #instructions table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
   border-collapse: collapse;
 }
 #instructions td,

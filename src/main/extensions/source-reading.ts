@@ -69,8 +69,16 @@ export class ExtensionSourceReadingOwner {
     const path = readSourcePath(input['path'])
     const context =
       grant.declaration.context === 'workspace' ? caller.context() : undefined
-    const root = grant.root ?? context?.root
-    if (!root || (grant.declaration.context === 'workspace' && !context))
+    const root = grant.root
+    if (
+      !root ||
+      (grant.declaration.context === 'workspace' &&
+        (!context?.root ||
+          context.value.workspace?.id !== grant.workspaceId ||
+          !hostPathEquals(context.root, root) ||
+          (input['workspaceId'] !== undefined &&
+            input['workspaceId'] !== grant.workspaceId)))
+    )
       throw new Error('This source needs its exact registered workspace')
     const host = this.approvals.hosts.hostById(root.hostId)
     if (!host || host.connectionState !== 'connected')
@@ -356,7 +364,11 @@ export class ExtensionSourceReadingOwner {
         selected.grant ||
       this.approvals.hosts.hostById(selected.root.hostId) !== selected.host ||
       selected.host.connectionState !== 'connected' ||
-      selected.context?.current() === false
+      selected.context?.current() === false ||
+      (selected.grant.workspaceId !== undefined &&
+        (selected.caller.context()?.value.workspace?.id !== selected.grant.workspaceId ||
+          !selected.caller.context()?.root ||
+          !hostPathEquals(selected.caller.context()!.root!, selected.root)))
     )
       throw new Error('Selected source access ended')
     if (selected.parent) this.current(selected.parent)

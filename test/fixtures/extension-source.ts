@@ -68,6 +68,7 @@ export function sourceFixture(
       return Promise.resolve()
     }),
   }
+  const workspaces = [{ id: 'workspace', name: 'Workspace', host: hostId, root }]
   const approvals = new ExtensionSourceApprovalOwner(
     {
       local: { hostId: asHostId('local') },
@@ -75,6 +76,7 @@ export function sourceFixture(
     },
     authority,
     (id, source) => reading.revoke(id, source),
+    { workspaces: () => workspaces },
   )
   const reading = new ExtensionSourceReadingOwner(approvals, markdown)
   const controller = new AbortController()
@@ -104,6 +106,7 @@ export function sourceFixture(
     active,
     host,
     readImage,
+    workspaces,
     authority,
     approvals,
     reading,
@@ -124,7 +127,7 @@ export function sourceFixture(
         {
           installationId: 'installation',
           source: 'source',
-          ...(context === 'application' ? { root } : {}),
+          ...(context === 'application' ? { root } : { workspaceId: 'workspace' }),
         },
         () => {},
       )

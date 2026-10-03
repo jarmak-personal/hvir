@@ -1,3 +1,4 @@
+import type { ExtensionWorkspaceContext } from '../extensions/contract'
 import type { ProjectHostOption } from './project'
 import type {
   ExtensionSourceSelection,
@@ -25,7 +26,10 @@ export const extensionsIpc = {
   invoke: {
     'extensions:source-settings': invoke<
       { readonly installationId: string },
-      readonly ExtensionSourceStatus[]
+      {
+        readonly sources: readonly ExtensionSourceStatus[]
+        readonly workspaces: readonly ExtensionWorkspaceContext[]
+      }
     >(),
     'extensions:source-prepare': invoke<
       ExtensionSourceSelection,

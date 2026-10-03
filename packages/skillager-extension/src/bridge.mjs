@@ -89,6 +89,25 @@ export function guestClient(bridge, clock = globalThis) {
   }
   return {
     request,
+    delay(milliseconds) {
+      return new Promise((resolve, reject) => {
+        const finish = (error) => {
+          clock.clearTimeout(timer)
+          listeners.delete(changed)
+          controller.signal.removeEventListener('abort', aborted)
+          error ? reject(error) : resolve()
+        }
+        const changed = (message) => {
+          if (message.kind === 'context' && !message.context.visible)
+            finish(new Error('This view is hidden'))
+        }
+        const aborted = () => finish(new Error('This view closed'))
+        const timer = clock.setTimeout(() => finish(), milliseconds)
+        listeners.add(changed)
+        controller.signal.addEventListener('abort', aborted, { once: true })
+        if (!alive || !visible) finish(new Error('This view is hidden or closed'))
+      })
+    },
     dispose,
     signal: controller.signal,
     get alive() {
@@ -119,7 +138,7 @@ export async function outputText(client, receipt, stream = 'stdout') {
     offset = page.nextOffset
   }
 }
-export async function runCli(client, args, context) {
+export async function runCli(client, args, context, retryFrequency = true) {
   const workspace = context?.workspace
   if (workspace && workspace.host !== 'local')
     throw new Error(
@@ -131,6 +150,16 @@ export async function runCli(client, args, context) {
     ...(workspace ? { workspace: workspace.id } : {}),
     args,
   })
+  if (
+    result.outcome === 'not-started' &&
+    result.reason === 'frequency' &&
+    retryFrequency
+  ) {
+    // D5 shares only in-flight work. A completed source can refuse a new observer.
+    // One delayed attempt still goes through normal admission; no cached freshness claim.
+    await client.delay(1100)
+    return runCli(client, args, context, false)
+  }
   let text = '',
     error = ''
   try {
@@ -142,7 +171,9 @@ export async function runCli(client, args, context) {
       throw new Error(
         result.outcome === 'not-started' &&
           ['frequency', 'capacity'].includes(result.reason)
-          ? 'Another refresh is pending; last-known rows are retained.'
+          ? result.reason === 'frequency'
+            ? 'Refresh deferred by the completed-execution frequency limit; freshness unavailable.'
+            : 'Refresh deferred by execution capacity; freshness unavailable.'
           : `Skillager ${result.outcome}: ${result.reason ?? `exit ${result.code ?? 'unknown'}`}${error ? ` · ${error.slice(0, 300)}` : ''}`,
       )
     return text

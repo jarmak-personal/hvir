@@ -77,13 +77,14 @@ export function libraryPage(value) {
         status: text(row.status, 80),
         path: sourcePath(row.skill_file),
         source: 'library',
+        host: 'local',
         kind: 'Your library',
       }
     }),
     next: data.next_cursor,
   }
 }
-export function searchPage(value) {
+export function searchPage(value, workspace) {
   const data = object(value)
   if (
     data.schema !== 'skillager.search.v1' ||
@@ -103,7 +104,18 @@ export function searchPage(value) {
       const row = object(item),
         search = object(row.search),
         occurrence = object(search.occurrence)
+      const installed = occurrence.kind !== 'library'
+      if (installed && !localWorkspace(workspace))
+        throw new Error(
+          'Unsupported installed occurrence; presence is unknown, no source was relabeled',
+        )
+      if (installed && data.context?.project_root !== workspace.root.path)
+        throw new Error(
+          'Installed observation does not match the selected local workspace',
+        )
       return {
+        host: 'local',
+        ...(installed ? { workspaceId: workspace.id } : {}),
         id: text(occurrence.id, 256),
         skillId: text(row.id, 256),
         name: text(row.name ?? row.summary ?? row.id, 256),
@@ -131,7 +143,9 @@ export function searchPage(value) {
     presence: data.context?.installed_observation ?? 'unknown',
   }
 }
-export function projectInventory(value) {
+export function projectInventory(value, workspace) {
+  if (!localWorkspace(workspace))
+    throw new Error('Project presence is unknown without an exact local workspace')
   const data = object(value)
   if (
     !Array.isArray(data.selected) ||
@@ -149,13 +163,17 @@ export function projectInventory(value) {
         status: text(row.trust ?? 'observed', 80),
         path: text(row.entrypoint ?? `${text(row.root)}/SKILL.md`),
         source: 'project',
+        host: 'local',
+        workspaceId: workspace.id,
         kind: 'Project original',
       }
     }),
     coverage: 'observed',
   }
 }
-export function projectExposures(value) {
+export function projectExposures(value, workspace) {
+  if (!localWorkspace(workspace))
+    throw new Error('Project presence is unknown without an exact local workspace')
   const data = object(value)
   if (data.schema !== 'skillager.exposures.v1' || !Array.isArray(data.exposures))
     throw new Error('Public project exposures are unavailable')
@@ -168,6 +186,8 @@ export function projectExposures(value) {
       status: row.status ?? 'observed',
       path: `${text(row.target)}/SKILL.md`,
       source: 'project',
+      host: 'local',
+      workspaceId: workspace.id,
       kind:
         row.mode === 'stub'
           ? 'Installed Stub'
@@ -185,7 +205,7 @@ export function searchArgs(
   query,
   {
     cursor = '',
-    includeInstalled = true,
+    includeInstalled = false,
     separateCopies = false,
     preferredAgent,
     installedProject,
@@ -205,7 +225,9 @@ export function searchArgs(
     cursor,
     '--no-session-record',
   ]
-  if (includeInstalled) args.push('--include-installed')
+  // No installed-project means personal candidates only, with unknown presence.
+  // The CLI needs this flag to avoid claiming/excluding unknown installed identities.
+  if (!installedProject || includeInstalled) args.push('--include-installed')
   if (preferredAgent) args.push('--agent', preferredAgent)
   if (installedProject) args.push('--installed-project', installedProject)
   return args
@@ -214,9 +236,13 @@ export function searchArgs(
 let selectionSerial = 0
 /** Descriptions and unused observations never enter an instruction selection. */
 export function detailInputFor(row) {
+  if (row.host !== 'local' || (row.source === 'project' && !row.workspaceId))
+    throw new Error('Selected source lacks an exact observing host/workspace')
   const identity = {
     path: row.path,
     source: row.source,
+    host: row.host,
+    ...(row.workspaceId ? { workspaceId: row.workspaceId } : {}),
     name: row.name,
     kind: row.kind,
     status: row.status,
@@ -238,4 +264,12 @@ function validCanonical(value) {
     typeof value.skill_id === 'string' &&
     /^lib\/[a-z0-9][a-z0-9._/-]{0,251}$/iu.test(value.skill_id)
   )
+}
+
+export function localWorkspace(workspace) {
+  return workspace?.host === 'local' &&
+    workspace.root?.hostId === 'local' &&
+    typeof workspace.root.path === 'string'
+    ? workspace
+    : undefined
 }

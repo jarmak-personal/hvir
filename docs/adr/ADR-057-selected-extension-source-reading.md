@@ -12,8 +12,11 @@ Reading pending instructions must neither approve them nor expose their bodies t
 ## Decision
 
 The public manifest declares named read-only document scopes: an application-local root
-or the caller's exact registered workspace. Trusted Settings selects and explicitly grants
-the canonical host-qualified local root or registered-workspace scope. The source-access
+or one exact registered workspace. Trusted Settings chooses a live registered workspace
+identity through the existing context catalog and explicitly grants its canonical host-qualified
+root. Workspace grants persist that identity and root, cover no other present or future
+workspace or host, and end when registration, root or connection changes. Application grants
+remain explicit canonical local roots. The source-access
 owner persists grants through the existing extension writer. Grants bind installation and
 the complete declaration; unchanged declarations reuse grants after explicit revision
 acceptance. Discovery, reported paths, initial view input and native approval confer no read

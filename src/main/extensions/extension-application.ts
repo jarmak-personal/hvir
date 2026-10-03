@@ -195,6 +195,7 @@ export class ExtensionApplicationRuntime {
       hosts,
       activations,
       (id, source) => this.sources?.revoke(id, source),
+      contexts,
     )
     this.sources = new ExtensionSourceReadingOwner(
       sourceApprovals,

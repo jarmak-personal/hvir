@@ -9,6 +9,7 @@ import {
   projectInventory,
   projectExposures,
   detailInputFor,
+  localWorkspace,
 } from './catalog.mjs'
 import { sourcePages, loadInstructionImages } from './reader.mjs'
 const bridge = window.hvirExtension,
@@ -27,7 +28,8 @@ let lastPage,
   cursor,
   previous = [],
   searchOptions = {},
-  selectedRow
+  selectedRow,
+  pageRequest
 const state = element('state'),
   list = element('skills'),
   body = element('instructions')
@@ -66,6 +68,15 @@ function sourceInput(row) {
 }
 async function choose(row) {
   if (!available()) return
+  if (
+    row.source === 'project' &&
+    (row.host !== 'local' ||
+      row.workspaceId !== context.workspace?.id ||
+      !localWorkspace(context.workspace))
+  )
+    throw new Error(
+      'Selected installed presence is unknown for this workspace; no host was substituted',
+    )
   await client.request('viewer.open-own', {
     contributionId: 'detail',
     ...(row.source === 'library' ? { context: 'application' } : {}),
@@ -121,8 +132,7 @@ function rows(page) {
     }),
   )
   navigation?.refresh()
-  if (element('next')) element('next').disabled = !page.next
-  if (element('previous')) element('previous').disabled = previous.length === 0
+  pagingControls()
   if (!page.rows.length)
     say(
       query
@@ -139,7 +149,25 @@ function rows(page) {
         : `${page.rows.length}${library?.count !== null && library?.count !== undefined && view === 'library' ? ` of ${library.count}` : ''} skills${view === 'project' ? ' · Local observations; discovery coverage is not asserted' : ''} · Page ${previous.length + 1} · observed ${new Date().toLocaleTimeString()}`,
     )
 }
-function requestRefresh() {
+function pagingControls() {
+  const changingSearch =
+    pageRequest &&
+    (pageRequest.query !== query ||
+      JSON.stringify(pageRequest.options) !== JSON.stringify(searchOptions))
+  if (element('next')) element('next').disabled = !!changingSearch || !lastPage?.next
+  if (element('previous'))
+    element('previous').disabled = !!changingSearch || previous.length === 0
+}
+function requestRefresh(
+  target = pageRequest ?? {
+    query,
+    options: searchOptions,
+    cursor,
+    previous: [...previous],
+  },
+) {
+  pageRequest = { query, options: searchOptions, ...target }
+  pagingControls()
   generation++
   pendingRefresh = true
   void refresh()
@@ -148,31 +176,36 @@ async function refresh() {
   if (!available() || busy || view === 'detail') return
   pendingRefresh = false
   busy = true
-  const revision = generation
+  const revision = generation,
+    target = pageRequest ?? {
+      query,
+      options: searchOptions,
+      cursor,
+      previous: [...previous],
+    }
   say(
     lastPage ? 'Refreshing… last-known rows retained.' : 'Loading Skillager…',
     lastPage ? 'stale' : 'loading',
   )
   try {
     let page
-    if (query) {
-      const root =
-        context.workspace?.host === 'local' && context.workspace.root?.hostId === 'local'
-          ? context.workspace.root.path
-          : undefined
+    if (target.query) {
+      const workspace = view === 'project' ? localWorkspace(context.workspace) : undefined
+      const root = workspace?.root.path
       page = searchPage(
         await cli(
-          searchArgs(query, {
-            ...searchOptions,
-            cursor: cursor ?? '',
+          searchArgs(target.query, {
+            ...target.options,
+            cursor: target.cursor ?? '',
             ...(root ? { installedProject: root } : {}),
           }),
         ),
+        workspace,
       )
     } else if (view === 'project') {
-      if (!context.workspace || context.workspace.host !== 'local')
+      if (!localWorkspace(context.workspace))
         throw new Error(
-          'SSH project presence is unknown. Open Your library for independent local browsing; no remote CLI is run.',
+          'Project presence is unknown without an available exact local root. Open Your library for independent local browsing; no remote CLI is run.',
         )
       const inventory = projectInventory(
         await cli(
@@ -186,19 +219,21 @@ async function refresh() {
           ],
           scope(),
         ),
+        context.workspace,
       )
       const exposures = projectExposures(
         await cli(
           ['expose', '--list', '--all-agents', '--scope', 'project', '--json'],
           scope(),
         ),
+        context.workspace,
       )
       const paths = new Set(exposures.map((item) => item.path))
       const observed = [
         ...inventory.rows.filter((item) => !paths.has(item.path)),
         ...exposures,
       ]
-      const offset = Number(cursor ?? 0)
+      const offset = Number(target.cursor ?? 0)
       page = {
         rows: observed.slice(offset, offset + 100),
         next: offset + 100 < observed.length ? String(offset + 100) : null,
@@ -213,11 +248,18 @@ async function refresh() {
           '--json',
           '--limit',
           '100',
-          ...(cursor ? ['--cursor', cursor] : []),
+          ...(target.cursor ? ['--cursor', target.cursor] : []),
         ]),
       )
     }
-    if (available() && generation === revision) rows(page)
+    if (available() && generation === revision) {
+      query = target.query
+      searchOptions = target.options
+      cursor = target.cursor
+      previous = target.previous
+      pageRequest = undefined
+      rows(page)
+    }
   } catch (error) {
     if (available() && generation === revision)
       say(
@@ -226,6 +268,7 @@ async function refresh() {
       )
   } finally {
     busy = false
+    pagingControls()
     if (pendingRefresh && available()) void refresh()
     else schedule()
   }
@@ -245,10 +288,13 @@ let detailInput,
 const positions = new Map()
 function rememberPosition() {
   if (detailInput) {
-    positions.set(`${detailInput.row.source}:${detailInput.row.path}`, {
-      scroll: body.scrollTop,
-      mode: body.dataset.mode,
-    })
+    positions.set(
+      `${detailInput.row.host}:${detailInput.row.workspaceId ?? ''}:${detailInput.row.source}:${detailInput.row.path}`,
+      {
+        scroll: body.scrollTop,
+        mode: body.dataset.mode,
+      },
+    )
     if (positions.size > 16) positions.delete(positions.keys().next().value)
   }
 }
@@ -306,12 +352,15 @@ async function readSelected() {
       await client
         .request('source.read', { receipt: sourceReceipt, release: true })
         .catch(() => {})
+    if (
+      row.host !== 'local' ||
+      (row.source === 'project' && row.workspaceId !== context.workspace?.id)
+    )
+      throw new Error('Selected source does not match its observing host/workspace')
     const selected = await client.request('source.select', {
       source: row.source,
-      path: {
-        hostId: row.source === 'library' ? 'local' : context.workspace?.host,
-        path: row.path,
-      },
+      path: { hostId: row.host, path: row.path },
+      ...(row.workspaceId ? { workspaceId: row.workspaceId } : {}),
     })
     sourceReceipt = selected.receipt
     const text = await sourcePages(client, selected.receipt)
@@ -402,6 +451,7 @@ on('canonical', 'click', async () => {
       description: value.skill.summary ?? '',
       path: value.skill.entrypoint,
       source: 'library',
+      host: 'local',
       kind: 'Your library',
       status: value.skill.acceptance ?? 'observed',
     })
@@ -419,43 +469,38 @@ on(
 )
 on('search-form', 'submit', (event) => {
   event.preventDefault()
-  query = element('query').value.trim()
-  cursor = undefined
-  previous = []
-  searchOptions = {
+  const options = {
     includeInstalled: element('include-installed').checked,
     separateCopies: element('separate-copies').checked,
     preferredAgent: element('preferred-agent').value || undefined,
   }
-  requestRefresh()
+  requestRefresh({
+    query: element('query').value.trim(),
+    options,
+    cursor: undefined,
+    previous: [],
+  })
 })
 on('browse', 'click', () => {
-  query = ''
-  cursor = undefined
-  previous = []
   element('query').value = ''
-  requestRefresh()
+  requestRefresh({ query: '', options: {}, cursor: undefined, previous: [] })
 })
 on('refresh', 'click', () => {
-  cursor = undefined
-  previous = []
   requestRefresh()
 })
 on('next', 'click', () => {
-  if (!lastPage?.next || busy) return
-  previous.push(cursor)
-  cursor = lastPage.next
-  requestRefresh()
+  if (!lastPage?.next || busy || element('next').disabled) return
+  requestRefresh({ cursor: lastPage.next, previous: [...previous, cursor] })
 })
 on('previous', 'click', () => {
-  if (!previous.length || busy) return
-  cursor = previous.pop()
-  requestRefresh()
+  if (!previous.length || busy || element('previous').disabled) return
+  requestRefresh({ cursor: previous.at(-1), previous: previous.slice(0, -1) })
 })
 client.listen((message) => {
   if (message.kind === 'context') {
     const renewed = message.context.visible && !context.visible
-    const changed = message.context.workspace?.id !== context.workspace?.id
+    const changed =
+      JSON.stringify(message.context.workspace) !== JSON.stringify(context.workspace)
     context = message.context
     if (!context.visible) {
       generation++
@@ -476,21 +521,28 @@ client.listen((message) => {
         renderedHtml = undefined
         body.replaceChildren()
         const position = positions.get(
-          `${detailInput.row.source}:${detailInput.row.path}`,
+          `${detailInput.row.host}:${detailInput.row.workspaceId ?? ''}:${detailInput.row.source}:${detailInput.row.path}`,
         )
         body.dataset.mode = position?.mode ?? 'rendered'
         selectedScroll = position?.scroll ?? 0
       }
       if (pendingSelection && available()) void readSelected()
-    } else if (renewed || changed) {
-      if (changed) {
-        cursor = undefined
-        previous = []
-        if (element('include-installed'))
-          element('include-installed').checked =
-            context.workspace?.host !== 'local' || !context.workspace.root
+    } else {
+      const installed = element('include-installed'),
+        local = view === 'project' && !!localWorkspace(context.workspace)
+      if (installed) {
+        installed.disabled = !local
+        installed.title = local
+          ? 'Filter known installed identities before CLI limits'
+          : 'Installed presence is unknown; search includes all personal-library candidates'
+        if (element('installed-label'))
+          element('installed-label').textContent = local
+            ? 'Include installed'
+            : 'Installed presence unknown · library candidates only'
+        if (changed || !local) installed.checked = local
       }
-      requestRefresh()
+      if (renewed || changed)
+        requestRefresh(changed ? { cursor: undefined, previous: [] } : undefined)
     }
   }
 })

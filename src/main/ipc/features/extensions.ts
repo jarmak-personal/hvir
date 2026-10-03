@@ -13,7 +13,10 @@ export function registerExtensionsIpc(
     context.owner()
     const activation = extensions?.activations?.active.get(req.installationId)
     if (!activation || !extensions?.sources) return unavailable()
-    return extensions.sources.approvals.status(activation)
+    return {
+      sources: extensions.sources.approvals.status(activation),
+      workspaces: extensions.contexts?.workspaces() ?? [],
+    }
   })
   ipc.handle('extensions:source-prepare', (req, context) => {
     const owner = context.owner()

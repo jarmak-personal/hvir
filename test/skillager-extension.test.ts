@@ -8,10 +8,16 @@ interface Metadata {
   requireVersion(text: string): void
   libraryStatus(value: unknown): { initialized: boolean; count: number }
   libraryPage(value: unknown): { rows: Record<string, unknown>[]; next: string | null }
-  searchPage(value: unknown): { rows: Record<string, unknown>[]; next: string | null }
+  searchPage(
+    value: unknown,
+    workspace?: Record<string, unknown>,
+  ): { rows: Record<string, unknown>[]; next: string | null }
   searchArgs(query: string, options?: Record<string, unknown>): string[]
   detailInputFor(row: Record<string, unknown>): { row: Record<string, unknown> }
-  projectInventory(value: unknown): { rows: Record<string, unknown>[]; coverage: string }
+  projectInventory(
+    value: unknown,
+    workspace?: Record<string, unknown>,
+  ): { rows: Record<string, unknown>[]; coverage: string }
 }
 function metadata(): Metadata {
   const result = buildSync({
@@ -26,6 +32,11 @@ function metadata(): Metadata {
   return context.Metadata as Metadata
 }
 const cli = metadata()
+const workspace = {
+  id: 'workspace',
+  host: 'local',
+  root: { hostId: 'local', path: '/selected' },
+}
 const row = {
   id: 'lib/exact',
   name: 'Exact source',
@@ -135,12 +146,16 @@ describe('ordinary maintained Skillager package contract', () => {
         },
       }),
     )
-    const page = cli.searchPage({
-      schema: 'skillager.search.v1',
-      status: 'completed',
-      results,
-      next_cursor: 'next-ranked-page',
-    })
+    const page = cli.searchPage(
+      {
+        schema: 'skillager.search.v1',
+        status: 'completed',
+        results,
+        next_cursor: 'next-ranked-page',
+        context: { project_root: '/selected', installed_observation: 'observed' },
+      },
+      workspace,
+    )
     expect(page.rows.map((item) => item.path)).toEqual(
       results.map((item) => item.search.occurrence.entrypoint),
     )
@@ -162,6 +177,58 @@ describe('ordinary maintained Skillager package contract', () => {
     expect(args[args.indexOf('--view') + 1]).toBe('copies')
     expect(args[args.indexOf('--cursor') + 1]).toBe('opaque')
     expect(args[args.indexOf('--installed-project') + 1]).toBe('/explicit/local/project')
+  })
+  it('pins local occurrences and detail identity instead of relabeling them to SSH or accepting unscoped installed sources', () => {
+    const response = {
+      schema: 'skillager.search.v1',
+      status: 'completed',
+      next_cursor: null,
+      context: { project_root: '/selected', installed_observation: 'observed' },
+      results: [
+        {
+          id: 'lib/exact',
+          search: {
+            occurrence: {
+              id: 'copy',
+              kind: 'stub',
+              entrypoint: '/selected/stub/SKILL.md',
+            },
+          },
+        },
+      ],
+    }
+    expect(() => cli.searchPage(response)).toThrow(/unknown/)
+    expect(() => cli.searchPage(response, { ...workspace, host: 'ssh' })).toThrow(
+      /unknown/,
+    )
+    expect(() =>
+      cli.searchPage(response, {
+        ...workspace,
+        root: { hostId: 'local', path: '/different' },
+      }),
+    ).toThrow(/match/)
+    const row = cli.searchPage(response, workspace).rows[0]!
+    expect(cli.detailInputFor(row).row).toMatchObject({
+      host: 'local',
+      workspaceId: 'workspace',
+      path: '/selected/stub/SKILL.md',
+    })
+    response.results[0]!.search.occurrence.kind = 'library'
+    const library = cli.searchPage(response, { ...workspace, host: 'ssh' }).rows[0]!
+    expect(cli.detailInputFor(library).row).toMatchObject({
+      host: 'local',
+      source: 'library',
+    })
+    expect(cli.detailInputFor(library).row.workspaceId).toBeUndefined()
+    const unknown = cli.searchArgs('query', { includeInstalled: false })
+    expect(unknown).toContain('--include-installed')
+    expect(unknown).not.toContain('--installed-project')
+    const exact = cli.searchArgs('query', {
+      includeInstalled: false,
+      installedProject: '/selected',
+    })
+    expect(exact).not.toContain('--include-installed')
+    expect(exact[exact.indexOf('--installed-project') + 1]).toBe('/selected')
   })
   it('omits large unused non-ASCII descriptions from exact bounded detail selections', () => {
     const accepted = cli.libraryPage({
@@ -205,12 +272,17 @@ describe('ordinary maintained Skillager package contract', () => {
     expect(() => validateExtensionViewInput(input)).not.toThrow()
   })
   it('distinguishes observed empty project metadata from exhaustive coverage and rejects mutation output', () => {
-    expect(cli.projectInventory({ selected: [], action: { changed: [] } })).toEqual({
+    expect(
+      cli.projectInventory({ selected: [], action: { changed: [] } }, workspace),
+    ).toEqual({
       rows: [],
       coverage: 'observed',
     })
     expect(() =>
-      cli.projectInventory({ selected: [], action: { changed: ['mutation'] } }),
+      cli.projectInventory(
+        { selected: [], action: { changed: ['mutation'] } },
+        workspace,
+      ),
     ).toThrow()
   })
 })

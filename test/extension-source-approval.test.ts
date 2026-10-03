@@ -165,6 +165,64 @@ describe('trusted extension source grants', () => {
       ),
     ).rejects.toThrow(/registered/)
   })
+  it('persists one exact registered workspace choice and refuses later registration, root or host changes', async () => {
+    const f = fixture('workspace')
+    await f.grant()
+    expect(f.state()).toEqual([
+      {
+        installationId: 'installation',
+        declaration: f.declaration,
+        workspaceId: 'workspace',
+        root: f.root,
+      },
+    ])
+    await f.approvals.start()
+    expect(f.approvals.get(f.activation, 'source')).toMatchObject({
+      workspaceId: 'workspace',
+      root: f.root,
+    })
+    f.workspaces.push({ ...f.workspaces[0]!, id: 'future' })
+    f.workspaces.shift()
+    expect(f.approvals.get(f.activation, 'source')).toBeUndefined()
+    await expect(
+      f.approvals.prepare(
+        { installationId: 'installation', source: 'source', workspaceId: 'workspace' },
+        () => {},
+      ),
+    ).rejects.toThrow(/registered/)
+    f.workspaces[0] = {
+      ...f.workspaces[0]!,
+      id: 'workspace',
+      root: localPath('/replacement'),
+    }
+    expect(f.approvals.get(f.activation, 'source')).toBeUndefined()
+    f.workspaces[0] = { ...f.workspaces[0], root: f.root }
+    f.host.connectionState = 'disconnected'
+    expect(f.approvals.get(f.activation, 'source')).toBeUndefined()
+  })
+  it('rejects workspace replacement while the prepared decision is suspended in save', async () => {
+    const f = fixture('workspace')
+    await f.approvals.start()
+    const prepared = await f.approvals.prepare(
+      { installationId: 'installation', source: 'source', workspaceId: 'workspace' },
+      () => {},
+    )
+    const b = barrier(),
+      save = f.authority.saveSourceGrants.getMockImplementation()!
+    f.authority.saveSourceGrants.mockImplementationOnce(async (value, current) => {
+      b.entered()
+      await b.blocked
+      await save(value, current)
+    })
+    const approving = f.approvals.approve(prepared.token),
+      rejected = expect(approving).rejects.toThrow(/ended/)
+    await b.reached
+    f.workspaces[0] = { ...f.workspaces[0]!, root: localPath('/replacement') }
+    b.resume()
+    await rejected
+    expect(f.state()).toEqual([])
+    expect(f.approvals.get(f.activation, 'source')).toBeUndefined()
+  })
   it('forgets grants while retaining external content untouched', async () => {
     const f = fixture()
     await f.grant()

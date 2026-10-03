@@ -1,6 +1,6 @@
 /* global window */
 import { guestClient, runCli } from './bridge.mjs'
-import { requireVersion, libraryStatus, libraryPage } from './catalog.mjs'
+import { requireVersion, libraryStatus } from './catalog.mjs'
 const client = guestClient(window.hvirExtension)
 let busy = false,
   timer,
@@ -18,12 +18,6 @@ async function observe() {
     }
     const library = libraryStatus(
       JSON.parse(await runCli(client, ['library', 'status', '--json'])),
-    )
-    // Same ordinary CLI source as visible library browsing: D5 owns sharing/admission.
-    libraryPage(
-      JSON.parse(
-        await runCli(client, ['list', '--scope', 'library', '--json', '--limit', '100']),
-      ),
     )
     if (!client.visible || revision !== generation) return
     const value = {
@@ -52,7 +46,7 @@ async function observe() {
 function schedule() {
   window.clearTimeout(timer)
   if (client.alive && client.visible)
-    timer = window.setTimeout(() => void observe(), 30_000 - (Date.now() % 30_000))
+    timer = window.setTimeout(() => void observe(), 30_000)
 }
 client.listen((message) => {
   if (message.kind === 'context') {

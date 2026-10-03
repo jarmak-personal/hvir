@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactElement } from 'react'
+import type { ExtensionWorkspaceContext } from '../../../../shared/extensions/contract'
 import { localPath } from '../../../../shared/host-path'
 import type { ExtensionInstallation } from '../../../../shared/extensions/workbench'
 import type {
@@ -34,6 +35,8 @@ function SourceSetup({
   readonly source: ExtensionSourceDeclaration
 }): ReactElement {
   const [path, setPath] = useState('')
+  const [workspaces, setWorkspaces] = useState<readonly ExtensionWorkspaceContext[]>([])
+  const [workspaceId, setWorkspaceId] = useState('')
   const [status, setStatus] = useState<ExtensionSourceStatus>()
   const [decision, setDecision] = useState<{
     token: string
@@ -45,7 +48,8 @@ function SourceSetup({
     const statuses = await window.hvir.invoke('extensions:source-settings', {
       installationId: installation,
     })
-    setStatus(statuses.find((entry) => entry.source === source.id))
+    setStatus(statuses.sources.find((entry) => entry.source === source.id))
+    setWorkspaces(statuses.workspaces)
   }
   const run = async (operation: () => Promise<void>): Promise<void> => {
     setBusy(true)
@@ -64,7 +68,10 @@ function SourceSetup({
       .invoke('extensions:source-settings', { installationId: installation })
       .then(
         (statuses) => {
-          if (current) setStatus(statuses.find((entry) => entry.source === source.id))
+          if (current) {
+            setStatus(statuses.sources.find((entry) => entry.source === source.id))
+            setWorkspaces(statuses.workspaces)
+          }
         },
         () => {
           if (current) setError('Source settings are unavailable')
@@ -81,7 +88,7 @@ function SourceSetup({
       <p>
         {source.context === 'application'
           ? 'An explicitly selected local directory, independent of the selected workspace.'
-          : 'The view’s exact registered project/worktree root on its own host. Application views acquire no project scope.'}{' '}
+          : 'One explicitly chosen registered project/worktree on its own host. Other current or future workspaces acquire no scope.'}{' '}
         This grants selected document and confined image reads, never mutation or content
         acceptance. Agent and action callers cannot read instruction bodies.
       </p>
@@ -103,7 +110,28 @@ function SourceSetup({
             }}
           />
         </label>
-      ) : null}
+      ) : (
+        <label>
+          Registered workspace
+          <select
+            aria-label={`Registered workspace for ${source.id}`}
+            value={workspaceId}
+            onChange={(event) => {
+              setWorkspaceId(event.target.value)
+              setDecision(undefined)
+            }}
+          >
+            <option value="">Choose a registered workspace</option>
+            {workspaces
+              .filter((entry) => entry.root)
+              .map((entry) => (
+                <option key={entry.id} value={entry.id}>
+                  {entry.name} · {entry.root!.hostId}: {entry.root!.path}
+                </option>
+              ))}
+          </select>
+        </label>
+      )}
       <button
         className="hvir-button"
         type="button"
@@ -113,7 +141,9 @@ function SourceSetup({
               await window.hvir.invoke('extensions:source-prepare', {
                 installationId: installation,
                 source: source.id,
-                ...(source.context === 'application' ? { root: localPath(path) } : {}),
+                ...(source.context === 'application'
+                  ? { root: localPath(path) }
+                  : { workspaceId }),
               }),
             )
           })
@@ -127,7 +157,7 @@ function SourceSetup({
             Grant read-only access to{' '}
             {decision.grant.root
               ? `${decision.grant.root.hostId}: ${decision.grant.root.path}`
-              : 'each view’s exact registered workspace'}{' '}
+              : 'unavailable source scope'}{' '}
             for this source?
           </p>
           <button

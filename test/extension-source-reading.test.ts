@@ -39,6 +39,44 @@ function select(f: Awaited<ReturnType<typeof fixture>>, caller = f.caller) {
 }
 
 describe('selected source lifetime and confinement', () => {
+  it('refuses a different or future workspace and checks exact authority through pages, assets and render', async () => {
+    const f = sourceFixture('workspace', {
+      render: vi.fn(),
+      dispose: vi.fn(),
+    } as unknown as import('../src/main/viewer/document-markdown-owner').DocumentMarkdownOwner)
+    fixtures.push(f)
+    await f.grant()
+    const other = {
+      ...f.caller,
+      context: () => ({
+        ...f.caller.context()!,
+        value: {
+          ...f.caller.context()!.value,
+          workspace: { id: 'future', name: 'Other', host: 'local' },
+        },
+      }),
+    }
+    await expect(select(f, other)).rejects.toThrow(/exact registered/)
+    await expect(
+      f.reading.select(f.caller, {
+        source: 'source',
+        path: { ...f.path, hostId: asHostId('ssh') },
+      }),
+    ).rejects.toThrow()
+    expect(f.host.readTextFilePrefix).not.toHaveBeenCalled()
+    const receipt = selected(await select(f))
+    f.workspaces.length = 0
+    expect(() => f.reading.read(f.caller, { receipt: receipt.receipt })).toThrow(
+      /ended|stale/,
+    )
+    await expect(
+      f.reading.asset(f.caller, { receipt: receipt.receipt, path: 'image.png' }),
+    ).rejects.toThrow(/ended|stale/)
+    await expect(
+      f.reading.render(f.caller, { receipt: receipt.receipt }),
+    ).rejects.toThrow(/ended|stale/)
+    await expect(select(f)).rejects.toThrow(/Grant/)
+  })
   it('reads current selected UTF-8 bytes without consulting accepted snapshots or prefetching', async () => {
     const f = await fixture()
     expect(f.host.readTextFilePrefix).not.toHaveBeenCalled()
