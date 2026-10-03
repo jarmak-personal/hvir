@@ -34,6 +34,18 @@ interface SurfaceRecord {
   presentation?: Extract<ExtensionReply, { kind: 'presentation' }>
 }
 
+type EngineFailureStage =
+  | 'attach'
+  | 'observer-setup'
+  | 'bootstrap-target'
+  | 'observer-command'
+  | 'engine-ready'
+  | 'load-before-freeze'
+  | 'transition-target'
+  | 'state-command'
+  | 'complete'
+  | 'isolated-observer'
+
 /** Replaceable Electron webview edge. Sessions and URLs are never borrowed from loopback panes. */
 export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort {
   private readonly surfaces = new Map<string, SurfaceRecord>()
@@ -193,8 +205,44 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
       record.guest = undefined
       return false
     }
+    let setupStage: 'attach' | 'observer-setup' = 'attach'
+    let bootstrapStage: 'bootstrap-target' | 'observer-command' | 'engine-ready' =
+      'bootstrap-target'
+    let transitionStage:
+      | 'engine-ready'
+      | 'load-before-freeze'
+      | 'transition-target'
+      | 'state-command'
+      | 'complete' = 'engine-ready'
+    let reported = false
+    const reportFailure = (
+      stage: EngineFailureStage,
+      category: 'timeout' | 'refusal',
+    ): void => {
+      if (reported || this.surfaces.get(view.id) !== record) return
+      reported = true
+      try {
+        const live = !guest.isDestroyed()
+        console.warn(
+          '[extensions:engine-lifecycle-failure]',
+          JSON.stringify({
+            stage,
+            category,
+            role: view.role === 'updater' ? 'updater' : 'view',
+            visible: record.visible,
+            admittedWork: record.admittedWork,
+            loading: live && guest.isLoading(),
+            urlMatches: live && guest.getURL() === view.url,
+            debuggerAttached: live && guest.debugger.isAttached(),
+          }),
+        )
+      } catch {
+        // Diagnostic collection cannot replace refusal or strand native cleanup.
+      }
+    }
     try {
       guest.debugger.attach('1.3')
+      setupStage = 'observer-setup'
       guest.debugger.on(
         'message',
         (_event, method, params: { frame?: { id?: string; parentId?: string } }) => {
@@ -215,8 +263,10 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
       void (async () => {
         await this.assertEngineTarget(record, guest)
         this.assertLiveGuest(record, guest)
+        bootstrapStage = 'observer-command'
         await this.sendEngineCommand(record, guest, 'Page.enable')
         this.assertLiveGuest(record, guest)
+        bootstrapStage = 'engine-ready'
         record.settleEngine()
       })().catch((error: unknown) => {
         record.settleEngine(error instanceof Error ? error : new Error(String(error)))
@@ -245,21 +295,31 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
       void loaded.catch(() => undefined)
       record.lifecycle = new ExtensionGuestLifecycle(
         async (state) => {
+          transitionStage = 'engine-ready'
           await record.engineReady
+          transitionStage = 'load-before-freeze'
           if (state === 'frozen') await Promise.race([loaded, record.revoked])
+          transitionStage = 'transition-target'
           await this.assertEngineTarget(record, guest)
           this.assertLiveGuest(record, guest)
+          transitionStage = 'state-command'
           await this.sendEngineCommand(record, guest, 'Page.setWebLifecycleState', {
             state,
           })
           this.assertLiveGuest(record, guest)
+          transitionStage = 'complete'
         },
         () => this.flushPresentation(record),
-        () =>
+        (category) => {
+          reportFailure(
+            transitionStage === 'engine-ready' ? bootstrapStage : transitionStage,
+            category,
+          )
           this.owner?.failed(
             guest.id,
             'Extension engine lifecycle control is unavailable. Close and reopen the view.',
-          ),
+          )
+        },
       )
       guest.debugger.on('detach', () => {
         if (this.surfaces.get(view.id) === record && !guest.isDestroyed())
@@ -271,6 +331,7 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
       if (record.admittedWork) record.lifecycle.setAdmittedWork(true)
       record.lifecycle.setVisible(record.visible)
     } catch {
+      reportFailure(setupStage, 'refusal')
       this.owner?.failed(
         guest.id,
         'Extension engine lifecycle control is unavailable. Close and reopen the view.',
@@ -286,12 +347,13 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
     guest.on('will-prevent-unload', (event) => event.preventDefault())
     guest.on('devtools-opened', () => guest.closeDevTools())
     guest.on('render-process-gone', () => this.owner?.failed(guest.id))
-    guest.on('preload-error', () =>
+    guest.on('preload-error', () => {
+      reportFailure('isolated-observer', 'refusal')
       this.owner?.failed(
         guest.id,
         'Extension isolated lifecycle observation is unavailable. Close and reopen the view.',
-      ),
-    )
+      )
+    })
     guest.on('did-fail-load', (_event, code, _description, _url, isMainFrame) => {
       if (isMainFrame && code !== -3) this.owner?.failed(guest.id)
     })

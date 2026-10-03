@@ -89,6 +89,9 @@ describe('bounded extension engine lifecycle', () => {
           pending.reject(new Error('Unsupported engine command'))
         await vi.advanceTimersByTimeAsync(10_001)
         expect(failed).toHaveBeenCalledTimes(1)
+        expect(failed).toHaveBeenCalledWith(
+          condition === 'timeout' ? 'timeout' : 'refusal',
+        )
         expect(lifecycle.isActive).toBe(false)
         lifecycle.setVisible(true)
         pending.resolve()
@@ -99,6 +102,18 @@ describe('bounded extension engine lifecycle', () => {
       }
     },
   )
+
+  it('does not classify an external refusal as the owned transition timeout', async () => {
+    const failed = vi.fn()
+    const lifecycle = new ExtensionGuestLifecycle(
+      () => Promise.reject(new Error('Guest lifecycle timed out')),
+      vi.fn(),
+      failed,
+    )
+    lifecycle.setVisible(true)
+    await vi.waitFor(() => expect(failed).toHaveBeenCalledWith('refusal'))
+    expect(lifecycle.isActive).toBe(false)
+  })
 })
 
 describe('engine visibility invalidation', () => {
