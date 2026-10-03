@@ -353,6 +353,7 @@ describe('Electron extension response, native teardown and closing capacity', ()
         expect(JSON.parse(report.mock.calls[0]![1] as string)).toEqual({
           stage,
           category: 'timeout',
+          ...(stage === 'state-command' ? { attemptedState: 'frozen' } : {}),
           role: 'view',
           visible: false,
           admittedWork: false,
@@ -403,6 +404,9 @@ describe('Electron extension response, native teardown and closing capacity', ()
       expect(JSON.parse(report.mock.calls[0]![1] as string)).toEqual({
         stage,
         category: 'refusal',
+        ...(stage === 'state-command'
+          ? { attemptedState: 'frozen', nativeRefusal: 'other' }
+          : {}),
         role: 'view',
         visible: false,
         admittedWork: false,
@@ -420,6 +424,76 @@ describe('Electron extension response, native teardown and closing capacity', ()
       expect(data.session.clearCache).toHaveBeenCalledTimes(1)
     },
   )
+
+  it.each([
+    ['Not attached to a page', 'no-frame'],
+    ['Not attached to an active page', 'inactive-frame'],
+    ['Command can only be executed on top-level targets', 'not-top-level'],
+  ] as const)(
+    'reports only the closed native state-command reason for %s',
+    async (message, reason) => {
+      const report = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+      const data = await fixture(
+        (method) =>
+          method === 'Page.setWebLifecycleState'
+            ? Promise.reject(new Error(message))
+            : Promise.resolve({ targetInfo: { targetId: 'target', type: 'webview' } }),
+        true,
+        true,
+      )
+      await turn()
+      expect(report).toHaveBeenCalledTimes(1)
+      expect(JSON.parse(report.mock.calls[0]![1] as string)).toEqual({
+        stage: 'state-command',
+        category: 'refusal',
+        attemptedState: 'active',
+        nativeRefusal: reason,
+        role: 'view',
+        visible: false,
+        admittedWork: true,
+        loading: true,
+        urlMatches: true,
+        debuggerAttached: true,
+      })
+      expect(report.mock.calls[0]![1]).not.toContain(message)
+      expect((await data.response()).status).toBe(404)
+      await data.surface.destroy(data.view.id)
+      expect(data.guest.isDestroyed()).toBe(true)
+      expect(data.session.clearCache).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it('an unreadable native error preserves refusal and cleanup without invented details', async () => {
+    const report = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const error = new Error()
+    Object.defineProperty(error, 'message', {
+      get: () => {
+        throw new Error('Unreviewed package/URL/exception data')
+      },
+    })
+    const data = await fixture((method) =>
+      method === 'Page.setWebLifecycleState'
+        ? Promise.reject(error)
+        : Promise.resolve({ targetInfo: { targetId: 'target', type: 'webview' } }),
+    )
+    await turn()
+    expect(report).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(report.mock.calls[0]![1] as string)).toMatchObject({
+      stage: 'state-command',
+      category: 'refusal',
+      attemptedState: 'frozen',
+      nativeRefusal: 'other',
+    })
+    expect(report.mock.calls[0]![1]).not.toContain('Unreviewed')
+    expect(data.failed).toHaveBeenCalledWith(
+      data.guest.id,
+      'Extension engine lifecycle control is unavailable. Close and reopen the view.',
+    )
+    expect((await data.response()).status).toBe(404)
+    await data.surface.destroy(data.view.id)
+    expect(data.guest.isDestroyed()).toBe(true)
+    expect(data.session.clearCache).toHaveBeenCalledTimes(1)
+  })
 
   it.each(['collection', 'logging'] as const)(
     'diagnostic %s failure preserves engine refusal and native cleanup',

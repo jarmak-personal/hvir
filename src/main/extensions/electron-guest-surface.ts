@@ -214,6 +214,8 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
       | 'transition-target'
       | 'state-command'
       | 'complete' = 'engine-ready'
+    let attemptedState: 'active' | 'frozen' | undefined
+    let nativeRefusal: 'no-frame' | 'inactive-frame' | 'not-top-level' | 'other' | undefined
     let reported = false
     const reportFailure = (
       stage: EngineFailureStage,
@@ -228,6 +230,11 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
           JSON.stringify({
             stage,
             category,
+            attemptedState: stage === 'state-command' ? attemptedState : undefined,
+            nativeRefusal:
+              stage === 'state-command' && category === 'refusal'
+                ? nativeRefusal
+                : undefined,
             role: view.role === 'updater' ? 'updater' : 'view',
             visible: record.visible,
             admittedWork: record.admittedWork,
@@ -317,9 +324,26 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
           await this.assertEngineTarget(record, guest)
           this.assertLiveGuest(record, guest)
           transitionStage = 'state-command'
-          await this.sendEngineCommand(record, guest, 'Page.setWebLifecycleState', {
-            state,
-          })
+          attemptedState = state
+          try {
+            await this.sendEngineCommand(record, guest, 'Page.setWebLifecycleState', {
+              state,
+            })
+          } catch (error) {
+            nativeRefusal = 'other'
+            try {
+              const message = error instanceof Error ? error.message : undefined
+              // Electron forwards the pinned Chromium protocol message unchanged.
+              if (message === 'Not attached to a page') nativeRefusal = 'no-frame'
+              else if (message === 'Not attached to an active page')
+                nativeRefusal = 'inactive-frame'
+              else if (message === 'Command can only be executed on top-level targets')
+                nativeRefusal = 'not-top-level'
+            } catch {
+              // Even an unreadable error must preserve the original native refusal.
+            }
+            throw error
+          }
           this.assertLiveGuest(record, guest)
           transitionStage = 'complete'
           return 'applied'
