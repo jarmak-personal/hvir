@@ -30,6 +30,12 @@ else
   rm -f '/usr/bin/${executable}'
 fi
 
+stage='removing the hvir-agent command'
+HVIR_AGENT_COMMAND='/opt/${sanitizedProductName}/resources/hvir-agent-command'
+if [ -L /usr/bin/hvir-agent ] && [ "$(readlink /usr/bin/hvir-agent)" = "$HVIR_AGENT_COMMAND" ]; then
+  rm -f /usr/bin/hvir-agent
+fi
+
 stage='unloading the AppArmor profile'
 APPARMOR_PROFILE_TARGET='/etc/apparmor.d/${executable}'
 if [ -f "$APPARMOR_PROFILE_TARGET" ]; then

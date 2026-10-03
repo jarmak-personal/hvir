@@ -8,6 +8,7 @@ import {
   ExtensionContributionContext,
   type Contributions,
 } from '../src/renderer/src/extensions/extension-contribution-context'
+import type { AgentReportSummary } from '../src/shared/agent/contract'
 import { ProjectsBar } from '../src/renderer/src/workspaces/ProjectsBar'
 import {
   asHostId,
@@ -21,10 +22,16 @@ vi.mock('../src/renderer/src/health/WorkbenchHealthControl', () => ({
   WorkbenchHealthControl: () => null,
 }))
 
+const reports = vi.hoisted(() => ({ value: [] as readonly AgentReportSummary[] }))
+vi.mock('../src/renderer/src/viewer/use-agent-reports', () => ({
+  useAgentReportSummaries: () => reports.value,
+}))
+
 let host: HTMLDivElement
 let root: Root
 
 beforeEach(() => {
+  reports.value = []
   host = document.createElement('div')
   document.body.append(host)
   root = createRoot(host)
@@ -37,6 +44,27 @@ afterEach(() => {
 })
 
 describe('ProjectsBar status presentation', () => {
+  it('rolls quiet report attention up independently of terminal attention and clears only after report viewing', () => {
+    reports.value = [
+      {
+        id: 'report',
+        workspace: 'workspace:local:/repo/feature',
+        root: localPath('/repo/feature'),
+        title: 'Review',
+        format: 'markdown',
+        unread: true,
+        version: 1,
+      },
+    ]
+    renderProjectsBar(projectState(0, 0), {})
+    expect(host.querySelectorAll('.projects-bar .agent-report-badge')).toHaveLength(1)
+    expect(host.querySelectorAll('.workspaces-bar .agent-report-badge')).toHaveLength(1)
+    act(() => host.querySelector<HTMLButtonElement>('.project-tab-main')!.click())
+    expect(host.querySelectorAll('.agent-report-badge')).toHaveLength(2)
+    reports.value = [{ ...reports.value[0]!, unread: false }]
+    renderProjectsBar(projectState(0, 0), {})
+    expect(host.querySelectorAll('.agent-report-badge')).toHaveLength(0)
+  })
   it('keeps Sessions as the fixed application destination and leaves it through project navigation', () => {
     const callbacks = renderProjectsBar(projectState(0, 0), {}, { sessionsActive: true })
     const sessions = host.querySelector<HTMLButtonElement>('.sessions-destination')

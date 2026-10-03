@@ -7,6 +7,7 @@ import { createRequire } from 'node:module'
 
 const REQUIRED_MAIN_ENTRIES = [
   '/out/main/index.js',
+  '/out/main/agent-cli.js',
   '/out/main/echo-worker.js',
   '/out/main/git-worker.js',
 ] as const

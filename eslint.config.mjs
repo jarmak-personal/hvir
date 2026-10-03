@@ -491,6 +491,33 @@ export default tseslint.config(
     },
   },
 
+  // Fixed endpoint filesystem mechanics and standalone read-only bootstrap assets.
+  {
+    files: [
+      'src/main/project-host/local-agent-endpoint.ts',
+      'src/agent-transport/endpoint-directory.ts',
+      'src/agent-transport/reference-assets.ts',
+    ],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            ...HOST_PRIMITIVE_BANS.filter(
+              ({ name }) => !['node:fs', 'node:fs/promises'].includes(name),
+            ),
+            IPC_RENDERER_BAN,
+          ],
+        },
+      ],
+      'no-restricted-syntax': [
+        'error',
+        SPAWN_PTY_BAN,
+        EXTENSION_PACKAGE_IMPORT_BAN,
+        ...DYNAMIC_HOST_IMPORT_BANS,
+      ],
+    },
+  },
   // The facade composes the private adapter; only that adapter loads its native mechanics.
   {
     files: ['src/main/project-host/local-host.ts'],
@@ -570,6 +597,7 @@ export default tseslint.config(
       'scripts/smoke-failure-artifact.mts',
       'scripts/inspect-packaged-runtime.mts',
       'scripts/installed-startup-probe.mts',
+      'scripts/agent-installed-reference-probe.mts',
       'scripts/real-host-ssh-contract.mts',
       'scripts/run-real-host-ssh-acceptance.mts',
       'scripts/require-release-ci-evidence.mts',

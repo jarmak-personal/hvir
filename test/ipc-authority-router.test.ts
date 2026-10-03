@@ -452,6 +452,14 @@ describe('IpcAuthorityRouter', () => {
   it('keeps the reviewed owner and authority channel policies explicit', () => {
     expect(new Set(OWNER_SCOPED_INVOKE_CHANNELS)).toEqual(
       new Set<IpcInvokeChannel>([
+        'agent:access',
+        'agent:configure',
+        'agent:extension-configure',
+        'agent:decide',
+        'agent:reports',
+        'agent:report-read',
+        'agent:report-viewed',
+        'agent:report-close',
         'extensions:connector-settings',
         'extensions:connector-prepare',
         'extensions:connector-approve',
@@ -596,6 +604,7 @@ describe('IpcAuthorityRouter', () => {
     const featureDirectory = join(process.cwd(), 'src/main/ipc/features')
     const features = [
       'extensions.ts',
+      'agent.ts',
       'app.ts',
       'filesystem.ts',
       'git.ts',

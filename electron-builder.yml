@@ -24,6 +24,12 @@ extraResources:
     to: THIRD_PARTY_NOTICES.md
   - from: build/native/hvir-command
     to: hvir-command
+  - from: build/native/hvir-agent-command
+    to: hvir-agent-command
+  - from: build/native/agent-guides
+    to: agent-guides
+electronFuses:
+  runAsNode: true
 asar: true
 asarUnpack:
   - node_modules/**/*.node

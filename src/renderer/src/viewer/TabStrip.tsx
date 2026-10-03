@@ -10,10 +10,12 @@ import {
 } from '../workbench/middle-click-close'
 import type { ViewerPaneId, ViewerTab } from './tab-state'
 import type { ExtensionView } from '../../../shared/extensions/workbench'
+import { AgentReportTabs, type AgentReportTabsProps } from './AgentReportTabs'
 
 const VIEWER_TAB_DRAG_TYPE = 'application/x-hvir-viewer-tab'
 
 interface TabStripProps {
+  readonly agentReports?: AgentReportTabsProps
   readonly tabs: readonly ViewerTab[]
   readonly pane: ViewerPaneId
   readonly pathCopyRoot?: HostPath
@@ -41,6 +43,7 @@ interface TabStripProps {
 }
 
 export function TabStrip({
+  agentReports,
   tabs,
   pane,
   pathCopyRoot,
@@ -93,6 +96,7 @@ export function TabStrip({
           onMoveToPane(id, pane)
         }}
       >
+        {agentReports ? <AgentReportTabs {...agentReports} /> : null}
         {tabs.map((tab) => (
           <div
             className={`viewer-tab${tab.id === activeId ? ' active' : ''}${tab.pinned ? '' : ' preview'}`}

@@ -11,6 +11,7 @@ import {
   extensionObject,
   extensionText,
 } from './validation'
+import { validateActionSchema } from './action-input'
 
 export function extensionIcon(value: unknown): string {
   const icon = extensionText(value, 'item icon', 8)
@@ -69,7 +70,16 @@ export function validateContributionDeclarations(
   const actions = list(object['actions'], EXTENSION_LIMITS.actions).map((value) => {
     const action = extensionObject(value),
       effects = extensionObject(action['effects'])
-    warn(action, ['id', 'title', 'view', 'agents', 'effects', 'timeoutMs'])
+    warn(action, [
+      'id',
+      'title',
+      'view',
+      'agents',
+      'effects',
+      'timeoutMs',
+      'description',
+      'inputSchema',
+    ])
     warn(effects, ['delete', 'replace'])
     if (
       typeof action['agents'] !== 'boolean' ||
@@ -91,6 +101,14 @@ export function validateContributionDeclarations(
       title: extensionText(action['title'], 'action title', 80),
       view: viewId(action['view']),
       agents: action['agents'],
+      ...(action['description'] === undefined
+        ? {}
+        : {
+            description: extensionText(action['description'], 'action description', 500),
+          }),
+      ...(action['inputSchema'] === undefined
+        ? {}
+        : { inputSchema: validateActionSchema(action['inputSchema']) }),
       effects: { delete: effects['delete'], replace: effects['replace'] },
     }
   })

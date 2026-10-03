@@ -149,6 +149,8 @@ export interface ExtensionAction {
   readonly title: string
   readonly view: string
   readonly agents: boolean
+  readonly description?: string
+  readonly inputSchema?: import('./action-input').ExtensionActionInputSchema
   readonly timeoutMs?: number
   readonly effects: { readonly delete: boolean; readonly replace: boolean }
 }

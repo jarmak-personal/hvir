@@ -19,7 +19,14 @@ import type {
   HarnessArtifactContext,
 } from './harness-provider-contract'
 
-const PROTECTED_ENVIRONMENT = new Set(['TERM', 'COLORTERM', 'TERM_PROGRAM'])
+const PROTECTED_ENVIRONMENT = new Set([
+  'TERM',
+  'COLORTERM',
+  'TERM_PROGRAM',
+  'HVIR_AGENT_ENDPOINT',
+  'HVIR_AGENT_WORKSPACE',
+  'HVIR_AGENT_SESSION',
+])
 
 export interface ResolvedHarnessLaunch {
   readonly profile: HarnessProfile

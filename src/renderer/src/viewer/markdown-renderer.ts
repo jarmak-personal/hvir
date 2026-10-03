@@ -15,6 +15,7 @@ export async function renderMarkdownDocument(
   source: string,
   theme: 'dark' | 'light',
   grammars: Pick<ViewerGrammarRegistry, 'load'>,
+  resources?: 'inert',
 ): Promise<string> {
   // Bare repository filenames such as `design.md` are not web hosts. The
   // linkifier turns them into http://design.md and can navigate Electron's
@@ -24,6 +25,9 @@ export async function renderMarkdownDocument(
   )
   const validateLink = markdown.validateLink.bind(markdown)
   markdown.validateLink = (url) => url.startsWith('file://') || validateLink(url)
+  if (resources === 'inert')
+    markdown.renderer.rules.image = (tokens, index) =>
+      `<span class="hvir-meta">${escapeHtml(tokens[index]?.content ?? 'Image omitted')}</span>`
   const env: Record<string, unknown> = {}
   const tokens = markdown.parse(source, env)
   const loaded = await loadFenceGrammars(

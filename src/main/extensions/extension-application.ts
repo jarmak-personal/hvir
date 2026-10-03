@@ -30,6 +30,14 @@ export class ExtensionApplicationRuntime {
   contexts?: ExtensionContextOwner
   private disposeContext?: () => void
   private publishedContributions?: string
+  private readonly stateObservers = new Set<() => void>()
+
+  observeState(listener: () => void): () => void {
+    this.stateObservers.add(listener)
+    return () => {
+      this.stateObservers.delete(listener)
+    }
+  }
 
   private connectContext(sources: LiveSessionMetadataSources): void {
     this.disposeContext?.()
@@ -147,6 +155,7 @@ export class ExtensionApplicationRuntime {
       },
       (state) => {
         this.events.toWindows('extensions:state-changed', state)
+        for (const listener of this.stateObservers) listener()
         this.publishContributions()
       },
       (id) => {

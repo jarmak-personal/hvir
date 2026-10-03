@@ -6,6 +6,8 @@
     "types": ["node"]
   },
   "include": [
+    "src/agent-cli/**/*.ts",
+    "src/agent-transport/**/*.ts",
     "src/main/**/*.ts",
     "src/main/**/*.mts",
     "src/preload/**/*.ts",

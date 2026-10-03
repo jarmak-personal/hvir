@@ -4,7 +4,9 @@ import {
   joinHostPath,
   hostPathEquals,
   type HostPath,
+  type WatchEvent,
 } from '../../shared'
+import type { ProjectHost } from '../project-host/project-host'
 import { LocalHost } from '../project-host'
 import type { SmokeCleanup } from './cleanup'
 export function createProjectFileFixture(smokeRoot: HostPath, cleanup: SmokeCleanup) {
@@ -88,4 +90,16 @@ export function createProjectFileFixture(smokeRoot: HostPath, cleanup: SmokeClea
       ])
     },
   }
+}
+
+/** The disposable repository watch excludes build/dependency output for every scenario. */
+export function watchSmokeProject(
+  host: ProjectHost,
+  root: HostPath,
+  emit: (channel: 'project:watch', event: WatchEvent) => void,
+) {
+  return host.watch(root, (event) => emit('project:watch', event), {
+    recursive: true,
+    excludeDirectoryNames: ['.git', 'node_modules', 'out', 'dist'],
+  })
 }

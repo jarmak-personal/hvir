@@ -3,6 +3,7 @@
 import { IpcAuthorityRouter, type IpcMainRegistrationPort } from './ipc/authority-router'
 import type { IpcDeps } from './ipc/deps'
 import { registerAppIpc } from './ipc/features/app'
+import { registerAgentIpc } from './ipc/features/agent'
 import { registerExtensionsIpc } from './ipc/features/extensions'
 import { registerClipboardIpc } from './ipc/features/clipboard'
 import { registerDiagnosticReportIpc } from './ipc/features/diagnostic-report'
@@ -28,6 +29,7 @@ export function registerIpcHandlers(
   const router = new IpcAuthorityRouter(deps, transport)
   try {
     registerAppIpc(router, deps)
+    registerAgentIpc(router, deps.agents)
     registerExtensionsIpc(router, deps.extensions)
     registerDiagnosticReportIpc(router, deps)
     registerDocumentReviewIpc(router, deps)

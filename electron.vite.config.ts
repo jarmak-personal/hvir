@@ -65,6 +65,7 @@ const baseConfig: UserConfig = {
           // process can `utilityProcess.fork` their compiled output.
           'echo-worker': resolve('src/workers/echo-worker.ts'),
           'git-worker': resolve('src/workers/git-worker.ts'),
+          'agent-cli': resolve('src/agent-cli/index.ts'),
         },
       },
     },

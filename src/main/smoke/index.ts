@@ -1,3 +1,5 @@
+import { createSmokeWindow } from './window-lifetime'
+import { prepareAgentSmoke, verifyAgentWorkbench } from './agent-workbench'
 import {
   verifyTerminalThemeScenario,
   verifyTerminalMoveScenario,
@@ -12,8 +14,7 @@ import { verifyTerminalLifecycleScenario } from './terminal-lifecycle-scenario'
 import { verifyCapacityScenario } from './capacity-scenario'
 import { createProjectFixtureCommands } from './project-fixture-commands'
 import { verifyNativeHostWorker } from './native-host-worker'
-import { verifyRendererReadiness } from './renderer-readiness'
-import { createProjectFileFixture } from './project-file-fixture'
+import { createProjectFileFixture, watchSmokeProject } from './project-file-fixture'
 import {
   createDocumentReviewFixture,
   documentReviewSmokeProvider,
@@ -90,7 +91,6 @@ import {
 /** Production-composed Electron acceptance workflow selected by `HVIR_SMOKE=1`. */
 export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise<number> {
   const {
-    createWindow,
     harnessProbeManager,
     htmlPreviews,
     rendererResources,
@@ -105,7 +105,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
   let smokeWindow: BrowserWindow | undefined
   let smokeSupervisor: PtySupervisor | undefined
   let cleanupFailureResource: ReturnType<typeof smokeCleanupResource> = null
-  let discardedRendererGenerations = 0
   let stopSmokeWatch: Disposer | undefined
   const cleanup = new SmokeCleanup((name) => interruptionCheckpoint.disposed(name), {
     onFailure: (name) => {
@@ -212,7 +211,9 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       smokeRemoteRoot,
       smokeWebSwitchRoot,
       mode !== 'platform-contracts' && mode !== 'renderer-recovery',
-      mode === 'terminal-presentation' || mode === 'document-review',
+      mode === 'terminal-presentation' ||
+        mode === 'document-review' ||
+        mode === 'agent-workbench',
     )
     const {
       base: smokeProjectState,
@@ -391,7 +392,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     )
     const readiness = new SmokeRendererReadiness()
     const ipcRouter = registerIpcHandlers({
-      extensions: dependencies.extensions,
+      ...dependencies,
       echoWorker: worker,
       gitWorker: git,
       filenameSearch,
@@ -418,7 +419,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         items: [],
         dropped: 0,
       }),
-      diagnostics: dependencies.diagnostics,
       recordIpcContractDiagnostic: () => undefined,
       recordRenderContainment: () => undefined,
       ...extensionPtyPorts(supervisor, smokeTerminalSessions, projectFixture),
@@ -434,39 +434,28 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       updateWebPaneBindings: (owner, bindings) =>
         updateWebPaneBindings(owner.id, bindings),
       updateWebPaneFullPage: (owner, paneId) => updateWebPaneFullPage(owner.id, paneId),
-      htmlPreviews,
       webPanes: webPaneRoutes,
       openExternal,
       emit,
     })
     cleanup.defer('IPC authority router', () => ipcRouter.dispose())
-    stopSmokeWatch = host.watch(smokeRoot, (event) => emit('project:watch', event), {
-      recursive: true,
-      excludeDirectoryNames: ['.git', 'node_modules', 'out', 'dist'],
-    })
+    stopSmokeWatch = watchSmokeProject(host, smokeRoot, emit)
     cleanup.defer('project watch', async () => {
       await stopSmokeWatch?.()
       stopSmokeWatch = undefined
     })
     recordSmokePhase('watch-active')
-    const win = createWindow(() => {
-      discardedRendererGenerations++
-    })
-    smokeWindow = win
-    cleanup.defer('smoke window', async () => {
-      if (!smokeWindow || smokeWindow.isDestroyed()) return
-      const ownerId = smokeWindow.webContents.id
-      await webPaneRoutes.closeOwner(ownerId)
-      smokeWindow.destroy()
-    })
-    await new Promise<void>((resolve) => win.once('ready-to-show', resolve))
-    const initialRendererGeneration = rendererResources.currentOwner(
-      win.webContents.id,
-    ).generation
-    recordSmokePhase('window-ready')
-    console.log('[smoke] window ready-to-show OK')
-    await verifyRendererReadiness(win)
-    recordSmokePhase('renderer-ready')
+    prepareAgentSmoke(dependencies, host, sessionsObservation.context, supervisor)
+    const windowLifetime = await createSmokeWindow(
+      dependencies,
+      cleanup,
+      (phase, window) => {
+        smokeWindow = window
+        recordSmokePhase(phase)
+      },
+    )
+    const win = windowLifetime.window
+    const initialRendererGeneration = windowLifetime.generation
     const predecessorSelectionObserved = await recordRendererIsolationSelection(
       win,
       interruptionCheckpoint,
@@ -479,6 +468,16 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     })
     recordSmokePhase('scenario-active')
     if (await verifyDevelopmentPerformanceMode(win, mode)) return 0
+    if (
+      await verifyAgentWorkbench(
+        win,
+        dependencies,
+        host,
+        sessionsObservation.context,
+        supervisor,
+      )
+    )
+      return 0
     if (await verifyExtensionScenario(win, dependencies, host, sessionsObservation))
       return 0
     if (mode === 'renderer-recovery') {
@@ -492,7 +491,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         liveReloadPath,
         host,
         readiness,
-        discardedGenerations: () => discardedRendererGenerations,
+        discardedGenerations: windowLifetime.discardedGenerations,
         checkpoint: recordSmokeCheckpoint,
       })
       console.log(`[smoke] renderer recovery OK (${result})`)

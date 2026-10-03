@@ -456,8 +456,8 @@ async function click(win: BrowserWindow, name: string): Promise<void> {
       async () =>
         Boolean(
           (await win.webContents.executeJavaScript(`(() => {
-    const button = [...document.querySelectorAll('button')].find((element) => element.getAttribute('aria-label') === ${JSON.stringify(name)} || element.textContent.trim() === ${JSON.stringify(name)});
-    if (!button || button.disabled) return false; button.click(); return true;
+    const button = [...document.querySelectorAll('button')].find((element) => element.isConnected && !element.disabled && element.checkVisibility() && (element.getAttribute('aria-label') === ${JSON.stringify(name)} || element.textContent.trim() === ${JSON.stringify(name)}));
+    if (!button) return false; button.click(); return true;
   })()`)) as unknown,
         ),
       `ordinary ${name} control`,

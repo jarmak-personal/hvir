@@ -8,6 +8,7 @@ import {
   type WorkspaceState,
   type WorkspaceClosePlan,
 } from '../../../shared'
+import { useAgentReportSummaries } from '../viewer/use-agent-reports'
 import { useExtensionContributions } from '../extensions/extension-contribution-context'
 import { ExtensionTopRail } from '../extensions/ExtensionContributions'
 import { RemoteConnectionBadge } from './ConnectionStatus'
@@ -84,6 +85,7 @@ export function ProjectsBar({
   sessionsActive,
   onSessions,
 }: ProjectsBarProps): ReactElement {
+  const agentReports = useAgentReportSummaries()
   const extensionDestination = useExtensionContributions()?.topActive
   const workspaceActive = !sessionsActive && !extensionDestination
   const [pruneProjectId, setPruneProjectId] = useState<string>()
@@ -231,6 +233,20 @@ export function ProjectsBar({
                 >
                   <strong className={showWorking ? 'project-name-working' : undefined}>
                     {project.displayName}
+                    {agentReports.some(
+                      (report) =>
+                        report.unread &&
+                        project.workspaces.some(
+                          (workspace) => workspace.id === report.workspace,
+                        ),
+                    ) ? (
+                      <small
+                        className="hvir-meta agent-report-badge"
+                        aria-label="Unread agent report"
+                      >
+                        Agent
+                      </small>
+                    ) : null}
                   </strong>
                   {remote && !active ? (
                     <RemoteConnectionBadge
@@ -352,6 +368,16 @@ export function ProjectsBar({
                   className="hvir-button"
                 >
                   <span>{workspace.name}</span>
+                  {agentReports.some(
+                    (report) => report.unread && report.workspace === workspace.id,
+                  ) ? (
+                    <small
+                      className="hvir-meta agent-report-badge"
+                      aria-label="Unread agent report"
+                    >
+                      Agent
+                    </small>
+                  ) : null}
                   {workspace.main ? <small>project root</small> : null}
                   {workspace.prunableReason ? <small>prunable</small> : null}
                   {workspaceActionableAttention(workspace.id, rollups) > 0 ? (

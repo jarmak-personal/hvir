@@ -5,6 +5,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ExtensionsSettings } from '../src/renderer/src/settings/sections/ExtensionsSettings'
 import type { ExtensionPlatformState } from '../src/shared/extensions/workbench'
 
+vi.mock('../src/renderer/src/settings/sections/AgentAccessSettings', () => ({
+  AgentAccessSettings: () => null,
+}))
+
 let root: Root | undefined
 let element: HTMLDivElement | undefined
 afterEach(() => {
@@ -127,7 +131,9 @@ describe('package lifecycle Settings intent', () => {
     })
     expect(element.querySelector('[role="dialog"]')).toBeNull()
     act(() => button('Remove').click())
-    const checkbox = element.querySelector<HTMLInputElement>('input[type="checkbox"]')!
+    const checkbox = element.querySelector<HTMLInputElement>(
+      '.modal-backdrop.nested input[type="checkbox"]',
+    )!
     act(() => checkbox.click())
     await act(async () => {
       button('Confirm remove').click()

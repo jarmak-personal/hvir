@@ -1,4 +1,6 @@
-import type { ReactElement } from 'react'
+import { useEffect, useState, type ReactElement } from 'react'
+import { useAgentReportSummaries } from './use-agent-reports'
+import { AgentReportView } from './AgentReportView'
 import { hostPathEquals, type HostPath } from '../../../shared'
 import { PaneResizer } from '../layout/PaneResizer'
 import { GitGraphView } from '../git/GitGraphView'
@@ -44,6 +46,32 @@ export function WorkbenchViewer({
   readonly extensions: ReturnType<typeof useExtensionViews>
   readonly visible: boolean
 }): ReactElement {
+  const allReports = useAgentReportSummaries()
+  const [selectedReport, setSelectedReport] = useState<{
+    readonly id: string
+    readonly fileActivation: number
+  }>()
+  const reports = allReports.filter((report) => hostPathEquals(report.root, root))
+  const activeReport =
+    selectedReport?.fileActivation === viewer.fileActivation
+      ? reports.find((report) => report.id === selectedReport.id)
+      : undefined
+  useEffect(() => setSelectedReport(undefined), [root.hostId, root.path])
+  useEffect(() => {
+    const dispose = window.hvir.on('agent:document-opened', (document) => {
+      if (hostPathEquals(document.root, root)) setSelectedReport(undefined)
+    })
+    return () => {
+      void dispose()
+    }
+  }, [root])
+  const activateReport = (id: string): void => {
+    extensions.deactivate()
+    web.setActive(false)
+    git.deactivateGraph()
+    setSelectedReport({ id, fileActivation: viewer.fileActivation })
+  }
+  const deactivateReport = (): void => setSelectedReport(undefined)
   const {
     primaryTabs,
     secondaryTabs,
@@ -106,7 +134,10 @@ export function WorkbenchViewer({
         if (
           paneTab &&
           !(graphPane && gitGraphActive) &&
-          !(pane === 'primary' && (webViewActive || extensions.active))
+          !(
+            pane === 'primary' &&
+            (webViewActive || extensions.active || Boolean(activeReport))
+          )
         ) {
           focusViewerPane(pane, paneTab.id)
         } else {
@@ -115,16 +146,33 @@ export function WorkbenchViewer({
       }}
     >
       <TabStrip
+        agentReports={
+          pane === 'primary'
+            ? {
+                reports,
+                activeId: activeReport?.id,
+                onActivate: activateReport,
+                onClose: (id) =>
+                  void window.hvir
+                    .invoke('agent:report-close', { id })
+                    .catch(() => undefined),
+              }
+            : undefined
+        }
         tabs={paneTabs}
         pathCopyRoot={root}
         pane={pane}
         activeId={
           (graphPane && gitGraphActive) ||
-          (pane === 'primary' && (webViewActive || extensions.active))
+          (pane === 'primary' &&
+            (webViewActive || extensions.active || Boolean(activeReport)))
             ? undefined
             : paneTab?.id
         }
-        onActivate={(id) => activateTab(id, pane)}
+        onActivate={(id) => {
+          deactivateReport()
+          activateTab(id, pane)
+        }}
         onClose={closeTab}
         onPin={pinTab}
         onReorder={reorderViewerTabs}
@@ -134,7 +182,10 @@ export function WorkbenchViewer({
         onClosePane={pane === 'secondary' ? closeViewerSplit : undefined}
         graphOpen={graphPane && gitGraphOpen}
         graphActive={graphPane && gitGraphActive}
-        onActivateGraph={activateGitGraph}
+        onActivateGraph={() => {
+          deactivateReport()
+          activateGitGraph()
+        }}
         onCloseGraph={closeGitGraph}
         webTabs={
           pane === 'primary'
@@ -142,17 +193,26 @@ export function WorkbenchViewer({
             : undefined
         }
         activeWebId={pane === 'primary' && webViewActive ? activeWebViewId : undefined}
-        onActivateWeb={activateWebView}
+        onActivateWeb={(id) => {
+          deactivateReport()
+          activateWebView(id)
+        }}
         onCloseWeb={closeWebView}
         contributedTabs={pane === 'primary' ? extensions.views : undefined}
         activeContributionId={
           pane === 'primary' && extensions.active ? extensions.activeId : undefined
         }
-        onActivateContribution={extensions.activate}
+        onActivateContribution={(id) => {
+          deactivateReport()
+          extensions.activate(id)
+        }}
         onCloseContribution={extensions.close}
       />
       {graphPane && gitGraphOpen ? (
-        <div className="workspace-view hvir-panel" hidden={!gitGraphActive}>
+        <div
+          className="workspace-view hvir-panel"
+          hidden={!gitGraphActive || Boolean(activeReport)}
+        >
           <GitGraphView
             root={root}
             refreshVersion={gitVersion}
@@ -167,7 +227,7 @@ export function WorkbenchViewer({
         <WebPaneStack
           views={webViews}
           root={root}
-          active={webViewActive}
+          active={webViewActive && !activeReport}
           activeId={activeWebViewId}
           focused={webViewFocused}
           onToggleFocus={() => setWebViewFocused((focused) => !focused)}
@@ -181,15 +241,27 @@ export function WorkbenchViewer({
         <ExtensionViewStack
           views={extensions.views}
           activeId={extensions.activeId}
-          active={extensions.active && visible}
+          active={extensions.active && visible && !activeReport}
           onClose={extensions.close}
+        />
+      ) : null}
+      {pane === 'primary' && activeReport ? (
+        <AgentReportView
+          key={`${activeReport.id}:${activeReport.version}`}
+          report={activeReport}
+          visible={visible}
+          onOpenPath={(path) => {
+            deactivateReport()
+            openFile(path, true)
+          }}
         />
       ) : null}
       <div
         className="workspace-view hvir-panel"
         hidden={
           (graphPane && gitGraphActive) ||
-          (pane === 'primary' && (webViewActive || extensions.active))
+          (pane === 'primary' &&
+            (webViewActive || extensions.active || Boolean(activeReport)))
         }
       >
         {missing ? (

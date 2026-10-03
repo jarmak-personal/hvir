@@ -8,6 +8,7 @@ export interface AcceptedInstallation {
   readonly kind: 'directory' | 'zip' | 'development'
   readonly revision: string
   readonly enabled: boolean
+  readonly agentAccess: boolean
 }
 
 /** Current pre-release schema only. There is no compatibility or migration reader. */
@@ -29,10 +30,11 @@ function readInstallations(value: unknown): AcceptedInstallation[] {
       typeof item['revision'] !== 'string' ||
       !/^[a-f0-9]{64}$/u.test(item['revision']) ||
       !['directory', 'zip', 'development'].includes(item['kind'] as string) ||
-      typeof item['enabled'] !== 'boolean'
+      typeof item['enabled'] !== 'boolean' ||
+      (item['agentAccess'] !== undefined && typeof item['agentAccess'] !== 'boolean')
     )
       throw new Error('Invalid extension state')
-    return entry as AcceptedInstallation
+    return { ...entry, agentAccess: item['agentAccess'] === true } as AcceptedInstallation
   })
   if (
     new Set(entries.map((entry) => entry.packageId)).size !== entries.length ||

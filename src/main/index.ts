@@ -356,7 +356,7 @@ function createWorkbenchEntry(): void {
     runtime.own(
       'IPC authority router',
       registerIpcHandlers({
-        extensions: surfaces.extensions,
+        ...surfaces,
         echoWorker,
         gitWorker,
         filenameSearch,
@@ -398,15 +398,14 @@ function createWorkbenchEntry(): void {
           windowManager.updateWebPaneBindings(owner.id, bindings),
         updateWebPaneFullPage: (owner, paneId) =>
           windowManager.updateWebPaneFullPage(owner.id, paneId),
-        htmlPreviews: surfaces.htmlPreviews,
         webPanes: webPaneRoutes,
         openExternal: (url) => shell.openExternal(url),
         emit,
       }),
       (router) => router.dispose(),
     )
+    void surfaces.start(sessionsPorts.context, hostCatalog, ptySupervisor)
     createWindow() // Paint before background watch and Git discovery touches a slow directory.
-    void surfaces.extensions.start(hostCatalog.local, sessionsPorts.context, hostCatalog)
     if (projectRegistry.active.host.connectionState === 'connected') {
       void workspaceCoordinator
         .replaceWatch(projectRegistry.active)
@@ -436,10 +435,9 @@ function createWorkbenchEntry(): void {
         const code = await runElectronSmokeScenario({
           scenario: process.env['HVIR_SMOKE_SCENARIO'],
           projectRoot: localPath(projectRootArgument() ?? process.cwd()),
-          extensions: surfaces.extensions,
+          ...surfaces,
           createWindow,
           harnessProbeManager,
-          htmlPreviews: surfaces.htmlPreviews,
           rendererResources: rendererScopes,
           diagnostics: diagnosticIpc,
           runtimeDiagnostics: diagnostics,
