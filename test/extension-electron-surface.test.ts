@@ -73,6 +73,7 @@ function viewFor(index = 0): ExtensionView {
 async function fixture(
   send?: (method: string) => Promise<unknown>,
   admittedDuringBind = false,
+  loading = false,
 ) {
   const surface = new ElectronExtensionGuestSurface()
   const view = viewFor(),
@@ -97,7 +98,7 @@ async function fixture(
     debugger: debuggerPort,
     isDestroyed: () => destroyed,
     getURL: () => view.url,
-    isLoading: () => false,
+    isLoading: () => loading,
     close: vi.fn(() => {
       if (dispatching)
         throw new Error('Native guest deletion reentered debugger dispatch')
@@ -149,9 +150,132 @@ async function fixture(
 afterEach(() => {
   electron.sessions.clear()
   electron.guests.clear()
+  vi.restoreAllMocks()
 })
 
 describe('Electron extension response, native teardown and closing capacity', () => {
+  it.each(['observer-command', 'load-before-freeze', 'state-command'] as const)(
+    'reports the stalled %s stage at the unchanged lifecycle deadline',
+    async (stage) => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      const report = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+      const pending = deferred<unknown>()
+      const data = await fixture(
+        (method) =>
+          (stage === 'observer-command' && method === 'Page.enable') ||
+          (stage === 'state-command' && method === 'Page.setWebLifecycleState')
+            ? pending.promise
+            : Promise.resolve({ targetInfo: { targetId: 'target', type: 'webview' } }),
+        false,
+        stage === 'load-before-freeze',
+      )
+      try {
+        await turn()
+        await vi.advanceTimersByTimeAsync(EXTENSION_LIMITS.requestTimeoutMs - 1)
+        expect(report).not.toHaveBeenCalled()
+        await vi.advanceTimersByTimeAsync(1)
+        expect(report).toHaveBeenCalledTimes(1)
+        expect(JSON.parse(report.mock.calls[0]![1] as string)).toEqual({
+          stage,
+          category: 'timeout',
+          role: 'view',
+          visible: false,
+          admittedWork: false,
+          loading: stage === 'load-before-freeze',
+          urlMatches: true,
+          debuggerAttached: true,
+        })
+        expect((await data.response()).status).toBe(404)
+        const commands = data.debuggerPort.sendCommand.mock.calls.length
+        pending.resolve({ targetInfo: { targetId: 'target', type: 'webview' } })
+        data.guest.emit('did-finish-load')
+        await vi.advanceTimersByTimeAsync(0)
+        expect(data.debuggerPort.sendCommand.mock.calls).toHaveLength(commands)
+        expect(report).toHaveBeenCalledTimes(1)
+        await data.surface.destroy(data.view.id)
+        expect(data.guest.isDestroyed()).toBe(true)
+        expect(data.session.clearCache).toHaveBeenCalledTimes(1)
+      } finally {
+        vi.useRealTimers()
+      }
+    },
+  )
+
+  it.each([
+    'bootstrap-target',
+    'observer-command',
+    'transition-target',
+    'state-command',
+  ] as const)(
+    'reports one closed %s refusal without exception or package data',
+    async (stage) => {
+      const report = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+      let targets = 0
+      const data = await fixture((method) => {
+        if (method === 'Target.getTargetInfo') targets++
+        if (
+          (stage === 'bootstrap-target' && targets === 1) ||
+          (stage === 'observer-command' && method === 'Page.enable') ||
+          (stage === 'transition-target' && targets === 2) ||
+          (stage === 'state-command' && method === 'Page.setWebLifecycleState')
+        )
+          return Promise.reject(new Error('Unreviewed package/URL/exception data'))
+        return Promise.resolve({ targetInfo: { targetId: 'target', type: 'webview' } })
+      })
+      await turn()
+      expect(report).toHaveBeenCalledTimes(1)
+      expect(report.mock.calls[0]?.[0]).toBe('[extensions:engine-lifecycle-failure]')
+      expect(JSON.parse(report.mock.calls[0]![1] as string)).toEqual({
+        stage,
+        category: 'refusal',
+        role: 'view',
+        visible: false,
+        admittedWork: false,
+        loading: false,
+        urlMatches: true,
+        debuggerAttached: true,
+      })
+      expect(data.failed).toHaveBeenCalledWith(
+        data.guest.id,
+        'Extension engine lifecycle control is unavailable. Close and reopen the view.',
+      )
+      expect((await data.response()).status).toBe(404)
+      await data.surface.destroy(data.view.id)
+      expect(data.guest.isDestroyed()).toBe(true)
+      expect(data.session.clearCache).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it.each(['collection', 'logging'] as const)(
+    'diagnostic %s failure preserves engine refusal and native cleanup',
+    async (failure) => {
+      const pending = deferred<unknown>()
+      const report = vi.spyOn(console, 'warn').mockImplementation(() => {
+        if (failure === 'logging') throw new Error('Diagnostic logger unavailable')
+      })
+      const data = await fixture((method) =>
+        method === 'Page.enable'
+          ? pending.promise
+          : Promise.resolve({ targetInfo: { targetId: 'target', type: 'webview' } }),
+      )
+      if (failure === 'collection')
+        vi.spyOn(data.guest, 'isLoading').mockImplementation(() => {
+          throw new Error('Diagnostic native getter unavailable')
+        })
+      pending.resolve(Promise.reject(new Error('Observer setup refused')))
+      await turn()
+      expect(data.failed).toHaveBeenCalledWith(
+        data.guest.id,
+        'Extension engine lifecycle control is unavailable. Close and reopen the view.',
+      )
+      expect(report).toHaveBeenCalledTimes(failure === 'logging' ? 1 : 0)
+      expect((await data.response()).status).toBe(404)
+      await data.surface.destroy(data.view.id)
+      expect(data.guest.isDestroyed()).toBe(true)
+      expect(data.session.clearCache).toHaveBeenCalledTimes(1)
+    },
+  )
+
   it('preserves finite work admitted during native bind before lifecycle creation and freezes when it ends', async () => {
     const data = await fixture(undefined, true)
     try {

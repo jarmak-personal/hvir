@@ -14,7 +14,7 @@ export class ExtensionGuestLifecycle {
   constructor(
     private readonly apply: (state: 'active' | 'frozen') => Promise<void>,
     private readonly active: () => void,
-    private readonly failed: () => void,
+    private readonly failed: (category: 'timeout' | 'refusal') => void,
   ) {}
 
   get isActive(): boolean {
@@ -47,6 +47,7 @@ export class ExtensionGuestLifecycle {
   }
 
   private async transition(): Promise<void> {
+    const timeout = new Error('Guest lifecycle timed out')
     try {
       while (!this.disposed && this.appliedRevision !== this.revision) {
         const target = this.visible || this.admittedWork
@@ -55,10 +56,7 @@ export class ExtensionGuestLifecycle {
         try {
           await new Promise<void>((resolve, reject) => {
             this.cancel = () => reject(new Error('Guest lifecycle closed'))
-            timer = setTimeout(
-              () => reject(new Error('Guest lifecycle timed out')),
-              EXTENSION_LIMITS.requestTimeoutMs,
-            )
+            timer = setTimeout(() => reject(timeout), EXTENSION_LIMITS.requestTimeoutMs)
             void this.apply(target ? 'active' : 'frozen').then(resolve, reject)
           })
         } finally {
@@ -70,10 +68,10 @@ export class ExtensionGuestLifecycle {
         this.appliedRevision = revision
         if (target && (this.visible || this.admittedWork)) this.active()
       }
-    } catch {
+    } catch (error) {
       if (!this.disposed) {
         this.dispose()
-        this.failed()
+        this.failed(error === timeout ? 'timeout' : 'refusal')
       }
     } finally {
       this.running = false
