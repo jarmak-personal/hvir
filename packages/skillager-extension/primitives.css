@@ -1,0 +1,148 @@
+/* Browser-only presentation shared by hvir and optional guest UI. Feature layout remains private. */
+:where(.hvir-button, .hvir-input) {
+  color: inherit;
+  background-color: transparent;
+  border-color: currentColor;
+  font: inherit;
+}
+:where(.hvir-button:disabled, .hvir-input:disabled) {
+  opacity: 0.5;
+  cursor: default;
+}
+:where(.hvir-row) {
+  min-width: 0;
+  color: inherit;
+  background-color: transparent;
+}
+:where(.hvir-control) {
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background-color: var(--surface-2);
+  color: var(--text-secondary);
+}
+:where(.hvir-toolbar) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--toolbar-text);
+  background: var(--toolbar-surface);
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: calc(12px * var(--hvir-interface-scale));
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+:where(.hvir-meta) {
+  color: var(--text-muted);
+  font-size: calc(11px * var(--hvir-interface-scale));
+  font-weight: 400;
+}
+:where(.hvir-panel) {
+  min-width: 0;
+  min-height: 0;
+}
+:where(.hvir-scroll) {
+  overflow: auto;
+  min-width: 0;
+  min-height: 0;
+}
+.hvir-guest {
+  box-sizing: border-box;
+  margin: 0;
+  background: var(--surface-1);
+  color: var(--text);
+  font-family: var(--hvir-interface-font);
+  font-size: calc(13px * var(--hvir-interface-scale));
+  line-height: 1.5;
+}
+.hvir-guest *,
+.hvir-guest *::before,
+.hvir-guest *::after {
+  box-sizing: border-box;
+}
+.hvir-button[data-variant='regular'] {
+  padding: 6px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  color: var(--text);
+  background: var(--surface-2);
+  cursor: pointer;
+}
+.hvir-button[data-variant='regular']:hover:not(:disabled) {
+  color: var(--text-strong);
+  background: var(--surface-hover);
+}
+.hvir-button[data-variant='regular']:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.hvir-focus:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.hvir-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text);
+}
+.hvir-field :is(input, select, textarea) {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+}
+.hvir-row[data-variant='selectable'] {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 4px;
+  color: var(--text);
+  background: transparent;
+  text-align: start;
+  cursor: pointer;
+}
+.hvir-row[data-variant='selectable']:hover,
+.hvir-row[data-variant='selectable'][aria-selected='true'] {
+  color: var(--text-strong);
+  background: var(--surface-active);
+}
+.hvir-state[data-state] {
+  padding: 12px;
+  color: var(--text-muted);
+}
+.hvir-state[data-state='error'] {
+  color: var(--danger-text);
+}
+.hvir-list-detail {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(0, 2fr);
+  gap: 12px;
+  min-width: 0;
+}
+.hvir-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.hvir-content {
+  padding: 12px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.hvir-guest .hvir-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--text-muted) transparent;
+}
+@media (max-width: 420px) {
+  .hvir-list-detail {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

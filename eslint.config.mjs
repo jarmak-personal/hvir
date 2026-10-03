@@ -127,7 +127,16 @@ function dependencyDirectionRules(
 }
 
 export default tseslint.config(
-  { ignores: ['out/**', 'dist/**', 'node_modules/**', 'coverage/**'] },
+  {
+    ignores: [
+      'out/**',
+      'dist/**',
+      'node_modules/**',
+      'coverage/**',
+      'packages/skillager-extension/skillager.js',
+      'packages/skillager-extension/updater.js',
+    ],
+  },
 
   js.configs.recommended,
   {
@@ -210,9 +219,22 @@ export default tseslint.config(
     ),
   },
 
+  {
+    files: ['packages/skillager-extension/**/*.{js,mjs,ts,tsx,mts,cts}'],
+    rules: dependencyDirectionRules(
+      '^node:|^electron$|(^|/)(main|workers|renderer|preload)(/|$)|(^|/)packages/(?!skillager-extension/)',
+      'The Skillager package consumes public contracts and browser-safe presentation only, never private workbench or other package implementations.',
+    ),
+  },
+
   // Extension package policy and caller lifetime consume ports, never their Electron/native edges.
   {
     files: [
+      'src/main/extensions/source-approval.ts',
+      'src/main/extensions/source-reading.ts',
+      'src/main/extensions/guest-connectors.ts',
+      'src/main/extensions/guest-sources.ts',
+      'src/main/extensions/guest-view-opening.ts',
       'src/main/extensions/connector-approval.ts',
       'src/main/extensions/connector-execution.ts',
       'src/main/extensions/activation.ts',
@@ -645,6 +667,7 @@ export default tseslint.config(
       'scripts/validate-release-pr.mts',
       'scripts/generate-terminal-theme-catalog.mts',
       'scripts/prepare-extension-ui.mts',
+      'scripts/prepare-skillager-extension.mts',
       'scripts/check-terminal-runtime.mts',
       'scripts/agent-work-checkpoint-store.mts',
       'scripts/ghostty-web-update/candidate-bundle.mts',

@@ -10,6 +10,7 @@ const REQUIRED_MAIN_ENTRIES = [
   '/out/main/agent-cli.js',
   '/out/main/echo-worker.js',
   '/out/main/git-worker.js',
+  '/out/main/document-worker.js',
 ] as const
 const PTY_NATIVE_ENTRY = '/node_modules/node-pty/build/Release/pty.node'
 const PTY_SPAWN_HELPER_ENTRY = '/node_modules/node-pty/build/Release/spawn-helper'

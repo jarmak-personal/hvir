@@ -233,7 +233,12 @@ export class ExtensionContextOwner {
         project.connectionState === 'connected'
       )
         return {
-          value: { id, name: workspace.name.slice(0, 80), host: workspace.root.hostId },
+          value: {
+            id,
+            name: workspace.name.slice(0, 80),
+            host: workspace.root.hostId,
+            root: workspace.root,
+          },
           root: workspace.root,
         }
     }
@@ -281,4 +286,26 @@ export function boundedExtensionSessions(
     admitted.push(session)
   }
   return admitted
+}
+
+/** Optional path metadata must never overflow the transport or truncate an identity. */
+export function boundedExtensionContext(value: ExtensionContext): ExtensionContext {
+  const bytes = (context: ExtensionContext) => Buffer.byteLength(JSON.stringify(context))
+  if (bytes(value) <= EXTENSION_LIMITS.contextBytes) return value
+  const withoutRoot = (
+    workspace: ExtensionWorkspaceContext,
+  ): ExtensionWorkspaceContext => {
+    const { root: _root, ...metadata } = workspace
+    return metadata
+  }
+  const reduced = {
+    ...value,
+    ...(value.session
+      ? { session: { ...value.session, workspace: withoutRoot(value.session.workspace) } }
+      : {}),
+    ...(value.workspace ? { workspace: withoutRoot(value.workspace) } : {}),
+  }
+  if (bytes(reduced) > EXTENSION_LIMITS.contextBytes)
+    throw new Error('Extension context exceeds the public metadata budget')
+  return reduced
 }

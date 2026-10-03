@@ -81,7 +81,12 @@ describe('finite named extension actions', () => {
       data.owner,
       'one',
       'detail',
-      { context: { surface: 'viewer' }, focus: false },
+      {
+        context: { surface: 'viewer' },
+        focus: false,
+        readingOrigin: 'action',
+        authority: undefined,
+      },
       expect.any(Function),
     )
     ready = true

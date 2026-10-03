@@ -15,6 +15,7 @@ const productionEntries = [
   '/out/main/agent-cli.js',
   '/out/main/echo-worker.js',
   '/out/main/git-worker.js',
+  '/out/main/document-worker.js',
   '/out/main/chunks/git-branches.js',
   '/out/renderer/index.js',
   '/out/preload/extension-guest.js',
@@ -145,6 +146,7 @@ describe('packaged runtime inspection', () => {
         '/out/main/agent-cli.js',
         '/out/main/echo-worker.js',
         '/out/main/git-worker.js',
+        '/out/main/document-worker.js',
       ],
       nativeEntries: [
         '/node_modules/node-pty/build/Release/pty.node',
@@ -176,6 +178,7 @@ describe('packaged runtime inspection', () => {
   it.each([
     '/out/main/echo-worker.js',
     '/out/main/git-worker.js',
+    '/out/main/document-worker.js',
     '/node_modules/node-pty/build/Release/pty.node',
     '/node_modules/node-pty/build/Release/spawn-helper',
     '/node_modules/@hvir/rename-noreplace/build/Release/rename_noreplace.node',

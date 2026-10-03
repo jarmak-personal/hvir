@@ -1,3 +1,6 @@
+import { createDocumentMarkdownOwner } from '../viewer/document-markdown-runtime'
+import { ExtensionSourceApprovalOwner, type SourceHostCatalog } from './source-approval'
+import { ExtensionSourceReadingOwner } from './source-reading'
 import {
   ExtensionConnectorApprovalOwner,
   type ConnectorHostCatalog,
@@ -21,6 +24,7 @@ import { ExtensionPackageStore } from './package-store'
 
 /** Application composition and lifetime of the extension platform; no extension package code. */
 export class ExtensionApplicationRuntime {
+  sources?: ExtensionSourceReadingOwner
   connectors?: ExtensionConnectorExecutionOwner
   readonly surface = new ElectronExtensionGuestSurface()
   activations?: ExtensionActivationOwner
@@ -73,11 +77,13 @@ export class ExtensionApplicationRuntime {
   start(
     host: ProjectHost,
     sources: LiveSessionMetadataSources,
-    hosts: ConnectorHostCatalog,
+    hosts: ConnectorHostCatalog & SourceHostCatalog,
   ): Promise<void> {
     return (this.starting ??= this.initialize(host, sources, hosts).catch(
       async (reason: unknown) => {
         this.failure = `Extensions could not start: ${reason instanceof Error ? reason.message.slice(0, 240) : 'storage unavailable'}. Check the extensions and extension-state folders in this data directory.`
+        this.sources?.dispose()
+        this.sources?.approvals.dispose()
         this.connectors?.dispose()
         this.connectors?.approvals.dispose()
         await this.activations?.dispose()
@@ -110,6 +116,8 @@ export class ExtensionApplicationRuntime {
     this.disposed = true
     this.disposeContext?.()
     await this.starting?.catch(() => undefined)
+    this.sources?.dispose()
+    this.sources?.approvals.dispose()
     this.connectors?.dispose()
     this.connectors?.approvals.dispose()
     await this.activations?.dispose()
@@ -120,7 +128,7 @@ export class ExtensionApplicationRuntime {
   private async initialize(
     host: ProjectHost,
     sources: LiveSessionMetadataSources,
-    hosts: ConnectorHostCatalog,
+    hosts: ConnectorHostCatalog & SourceHostCatalog,
   ): Promise<void> {
     this.connectContext(sources)
     const contexts = this.contexts
@@ -146,6 +154,8 @@ export class ExtensionApplicationRuntime {
       joinHostPath(storage, 'state.json'),
       packages,
       (id) => {
+        this.sources?.approvals.discardPrepared(id)
+        this.sources?.revoke(id)
         this.connectors?.approvals.discardPrepared(id)
         this.connectors?.revoke(id)
         this.actions?.revokeInstallation(id)
@@ -162,6 +172,7 @@ export class ExtensionApplicationRuntime {
         this.guests?.presentationState?.forget(id)
         return this.connectors?.approvals.forget(id)
       },
+      (id) => this.sources?.approvals.forget(id),
     )
     this.activations = activations
     const scratch = joinHostPath(storage, 'connector-scratch')
@@ -180,6 +191,15 @@ export class ExtensionApplicationRuntime {
     this.connectors = new ExtensionConnectorExecutionOwner(approvals, scratch, () =>
       activations.assertWritable(),
     )
+    const sourceApprovals = new ExtensionSourceApprovalOwner(
+      hosts,
+      activations,
+      (id, source) => this.sources?.revoke(id, source),
+    )
+    this.sources = new ExtensionSourceReadingOwner(
+      sourceApprovals,
+      createDocumentMarkdownOwner(),
+    )
     const guests = new ExtensionGuestOwner(
       activations,
       this.scopes,
@@ -193,6 +213,7 @@ export class ExtensionApplicationRuntime {
     )
     this.guests = guests
     guests.connectors = this.connectors
+    guests.sources = this.sources
     const presentation = new ExtensionPresentationState(
       {
         read: () => activations.readPresentation(),
@@ -229,6 +250,7 @@ export class ExtensionApplicationRuntime {
     await activations.start(joinHostPath(storage, 'writer.lock'))
     if (activations.snapshot().writable) {
       await approvals.start()
+      await sourceApprovals.start()
       await presentation.restore()
     }
     this.publishContributions()

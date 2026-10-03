@@ -265,6 +265,7 @@ export class AgentWorkbenchCommandOwner {
               sessionId: session,
             },
             focus: false,
+            readingOrigin: 'agent',
             authority: this.viewAuthority(
               connection,
               installation,

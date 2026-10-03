@@ -1,3 +1,4 @@
+import { verifySkillagerExtension } from './skillager-extension'
 import { verifyExtensionPresentationUi } from './extension-presentation-ui'
 import { verifyExtensionConnectors } from './extension-connectors'
 import { join } from 'node:path'
@@ -64,6 +65,14 @@ export async function verifyExtensionScenario(
     },
     onHostStateChange: (listener) => host.onConnectionState(listener),
   })
+  if (
+    await verifySkillagerExtension(win, extensions, scopes, host, {
+      click: (name) => click(win, name),
+      wait: waitFor,
+      guest: guestFor,
+    })
+  )
+    return true
   const directory = extensions.activations?.directory
   if (!directory) throw new Error('Extension application did not start')
   const reference = joinHostPath(directory, 'reference')

@@ -84,7 +84,9 @@
     "performance:capacity": "npm run build:smoke && cross-env HVIR_SMOKE_SCENARIO=capacity HVIR_CAPACITY_PERFORMANCE_GATE=controlled node scripts/run-smoke-scenarios.mts",
     "gauntlet": "bash scripts/phase8-gauntlet.sh",
     "extension:ui": "node scripts/prepare-extension-ui.mts",
-    "extension:ui:tokens": "node scripts/prepare-extension-ui.mts --tokens"
+    "extension:ui:tokens": "node scripts/prepare-extension-ui.mts --tokens",
+    "extension:skillager": "node scripts/prepare-skillager-extension.mts",
+    "probe:extension:skillager": "npm run build:smoke && node scripts/probe-skillager-extension.mts"
   },
   "dependencies": {
     "@codemirror/merge": "^6.12.2",

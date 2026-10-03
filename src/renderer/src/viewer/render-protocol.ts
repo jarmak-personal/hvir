@@ -9,8 +9,4 @@ export type MarkdownRenderResponse =
   | { readonly id: number; readonly ok: true; readonly html: string }
   | { readonly id: number; readonly ok: false; readonly error: string }
 
-export const MARKDOWN_OPTIONS = {
-  html: false,
-  linkify: false,
-  typographer: true,
-} as const
+export { MARKDOWN_OPTIONS } from '../../../shared/presentation/document-markdown/contract'

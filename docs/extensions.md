@@ -80,11 +80,11 @@ assets. The example manifest shows all required fields. Identity and contributio
 are stable lowercase names. `contract` declares a major and minor, independently of
 the package's semantic `version`. Views declare `application` or `workspace` placement and a single
 `view` representation. Optional `navigation: 'top'` creates an independent application
-destination; `navigation: 'left'` creates a workspace rail view. `access` stays empty: no project files, PTYs or direct guest network. Optional `connectors` declare finite native operations and require separate approval.
+destination; `navigation: 'left'` creates a workspace rail view. `access` declares at most four read-only sources, or is empty. Source roots require separate trusted grants; no ambient project files, PTYs or direct guest network are exposed. Optional `connectors` declare finite native operations and require separate approval.
 
 Contract 1.0 provides `presentation.read`, `viewer.open-own`, `context.read`,
 `contributions.read`, `contributions.publish`, `actions.invoke`, `connector.status`,
-`connector.execute`, and `connector.output`. List required and
+`connector.execute`, `connector.output`, `source.status`, `source.select`, `source.read`, and `source.asset`, and `source.render`. List required and
 optional capabilities explicitly. Same-major older or equal minor contracts activate;
 a newer minor also activates when every required capability exists. Unsupported major
 or missing required capabilities refuse only that package, with an explanation.
@@ -373,3 +373,18 @@ ordinary navigation usable; revoke or repair the connector in Settings. A local 
 walkthrough should record the actual CLI source/version and use isolated user state. A separately
 approved SSH workspace connector must record its real host and tool version for release acceptance;
 local fixtures or an SSH label do not prove a real remote server.
+
+
+## Selected current document sources
+
+Declare `access: [{id: 'library', description: 'Read selected instructions', context: 'application', mode: 'read-only'}]` for an explicitly chosen local root, or use `context: 'workspace'` for the current view's exact registered project/worktree. Settings → Extensions → **Inspect read access** displays the canonical scope; **Grant read-only access** grants that declaration separately from native executable approval. **Revoke read access**, Disable, Reload and Forget saved setup revoke live selections. External library content is preserved. An application library never requires project registration; hvir's ordinary open-project requirement still applies.
+
+A visible human view requests `source.select` with `{source: 'library', path: {hostId: 'local', path: '/explicit/library/skill/SKILL.md'}}`. The returned caller-bound receipt names the current canonical path, byte count, read time and file SHA-256; it does not attest accepted tree contents. Request `source.read` with `{receipt, offset: 0}` and follow `nextOffset` until it is `null`. UTF-8 text is limited to 2 MiB; each page is at most 2048 bytes. A receipt expires absolutely after five minutes, including idle views, and must never be reported complete after an interrupted or expired page sequence. Use `{receipt, release: true}` when finished. There are at most eight physical/retained source reservations and 16 MiB of reserved receipt data application-wide. Closing or timing out a non-abortable read does not release its physical capacity until the host read settles.
+
+`source.asset` accepts `{receipt, path: 'images/example.png'}` for a relative image confined canonically to the selected document's directory and grant. Images use bounded ProjectHost streaming, at most 2 MiB, and return MIME/type plus a separate base64-paged receipt. Raw HTML and ambient network/file resources are not part of this capability. Agents, actions, restricted-origin views and updaters cannot read instruction bodies, including requests omitting an invocation ID or reusing their own view. Hiding a view prevents new source admissions and late publication; already rendered UI bytes can remain visibly last-known.
+
+`viewer.open-own` can transport bounded JSON `input` (6144 encoded bytes) to an exact own contribution. Optional `context: 'application'` is allowed only for an application contribution. Data confers no read grant and cannot change the main-owned caller origin or its intersected restrictions. `context.read` may include host-qualified `workspace.root` metadata, independently of read/execution authority. Optional root metadata is omitted when needed to keep the complete context within 7 KiB; absence means unknown, never inferred local discovery.
+
+The maintained ordinary [Skillager package](../packages/skillager-extension/README.md) provides personal-library browsing, project observations and selected current instructions through these public capabilities. It uses Skillager's public CLI schemas and explicit native/source setup; core imports no Skillager implementation.
+
+`source.render` accepts an existing selected document `{receipt}` and produces a separate UTF-8-paged safe-HTML receipt, or `{receipt: null, sourceFallback: true}` when rendering exceeds 512 KiB. The package presents complete Source bytes on that explicit fallback. Parsing reuses hvir’s document Markdown policy off-thread in one lazy utility process with one physical parse, no queue/cache/host calls. Grant, origin, visibility and parent receipt checks apply before and after rendering; timed-out or revoked callers do not free physical parsing capacity before the worker RPC settles. Guest workers remain disabled.

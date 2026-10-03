@@ -1,12 +1,11 @@
 import MarkdownIt, { type Token } from 'markdown-it'
 
-import { MARKDOWN_OPTIONS } from './render-protocol'
 import {
-  enableSourceLineAnchors,
-  enableTaskLists,
-  wrapSourceLine,
-} from './markdown-extensions'
-import type { LoadedViewerGrammar, ViewerGrammarRegistry } from './shiki-grammar-registry'
+  MARKDOWN_OPTIONS,
+  type DocumentGrammarPort,
+  type DocumentLoadedGrammar,
+} from './contract'
+import { enableSourceLineAnchors, enableTaskLists, wrapSourceLine } from './extensions'
 
 const MERMAID_FENCE_LANGUAGES = new Set(['mermaid', 'mmd'])
 const PLAIN_FENCE_LANGUAGES = new Set(['plain', 'plaintext', 'text', 'txt'])
@@ -14,8 +13,8 @@ const PLAIN_FENCE_LANGUAGES = new Set(['plain', 'plaintext', 'text', 'txt'])
 export async function renderMarkdownDocument(
   source: string,
   theme: 'dark' | 'light',
-  grammars: Pick<ViewerGrammarRegistry, 'load'>,
-  resources?: 'inert',
+  grammars: DocumentGrammarPort,
+  resources?: 'inert' | 'selected',
 ): Promise<string> {
   // Bare repository filenames such as `design.md` are not web hosts. The
   // linkifier turns them into http://design.md and can navigate Electron's
@@ -28,6 +27,24 @@ export async function renderMarkdownDocument(
   if (resources === 'inert')
     markdown.renderer.rules.image = (tokens, index) =>
       `<span class="hvir-meta">${escapeHtml(tokens[index]?.content ?? 'Image omitted')}</span>`
+  if (resources === 'selected') {
+    markdown.renderer.rules.image = (tokens, index) =>
+      `<span data-instruction-image="${escapeHtml(String(tokens[index]?.attrGet('src') ?? ''))}">${escapeHtml(tokens[index]?.content ?? 'Image')}</span>`
+    markdown.renderer.rules.link_open = (tokens, index) => {
+      const href = String(tokens[index]?.attrGet('href') ?? '')
+      return href.startsWith('#')
+        ? `<a href="${escapeHtml(href)}">`
+        : '<span class="instruction-link">'
+    }
+    markdown.renderer.rules.link_close = (tokens, index) => {
+      for (let at = index - 1; at >= 0; at--)
+        if (tokens[at]?.type === 'link_open')
+          return String(tokens[at]?.attrGet('href') ?? '').startsWith('#')
+            ? '</a>'
+            : '</span>'
+      return '</span>'
+    }
+  }
   const env: Record<string, unknown> = {}
   const tokens = markdown.parse(source, env)
   const loaded = await loadFenceGrammars(
@@ -63,9 +80,9 @@ export async function renderMarkdownDocument(
 
 async function loadFenceGrammars(
   infos: readonly string[],
-  grammars: Pick<ViewerGrammarRegistry, 'load'>,
-): Promise<Map<string, LoadedViewerGrammar>> {
-  const loaded = new Map<string, LoadedViewerGrammar>()
+  grammars: DocumentGrammarPort,
+): Promise<Map<string, DocumentLoadedGrammar>> {
+  const loaded = new Map<string, DocumentLoadedGrammar>()
   const languages = new Set(infos.map(fenceLanguage).filter(Boolean))
   await Promise.all(
     [...languages].map(async (language) => {

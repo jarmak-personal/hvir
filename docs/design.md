@@ -586,6 +586,13 @@ with bounded private cache retention and explicit additional capability grants.
 Explicit offline scaffold, validation and skill export share package policy and descriptor-relative
 local storage while public starter lifetimes and ordinary enablement retain their existing owners.
 
+### [ADR-057 — Selected extension source reading](adr/ADR-057-selected-extension-source-reading.md)
+
+> Lifecycle: Active
+
+Explicit source grants and selection-bound reads keep current instruction viewing separate
+from connector authority, content acceptance and agent actions.
+
 ## 5. Architecture
 
 ### Process model

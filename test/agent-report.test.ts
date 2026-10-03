@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { AgentReportOwner } from '../src/main/viewer/agent-report-owner'
 import { AGENT_LIMITS } from '../src/shared/agent/contract'
 import { localPath } from '../src/shared/host-path'
-import { renderMarkdownDocument } from '../src/renderer/src/viewer/markdown-renderer'
+import { renderMarkdownDocument } from '../src/shared/presentation/document-markdown/rendering'
 import { resolveRenderedDirectoryLink } from '../src/shared/rendered-link'
 
 describe('viewer-owned agent reports', () => {

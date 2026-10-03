@@ -1,4 +1,5 @@
 import { validateConnectorDeclarations } from './connectors'
+import { validateSourceDeclarations } from './source-access'
 import {
   EXTENSION_CAPABILITIES,
   EXTENSION_CONTRACT,
@@ -116,10 +117,9 @@ export function validateExtensionManifest(value: unknown): ManifestValidation {
       ? undefined
       : extensionText(object['minimumHvir'], 'minimum hvir release', 40)
   assertExtensionCompatibility(contract, requiredCapabilities, minimumHvir)
-  if (!Array.isArray(object['access']) || object['access'].length !== 0)
-    throw new Error(
-      'This hvir contract provides package-local views only; requested access is unavailable',
-    )
+  const access = validateSourceDeclarations(object['access'], (value, known) =>
+    warnings.push(...unknownExtensionFields(value, known)),
+  )
   const version = extensionText(object['version'], 'package version', 40)
   if (!/^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/u.test(version))
     throw new Error('Invalid package version')
@@ -170,7 +170,7 @@ export function validateExtensionManifest(value: unknown): ManifestValidation {
       ...(minimumHvir ? { minimumHvir } : {}),
       requiredCapabilities,
       optionalCapabilities,
-      access: [],
+      access,
       views,
       ...(object['connectors'] === undefined
         ? {}

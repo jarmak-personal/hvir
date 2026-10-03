@@ -1,12 +1,14 @@
+import { openGuestOwnView } from './guest-view-opening'
+import { requestGuestSource } from './guest-sources'
+import { requestGuestConnector } from './guest-connectors'
+import type { ExtensionSourceReadingOwner } from './source-reading'
+import { validateExtensionViewInput } from '../../shared/extensions/view-input'
 import {
   PRESENTATION_COLOR_DEFAULTS,
   PRESENTATION_COLOR_TOKENS,
   PRESENTATION_COLOR_PATTERN,
 } from '../../shared/presentation/tokens'
-import type {
-  ExtensionConnectorExecutionOwner,
-  ConnectorCaller,
-} from './connector-execution'
+import type { ExtensionConnectorExecutionOwner } from './connector-execution'
 import { CONNECTOR_LIMITS } from '../../shared/extensions/connectors'
 import {
   MAX_INTERFACE_FONT_STACK_LENGTH,
@@ -42,6 +44,7 @@ import type {
 import type { ExtensionActivationOwner, ExtensionActivation } from './activation'
 import {
   boundedExtensionSessions,
+  boundedExtensionContext,
   type ExtensionContextOwner,
   type AdmittedExtensionContext,
 } from './context-owner'
@@ -78,6 +81,8 @@ interface GuestRecord {
   contextLease?: RendererResourceLease
   readonly actions: Set<string>
   sentContext?: ExtensionContext
+  initialInput?: unknown
+  readonly readingOrigin: 'human' | 'agent' | 'action'
 }
 
 export const DEFAULT_EXTENSION_PRESENTATION: ExtensionPresentation = {
@@ -101,6 +106,7 @@ export class ExtensionGuestOwner {
   ) => readonly import('../../shared/extensions/contract').ExtensionSessionContext[]
   updaterFailed?: (view: ExtensionView) => void
   visibleContributionsChanged?: () => void
+  sources?: ExtensionSourceReadingOwner
   connectors?: ExtensionConnectorExecutionOwner
   connectorDemand?: (installation: string, workspace?: string) => boolean
   actions?: ExtensionActionOwner
@@ -140,6 +146,8 @@ export class ExtensionGuestOwner {
       focus?: boolean
       updater?: boolean
       authority?: ExtensionViewAuthority
+      input?: unknown
+      readingOrigin?: 'human' | 'agent' | 'action'
     } = {},
   ): Promise<ExtensionView> {
     this.scopes.assertCurrent(owner)
@@ -166,7 +174,7 @@ export class ExtensionGuestOwner {
       !context?.value.workspace
     )
       throw new Error('This view needs an admitted workspace context')
-    const existing = [...this.records.values()].find(
+    const matching = [...this.records.values()].filter(
       (entry) =>
         sameOwner(entry.owner, owner) &&
         entry.activation === activation &&
@@ -176,6 +184,12 @@ export class ExtensionGuestOwner {
         entry.context?.value.session?.id === context?.value.session?.id &&
         entry.context?.value.surface === context?.value.surface,
     )
+    // Preserve the established restricted-origin refusal before separating human body caches.
+    for (const record of matching) record.authority.assertReuse(options.authority)
+    const human = (options.readingOrigin ?? 'human') === 'human'
+    const existing = matching.find(
+      (record) => (record.readingOrigin === 'human') === human,
+    )
     if (existing) {
       if (!existing.ready || existing.view.failure)
         throw new Error(
@@ -183,6 +197,11 @@ export class ExtensionGuestOwner {
         )
       existing.authority.assertReuse(options.authority)
       existing.authority.add(options.authority, () => this.closeRecord(existing))
+      if (options.input !== undefined) {
+        existing.initialInput = validateExtensionViewInput(options.input)
+        this.sources?.closeView(existing.view.id)
+        this.sendContext(existing)
+      }
       this.publish(
         owner,
         this.snapshot(owner),
@@ -226,6 +245,8 @@ export class ExtensionGuestOwner {
       messages: 0,
       context,
       actions: new Set(),
+      initialInput: validateExtensionViewInput(options.input),
+      readingOrigin: options.readingOrigin ?? 'human',
     }
     record.authority.add(options.authority, () => this.closeRecord(record))
     this.records.set(id, record)
@@ -369,6 +390,7 @@ export class ExtensionGuestOwner {
     record.visible = record.view.role === 'updater' ? record.visible : visible === true
     record.refreshDemand = record.visible && refreshDemand === true
     this.connectors?.revalidate()
+    this.sources?.revalidate()
     if (record.refreshDemand !== previousDemand) this.visibleContributionsChanged?.()
     if (record.guestId !== undefined)
       this.surface.visibility(record.guestId, record.visible)
@@ -528,6 +550,8 @@ export class ExtensionGuestOwner {
           ...warnings,
           ...unknownExtensionFields(extensionObject(message['input']), [
             'contributionId',
+            'input',
+            'context',
           ]),
         ].slice(0, EXTENSION_LIMITS.warnings)
       const controller = new AbortController()
@@ -618,57 +642,29 @@ export class ExtensionGuestOwner {
         throw new Error('Originating action was revoked')
     }
     assertOrigin()
-    if (capability.startsWith('connector.')) {
-      if (!this.connectors) throw new Error('Connector execution is unavailable')
-      const caller: ConnectorCaller = {
-        authorizeHost: (host, workspace) => {
-          if (invocation) {
-            invocationAuthority?.assertCapability('connector.execute', host, workspace)
-            record.authority
-              .forAction(invocation.action)
-              ?.assertCapability('connector.execute', host, workspace)
-          } else record.authority.assertCapability('connector.execute', host, workspace)
-        },
-        activation: record.activation,
-        view: record.view.id,
+    if (capability.startsWith('connector.'))
+      return requestGuestConnector(
+        capability,
+        input,
+        record,
         signal,
-        ...(invocation ? { action: invocation.id } : {}),
-        current: assertOrigin,
-        context: (workspace) => {
-          if (
-            !workspace ||
-            (record.view.role !== 'updater' &&
-              workspace !== record.context?.value.workspace?.id)
-          )
-            return undefined
-          if (
-            record.view.role === 'updater' &&
-            !this.connectorDemand?.(record.activation.installationId, workspace)
-          )
-            return undefined
-          return this.contexts.admit(record.owner, {
-            surface: 'viewer',
-            workspaceId: workspace,
-          })
-        },
-        demand: (workspace) =>
-          record.view.role === 'updater'
-            ? record.visible &&
-              this.connectorDemand?.(record.activation.installationId, workspace) === true
-            : record.visible &&
-              record.refreshDemand &&
-              (!workspace || workspace === record.context?.value.workspace?.id),
-      }
-      if (capability === 'connector.status')
-        return this.connectors.approvals.status(record.activation).map((entry) => ({
-          connector: entry.connector,
-          availability: entry.availability,
-          ...(entry.host ? { host: entry.host } : {}),
-          ...(entry.explanation ? { explanation: entry.explanation } : {}),
-        }))
-      if (capability === 'connector.output') return this.connectors.output(caller, input)
-      return this.connectors.execute(caller, input)
-    }
+        assertOrigin,
+        this.contexts,
+        this.connectors,
+        this.actions,
+        this.connectorDemand,
+        invocation,
+      )
+    if (capability.startsWith('source.'))
+      return requestGuestSource(
+        capability,
+        input,
+        record,
+        signal,
+        assertOrigin,
+        this.sources,
+        invocation,
+      )
     if (capability === 'presentation.read') return record.presentation
     if (capability === 'context.read') return this.contextValue(record)
     if (capability === 'contributions.read') {
@@ -754,37 +750,8 @@ export class ExtensionGuestOwner {
         authority,
       )
     }
-    if (capability === 'viewer.open-own') {
-      const target = extensionObject(input)
-      const contributionId = extensionId(target['contributionId'])
-      // Unknown approval/target fields confer nothing; only this activation's declarations are consulted.
-      const opened = await this.open(
-        record.owner,
-        record.activation.installationId,
-        contributionId,
-        () => {
-          assertOrigin()
-        },
-        {
-          focus: !invocation,
-          authority:
-            record.authority.view() ??
-            (invocation
-              ? this.actions?.authority(record.view.id, invocation.id)?.view
-              : undefined),
-          context: {
-            surface: 'viewer',
-            ...(record.context?.value.workspace
-              ? { workspaceId: record.context.value.workspace.id }
-              : {}),
-            ...(record.context?.value.session
-              ? { sessionId: record.context.value.session.id }
-              : {}),
-          },
-        },
-      )
-      return { viewId: opened.id }
-    }
+    if (capability === 'viewer.open-own')
+      return openGuestOwnView(this, record, input, assertOrigin, this.actions, invocation)
     throw new Error('Unknown extension capability')
   }
 
@@ -836,6 +803,7 @@ export class ExtensionGuestOwner {
   }
   updateContext(): void {
     this.connectors?.revalidate()
+    this.sources?.revalidate()
     for (const record of [...this.records.values()]) {
       if (!this.current(record)) this.closeRecord(record)
       else this.sendContext(record)
@@ -868,6 +836,7 @@ export class ExtensionGuestOwner {
       return
     record.visible = demanded
     this.connectors?.revalidate()
+    this.sources?.revalidate()
     this.sendContext(record)
     this.sendValues(record)
     if (record.guestId !== undefined) this.surface.visibility(record.guestId, demanded)
@@ -881,29 +850,32 @@ export class ExtensionGuestOwner {
             : (record.context?.value.surface ?? 'viewer'),
         visible: record.visible,
       }
-    return record.view.role === 'updater'
-      ? {
-          surface: 'updater',
-          visible: record.visible,
-          sessions: boundedExtensionSessions(
-            this.updaterSessions?.(record.activation.installationId) ?? [],
-          ),
-        }
-      : {
-          ...(record.context && this.contexts
-            ? this.contexts.admit(record.owner, {
-                surface: record.context.value
-                  .surface as ExtensionSurfaceRequest['surface'],
-                ...(record.context.value.workspace
-                  ? { workspaceId: record.context.value.workspace.id }
-                  : {}),
-                ...(record.context.value.session
-                  ? { sessionId: record.context.value.session.id }
-                  : {}),
-              }).value
-            : { surface: 'viewer' as const }),
-          visible: record.visible,
-        }
+    return boundedExtensionContext(
+      record.view.role === 'updater'
+        ? {
+            surface: 'updater',
+            visible: record.visible,
+            sessions: boundedExtensionSessions(
+              this.updaterSessions?.(record.activation.installationId) ?? [],
+            ),
+          }
+        : {
+            ...(record.context && this.contexts
+              ? this.contexts.admit(record.owner, {
+                  surface: record.context.value
+                    .surface as ExtensionSurfaceRequest['surface'],
+                  ...(record.context.value.workspace
+                    ? { workspaceId: record.context.value.workspace.id }
+                    : {}),
+                  ...(record.context.value.session
+                    ? { sessionId: record.context.value.session.id }
+                    : {}),
+                }).value
+              : { surface: 'viewer' as const }),
+            visible: record.visible,
+            ...(record.initialInput === undefined ? {} : { input: record.initialInput }),
+          },
+    )
   }
   private sendContext(record: GuestRecord): void {
     if (
@@ -927,7 +899,14 @@ export class ExtensionGuestOwner {
       (capability) =>
         declared.includes(capability) &&
         (record.view.role !== 'updater' ||
-          !['actions.invoke', 'viewer.open-own'].includes(capability)),
+          ![
+            'actions.invoke',
+            'viewer.open-own',
+            'source.select',
+            'source.read',
+            'source.asset',
+            'source.render',
+          ].includes(capability)),
     )
   }
   private byGuest(id: number): GuestRecord | undefined {
@@ -969,8 +948,10 @@ export class ExtensionGuestOwner {
   private closeRecord(record: GuestRecord, notify = true): void {
     if (this.records.get(record.view.id) !== record) return
     this.records.delete(record.view.id)
+    this.sources?.closeView(record.view.id)
     record.authority.dispose()
     this.connectors?.revalidate()
+    this.sources?.revalidate()
     if (record.visible && record.view.role !== 'updater')
       this.visibleContributionsChanged?.()
     this.actions?.revokeView(record.view.id)

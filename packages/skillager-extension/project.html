@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Skills in this project</title>
+    <link rel="stylesheet" href="presentation.css" />
+    <link rel="stylesheet" href="skillager.css" />
+  </head>
+  <body class="hvir-guest" data-view="project">
+    <main>
+      <h1>Skills in this project</h1>
+      <p class="hvir-meta">
+        Registered project observations · Your library remains a separate application
+        destination.
+      </p>
+      <div class="toolbar">
+        <button id="open-library" class="hvir-button">Your library</button
+        ><button id="browse" class="hvir-button">Browse</button
+        ><button id="refresh" class="hvir-button">Refresh</button>
+      </div>
+      <form id="search-form">
+        <input
+          id="query"
+          class="hvir-input"
+          type="search"
+          aria-label="Skillager indexed search"
+          placeholder="Search Skillager index"
+        /><button class="hvir-button" type="submit">Search</button
+        ><label
+          ><input id="include-installed" type="checkbox" checked /> Include
+          installed</label
+        ><label><input id="separate-copies" type="checkbox" /> Separate copies</label
+        ><label
+          >Preferred agent
+          <select id="preferred-agent" class="hvir-input">
+            <option value="">All agents</option>
+            <option value="codex">Codex</option>
+            <option value="claude">Claude</option>
+          </select></label
+        >
+      </form>
+      <p id="state" class="hvir-state" aria-live="polite">Connecting…</p>
+      <div
+        id="skills"
+        class="hvir-list"
+        role="listbox"
+        aria-label="Skill observations"
+      ></div>
+      <nav class="toolbar" aria-label="Skill pages">
+        <button id="previous" class="hvir-button" disabled>Previous</button
+        ><button id="next" class="hvir-button" disabled>Next</button>
+      </nav>
+    </main>
+    <script src="guest-ui.js"></script>
+    <script src="skillager.js"></script>
+  </body>
+</html>
