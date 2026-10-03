@@ -282,23 +282,47 @@ export async function verifyExtensionConnectors(
   )
   const count = (await host.readFile(marker)).length
   await controls.click('Close settings')
+  const afterSettings = await nativeEvidence('revoked-after-settings')
+  if (afterSettings.deliveredContextVisible !== true) {
+    await controls.wait(
+      () =>
+        dom(
+          "(() => { const button=document.querySelector('.project-tab-main'); if(!button?.checkVisibility()||button.disabled)return false; button.click(); return true })()",
+        ),
+      'ordinary connector project destination',
+    )
+    await controls.wait(
+      () =>
+        dom(
+          "(() => { const button=[...document.querySelectorAll('.viewer-tab .tab-main')].find(e=>e.title==='Connector reference · Extension reference'); if(!button?.checkVisibility()||button.disabled)return false; button.click(); return true })()",
+        ),
+      'ordinary connector viewer tab',
+    )
+  }
   await controls.wait(
     () =>
       guest.executeJavaScript(
-        "document.getElementById('native-run')?.disabled === false",
+        "typeof context!=='undefined' && context?.visible===true && requests.size===0 && document.getElementById('native-run')?.disabled===false && document.getElementById('native-run')?.checkVisibility()===true",
       ) as Promise<boolean>,
-    'native run control ready',
+    'revoked native visible current control ready',
   )
+  await nativeEvidence('revoked-before-request')
   await guest.executeJavaScript("document.getElementById('native-run').click()")
-  await controls.wait(
-    async () =>
-      (
-        (await guest.executeJavaScript(
-          "document.getElementById('native-status')?.textContent",
-        )) as string | undefined
-      )?.includes('not-started') === true,
-    'revoked native refusal',
-  )
+  try {
+    await controls.wait(
+      async () =>
+        (
+          (await guest.executeJavaScript(
+            "document.getElementById('native-status')?.textContent",
+          )) as string | undefined
+        )?.includes('not-started') === true,
+      'revoked native refusal',
+    )
+  } catch (error) {
+    await nativeEvidence('revoked-refusal-failed').catch(() => {})
+    throw error
+  }
+  await nativeEvidence('revoked-refusal-complete')
   if ((await host.readFile(marker)).length !== count)
     throw new Error('Revoked connector started new native work')
   await controls.click('Open settings')
@@ -311,6 +335,52 @@ export async function verifyExtensionConnectors(
   console.log(
     '[smoke] native connector discovery/unapproved/probe denial, canonical Settings decision, public result, shared updater without popup and revocation OK',
   )
+
+  async function nativeEvidence(phase: string): Promise<{
+    deliveredContextVisible?: boolean
+  }> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      const sample = (await Promise.race([
+        guest.executeJavaScript(`(() => {
+          const status=document.getElementById('native-status')?.textContent??'';
+          return {
+            deliveredContextVisible:typeof context==='undefined'?null:context?.visible,
+            requests:typeof requests==='undefined'?null:requests.size,
+            disabled:document.getElementById('native-run')?.disabled,
+            controlVisible:document.getElementById('native-run')?.checkVisibility(),
+            status:status.includes('not-started')?'not-started':status.includes('Hidden extension views')?'hidden-view':status.includes('completed')?'completed':status?'other':'empty'
+          };
+        })()`),
+        new Promise((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error('Connector native evidence inspection timed out')),
+            5000,
+          )
+        }),
+      ])) as { deliveredContextVisible?: boolean }
+      console.log(
+        '[smoke] connector revoked request evidence',
+        JSON.stringify({
+          phase,
+          rendererGeneration: owner.generation,
+          rendererCurrent: scopes.isCurrent(owner),
+          admittedViewVisible: guests
+            .visibleViewContributions()
+            .some(
+              (entry) =>
+                entry.view.id === view.id &&
+                entry.owner.id === owner.id &&
+                entry.owner.generation === owner.generation,
+            ),
+          sample,
+        }),
+      )
+      return sample
+    } finally {
+      clearTimeout(timer)
+    }
+  }
 
   function failureKind(failure?: string): string | undefined {
     if (!failure) return undefined
