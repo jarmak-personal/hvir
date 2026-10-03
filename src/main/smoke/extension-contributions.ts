@@ -131,11 +131,63 @@ export async function verifyExtensionContributions(
   await settings()
   await controls.click('Reload')
   await controls.click('Close settings')
-  await controls.wait(
-    () =>
-      guests.snapshot(renderer).filter((view) => view.role === 'updater').length === 1,
-    'one updater for visible rows',
-  )
+  try {
+    await controls.wait(
+      () =>
+        guests.snapshot(renderer).filter((view) => view.role === 'updater').length === 1,
+      'one updater for visible rows',
+    )
+  } catch (error) {
+    let sample: unknown
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    try {
+      sample = await Promise.race([
+        win.webContents.executeJavaScript(`(() => ({
+          settingsOpen:!!document.querySelector('.settings-dialog'),
+          workbenchHidden:document.querySelector('main.workbench')?.hidden ?? null,
+          topDestinationVisible:document.querySelector('.extension-top-destination')?.hidden === false,
+          headerItems:document.querySelectorAll('.terminal-header-actions .extension-terminal-items button').length,
+          sessionItems:document.querySelectorAll('.terminal-list-row .extension-terminal-items button').length,
+          focused:document.hasFocus()
+        }))()`),
+        new Promise((resolve) => {
+          timeout = setTimeout(() => resolve({ deadline: true }), 1000)
+        }),
+      ])
+    } catch {
+      sample = { unavailable: true }
+    } finally {
+      clearTimeout(timeout)
+    }
+    const platform = activation.snapshot()
+    const installation = platform.installations.find(
+      (entry) => entry.installationId === installationId,
+    )
+    const contribution = extensions
+      .contributions!.snapshot()
+      .find((entry) => entry.installationId === installationId)
+    console.log(
+      '[smoke] first contribution updater evidence',
+      JSON.stringify({
+        sample,
+        writable: platform.writable,
+        installationPresent: !!installation,
+        enabled: installation?.enabled,
+        updaterDeclared: !!installation?.manifest?.updater,
+        contributionPresent: !!contribution,
+        contributionUpdaterDeclared: !!contribution?.manifest.updater,
+        contributionError: !!contribution?.error,
+        demandRevoked: contribution?.error === 'Updater demand was revoked',
+        sessionCount: extensions.contexts!.sessions(renderer).length,
+        views: guests
+          .snapshot(renderer)
+          .filter((view) => view.installationId === installationId)
+          .slice(0, 8)
+          .map((view) => ({ role: view.role, failed: !!view.failure })),
+      }).slice(0, 1500),
+    )
+    throw error
+  }
   const updater = guests.snapshot(renderer).find((view) => view.role === 'updater')!
   const updaterGuest = await controls.guest(updater)
   await controls.wait(

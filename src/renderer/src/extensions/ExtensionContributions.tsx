@@ -112,9 +112,14 @@ export function ExtensionContributionsProvider({
       })()
     }
     const dispose = window.hvir.on('extensions:contributions-changed', (value) => {
+      if (!current) return
       updated = true
       setState(value)
       refresh()
+    })
+    const disposeActivation = window.hvir.on('extensions:state-changed', () => {
+      // Reload revokes demand even when the replacement retains the same visible entries.
+      if (current) publishDemand()
     })
     void window.hvir.invoke('extensions:contributions', undefined).then(
       (value) => {
@@ -126,6 +131,7 @@ export function ExtensionContributionsProvider({
     return () => {
       current = false
       void dispose()
+      void disposeActivation()
       currentDemands.clear()
       publishDemand()
     }
