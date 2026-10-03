@@ -9,6 +9,7 @@ import type { LiveSessionMetadataSources } from '../terminal/live-session-metada
 import type { ElectronSmokeDependencies } from './bootstrap-contract'
 import { focusSmokeWindow } from './window-focus'
 import { ensureExplicitBareShellLaunch } from './terminal-explicit-launch'
+import { verifyAuthoringActionExamples } from './extension-authoring-actions'
 
 interface AgentCliOutcome {
   readonly ok: boolean
@@ -17,6 +18,7 @@ interface AgentCliOutcome {
   readonly declaration?: ExtensionAction
   readonly report?: { readonly id: string; readonly handle: string }
   readonly document?: { readonly path: HostPath; readonly content?: never }
+  readonly value?: unknown
 }
 /** Install stable targets before the first window can trigger a terminal spawn. */
 export function prepareAgentSmoke(
@@ -238,6 +240,33 @@ export async function verifyAgentWorkbench(
     (await win.webContents.executeJavaScript('document.activeElement?.id')) !== before
   )
     throw new Error('Reference action failed or stole keyboard focus')
+  await verifyAuthoringActionExamples(
+    win,
+    agents.access,
+    { workspace, session },
+    {
+      run: (id, expected = 0) =>
+        command(
+          [
+            'run',
+            ...target,
+            '--extension',
+            installation,
+            '--action',
+            id,
+            '--input',
+            'null',
+          ],
+          undefined,
+          expected,
+        ),
+      click: (name) => click(win, name),
+      wait,
+    },
+  )
+  await win.webContents.executeJavaScript(
+    "document.getElementById('agent-focus-proof').focus()",
+  )
   const published = await command(
     ['report', ...target, '--title', 'Agent native report', '--stdin'],
     '# Native report\n\n![inert](https://example.invalid/tracking)\n\n[README](README.md)',

@@ -16,7 +16,11 @@ import {
   type AgentRequest,
   type AgentResponse,
 } from '../shared/agent/contract'
-import { parseAgentCommand, staticAgentReference } from '../shared/agent/commands'
+import {
+  parseAgentCommand,
+  staticAgentReference,
+  isLocalAuthoringCommand,
+} from '../shared/agent/commands'
 
 async function invoke(endpoint: string, request: AgentRequest): Promise<AgentResponse> {
   const frame = `${JSON.stringify(request)}\n`
@@ -90,7 +94,7 @@ async function command(): Promise<AgentResponse> {
   }
   const reference = staticAgentReference(parsed, readAgentGuide)
   if (reference) return reference
-  if (['scaffold', 'validate', 'skill'].includes(parsed.name)) {
+  if (isLocalAuthoringCommand(parsed.name)) {
     const [{ LocalHost }, { ExtensionAuthoring }] = await Promise.all([
       import('../main/project-host/local-host'),
       import('../main/extensions/extension-authoring'),

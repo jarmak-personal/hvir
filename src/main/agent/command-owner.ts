@@ -6,7 +6,11 @@ import {
   type AgentRequest,
   type AgentResponse,
 } from '../../shared/agent/contract'
-import { parseAgentCommand, type ParsedAgentCommand } from '../../shared/agent/commands'
+import {
+  parseAgentCommand,
+  isLocalAuthoringCommand,
+  type ParsedAgentCommand,
+} from '../../shared/agent/commands'
 import { hostPath, joinHostPath, type HostPath } from '../../shared/host-path'
 import type { ExtensionContextOwner } from '../extensions/context-owner'
 import type { ExtensionActivation } from '../extensions/activation'
@@ -58,7 +62,7 @@ export class AgentWorkbenchCommandOwner {
         64,
       )
     }
-    if (['scaffold', 'validate', 'skill'].includes(command.name))
+    if (isLocalAuthoringCommand(command.name))
       return agentFailure(
         'local-authoring',
         'Extension authoring runs on the local machine; use the installed local hvir-agent',

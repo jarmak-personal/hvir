@@ -3,7 +3,10 @@ import {
   agentOutput,
   type AgentResponse,
 } from '../../shared/agent/contract'
-import type { ParsedAgentCommand } from '../../shared/agent/commands'
+import {
+  isLocalAuthoringCommand,
+  type ParsedAgentCommand,
+} from '../../shared/agent/commands'
 import { EXTENSION_CONTRACT } from '../../shared/extensions/contract'
 import {
   localPath,
@@ -12,7 +15,7 @@ import {
   type HostPath,
 } from '../../shared/host-path'
 import type { ProjectHost } from '../project-host/project-host'
-import { ExtensionPackageStore } from './package-store'
+import { captureExtensionSource } from './package-store'
 
 /** Local authoring consumes ordinary package policy; it owns no activation or guest authority. */
 export class ExtensionAuthoring {
@@ -21,7 +24,7 @@ export class ExtensionAuthoring {
     private readonly assets: HostPath,
   ) {}
   async command(command: ParsedAgentCommand): Promise<AgentResponse> {
-    if (!['scaffold', 'validate', 'skill'].includes(command.name))
+    if (!isLocalAuthoringCommand(command.name))
       throw new Error('Not a local authoring command')
     if (this.host.hostId !== LOCAL_HOST_ID || command.instance)
       return agentFailure(
@@ -50,9 +53,8 @@ export class ExtensionAuthoring {
           'Select an explicit absolute local --path or --output destination',
         )
       const destination = localPath(selected)
-      const store = new ExtensionPackageStore(this.host, this.assets)
       if (command.name === 'validate') {
-        const revision = await store.captureSource(destination)
+        const revision = await captureExtensionSource(this.host, destination)
         return agentOutput({
           validation: {
             id: revision.manifest.id,
@@ -68,7 +70,8 @@ export class ExtensionAuthoring {
         throw new Error('Local extension storage is unavailable')
       const files =
         command.name === 'scaffold'
-          ? (await store.captureSource(joinHostPath(this.assets, 'clock'))).files
+          ? (await captureExtensionSource(this.host, joinHostPath(this.assets, 'clock')))
+              .files
           : new Map([
               [
                 'SKILL.md',

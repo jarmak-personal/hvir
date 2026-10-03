@@ -207,6 +207,12 @@ export function parseAgentCommand(argv: readonly string[]): ParsedAgentCommand {
     ...(flags['instance'] ? { instance: flags['instance'] } : {}),
   })
 }
+/** Dispatch derives offline local authority from the maintained command declaration. */
+export function isLocalAuthoringCommand(name: string): boolean {
+  return AGENT_COMMANDS.some(
+    (entry) => entry.name === name && entry.access === 'offline local authoring',
+  )
+}
 export function staticAgentReference(
   command: ParsedAgentCommand,
   guide: (topic?: string) => unknown,
@@ -238,31 +244,24 @@ export function staticAgentReference(
     ? agentOutput({
         reference: {
           ...declaration,
-          targeting: [
-            'help',
-            'commands',
-            'guide',
-            'scaffold',
-            'validate',
-            'skill',
-          ].includes(declaration.name)
-            ? ['scaffold', 'validate', 'skill'].includes(declaration.name)
-              ? 'Offline local authoring; --instance is refused. Reads or writes only the explicitly selected local package/output; no application or grants are required.'
-              : 'Offline reference; no instance, workspace or session is required.'
-            : declaration.name === 'instances'
-              ? 'Local endpoint discovery; no selected instance, workspace or session is required.'
-              : `One live instance via protected default or --instance.${
-                  (declaration.flags as readonly string[]).some((flag) =>
-                    ['workspace', 'session'].includes(flag),
-                  )
-                    ? ' Target flags: ' +
-                      declaration.flags
-                        .filter((flag) => ['workspace', 'session'].includes(flag))
-                        .map((flag) => '--' + flag)
-                        .join(', ') +
-                      '; explicit target flags replace terminal target defaults.'
-                    : ' Workspace/session target flags are not accepted.'
-                } Selection never supplies authority.`,
+          targeting: isLocalAuthoringCommand(declaration.name)
+            ? 'Offline local authoring; --instance is refused. Reads or writes only the explicitly selected local package/output; no application or grants are required.'
+            : declaration.access === 'offline'
+              ? 'Offline reference; no instance, workspace or session is required.'
+              : declaration.name === 'instances'
+                ? 'Local endpoint discovery; no selected instance, workspace or session is required.'
+                : `One live instance via protected default or --instance.${
+                    (declaration.flags as readonly string[]).some((flag) =>
+                      ['workspace', 'session'].includes(flag),
+                    )
+                      ? ' Target flags: ' +
+                        declaration.flags
+                          .filter((flag) => ['workspace', 'session'].includes(flag))
+                          .map((flag) => '--' + flag)
+                          .join(', ') +
+                        '; explicit target flags replace terminal target defaults.'
+                      : ' Workspace/session target flags are not accepted.'
+                  } Selection never supplies authority.`,
           exitStatuses: { success: 0, invalid: 64, unavailable: 69, interrupted: 75 },
         },
       })
