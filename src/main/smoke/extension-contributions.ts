@@ -227,6 +227,13 @@ export async function verifyExtensionContributions(
   )
   if (topGuest.isDestroyed()) throw new Error('Top navigation orphaned guest')
   await controls.click('Reference library')
+  await controls.wait(
+    () =>
+      dom(
+        "document.querySelector('.extension-top-destination')?.hidden === false && document.querySelector('main.workbench')?.hidden === true",
+      ),
+    'reopened controlled top destination',
+  )
   await controls.click('Close Reference library')
   await controls.wait(
     () =>
