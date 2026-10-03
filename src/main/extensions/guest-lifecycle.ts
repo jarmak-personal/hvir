@@ -10,9 +10,13 @@ export class ExtensionGuestLifecycle {
   private running = false
   private disposed = false
   private cancel?: () => void
+  private supersedeFreeze?: () => void
 
   constructor(
-    private readonly apply: (state: 'active' | 'frozen') => Promise<void>,
+    private readonly apply: (
+      state: 'active' | 'frozen',
+      renewed: AbortSignal,
+    ) => Promise<'applied' | 'superseded'>,
     private readonly active: () => void,
     private readonly failed: (category: 'timeout' | 'refusal') => void,
   ) {}
@@ -30,7 +34,10 @@ export class ExtensionGuestLifecycle {
     if (this.disposed) return
     this.visible = visible
     this.revision++
-    if (this.running) return
+    if (this.running) {
+      if (this.visible || this.admittedWork) this.supersedeFreeze?.()
+      return
+    }
     this.running = true
     void this.transition()
   }
@@ -43,6 +50,7 @@ export class ExtensionGuestLifecycle {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    this.supersedeFreeze?.()
     this.cancel?.()
   }
 
@@ -50,17 +58,34 @@ export class ExtensionGuestLifecycle {
     const timeout = new Error('Guest lifecycle timed out')
     try {
       while (!this.disposed && this.appliedRevision !== this.revision) {
-        const target = this.visible || this.admittedWork
-        const revision = this.revision
+        let target = this.visible || this.admittedWork
+        let revision = this.revision
         let timer: ReturnType<typeof setTimeout> | undefined
         try {
           await new Promise<void>((resolve, reject) => {
             this.cancel = () => reject(new Error('Guest lifecycle closed'))
             timer = setTimeout(() => reject(timeout), EXTENSION_LIMITS.requestTimeoutMs)
-            void this.apply(target ? 'active' : 'frozen').then(resolve, reject)
+            // Retire obsolete preparation without restarting this transition's deadline.
+            void (async () => {
+              while (!this.disposed) {
+                const renewed = new AbortController()
+                this.supersedeFreeze = target ? undefined : () => renewed.abort()
+                let outcome: 'applied' | 'superseded'
+                try {
+                  outcome = await this.apply(target ? 'active' : 'frozen', renewed.signal)
+                } finally {
+                  this.supersedeFreeze = undefined
+                }
+                if (outcome === 'applied') return
+                target = this.visible || this.admittedWork
+                revision = this.revision
+              }
+            })().then(resolve, reject)
           })
         } finally {
           clearTimeout(timer)
+          this.supersedeFreeze?.()
+          this.supersedeFreeze = undefined
           this.cancel = undefined
         }
         if (this.disposed) return

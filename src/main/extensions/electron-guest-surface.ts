@@ -40,6 +40,7 @@ type EngineFailureStage =
   | 'bootstrap-target'
   | 'observer-command'
   | 'engine-ready'
+  | 'initial-commit'
   | 'load-before-freeze'
   | 'transition-target'
   | 'state-command'
@@ -210,10 +211,13 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
       'bootstrap-target'
     let transitionStage:
       | 'engine-ready'
+      | 'initial-commit'
       | 'load-before-freeze'
       | 'transition-target'
       | 'state-command'
       | 'complete' = 'engine-ready'
+    let attemptedState: 'active' | 'frozen' | undefined
+    let nativeRefusal: 'no-frame' | 'inactive-frame' | 'not-top-level' | 'other' | undefined
     let reported = false
     const reportFailure = (
       stage: EngineFailureStage,
@@ -228,6 +232,11 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
           JSON.stringify({
             stage,
             category,
+            attemptedState: stage === 'state-command' ? attemptedState : undefined,
+            nativeRefusal:
+              stage === 'state-command' && category === 'refusal'
+                ? nativeRefusal
+                : undefined,
             role: view.role === 'updater' ? 'updater' : 'view',
             visible: record.visible,
             admittedWork: record.admittedWork,
@@ -258,19 +267,31 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
             )
         },
       )
-      // The captured response cannot release package code until this exact guest
-      // has native observer-loss monitoring. This does not await document load.
-      void (async () => {
-        await this.assertEngineTarget(record, guest)
-        this.assertLiveGuest(record, guest)
-        bootstrapStage = 'observer-command'
-        await this.sendEngineCommand(record, guest, 'Page.enable')
-        this.assertLiveGuest(record, guest)
-        bootstrapStage = 'engine-ready'
-        record.settleEngine()
-      })().catch((error: unknown) => {
-        record.settleEngine(error instanceof Error ? error : new Error(String(error)))
+      // A lifecycle command requires a committed active native frame, not page load.
+      // Observe before async engine setup; captured code still releases via engineReady.
+      const committed = new Promise<void>((resolve, reject) => {
+        const cleanup = (): void => {
+          guest.removeListener('did-navigate', ready)
+          guest.removeListener('destroyed', closed)
+        }
+        const ready = (_event: Electron.Event, url: string): void => {
+          if (url !== view.url || guest.getURL() !== view.url) return
+          cleanup()
+          resolve()
+        }
+        const closed = (): void => {
+          cleanup()
+          reject(new Error('Guest closed before initial commit'))
+        }
+        // did-navigate is only a successfully committed main-frame navigation.
+        guest.on('did-navigate', ready)
+        guest.once('destroyed', closed)
+        if (guest.getURL() === view.url) {
+          cleanup()
+          resolve()
+        }
       })
+      void committed.catch(() => undefined)
       // Bootstrap may negotiate, but hidden capability admission remains denied.
       // Freezing before navigation can prevent the initial context from loading.
       const loaded = new Promise<void>((resolve, reject) => {
@@ -293,21 +314,69 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
       })
       // A visible bootstrap need not await loaded in its first transition.
       void loaded.catch(() => undefined)
+      // The captured response cannot release package code until this exact guest
+      // has native observer-loss monitoring. This does not await commit or page load.
+      void (async () => {
+        await this.assertEngineTarget(record, guest)
+        this.assertLiveGuest(record, guest)
+        bootstrapStage = 'observer-command'
+        await this.sendEngineCommand(record, guest, 'Page.enable')
+        this.assertLiveGuest(record, guest)
+        bootstrapStage = 'engine-ready'
+        record.settleEngine()
+      })().catch((error: unknown) => {
+        record.settleEngine(error instanceof Error ? error : new Error(String(error)))
+      })
       record.lifecycle = new ExtensionGuestLifecycle(
-        async (state) => {
+        async (state, renewed) => {
           transitionStage = 'engine-ready'
           await record.engineReady
+          transitionStage = 'initial-commit'
+          await Promise.race([committed, record.revoked])
+          this.assertLiveGuest(record, guest)
           transitionStage = 'load-before-freeze'
-          if (state === 'frozen') await Promise.race([loaded, record.revoked])
+          if (state === 'frozen') {
+            // Renewal retires only this wait; issued transition commands stay awaited.
+            if (renewed.aborted) return 'superseded'
+            let resume!: () => void
+            const resumed = new Promise<void>((resolve) => {
+              resume = resolve
+            })
+            renewed.addEventListener('abort', resume, { once: true })
+            try {
+              await Promise.race([loaded, record.revoked, resumed])
+            } finally {
+              renewed.removeEventListener('abort', resume)
+            }
+            if (renewed.aborted) return 'superseded'
+          }
           transitionStage = 'transition-target'
           await this.assertEngineTarget(record, guest)
           this.assertLiveGuest(record, guest)
           transitionStage = 'state-command'
-          await this.sendEngineCommand(record, guest, 'Page.setWebLifecycleState', {
-            state,
-          })
+          attemptedState = state
+          try {
+            await this.sendEngineCommand(record, guest, 'Page.setWebLifecycleState', {
+              state,
+            })
+          } catch (error) {
+            nativeRefusal = 'other'
+            try {
+              const message = error instanceof Error ? error.message : undefined
+              // Electron forwards the pinned Chromium protocol message unchanged.
+              if (message === 'Not attached to a page') nativeRefusal = 'no-frame'
+              else if (message === 'Not attached to an active page')
+                nativeRefusal = 'inactive-frame'
+              else if (message === 'Command can only be executed on top-level targets')
+                nativeRefusal = 'not-top-level'
+            } catch {
+              // Even an unreadable error must preserve the original native refusal.
+            }
+            throw error
+          }
           this.assertLiveGuest(record, guest)
           transitionStage = 'complete'
+          return 'applied'
         },
         () => this.flushPresentation(record),
         (category) => {
