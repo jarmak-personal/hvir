@@ -38,7 +38,7 @@ These are the lines we hold:
 - **No real editing.** "Minor edit + save" only. The moment we add serious editing
   (LSP, refactors, debugger) we are rebuilding VSCode and inheriting its
   weight. Editing is the guardrail; **surfacing information is not.**
-- **Bounded extension packages are permitted for 0.3.0** under [ADR-047](adr/ADR-047-isolated-extension-package-and-capability-boundary.md).
+- **Bounded extension packages are permitted for 0.3.0** under [ADR-054](adr/ADR-054-isolated-extension-package-and-capability-boundary.md).
   No package code runs in main or the trusted workbench renderer. Third-party harness providers,
   terminal engines, unrestricted background execution, and build/task systems remain excluded.
 - **No language servers, no debugger, no build/task system.**
@@ -148,7 +148,7 @@ persistence; hvir does not guess ambient sessions or preserve PTYs in a daemon.
 ### [ADR-007 — Per-tab view mode: rendered / source / diff](adr/ADR-007-explicit-view-modes.md)
 
 > Lifecycle: Partially superseded
-> Superseded by: [ADR-047](adr/ADR-047-isolated-extension-package-and-capability-boundary.md) | partial | Requiring rendered, source, or diff modes for every viewer tab; extension UI uses only its declared meaningful representations.
+> Superseded by: [ADR-054](adr/ADR-054-isolated-extension-package-and-capability-boundary.md) | partial | Requiring rendered, source, or diff modes for every viewer tab; extension UI uses only its declared meaningful representations.
 
 Document tabs expose visible, sticky rendered/source/diff modes with predictable defaults
 and sandboxed HTML rendering. Extension UI uses declared meaningful representations.
@@ -196,12 +196,12 @@ Apple-silicon macOS targets.
 > Superseded by: [ADR-015](adr/ADR-015-missing-resume-artifact-blocks-fresh-launch.md) | partial | Definitely absent or empty resume artifacts implicitly starting a fresh harness.
 > Superseded by: [ADR-024](adr/ADR-024-demand-driven-terminal-workspace-lifecycle.md) | partial | Bare Shell defaults implicitly launching a session in an empty workspace.
 > Superseded by: [ADR-036](adr/ADR-036-retire-static-harness-risk-classification.md) | partial | Provider launch-risk rules, derived risk in profile launch revision, and risk classification and acknowledgment.
-> Superseded by: [ADR-047](adr/ADR-047-isolated-extension-package-and-capability-boundary.md) | partial | General extension-platform prohibition only; trusted bundled harness providers and their separate SDK decision remain unchanged.
+> Superseded by: [ADR-054](adr/ADR-054-isolated-extension-package-and-capability-boundary.md) | partial | General extension-platform prohibition only; trusted bundled harness providers and their separate SDK decision remain unchanged.
 > Superseded by: [ADR-053](adr/ADR-053-local-agent-workbench-access.md) | partial | Protected terminal environment vocabulary only: add instance endpoint and exact workspace/session targeting.
 
 Trusted main-owned providers supply exact harness semantics; data-only profiles customize
 launches without opaque shell commands or third-party harness providers. General extension
-packages use ADR-047's separate isolated capability boundary.
+packages use ADR-054's separate isolated capability boundary.
 
 ### [ADR-013 — User-activated loopback web panes over `ProjectHost` routes](adr/ADR-013-user-activated-loopback-web-panes.md)
 
@@ -215,7 +215,7 @@ a hostile isolated web pane while preserving remote loopback origins.
 > Lifecycle: Partially superseded
 > Superseded by: [ADR-035](adr/ADR-035-bounded-osc52-clipboard-write.md) | partial | Expiry and removal metadata requirement for the named terminal-runtime.ts 600-line non-growth cap.
 > Superseded by: [ADR-040](adr/ADR-040-complete-source-budgets-and-dependency-policy.md) | partial | Architecture hotspot budgets paragraph: complete source budgets and extended dependency enforcement; authority/seam checks stay blocking.
-> Superseded by: [ADR-047](adr/ADR-047-isolated-extension-package-and-capability-boundary.md) | partial | Excluding a plugin platform or additional isolation boundary; capability ownership, inward dependencies, lifecycle, styles, and test discipline remain unchanged.
+> Superseded by: [ADR-054](adr/ADR-054-isolated-extension-package-and-capability-boundary.md) | partial | Excluding a plugin platform or additional isolation boundary; capability ownership, inward dependencies, lifecycle, styles, and test discipline remain unchanged.
 
 Feature ownership, inward dependency direction, typed resource lifetimes, explicit style
 order, seam checks, and blocking hotspot ratchets govern the existing process boundaries.
@@ -505,17 +505,6 @@ React owns cleanup of its development Performance measures; a development-only E
 uses browser observation to prove fixture-specific React work and an empty retained measure set
 without adding product instrumentation.
 
-### [ADR-047 — Isolated extension packages and the public capability boundary](adr/ADR-047-isolated-extension-package-and-capability-boundary.md)
-
-> Lifecycle: Active
-> Supersedes: [ADR-007](adr/ADR-007-explicit-view-modes.md) | partial | Requiring rendered, source, or diff modes for every viewer tab; extension UI uses only its declared meaningful representations.
-> Supersedes: [ADR-012](adr/ADR-012-harness-providers-launch-profiles.md) | partial | General extension-platform prohibition only; trusted bundled harness providers and their separate SDK decision remain unchanged.
-> Supersedes: [ADR-014](adr/ADR-014-modular-monolith-ownership.md) | partial | Excluding a plugin platform or additional isolation boundary; capability ownership, inward dependencies, lifecycle, styles, and test discipline remain unchanged.
-
-Validated immutable packages run in isolated guests through a scoped public capability contract.
-Explicit revision and permission decisions retain separate authority; application-level viewing
-does not grant project access. The initial directory-to-view slice needs no later capability.
-
 ### [ADR-048 — Rust client source coverage and dependency evidence](adr/ADR-048-rust-client-source-policy.md)
 
 > Lifecycle: Active
@@ -565,6 +554,17 @@ optional guest assets; theme/settings, feature layout and authority retain their
 
 Private local sockets adapt existing public capability owners with independent standing
 agent access, exact finite destructive confirmation and workspace-owned inert reports.
+
+### [ADR-054 — Isolated extension packages and the public capability boundary](adr/ADR-054-isolated-extension-package-and-capability-boundary.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-007](adr/ADR-007-explicit-view-modes.md) | partial | Requiring rendered, source, or diff modes for every viewer tab; extension UI uses only its declared meaningful representations.
+> Supersedes: [ADR-012](adr/ADR-012-harness-providers-launch-profiles.md) | partial | General extension-platform prohibition only; trusted bundled harness providers and their separate SDK decision remain unchanged.
+> Supersedes: [ADR-014](adr/ADR-014-modular-monolith-ownership.md) | partial | Excluding a plugin platform or additional isolation boundary; capability ownership, inward dependencies, lifecycle, styles, and test discipline remain unchanged.
+
+Validated immutable packages run in isolated guests through a scoped public capability contract.
+Explicit revision and permission decisions retain separate authority; application-level viewing
+does not grant project access. The initial directory-to-view slice needs no later capability.
 
 ## 5. Architecture
 

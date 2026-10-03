@@ -3,7 +3,7 @@
 hvir is deliberately smaller than an IDE. Contributions should reinforce its view-first,
 agent-aware workflow without quietly widening the product into an editor, task runner, or
 session orchestrator. The 0.3.0 extension platform follows
-[ADR-047](docs/adr/ADR-047-isolated-extension-package-and-capability-boundary.md): packages run in isolated guests through scoped public
+[ADR-054](docs/adr/ADR-054-isolated-extension-package-and-capability-boundary.md): packages run in isolated guests through scoped public
 capabilities. Third-party harness providers and terminal engines remain excluded.
 
 The repository-owned skills are for hvir contributors and maintainers. People using the hvir
