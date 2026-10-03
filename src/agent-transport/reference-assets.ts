@@ -2,6 +2,15 @@ import { readFileSync, existsSync } from 'node:fs'
 import { resolve, dirname, basename } from 'node:path'
 
 import { AGENT_GUIDE_TOPICS as topics } from '../shared/agent/reference-catalog'
+/** Fixed native resources, with development assets resolved from this compiled entry, never cwd. */
+export function installedAuthoringAssets(): string {
+  const directory = basename(__dirname) === 'chunks' ? dirname(__dirname) : __dirname
+  const packaged = resolve(directory, '../../../extension-authoring')
+  return existsSync(resolve(packaged, 'clock/hvir-extension.json')) &&
+    existsSync(resolve(packaged, 'SKILL.md'))
+    ? packaged
+    : resolve(directory, '../../packages/extension-authoring')
+}
 /** Static reference reads only fixed installed assets; it never starts a runtime owner. */
 export function readAgentGuide(topic?: string): unknown {
   if (!topic) return Object.entries(topics).map(([id, title]) => ({ id, title }))

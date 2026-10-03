@@ -36,6 +36,34 @@ export const AGENT_COMMANDS = [
     example: 'hvir-agent guide targeting',
   },
   {
+    name: 'scaffold',
+    summary: 'Create an inspectable clock package at a new local directory.',
+    flags: ['output'],
+    access: 'offline local authoring',
+    input: 'Explicit absolute --output directory',
+    output: 'New package; never enabled or launched',
+    example: 'hvir-agent scaffold --output /absolute/clock',
+  },
+  {
+    name: 'validate',
+    summary:
+      'Validate a local directory, ZIP or development link without executing code.',
+    flags: ['path'],
+    access: 'offline local authoring',
+    input: 'Explicit absolute --path package',
+    output: 'Ordinary package validation result and warnings',
+    example: 'hvir-agent validate --path /absolute/clock',
+  },
+  {
+    name: 'skill',
+    summary: 'Inspect the optional authoring skill or export it to a new local file.',
+    flags: ['output'],
+    access: 'offline local authoring',
+    input: 'Optional explicit absolute --output file',
+    output: 'Exact shipped skill; no harness configuration is changed',
+    example: 'hvir-agent skill',
+  },
+  {
     name: 'instances',
     summary: 'List running local instance endpoints.',
     flags: [],
@@ -203,15 +231,24 @@ export function staticAgentReference(
   const name = command.positionals[0]
   if (!name)
     return agentOutput({
-      help: `hvir-agent · installed contract ${AGENT_CONTRACT}\nInspect workspaces/sessions, open documents/views, publish reports, run admitted actions.\nUse commands for the index, help COMMAND for focused reference, guide for topics.\nLive operations require Settings > Extensions > Agent access; --instance selects an endpoint.`,
+      help: `hvir-agent · installed contract ${AGENT_CONTRACT}\nInspect context, present work, run admitted actions, or scaffold local extensions.\nUse commands for the index, help COMMAND for focused reference, guide for topics.\nLive operations require Settings > Extensions > Agent access; --instance selects an endpoint.`,
     })
   const declaration = AGENT_COMMANDS.find((entry) => entry.name === name)
   return declaration
     ? agentOutput({
         reference: {
           ...declaration,
-          targeting: ['help', 'commands', 'guide'].includes(declaration.name)
-            ? 'Offline reference; no instance, workspace or session is required.'
+          targeting: [
+            'help',
+            'commands',
+            'guide',
+            'scaffold',
+            'validate',
+            'skill',
+          ].includes(declaration.name)
+            ? ['scaffold', 'validate', 'skill'].includes(declaration.name)
+              ? 'Offline local authoring; --instance is refused. Reads or writes only the explicitly selected local package/output; no application or grants are required.'
+              : 'Offline reference; no instance, workspace or session is required.'
             : declaration.name === 'instances'
               ? 'Local endpoint discovery; no selected instance, workspace or session is required.'
               : `One live instance via protected default or --instance.${

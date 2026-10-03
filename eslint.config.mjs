@@ -46,7 +46,7 @@ const IPC_RENDERER_BAN = {
 
 const EXTENSION_PACKAGE_IMPORT_BAN = {
   selector:
-    "ImportDeclaration[source.value=/packages\\/(extension-reference|skillager-extension)(\\/|$)/], ExportNamedDeclaration[source.value=/packages\\/(extension-reference|skillager-extension)(\\/|$)/], ExportAllDeclaration[source.value=/packages\\/(extension-reference|skillager-extension)(\\/|$)/], ImportExpression[source.value=/packages\\/(extension-reference|skillager-extension)(\\/|$)/], TSImportType[source.value=/packages\\/(extension-reference|skillager-extension)(\\/|$)/], CallExpression[callee.name='require'] > Literal.arguments[value=/packages\\/(extension-reference|skillager-extension)(\\/|$)/]",
+    "ImportDeclaration[source.value=/packages\\/(extension-reference|extension-authoring|skillager-extension)(\\/|$)/], ExportNamedDeclaration[source.value=/packages\\/(extension-reference|extension-authoring|skillager-extension)(\\/|$)/], ExportAllDeclaration[source.value=/packages\\/(extension-reference|extension-authoring|skillager-extension)(\\/|$)/], ImportExpression[source.value=/packages\\/(extension-reference|extension-authoring|skillager-extension)(\\/|$)/], TSImportType[source.value=/packages\\/(extension-reference|extension-authoring|skillager-extension)(\\/|$)/], CallExpression[callee.name='require'] > Literal.arguments[value=/packages\\/(extension-reference|extension-authoring|skillager-extension)(\\/|$)/]",
   message:
     'Core and public contracts never import extension example or Skillager package implementations; consume the public extension contract.',
 }
@@ -202,6 +202,14 @@ export default tseslint.config(
     ),
   },
 
+  {
+    files: ['packages/extension-authoring/**/*.{js,mjs,ts,tsx,mts,cts}'],
+    rules: dependencyDirectionRules(
+      '^node:|^electron$|(^|/)(main|workers|renderer|preload)(/|$)|(^|/)packages/(?!extension-authoring/)',
+      'Authoring starters consume public contracts and browser-safe guest UI only, including type-only references.',
+    ),
+  },
+
   // Extension package policy and caller lifetime consume ports, never their Electron/native edges.
   {
     files: [
@@ -211,6 +219,7 @@ export default tseslint.config(
       'src/main/extensions/guest-owner.ts',
       'src/main/extensions/guest-lifecycle.ts',
       'src/main/extensions/package-store.ts',
+      'src/main/extensions/extension-authoring.ts',
     ],
     rules: dependencyDirectionRules(
       '^electron$|^@hvir/extension-storage$|(^|/)project-host/(local|ssh)-|(^|/)electron-|(^|/)window(/|$)|(^|/)(preload|renderer)(/|$)',
@@ -491,9 +500,36 @@ export default tseslint.config(
     },
   },
 
-  // Fixed endpoint filesystem mechanics and standalone read-only bootstrap assets.
+  // Private native descriptor loader shared by LocalHost storage mechanics only.
+  {
+    files: ['src/main/project-host/local-extension-storage-binding.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            ...HOST_PRIMITIVE_BANS.filter(
+              ({ name }) => name !== '@hvir/extension-storage',
+            ),
+            IPC_RENDERER_BAN,
+          ],
+        },
+      ],
+      'no-restricted-syntax': [
+        'error',
+        SPAWN_PTY_BAN,
+        EXTENSION_PACKAGE_IMPORT_BAN,
+        ...DYNAMIC_HOST_IMPORT_BANS.filter(
+          (entry) => !entry.selector.includes('@hvir/extension-storage'),
+        ),
+      ],
+    },
+  },
+
+  // Focused LocalHost filesystem mechanics and standalone fixed bootstrap asset reads.
   {
     files: [
+      'src/main/project-host/local-extension-authoring.ts',
       'src/main/project-host/local-agent-endpoint.ts',
       'src/agent-transport/endpoint-directory.ts',
       'src/agent-transport/reference-assets.ts',

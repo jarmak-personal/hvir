@@ -1,0 +1,9 @@
+# Visibility, updater demand and cleanup
+
+Installed extension contract: 1.0. Subscribe to bridge replies before hello. hello reports admitted capabilities and presentation. A context.read request returns current context; subsequent context messages replace it. context.visible is trusted refresh demand for the exact guest. Stop ordinary timers/subscriptions when false, resume from current data when true, and unsubscribe on revoked/pagehide. The scaffold clock immediately samples current time on renewed visibility.
+
+One manifest updater HTML entry is separate from ordinary views. hvir hosts at most one updater per active installation. It can read context and publish presentation observations. It cannot open views, execute agent actions, mutate files or hand work to terminals. Several visible rows share it. A full visible terminal rail creates demand without any popup; compact, collapsed, hidden and background surfaces do not. Settings obscuring the workbench removes ordinary demand.
+
+No demand freezes ordinary updater work and denies refresh. On return, hvir publishes current context before resuming runnable work. Failed refresh changes observation availability to stale, disconnected or failed as appropriate; retained labels are never mutation authority. A failed updater is latched for the hosting renderer generation; explicit activation revision or disable/enable recovers it. Physical old-guest teardown drains before successor hosting.
+
+An admitted named action pins caller, installation, authorization, input and exact target. Hiding its view stops ordinary refresh but permits the finite admitted invocation; closing or context revocation cancels it. Do not confuse that action lifetime with updater demand. action-cancelled identifies the invocation; stop associated work and refuse late completion. Disable/Reload/Replace/writer loss/exit revoke before disposal. See `guide actions`, `guide examples`, `guide development`.

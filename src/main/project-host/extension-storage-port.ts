@@ -26,6 +26,13 @@ export interface ExtensionSource {
 }
 
 export interface ExtensionStoragePort {
+  /** Explicit local authoring destination; descriptor-relative no-follow, no-replace publication. */
+  materializeAuthoring(
+    path: HostPath,
+    files: ReadonlyMap<string, Uint8Array>,
+    kind: 'directory' | 'file',
+  ): Promise<void>
+
   removeDevelopmentLink(
     path: HostPath,
     identity: string,

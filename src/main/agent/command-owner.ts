@@ -58,6 +58,12 @@ export class AgentWorkbenchCommandOwner {
         64,
       )
     }
+    if (['scaffold', 'validate', 'skill'].includes(command.name))
+      return agentFailure(
+        'local-authoring',
+        'Extension authoring runs on the local machine; use the installed local hvir-agent',
+        64,
+      )
     if (connection.origin === 'ssh-forward' && !this.ports.forwardScopes)
       return agentFailure('unavailable', 'SSH agent scope is unavailable')
     if (

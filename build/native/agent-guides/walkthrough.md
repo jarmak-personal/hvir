@@ -20,4 +20,4 @@ visible rail or open Sessions destination is needed. Run `hvir-agent actions`, t
 Use its reported action ID and schema with `hvir-agent run --extension INSTALLATION --action ID
 --input null`. Outside hvir also supply the instance, workspace and reported session ID for
 this session-qualified action. If an action is unavailable, workspace inspection and reports
-remain usable. Detailed extension authoring/starter topics are supplied by the authoring capability.
+remain usable. Read `hvir-agent guide authoring` to scaffold a UI-only clock independently of live access.

@@ -120,6 +120,9 @@ listen((message) => {
           value: {
             session: invocation.context.session?.id ?? null,
             caller: invocation.caller,
+            ...(invocation.action === 'preview-replacement'
+              ? { previewOnly: true, changedFiles: 0 }
+              : {}),
           },
         })
         status.textContent = `Action completed · ${invocation.id}`

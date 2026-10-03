@@ -67,6 +67,21 @@ async function originalMessages(owner: string, source: string) {
 describe('resolved adapter for existing dependency direction policy', () => {
   it.each([
     [
+      'src/main/extensions/extension-authoring.ts',
+      'packages/extension-authoring/clock/clock.js',
+      '../../../packages/extension-authoring/clock/clock',
+    ],
+    [
+      'packages/extension-authoring/clock/clock.ts',
+      'src/main/extensions/guest-owner.ts',
+      '../../../src/main/extensions/guest-owner',
+    ],
+    [
+      'src/main/extensions/extension-authoring.ts',
+      'src/main/project-host/local-extension-storage.ts',
+      '../project-host/local-extension-storage',
+    ],
+    [
       'src/shared/presentation/tokens.ts',
       'src/renderer/src/settings/settings-model.ts',
       '../../renderer/src/settings/settings-model',

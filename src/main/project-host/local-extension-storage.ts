@@ -1,8 +1,9 @@
 /** Immediate local extension-storage effects, private to the LocalHost facade. */
 import { constants, close, fstat, read, type Stats } from 'node:fs'
 import { promises as fs } from 'node:fs'
-import { createRequire } from 'node:module'
 import { promisify } from 'node:util'
+import { extensionStorageBinding as binding } from './local-extension-storage-binding'
+import { materializeLocalExtensionAssets } from './local-extension-authoring'
 import { basename, dirname } from 'node:path'
 import { LOCAL_HOST_ID, type HostPath } from '../../shared/host-path'
 import type {
@@ -12,30 +13,9 @@ import type {
   ExtensionSource,
 } from './extension-storage-port'
 
-interface ExtensionStorageBinding {
-  metadata(): string
-  lockWriter(fd: number): boolean
-  openChild(fd: number, name: string, directory: boolean): number
-  entryNames(fd: number, limit: number): string[]
-  unlinkChild(
-    fd: number,
-    name: string,
-    directory: boolean,
-    dev: number,
-    ino: number,
-  ): void
-}
-const loadNative = createRequire(import.meta.url)
 const closeDescriptor = promisify(close)
 const inspectDescriptor = promisify(fstat)
 const readDescriptor = promisify(read)
-
-function binding(): ExtensionStorageBinding {
-  const candidate = loadNative('@hvir/extension-storage') as ExtensionStorageBinding
-  if (candidate.metadata() !== 'hvir.extension-storage.v1')
-    throw new Error('Extension storage native support is unavailable')
-  return candidate
-}
 
 function local(path: HostPath): string {
   if (path.hostId !== LOCAL_HOST_ID || !path.path.startsWith('/'))
@@ -48,6 +28,13 @@ function sameEntry(left: Stats, right: Stats): boolean {
 }
 
 export class LocalExtensionStorage implements ExtensionStoragePort {
+  materializeAuthoring(
+    path: HostPath,
+    files: ReadonlyMap<string, Uint8Array>,
+    kind: 'directory' | 'file',
+  ): Promise<void> {
+    return materializeLocalExtensionAssets(path, files, kind)
+  }
   async removeDevelopmentLink(
     path: HostPath,
     identity: string,

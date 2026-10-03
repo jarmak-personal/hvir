@@ -551,6 +551,7 @@ optional guest assets; theme/settings, feature layout and authority retain their
 
 > Lifecycle: Partially superseded
 > Superseded by: [ADR-055](adr/ADR-055-connection-scoped-remote-agent-client.md) | partial | Application-local transport and client-only reference response ownership, only for SSH-forwarded requests and live remote reference commands, plus protected client-path/unavailable metadata and transport-owned PATH setup.
+> Superseded by: [ADR-056](adr/ADR-056-explicit-local-extension-authoring.md) | partial | Standalone CLI physical filesystem edge limited to fixed shipped reference reads, for explicit local scaffold, validate and skill export only.
 > Supersedes: [ADR-012](adr/ADR-012-harness-providers-launch-profiles.md) | partial | Protected terminal environment vocabulary only: add instance endpoint and exact workspace/session targeting.
 > Supersedes: [ADR-009](adr/ADR-009-hierarchical-attention.md) | partial | Terminal-only attention vocabulary: add separate quiet report attention, cleared by viewing that report.
 
@@ -576,6 +577,14 @@ does not grant project access. The initial directory-to-view slice needs no late
 
 A transport-only bundled Rust client reaches one host-scoped, generation-pinned SSH forward,
 with bounded private cache retention and explicit additional capability grants.
+
+### [ADR-056 — Explicit local extension authoring](adr/ADR-056-explicit-local-extension-authoring.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-053](adr/ADR-053-local-agent-workbench-access.md) | partial | Standalone CLI physical filesystem edge limited to fixed shipped reference reads, for explicit local scaffold, validate and skill export only.
+
+Explicit offline scaffold, validation and skill export share package policy and descriptor-relative
+local storage while public starter lifetimes and ordinary enablement retain their existing owners.
 
 ## 5. Architecture
 

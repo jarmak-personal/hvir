@@ -47,6 +47,34 @@ static napi_value open_child(napi_env env, napi_callback_info info) {
   return result;
 }
 
+/* Exclusive creation stays relative to an already opened, no-follow parent. */
+static napi_value create_child(napi_env env, napi_callback_info info) {
+  size_t count = 3, length;
+  napi_value args[3], result;
+  char name[256];
+  int parent;
+  bool directory;
+  napi_get_cb_info(env, info, &count, args, NULL, NULL);
+  if (count != 3 || !get_fd(env, args[0], &parent) ||
+      napi_get_value_string_utf8(env, args[1], NULL, 0, &length) != napi_ok || length == 0 || length >= sizeof(name) ||
+      napi_get_value_bool(env, args[2], &directory) != napi_ok) return failure(env, "Invalid authoring entry");
+  napi_get_value_string_utf8(env, args[1], name, sizeof(name), &length);
+  if (strlen(name) != length || strchr(name, '/') || strcmp(name, ".") == 0 || strcmp(name, "..") == 0) return failure(env, "Invalid authoring entry name");
+  if (directory && mkdirat(parent, name, 0700) != 0) return failure(env, "Authoring staging directory could not be created");
+  int fd = openat(parent, name, O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK |
+    (directory ? O_RDONLY | O_DIRECTORY : O_WRONLY | O_CREAT | O_EXCL), 0600);
+  if (fd < 0) return failure(env, "Authoring entry could not be created without replacing content");
+  struct stat opened, named;
+  if (fstat(fd, &opened) != 0 || fstatat(parent, name, &named, AT_SYMLINK_NOFOLLOW) != 0 ||
+      opened.st_dev != named.st_dev || opened.st_ino != named.st_ino ||
+      (directory ? !S_ISDIR(opened.st_mode) : !S_ISREG(opened.st_mode))) {
+    close(fd);
+    return failure(env, "Authoring entry changed during creation; preserved for inspection");
+  }
+  napi_create_int32(env, fd, &result);
+  return result;
+}
+
 static napi_value unlink_child(napi_env env, napi_callback_info info) {
   size_t count = 5, length;
   napi_value args[5], result;
@@ -109,6 +137,7 @@ static napi_value initialize(napi_env env, napi_value exports) {
   napi_property_descriptor properties[] = {
     {"lockWriter", NULL, lock_writer, NULL, NULL, NULL, napi_default, NULL},
     {"openChild", NULL, open_child, NULL, NULL, NULL, napi_default, NULL},
+    {"createChild", NULL, create_child, NULL, NULL, NULL, napi_default, NULL},
     {"unlinkChild", NULL, unlink_child, NULL, NULL, NULL, napi_default, NULL},
     {"entryNames", NULL, entry_names, NULL, NULL, NULL, napi_default, NULL},
     {"metadata", NULL, metadata, NULL, NULL, NULL, napi_default, NULL}
