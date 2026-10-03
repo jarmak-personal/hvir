@@ -7,7 +7,7 @@ import type { RendererResourceScopes, RendererOwner } from '../renderer-resource
 import type { RendererEventPublisher } from '../renderer-event-publisher'
 import type { ExtensionApplicationRuntime } from '../extensions/extension-application'
 import type { PtySupervisor, PtyAgentTarget } from '../pty/pty-supervisor'
-import { readAgentGuide } from '../../agent-transport/reference-assets'
+import { plannedAgentEndpoint } from '../project-host/local-agent-endpoint'
 import { AgentReportOwner } from '../viewer/agent-report-owner'
 import { LocalAgentAccessOwner } from './access-owner'
 import { AgentWorkbenchCommandOwner } from './command-owner'
@@ -18,6 +18,8 @@ export class AgentApplicationRuntime {
   readonly reports: AgentReportOwner
   readonly access: LocalAgentAccessOwner
   private socket?: LocalAgentSocketServer
+  private commands?: AgentWorkbenchCommandOwner
+  private socketWork: Promise<void> = Promise.resolve()
   private host?: ProjectHost
   private starting?: Promise<void>
   private stopped = false
@@ -33,10 +35,15 @@ export class AgentApplicationRuntime {
       events.toWindows('agent:reports-changed', this.reports.snapshot()),
     )
     this.access = new LocalAgentAccessOwner(
-      () => events.toWindows('agent:access-changed', this.access.snapshot()),
+      () => {
+        if (!this.access.snapshot().enabled)
+          void this.closeEndpoint().catch(() => undefined)
+        events.toWindows('agent:access-changed', this.access.snapshot())
+      },
       async (settings) => {
         if (!this.host || this.stopped)
           throw new Error('Agent access storage is unavailable')
+        await this.reconcileEndpoint()
         await this.host.writeFile(
           joinHostPath(this.userData, 'agent-access.json'),
           JSON.stringify(settings),
@@ -59,7 +66,13 @@ export class AgentApplicationRuntime {
     hosts: Pick<ProjectHostCatalog, 'hostById'>,
     ptys: PtySupervisor,
   ): Promise<void> {
-    return (this.starting ??= this.initialize(host, sources, hosts, ptys).catch(
+    if (!this.disposeEnvironment) {
+      this.access.endpoint = plannedAgentEndpoint(this.access.instance)
+      this.disposeEnvironment = ptys.agentEnvironment((target) =>
+        this.terminalEnvironment(target),
+      )
+    }
+    return (this.starting ??= this.initialize(host, sources, hosts).catch(
       (reason: unknown) => {
         this.access.explanation = `Agent access could not start: ${reason instanceof Error ? reason.message.slice(0, 160) : 'endpoint unavailable'}`
         this.access.dispose()
@@ -72,7 +85,6 @@ export class AgentApplicationRuntime {
     host: ProjectHost,
     sources: LiveSessionMetadataSources,
     hosts: Pick<ProjectHostCatalog, 'hostById'>,
-    ptys: PtySupervisor,
   ): Promise<void> {
     this.host = host
     try {
@@ -87,7 +99,7 @@ export class AgentApplicationRuntime {
       this.access.restore(undefined)
     }
     if (this.stopped) return
-    const commands = new AgentWorkbenchCommandOwner({
+    this.commands = new AgentWorkbenchCommandOwner({
       contexts: () => this.extensions.contexts,
       activeInstallations: () => [
         ...(this.extensions.activations?.active.values() ?? []),
@@ -114,19 +126,10 @@ export class AgentApplicationRuntime {
       host: (id) => hosts.hostById(id),
       openDocument: (owner, document) =>
         this.events.toRenderer(owner, 'agent:document-opened', document),
-      guide: readAgentGuide,
     })
-    this.socket = new LocalAgentSocketServer((request, connection) =>
-      commands.run(request, connection),
-    )
-    this.access.endpoint = await this.socket.start(this.access.instance)
-    if (this.stopped) {
-      await this.socket.dispose()
-      return
-    }
-    this.disposeEnvironment = ptys.agentEnvironment((target) =>
-      this.terminalEnvironment(target),
-    )
+    await this.reconcileEndpoint()
+    if (this.stopped) return
+    this.access.ready = true
     const retainReports = (): void => {
       const ids = new Set(
         sources
@@ -149,6 +152,43 @@ export class AgentApplicationRuntime {
     }
     retainReports()
     this.events.toWindows('agent:access-changed', this.access.snapshot())
+  }
+  private closeEndpoint(): Promise<void> {
+    const socket = this.socket
+    this.socket = undefined
+    if (!socket) return this.socketWork
+    const closing = socket.dispose()
+    return (this.socketWork = Promise.all([
+      this.socketWork.catch(() => undefined),
+      closing,
+    ]).then(() => undefined))
+  }
+  private reconcileEndpoint(): Promise<void> {
+    if (!this.access.snapshot().enabled || this.stopped) return this.closeEndpoint()
+    return (this.socketWork = this.socketWork
+      .catch(() => undefined)
+      .then(async () => {
+        if (
+          !this.access.snapshot().enabled ||
+          this.stopped ||
+          this.socket ||
+          !this.commands
+        )
+          return
+        const commands = this.commands
+        const socket = new LocalAgentSocketServer((request, connection) =>
+          commands.run(request, connection),
+        )
+        this.socket = socket
+        await socket.start(this.access.instance)
+        if (this.socket !== socket || this.stopped || !this.access.snapshot().enabled)
+          await socket.dispose()
+      }))
+  }
+  async configure(value: unknown): Promise<void> {
+    await this.starting
+    if (!this.access.ready || this.stopped) throw new Error('Agent access is not ready')
+    await this.access.configure(value)
   }
   async configureExtension(installation: string, enabled: boolean): Promise<void> {
     if (!this.extensions.activations) throw new Error('Extension actions are unavailable')
@@ -174,11 +214,12 @@ export class AgentApplicationRuntime {
     target: PtyAgentTarget,
   ): Readonly<Record<string, string>> | undefined {
     const context = this.extensions.contexts?.launchTarget(target)
-    if (!context || !this.access.endpoint || this.stopped) return undefined
+    if (!this.access.endpoint || this.stopped) return undefined
     return {
       HVIR_AGENT_ENDPOINT: this.access.endpoint,
-      HVIR_AGENT_WORKSPACE: context.workspace,
-      HVIR_AGENT_SESSION: context.session,
+      ...(context
+        ? { HVIR_AGENT_WORKSPACE: context.workspace, HVIR_AGENT_SESSION: context.session }
+        : {}),
     }
   }
   async dispose(): Promise<void> {
@@ -188,7 +229,7 @@ export class AgentApplicationRuntime {
     this.disposeEnvironment?.()
     this.disposeProjects?.()
     await this.starting?.catch(() => undefined)
-    await this.socket?.dispose()
+    await this.closeEndpoint()
     this.reports.dispose()
   }
 }

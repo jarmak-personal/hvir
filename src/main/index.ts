@@ -404,8 +404,8 @@ function createWorkbenchEntry(): void {
       }),
       (router) => router.dispose(),
     )
-    createWindow() // Paint before background watch and Git discovery touches a slow directory.
     void surfaces.start(sessionsPorts.context, hostCatalog, ptySupervisor)
+    createWindow() // Paint before background watch and Git discovery touches a slow directory.
     if (projectRegistry.active.host.connectionState === 'connected') {
       void workspaceCoordinator
         .replaceWatch(projectRegistry.active)

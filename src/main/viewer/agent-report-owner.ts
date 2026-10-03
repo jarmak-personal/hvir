@@ -9,7 +9,6 @@ import type { HostPath } from '../../shared/host-path'
 interface RetainedReport {
   report: AgentReport
   readonly handle: string
-  readonly connection: string
   bytes: number
 }
 /** Viewer content identity and retention, independent of diagnostic and terminal attention. */
@@ -27,7 +26,6 @@ export class AgentReportOwner {
     return report
   }
   publish(
-    connection: string,
     workspace: string,
     root: HostPath,
     title: string,
@@ -51,18 +49,10 @@ export class AgentReportOwner {
     )
       throw new Error('Report handle is stale or belongs to another target')
     const current = [...this.retained.values()].filter((entry) => entry !== previous)
-    const chargedConnection = previous?.connection ?? connection
     if (
       current.length >= AGENT_LIMITS.reports ||
       current.reduce((total, entry) => total + entry.bytes, 0) + bytes >
-        AGENT_LIMITS.reportTotalBytes ||
-      current.filter((entry) => entry.connection === chargedConnection).length >=
-        AGENT_LIMITS.reportsPerConnection ||
-      current
-        .filter((entry) => entry.connection === chargedConnection)
-        .reduce((total, entry) => total + entry.bytes, 0) +
-        bytes >
-        AGENT_LIMITS.reportConnectionBytes
+        AGENT_LIMITS.reportTotalBytes
     )
       throw new Error('Report capacity is full; close unused reports')
     const id = previous?.report.id ?? randomUUID(),
@@ -79,7 +69,6 @@ export class AgentReportOwner {
         version: (previous?.report.version ?? 0) + 1,
       },
       handle: replacementHandle,
-      connection: previous?.connection ?? connection,
       bytes,
     })
     this.changed()

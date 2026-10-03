@@ -6,11 +6,7 @@ import {
   type AgentRequest,
   type AgentResponse,
 } from '../../shared/agent/contract'
-import {
-  parseAgentCommand,
-  staticAgentReference,
-  type ParsedAgentCommand,
-} from '../../shared/agent/commands'
+import { parseAgentCommand, type ParsedAgentCommand } from '../../shared/agent/commands'
 import { hostPath, joinHostPath, type HostPath } from '../../shared/host-path'
 import type { ExtensionContextOwner } from '../extensions/context-owner'
 import type { ExtensionActivation } from '../extensions/activation'
@@ -40,7 +36,6 @@ export interface AgentWorkbenchPorts {
     owner: RendererOwner,
     document: { workspace: string; root: HostPath; path: HostPath },
   ) => void
-  readonly guide: (topic?: string) => unknown
 }
 /** Commands adapt existing capability owners; parser/reference contain no live authorization. */
 export class AgentWorkbenchCommandOwner {
@@ -52,8 +47,12 @@ export class AgentWorkbenchCommandOwner {
     } catch (reason) {
       return agentFailure('invalid-command', message(reason), 64)
     }
-    const reference = staticAgentReference(command, this.ports.guide)
-    if (reference) return reference
+    if (['help', 'commands', 'guide'].includes(command.name))
+      return agentFailure(
+        'client-reference',
+        'Static reference commands are answered by hvir-agent without a live connection',
+        64,
+      )
     try {
       if (command.name === 'instances')
         return agentOutput({
@@ -64,8 +63,14 @@ export class AgentWorkbenchCommandOwner {
       admitted.current()
       const contexts = this.ports.contexts()
       if (!contexts) throw new Error('Workspace context is unavailable')
-      const workspace = command.flags['workspace'] ?? request.defaults.workspace
-      const session = command.flags['session'] ?? request.defaults.session
+      const explicitTarget =
+        command.flags['workspace'] !== undefined || command.flags['session'] !== undefined
+      const workspace =
+        command.flags['workspace'] ??
+        (explicitTarget ? undefined : request.defaults.workspace)
+      const session =
+        command.flags['session'] ??
+        (explicitTarget ? undefined : request.defaults.session)
       // Validate stale defaults even for metadata discovery; never silently discard them.
       const owner = session
         ? contexts.sessionOwner(session)
@@ -132,7 +137,6 @@ export class AgentWorkbenchCommandOwner {
           )
         current()
         const report = this.ports.reports.publish(
-          connection.id,
           target.value.workspace.id,
           target.root,
           command.flags['title'] ?? 'Agent report',

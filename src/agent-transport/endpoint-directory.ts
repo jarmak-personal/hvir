@@ -12,13 +12,15 @@ export function agentEndpointDirectoryPath(): string {
   const uid = process.getuid?.()
   if (uid === undefined) throw new Error('Agent sockets require Linux or macOS')
   const directory = join(base, `hvir-agent-${uid}`)
-  if (Buffer.byteLength(join(directory, '0123456789abcdef.sock')) >= 104)
-    throw new Error('Agent endpoint directory exceeds the platform socket path limit')
   return directory
 }
 export async function agentEndpointDirectory(): Promise<string> {
-  const directory = agentEndpointDirectoryPath(),
-    stat = await lstat(directory)
+  const directory = agentEndpointDirectoryPath()
+  if (!directory.startsWith('/'))
+    throw new Error('Agent endpoint directory must be absolute')
+  if (Buffer.byteLength(join(directory, '0123456789abcdef.sock')) >= 104)
+    throw new Error('Agent endpoint directory exceeds the platform socket path limit')
+  const stat = await lstat(directory)
   if (
     !stat.isDirectory() ||
     stat.isSymbolicLink() ||

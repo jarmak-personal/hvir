@@ -13,6 +13,7 @@ interface PendingConfirmation {
 /** Standing authorization belongs to hvir, independently of any harness permission mode. */
 export class LocalAgentAccessOwner {
   readonly instance = randomUUID()
+  ready = false
   endpoint?: string
   explanation?: string
   private settings: AgentSettings = {
@@ -44,6 +45,7 @@ export class LocalAgentAccessOwner {
       extensions: this.extensions.allowed(),
       extensionsWritable: this.extensions.writable(),
       instance: this.instance,
+      ready: this.ready,
       endpoint: this.endpoint,
       confirmations: [...this.confirmations.values()].map((entry) => entry.value),
       explanation: this.explanation,

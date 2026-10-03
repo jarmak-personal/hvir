@@ -45,6 +45,37 @@ describe('installed agent contract discovery', () => {
   )('refuses malformed options %j', (argv) => {
     expect(() => parseAgentCommand(argv)).toThrow()
   })
+  it('describes only supported target flags and keeps reference commands offline', () => {
+    const targeting = (name: string): string =>
+      (
+        JSON.parse(
+          staticAgentReference(parseAgentCommand(['help', name]), readAgentGuide)!.stdout,
+        ) as {
+          reference: { targeting: string }
+        }
+      ).reference.targeting
+    for (const name of ['workspaces', 'views', 'actions', 'action', 'instances']) {
+      expect(targeting(name)).not.toContain('--workspace')
+      expect(targeting(name)).not.toContain('--session')
+      expect(() => parseAgentCommand([name, '--workspace', 'workspace'])).toThrow()
+    }
+    expect(targeting('report')).toContain('--workspace, --session')
+    expect(
+      parseAgentCommand([
+        'report',
+        '--workspace',
+        'workspace',
+        '--session',
+        'session',
+        '--stdin',
+      ]).flags,
+    ).toMatchObject({ workspace: 'workspace', session: 'session' })
+    for (const name of ['help', 'commands', 'guide'])
+      expect(targeting(name)).toContain('Offline reference; no instance')
+    expect(targeting('instances')).toContain(
+      'Local endpoint discovery; no selected instance',
+    )
+  })
   it('copies only public targeting data and never accepts caller authorization or origin', () => {
     const defaults = { workspace: 'exact', origin: 'forwarded', approval: 'human' }
     const request = validateAgentRequest({

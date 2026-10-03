@@ -1,5 +1,5 @@
 import { createSmokeWindow } from './window-lifetime'
-import { verifyAgentWorkbench } from './agent-workbench'
+import { prepareAgentSmoke, verifyAgentWorkbench } from './agent-workbench'
 import {
   verifyTerminalThemeScenario,
   verifyTerminalMoveScenario,
@@ -211,7 +211,9 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       smokeRemoteRoot,
       smokeWebSwitchRoot,
       mode !== 'platform-contracts' && mode !== 'renderer-recovery',
-      mode === 'terminal-presentation' || mode === 'document-review',
+      mode === 'terminal-presentation' ||
+        mode === 'document-review' ||
+        mode === 'agent-workbench',
     )
     const {
       base: smokeProjectState,
@@ -390,8 +392,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     )
     const readiness = new SmokeRendererReadiness()
     const ipcRouter = registerIpcHandlers({
-      extensions: dependencies.extensions,
-      agents: dependencies.agents,
+      ...dependencies,
       echoWorker: worker,
       gitWorker: git,
       filenameSearch,
@@ -418,7 +419,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         items: [],
         dropped: 0,
       }),
-      diagnostics: dependencies.diagnostics,
       recordIpcContractDiagnostic: () => undefined,
       recordRenderContainment: () => undefined,
       ...extensionPtyPorts(supervisor, smokeTerminalSessions, projectFixture),
@@ -434,7 +434,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       updateWebPaneBindings: (owner, bindings) =>
         updateWebPaneBindings(owner.id, bindings),
       updateWebPaneFullPage: (owner, paneId) => updateWebPaneFullPage(owner.id, paneId),
-      htmlPreviews,
       webPanes: webPaneRoutes,
       openExternal,
       emit,
@@ -446,6 +445,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       stopSmokeWatch = undefined
     })
     recordSmokePhase('watch-active')
+    prepareAgentSmoke(dependencies, host, sessionsObservation.context, supervisor)
     const windowLifetime = await createSmokeWindow(
       dependencies,
       cleanup,

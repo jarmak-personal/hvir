@@ -55,8 +55,10 @@ export function installDocumentSurfaces(
     extensions,
     agents,
     start: async (sources, hosts, ptys) => {
-      await extensions.start(hosts.local, sources, hosts)
-      await agents.start(hosts.local, sources, hosts, ptys)
+      await Promise.all([
+        extensions.start(hosts.local, sources, hosts),
+        agents.start(hosts.local, sources, hosts, ptys),
+      ])
     },
   }
 }

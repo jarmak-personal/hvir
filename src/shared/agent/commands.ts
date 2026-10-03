@@ -1,4 +1,10 @@
-import { AGENT_CONTRACT, agentFailure, agentOutput, type AgentResponse } from './contract'
+import {
+  AGENT_CONTRACT,
+  AGENT_LIMITS,
+  agentFailure,
+  agentOutput,
+  type AgentResponse,
+} from './contract'
 
 const targetFlags = ['workspace', 'session'] as const
 export const AGENT_COMMANDS = [
@@ -158,7 +164,12 @@ export function parseAgentCommand(argv: readonly string[]): ParsedAgentCommand {
     throw new Error('Unexpected command arguments')
   if (flags['filter']?.length && flags['filter'].length > 160)
     throw new Error('Filter is too long')
-  for (const key of ['workspace', 'session', 'extension', 'action', 'view', 'handle'])
+  if (
+    flags['workspace'] &&
+    flags['workspace'].length > AGENT_LIMITS.workspaceIdentityChars
+  )
+    throw new Error('Workspace identity is too long')
+  for (const key of ['session', 'extension', 'action', 'view', 'handle'])
     if (flags[key] && flags[key].length > 128)
       throw new Error('Target identity is too long')
   return Object.freeze({
@@ -199,8 +210,22 @@ export function staticAgentReference(
     ? agentOutput({
         reference: {
           ...declaration,
-          targeting:
-            'Protected terminal defaults; otherwise --workspace/--session and --instance. Selection never supplies authority.',
+          targeting: ['help', 'commands', 'guide'].includes(declaration.name)
+            ? 'Offline reference; no instance, workspace or session is required.'
+            : declaration.name === 'instances'
+              ? 'Local endpoint discovery; no selected instance, workspace or session is required.'
+              : `One live instance via protected default or --instance.${
+                  (declaration.flags as readonly string[]).some((flag) =>
+                    ['workspace', 'session'].includes(flag),
+                  )
+                    ? ' Target flags: ' +
+                      declaration.flags
+                        .filter((flag) => ['workspace', 'session'].includes(flag))
+                        .map((flag) => '--' + flag)
+                        .join(', ') +
+                      '; explicit target flags replace terminal target defaults.'
+                    : ' Workspace/session target flags are not accepted.'
+                } Selection never supplies authority.`,
           exitStatuses: { success: 0, invalid: 64, unavailable: 69, interrupted: 75 },
         },
       })

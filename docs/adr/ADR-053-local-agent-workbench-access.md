@@ -31,11 +31,15 @@ the macOS per-user temporary directory or Linux XDG runtime directory (temporary
 fallback). Socket paths fit the 104-byte macOS bound. Only proven dead, same-user sockets are
 removed by a focused LocalHost application adapter; live instances remain distinct. The
 standalone CLI only reads and probes this fixed namespace: it cannot create directories or
-delete endpoints. Its other physical filesystem edge reads only fixed shipped reference assets. Application exit revokes work before socket cleanup.
+delete endpoints. Its other physical filesystem edge reads only fixed shipped reference assets. The stable instance-derived target is registered before terminal startup. The socket listens
+only while access is enabled; Off aborts requests and releases the endpoint. Re-enable binds
+the same target. Application exit revokes work before socket cleanup.
 The process-neutral framing contract carries argv, bounded stdin and explicit target defaults;
 responses carry stdout, stderr and exit status. Local Node and later Rust clients transport
 this contract. One command-reference owner describes and parses commands; offline help reads
 only shipped reference assets and requires no display, application, connector or user state.
+The current live command owner rejects these client-only reference requests; main never
+performs synchronous reference-file reads.
 
 The PTY supervisor supplies protected nonsecret HVIR_AGENT_ENDPOINT, HVIR_AGENT_WORKSPACE and
 HVIR_AGENT_SESSION values. They identify the exact launched instance and live terminal target,
@@ -68,7 +72,9 @@ must retain this deliberate tradeoff rather than claiming fuse-hardening that br
 ## Consequences
 
 Agent work shares existing capability policy while keeping transport, static reference and
-report lifetimes focused. Finite request/report limits refuse overload without blocking paint.
+report lifetimes focused. One request per connection permits at most one report of up to 128 KiB, while retained
+reports are bounded across the application to 64 reports and 4 MiB. Finite limits refuse
+overload without blocking paint.
 Socket access may need explicit ordinary harness command/socket approval; hvir does not change
 those permissions. Remote transport and complete author onboarding remain separately owned.
 

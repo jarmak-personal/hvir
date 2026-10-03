@@ -105,9 +105,13 @@ export class ExtensionContextOwner {
   launchTarget(
     info: import('../pty/pty-contract').PtyAgentTarget,
   ): { workspace: string; session: string } | undefined {
-    const workspace = this.workspaceForRoot(info.workspaceRoot)
+    // Launch metadata is nonsecret identity, not current workspace authorization.
+    const workspace = this.sources
+      .projectState()
+      .projects.flatMap((project) => project.workspaces)
+      .find((entry) => hostPathEquals(entry.root, info.workspaceRoot))
     return workspace
-      ? { workspace: workspace.value.id, session: sessionIdentity(info) }
+      ? { workspace: workspace.id, session: sessionIdentity(info) }
       : undefined
   }
 

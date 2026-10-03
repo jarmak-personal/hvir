@@ -8,6 +8,7 @@ import {
 } from '../src/main/agent/socket-server'
 import {
   AGENT_CONTRACT,
+  AGENT_LIMITS,
   agentOutput,
   type AgentRequest,
 } from '../src/shared/agent/contract'
@@ -82,4 +83,75 @@ describe('real private agent socket', () => {
       await server.dispose()
     }
   })
+})
+
+it('admits a fragmented UTF-8 frame once and rejects multiple reports on one connection before dispatch', async () => {
+  const dispatch = vi.fn((_request: AgentRequest) =>
+      Promise.resolve(agentOutput({ done: true })),
+    ),
+    server = new LocalAgentSocketServer(dispatch),
+    endpoint = await server.start(randomUUID())
+  const socket = createConnection(endpoint)
+  try {
+    const frame = Buffer.from(
+      `${JSON.stringify({ ...request, argv: ['report', '--workspace', 'workspace', '--stdin'], stdin: '界'.repeat(500) })}\n`,
+    )
+    let response = ''
+    const completed = new Promise<void>((resolve, reject) => {
+      socket.on('data', (chunk) => {
+        response += chunk.toString('utf8')
+      })
+      socket.once('end', resolve)
+      socket.once('error', reject)
+      socket.once('connect', () => {
+        void (async () => {
+          for (let offset = 0; offset < frame.length; offset += 7) {
+            socket.write(frame.subarray(offset, offset + 7))
+            await new Promise<void>((resume) => setImmediate(resume))
+          }
+        })().catch(reject)
+      })
+    })
+    await completed
+    expect((JSON.parse(response) as { exitStatus: number }).exitStatus).toBe(0)
+    expect(dispatch).toHaveBeenCalledTimes(1)
+    expect(dispatch.mock.calls[0]![0]).toMatchObject({ stdin: '界'.repeat(500) })
+    await exchange(endpoint, `${JSON.stringify(request)}\n${JSON.stringify(request)}\n`)
+    expect(dispatch).toHaveBeenCalledTimes(1)
+  } finally {
+    socket.destroy()
+    await server.dispose()
+  }
+})
+
+it('expires an incomplete connection at the absolute deadline even when it continues sending fragments', async () => {
+  const server = new LocalAgentSocketServer(() => Promise.resolve(agentOutput({}))),
+    endpoint = await server.start(randomUUID())
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  const socket = createConnection(endpoint)
+  let closed = false
+  try {
+    const ended = new Promise<void>((resolve) =>
+      socket.once('close', () => {
+        closed = true
+        resolve()
+      }),
+    )
+    await new Promise<void>((resolve, reject) => {
+      socket.once('connect', resolve)
+      socket.once('error', reject)
+    })
+    socket.write('{')
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    await vi.advanceTimersByTimeAsync(AGENT_LIMITS.deadlineMs - 1)
+    expect(closed).toBe(false)
+    socket.write('"contract"')
+    await vi.advanceTimersByTimeAsync(1)
+    await ended
+    expect(closed).toBe(true)
+  } finally {
+    vi.useRealTimers()
+    socket.destroy()
+    await server.dispose()
+  }
 })

@@ -15,7 +15,7 @@ export function registerAgentIpc(
   })
   ipc.handle('agent:configure', async (req, context) => {
     context.owner()
-    await runtime().access.configure(req)
+    await runtime().configure(req)
     context.owner()
     return runtime().access.snapshot()
   })

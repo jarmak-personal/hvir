@@ -83,7 +83,11 @@ export function AgentAccessSettings({
           />
           Agent access for this extension
           {state && !state.extensionsWritable ? (
-            <span className="hvir-meta"> (extension write ownership unavailable)</span>
+            <span className="hvir-meta">
+              {' '}
+              Close another hvir instance using this data folder, or check the extension
+              setup above.
+            </span>
           ) : null}
         </label>
       ) : (
@@ -93,7 +97,7 @@ export function AgentAccessSettings({
             <input
               type="checkbox"
               className="hvir-input"
-              disabled={!state || busy || !state.endpoint}
+              disabled={!state || busy || !state.ready}
               checked={state?.enabled ?? false}
               onChange={(event) =>
                 state && void configure(event.target.checked, state.confirmDestructive)
@@ -105,7 +109,7 @@ export function AgentAccessSettings({
             <select
               className="hvir-input"
               aria-label="Agent authorization"
-              disabled={!state || busy}
+              disabled={!state || busy || !state.ready}
               value={state?.confirmDestructive ? 'confirm' : 'standing'}
               onChange={(event) =>
                 state && void configure(state.enabled, event.target.value === 'confirm')

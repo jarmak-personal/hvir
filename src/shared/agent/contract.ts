@@ -7,7 +7,6 @@ export const AGENT_LIMITS = {
   stdinBytes: 128 * 1024,
   connections: 16,
   requests: 32,
-  requestsPerConnection: 1,
   requestsPerSecond: 10,
   deadlineMs: 190_000,
   confirmationMs: 30_000,
@@ -15,9 +14,9 @@ export const AGENT_LIMITS = {
   reports: 64,
   reportBytes: 128 * 1024,
   reportTotalBytes: 4 * 1024 * 1024,
-  reportsPerConnection: 8,
-  reportConnectionBytes: 1024 * 1024,
   pageSize: 32,
+  // Workspace identities include the registered host and complete path.
+  workspaceIdentityChars: 8192,
 } as const
 export interface AgentTarget {
   readonly workspace?: string
@@ -51,6 +50,7 @@ export interface AgentConfirmation {
 export interface AgentAccessState extends AgentSettings {
   readonly extensions: readonly string[]
   readonly extensionsWritable: boolean
+  readonly ready: boolean
   readonly endpoint?: string
   readonly instance: string
   readonly confirmations: readonly AgentConfirmation[]
@@ -96,7 +96,10 @@ export function validateAgentRequest(value: unknown): AgentRequest {
   for (const key of ['workspace', 'session'])
     if (
       target[key] !== undefined &&
-      (typeof target[key] !== 'string' || !target[key].length || target[key].length > 128)
+      (typeof target[key] !== 'string' ||
+        !target[key].length ||
+        target[key].length >
+          (key === 'workspace' ? AGENT_LIMITS.workspaceIdentityChars : 128))
     )
       throw new Error('Invalid target identity')
   return {

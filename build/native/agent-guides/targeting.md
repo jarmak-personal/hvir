@@ -5,8 +5,10 @@ with several, supply `--instance ENDPOINT`. Missing or stale endpoints never sta
 
 hvir terminals receive protected, nonsecret `HVIR_AGENT_ENDPOINT`, `HVIR_AGENT_WORKSPACE`
 and `HVIR_AGENT_SESSION`. They identify the originating instance/workspace/live terminal,
-not authentication. `--workspace ID` and `--session ID` select explicit targets; stale
-terminal defaults fail. Desktop selection does not retarget a request. Outside hvir use
+not authentication. Supported `--workspace ID` and `--session ID` flags select explicit
+targets and replace the inherited workspace/session pair. An explicit session alone qualifies
+its workspace; explicit workspace and session together must agree. Stale inherited defaults
+fail when no explicit target is selected. Desktop selection does not retarget a request. Outside hvir use
 `workspaces` and `sessions` to discover IDs, then explicit flags. Relative document paths
 resolve within that workspace; absolute paths stay on its host and within its canonical root.
 

@@ -18,6 +18,25 @@ interface AgentCliOutcome {
   readonly report?: { readonly id: string; readonly handle: string }
   readonly document?: { readonly path: HostPath; readonly content?: never }
 }
+/** Install stable targets before the first window can trigger a terminal spawn. */
+export function prepareAgentSmoke(
+  dependencies: ElectronSmokeDependencies,
+  host: ProjectHost,
+  sources: LiveSessionMetadataSources,
+  supervisor: PtySupervisor,
+): void {
+  if (dependencies.mode !== 'agent-workbench') return
+  const hosts = {
+    local: host,
+    hostById: (id: string) => (id === host.hostId ? host : undefined),
+    listHosts: () => [],
+    materializeHost: () => Promise.resolve(host),
+    onHostStateChange: (listener: Parameters<ProjectHost['onConnectionState']>[0]) =>
+      host.onConnectionState(listener),
+  }
+  void dependencies.extensions.start(host, sources, hosts)
+  void dependencies.agents.start(host, sources, hosts, supervisor)
+}
 /** Dedicated real CLI/socket/UI scenario; connectors, rails and Sessions are unnecessary. */
 export async function verifyAgentWorkbench(
   win: BrowserWindow,
@@ -29,6 +48,7 @@ export async function verifyAgentWorkbench(
   if (dependencies.mode !== 'agent-workbench') return false
   const { agents, extensions } = dependencies
   await focusSmokeWindow(win)
+  await ensureExplicitBareShellLaunch(win, supervisor)
   await extensions.start(host, sources, {
     local: host,
     hostById: (id) => (id === host.hostId ? host : undefined),
@@ -67,13 +87,26 @@ export async function verifyAgentWorkbench(
   await command(['help'])
   await command(['commands'])
   await command(['guide', 'access'])
+  await socketAbsent(host, endpoint)
   await command(['workspaces', '--instance', endpoint], undefined, 69)
   await click(win, 'Open settings')
   await click(win, 'Extensions')
-  await win.webContents.executeJavaScript(
-    `(() => { const input = [...document.querySelectorAll('input[type="checkbox"]')].find(input => input.parentElement.textContent.includes('Allow local agents')); if (!input || input.disabled) throw Error('Agent access control unavailable'); if (!input.checked) input.click(); })()`,
+  await wait(
+    () =>
+      dom(
+        win,
+        `(() => { const input = [...document.querySelectorAll('input[type="checkbox"]')].find(input => input.parentElement.textContent.includes('Allow local agents')); if (!input || input.disabled) return false; if (!input.checked) input.click(); return true; })()`,
+      ),
+    'ordinary ready agent access control',
   )
   await wait(() => agents.access.snapshot().enabled, 'ordinary agent Enable')
+  await wait(async () => {
+    try {
+      return (await command(['workspaces', '--instance', endpoint])).ok
+    } catch {
+      return false
+    }
+  }, 'enabled endpoint')
   const workspaces = await command(['workspaces', '--instance', endpoint, '--limit', '1'])
   const workspace = workspaces.items?.[0]?.id
   if (!workspace) throw new Error('Agent metadata did not include the explicit workspace')
@@ -112,15 +145,19 @@ export async function verifyAgentWorkbench(
   await click(win, 'Enable')
   await wait(() => extensions.activations!.active.size === 1, 'reference Enable')
   const installation = [...extensions.activations!.active.keys()][0]!
-  await win.webContents.executeJavaScript(
-    `(() => { const input = document.querySelector('input[aria-label="Agent access for this extension"]'); if (!input || input.disabled) throw Error('Extension access unavailable'); input.click(); })()`,
+  await wait(
+    () =>
+      dom(
+        win,
+        `(() => { const input = document.querySelector('input[aria-label="Agent access for this extension"]'); if (!input || input.disabled) return false; if (!input.checked) input.click(); return true; })()`,
+      ),
+    'ordinary ready extension access control',
   )
   await wait(
     () => agents.access.snapshot().extensions.includes(installation),
     'ordinary extension agent access',
   )
   await click(win, 'Close settings')
-  await ensureExplicitBareShellLaunch(win, supervisor)
   const terminal = supervisor.list()[0]!
   const session = extensions.contexts!.launchTarget(terminal)!.session
   // Execute through the supervised shell without target flags: its protected values must work.
@@ -143,6 +180,34 @@ export async function verifyAgentWorkbench(
     }
   }, 'protected terminal defaults')
   await host.removeFile(output)
+  const other = (await command(['workspaces', '--instance', endpoint])).items?.find(
+    (item) => item.id !== workspace,
+  )
+  if (!other) throw new Error('Explicit other workspace fixture is missing')
+  supervisor.write(
+    terminal.id,
+    terminal.ownerId,
+    `printf 'Explicit workspace result' | ELECTRON_RUN_AS_NODE=1 ${shellQuote(process.execPath)} ${shellQuote(entry)} report --workspace ${shellQuote(other.id)} --stdin > ${shellQuote(output.path)}\r`,
+    terminal.ownerGeneration,
+  )
+  await wait(async () => {
+    try {
+      return Boolean(
+        (JSON.parse((await host.readFile(output)).toString('utf8')) as AgentCliOutcome)
+          .report?.id,
+      )
+    } catch {
+      return false
+    }
+  }, 'explicit workspace replaces inherited session')
+  const explicit = JSON.parse(
+    (await host.readFile(output)).toString('utf8'),
+  ) as AgentCliOutcome
+  if (agents.reports.read(explicit.report!.id).workspace !== other.id)
+    throw new Error('CLI inherited the wrong workspace')
+  agents.reports.close(explicit.report!.id)
+  await host.removeFile(output)
+
   const selected = await command([
     'action',
     '--instance',
@@ -242,8 +307,23 @@ export async function verifyAgentWorkbench(
   await command(['workspaces', '--instance', endpoint], undefined, 69)
   if (agents.reports.read(published.report!.id).content !== 'retained replacement')
     throw new Error('Access revocation deleted completed content')
+  await socketAbsent(host, endpoint)
+  await setAgentAccess(win, true)
+  await wait(() => agents.access.snapshot().enabled, 'ordinary access re-enable')
+  if (agents.access.snapshot().endpoint !== endpoint)
+    throw new Error('Re-enable changed the terminal target')
+  await wait(async () => {
+    try {
+      return (await command(['sessions', '--instance', endpoint])).ok
+    } catch {
+      return false
+    }
+  }, 're-enabled endpoint')
+  await setAgentAccess(win, false)
+  await socketAbsent(host, endpoint)
   await click(win, 'Close settings')
   await agents.dispose()
+  await socketAbsent(host, endpoint)
   await command(['workspaces', '--instance', endpoint], undefined, 69)
   console.log(
     '[smoke] real agent CLI/socket, protected terminal defaults, connector-free action, quiet inert report, exact document and revocation OK',
@@ -273,4 +353,26 @@ async function wait(
     if (Date.now() > deadline) throw new Error(`Agent native smoke timed out: ${label}`)
     await new Promise((resolve) => setTimeout(resolve, 25))
   }
+}
+
+async function socketAbsent(host: ProjectHost, endpoint: string): Promise<void> {
+  await wait(async () => {
+    try {
+      await host.stat(localPath(endpoint))
+      return false
+    } catch (reason) {
+      if ((reason as { code?: unknown }).code === 'ENOENT') return true
+      throw reason
+    }
+  }, 'Off endpoint release')
+}
+async function setAgentAccess(win: BrowserWindow, enabled: boolean): Promise<void> {
+  await wait(
+    () =>
+      dom(
+        win,
+        `(() => { const input = [...document.querySelectorAll('input[type="checkbox"]')].find(input => input.parentElement.textContent.includes('Allow local agents')); if (!input || input.disabled) return false; if (input.checked !== ${JSON.stringify(enabled)}) input.click(); return true; })()`,
+      ),
+    'ordinary ready agent access control',
+  )
 }

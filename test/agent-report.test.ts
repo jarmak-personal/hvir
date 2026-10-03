@@ -10,7 +10,6 @@ describe('viewer-owned agent reports', () => {
     const reports = new AgentReportOwner(() => undefined),
       root = localPath('/workspace')
     const published = reports.publish(
-      'first',
       'workspace',
       root,
       'Findings',
@@ -20,14 +19,13 @@ describe('viewer-owned agent reports', () => {
     expect(reports.snapshot()[0]).not.toHaveProperty('content')
     expect(reports.read(published.id).content).toBe('# first')
     expect(() =>
-      reports.publish('second', 'workspace', root, 'Second', 'text', 'bad', published.id),
+      reports.publish('workspace', root, 'Second', 'text', 'bad', published.id),
     ).toThrow('handle')
     expect(() =>
-      reports.publish('second', 'other', root, 'Second', 'text', 'bad', published.handle),
+      reports.publish('other', root, 'Second', 'text', 'bad', published.handle),
     ).toThrow('target')
     expect(
       reports.publish(
-        'second',
         'workspace',
         root,
         'Second',
@@ -48,28 +46,19 @@ describe('viewer-owned agent reports', () => {
     reports.close(published.id)
     expect(() => reports.read(published.id)).toThrow('closed')
     expect(() =>
-      reports.publish(
-        'third',
-        'workspace',
-        root,
-        'Third',
-        'text',
-        'bad',
-        published.handle,
-      ),
+      reports.publish('workspace', root, 'Third', 'text', 'bad', published.handle),
     ).toThrow('handle')
   })
   it('refuses capacity without eviction and releases content on workspace closure', () => {
     const reports = new AgentReportOwner(() => undefined),
       root = localPath('/workspace')
-    for (let index = 0; index < AGENT_LIMITS.reportsPerConnection; index++)
-      reports.publish('one', 'workspace', root, 'Report', 'text', 'kept')
-    expect(() =>
-      reports.publish('one', 'workspace', root, 'Overflow', 'text', 'bad'),
-    ).toThrow('capacity')
+    for (let index = 0; index < AGENT_LIMITS.reports; index++)
+      reports.publish('workspace', root, 'Report', 'text', 'kept')
+    expect(() => reports.publish('workspace', root, 'Overflow', 'text', 'bad')).toThrow(
+      'capacity',
+    )
     expect(() =>
       reports.publish(
-        'two',
         'workspace',
         root,
         'Oversized',
@@ -77,7 +66,7 @@ describe('viewer-owned agent reports', () => {
         '界'.repeat(AGENT_LIMITS.reportBytes),
       ),
     ).toThrow('byte')
-    expect(reports.snapshot()).toHaveLength(AGENT_LIMITS.reportsPerConnection)
+    expect(reports.snapshot()).toHaveLength(AGENT_LIMITS.reports)
     reports.retainWorkspaces(new Set())
     expect(reports.snapshot()).toEqual([])
   })
@@ -95,5 +84,27 @@ describe('viewer-owned agent reports', () => {
       kind: 'file',
       path: localPath('/workspace/src/a.ts'),
     })
+  })
+  it('bounds total retained bytes independently of report count and reclaims replacement/closed content', () => {
+    const reports = new AgentReportOwner(() => undefined),
+      root = localPath('/workspace'),
+      content = 'a'.repeat(AGENT_LIMITS.reportBytes),
+      first = reports.publish('workspace', root, 'First', 'text', content)
+    for (
+      let index = 1;
+      index < AGENT_LIMITS.reportTotalBytes / AGENT_LIMITS.reportBytes;
+      index++
+    )
+      reports.publish('workspace', root, 'Report', 'text', content)
+    expect(reports.snapshot().length).toBeLessThan(AGENT_LIMITS.reports)
+    expect(() => reports.publish('workspace', root, 'Overflow', 'text', 'x')).toThrow(
+      'capacity',
+    )
+    reports.publish('workspace', root, 'Smaller', 'text', '', first.handle)
+    const reclaimed = reports.publish('workspace', root, 'Reclaimed', 'text', content)
+    reports.close(reclaimed.id)
+    expect(() =>
+      reports.publish('workspace', root, 'Reused', 'text', content),
+    ).not.toThrow()
   })
 })

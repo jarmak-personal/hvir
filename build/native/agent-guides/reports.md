@@ -7,7 +7,7 @@ remain closable for the application session; restart persistence is not promised
 
 The result includes an opaque ID and replacement handle. Only `--handle HANDLE` can replace
 that exact report in the same workspace. Capacity is 64 reports/4 MiB application-wide and
-8 reports/1 MiB per connection. Close unused reports when capacity is full.
+one request and one report of up to 128 KiB per connection. Close unused reports when capacity is full.
 
 A quiet agent badge appears on the tab and rolls up to workspace/project rows. Viewing clears
 that report's badge; terminal attention and the OS badge are independent. Reports execute no
