@@ -388,11 +388,59 @@ export async function verifySkillagerExtension(
       win.webContents.executeJavaScript(`Boolean(${expression})`),
     ) as Promise<boolean>
   }
+  async function parentControl(
+    declaration: string,
+    values: readonly string[],
+  ): Promise<boolean> {
+    const debuggerPort = win.webContents.debugger
+    const owned = !debuggerPort.isAttached()
+    let objectId: string | undefined
+    try {
+      if (owned) debuggerPort.attach('1.3')
+      const global = (await bounded(
+        debuggerPort.sendCommand('Runtime.evaluate', {
+          expression: 'globalThis',
+        }),
+      )) as { result?: { objectId?: string } }
+      objectId = global.result?.objectId
+      if (!objectId) throw new Error('Trusted control document is unavailable')
+      const response = (await bounded(
+        debuggerPort.sendCommand('Runtime.callFunctionOn', {
+          objectId,
+          functionDeclaration: declaration,
+          arguments: values.map((value) => ({ value })),
+          returnByValue: true,
+          awaitPromise: true,
+        }),
+      )) as { result?: { value?: unknown }; exceptionDetails?: unknown }
+      if (response.exceptionDetails) throw new Error('Trusted control operation failed')
+      return response.result?.value === true
+    } finally {
+      if (objectId && debuggerPort.isAttached())
+        await bounded(
+          debuggerPort.sendCommand('Runtime.releaseObject', { objectId }),
+        ).catch(() => {})
+      if (owned && debuggerPort.isAttached()) debuggerPort.detach()
+    }
+  }
   async function click(name: string, section?: string): Promise<void> {
+    const legend =
+      section === 'library'
+        ? 'Read-only source: library'
+        : section
+          ? `Native connector: ${section}`
+          : ''
     await controls.wait(
       () =>
-        dom(
-          `(() => {const article=[...document.querySelectorAll('.extension-installation')].find(e=>e.querySelector('h4')?.textContent==='Skillager');const scope=${section ? ` [...(article?.querySelectorAll('fieldset')??[])].find(e=>e.querySelector('legend')?.textContent.trim()===${JSON.stringify(section === 'library' ? 'Read-only source: library' : `Native connector: ${section}`)})` : 'article'};const button=[...(scope?.querySelectorAll('button')??[])].find(e=>e.textContent.trim()===${JSON.stringify(name)});if(!button||button.disabled)return false;button.click();return true})()`,
+        parentControl(
+          `function(name, legend) {
+        const article = [...document.querySelectorAll('.extension-installation')].find(e => e.querySelector('h4')?.textContent === 'Skillager');
+        const scope = legend ? [...(article?.querySelectorAll('fieldset') ?? [])].find(e => e.querySelector('legend')?.textContent.trim() === legend) : article;
+        const button = [...(scope?.querySelectorAll('button') ?? [])].find(e => e.textContent.trim() === name);
+        if (!button || button.disabled) return false;
+        button.click(); return true;
+      }`,
+          [name, legend],
         ),
       `Skillager ${name}`,
     )
@@ -400,16 +448,26 @@ export async function verifySkillagerExtension(
   async function set(label: string, value: string): Promise<void> {
     await controls.wait(
       () =>
-        dom(
-          `document.querySelector(${JSON.stringify(`[aria-label="${label}"]`)}) !== null`,
+        parentControl(
+          `function(label) {
+        return [...document.querySelectorAll('input, textarea')].some(e => e.getAttribute('aria-label') === label);
+      }`,
+          [label],
         ),
       label,
     )
-    await bounded(
-      win.webContents.executeJavaScript(
-        `(() => {const input=document.querySelector(${JSON.stringify(`[aria-label="${label}"]`)});Object.getOwnPropertyDescriptor(input.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,'value').set.call(input,${JSON.stringify(value)});input.dispatchEvent(new Event('input',{bubbles:true}));})()`,
-      ),
+    if (
+      !(await parentControl(
+        `function(label, value) {
+        const input = [...document.querySelectorAll('input, textarea')].find(e => e.getAttribute('aria-label') === label);
+        if (!input) return false;
+        Object.getOwnPropertyDescriptor(input.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value').set.call(input, value);
+        input.dispatchEvent(new Event('input', {bubbles: true})); return true;
+      }`,
+        [label, value],
+      ))
     )
+      throw new Error('Trusted input changed before setting its value')
   }
   async function ready(
     _guest: WebContents,

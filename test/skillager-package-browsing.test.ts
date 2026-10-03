@@ -14,12 +14,10 @@ afterEach(() => {
 function packageView(view = 'library', entry = 'app') {
   vi.useFakeTimers()
   vi.setSystemTime(0)
-  document.body.innerHTML = readFileSync(
-    `packages/skillager-extension/${view}.html`,
-    'utf8',
-  )
-    .replace(/<script[\s\S]*?<\/script>/gu, '')
-    .replace(/<link[^>]*>/gu, '')
+  const template = document.createElement('template')
+  template.innerHTML = readFileSync(`packages/skillager-extension/${view}.html`, 'utf8')
+  for (const node of template.content.querySelectorAll('script, link')) node.remove()
+  document.body.replaceChildren(template.content.cloneNode(true))
   document.body.dataset.view = view
   let receive!: (message: unknown) => void
   const publications: Record<string, unknown>[] = []
