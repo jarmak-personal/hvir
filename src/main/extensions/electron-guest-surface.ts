@@ -40,6 +40,7 @@ type EngineFailureStage =
   | 'bootstrap-target'
   | 'observer-command'
   | 'engine-ready'
+  | 'initial-commit'
   | 'load-before-freeze'
   | 'transition-target'
   | 'state-command'
@@ -210,6 +211,7 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
       'bootstrap-target'
     let transitionStage:
       | 'engine-ready'
+      | 'initial-commit'
       | 'load-before-freeze'
       | 'transition-target'
       | 'state-command'
@@ -265,19 +267,31 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
             )
         },
       )
-      // The captured response cannot release package code until this exact guest
-      // has native observer-loss monitoring. This does not await document load.
-      void (async () => {
-        await this.assertEngineTarget(record, guest)
-        this.assertLiveGuest(record, guest)
-        bootstrapStage = 'observer-command'
-        await this.sendEngineCommand(record, guest, 'Page.enable')
-        this.assertLiveGuest(record, guest)
-        bootstrapStage = 'engine-ready'
-        record.settleEngine()
-      })().catch((error: unknown) => {
-        record.settleEngine(error instanceof Error ? error : new Error(String(error)))
+      // A lifecycle command requires a committed active native frame, not page load.
+      // Observe before async engine setup; captured code still releases via engineReady.
+      const committed = new Promise<void>((resolve, reject) => {
+        const cleanup = (): void => {
+          guest.removeListener('did-navigate', ready)
+          guest.removeListener('destroyed', closed)
+        }
+        const ready = (_event: Electron.Event, url: string): void => {
+          if (url !== view.url || guest.getURL() !== view.url) return
+          cleanup()
+          resolve()
+        }
+        const closed = (): void => {
+          cleanup()
+          reject(new Error('Guest closed before initial commit'))
+        }
+        // did-navigate is only a successfully committed main-frame navigation.
+        guest.on('did-navigate', ready)
+        guest.once('destroyed', closed)
+        if (guest.getURL() === view.url) {
+          cleanup()
+          resolve()
+        }
       })
+      void committed.catch(() => undefined)
       // Bootstrap may negotiate, but hidden capability admission remains denied.
       // Freezing before navigation can prevent the initial context from loading.
       const loaded = new Promise<void>((resolve, reject) => {
@@ -300,10 +314,26 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
       })
       // A visible bootstrap need not await loaded in its first transition.
       void loaded.catch(() => undefined)
+      // The captured response cannot release package code until this exact guest
+      // has native observer-loss monitoring. This does not await commit or page load.
+      void (async () => {
+        await this.assertEngineTarget(record, guest)
+        this.assertLiveGuest(record, guest)
+        bootstrapStage = 'observer-command'
+        await this.sendEngineCommand(record, guest, 'Page.enable')
+        this.assertLiveGuest(record, guest)
+        bootstrapStage = 'engine-ready'
+        record.settleEngine()
+      })().catch((error: unknown) => {
+        record.settleEngine(error instanceof Error ? error : new Error(String(error)))
+      })
       record.lifecycle = new ExtensionGuestLifecycle(
         async (state, renewed) => {
           transitionStage = 'engine-ready'
           await record.engineReady
+          transitionStage = 'initial-commit'
+          await Promise.race([committed, record.revoked])
+          this.assertLiveGuest(record, guest)
           transitionStage = 'load-before-freeze'
           if (state === 'frozen') {
             // Renewal retires only this wait; issued transition commands stay awaited.

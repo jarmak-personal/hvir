@@ -74,6 +74,7 @@ async function fixture(
   send?: (method: string, params?: { state?: string }) => Promise<unknown>,
   admittedDuringBind = false,
   loading = false,
+  committed = true,
 ) {
   const surface = new ElectronExtensionGuestSurface()
   const view = viewFor(),
@@ -97,7 +98,7 @@ async function fixture(
     session,
     debugger: debuggerPort,
     isDestroyed: () => destroyed,
-    getURL: () => view.url,
+    getURL: () => (committed ? view.url : 'about:blank'),
     isLoading: () => loading,
     close: vi.fn(() => {
       if (dispatching)
@@ -145,6 +146,10 @@ async function fixture(
       loading = false
       guest.emit('did-finish-load')
     },
+    commit: (url = view.url) => {
+      if (url === view.url) committed = true
+      guest.emit('did-navigate', {}, url)
+    },
     replace: () => {
       dispatching = true
       try {
@@ -162,6 +167,173 @@ afterEach(() => {
 })
 
 describe('Electron extension response, native teardown and closing capacity', () => {
+  it('commit barrier releases observed bytes first, then activates only the exact committed main frame', async () => {
+    let nativeCommitted = false
+    const data = await fixture(
+      (method) =>
+        method === 'Page.setWebLifecycleState' && !nativeCommitted
+          ? Promise.reject(new Error('Not attached to an active page'))
+          : Promise.resolve({ targetInfo: { targetId: 'target', type: 'webview' } }),
+      false,
+      true,
+      false,
+    )
+    data.surface.visibility(data.guest.id, true)
+    await turn()
+    expect(await (await data.response()).text()).toBe('captured')
+    expect(data.debuggerPort.sendCommand.mock.calls.some(([method]) => method === 'Page.enable')).toBe(true)
+    expect(data.states()).toEqual([])
+    data.guest.emit('did-frame-navigate', {}, data.view.url, 200, 'OK', false)
+    data.commit('hvir-extension://foreign/index.html')
+    await turn()
+    expect(data.states()).toEqual([])
+    nativeCommitted = true
+    data.commit()
+    await turn()
+    expect(data.states()).toEqual(['active'])
+    expect(data.guest.isLoading()).toBe(true)
+    expect(data.failed).not.toHaveBeenCalled()
+    expect(data.guest.listenerCount('did-navigate')).toBe(0)
+    await data.surface.destroy(data.view.id)
+  })
+
+  it('commit barrier does not suppress an active native refusal after commit', async () => {
+    const data = await fixture(
+      (method) =>
+        method === 'Page.setWebLifecycleState'
+          ? Promise.reject(new Error('Not attached to an active page'))
+          : Promise.resolve({ targetInfo: { targetId: 'target', type: 'webview' } }),
+      true,
+      true,
+      false,
+    )
+    await turn()
+    expect(data.failed).not.toHaveBeenCalled()
+    data.commit()
+    await turn()
+    expect(data.states()).toEqual(['active'])
+    expect(data.failed).toHaveBeenCalledWith(
+      data.guest.id,
+      'Extension engine lifecycle control is unavailable. Close and reopen the view.',
+    )
+    expect((await data.response()).status).toBe(404)
+    await data.surface.destroy(data.view.id)
+    expect(data.guest.listenerCount('did-navigate')).toBe(0)
+    expect(data.session.clearCache).toHaveBeenCalledTimes(1)
+  })
+
+  it('commit barrier at nine seconds retains the original ten-second native command deadline', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const pending = deferred<unknown>()
+    const report = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const data = await fixture(
+      (method) =>
+        method === 'Page.setWebLifecycleState'
+          ? pending.promise
+          : Promise.resolve({ targetInfo: { targetId: 'target', type: 'webview' } }),
+      true,
+      true,
+      false,
+    )
+    try {
+      await turn()
+      await vi.advanceTimersByTimeAsync(9000)
+      expect(data.states()).toEqual([])
+      data.commit()
+      await turn()
+      expect(data.states()).toEqual(['active'])
+      await vi.advanceTimersByTimeAsync(999)
+      expect(data.failed).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(report).toHaveBeenCalledTimes(1)
+      expect(JSON.parse(report.mock.calls[0]![1] as string)).toMatchObject({
+        stage: 'state-command',
+        category: 'timeout',
+        attemptedState: 'active',
+      })
+      expect(JSON.parse(report.mock.calls[0]![1] as string)).not.toHaveProperty('nativeRefusal')
+      pending.resolve({})
+      await turn()
+      expect(data.states()).toEqual(['active'])
+      await data.surface.destroy(data.view.id)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('commit barrier close removes its listener and ignores late commit/load events', async () => {
+    const data = await fixture(undefined, true, true, false)
+    await turn()
+    expect(data.states()).toEqual([])
+    await data.surface.destroy(data.view.id)
+    expect(data.guest.listenerCount('did-navigate')).toBe(0)
+    data.commit()
+    data.finishLoad()
+    await turn()
+    expect(data.states()).toEqual([])
+    expect((await data.response()).status).toBe(404)
+    expect(data.session.clearCache).toHaveBeenCalledTimes(1)
+  })
+
+  it('commit barrier without a matching commit fails closed at the original deadline', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const report = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const data = await fixture(undefined, true, true, false)
+    try {
+      await turn()
+      expect(await (await data.response()).text()).toBe('captured')
+      await vi.advanceTimersByTimeAsync(EXTENSION_LIMITS.requestTimeoutMs - 1)
+      expect(data.failed).not.toHaveBeenCalled()
+      expect(data.states()).toEqual([])
+      await vi.advanceTimersByTimeAsync(1)
+      expect(report).toHaveBeenCalledTimes(1)
+      expect(JSON.parse(report.mock.calls[0]![1] as string)).toEqual({
+        stage: 'initial-commit',
+        category: 'timeout',
+        role: 'view',
+        visible: false,
+        admittedWork: true,
+        loading: true,
+        urlMatches: false,
+        debuggerAttached: true,
+      })
+      expect(data.failed).toHaveBeenCalledWith(
+        data.guest.id,
+        'Extension engine lifecycle control is unavailable. Close and reopen the view.',
+      )
+      await data.surface.destroy(data.view.id)
+      expect(data.guest.listenerCount('did-navigate')).toBe(0)
+      data.commit()
+      data.finishLoad()
+      await turn()
+      expect(data.states()).toEqual([])
+      expect((await data.response()).status).toBe(404)
+      expect(data.session.clearCache).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('commit barrier keeps observer refusal ahead of commit and captured code', async () => {
+    const data = await fixture(
+      (method) =>
+        method === 'Page.enable'
+          ? Promise.reject(new Error('Observer refused'))
+          : Promise.resolve({ targetInfo: { targetId: 'target', type: 'webview' } }),
+      true,
+      true,
+      false,
+    )
+    await turn()
+    expect((await data.response()).status).toBe(404)
+    expect(data.states()).toEqual([])
+    await data.surface.destroy(data.view.id)
+    data.commit()
+    await turn()
+    expect(data.states()).toEqual([])
+    expect(data.guest.listenerCount('did-navigate')).toBe(0)
+  })
+
   it.each(['visible', 'finite-work'] as const)(
     'bootstrap renewal by %s retires only a pre-load freeze and preserves later hidden freezing',
     async (demand) => {
