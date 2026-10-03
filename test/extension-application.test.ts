@@ -10,6 +10,7 @@ vi.mock('electron', () => ({
   app: { commandLine: { getSwitchValue: () => '', appendSwitch: vi.fn() } },
   protocol: { registerSchemesAsPrivileged: vi.fn() },
 }))
+import type { SourceHostCatalog } from '../src/main/extensions/source-approval'
 import type { ConnectorHostCatalog } from '../src/main/extensions/connector-approval'
 import { ExtensionApplicationRuntime } from '../src/main/extensions/extension-application'
 
@@ -24,7 +25,7 @@ describe('extension application startup containment', () => {
       runtime.start(
         { createDirectoryExclusive: create } as unknown as ProjectHost,
         undefined as unknown as ReturnType<typeof contextFixture>['sources'],
-        {} as ConnectorHostCatalog,
+        {} as ConnectorHostCatalog & SourceHostCatalog,
       ),
     ).resolves.toBeUndefined()
     expect(create).not.toHaveBeenCalled()
@@ -47,7 +48,11 @@ describe('extension application startup containment', () => {
         stat: () => Promise.resolve({ type: 'symlink' }),
       } as unknown as ProjectHost
       await expect(
-        runtime.start(host, contextFixture().sources, {} as ConnectorHostCatalog),
+        runtime.start(
+          host,
+          contextFixture().sources,
+          {} as ConnectorHostCatalog & SourceHostCatalog,
+        ),
       ).resolves.toBeUndefined()
       expect(runtime.snapshot()).toMatchObject({ writable: false, installations: [] })
       expect(runtime.snapshot().explanation).toContain(

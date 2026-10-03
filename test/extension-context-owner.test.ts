@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { EXTENSION_LIMITS } from '../src/shared/extensions/contract'
-import { boundedExtensionSessions } from '../src/main/extensions/context-owner'
+import {
+  boundedExtensionSessions,
+  boundedExtensionContext,
+} from '../src/main/extensions/context-owner'
 import { contextFixture } from './fixtures/extension-context'
 
 describe('extension metadata from existing context owners', () => {
@@ -11,7 +14,7 @@ describe('extension metadata from existing context owners', () => {
       {
         id: data.contexts.sessions(owner)[0]!.id,
         title: 'Ordinary shell',
-        workspace: { id: 'workspace', name: 'Workspace', host: 'local' },
+        workspace: { id: 'workspace', name: 'Workspace', host: 'local', root: data.root },
       },
     ])
     expect(data.contexts.sessions({ ...owner, generation: 2 })).toEqual([])
@@ -98,4 +101,36 @@ describe('extension metadata from existing context owners', () => {
       Buffer.byteLength(JSON.stringify([...admitted, sessions[admitted.length]])),
     ).toBeGreaterThan(EXTENSION_LIMITS.contextBytes - 128)
   })
+})
+
+it('bounds initial input plus repeated long workspace roots without changing identities or grant roots', () => {
+  const root = { ...contextFixture().root, path: `/${'x'.repeat(4096)}` }
+  const workspace = { id: 'workspace', name: 'Workspace', host: 'local', root }
+  const value = boundedExtensionContext({
+    surface: 'viewer',
+    visible: true,
+    workspace,
+    session: { id: 'session', title: 'Terminal', workspace },
+    input: { exact: 'x'.repeat(6120) },
+  })
+  expect(Buffer.byteLength(JSON.stringify(value))).toBeLessThanOrEqual(
+    EXTENSION_LIMITS.contextBytes,
+  )
+  expect(value.input).toEqual({ exact: 'x'.repeat(6120) })
+  expect(value.workspace?.id).toBe('workspace')
+  expect(value.session?.id).toBe('session')
+  expect(value.workspace?.root).toBeUndefined()
+  expect(value.session?.workspace.root).toBeUndefined()
+  const sessions = boundedExtensionSessions(
+    Array.from({ length: 128 }, (_, index) => ({
+      id: `session-${index}`,
+      title: 'Terminal',
+      workspace,
+    })),
+  )
+  expect(
+    Buffer.byteLength(JSON.stringify({ surface: 'updater', visible: true, sessions })),
+  ).toBeLessThanOrEqual(EXTENSION_LIMITS.contextBytes)
+  expect(sessions.length).toBeGreaterThan(0)
+  expect(sessions.length).toBeLessThan(128)
 })

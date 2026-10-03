@@ -1,3 +1,4 @@
+import { SourceSettings } from './SourceSettings'
 import { AgentAccessSettings } from './AgentAccessSettings'
 import { ConnectorSettings } from './ConnectorSettings'
 import { ExtensionActions } from '../../extensions/ExtensionActions'
@@ -132,8 +133,8 @@ export function ExtensionsSettings(): ReactElement {
               </p>
               <p>
                 Requested UI access: package-local views and declared observations. No
-                project files, terminals or direct network access. Native connectors
-                require separate approval below.
+                ambient project files, terminals or direct network access. Declared
+                read-only sources and native connectors require separate grants below.
               </p>
               <p>
                 Required capabilities:{' '}
@@ -188,6 +189,7 @@ export function ExtensionsSettings(): ReactElement {
                   </button>
                   <AgentAccessSettings installation={installation.installationId} />
                   <ConnectorSettings installation={installation} />
+                  <SourceSettings installation={installation} />
                   {installation.installationId ? (
                     <ExtensionActions installationId={installation.installationId} />
                   ) : null}

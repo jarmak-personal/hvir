@@ -22,7 +22,7 @@ export interface DocumentReadAuthority {
 
 /** Agent presentation has explicit pinned registered-root authority, never human-click exceptions. */
 export async function authorizeAgentDocument(
-  host: ProjectHost,
+  host: Pick<ProjectHost, 'realpath' | 'stat'>,
   root: HostPath,
   candidate: HostPath,
   current: () => void,

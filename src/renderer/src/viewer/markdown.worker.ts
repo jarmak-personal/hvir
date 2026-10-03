@@ -2,7 +2,7 @@ import {
   type MarkdownRenderRequest,
   type MarkdownRenderResponse,
 } from './render-protocol'
-import { renderMarkdownDocument } from './markdown-renderer'
+import { renderMarkdownDocument } from '../../../shared/presentation/document-markdown/rendering'
 import { createViewerGrammarRegistry } from './shiki-grammar-registry'
 
 const grammars = createViewerGrammarRegistry()

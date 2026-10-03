@@ -40,10 +40,21 @@ describe('explicit package revision and removal lifetime', () => {
       )
       await fs.writeFile(
         join(data.directory, 'reference', 'hvir-extension.json'),
-        JSON.stringify(exampleManifest({ access: ['broader'] })),
+        JSON.stringify(
+          exampleManifest({
+            access: [
+              {
+                id: 'broader',
+                description: 'Invalid writable scope',
+                context: 'application',
+                mode: 'write',
+              },
+            ],
+          }),
+        ),
       )
       await expect(owner.reload('reference', current.revision.hash)).rejects.toThrow(
-        'requested access',
+        'read-only',
       )
       expect([...owner.active.values()][0]).toBe(current)
       expect(data.revoke).toHaveBeenCalledTimes(1)

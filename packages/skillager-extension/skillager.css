@@ -1,0 +1,100 @@
+body {
+  margin: 0;
+  height: 100vh;
+  overflow: hidden;
+}
+main {
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+h1 {
+  font-size: 20px;
+  margin: 0;
+}
+form,
+.toolbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+#query {
+  flex: 1;
+  min-width: 140px;
+}
+#skills {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+#skills .hvir-row {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  text-align: start;
+}
+#skills span {
+  opacity: 0.8;
+  white-space: normal;
+}
+#instructions {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+#instructions:not([data-mode='source']) {
+  width: min(100%, 76ch);
+  align-self: center;
+}
+#instructions[data-mode='source'] {
+  white-space: pre-wrap;
+  font-family: var(--hvir-monospace-font);
+}
+#instructions pre {
+  overflow: auto;
+  padding: 12px;
+  background: var(--surface-1);
+}
+#instructions code {
+  font-family: var(--hvir-monospace-font);
+}
+#instructions img {
+  max-width: 100%;
+  height: auto;
+}
+#instructions table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+#instructions td,
+#instructions th {
+  padding: 6px;
+  border: 1px solid var(--border-subtle);
+}
+#state {
+  margin: 0;
+}
+#state[data-state='error'],
+#state[data-state='stale'] {
+  color: var(--warning-text);
+}
+#source-label {
+  margin: 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+summary {
+  cursor: pointer;
+}

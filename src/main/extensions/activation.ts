@@ -1,5 +1,9 @@
 import type { ExtensionConnectorApproval } from '../../shared/extensions/connectors'
 import { CONNECTOR_LIMITS } from '../../shared/extensions/connectors'
+import {
+  SOURCE_LIMITS,
+  type ExtensionSourceGrant,
+} from '../../shared/extensions/source-access'
 import { randomUUID } from 'node:crypto'
 import {
   EXTENSION_LIMITS,
@@ -57,6 +61,9 @@ export class ExtensionActivationOwner {
     private readonly forgotten: (
       installationId: string,
     ) => readonly ExtensionConnectorApproval[] | void = () => undefined,
+    private readonly sourceForgotten: (
+      installationId: string,
+    ) => readonly ExtensionSourceGrant[] | void = () => undefined,
   ) {}
 
   start(lock: HostPath): Promise<void> {
@@ -467,6 +474,9 @@ export class ExtensionActivationOwner {
         const approvals = this.forgotten(prior.installationId)
         if (approvals !== undefined)
           await this.writeConnectorApprovals(approvals, () => undefined)
+        const sourceGrants = this.sourceForgotten(prior.installationId)
+        if (sourceGrants !== undefined)
+          await this.writeSourceGrants(sourceGrants, () => undefined)
       }
       await this.save(
         forget
@@ -637,6 +647,43 @@ export class ExtensionActivationOwner {
       throw new Error('Connector approval state exceeds its bound')
     await this.host.writeFile(
       joinHostPath(this.stateFile, '..', 'connectors.json'),
+      content,
+      { signal: this.authority.signal },
+    )
+    await this.assertWritable()
+    current()
+  }
+
+  readSourceGrants(): Promise<unknown> {
+    return this.serialize(async () => {
+      await this.assertWritable()
+      try {
+        const data = await this.host.readTextFilePrefix(
+          joinHostPath(this.stateFile, '..', 'sources.json'),
+          SOURCE_LIMITS.stateBytes,
+        )
+        await this.assertWritable()
+        if (!data.complete || data.validUtf8 === false)
+          throw new Error('Source grant state exceeds its bound')
+        return JSON.parse(data.content) as unknown
+      } catch (reason) {
+        await this.assertWritable()
+        if ((reason as { code?: unknown }).code === 'ENOENT') return []
+        throw new Error('Source grants cannot be read safely', { cause: reason })
+      }
+    })
+  }
+  saveSourceGrants(value: unknown, current: () => void): Promise<void> {
+    return this.serialize(() => this.writeSourceGrants(value, current))
+  }
+  private async writeSourceGrants(value: unknown, current: () => void): Promise<void> {
+    await this.assertWritable()
+    current()
+    const content = JSON.stringify(value)
+    if (Buffer.byteLength(content) > SOURCE_LIMITS.stateBytes)
+      throw new Error('Source grant state exceeds its bound')
+    await this.host.writeFile(
+      joinHostPath(this.stateFile, '..', 'sources.json'),
       content,
       { signal: this.authority.signal },
     )

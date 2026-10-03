@@ -5,7 +5,7 @@ import { IpcAuthority } from '../src/main/ipc/authority-router'
 import { authorizeDocumentRead } from '../src/main/viewer/document-read-authority'
 import { resolveTerminalFileTarget } from '../src/renderer/src/terminal/terminal-file-link'
 import { TerminalPathActivationCoordinator } from '../src/renderer/src/workbench/use-terminal-path-activation'
-import { renderMarkdownDocument } from '../src/renderer/src/viewer/markdown-renderer'
+import { renderMarkdownDocument } from '../src/shared/presentation/document-markdown/rendering'
 import { hostPath, localPath, type ProjectState } from '../src/shared'
 import { createTestSshHost } from './ssh-host-test-fixture'
 

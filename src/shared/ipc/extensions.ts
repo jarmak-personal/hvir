@@ -1,4 +1,10 @@
+import type { ExtensionWorkspaceContext } from '../extensions/contract'
 import type { ProjectHostOption } from './project'
+import type {
+  ExtensionSourceSelection,
+  ExtensionSourceGrant,
+  ExtensionSourceStatus,
+} from '../extensions/source-access'
 import type {
   ExtensionConnectorSelection,
   ExtensionConnectorApproval,
@@ -18,6 +24,22 @@ import type {
 /** Trusted Settings/viewer transport. This contract is never exposed to a guest. */
 export const extensionsIpc = {
   invoke: {
+    'extensions:source-settings': invoke<
+      { readonly installationId: string },
+      {
+        readonly sources: readonly ExtensionSourceStatus[]
+        readonly workspaces: readonly ExtensionWorkspaceContext[]
+      }
+    >(),
+    'extensions:source-prepare': invoke<
+      ExtensionSourceSelection,
+      { readonly token: string; readonly grant: ExtensionSourceGrant }
+    >(),
+    'extensions:source-approve': invoke<{ readonly token: string }, void>(),
+    'extensions:source-revoke': invoke<
+      { readonly installationId: string; readonly source: string },
+      void
+    >(),
     'extensions:connector-settings': invoke<
       { readonly installationId: string },
       {

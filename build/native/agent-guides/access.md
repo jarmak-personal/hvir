@@ -6,7 +6,7 @@ Per-installation consent defaults to off, including installations without a save
 field, and is written by the same authoritative extension-state writer. A second
 instance without that writer cannot change consent or invoke extension actions, but can still
 use global inspection and reports. Writer loss cancels pending actions.
-This does not approve native connectors or expand any grant. Inspection/reporting continue
+This does not approve native connectors or expand any grant. Read-only source grants are separate trusted Settings decisions. Agent/action/restricted/updater callers never receive selected instruction bodies, even when an invocation ID is omitted or their view is reused. Inspection/reporting continue
 when an action is unavailable. The endpoint has a private user-owned directory/socket;
 processes running as the same OS user are not separated or authenticated per agent.
 

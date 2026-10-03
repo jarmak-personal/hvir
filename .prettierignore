@@ -6,3 +6,7 @@ src/renderer/src/terminal/generated-terminal-theme-catalog.ts
 
 # Markdown is hand-authored (design docs, ADRs, plan) — don't reflow prose.
 *.md
+
+# Reproducibly bundled and minified browser distribution assets.
+packages/skillager-extension/skillager.js
+packages/skillager-extension/updater.js

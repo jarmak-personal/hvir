@@ -1,0 +1,92 @@
+{
+  "id": "skillager",
+  "name": "Skillager",
+  "version": "0.1.0",
+  "contract": "1.0",
+  "requiredCapabilities": [
+    "presentation.read",
+    "context.read",
+    "viewer.open-own",
+    "contributions.read",
+    "contributions.publish",
+    "connector.status",
+    "connector.execute",
+    "connector.output",
+    "source.status",
+    "source.select",
+    "source.read",
+    "source.asset",
+    "source.render"
+  ],
+  "optionalCapabilities": [],
+  "access": [
+    {
+      "id": "library",
+      "description": "Read selected current instructions and confined images within your personal library",
+      "context": "application",
+      "mode": "read-only"
+    },
+    {
+      "id": "project",
+      "description": "Read selected current instructions and confined images in the exact registered project/worktree",
+      "context": "workspace",
+      "mode": "read-only"
+    }
+  ],
+  "views": [
+    {
+      "id": "library",
+      "title": "Skillager library",
+      "entry": "library.html",
+      "placement": "application",
+      "navigation": "top",
+      "representations": ["view"]
+    },
+    {
+      "id": "project",
+      "title": "Skills in this project",
+      "entry": "project.html",
+      "placement": "workspace",
+      "navigation": "left",
+      "representations": ["view"]
+    },
+    {
+      "id": "detail",
+      "title": "Skill instructions",
+      "entry": "detail.html",
+      "placement": "application",
+      "representations": ["view"]
+    }
+  ],
+  "railItems": [
+    {
+      "id": "library",
+      "placement": "header",
+      "icon": "◇",
+      "tooltip": "Personal skill library",
+      "label": "Skills",
+      "kind": "observation",
+      "click": { "view": "library", "placement": "viewer" }
+    }
+  ],
+  "actions": [],
+  "updater": "updater.html",
+  "connectors": [
+    {
+      "id": "library-cli",
+      "description": "Your installed Skillager CLI; personal-library observations use local application context",
+      "context": "application",
+      "timeoutMs": 180000,
+      "outputBytes": 4194304,
+      "environment": ["SKILLAGER_CATALOG_STATE_DIR", "XDG_CACHE_HOME", "XDG_STATE_HOME"]
+    },
+    {
+      "id": "project-cli",
+      "description": "Your installed local Skillager CLI; observations of the exact selected local project only",
+      "context": "workspace",
+      "timeoutMs": 180000,
+      "outputBytes": 4194304,
+      "environment": ["SKILLAGER_CATALOG_STATE_DIR", "XDG_CACHE_HOME", "XDG_STATE_HOME"]
+    }
+  ]
+}

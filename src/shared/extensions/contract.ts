@@ -1,3 +1,4 @@
+import type { HostPath } from '../host-path'
 import type { PresentationColorToken } from '../presentation/tokens'
 /** Public, process-independent extension contract. No workbench IPC is an author API. */
 export const EXTENSION_CONTRACT = '1.0'
@@ -11,6 +12,11 @@ export const EXTENSION_CAPABILITIES = [
   'connector.execute',
   'connector.output',
   'connector.status',
+  'source.status',
+  'source.select',
+  'source.read',
+  'source.asset',
+  'source.render',
 ] as const
 export type ExtensionCapability = (typeof EXTENSION_CAPABILITIES)[number]
 
@@ -65,7 +71,7 @@ export interface ExtensionManifest {
   readonly minimumHvir?: string
   readonly requiredCapabilities: readonly string[]
   readonly optionalCapabilities: readonly string[]
-  readonly access: readonly []
+  readonly access: readonly import('./source-access').ExtensionSourceDeclaration[]
   readonly views: readonly ExtensionContribution[]
   readonly railItems?: readonly ExtensionRailItem[]
   readonly actions?: readonly ExtensionAction[]
@@ -158,6 +164,8 @@ export interface ExtensionWorkspaceContext {
   readonly id: string
   readonly name: string
   readonly host: string
+  /** Registered root metadata confers no file or execution authority. */
+  readonly root?: HostPath
 }
 export interface ExtensionSessionContext {
   /** Exact live spawn identity, never a persisted terminal id or recycled projection handle. */
@@ -171,6 +179,8 @@ export interface ExtensionContext {
   readonly workspace?: ExtensionWorkspaceContext
   readonly session?: ExtensionSessionContext
   readonly sessions?: readonly ExtensionSessionContext[]
+  /** Bounded contribution input is data, never read or action authority. */
+  readonly input?: unknown
 }
 export interface ExtensionItemValue {
   readonly item: string

@@ -67,6 +67,16 @@ async function originalMessages(owner: string, source: string) {
 describe('resolved adapter for existing dependency direction policy', () => {
   it.each([
     [
+      'packages/skillager-extension/src/app.ts',
+      'src/main/extensions/guest-owner.ts',
+      '../../../src/main/extensions/guest-owner',
+    ],
+    [
+      'src/main/extensions/guest-owner.ts',
+      'packages/skillager-extension/src/catalog.mjs',
+      '../../../packages/skillager-extension/src/catalog',
+    ],
+    [
       'src/main/extensions/extension-authoring.ts',
       'packages/extension-authoring/clock/clock.js',
       '../../../packages/extension-authoring/clock/clock',
