@@ -174,12 +174,23 @@ export async function verifySkillagerExtension(
   await controls.wait(() => !!view('detail'), 'explicit selected detail')
   phase = 'selected detail guest attachment'
   const detail = await bounded(controls.guest(view('detail')!))
+  console.log(
+    '[smoke] Skillager evidence: attached detail readiness',
+    JSON.stringify({
+      url: detail.getURL(),
+      loading: detail.isLoading(),
+      document: await inspect(
+        detail,
+        "({ready:document.readyState,instructions:!!document.getElementById('instructions'),details:!!document.getElementById('details'),label:!!document.getElementById('source-label')})",
+      ),
+    }),
+  )
   await ready(
     detail,
     () =>
       inspect(
         detail,
-        `document.getElementById('instructions').textContent.length>0 && /^[a-f0-9]{64}$/.test(document.getElementById('details').dataset.sha256??'') && document.getElementById('source-label').textContent.endsWith(${JSON.stringify(`local: ${canonical.path}`)})`,
+        `document.getElementById('instructions')?.textContent?.length>0 && /^[a-f0-9]{64}$/.test(document.getElementById('details')?.dataset.sha256??'') && document.getElementById('source-label')?.textContent?.endsWith(${JSON.stringify(`local: ${canonical.path}`)})`,
       ) as Promise<boolean>,
     'selected current instructions through grant and guest transport',
   )
@@ -327,9 +338,33 @@ export async function verifySkillagerExtension(
         returnByValue: true,
         awaitPromise: true,
       }),
-    )) as { result?: { value?: unknown }; exceptionDetails?: unknown }
-    if (result.exceptionDetails)
+    )) as {
+      result?: { value?: unknown }
+      exceptionDetails?: {
+        exception?: { className?: string; description?: string }
+        text?: string
+      }
+    }
+    if (result.exceptionDetails) {
+      const error = result.exceptionDetails.exception
+      console.log(
+        '[smoke] Skillager evidence: inspection exception',
+        JSON.stringify({
+          phase,
+          url: guest.getURL(),
+          loading: guest.isLoading(),
+          class: error?.className?.slice(0, 80),
+          description: (
+            error?.description ??
+            result.exceptionDetails.text ??
+            'Unknown exception'
+          )
+            .split('\n')[0]!
+            .slice(0, 240),
+        }),
+      )
       throw new Error(`Skillager guest inspection failed: ${phase}`)
+    }
     return result.result?.value
   }
   async function bounded<T>(work: Promise<T>): Promise<T> {
