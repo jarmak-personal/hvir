@@ -4,8 +4,8 @@ import { ExtensionGuestLifecycle } from '../src/main/extensions/guest-lifecycle'
 function deferred() {
   let resolve!: () => void
   let reject!: (reason: Error) => void
-  const promise = new Promise<void>((yes, no) => {
-    resolve = yes
+  const promise = new Promise<'applied'>((yes, no) => {
+    resolve = () => yes('applied')
     reject = no
   })
   return { promise, resolve, reject }
@@ -14,18 +14,21 @@ function deferred() {
 describe('bounded extension engine lifecycle', () => {
   it('retains initial hidden visibility and coalesces rapid changes behind one engine operation', async () => {
     const first = deferred()
-    const apply = vi.fn().mockReturnValueOnce(first.promise).mockResolvedValue(undefined)
+    const apply = vi
+      .fn<ConstructorParameters<typeof ExtensionGuestLifecycle>[0]>()
+      .mockReturnValueOnce(first.promise)
+      .mockResolvedValue('applied')
     const active = vi.fn()
     const failed = vi.fn()
     const lifecycle = new ExtensionGuestLifecycle(apply, active, failed)
     lifecycle.setVisible(false)
     for (let index = 0; index < 100; index++) lifecycle.setVisible(index % 2 === 0)
     lifecycle.setVisible(true)
-    expect(apply.mock.calls).toEqual([['frozen']])
+    expect(apply.mock.calls.map(([state]) => [state])).toEqual([['frozen']])
     expect(lifecycle.isActive).toBe(false)
     first.resolve()
     await vi.waitFor(() => expect(lifecycle.isActive).toBe(true))
-    expect(apply.mock.calls).toEqual([['frozen'], ['active']])
+    expect(apply.mock.calls.map(([state]) => [state])).toEqual([['frozen'], ['active']])
     expect(active).toHaveBeenCalledTimes(1)
     expect(failed).not.toHaveBeenCalled()
     lifecycle.dispose()
@@ -56,16 +59,18 @@ describe('bounded extension engine lifecycle', () => {
   )
 
   it('uses the same engine driver for finite hidden work and freezes after its final admission ends', async () => {
-    const apply = vi.fn(() => Promise.resolve())
+    const apply = vi.fn<ConstructorParameters<typeof ExtensionGuestLifecycle>[0]>(() =>
+      Promise.resolve('applied'),
+    )
     const lifecycle = new ExtensionGuestLifecycle(apply, vi.fn(), vi.fn())
     lifecycle.setVisible(false)
-    await vi.waitFor(() => expect(apply).toHaveBeenLastCalledWith('frozen'))
+    await vi.waitFor(() => expect(apply.mock.calls.at(-1)?.[0]).toBe('frozen'))
     lifecycle.setAdmittedWork(true)
     await vi.waitFor(() => expect(lifecycle.isActive).toBe(true))
     lifecycle.setVisible(false)
     await vi.waitFor(() => expect(lifecycle.isActive).toBe(true))
     lifecycle.setAdmittedWork(false)
-    await vi.waitFor(() => expect(apply).toHaveBeenLastCalledWith('frozen'))
+    await vi.waitFor(() => expect(apply.mock.calls.at(-1)?.[0]).toBe('frozen'))
     expect(lifecycle.isActive).toBe(false)
     lifecycle.dispose()
     lifecycle.setAdmittedWork(true)
@@ -120,20 +125,24 @@ describe('engine visibility invalidation', () => {
   it('reapplies an unchanged target after a native lifecycle event without retaining a queue', async () => {
     const pending = deferred()
     const apply = vi
-      .fn()
-      .mockResolvedValueOnce(undefined)
+      .fn<ConstructorParameters<typeof ExtensionGuestLifecycle>[0]>()
+      .mockResolvedValueOnce('applied')
       .mockReturnValueOnce(pending.promise)
-      .mockResolvedValue(undefined)
+      .mockResolvedValue('applied')
     const lifecycle = new ExtensionGuestLifecycle(apply, vi.fn(), vi.fn())
     lifecycle.setVisible(false)
     await vi.waitFor(() => expect(apply).toHaveBeenCalledTimes(1))
-    await Promise.resolve()
     lifecycle.setVisible(false)
+    await vi.waitFor(() => expect(apply).toHaveBeenCalledTimes(2))
     for (let index = 0; index < 100; index++) lifecycle.setVisible(false)
     expect(apply).toHaveBeenCalledTimes(2)
     pending.resolve()
     await vi.waitFor(() => expect(apply).toHaveBeenCalledTimes(3))
-    expect(apply.mock.calls).toEqual([['frozen'], ['frozen'], ['frozen']])
+    expect(apply.mock.calls.map(([state]) => [state])).toEqual([
+      ['frozen'],
+      ['frozen'],
+      ['frozen'],
+    ])
     lifecycle.dispose()
   })
 })

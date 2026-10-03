@@ -294,11 +294,25 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
       // A visible bootstrap need not await loaded in its first transition.
       void loaded.catch(() => undefined)
       record.lifecycle = new ExtensionGuestLifecycle(
-        async (state) => {
+        async (state, renewed) => {
           transitionStage = 'engine-ready'
           await record.engineReady
           transitionStage = 'load-before-freeze'
-          if (state === 'frozen') await Promise.race([loaded, record.revoked])
+          if (state === 'frozen') {
+            // Renewal retires only this wait; issued transition commands stay awaited.
+            if (renewed.aborted) return 'superseded'
+            let resume!: () => void
+            const resumed = new Promise<void>((resolve) => {
+              resume = resolve
+            })
+            renewed.addEventListener('abort', resume, { once: true })
+            try {
+              await Promise.race([loaded, record.revoked, resumed])
+            } finally {
+              renewed.removeEventListener('abort', resume)
+            }
+            if (renewed.aborted) return 'superseded'
+          }
           transitionStage = 'transition-target'
           await this.assertEngineTarget(record, guest)
           this.assertLiveGuest(record, guest)
@@ -308,6 +322,7 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
           })
           this.assertLiveGuest(record, guest)
           transitionStage = 'complete'
+          return 'applied'
         },
         () => this.flushPresentation(record),
         (category) => {

@@ -71,7 +71,7 @@ function viewFor(index = 0): ExtensionView {
   }
 }
 async function fixture(
-  send?: (method: string) => Promise<unknown>,
+  send?: (method: string, params?: { state?: string }) => Promise<unknown>,
   admittedDuringBind = false,
   loading = false,
 ) {
@@ -83,9 +83,9 @@ async function fixture(
     isAttached: vi.fn(() => true),
     detach: vi.fn(),
     sendCommand: vi.fn<(method: string, params?: { state?: string }) => Promise<unknown>>(
-      (method) =>
+      (method, params) =>
         send
-          ? send(method)
+          ? send(method, params)
           : Promise.resolve({ targetInfo: { targetId: 'target', type: 'webview' } }),
     ),
   })
@@ -137,6 +137,14 @@ async function fixture(
     debuggerPort,
     response,
     failed,
+    states: () =>
+      debuggerPort.sendCommand.mock.calls
+        .filter(([method]) => method === 'Page.setWebLifecycleState')
+        .map((call) => (call[1] as { state: string }).state),
+    finishLoad: () => {
+      loading = false
+      guest.emit('did-finish-load')
+    },
     replace: () => {
       dispatching = true
       try {
@@ -154,6 +162,173 @@ afterEach(() => {
 })
 
 describe('Electron extension response, native teardown and closing capacity', () => {
+  it.each(['visible', 'finite-work'] as const)(
+    'bootstrap renewal by %s retires only a pre-load freeze and preserves later hidden freezing',
+    async (demand) => {
+      const data = await fixture(undefined, false, true)
+      try {
+        expect(await (await data.response()).text()).toBe('captured')
+        await turn()
+        expect(data.states()).toEqual([])
+        if (demand === 'visible') data.surface.visibility(data.guest.id, true)
+        else data.surface.runnable(data.guest.id, true)
+        await turn()
+        expect(data.states()).toEqual(['active'])
+        expect(data.failed).not.toHaveBeenCalled()
+        if (demand === 'visible') data.surface.visibility(data.guest.id, false)
+        else data.surface.runnable(data.guest.id, false)
+        await turn()
+        expect(data.states()).toEqual(['active'])
+        data.finishLoad()
+        await turn()
+        expect(data.states().at(-1)).toBe('frozen')
+        expect(data.failed).not.toHaveBeenCalled()
+      } finally {
+        await data.surface.destroy(data.view.id)
+      }
+    },
+  )
+
+  it('bootstrap renewal at nine seconds keeps the original ten-second deadline for its native command', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const report = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const pending = deferred<unknown>()
+    const data = await fixture(
+      (method) =>
+        method === 'Page.setWebLifecycleState'
+          ? pending.promise
+          : Promise.resolve({ targetInfo: { targetId: 'target', type: 'webview' } }),
+      false,
+      true,
+    )
+    try {
+      await turn()
+      await vi.advanceTimersByTimeAsync(9000)
+      data.surface.visibility(data.guest.id, true)
+      await turn()
+      expect(data.states()).toEqual(['active'])
+      await vi.advanceTimersByTimeAsync(999)
+      expect(report).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(report).toHaveBeenCalledTimes(1)
+      expect(JSON.parse(report.mock.calls[0]![1] as string)).toMatchObject({
+        stage: 'state-command',
+        category: 'timeout',
+        visible: true,
+        loading: true,
+      })
+      const commands = data.debuggerPort.sendCommand.mock.calls.length
+      pending.resolve(undefined)
+      data.finishLoad()
+      await turn()
+      expect(data.debuggerPort.sendCommand.mock.calls).toHaveLength(commands)
+      expect((await data.response()).status).toBe(404)
+    } finally {
+      vi.useRealTimers()
+      await data.surface.destroy(data.view.id)
+    }
+  })
+
+  it('coalesces bootstrap renewals that return to hidden without premature freeze or deadline reset', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const report = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const data = await fixture(undefined, false, true)
+    try {
+      await turn()
+      await vi.advanceTimersByTimeAsync(9000)
+      for (let index = 0; index < 100; index++) {
+        data.surface.visibility(data.guest.id, true)
+        data.surface.visibility(data.guest.id, false)
+      }
+      await turn()
+      expect(data.states()).toEqual([])
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(report).toHaveBeenCalledTimes(1)
+      expect(JSON.parse(report.mock.calls[0]![1] as string)).toMatchObject({
+        stage: 'load-before-freeze',
+        category: 'timeout',
+        visible: false,
+      })
+      data.finishLoad()
+      await turn()
+      expect(data.states()).toEqual([])
+      expect((await data.response()).status).toBe(404)
+    } finally {
+      vi.useRealTimers()
+      await data.surface.destroy(data.view.id)
+    }
+  })
+
+  it('observer refusal wins over bootstrap renewal and releases no captured bytes', async () => {
+    const report = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const pending = deferred<unknown>()
+    const data = await fixture(
+      (method) =>
+        method === 'Page.enable'
+          ? pending.promise
+          : Promise.resolve({ targetInfo: { targetId: 'target', type: 'webview' } }),
+      false,
+      true,
+    )
+    data.surface.visibility(data.guest.id, true)
+    pending.resolve(Promise.reject(new Error('Observer refused after demand renewal')))
+    await turn()
+    expect(JSON.parse(report.mock.calls[0]![1] as string)).toMatchObject({
+      stage: 'observer-command',
+      category: 'refusal',
+    })
+    expect(data.states()).toEqual([])
+    expect((await data.response()).status).toBe(404)
+    await data.surface.destroy(data.view.id)
+    expect(data.guest.isDestroyed()).toBe(true)
+  })
+
+  it.each(['target', 'state'] as const)(
+    'does not retire an issued frozen %s command when visible demand returns',
+    async (held) => {
+      const pending = deferred<unknown>()
+      let targets = 0
+      const data = await fixture((method, params) => {
+        if (method === 'Target.getTargetInfo') targets++
+        if (
+          (held === 'target' && method === 'Target.getTargetInfo' && targets === 2) ||
+          (held === 'state' &&
+            method === 'Page.setWebLifecycleState' &&
+            params?.state === 'frozen')
+        )
+          return pending.promise
+        return Promise.resolve({ targetInfo: { targetId: 'target', type: 'webview' } })
+      })
+      await turn()
+      const commands = data.debuggerPort.sendCommand.mock.calls.length
+      data.surface.visibility(data.guest.id, true)
+      await turn()
+      expect(data.debuggerPort.sendCommand.mock.calls).toHaveLength(commands)
+      expect(data.states()).toEqual(held === 'state' ? ['frozen'] : [])
+      pending.resolve({ targetInfo: { targetId: 'target', type: 'webview' } })
+      await turn()
+      expect(data.states()).toEqual(['frozen', 'active'])
+      expect(data.failed).not.toHaveBeenCalled()
+      await data.surface.destroy(data.view.id)
+    },
+  )
+
+  it('close after bootstrap renewal rejects late loading without any successor native command', async () => {
+    const data = await fixture(undefined, false, true)
+    expect(await (await data.response()).text()).toBe('captured')
+    await turn()
+    data.surface.visibility(data.guest.id, true)
+    const receipt = data.surface.destroy(data.view.id)
+    const commands = data.debuggerPort.sendCommand.mock.calls.length
+    await receipt
+    data.finishLoad()
+    await turn()
+    expect(data.debuggerPort.sendCommand.mock.calls).toHaveLength(commands)
+    expect(data.states()).toEqual([])
+    expect((await data.response()).status).toBe(404)
+    expect(data.session.clearCache).toHaveBeenCalledTimes(1)
+  })
+
   it.each(['observer-command', 'load-before-freeze', 'state-command'] as const)(
     'reports the stalled %s stage at the unchanged lifecycle deadline',
     async (stage) => {
