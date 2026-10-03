@@ -300,9 +300,7 @@ export async function verifyAgentWorkbench(
   await command(['sessions', '--instance', endpoint, '--session', 'stale'], undefined, 69)
   await click(win, 'Open settings')
   await click(win, 'Extensions')
-  await win.webContents.executeJavaScript(
-    `(() => { const input = [...document.querySelectorAll('input[type="checkbox"]')].find(input => input.parentElement.textContent.includes('Allow local agents')); input.click(); })()`,
-  )
+  await setAgentAccess(win, false)
   await wait(() => !agents.access.snapshot().enabled, 'ordinary access Off')
   await command(['workspaces', '--instance', endpoint], undefined, 69)
   if (agents.reports.read(published.report!.id).content !== 'retained replacement')
