@@ -130,8 +130,13 @@ it('the actual packager identity resolver cannot silently bypass forced signing 
   const prepare = require('../build/native/prepare-agent-clients.cjs') as (context: {
     packager: unknown
   }) => Promise<void>
+  const { isSignAllowed } = require('app-builder-lib/out/codeSign/macCodeSign') as {
+    isSignAllowed(this: void, printWarning: boolean): boolean
+  }
   await expect(prepare({ packager })).rejects.toThrow(
-    'Required macOS signing identity is absent',
+    isSignAllowed(false)
+      ? 'Required macOS signing identity is absent'
+      : 'Required macOS signing is unavailable',
   )
 })
 
