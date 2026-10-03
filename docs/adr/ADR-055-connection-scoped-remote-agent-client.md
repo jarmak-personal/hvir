@@ -45,7 +45,9 @@ then atomically publish without replacement. Exact ownership markers bind retain
 and cleanup. Physically settled failed transfers use exact recorded identities for immediate
 bounded cleanup. If disconnect or uncertain ownership prevents cleanup, a new exclusive revision
 can prepare the same hash while preserving the abandoned leaf; every pending revision counts
-against the same revision, byte and entry bounds. Live forward leases prevent client deletion;
+against the same revision, byte and entry bounds. Recognized private directories without valid
+receipts remain opaque and preserved, reserving one full client allowance; their names never
+confer reuse, execution or retirement eligibility. Live forward leases prevent client deletion;
 interrupted transfers never execute. Reconciliation inspects only bounded immediate entries in this dedicated namespace;
 unsafe or excessive contents refuse preparation rather than scan or delete unrelated files.
 Only proven unleased obsolete objects are removed. Offline hosts may retain material until

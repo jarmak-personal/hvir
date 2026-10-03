@@ -37,6 +37,7 @@ mode() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }
 owner() { stat -c '%u' "$1" 2>/dev/null || stat -f '%u' "$1"; }
 private() { [ -d "$1" ] && [ ! -L "$1" ] && [ "$(owner "$1")" = "$(id -u)" ] && [ "$(mode "$1")" = 700 ]; }
 `
+export const VERIFY_PRIVATE_DIRECTORY = `${STAT}\nprivate "$1"`
 export const PRIVATE_DIRECTORY = `${STAT}\n[ -e "$1" ] || mkdir "$1"\nprivate "$1"`
 export const DETECT = `${STAT}
 safe() { case "$1" in /*) ;; *) return 1;; esac; case "$1" in *[!A-Za-z0-9_./-]*) return 1;; esac; }

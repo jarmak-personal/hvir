@@ -7,6 +7,7 @@ import {
   readdir,
   rename,
   rm,
+  stat,
 } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -344,3 +345,95 @@ it('serializes concurrent same-host cache acquisition across forward generations
   expect(await readdir(join(f.directory, 'agent-client'))).toHaveLength(3)
   await Promise.all(revisions.map((client) => client.release()))
 }, 20_000)
+
+it('preserves directory-created and partial initial-marker interruptions, charges them conservatively and retries in fresh revisions', async () => {
+  for (const beforeMarker of [true, false]) {
+    const f = await fixture()
+    let uncertain = ''
+    const execute = f.host.exec.bind(f.host)
+    const exec = vi
+      .spyOn(f.host, 'exec')
+      .mockImplementation(async (command, args, options) => {
+        const result = await execute(command, args, options)
+        if (beforeMarker && args[1]?.includes('\nmkdir "$1"\nprivate "$1"')) {
+          uncertain = args[3]!
+          throw new Error('disconnected before marker')
+        }
+        return result
+      })
+    const write = f.host.fileTransfer.writeFileChunksExclusive.bind(f.host.fileTransfer)
+    const upload = vi.spyOn(f.host.fileTransfer, 'writeFileChunksExclusive')
+    if (!beforeMarker)
+      upload.mockImplementationOnce((path, chunks, options) => {
+        uncertain = path.path.slice(0, path.path.lastIndexOf('/'))
+        return write(
+          path,
+          (async function* () {
+            for await (const chunk of chunks) {
+              yield chunk.subarray(0, 2)
+              throw new Error('disconnected during marker')
+            }
+          })(),
+          options,
+        )
+      })
+    await expect(f.acquire()).rejects.toThrow('disconnected')
+    exec.mockRestore()
+    upload.mockRestore()
+    const original = await stat(uncertain)
+    const priorEntries = await readdir(uncertain)
+    expect(priorEntries).toEqual(beforeMarker ? [] : ['owned.json'])
+    const recovered = await f.acquire()
+    expect(recovered.directory.path).not.toBe(uncertain)
+    expect((await stat(uncertain)).ino).toBe(original.ino)
+    expect(await readdir(uncertain)).toEqual(priorEntries)
+    expect(await readFile(recovered.client.path)).toEqual(f.asset().bytes)
+    await recovered.release()
+  }
+}, 20_000)
+it('bounds unreceipted recognized private revisions without assigning their ownership from a filename', async () => {
+  const f = await fixture(),
+    execute = f.host.exec.bind(f.host)
+  const exec = vi
+    .spyOn(f.host, 'exec')
+    .mockImplementation(async (command, args, options) => {
+      const result = await execute(command, args, options)
+      if (args[1]?.includes('\nmkdir "$1"\nprivate "$1"'))
+        throw new Error('disconnected before marker')
+      return result
+    })
+  for (let attempt = 0; attempt < 3; attempt++)
+    await expect(f.acquire()).rejects.toThrow('disconnected')
+  exec.mockRestore()
+  const entries = await readdir(join(f.directory, 'agent-client'))
+  expect(entries).toHaveLength(3)
+  await expect(f.acquire()).rejects.toThrow('capacity')
+  expect(await readdir(join(f.directory, 'agent-client'))).toEqual(entries)
+})
+
+it('never recreates an unreceipted revision that disappeared after directory discovery', async () => {
+  const f = await fixture(),
+    client = await f.acquire()
+  await client.release()
+  const execute = f.host.exec.bind(f.host)
+  let removed = false
+  const exec = vi
+    .spyOn(f.host, 'exec')
+    .mockImplementation(async (command, args, options) => {
+      if (
+        !removed &&
+        args[3] === client.directory.path &&
+        args[1]?.includes('[ -f "$1/owned.json" ]')
+      ) {
+        removed = true
+        await rm(client.directory.path, { recursive: true })
+      }
+      return execute(command, args, options)
+    })
+  await expect(f.acquire()).rejects.toThrow('private cache')
+  exec.mockRestore()
+  await expect(stat(client.directory.path)).rejects.toMatchObject({ code: 'ENOENT' })
+  const next = await f.acquire()
+  expect(next.directory.path).not.toBe(client.directory.path)
+  await next.release()
+})

@@ -29,7 +29,10 @@ async function main(): Promise<void> {
   // Real SFTP/Unix-forward/process probe. The presentation adapter is intentionally headless;
   // installed Electron and human walkthrough acceptance are separate gates.
   const target = process.argv[2],
-    binary = resolve(process.argv[3] ?? '')
+    binary = resolve(process.argv[3] ?? ''),
+    interruption = process.argv[4] ?? 'upload'
+  if (!['directory', 'marker', 'upload'].includes(interruption))
+    throw new Error('Select directory, marker or upload interruption')
   if (!['linux-x64', 'linux-arm64', 'macos-x64', 'macos-arm64'].includes(target ?? ''))
     throw new Error('Select the exact built client target and file')
   const required = (key: string): string => {
@@ -265,31 +268,55 @@ async function main(): Promise<void> {
   try {
     await host.connect()
     await access.configure({ enabled: true, confirmDestructive: false })
-    // Interrupt a real SFTP upload after its first physical write. Cleanup is unavailable while
-    // disconnected; a same-hash reconnect must use a fresh bounded revision, preserving that leaf.
-    operation = 'interrupted-upload-reconnect'
-    const write = host.fileTransfer.writeFileChunksExclusive.bind(host.fileTransfer)
-    let interrupted = false
+    operation = `interrupted-${interruption}-preparation`
+    const write = host.fileTransfer.writeFileChunksExclusive.bind(host.fileTransfer),
+      execute = host.exec.bind(host)
     let disconnected: Promise<void> | undefined
     let partial: import('../src/shared/host-path').HostPath | undefined,
       partialIdentity = '',
       partialSha256 = '',
       partialBytes = 0
+    const interrupt = async (
+      path: import('../src/shared/host-path').HostPath,
+      bytes?: Uint8Array,
+    ): Promise<void> => {
+      partial = path
+      partialIdentity = await cacheIdentity(host, path, lifetime.signal)
+      if (bytes) {
+        partialSha256 = createHash('sha256').update(bytes).digest('hex')
+        partialBytes = bytes.length
+      }
+      disconnected = host.dispose()
+      await disconnected
+    }
+    host.exec = async (command, args, options) => {
+      const result = await execute(command, args, options)
+      if (
+        interruption === 'directory' &&
+        !partial &&
+        result.code === 0 &&
+        args[1]?.includes('\nmkdir "$1"\nprivate "$1"') &&
+        /\/c\.[a-f0-9]{64}\.[a-f0-9-]{36}$/.test(args[3] ?? '')
+      )
+        await interrupt(hostPath(host.hostId, args[3]!))
+      return result
+    }
     host.fileTransfer.writeFileChunksExclusive = (path, chunks, options) => {
-      if (!path.path.includes('/upload.')) return write(path, chunks, options)
+      if (
+        partial ||
+        !(interruption === 'marker'
+          ? path.path.endsWith('/owned.json')
+          : interruption === 'upload' && path.path.includes('/upload.'))
+      )
+        return write(path, chunks, options)
       return write(
         path,
         (async function* () {
           for await (const chunk of chunks) {
-            yield chunk
-            partial = path
-            partialIdentity = await cacheIdentity(host, path, lifetime.signal)
-            partialSha256 = createHash('sha256').update(chunk).digest('hex')
-            partialBytes = chunk.length
-            interrupted = true
-            disconnected = host.dispose()
-            await disconnected
-            throw new Error('Owned SSH upload fixture disconnected')
+            const bytes = interruption === 'marker' ? chunk.subarray(0, 2) : chunk
+            yield bytes
+            await interrupt(path, bytes)
+            throw new Error('Owned SSH preparation fixture disconnected')
           }
         })(),
         options,
@@ -297,47 +324,55 @@ async function main(): Promise<void> {
     }
     const failed = await remote.environment(host, lifetime.signal)
     host.fileTransfer.writeFileChunksExclusive = write
-    operation = `interrupted-upload-outcome-${interrupted}-${Boolean(failed.env.HVIR_AGENT_UNAVAILABLE)}`
-    if (!interrupted || !failed.env.HVIR_AGENT_UNAVAILABLE)
-      throw new Error('Interrupted SSH upload did not return unavailable')
+    host.exec = execute
+    if (!partial || !disconnected || !failed.env.HVIR_AGENT_UNAVAILABLE)
+      throw new Error('Interrupted SSH preparation did not return unavailable')
     await disconnected
     await cacheWork?.catch(() => undefined)
-    operation = 'interrupted-upload-reconnect-connect'
+    operation = `interrupted-${interruption}-reconnect-connect`
     await host.connect()
-    operation = 'interrupted-upload-reconnect-retained-identity'
-    if (
-      !partial ||
-      (await cacheIdentity(host, partial, lifetime.signal)) !== partialIdentity
-    )
-      throw new Error('Original interrupted SSH upload identity was not preserved')
-    operation = 'interrupted-upload-reconnect-retained-marker'
-    const pendingMarker = await host.readTextFilePrefix(
-      joinHostPath(partial, '..', 'owned.json'),
-      4096,
-    )
-    const pending = JSON.parse(pendingMarker.content) as {
-      pending?: boolean
-      hash?: string
-      upload?: { identity?: string }
+    const verifyRetained = async (): Promise<void> => {
+      operation = `interrupted-${interruption}-retained-identity`
+      if ((await cacheIdentity(host, partial!, lifetime.signal)) !== partialIdentity)
+        throw new Error('Original interrupted SSH object identity was not preserved')
+      if (interruption === 'directory') {
+        if ((await host.readdir(partial!)).length !== 0)
+          throw new Error('Unreceipted directory changed')
+        return
+      }
+      operation = `interrupted-${interruption}-retained-bytes`
+      const retainedHash = createHash('sha256')
+      let retainedBytes = 0
+      for await (const chunk of host.fileTransfer.readFileChunks(partial!, {
+        signal: lifetime.signal,
+      })) {
+        retainedBytes += chunk.length
+        if (retainedBytes > partialBytes)
+          throw new Error('Interrupted object exceeded its fixture bound')
+        retainedHash.update(chunk)
+      }
+      if (retainedBytes !== partialBytes || retainedHash.digest('hex') !== partialSha256)
+        throw new Error('Original interrupted SSH bytes changed')
+      if (interruption !== 'upload') return
+      operation = 'interrupted-upload-retained-marker'
+      const pendingMarker = await host.readTextFilePrefix(
+        joinHostPath(partial!, '..', 'owned.json'),
+        4096,
+      )
+      const pending = JSON.parse(pendingMarker.content) as {
+        pending?: boolean
+        hash?: string
+        upload?: { identity?: string }
+      }
+      if (
+        !pendingMarker.complete ||
+        pending.pending !== true ||
+        pending.hash !== sha256 ||
+        pending.upload?.identity !== partialIdentity
+      )
+        throw new Error('Original interrupted SSH revision marker was not preserved')
     }
-    if (
-      !pendingMarker.complete ||
-      pending.pending !== true ||
-      pending.hash !== sha256 ||
-      pending.upload?.identity !== partialIdentity
-    )
-      throw new Error('Original interrupted SSH revision marker was not preserved')
-    operation = 'interrupted-upload-reconnect-retained-bytes'
-    const retainedHash = createHash('sha256')
-    let retainedBytes = 0
-    for await (const chunk of host.fileTransfer.readFileChunks(partial, {
-      signal: lifetime.signal,
-    })) {
-      retainedBytes += chunk.length
-      retainedHash.update(chunk)
-    }
-    if (retainedBytes !== partialBytes || retainedHash.digest('hex') !== partialSha256)
-      throw new Error('Original interrupted SSH bytes were changed')
+    await verifyRetained()
     operation = 'interrupted-upload-reconnect-prepare'
     const a = await remote.environment(host, lifetime.signal),
       b = await remote.environment(host, lifetime.signal)
@@ -354,10 +389,15 @@ async function main(): Promise<void> {
               : 'prepare-unavailable'
       throw new Error('Fresh SSH client preparation failed')
     }
-    if (a.env.HVIR_AGENT_CLIENT === joinHostPath(partial, '..', 'hvir-agent').path)
+    if (
+      a.env.HVIR_AGENT_CLIENT ===
+      joinHostPath(
+        partial,
+        ...(interruption === 'directory' ? ['hvir-agent'] : ['..', 'hvir-agent']),
+      ).path
+    )
       throw new Error('Fresh SSH client reused the pending revision')
-    if ((await cacheIdentity(host, partial, lifetime.signal)) !== partialIdentity)
-      throw new Error('Fresh preparation removed the preserved partial upload')
+    await verifyRetained()
     if (a.env.HVIR_AGENT_CLIENT !== b.env.HVIR_AGENT_CLIENT)
       throw new Error('Second terminal did not reuse the exact client')
     const listing = await invoke(a, ['workspaces'])
@@ -419,7 +459,9 @@ async function main(): Promise<void> {
         commands: ['workspaces', 'open', 'report', 'run', 'help'],
         privateMarkerMode: '0600',
         cacheReuse: true,
-        interruptedUploadReconnect: true,
+        interruptedUploadReconnect: interruption === 'upload',
+        interruptedPreparationReconnect: interruption,
+        preservedInterruptedObject: true,
         ownedSocketCleanup: true,
         revokeAndFreshForward: true,
       }),

@@ -48,7 +48,11 @@ sh and stream-local forwarding; create `document.txt` in its workspace. Set
 `HVIR_REAL_SSH_HOST`, `HVIR_REAL_SSH_PORT`, `HVIR_REAL_SSH_USER`,
 `HVIR_REAL_SSH_HOST_KEY` (the pinned OpenSSH SHA256 fingerprint), `HVIR_REAL_SSH_IDENTITY_FILE`, and
 `HVIR_REAL_SSH_ROOT_PARENT`, then run
-`npm run probe:agent:ssh -- <target> out/agent-clients/<target>/hvir-agent`.
+`npm run probe:agent:ssh -- <target> out/agent-clients/<target>/hvir-agent [directory|marker|upload]`.
+The optional interruption selects a confirmed directory creation, initial marker write, or
+client upload (the default). Use a fresh individually owned fixture/cache namespace for each
+scenario. The probe disconnects it, waits for physical settlement, verifies the retained object's
+identity/bytes, and then reconnects and prepares a distinct verified revision within the bounds.
 The probe uses real SshHost, SFTP, native client, cache, framing and command owners with a
 headless presentation/action adapter. It verifies discovery, admitted document dispatch,
 report stdin/context, authorized action dispatch, live help, private marker mode, cache reuse,

@@ -6,6 +6,7 @@ import {
   control,
   DETECT,
   PRIVATE_DIRECTORY,
+  VERIFY_PRIVATE_DIRECTORY,
   CREATE_REVISION,
   VERIFY_MARKER,
   VERIFY_PUBLICATION,
@@ -117,7 +118,7 @@ export class RemoteClientCache {
     const entries = await host.readdir(root)
     if (entries.length > REMOTE_CLIENT_CACHE_LIMITS.entries)
       throw new Error('hvir-agent cache contains too many entries')
-    const retained: { path: HostPath; marker: Marker; leased: boolean }[] = []
+    const retained: { path: HostPath; marker?: Marker; leased: boolean }[] = []
     for (const entry of entries) {
       signal.throwIfAborted()
       const path = joinHostPath(root, entry.name)
@@ -125,7 +126,16 @@ export class RemoteClientCache {
         throw new Error(
           'hvir-agent cache contains an unrecognized entry; preserve it and inspect the private directory',
         )
-      const marker = await this.marker(host, path, signal)
+      let marker: Marker
+      try {
+        marker = await this.marker(host, path, signal)
+      } catch {
+        signal.throwIfAborted()
+        await control(host, VERIFY_PRIVATE_DIRECTORY, [path.path], signal)
+        // A recognized private leaf without a valid receipt is never attributed or deleted.
+        retained.push({ path, leased: true })
+        continue
+      }
       if (marker.pending) {
         if (
           typeof marker.createdAt === 'number' &&
@@ -145,10 +155,15 @@ export class RemoteClientCache {
       retained.push({ path, marker, leased: await this.leased(host, path, signal) })
     }
     let cached = retained.find(
-      (entry) => !entry.marker.pending && entry.marker.hash === asset.sha256,
+      (entry) =>
+        entry.marker && !entry.marker.pending && entry.marker.hash === asset.sha256,
     )
     let count = retained.length,
-      bytes = retained.reduce((sum, entry) => sum + entry.marker.bytes, 0)
+      bytes = retained.reduce(
+        (sum, entry) =>
+          sum + (entry.marker?.bytes ?? REMOTE_CLIENT_CACHE_LIMITS.clientBytes),
+        0,
+      )
     if (!cached) {
       for (const entry of retained) {
         if (
@@ -156,7 +171,7 @@ export class RemoteClientCache {
           bytes + asset.bytes.length <= REMOTE_CLIENT_CACHE_LIMITS.bytes
         )
           break
-        if (entry.leased) continue
+        if (entry.leased || !entry.marker) continue
         await this.retire(host, root, entry.path, entry.marker, signal)
         count--
         bytes -= entry.marker.bytes

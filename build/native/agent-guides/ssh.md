@@ -43,7 +43,10 @@ A long per-user temporary directory keeps the client cache there and uses a sepa
 The cache limits each client to 16 MiB and bounds directory entries. A settled failed upload is
 cleaned using exact ownership receipts when the host is reachable. If cleanup is unavailable,
 a reconnect can prepare the same hash in a fresh private revision while preserving the partial
-leaf. Pending revisions count toward the same cache limits; older exact owned transfers can
+leaf. A directory or initial marker interrupted before ownership publication is also preserved;
+a fresh revision can proceed within the same limits. These unreceipted private directories reserve
+a full 16 MiB allowance and are never executed or deleted based on their names.
+Pending revisions count toward the same cache limits; older exact owned transfers can
 be reconciled after 24 hours. Fresh lease records are protected for 24 hours, and older leases
 are removed only when the bundled client confirms the socket is dead. Unknown or externally
 replaced objects are preserved; exhausted or unsafe namespaces report unavailable. Live streams keep
