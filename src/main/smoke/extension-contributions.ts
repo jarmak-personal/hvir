@@ -574,35 +574,66 @@ export async function verifyExtensionContributions(
   )
 
   // An admitted finite action stays runnable while its ordinary placement is hidden.
-  await beginAction('hidden-action', 2400)
-  console.log('[smoke] hidden action request started')
-  await controls.wait(
-    async () =>
-      String(
-        await detailGuest.executeJavaScript(
-          "document.getElementById('status')?.textContent",
-        ),
-      ).startsWith('Action for '),
-    'admitted action executing before hide',
-  )
-  await controls.wait(
-    () => dom("window.__extensionActions['hidden-action']?.state === 'pending'"),
-    'finite action admitted',
-  )
-  await controls.click('Reference library')
-  await controls.wait(
-    () => dom(`document.querySelector('[data-extension-view="${detail.id}"]').hidden`),
-    'ordinary action placement hidden',
-  )
-  await controls.wait(
-    () => dom("window.__extensionActions['hidden-action']?.state === 'done'"),
-    'finite hidden native action completed',
-  )
-  const hiddenResult = (await win.webContents.executeJavaScript(
-    "window.__extensionActions['hidden-action'].value",
-  )) as { session?: string; caller?: string }
-  if (hiddenResult.session !== sessions[0]!.id || hiddenResult.caller !== 'human')
-    throw new Error('Action lost exact caller/context')
+  // Guest execution does not fence the separate parent selection publication.
+  await win.webContents.executeJavaScript(`(() => {
+    const observation = window.__extensionActionPlacement = {selected:false};
+    observation.dispose = window.hvir.on('extensions:views-changed', ({selectedId}) => {
+      if (selectedId === ${JSON.stringify(detail.id)}) observation.selected = true;
+    });
+  })()`)
+  let placementCleanupFailure: { readonly reason: unknown } | undefined
+  try {
+    await beginAction('hidden-action', 2400)
+    console.log('[smoke] hidden action request started')
+    await controls.wait(
+      async () =>
+        String(
+          await detailGuest.executeJavaScript(
+            "document.getElementById('status')?.textContent",
+          ),
+        ).startsWith('Action for '),
+      'admitted action executing before hide',
+    )
+    await controls.wait(
+      () =>
+        dom(`window.__extensionActionPlacement.selected &&
+      document.querySelector('[data-extension-view="${detail.id}"]')?.hidden === false &&
+      [...document.querySelectorAll('.viewer-tab[aria-selected="true"] .tab-main')].some(button => button.title === ${JSON.stringify(`${detail.extensionName} · ${detail.title}`)})`),
+      'fresh action publication visibly selected before hide',
+    )
+    await controls.wait(
+      () => dom("window.__extensionActions['hidden-action']?.state === 'pending'"),
+      'finite action admitted',
+    )
+    await controls.click('Reference library')
+    await controls.wait(
+      () =>
+        dom(`document.querySelector('[data-extension-view="${detail.id}"]')?.hidden === true &&
+      [...document.querySelectorAll('.sessions-destination[aria-current="page"]')].some(button => button.textContent.trim() === 'Reference library') &&
+      window.__extensionActions['hidden-action']?.state === 'pending'`),
+      'ordinary action placement hidden',
+    )
+    await controls.wait(
+      () => dom("window.__extensionActions['hidden-action']?.state === 'done'"),
+      'finite hidden native action completed',
+    )
+    const hiddenResult = (await win.webContents.executeJavaScript(
+      "window.__extensionActions['hidden-action'].value",
+    )) as { session?: string; caller?: string }
+    if (hiddenResult.session !== sessions[0]!.id || hiddenResult.caller !== 'human')
+      throw new Error('Action lost exact caller/context')
+  } finally {
+    try {
+      await win.webContents.executeJavaScript(`(() => {
+        window.__extensionActionPlacement?.dispose();
+        delete window.__extensionActionPlacement;
+      })()`)
+    } catch (reason) {
+      placementCleanupFailure = { reason }
+      console.error('[smoke] action placement observer cleanup failed')
+    }
+  }
+  if (placementCleanupFailure) throw placementCleanupFailure.reason
   await controls.click('Close Reference library')
   await beginAction('closed-action', 5000)
   await controls.wait(
