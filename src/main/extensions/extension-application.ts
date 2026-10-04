@@ -40,6 +40,7 @@ export class ExtensionApplicationRuntime {
   guests?: ExtensionGuestOwner
   actions?: ExtensionActionOwner
   contributions?: ExtensionContributionOwner
+  private presentationState?: ExtensionPresentationState
   contexts?: ExtensionContextOwner
   private disposeContext?: () => void
   private publishedContributions?: string
@@ -59,7 +60,7 @@ export class ExtensionApplicationRuntime {
       if (!this.activations?.active.size) return
       this.actions?.revalidate()
       this.guests?.updateContext()
-      this.guests?.presentationState?.pruneSessions(this.contexts!.sessionsForAll())
+      this.presentationState?.pruneSessions(this.contexts!.sessionsForAll())
       this.contributions?.contextChanged()
       this.publishContributions()
     })
@@ -181,7 +182,7 @@ export class ExtensionApplicationRuntime {
         this.publishContributions()
       },
       (id) => {
-        this.guests?.presentationState?.forget(id)
+        presentation.forget(id)
         return this.connectors?.approvals.forget(id)
       },
       (id) => this.sources?.approvals.forget(id),
@@ -220,7 +221,26 @@ export class ExtensionApplicationRuntime {
       activations,
       this.connectors,
     )
-    const guests = new ExtensionGuestOwner(
+    const presentation = new ExtensionPresentationState(
+      {
+        read: () => activations.readPresentation(),
+        save: (value, current, signal) =>
+          activations.savePresentation(value, current, signal),
+      },
+      () => this.publishContributions(),
+    )
+    this.presentationState = presentation
+    // Constructors retain callbacks; the complete cycle is wired before startup.
+    const actions: ExtensionActionOwner = new ExtensionActionOwner({
+      open: (owner, installation, contribution, options, admit) =>
+        guests.open(owner, installation, contribution, admit, options),
+      dispatch: (view, invocation) => guests.dispatch(view, invocation),
+      runnable: (view, id, admitted) => guests.runnable(view, id, admitted),
+      cancelAction: (view, id) => guests.cancelAction(view, id),
+      assertView: (view) => guests.assertView(view),
+    })
+    this.actions = actions
+    const guests: ExtensionGuestOwner = new ExtensionGuestOwner(
       activations,
       this.scopes,
       this.surface,
@@ -230,40 +250,33 @@ export class ExtensionApplicationRuntime {
           ...(selectedId ? { selectedId, focus: focus !== false } : {}),
         }),
       contexts,
+      {
+        connectors: this.connectors,
+        sources: this.sources,
+        deliveries: this.deliveries,
+        sourceReveal: new ExtensionSourceReveal(sourceApprovals, (owner, request) =>
+          this.events.toRenderer(owner, 'extensions:files-reveal', request),
+        ),
+        presentationState: presentation,
+        actions,
+        ...(this.terminalHandoffs
+          ? {
+              terminals: new ExtensionTerminalHandoff(
+                approvals,
+                this.terminalHandoffs,
+                actions,
+              ),
+            }
+          : {}),
+        connectorDemand: (id, workspace) => contributions.connectorDemand(id, workspace),
+        updaterFailed: (view) => contributions.failed(view),
+        visibleContributionsChanged: () => contributions.contextChanged(),
+        updaterSessions: (id) => contributions.updaterSessions(id),
+      },
     )
     this.guests = guests
-    guests.connectors = this.connectors
-    guests.sources = this.sources
-    guests.deliveries = this.deliveries
-    guests.sourceReveal = new ExtensionSourceReveal(sourceApprovals, (owner, request) =>
-      this.events.toRenderer(owner, 'extensions:files-reveal', request),
-    )
-    const presentation = new ExtensionPresentationState(
-      {
-        read: () => activations.readPresentation(),
-        save: (value, current, signal) =>
-          activations.savePresentation(value, current, signal),
-      },
-      () => this.publishContributions(),
-    )
-    guests.presentationState = presentation
-    this.actions = new ExtensionActionOwner({
-      open: (owner, installation, contribution, options, admit) =>
-        guests.open(owner, installation, contribution, admit, options),
-      dispatch: (view, invocation) => guests.dispatch(view, invocation),
-      runnable: (view, id, admitted) => guests.runnable(view, id, admitted),
-      cancelAction: (view, id) => guests.cancelAction(view, id),
-      assertView: (view) => guests.assertView(view),
-    })
-    guests.actions = this.actions
-    if (this.terminalHandoffs)
-      guests.terminals = new ExtensionTerminalHandoff(
-        approvals,
-        this.terminalHandoffs,
-        this.actions,
-      )
-    this.actions.changed = () => this.connectors?.revalidate()
-    this.contributions = new ExtensionContributionOwner(
+    actions.changed = () => this.connectors?.revalidate()
+    const contributions: ExtensionContributionOwner = new ExtensionContributionOwner(
       activations,
       guests,
       () => contexts,
@@ -271,11 +284,7 @@ export class ExtensionApplicationRuntime {
       this.scopes,
       () => this.publishContributions(),
     )
-    guests.connectorDemand = (id, workspace) =>
-      this.contributions?.connectorDemand(id, workspace) === true
-    guests.updaterFailed = (view) => this.contributions?.failed(view)
-    guests.visibleContributionsChanged = () => this.contributions?.contextChanged()
-    guests.updaterSessions = (id) => this.contributions?.updaterSessions(id) ?? []
+    this.contributions = contributions
     this.surface.connect(guests)
     await activations.start(joinHostPath(storage, 'writer.lock'))
     if (activations.snapshot().writable) {

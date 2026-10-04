@@ -1,18 +1,13 @@
+import type { ExtensionGuestPorts } from './guest-capability-ports'
+import { routeGuestCapability } from './guest-capability-routing'
 import { extensionRequestDeadline } from '../../shared/extensions/request-deadline'
-import type { ExtensionManagedDeliveryOwner } from './managed-delivery'
 import { openGuestOwnView } from './guest-view-opening'
-import { requestGuestSource } from './guest-sources'
-import type { ExtensionSourceReveal } from './source-reveal'
-import type { ExtensionTerminalHandoff } from './terminal-handoff'
-import { requestGuestConnector } from './guest-connectors'
-import type { ExtensionSourceReadingOwner } from './source-reading'
 import { validateExtensionViewInput } from '../../shared/extensions/view-input'
 import {
   PRESENTATION_COLOR_DEFAULTS,
   PRESENTATION_COLOR_TOKENS,
   PRESENTATION_COLOR_PATTERN,
 } from '../../shared/presentation/tokens'
-import type { ExtensionConnectorExecutionOwner } from './connector-execution'
 import {
   MAX_INTERFACE_FONT_STACK_LENGTH,
   MAX_MONOSPACE_FONT_STACK_LENGTH,
@@ -30,7 +25,6 @@ import {
   type ExtensionContext,
 } from '../../shared/extensions/contract'
 import {
-  extensionId,
   extensionObject,
   extensionText,
   unknownExtensionFields,
@@ -51,8 +45,6 @@ import {
   type ExtensionContextOwner,
   type AdmittedExtensionContext,
 } from './context-owner'
-import type { ExtensionActionOwner } from './action-owner'
-import type { ExtensionPresentationState } from './presentation-state'
 import type { ExtensionRevision } from './package-store'
 import { ExtensionGuestAuthority, type ExtensionViewAuthority } from './guest-authority'
 
@@ -104,19 +96,6 @@ export class ExtensionGuestOwner {
   private readonly rendererLeases = new Map<string, RendererResourceLease>()
   private readonly closing = new Set<GuestRecord>()
   private disposed = false
-  updaterSessions?: (
-    installation: string,
-  ) => readonly import('../../shared/extensions/contract').ExtensionSessionContext[]
-  updaterFailed?: (view: ExtensionView) => void
-  visibleContributionsChanged?: () => void
-  sources?: ExtensionSourceReadingOwner
-  sourceReveal?: ExtensionSourceReveal
-  terminals?: ExtensionTerminalHandoff
-  deliveries?: ExtensionManagedDeliveryOwner
-  connectors?: ExtensionConnectorExecutionOwner
-  connectorDemand?: (installation: string, workspace?: string) => boolean
-  actions?: ExtensionActionOwner
-  presentationState?: ExtensionPresentationState
 
   constructor(
     private readonly activations: Pick<
@@ -132,6 +111,7 @@ export class ExtensionGuestOwner {
       focus?: boolean,
     ) => void,
     readonly contexts: ExtensionContextOwner,
+    private readonly ports: ExtensionGuestPorts,
   ) {
     if (!contexts) throw new Error('Extension context admission is unavailable')
   }
@@ -206,7 +186,7 @@ export class ExtensionGuestOwner {
       existing.authority.add(options.authority, () => this.closeRecord(existing))
       if (options.input !== undefined) {
         existing.initialInput = validateExtensionViewInput(options.input)
-        this.sources?.closeView(existing.view.id)
+        this.ports.sources.closeView(existing.view.id)
         this.sendContext(existing)
       }
       this.publish(
@@ -367,15 +347,15 @@ export class ExtensionGuestOwner {
   failed(guestId: number, explanation?: string): void {
     const record = this.byGuest(guestId)
     if (!record) return
-    this.actions?.revokeView(record.view.id)
+    this.ports.actions.revokeView(record.view.id)
     record.view = {
       ...record.view,
       failure:
         explanation ??
         'This extension view stopped. Close it and open it again from Settings.',
     }
-    if (record.view.role === 'updater') this.updaterFailed?.(record.view)
-    else this.visibleContributionsChanged?.()
+    if (record.view.role === 'updater') this.ports.updaterFailed(record.view)
+    else this.ports.visibleContributionsChanged()
     for (const controller of record.requests.values()) controller.abort()
     record.requests.clear()
     record.guestId = undefined
@@ -396,9 +376,9 @@ export class ExtensionGuestOwner {
     // Visibility authority is independent of parsing the latest appearance snapshot.
     record.visible = record.view.role === 'updater' ? record.visible : visible === true
     record.refreshDemand = record.visible && refreshDemand === true
-    this.connectors?.revalidate()
-    this.sources?.revalidate()
-    if (record.refreshDemand !== previousDemand) this.visibleContributionsChanged?.()
+    this.ports.connectors.revalidate()
+    this.ports.sources.revalidate()
+    if (record.refreshDemand !== previousDemand) this.ports.visibleContributionsChanged()
     if (record.guestId !== undefined)
       this.surface.visibility(record.guestId, record.visible)
     const colors = extensionObject(value.colors)
@@ -480,10 +460,10 @@ export class ExtensionGuestOwner {
         if (
           !record.negotiated ||
           typeof message['id'] !== 'string' ||
-          !this.actions?.provenance(record.view.id, message['id'])
+          !this.ports.actions.provenance(record.view.id, message['id'])
         )
           return
-        this.actions.result(
+        this.ports.actions.result(
           record.view.id,
           extensionText(message['id'], 'action identity', 80),
           message['value'],
@@ -510,7 +490,7 @@ export class ExtensionGuestOwner {
         })
         this.sendContext(record)
         this.sendValues(record)
-        this.actions?.ready(record.view.id)
+        this.ports.actions.ready(record.view.id)
         return
       }
       id = extensionText(message['id'], 'request identity', 80)
@@ -533,7 +513,10 @@ export class ExtensionGuestOwner {
         throw new Error(
           `Extension contract ${record.activation.revision.manifest.contract}: capability ${capability} is unavailable or undeclared`,
         )
-      const invocation = this.actions?.provenance(record.view.id, message['actionId'])
+      const invocation = this.ports.actions.provenance(
+        record.view.id,
+        message['actionId'],
+      )
       if (!record.visible && !invocation)
         throw new Error(
           'Hidden extension views cannot request refresh or open another view',
@@ -634,140 +617,30 @@ export class ExtensionGuestOwner {
   ): Promise<unknown> {
     await this.activations.assertWritable()
     const invocationAuthority = invocation
-      ? this.actions?.authority(record.view.id, invocation.id)
+      ? this.ports.actions.authority(record.view.id, invocation.id)
       : undefined
     if (invocationAuthority?.signal)
       signal = AbortSignal.any([signal, invocationAuthority.signal])
     const assertOrigin = (): void => {
       this.assertRecord(record)
       signal.throwIfAborted()
-      if (invocation && !this.actions?.provenance(record.view.id, invocation.id))
+      if (invocation && !this.ports.actions.provenance(record.view.id, invocation.id))
         throw new Error('Originating action was revoked')
     }
     assertOrigin()
-    if (capability === 'terminal.start') {
-      if (!this.terminals) throw new Error('Terminal handoff is unavailable')
-      return this.terminals.start(
-        { ...record, view: record.view.id },
-        input,
-        invocation,
-        assertOrigin,
-        signal,
-      )
-    }
-    if (capability.startsWith('connector.') || capability.startsWith('delivery.'))
-      return requestGuestConnector(
-        capability,
-        input,
-        record,
-        signal,
-        assertOrigin,
-        this.contexts,
-        this.connectors,
-        this.actions,
-        this.connectorDemand,
-        invocation,
-        this.deliveries,
-      )
-    if (capability.startsWith('source.'))
-      return requestGuestSource(
-        capability,
-        input,
-        record,
-        signal,
-        assertOrigin,
-        this.sources,
-        invocation,
-        this.sourceReveal,
-      )
-    if (capability === 'presentation.read') return record.presentation
-    if (capability === 'context.read') return this.contextValue(record)
-    if (capability === 'contributions.read') {
-      if (!this.presentationState) throw new Error('Contribution state is unavailable')
-      return this.presentationState.values(record.activation)
-    }
-    if (capability === 'contributions.publish') {
-      if (!this.presentationState) throw new Error('Contribution state is unavailable')
-      await this.presentationState.publish(
-        record.activation,
-        input,
-        () =>
-          (record.view.role === 'updater'
-            ? (this.updaterSessions?.(record.activation.installationId) ?? [])
-            : this.contexts
-                .sessions(record.owner)
-                .filter((session) =>
-                  record.context?.value.session
-                    ? session.id === record.context.value.session.id
-                    : session.workspace.id === record.context?.value.workspace?.id,
-                )
-          ).map((session) => session.id),
-        () => {
-          assertOrigin()
-          if (
-            !record.visible &&
-            !this.actions?.provenance(record.view.id, invocation?.id)
-          )
-            throw new Error('Presentation refresh demand ended')
-        },
-        signal,
-      )
-      return null
-    }
-    if (capability === 'actions.invoke') {
-      if (!this.actions) throw new Error('Extension actions are unavailable')
-      const target = extensionObject(input)
-      const action = extensionId(target['action'])
-      const authority =
-        record.authority.forAction(action) ??
-        (invocation
-          ? this.actions.authority(record.view.id, invocation.id)?.forAction?.(action)
-          : undefined)
-      const declaration = record.activation.revision.manifest.actions?.find(
-        (action) => action.id === target['action'],
-      )
-      const authorization =
-        authority?.authorizeAction && declaration
-          ? await authority.authorizeAction(
-              {
-                title: declaration.title,
-                input: JSON.stringify(target['input'] ?? null),
-                effects: declaration.effects,
-              },
-              assertOrigin,
-              signal,
-            )
-          : (invocation?.authorization ?? 'unapproved')
-      assertOrigin()
-      return this.actions.invoke(
-        record.owner,
-        record.activation,
-        extensionId(target['action']),
-        target['input'],
-        {
-          surface: 'viewer',
-          ...(record.context?.value.workspace
-            ? { workspaceId: record.context.value.workspace.id }
-            : {}),
-          ...(record.context?.value.session
-            ? { sessionId: record.context.value.session.id }
-            : {}),
-        },
-        invocation?.caller ?? (record.authority.restricted ? 'agent' : 'guest'),
-        authorization,
-        () => {
-          this.assertRecord(record)
-          signal.throwIfAborted()
-          if (invocation && !this.actions?.provenance(record.view.id, invocation.id))
-            throw new Error('Originating action was revoked')
-        },
-        signal,
-        authority,
-      )
-    }
-    if (capability === 'viewer.open-own')
-      return openGuestOwnView(this, record, input, assertOrigin, this.actions, invocation)
-    throw new Error('Unknown extension capability')
+    return routeGuestCapability(
+      this.ports,
+      this.contexts,
+      record,
+      capability,
+      input,
+      signal,
+      assertOrigin,
+      () => this.contextValue(record),
+      (input, current, invocation) =>
+        openGuestOwnView(this, record, input, current, this.ports.actions, invocation),
+      invocation,
+    )
   }
 
   visibleViewContributions(): readonly { owner: RendererOwner; view: ExtensionView }[] {
@@ -817,8 +690,8 @@ export class ExtensionGuestOwner {
       this.surface.runnable?.(record.guestId, record.actions.size > 0)
   }
   updateContext(): void {
-    this.connectors?.revalidate()
-    this.sources?.revalidate()
+    this.ports.connectors.revalidate()
+    this.ports.sources.revalidate()
     for (const record of [...this.records.values()]) {
       if (!this.current(record)) this.closeRecord(record)
       else this.sendContext(record)
@@ -837,7 +710,7 @@ export class ExtensionGuestOwner {
     )
       this.surface.send(record.guestId, {
         kind: 'contributions',
-        values: this.presentationState?.values(record.activation) ?? [],
+        values: this.ports.presentationState.values(record.activation),
       })
   }
   updaterDemand(owner: RendererOwner, viewId: string, demanded: boolean): void {
@@ -850,8 +723,8 @@ export class ExtensionGuestOwner {
     )
       return
     record.visible = demanded
-    this.connectors?.revalidate()
-    this.sources?.revalidate()
+    this.ports.connectors.revalidate()
+    this.ports.sources.revalidate()
     this.sendContext(record)
     this.sendValues(record)
     if (record.guestId !== undefined) this.surface.visibility(record.guestId, demanded)
@@ -871,7 +744,7 @@ export class ExtensionGuestOwner {
             surface: 'updater',
             visible: record.visible,
             sessions: boundedExtensionSessions(
-              this.updaterSessions?.(record.activation.installationId) ?? [],
+              this.ports.updaterSessions(record.activation.installationId),
             ),
           }
         : {
@@ -966,13 +839,13 @@ export class ExtensionGuestOwner {
   private closeRecord(record: GuestRecord, notify = true): void {
     if (this.records.get(record.view.id) !== record) return
     this.records.delete(record.view.id)
-    this.sources?.closeView(record.view.id)
+    this.ports.sources.closeView(record.view.id)
     record.authority.dispose()
-    this.connectors?.revalidate()
-    this.sources?.revalidate()
+    this.ports.connectors.revalidate()
+    this.ports.sources.revalidate()
     if (record.visible && record.view.role !== 'updater')
-      this.visibleContributionsChanged?.()
-    this.actions?.revokeView(record.view.id)
+      this.ports.visibleContributionsChanged()
+    this.ports.actions.revokeView(record.view.id)
     record.contextLease?.release()
     for (const controller of record.requests.values()) controller.abort()
     record.requests.clear()

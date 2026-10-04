@@ -20,10 +20,11 @@ describe('main-owned source origin and current visibility', () => {
         ],
         access: [source.declaration],
       },
+      undefined,
+      { sources: source.reading },
     )
     await source.grant()
     source.active.set('installation', data.active.get('installation')!)
-    data.owner.sources = source.reading
     const view = await attached(data, 10, origin)
     data.owner.receive(10, { kind: 'hello', contract: '1.0' })
     return {
