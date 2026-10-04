@@ -64,7 +64,7 @@ export interface AgentForwardGrant {
   readonly installation: string
   readonly revision: string
   readonly action: string
-  readonly capability: 'connector.execute'
+  readonly capability: 'connector.execute' | 'delivery.capture'
   readonly executionHost: string
   readonly workspace: string
 }

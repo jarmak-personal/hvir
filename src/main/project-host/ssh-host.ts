@@ -1,3 +1,4 @@
+import { managedTransfer } from './managed-transfer'
 import { createHash } from 'node:crypto'
 import { StringDecoder } from 'node:string_decoder'
 
@@ -73,6 +74,11 @@ export class SshHost implements ProjectHost {
       startBufferedSshExec(this.transportPool, command, args, opts, true),
   }
   readonly fileDeletion = { capability: 'permanent' } as const
+  readonly managedTransfer = managedTransfer(
+    this,
+    (path, chunks, options) => this.files.writeFileChunksExclusive(path, chunks, options),
+    (path, options) => this.files.setProjectFileMetadata(path, options),
+  )
   readonly fileTransfer: ProjectFileTransferPort
   private state: HostConnectionState = 'disconnected'
   private tier: HostWatchTier = 'polling'

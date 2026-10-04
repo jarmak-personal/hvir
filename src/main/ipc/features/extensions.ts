@@ -9,6 +9,27 @@ export function registerExtensionsIpc(
   const unavailable = (): never => {
     throw new Error('Extensions are unavailable')
   }
+  ipc.handle('extensions:delivery-recovery', (_req, context) => {
+    context.owner()
+    return extensions?.deliveries?.recoveryStatus() ?? []
+  })
+  ipc.handle('extensions:delivery-resolve', (req, context) => {
+    const owner = context.owner()
+    if (
+      !['inspect', 'keep', 'reconcile', 'cleanup'].includes(req.kind) ||
+      typeof req.id !== 'string' ||
+      req.id.length > 80
+    )
+      throw new Error('Invalid exact delivery recovery request')
+    return (
+      extensions?.deliveries?.trustedRecovery(
+        req.kind,
+        req.id,
+        () => extensions.guests?.assertOwner(owner),
+        new AbortController().signal,
+      ) ?? unavailable()
+    )
+  })
   ipc.handle('extensions:source-settings', (req, context) => {
     context.owner()
     const activation = extensions?.activations?.active.get(req.installationId)

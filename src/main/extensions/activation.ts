@@ -1,3 +1,4 @@
+import { DELIVERY_LIMITS } from '../../shared/extensions/managed-delivery'
 import type { ExtensionConnectorApproval } from '../../shared/extensions/connectors'
 import { CONNECTOR_LIMITS } from '../../shared/extensions/connectors'
 import {
@@ -64,6 +65,8 @@ export class ExtensionActivationOwner {
     private readonly sourceForgotten: (
       installationId: string,
     ) => readonly ExtensionSourceGrant[] | void = () => undefined,
+    private readonly deliveryForgotten: (installationId: string) => unknown = () =>
+      undefined,
   ) {}
 
   start(lock: HostPath): Promise<void> {
@@ -478,6 +481,28 @@ export class ExtensionActivationOwner {
         if (sourceGrants !== undefined)
           await this.writeSourceGrants(sourceGrants, () => undefined)
       }
+      if (forget && prior) {
+        const delivery = this.deliveryForgotten(prior.installationId)
+        if (delivery !== undefined)
+          await this.writeDeliveryFile(
+            'deliveries.json',
+            delivery,
+            DELIVERY_LIMITS.stateBytes,
+            () => undefined,
+          )
+        const domain = (await this.readDeliveryFile(
+          'delivery-domain.json',
+          DELIVERY_LIMITS.domainTotalBytes,
+          {},
+        )) as Record<string, unknown>
+        delete domain[prior.installationId]
+        await this.writeDeliveryFile(
+          'delivery-domain.json',
+          domain,
+          DELIVERY_LIMITS.domainTotalBytes,
+          () => undefined,
+        )
+      }
       await this.save(
         forget
           ? this.accepted.filter(
@@ -687,6 +712,81 @@ export class ExtensionActivationOwner {
       content,
       { signal: this.authority.signal },
     )
+    await this.assertWritable()
+    current()
+  }
+
+  hasInstallationIdentity(id: string): boolean {
+    return this.accepted.some((entry) => entry.installationId === id)
+  }
+  readManagedDeliveries(): Promise<unknown> {
+    return this.serialize(() =>
+      this.readDeliveryFile('deliveries.json', DELIVERY_LIMITS.stateBytes, {
+        records: [],
+        operations: [],
+      }),
+    )
+  }
+  saveManagedDeliveries(value: unknown, current: () => void): Promise<void> {
+    return this.serialize(() =>
+      this.writeDeliveryFile(
+        'deliveries.json',
+        value,
+        DELIVERY_LIMITS.stateBytes,
+        current,
+      ),
+    )
+  }
+  readDeliveryDomain(): Promise<unknown> {
+    return this.serialize(() =>
+      this.readDeliveryFile('delivery-domain.json', DELIVERY_LIMITS.domainTotalBytes, {}),
+    )
+  }
+  saveDeliveryDomain(value: unknown, current: () => void): Promise<void> {
+    return this.serialize(() =>
+      this.writeDeliveryFile(
+        'delivery-domain.json',
+        value,
+        DELIVERY_LIMITS.domainTotalBytes,
+        current,
+      ),
+    )
+  }
+  private async readDeliveryFile(
+    name: 'deliveries.json' | 'delivery-domain.json',
+    limit: number,
+    absent: unknown,
+  ): Promise<unknown> {
+    await this.assertWritable()
+    try {
+      const data = await this.host.readTextFilePrefix(
+        joinHostPath(this.stateFile, '..', name),
+        limit,
+      )
+      await this.assertWritable()
+      if (!data.complete || data.validUtf8 === false)
+        throw new Error('Delivery state exceeds its bound')
+      return JSON.parse(data.content) as unknown
+    } catch (reason) {
+      await this.assertWritable()
+      if ((reason as { code?: unknown }).code === 'ENOENT') return absent
+      throw new Error('Delivery state cannot be read safely', { cause: reason })
+    }
+  }
+  private async writeDeliveryFile(
+    name: 'deliveries.json' | 'delivery-domain.json',
+    value: unknown,
+    limit: number,
+    current: () => void,
+  ): Promise<void> {
+    await this.assertWritable()
+    current()
+    const data = JSON.stringify(value)
+    if (Buffer.byteLength(data) > limit)
+      throw new Error('Delivery state exceeds its bound')
+    await this.host.writeFile(joinHostPath(this.stateFile, '..', name), data, {
+      signal: this.authority.signal,
+    })
     await this.assertWritable()
     current()
   }

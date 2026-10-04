@@ -19,6 +19,14 @@ export const EXTENSION_CAPABILITIES = [
   'source.asset',
   'source.render',
   'source.reveal',
+  'delivery.capture',
+  'delivery.manifest',
+  'delivery.preview',
+  'delivery.apply',
+  'delivery.status',
+  'delivery.domain',
+  'delivery.reconcile',
+  'delivery.cleanup',
 ] as const
 export type ExtensionCapability = (typeof EXTENSION_CAPABILITIES)[number]
 

@@ -1,3 +1,4 @@
+import type { DeliveryHostCatalog } from '../src/main/extensions/managed-delivery'
 import { describe, expect, it, vi } from 'vitest'
 import { contextFixture } from './fixtures/extension-context'
 import { localPath } from '../src/shared/host-path'
@@ -25,7 +26,7 @@ describe('extension application startup containment', () => {
       runtime.start(
         { createDirectoryExclusive: create } as unknown as ProjectHost,
         undefined as unknown as ReturnType<typeof contextFixture>['sources'],
-        {} as ConnectorHostCatalog & SourceHostCatalog,
+        {} as ConnectorHostCatalog & SourceHostCatalog & DeliveryHostCatalog,
       ),
     ).resolves.toBeUndefined()
     expect(create).not.toHaveBeenCalled()
@@ -51,7 +52,7 @@ describe('extension application startup containment', () => {
         runtime.start(
           host,
           contextFixture().sources,
-          {} as ConnectorHostCatalog & SourceHostCatalog,
+          {} as ConnectorHostCatalog & SourceHostCatalog & DeliveryHostCatalog,
         ),
       ).resolves.toBeUndefined()
       expect(runtime.snapshot()).toMatchObject({ writable: false, installations: [] })

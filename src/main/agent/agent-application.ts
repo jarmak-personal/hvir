@@ -305,6 +305,25 @@ export class AgentApplicationRuntime {
                 executionHost: status.host,
                 workspace: workspace.id,
               })
+              if (
+                status.host === LOCAL_HOST_ID &&
+                [
+                  ...activation.revision.manifest.requiredCapabilities,
+                  ...activation.revision.manifest.optionalCapabilities,
+                ].includes('delivery.capture')
+              ) {
+                if (choices.length >= 128) return choices
+                choices.push({
+                  host: forward.host,
+                  generation: forward.generation,
+                  installation: activation.installationId,
+                  revision: activation.revision.hash,
+                  action: action.id,
+                  capability: 'delivery.capture',
+                  executionHost: status.host,
+                  workspace: workspace.id,
+                })
+              }
             }
           }
         }

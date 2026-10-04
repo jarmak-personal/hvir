@@ -1,3 +1,5 @@
+import { extensionRequestDeadline } from '../../shared/extensions/request-deadline'
+import type { ExtensionManagedDeliveryOwner } from './managed-delivery'
 import { openGuestOwnView } from './guest-view-opening'
 import { requestGuestSource } from './guest-sources'
 import type { ExtensionSourceReveal } from './source-reveal'
@@ -11,7 +13,6 @@ import {
   PRESENTATION_COLOR_PATTERN,
 } from '../../shared/presentation/tokens'
 import type { ExtensionConnectorExecutionOwner } from './connector-execution'
-import { CONNECTOR_LIMITS } from '../../shared/extensions/connectors'
 import {
   MAX_INTERFACE_FONT_STACK_LENGTH,
   MAX_MONOSPACE_FONT_STACK_LENGTH,
@@ -111,6 +112,7 @@ export class ExtensionGuestOwner {
   sources?: ExtensionSourceReadingOwner
   sourceReveal?: ExtensionSourceReveal
   terminals?: ExtensionTerminalHandoff
+  deliveries?: ExtensionManagedDeliveryOwner
   connectors?: ExtensionConnectorExecutionOwner
   connectorDemand?: (installation: string, workspace?: string) => boolean
   actions?: ExtensionActionOwner
@@ -563,11 +565,7 @@ export class ExtensionGuestOwner {
       record.requests.set(id, controller)
       const timer = setTimeout(
         () => controller.abort(),
-        capability.startsWith('connector.')
-          ? CONNECTOR_LIMITS.timeoutMs + EXTENSION_LIMITS.requestTimeoutMs
-          : capability === 'actions.invoke' || capability === 'terminal.start'
-            ? EXTENSION_LIMITS.actionMaximumMs
-            : EXTENSION_LIMITS.requestTimeoutMs,
+        extensionRequestDeadline(capability),
       )
       void this.request(
         record,
@@ -657,7 +655,7 @@ export class ExtensionGuestOwner {
         signal,
       )
     }
-    if (capability.startsWith('connector.'))
+    if (capability.startsWith('connector.') || capability.startsWith('delivery.'))
       return requestGuestConnector(
         capability,
         input,
@@ -669,6 +667,7 @@ export class ExtensionGuestOwner {
         this.actions,
         this.connectorDemand,
         invocation,
+        this.deliveries,
       )
     if (capability.startsWith('source.'))
       return requestGuestSource(
@@ -915,16 +914,17 @@ export class ExtensionGuestOwner {
       (capability) =>
         declared.includes(capability) &&
         (record.view.role !== 'updater' ||
-          ![
-            'actions.invoke',
-            'viewer.open-own',
-            'source.select',
-            'source.read',
-            'source.asset',
-            'source.render',
-            'source.reveal',
-            'terminal.start',
-          ].includes(capability)),
+          (!capability.startsWith('delivery.') &&
+            ![
+              'actions.invoke',
+              'viewer.open-own',
+              'source.select',
+              'source.read',
+              'source.asset',
+              'source.render',
+              'source.reveal',
+              'terminal.start',
+            ].includes(capability))),
     )
   }
   private byGuest(id: number): GuestRecord | undefined {

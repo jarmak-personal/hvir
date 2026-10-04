@@ -54,7 +54,7 @@ describe('explicit package revision and removal lifetime', () => {
         ),
       )
       await expect(owner.reload('reference', current.revision.hash)).rejects.toThrow(
-        'read-only',
+        'Invalid declared source or managed delivery scope',
       )
       expect([...owner.active.values()][0]).toBe(current)
       expect(data.revoke).toHaveBeenCalledTimes(1)

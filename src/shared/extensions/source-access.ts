@@ -16,7 +16,7 @@ export interface ExtensionSourceDeclaration {
   readonly id: string
   readonly description: string
   readonly context: 'application' | 'workspace'
-  readonly mode: 'read-only'
+  readonly mode: 'read-only' | 'delivery-source' | 'managed-delivery'
 }
 export interface ExtensionSourceGrant {
   readonly installationId: string
@@ -49,14 +49,18 @@ export function validateSourceDeclarations(
     warn(item, ['id', 'description', 'context', 'mode'])
     if (
       !['application', 'workspace'].includes(item['context'] as string) ||
-      item['mode'] !== 'read-only'
+      !['read-only', 'delivery-source', 'managed-delivery'].includes(
+        item['mode'] as string,
+      ) ||
+      (item['mode'] === 'delivery-source' && item['context'] !== 'application') ||
+      (item['mode'] === 'managed-delivery' && item['context'] !== 'workspace')
     )
-      throw new Error('Sources require an application or workspace read-only scope')
+      throw new Error('Invalid declared source or managed delivery scope')
     return {
       id: extensionId(item['id']),
       description: extensionText(item['description'], 'source description', 240),
       context: item['context'] as 'application' | 'workspace',
-      mode: 'read-only' as const,
+      mode: item['mode'] as ExtensionSourceDeclaration['mode'],
     }
   })
   if (new Set(declarations.map((entry) => entry.id)).size !== declarations.length)

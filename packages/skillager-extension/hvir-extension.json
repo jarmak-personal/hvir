@@ -19,7 +19,15 @@
     "source.render",
     "source.reveal",
     "actions.invoke",
-    "terminal.start"
+    "terminal.start",
+    "delivery.capture",
+    "delivery.manifest",
+    "delivery.preview",
+    "delivery.apply",
+    "delivery.status",
+    "delivery.domain",
+    "delivery.reconcile",
+    "delivery.cleanup"
   ],
   "optionalCapabilities": [],
   "access": [
@@ -34,6 +42,18 @@
       "description": "Read selected current instructions and confined images in the exact registered project/worktree",
       "context": "workspace",
       "mode": "read-only"
+    },
+    {
+      "id": "delivery-source",
+      "description": "Capture complete local approved Full exports inside your explicit export directory",
+      "context": "application",
+      "mode": "delivery-source"
+    },
+    {
+      "id": "delivery-target",
+      "description": "Add, update and preserve exact managed Full deliveries inside the selected SSH workspace",
+      "context": "workspace",
+      "mode": "managed-delivery"
     }
   ],
   "views": [
@@ -180,7 +200,7 @@
         "delete": false,
         "replace": false
       },
-      "description": "Bind exact local project, public source/managed identity and complete token plan. Preserve protected targets; no force flags or mutation retry.",
+      "description": "Add local Full/Stub or approved local-library Full to the exact SSH workspace; SSH requires an explicit missing/empty local export directory. No remote CLI or overwrite.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -229,6 +249,10 @@
           "mode": {
             "type": "string",
             "enum": ["native", "stub"]
+          },
+          "exportDirectory": {
+            "type": "string",
+            "maxLength": 2048
           }
         },
         "required": ["library", "skillId", "hash", "agent", "mode"],
@@ -244,7 +268,7 @@
         "delete": true,
         "replace": true
       },
-      "description": "Review and apply one exact local Update, Router grouping, complete membership change, Ungroup or preserved native adoption through a whole public token-bound plan. No force or replay.",
+      "description": "Review and apply one exact local Update, Router grouping, complete membership change, Ungroup or preserved native adoption through a whole public token-bound plan. No force or replay. SSH supports Full Update with exact opaque managed record, target, source hash and export directory.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -291,7 +315,7 @@
             "maxLength": 64
           }
         },
-        "required": ["library", "agent", "request", "token"],
+        "required": ["library", "agent", "request"],
         "additionalProperties": false
       }
     },
@@ -304,7 +328,7 @@
         "delete": true,
         "replace": false
       },
-      "description": "Bind exact local project, public source/managed identity and complete token plan. Preserve protected targets; no force flags or mutation retry.",
+      "description": "Preserve the selected unchanged local managed copy or exact core-recorded SSH Full. SSH uses record, skillId, mode native and the exact target; local removal uses the public token.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -351,7 +375,7 @@
             "properties": {
               "hostId": {
                 "type": "string",
-                "enum": ["local"]
+                "maxLength": 256
               },
               "path": {
                 "type": "string",
@@ -364,9 +388,25 @@
           "token": {
             "type": "string",
             "maxLength": 64
+          },
+          "skillId": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "hash": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "record": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["native"]
           }
         },
-        "required": ["library", "agent", "exposureId", "target", "token"],
+        "required": ["library", "agent", "target"],
         "additionalProperties": false
       }
     },
@@ -407,7 +447,15 @@
         "properties": {
           "mode": {
             "type": "string",
-            "enum": ["list", "report", "observe", "acknowledge"]
+            "enum": [
+              "list",
+              "report",
+              "observe",
+              "acknowledge",
+              "delivery-status",
+              "delivery-reconcile",
+              "delivery-forget"
+            ]
           },
           "operationId": {
             "type": "string",

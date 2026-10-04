@@ -24,6 +24,17 @@ import type {
 /** Trusted Settings/viewer transport. This contract is never exposed to a guest. */
 export const extensionsIpc = {
   invoke: {
+    'extensions:delivery-recovery': invoke<
+      void,
+      readonly import('../extensions/managed-delivery').DeliveryRecoveryEntry[]
+    >(),
+    'extensions:delivery-resolve': invoke<
+      {
+        readonly kind: 'inspect' | 'keep' | 'reconcile' | 'cleanup'
+        readonly id: string
+      },
+      import('../extensions/managed-delivery').DeliveryRecoveryReply
+    >(),
     'extensions:source-settings': invoke<
       { readonly installationId: string },
       {
