@@ -23,6 +23,7 @@ import type { HtmlPreviewProtocol } from '../html-preview-protocol'
 import type { ProjectHost } from '../project-host'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import type { RendererOwner } from '../renderer-resource-scopes'
+import type { TerminalCommandHandoffOwner } from '../terminal/command-handoff-owner'
 import type { TerminalSessionStore } from '../terminal/session-registry'
 import type { TerminalWorkspaceMoveCoordinator } from '../terminal/terminal-workspace-move-coordinator'
 import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
@@ -154,6 +155,7 @@ export interface IpcDeps extends IpcRouterAuthorityPort {
     batch: RenderContainmentDiagnosticBatch,
   ) => void
   readonly ptySupervisor: PtySupervisor
+  readonly terminalHandoffs?: TerminalCommandHandoffOwner
   readonly terminalSessions: TerminalSessionStore
   readonly sessionsObservation: Pick<
     SessionsObservationPort,

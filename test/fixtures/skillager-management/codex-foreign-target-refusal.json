@@ -1,0 +1,14 @@
+[
+  {
+    "agent": "codex",
+    "exposure_id": "lib-pinned-c681b43b7c5d0b47",
+    "mode": "native",
+    "reason": "target exists without Skillager provenance",
+    "restart_required": false,
+    "schema": "skillager.exposure-result.v1",
+    "scope": "project",
+    "skill_id": "lib/pinned-c681b43b7c5d0b47",
+    "status": "skipped",
+    "target": "/owned-fixture/foreign-codex/.agents/skills/lib-pinned-c681b43b7c5d0b47"
+  }
+]

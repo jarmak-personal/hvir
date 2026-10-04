@@ -1,3 +1,4 @@
+import { TerminalCommandHandoffOwner } from './terminal/command-handoff-owner'
 import type { LiveSessionMetadataSources } from './terminal/live-session-metadata'
 import type { ProjectHostCatalog } from './project-host/project-host-catalog'
 import type { PtySupervisor } from './pty/pty-supervisor'
@@ -20,6 +21,7 @@ export function installDocumentSurfaces(
   htmlPreviews: HtmlPreviewProtocol
   extensions: ExtensionApplicationRuntime
   agents: AgentApplicationRuntime
+  terminalHandoffs: TerminalCommandHandoffOwner
   start: (
     sources: LiveSessionMetadataSources,
     hosts: ProjectHostCatalog,
@@ -40,6 +42,15 @@ export function installDocumentSurfaces(
     ),
     (extensions) => extensions.dispose(),
   )
+  const terminalHandoffs = runtime.own(
+    'terminal command handoffs',
+    new TerminalCommandHandoffOwner(
+      (owner, request) => events.toRenderer(owner, 'terminal:command-requested', request),
+      (owner, ticket) => events.toRenderer(owner, 'terminal:command-revoked', { ticket }),
+    ),
+    (handoffs) => handoffs.dispose(),
+  )
+  extensions.terminalHandoffs = terminalHandoffs
   const agents = runtime.own(
     'agent access',
     new AgentApplicationRuntime(
@@ -54,6 +65,7 @@ export function installDocumentSurfaces(
     htmlPreviews,
     extensions,
     agents,
+    terminalHandoffs,
     start: async (sources, hosts, ptys) => {
       await Promise.all([
         extensions.start(hosts.local, sources, hosts),

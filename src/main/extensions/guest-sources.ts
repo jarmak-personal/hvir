@@ -1,10 +1,13 @@
 import type { ExtensionSourceReadingOwner } from './source-reading'
+import type { ExtensionSourceReveal } from './source-reveal'
 import type { ExtensionActivation } from './activation'
 import type { ExtensionInvocation } from '../../shared/extensions/contract'
 import type { ExtensionView } from '../../shared/extensions/workbench'
 import type { ExtensionGuestAuthority } from './guest-authority'
 import type { AdmittedExtensionContext } from './context-owner'
+import type { RendererOwner } from '../renderer-resource-scopes'
 interface SourceGuest {
+  readonly owner: RendererOwner
   readonly activation: ExtensionActivation
   readonly view: ExtensionView
   readonly visible: boolean
@@ -22,6 +25,7 @@ export async function requestGuestSource(
   assertOrigin: () => void,
   sources?: ExtensionSourceReadingOwner,
   invocation?: ExtensionInvocation,
+  reveal?: ExtensionSourceReveal,
 ): Promise<unknown> {
   if (!sources) throw new Error('Source reading is unavailable')
   if (capability === 'source.status')
@@ -44,6 +48,10 @@ export async function requestGuestSource(
       if (!record.visible) throw new Error('Selected source view is hidden')
     },
     context: () => record.context,
+  }
+  if (capability === 'source.reveal') {
+    if (!reveal) throw new Error('Files reveal is unavailable')
+    return reveal.reveal(caller, input, record.owner)
   }
   if (capability === 'source.select') return sources.select(caller, input)
   if (capability === 'source.render') return sources.render(caller, input)

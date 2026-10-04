@@ -10,6 +10,7 @@ import type { RendererEventPublisher } from '../renderer-event-publisher'
 import type { TerminalSessionObservationSource } from '../terminal/session-registry'
 import type { LiveSessionMetadataSources } from '../terminal/live-session-metadata'
 import type { WorkbenchRuntime } from '../workbench-runtime'
+import { sessionsObservationProviders } from './provider-observation-catalog'
 import { SessionsObservationPort } from './sessions-observation-port'
 import { SessionsUsageObservationPort } from './sessions-usage-observation-port'
 
@@ -33,15 +34,7 @@ export function installApplicationSessionsObservation(
     new SessionsObservationPort({
       projectState: () => projects.state(),
       hosts: () => hosts.listHosts(),
-      providers: () =>
-        harnessProviders.all().map((provider) => ({
-          id: provider.manifest.id,
-          displayName: provider.manifest.displayName,
-          telemetrySupported: Boolean(provider.telemetry),
-          usageSupported: Boolean(provider.usageTelemetry),
-          sessionKind: provider.manifest.sessionKind,
-          contextPressure: provider.manifest.contextPressure,
-        })),
+      providers: () => sessionsObservationProviders(harnessProviders.all()),
       sessions,
       ptys,
       observeProjects: (listener) => projects.observe(listener),

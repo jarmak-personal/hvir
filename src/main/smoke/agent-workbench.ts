@@ -10,6 +10,10 @@ import type { ElectronSmokeDependencies } from './bootstrap-contract'
 import { focusSmokeWindow } from './window-focus'
 import { ensureExplicitBareShellLaunch } from './terminal-explicit-launch'
 import { verifyAuthoringActionExamples } from './extension-authoring-actions'
+import {
+  verifyExtensionTerminalHandoff,
+  verifyTerminalCommandProcessRestart,
+} from './extension-terminal-handoff'
 
 interface AgentCliOutcome {
   readonly ok: boolean
@@ -20,6 +24,27 @@ interface AgentCliOutcome {
   readonly document?: { readonly path: HostPath; readonly content?: never }
   readonly value?: unknown
 }
+function agentSmokeHosts(host: ProjectHost) {
+  return {
+    local: host,
+    hostById: (id: string) => (id === host.hostId ? host : undefined),
+    listHosts: () => [
+      {
+        hostId: host.hostId,
+        label: 'Local',
+        kind: 'local' as const,
+        connectionState: host.connectionState,
+        watchTier: host.watchTier,
+      },
+    ],
+    materializeHost: (id: string) => {
+      if (id !== host.hostId) throw new Error('Unknown smoke host')
+      return Promise.resolve(host)
+    },
+    onHostStateChange: (listener: Parameters<ProjectHost['onConnectionState']>[0]) =>
+      host.onConnectionState(listener),
+  }
+}
 /** Install stable targets before the first window can trigger a terminal spawn. */
 export function prepareAgentSmoke(
   dependencies: ElectronSmokeDependencies,
@@ -28,14 +53,7 @@ export function prepareAgentSmoke(
   supervisor: PtySupervisor,
 ): void {
   if (dependencies.mode !== 'agent-workbench') return
-  const hosts = {
-    local: host,
-    hostById: (id: string) => (id === host.hostId ? host : undefined),
-    listHosts: () => [],
-    materializeHost: () => Promise.resolve(host),
-    onHostStateChange: (listener: Parameters<ProjectHost['onConnectionState']>[0]) =>
-      host.onConnectionState(listener),
-  }
+  const hosts = agentSmokeHosts(host)
   void dependencies.extensions.start(host, sources, hosts)
   void dependencies.agents.start(host, sources, hosts, supervisor)
 }
@@ -50,14 +68,12 @@ export async function verifyAgentWorkbench(
   if (dependencies.mode !== 'agent-workbench') return false
   const { agents, extensions } = dependencies
   await focusSmokeWindow(win)
+  if (process.env['HVIR_EXTENSION_TERMINAL_PROBE_PHASE'] === 'restart') {
+    await verifyTerminalCommandProcessRestart(win, host, sources, supervisor, { wait })
+    return true
+  }
   await ensureExplicitBareShellLaunch(win, supervisor)
-  await extensions.start(host, sources, {
-    local: host,
-    hostById: (id) => (id === host.hostId ? host : undefined),
-    listHosts: () => [],
-    materializeHost: () => Promise.resolve(host),
-    onHostStateChange: (listener) => host.onConnectionState(listener),
-  })
+  await extensions.start(host, sources, agentSmokeHosts(host))
   await agents.start(
     host,
     sources,
@@ -112,6 +128,18 @@ export async function verifyAgentWorkbench(
   const workspaces = await command(['workspaces', '--instance', endpoint, '--limit', '1'])
   const workspace = workspaces.items?.[0]?.id
   if (!workspace) throw new Error('Agent metadata did not include the explicit workspace')
+  if (process.env['HVIR_EXTENSION_TERMINAL_PROBE'] === '1') {
+    await verifyExtensionTerminalHandoff(
+      win,
+      dependencies,
+      host,
+      sources,
+      supervisor,
+      { endpoint, workspace },
+      { command, click: (name) => click(win, name), wait },
+    )
+    return true
+  }
   const directory = extensions.activations!.directory,
     reference = joinHostPath(directory, 'agent-reference')
   await host.createDirectoryExclusive(reference, { mode: 0o755 })

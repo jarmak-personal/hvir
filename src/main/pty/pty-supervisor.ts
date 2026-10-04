@@ -97,11 +97,15 @@ export class PtySupervisor {
       this.reportDiagnostic({ kind: 'pty-spawn-failed', ...diagnosticContext })
       throw new Error(`PTY session '${sessionId}' is already active`)
     }
-    const pending = this.admission.reserve(sessionId, {
-      ownerId: req.ownerId,
-      ownerGeneration: req.ownerGeneration ?? 0,
-      workspaceRoot: req.workspaceRoot ?? req.cwd,
-    })
+    const pending = this.admission.reserve(
+      sessionId,
+      {
+        ownerId: req.ownerId,
+        ownerGeneration: req.ownerGeneration ?? 0,
+        workspaceRoot: req.workspaceRoot ?? req.cwd,
+      },
+      req.signal,
+    )
     const artifact = req.artifact ?? {
       identity: `${req.host.hostId}:${req.provider.manifest.id}:default`,
       environment: {},
@@ -155,6 +159,7 @@ export class PtySupervisor {
 
       pending.assertCurrent()
       const defaultShell = await req.host.defaultShell()
+      pending.assertCurrent()
       const ctx = {
         sessionId: harnessSessionId ?? sessionId,
         cwd: req.cwd,
@@ -190,7 +195,10 @@ export class PtySupervisor {
           )
         : undefined
       pending.assertCurrent()
+      if (req.beforeDispatch) await req.beforeDispatch()
+      pending.assertCurrent()
       launchedAtMs = Date.now()
+      req.onDispatch?.()
       pty = await req.host.spawnPty({
         file: launch.file,
         args: launch.args,

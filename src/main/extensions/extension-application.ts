@@ -1,6 +1,9 @@
+import type { TerminalCommandHandoffOwner } from '../terminal/command-handoff-owner'
+import { ExtensionTerminalHandoff } from './terminal-handoff'
 import { createDocumentMarkdownOwner } from '../viewer/document-markdown-runtime'
 import { ExtensionSourceApprovalOwner, type SourceHostCatalog } from './source-approval'
 import { ExtensionSourceReadingOwner } from './source-reading'
+import { ExtensionSourceReveal } from './source-reveal'
 import {
   ExtensionConnectorApprovalOwner,
   type ConnectorHostCatalog,
@@ -24,6 +27,7 @@ import { ExtensionPackageStore } from './package-store'
 
 /** Application composition and lifetime of the extension platform; no extension package code. */
 export class ExtensionApplicationRuntime {
+  terminalHandoffs?: TerminalCommandHandoffOwner
   sources?: ExtensionSourceReadingOwner
   connectors?: ExtensionConnectorExecutionOwner
   readonly surface = new ElectronExtensionGuestSurface()
@@ -215,6 +219,9 @@ export class ExtensionApplicationRuntime {
     this.guests = guests
     guests.connectors = this.connectors
     guests.sources = this.sources
+    guests.sourceReveal = new ExtensionSourceReveal(sourceApprovals, (owner, request) =>
+      this.events.toRenderer(owner, 'extensions:files-reveal', request),
+    )
     const presentation = new ExtensionPresentationState(
       {
         read: () => activations.readPresentation(),
@@ -233,6 +240,12 @@ export class ExtensionApplicationRuntime {
       assertView: (view) => guests.assertView(view),
     })
     guests.actions = this.actions
+    if (this.terminalHandoffs)
+      guests.terminals = new ExtensionTerminalHandoff(
+        approvals,
+        this.terminalHandoffs,
+        this.actions,
+      )
     this.actions.changed = () => this.connectors?.revalidate()
     this.contributions = new ExtensionContributionOwner(
       activations,

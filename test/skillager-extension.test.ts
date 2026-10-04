@@ -52,13 +52,16 @@ describe('ordinary maintained Skillager package contract', () => {
       ),
     ).manifest
     expect(manifest.id).toBe('skillager')
-    expect(manifest.actions).toEqual([])
+    expect(manifest.actions?.some((action) => /body|instruction/iu.test(action.id))).toBe(
+      false,
+    )
     expect(
       manifest.views.map((view) => [view.id, view.placement, view.navigation]),
     ).toEqual([
       ['library', 'application', 'top'],
       ['project', 'workspace', 'left'],
       ['detail', 'application', undefined],
+      ['management', 'application', undefined],
     ])
     for (const view of manifest.views)
       expect(
@@ -73,6 +76,7 @@ describe('ordinary maintained Skillager package contract', () => {
     for (const [source, output] of [
       ['app', 'skillager'],
       ['updater', 'updater'],
+      ['operations', 'operations'],
     ]) {
       const result = buildSync({
         entryPoints: [`packages/skillager-extension/src/${source}.mjs`],
@@ -319,10 +323,18 @@ it('cancels paced public package requests on hide and releases timers/listeners 
         sent.push(message)
       },
     },
-    { setTimeout, clearTimeout },
+    { setTimeout, clearTimeout, performance },
   )
   try {
     receive({ kind: 'context', context: { visible: true } })
+    for (let index = 0; index < 23; index++) {
+      const completed = client.request('source.read', { receipt: 'selected' })
+      await vi.advanceTimersByTimeAsync(0)
+      const request = sent.at(-1) as { id: string }
+      receive({ kind: 'result', id: request.id, ok: true, value: null })
+      await completed
+    }
+    sent.length = 0
     const first = client.request('source.read', { receipt: 'selected' }),
       second = client.request('source.read', { receipt: 'selected', offset: 2048 })
     const refusedFirst = expect(first).rejects.toThrow(/hidden/),
@@ -336,9 +348,12 @@ it('cancels paced public package requests on hide and releases timers/listeners 
     await refusedFirst
     await refusedSecond
     receive({ kind: 'context', context: { visible: true } })
-    await vi.advanceTimersByTimeAsync(100)
+    await vi.advanceTimersByTimeAsync(1000)
     expect(
       sent.filter((value) => (value as { kind: string }).kind === 'request'),
+    ).toHaveLength(1)
+    expect(
+      sent.filter((value) => (value as { kind: string }).kind === 'cancel'),
     ).toHaveLength(1)
     expect(vi.getTimerCount()).toBe(0)
     client.dispose()

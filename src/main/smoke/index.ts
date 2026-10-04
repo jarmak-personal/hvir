@@ -72,6 +72,7 @@ import { verifySessionsProjectionScenario } from './sessions-projection-scenario
 import { sessionsUsageSmokeProvider } from './sessions-usage-provider'
 import { createTerminalMoveSmokeHarness } from './terminal-move'
 import { createSmokeTerminalSessionStore } from './terminal-session-store'
+import { sessionsObservationProviders } from '../sessions/provider-observation-catalog'
 import { verifyTerminalPresentationLifecycle } from './terminal-presentation'
 import { RendererEventPublisher } from '../renderer-event-publisher'
 import { extensionPtyPorts, verifyExtensionScenario } from './extensions'
@@ -254,7 +255,10 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     )
     if (mode === 'workspace-remote') await prepareProjectFiles()
     const emit = new RendererEventPublisher(rendererResources).toWindows
-    const smokeTerminalSessionHarness = createSmokeTerminalSessionStore(smokeRoot)
+    const smokeTerminalSessionHarness = await createSmokeTerminalSessionStore(smokeRoot, {
+      host,
+      cleanup,
+    })
     const smokeTerminalSessions = smokeTerminalSessionHarness.store
     const smokeSessionsProviders = new HarnessProviderRegistry([
       ...harnessProviders.all(),
@@ -296,14 +300,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     const sessionsObservation = new SessionsObservationPort({
       projectState: () => projectFixture.get(),
       hosts: smokeHostOptions,
-      providers: () =>
-        smokeSessionsProviders.all().map((provider) => ({
-          id: provider.manifest.id,
-          displayName: provider.manifest.displayName,
-          telemetrySupported: Boolean(provider.telemetry),
-          usageSupported: Boolean(provider.usageTelemetry),
-          sessionKind: provider.manifest.sessionKind,
-        })),
+      providers: () => sessionsObservationProviders(smokeSessionsProviders.all(), false),
       sessions: smokeTerminalSessions,
       ptys: supervisor,
       observeProjects: projectFixture.observe,
@@ -422,6 +419,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       recordIpcContractDiagnostic: () => undefined,
       recordRenderContainment: () => undefined,
       ...extensionPtyPorts(supervisor, smokeTerminalSessions, projectFixture),
+      terminalHandoffs: dependencies.extensions.terminalHandoffs,
       sessionsObservation,
       sessionsUsage,
       terminalMoves: terminalMoveSmoke.coordinator,

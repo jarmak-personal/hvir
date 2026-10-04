@@ -114,6 +114,11 @@ export const extensionsIpc = {
     }>(),
   },
   event: {
+    'extensions:files-reveal': payload<{
+      readonly workspaceId: string
+      readonly root: import('../host-path').HostPath
+      readonly path: import('../host-path').HostPath
+    }>(),
     'extensions:contributions-changed': payload<readonly ExtensionContributionState[]>(),
     'extensions:command': payload<KeybindingAction>(),
     'extensions:state-changed': payload<ExtensionPlatformState>(),

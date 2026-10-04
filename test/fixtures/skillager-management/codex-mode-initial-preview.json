@@ -1,0 +1,121 @@
+[
+  {
+    "agent": "codex",
+    "exposure_id": "lib-pinned-c681b43b7c5d0b47",
+    "mode": "native",
+    "next_command_argv": [
+      "skillager",
+      "expose",
+      "lib/pinned-c681b43b7c5d0b47",
+      "--mode",
+      "native",
+      "--agent",
+      "codex",
+      "--scope",
+      "project",
+      "--json",
+      "--yes",
+      "--confirmation-token",
+      "b9a7d71a828db9dd83c44ab8ad742222b168d36bcd912457813a2f9d042487f9"
+    ],
+    "preview": {
+      "agent": "codex",
+      "confirmation_token": "b9a7d71a828db9dd83c44ab8ad742222b168d36bcd912457813a2f9d042487f9",
+      "file_effects": [
+        {
+          "action": "create",
+          "after": {
+            "mode": 420,
+            "sha256": "7a7cc633d9c604b3c2fc14e1a19d10deda67cda5b1054a08cd463a03643bffc5",
+            "size": 113,
+            "type": "file"
+          },
+          "before": null,
+          "path": "SKILL.md"
+        },
+        {
+          "action": "create",
+          "after": {
+            "generated_fields": {
+              "materialized_at": "UTC installation time",
+              "materialized_fingerprint": "advisory fingerprint of installed file metadata",
+              "materialized_sidecar_hash": "integrity hash of the complete generated sidecar"
+            },
+            "metadata": {
+              "agent": "codex",
+              "id": "lib/pinned-c681b43b7c5d0b47",
+              "materialized_hash": "b2bb2f400433db1ad3327d96551852f34fbb5fc0970086c2a7fa0ef962b351b9",
+              "materialized_target_hash": "dc19c8ab1a3674874bab88cff10488d1cc0e7c71fd8d202663b493fca78ccb6e",
+              "projection_identity": "direct:25a25a3c7db448ef2feb4af878c30e3c6b09a6cf2e54b10111fecd5caee3ab69",
+              "projection_kind": "direct",
+              "schema": "skillager.materialized.v1",
+              "scope": "project",
+              "source_entrypoint": "/owned-fixture/library/skills/pinned-c681b43b7c5d0b47/SKILL.md",
+              "source_hash": "b2bb2f400433db1ad3327d96551852f34fbb5fc0970086c2a7fa0ef962b351b9",
+              "source_id": "lib/pinned-c681b43b7c5d0b47",
+              "source_library_id": "c7d5b812-82d0-4681-a4a8-38a913385913",
+              "source_package": "lib",
+              "source_trust": "pinned",
+              "source_type": "collection"
+            },
+            "mode": 420,
+            "type": "file"
+          },
+          "before": null,
+          "path": "skillager.materialized.yaml"
+        },
+        {
+          "action": "create",
+          "after": {
+            "mode": 420,
+            "sha256": "519cb0914012913f8565e2ac30df5dbea571347d21fbdf4ef214e8e482bf99aa",
+            "size": 31,
+            "type": "file"
+          },
+          "before": null,
+          "path": "support.txt"
+        }
+      ],
+      "mode": "native",
+      "project": "/owned-fixture/mode-change-codex",
+      "schema": "skillager.exposure-preview.v1",
+      "scope": "project",
+      "source": {
+        "compatibility": {
+          "assumptions": {},
+          "exclusive_to": null,
+          "incompatible_with": [],
+          "inferred": [],
+          "warnings": {}
+        },
+        "content_hash": "b2bb2f400433db1ad3327d96551852f34fbb5fc0970086c2a7fa0ef962b351b9",
+        "entrypoint": "/owned-fixture/library/skills/pinned-c681b43b7c5d0b47/SKILL.md",
+        "id": "lib/pinned-c681b43b7c5d0b47",
+        "root": "/owned-fixture/library/skills/pinned-c681b43b7c5d0b47",
+        "source": {
+          "collection": "lib",
+          "library_id": "c7d5b812-82d0-4681-a4a8-38a913385913",
+          "library_root": "/owned-fixture/library",
+          "library_skill": "pinned-c681b43b7c5d0b47",
+          "ownership": "library",
+          "path": "/owned-fixture/library/skills",
+          "type": "collection"
+        },
+        "trust": "pinned"
+      },
+      "target": "/owned-fixture/mode-change-codex/.agents/skills/lib-pinned-c681b43b7c5d0b47",
+      "target_directory": {
+        "after_mode": 493,
+        "before_mode": null
+      },
+      "target_state_hash": null
+    },
+    "reason": null,
+    "restart_required": false,
+    "schema": "skillager.exposure-result.v1",
+    "scope": "project",
+    "skill_id": "lib/pinned-c681b43b7c5d0b47",
+    "status": "would_expose",
+    "target": "/owned-fixture/mode-change-codex/.agents/skills/lib-pinned-c681b43b7c5d0b47"
+  }
+]

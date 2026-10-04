@@ -1,4 +1,5 @@
 import { verifySkillagerExtension } from './skillager-extension'
+import { verifySkillagerManagement } from './skillager-management'
 import { verifyExtensionPresentationUi } from './extension-presentation-ui'
 import { verifyExtensionConnectors } from './extension-connectors'
 import { join } from 'node:path'
@@ -65,6 +66,18 @@ export async function verifyExtensionScenario(
     },
     onHostStateChange: (listener) => host.onConnectionState(listener),
   })
+  const project = sources.context.projectState()
+  if (
+    await verifySkillagerManagement(
+      win,
+      extensions,
+      scopes,
+      host,
+      { id: project.activeWorkspaceId, root: project.root },
+      { click: (name) => click(win, name), wait: waitFor, guest: guestFor },
+    )
+  )
+    return true
   if (
     await verifySkillagerExtension(win, extensions, scopes, host, {
       click: (name) => click(win, name),

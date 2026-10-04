@@ -157,6 +157,7 @@ function packageView(view = 'library', entry = 'app') {
     window: browser,
     document,
     Date,
+    performance,
     AbortController,
     TextEncoder,
     setTimeout,

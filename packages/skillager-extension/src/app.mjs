@@ -60,6 +60,9 @@ async function cli(args, project) {
 function available() {
   return client.alive && context.visible
 }
+function refreshManagementAvailability() {
+  if (element('manage')) element('manage').disabled = !available()
+}
 function scope() {
   return view === 'project' ? context : undefined
 }
@@ -404,6 +407,29 @@ on('read-current', 'click', () => {
   pendingSelection = true
   void readSelected()
 })
+on('reveal-original', 'click', async () => {
+  const row = detailInput?.row
+  if (
+    !available() ||
+    row?.source !== 'project' ||
+    row.kind !== 'Project original' ||
+    row.workspaceId !== context.workspace?.id ||
+    row.host !== context.workspace?.host
+  )
+    return
+  try {
+    await client.request('source.reveal', {
+      source: 'project',
+      workspaceId: row.workspaceId,
+      path: { hostId: row.host, path: row.path.slice(0, row.path.lastIndexOf('/')) },
+    })
+    say(
+      'Original folder revealed in Files. Its separate file actions own deletion; no original was removed.',
+    )
+  } catch (error) {
+    say(error.message, 'error')
+  }
+})
 on('source-mode', 'click', () => {
   if (instructionText) {
     body.textContent = instructionText
@@ -467,6 +493,19 @@ on(
       .request('viewer.open-own', { contributionId: 'library', context: 'application' })
       .catch((error) => say(error.message, 'error')),
 )
+on(
+  'manage',
+  'click',
+  () =>
+    void client
+      .request('viewer.open-own', {
+        contributionId: 'management',
+        ...(view === 'detail' && detailInput?.row?.source === 'library'
+          ? { input: { row: { id: detailInput.row.id, source: 'library' } } }
+          : {}),
+      })
+      .catch((error) => say(error.message, 'error')),
+)
 on('search-form', 'submit', (event) => {
   event.preventDefault()
   const options = {
@@ -502,6 +541,7 @@ client.listen((message) => {
     const changed =
       JSON.stringify(message.context.workspace) !== JSON.stringify(context.workspace)
     context = message.context
+    refreshManagementAvailability()
     if (!context.visible) {
       generation++
       window.clearTimeout(timer)
@@ -516,6 +556,9 @@ client.listen((message) => {
         rememberPosition()
         generation++
         detailInput = context.input
+        element('reveal-original').hidden =
+          detailInput.row.source !== 'project' ||
+          detailInput.row.kind !== 'Project original'
         pendingSelection = true
         instructionText = ''
         renderedHtml = undefined
@@ -560,6 +603,7 @@ client.signal.addEventListener(
     window.clearTimeout(timer)
     navigation?.dispose()
     releasePresentation()
+    refreshManagementAvailability()
   },
   { once: true },
 )

@@ -199,6 +199,7 @@ Apple-silicon macOS targets.
 > Superseded by: [ADR-036](adr/ADR-036-retire-static-harness-risk-classification.md) | partial | Provider launch-risk rules, derived risk in profile launch revision, and risk classification and acknowledgment.
 > Superseded by: [ADR-054](adr/ADR-054-isolated-extension-package-and-capability-boundary.md) | partial | General extension-platform prohibition only; trusted bundled harness providers and their separate SDK decision remain unchanged.
 > Superseded by: [ADR-053](adr/ADR-053-local-agent-workbench-access.md) | partial | Protected terminal environment vocabulary only: add instance endpoint and exact workspace/session targeting.
+> Superseded by: [ADR-058](adr/ADR-058-explicit-command-once-terminal-handoff.md) | partial | Explicit fresh ordinary-shell command handoff only; persistent profiles, trusted providers, protected environment, and exact harness recovery remain unchanged.
 
 Trusted main-owned providers supply exact harness semantics; data-only profiles customize
 launches without opaque shell commands or third-party harness providers. General extension
@@ -592,6 +593,21 @@ local storage while public starter lifetimes and ordinary enablement retain thei
 
 Explicit source grants and selection-bound reads keep current instruction viewing separate
 from connector authority, content acceptance and agent actions.
+
+### [ADR-058 — Explicit command-once terminal handoff](adr/ADR-058-explicit-command-once-terminal-handoff.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-012](adr/ADR-012-harness-providers-launch-profiles.md) | partial | Explicit fresh ordinary-shell command handoff only; persistent profiles, trusted providers, protected environment, and exact harness recovery remain unchanged.
+
+An exact admitted action may hand one structured command to a new ordinary shell terminal;
+transient launch data never enters recovery, and handed-off terminals retain ordinary ownership.
+
+### [ADR-059 — Public local Skillager management](adr/ADR-059-public-local-skillager-management.md)
+
+> Lifecycle: Active
+
+Extension-local workflows consume verified public initialization, approved synchronization and
+complete token-bound managed-copy plans; current reading and exact acceptance remain separate.
 
 ## 5. Architecture
 

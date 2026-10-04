@@ -8,6 +8,7 @@ await prepareExtensionUi(directory)
 for (const [source, output] of [
   ['app', 'skillager'],
   ['updater', 'updater'],
+  ['operations', 'operations'],
 ]) {
   const result = await build({
     entryPoints: [`${directory}/src/${source}.mjs`],

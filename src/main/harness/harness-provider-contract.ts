@@ -18,11 +18,19 @@ import type {
 } from '../../shared'
 import type { Disposer, ProjectHost } from '../project-host/project-host'
 
+/** Transient command handoff; never part of a harness profile or recovery record. */
+export interface PlainShellCommandOnce {
+  readonly executable: string
+  readonly args: readonly string[]
+  readonly environment: Readonly<Record<string, string>>
+}
+
 export interface HarnessLaunchContext {
   /** Exact harness id for pre-assigned launches and resume commands. */
   readonly sessionId: string
   /** Exact registered parent identity for a provider-derived fork. */
   readonly parentSessionId?: string
+  readonly commandOnce?: PlainShellCommandOnce
   readonly cwd: HostPath
   readonly cols?: number
   readonly rows?: number

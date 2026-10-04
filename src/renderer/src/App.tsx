@@ -1,10 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
-import {
-  hostPathEquals,
-  type GitChanges,
-  type HostPath,
-  type ProjectState,
-} from '../../shared'
+import { hostPathEquals } from '../../shared'
+import type { GitChanges, HostPath, ProjectState } from '../../shared'
 import { PaneResizer } from './layout/PaneResizer'
 import type { WebViewState } from './dashboards/WebPane'
 import { useWebPaneWorkspace } from './dashboards/use-web-pane-workspace'
@@ -198,6 +194,7 @@ export function App(): ReactElement {
   } = git
   const terminalPathActivation = useTerminalPathActivation({
     root,
+    workspaceId: activeWorkspace?.id,
     selectedFile: activeTab?.path,
     openFile: (path, position) =>
       openFile(path, true, 'file-tree', 'head', undefined, position),
