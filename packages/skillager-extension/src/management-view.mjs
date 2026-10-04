@@ -8,6 +8,7 @@ import {
 import { prepareCopy } from './management-copy.mjs'
 import { syncArgs } from './management-argv.mjs'
 import { syncObservation } from './management-library.mjs'
+import { syncReviewHash } from './management-sync-review.mjs'
 import { bindExactReview } from './review-view.mjs'
 
 /** Human controls consume metadata/actions; instruction review remains a separate D7 origin. */
@@ -154,12 +155,16 @@ export function bindManagementView(document, client) {
         await io(!!context.workspace).run(syncArgs(library)),
         library,
       )
+    const reviewHash = await syncReviewHash(value)
     if (!current()) return
     review(
       'Review approved-source synchronization',
       `${library.root.hostId}: ${library.root.path}. Skillager owns approval, copying and preservation. Coverage ${value.coverage.complete ? 'complete' : 'incomplete'}; inspect all candidates and lineage outcomes.`,
       value,
-      { action: 'sync-library', input: { library } },
+      {
+        action: 'sync-library',
+        input: { library, reviewHash },
+      },
     )
   })
   on('observe-source', 'click', async (_event, current) => {

@@ -161,6 +161,10 @@
             },
             "required": ["id", "root"],
             "additionalProperties": false
+          },
+          "reviewHash": {
+            "type": "string",
+            "maxLength": 64
           }
         },
         "required": ["library"],

@@ -125,7 +125,11 @@ export async function executeManagement(client, invocation) {
         pending.assertAvailable(descriptor),
       )
     if (invocation.action === 'sync-library') {
-      const result = await synchronizeLibrary(io, invocation.input)
+      const result = await synchronizeLibrary(
+        io,
+        invocation.input,
+        invocation.caller !== 'agent',
+      )
       return { ...result, ...(io.pending ? { operationId: invocation.id } : {}) }
     }
     if (['add-copy', 'update-copy', 'remove-copy'].includes(invocation.action))

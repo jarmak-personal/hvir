@@ -922,6 +922,8 @@ export class ExtensionGuestOwner {
             'source.read',
             'source.asset',
             'source.render',
+            'source.reveal',
+            'terminal.start',
           ].includes(capability)),
     )
   }

@@ -38,7 +38,8 @@ terminal ownership is transferred, extension revocation leaves that terminal int
 The trusted plain-shell provider composes a fixed POSIX bootstrap. Executable, arguments, and
 non-secret configured environment remain structured positional data; no extension supplies
 shell program text. The initial command receives its configuration once. After its exit,
-including failure, the bootstrap replaces itself with the host's ordinary default login shell.
+including failure or a foreground INT/QUIT interruption, the bootstrap replaces itself with the host's ordinary default login shell. The bootstrap catches these signals without
+ignoring them in its child; the command remains interruptible.
 Protected terminal and agent environment names retain their existing main-owned authority.
 
 Record the handed-off terminal with the immutable ordinary default-shell profile. The transient

@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { readFileSync } from 'node:fs'
+import { webcrypto } from 'node:crypto'
 import { runInNewContext } from 'node:vm'
 import { buildSync } from 'esbuild'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -10,7 +11,7 @@ afterEach(() => {
   dispose?.()
   document.body.replaceChildren()
 })
-function fixture() {
+function fixture(cryptoPort: unknown = webcrypto) {
   const template = document.createElement('template')
   template.innerHTML = readFileSync(
     'packages/skillager-extension/management.html',
@@ -56,11 +57,40 @@ function fixture() {
     accepted_hash: selected.content_hash,
     acceptance: 'accepted',
   })
+  const syncPlan = {
+    schema: 'skillager.library-sync-status.v1',
+    library: {
+      library_id: selected.source.library_id,
+      root: selected.source.library_root,
+    },
+    context: {
+      project_root: '/owned-fixture/mode-change-codex',
+      discovery: 'effective-local',
+    },
+    coverage: {
+      complete: true,
+      discovered_origins: 1,
+      approved_origins: 1,
+      selected_sources: 1,
+      processed_sources: 1,
+      discovery_error_count: 0,
+    },
+    lineages: [],
+    candidates: [
+      {
+        source_identity: 'owned-source',
+        canonical_skill_id: 'lib/owned',
+        state: 'eligible-create',
+        reason_code: null,
+      },
+    ],
+  }
   const listeners = new Set<(message: unknown) => void>(),
     controller = new AbortController(),
     outputs = new Map<string, unknown>()
   const actions: Array<{ action: string; input: Value }> = []
   let serial = 0
+  let readCount = 0
   let protectedTarget = false
   const client = {
     alive: true,
@@ -86,23 +116,26 @@ function fixture() {
                 nextOffset: null,
               },
         )
+      readCount++
       const args = input['args'] as string[],
         receipt = String(++serial)
       outputs.set(
         receipt,
-        args.includes('--list')
-          ? { schema: 'skillager.exposures.v1', exposures: preview }
-          : args.includes('expose')
-            ? protectedTarget
-              ? [
-                  {
-                    schema: 'skillager.exposure-result.v1',
-                    status: 'skipped',
-                    reason: 'target has local edits',
-                  },
-                ]
-              : update
-            : status,
+        args.includes('sync')
+          ? syncPlan
+          : args.includes('--list')
+            ? { schema: 'skillager.exposures.v1', exposures: preview }
+            : args.includes('expose')
+              ? protectedTarget
+                ? [
+                    {
+                      schema: 'skillager.exposure-result.v1',
+                      status: 'skipped',
+                      reason: 'target has local edits',
+                    },
+                  ]
+                : update
+              : status,
       )
       return Promise.resolve({ outcome: 'completed', code: 0, receipt, truncated: false })
     },
@@ -114,7 +147,7 @@ function fixture() {
     globalName: 'Module',
     write: false,
   })
-  const sandbox = { TextEncoder, Module: undefined as unknown }
+  const sandbox = { TextEncoder, crypto: cryptoPort, Module: undefined as unknown }
   runInNewContext(bundle.outputFiles[0]!.text, sandbox)
   const module = sandbox.Module as {
     bindManagementView(document: Document, client: unknown): { dispose(): void }
@@ -158,6 +191,13 @@ function fixture() {
     ready,
     connect,
     actions,
+    get readCount() {
+      return readCount
+    },
+    hide: () => {
+      for (const listener of listeners)
+        listener({ kind: 'context', context: { visible: false } })
+    },
     row,
     selected,
     input: document.getElementById('skill-id') as HTMLInputElement,
@@ -227,3 +267,45 @@ it.each(['input', 'context', 'programmatic'])(
     }
   },
 )
+
+it('submits the hash of the complete displayed sync metadata through ordinary confirmation', async () => {
+  const f = fixture()
+  await f.connect()
+  f.click('preview-sync')
+  await vi.waitFor(() => expect(document.getElementById('review')!.hidden).toBe(false))
+  const shown = document.getElementById('review-plan')!.textContent ?? ''
+  f.click('confirm-plan')
+  await vi.waitFor(() => expect(f.actions).toHaveLength(1))
+  expect(f.actions[0]!.action).toBe('sync-library')
+  expect(f.actions[0]!.input['reviewHash']).toMatch(/^[a-f0-9]{64}$/)
+  expect(JSON.parse(shown)).toMatchObject({
+    candidates: [{ source_identity: 'owned-source' }],
+    lineages: [],
+  })
+})
+it('cannot publish a human sync review after hide during async metadata digest', async () => {
+  let settle!: (value: ArrayBuffer) => void
+  const pendingDigest = new Promise<ArrayBuffer>((resolve) => {
+    settle = resolve
+  })
+  const digest = vi.fn(() => pendingDigest)
+  const f = fixture({ subtle: { digest } })
+  await f.connect()
+  f.click('preview-sync')
+  await vi.waitFor(() => expect(digest).toHaveBeenCalledOnce())
+  const publications = vi.spyOn(document.getElementById('review')!, 'hidden', 'set')
+  f.hide()
+  settle(new ArrayBuffer(32))
+  f.row(f.selected.id)
+  const precedingReads = f.readCount
+  // A newly admitted ordinary read proves the previous guarded async workflow settled.
+  await vi.waitFor(() => {
+    f.click('observe-library')
+    expect(f.readCount).toBeGreaterThan(precedingReads)
+  })
+  expect(publications.mock.calls.some(([hidden]) => hidden === false)).toBe(false)
+  expect(document.getElementById('review')!.hidden).toBe(true)
+  f.click('confirm-plan')
+  expect(f.actions).toEqual([])
+  publications.mockRestore()
+})

@@ -240,3 +240,87 @@ it('verifies recognized image bytes through the selected entrypoint parent and g
     /image bytes/,
   )
 })
+
+it.each([0, 2])(
+  'retains unknown acceptance effects for a post-Git public ReviewRefusal with exit %i',
+  async (code) => {
+    const f = fixture()
+    const module = load<{
+      executeManagement(
+        client: unknown,
+        invocation: Record<string, unknown>,
+      ): Promise<Record<string, unknown>>
+    }>('management-operation')
+    const status = JSON.parse(
+      readFileSync('test/fixtures/skillager-management/first-no-git-status.json', 'utf8'),
+    ) as { library: Record<string, unknown> }
+    status.library['library_id'] = f.binding.library.id
+    status.library['root'] = f.binding.library.root.path
+    let serial = 0
+    const outputs = new Map<string, unknown>(),
+      calls: string[][] = []
+    const client = {
+      alive: true,
+      request(capability: string, input: Record<string, unknown>) {
+        if (capability === 'connector.output')
+          return Promise.resolve(
+            input['release']
+              ? null
+              : {
+                  data:
+                    input['stream'] === 'stderr'
+                      ? ''
+                      : JSON.stringify(outputs.get(String(input['receipt']))),
+                  nextOffset: null,
+                },
+          )
+        const args = input['args'] as string[],
+          receipt = String(++serial)
+        calls.push(args)
+        const submitted = args.includes('--yes')
+        outputs.set(
+          receipt,
+          submitted
+            ? {
+                schema: 'skillager.library-accept.v1',
+                status: 'refused',
+                error: {
+                  code: 'review_changed',
+                  message:
+                    'the review tree or library changed before acceptance; preview again',
+                },
+              }
+            : args.includes('accept')
+              ? f.value
+              : status,
+        )
+        return Promise.resolve({
+          outcome: 'completed',
+          code: submitted ? code : 0,
+          receipt,
+          truncated: false,
+        })
+      },
+    }
+    const invocation = {
+      id: 'main-acceptance',
+      action: 'accept-version',
+      input: { ...f.binding, token: f.manifest.confirmation_token },
+      context: {},
+      caller: 'guest',
+      authorization: 'unapproved',
+    }
+    const result = await module.executeManagement(client, invocation)
+    expect(result['outcome']).toBe('uncertain')
+    expect(result['operationId']).toBe(invocation.id)
+    expect(
+      await module.executeManagement(client, {
+        ...invocation,
+        id: 'main-list',
+        action: 'operation-state',
+        input: { mode: 'list' },
+      }),
+    ).toEqual({ ids: [invocation.id] })
+    expect(calls.filter((args) => args.includes('--yes'))).toHaveLength(1)
+  },
+)

@@ -35,7 +35,7 @@ export async function verifyOwnedOriginalReveal(
   )
   const reader = skillagerManagementControls(await detail(), controls)
   await reader.ready(
-    "!document.getElementById('reveal-original').hidden",
+    "document.getElementById('reveal-original')?.hidden === false",
     'ordinary human original reveal control',
   )
   await reader.click('reveal-original')

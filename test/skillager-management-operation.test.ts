@@ -91,7 +91,9 @@ function fixture(caller = 'guest') {
     materializedHash: string | undefined,
     sourceBinding: Value = {},
     malformedExposures: unknown,
-    applied = false
+    applied = false,
+    mutationResult: unknown,
+    mutationCode = 0
   const client = {
     alive: true,
     request(capability: string, input: Value) {
@@ -138,7 +140,7 @@ function fixture(caller = 'guest') {
           if (outcome !== 'completed')
             return Promise.resolve({ outcome, reason: 'cancelled', receipt })
           applied = true
-          value = [{ ...preview, status: 'exposed' }]
+          value = mutationResult ?? [{ ...preview, status: 'exposed' }]
         }
       }
       status.skill['exposures'] = applied
@@ -161,7 +163,12 @@ function fixture(caller = 'guest') {
       status.skill['accepted_hash'] = statusHash
       status.skill['acceptance'] = canonicalPending ? 'pending' : 'accepted'
       outputs.set(receipt, value)
-      return Promise.resolve({ outcome: 'completed', code: 0, receipt, truncated: false })
+      return Promise.resolve({
+        outcome: 'completed',
+        code: applied ? mutationCode : 0,
+        receipt,
+        truncated: false,
+      })
     },
   }
   const invoke = (
@@ -180,6 +187,12 @@ function fixture(caller = 'guest') {
     })
   return {
     invoke,
+    mutationCode: (value: number) => {
+      mutationCode = value
+    },
+    mutationResult: (value: unknown) => {
+      mutationResult = value
+    },
     input,
     calls,
     workspace,
@@ -452,3 +465,97 @@ it('removes the reviewed managed target while its canonical source is pending wi
   expect(f.calls.filter((args) => args.includes('--yes'))).toHaveLength(1)
   expect(await f.invoke('operation-state', { mode: 'list' })).toEqual({ ids: [] })
 })
+
+it.each([
+  'target exists without Skillager provenance',
+  'target has local edits',
+  'exact exposure hash is blocked by prior project policy',
+  'exposure preview is stale or does not match this command; review the current preview and execute its returned command',
+])(
+  'reports a complete exact pre-install refusal (%s) without retaining an uncertain write',
+  async (reason) => {
+    const f = fixture()
+    const publicRefusal = JSON.parse(
+      readFileSync(
+        'test/fixtures/skillager-management/codex-foreign-target-refusal.json',
+        'utf8',
+      ),
+    ) as Array<Value>
+    f.mutationResult([
+      {
+        ...publicRefusal[0],
+        agent: f.preview.agent,
+        mode: f.preview.mode,
+        exposure_id: f.preview.exposure_id,
+        skill_id: f.preview.skill_id,
+        target: f.preview.target,
+        reason,
+      },
+    ])
+    f.outcome('completed')
+    const result = await f.invoke('add-copy', f.input)
+    expect(result['outcome']).toBe('refused')
+    expect(result['reason']).toBe(reason)
+    expect(result['operationId']).toBeUndefined()
+    expect(await f.invoke('operation-state', { mode: 'list' })).toEqual({ ids: [] })
+    await f.invoke('add-copy', f.input)
+    expect(f.calls.filter((args) => args.includes('--yes'))).toHaveLength(2)
+  },
+)
+it.each([
+  'ambiguous',
+  'wrong-target',
+  'wrong-source',
+  'wrong-schema',
+  'restart',
+  'partial',
+])('retains uncertainty for %s skipped completion', async (problem) => {
+  const f = fixture()
+  const refusal: Value = {
+    ...f.preview,
+    status: 'skipped',
+    reason: 'target has local edits',
+    restart_required: false,
+  }
+  if (problem === 'ambiguous' || problem === 'partial')
+    refusal['reason'] = 'I/O failure after target replacement'
+  if (problem === 'wrong-target') refusal['target'] = '/another-target'
+  if (problem === 'wrong-source') refusal['skill_id'] = 'lib/another'
+  if (problem === 'wrong-schema') refusal['schema'] = 'unsupported'
+  if (problem === 'restart') refusal['restart_required'] = true
+  f.mutationResult([refusal])
+  f.outcome('completed')
+  const result = await f.invoke('add-copy', f.input)
+  expect(result['outcome']).toBe('uncertain')
+  expect(await f.invoke('operation-state', { mode: 'list' })).toEqual({
+    ids: [result['operationId']],
+  })
+  expect((await f.invoke('add-copy', f.input))['outcome']).toBe('refused')
+  expect(f.calls.filter((args) => args.includes('--yes'))).toHaveLength(1)
+})
+
+it.each(['malformed', 'ambiguous'])(
+  'retains unknown physical effects for nonzero %s completion',
+  async (problem) => {
+    const f = fixture()
+    f.mutationResult(
+      problem === 'malformed'
+        ? { status: 'refused' }
+        : [
+            {
+              ...f.preview,
+              status: 'skipped',
+              reason: 'I/O failure after physical install',
+            },
+          ],
+    )
+    f.mutationCode(2)
+    f.outcome('completed')
+    const result = await f.invoke('add-copy', f.input)
+    expect(result['outcome']).toBe('uncertain')
+    expect(await f.invoke('operation-state', { mode: 'list' })).toEqual({
+      ids: [result['operationId']],
+    })
+    expect(f.calls.filter((args) => args.includes('--yes'))).toHaveLength(1)
+  },
+)

@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { createHash, webcrypto } from 'node:crypto'
 import { runInNewContext } from 'node:vm'
 import { buildSync } from 'esbuild'
 import { expect, it } from 'vitest'
@@ -70,7 +71,7 @@ function fixture(
       globalName: 'Module',
       write: false,
     }),
-    sandbox = { TextEncoder, Module: undefined as unknown }
+    sandbox = { TextEncoder, crypto: webcrypto, Module: undefined as unknown }
   runInNewContext(bundle.outputFiles[0]!.text, sandbox)
   const module = sandbox.Module as {
     executeManagement(client: unknown, invocation: Value): Promise<Value>
@@ -111,13 +112,13 @@ function fixture(
         })
       },
     }
-  const invoke = (action: string, input: unknown = {}) =>
+  const invoke = (action: string, input: unknown = {}, caller = 'agent') =>
     module.executeManagement(client, {
       id: `main-${++serial}`,
       action,
       input,
       context: {},
-      caller: 'agent',
+      caller,
       authorization: 'standing',
     })
   return {
@@ -268,3 +269,52 @@ it('reports all admitted uncertain outcomes while retaining the exact operation 
     ids: [result['operationId']],
   })
 })
+
+function reviewedHash(value: unknown): string {
+  const canonical = (item: unknown): unknown =>
+    Array.isArray(item)
+      ? item.map(canonical)
+      : item && typeof item === 'object'
+        ? Object.fromEntries(
+            Object.entries(item)
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([key, val]) => [key, canonical(val)]),
+          )
+        : item
+  return createHash('sha256')
+    .update(JSON.stringify(canonical(value)))
+    .digest('hex')
+}
+it('binds human confirmation to every field of the complete public synchronization review', async () => {
+  const f = fixture(['created'])
+  const reviewHash = reviewedHash(f.plan)
+  expect(
+    (await f.invoke('sync-library', { library: f.library, reviewHash }, 'guest'))[
+      'outcome'
+    ],
+  ).toBe('verified')
+})
+it.each(['missing', 'selection', 'canonical', 'state', 'coverage', 'lineage'])(
+  'refuses human sync when reviewed %s changes before submission',
+  async (problem) => {
+    const f = fixture(['created'])
+    const reviewHash = reviewedHash(f.plan)
+    if (problem === 'selection') f.plan.candidates[0]!.source_identity = 'changed-source'
+    if (problem === 'canonical') f.plan.candidates[0]!.canonical_skill_id = 'lib/changed'
+    if (problem === 'state') f.plan.candidates[0]!.state = 'eligible-update'
+    if (problem === 'coverage') f.plan.coverage.approved_origins = 0
+    if (problem === 'lineage')
+      Reflect.set(f.plan, 'lineages', [{ canonical: { working_hash: 'b'.repeat(64) } }])
+    const result = await f.invoke(
+      'sync-library',
+      { library: f.library, ...(problem === 'missing' ? {} : { reviewHash }) },
+      'guest',
+    )
+    expect(result['outcome']).toBe('refused')
+    expect(result['message']).toMatch(/Review the fresh plan/)
+    expect(f.calls.some((args) => args.includes('--approved'))).toBe(false)
+    expect(await f.invoke('operation-state', { mode: 'list' }, 'guest')).toEqual({
+      ids: [],
+    })
+  },
+)

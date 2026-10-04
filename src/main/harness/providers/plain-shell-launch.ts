@@ -30,7 +30,7 @@ export function plainShellLaunch(
     file: '/bin/sh',
     args: [
       '-c',
-      'hvir_default_shell=$1; shift; /usr/bin/env -- "$@"; exec "$hvir_default_shell" -l',
+      'hvir_default_shell=$1; shift; trap : INT QUIT; /usr/bin/env -- "$@"; exec "$hvir_default_shell" -l',
       'hvir-command-once',
       defaultShell,
       ...environment,

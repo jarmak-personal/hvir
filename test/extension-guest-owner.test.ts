@@ -17,6 +17,32 @@ import { localPath } from '../src/shared/host-path'
 import { fixture, attached } from './fixtures/extension-guest'
 
 describe('extension guest capability and lifetime owner', () => {
+  it('negotiates updater observation while excluding source reveal and terminal handoff', async () => {
+    const data = fixture(
+      {},
+      {
+        updater: 'index.html',
+        requiredCapabilities: ['presentation.read'],
+        optionalCapabilities: ['source.reveal', 'terminal.start'],
+      },
+    )
+    const view = await data.owner.open(
+      data.renderer,
+      'installation',
+      'updater',
+      undefined,
+      { updater: true },
+    )
+    data.owner.claim(data.renderer, view.partition, view.url, view.id)
+    data.owner.bind(data.renderer, view.partition, 10)
+    data.owner.receive(10, { kind: 'hello', contract: '1.0' })
+    expect(
+      data.sent.find((entry) => entry.message.kind === 'hello')?.message,
+    ).toMatchObject({
+      capabilities: ['presentation.read'],
+    })
+    await data.owner.dispose()
+  })
   it('publishes a separate action view without selecting it on first open or reuse', async () => {
     const data = fixture()
     const human = await attached(data)

@@ -7,6 +7,7 @@ import {
   boundedManagementResult,
 } from './management-contract.mjs'
 import { initializationArgs, syncArgs } from './management-argv.mjs'
+import { syncReviewHash } from './management-sync-review.mjs'
 
 export async function initializeLibrary(io, selection) {
   const result = await io.run(initializationArgs(selection), {
@@ -134,10 +135,19 @@ function syncCompletion(value, code, library) {
   if (value.status !== status || code !== (status === 'completed' ? 0 : 2))
     throw new Error('Synchronization exit/status disagree with its complete outcomes')
 }
-export async function synchronizeLibrary(io, input) {
+export async function synchronizeLibrary(io, input, human = false) {
   const library = registeredLibrary(await io.run(['library', 'status', '--json']))
   sameLibrary(input.library, library)
-  syncObservation(await io.run(syncArgs(library)), library)
+  const fresh = syncObservation(await io.run(syncArgs(library)), library)
+  if (
+    (human || input.reviewHash !== undefined) &&
+    (typeof input.reviewHash !== 'string' ||
+      !/^[a-f0-9]{64}$/u.test(input.reviewHash) ||
+      input.reviewHash !== (await syncReviewHash(fresh)))
+  )
+    throw new Error(
+      'The complete reviewed synchronization plan changed or is missing. Review the fresh plan before confirming.',
+    )
   const result = await io.run(
     syncArgs(library, true),
     { action: 'sync-library', library },

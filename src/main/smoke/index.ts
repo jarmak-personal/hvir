@@ -72,7 +72,7 @@ import { verifySessionsProjectionScenario } from './sessions-projection-scenario
 import { sessionsUsageSmokeProvider } from './sessions-usage-provider'
 import { createTerminalMoveSmokeHarness } from './terminal-move'
 import { createSmokeTerminalSessionStore } from './terminal-session-store'
-import { sessionsObservationProviders } from '../sessions/provider-observation-catalog'
+import { smokeSessionsObservationProviders } from './sessions-observation-providers'
 import { verifyTerminalPresentationLifecycle } from './terminal-presentation'
 import { RendererEventPublisher } from '../renderer-event-publisher'
 import { extensionPtyPorts, verifyExtensionScenario } from './extensions'
@@ -300,7 +300,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     const sessionsObservation = new SessionsObservationPort({
       projectState: () => projectFixture.get(),
       hosts: smokeHostOptions,
-      providers: () => sessionsObservationProviders(smokeSessionsProviders.all(), false),
+      providers: () => smokeSessionsObservationProviders(smokeSessionsProviders.all()),
       sessions: smokeTerminalSessions,
       ptys: supervisor,
       observeProjects: projectFixture.observe,

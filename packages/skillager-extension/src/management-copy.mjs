@@ -60,6 +60,43 @@ export async function applyCopy(io, action, input, workspace, admit = () => {}) 
     },
   )
   const result = remove ? value.results?.[0] : value?.[0]
+  // These exact public reasons originate before direct exposure installation.
+  // Generic skipped errors may follow partial physical effects and stay uncertain.
+  const beforeInstallReasons = [
+    'target exists without Skillager provenance',
+    'target has local edits',
+    'exact exposure hash is blocked by prior project policy',
+    'exposure preview is stale or does not match this command; review the current preview and execute its returned command',
+  ]
+  if (
+    !remove &&
+    Array.isArray(value) &&
+    value.length === 1 &&
+    result?.schema === 'skillager.exposure-result.v1' &&
+    result.status === 'skipped' &&
+    beforeInstallReasons.includes(result.reason) &&
+    result.skill_id === request.source.id &&
+    result.mode === request.mode &&
+    result.agent === request.agent &&
+    result.scope === 'project' &&
+    result.target === plan.target &&
+    result.exposure_id === plan.result.exposure_id &&
+    result.restart_required === false
+  ) {
+    const reply = boundedManagementResult({
+      outcome: 'refused',
+      action,
+      reason: result.reason,
+      target: { hostId: 'local', path: plan.target },
+      agent: request.agent,
+      mode: request.mode,
+      exposureId: result.exposure_id,
+      message:
+        'Skillager preserved this exact target before installation. Observe it and choose a fresh operation explicitly.',
+    })
+    io.verified()
+    return reply
+  }
   if (
     (remove
       ? value.schema !== 'skillager.exposure-remove.v1' || value.results?.length !== 1

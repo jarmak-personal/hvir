@@ -56,7 +56,12 @@ preservation and copying. Expose actual per-item outcomes and incomplete coverag
 exit zero alone is insufficient. Complete known conflicts and failures use the public partial
 report and exit two, without claiming overall success. Unknown outcomes or incomplete coverage
 retain the exact operation for reconciliation. Synchronization does not accept a changed
-canonical source.
+canonical source. Human confirmation binds a generic metadata digest of the complete validated
+public status shown, including all supplied selection and lineage facts; a fresh changed status
+refuses before dispatch and requires a new review. Agent calls retain their current D6
+authorization and preflight without inventing a human decision. This detects disclosed-plan
+drift before dispatch; the public CLI supplies neither an atomic sync token nor every new
+source version fact, so this binding does not claim those guarantees.
 
 Exact acceptance consumes the public `skillager.library-review-manifest.v1` opt-in preview,
 bound to registered library UUID/root, skill identity/root, existing working hash and opaque
@@ -102,6 +107,10 @@ Use bounded structured argv and the existing finite output/receipt envelope. Ref
 oversized or incomplete review before apply rather than omitting effects, paging a partial
 plan into authority or relaxing D5 limits. A submitted operation without a verified result
 has an operation-specific uncertain outcome and requires explicit public reconciliation.
+Only a complete exact copy result with a public reason proven to precede target installation
+can report definite preservation and release its operation record. Generic skipped errors may
+follow partial installation, and acceptance review refusals may follow Git commits; neither
+status nor a nonzero exit alone proves no effects.
 Observation, dismissal, reconnect and success for a different operation cannot silently clear
 that uncertainty. Mutations never borrow the observation helper's automatic frequency retry.
 Revocation rejects late results and connection restoration; it does not claim native rollback.
