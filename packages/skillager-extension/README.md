@@ -4,6 +4,11 @@ An ordinary hvir extension for Your library, skills observed in the current regi
 
 ## Build and install
 
+The 0.3 application release supplies `hvir-skillager-0.3.0.zip` as an ordinary downloadable
+package. Verify it against that release's checksums, place it directly in the actual extensions
+folder and Discover before Enable. It includes ready HTML/CSS/JS and public UI assets, with no
+Skillager binary. Installed `hvir-agent guide` documents authoring and agent setup independently.
+
 From the hvir checkout, run `npm ci` and `npm run extension:skillager`. The checked-in HTML, CSS and bundled scripts are ready to run; the build reproduces them from `src/` and the public presentation kit. Copy this directory into the instance's **Settings → Extensions → Open extensions folder**, or explicitly create a top-level development link. Discover, inspect the access declarations, then Enable. Your library is an application destination; Skills in this project is a left workspace destination. Detail viewers remain individually closable. hvir requires an open project as usual; the library need not be registered as a project.
 
 Install and configure Skillager separately. The supported minimum version is **0.9.3**, with the current public `skillager.library-status.v1`, `skillager.list.v1` and `skillager.search.v1` contracts, including cursors and CLI-owned pre-limit grouping, installed filtering and ranking. Published 0.9.3 predates those new contracts while current supported source also identifies as 0.9.3. A matching version alone therefore does not prove support: the package checks each required public schema and refuses missing contracts with a setup explanation. There is no legacy search fallback or automatic installation. A current-source installation is a supported explicit setup.
@@ -59,6 +64,8 @@ For an exact-candidate public producer check, set `HVIR_DELIVERY_SKILLAGER` to a
 ## Installed-CLI capacity probe
 
 After configuring an existing current-contract CLI and its genuine library, set `HVIR_SKILLAGER_EVIDENCE_CLI`, `HVIR_SKILLAGER_EVIDENCE_CATALOG`, and `HVIR_SKILLAGER_EVIDENCE_LIBRARY` to their explicit local paths, then run `npm run probe:extension:skillager` from the checkout on an unlocked desktop. This opt-in native walkthrough uses ordinary Settings approval, public guest pagination/search and selected current reads. Its separate finite 15-minute limit supports a full 50-page, 5,000-skill library traversal; ordinary smoke deadlines stay unchanged. Each guest inspection has its own five-second bound and each page has a 60-second bound. The probe reports counts and phases without instruction contents. It does not install Skillager or change library acceptance.
+
+Append `-- --package /absolute/hvir-skillager-0.3.0.zip` to exercise the exact built downloadable ZIP through ordinary discovery and approval instead of copying checkout package files. The same finite traversal and current-read checks apply.
 
 For a focused selected-reader/visibility diagnosis against the same genuine library, append `-- --reader-diagnostic`. This explicitly skips the full traversal and does not replace its acceptance evidence.
 

@@ -434,6 +434,9 @@ jobs:
           node-version: 24
           package-manager-cache: false
 
+      - name: Install locked extension build dependencies
+        run: npm ci
+
       - name: Download accepted Linux x64 package
         uses: actions/download-artifact@v8
         with:
@@ -575,6 +578,7 @@ jobs:
             "hvir-${VERSION}-darwin-arm64.pkg" \
             "hvir-${VERSION}-linux-arm64.deb" \
             "hvir-${VERSION}-linux-x64.deb" \
+            "hvir-skillager-${VERSION}.zip" \
             install.sh \
             release-manifest.json |
             sort)

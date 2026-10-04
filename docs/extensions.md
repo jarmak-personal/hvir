@@ -1,5 +1,8 @@
 # Extension packages
 
+The [0.3 setup guide](extension-setup.md) covers the downloadable Skillager ZIP, installed
+authoring and ordinary agent access. The release ZIP is independent of the native app installer.
+
 Open **Settings → Extensions → Open extensions folder**. Place one ready-to-run
 package directory or ZIP there, then choose **Discover extensions**. Inspect its contract,
 capabilities, and requested access before choosing **Enable** and **Open**. Discovery

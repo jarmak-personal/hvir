@@ -9,7 +9,7 @@ export const AGENT_CLIENT_TARGETS = [
   'macos-arm64',
 ]
 /** Build provenance stays immutable; the runtime manifest hashes the final packaged bytes. */
-export async function agentClientManifest(directory, source, signed = false) {
+async function captureAgentClients(directory, source, signed) {
   if (!/^[a-f0-9]{40}$/.test(source))
     throw new Error('Remote client source must be an exact commit')
   const clients = {}
@@ -48,9 +48,41 @@ export async function agentClientManifest(directory, source, signed = false) {
     }
   }
   const manifest = { contract: '1.0', source, clients }
+  return manifest
+}
+
+export async function agentClientManifest(directory, source, signed = false) {
+  const manifest = await captureAgentClients(directory, source, signed)
   await writeFile(
     join(directory, 'manifest.json'),
     JSON.stringify(manifest, null, 2) + '\n',
   )
   return manifest
+}
+
+/** Inspect final installed bytes without rewriting build or signing provenance. */
+export async function inspectAgentClientManifest(directory) {
+  const recorded = JSON.parse(await readFile(join(directory, 'manifest.json'), 'utf8'))
+  const signed = recorded.clients?.['macos-x64']?.signed === true
+  const observed = await captureAgentClients(directory, recorded.source, signed)
+  if (
+    recorded.contract !== observed.contract ||
+    Object.keys(recorded.clients ?? {})
+      .sort()
+      .join(',') !== [...AGENT_CLIENT_TARGETS].sort().join(',')
+  )
+    throw new Error('Packaged remote client manifest is incomplete')
+  for (const target of AGENT_CLIENT_TARGETS) {
+    const actual = observed.clients[target],
+      expected = recorded.clients[target]
+    if (
+      !expected ||
+      actual.sha256 !== expected.sha256 ||
+      actual.bytes !== expected.bytes ||
+      actual.buildSha256 !== expected.buildSha256 ||
+      actual.signed !== expected.signed
+    )
+      throw new Error(`Packaged remote client integrity is invalid for ${target}`)
+  }
+  return observed
 }

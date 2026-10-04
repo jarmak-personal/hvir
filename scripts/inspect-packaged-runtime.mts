@@ -1,7 +1,8 @@
 import { execFileSync } from 'node:child_process'
 import { closeSync, openSync, readFileSync, readSync, statSync } from 'node:fs'
 import { parseArgs } from 'node:util'
-import { resolve } from 'node:path'
+import { resolve, dirname } from 'node:path'
+import { inspectPackagedExtensionAssets } from './inspect-packaged-extension-assets.mts'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
 
@@ -301,7 +302,7 @@ function inspectNativePayloads(
   }
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const { values } = parseArgs({
     options: {
       archive: { type: 'string' },
@@ -353,6 +354,9 @@ function main(): void {
     ].some((entry) => typeof entry !== 'function')
   )
     throw new Error('Packaged extension storage does not expose its approved private API')
+  await inspectPackagedExtensionAssets(dirname(values.archive), (path) =>
+    Promise.resolve(readFileSync(path)),
+  )
   console.log(
     `Verified packaged production graph (${inspection.mainEntries.length} entries) and native payload (${inspection.nativeEntries.length} files).`,
   )
@@ -360,7 +364,7 @@ function main(): void {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    main()
+    await main()
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error))
     process.exitCode = 1

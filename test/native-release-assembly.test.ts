@@ -28,6 +28,13 @@ describe('native release assembly', () => {
         name: string
         sha256: string
       }>
+      extensions: Array<{
+        id: string
+        version: string
+        contract: string
+        name: string
+        sha256: string
+      }>
       installer: { name: string; sha256: string }
       notices: { name: string; sha256: string }
     }
@@ -55,6 +62,14 @@ describe('native release assembly', () => {
       ],
       installer: { name: 'install.sh' },
       notices: { name: 'THIRD_PARTY_NOTICES.md' },
+      extensions: [
+        {
+          id: 'skillager',
+          version: '0.3.0',
+          contract: '1.0',
+          name: 'hvir-skillager-1.2.3.zip',
+        },
+      ],
     })
     expect(await readdir(fixture.assetDirectory)).toEqual([
       'SHA256SUMS',
@@ -62,6 +77,7 @@ describe('native release assembly', () => {
       'hvir-1.2.3-darwin-arm64.pkg',
       'hvir-1.2.3-linux-arm64.deb',
       'hvir-1.2.3-linux-x64.deb',
+      'hvir-skillager-1.2.3.zip',
       'install.sh',
       'release-manifest.json',
     ])
@@ -74,7 +90,7 @@ describe('native release assembly', () => {
     const checksumLines = (await readFile(result.checksumsPath, 'utf8'))
       .trim()
       .split('\n')
-    expect(checksumLines).toHaveLength(6)
+    expect(checksumLines).toHaveLength(7)
     for (const line of checksumLines) {
       const separator = line.indexOf('  ')
       expect(separator).toBeGreaterThan(0)
@@ -88,6 +104,10 @@ describe('native release assembly', () => {
     expect(manifest.notices.sha256).toBe(
       await sha256(join(fixture.assetDirectory, manifest.notices.name)),
     )
+    expect(manifest.extensions[0]!.sha256).toBe(
+      await sha256(join(fixture.assetDirectory, manifest.extensions[0]!.name)),
+    )
+    expect(installer).not.toContain(manifest.extensions[0]!.name)
   })
 
   it('fails closed for incomplete, unexpected, or ambiguous release inputs', async () => {

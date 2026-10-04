@@ -453,6 +453,7 @@ describe('native release automation', () => {
       (step) => step.name === 'Create or repair a private draft',
     )
     for (const requiredPreDraftStep of [
+      'Install locked extension build dependencies',
       'Download accepted Linux x64 package',
       'Download accepted Linux arm64 package',
       'Download protected accepted macOS package',
@@ -513,6 +514,7 @@ describe('native release automation', () => {
       'SHA256SUMS',
       'THIRD_PARTY_NOTICES.md',
       'hvir-${VERSION}-darwin-arm64.pkg',
+      'hvir-skillager-${VERSION}.zip',
       'hvir-${VERSION}-linux-arm64.deb',
       'hvir-${VERSION}-linux-x64.deb',
       'install.sh',

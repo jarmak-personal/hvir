@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module'
-import { mkdtemp, mkdir, writeFile, readFile, appendFile, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, readFile, appendFile, rm, cp } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -7,7 +7,10 @@ import { afterEach, expect, it, vi } from 'vitest'
 import {
   AGENT_CLIENT_TARGETS,
   agentClientManifest,
+  inspectAgentClientManifest,
 } from '../scripts/agent-client-artifacts.mjs'
+import { inspectPackagedExtensionAssets } from '../scripts/inspect-packaged-extension-assets.mts'
+
 const require = createRequire(import.meta.url),
   cleanups: string[] = [],
   source = 'a'.repeat(40)
@@ -144,4 +147,29 @@ it('requires redistribution notices for every packaged target', async () => {
   const f = await fixture()
   await rm(join(f.root, 'linux-x64/notices/musl-1.2.5-COPYRIGHT'))
   await expect(agentClientManifest(f.root, source)).rejects.toThrow()
+})
+
+it('inspects complete installed guides, starter, reference and four final client payloads without rewriting provenance', async () => {
+  const f = await fixture(),
+    resources = join(f.app, 'Contents/Resources')
+  await cp('build/native/agent-guides', join(resources, 'agent-guides'), {
+    recursive: true,
+  })
+  await cp('packages/extension-authoring', join(resources, 'extension-authoring'), {
+    recursive: true,
+  })
+  await cp('packages/extension-reference', join(resources, 'extension-reference'), {
+    recursive: true,
+  })
+  await cp('build/native/hvir-agent-command', join(resources, 'hvir-agent-command'))
+  const before = await readFile(join(f.root, 'manifest.json'))
+  await inspectPackagedExtensionAssets(resources, readFile)
+  expect(await readFile(join(f.root, 'manifest.json'))).toEqual(before)
+  await appendFile(join(f.root, 'linux-arm64/hvir-agent'), 'changed')
+  await expect(inspectAgentClientManifest(f.root)).rejects.toThrow('integrity')
+  expect(await readFile(join(f.root, 'manifest.json'))).toEqual(before)
+  await rm(join(resources, 'agent-guides/access.md'))
+  await expect(inspectPackagedExtensionAssets(resources, readFile)).rejects.toThrow(
+    'ENOENT',
+  )
 })

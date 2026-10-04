@@ -1,7 +1,7 @@
 {
   "id": "skillager",
   "name": "Skillager",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "contract": "1.0",
   "requiredCapabilities": [
     "presentation.read",
