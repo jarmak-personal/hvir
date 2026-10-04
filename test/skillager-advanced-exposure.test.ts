@@ -34,7 +34,11 @@ interface Reply extends Value {
 interface Module {
   executeManagement(client: unknown, invocation: Value): Promise<Reply>
 }
-function fixture(caller = 'guest', authorization = 'unapproved') {
+function fixture(
+  caller = 'guest',
+  authorization = 'unapproved',
+  cryptoPort: unknown = webcrypto,
+) {
   const bundle = buildSync({
     entryPoints: ['packages/skillager-extension/src/management-operation.mjs'],
     bundle: true,
@@ -42,7 +46,7 @@ function fixture(caller = 'guest', authorization = 'unapproved') {
     globalName: 'Module',
     write: false,
   })
-  const sandbox = { TextEncoder, crypto: webcrypto, Module: undefined as unknown }
+  const sandbox = { TextEncoder, crypto: cryptoPort, Module: undefined as unknown }
   runInNewContext(bundle.outputFiles[0]!.text, sandbox)
   const module = sandbox.Module as Module
   const plan = JSON.parse(
@@ -143,8 +147,9 @@ function fixture(caller = 'guest', authorization = 'unapproved') {
     selected: Value = input,
     context: Value = { workspace },
     admitted = caller,
+    currentClient = client,
   ) =>
-    module.executeManagement(client, {
+    module.executeManagement(currentClient, {
       id: `advanced-${++serial}`,
       action,
       input: selected,
@@ -319,7 +324,7 @@ it('retains complete nonzero per-target recovery outcomes and never treats rollb
     ids: [reply.operationId],
   })
 })
-it('rejects late completion after admission revocation', async () => {
+it('rejects revoked observation before mutation', async () => {
   const f = fixture()
   const original = f.client.request
   f.client.request = async (capability, args) => {
@@ -347,4 +352,151 @@ it('retains a lost adoption without blocking a different original under unchange
   expect(await f.invoke('operation-state', { mode: 'list' })).toEqual({
     ids: [first.operationId, independent.operationId],
   })
+})
+
+function refusedPlan(f: ReturnType<typeof fixture>): Value {
+  return {
+    ...f.plan,
+    status: 'refused',
+    plan_hash: f.input.token,
+    reason_code: 'target-changed',
+    results: f.plan.targets.map((target) => ({
+      target_id: target.target_id,
+      path: target.path,
+      status: target.action === 'keep' ? 'unchanged' : 'refused',
+      reason_code: 'target-changed',
+      observed_state_hash: target.before?.state_hash ?? null,
+      recovery_path: null,
+    })),
+  }
+}
+it('reports only a complete exact pre-mutation refusal as refused and releases its pending record', async () => {
+  const f = fixture()
+  f.result(refusedPlan(f))
+  const reply = await f.invoke()
+  expect(reply.outcome).toBe('refused')
+  expect(reply.operationId).toBeUndefined()
+  expect(reply.results).toHaveLength(f.plan.targets.length)
+  expect(reply['message']).toMatch(/preview a fresh complete plan/)
+  expect(await f.invoke('operation-state', { mode: 'list' })).toEqual({ ids: [] })
+  expect(f.calls.filter((args) => args.includes('--yes'))).toHaveLength(1)
+})
+it.each([
+  'partial',
+  'rolled_back',
+  'recovery_required',
+  'recovery-path',
+  'missing-plan-hash',
+  'missing-observation',
+  'missing-recovery',
+  'wrong-code',
+])(
+  'retains %s refusal ambiguity without replay or inferred no-effects',
+  async (problem) => {
+    const f = fixture(),
+      value = refusedPlan(f)
+    const results = value['results'] as Value[]
+    if (problem === 'partial') value['status'] = 'partial'
+    if (['rolled_back', 'recovery_required'].includes(problem))
+      results[0]!['status'] = problem
+    if (problem === 'recovery-path')
+      results[0]!['recovery_path'] = f.plan.project + '/.skillager-exposure-plan-owned'
+    if (problem === 'missing-plan-hash') Reflect.deleteProperty(value, 'plan_hash')
+    if (problem === 'missing-observation')
+      Reflect.deleteProperty(results[0]!, 'observed_state_hash')
+    if (problem === 'missing-recovery')
+      Reflect.deleteProperty(results[0]!, 'recovery_path')
+    f.result(value, problem === 'wrong-code' ? 0 : 2)
+    const reply = await f.invoke()
+    expect(reply.outcome).toBe('uncertain')
+    expect(await f.invoke('operation-state', { mode: 'list' })).toEqual({
+      ids: [reply.operationId],
+    })
+    expect((await f.invoke()).outcome).toBe('refused')
+    expect(f.calls.filter((args) => args.includes('--yes'))).toHaveLength(1)
+  },
+)
+it('retains the full submitted plan after post-dispatch output revocation for a renewed admitted same caller', async () => {
+  const f = fixture('agent', 'standing'),
+    original = f.client.request
+  let submittedReceipt: string | undefined
+  f.client.request = async (capability, args) => {
+    const reply = await original(capability, args)
+    if (
+      capability === 'connector.execute' &&
+      (args['args'] as string[]).includes('--yes')
+    )
+      submittedReceipt = String((reply as Value)['receipt'])
+    if (
+      capability === 'connector.output' &&
+      !args['release'] &&
+      args['receipt'] === submittedReceipt
+    )
+      f.client.alive = false
+    return reply
+  }
+  const reply = await f.invoke()
+  expect(reply.outcome).toBe('uncertain')
+  expect(f.calls.filter((args) => args.includes('--yes'))).toHaveLength(1)
+  expect(f.client.alive).toBe(false)
+  expect(await f.invoke('operation-state', { mode: 'list' })).toEqual({ ids: [] })
+  const renewed = { ...f.client, alive: true }
+  expect(
+    await f.invoke(
+      'operation-state',
+      { mode: 'list' },
+      { workspace: f.workspace },
+      'agent',
+      renewed,
+    ),
+  ).toEqual({ ids: [reply.operationId] })
+  let report = '',
+    offset = 0
+  for (;;) {
+    const page = await f.invoke(
+      'operation-state',
+      { mode: 'report', operationId: reply.operationId, offset },
+      { workspace: f.workspace },
+      'agent',
+      renewed,
+    )
+    report += page.data as string
+    if (page.nextOffset === null) break
+    offset = page.nextOffset as number
+  }
+  const retained = JSON.parse(report) as { operation: Value; output: { stdout: string } }
+  expect(retained.operation).toMatchObject({
+    plan: f.plan,
+    caller: 'agent',
+    authorization: 'standing',
+    requestRaw: f.input.request,
+    workspace: f.workspace,
+  })
+  expect(JSON.parse(retained.output.stdout)).toMatchObject({ status: 'applied' })
+})
+
+it('retains a submitted plan if admission is revoked during asynchronous result validation', async () => {
+  const cryptoPort = {
+    subtle: {
+      async digest(algorithm: string, data: Uint8Array) {
+        const value = await webcrypto.subtle.digest(algorithm, data)
+        f.client.alive = false
+        return value
+      },
+    },
+  }
+  const f = fixture('agent', 'standing', cryptoPort)
+  const reply = await f.invoke()
+  expect(reply.outcome).toBe('uncertain')
+  expect(f.calls.filter((args) => args.includes('--yes'))).toHaveLength(1)
+  const renewed = { ...f.client, alive: true }
+  expect(
+    await f.invoke(
+      'operation-state',
+      { mode: 'list' },
+      { workspace: f.workspace },
+      'agent',
+      renewed,
+    ),
+  ).toEqual({ ids: [reply.operationId] })
 })

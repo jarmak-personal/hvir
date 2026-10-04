@@ -136,8 +136,8 @@ export function bindExposureView(document, client, ports) {
       el('advanced-departures').append(label)
     }
   }
-  ports.on('advanced-router', 'change', () => updateMembers())
-  ports.on('advanced-operation', 'change', () => {
+  ports.onSelection('advanced-router', 'change', () => updateMembers())
+  ports.onSelection('advanced-operation', 'change', () => {
     ports.clear()
     const action = el('advanced-operation').value
     for (const [id, visible] of [
@@ -152,7 +152,36 @@ export function bindExposureView(document, client, ports) {
     if (action === 'group') el('advanced-members').value = ''
     else if (action === 'set-members') updateMembers()
   })
+  function selection() {
+    return JSON.stringify({
+      values: [
+        'copy-agent',
+        'copy-mode',
+        'advanced-operation',
+        'advanced-name',
+        'advanced-members',
+        'advanced-router',
+        'advanced-origin',
+      ].map((id) => el(id).value),
+      replacements: [...el('advanced-replacements').selectedOptions].map(
+        (option) => option.value,
+      ),
+      departures: [...el('advanced-departures').querySelectorAll('select')].map(
+        (select) => [select.dataset.member, select.value],
+      ),
+    })
+  }
   ports.on('preview-advanced', 'click', async (_event, current) => {
+    ports.clear()
+    const selected = selection()
+    function validateSelection() {
+      if (selection() !== selected) {
+        ports.clear()
+        throw new Error(
+          'The advanced selection changed. Observe and review a fresh complete plan before confirming.',
+        )
+      }
+    }
     const action = el('advanced-operation').value,
       library = ports.library(),
       agent = el('copy-agent').value,
@@ -195,6 +224,7 @@ export function bindExposureView(document, client, ports) {
     const input = { library, agent, request: JSON.stringify(request) },
       prepared = await prepareExposureChange(ports.io(), input, ports.local())
     if (!current()) return
+    validateSelection()
     const files = prepared.plan.targets.flatMap((target) =>
       target.file_effects.map(
         (effect) =>
@@ -214,7 +244,9 @@ export function bindExposureView(document, client, ports) {
       {
         action: 'change-exposure',
         input: { ...input, token: prepared.plan.confirmation_token },
+        validateSelection,
       },
+      true,
     )
   })
   for (const id of [
@@ -224,7 +256,7 @@ export function bindExposureView(document, client, ports) {
     'advanced-replacements',
     'advanced-departures',
   ])
-    ports.on(id, 'input', () => ports.clear())
+    for (const event of ['input', 'change']) ports.onSelection(id, event)
   return {
     clear() {
       routers = []

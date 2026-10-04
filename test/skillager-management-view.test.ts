@@ -6,6 +6,12 @@ import { buildSync } from 'esbuild'
 import { afterEach, expect, it, vi } from 'vitest'
 
 type Value = Record<string, unknown>
+interface AdvancedPlan extends Value {
+  library_id: string
+  project: string
+  request: { origin_id: string }
+  sources: Array<{ id: string; root: string }>
+}
 let dispose: (() => void) | undefined
 afterEach(() => {
   dispose?.()
@@ -45,6 +51,12 @@ function fixture(cryptoPort: unknown = webcrypto) {
       'utf8',
     ),
   ) as unknown
+  const removal = JSON.parse(
+    readFileSync(
+      'test/fixtures/skillager-management/codex-mode-remove-preview.json',
+      'utf8',
+    ),
+  ) as unknown
   const status = JSON.parse(
     readFileSync('test/fixtures/skillager-management/first-no-git-status.json', 'utf8'),
   ) as { library: Value; skill: Value }
@@ -75,7 +87,7 @@ function fixture(cryptoPort: unknown = webcrypto) {
       processed_sources: 1,
       discovery_error_count: 0,
     },
-    lineages: [],
+    lineages: [] as Value[],
     candidates: [
       {
         source_identity: 'owned-source',
@@ -85,6 +97,20 @@ function fixture(cryptoPort: unknown = webcrypto) {
       },
     ],
   }
+  const rawAdvanced = JSON.parse(
+    readFileSync(
+      'test/fixtures/skillager-management/advanced-adoption-preview.json',
+      'utf8',
+    ),
+  ) as AdvancedPlan
+  const advanced = JSON.parse(
+    JSON.stringify(rawAdvanced)
+      .replaceAll(rawAdvanced.library_id, selected.source.library_id)
+      .replaceAll('/owned-fixture/advanced/library', selected.source.library_root)
+      .replaceAll(rawAdvanced.project, '/owned-fixture/mode-change-codex'),
+  ) as AdvancedPlan
+  let holdAdvanced = false,
+    settleAdvanced: (() => void) | undefined
   const listeners = new Set<(message: unknown) => void>(),
     controller = new AbortController(),
     outputs = new Map<string, unknown>()
@@ -125,18 +151,27 @@ function fixture(cryptoPort: unknown = webcrypto) {
           ? syncPlan
           : args.includes('--list')
             ? { schema: 'skillager.exposures.v1', exposures: preview }
-            : args.includes('expose')
-              ? protectedTarget
-                ? [
-                    {
-                      schema: 'skillager.exposure-result.v1',
-                      status: 'skipped',
-                      reason: 'target has local edits',
-                    },
-                  ]
-                : update
-              : status,
+            : args.includes('--request-json')
+              ? advanced
+              : args.includes('expose')
+                ? protectedTarget
+                  ? [
+                      {
+                        schema: 'skillager.exposure-result.v1',
+                        status: 'skipped',
+                        reason: 'target has local edits',
+                      },
+                    ]
+                  : args.includes('--remove')
+                    ? removal
+                    : update
+                : status,
       )
+      if (args.includes('--request-json') && holdAdvanced)
+        return new Promise((resolve) => {
+          settleAdvanced = () =>
+            resolve({ outcome: 'completed', code: 0, receipt, truncated: false })
+        })
       return Promise.resolve({ outcome: 'completed', code: 0, receipt, truncated: false })
     },
   }
@@ -191,6 +226,36 @@ function fixture(cryptoPort: unknown = webcrypto) {
     ready,
     connect,
     actions,
+    advanced: () => {
+      syncPlan.lineages = [
+        {
+          canonical: {
+            library_id: selected.source.library_id,
+            skill_id: advanced.sources[0]!.id,
+            path: advanced.sources[0]!.root,
+          },
+          preservation: 'verified',
+          origins: [
+            {
+              origin_id: advanced.request.origin_id,
+              path: advanced.project + '/.agents/skills/native',
+              native: { agent: 'codex', scope: 'project' },
+            },
+          ],
+        },
+      ]
+    },
+    holdAdvanced: () => {
+      holdAdvanced = true
+    },
+    get previewWaiting() {
+      return !!settleAdvanced
+    },
+    releaseAdvanced: () => {
+      holdAdvanced = false
+      settleAdvanced!()
+      settleAdvanced = undefined
+    },
     get readCount() {
       return readCount
     },
@@ -273,6 +338,9 @@ it('submits the hash of the complete displayed sync metadata through ordinary co
   await f.connect()
   f.click('preview-sync')
   await vi.waitFor(() => expect(document.getElementById('review')!.hidden).toBe(false))
+  expect((document.getElementById('review-details') as HTMLDetailsElement).open).toBe(
+    true,
+  )
   const shown = document.getElementById('review-plan')!.textContent ?? ''
   f.click('confirm-plan')
   await vi.waitFor(() => expect(f.actions).toHaveLength(1))
@@ -308,4 +376,90 @@ it('cannot publish a human sync review after hide during async metadata digest',
   f.click('confirm-plan')
   expect(f.actions).toEqual([])
   publications.mockRestore()
+})
+
+it.each([0, 1])(
+  'keeps the complete D8 file effects visible for copy review %i',
+  async (button) => {
+    const f = fixture()
+    await f.connect()
+    f.click('observe-copies')
+    await vi.waitFor(() =>
+      expect(document.querySelectorAll('#managed-copies button')).toHaveLength(2),
+    )
+    ;(document.getElementById('copy-mode') as HTMLSelectElement).value = 'stub'
+    document
+      .querySelectorAll<HTMLButtonElement>('#managed-copies button')
+      [button]!.click()
+    await vi.waitFor(() => expect(document.getElementById('review')!.hidden).toBe(false))
+    expect((document.getElementById('review-details') as HTMLDetailsElement).open).toBe(
+      true,
+    )
+    const effects = JSON.parse(document.getElementById('review-plan')!.textContent) as {
+      file_effects: unknown[]
+    }
+    expect(effects.file_effects.length).toBeGreaterThan(0)
+    expect(f.actions).toEqual([])
+  },
+)
+
+async function advancedSelection(f: ReturnType<typeof fixture>) {
+  await f.connect()
+  f.advanced()
+  f.click('observe-advanced')
+  await vi.waitFor(() =>
+    expect(document.querySelectorAll('#advanced-origin option')).toHaveLength(1),
+  )
+  const operation = document.getElementById('advanced-operation') as HTMLSelectElement
+  operation.value = 'adopt-native'
+  operation.dispatchEvent(new Event('change'))
+  const mode = document.getElementById('copy-mode') as HTMLSelectElement
+  mode.value = 'stub'
+  // Mode changes intentionally discard observed choices; explicitly reobserve.
+  mode.dispatchEvent(new Event('change'))
+  f.click('observe-advanced')
+  await vi.waitFor(() =>
+    expect(document.querySelectorAll('#advanced-origin option')).toHaveLength(1),
+  )
+}
+it.each(['event', 'programmatic'])(
+  'rejects obsolete advanced preview after a %s mode change while its public request is pending',
+  async (change) => {
+    const f = fixture()
+    await advancedSelection(f)
+    f.holdAdvanced()
+    f.click('preview-advanced')
+    await vi.waitFor(() => expect(f.previewWaiting).toBe(true))
+    const mode = document.getElementById('copy-mode') as HTMLSelectElement
+    mode.value = 'native'
+    if (change === 'event') mode.dispatchEvent(new Event('change'))
+    f.releaseAdvanced()
+    const reads = f.readCount
+    await vi.waitFor(() => {
+      f.click('observe-library')
+      expect(f.readCount).toBeGreaterThan(reads)
+    })
+    await f.ready(/Public library status observed/)
+    expect(document.getElementById('review')!.hidden).toBe(true)
+    f.click('confirm-plan')
+    await f.ready(/Review one complete current plan/)
+    expect(f.actions).toEqual([])
+  },
+)
+it('rejects programmatic advanced retargeting before Confirm while keeping files visible outside collapsed technical details', async () => {
+  const f = fixture()
+  await advancedSelection(f)
+  f.click('preview-advanced')
+  await vi.waitFor(() => expect(document.getElementById('review')!.hidden).toBe(false))
+  expect((document.getElementById('review-details') as HTMLDetailsElement).open).toBe(
+    false,
+  )
+  expect(document.getElementById('review-summary')!.textContent).toContain(
+    '/.agents/skills/native/SKILL.md',
+  )
+  ;(document.getElementById('copy-mode') as HTMLSelectElement).value = 'native'
+  f.click('confirm-plan')
+  await f.ready(/advanced selection changed/)
+  expect(document.getElementById('review')!.hidden).toBe(true)
+  expect(f.actions).toEqual([])
 })

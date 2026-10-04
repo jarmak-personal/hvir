@@ -39,6 +39,7 @@ export function managementCli(
       return pending
     },
     verified() {
+      current()
       pending = undefined
       observePending(undefined)
     },

@@ -77,6 +77,17 @@ export function bindManagementView(document, client) {
     target.addEventListener(event, callback)
     listeners.push(() => target.removeEventListener(event, callback))
   }
+  // Selection changes revoke previews even while a serialized command is pending.
+  function onSelection(id, event, work = () => {}) {
+    const target = element(id),
+      callback = () => {
+        revision++
+        clearPlan()
+        work()
+      }
+    target.addEventListener(event, callback)
+    listeners.push(() => target.removeEventListener(event, callback))
+  }
   async function action(id, input = {}) {
     const result = await client.request('actions.invoke', { action: id, input })
     show(result)
@@ -85,7 +96,7 @@ export function bindManagementView(document, client) {
     )
     return result
   }
-  function review(title, summary, plan, task) {
+  function review(title, summary, plan, task, technicalDetails = false) {
     prepared = {
       ...task,
       workspace: context.workspace
@@ -95,6 +106,7 @@ export function bindManagementView(document, client) {
     element('review-title').textContent = title
     element('review-summary').textContent = summary
     element('review-plan').textContent = JSON.stringify(plan, null, 2)
+    element('review-details').open = !technicalDetails
     element('confirm-plan').textContent =
       task.action === 'operation-state'
         ? 'Acknowledge current facts; original completion unknown'
@@ -267,6 +279,7 @@ export function bindManagementView(document, client) {
     if (!prepared) throw new Error('Review one complete current plan first')
     const task = prepared
     exactWorkspace(task)
+    task.validateSelection?.()
     if (
       task.action === 'change-exposure' &&
       JSON.parse(task.input.request).action === 'update-copy' &&
@@ -342,12 +355,12 @@ export function bindManagementView(document, client) {
   element('skill-id').addEventListener('input', sourceChanged)
   listeners.push(() => element('skill-id').removeEventListener('input', sourceChanged))
   for (const id of ['copy-agent', 'copy-mode'])
-    on(id, 'change', () => {
-      clearPlan()
+    onSelection(id, 'change', () => {
       advanced.clear()
     })
   const advanced = bindExposureView(document, client, {
     on,
+    onSelection,
     local,
     library: connected,
     io: () => io(true),

@@ -108,6 +108,7 @@ it('observes every preserved native choice and reconciles full metadata independ
       ) {
         callbacks.set(id, callback)
       },
+      onSelection: () => {},
       local: () => workspace,
       clear: () => {},
       say: () => {},

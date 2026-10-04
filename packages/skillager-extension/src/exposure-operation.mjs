@@ -88,9 +88,15 @@ export async function applyExposureChange(io, input, workspace, admit = () => {}
     },
   )
   await planCompletion(value, exit, plan, prepared.input, workspace)
+  const refused =
+    value.status === 'refused' &&
+    value.results.every(
+      (item) =>
+        ['refused', 'unchanged'].includes(item.status) && item.recovery_path === null,
+    )
   // All outcomes remain in the report even when a successful result exceeds D4's return bound.
   const reply = boundedManagementResult({
-    outcome: value.status === 'applied' ? 'verified' : 'uncertain',
+    outcome: value.status === 'applied' ? 'verified' : refused ? 'refused' : 'uncertain',
     action: 'change-exposure',
     operation: plan.request.action,
     results: value.results.map(
@@ -105,8 +111,10 @@ export async function applyExposureChange(io, input, workspace, admit = () => {}
     message:
       value.status === 'applied'
         ? 'Every selected skill-file change was verified by Skillager. Restart the agent to use the new files.'
-        : 'Skillager reported incomplete changes. Inspect every target and retained recovery location; do not repeat the mutation.',
+        : refused
+          ? 'Skillager refused the exact plan before changing skill files. Resolve the reported conflict and preview a fresh complete plan before another explicit change.'
+          : 'Skillager reported incomplete changes. Inspect every target and retained recovery location; do not repeat the mutation.',
   })
-  if (value.status === 'applied') io.verified()
+  if (value.status === 'applied' || refused) io.verified()
   return reply
 }
