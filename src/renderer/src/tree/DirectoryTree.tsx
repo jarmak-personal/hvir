@@ -18,6 +18,7 @@ import {
   type HostPath,
 } from '../../../shared'
 import { splitFileName } from './file-name'
+import type { DirectoryTreeRevealRequest } from './directory-tree-reveal'
 import { compareDirectoryEntries } from './directory-entry-sort'
 import { directoryEntriesEqual } from './git-ignore-refresh'
 import {
@@ -78,10 +79,7 @@ export interface DirectoryTreeDropTarget {
   readonly effect: 'copy' | 'move'
 }
 
-export interface DirectoryTreeRevealRequest {
-  readonly path: HostPath
-  readonly token: number
-}
+export type { DirectoryTreeRevealRequest } from './directory-tree-reveal'
 
 /**
  * Lazy host-qualified tree presentation shared by the active Files rail and

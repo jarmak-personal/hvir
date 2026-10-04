@@ -21,6 +21,7 @@ export interface ExtensionActionGuestPort {
     options: {
       context: ExtensionSurfaceRequest
       focus: boolean
+      select?: boolean
       readingOrigin?: 'agent' | 'action'
       authority?: ExtensionViewAuthority
     },
@@ -124,7 +125,13 @@ export class ExtensionActionOwner {
           owner,
           activation.installationId,
           action.view,
-          { context, focus: false, readingOrigin: 'action', authority: authority?.view },
+          {
+            context,
+            focus: false,
+            ...(caller === 'guest' ? { select: false } : {}),
+            readingOrigin: 'action',
+            authority: authority?.view,
+          },
           assert,
         )
         .then((view) => {

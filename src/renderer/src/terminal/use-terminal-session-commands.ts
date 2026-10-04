@@ -1,3 +1,4 @@
+import type { TerminalCommandRequest } from '../../../shared/ipc/terminal'
 import type { RefObject } from 'react'
 
 import { hostPathEquals } from '../../../shared'
@@ -56,20 +57,26 @@ export function useTerminalSessionCommands({
   const launch = (
     profile: HarnessProfile,
     provider: HarnessProviderDescriptor,
+    command?: TerminalCommandRequest,
   ): string => {
-    const id = crypto.randomUUID()
+    const id = command?.terminalId ?? crypto.randomUUID()
     const current = modelRef.current
     const pane = terminalWorkspaceSplit(current) ? current.activePane : 'primary'
     send({
       type: 'session-added',
-      session: createTerminalSession(
-        id,
-        profile,
-        provider,
-        workspaceRoot,
-        pane,
-        profileProbe(probes, profile)?.capabilities,
-      ),
+      session: {
+        ...createTerminalSession(
+          id,
+          profile,
+          provider,
+          workspaceRoot,
+          pane,
+          profileProbe(probes, profile)?.capabilities,
+        ),
+        ...(command
+          ? { commandTicket: command.ticket, commandWorkspaceId: command.workspaceId }
+          : {}),
+      },
     })
     closeLaunchMenu()
     return id
@@ -78,8 +85,16 @@ export function useTerminalSessionCommands({
   const add = (
     profileId: HarnessProfileId,
     expectedLaunchRevision?: number,
+    command?: TerminalCommandRequest,
   ): string | undefined => {
-    if (!available) return
+    if (
+      !available ||
+      (command &&
+        (!hostPathEquals(workspaceRoot, command.root) ||
+          profileId !== 'plain-shell-default' ||
+          modelRef.current.sessions.some((session) => session.id === command.terminalId)))
+    )
+      return
     const profile = profiles.find((candidate) => candidate.id === profileId)
     const provider = profile
       ? providers.find((candidate) => candidate.id === profile.providerId)
@@ -91,7 +106,7 @@ export function useTerminalSessionCommands({
         profile.launchRevision !== expectedLaunchRevision)
     )
       return
-    return launch(profile, provider)
+    return launch(profile, provider, command)
   }
 
   const failForkStart = (id: string, reason: string): void => {

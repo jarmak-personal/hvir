@@ -28,6 +28,8 @@ import type { TerminalRuntimeRegistry } from './terminal-runtime-registry'
 import { useTerminalContextMenu } from './use-terminal-context-menu'
 
 interface TerminalViewProps {
+  readonly commandTicket?: string
+  readonly commandWorkspaceId?: string
   readonly sessionId: string
   readonly profileId: HarnessProfileId
   readonly launchRevision: number

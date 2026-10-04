@@ -84,7 +84,8 @@ destination; `navigation: 'left'` creates a workspace rail view. `access` declar
 
 Contract 1.0 provides `presentation.read`, `viewer.open-own`, `context.read`,
 `contributions.read`, `contributions.publish`, `actions.invoke`, `connector.status`,
-`connector.execute`, `connector.output`, `source.status`, `source.select`, `source.read`, and `source.asset`, and `source.render`. List required and
+`connector.execute`, `connector.output`, `terminal.start`, `source.status`, `source.select`,
+`source.read`, `source.asset`, `source.render`, and `source.reveal`. List required and
 optional capabilities explicitly. Same-major older or equal minor contracts activate;
 a newer minor also activates when every required capability exists. Unsupported major
 or missing required capabilities refuse only that package, with an explanation.
@@ -252,6 +253,10 @@ setup preserves them through reinstall. Queued writes cannot restore forgotten i
 or trusted decision. Each package has at most eight actions. A finite invocation opens its
 ordinary closable viewer without taking keyboard focus. Hiding stops refresh while the
 admitted invocation continues; close, context revocation, Disable or replacement cancels it.
+An invocation originating in a visible guest retains that caller's selected view; its separate
+action-origin handler remains closable and runnable in the existing viewer stack. An already
+submitted `actions.invoke` result can finish through hiding, while hidden new requests and
+ordinary body reads remain refused.
 Settings offers **Run Describe session** with an application or exact live-session target,
 including when no rail view is open. The reference action returns the admitted session and
 caller. Its optional `delayMs` input is bounded to 500–5000 ms for observing hide/close behavior.
@@ -375,6 +380,30 @@ approved SSH workspace connector must record its real host and tool version for 
 local fixtures or an SSH label do not prove a real remote server.
 
 
+## Explicit command in a fresh terminal
+
+Declare and negotiate `terminal.start`. An exact current action requests it with
+`{connector: 'setup-tool', workspace: invocation.context.workspace.id, args: ['init']}` and
+`actionId: invocation.id`. The connector must be separately approved for the exact local
+workspace. Its canonical executable, configured prefix/arguments and non-secret environment
+bind this one operation; native approval alone does not authorize a terminal launch.
+
+A main-owned human decision grants only the exact command and host-qualified destination.
+Existing D6 standing or interactive agent authorization retains its action/host restrictions
+and does not need a second modal. Ordinary guest requests cannot manufacture human or agent
+provenance. The finite originating action remains current during the decision; after approval,
+the one-use fresh-terminal admission expires in ten seconds. Expiry asks the caller to invoke
+the action again. No unrelated guest, connector or smoke deadline changes.
+
+The result is `handed-off` with the new terminal identity, `not-started` before physical dispatch,
+or `interrupted-uncertain` if physical execution may have begun. The provider passes structured
+positional arguments to a fixed bootstrap, runs the command once, and opens the ordinary default
+login shell after its exit, including failure. It never types setup into an existing PTY. After
+handoff the user owns the ordinary terminal; disabling the extension leaves it usable. Recovery
+restores a plain shell and never replays the command or persists its arguments/configuration.
+Observe the CLI's public metadata separately before reporting setup readiness.
+
+
 ## Selected current document sources
 
 Declare `access: [{id: 'library', description: 'Read selected instructions', context: 'application', mode: 'read-only'}]` for an explicitly chosen local root, or use `context: 'workspace'` for one exact registered project/worktree chosen in trusted Settings. A workspace grant persists its registration identity and canonical host-qualified root; it covers no other current or future root or host and is revalidated on every body operation. Settings → Extensions → **Inspect read access** displays the canonical scope; **Grant read-only access** grants that declaration separately from native executable approval. **Revoke read access**, Disable, Reload and Forget saved setup revoke live selections. External library content is preserved. An application library never requires project registration; hvir's ordinary open-project requirement still applies.
@@ -384,6 +413,13 @@ A visible human view requests `source.select` with `{source: 'library', path: {h
 `source.asset` accepts `{receipt, path: 'images/example.png'}` for a relative image confined canonically to the selected document's directory and grant. Images use bounded ProjectHost streaming, at most 2 MiB, and return MIME/type plus a separate base64-paged receipt. Raw HTML and ambient network/file resources are not part of this capability. Agents, actions, restricted-origin views and updaters cannot read instruction bodies, including requests omitting an invocation ID or reusing their own view. Hiding a view prevents new source admissions and late publication; already rendered UI bytes can remain visibly last-known.
 
 `viewer.open-own` can transport bounded JSON `input` (6144 encoded bytes) to an exact own contribution. Optional `context: 'application'` is allowed only for an application contribution. Data confers no read grant and cannot change the main-owned caller origin or its intersected restrictions. `context.read` may include host-qualified `workspace.root` metadata, independently of read/execution authority. Optional root metadata is omitted when needed to keep the complete context within 7 KiB; absence means unknown, never inferred local discovery.
+
+`source.reveal` reveals an ordinary directory in Files from a visible human-selected view.
+Supply the declared workspace source, exact `workspaceId` and host-qualified `path`. It requires
+that source's existing read-only grant and current registered workspace; main revalidates lexical
+and canonical confinement, including symlink escape. Application sources, action/agent/updater
+origins and stale workspace requests are refused. The one-shot owning-renderer navigation
+reuses Files selection and expansion; it grants no file mutation or outside-root access.
 
 The maintained ordinary [Skillager package](../packages/skillager-extension/README.md) provides personal-library browsing, project observations and selected current instructions through these public capabilities. It uses Skillager's public CLI schemas and explicit native/source setup; core imports no Skillager implementation.
 

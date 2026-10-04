@@ -9,6 +9,7 @@ export const EXTENSION_CAPABILITIES = [
   'contributions.read',
   'contributions.publish',
   'actions.invoke',
+  'terminal.start',
   'connector.execute',
   'connector.output',
   'connector.status',
@@ -17,6 +18,7 @@ export const EXTENSION_CAPABILITIES = [
   'source.read',
   'source.asset',
   'source.render',
+  'source.reveal',
 ] as const
 export type ExtensionCapability = (typeof EXTENSION_CAPABILITIES)[number]
 

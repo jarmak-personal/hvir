@@ -17,6 +17,11 @@ import type {
 } from '../harness/harness-provider-contract'
 
 export interface PtySpawnRequest {
+  readonly signal?: AbortSignal
+  /** Async final inspection, followed by the supervisor's cancellation fence. */
+  readonly beforeDispatch?: () => void | Promise<void>
+  /** Synchronous irreversible boundary immediately before ProjectHost.spawnPty. */
+  readonly onDispatch?: () => void
   readonly host: ProjectHost
   readonly provider: HarnessProvider
   /** Precomposed profile launch; tests/legacy callers may omit it. */

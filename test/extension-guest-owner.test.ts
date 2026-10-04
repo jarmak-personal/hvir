@@ -17,6 +17,66 @@ import { localPath } from '../src/shared/host-path'
 import { fixture, attached } from './fixtures/extension-guest'
 
 describe('extension guest capability and lifetime owner', () => {
+  it('negotiates updater observation while excluding source reveal and terminal handoff', async () => {
+    const data = fixture(
+      {},
+      {
+        updater: 'index.html',
+        requiredCapabilities: ['presentation.read'],
+        optionalCapabilities: ['source.reveal', 'terminal.start'],
+      },
+    )
+    const view = await data.owner.open(
+      data.renderer,
+      'installation',
+      'updater',
+      undefined,
+      { updater: true },
+    )
+    data.owner.claim(data.renderer, view.partition, view.url, view.id)
+    data.owner.bind(data.renderer, view.partition, 10)
+    data.owner.receive(10, { kind: 'hello', contract: '1.0' })
+    expect(
+      data.sent.find((entry) => entry.message.kind === 'hello')?.message,
+    ).toMatchObject({
+      capabilities: ['presentation.read'],
+    })
+    await data.owner.dispose()
+  })
+  it('publishes a separate action view without selecting it on first open or reuse', async () => {
+    const data = fixture()
+    const human = await attached(data)
+    data.publish.mockClear()
+    const options = { readingOrigin: 'action' as const, focus: false, select: false }
+    const action = await data.owner.open(
+      data.renderer,
+      'installation',
+      'reference',
+      () => {},
+      options,
+    )
+    expect(action.id).not.toBe(human.id)
+    expect(data.publish).toHaveBeenLastCalledWith(
+      data.renderer,
+      expect.arrayContaining([human, action]),
+      undefined,
+      false,
+    )
+    await expect(
+      data.owner.open(data.renderer, 'installation', 'reference', () => {}, options),
+    ).resolves.toEqual(action)
+    expect(data.publish).toHaveBeenLastCalledWith(
+      data.renderer,
+      expect.arrayContaining([human, action]),
+      undefined,
+      false,
+    )
+    await data.owner.close(data.renderer, action.id)
+    expect(data.owner.snapshot(data.renderer)).toEqual([human])
+    expect(() => data.owner.assertView(action.id)).toThrow(/unavailable/)
+    expect(() => data.owner.assertView(human.id)).not.toThrow()
+    await data.owner.dispose()
+  })
   it('admits bounded resolved semantic colors, scale and monospace typography', async () => {
     const data = fixture()
     const view = await attached(data)

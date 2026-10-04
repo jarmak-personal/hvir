@@ -135,6 +135,7 @@ export default tseslint.config(
       'coverage/**',
       'packages/skillager-extension/skillager.js',
       'packages/skillager-extension/updater.js',
+      'packages/skillager-extension/operations.js',
     ],
   },
 

@@ -1,5 +1,7 @@
 import { openGuestOwnView } from './guest-view-opening'
 import { requestGuestSource } from './guest-sources'
+import type { ExtensionSourceReveal } from './source-reveal'
+import type { ExtensionTerminalHandoff } from './terminal-handoff'
 import { requestGuestConnector } from './guest-connectors'
 import type { ExtensionSourceReadingOwner } from './source-reading'
 import { validateExtensionViewInput } from '../../shared/extensions/view-input'
@@ -107,6 +109,8 @@ export class ExtensionGuestOwner {
   updaterFailed?: (view: ExtensionView) => void
   visibleContributionsChanged?: () => void
   sources?: ExtensionSourceReadingOwner
+  sourceReveal?: ExtensionSourceReveal
+  terminals?: ExtensionTerminalHandoff
   connectors?: ExtensionConnectorExecutionOwner
   connectorDemand?: (installation: string, workspace?: string) => boolean
   actions?: ExtensionActionOwner
@@ -144,6 +148,7 @@ export class ExtensionGuestOwner {
     options: {
       context?: ExtensionSurfaceRequest
       focus?: boolean
+      select?: boolean
       updater?: boolean
       authority?: ExtensionViewAuthority
       input?: unknown
@@ -205,7 +210,7 @@ export class ExtensionGuestOwner {
       this.publish(
         owner,
         this.snapshot(owner),
-        options.updater ? undefined : existing.view.id,
+        options.updater || options.select === false ? undefined : existing.view.id,
         options.focus,
       )
       return existing.view
@@ -280,7 +285,7 @@ export class ExtensionGuestOwner {
       this.publish(
         owner,
         this.snapshot(owner),
-        options.updater ? undefined : view.id,
+        options.updater || options.select === false ? undefined : view.id,
         options.focus,
       )
       return view
@@ -560,7 +565,7 @@ export class ExtensionGuestOwner {
         () => controller.abort(),
         capability.startsWith('connector.')
           ? CONNECTOR_LIMITS.timeoutMs + EXTENSION_LIMITS.requestTimeoutMs
-          : capability === 'actions.invoke'
+          : capability === 'actions.invoke' || capability === 'terminal.start'
             ? EXTENSION_LIMITS.actionMaximumMs
             : EXTENSION_LIMITS.requestTimeoutMs,
       )
@@ -642,6 +647,16 @@ export class ExtensionGuestOwner {
         throw new Error('Originating action was revoked')
     }
     assertOrigin()
+    if (capability === 'terminal.start') {
+      if (!this.terminals) throw new Error('Terminal handoff is unavailable')
+      return this.terminals.start(
+        { ...record, view: record.view.id },
+        input,
+        invocation,
+        assertOrigin,
+        signal,
+      )
+    }
     if (capability.startsWith('connector.'))
       return requestGuestConnector(
         capability,
@@ -664,6 +679,7 @@ export class ExtensionGuestOwner {
         assertOrigin,
         this.sources,
         invocation,
+        this.sourceReveal,
       )
     if (capability === 'presentation.read') return record.presentation
     if (capability === 'context.read') return this.contextValue(record)
@@ -906,6 +922,8 @@ export class ExtensionGuestOwner {
             'source.read',
             'source.asset',
             'source.render',
+            'source.reveal',
+            'terminal.start',
           ].includes(capability)),
     )
   }

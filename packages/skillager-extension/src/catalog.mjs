@@ -1,4 +1,9 @@
 /* global TextEncoder */
+import {
+  metadataObject as object,
+  metadataText as text,
+  metadataSourcePath as sourcePath,
+} from './public-metadata.mjs'
 export const MINIMUM_SKILLAGER = '0.9.3'
 export function requireVersion(text) {
   const match = /skillager\s+(\d+)\.(\d+)\.(\d+)/u.exec(text)
@@ -10,28 +15,6 @@ export function requireVersion(text) {
     throw new Error(
       `Skillager ${MINIMUM_SKILLAGER} or newer is required. Configure a supported installed CLI in Settings → Extensions.`,
     )
-}
-function object(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value))
-    throw new Error('Skillager metadata is unavailable')
-  return value
-}
-function text(value, maximum = 4096) {
-  if (
-    typeof value !== 'string' ||
-    value.length > maximum ||
-    new TextEncoder().encode(JSON.stringify(value)).length > maximum * 4 + 2
-  )
-    throw new Error('Skillager metadata is unavailable')
-  return value
-}
-function sourcePath(value) {
-  const path = text(value)
-  if (new TextEncoder().encode(JSON.stringify(path)).length > 4098)
-    throw new Error(
-      'Source path exceeds the 4096-byte encoded identity bound; no path was truncated or substituted',
-    )
-  return path
 }
 export function libraryStatus(value) {
   const data = object(value)

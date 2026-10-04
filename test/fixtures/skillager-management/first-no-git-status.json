@@ -1,0 +1,75 @@
+{
+  "advisories": [
+    "library history is disabled (--no-git); ordinary ownership remains available"
+  ],
+  "counts": {
+    "skills": 1
+  },
+  "git": {
+    "available": true,
+    "branch": null,
+    "clean": null,
+    "commit_identity": null,
+    "conflicts": [],
+    "head": null,
+    "mode": "disabled",
+    "operation": null,
+    "remote": null,
+    "repository": false,
+    "staged": [],
+    "unstaged": [],
+    "untracked": []
+  },
+  "history": {
+    "available": false,
+    "reason": "no-git"
+  },
+  "initialized": true,
+  "library": {
+    "created_at": "2026-10-03T20:36:18.508088+00:00",
+    "library_id": "f06e01bd-5e1f-4aa0-b1ef-3cf9c66f2a85",
+    "namespace": "lib",
+    "registration": "valid",
+    "root": "/owned-manifest-fixture/library",
+    "schema": "skillager.library.v1",
+    "skills_path": "/owned-manifest-fixture/library/skills"
+  },
+  "schema": "skillager.library-status.v1",
+  "skill": {
+    "acceptance": "pending",
+    "accepted_hash": null,
+    "entrypoint": "/owned-manifest-fixture/library/skills/owned-first/SKILL.md",
+    "exposures": [],
+    "git": {
+      "conflicts": [],
+      "staged": [],
+      "unstaged": [],
+      "untracked": []
+    },
+    "head_hash": null,
+    "history": {
+      "available": false,
+      "reason": "no-git"
+    },
+    "id": "lib/owned-first",
+    "lint": {
+      "blocking_count": 0,
+      "findings": [],
+      "status": "ok"
+    },
+    "name": "owned-first",
+    "path": "/owned-manifest-fixture/library/skills/owned-first",
+    "scan": {
+      "finding_count": 0,
+      "findings": [],
+      "risk": "low",
+      "scanned_files": 1,
+      "skipped_files": 0
+    },
+    "status": "no_git",
+    "summary": "Use this skill when the task clearly matches this workflow.",
+    "working_hash": "0cc360070c6fc5542d08e3c5c85bb5a9299a39a7d56193db8eb3e12d6b6a445a"
+  },
+  "status": "ready",
+  "warnings": []
+}

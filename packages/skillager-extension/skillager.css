@@ -3,6 +3,31 @@ body {
   height: 100vh;
   overflow: hidden;
 }
+body[data-view='management'] main {
+  overflow: auto;
+  display: block;
+}
+body[data-view='management'] section {
+  margin-top: 20px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+body[data-view='management'] pre,
+#review-file-body {
+  max-height: 42vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+#review-file-body img {
+  max-width: 100%;
+  height: auto;
+}
+#review-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
 main {
   height: 100%;
   box-sizing: border-box;

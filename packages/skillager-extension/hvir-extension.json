@@ -16,7 +16,10 @@
     "source.select",
     "source.read",
     "source.asset",
-    "source.render"
+    "source.render",
+    "source.reveal",
+    "actions.invoke",
+    "terminal.start"
   ],
   "optionalCapabilities": [],
   "access": [
@@ -56,20 +59,469 @@
       "entry": "detail.html",
       "placement": "application",
       "representations": ["view"]
+    },
+    {
+      "id": "management",
+      "title": "Manage skills",
+      "entry": "management.html",
+      "placement": "application",
+      "representations": ["view"]
     }
   ],
   "railItems": [
     {
       "id": "library",
       "placement": "header",
-      "icon": "◇",
+      "icon": "\u25c7",
       "tooltip": "Personal skill library",
       "label": "Skills",
       "kind": "observation",
-      "click": { "view": "library", "placement": "viewer" }
+      "click": {
+        "view": "library",
+        "placement": "viewer"
+      }
     }
   ],
-  "actions": [],
+  "actions": [
+    {
+      "id": "initialize-library",
+      "title": "Initialize selected personal library",
+      "view": "management",
+      "agents": true,
+      "effects": {
+        "delete": false,
+        "replace": false
+      },
+      "description": "Initialize or register only the explicit local location; preserve existing Git mode and verify public status before connecting.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "root": {
+            "type": "object",
+            "properties": {
+              "hostId": {
+                "type": "string",
+                "enum": ["local"]
+              },
+              "path": {
+                "type": "string",
+                "maxLength": 2048
+              }
+            },
+            "required": ["hostId", "path"],
+            "additionalProperties": false
+          },
+          "git": {
+            "type": "boolean"
+          }
+        },
+        "required": ["root", "git"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "sync-library",
+      "title": "Sync approved sources into personal library",
+      "view": "management",
+      "agents": true,
+      "effects": {
+        "delete": true,
+        "replace": true
+      },
+      "description": "Synchronize approved sources for the exact registered UUID/root through public Skillager preservation policy, with complete bounded per-item outcomes.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "library": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "root": {
+                "type": "object",
+                "properties": {
+                  "hostId": {
+                    "type": "string",
+                    "enum": ["local"]
+                  },
+                  "path": {
+                    "type": "string",
+                    "maxLength": 2048
+                  }
+                },
+                "required": ["hostId", "path"],
+                "additionalProperties": false
+              },
+              "gitMode": {
+                "type": "string",
+                "enum": ["system", "disabled"]
+              }
+            },
+            "required": ["id", "root"],
+            "additionalProperties": false
+          },
+          "reviewHash": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "required": ["library"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "add-copy",
+      "title": "Add selected Full or Stub copy",
+      "view": "management",
+      "agents": true,
+      "effects": {
+        "delete": false,
+        "replace": false
+      },
+      "description": "Bind exact local project, public source/managed identity and complete token plan. Preserve protected targets; no force flags or mutation retry.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "library": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "root": {
+                "type": "object",
+                "properties": {
+                  "hostId": {
+                    "type": "string",
+                    "enum": ["local"]
+                  },
+                  "path": {
+                    "type": "string",
+                    "maxLength": 2048
+                  }
+                },
+                "required": ["hostId", "path"],
+                "additionalProperties": false
+              },
+              "gitMode": {
+                "type": "string",
+                "enum": ["system", "disabled"]
+              }
+            },
+            "required": ["id", "root"],
+            "additionalProperties": false
+          },
+          "skillId": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "hash": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "agent": {
+            "type": "string",
+            "enum": ["codex", "claude"]
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["native", "stub"]
+          }
+        },
+        "required": ["library", "skillId", "hash", "agent", "mode"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "update-copy",
+      "title": "Update selected managed copy or mode",
+      "view": "management",
+      "agents": true,
+      "effects": {
+        "delete": true,
+        "replace": true
+      },
+      "description": "Bind exact local project, public source/managed identity and complete token plan. Preserve protected targets; no force flags or mutation retry.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "library": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "root": {
+                "type": "object",
+                "properties": {
+                  "hostId": {
+                    "type": "string",
+                    "enum": ["local"]
+                  },
+                  "path": {
+                    "type": "string",
+                    "maxLength": 2048
+                  }
+                },
+                "required": ["hostId", "path"],
+                "additionalProperties": false
+              },
+              "gitMode": {
+                "type": "string",
+                "enum": ["system", "disabled"]
+              }
+            },
+            "required": ["id", "root"],
+            "additionalProperties": false
+          },
+          "skillId": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "hash": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "agent": {
+            "type": "string",
+            "enum": ["codex", "claude"]
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["native", "stub"]
+          },
+          "exposureId": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "target": {
+            "type": "object",
+            "properties": {
+              "hostId": {
+                "type": "string",
+                "enum": ["local"]
+              },
+              "path": {
+                "type": "string",
+                "maxLength": 2048
+              }
+            },
+            "required": ["hostId", "path"],
+            "additionalProperties": false
+          },
+          "token": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "library",
+          "skillId",
+          "hash",
+          "agent",
+          "mode",
+          "exposureId",
+          "target",
+          "token"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "remove-copy",
+      "title": "Remove selected managed copy",
+      "view": "management",
+      "agents": true,
+      "effects": {
+        "delete": true,
+        "replace": false
+      },
+      "description": "Bind exact local project, public source/managed identity and complete token plan. Preserve protected targets; no force flags or mutation retry.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "library": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "root": {
+                "type": "object",
+                "properties": {
+                  "hostId": {
+                    "type": "string",
+                    "enum": ["local"]
+                  },
+                  "path": {
+                    "type": "string",
+                    "maxLength": 2048
+                  }
+                },
+                "required": ["hostId", "path"],
+                "additionalProperties": false
+              },
+              "gitMode": {
+                "type": "string",
+                "enum": ["system", "disabled"]
+              }
+            },
+            "required": ["id", "root"],
+            "additionalProperties": false
+          },
+          "agent": {
+            "type": "string",
+            "enum": ["codex", "claude"]
+          },
+          "exposureId": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "target": {
+            "type": "object",
+            "properties": {
+              "hostId": {
+                "type": "string",
+                "enum": ["local"]
+              },
+              "path": {
+                "type": "string",
+                "maxLength": 2048
+              }
+            },
+            "required": ["hostId", "path"],
+            "additionalProperties": false
+          },
+          "token": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "required": ["library", "agent", "exposureId", "target", "token"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "setup-project",
+      "title": "Open Skillager setup in a new terminal",
+      "view": "management",
+      "agents": true,
+      "effects": {
+        "delete": false,
+        "replace": false
+      },
+      "description": "Explicit setup --agent for the displayed Codex/Claude agent in a new terminal in the exact local workspace, followed by an ordinary shell. No library readiness prerequisite, existing PTY input or recovery replay.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "agent": {
+            "type": "string",
+            "enum": ["codex", "claude"]
+          }
+        },
+        "required": ["agent"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "operation-state",
+      "title": "Observe and reconcile scoped operation state",
+      "view": "management",
+      "agents": true,
+      "effects": {
+        "delete": false,
+        "replace": false
+      },
+      "description": "Metadata-only pending IDs, complete finite report pages, fresh supported safe-repeat observations and explicit acknowledgment by the originally admitted caller class/destination. Original completion stays unknown; no stored decision is replayed.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": ["list", "report", "observe", "acknowledge"]
+          },
+          "operationId": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "offset": {
+            "type": "number"
+          },
+          "observation": {
+            "type": "string",
+            "maxLength": 6144
+          }
+        },
+        "required": ["mode"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "accept-version",
+      "title": "Accept exact human-reviewed library version",
+      "view": "management",
+      "agents": false,
+      "effects": {
+        "delete": false,
+        "replace": false
+      },
+      "description": "Accept only the complete exact manifest/token version explicitly reviewed in an ordinary human D7 view. The action revalidates public identity/token, obtains no bodies, supplies no override or force flags, and preserves Skillager Git/scanner/lint authority.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "library": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "root": {
+                "type": "object",
+                "properties": {
+                  "hostId": {
+                    "type": "string",
+                    "enum": ["local"]
+                  },
+                  "path": {
+                    "type": "string",
+                    "maxLength": 2048
+                  }
+                },
+                "required": ["hostId", "path"],
+                "additionalProperties": false
+              },
+              "gitMode": {
+                "type": "string",
+                "enum": ["system", "disabled"]
+              }
+            },
+            "required": ["id", "root"],
+            "additionalProperties": false
+          },
+          "skillId": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "hash": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "token": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "required": ["library", "skillId", "hash", "token"],
+        "additionalProperties": false
+      }
+    }
+  ],
   "updater": "updater.html",
   "connectors": [
     {

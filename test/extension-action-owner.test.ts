@@ -62,6 +62,55 @@ function fixture() {
 }
 
 describe('finite named extension actions', () => {
+  it('retains the human caller selection while its separate action view remains runnable and result-bound', async () => {
+    const data = fixture()
+    const result = data.actions.invoke(
+      data.owner,
+      data.activation,
+      'describe',
+      {},
+      { surface: 'viewer' },
+      'guest',
+      'unapproved',
+      () => undefined,
+    )
+    await Promise.resolve()
+    expect(data.ports.open).toHaveBeenCalledWith(
+      data.owner,
+      'one',
+      'detail',
+      {
+        context: { surface: 'viewer' },
+        focus: false,
+        select: false,
+        readingOrigin: 'action',
+        authority: undefined,
+      },
+      expect.any(Function),
+    )
+    const invocation = vi.mocked(data.ports.dispatch).mock.calls.at(-1)![1]
+    expect(data.ports.runnable).toHaveBeenCalledWith('view', invocation.id, true)
+    data.actions.result('view', invocation.id, { completed: true })
+    await expect(result).resolves.toEqual({ completed: true })
+    expect(data.ports.runnable).toHaveBeenLastCalledWith('view', invocation.id, false)
+    const reused = data.actions.invoke(
+      data.owner,
+      data.activation,
+      'describe',
+      {},
+      { surface: 'viewer' },
+      'guest',
+      'unapproved',
+      () => undefined,
+    )
+    const rejected = expect(reused).rejects.toThrow()
+    await Promise.resolve()
+    const next = vi.mocked(data.ports.dispatch).mock.calls.at(-1)![1]
+    data.actions.revokeView('view')
+    await rejected
+    expect(data.ports.cancelAction).toHaveBeenLastCalledWith('view', next.id)
+    expect(() => data.actions.result('view', next.id, 'late')).toThrow(/stale/)
+  })
   it('opens visibly without focus and preserves caller/context with exactly one delivery', async () => {
     const data = fixture()
     let ready = false
