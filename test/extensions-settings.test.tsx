@@ -71,6 +71,66 @@ describe('extension Settings observation order', () => {
   )
 })
 
+describe('extension Settings empty discovery guidance', () => {
+  it.each([
+    {
+      situation: 'writer conflict',
+      writable: false,
+      explanation:
+        'Another hvir instance uses extensions in this data directory. Close it or start hvir with a separate user-data directory.',
+      showEmptyGuidance: false,
+    },
+    {
+      situation: 'unreadable state',
+      writable: false,
+      explanation:
+        'Extension state cannot be read safely. Ordinary workbench features remain available; repair the extension state file before enabling packages.',
+      showEmptyGuidance: false,
+    },
+    {
+      situation: 'writable empty discovery',
+      writable: true,
+      explanation: undefined,
+      showEmptyGuidance: true,
+    },
+    {
+      situation: 'writable empty discovery with a cleanup explanation',
+      writable: true,
+      explanation: 'Package cleanup needs attention: cleanup failed',
+      showEmptyGuidance: true,
+    },
+  ])('shows an achievable next step for $situation', async (testCase) => {
+    const state: ExtensionPlatformState = {
+      writable: testCase.writable,
+      explanation: testCase.explanation,
+      installations: [],
+    }
+    vi.stubGlobal('hvir', {
+      invoke: vi.fn((channel: string) =>
+        Promise.resolve(channel === 'extensions:delivery-recovery' ? [] : state),
+      ),
+      on: vi.fn(() => vi.fn()),
+    })
+    element = document.createElement('div')
+    document.body.append(element)
+    root = createRoot(element)
+    await act(async () => {
+      root!.render(createElement(ExtensionsSettings))
+      await Promise.resolve()
+    })
+    if (testCase.explanation)
+      expect(element.querySelector('[role="status"]')?.textContent).toBe(
+        testCase.explanation,
+      )
+    if (testCase.showEmptyGuidance) {
+      expect(element.textContent).toContain('No extensions found. Add a directory or ZIP')
+    } else {
+      expect(element.textContent).not.toContain('No extensions found')
+      expect(element.textContent).not.toContain('Add a directory or ZIP package')
+    }
+  })
+})
+
 describe('package lifecycle Settings intent', () => {
   it('provides direct Reload and a nested, cancellable removal decision bound to the selected entry', async () => {
     const state: ExtensionPlatformState = {

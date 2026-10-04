@@ -91,7 +91,7 @@ export function ExtensionsSettings(): ReactElement {
       </div>
       {state?.explanation ? <p role="status">{state.explanation}</p> : null}
       {error ? <p role="alert">{error}</p> : null}
-      {state?.installations.length === 0 ? (
+      {state?.installations.length === 0 && (state.writable || !state.explanation) ? (
         <p>
           No extensions found. Add a directory or ZIP package, then choose Discover
           extensions.
