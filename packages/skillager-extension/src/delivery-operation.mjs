@@ -13,11 +13,19 @@ import {
   deliveryMetadata,
 } from './delivery-contract.mjs'
 
-async function pages(client, capability, input, bound) {
+async function pages(client, capability, input, bound, snapshot) {
   const entries = []
   let offset = 0
   for (;;) {
     const page = await client.request(capability, { ...input, offset })
+    if (snapshot) {
+      if (
+        typeof page.revision !== 'string' ||
+        (snapshot.revision && snapshot.revision !== page.revision)
+      )
+        throw new Error('Delivery evidence changed; observe complete records again')
+      snapshot.revision = page.revision
+    }
     if (!Array.isArray(page.entries) || entries.length + page.entries.length > bound)
       throw new Error('Complete delivery metadata exceeds its finite bound')
     entries.push(...page.entries)
@@ -30,8 +38,9 @@ async function pages(client, capability, input, bound) {
 export async function observeDeliveries(client, workspace) {
   const snapshot = await client.request('delivery.domain', {}),
     domain = deliveryDomain(snapshot.value),
-    records = await pages(client, 'delivery.status', {}, 128),
-    operations = await pages(client, 'delivery.status', { kind: 'operations' }, 64)
+    core = {},
+    records = await pages(client, 'delivery.status', {}, 128, core),
+    operations = await pages(client, 'delivery.status', { kind: 'operations' }, 64, core)
   return {
     records: records
       .filter(
@@ -59,6 +68,9 @@ export async function observeDeliveries(client, workspace) {
         entry.root.path === workspace?.root?.path,
     ),
     domain,
+    allRecords: records,
+    allOperations: operations,
+    journalRevision: core.revision,
     allOperationIds: operations.map((entry) => entry.id),
     allRecordOperations: records.map((entry) => entry.operation),
     revision: snapshot.revision,
@@ -178,8 +190,9 @@ export async function prepareDelivery(client, input, workspace, kind = 'add') {
       target,
       requirements,
       policy: 'managed',
+      state: 'pending',
     }
-    const domain = observation.domain
+    const domain = compactDomain(observation)
     if (
       domain.deliveries.length >= 32 ||
       new TextEncoder().encode(
@@ -195,6 +208,7 @@ export async function prepareDelivery(client, input, workspace, kind = 'add') {
       metadata,
       domain,
       domainRevision: observation.revision,
+      journalRevision: observation.journalRevision,
       entries,
       capture: capture?.receipt,
       input,
@@ -227,6 +241,7 @@ export async function applyPreparedDelivery(client, prepared) {
     await client.request('delivery.domain', {
       write: true,
       expected: prepared.domainRevision,
+      journalRevision: prepared.journalRevision,
       value: {
         ...prepared.domain,
         deliveries: [...prepared.domain.deliveries, prepared.metadata],
@@ -236,6 +251,18 @@ export async function applyPreparedDelivery(client, prepared) {
     const result = await client.request('delivery.apply', {
       receipt: prepared.preview.receipt,
     })
+    if (['completed', 'refused'].includes(result.outcome)) {
+      try {
+        await compactDeliveryMetadata(
+          client,
+          prepared.workspace,
+          result.outcome === 'refused' ? prepared.metadata.operation : undefined,
+        )
+      } catch {
+        result.metadata =
+          'Tracking remains pending; observe again before another delivery'
+      }
+    }
     return boundedManagementResult({
       ...result,
       message:
@@ -258,6 +285,50 @@ export async function applyPreparedDelivery(client, prepared) {
         .catch(() => {})
   }
 }
+function compactDomain(observation, refusedOperation) {
+  const referenced = new Set([
+    ...observation.allRecordOperations,
+    ...observation.allOperationIds,
+    ...observation.allOperations.map((entry) => entry.previousOperation).filter(Boolean),
+  ])
+  const completed = [
+    ...observation.allRecords,
+    ...observation.allOperations
+      .filter((entry) => entry.phase === 'completed')
+      .map((entry) => ({ ...entry, operation: entry.id })),
+  ]
+  return {
+    ...observation.domain,
+    deliveries: observation.domain.deliveries
+      .map((entry) => {
+        const proven = completed.some(
+          (record) =>
+            record.operation === entry.operation &&
+            record.workspace === entry.workspace &&
+            record.sourceVersion === entry.version &&
+            record.target.hostId === entry.target.hostId &&
+            record.target.path === entry.target.path,
+        )
+        return proven ? { ...entry, state: 'settled' } : entry
+      })
+      .filter(
+        (entry) =>
+          referenced.has(entry.operation) ||
+          (entry.state !== 'settled' && entry.operation !== refusedOperation),
+      ),
+  }
+}
+export async function compactDeliveryMetadata(client, workspace, refusedOperation) {
+  const observation = await observeDeliveries(client, workspace)
+  const next = compactDomain(observation, refusedOperation)
+  if (JSON.stringify(next) !== JSON.stringify(observation.domain))
+    await client.request('delivery.domain', {
+      write: true,
+      expected: observation.revision,
+      journalRevision: observation.journalRevision,
+      value: next,
+    })
+}
 export async function forgetDeliveryMetadata(client, workspace, operation) {
   const observed = await observeDeliveries(client, workspace),
     entry = observed.domain.deliveries.find((entry) => entry.operation === operation)
@@ -275,6 +346,7 @@ export async function forgetDeliveryMetadata(client, workspace, operation) {
   await client.request('delivery.domain', {
     write: true,
     expected: observed.revision,
+    journalRevision: observed.journalRevision,
     value: {
       ...observed.domain,
       deliveries: observed.domain.deliveries.filter(

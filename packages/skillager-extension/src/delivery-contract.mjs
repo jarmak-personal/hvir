@@ -106,6 +106,7 @@ export function deliveryDomain(value) {
     if (
       !['codex', 'claude'].includes(entry.agent) ||
       !['managed', 'pinned'].includes(entry.policy) ||
+      !['pending', 'settled'].includes(entry.state) ||
       typeof entry.target?.hostId !== 'string' ||
       typeof entry.target.path !== 'string'
     )

@@ -143,7 +143,10 @@ it('does not transfer forgotten installation authority or domain records to a fr
   }
   f.active.set(fresh.installationId, fresh)
   const caller = { ...f.caller, activation: fresh }
-  expect(f.owner.status(caller, { offset: 0 })).toEqual({ entries: [], nextOffset: null })
+  expect(f.owner.status(caller, { offset: 0 })).toMatchObject({
+    entries: [],
+    nextOffset: null,
+  })
   expect(await f.owner.domain(caller, {})).toMatchObject({ value: null })
   await expect(
     f.owner.reconcile(caller, {

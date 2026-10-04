@@ -65,8 +65,14 @@ export class ExtensionActivationOwner {
     private readonly sourceForgotten: (
       installationId: string,
     ) => readonly ExtensionSourceGrant[] | void = () => undefined,
-    private readonly deliveryForgotten: (installationId: string) => unknown = () =>
-      undefined,
+    private readonly deliveryForgotten: (
+      installationId: string,
+      persisted: unknown,
+    ) => {
+      readonly journal: unknown
+      commitJournal(): void
+      commitDomain(): void
+    } | void = () => undefined,
   ) {}
 
   start(lock: HostPath): Promise<void> {
@@ -482,14 +488,22 @@ export class ExtensionActivationOwner {
           await this.writeSourceGrants(sourceGrants, () => undefined)
       }
       if (forget && prior) {
-        const delivery = this.deliveryForgotten(prior.installationId)
-        if (delivery !== undefined)
+        const delivery = this.deliveryForgotten(
+          prior.installationId,
+          await this.readDeliveryFile('deliveries.json', DELIVERY_LIMITS.stateBytes, {
+            records: [],
+            operations: [],
+          }),
+        )
+        if (delivery !== undefined) {
           await this.writeDeliveryFile(
             'deliveries.json',
-            delivery,
+            delivery.journal,
             DELIVERY_LIMITS.stateBytes,
             () => undefined,
           )
+          delivery.commitJournal()
+        }
         const domain = (await this.readDeliveryFile(
           'delivery-domain.json',
           DELIVERY_LIMITS.domainTotalBytes,
@@ -502,6 +516,7 @@ export class ExtensionActivationOwner {
           DELIVERY_LIMITS.domainTotalBytes,
           () => undefined,
         )
+        delivery?.commitDomain()
       }
       await this.save(
         forget

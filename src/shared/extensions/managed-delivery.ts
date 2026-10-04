@@ -55,6 +55,8 @@ export interface DeliveryRecoveryEntry {
   readonly id: string
   readonly installation: string
   readonly phase: string
+  readonly sourceVersion: string
+  readonly previousOperation?: string
   readonly target: HostPath
   readonly staging: HostPath
   readonly preserved: HostPath

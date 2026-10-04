@@ -36,6 +36,7 @@ it('journals before every first remote effect, creates disclosed parents and del
   expect(await fs.readFile(join(f.target.path, 'SKILL.md'), 'utf8')).toBe('approved')
   expect((await fs.stat(join(f.target.path, 'SKILL.md'))).mode & 0o777).toBe(0o664)
   expect(f.persisted().records[0]?.record.operation).toBe(result.operation)
+  expect(f.persisted().operations).toEqual([])
   const restarted = await f.make()
   expect(restarted.status(f.caller, { offset: 0 })).toMatchObject({
     entries: [{ id: result.record!.id }],
@@ -103,22 +104,26 @@ it('preserves displaced copies and resolves historical completed operations with
     )
   expect(b.outcome).toBe('completed')
   expect(await fs.readFile(join(b.preserved!.path, 'SKILL.md'), 'utf8')).toBe('approved')
-  expect(
-    await f.owner.trustedRecovery(
-      'cleanup',
-      a.operation!,
-      () => {},
-      new AbortController().signal,
-    ),
-  ).toMatchObject({ outcome: 'cleanup-completed' })
-  expect(f.persisted().records[0]?.record.operation).toBe(b.operation)
   const c = await f.owner.apply(
     f.caller,
     await f.preview('update', f.owner, b.record!.id, 'newest'),
   )
+  expect(
+    await f.owner.trustedRecovery(
+      'cleanup',
+      b.operation!,
+      () => {},
+      new AbortController().signal,
+    ),
+  ).toMatchObject({ outcome: 'cleanup-completed' })
+  expect(f.persisted().records[0]?.record.operation).toBe(c.operation)
+  const d = await f.owner.apply(
+    f.caller,
+    await f.preview('update', f.owner, c.record!.id, 'final'),
+  )
   const inspected = await f.owner.trustedRecovery(
     'inspect',
-    b.operation!,
+    c.operation!,
     () => {},
     new AbortController().signal,
   )
@@ -130,15 +135,15 @@ it('preserves displaced copies and resolves historical completed operations with
       new AbortController().signal,
     ),
   ).toMatchObject({ outcome: 'resolved-by-retaining-files', completion: 'proven' })
-  expect(f.persisted().records[0]?.record.operation).toBe(c.operation)
+  expect(f.persisted().records[0]?.record.operation).toBe(d.operation)
   const removed = await f.owner.apply(
     f.caller,
-    await f.preview('remove', f.owner, c.record!.id),
+    await f.preview('remove', f.owner, d.record!.id),
   )
   expect(removed.outcome).toBe('completed')
   await expect(fs.stat(f.target.path)).rejects.toMatchObject({ code: 'ENOENT' })
   expect(await fs.readFile(join(removed.preserved!.path, 'SKILL.md'), 'utf8')).toBe(
-    'newest',
+    'final',
   )
 })
 it('refuses occupied, changed, and identical foreign targets without hash adoption', async () => {

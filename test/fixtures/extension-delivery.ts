@@ -28,7 +28,7 @@ export function deliveryBarrier() {
   }
 }
 /** Owning policy tests use real local filesystem mechanics, qualified as an SSH port fixture. */
-export async function deliveryFixture() {
+export async function deliveryFixture(installationId = 'delivery-installation') {
   const directory = await fs.realpath(
       await fs.mkdtemp(join(tmpdir(), 'hvir-delivery-test-')),
     ),
@@ -86,7 +86,7 @@ export async function deliveryFixture() {
     },
   }
   const activation = {
-    installationId: 'delivery-installation',
+    installationId,
     generation: 'generation',
     revision: {
       manifest: {
@@ -129,7 +129,7 @@ export async function deliveryFixture() {
       const journal = value as DeliveryJournal
       if (
         failCompletion &&
-        journal.operations.some((operation) => operation.phase === 'completed')
+        JSON.stringify(journal.records) !== JSON.stringify(persisted.records)
       )
         throw new Error('Completion save failed')
       persisted = clone(journal)
@@ -273,7 +273,10 @@ export async function deliveryFixture() {
     },
     forget: () => {
       identity = false
-      owner.forget(activation.installationId)
+      const decision = owner.forget(activation.installationId, persisted)
+      persisted = clone(decision.journal)
+      decision.commitJournal()
+      decision.commitDomain()
     },
     close: () => {
       live = false

@@ -2,6 +2,7 @@ import {
   DELIVERY_LIMITS,
   type DeliveryTreeEntry,
   type ExtensionDeliveryRecord,
+  type DeliveryRecoveryEntry,
 } from '../../shared/extensions/managed-delivery'
 import {
   containsHostPath,
@@ -43,6 +44,121 @@ export interface DeliveryOperation {
 export interface DeliveryJournal {
   records: { record: ExtensionDeliveryRecord; tree: readonly DeliveryTreeEntry[] }[]
   operations: DeliveryOperation[]
+}
+export function deliveryRecoveryEntry(entry: DeliveryOperation): DeliveryRecoveryEntry {
+  return {
+    id: entry.id,
+    workspace: entry.workspace,
+    root: entry.root,
+    installation: entry.installation,
+    phase: entry.phase,
+    sourceVersion: entry.sourceVersion,
+    ...(entry.previous ? { previousOperation: entry.previous.operation } : {}),
+    target: entry.target,
+    staging: entry.stage,
+    preserved: entry.preserve,
+    outcome:
+      entry.phase === 'completed'
+        ? 'completed-with-retained-objects'
+        : entry.phase === 'conflicted'
+          ? 'conflicted-with-retained-objects'
+          : 'completion-unproven',
+  }
+}
+export function deliveryRecordFor(operation: DeliveryOperation): ExtensionDeliveryRecord {
+  return {
+    id: operation.previous?.id ?? operation.id,
+    operation: operation.id,
+    installation: operation.installation,
+    workspace: operation.workspace,
+    root: operation.root,
+    target: operation.target,
+    sourceVersion: operation.sourceVersion,
+    identity: operation.stageIdentity!,
+    fingerprint: deliveryFingerprint(operation.payload),
+    files: operation.payload.filter((entry) => entry.type === 'file').length,
+    bytes: operation.payload.reduce((n, entry) => n + entry.size, 0),
+  }
+}
+/** Only possibly retained stage/preservation bytes consume the retention budget. */
+export function retainedDeliveryBytes(operation: DeliveryOperation): number {
+  const entries =
+    operation.phase === 'completed'
+      ? (operation.previousTree ?? [])
+      : [...operation.payload, ...(operation.previousTree ?? [])]
+  return entries.reduce((total, entry) => total + entry.size, 0)
+}
+export function proveDeliveryJournalCapacity(
+  state: DeliveryJournal,
+  operation: DeliveryOperation,
+): void {
+  const operations = [
+    ...state.operations.filter((entry) => entry.id !== operation.id),
+    operation,
+  ].map((entry) => ({
+    ...entry,
+    stageIdentity: 'x'.repeat(256),
+    preserveIdentity: 'x'.repeat(256),
+    parents: entry.parents.map((parent) => ({ ...parent, identity: 'x'.repeat(256) })),
+  }))
+  const records = [
+    ...state.records,
+    ...operations
+      .filter(
+        (entry) =>
+          entry.kind !== 'remove' && !['completed', 'conflicted'].includes(entry.phase),
+      )
+      .map((entry) => ({ record: deliveryRecordFor(entry), tree: entry.payload })),
+  ]
+  if (
+    state.records.length +
+      operations.filter(
+        (entry) =>
+          entry.kind === 'add' && !['completed', 'conflicted'].includes(entry.phase),
+      ).length >
+    DELIVERY_LIMITS.records
+  )
+    throw new Error('Delivery record capacity is full')
+  if (
+    Buffer.byteLength(JSON.stringify({ records, operations })) >
+    DELIVERY_LIMITS.stateBytes
+  )
+    throw new Error('Delivery journal byte capacity is full')
+}
+export function completedDeliveryJournal(
+  state: DeliveryJournal,
+  operation: DeliveryOperation,
+  installationExists: boolean,
+): DeliveryJournal {
+  const next = resolvedDeliveryJournal(state, operation, true)
+  if (operation.kind !== 'remove' && installationExists)
+    next.records.push({ record: deliveryRecordFor(operation), tree: operation.payload })
+  if (operation.previous)
+    next.operations.push(structuredClone({ ...operation, phase: 'completed' as const }))
+  return next
+}
+/** Keep-files drops only this operation's authority; cleanup retains current authority. */
+export function resolvedDeliveryJournal(
+  state: DeliveryJournal,
+  operation: DeliveryOperation,
+  forgetAuthority: boolean,
+): DeliveryJournal {
+  return {
+    records: forgetAuthority
+      ? state.records.filter(
+          (entry) =>
+            entry.record.installation !== operation.installation ||
+            (entry.record.operation !== operation.id &&
+              !(
+                operation.phase !== 'completed' &&
+                operation.previous &&
+                entry.record.id === operation.previous.id &&
+                entry.record.operation === operation.previous.operation
+              )),
+        )
+      : [...state.records],
+    operations: state.operations.filter((entry) => entry.id !== operation.id),
+  }
 }
 export function readDeliveryEntries(value: unknown): DeliveryTreeEntry[] {
   if (!Array.isArray(value) || value.length > DELIVERY_LIMITS.files)

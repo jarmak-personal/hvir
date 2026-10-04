@@ -3,6 +3,7 @@ import {
   applyPreparedDelivery,
   observeDeliveries,
   forgetDeliveryMetadata,
+  compactDeliveryMetadata,
 } from './delivery-operation.mjs'
 
 /** Ordinary human review consumes the same public delivery contracts as admitted actions. */
@@ -131,6 +132,8 @@ export function bindDeliveryView(document, client, ports) {
                 destination: 'delivery-target',
               })
               ports.show(result)
+              if (result.outcome === 'cleanup-completed')
+                await compactDeliveryMetadata(client, ports.context().workspace)
               ports.say(
                 `Retained cleanup: ${result.outcome}. Target files remain in place.`,
               )

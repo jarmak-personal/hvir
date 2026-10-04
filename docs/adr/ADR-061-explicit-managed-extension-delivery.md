@@ -30,7 +30,7 @@ One private delivery journal under D2's serialized state-write lease binds insta
 caller, host, exact workspace, source-version descriptor, target, complete previous and
 intended fingerprints, operation identity, exact staging and preservation locations, and any disclosed supporting parents with their known or unknown creation identities.
 Supporting parents use exclusive creation inside the destination grant and remain shared user data; cleanup never removes them. Durable intent precedes every remote mutation. A failed intent save performs no remote
-effect. Physical reservations survive revocation until pending host calls settle. Remaining
+effect. Journal saves serialize under the existing state lease; physical work reserves the exact host-qualified destination and allows bounded unrelated work. Physical reservations survive revocation until pending host calls settle. Remaining
 work aborts on disconnect, grant or caller loss; reconnect inspects recorded objects and
 never automatically replays publication.
 
@@ -50,13 +50,13 @@ Comparisons and renames do not promise exclusion of arbitrary external writers o
 compare-and-replace across hosts. Changed displacement or publication remains a conflict.
 
 Capture, tree walking, records, retained objects, concurrency and deadlines have finite
-limits. Cleanup is an explicit bounded operation on exact recorded unchanged identities
+limits. Current completed authority is distinct from retained history: completed operations without retained objects release history capacity, and only possible retained payloads remain charged. Domain compaction uses a complete revision-bound core observation and preserves pending uncertainty and metadata needed by retained previous versions. Cleanup is an explicit bounded operation on exact recorded unchanged identities
 and fingerprints; it never scavenges names or removes uncertain content to admit new work.
 Unreachable or changed leftovers retain evidence and can be inspected and resolved through
 Files before explicit reconciliation. Trusted Settings also offers fresh-facts-bound keeping of every exact object and ending tracking without cleanup, adoption or a claim of previously unproven completion. This remains available after installation identity removal. Cleanup does not execute a skill or certify its runtime.
 
 Settings keeps completed-delivery authority by default with the existing saved-setup choice.
-Explicit forgetting removes completed authority and extension domain records while delivered
+Explicit forgetting reads the current journal under the existing state lease and publishes authority removal only after successful persistence; unreadable evidence cannot become an empty journal. It removes completed authority and extension domain records while delivered
 files remain user data. Unresolved operation evidence survives installation-identity removal
 until deliberate recovery. Disable, package deletion, replacement, reload and local CLI
 upgrades never remove deliveries. A reappearing package still requires the ordinary revision

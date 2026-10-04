@@ -185,7 +185,7 @@ export class ExtensionApplicationRuntime {
         return this.connectors?.approvals.forget(id)
       },
       (id) => this.sources?.approvals.forget(id),
-      (id) => this.deliveries?.forget(id),
+      (id, persisted) => this.deliveries?.forget(id, persisted),
     )
     this.activations = activations
     const scratch = joinHostPath(storage, 'connector-scratch')

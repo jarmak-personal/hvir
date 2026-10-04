@@ -12,6 +12,7 @@ interface Module {
   ): Promise<Value>
   applyPreparedDelivery(client: unknown, prepared: Value): Promise<Value>
   executeDelivery(client: unknown, invocation: Value): Promise<Value>
+  compactDeliveryMetadata(client: unknown, workspace: Value): Promise<void>
 }
 interface ViewModule {
   bindDeliveryView(document: unknown, client: unknown, ports: unknown): unknown
@@ -73,6 +74,11 @@ function fixture() {
     exportChange: Value = {},
     application: Value = { outcome: 'completed', operation: 'operation' },
     applyFails = false
+  let records: Value[] = [],
+    operations: Value[] = [],
+    pending: Value = {},
+    previews = 0,
+    journalRevision = 0
   const client = {
     alive: true,
     async request(capability: string, request: Value) {
@@ -163,20 +169,32 @@ function fixture() {
               ],
               nextOffset: null,
             }
-      if (capability === 'delivery.status') return { entries: [], nextOffset: null }
+      if (capability === 'delivery.status')
+        return {
+          entries: request['kind'] === 'operations' ? operations : records,
+          nextOffset: null,
+          revision: `journal-${journalRevision}`,
+        }
       if (capability === 'delivery.domain') {
         if (request['write']) {
           expect(request['expected']).toBe(revision)
+          if (request['journalRevision'])
+            expect(request['journalRevision']).toBe(`journal-${journalRevision}`)
           domain = request['value']
           revision = `revision-${++serial}`
           return null
         }
         return { value: domain, revision }
       }
-      if (capability === 'delivery.preview')
+      if (capability === 'delivery.preview') {
+        previews++
+        pending = {
+          ...request,
+          operation: previews === 1 ? 'operation' : `operation-${previews}`,
+        }
         return {
           receipt: 'preview',
-          operation: 'operation',
+          operation: pending['operation'],
           target: request['target'],
           parents: [
             { hostId: workspace.host, path: '/project/.agents' },
@@ -184,9 +202,41 @@ function fixture() {
           ],
           recordEffect: 'record-exact-delivery',
         }
+      }
       if (capability === 'delivery.apply') {
         if (applyFails) throw new Error('Disconnected reply')
-        return application
+        if (application['outcome'] === 'completed') {
+          const previous = records[0]
+          records =
+            pending['kind'] === 'remove'
+              ? []
+              : [
+                  {
+                    id: 'record',
+                    operation: pending['operation'],
+                    target: pending['target'],
+                    sourceVersion: pending['sourceVersion'],
+                    workspace: workspace.id,
+                    root: workspace.root,
+                  },
+                ]
+          if (previous)
+            operations.push({
+              id: pending['operation'],
+              phase: 'completed',
+              sourceVersion: pending['sourceVersion'] ?? previous['sourceVersion'],
+              workspace: workspace.id,
+              root: workspace.root,
+              target: pending['target'],
+              previousOperation: previous['operation'],
+            })
+          journalRevision++
+        }
+        return {
+          ...application,
+          operation: pending['operation'],
+          ...(records[0] ? { record: records[0] } : {}),
+        }
       }
       throw new Error(`Unexpected capability ${capability}`)
     },
@@ -205,11 +255,17 @@ function fixture() {
     changeSource: () => {
       statusHash = 'b'.repeat(64)
     },
-    lostReply: () => {
-      applyFails = true
+    lostReply: (value = true) => {
+      applyFails = value
     },
     result: (value: Value) => {
       application = value
+    },
+    domain: () => domain as { deliveries: Value[] },
+    records: () => records,
+    cleanup: (id: unknown) => {
+      operations = operations.filter((entry) => entry['id'] !== id)
+      journalRevision++
     },
   }
 }
@@ -370,4 +426,123 @@ it('keeps a lost apply response uncertain with its exact operation and no automa
     }),
   ).toMatchObject({ outcome: 'uncertain', operation: 'operation' })
   expect(f.calls.filter((call) => call.capability === 'delivery.apply')).toHaveLength(1)
+  expect(f.domain().deliveries).toMatchObject([
+    { state: 'pending', operation: 'operation' },
+  ])
+})
+it('compacts proven historical metadata after retained cleanup while keeping current and preserved identities', async () => {
+  const f = fixture()
+  await f.module.applyPreparedDelivery(
+    f.client,
+    await f.module.prepareDelivery(f.client, f.input, f.workspace),
+  )
+  expect(f.domain().deliveries).toMatchObject([
+    { state: 'settled', operation: 'operation' },
+  ])
+  const update = { ...f.input, record: 'record', target: f.records()[0]!['target'] }
+  await f.module.applyPreparedDelivery(
+    f.client,
+    await f.module.prepareDelivery(f.client, update, f.workspace, 'update'),
+  )
+  expect(f.domain().deliveries.map((entry) => entry['operation'])).toEqual([
+    'operation',
+    'operation-2',
+  ])
+  f.cleanup('operation-2')
+  await f.module.compactDeliveryMetadata(f.client, f.workspace)
+  expect(f.domain().deliveries.map((entry) => entry['operation'])).toEqual([
+    'operation-2',
+  ])
+  for (let index = 0; index < 12; index++) {
+    const result = await f.module.applyPreparedDelivery(
+      f.client,
+      await f.module.prepareDelivery(f.client, update, f.workspace, 'update'),
+    )
+    expect(f.domain().deliveries).toHaveLength(2)
+    f.cleanup(result['operation'])
+    await f.module.compactDeliveryMetadata(f.client, f.workspace)
+    expect(f.domain().deliveries).toHaveLength(1)
+  }
+  const removed = await f.module.applyPreparedDelivery(
+    f.client,
+    await f.module.prepareDelivery(f.client, update, f.workspace, 'remove'),
+  )
+  expect(f.domain().deliveries).toHaveLength(2)
+  f.cleanup(removed['operation'])
+  await f.module.compactDeliveryMetadata(f.client, f.workspace)
+  expect(f.domain().deliveries).toEqual([])
+})
+it('discards only a proven effect-free refused intent while preserving old managed identity', async () => {
+  const f = fixture()
+  await f.module.applyPreparedDelivery(
+    f.client,
+    await f.module.prepareDelivery(f.client, f.input, f.workspace),
+  )
+  f.result({ outcome: 'refused' })
+  const input = { ...f.input, record: 'record', target: f.records()[0]!['target'] }
+  const result = await f.module.applyPreparedDelivery(
+    f.client,
+    await f.module.prepareDelivery(f.client, input, f.workspace, 'update'),
+  )
+  expect(result).toMatchObject({ outcome: 'refused' })
+  expect(f.domain().deliveries).toMatchObject([
+    { operation: 'operation', state: 'settled' },
+  ])
+  expect(f.domain().deliveries).toHaveLength(1)
+})
+it('keeps unknown pending metadata through a later proven update and cleanup', async () => {
+  const f = fixture()
+  await f.module.applyPreparedDelivery(
+    f.client,
+    await f.module.prepareDelivery(f.client, f.input, f.workspace),
+  )
+  const input = { ...f.input, record: 'record', target: f.records()[0]!['target'] }
+  f.lostReply()
+  expect(
+    await f.module.applyPreparedDelivery(
+      f.client,
+      await f.module.prepareDelivery(f.client, input, f.workspace, 'update'),
+    ),
+  ).toMatchObject({ outcome: 'uncertain' })
+  f.lostReply(false)
+  const result = await f.module.applyPreparedDelivery(
+    f.client,
+    await f.module.prepareDelivery(f.client, input, f.workspace, 'update'),
+  )
+  f.cleanup(result['operation'])
+  await f.module.compactDeliveryMetadata(f.client, f.workspace)
+  expect(f.domain().deliveries).toMatchObject([
+    { operation: 'operation-2', state: 'pending' },
+    { operation: 'operation-3', state: 'settled' },
+  ])
+})
+it('refuses finite retained metadata capacity without discarding identities needed for preserved copies', async () => {
+  const f = fixture()
+  await f.module.applyPreparedDelivery(
+    f.client,
+    await f.module.prepareDelivery(f.client, f.input, f.workspace),
+  )
+  const input = { ...f.input, record: 'record', target: f.records()[0]!['target'] }
+  let refused = false
+  for (let index = 0; index < 32; index++) {
+    const before = structuredClone(f.domain())
+    const effects = f.calls.filter((call) => call.capability === 'delivery.apply').length
+    try {
+      await f.module.applyPreparedDelivery(
+        f.client,
+        await f.module.prepareDelivery(f.client, input, f.workspace, 'update'),
+      )
+    } catch (reason) {
+      expect(String(reason)).toMatch(/capacity is full/)
+      expect(f.domain()).toEqual(before)
+      expect(f.calls.filter((call) => call.capability === 'delivery.apply')).toHaveLength(
+        effects,
+      )
+      refused = true
+      break
+    }
+  }
+  expect(refused).toBe(true)
+  expect(f.domain().deliveries.length).toBeGreaterThan(1)
+  expect(f.domain().deliveries.every((entry) => entry['state'] === 'settled')).toBe(true)
 })

@@ -32,6 +32,12 @@ import type { AdmittedExtensionContext } from './context-owner'
 import { readSourcePath, type ExtensionSourceApprovalOwner } from './source-approval'
 import {
   readDeliveryJournal,
+  deliveryRecoveryEntry,
+  deliveryRecordFor,
+  retainedDeliveryBytes,
+  proveDeliveryJournalCapacity,
+  completedDeliveryJournal,
+  resolvedDeliveryJournal,
   type DeliveryJournal,
   type DeliveryOperation,
 } from './delivery-journal'
@@ -43,6 +49,7 @@ import {
   type DeliveryTree,
 } from './delivery-tree'
 import type { ExtensionSourceGrant } from '../../shared/extensions/source-access'
+import { isProjectPathExistsError } from '../project-host/project-host'
 
 export interface DeliveryCaller extends ConnectorCaller {
   readonly mutationAllowed: boolean
@@ -74,6 +81,8 @@ interface Preview {
   readonly expires: number
 }
 
+class DeliveryTargetConflict extends Error {}
+
 /** Mechanical custody only. Extensions own export approval, source versions and domain records. */
 export class ExtensionManagedDeliveryOwner {
   private state: DeliveryJournal = { records: [], operations: [] }
@@ -85,10 +94,11 @@ export class ExtensionManagedDeliveryOwner {
   private readonly captureWork = new Set<Promise<unknown>>()
   readonly recovery: DeliveryRecovery
   private readonly authority = new AbortController()
-  private applying = false
+  private readonly physicalWork = new Set<Promise<unknown>>()
   private pending: Promise<unknown> = Promise.resolve()
   private failure?: string
   private disposed = false
+  private journalRevision = randomUUID()
   private capturing = 0
   constructor(
     readonly hosts: DeliveryHostCatalog,
@@ -112,7 +122,13 @@ export class ExtensionManagedDeliveryOwner {
       journal: () => this.state,
       host: (path) => this.hosts.hostById(path.hostId),
       writable: () => this.activations.assertWritable(),
-      save: (current) => this.save(current),
+      resolve: (operation, forget, current) =>
+        this.serialize(() =>
+          this.publishJournal(
+            resolvedDeliveryJournal(this.state, operation, forget),
+            current,
+          ),
+        ),
       complete: (operation, current) => this.completeRecovered(operation, current),
     })
   }
@@ -310,15 +326,7 @@ export class ExtensionManagedDeliveryOwner {
     return result
   }
   apply(caller: DeliveryCaller, value: unknown): Promise<ExtensionDeliveryResult> {
-    if (this.applying)
-      return Promise.resolve({
-        outcome: 'refused',
-        reason: 'Managed delivery is busy; retry explicitly after physical work settles',
-      })
-    this.applying = true
-    return this.serialize(() => this.mutate(caller, value)).finally(() => {
-      this.applying = false
-    })
+    return this.trackPhysical(this.mutate(caller, value))
   }
   private async mutate(
     caller: DeliveryCaller,
@@ -356,7 +364,7 @@ export class ExtensionManagedDeliveryOwner {
         this.sameGrant(caller, capture.grant)
       }
     }
-    const key = JSON.stringify([root.hostId, grant.workspaceId])
+    const key = JSON.stringify(target)
     if (this.physical.size >= DELIVERY_LIMITS.concurrent || this.physical.has(key))
       return {
         outcome: 'refused',
@@ -371,12 +379,7 @@ export class ExtensionManagedDeliveryOwner {
         reason: 'Resolve recorded retained deliveries before staging another payload',
       }
     const retained = this.state.operations.reduce(
-      (total, entry) =>
-        total +
-        [...entry.payload, ...(entry.previousTree ?? [])].reduce(
-          (n, item) => n + item.size,
-          0,
-        ),
+      (total, entry) => total + retainedDeliveryBytes(entry),
       0,
     )
     if (
@@ -406,15 +409,6 @@ export class ExtensionManagedDeliveryOwner {
         JSON.stringify(preview.parents)
       )
         throw new Error('Supporting parent effects changed; inspect again')
-      if (previous)
-        await this.verifyManaged(host, previous.record, previous.tree, check, signal)
-      else if (await this.exists(host, target))
-        return {
-          outcome: 'conflicted',
-          reason: 'The target is occupied; no files changed',
-        }
-      if (capture && capture.expires <= Date.now())
-        throw new Error('Captured export expired')
       const id = preview.id,
         retention = joinHostPath(root, '.hvir-delivery-retained')
       operation = {
@@ -434,34 +428,13 @@ export class ExtensionManagedDeliveryOwner {
         phase: 'intent',
         ...(previous ? { previous: previous.record, previousTree: previous.tree } : {}),
       }
-      // Prove the complete persisted metadata fits before the first remote effect.
-      const anticipated: DeliveryOperation = {
-        ...operation,
-        phase: 'completed',
-        stageIdentity: 'x'.repeat(256),
-        preserveIdentity: 'x'.repeat(256),
-        parents: operation.parents.map((parent) => ({
-          ...parent,
-          identity: 'x'.repeat(256),
-        })),
-      }
-      if (
-        Buffer.byteLength(
-          JSON.stringify({
-            records:
-              kind === 'remove'
-                ? this.state.records
-                : [
-                    ...this.state.records,
-                    { record: this.recordFor(anticipated), tree: anticipated.payload },
-                  ],
-            operations: [...this.state.operations, anticipated],
-          }),
-        ) > DELIVERY_LIMITS.stateBytes
-      )
-        throw new Error('Delivery journal byte capacity is full')
-      this.state.operations.push(operation)
-      await this.save(check) // No remote mutation precedes this durable intent.
+      if (previous)
+        await this.verifyManaged(host, previous.record, previous.tree, check, signal)
+      else if (await this.exists(host, target))
+        throw new DeliveryTargetConflict('The target is occupied; no files changed')
+      if (capture && capture.expires <= Date.now())
+        throw new Error('Captured export expired')
+      await this.saveOperation(operation, check) // No remote mutation precedes this durable intent.
       check()
       await this.confined(host, root, retention, check, false)
       effects = true
@@ -473,7 +446,7 @@ export class ExtensionManagedDeliveryOwner {
         await this.confined(host, root, parent.path, check, false)
         await host.createDirectoryExclusive(parent.path, { mode: 0o755, signal })
         parent.identity = await host.managedTransfer!.entryIdentity(parent.path, signal)
-        await this.save(check)
+        await this.saveOperation(operation, check)
       }
       if (capture) {
         await stageDeliveryTree(host, operation.stage, capture.tree, check, signal, root)
@@ -482,12 +455,12 @@ export class ExtensionManagedDeliveryOwner {
           signal,
         )
         operation.phase = 'staged'
-        await this.save(check)
+        await this.saveOperation(operation, check)
       }
       if (previous) {
         await this.verifyManaged(host, previous.record, previous.tree, check, signal)
         operation.phase = 'displacing'
-        await this.save(check)
+        await this.saveOperation(operation, check)
         check()
         await this.proveParents(host, operation, check, signal)
         await this.confined(host, root, target, check, false)
@@ -501,11 +474,11 @@ export class ExtensionManagedDeliveryOwner {
         )
         operation.preserveIdentity = previous.record.identity
         operation.phase = 'displaced'
-        await this.save(check)
+        await this.saveOperation(operation, check)
       }
       if (capture) {
         if (await this.exists(host, target))
-          throw new Error(
+          throw new DeliveryTargetConflict(
             'Publication target became occupied; both versions remain preserved',
           )
         await this.verifyManaged(
@@ -517,7 +490,7 @@ export class ExtensionManagedDeliveryOwner {
           operation.stage,
         )
         operation.phase = 'publishing'
-        await this.save(check)
+        await this.saveOperation(operation, check)
         check()
         await this.proveParents(host, operation, check, signal)
         await this.confined(host, root, target, check, false)
@@ -530,21 +503,11 @@ export class ExtensionManagedDeliveryOwner {
           signal,
         )
       } else if (await this.exists(host, target))
-        throw new Error(
+        throw new DeliveryTargetConflict(
           'Remove target was newly occupied; preserved content remains intact',
         )
       const record = capture ? this.recordFor(operation) : undefined
-      const completed: DeliveryOperation = { ...operation, phase: 'completed' }
-      const next: DeliveryJournal = {
-        records: this.state.records.filter((entry) => entry !== previous),
-        operations: this.state.operations.map((entry) =>
-          entry === operation ? completed : entry,
-        ),
-      }
-      if (record) next.records.push({ record, tree: operation.payload })
-      await this.activations.saveManagedDeliveries(next, check)
-      check()
-      this.state = next
+      await this.completeRecovered(operation, check)
       if (capture)
         for (const [id, value] of this.captures)
           if (value === capture) this.captures.delete(id)
@@ -555,12 +518,20 @@ export class ExtensionManagedDeliveryOwner {
         ...(previous ? { preserved: operation.preserve } : {}),
       }
     } catch (reason) {
-      if (!effects && operation)
-        this.state.operations = this.state.operations.filter(
-          (entry) => entry !== operation,
-        )
+      let conflicted = false
+      if (
+        operation &&
+        (reason instanceof DeliveryTargetConflict || isProjectPathExistsError(reason))
+      ) {
+        try {
+          await this.saveOperation({ ...operation, phase: 'conflicted' }, check)
+          conflicted = true
+        } catch {
+          /* Failed conflict saving retains earlier evidence and uncertainty. */
+        }
+      }
       return {
-        outcome: effects ? 'uncertain' : 'refused',
+        outcome: conflicted ? 'conflicted' : effects ? 'uncertain' : 'refused',
         ...(operation
           ? {
               operation: operation.id,
@@ -594,39 +565,18 @@ export class ExtensionManagedDeliveryOwner {
               (entry) => entry.record.installation === caller.activation.installationId,
             )
             .map((entry) => entry.record)
-    return deliveryPage<unknown>(entries, input['offset'])
+    return {
+      ...deliveryPage<unknown>(entries, input['offset']),
+      revision: this.journalRevision,
+    }
   }
   recoveryStatus(): DeliveryRecoveryEntry[] {
     if (this.failure) throw new Error(this.failure)
-    return this.state.operations.map((entry) => ({
-      id: entry.id,
-      workspace: entry.workspace,
-      root: entry.root,
-      installation: entry.installation,
-      phase: entry.phase,
-      target: entry.target,
-      staging: entry.stage,
-      preserved: entry.preserve,
-      outcome:
-        entry.phase === 'completed'
-          ? 'completed-with-retained-objects'
-          : 'completion-unproven',
-    }))
+    return this.state.operations.map(deliveryRecoveryEntry)
   }
+
   private recordFor(operation: DeliveryOperation): ExtensionDeliveryRecord {
-    return {
-      id: operation.previous?.id ?? operation.id,
-      operation: operation.id,
-      installation: operation.installation,
-      workspace: operation.workspace,
-      root: operation.root,
-      target: operation.target,
-      sourceVersion: operation.sourceVersion,
-      identity: operation.stageIdentity!,
-      fingerprint: deliveryFingerprint(operation.payload),
-      files: operation.payload.filter((entry) => entry.type === 'file').length,
-      bytes: operation.payload.reduce((n, entry) => n + entry.size, 0),
-    }
+    return deliveryRecordFor(operation)
   }
   private async proveParents(
     host: DeliveryHost,
@@ -658,14 +608,24 @@ export class ExtensionManagedDeliveryOwner {
     if (!host.managedTransfer || !record.identity)
       throw new Error('Managed directory identity is unavailable')
     current()
-    const before = await host.managedTransfer.entryIdentity(path, signal)
-    if (
-      before !== record.identity ||
-      (await readDeliveryTree(host, path, current, signal, false, record.root))
-        .fingerprint !== deliveryFingerprint(entries) ||
-      (await host.managedTransfer.entryIdentity(path, signal)) !== before
-    )
-      throw new Error('Managed target changed or ownership is unproven; keep its files')
+    try {
+      if ((await host.stat(path)).type !== 'dir')
+        throw new DeliveryTargetConflict('Managed directory was replaced; keep its files')
+      const before = await host.managedTransfer.entryIdentity(path, signal)
+      if (
+        before !== record.identity ||
+        (await readDeliveryTree(host, path, current, signal, false, record.root))
+          .fingerprint !== deliveryFingerprint(entries) ||
+        (await host.managedTransfer.entryIdentity(path, signal)) !== before
+      )
+        throw new DeliveryTargetConflict('Managed target changed; keep its files')
+    } catch (reason) {
+      if ((reason as { code?: unknown }).code === 'ENOENT')
+        throw new DeliveryTargetConflict(
+          'Managed target content is missing; keep remaining files',
+        )
+      throw reason
+    }
     current()
   }
   private async confined(
@@ -763,8 +723,48 @@ export class ExtensionManagedDeliveryOwner {
       throw reason
     }
   }
-  private save(current: () => void): Promise<void> {
-    return this.activations.saveManagedDeliveries(this.state, current)
+  private async publishJournal(
+    next: DeliveryJournal,
+    current: () => void,
+  ): Promise<void> {
+    const revision = this.journalRevision,
+      pinned = () => {
+        current()
+        if (this.journalRevision !== revision)
+          throw new Error('Delivery journal changed during persistence')
+      }
+    pinned()
+    await this.activations.saveManagedDeliveries(next, pinned)
+    pinned()
+    this.state = next
+    this.journalRevision = randomUUID()
+  }
+  private saveOperation(
+    operation: DeliveryOperation,
+    current: () => void,
+  ): Promise<void> {
+    return this.serialize(() => {
+      const exists = this.state.operations.some((entry) => entry.id === operation.id)
+      if (
+        !exists &&
+        (this.state.operations.length >= DELIVERY_LIMITS.operations ||
+          this.state.operations.reduce(
+            (n, entry) => n + retainedDeliveryBytes(entry),
+            0,
+          ) +
+            retainedDeliveryBytes(operation) >
+            DELIVERY_LIMITS.retainedBytes)
+      )
+        throw new Error('Retained operation capacity is full')
+      proveDeliveryJournalCapacity(this.state, operation)
+      const operations = this.state.operations.filter(
+        (entry) => entry.id !== operation.id,
+      )
+      return this.publishJournal(
+        { ...this.state, operations: [...operations, structuredClone(operation)] },
+        current,
+      )
+    })
   }
   private prune(): void {
     for (const [id, value] of this.captures)
@@ -793,6 +793,18 @@ export class ExtensionManagedDeliveryOwner {
       throw new Error('Delivery domain record exceeds its bound')
   }
   domain(caller: DeliveryCaller, value: unknown): Promise<unknown> {
+    this.current(caller)
+    const request = extensionObject(value),
+      id = caller.activation.installationId
+    if (request['write'] !== true) {
+      const data = this.domains[id] ?? null
+      return Promise.resolve(
+        deliveryValue({
+          value: data,
+          revision: createHash('sha256').update(JSON.stringify(data)).digest('hex'),
+        }),
+      )
+    }
     return this.serialize(async () => {
       this.current(caller)
       await this.activations.assertWritable()
@@ -804,79 +816,83 @@ export class ExtensionManagedDeliveryOwner {
       const revision = createHash('sha256')
         .update(JSON.stringify(currentValue))
         .digest('hex')
-      if (input['write'] !== true) return deliveryValue({ value: currentValue, revision })
       if (input['expected'] !== revision)
         throw new Error('Delivery domain changed; inspect again before writing')
+      if (
+        input['journalRevision'] !== undefined &&
+        input['journalRevision'] !== this.journalRevision
+      )
+        throw new Error('Delivery evidence changed; observe complete records again')
       this.checkDomain(input['value'])
       const next = { ...this.domains, [id]: input['value'] }
-      await this.activations.saveDeliveryDomain(next, () => this.current(caller))
+      const journalRevision = this.journalRevision
+      const pinned = () => {
+        this.current(caller)
+        if (this.journalRevision !== journalRevision)
+          throw new Error('Delivery journal changed during domain persistence')
+      }
+      await this.activations.saveDeliveryDomain(next, pinned)
+      pinned()
       this.domains = next
       return null
     })
   }
-  private async completeRecovered(
+  private completeRecovered(
     operation: DeliveryOperation,
     current: () => void,
   ): Promise<void> {
-    const next: DeliveryJournal = {
-      records: this.state.records.filter(
-        (entry) =>
-          entry.record.installation !== operation.installation ||
-          (entry.record.operation !== operation.id &&
-            !(
-              operation.previous &&
-              entry.record.id === operation.previous.id &&
-              entry.record.operation === operation.previous.operation
-            )),
+    return this.serialize(() =>
+      this.publishJournal(
+        completedDeliveryJournal(
+          this.state,
+          operation,
+          this.activations.hasInstallationIdentity(operation.installation),
+        ),
+        current,
       ),
-      operations: this.state.operations.map((entry) =>
-        entry === operation ? { ...operation, phase: 'completed' } : entry,
-      ),
-    }
-    if (
-      operation.kind !== 'remove' &&
-      this.activations.hasInstallationIdentity(operation.installation)
     )
-      next.records.push({ record: this.recordFor(operation), tree: operation.payload })
-    await this.activations.saveManagedDeliveries(next, current)
-    this.state = next
   }
   reconcile(caller: DeliveryCaller, value: unknown, cleanup = false): Promise<unknown> {
-    return this.serialize(async () => {
-      const input = extensionObject(value),
-        id = extensionText(input['operation'], 'operation', 80)
-      this.current(caller)
-      if (cleanup && (!caller.mutationAllowed || !caller.effects.delete))
-        throw new Error('Cleanup requires admitted delete authority')
-      const operation = this.state.operations.find(
-        (entry) =>
-          entry.id === id && entry.installation === caller.activation.installationId,
-      )
-      if (!operation)
-        throw new Error('This operation does not belong to the current installation')
-      const grant = this.grant(caller, input['destination'], 'managed-delivery')
-      if (
-        !hostPathEquals(grant.root!, operation.root) ||
-        grant.workspaceId !== operation.workspace
-      )
-        throw new Error('Recovery requires the exact destination grant')
-      const current = () => {
+    return this.trackPhysical(
+      (async () => {
+        const input = extensionObject(value),
+          id = extensionText(input['operation'], 'operation', 80)
         this.current(caller)
-        this.sameGrant(caller, grant)
-        this.destination(caller, grant)
-        caller.authorize(operation.root.hostId, operation.workspace)
-      }
-      const signal = AbortSignal.any([
-        caller.signal,
-        this.authority.signal,
-        AbortSignal.timeout(
-          cleanup ? DELIVERY_LIMITS.cleanupMs : DELIVERY_LIMITS.deadlineMs,
-        ),
-      ])
-      return cleanup
-        ? this.recovery.cleanup(id, current, signal)
-        : this.recovery.reconcile(id, current, signal)
-    })
+        if (cleanup && (!caller.mutationAllowed || !caller.effects.delete))
+          throw new Error('Cleanup requires admitted delete authority')
+        const operation = this.state.operations.find(
+          (entry) =>
+            entry.id === id && entry.installation === caller.activation.installationId,
+        )
+        if (!operation)
+          throw new Error('This operation does not belong to the current installation')
+        const grant = this.grant(caller, input['destination'], 'managed-delivery')
+        if (
+          !hostPathEquals(grant.root!, operation.root) ||
+          grant.workspaceId !== operation.workspace
+        )
+          throw new Error('Recovery requires the exact destination grant')
+        const signal = AbortSignal.any([
+          caller.signal,
+          this.authority.signal,
+          AbortSignal.timeout(
+            cleanup ? DELIVERY_LIMITS.cleanupMs : DELIVERY_LIMITS.deadlineMs,
+          ),
+        ])
+        const current = () => {
+          signal.throwIfAborted()
+          this.current(caller)
+          this.sameGrant(caller, grant)
+          this.destination(caller, grant)
+          caller.authorize(operation.root.hostId, operation.workspace)
+        }
+        return this.reserveRecovery(operation.target, () =>
+          cleanup
+            ? this.recovery.cleanup(id, current, signal)
+            : this.recovery.reconcile(id, current, signal),
+        )
+      })(),
+    )
   }
   trustedRecovery(
     kind: 'inspect' | 'keep' | 'reconcile' | 'cleanup',
@@ -884,32 +900,51 @@ export class ExtensionManagedDeliveryOwner {
     current: () => void,
     signal: AbortSignal,
   ): Promise<DeliveryRecoveryReply> {
-    return this.serialize(() => {
-      const pinned = () => {
-        if (this.disposed || this.failure)
-          throw new Error(this.failure ?? 'Delivery recovery ended')
-        current()
-        this.authority.signal.throwIfAborted()
-      }
-      const lifetime = AbortSignal.any([
-        signal,
-        this.authority.signal,
-        AbortSignal.timeout(
-          kind === 'cleanup' ? DELIVERY_LIMITS.cleanupMs : DELIVERY_LIMITS.deadlineMs,
-        ),
-      ])
-      if (kind === 'inspect') return this.recovery.inspect(id, pinned, lifetime)
-      if (kind === 'keep') return this.recovery.keepFiles(id, pinned, lifetime)
-      if (kind === 'cleanup') return this.recovery.cleanup(id, pinned, lifetime)
-      return this.recovery.reconcile(id, pinned, lifetime)
-    })
-  }
-  forget(installation: string): DeliveryJournal {
-    delete this.domains[installation]
-    this.state.records = this.state.records.filter(
-      (entry) => entry.record.installation !== installation,
+    return this.trackPhysical(
+      (async () => {
+        const pinned = () => {
+          lifetime.throwIfAborted()
+          if (this.disposed || this.failure)
+            throw new Error(this.failure ?? 'Delivery recovery ended')
+          current()
+          this.authority.signal.throwIfAborted()
+        }
+        const lifetime = AbortSignal.any([
+          signal,
+          this.authority.signal,
+          AbortSignal.timeout(
+            kind === 'cleanup' ? DELIVERY_LIMITS.cleanupMs : DELIVERY_LIMITS.deadlineMs,
+          ),
+        ])
+        return this.reserveRecovery(this.recovery.target(id, kind === 'keep'), () => {
+          if (kind === 'inspect') return this.recovery.inspect(id, pinned, lifetime)
+          if (kind === 'keep') return this.recovery.keepFiles(id, pinned, lifetime)
+          if (kind === 'cleanup') return this.recovery.cleanup(id, pinned, lifetime)
+          return this.recovery.reconcile(id, pinned, lifetime)
+        })
+      })(),
     )
-    return this.state // Even completed operations with retained objects survive until resolved.
+  }
+  forget(installation: string, persisted: unknown) {
+    if (this.failure || this.disposed)
+      throw new Error(this.failure ?? 'Delivery authority ended')
+    const state = readDeliveryJournal(persisted)
+    const journal = {
+      ...state,
+      records: state.records.filter(
+        (entry) => entry.record.installation !== installation,
+      ),
+    }
+    return {
+      journal,
+      commitJournal: () => {
+        this.state = journal
+        this.journalRevision = randomUUID()
+      },
+      commitDomain: () => {
+        delete this.domains[installation]
+      },
+    } // Operation evidence survives; cache publication follows each durable write.
   }
   revoke(installation: string): void {
     for (const [id, value] of this.captures)
@@ -925,7 +960,26 @@ export class ExtensionManagedDeliveryOwner {
     this.previews.clear()
     this.authority.abort()
     this.recovery.dispose()
-    return Promise.allSettled([this.pending, ...this.captureWork]).then(() => undefined)
+    return Promise.allSettled([
+      this.pending,
+      ...this.captureWork,
+      ...this.physicalWork,
+    ]).then(() => undefined)
+  }
+  private trackPhysical<T>(work: Promise<T>): Promise<T> {
+    this.physicalWork.add(work)
+    return work.finally(() => this.physicalWork.delete(work))
+  }
+  private async reserveRecovery<T>(target: HostPath, task: () => Promise<T>): Promise<T> {
+    const key = JSON.stringify(target)
+    if (this.physical.has(key) || this.physical.size >= DELIVERY_LIMITS.concurrent)
+      throw new Error('This target or physical recovery capacity is busy')
+    this.physical.add(key)
+    try {
+      return await task()
+    } finally {
+      this.physical.delete(key)
+    }
   }
   private serialize<T>(operation: () => Promise<T>): Promise<T> {
     const result = this.pending.then(operation)

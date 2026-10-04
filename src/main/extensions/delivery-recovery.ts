@@ -25,7 +25,11 @@ export interface DeliveryRecoveryPorts {
   journal(): DeliveryJournal
   host(path: HostPath): DeliveryHost | undefined
   writable(): Promise<void>
-  save(current: () => void): Promise<void>
+  resolve(
+    operation: DeliveryOperation,
+    forgetAuthority: boolean,
+    current: () => void,
+  ): Promise<void>
   complete(operation: DeliveryOperation, current: () => void): Promise<void>
 }
 /** Exact persisted custody and deliberate keep-files resolution, independent of package demand. */
@@ -141,7 +145,12 @@ export class DeliveryRecovery {
       operation: operation.id,
       installation: operation.installation,
       phase: operation.phase,
-      completion: operation.phase === 'completed' ? 'proven' : 'unproven',
+      completion:
+        operation.phase === 'completed'
+          ? 'proven'
+          : operation.phase === 'conflicted'
+            ? 'conflicted'
+            : 'unproven',
       objects: facts,
       resolution:
         'Keep every file in place and end delivery tracking. This neither completes nor cleans an uncertain delivery.',
@@ -164,36 +173,20 @@ export class DeliveryRecovery {
     this.decisions.delete(token)
     if (!decision || decision.expires <= Date.now())
       throw new Error('Inspect exact retained objects again before ending tracking')
-    const journal = this.ports.journal(),
-      operation = this.operation(decision.id)
+    const operation = this.operation(decision.id)
     if (JSON.stringify(await this.facts(operation, current, signal)) !== decision.facts)
       throw new Error('Retained object facts changed; inspect them again')
     current()
     signal.throwIfAborted()
-    const priorRecords = journal.records,
-      priorOperations = journal.operations
-    journal.records = journal.records.filter(
-      (entry) =>
-        entry.record.installation !== operation.installation ||
-        (entry.record.operation !== operation.id &&
-          !(
-            operation.phase !== 'completed' &&
-            operation.previous &&
-            entry.record.id === operation.previous.id &&
-            entry.record.operation === operation.previous.operation
-          )),
-    )
-    journal.operations = journal.operations.filter((entry) => entry.id !== operation.id)
-    try {
-      await this.ports.save(current)
-    } catch (reason) {
-      journal.records = priorRecords
-      journal.operations = priorOperations
-      throw reason
-    }
+    await this.ports.resolve(operation, true, current)
     return {
       outcome: 'resolved-by-retaining-files',
-      completion: operation.phase === 'completed' ? 'proven' : 'unproven',
+      completion:
+        operation.phase === 'completed'
+          ? 'proven'
+          : operation.phase === 'conflicted'
+            ? 'conflicted'
+            : 'unproven',
       files:
         'All objects stay in place. hvir no longer updates, removes or cleans this delivery.',
     }
@@ -207,6 +200,15 @@ export class DeliveryRecovery {
     current()
     const operation = this.operation(id),
       facts = await this.facts(operation, current, signal)
+    if (operation.phase === 'conflicted')
+      return deliveryValue({
+        operation: id,
+        outcome: 'conflicted',
+        objects: facts,
+        replayed: false,
+        reason:
+          'A destination conflict was established. Preserve the exact objects; inspect before deliberate resolution.',
+      })
     if (operation.phase === 'completed')
       return deliveryValue({
         operation: id,
@@ -324,8 +326,14 @@ export class DeliveryRecovery {
             operation.root,
             dirnameHostPath(path),
           )
-          if (entry.type === 'dir') await host.fileTransfer.removeDirectory(path)
-          else {
+          if (entry.type === 'dir') {
+            const metadata = await host.stat(path)
+            current()
+            signal.throwIfAborted()
+            if (metadata.type !== 'dir' || (metadata.mode & 0o7777) !== entry.mode)
+              throw new Error('Retained directory changed during cleanup')
+            await host.fileTransfer.removeDirectory(path)
+          } else {
             const metadata = await host.stat(path)
             const hash = await readDeliveryTree(
               host,
@@ -361,15 +369,7 @@ export class DeliveryRecovery {
             throw new Error('Cleanup entry capacity exceeded')
         }
       }
-      const journal = this.ports.journal()
-      const prior = journal.operations
-      journal.operations = journal.operations.filter((entry) => entry.id !== operation.id)
-      try {
-        await this.ports.save(current)
-      } catch (reason) {
-        journal.operations = prior
-        throw reason
-      }
+      await this.ports.resolve(operation, false, current)
       return {
         operation: id,
         outcome: 'cleanup-completed',
@@ -389,5 +389,8 @@ export class DeliveryRecovery {
   dispose(): void {
     this.disposed = true
     this.decisions.clear()
+  }
+  target(id: string, decision = false): HostPath {
+    return this.operation(decision ? (this.decisions.get(id)?.id ?? '') : id).target
   }
 }
