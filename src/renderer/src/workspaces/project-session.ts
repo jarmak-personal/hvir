@@ -41,7 +41,6 @@ interface UseProjectSessionOptions {
 
 export function useProjectSession(options: UseProjectSessionOptions) {
   const [model, dispatch] = useReducer(projectSessionReducer, initialProjectSessionModel)
-  const [hosts, setHosts] = useState<readonly ProjectHostOption[]>([])
   const [rootError, setRootError] = useState<string>()
   const [versions, setVersions] = useState<ProjectSessionVersions>({
     watch: 0,
@@ -339,14 +338,6 @@ export function useProjectSession(options: UseProjectSessionOptions) {
     dispatch({ type: 'reported-error', error })
   }, [])
 
-  const refreshHosts = useCallback(async (): Promise<void> => {
-    try {
-      setHosts(await window.hvir.invoke('project:hosts', undefined))
-    } catch {
-      // The current project remains usable if host discovery fails.
-    }
-  }, [])
-
   useEffect(() => {
     let disposed = false
     const timers: Partial<Record<keyof ProjectSessionVersions, number>> = {}
@@ -442,13 +433,11 @@ export function useProjectSession(options: UseProjectSessionOptions) {
     error: model.error,
     rootError,
     prompts: model.prompts,
-    hosts,
     versions,
     acceptProjectState,
     refreshWorkspaceContent,
     refreshGit,
     reportError,
-    refreshHosts,
     switchWorkspace,
     switchRelativeWorkspace,
     refreshProject,

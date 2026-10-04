@@ -2,6 +2,7 @@ import { type Client, type ClientChannel, type Channel, type SFTPWrapper } from 
 
 import type { Disposer } from './project-host'
 import { FINITE_EXEC_HOST_LIMIT } from './finite-exec-admission'
+import { retainSftpErrorHandler } from './ssh-sftp-errors'
 
 export const SSH_MAX_PHYSICAL_TRANSPORTS = 8
 export const SSH_MAX_CONTROL_TRANSPORTS = 2
@@ -24,7 +25,7 @@ interface SshTransport {
   readonly failureListeners: Set<() => void>
   pendingChannels: number
   readonly channelBudget: number
-  sftpActive: boolean
+  readonly sftpSessions: Set<SFTPWrapper>
   closed: boolean
   idleTimer?: ReturnType<typeof setTimeout>
 }
@@ -73,7 +74,7 @@ export class SshTransportPool {
         id: transport.id,
         role: transport.role,
         primary: transport.primary,
-        channels: transport.channels.size + (transport.sftpActive ? 1 : 0),
+        channels: transport.channels.size + transport.sftpSessions.size,
         pendingChannels: transport.pendingChannels,
         channelBudget: transport.channelBudget,
         refusedChannels: this.refusedChannels.get(transport.id) ?? 0,
@@ -172,24 +173,37 @@ export class SshTransportPool {
   async openSftp(): Promise<SFTPWrapper> {
     const { value: session, reservation } = await this.openWithChannelRetry(
       'control',
-      (transport) =>
-        new Promise<SFTPWrapper>((resolve, reject) => {
+      async (transport) => {
+        let failure: Error | undefined
+        const session = await new Promise<SFTPWrapper>((resolve, reject) => {
           try {
-            transport.client.sftp((error, value) =>
-              error ? reject(error) : resolve(value),
-            )
+            transport.client.sftp((error, value) => {
+              if (error) return reject(error)
+              // ssh2 removes its setup error listener before handing us the session.
+              // Protect it immediately, including acquisition and teardown windows.
+              const releaseErrors = retainSftpErrorHandler(value, (reason) => {
+                failure = reason
+                releaseErrors()
+                value.end()
+              })
+              value.once('close', releaseErrors)
+              resolve(value)
+            })
           } catch (error) {
             reject(asError(error))
           }
-        }),
+        })
+        if (failure) throw failure
+        return session
+      },
     )
     reservation.release()
     const { transport } = reservation
     if (transport.idleTimer) clearTimeout(transport.idleTimer)
     transport.idleTimer = undefined
-    transport.sftpActive = true
+    transport.sftpSessions.add(session)
     session.once('close', () => {
-      transport.sftpActive = false
+      transport.sftpSessions.delete(session)
       this.scheduleTransportIdle(transport)
     })
     return session
@@ -247,7 +261,7 @@ export class SshTransportPool {
           : role === 'tunnel'
             ? SSH_TUNNEL_CHANNEL_BUDGET
             : SSH_TERMINAL_CHANNEL_BUDGET,
-      sftpActive: false,
+      sftpSessions: new Set(),
       closed: false,
     }
     this.transports.add(transport)
@@ -262,7 +276,7 @@ export class SshTransportPool {
 
   private transportLoad(transport: SshTransport): number {
     return (
-      transport.channels.size + transport.pendingChannels + (transport.sftpActive ? 1 : 0)
+      transport.channels.size + transport.pendingChannels + transport.sftpSessions.size
     )
   }
 
@@ -436,7 +450,7 @@ export class SshTransportPool {
     transport.closed = true
     if (transport.idleTimer) clearTimeout(transport.idleTimer)
     transport.idleTimer = undefined
-    transport.sftpActive = false
+    transport.sftpSessions.clear()
     this.transports.delete(transport)
     for (const fail of transport.failureListeners) fail()
     transport.failureListeners.clear()

@@ -58,24 +58,18 @@
 .compaction-markers {
   align-items: center;
   color: var(--text-muted);
-  display: flex;
+  display: inline-flex;
+  flex: 0 0 auto;
   font-size: calc(10px * var(--hvir-interface-scale));
-  gap: 0.4em;
   height: 1em;
-  min-width: 0;
-  overflow: hidden;
-  width: 100%;
+  white-space: nowrap;
 }
 
 .compaction-marker {
-  background: color-mix(in srgb, currentColor 24%, transparent);
-  border: 1px solid currentColor;
-  border-radius: 50%;
-  box-sizing: border-box;
   display: inline-block;
-  flex: 0 0 0.6em;
-  height: 0.6em;
-  width: 0.6em;
+  flex: 0 0 1em;
+  height: 1em;
+  width: 1em;
 }
 
 .compaction-marker-summary {
@@ -85,11 +79,6 @@
   gap: 0.4em;
   line-height: 1;
   white-space: nowrap;
-}
-
-.compaction-marker-unknown {
-  font-size: 1em;
-  line-height: 1;
 }
 
 .session-details-popover {

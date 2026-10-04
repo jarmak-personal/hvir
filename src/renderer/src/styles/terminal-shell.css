@@ -135,8 +135,22 @@
 }
 
 .terminal-rail-compact-rollup.bell {
+  width: 24px;
   background: var(--warning-surface);
   color: var(--warning-text);
+}
+
+.terminal-bell-icon {
+  display: block;
+  width: calc(12px * var(--hvir-interface-scale));
+  height: calc(12px * var(--hvir-interface-scale));
+  flex: 0 0 auto;
+}
+
+.terminal-rail-compact-rollup .terminal-bell-icon {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 1;
 }
 
 .terminal-rail-compact-markers {

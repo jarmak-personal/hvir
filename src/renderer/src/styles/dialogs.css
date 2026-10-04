@@ -478,3 +478,34 @@
     width: 100%;
   }
 }
+
+.ssh-host-form,
+.ssh-host-form label,
+.ssh-host-form details[open],
+.ssh-identity-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ssh-host-form {
+  gap: 14px;
+}
+
+.ssh-host-form input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.ssh-host-form summary {
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.ssh-identity-picker small {
+  color: var(--text-muted);
+}
+
+.ssh-identity-picker code {
+  overflow-wrap: anywhere;
+}

@@ -22,6 +22,7 @@ import {
   launchAvailabilityLabel,
   type HarnessLaunchMenuState,
 } from './harness-launch-menu'
+import { TerminalBellIcon } from './TerminalBellIcon'
 import { TerminalContextMeter } from './TerminalContextMeter'
 import { TerminalRailCompact } from './TerminalRailCompact'
 import type { TerminalSession } from './terminal-workspace-model'
@@ -355,6 +356,7 @@ export function TerminalRail({
             session.providerId,
             connectionState,
           )
+          const status = session.status.replace(/(?:^| · )pid -?\d+$/, '')
           return (
             <div
               key={session.id}
@@ -378,21 +380,20 @@ export function TerminalRail({
                   <span className="terminal-list-meta">
                     <span className="terminal-list-profile">
                       {profileDisplayName(profiles, session.profileId)}
-                    </span>{' '}
-                    · {session.status}
-                    {identityLabel(session.identityStatus)}
+                      {status ? ` · ${status}` : ''}
+                      {identityLabel(session.identityStatus)}
+                    </span>
+                    <CompactionMarkers
+                      fact={compactionFact}
+                      className="terminal-list-compactions"
+                    />
                   </span>
                   {showsContext ? (
-                    <>
-                      <TerminalContextMeter
-                        telemetry={session.telemetry}
-                        countOnly={contextPresentation === 'count'}
-                        pressurePolicy={provider?.capabilities.contextPressure}
-                      />
-                      {session.capabilities.compactionObservation ? (
-                        <CompactionMarkers fact={compactionFact} />
-                      ) : null}
-                    </>
+                    <TerminalContextMeter
+                      telemetry={session.telemetry}
+                      countOnly={contextPresentation === 'count'}
+                      pressurePolicy={provider?.capabilities.contextPressure}
+                    />
                   ) : null}
                 </span>
                 {session.attention ? (
@@ -401,7 +402,11 @@ export function TerminalRail({
                     aria-label={terminalAttentionLabel(session.attention)}
                     title={terminalAttentionLabel(session.attention)}
                   >
-                    {terminalAttentionBadgeText(session.attention)}
+                    {session.attention === 'bell' ? (
+                      <TerminalBellIcon />
+                    ) : (
+                      terminalAttentionBadgeText(session.attention)
+                    )}
                   </span>
                 ) : null}
               </button>

@@ -7,6 +7,7 @@ import {
 } from '../fs-types'
 import { type HostPath } from '../host-path'
 import { type ProjectState } from '../workspace-types'
+import type { AddSshHostRequest, SshConfigurationDefaults } from '../ssh-configuration'
 import { type OperationResult } from '../operation-result'
 
 export const MAX_PROJECT_WATCH_INTERESTS = 128
@@ -131,6 +132,13 @@ export const projectIpc = {
   invoke: {
     'project:root': invoke<void, ProjectState>(),
     'project:hosts': invoke<void, readonly ProjectHostOption[]>(),
+    'ssh:configuration-defaults': invoke<void, SshConfigurationDefaults>(),
+    'ssh:refresh-hosts': invoke<void, OperationResult<readonly ProjectHostOption[]>>(),
+    'ssh:add-host': invoke<
+      AddSshHostRequest,
+      OperationResult<readonly ProjectHostOption[]>
+    >(),
+    'ssh:pick-identity': invoke<void, OperationResult<HostPath | undefined>>(),
     'project:connect-host': invoke<ConnectHostRequest, OperationResult<ConnectedHost>>(),
     'project:disconnect-host': invoke<
       DisconnectHostRequest,
