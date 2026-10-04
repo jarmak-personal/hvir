@@ -22,7 +22,8 @@ export async function verifySkillagerExtension(
 ): Promise<boolean> {
   const executable = process.env.HVIR_SKILLAGER_EVIDENCE_CLI,
     catalog = process.env.HVIR_SKILLAGER_EVIDENCE_CATALOG,
-    root = process.env.HVIR_SKILLAGER_EVIDENCE_LIBRARY
+    root = process.env.HVIR_SKILLAGER_EVIDENCE_LIBRARY,
+    archive = process.env.HVIR_SKILLAGER_EVIDENCE_PACKAGE
   if (!executable && !catalog && !root) return false
   if (!executable || !catalog || !root || app.isPackaged)
     throw new Error(
@@ -35,15 +36,22 @@ export async function verifySkillagerExtension(
   })
   let phase = 'trusted setup'
   console.log('[smoke] Skillager evidence: trusted setup')
-  const directory = joinHostPath(extensions.activations!.directory, 'skillager')
-  await host.createDirectoryExclusive(directory, { mode: 0o755 })
-  const assets = localPath(join(app.getAppPath(), 'packages/skillager-extension'))
-  for (const entry of await host.readdir(assets))
-    if (entry.type === 'file')
-      await host.writeFile(
-        joinHostPath(directory, entry.name),
-        await host.readFile(joinHostPath(assets, entry.name)),
-      )
+  const source = archive ? 'skillager.zip' : 'skillager'
+  const directory = joinHostPath(extensions.activations!.directory, source)
+  if (archive) {
+    if (!archive.startsWith('/'))
+      throw new Error('Select an absolute owned extension ZIP')
+    await host.writeFile(directory, await host.readFile(localPath(archive)))
+  } else {
+    await host.createDirectoryExclusive(directory, { mode: 0o755 })
+    const assets = localPath(join(app.getAppPath(), 'packages/skillager-extension'))
+    for (const entry of await host.readdir(assets))
+      if (entry.type === 'file')
+        await host.writeFile(
+          joinHostPath(directory, entry.name),
+          await host.readFile(joinHostPath(assets, entry.name)),
+        )
+  }
   await controls.click('Open settings')
   await controls.click('Extensions')
   await controls.click('Discover extensions')
@@ -325,7 +333,7 @@ export async function verifySkillagerExtension(
   function installation() {
     return extensions
       .activations!.snapshot()
-      .installations.find((entry) => entry.source === 'skillager')
+      .installations.find((entry) => entry.source === source)
   }
   function view(contribution: string) {
     return extensions

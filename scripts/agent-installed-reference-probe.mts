@@ -1,9 +1,10 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, realpath, readdir, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, realpath, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify, parseArgs } from 'node:util'
 import { AGENT_CONTRACT } from '../src/shared/agent/contract.ts'
+import { extensionPackageArchive } from './extension-package-archive.mts'
 import { AGENT_GUIDE_TOPICS } from '../src/shared/agent/reference-catalog.ts'
 
 const exec = promisify(execFile)
@@ -65,6 +66,12 @@ try {
     exported = join(directory, 'SKILL.md')
   await invoke(['scaffold', '--output', output])
   await invoke(['validate', '--path', output])
+  const archive = join(directory, 'clock.zip')
+  const files = new Map<string, Uint8Array>()
+  for (const name of await readdir(output))
+    files.set(name, await readFile(join(output, name)))
+  await writeFile(archive, await extensionPackageArchive(files))
+  await invoke(['validate', '--path', archive])
   await invoke(['skill', '--output', exported])
   if ((await readFile(exported, 'utf8')) !== skill)
     throw new Error('Exported skill differs from inspected bytes')
@@ -79,7 +86,7 @@ try {
   if ((await readdir(directory)).some((name) => name.startsWith('.hvir-authoring-')))
     throw new Error('Known occupied-output refusal left a stage')
   console.log(
-    `HVIR_AGENT_INSTALLED_REFERENCE_OK topics=${Object.keys(AGENT_GUIDE_TOPICS).length} scaffold=1 validate=1 exact-skill=1 expected-refusals=5`,
+    `HVIR_AGENT_INSTALLED_REFERENCE_OK topics=${Object.keys(AGENT_GUIDE_TOPICS).length} scaffold=1 directory-validate=1 zip-validate=1 exact-skill=1 expected-refusals=5`,
   )
 } finally {
   await rm(temporary, { recursive: true, force: true })

@@ -12,6 +12,7 @@ import { exampleManifest } from './extension-package'
 export function fixture(
   overrides: Partial<ExtensionGuestSurfacePort> = {},
   manifest: Record<string, unknown> = {},
+  captured?: ReturnType<typeof validateCapturedExtension>,
 ) {
   const files = new Map([
     [
@@ -21,7 +22,7 @@ export function fixture(
     ['index.html', new TextEncoder().encode('original')],
     ['detail.html', new TextEncoder().encode('detail')],
   ])
-  const revision = validateCapturedExtension({ sourceIdentity: '1:1', files })
+  const revision = captured ?? validateCapturedExtension({ sourceIdentity: '1:1', files })
   const activation = {
     installationId: 'installation',
     generation: 'generation',

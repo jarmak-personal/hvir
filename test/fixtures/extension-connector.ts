@@ -20,44 +20,47 @@ export function connectorFixture(
   context: 'application' | 'workspace' = 'application',
   outputBytes = 4 * 1024 * 1024,
   scratch = '/state/scratch',
+  revision?: ExtensionActivation['revision'],
 ) {
   const activation: ExtensionActivation = {
     installationId: 'installation',
     generation: 'generation',
-    revision: {
-      hash: 'revision',
-      manifest: {
-        id: 'example',
-        name: 'Example',
-        version: '1.0.0',
-        contract: '1.0',
-        requiredCapabilities: ['connector.execute'],
-        optionalCapabilities: [],
-        access: [],
-        views: [
-          {
-            id: 'main',
-            title: 'Main',
-            entry: 'index.html',
-            placement: 'application',
-            representations: ['view'],
-          },
-        ],
-        connectors: [
-          {
-            id: 'tool',
-            description: 'Installed tool',
-            context,
-            timeoutMs: 120_000,
-            outputBytes,
-            environment: ['TOOL_HOME'],
-          },
-        ],
-      },
-      assets: new Map(),
-      warnings: [],
-      root: localPath('/packages/revision'),
-    } as unknown as ExtensionActivation['revision'],
+    revision:
+      revision ??
+      ({
+        hash: 'revision',
+        manifest: {
+          id: 'example',
+          name: 'Example',
+          version: '1.0.0',
+          contract: '1.0',
+          requiredCapabilities: ['connector.execute'],
+          optionalCapabilities: [],
+          access: [],
+          views: [
+            {
+              id: 'main',
+              title: 'Main',
+              entry: 'index.html',
+              placement: 'application',
+              representations: ['view'],
+            },
+          ],
+          connectors: [
+            {
+              id: 'tool',
+              description: 'Installed tool',
+              context,
+              timeoutMs: 120_000,
+              outputBytes,
+              environment: ['TOOL_HOME'],
+            },
+          ],
+        },
+        assets: new Map(),
+        warnings: [],
+        root: localPath('/packages/revision'),
+      } as unknown as ExtensionActivation['revision']),
   }
   const listeners = new Set<() => void>()
   const host = {

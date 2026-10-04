@@ -1,3 +1,4 @@
+import type { ExtensionManifest } from '../../src/shared/extensions/contract'
 import type { DocumentMarkdownOwner } from '../../src/main/viewer/document-markdown-owner'
 import { vi } from 'vitest'
 import { hostPath, asHostId } from '../../src/shared/host-path'
@@ -13,6 +14,7 @@ export function sourceFixture(
   context: 'application' | 'workspace' = 'application',
   markdown?: DocumentMarkdownOwner,
   hostId = asHostId('local'),
+  manifest?: ExtensionManifest,
 ) {
   const declaration = {
     id: 'source',
@@ -23,7 +25,7 @@ export function sourceFixture(
   const activation = {
     installationId: 'installation',
     generation: 'generation',
-    revision: { manifest: { access: [declaration] } },
+    revision: { manifest: manifest ?? { access: [declaration] } },
   } as unknown as ExtensionActivation
   const active = new Map([[activation.installationId, activation]])
   let state: unknown = [],

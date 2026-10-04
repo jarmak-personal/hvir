@@ -1,7 +1,11 @@
 import { execFileSync } from 'node:child_process'
 import { closeSync, openSync, readFileSync, readSync, statSync } from 'node:fs'
 import { parseArgs } from 'node:util'
-import { resolve } from 'node:path'
+import { resolve, dirname } from 'node:path'
+import {
+  inspectPackagedExtensionAssets,
+  type PackagedExtensionValidation,
+} from './inspect-packaged-extension-assets.mts'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
 
@@ -301,7 +305,7 @@ function inspectNativePayloads(
   }
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const { values } = parseArgs({
     options: {
       archive: { type: 'string' },
@@ -353,6 +357,35 @@ function main(): void {
     ].some((entry) => typeof entry !== 'function')
   )
     throw new Error('Packaged extension storage does not expose its approved private API')
+  const archivePath = resolve(values.archive)
+  const resources = dirname(archivePath)
+  const executable = resolve(
+    resources,
+    platform === 'darwin' ? '../MacOS/hvir' : '../hvir',
+  )
+  await inspectPackagedExtensionAssets(
+    resources,
+    (path) => Promise.resolve(readFileSync(path)),
+    (path) => {
+      const output = execFileSync(
+        executable,
+        [`${archivePath}/out/main/agent-cli.js`, 'validate', '--path', path],
+        {
+          env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+          timeout: 10000,
+          maxBuffer: 256 * 1024,
+          encoding: 'utf8',
+        },
+      )
+      const result = JSON.parse(output) as {
+        ok?: boolean
+        validation?: PackagedExtensionValidation
+      }
+      if (!result.ok || !result.validation)
+        throw new Error('Packaged offline extension validation did not complete')
+      return Promise.resolve(result.validation)
+    },
+  )
   console.log(
     `Verified packaged production graph (${inspection.mainEntries.length} entries) and native payload (${inspection.nativeEntries.length} files).`,
   )
@@ -360,7 +393,7 @@ function main(): void {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    main()
+    await main()
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error))
     process.exitCode = 1

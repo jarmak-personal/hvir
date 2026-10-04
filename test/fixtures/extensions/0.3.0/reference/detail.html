@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Reference detail</title>
+    <link rel="stylesheet" href="presentation.css" />
+    <link rel="stylesheet" href="reference.css" />
+    <script defer src="guest-ui.js"></script>
+    <script defer src="reference.js"></script>
+  </head>
+  <body class="hvir-guest">
+    <main class="hvir-content hvir-stack">
+      <p class="hvir-meta">A declared detail view</p>
+      <h1>A small public contract</h1>
+      <p>
+        The first view requested this tab through <code>viewer.open-own</code>. hvir owns
+        the tab's identity, placement, focus, and close controls. The extension cannot
+        name another package or invent a URL.
+      </p>
+      <h2>Presentation follows your preferences</h2>
+      <p>
+        Appearance, semantic colors, interface font, font scale, and available dimensions
+        arrive through the guest bridge. They convey presentation, never additional
+        permission.
+      </p>
+      <section class="hvir-panel hvir-content" aria-label="Local clock">
+        <p class="hvir-meta">Local clock</p>
+        <time id="clock-time" aria-label="Current local time"
+          >Waiting for this view…</time
+        >
+      </section>
+      <p id="observation"></p>
+      <p id="status" class="hvir-state" data-state="loading" role="status">
+        Connecting to hvir…
+      </p>
+    </main>
+  </body>
+</html>

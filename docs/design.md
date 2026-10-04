@@ -627,6 +627,13 @@ and truthful per-target recovery through the existing bounded action and connect
 Explicit local export capture and exact SSH workspace grants admit bounded managed delivery,
 with durable operation custody, no-replace publication, preservation, and deliberate recovery.
 
+### [ADR-062 — Exact-source extension release artifacts](adr/ADR-062-exact-source-extension-release-artifacts.md)
+
+> Lifecycle: Active
+
+The existing immutable release model includes the ordinary Skillager ZIP, while independent
+0.3.0 reference and clock fixtures retain released public-contract inputs.
+
 ## 5. Architecture
 
 ### Process model

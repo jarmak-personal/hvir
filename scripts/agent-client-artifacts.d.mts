@@ -14,3 +14,7 @@ export function agentClientManifest(
   source: string,
   signed?: boolean,
 ): Promise<AgentClientManifest>
+
+export function inspectAgentClientManifest(
+  directory: string,
+): Promise<AgentClientManifest>

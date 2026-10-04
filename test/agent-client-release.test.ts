@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module'
-import { mkdtemp, mkdir, writeFile, readFile, appendFile, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, readFile, appendFile, rm, cp } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -7,7 +7,13 @@ import { afterEach, expect, it, vi } from 'vitest'
 import {
   AGENT_CLIENT_TARGETS,
   agentClientManifest,
+  inspectAgentClientManifest,
 } from '../scripts/agent-client-artifacts.mjs'
+import { LocalHost } from '../src/main/project-host/local-host'
+import { localPath } from '../src/shared/host-path'
+import { captureExtensionSource } from '../src/main/extensions/package-store'
+import { inspectPackagedExtensionAssets } from '../scripts/inspect-packaged-extension-assets.mts'
+
 const require = createRequire(import.meta.url),
   cleanups: string[] = [],
   source = 'a'.repeat(40)
@@ -144,4 +150,64 @@ it('requires redistribution notices for every packaged target', async () => {
   const f = await fixture()
   await rm(join(f.root, 'linux-x64/notices/musl-1.2.5-COPYRIGHT'))
   await expect(agentClientManifest(f.root, source)).rejects.toThrow()
+})
+
+it('inspects complete installed guides, starter, reference and four final client payloads without rewriting provenance', async () => {
+  const f = await fixture(),
+    resources = join(f.app, 'Contents/Resources')
+  await cp('build/native/agent-guides', join(resources, 'agent-guides'), {
+    recursive: true,
+  })
+  await cp('packages/extension-authoring', join(resources, 'extension-authoring'), {
+    recursive: true,
+  })
+  await cp('packages/extension-reference', join(resources, 'extension-reference'), {
+    recursive: true,
+  })
+  await cp('build/native/hvir-agent-command', join(resources, 'hvir-agent-command'))
+  const host = new LocalHost()
+  const validate = async (path: string) => {
+    const captured = await captureExtensionSource(host, localPath(path))
+    return {
+      id: captured.manifest.id,
+      contract: captured.manifest.contract,
+      revision: captured.hash,
+      kind: captured.kind,
+    }
+  }
+  const before = await readFile(join(f.root, 'manifest.json'))
+  try {
+    await inspectPackagedExtensionAssets(resources, readFile, validate)
+    expect(await readFile(join(f.root, 'manifest.json'))).toEqual(before)
+    for (const asset of ['reference.js', 'reference.css', 'catalog.json']) {
+      const path = join(resources, 'extension-reference', asset),
+        bytes = await readFile(path)
+      await appendFile(path, 'changed')
+      await expect(
+        inspectPackagedExtensionAssets(resources, readFile, validate),
+      ).rejects.toThrow('differs')
+      await writeFile(path, bytes)
+    }
+    const missing = join(resources, 'extension-reference/reference.js'),
+      original = await readFile(missing)
+    await rm(missing)
+    await expect(
+      inspectPackagedExtensionAssets(resources, readFile, validate),
+    ).rejects.toThrow('differs')
+    await writeFile(missing, original)
+    await writeFile(join(resources, 'extension-reference/extra.js'), 'extra')
+    await expect(
+      inspectPackagedExtensionAssets(resources, readFile, validate),
+    ).rejects.toThrow('differs')
+    await rm(join(resources, 'extension-reference/extra.js'))
+    await appendFile(join(f.root, 'linux-arm64/hvir-agent'), 'changed')
+    await expect(inspectAgentClientManifest(f.root)).rejects.toThrow('integrity')
+    expect(await readFile(join(f.root, 'manifest.json'))).toEqual(before)
+    await rm(join(resources, 'agent-guides/access.md'))
+    await expect(
+      inspectPackagedExtensionAssets(resources, readFile, validate),
+    ).rejects.toThrow('ENOENT')
+  } finally {
+    await host.dispose()
+  }
 })
