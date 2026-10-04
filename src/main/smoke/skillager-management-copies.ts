@@ -104,7 +104,7 @@ export async function verifyOwnedManagedCopies(
       throw new Error('Complete Stub preview has no exact resulting body identity')
     await controls.inspect("document.getElementById('result').textContent=''")
     await controls.click('confirm-plan')
-    const updated = await controls.result('update-copy')
+    const updated = await controls.result('change-exposure')
     if (
       updated['outcome'] !== 'verified' ||
       updated['exposureId'] !== added['exposureId']

@@ -7,6 +7,7 @@ import {
 } from './management-contract.mjs'
 import { syncArgs, removalArgs } from './management-argv.mjs'
 import { syncObservation } from './management-library.mjs'
+import { exposureFacts } from './exposure-reconcile.mjs'
 import { prepareCopy } from './management-copy.mjs'
 
 /** Public present-state facts establish safe next operations, never historical completion. */
@@ -22,7 +23,9 @@ export async function reconciliationFacts(io, record, workspace) {
     current = { action: operation.action, registered: library }
   } else {
     sameLibrary(operation.library, library)
-    if (operation.action === 'accept-version') {
+    if (operation.action === 'change-exposure') {
+      current = await exposureFacts(io, operation, workspace, library)
+    } else if (operation.action === 'accept-version') {
       const value = await io.run(['library', 'status', operation.source.id, '--json'])
       sameLibrary(library, registeredLibrary(value))
       const skill = value.skill

@@ -91,7 +91,7 @@ export function skillagerManagementControls(
         "JSON.parse(document.getElementById('result').textContent)",
       )) as Record<string, unknown>
       if (
-        ['add-copy', 'update-copy', 'remove-copy'].includes(action) &&
+        ['add-copy', 'change-exposure', 'remove-copy'].includes(action) &&
         result['outcome'] !== 'verified'
       ) {
         const message = typeof result['message'] === 'string' ? result['message'] : ''

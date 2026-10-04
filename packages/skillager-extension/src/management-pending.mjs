@@ -20,7 +20,13 @@ export function pendingManagement() {
       for (const value of records.values()) {
         const previous = value.operation
         if (
-          (descriptor.target && sameRoot(descriptor.target, previous.target)) ||
+          [descriptor.target, ...(descriptor.targets ?? [])]
+            .filter(Boolean)
+            .some((target) =>
+              [previous.target, ...(previous.targets ?? [])]
+                .filter(Boolean)
+                .some((existing) => sameRoot(target, existing)),
+            ) ||
           (descriptor.action === 'initialize-library' &&
             previous.action === descriptor.action &&
             sameRoot(descriptor.selection.root, previous.selection.root)) ||

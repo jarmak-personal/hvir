@@ -9,6 +9,8 @@ import { prepareCopy } from './management-copy.mjs'
 import { syncArgs } from './management-argv.mjs'
 import { syncObservation } from './management-library.mjs'
 import { syncReviewHash } from './management-sync-review.mjs'
+import { bindExposureView } from './exposure-view.mjs'
+import { copyChangeInput } from './exposure-operation.mjs'
 import { bindExactReview } from './review-view.mjs'
 
 /** Human controls consume metadata/actions; instruction review remains a separate D7 origin. */
@@ -75,6 +77,17 @@ export function bindManagementView(document, client) {
     target.addEventListener(event, callback)
     listeners.push(() => target.removeEventListener(event, callback))
   }
+  // Selection changes revoke previews even while a serialized command is pending.
+  function onSelection(id, event, work = () => {}) {
+    const target = element(id),
+      callback = () => {
+        revision++
+        clearPlan()
+        work()
+      }
+    target.addEventListener(event, callback)
+    listeners.push(() => target.removeEventListener(event, callback))
+  }
   async function action(id, input = {}) {
     const result = await client.request('actions.invoke', { action: id, input })
     show(result)
@@ -83,7 +96,7 @@ export function bindManagementView(document, client) {
     )
     return result
   }
-  function review(title, summary, plan, task) {
+  function review(title, summary, plan, task, technicalDetails = false) {
     prepared = {
       ...task,
       workspace: context.workspace
@@ -93,6 +106,7 @@ export function bindManagementView(document, client) {
     element('review-title').textContent = title
     element('review-summary').textContent = summary
     element('review-plan').textContent = JSON.stringify(plan, null, 2)
+    element('review-details').open = !technicalDetails
     element('confirm-plan').textContent =
       task.action === 'operation-state'
         ? 'Acknowledge current facts; original completion unknown'
@@ -247,8 +261,10 @@ export function bindManagementView(document, client) {
                 `${item.agent} · local: ${prepared.plan.target}. Inspect every before/after effect. Local edits requiring force are preserved.`,
                 prepared.plan.preview,
                 {
-                  action: remove ? 'remove-copy' : 'update-copy',
-                  input: { ...input, token: prepared.plan.token },
+                  action: remove ? 'remove-copy' : 'change-exposure',
+                  input: remove
+                    ? { ...input, token: prepared.plan.token }
+                    : copyChangeInput({ ...input, token: prepared.plan.token }),
                 },
               )
             }),
@@ -263,9 +279,11 @@ export function bindManagementView(document, client) {
     if (!prepared) throw new Error('Review one complete current plan first')
     const task = prepared
     exactWorkspace(task)
+    task.validateSelection?.()
     if (
-      task.action === 'update-copy' &&
-      task.input.skillId !== element('skill-id').value.trim()
+      task.action === 'change-exposure' &&
+      JSON.parse(task.input.request).action === 'update-copy' &&
+      JSON.parse(task.input.request).skillId !== element('skill-id').value.trim()
     )
       throw new Error(
         'The selected source changed. Select and review its current version again.',
@@ -337,14 +355,25 @@ export function bindManagementView(document, client) {
   element('skill-id').addEventListener('input', sourceChanged)
   listeners.push(() => element('skill-id').removeEventListener('input', sourceChanged))
   for (const id of ['copy-agent', 'copy-mode'])
-    on(id, 'change', () => {
-      clearPlan()
+    onSelection(id, 'change', () => {
+      advanced.clear()
     })
+  const advanced = bindExposureView(document, client, {
+    on,
+    onSelection,
+    local,
+    library: connected,
+    io: () => io(true),
+    clear: clearPlan,
+    review,
+    say,
+  })
   const unlisten = client.listen((message) => {
     if (message.kind !== 'context') return
     if (JSON.stringify(message.context.workspace) !== JSON.stringify(context.workspace)) {
       clearPlan()
       element('managed-copies').replaceChildren()
+      advanced.clear()
       revision++
     }
     if (!message.context.visible) revision++

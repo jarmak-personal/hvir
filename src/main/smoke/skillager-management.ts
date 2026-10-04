@@ -12,6 +12,7 @@ import {
   type SkillagerManagementControls,
 } from './skillager-management-controls'
 import { reviewOwnedSkill } from './skillager-management-review'
+import { verifyOwnedAdvancedExposure } from './skillager-advanced-exposure'
 import { verifyOwnedManagedCopies } from './skillager-management-copies'
 import { verifyOwnedApprovedSync } from './skillager-management-sync'
 import { verifyOwnedOriginalReveal } from './skillager-management-reveal'
@@ -294,6 +295,7 @@ export async function verifySkillagerManagement(
       cli,
       catalog,
     )
+    const advanced = await verifyOwnedAdvancedExposure(ui, host, workspace.root, cli)
     const reveal = await verifyOwnedOriginalReveal(
       win,
       projectGuest,
@@ -321,6 +323,7 @@ export async function verifySkillagerManagement(
           pinQualification:
             'Direct canonical library review.pin is unsupported; pinned protection is exercised through public upstream pin and sync derivation.',
           copies,
+          advanced,
           synchronization,
           refusals,
           reveal,
