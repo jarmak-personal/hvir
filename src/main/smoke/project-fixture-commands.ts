@@ -1,3 +1,4 @@
+import type { createSshHostChooserSmoke } from './ssh-host-chooser'
 import {
   MAX_PROJECT_WATCH_INTERESTS,
   hostPathEquals,
@@ -11,6 +12,7 @@ import type { workspaceCloseSmokeCommands } from './workspace-close'
 
 /** Project/host command fixture behind the production IPC authority router. */
 export function createProjectFixtureCommands(options: {
+  sshChooser: Awaited<ReturnType<typeof createSshHostChooserSmoke>>
   host: ProjectHost
   smokeRemoteHost: ProjectHost
   smokeRoot: HostPath
@@ -25,6 +27,7 @@ export function createProjectFixtureCommands(options: {
   projectReturn: boolean
 }) {
   const {
+    sshChooser,
     host,
     smokeRemoteHost,
     smokeRoot,
@@ -62,6 +65,7 @@ export function createProjectFixtureCommands(options: {
     | 'revealLocalEntry'
     | 'getProjectState'
     | 'listHosts'
+    | 'sshConfiguration'
     | 'connectHost'
     | 'disconnectHost'
     | 'browseHost'
@@ -96,9 +100,11 @@ export function createProjectFixtureCommands(options: {
         : undefined,
     revealLocalEntry: (path) => revealedEntries.push(path),
     getProjectState: () => projectFixture.get(),
+    sshConfiguration: sshChooser.port,
     listHosts: smokeHostOptions,
-    connectHost: () =>
-      Promise.resolve({
+    connectHost: (hostId) => {
+      sshChooser.connect(hostId)
+      return Promise.resolve({
         host: {
           hostId: host.hostId,
           label: 'Local',
@@ -107,7 +113,8 @@ export function createProjectFixtureCommands(options: {
           watchTier: host.watchTier,
         },
         suggestedPath: smokeRoot.path,
-      }),
+      })
+    },
     disconnectHost: () =>
       Promise.resolve({
         hostId: host.hostId,
@@ -193,4 +200,24 @@ export function createProjectFixtureCommands(options: {
     respondSshPrompt: () => undefined,
   }
   return { ports, browseHost: browseSmokeHost, openedFolderSelections, revealedEntries }
+}
+
+/** Synthetic catalog presentation belongs to the project/host fixture, not the smoke root. */
+export function smokeProjectHostOptions(host: ProjectHost, remote: ProjectHost) {
+  return () => [
+    {
+      hostId: host.hostId,
+      label: 'Local',
+      kind: 'local' as const,
+      connectionState: host.connectionState,
+      watchTier: host.watchTier,
+    },
+    {
+      hostId: remote.hostId,
+      label: 'Smoke SSH',
+      kind: 'ssh' as const,
+      connectionState: remote.connectionState,
+      watchTier: remote.watchTier,
+    },
+  ]
 }

@@ -394,8 +394,13 @@ export class SshFileAccess {
     this.sftpSession = pending
     void pending.then(
       (session) => {
-        session.once('close', () => {
+        const invalidateSession = (): void => {
           if (this.sftpSession === pending) this.sftpSession = undefined
+        }
+        session.once('error', invalidateSession)
+        session.once('close', () => {
+          session.removeListener('error', invalidateSession)
+          invalidateSession()
         })
       },
       () => {

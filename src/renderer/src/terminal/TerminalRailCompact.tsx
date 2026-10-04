@@ -2,6 +2,7 @@ import type { ReactElement } from 'react'
 
 import { terminalAttentionLabel, type TerminalAttention } from './terminal-attention'
 import type { TerminalSession } from './terminal-workspace-model'
+import { TerminalBellIcon } from './TerminalBellIcon'
 
 export function TerminalRailCompact({
   hidden,
@@ -53,7 +54,7 @@ export function TerminalRailCompact({
             aria-label={`${bell} terminal ${bell === 1 ? 'bell' : 'bells'}`}
             title={`${bell} terminal ${bell === 1 ? 'bell' : 'bells'}`}
           >
-            <span aria-hidden="true">B</span>
+            <TerminalBellIcon />
             {bell}
           </span>
         ) : null}
@@ -86,7 +87,9 @@ export function TerminalRailCompact({
                 title={label}
                 onClick={() => onFocusSession(session.id)}
               >
-                <span aria-hidden="true">{markerText(state)}</span>
+                <span aria-hidden="true">
+                  {state === 'bell' ? <TerminalBellIcon /> : markerText(state)}
+                </span>
               </button>
             </div>
           )
@@ -120,6 +123,5 @@ function markerLabel(
 function markerText(state: CompactTerminalState): string {
   if (state === 'working') return '…'
   if (state === 'idle') return 'R'
-  if (state === 'bell') return 'B'
   return ''
 }

@@ -39,17 +39,7 @@ export function SessionsOverviewCard({
           pressurePolicy={row.provider.contextPressure}
         />
       ) : null}
-      {row.compactions?.status !== 'unsupported' ? (
-        <CompactionMarkers
-          fact={
-            row.compactions ?? {
-              status: 'unavailable',
-              reason: 'source-unavailable',
-            }
-          }
-          className="session-card-compactions"
-        />
-      ) : null}
+      <CompactionMarkers fact={row.compactions} className="session-card-compactions" />
       <footer className="session-card-footer">
         <dl className="session-facts">
           {presentation.facts.map((fact) => (

@@ -247,10 +247,7 @@ describe('SessionDialog folder selection', () => {
     act(() => directoryRow('/projects/tree')?.click())
     await waitFor(() => selectedRow('/projects/tree') !== undefined)
 
-    expect(onPickerBrowse).toHaveBeenCalledExactlyOnceWith(
-      'picker-1',
-      '/projects/tree',
-    )
+    expect(onPickerBrowse).toHaveBeenCalledExactlyOnceWith('picker-1', '/projects/tree')
     expect(onBrowse).toHaveBeenCalledExactlyOnceWith('local', '/projects/tree')
   })
 
@@ -370,16 +367,20 @@ function renderDialog({
   const connected: ConnectedHost = { host: currentHost, suggestedPath }
   const folderPicker: ProjectFolderPickerPort = {
     start: () => Promise.resolve({ pickerId: 'picker-1' }),
-    browse:
-      onPickerBrowse ??
-      ((_pickerId, path) => onBrowse(currentHost.hostId, path)),
+    browse: onPickerBrowse ?? ((_pickerId, path) => onBrowse(currentHost.hostId, path)),
     createDirectory: onCreateDirectory,
     close: () => Promise.resolve(),
   }
   act(() => {
     root.render(
       <SessionDialog
-        hosts={[localHost, sshHost]}
+        sshConfiguration={{
+          snapshot: () => Promise.resolve([localHost, sshHost]),
+          defaults: () => Promise.resolve({ username: 'picard', port: 22 }),
+          refresh: () => Promise.resolve([localHost, sshHost]),
+          save: () => Promise.resolve([]),
+          pickIdentity: () => Promise.resolve(undefined),
+        }}
         currentRoot={hostPath(asHostId(currentHost.hostId), '/current')}
         suspended={false}
         onCancel={vi.fn()}
@@ -396,6 +397,7 @@ function renderDialog({
 }
 
 async function chooseFolder(): Promise<void> {
+  await waitFor(() => buttonOrUndefined('Choose folder')?.disabled === false)
   await clickButton('Choose folder')
   flushFrames()
 }

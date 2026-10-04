@@ -1,11 +1,13 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-import { localPath, type HostPath, type ProjectHostOption } from '../../shared'
+import { type HostPath, type ProjectHostOption } from '../../shared'
 import { LocalHost } from './local-host'
 import type { Disposer, ProjectHost } from './project-host'
 import type { SshAuthPrompter } from './ssh-auth'
-import { parseSshConfig, type SshAliasConfig } from './ssh-config'
+import type { SshAliasConfig } from './ssh-config'
+import { SshConfiguration } from './ssh-configuration'
+import type { AddSshHostRequest } from '../../shared/ssh-configuration'
 import { SshHost } from './ssh-host'
 import { SshHostTrustStore } from './ssh-host-trust'
 import { LocalSshIdentitySource } from './ssh-identity-source'
@@ -30,11 +32,12 @@ export class ProjectHostCatalog {
 
   private constructor(
     local: LocalHost,
-    private readonly aliases: readonly SshAliasConfig[],
+    private aliases: readonly SshAliasConfig[],
     private readonly prompter: SshAuthPrompter,
     private readonly trust: SshHostTrustStore,
     private readonly home: string,
     private readonly agentSocket: string | undefined,
+    private readonly configuration: SshConfiguration,
   ) {
     this.local = local
     this.hosts.set(local.hostId, local)
@@ -45,7 +48,8 @@ export class ProjectHostCatalog {
     try {
       await local.connect()
       const home = options.home ?? homedir()
-      const aliases = await loadSshAliases(local, home)
+      const configuration = new SshConfiguration(local, home)
+      const aliases = await configuration.refresh().catch(() => [])
       const trust = await SshHostTrustStore.load(local, options.trustFile)
       return new ProjectHostCatalog(
         local,
@@ -54,6 +58,7 @@ export class ProjectHostCatalog {
         trust,
         home,
         options.agentSocket ?? process.env['SSH_AUTH_SOCK'],
+        configuration,
       )
     } catch (error) {
       await local.dispose()
@@ -71,7 +76,15 @@ export class ProjectHostCatalog {
   listHosts(): readonly ProjectHostOption[] {
     return [
       hostOption(this.local, 'Local', 'local'),
-      ...this.aliases.map((config) => {
+      ...[
+        ...this.aliases,
+        ...[...this.hosts.keys()]
+          .filter(
+            (id) =>
+              id !== this.local.hostId && !this.aliases.some(({ alias }) => alias === id),
+          )
+          .map((alias) => ({ alias })),
+      ].map((config) => {
         const host = this.hosts.get(config.alias)
         return host
           ? hostOption(host, config.alias, 'ssh')
@@ -84,6 +97,23 @@ export class ProjectHostCatalog {
             }
       }),
     ]
+  }
+
+  async refreshHosts(): Promise<readonly ProjectHostOption[]> {
+    const aliases = await this.configuration.refresh()
+    if (this.disposed) throw new Error('Project host catalog is disposed')
+    this.aliases = aliases
+    return this.listHosts()
+  }
+
+  async addSshHost(
+    request: AddSshHostRequest,
+    assertActive: () => void,
+  ): Promise<readonly ProjectHostOption[]> {
+    const aliases = await this.configuration.save(request, assertActive)
+    if (this.disposed) throw new Error('Project host catalog is disposed')
+    this.aliases = aliases
+    return this.listHosts()
   }
 
   hostById(hostId: string): ProjectHost | undefined {
@@ -136,6 +166,7 @@ export class ProjectHostCatalog {
   }
 
   private async disposeOwnedHosts(): Promise<void> {
+    await this.configuration.dispose()
     await Promise.all(
       [...this.pendingHosts.values()].map((pending) => pending.catch(() => undefined)),
     )
@@ -189,20 +220,6 @@ export function identityFileCandidates(
 ): readonly string[] {
   if (config.identityFiles.length) return [...new Set(config.identityFiles)]
   return DEFAULT_IDENTITY_NAMES.map((name) => join(home, '.ssh', name))
-}
-
-async function loadSshAliases(
-  host: LocalHost,
-  home: string,
-): Promise<readonly SshAliasConfig[]> {
-  try {
-    return parseSshConfig(
-      await host.readTextFile(localPath(join(home, '.ssh/config'))),
-      home,
-    )
-  } catch {
-    return []
-  }
 }
 
 function hostOption(

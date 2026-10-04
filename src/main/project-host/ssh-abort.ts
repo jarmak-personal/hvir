@@ -1,4 +1,5 @@
 import type { SFTPWrapper } from 'ssh2'
+import { retainSftpErrorHandler } from './ssh-sftp-errors'
 
 export function writeSftpFile(
   session: SFTPWrapper,
@@ -8,30 +9,32 @@ export function writeSftpFile(
   signal: AbortSignal | undefined,
   done: (reason: Error | null | undefined, value: void) => void,
 ): void {
+  const abortReason = (): Error =>
+    signal?.reason instanceof Error ? signal.reason : abortError()
   if (signal?.aborted) {
-    done(abortError(), undefined)
+    done(abortReason(), undefined)
     return
   }
   const stream = session.createWriteStream(path, mode === undefined ? {} : { mode })
   let settled = false
   const abort = () => {
+    finish(abortReason())
     stream.destroy()
-    finish(abortError())
   }
   const finish = (reason?: Error): void => {
     if (settled) return
     settled = true
     signal?.removeEventListener('abort', abort)
-    stream.removeListener('error', onError)
-    stream.removeListener('finish', onFinish)
     stream.removeListener('close', onClose)
+    releaseErrors()
     done(reason, undefined)
   }
   const onError = (reason: Error) => finish(reason)
-  const onFinish = () => finish()
-  const onClose = () => finish(new Error('SSH file write closed before completion'))
-  stream.once('error', onError)
-  stream.once('finish', onFinish)
+  const onClose = () => {
+    // ssh2 emits close only after CLOSE succeeds; finish can precede that reply.
+    finish()
+  }
+  const releaseErrors = retainSftpErrorHandler(stream, onError)
   stream.once('close', onClose)
   signal?.addEventListener('abort', abort, { once: true })
   stream.end(data)
