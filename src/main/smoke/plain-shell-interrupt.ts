@@ -29,7 +29,10 @@ export async function verifyPlainShellInterrupt(
         launchSpec: {
           ...plainShellLaunch(fixture.path, {
             executable: '/bin/sh',
-            args: ['-c', 'printf "hvir-command-awaiting-signal\\n"; sleep 60'],
+            args: [
+              '-c',
+              'trap "exit 130" INT; trap "exit 131" QUIT; printf "hvir-command-awaiting-signal\\n"; while :; do :; done',
+            ],
             environment: {},
           }),
           env: { HVIR_INTERRUPT_DEFAULT_SHELL: shell },
