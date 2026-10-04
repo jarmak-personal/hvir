@@ -1,3 +1,4 @@
+import type { ExtensionGuestPorts } from './guest-capability-ports'
 import { extensionId, extensionObject } from '../../shared/extensions/validation'
 import { validateExtensionViewInput } from '../../shared/extensions/view-input'
 import type {
@@ -7,7 +8,6 @@ import type {
 import type { ExtensionInvocation } from '../../shared/extensions/contract'
 import type { RendererOwner } from '../renderer-resource-scopes'
 import type { ExtensionGuestAuthority, ExtensionViewAuthority } from './guest-authority'
-import type { ExtensionActionOwner } from './action-owner'
 import type { AdmittedExtensionContext } from './context-owner'
 interface OwnViewCaller {
   readonly owner: RendererOwner
@@ -45,7 +45,7 @@ export async function openGuestOwnView(
   record: OwnViewCaller,
   input: unknown,
   current: () => void,
-  actions?: ExtensionActionOwner,
+  actions: ExtensionGuestPorts['actions'],
   invocation?: ExtensionInvocation,
 ): Promise<unknown> {
   const target = extensionObject(input)
@@ -70,9 +70,7 @@ export async function openGuestOwnView(
       readingOrigin: invocation ? 'action' : record.readingOrigin,
       authority:
         record.authority.view() ??
-        (invocation
-          ? actions?.authority(record.view.id, invocation.id)?.view
-          : undefined),
+        (invocation ? actions.authority(record.view.id, invocation.id)?.view : undefined),
       context: {
         surface: 'viewer',
         ...(!application && record.context?.value.workspace

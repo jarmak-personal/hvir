@@ -1,5 +1,4 @@
-import type { ExtensionSourceReadingOwner } from './source-reading'
-import type { ExtensionSourceReveal } from './source-reveal'
+import type { ExtensionGuestPorts } from './guest-capability-ports'
 import type { ExtensionActivation } from './activation'
 import type { ExtensionInvocation } from '../../shared/extensions/contract'
 import type { ExtensionView } from '../../shared/extensions/workbench'
@@ -23,11 +22,10 @@ export async function requestGuestSource(
   record: SourceGuest,
   signal: AbortSignal,
   assertOrigin: () => void,
-  sources?: ExtensionSourceReadingOwner,
-  invocation?: ExtensionInvocation,
-  reveal?: ExtensionSourceReveal,
+  sources: ExtensionGuestPorts['sources'],
+  invocation: ExtensionInvocation | undefined,
+  reveal: ExtensionGuestPorts['sourceReveal'],
 ): Promise<unknown> {
-  if (!sources) throw new Error('Source reading is unavailable')
   if (capability === 'source.status')
     return sources.approvals
       .status(record.activation)
@@ -50,7 +48,6 @@ export async function requestGuestSource(
     context: () => record.context,
   }
   if (capability === 'source.reveal') {
-    if (!reveal) throw new Error('Files reveal is unavailable')
     return reveal.reveal(caller, input, record.owner)
   }
   if (capability === 'source.select') return sources.select(caller, input)

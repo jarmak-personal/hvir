@@ -1,5 +1,6 @@
+import type { ExtensionGuestPorts } from './guest-capability-ports'
 import type { ConnectorCaller } from './connector-execution'
-import type { DeliveryCaller, ExtensionManagedDeliveryOwner } from './managed-delivery'
+import type { DeliveryCaller } from './managed-delivery'
 import type { AdmittedExtensionContext } from './context-owner'
 import type {
   ExtensionInvocation,
@@ -11,7 +12,7 @@ export async function requestGuestDelivery(
   capability: string,
   input: unknown,
   caller: ConnectorCaller,
-  delivery: ExtensionManagedDeliveryOwner,
+  delivery: ExtensionGuestPorts['deliveries'],
   context: AdmittedExtensionContext | undefined,
   authorize: DeliveryCaller['authorize'],
   human: boolean,

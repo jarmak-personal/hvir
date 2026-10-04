@@ -1,10 +1,6 @@
+import type { ExtensionGuestPorts } from './guest-capability-ports'
 import { requestGuestDelivery } from './guest-delivery'
-import type { ExtensionManagedDeliveryOwner } from './managed-delivery'
-import type {
-  ExtensionConnectorExecutionOwner,
-  ConnectorCaller,
-} from './connector-execution'
-import type { ExtensionActionOwner } from './action-owner'
+import type { ConnectorCaller } from './connector-execution'
 import type { ExtensionContextOwner, AdmittedExtensionContext } from './context-owner'
 import type { ExtensionGuestAuthority } from './guest-authority'
 import type { ExtensionActivation } from './activation'
@@ -29,16 +25,15 @@ export async function requestGuestConnector(
   signal: AbortSignal,
   assertOrigin: () => void,
   contexts: ExtensionContextOwner,
-  connectors?: ExtensionConnectorExecutionOwner,
-  actions?: ExtensionActionOwner,
-  connectorDemand?: (installation: string, workspace?: string) => boolean,
-  invocation?: ExtensionInvocation,
-  delivery?: ExtensionManagedDeliveryOwner,
+  connectors: ExtensionGuestPorts['connectors'],
+  actions: ExtensionGuestPorts['actions'],
+  connectorDemand: ExtensionGuestPorts['connectorDemand'],
+  invocation: ExtensionInvocation | undefined,
+  delivery: ExtensionGuestPorts['deliveries'],
 ): Promise<unknown> {
   const invocationAuthority = invocation
-    ? actions?.authority(record.view.id, invocation.id)
+    ? actions.authority(record.view.id, invocation.id)
     : undefined
-  if (!connectors) throw new Error('Connector execution is unavailable')
   const caller: ConnectorCaller = {
     authorizeHost: (host, workspace) => {
       if (invocation) {
@@ -62,7 +57,7 @@ export async function requestGuestConnector(
         return undefined
       if (
         record.view.role === 'updater' &&
-        !connectorDemand?.(record.activation.installationId, workspace)
+        !connectorDemand(record.activation.installationId, workspace)
       )
         return undefined
       return contexts.admit(record.owner, {
@@ -73,13 +68,13 @@ export async function requestGuestConnector(
     demand: (workspace) =>
       record.view.role === 'updater'
         ? record.visible &&
-          connectorDemand?.(record.activation.installationId, workspace) === true
+          connectorDemand(record.activation.installationId, workspace) === true
         : record.visible &&
           record.refreshDemand &&
           (!workspace || workspace === record.context?.value.workspace?.id),
   }
   if (capability.startsWith('delivery.')) {
-    if (!delivery || record.view.role === 'updater')
+    if (record.view.role === 'updater')
       throw new Error('Managed delivery is unavailable to this runtime')
     const authorize = (host: string, workspace?: string): void => {
       if (invocation) {

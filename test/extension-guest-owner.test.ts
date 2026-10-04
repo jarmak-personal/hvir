@@ -10,8 +10,6 @@ import {
   DEFAULT_EXTENSION_PRESENTATION,
 } from '../src/main/extensions/guest-owner'
 import { contextFixture } from './fixtures/extension-context'
-import { ExtensionPresentationState } from '../src/main/extensions/presentation-state'
-import { ExtensionActionOwner } from '../src/main/extensions/action-owner'
 import { localPath } from '../src/shared/host-path'
 
 import { fixture, attached } from './fixtures/extension-guest'
@@ -41,6 +39,29 @@ describe('extension guest capability and lifetime owner', () => {
     ).toMatchObject({
       capabilities: ['presentation.read'],
     })
+    await data.owner.dispose()
+  })
+  it('refuses a declared terminal handoff when the host has no terminal collaborator', async () => {
+    const data = fixture({}, { requiredCapabilities: ['terminal.start'] })
+    const view = await attached(data)
+    data.owner.receive(10, { kind: 'hello', contract: '1.0' })
+    data.owner.receive(10, {
+      kind: 'request',
+      id: 'terminal',
+      capability: 'terminal.start',
+      input: {},
+    })
+    await vi.waitFor(() =>
+      expect(data.sent.find((entry) => entry.message.kind === 'result')).toMatchObject({
+        message: {
+          kind: 'result',
+          ok: false,
+          id: 'terminal',
+          error: 'Terminal handoff is unavailable',
+        },
+      }),
+    )
+    expect(data.owner.snapshot(data.renderer)).toEqual([view])
     await data.owner.dispose()
   })
   it('publishes a separate action view without selecting it on first open or reuse', async () => {
@@ -134,6 +155,7 @@ describe('extension guest capability and lifetime owner', () => {
           data.surface,
           data.publish,
           undefined as unknown as ReturnType<typeof contextFixture>['contexts'],
+          data.ports,
         ),
     ).toThrow('context admission')
   })
@@ -207,15 +229,7 @@ describe('extension guest capability and lifetime owner', () => {
       },
     )
     const view = await attached(data, 10, 'action')
-    const actions = new ExtensionActionOwner({
-      open: (owner, installation, contribution, options, admit) =>
-        data.owner.open(owner, installation, contribution, admit, options),
-      dispatch: (id, invocation) => data.owner.dispatch(id, invocation),
-      runnable: (id, action, admitted) => data.owner.runnable(id, action, admitted),
-      cancelAction: (id, action) => data.owner.cancelAction(id, action),
-      assertView: (id) => data.owner.assertView(id),
-    })
-    data.owner.actions = actions
+    const actions = data.actions
     data.owner.receive(10, { kind: 'hello', contract: '1.0' })
     const activation = data.active.get('installation')!
     const cancelled = new AbortController()
@@ -287,15 +301,7 @@ describe('extension guest capability and lifetime owner', () => {
       },
     )
     const view = await attached(data, 10, 'action')
-    const actions = new ExtensionActionOwner({
-      open: (owner, installation, contribution, options, admit) =>
-        data.owner.open(owner, installation, contribution, admit, options),
-      dispatch: (id, invocation) => data.owner.dispatch(id, invocation),
-      runnable: (id, action, admitted) => data.owner.runnable(id, action, admitted),
-      cancelAction: (id, action) => data.owner.cancelAction(id, action),
-      assertView: (id) => data.owner.assertView(id),
-    })
-    data.owner.actions = actions
+    const actions = data.actions
     data.owner.receive(10, { kind: 'hello', contract: '1.0' })
     const parent = actions.invoke(
       data.renderer,
@@ -386,11 +392,7 @@ describe('extension guest capability and lifetime owner', () => {
         },
       )
       const context = data.context
-      const state = new ExtensionPresentationState(
-        { read: () => Promise.resolve({}), save: () => Promise.resolve() },
-        () => data.owner.publishValues(),
-      )
-      data.owner.presentationState = state
+      const state = data.presentation
       const view = await data.owner.open(
         data.renderer,
         'installation',

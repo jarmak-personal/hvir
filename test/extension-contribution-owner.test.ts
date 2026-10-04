@@ -1,3 +1,5 @@
+import { guestTestPorts } from './fixtures/extension-guest'
+import { ExtensionActionOwner } from '../src/main/extensions/action-owner'
 import { releasedExtension } from './fixtures/released-extension'
 import { describe, expect, it, vi } from 'vitest'
 import { ExtensionContributionOwner } from '../src/main/extensions/contribution-owner'
@@ -58,18 +60,32 @@ function fixture() {
     send: vi.fn(),
   }
   const contexts = contextFixture().contexts
-  const guests = new ExtensionGuestOwner(
+  const presentation = new ExtensionPresentationState(
+    { read: () => Promise.resolve({}), save: () => Promise.resolve() },
+    () => undefined,
+  )
+  const actions: ExtensionActionOwner = new ExtensionActionOwner({
+    open: (owner, installation, contribution, options, admit) =>
+      guests.open(owner, installation, contribution, admit, options),
+    dispatch: (view, invocation) => guests.dispatch(view, invocation),
+    runnable: (view, id, admitted) => guests.runnable(view, id, admitted),
+    cancelAction: (view, id) => guests.cancelAction(view, id),
+    assertView: (view) => guests.assertView(view),
+  })
+  const guests: ExtensionGuestOwner = new ExtensionGuestOwner(
     activations,
     scopes,
     surface,
     () => undefined,
     contexts,
+    guestTestPorts(actions, presentation, {
+      updaterFailed: (view) => contributions.failed(view),
+      visibleContributionsChanged: () => contributions.contextChanged(),
+      connectorDemand: (id, workspace) => contributions.connectorDemand(id, workspace),
+      updaterSessions: (id) => contributions.updaterSessions(id),
+    }),
   )
-  const presentation = new ExtensionPresentationState(
-    { read: () => Promise.resolve({}), save: () => Promise.resolve() },
-    () => undefined,
-  )
-  const contributions = new ExtensionContributionOwner(
+  const contributions: ExtensionContributionOwner = new ExtensionContributionOwner(
     activations,
     guests,
     () => contexts,
@@ -86,8 +102,6 @@ function fixture() {
       sessionId,
     },
   ]
-  guests.updaterFailed = (view) => contributions.failed(view)
-  guests.visibleContributionsChanged = () => contributions.contextChanged()
   return { active, scopes, a, b, guests, surface, contributions, presentation, demand }
 }
 

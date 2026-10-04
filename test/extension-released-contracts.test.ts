@@ -116,9 +116,9 @@ it.each(['human', 'agent', 'action'] as const)(
       {},
       {},
       validateCapturedExtension({ sourceIdentity: 'released-scoped-contract', files }),
+      { sources: source.reading },
     )
     source.active.set('installation', guest.active.get('installation')!)
-    guest.owner.sources = source.reading
     try {
       const view = await guest.owner.open(
         guest.renderer,

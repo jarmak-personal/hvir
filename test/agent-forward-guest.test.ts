@@ -1,3 +1,5 @@
+import { guestTestPorts } from './fixtures/extension-guest'
+import { ExtensionPresentationState } from '../src/main/extensions/presentation-state'
 import { validateAgentRequest } from '../src/shared/agent/contract'
 import { afterEach, expect, it, vi } from 'vitest'
 import { AgentWorkbenchCommandOwner } from '../src/main/agent/command-owner'
@@ -121,7 +123,27 @@ async function fixture() {
   )
   await access.configure({ enabled: true, confirmDestructive: false })
   scopes.register('remote', 'object:1:forward')
-  const guests = new ExtensionGuestOwner(
+  const open = (
+    owner: typeof renderer,
+    id: string,
+    view: string,
+    options: Parameters<
+      import('../src/main/extensions/action-owner').ExtensionActionGuestPort['open']
+    >[3],
+    admit: () => void,
+  ) => guests.open(owner, id, view, admit, options)
+  const actions: ExtensionActionOwner = new ExtensionActionOwner({
+    open,
+    dispatch: (view, invocation) => guests.dispatch(view, invocation),
+    runnable: (view, action, admitted) => guests.runnable(view, action, admitted),
+    cancelAction: (view, action) => guests.cancelAction(view, action),
+    assertView: (view) => guests.assertView(view),
+  })
+  const presentation = new ExtensionPresentationState(
+    { read: () => Promise.resolve({}), save: () => Promise.resolve() },
+    () => guests.publishValues(),
+  )
+  const guests: ExtensionGuestOwner = new ExtensionGuestOwner(
     connector.authority,
     resourceScopes,
     {
@@ -132,25 +154,8 @@ async function fixture() {
     },
     () => undefined,
     context,
+    guestTestPorts(actions, presentation, { connectors: connector.execution }),
   )
-  guests.connectors = connector.execution
-  const open = (
-    owner: typeof renderer,
-    id: string,
-    view: string,
-    options: Parameters<
-      import('../src/main/extensions/action-owner').ExtensionActionGuestPort['open']
-    >[3],
-    admit: () => void,
-  ) => guests.open(owner, id, view, admit, options)
-  const actions = new ExtensionActionOwner({
-    open,
-    dispatch: (view, invocation) => guests.dispatch(view, invocation),
-    runnable: (view, action, admitted) => guests.runnable(view, action, admitted),
-    cancelAction: (view, action) => guests.cancelAction(view, action),
-    assertView: (view) => guests.assertView(view),
-  })
-  guests.actions = actions
   const reports = new AgentReportOwner(() => undefined)
   const commands = new AgentWorkbenchCommandOwner({
     contexts: () => context,
