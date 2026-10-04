@@ -5,15 +5,15 @@ import {
   boundTextWorkload,
   type TextWorkload,
 } from '../../shared'
+import { retainSftpErrorHandler } from './ssh-sftp-errors'
 
 interface SshTextPrefixStream {
   readonly destroyed: boolean
   destroy(): void
   on(event: 'data', listener: (chunk: Buffer) => void): this
-  once(event: 'error', listener: (reason: Error) => void): this
+  on(event: 'error', listener: (reason: Error) => void): this
   once(event: 'end' | 'close', listener: () => void): this
   removeListener(event: 'data', listener: (chunk: Buffer) => void): this
-  removeListener(event: 'error', listener: (reason: Error) => void): this
   removeListener(event: 'end' | 'close', listener: () => void): this
 }
 
@@ -40,9 +40,9 @@ export async function readSshTextPrefix(
     let ended = false
     const cleanup = (): void => {
       stream.removeListener('data', onData)
-      stream.removeListener('error', onError)
       stream.removeListener('end', onEnd)
       stream.removeListener('close', onClose)
+      releaseErrors()
       signal?.removeEventListener('abort', onAbort)
     }
     const finish = (reason?: Error): void => {
@@ -70,7 +70,7 @@ export async function readSshTextPrefix(
       if (!ended) finish(new Error('SSH text prefix read closed before completion'))
     }
     stream.on('data', onData)
-    stream.once('error', onError)
+    const releaseErrors = retainSftpErrorHandler(stream, onError)
     stream.once('end', onEnd)
     stream.once('close', onClose)
     signal?.addEventListener('abort', onAbort, { once: true })
