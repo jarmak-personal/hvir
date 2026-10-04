@@ -127,7 +127,7 @@ function workspacePath(workspace) {
     throw new Error('This operation requires the exact local registered project/worktree')
   return absoluteLocalPath(workspace.root.path).path
 }
-function fileState(value, generated = false) {
+export function fileState(value, generated = false) {
   if (value === null) return
   const state = object(value)
   if (

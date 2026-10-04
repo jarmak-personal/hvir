@@ -236,15 +236,15 @@
       }
     },
     {
-      "id": "update-copy",
-      "title": "Update selected managed copy or mode",
+      "id": "change-exposure",
+      "title": "Change selected project exposure",
       "view": "management",
       "agents": true,
       "effects": {
         "delete": true,
         "replace": true
       },
-      "description": "Bind exact local project, public source/managed identity and complete token plan. Preserve protected targets; no force flags or mutation retry.",
+      "description": "Review and apply one exact local Update, Router grouping, complete membership change, Ungroup or preserved native adoption through a whole public token-bound plan. No force or replay.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -278,56 +278,20 @@
             "required": ["id", "root"],
             "additionalProperties": false
           },
-          "skillId": {
-            "type": "string",
-            "maxLength": 256
-          },
-          "hash": {
-            "type": "string",
-            "maxLength": 64
-          },
           "agent": {
             "type": "string",
             "enum": ["codex", "claude"]
           },
-          "mode": {
+          "request": {
             "type": "string",
-            "enum": ["native", "stub"]
-          },
-          "exposureId": {
-            "type": "string",
-            "maxLength": 256
-          },
-          "target": {
-            "type": "object",
-            "properties": {
-              "hostId": {
-                "type": "string",
-                "enum": ["local"]
-              },
-              "path": {
-                "type": "string",
-                "maxLength": 2048
-              }
-            },
-            "required": ["hostId", "path"],
-            "additionalProperties": false
+            "maxLength": 6144
           },
           "token": {
             "type": "string",
             "maxLength": 64
           }
         },
-        "required": [
-          "library",
-          "skillId",
-          "hash",
-          "agent",
-          "mode",
-          "exposureId",
-          "target",
-          "token"
-        ],
+        "required": ["library", "agent", "request", "token"],
         "additionalProperties": false
       }
     },

@@ -366,7 +366,19 @@ it('verifies a transformed Stub using its public canonical source binding, indep
   const f = fixture()
   const input = f.stub()
   f.outcome('completed')
-  const result = await f.invoke('update-copy', input)
+  const result = await f.invoke('change-exposure', {
+    library: input.library,
+    agent: input.agent,
+    token: input.token,
+    request: JSON.stringify({
+      action: 'update-copy',
+      skillId: input.skillId,
+      hash: input.hash,
+      mode: input.mode,
+      exposureId: input.exposureId,
+      target: input.target,
+    }),
+  })
   expect(result['outcome']).toBe('verified')
   expect(result['mode']).toBe('stub')
   expect(f.calls.at(-1)).toEqual(['library', 'status', f.source.id, '--json'])
@@ -385,7 +397,19 @@ it.each([
     const input = f.stub()
     f.outcome('completed')
     f.sourceBinding(binding)
-    const result = await f.invoke('update-copy', input)
+    const result = await f.invoke('change-exposure', {
+      library: input.library,
+      agent: input.agent,
+      token: input.token,
+      request: JSON.stringify({
+        action: 'update-copy',
+        skillId: input.skillId,
+        hash: input.hash,
+        mode: input.mode,
+        exposureId: input.exposureId,
+        target: input.target,
+      }),
+    })
     expect(result['outcome']).toBe('uncertain')
     expect(result['message']).toMatch(/source-bound exposure disagree/)
     expect(typeof result['operationId']).toBe('string')
@@ -402,7 +426,19 @@ it.each([{ metadata: null }, { metadata: {} }, { metadata: [null] }])(
     const input = f.stub()
     f.outcome('completed')
     f.malformedExposures(metadata)
-    const result = await f.invoke('update-copy', input)
+    const result = await f.invoke('change-exposure', {
+      library: input.library,
+      agent: input.agent,
+      token: input.token,
+      request: JSON.stringify({
+        action: 'update-copy',
+        skillId: input.skillId,
+        hash: input.hash,
+        mode: input.mode,
+        exposureId: input.exposureId,
+        target: input.target,
+      }),
+    })
     expect(result['outcome']).toBe('uncertain')
     expect(result['message']).toMatch(/source-bound exposure disagree/)
     expect(await f.invoke('operation-state', { mode: 'list' })).toEqual({

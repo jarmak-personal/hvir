@@ -604,10 +604,19 @@ transient launch data never enters recovery, and handed-off terminals retain ord
 
 ### [ADR-059 — Public local Skillager management](adr/ADR-059-public-local-skillager-management.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-060](adr/ADR-060-public-skillager-advanced-exposure.md) | partial | Exclusion of native adoption from local management; complete public preservation-backed adoption is permitted by this decision.
 
 Extension-local workflows consume verified public initialization, approved synchronization and
 complete token-bound managed-copy plans; current reading and exact acceptance remain separate.
+
+### [ADR-060 — Public Skillager advanced local exposure](adr/ADR-060-public-skillager-advanced-exposure.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-059](adr/ADR-059-public-local-skillager-management.md) | partial | Exclusion of native adoption from local management; complete public preservation-backed adoption is permitted by this decision.
+
+Extension-local advanced choices consume complete public token plans, preservation semantics
+and truthful per-target recovery through the existing bounded action and connector owners.
 
 ## 5. Architecture
 

@@ -1,5 +1,6 @@
 import { managementCli } from './management-cli.mjs'
 import { initializeLibrary, synchronizeLibrary } from './management-library.mjs'
+import { applyExposureChange } from './exposure-operation.mjs'
 import { applyCopy } from './management-copy.mjs'
 import { pendingManagement } from './management-pending.mjs'
 import { reconciliationFacts } from './management-reconcile.mjs'
@@ -62,7 +63,7 @@ export async function executeManagement(client, invocation) {
   }
   const workspace = invocation.context.workspace,
     project =
-      ['add-copy', 'update-copy', 'remove-copy'].includes(invocation.action) ||
+      ['add-copy', 'change-exposure', 'remove-copy'].includes(invocation.action) ||
       (invocation.action === 'sync-library' && workspace?.host === 'local') ||
       (invocation.action === 'operation-state' &&
         ['observe', 'acknowledge'].includes(invocation.input.mode) &&
@@ -132,7 +133,14 @@ export async function executeManagement(client, invocation) {
       )
       return { ...result, ...(io.pending ? { operationId: invocation.id } : {}) }
     }
-    if (['add-copy', 'update-copy', 'remove-copy'].includes(invocation.action))
+    if (invocation.action === 'change-exposure')
+      return {
+        ...(await applyExposureChange(io, invocation.input, workspace, (descriptor) =>
+          pending.assertAvailable(descriptor),
+        )),
+        ...(io.pending ? { operationId: invocation.id } : {}),
+      }
+    if (['add-copy', 'remove-copy'].includes(invocation.action))
       return await applyCopy(
         io,
         invocation.action,

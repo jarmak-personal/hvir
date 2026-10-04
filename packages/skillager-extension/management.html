@@ -81,6 +81,51 @@
         </div>
         <div id="managed-copies" class="hvir-list" aria-label="Managed copies"></div>
       </section>
+      <section aria-label="Advanced local exposure">
+        <h2>Advanced local choices</h2>
+        <p>
+          Group related skills behind one Router, change its members, ungroup it, or adopt
+          an original whose bytes are preserved in your library. Full/Stub mode and agent
+          above apply.
+        </p>
+        <button id="observe-advanced" class="hvir-button">
+          Observe Routers and preserved originals
+        </button>
+        <label
+          >Operation
+          <select id="advanced-operation" class="hvir-input">
+            <option value="group">Group in a new Router</option>
+            <option value="set-members">Edit Router members</option>
+            <option value="ungroup">Ungroup Router</option>
+            <option value="adopt-native">Adopt preserved native skill</option>
+          </select></label
+        >
+        <label id="advanced-name-row"
+          >New Router name <input id="advanced-name" class="hvir-input"
+        /></label>
+        <label id="advanced-router-row" hidden
+          >Existing Router
+          <select id="advanced-router" class="hvir-input"></select
+        ></label>
+        <label id="advanced-members-row"
+          >Complete desired library members, one lib/name per line
+          <textarea id="advanced-members" class="hvir-input"></textarea>
+        </label>
+        <div id="advanced-departures" hidden></div>
+        <label id="advanced-replace-row"
+          >Standalone copies to replace (unselected copies remain)
+          <select id="advanced-replacements" class="hvir-input" multiple></select
+        ></label>
+        <label id="advanced-origin-row" hidden
+          >Preserved native original
+          <select id="advanced-origin" class="hvir-input"></select
+        ></label>
+        <button id="preview-advanced" class="hvir-button">Review advanced change</button>
+        <details>
+          <summary>Observed identities and preservation details</summary>
+          <pre id="advanced-observation" tabindex="0"></pre>
+        </details>
+      </section>
       <section aria-label="Exact canonical review">
         <h2>Review exact library version</h2>
         <p class="hvir-meta">
@@ -144,7 +189,10 @@
       <section id="review" hidden aria-label="Complete operation review">
         <h2 id="review-title">Review complete plan</h2>
         <p id="review-summary"></p>
-        <pre id="review-plan" tabindex="0"></pre>
+        <details>
+          <summary>Complete plan and technical details</summary>
+          <pre id="review-plan" tabindex="0"></pre>
+        </details>
         <button id="confirm-plan" class="hvir-button">Confirm this exact plan</button
         ><button id="dismiss-plan" class="hvir-button">Dismiss review</button>
       </section>
