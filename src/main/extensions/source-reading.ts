@@ -64,7 +64,7 @@ export class ExtensionSourceReadingOwner {
     const input = extensionObject(value)
     const source = extensionText(input['source'], 'source identity', 80)
     const grant = this.approvals.get(caller.activation, source)
-    if (!grant)
+    if (!grant || grant.declaration.mode !== 'read-only')
       throw new Error('Grant this source in Settings → Extensions before reading')
     const path = readSourcePath(input['path'])
     const context =

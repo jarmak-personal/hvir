@@ -149,6 +149,29 @@ export type ProjectFileDeletionPort =
       readonly capability: 'unavailable'
     }
 
+/** Exact POSIX permissions are available only to the managed-delivery owner. */
+export interface ProjectManagedFileWriteOptions extends Omit<
+  ProjectFileWriteStreamOptions,
+  'mode'
+> {
+  readonly mode: number
+}
+export interface ProjectManagedFileMetadataOptions extends Omit<
+  ProjectFileMetadataOptions,
+  'mode'
+> {
+  readonly mode: number
+}
+export interface ProjectManagedTransferPort {
+  setMetadata(path: HostPath, opts: ProjectManagedFileMetadataOptions): Promise<void>
+  writeFileChunksExclusive(
+    path: HostPath,
+    chunks: AsyncIterable<Uint8Array>,
+    opts: ProjectManagedFileWriteOptions,
+  ): Promise<void>
+  entryIdentity(path: HostPath, signal?: AbortSignal): Promise<string>
+}
+
 /** Immediate transfer mechanics. Recursive policy remains coordinator-owned. */
 export interface ProjectFileTransferPort {
   readFileChunks(
@@ -279,6 +302,7 @@ export interface ProjectHost {
   readonly connectionState: HostConnectionState
   readonly watchTier: HostWatchTier
   /** Present when this host can participate in verified project-file transfers. */
+  readonly managedTransfer?: ProjectManagedTransferPort
   readonly fileTransfer?: ProjectFileTransferPort
   /** Exact recovery guarantee and immediate top-level trash mechanic, when available. */
   readonly fileDeletion: ProjectFileDeletionPort

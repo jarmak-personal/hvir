@@ -115,6 +115,13 @@ export class ExtensionSourceApprovalOwner {
           .find((entry) => entry.id === workspaceId)
         if (!workspace?.root) throw new Error('Choose an available registered workspace')
         root = readSourcePath(workspace.root)
+        if (
+          declaration.mode === 'managed-delivery' &&
+          root.hostId === this.hosts.local.hostId
+        )
+          throw new Error(
+            'Managed delivery requires an explicitly selected SSH workspace',
+          )
       } else {
         if (selection.workspaceId !== undefined)
           throw new Error('Application source has no workspace')

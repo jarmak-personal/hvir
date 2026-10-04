@@ -187,7 +187,10 @@ export function AgentAccessSettings({
                       }
                     />
                     Allow {grant.installation}/{grant.action} to run its approved native
-                    connector on {grant.executionHost} for {grant.workspace}
+                    {grant.capability === 'delivery.capture'
+                      ? 'export capture'
+                      : 'connector'}{' '}
+                    on {grant.executionHost} for {grant.workspace}
                   </label>
                 ))}
             </div>

@@ -365,7 +365,8 @@ installation.
 
 ### [ADR-030 — Bounded project file operations and explicit external-source authority](adr/ADR-030-bounded-project-file-operations.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-061](adr/ADR-061-explicit-managed-extension-delivery.md) | partial | External source acquisition and no-replacement rules only for explicitly granted managed extension delivery; ordinary Files remains unchanged.
 
 One main-owned coordinator applies fixed targeting, confinement, collision, transfer,
 verification, deletion, and lifecycle policy over immediate `ProjectHost` primitives; explicit
@@ -617,6 +618,14 @@ complete token-bound managed-copy plans; current reading and exact acceptance re
 
 Extension-local advanced choices consume complete public token plans, preservation semantics
 and truthful per-target recovery through the existing bounded action and connector owners.
+
+### [ADR-061 — Explicit managed extension delivery](adr/ADR-061-explicit-managed-extension-delivery.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-030](adr/ADR-030-bounded-project-file-operations.md) | partial | External source acquisition and no-replacement rules only for explicitly granted managed extension delivery; ordinary Files remains unchanged.
+
+Explicit local export capture and exact SSH workspace grants admit bounded managed delivery,
+with durable operation custody, no-replace publication, preservation, and deliberate recovery.
 
 ## 5. Architecture
 

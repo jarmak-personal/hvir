@@ -319,6 +319,30 @@ export class ExtensionConnectorExecutionOwner {
     return output
   }
 
+  /** Main-only custody check. It proves a successful exact caller execution, never tool approval. */
+  assertCaptureReceipt(caller: ConnectorCaller, value: unknown): void {
+    if (typeof value !== 'string')
+      throw new Error('A current native output receipt is required')
+    const receipt = this.receipts.get(value)
+    if (
+      !receipt ||
+      receipt.consumer.caller.view !== caller.view ||
+      receipt.consumer.caller.activation !== caller.activation ||
+      receipt.consumer.caller.action !== caller.action ||
+      receipt.consumer.approval.host !== this.scratch.hostId ||
+      receipt.result.outcome !== 'completed' ||
+      receipt.result.code !== 0 ||
+      receipt.result.signal ||
+      receipt.result.truncated ||
+      !this.valid(receipt.consumer)
+    )
+      throw new Error(
+        'Native capture receipt is stale, unsuccessful or belongs to another caller',
+      )
+    caller.current()
+    caller.signal.throwIfAborted()
+  }
+
   revalidate(): void {
     for (const admission of this.admissions) {
       try {

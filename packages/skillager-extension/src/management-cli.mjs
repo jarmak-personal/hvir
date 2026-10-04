@@ -43,7 +43,13 @@ export function managementCli(
       pending = undefined
       observePending(undefined)
     },
-    async run(args, operation, retryReadFrequency = true, validateCompletion) {
+    async run(
+      args,
+      operation,
+      retryReadFrequency = true,
+      validateCompletion,
+      captureOutput,
+    ) {
       current()
       if (operation && pending)
         throw new Error('Reconcile the exact submitted operation before another mutation')
@@ -87,7 +93,7 @@ export function managementCli(
           )
         const value = boundedManagementJson(JSON.parse(output))
         if (validateCompletion) validateCompletion(value, result.code)
-        return value
+        return captureOutput ? await captureOutput(value, result.receipt) : value
       } finally {
         if (result?.receipt)
           await client

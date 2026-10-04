@@ -1,3 +1,4 @@
+import { managedTransfer } from './managed-transfer'
 /**
  * `LocalHost` — the default `ProjectHost` (ADR-010).
  *
@@ -89,6 +90,16 @@ export class LocalHost implements ProjectHost {
       this.renameProjectFileNoReplace(source, destination, opts),
     removeDirectory: (path, opts) => this.removeDirectory(path, opts),
   }
+  readonly managedTransfer = managedTransfer(
+    this,
+    (path, chunks, options) => this.writeFileChunksExclusive(path, chunks, options),
+    (path, options) => this.setProjectFileMetadata(path, options),
+    async (path) => {
+      const value = await fsp.lstat(this.resolve(path), { bigint: true })
+      if (!value.isDirectory()) throw new Error('Managed directory changed')
+      return `${value.dev}:${value.ino}:${value.birthtimeNs}`
+    },
+  )
   readonly fileDeletion: ProjectFileDeletionPort
 
   /** Live watcher lifecycles, including any native-to-polling fallback. */
@@ -611,7 +622,7 @@ export class LocalHost implements ProjectHost {
   private async writeFileChunksExclusive(
     path: HostPath,
     chunks: AsyncIterable<Uint8Array>,
-    opts: ProjectFileWriteStreamOptions,
+    opts: Omit<ProjectFileWriteStreamOptions, 'mode'> & { readonly mode: number },
   ): Promise<void> {
     opts.signal?.throwIfAborted()
     const destination = this.resolve(path)
@@ -657,7 +668,7 @@ export class LocalHost implements ProjectHost {
 
   private async setProjectFileMetadata(
     path: HostPath,
-    opts: ProjectFileMetadataOptions,
+    opts: Omit<ProjectFileMetadataOptions, 'mode'> & { readonly mode: number },
   ): Promise<void> {
     opts.signal?.throwIfAborted()
     const target = this.resolve(path)

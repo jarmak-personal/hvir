@@ -67,9 +67,11 @@ describe('ordinary maintained Skillager package contract', () => {
       expect(
         readFileSync(`packages/skillager-extension/${view.entry}`, 'utf8'),
       ).toContain('script')
-    expect(manifest.access.map((source) => source.context)).toEqual([
-      'application',
-      'workspace',
+    expect(manifest.access.map((source) => [source.context, source.mode])).toEqual([
+      ['application', 'read-only'],
+      ['workspace', 'read-only'],
+      ['application', 'delivery-source'],
+      ['workspace', 'managed-delivery'],
     ])
   })
   it('reproduces maintained distribution assets byte for byte', () => {

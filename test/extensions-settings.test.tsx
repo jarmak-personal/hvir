@@ -31,7 +31,9 @@ describe('extension Settings observation order', () => {
       })
       const unsubscribe = vi.fn()
       vi.stubGlobal('hvir', {
-        invoke: vi.fn(() => initial),
+        invoke: vi.fn((channel: string) =>
+          channel === 'extensions:delivery-recovery' ? Promise.resolve([]) : initial,
+        ),
         on: vi.fn(
           (_channel: string, callback: (state: ExtensionPlatformState) => void) => {
             publish = callback
@@ -97,7 +99,9 @@ describe('package lifecycle Settings intent', () => {
         },
       ],
     }
-    const invoke = vi.fn(() => Promise.resolve(state))
+    const invoke = vi.fn((channel: string) =>
+      Promise.resolve(channel === 'extensions:delivery-recovery' ? [] : state),
+    )
     vi.stubGlobal('hvir', { invoke, on: vi.fn(() => vi.fn()) })
     element = document.createElement('div')
     document.body.append(element)
@@ -161,7 +165,9 @@ describe('package lifecycle Settings intent', () => {
       ],
     }
     vi.stubGlobal('hvir', {
-      invoke: vi.fn(() => Promise.resolve(state)),
+      invoke: vi.fn((channel: string) =>
+        Promise.resolve(channel === 'extensions:delivery-recovery' ? [] : state),
+      ),
       on: vi.fn(() => vi.fn()),
     })
     element = document.createElement('div')

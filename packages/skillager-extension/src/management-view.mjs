@@ -1,3 +1,4 @@
+import { bindDeliveryView } from './delivery-view.mjs'
 import { managementCli } from './management-cli.mjs'
 import {
   absoluteLocalPath,
@@ -31,6 +32,7 @@ export function bindManagementView(document, client) {
     element('result').textContent = JSON.stringify(value, null, 2)
   }
   function clearPlan() {
+    void prepared?.release?.()
     prepared = undefined
     element('review').hidden = true
   }
@@ -288,8 +290,10 @@ export function bindManagementView(document, client) {
       throw new Error(
         'The selected source changed. Select and review its current version again.',
       )
-    clearPlan()
-    await action(task.action, task.input)
+    prepared = undefined
+    element('review').hidden = true
+    if (task.perform) await task.perform()
+    else await action(task.action, task.input)
   })
   on('dismiss-plan', 'click', () => clearPlan())
   on('setup-project', 'click', async () => {
@@ -368,12 +372,32 @@ export function bindManagementView(document, client) {
     review,
     say,
   })
+  const delivery = bindDeliveryView(document, client, {
+    on,
+    onSelection,
+    context: () => context,
+    library: connected,
+    source: () => source,
+    review,
+    say,
+    show,
+    onButton: (button, work) =>
+      button.addEventListener(
+        'click',
+        (event) => {
+          event.preventDefault()
+          void guarded((current) => work(event, current))
+        },
+        { signal: client.signal },
+      ),
+  })
   const unlisten = client.listen((message) => {
     if (message.kind !== 'context') return
     if (JSON.stringify(message.context.workspace) !== JSON.stringify(context.workspace)) {
       clearPlan()
       element('managed-copies').replaceChildren()
       advanced.clear()
+      delivery.clear()
       revision++
     }
     if (!message.context.visible) revision++
@@ -389,7 +413,7 @@ export function bindManagementView(document, client) {
     }
     element('destination').textContent = context.workspace?.root
       ? `${context.workspace.host}: ${context.workspace.root.path} · exact selected workspace ${context.workspace.id}`
-      : 'Personal library · open this view from a local project for copies and terminal setup.'
+      : 'Personal library · select a local workspace for copies/setup or an SSH workspace for Full delivery.'
   })
   const exactReview = bindExactReview(document, client, {
     context: () => context,
@@ -399,6 +423,7 @@ export function bindManagementView(document, client) {
   })
   return {
     dispose() {
+      clearPlan()
       exactReview.dispose()
       unlisten()
       for (const release of listeners) release()

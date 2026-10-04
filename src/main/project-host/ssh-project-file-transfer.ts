@@ -71,7 +71,7 @@ export class SshProjectFileTransfer {
   async writeFileChunksExclusive(
     path: HostPath,
     chunks: AsyncIterable<Uint8Array>,
-    opts: ProjectFileWriteStreamOptions,
+    opts: Omit<ProjectFileWriteStreamOptions, 'mode'> & { readonly mode: number },
   ): Promise<void> {
     this.assertPath(path)
     const session = await this.port.getSftp(opts.signal)
@@ -132,7 +132,10 @@ export class SshProjectFileTransfer {
     this.port.invalidate(path.path)
   }
 
-  async setMetadata(path: HostPath, opts: ProjectFileMetadataOptions): Promise<void> {
+  async setMetadata(
+    path: HostPath,
+    opts: Omit<ProjectFileMetadataOptions, 'mode'> & { readonly mode: number },
+  ): Promise<void> {
     this.assertPath(path)
     await this.request<void>(
       (session, done) =>

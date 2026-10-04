@@ -10,6 +10,8 @@ export const OWNER_SCOPED_INVOKE_CHANNELS = [
   'agent:report-read',
   'agent:report-viewed',
   'agent:report-close',
+  'extensions:delivery-recovery',
+  'extensions:delivery-resolve',
   'extensions:source-settings',
   'extensions:source-prepare',
   'extensions:source-approve',

@@ -1,3 +1,5 @@
+import { requestGuestDelivery } from './guest-delivery'
+import type { ExtensionManagedDeliveryOwner } from './managed-delivery'
 import type {
   ExtensionConnectorExecutionOwner,
   ConnectorCaller,
@@ -17,6 +19,7 @@ interface ConnectorGuest {
   readonly context?: AdmittedExtensionContext
   readonly visible: boolean
   readonly refreshDemand: boolean
+  readonly readingOrigin: 'human' | 'agent' | 'action'
 }
 /** Connector provenance/demand adapts admitted guests to the finite execution owner. */
 export async function requestGuestConnector(
@@ -30,6 +33,7 @@ export async function requestGuestConnector(
   actions?: ExtensionActionOwner,
   connectorDemand?: (installation: string, workspace?: string) => boolean,
   invocation?: ExtensionInvocation,
+  delivery?: ExtensionManagedDeliveryOwner,
 ): Promise<unknown> {
   const invocationAuthority = invocation
     ? actions?.authority(record.view.id, invocation.id)
@@ -73,6 +77,29 @@ export async function requestGuestConnector(
         : record.visible &&
           record.refreshDemand &&
           (!workspace || workspace === record.context?.value.workspace?.id),
+  }
+  if (capability.startsWith('delivery.')) {
+    if (!delivery || record.view.role === 'updater')
+      throw new Error('Managed delivery is unavailable to this runtime')
+    const authorize = (host: string, workspace?: string): void => {
+      if (invocation) {
+        invocationAuthority?.assertCapability(capability, host, workspace)
+        record.authority
+          .forAction(invocation.action)
+          ?.assertCapability(capability, host, workspace)
+      } else record.authority.assertCapability(capability, host, workspace)
+    }
+    return requestGuestDelivery(
+      capability,
+      input,
+      caller,
+      delivery,
+      record.context,
+      authorize,
+      record.readingOrigin === 'human' && !record.authority.restricted && !invocation,
+      record.activation.revision.manifest,
+      invocation,
+    )
   }
   if (capability === 'connector.status')
     return connectors.approvals.status(record.activation).map((entry) => ({

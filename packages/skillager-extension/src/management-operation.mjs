@@ -1,3 +1,4 @@
+import { executeDelivery } from './delivery-operation.mjs'
 import { managementCli } from './management-cli.mjs'
 import { initializeLibrary, synchronizeLibrary } from './management-library.mjs'
 import { applyExposureChange } from './exposure-operation.mjs'
@@ -32,6 +33,15 @@ function readableRecord(client, invocation, id) {
 
 /** Admitted main provenance owns lifetime; workflows only consume public capabilities. */
 export async function executeManagement(client, invocation) {
+  if (
+    invocation.context.workspace?.host !== 'local' &&
+    (['add-copy', 'change-exposure', 'remove-copy'].includes(invocation.action) ||
+      (invocation.action === 'operation-state' &&
+        ['delivery-status', 'delivery-reconcile', 'delivery-forget'].includes(
+          invocation.input.mode,
+        )))
+  )
+    return executeDelivery(client, invocation)
   if (invocation.action === 'operation-state' && invocation.input.mode === 'list')
     return {
       ids: pending.ids().filter((id) => {

@@ -34,6 +34,12 @@ function SourceSetup({
   readonly installation: string
   readonly source: ExtensionSourceDeclaration
 }): ReactElement {
+  const scope =
+    source.mode === 'read-only'
+      ? 'read-only'
+      : source.mode === 'delivery-source'
+        ? 'local export capture'
+        : 'managed delivery'
   const [path, setPath] = useState('')
   const [workspaces, setWorkspaces] = useState<readonly ExtensionWorkspaceContext[]>([])
   const [workspaceId, setWorkspaceId] = useState('')
@@ -83,14 +89,19 @@ function SourceSetup({
   }, [installation, source])
   return (
     <fieldset disabled={busy}>
-      <legend>Read-only source: {source.id}</legend>
+      <legend>
+        {source.mode === 'read-only' ? 'Read-only source' : 'Delivery scope'}: {source.id}
+      </legend>
       <p>{source.description}</p>
       <p>
         {source.context === 'application'
           ? 'An explicitly selected local directory, independent of the selected workspace.'
           : 'One explicitly chosen registered project/worktree on its own host. Other current or future workspaces acquire no scope.'}{' '}
-        This grants selected document and confined image reads, never mutation or content
-        acceptance. Agent and action callers cannot read instruction bodies.
+        {source.mode === 'read-only'
+          ? 'This grants selected document and confined image reads, never mutation or content acceptance. Agent and action callers cannot read instruction bodies.'
+          : source.mode === 'delivery-source'
+            ? 'This grants complete bounded local export capture for delivery, without instruction-body reading or domain approval. Native execution requires its own connector approval.'
+            : 'This grants managed delivery only to this exact SSH workspace. Add requires an absent target; Update and Remove require unchanged hvir-owned content. Displaced content is preserved outside active skill discovery.'}
       </p>
       <p role="status">
         {status?.granted ? 'Granted' : 'Not granted'}
@@ -123,7 +134,11 @@ function SourceSetup({
           >
             <option value="">Choose a registered workspace</option>
             {workspaces
-              .filter((entry) => entry.root)
+              .filter(
+                (entry) =>
+                  entry.root &&
+                  (source.mode !== 'managed-delivery' || entry.root.hostId !== 'local'),
+              )
               .map((entry) => (
                 <option key={entry.id} value={entry.id}>
                   {entry.name} · {entry.root!.hostId}: {entry.root!.path}
@@ -149,12 +164,12 @@ function SourceSetup({
           })
         }
       >
-        Inspect read access
+        {source.mode === 'read-only' ? 'Inspect read access' : 'Inspect delivery scope'}
       </button>
       {decision ? (
         <>
           <p>
-            Grant read-only access to{' '}
+            Grant {scope} access to{' '}
             {decision.grant.root
               ? `${decision.grant.root.hostId}: ${decision.grant.root.path}`
               : 'unavailable source scope'}{' '}
@@ -173,7 +188,9 @@ function SourceSetup({
               })
             }
           >
-            Grant read-only access
+            {source.mode === 'read-only'
+              ? 'Grant read-only access'
+              : 'Grant delivery scope'}
           </button>
         </>
       ) : null}
@@ -191,7 +208,7 @@ function SourceSetup({
           })
         }
       >
-        Revoke read access
+        {source.mode === 'read-only' ? 'Revoke read access' : 'Revoke delivery scope'}
       </button>
       {error ? <p role="alert">{error}</p> : null}
     </fieldset>

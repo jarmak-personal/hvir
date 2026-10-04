@@ -1,3 +1,4 @@
+import { DeliveryRecoverySettings } from './DeliveryRecoverySettings'
 import { SourceSettings } from './SourceSettings'
 import { AgentAccessSettings } from './AgentAccessSettings'
 import { ConnectorSettings } from './ConnectorSettings'
@@ -56,6 +57,7 @@ export function ExtensionsSettings(): ReactElement {
       aria-labelledby="settings-extensions-title"
     >
       <AgentAccessSettings />
+      <DeliveryRecoverySettings />
       <h3 id="settings-extensions-title" tabIndex={-1}>
         Extensions
       </h3>
@@ -301,8 +303,8 @@ export function ExtensionsSettings(): ReactElement {
           </label>
           <p>
             {forget
-              ? 'Reinstall starts with fresh setup and requires Enable.'
-              : 'Keep saved setup for reinstall. Enable is still required.'}
+              ? 'Reinstall starts with fresh setup and requires Enable. Delivered files stay where they are; hvir will no longer update or remove them. Unresolved delivery objects stay in recovery above.'
+              : 'Keep saved setup and completed delivery records for reinstall. Enable is still required.'}
           </p>
         </ConfirmationDialog>
       ) : null}

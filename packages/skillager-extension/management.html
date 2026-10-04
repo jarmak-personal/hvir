@@ -81,6 +81,37 @@
         </div>
         <div id="managed-copies" class="hvir-list" aria-label="Managed copies"></div>
       </section>
+      <section aria-label="SSH Full delivery">
+        <h2>SSH Full delivery</h2>
+        <p>
+          Use the selected local approved library skill and agent above. Full files go to
+          the exact SSH workspace; Skillager is needed only locally. Stub and Router are
+          not delivered.
+        </p>
+        <label
+          >Explicit local export directory<input
+            id="delivery-export"
+            class="hvir-input"
+            placeholder="Missing or empty absolute directory inside your granted exports folder"
+        /></label>
+        <p class="hvir-meta">
+          Preparing creates a complete local export, which remains your data. Grant the
+          existing local exports folder and the exact SSH workspace in Settings →
+          Extensions. Review every file, mode, supporting directory and record effect
+          before confirmation.
+        </p>
+        <button id="prepare-delivery" class="hvir-button">
+          Prepare approved Full Add for review
+        </button>
+        <button id="observe-deliveries" class="hvir-button">
+          Observe recorded SSH deliveries
+        </button>
+        <div
+          id="delivery-list"
+          class="hvir-list"
+          aria-label="Recorded SSH deliveries"
+        ></div>
+      </section>
       <section aria-label="Advanced local exposure">
         <h2>Advanced local choices</h2>
         <p>

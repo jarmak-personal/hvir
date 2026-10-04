@@ -32,6 +32,7 @@ export class ExtensionSourceReveal {
       context = caller.context()
     if (
       !grant?.root ||
+      grant.declaration.mode !== 'read-only' ||
       grant.declaration.context !== 'workspace' ||
       !grant.workspaceId ||
       input['workspaceId'] !== grant.workspaceId ||
