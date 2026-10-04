@@ -9,14 +9,16 @@ export function writeSftpFile(
   signal: AbortSignal | undefined,
   done: (reason: Error | null | undefined, value: void) => void,
 ): void {
+  const abortReason = (): Error =>
+    signal?.reason instanceof Error ? signal.reason : abortError()
   if (signal?.aborted) {
-    done(abortError(), undefined)
+    done(abortReason(), undefined)
     return
   }
   const stream = session.createWriteStream(path, mode === undefined ? {} : { mode })
   let settled = false
   const abort = () => {
-    finish(signal?.reason instanceof Error ? signal.reason : abortError())
+    finish(abortReason())
     stream.destroy()
   }
   const finish = (reason?: Error): void => {

@@ -187,6 +187,41 @@ describe('SshHost SFTP stream lifecycle', () => {
     },
   )
 
+  it('preserves the write abort reason while acquiring the session before OPEN', async () => {
+    const fixture = await hostFixture()
+    const controller = new AbortController()
+    const reason = new Error('write owner revoked during acquisition')
+    const replacement = sftpChannel()
+    let finishAcquisition!: (error: undefined, session: unknown) => void
+    const acquisitionStarted = new Promise<void>((resolve) => {
+      fixture.client.sftp.mockImplementation((done: typeof finishAcquisition) => {
+        finishAcquisition = done
+        resolve()
+      })
+    })
+    const lstat = fixture.channel.session.lstat
+    fixture.channel.session.lstat = (path, done) => {
+      lstat(path, done)
+      // The metadata check succeeds, but the write must acquire a new session.
+      fixture.channel.session.emit('close')
+    }
+    try {
+      const writing = fixture.host.writeFile(fixture.path, 'abc', {
+        signal: controller.signal,
+      })
+      const rejected = expect(writing).rejects.toBe(reason)
+      await acquisitionStarted
+      controller.abort(reason)
+      finishAcquisition(undefined, replacement.session)
+
+      await rejected
+      expect(replacement.streams).toHaveLength(0)
+      expect(replacement.rename).not.toHaveBeenCalled()
+    } finally {
+      await fixture.host.dispose()
+    }
+  })
+
   it('publishes a signalled write only after CLOSE succeeds and releases listeners', async () => {
     const fixture = await hostFixture()
     try {
