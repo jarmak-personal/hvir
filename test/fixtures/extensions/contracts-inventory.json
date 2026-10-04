@@ -1,0 +1,35 @@
+{
+  "release": "0.3.0",
+  "contract": "1.0",
+  "purpose": "Frozen scoped read/delivery declarations and independently authored newer-minor admission cases; original reference/clock inventory is unchanged.",
+  "files": {
+    "newer-minor/optional/hvir-extension.json": {
+      "bytes": 413,
+      "sha256": "f62bb95929398ec734434c8f34b7d38b95ce1df898ca1706e5fe9e823a434fd1"
+    },
+    "newer-minor/optional/index.html": {
+      "bytes": 176,
+      "sha256": "2a0d097c508513ce893951e4626b89124bcd256daa7836aab7b3dcf7fb27437e"
+    },
+    "newer-minor/required/hvir-extension.json": {
+      "bytes": 410,
+      "sha256": "ba4fa247b06b98878246864124f0517de2ac0609650634b6a0418ffe67b7c452"
+    },
+    "newer-minor/required/index.html": {
+      "bytes": 176,
+      "sha256": "2a0d097c508513ce893951e4626b89124bcd256daa7836aab7b3dcf7fb27437e"
+    },
+    "0.3.0/contracts/skillager-manifest.json": {
+      "bytes": 16216,
+      "sha256": "8e4e82a3b3a1ba6f933d1b9ccced26f0f439612a481ea2e854a48f37e4076d45"
+    },
+    "newer-minor/optional/minor.js": {
+      "bytes": 303,
+      "sha256": "ad1e77e7ba4f604a026652fe3efcce22012872ef3a045c5fba8d7acbc2c0cbc9"
+    },
+    "newer-minor/required/minor.js": {
+      "bytes": 303,
+      "sha256": "ad1e77e7ba4f604a026652fe3efcce22012872ef3a045c5fba8d7acbc2c0cbc9"
+    }
+  }
+}

@@ -1,0 +1,556 @@
+{
+  "id": "skillager",
+  "name": "Skillager",
+  "version": "0.3.0",
+  "contract": "1.0",
+  "requiredCapabilities": [
+    "presentation.read",
+    "context.read",
+    "viewer.open-own",
+    "contributions.read",
+    "contributions.publish",
+    "connector.status",
+    "connector.execute",
+    "connector.output",
+    "source.status",
+    "source.select",
+    "source.read",
+    "source.asset",
+    "source.render",
+    "source.reveal",
+    "actions.invoke",
+    "terminal.start",
+    "delivery.capture",
+    "delivery.manifest",
+    "delivery.preview",
+    "delivery.apply",
+    "delivery.status",
+    "delivery.domain",
+    "delivery.reconcile",
+    "delivery.cleanup"
+  ],
+  "optionalCapabilities": [],
+  "access": [
+    {
+      "id": "library",
+      "description": "Read selected current instructions and confined images within your personal library",
+      "context": "application",
+      "mode": "read-only"
+    },
+    {
+      "id": "project",
+      "description": "Read selected current instructions and confined images in the exact registered project/worktree",
+      "context": "workspace",
+      "mode": "read-only"
+    },
+    {
+      "id": "delivery-source",
+      "description": "Capture complete local approved Full exports inside your explicit export directory",
+      "context": "application",
+      "mode": "delivery-source"
+    },
+    {
+      "id": "delivery-target",
+      "description": "Add, update and preserve exact managed Full deliveries inside the selected SSH workspace",
+      "context": "workspace",
+      "mode": "managed-delivery"
+    }
+  ],
+  "views": [
+    {
+      "id": "library",
+      "title": "Skillager library",
+      "entry": "library.html",
+      "placement": "application",
+      "navigation": "top",
+      "representations": ["view"]
+    },
+    {
+      "id": "project",
+      "title": "Skills in this project",
+      "entry": "project.html",
+      "placement": "workspace",
+      "navigation": "left",
+      "representations": ["view"]
+    },
+    {
+      "id": "detail",
+      "title": "Skill instructions",
+      "entry": "detail.html",
+      "placement": "application",
+      "representations": ["view"]
+    },
+    {
+      "id": "management",
+      "title": "Manage skills",
+      "entry": "management.html",
+      "placement": "application",
+      "representations": ["view"]
+    }
+  ],
+  "railItems": [
+    {
+      "id": "library",
+      "placement": "header",
+      "icon": "\u25c7",
+      "tooltip": "Personal skill library",
+      "label": "Skills",
+      "kind": "observation",
+      "click": {
+        "view": "library",
+        "placement": "viewer"
+      }
+    }
+  ],
+  "actions": [
+    {
+      "id": "initialize-library",
+      "title": "Initialize selected personal library",
+      "view": "management",
+      "agents": true,
+      "effects": {
+        "delete": false,
+        "replace": false
+      },
+      "description": "Initialize or register only the explicit local location; preserve existing Git mode and verify public status before connecting.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "root": {
+            "type": "object",
+            "properties": {
+              "hostId": {
+                "type": "string",
+                "enum": ["local"]
+              },
+              "path": {
+                "type": "string",
+                "maxLength": 2048
+              }
+            },
+            "required": ["hostId", "path"],
+            "additionalProperties": false
+          },
+          "git": {
+            "type": "boolean"
+          }
+        },
+        "required": ["root", "git"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "sync-library",
+      "title": "Sync approved sources into personal library",
+      "view": "management",
+      "agents": true,
+      "effects": {
+        "delete": true,
+        "replace": true
+      },
+      "description": "Synchronize approved sources for the exact registered UUID/root through public Skillager preservation policy, with complete bounded per-item outcomes.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "library": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "root": {
+                "type": "object",
+                "properties": {
+                  "hostId": {
+                    "type": "string",
+                    "enum": ["local"]
+                  },
+                  "path": {
+                    "type": "string",
+                    "maxLength": 2048
+                  }
+                },
+                "required": ["hostId", "path"],
+                "additionalProperties": false
+              },
+              "gitMode": {
+                "type": "string",
+                "enum": ["system", "disabled"]
+              }
+            },
+            "required": ["id", "root"],
+            "additionalProperties": false
+          },
+          "reviewHash": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "required": ["library"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "add-copy",
+      "title": "Add selected Full or Stub copy",
+      "view": "management",
+      "agents": true,
+      "effects": {
+        "delete": false,
+        "replace": false
+      },
+      "description": "Add local Full/Stub or approved local-library Full to the exact SSH workspace; SSH requires an explicit missing/empty local export directory. No remote CLI or overwrite.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "library": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "root": {
+                "type": "object",
+                "properties": {
+                  "hostId": {
+                    "type": "string",
+                    "enum": ["local"]
+                  },
+                  "path": {
+                    "type": "string",
+                    "maxLength": 2048
+                  }
+                },
+                "required": ["hostId", "path"],
+                "additionalProperties": false
+              },
+              "gitMode": {
+                "type": "string",
+                "enum": ["system", "disabled"]
+              }
+            },
+            "required": ["id", "root"],
+            "additionalProperties": false
+          },
+          "skillId": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "hash": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "agent": {
+            "type": "string",
+            "enum": ["codex", "claude"]
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["native", "stub"]
+          },
+          "exportDirectory": {
+            "type": "string",
+            "maxLength": 2048
+          }
+        },
+        "required": ["library", "skillId", "hash", "agent", "mode"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "change-exposure",
+      "title": "Change selected project exposure",
+      "view": "management",
+      "agents": true,
+      "effects": {
+        "delete": true,
+        "replace": true
+      },
+      "description": "Review and apply one exact local Update, Router grouping, complete membership change, Ungroup or preserved native adoption through a whole public token-bound plan. No force or replay. SSH supports Full Update with exact opaque managed record, target, source hash and export directory.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "library": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "root": {
+                "type": "object",
+                "properties": {
+                  "hostId": {
+                    "type": "string",
+                    "enum": ["local"]
+                  },
+                  "path": {
+                    "type": "string",
+                    "maxLength": 2048
+                  }
+                },
+                "required": ["hostId", "path"],
+                "additionalProperties": false
+              },
+              "gitMode": {
+                "type": "string",
+                "enum": ["system", "disabled"]
+              }
+            },
+            "required": ["id", "root"],
+            "additionalProperties": false
+          },
+          "agent": {
+            "type": "string",
+            "enum": ["codex", "claude"]
+          },
+          "request": {
+            "type": "string",
+            "maxLength": 6144
+          },
+          "token": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "required": ["library", "agent", "request"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "remove-copy",
+      "title": "Remove selected managed copy",
+      "view": "management",
+      "agents": true,
+      "effects": {
+        "delete": true,
+        "replace": false
+      },
+      "description": "Preserve the selected unchanged local managed copy or exact core-recorded SSH Full. SSH uses record, skillId, mode native and the exact target; local removal uses the public token.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "library": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "root": {
+                "type": "object",
+                "properties": {
+                  "hostId": {
+                    "type": "string",
+                    "enum": ["local"]
+                  },
+                  "path": {
+                    "type": "string",
+                    "maxLength": 2048
+                  }
+                },
+                "required": ["hostId", "path"],
+                "additionalProperties": false
+              },
+              "gitMode": {
+                "type": "string",
+                "enum": ["system", "disabled"]
+              }
+            },
+            "required": ["id", "root"],
+            "additionalProperties": false
+          },
+          "agent": {
+            "type": "string",
+            "enum": ["codex", "claude"]
+          },
+          "exposureId": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "target": {
+            "type": "object",
+            "properties": {
+              "hostId": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "path": {
+                "type": "string",
+                "maxLength": 2048
+              }
+            },
+            "required": ["hostId", "path"],
+            "additionalProperties": false
+          },
+          "token": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "skillId": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "hash": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "record": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["native"]
+          }
+        },
+        "required": ["library", "agent", "target"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "setup-project",
+      "title": "Open Skillager setup in a new terminal",
+      "view": "management",
+      "agents": true,
+      "effects": {
+        "delete": false,
+        "replace": false
+      },
+      "description": "Explicit setup --agent for the displayed Codex/Claude agent in a new terminal in the exact local workspace, followed by an ordinary shell. No library readiness prerequisite, existing PTY input or recovery replay.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "agent": {
+            "type": "string",
+            "enum": ["codex", "claude"]
+          }
+        },
+        "required": ["agent"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "operation-state",
+      "title": "Observe and reconcile scoped operation state",
+      "view": "management",
+      "agents": true,
+      "effects": {
+        "delete": false,
+        "replace": false
+      },
+      "description": "Metadata-only pending IDs, complete finite report pages, fresh supported safe-repeat observations and explicit acknowledgment by the originally admitted caller class/destination. Original completion stays unknown; no stored decision is replayed.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "list",
+              "report",
+              "observe",
+              "acknowledge",
+              "delivery-status",
+              "delivery-reconcile",
+              "delivery-forget"
+            ]
+          },
+          "operationId": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "offset": {
+            "type": "number"
+          },
+          "observation": {
+            "type": "string",
+            "maxLength": 6144
+          }
+        },
+        "required": ["mode"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "accept-version",
+      "title": "Accept exact human-reviewed library version",
+      "view": "management",
+      "agents": false,
+      "effects": {
+        "delete": false,
+        "replace": false
+      },
+      "description": "Accept only the complete exact manifest/token version explicitly reviewed in an ordinary human D7 view. The action revalidates public identity/token, obtains no bodies, supplies no override or force flags, and preserves Skillager Git/scanner/lint authority.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "library": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "root": {
+                "type": "object",
+                "properties": {
+                  "hostId": {
+                    "type": "string",
+                    "enum": ["local"]
+                  },
+                  "path": {
+                    "type": "string",
+                    "maxLength": 2048
+                  }
+                },
+                "required": ["hostId", "path"],
+                "additionalProperties": false
+              },
+              "gitMode": {
+                "type": "string",
+                "enum": ["system", "disabled"]
+              }
+            },
+            "required": ["id", "root"],
+            "additionalProperties": false
+          },
+          "skillId": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "hash": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "token": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "required": ["library", "skillId", "hash", "token"],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "updater": "updater.html",
+  "connectors": [
+    {
+      "id": "library-cli",
+      "description": "Your installed Skillager CLI; personal-library observations use local application context",
+      "context": "application",
+      "timeoutMs": 180000,
+      "outputBytes": 4194304,
+      "environment": ["SKILLAGER_CATALOG_STATE_DIR", "XDG_CACHE_HOME", "XDG_STATE_HOME"]
+    },
+    {
+      "id": "project-cli",
+      "description": "Your installed local Skillager CLI; observations of the exact selected local project only",
+      "context": "workspace",
+      "timeoutMs": 180000,
+      "outputBytes": 4194304,
+      "environment": ["SKILLAGER_CATALOG_STATE_DIR", "XDG_CACHE_HOME", "XDG_STATE_HOME"]
+    }
+  ]
+}

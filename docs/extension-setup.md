@@ -2,7 +2,17 @@
 
 The 0.3 release adds `hvir-skillager-0.3.0.zip` beside the native application packages.
 Use the assets of the **same exact release**, download `SHA256SUMS`, and verify the ZIP
-with `sha256sum --check SHA256SUMS` (or `shasum -a 256 --check SHA256SUMS` on macOS).
+using only the exact ZIP entry below. The complete checksum file also names native and metadata
+assets; they need not be downloaded to verify the independent ZIP. A missing or duplicate ZIP
+entry makes this check fail.
+
+```sh
+# Linux
+awk '$2 == "hvir-skillager-0.3.0.zip" {line=$0; count++} END {if (count != 1) exit 1; print line}' SHA256SUMS | sha256sum --check -
+# macOS
+awk '$2 == "hvir-skillager-0.3.0.zip" {line=$0; count++} END {if (count != 1) exit 1; print line}' SHA256SUMS | shasum -a 256 --check -
+```
+
 The release manifest identifies the source commit, extension ID, package version, contract
 and archive digest. The app installer installs the native application; the ZIP is a separate
 ordinary extension package. Skillager itself is installed separately.

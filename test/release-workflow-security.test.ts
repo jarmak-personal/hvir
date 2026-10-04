@@ -420,6 +420,7 @@ describe('native release automation', () => {
       ref: '${{ needs.prepare.outputs.sha }}',
       'fetch-depth': 0,
       'fetch-tags': true,
+      'persist-credentials': false,
     })
     const identity = publish?.steps?.find(
       (step) => step.name === 'Verify the exact accepted native artifact set',
@@ -449,6 +450,15 @@ describe('native release automation', () => {
     expect(macosWorkflow).toContain('dist/hvir-*-darwin-arm64.pkg.sha256')
 
     const publishSteps = publish?.steps ?? []
+    const dependencyInstall = publishSteps.find(
+      (step) => step.name === 'Install locked extension build dependencies',
+    )
+    expect(dependencyInstall?.run).toBe('npm ci --ignore-scripts')
+    expect(
+      publishSteps.find((step) => step.uses?.startsWith('actions/checkout@'))?.with?.[
+        'persist-credentials'
+      ],
+    ).toBe(false)
     const createDraftIndex = publishSteps.findIndex(
       (step) => step.name === 'Create or repair a private draft',
     )

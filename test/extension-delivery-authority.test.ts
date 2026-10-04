@@ -9,85 +9,83 @@ const fixtures: Awaited<ReturnType<typeof deliveryFixture>>[] = []
 afterEach(async () => {
   for (const f of fixtures.splice(0)) await f.dispose()
 })
-async function fixture() {
+async function fixture(
+  manifestPath = 'packages/skillager-extension/hvir-extension.json',
+) {
   const f = await deliveryFixture()
   fixtures.push(f)
   const manifest = validateExtensionManifest(
-    JSON.parse(
-      await fs.readFile('packages/skillager-extension/hvir-extension.json', 'utf8'),
-    ),
+    JSON.parse(await fs.readFile(manifestPath, 'utf8')),
   ).manifest
   return { f, manifest }
 }
-it('permits ordinary human delivery without D7 body reading and refuses updater/unapproved mutation', async () => {
-  const { f, manifest } = await fixture(),
-    plan = await f.preview('add'),
-    reading = new ExtensionSourceReadingOwner(f.approvals)
-  try {
-    await expect(
-      reading.select(
-        { ...f.caller, allowed: true, context: () => f.caller.admitted },
-        {
-          source: 'delivery-source',
-          path: { hostId: 'local', path: `${f.exports.path}/export-1/SKILL.md` },
-        },
-      ),
-    ).rejects.toThrow(/Grant|read-only/)
-    await expect(
-      requestGuestDelivery(
-        'delivery.apply',
-        plan,
-        f.caller,
-        f.owner,
-        f.caller.admitted,
-        f.caller.authorize,
-        false,
-        manifest,
-      ),
-    ).rejects.toThrow(/admitted/)
-    expect(f.remote.createDirectoryExclusive).not.toHaveBeenCalled()
-    expect(
-      await requestGuestDelivery(
-        'delivery.apply',
-        plan,
-        f.caller,
-        f.owner,
-        f.caller.admitted,
-        f.caller.authorize,
-        true,
-        manifest,
-      ),
-    ).toMatchObject({ outcome: 'completed' })
-  } finally {
-    reading.dispose()
-  }
-})
-it('consumes main-admitted standing and interactive action effects without trusting caller-supplied flags', async () => {
-  const { f, manifest } = await fixture(),
-    invocation = {
-      id: 'action',
-      action: 'add-copy',
-      input: {},
-      context: f.caller.admitted!.value,
-      caller: 'agent',
-      authorization: 'standing',
-    } as ExtensionInvocation
-  const added = (await requestGuestDelivery(
-    'delivery.apply',
-    await f.preview('add'),
-    f.caller,
-    f.owner,
-    f.caller.admitted,
-    f.caller.authorize,
-    false,
-    manifest,
-    invocation,
-  )) as { record: { id: string } }
-  const update = await f.preview('update', f.owner, added.record.id, 'new')
-  await expect(
-    requestGuestDelivery(
+it.each([
+  'packages/skillager-extension/hvir-extension.json',
+  'test/fixtures/extensions/0.3.0/contracts/skillager-manifest.json',
+])(
+  'permits human delivery and refuses updater/body access using %s',
+  async (manifestPath) => {
+    const { f, manifest } = await fixture(manifestPath),
+      plan = await f.preview('add'),
+      reading = new ExtensionSourceReadingOwner(f.approvals)
+    try {
+      await expect(
+        reading.select(
+          { ...f.caller, allowed: true, context: () => f.caller.admitted },
+          {
+            source: 'delivery-source',
+            path: { hostId: 'local', path: `${f.exports.path}/export-1/SKILL.md` },
+          },
+        ),
+      ).rejects.toThrow(/Grant|read-only/)
+      await expect(
+        requestGuestDelivery(
+          'delivery.apply',
+          plan,
+          f.caller,
+          f.owner,
+          f.caller.admitted,
+          f.caller.authorize,
+          false,
+          manifest,
+        ),
+      ).rejects.toThrow(/admitted/)
+      expect(f.remote.createDirectoryExclusive).not.toHaveBeenCalled()
+      expect(
+        await requestGuestDelivery(
+          'delivery.apply',
+          plan,
+          f.caller,
+          f.owner,
+          f.caller.admitted,
+          f.caller.authorize,
+          true,
+          manifest,
+        ),
+      ).toMatchObject({ outcome: 'completed' })
+    } finally {
+      reading.dispose()
+    }
+  },
+)
+it.each([
+  'packages/skillager-extension/hvir-extension.json',
+  'test/fixtures/extensions/0.3.0/contracts/skillager-manifest.json',
+])(
+  'consumes main-admitted standing/interactive delivery effects using %s',
+  async (manifestPath) => {
+    const { f, manifest } = await fixture(manifestPath),
+      invocation = {
+        id: 'action',
+        action: 'add-copy',
+        input: {},
+        context: f.caller.admitted!.value,
+        caller: 'agent',
+        authorization: 'standing',
+      } as ExtensionInvocation
+    const added = (await requestGuestDelivery(
       'delivery.apply',
-      update,
+      await f.preview('add'),
       f.caller,
       f.owner,
       f.caller.admitted,
@@ -95,41 +93,55 @@ it('consumes main-admitted standing and interactive action effects without trust
       false,
       manifest,
       invocation,
-    ),
-  ).rejects.toThrow(/declare/)
-  const allowed = {
-      ...invocation,
-      action: 'change-exposure',
-      authorization: 'interactive' as const,
-    },
-    newPlan = await f.preview('update', f.owner, added.record.id, 'new')
-  expect(
-    await requestGuestDelivery(
-      'delivery.apply',
-      newPlan,
-      f.caller,
-      f.owner,
-      f.caller.admitted,
-      f.caller.authorize,
-      false,
-      manifest,
-      allowed,
-    ),
-  ).toMatchObject({ outcome: 'completed' })
-  expect(
-    await requestGuestDelivery(
-      'delivery.apply',
-      await f.preview('remove', f.owner, added.record.id),
-      f.caller,
-      f.owner,
-      f.caller.admitted,
-      f.caller.authorize,
-      false,
-      manifest,
-      { ...invocation, action: 'remove-copy', authorization: 'interactive' },
-    ),
-  ).toMatchObject({ outcome: 'completed' })
-})
+    )) as { record: { id: string } }
+    const update = await f.preview('update', f.owner, added.record.id, 'new')
+    await expect(
+      requestGuestDelivery(
+        'delivery.apply',
+        update,
+        f.caller,
+        f.owner,
+        f.caller.admitted,
+        f.caller.authorize,
+        false,
+        manifest,
+        invocation,
+      ),
+    ).rejects.toThrow(/declare/)
+    const allowed = {
+        ...invocation,
+        action: 'change-exposure',
+        authorization: 'interactive' as const,
+      },
+      newPlan = await f.preview('update', f.owner, added.record.id, 'new')
+    expect(
+      await requestGuestDelivery(
+        'delivery.apply',
+        newPlan,
+        f.caller,
+        f.owner,
+        f.caller.admitted,
+        f.caller.authorize,
+        false,
+        manifest,
+        allowed,
+      ),
+    ).toMatchObject({ outcome: 'completed' })
+    expect(
+      await requestGuestDelivery(
+        'delivery.apply',
+        await f.preview('remove', f.owner, added.record.id),
+        f.caller,
+        f.owner,
+        f.caller.admitted,
+        f.caller.authorize,
+        false,
+        manifest,
+        { ...invocation, action: 'remove-copy', authorization: 'interactive' },
+      ),
+    ).toMatchObject({ outcome: 'completed' })
+  },
+)
 it('does not transfer forgotten installation authority or domain records to a fresh same-ID activation', async () => {
   const { f } = await fixture(),
     plan = await f.preview('add')

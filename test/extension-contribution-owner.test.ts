@@ -1,3 +1,4 @@
+import { releasedExtension } from './fixtures/released-extension'
 import { describe, expect, it, vi } from 'vitest'
 import { ExtensionContributionOwner } from '../src/main/extensions/contribution-owner'
 import {
@@ -91,6 +92,61 @@ function fixture() {
 }
 
 describe('one shared updater from visible contribution demand', () => {
+  it('admits released navigation and exact session rails, pauses updater demand on withdrawal', async () => {
+    const data = fixture()
+    const activation = data.active.get('one')!
+    data.active.set('one', { ...activation, revision: releasedExtension('reference') })
+    try {
+      const state = data.contributions.snapshot()[0]!
+      expect(
+        state.manifest.views
+          .filter((view) => view.navigation)
+          .map((view) => [view.id, view.navigation]),
+      ).toEqual([
+        ['workspace', 'left'],
+        ['library', 'top'],
+      ])
+      expect(state.manifest.railItems?.map((item) => [item.id, item.placement])).toEqual([
+        ['pulse', 'header'],
+        ['session', 'session'],
+      ])
+      const session = data.guests.contexts.sessions(data.a)[0]!
+      await data.contributions.demand(data.a, [
+        { installationId: 'one', contributionId: 'pulse', surface: 'rail' },
+        {
+          installationId: 'one',
+          contributionId: 'session',
+          surface: 'rail',
+          workspaceId: session.workspace.id,
+          sessionId: session.id,
+        },
+        {
+          installationId: 'one',
+          contributionId: 'workspace',
+          surface: 'left',
+          workspaceId: session.workspace.id,
+        },
+        { installationId: 'one', contributionId: 'library', surface: 'top' },
+      ])
+      expect(data.surface.prepare).toHaveBeenCalledTimes(1)
+      expect(
+        data.contributions.updaterSessions('one').map((value) => value.id),
+      ).toContain(session.id)
+      const view = await data.guests.open(data.a, 'one', 'session', undefined, {
+        context: {
+          surface: 'popup',
+          workspaceId: session.workspace.id,
+          sessionId: session.id,
+        },
+      })
+      expect(view.context?.session?.id).toBe(session.id)
+      expect(view.contributionId).toBe('session')
+      await data.contributions.demand(data.a, [])
+      expect(data.contributions.updaterSessions('one')).toEqual([])
+    } finally {
+      await data.guests.dispose()
+    }
+  })
   it('withdraws old demand and admits independent valid entries when a session races publication', async () => {
     const data = fixture(),
       live = data.guests.contexts.sessions(data.a)[0]!.id
