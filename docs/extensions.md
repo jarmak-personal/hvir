@@ -3,17 +3,30 @@
 The [0.3 setup guide](extension-setup.md) covers the downloadable Skillager ZIP, installed
 authoring and ordinary agent access. The release ZIP is independent of the native app installer.
 
-Open **Settings → Extensions → Open extensions folder**. Place one ready-to-run
-package directory or ZIP there, then choose **Discover extensions**. Inspect its contract,
-capabilities, and requested access before choosing **Enable** and **Open**. Discovery
-reads data and executes no package code. Directories, ZIPs and development links share one validation and activation contract.
-Duplicate package IDs are all refused; hvir never guesses which candidate you meant.
+Choose **Settings → Extensions → Add extension…**. On macOS, select one ready-to-run
+ZIP or package directory. On Linux, select a ZIP or the exact `hvir-extension.json` inside
+its package directory; hvir copies that whole directory. The native picker identifies the
+package form automatically. Other JSON files are refused with this selection instruction.
+
+hvir validates and copies the selection into this instance's extensions folder, then shows
+it immediately. The original is preserved; directories are copied, never linked. Inspect
+its contract, capabilities and requested access, then choose **Enable** and **Open**.
+Import and discovery execute no package code and grant no access. Cancellation makes no copy.
+An invalid or changing source is refused before publication. Filename or present package-ID
+conflicts preserve the existing installation; Remove explicitly before adding a replacement.
+A reinstall can reuse kept setup, but still needs explicit Enable.
+
+**Author and discovery controls** contains **Open extensions folder** and **Discover
+extensions** for manual copies and explicit development links. Directories, ZIPs and
+links share one validation and activation contract. Duplicate IDs are all refused; hvir
+never guesses which candidate you meant.
 
 The ready-to-run example is `packages/extension-reference` in a checkout. Installed
 macOS packages include it at `/Applications/hvir.app/Contents/Resources/extension-reference`;
 Linux packages include it beneath the application resources directory as `extension-reference`.
-Copy that entire directory
-into the extensions folder; it needs no build, project grant, or configured executable.
+Use **Add extension…** to select that directory (its manifest on Linux); it needs no build, project grant, or configured executable. On macOS, press **⇧⌘G** (Go to Folder) in the picker, enter
+`/Applications/hvir.app/Contents/Resources/extension-reference`, then select the directory.
+If hvir is installed elsewhere, use that application’s matching `Contents/Resources/extension-reference` path.
 Choose **Open Extension reference**, then use its **Open reference detail** button.
 Close tabs through hvir's tab or view controls. Disable in Settings closes all its views.
 Application-level tabs stay available when you switch workspaces and gain no project
@@ -38,8 +51,7 @@ application-owned data root.
 ## ZIP, development, replacement and removal
 
 To package the reference example, run `zip -r ../extension-reference.zip .` from inside
-its directory, so `hvir-extension.json` is at ZIP root. Copy the completed archive into
-the extensions folder and choose **Discover extensions → Enable → Open Extension reference**.
+its directory, so `hvir-extension.json` is at ZIP root. Choose **Add extension…**, select the completed archive, then **Enable → Open Extension reference**.
 Do not leave the same package ID in both directory and ZIP forms. An incomplete copied ZIP
 is rejected; finish the copy and discover again. ZIPs have at most 20 MiB compressed input,
 16 MiB expanded assets, 256 materialized entries including implicit directories, 12 directory

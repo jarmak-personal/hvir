@@ -22,6 +22,7 @@ export const OWNER_SCOPED_INVOKE_CHANNELS = [
   'extensions:connector-revoke',
   'extensions:state',
   'extensions:discover',
+  'extensions:add',
   'extensions:open-folder',
   'extensions:enable',
   'extensions:disable',

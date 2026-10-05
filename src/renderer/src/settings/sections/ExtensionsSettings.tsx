@@ -4,7 +4,7 @@ import { AgentAccessSettings } from './AgentAccessSettings'
 import { ConnectorSettings } from './ConnectorSettings'
 import { ExtensionActions } from '../../extensions/ExtensionActions'
 import { ConfirmationDialog } from '../../workbench/ConfirmationDialog'
-import { useEffect, useState, type ReactElement } from 'react'
+import { useEffect, useRef, useState, type ReactElement } from 'react'
 import type {
   ExtensionInstallation,
   ExtensionPlatformState,
@@ -16,6 +16,7 @@ export function ExtensionsSettings(): ReactElement {
   const [removing, setRemoving] = useState<ExtensionInstallation>()
   const [forget, setForget] = useState(false)
   const [busy, setBusy] = useState(false)
+  const publication = useRef(0)
   const run = async (operation: () => Promise<unknown>): Promise<void> => {
     setBusy(true)
     setError(undefined)
@@ -32,6 +33,7 @@ export function ExtensionsSettings(): ReactElement {
     let updated = false
     const dispose = window.hvir.on('extensions:state-changed', (next) => {
       if (!current) return
+      publication.current++
       updated = true
       setState(next)
     })
@@ -62,39 +64,62 @@ export function ExtensionsSettings(): ReactElement {
         Extensions
       </h3>
       <p>
-        Place a ready-to-run extension directory, ZIP, or development link in the
-        extensions folder, then discover it and inspect its requested access.
+        Add a ready-to-run extension ZIP or directory. hvir copies it into its extensions
+        folder without changing the original. Inspect its requested access, then choose
+        Enable.
       </p>
       <div className="settings-actions">
         <button
           type="button"
-          disabled={busy}
-          onClick={() =>
-            void run(() => window.hvir.invoke('extensions:open-folder', undefined))
-          }
           className="hvir-button"
-        >
-          Open extensions folder
-        </button>
-        <button
-          type="button"
-          disabled={busy}
+          disabled={busy || !state?.writable}
           onClick={() =>
-            void run(async () =>
-              setState(await window.hvir.invoke('extensions:discover', undefined)),
-            )
+            void run(async () => {
+              const observed = publication.current
+              const next = await window.hvir.invoke('extensions:add', undefined)
+              if (observed === publication.current) setState(next)
+            })
           }
-          className="hvir-button"
         >
-          Discover extensions
+          Add extension…
         </button>
       </div>
+      <details>
+        <summary>Author and discovery controls</summary>
+        <p>
+          For development links or packages copied manually, open the extensions folder
+          and discover them.
+        </p>
+        <div className="settings-actions">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() =>
+              void run(() => window.hvir.invoke('extensions:open-folder', undefined))
+            }
+            className="hvir-button"
+          >
+            Open extensions folder
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() =>
+              void run(async () =>
+                setState(await window.hvir.invoke('extensions:discover', undefined)),
+              )
+            }
+            className="hvir-button"
+          >
+            Discover extensions
+          </button>
+        </div>
+      </details>
       {state?.explanation ? <p role="status">{state.explanation}</p> : null}
       {error ? <p role="alert">{error}</p> : null}
       {state?.installations.length === 0 && (state.writable || !state.explanation) ? (
         <p>
-          No extensions found. Add a directory or ZIP package, then choose Discover
-          extensions.
+          No extensions found. Choose Add extension to select a directory or ZIP package.
         </p>
       ) : null}
       {state?.installations.map((installation) => (

@@ -10,6 +10,7 @@ export type RendererResourceQualifier =
       readonly lifetime: 'renderer'
       readonly type:
         | 'extension-views'
+        | 'extension-package-import'
         | 'extension-demand'
         | 'attention'
         | 'ssh-prompt-presentation'

@@ -101,6 +101,10 @@ export function registerExtensionsIpc(
     context.owner()
     return extensions?.activations?.discover() ?? unavailable()
   })
+  ipc.handle(
+    'extensions:add',
+    (_req, context) => extensions?.additions?.add(context.owner()) ?? unavailable(),
+  )
   ipc.handle('extensions:open-folder', (_req, context) => {
     context.owner()
     return extensions?.openFolder() ?? unavailable()

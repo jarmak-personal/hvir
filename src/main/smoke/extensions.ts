@@ -19,6 +19,7 @@ import { focusSmokeWindow } from './window-focus'
 import { verifyExtensionWebRtc } from './extension-webrtc'
 import { verifyExtensionAuthoring } from './extension-authoring'
 import { verifyExtensionPackages } from './extension-packages'
+import { verifyExtensionImport } from './extension-import'
 import { verifyExtensionNetwork } from './extension-network'
 import {
   prepareExtensionViewerFixture,
@@ -130,6 +131,10 @@ export async function verifyExtensionScenario(
       .installations.find((entry) => entry.source === 'bad')?.error
   )
     throw new Error('Malformed package had no visible refusal')
+  await verifyExtensionImport(win, extensions, scopes, host, {
+    click: (name) => click(win, name),
+    wait: waitFor,
+  })
   await click(win, 'Enable')
   await waitFor(() => extensions.activations!.active.size === 1, 'trusted Enable')
   await click(win, 'Open Extension reference')
@@ -479,6 +484,19 @@ async function guestFor(view: ExtensionView): Promise<WebContents> {
 }
 
 async function click(win: BrowserWindow, name: string): Promise<void> {
+  if (name === 'Discover extensions' || name === 'Open extensions folder')
+    await waitFor(
+      async () =>
+        Boolean(
+          await win.webContents.executeJavaScript(`(() => {
+      const summary = [...document.querySelectorAll('summary')].find(item => item.textContent.trim() === 'Author and discovery controls');
+      if (!summary || !summary.checkVisibility()) return false;
+      if (!summary.parentElement.open) summary.click();
+      return summary.parentElement.open;
+    })()`),
+        ),
+      'ordinary author controls disclosure',
+    )
   try {
     await waitFor(
       async () =>

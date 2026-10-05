@@ -164,6 +164,14 @@ export async function verifyAgentWorkbench(
   delete manifest.updater
   delete manifest.railItems
   await host.writeFile(manifestPath, JSON.stringify(manifest))
+  await wait(
+    () =>
+      dom(
+        win,
+        `(() => { const summary = [...document.querySelectorAll('summary')].find(item => item.textContent.trim() === 'Author and discovery controls'); if (!summary || !summary.checkVisibility()) return false; if (!summary.parentElement.open) summary.click(); return summary.parentElement.open; })()`,
+      ),
+    'ordinary author controls disclosure',
+  )
   await click(win, 'Discover extensions')
   await wait(
     () =>

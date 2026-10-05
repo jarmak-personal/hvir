@@ -28,6 +28,11 @@ import { ExtensionActionOwner } from './action-owner'
 import { ExtensionContributionOwner } from './contribution-owner'
 import { ExtensionPresentationState } from './presentation-state'
 import { ExtensionPackageStore } from './package-store'
+import {
+  ExtensionPackageAdditionOwner,
+  type ExtensionPackagePicker,
+} from './package-addition'
+import { createElectronPackagePicker } from './electron-package-picker'
 
 /** Application composition and lifetime of the extension platform; no extension package code. */
 export class ExtensionApplicationRuntime {
@@ -37,6 +42,7 @@ export class ExtensionApplicationRuntime {
   connectors?: ExtensionConnectorExecutionOwner
   readonly surface = new ElectronExtensionGuestSurface()
   activations?: ExtensionActivationOwner
+  additions?: ExtensionPackageAdditionOwner
   guests?: ExtensionGuestOwner
   actions?: ExtensionActionOwner
   contributions?: ExtensionContributionOwner
@@ -82,6 +88,7 @@ export class ExtensionApplicationRuntime {
     private readonly scopes: RendererResourceScopes,
     private readonly events: RendererEventPublisher,
     private readonly userData: HostPath,
+    private readonly packagePicker: ExtensionPackagePicker = createElectronPackagePicker(),
   ) {}
 
   start(
@@ -189,6 +196,11 @@ export class ExtensionApplicationRuntime {
       (id, persisted) => this.deliveries?.forget(id, persisted),
     )
     this.activations = activations
+    this.additions = new ExtensionPackageAdditionOwner(
+      this.scopes,
+      activations,
+      this.packagePicker,
+    )
     const scratch = joinHostPath(storage, 'connector-scratch')
     try {
       await host.createDirectoryExclusive(scratch, { mode: 0o755 })
