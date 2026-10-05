@@ -1,11 +1,12 @@
 import { join } from 'node:path'
+import type { EventEmitter } from 'node:events'
 import {
   app,
+  BrowserWindow,
   session,
   webContents,
   type Session,
   type WebContents,
-  type BrowserWindow,
 } from 'electron'
 import { EXTENSION_LIMITS, type ExtensionReply } from '../../shared/extensions/contract'
 import type { ExtensionView } from '../../shared/extensions/workbench'
@@ -13,6 +14,7 @@ import type { RendererOwner } from '../renderer-resource-scopes'
 import type { ExtensionGuestOwner, ExtensionGuestSurfacePort } from './guest-owner'
 import type { ExtensionRevision } from './package-store'
 import { ExtensionGuestLifecycle } from './guest-lifecycle'
+import { sendRendererEvent } from '../renderer-event-delivery'
 
 export const EXTENSION_GUEST_CSP =
   "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; media-src 'self'; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
@@ -217,7 +219,8 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
       | 'state-command'
       | 'complete' = 'engine-ready'
     let attemptedState: 'active' | 'frozen' | undefined
-    let nativeRefusal: 'no-frame' | 'inactive-frame' | 'not-top-level' | 'other' | undefined
+    let nativeRefusal:
+      'no-frame' | 'inactive-frame' | 'not-top-level' | 'other' | undefined
     let reported = false
     const reportFailure = (
       stage: EngineFailureStage,
@@ -442,6 +445,21 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
   }
 
   /** Native window/guest visibility propagation invalidates earlier engine state. */
+  foreground(owner: RendererOwner): boolean {
+    const contents = webContents.fromId(owner.id)
+    const window =
+      contents && !contents.isDestroyed()
+        ? BrowserWindow.fromWebContents(contents)
+        : undefined
+    return (
+      !!window &&
+      !window.isDestroyed() &&
+      window.isVisible() &&
+      window.isFocused() &&
+      !window.isMinimized()
+    )
+  }
+
   installWindowLifecycle(win: BrowserWindow, owner: () => RendererOwner): void {
     let pending: ReturnType<typeof setImmediate> | undefined
     const reapply = (): void => {
@@ -455,12 +473,31 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
     win.on('restore', reapply)
     win.on('focus', reapply)
     win.on('resize', reapply)
+    const foreground = (): void => {
+      this.owner?.foregroundChanged(owner())
+      sendRendererEvent(
+        win.webContents,
+        'extensions:foreground-changed',
+        this.foreground(owner()),
+      )
+    }
+    const foregroundEvents = [
+      'show',
+      'restore',
+      'focus',
+      'blur',
+      'hide',
+      'minimize',
+    ] as const
+    const events: Pick<EventEmitter, 'on' | 'removeListener'> = win
+    for (const event of foregroundEvents) events.on(event, foreground)
     win.once('closed', () => {
       if (pending) clearImmediate(pending)
       win.removeListener('show', reapply)
       win.removeListener('restore', reapply)
       win.removeListener('focus', reapply)
       win.removeListener('resize', reapply)
+      for (const event of foregroundEvents) events.removeListener(event, foreground)
     })
   }
 

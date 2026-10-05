@@ -33,6 +33,7 @@ export const OWNER_SCOPED_INVOKE_CHANNELS = [
   'extensions:views',
   'extensions:contributions',
   'extensions:context',
+  'extensions:foreground',
   'extensions:action',
   'extensions:demand',
   'workbench-health:acknowledge',

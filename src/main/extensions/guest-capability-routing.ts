@@ -41,7 +41,8 @@ export async function routeGuestCapability(
     current: () => void,
     invocation?: ExtensionInvocation,
   ) => Promise<unknown>,
-  invocation?: ExtensionInvocation,
+  invocation: ExtensionInvocation | undefined,
+  foreground: () => boolean,
 ): Promise<unknown> {
   if (capability === 'terminal.start') {
     if (!ports.terminals) throw new Error('Terminal handoff is unavailable')
@@ -66,6 +67,7 @@ export async function routeGuestCapability(
       ports.connectorDemand,
       invocation,
       ports.deliveries,
+      foreground,
     )
   if (capability.startsWith('source.'))
     return requestGuestSource(

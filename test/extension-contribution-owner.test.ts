@@ -1,4 +1,7 @@
 import { guestTestPorts } from './fixtures/extension-guest'
+import { connectorFixture } from './fixtures/extension-connector'
+import type { ExtensionGuestPorts } from '../src/main/extensions/guest-capability-ports'
+import type { ExecResult } from '../src/shared/fs-types'
 import { ExtensionActionOwner } from '../src/main/extensions/action-owner'
 import { releasedExtension } from './fixtures/released-extension'
 import { describe, expect, it, vi } from 'vitest'
@@ -15,7 +18,10 @@ import { contextFixture } from './fixtures/extension-context'
 import { exampleManifest } from './fixtures/extension-package'
 import type { ExtensionActivationOwner } from '../src/main/extensions/activation'
 
-function fixture() {
+function fixture(
+  manifest: Record<string, unknown> = {},
+  ports: Partial<ExtensionGuestPorts> = {},
+) {
   const revision = validateCapturedExtension({
     sourceIdentity: '1:1',
     files: new Map([
@@ -24,6 +30,7 @@ function fixture() {
         new TextEncoder().encode(
           JSON.stringify(
             exampleManifest({
+              ...manifest,
               updater: 'updater.html',
               railItems: [
                 {
@@ -57,7 +64,8 @@ function fixture() {
     prepare: vi.fn<ExtensionGuestSurfacePort['prepare']>(() => Promise.resolve()),
     destroy: vi.fn<ExtensionGuestSurfacePort['destroy']>(() => Promise.resolve()),
     visibility: vi.fn(),
-    send: vi.fn(),
+    foreground: (_owner: Parameters<ExtensionGuestSurfacePort['foreground']>[0]) => true,
+    send: vi.fn<ExtensionGuestSurfacePort['send']>(),
   }
   const contexts = contextFixture().contexts
   const presentation = new ExtensionPresentationState(
@@ -79,6 +87,7 @@ function fixture() {
     () => undefined,
     contexts,
     guestTestPorts(actions, presentation, {
+      ...ports,
       updaterFailed: (view) => contributions.failed(view),
       visibleContributionsChanged: () => contributions.contextChanged(),
       connectorDemand: (id, workspace) => contributions.connectorDemand(id, workspace),
@@ -106,6 +115,127 @@ function fixture() {
 }
 
 describe('one shared updater from visible contribution demand', () => {
+  it('excludes physical background owners immediately and ignores late rail demand', async () => {
+    const data = fixture()
+    let foreground = true
+    data.surface.foreground = () => foreground
+    await data.contributions.demand(
+      data.a,
+      data.demand(data.guests.contexts.sessions(data.a)[0]!.id),
+    )
+    expect(data.contributions.connectorDemand('one', 'workspace')).toBe(true)
+    foreground = false
+    expect(data.contributions.connectorDemand('one', 'workspace')).toBe(false)
+    await data.contributions.demand(
+      data.a,
+      data.demand(data.guests.contexts.sessions(data.a)[0]!.id),
+    )
+    expect(data.contributions.connectorDemand('one', 'workspace')).toBe(false)
+    await data.guests.dispose()
+  })
+  it('keeps the shared updater admitted by another foreground owner and cancels on final withdrawal', async () => {
+    const native = connectorFixture()
+    const data = fixture(
+      {
+        requiredCapabilities: ['connector.execute'],
+        connectors: native.activation.revision.manifest.connectors,
+      },
+      { connectors: native.execution },
+    )
+    const activation = data.active.get('one')!
+    native.active.set('one', activation)
+    const foreground = new Set([data.a.id, data.b.id])
+    data.surface.foreground = (owner = data.a) => foreground.has(owner.id)
+    let complete!: (value: ExecResult) => void
+    native.host.exec.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve
+        }),
+    )
+    try {
+      await native.approvals.start()
+      const prepared = await native.approvals.prepare(
+        {
+          installationId: 'one',
+          connector: 'tool',
+          host: 'local',
+          executable: '/installed/tool',
+          configuration: { args: [], env: {} },
+        },
+        () => {},
+      )
+      await native.approvals.approve(prepared.token)
+      await data.contributions.demand(
+        data.a,
+        data.demand(data.guests.contexts.sessions(data.a)[0]!.id),
+      )
+      await data.contributions.demand(
+        data.b,
+        data.demand(data.guests.contexts.sessions(data.b)[0]!.id),
+      )
+      const updater = data.guests
+        .snapshot(data.a)
+        .find((view) => view.role === 'updater')!
+      data.guests.claim(data.a, updater.partition, updater.url, updater.id)
+      data.guests.bind(data.a, updater.partition, 10)
+      data.guests.receive(10, { kind: 'hello', contract: '1.0' })
+      const request = (id: string) =>
+        data.guests.receive(10, {
+          kind: 'request',
+          id,
+          capability: 'connector.execute',
+          input: { ...native.input, args: [id] },
+        })
+      const result = (id: string) =>
+        data.surface.send.mock.calls.find(
+          ([guest, message]) =>
+            guest === 10 && message.kind === 'result' && message.id === id,
+        )?.[1]
+      request('held')
+      await vi.waitFor(() => expect(native.host.exec).toHaveBeenCalledTimes(1))
+      foreground.delete(data.a.id)
+      data.guests.foregroundChanged(data.a)
+      expect(data.surface.visibility).toHaveBeenLastCalledWith(10, true)
+      complete({ code: 0, signal: null, stdout: 'ok', stderr: '' })
+      await vi.waitFor(() =>
+        expect(result('held')).toMatchObject({
+          ok: true,
+          value: { outcome: 'completed' },
+        }),
+      )
+      request('withdraw')
+      await vi.waitFor(() => expect(native.host.exec).toHaveBeenCalledTimes(2))
+      foreground.delete(data.b.id)
+      data.guests.foregroundChanged(data.b)
+      expect(data.contributions.connectorDemand('one')).toBe(false)
+      expect(data.surface.visibility).toHaveBeenLastCalledWith(10, false)
+      await vi.waitFor(() =>
+        expect(result('withdraw')).toMatchObject({
+          ok: true,
+          value: { outcome: 'interrupted-uncertain' },
+        }),
+      )
+      expect(data.surface.visibility).toHaveBeenLastCalledWith(10, false)
+      await data.contributions.demand(
+        data.b,
+        data.demand(data.guests.contexts.sessions(data.b)[0]!.id),
+      )
+      expect(data.contributions.connectorDemand('one')).toBe(false)
+      expect(data.surface.visibility).toHaveBeenLastCalledWith(10, false)
+      complete({ code: 0, signal: null, stdout: 'late', stderr: '' })
+      request('late')
+      await vi.waitFor(() => expect(result('late')).toMatchObject({ ok: false }))
+      expect(native.host.exec).toHaveBeenCalledTimes(2)
+      expect(result('withdraw')).toMatchObject({
+        value: { outcome: 'interrupted-uncertain' },
+      })
+      expect(data.surface.prepare).toHaveBeenCalledTimes(1)
+    } finally {
+      await data.guests.dispose()
+      native.dispose()
+    }
+  })
   it('admits released navigation and exact session rails, pauses updater demand on withdrawal', async () => {
     const data = fixture()
     const activation = data.active.get('one')!

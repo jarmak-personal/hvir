@@ -30,6 +30,7 @@ export async function requestGuestConnector(
   connectorDemand: ExtensionGuestPorts['connectorDemand'],
   invocation: ExtensionInvocation | undefined,
   delivery: ExtensionGuestPorts['deliveries'],
+  foreground: () => boolean,
 ): Promise<unknown> {
   const invocationAuthority = invocation
     ? actions.authority(record.view.id, invocation.id)
@@ -69,7 +70,8 @@ export async function requestGuestConnector(
       record.view.role === 'updater'
         ? record.visible &&
           connectorDemand(record.activation.installationId, workspace) === true
-        : record.visible &&
+        : foreground() &&
+          record.visible &&
           record.refreshDemand &&
           (!workspace || workspace === record.context?.value.workspace?.id),
   }

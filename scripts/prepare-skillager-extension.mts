@@ -26,7 +26,7 @@ const staticAssets = [
   'project.html',
   'detail.html',
   'management.html',
-  'updater.html',
+  'skillager.svg',
 ]
 export async function prepareSkillagerExtension(
   directory = sourceDirectory,
@@ -38,7 +38,6 @@ export async function prepareSkillagerExtension(
   await prepareExtensionUi(directory)
   for (const [source, output] of [
     ['app', 'skillager'],
-    ['updater', 'updater'],
     ['operations', 'operations'],
   ]) {
     const result = await build({

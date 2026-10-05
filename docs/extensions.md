@@ -217,6 +217,19 @@ controls. Selecting a built-in view hides its retained guest; closing it destroy
 guest. Application destinations need no workspace or project grant and remain independent
 of workspace selection. A removed contribution returns to the built-in destination.
 
+An optional `navigationIcon` on a top/left view names a package-relative `.svg`. It is
+pure decoration: the title, keyboard focus and selected destination remain unchanged. Only the
+accepted captured revision supplies its image; editing source requires explicit Reload/Replace.
+Missing, invalid or unsupported icons warn in Settings and fall back to text navigation.
+The passive vocabulary is at most 8 KiB of UTF-8, one explicit finite `viewBox`, and up to sixteen
+self-closing paths. Paths use explicit `M/m`, `L/l`, `H/h`, `V/v` and `Z/z` commands (at most
+1024 characters/256 tokens per path; coordinates and view-box values within 4096). Paint is
+`none` or `currentColor`, with optional stroke width 0.1–4, standard line caps and joins.
+Use simple visible geometry. Scripts, handlers, styles, entities, links, external resources,
+other XML/markup and complex SVG commands are unsupported. hvir reconstructs a passive image
+mask without inserting package SVG markup into its workbench. Disable, replacement and removal
+retire it with the ordinary contribution snapshot; no background guest or updater is allocated.
+
 `railItems` declare `header` or `session` placement, `control` or `observation` kind,
 `icon`, `tooltip`, optional `label`, and `click: { view, placement: 'popup' | 'viewer' }`.
 Icons are one or two plain Unicode glyphs, at most eight UTF-16 units; labels are at most

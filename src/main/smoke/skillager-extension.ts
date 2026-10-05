@@ -1,3 +1,12 @@
+import {
+  inspectSkillagerCaret,
+  inspectSkillagerSearch,
+  submitSkillagerSearch,
+} from './skillager-search'
+import {
+  verifySkillagerNavigation,
+  verifySkillagerNavigationFallback,
+} from './skillager-navigation'
 import { extensionSettingsControls } from './extension-settings-controls'
 import { captureExtensionVisuals } from './extension-visuals'
 import { createHash } from 'node:crypto'
@@ -62,7 +71,10 @@ export async function verifySkillagerExtension(
     throw new Error('Discovery enabled or rejected Skillager')
   await click('Enable')
   await controls.wait(() => installation()?.enabled === true, 'trusted Skillager Enable')
-  if (process.env.HVIR_EXTENSION_VISUAL_DIRECTORY) {
+  if (
+    process.env.HVIR_EXTENSION_VISUAL_DIRECTORY ||
+    process.env.HVIR_SKILLAGER_SEARCH_PROOF
+  ) {
     await controls.click('Close settings')
     await controls.click('Skillager library')
     await controls.wait(() => !!view('library'), 'unapproved library placement')
@@ -76,6 +88,21 @@ export async function verifySkillagerExtension(
         ) as Promise<boolean>,
       'actual unapproved CLI state',
     )
+    if (process.env.HVIR_SKILLAGER_SEARCH_PROOF) {
+      const id = view('library')!.id
+      await inspectSkillagerCaret(
+        win,
+        unapproved,
+        host,
+        {
+          within: bounded,
+          inspect: (expression) => inspect(unapproved, expression),
+          wait: (predicate, label) => ready(unapproved, predicate, label),
+          current: () => view('library')?.id === id && !view('library')?.failure,
+        },
+        'unapproved',
+      )
+    }
     await captureExtensionVisuals(win, unapproved, host, 'unapproved', {
       ...controls,
       select: () => controls.click('Skillager library'),
@@ -136,6 +163,50 @@ export async function verifySkillagerExtension(
         ),
     'trusted CLI approval',
   )
+  if (process.env.HVIR_SKILLAGER_EVIDENCE_UNINITIALIZED === '1') {
+    if (!diagnostic || !process.env.HVIR_SKILLAGER_SEARCH_PROOF)
+      throw new Error('Uninitialized caret proof requires the owned diagnostic route')
+    const priorView = view('library')!.id
+    await controls.click('Close settings')
+    await controls.click('Close Skillager library')
+    await controls.wait(
+      () => !view('library'),
+      'prior unapproved library closes before recreation',
+    )
+    await controls.click('Skillager library')
+    await controls.wait(
+      () => !!view('library') && view('library')!.id !== priorView,
+      'fresh uninitialized library placement',
+    )
+    const uninitialized = await bounded(controls.guest(view('library')!)),
+      id = view('library')!.id
+    await ready(
+      uninitialized,
+      () =>
+        inspect(
+          uninitialized,
+          "document.getElementById('state').dataset.state==='empty'&&document.querySelectorAll('#skills [role=option]').length===0",
+        ) as Promise<boolean>,
+      'fresh uninitialized public catalog is empty without initialization',
+    )
+    await inspectSkillagerCaret(
+      win,
+      uninitialized,
+      host,
+      {
+        within: bounded,
+        inspect: (expression) => inspect(uninitialized, expression),
+        wait: (predicate, label) => ready(uninitialized, predicate, label),
+        current: () => view('library')?.id === id && !view('library')?.failure,
+      },
+      'uninitialized',
+    )
+    console.log(
+      '[smoke] actual caret first interaction/unapproved and never-initialized catalog; setup controls retained, no initialization OK',
+    )
+    console.log('HVIR_SMOKE_OK')
+    return true
+  }
   await set('Source root for library', root)
   await click('Inspect read access', 'library')
   await controls.wait(
@@ -158,17 +229,106 @@ export async function verifySkillagerExtension(
   phase = 'ordinary library guest attachment'
   console.log(`[smoke] Skillager evidence: begin ${phase}`)
   const guest = await bounded(controls.guest(view('library')!))
-  await ready(
+  await inspect(
     guest,
+    `(() => {
+    globalThis.__hvirInitialLibrary={visible:null,results:0,outcome:null,reason:null};
+    globalThis.__hvirInitialLibraryStop=window.hvirExtension.onMessage(message=>{
+      const facts=globalThis.__hvirInitialLibrary;
+      if(message.kind==='context')facts.visible=message.context.visible;
+      const value=message.kind==='result'&&message.ok?message.value:undefined;
+      if(value&&['completed','not-started','uncertain','interrupted'].includes(value.outcome)){
+        facts.results++;facts.outcome=value.outcome;
+        facts.reason=['unapproved','frequency','capacity','context-ended','deadline'].includes(value.reason)?value.reason:null;
+      }
+    });
+  })()`,
+  )
+  let initialCleanupError: unknown
+  try {
+    await ready(
+      guest,
+      () =>
+        inspect(
+          guest,
+          "document.querySelectorAll('#skills [role=option]').length===100 && !['loading','stale','error'].includes(document.getElementById('state').dataset.state)",
+        ) as Promise<boolean>,
+      diagnostic
+        ? 'current first 100 public library observations'
+        : 'current first 100 of genuine 5000',
+    )
+  } finally {
+    try {
+      await inspect(
+        guest,
+        'globalThis.__hvirInitialLibraryStop();delete globalThis.__hvirInitialLibraryStop;delete globalThis.__hvirInitialLibrary',
+      )
+    } catch (error) {
+      initialCleanupError = error
+    }
+  }
+  if (initialCleanupError)
+    throw initialCleanupError instanceof Error
+      ? initialCleanupError
+      : new Error('Initial library observer cleanup failed')
+  console.log(
+    '[smoke] current library placement',
+    JSON.stringify(await placementFacts(guest)),
+  )
+  const guestViewId = view('library')!.id
+  const navigationControls = {
+    ...controls,
+    within: bounded,
+    select: async () => {
+      await controls.wait(
+        () =>
+          dom(
+            "(() => {const button=document.querySelector('.project-tab-main');if(!button?.checkVisibility()||button.disabled)return false;button.click();return true})()",
+          ),
+        'ordinary project destination for navigation',
+      )
+      await controls.click('Skills in this project')
+      await controls.wait(() => !!view('project'), 'package project navigation selected')
+    },
+    packageClick: (name: string) => click(name),
+    disabled: () => installation()?.enabled === false,
+    revision: () => installation()?.acceptedRevision,
+  }
+  await navigationControls.select()
+  const projectGuest = await bounded(controls.guest(view('project')!))
+  await ready(
+    projectGuest,
     () =>
       inspect(
-        guest,
-        "document.querySelectorAll('#skills [role=option]').length===100 && !['loading','stale','error'].includes(document.getElementById('state').dataset.state)",
+        projectGuest,
+        "!!document.getElementById('state') && document.documentElement.style.colorScheme!==''",
       ) as Promise<boolean>,
-    diagnostic
-      ? 'current first 100 public library observations'
-      : 'current first 100 of genuine 5000',
+    'actual project package document/presentation',
   )
+  await verifySkillagerNavigation(win, projectGuest, host, navigationControls)
+  await selectFreshLibrary()
+  const searchPorts = {
+    within: bounded,
+    inspect: (expression: string) => inspect(guest, expression),
+    wait: (predicate: () => Promise<boolean>, label: string) =>
+      ready(guest, predicate, label),
+    current: () => view('library')?.id === guestViewId && !view('library')?.failure,
+    revokeProgram: async () => {
+      await controls.click('Open settings')
+      await controls.click('Extensions')
+      await click('Revoke native access', 'library-cli')
+      await controls.click('Close settings')
+      await controls.click('Skillager library')
+    },
+  }
+  if (process.env.HVIR_SKILLAGER_SEARCH_PROOF) {
+    await inspectSkillagerSearch(win, guest, host, searchPorts)
+    if (!archive)
+      await verifySkillagerNavigationFallback(win, host, directory, navigationControls)
+    console.log('[smoke] actual library Search button/Enter reproduction complete')
+    console.log('HVIR_SMOKE_OK')
+    return true
+  }
   await captureExtensionVisuals(win, guest, host, 'library', {
     ...controls,
     select: () => controls.click('Skillager library'),
@@ -219,19 +379,19 @@ export async function verifySkillagerExtension(
   )
     throw new Error('Keyboard focus prefetched instruction bodies')
   if (!process.env.HVIR_EXTENSION_VISUAL_DIRECTORY) {
-    await inspect(
-      guest,
-      "document.getElementById('query').value='catalogneedle';document.getElementById('search-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));",
-    )
-    await ready(
-      guest,
-      () =>
-        inspect(
-          guest,
-          "document.getElementById('state').textContent.includes('matches') && document.querySelectorAll('#skills [role=option]').length>0",
-        ) as Promise<boolean>,
-      'genuine public ranked search',
-    )
+    await inspect(guest, "document.getElementById('query').value='catalogneedle';")
+    for (const mode of ['button', 'enter'] as const) {
+      await submitSkillagerSearch(win, guest, searchPorts, mode)
+      await ready(
+        guest,
+        () =>
+          inspect(
+            guest,
+            "document.getElementById('state').dataset.state==='ready' && document.getElementById('state').textContent.includes('matches') && document.querySelectorAll('#skills [role=option]').length>0",
+          ) as Promise<boolean>,
+        `genuine public ranked search via ${mode}`,
+      )
+    }
   }
   const clicked = (await inspect(
     guest,
@@ -401,6 +561,8 @@ export async function verifySkillagerExtension(
   )
     throw new Error('Revocation lost already-read current bytes')
   await inspect(detail, 'window.skillagerEvidenceStop(); void 0;')
+  if (!archive)
+    await verifySkillagerNavigationFallback(win, host, directory, navigationControls)
   console.log(
     `[smoke] Skillager ${diagnostic ? 'reader diagnostic (full traversal skipped)' : 'full installed-CLI walkthrough'} public schemas, ${observed.size} genuine library identities/${pages} cursor pages, metadata-only focus, ${process.env.HVIR_EXTENSION_VISUAL_DIRECTORY ? 'visual-only pending-list selection (ranked search skipped)' : 'ranked search'}, explicit current read, utility-process Markdown, ordinary guest isolation and revoke OK`,
   )
@@ -490,18 +652,121 @@ export async function verifySkillagerExtension(
     await settings.set(label, value)
   }
   async function ready(
-    _guest: WebContents,
+    guest: WebContents,
     predicate: () => Promise<boolean>,
     label: string,
   ): Promise<void> {
     phase = label
     console.log(`[smoke] Skillager evidence: begin ${label}`)
     const deadline = Date.now() + 60_000
-    while (!(await bounded(predicate()))) {
-      if (Date.now() >= deadline)
-        throw new Error(`Skillager evidence timed out: ${label}`)
-      await new Promise((resolve) => setTimeout(resolve, 50))
+    try {
+      while (!(await bounded(predicate()))) {
+        if (Date.now() >= deadline)
+          throw new Error(`Skillager evidence timed out: ${label}`)
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
+    } catch (error) {
+      console.log(
+        '[smoke] readiness failure facts',
+        JSON.stringify({
+          native: {
+            visible: win.isVisible(),
+            focused: win.isFocused(),
+            minimized: win.isMinimized(),
+          },
+          parent: await placementFacts(guest).catch(() => ({ unavailable: true })),
+          foreground: await bounded<unknown>(
+            win.webContents.executeJavaScript(
+              "window.hvir.invoke('extensions:foreground',undefined)",
+            ),
+          ).catch(() => null),
+          guest: await inspect(
+            guest,
+            `(() => {
+          const state=document.getElementById('state'),text=state?.textContent??'';
+          return {state:['loading','stale','ready','empty','error'].includes(state?.dataset.state)?state.dataset.state:null,
+            rows:document.querySelectorAll('#skills [role=option]').length,nextDisabled:document.getElementById('next')?.disabled??null,
+            approval:text.includes('Approve your Skillager CLI'),frequency:text.includes('frequency'),capacity:text.includes('capacity'),contract:text.includes('contract'),
+            initial:globalThis.__hvirInitialLibrary??null};
+        })()`,
+          ).catch(() => ({ unavailable: true })),
+        }),
+      )
+      throw error
     }
     console.log(`[smoke] Skillager evidence: ready ${label}`)
+  }
+  async function placementFacts(guest: WebContents): Promise<unknown> {
+    return bounded<unknown>(
+      win.webContents.executeJavaScript(`(() => {
+      const pane=[...document.querySelectorAll('webview')].find(item=>item.src===${JSON.stringify(guest.getURL())})?.closest('.extension-view');
+      const destination=document.querySelector('.extension-top-destination');
+      const library=[...document.querySelectorAll('.sessions-destination')].find(item=>item.textContent.trim()==='Skillager library');
+      return {librarySelected:library?.getAttribute('aria-current')==='page',topHidden:destination?.hidden??null,paneHidden:pane?.hidden??null};
+    })()`),
+    )
+  }
+  async function selectFreshLibrary(): Promise<void> {
+    await inspect(
+      guest,
+      `(() => {
+      let page='';
+      globalThis.__hvirFreshLibrary={received:false,overflow:false,count:0,first:null};
+      globalThis.__hvirFreshLibraryStop=window.hvirExtension.onMessage(message=>{
+        if(message.kind==='context'&&!message.context.visible)page='';
+        const value=message.kind==='result'&&message.ok?message.value:undefined;
+        if(!value||typeof value.data!=='string')return;
+        if(page.length+value.data.length>4194304){page='';globalThis.__hvirFreshLibrary.overflow=true;return;}
+        page+=value.data;
+        if(value.nextOffset!==null)return;
+        try{
+          const result=JSON.parse(page);
+          if(result.schema==='skillager.list.v1'&&result.scope==='library'&&Array.isArray(result.skills))
+            globalThis.__hvirFreshLibrary={received:true,overflow:false,count:result.skills.length,first:result.skills[0]?.id??null};
+        }catch{ /* Other public output is not a completed library list. */ }
+        page='';
+      });
+    })()`,
+    )
+    let cleanupError: unknown
+    try {
+      await controls.click('Skillager library')
+      await ready(
+        guest,
+        async () =>
+          (await inspect(
+            guest,
+            `(() => {
+          const receipt=globalThis.__hvirFreshLibrary, rows=[...document.querySelectorAll('#skills [role=option]')];
+          return receipt.received&&!receipt.overflow&&receipt.count===rows.length&&receipt.first===rows[0]?.dataset.id&&document.getElementById('state').dataset.state==='ready';
+        })()`,
+          )) === true,
+        'fresh complete public library result after project navigation',
+      )
+    } catch (error) {
+      console.log(
+        '[smoke] library return facts',
+        JSON.stringify(
+          await inspect(
+            guest,
+            "({receipt:globalThis.__hvirFreshLibrary?.received===true,overflow:globalThis.__hvirFreshLibrary?.overflow===true,rows:document.querySelectorAll('#skills [role=option]').length,state:document.getElementById('state')?.dataset.state,nextDisabled:document.getElementById('next')?.disabled})",
+          ).catch(() => ({ unavailable: true })),
+        ),
+      )
+      throw error
+    } finally {
+      try {
+        await inspect(
+          guest,
+          'globalThis.__hvirFreshLibraryStop();delete globalThis.__hvirFreshLibraryStop;delete globalThis.__hvirFreshLibrary',
+        )
+      } catch (error) {
+        cleanupError = error
+      }
+    }
+    if (cleanupError)
+      throw cleanupError instanceof Error
+        ? cleanupError
+        : new Error('Library return observer cleanup failed')
   }
 }

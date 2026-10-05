@@ -70,6 +70,7 @@ export interface ExtensionContribution {
   readonly entry: string
   readonly placement: 'application' | 'workspace'
   readonly navigation?: 'top' | 'left'
+  readonly navigationIcon?: string
   readonly representations: readonly ['view']
 }
 

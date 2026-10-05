@@ -20,7 +20,7 @@ import {
   useContributionDemand,
   useExtensionContributions,
 } from './extension-contribution-context'
-import { useSessionsForeground } from '../sessions/use-sessions-foreground'
+import { useExtensionForeground } from './use-extension-foreground'
 
 /** Shared trusted data and presentation subscriptions; never executes package code. */
 export function ExtensionContributionsProvider({
@@ -54,12 +54,28 @@ export function ExtensionContributionsProvider({
     [onTop],
   )
   useEffect(() => {
-    if (topId && !selectedTop && topActive) onWorkspace()
-  }, [topId, selectedTop, topActive, onWorkspace])
+    if (!topId || selectedTop || !topActive) return
+    // The open reply can precede its renderer publication. Only main can confirm removal.
+    let current = true
+    void window.hvir.invoke('extensions:views', undefined).then(
+      (currentViews) => {
+        if (current && !currentViews.some((view) => view.id === topId)) onWorkspace()
+      },
+      (reason: unknown) => {
+        if (current)
+          errorRef.current(
+            reason instanceof Error ? reason.message : 'Extension view is unavailable',
+          )
+      },
+    )
+    return () => {
+      current = false
+    }
+  }, [topId, selectedTop, topActive, onWorkspace, views])
   const [state, setState] = useState<readonly ExtensionContributionState[]>([])
   const [sessions, setSessions] = useState<readonly ExtensionSessionContext[]>([])
   const [terminalIds, setTerminalIds] = useState<Readonly<Record<string, string>>>({})
-  const foreground = useSessionsForeground()
+  const foreground = useExtensionForeground()
   const demands = useRef(new Map<string, readonly ExtensionDemand[]>())
   const demandPump = useRef({ running: false, dirty: false })
   const publishDemand = useCallback((): void => {
@@ -280,6 +296,13 @@ export function ExtensionTopRail(): ReactElement | null {
               .catch(() => undefined)
           }}
         >
+          {extension.navigationIcons?.[view.id] ? (
+            <span
+              aria-hidden="true"
+              className="extension-navigation-icon"
+              style={{ maskImage: `url("${extension.navigationIcons[view.id]}")` }}
+            />
+          ) : null}
           {view.title}
         </button>
       ))}
@@ -358,6 +381,13 @@ export function ExtensionLeftRail({
               }}
               className="hvir-button"
             >
+              {extension.navigationIcons?.[view.id] ? (
+                <span
+                  aria-hidden="true"
+                  className="extension-navigation-icon"
+                  style={{ maskImage: `url("${extension.navigationIcons[view.id]}")` }}
+                />
+              ) : null}
               {view.title}
             </button>
           ))}

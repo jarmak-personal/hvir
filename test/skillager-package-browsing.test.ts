@@ -11,7 +11,7 @@ afterEach(() => {
   document.body.replaceChildren()
   vi.useRealTimers()
 })
-function packageView(view = 'library', entry = 'app') {
+function packageView(view = 'library') {
   vi.useFakeTimers()
   vi.setSystemTime(0)
   const template = document.createElement('template')
@@ -20,7 +20,6 @@ function packageView(view = 'library', entry = 'app') {
   document.body.replaceChildren(template.content.cloneNode(true))
   document.body.dataset.view = view
   let receive!: (message: unknown) => void
-  const publications: Record<string, unknown>[] = []
   const calls: string[][] = [],
     outputs = new Map<string, string>()
   let serial = 0,
@@ -119,7 +118,6 @@ function packageView(view = 'library', entry = 'app') {
             nextOffset: null,
           }
     } else {
-      if (message.capability === 'contributions.publish') publications.push(message.input)
       value = null
     }
     const reply = () => receive({ kind: 'result', id: message.id, ok: true, value })
@@ -152,7 +150,7 @@ function packageView(view = 'library', entry = 'app') {
     if (name === 'pagehide') disposeListeners.push(listener)
   }) as typeof window.addEventListener
   const bundle = buildSync({
-    entryPoints: [`packages/skillager-extension/src/${entry}.mjs`],
+    entryPoints: ['packages/skillager-extension/src/app.mjs'],
     bundle: true,
     format: 'iife',
     write: false,
@@ -177,7 +175,6 @@ function packageView(view = 'library', entry = 'app') {
     button,
     flush,
     calls,
-    publications,
     unapproved: () => {
       unapproved = true
     },
@@ -318,27 +315,6 @@ it('retries only explicit completed-source frequency refusal once and cancels th
   expect(f.calls).toHaveLength(count)
   close?.()
   expect(vi.getTimerCount()).toBe(0)
-})
-
-it('updater reads only needed status metadata and publishes last-known freshness honestly after refusal', async () => {
-  const f = packageView('library', 'updater')
-  f.context()
-  await f.flush()
-  expect(f.calls.map((args) => args[0])).toEqual(['--version', 'library'])
-  expect(f.publications.at(-1)).toMatchObject({
-    label: '3',
-    availability: 'current',
-  })
-  const observedAt = f.publications.at(-1)!.observedAt
-  f.fail()
-  f.context()
-  await f.flush()
-  expect(f.publications.at(-1)).toMatchObject({
-    label: '3',
-    availability: 'stale',
-    observedAt,
-  })
-  expect(f.calls.some((args) => args[0] === 'list')).toBe(false)
 })
 
 it('makes native approval refusal actionable while retaining last-known observations and exact search options', async () => {

@@ -151,6 +151,7 @@ async function fixture() {
       destroy: () => Promise.resolve(),
       send: (_id, message) => sent.push(message),
       visibility: () => undefined,
+      foreground: () => true,
     },
     () => undefined,
     context,

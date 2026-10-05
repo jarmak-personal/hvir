@@ -6,6 +6,7 @@ interface VisualControls {
   click(name: string): Promise<void>
   wait(predicate: () => boolean | Promise<boolean>, label: string): Promise<void>
   select(): Promise<void>
+  painted?(): Promise<unknown>
 }
 
 /** Opt-in actual compositor captures contain only the owned public-CLI visual fixture. */
@@ -13,10 +14,11 @@ export async function captureExtensionVisuals(
   win: BrowserWindow,
   guest: WebContents,
   host: ProjectHost,
-  state: 'unapproved' | 'library' | 'instructions',
+  state: 'unapproved' | 'library' | 'instructions' | 'project',
   controls: VisualControls,
+  captureDirectory = process.env.HVIR_EXTENSION_VISUAL_DIRECTORY,
 ): Promise<void> {
-  const directory = process.env.HVIR_EXTENSION_VISUAL_DIRECTORY
+  const directory = captureDirectory
   if (!directory) return
   if (!directory.startsWith('/') || directory === '/')
     throw new Error('Select an absolute owned extension visual directory')
@@ -70,15 +72,9 @@ export async function captureExtensionVisuals(
               )) === true,
             'current public library result after appearance save',
           )
-        if (state === 'instructions')
-          await controls.wait(
-            async () =>
-              (await win.webContents.executeJavaScript(
-                "[...document.querySelectorAll('.terminal-rail-header .extension-terminal-item')].some(e=>e.querySelector('.extension-terminal-value')?.textContent==='100' && e.title.includes('current metadata'))",
-              )) === true,
-            'actual public count observation in the compact rail',
-          )
         await settled()
+        if (controls.painted)
+          facts.push({ theme, variant, state, navigation: await controls.painted() })
         facts.push({
           theme,
           variant,
@@ -103,19 +99,6 @@ export async function captureExtensionVisuals(
         })()`)) as unknown,
         })
         await write(`${state}-${theme}-${variant}`)
-        if (state === 'instructions')
-          facts.push({
-            theme,
-            variant,
-            state,
-            rail: (await win.webContents.executeJavaScript(`(() => {
-            const value=document.querySelector('.terminal-rail-header .extension-terminal-value'), button=value.closest('button');
-            const box=value.getBoundingClientRect(), bounds=button.getBoundingClientRect(), group=button.parentElement.getBoundingClientRect(), header=button.closest('header').getBoundingClientRect();
-            const visible=value.checkVisibility()&&box.width>0&&box.left>=group.left&&box.right<=group.right&&box.top>=header.top&&box.bottom<=header.bottom;
-            if(!visible)throw new Error('Actual live rail value is clipped');
-            return {value:value.textContent, fullAccessibleName:button.getAttribute('aria-label'), visible, contained:box.left>=bounds.left&&box.right<=bounds.right, fontSize:getComputedStyle(value).fontSize};
-          })()`)) as unknown,
-          })
         if (state === 'library') {
           await controls.wait(
             async () =>
@@ -140,7 +123,7 @@ export async function captureExtensionVisuals(
             "document.querySelector('.search-options > summary').click()",
           )
         }
-        if (state !== 'instructions') {
+        if (state !== 'instructions' && state !== 'project') {
           await controls.click('Open settings')
           await section('Extensions', 'extensions')
           await settled()
@@ -285,7 +268,7 @@ export async function captureExtensionVisuals(
       joinHostPath(output, `${name}.png`),
       (await win.webContents.capturePage()).toPNG(),
     )
-    if (/^(unapproved|library|instructions)-/.test(name))
+    if (/^(unapproved|library|instructions|project)-/.test(name))
       await host.writeFile(
         joinHostPath(output, `${name}-guest.png`),
         (await guest.capturePage()).toPNG(),

@@ -9,8 +9,8 @@ import type {
 import { validateExtensionManifest } from '../src/shared/extensions/manifest'
 import { exampleManifest } from './fixtures/extension-package'
 
-vi.mock('../src/renderer/src/sessions/use-sessions-foreground', () => ({
-  useSessionsForeground: () => true,
+vi.mock('../src/renderer/src/extensions/use-extension-foreground', () => ({
+  useExtensionForeground: () => true,
 }))
 vi.mock('../src/renderer/src/theme', () => ({ useAppTheme: () => 'dark' }))
 vi.mock('../src/renderer/src/settings/settings', () => ({

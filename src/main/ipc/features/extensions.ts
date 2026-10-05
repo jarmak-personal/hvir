@@ -9,6 +9,10 @@ export function registerExtensionsIpc(
   const unavailable = (): never => {
     throw new Error('Extensions are unavailable')
   }
+  ipc.handle(
+    'extensions:foreground',
+    (_req, context) => extensions?.guests?.ownerForeground(context.owner()) ?? false,
+  )
   ipc.handle('extensions:delivery-recovery', (_req, context) => {
     context.owner()
     return extensions?.deliveries?.recoveryStatus() ?? []

@@ -24,6 +24,21 @@ demand only. No demand freezes execution and denies refresh; renewed demand publ
 context before runnable work resumes. Updaters can observe context and publish presentation,
 but cannot open views, invoke actions, mutate files, or hand work to terminals.
 
+Foreground means the owning native window is visible, focused and not minimized. Moving
+keyboard focus into an embedded guest does not background that window. The existing native
+guest surface publishes this fact through private trusted-renderer transport, independently
+of Sessions' document-focus observations. Top/left placement retains its selected,
+unobscured, foreground visibility rule. Native background events withdraw its main visibility
+and ordinary refresh authority before renderer publication; stale publications cannot restore
+them. The same native predicate fences ordinary top/left admission and late completion, and
+qualifies contribution demand. The shared updater follows the aggregate of currently
+foreground demand owners, rather than the foreground of its original hosting window. A
+hosting window background event leaves it runnable only while that aggregate remains current;
+withdrawal of the last foreground demand synchronously denies connector work and pauses the
+updater. Late demand from a background owner cannot revive it. Existing viewer/popup placement
+and finite admitted actions
+retain their independent lifetimes. No focus registry or public guest capability is added.
+
 A focused presentation owner validates finite data: bounded glyph icons, short labels and
 tooltips, observation availability and timestamps. Application control values may persist under the
 extension state-write lease. Observation publications remain in memory, avoiding periodic

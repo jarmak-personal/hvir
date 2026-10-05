@@ -139,6 +139,7 @@ export function validateExtensionManifest(value: unknown): ManifestValidation {
         'placement',
         'representations',
         'navigation',
+        'navigationIcon',
       ]),
     )
     if (
@@ -156,6 +157,7 @@ export function validateExtensionManifest(value: unknown): ManifestValidation {
       entry: extensionAssetPath(view['entry']),
       placement: view['placement'] as 'application' | 'workspace',
       ...(view['navigation'] === undefined ? {} : { navigation: readNavigation(view) }),
+      ...readNavigationIcon(view, warnings),
       representations: ['view'],
     }
   })
@@ -197,4 +199,21 @@ function readNavigation(view: Record<string, unknown>): 'top' | 'left' {
   throw new Error(
     'Top destinations are application-level; left views are workspace-scoped',
   )
+}
+
+function readNavigationIcon(
+  view: Record<string, unknown>,
+  warnings: string[],
+): { navigationIcon?: string } {
+  if (view['navigationIcon'] === undefined) return {}
+  try {
+    const path = extensionAssetPath(view['navigationIcon'])
+    if (!view['navigation'] || !path.endsWith('.svg')) throw new Error('Invalid icon')
+    return { navigationIcon: path }
+  } catch {
+    warnings.push(
+      'Navigation icon ignored: choose a package-relative .svg for a navigation view',
+    )
+    return {}
+  }
 }

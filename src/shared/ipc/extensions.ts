@@ -24,6 +24,7 @@ import type {
 /** Trusted Settings/viewer transport. This contract is never exposed to a guest. */
 export const extensionsIpc = {
   invoke: {
+    'extensions:foreground': invoke<void, boolean>(),
     'extensions:delivery-recovery': invoke<
       void,
       readonly import('../extensions/managed-delivery').DeliveryRecoveryEntry[]
@@ -126,6 +127,7 @@ export const extensionsIpc = {
     }>(),
   },
   event: {
+    'extensions:foreground-changed': payload<boolean>(),
     'extensions:files-reveal': payload<{
       readonly workspaceId: string
       readonly root: import('../host-path').HostPath
