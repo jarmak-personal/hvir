@@ -9,6 +9,23 @@ interface VisualControls {
   painted?(): Promise<unknown>
 }
 
+/** Actual search controls must share the available guest width without covering each other. */
+export async function verifySkillagerSearchGeometry(
+  guest: WebContents,
+): Promise<unknown> {
+  return guest.executeJavaScript(`(() => {
+    const form=document.getElementById('search-form'), input=document.getElementById('query'), button=form?.querySelector('button[type=submit]');
+    if(!form||!input||!button)throw new Error('Skillager search controls are missing');
+    const box=element=>{const r=element.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height}};
+    const bounds=box(form), query=box(input), submit=box(button);
+    const contained=r=>r.width>0&&r.height>0&&r.left>=bounds.left-1&&r.right<=bounds.right+1&&r.top>=bounds.top-1&&r.bottom<=bounds.bottom+1&&r.left>=0&&r.right<=innerWidth;
+    const separate=query.right<=submit.left||submit.right<=query.left||query.bottom<=submit.top||submit.bottom<=query.top;
+    const styled=[input,button].every(e=>{const s=getComputedStyle(e);return s.borderTopStyle==='solid'&&parseFloat(s.borderTopLeftRadius)>=3});
+    if(!input.checkVisibility()||!button.checkVisibility()||!contained(query)||!contained(submit)||!separate||!styled)throw new Error('Actual Skillager search controls overlap, escape the form or lose shared styling');
+    return {form:bounds,input:query,button:submit,separate,contained:true,styled,viewport:innerWidth,scale:document.documentElement.style.getPropertyValue('--hvir-interface-scale')};
+  })()`)
+}
+
 /** Opt-in actual compositor captures contain only the owned public-CLI visual fixture. */
 export async function captureExtensionVisuals(
   win: BrowserWindow,
@@ -73,6 +90,13 @@ export async function captureExtensionVisuals(
             'current public library result after appearance save',
           )
         await settled()
+        if (state !== 'instructions')
+          facts.push({
+            theme,
+            variant,
+            state,
+            search: await verifySkillagerSearchGeometry(guest),
+          })
         if (controls.painted)
           facts.push({ theme, variant, state, navigation: await controls.painted() })
         facts.push({
