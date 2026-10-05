@@ -17,6 +17,7 @@ import type { ElectronSmokeDependencies } from './bootstrap-contract'
 import type { LiveSessionMetadataSources } from '../terminal/live-session-metadata'
 import { focusSmokeWindow } from './window-focus'
 import { verifyExtensionWebRtc } from './extension-webrtc'
+import { verifyExtensionSettingsGeometry } from './extension-presentation-geometry'
 import { verifyExtensionAuthoring } from './extension-authoring'
 import { verifyExtensionPackages } from './extension-packages'
 import { verifyExtensionImport } from './extension-import'
@@ -115,6 +116,7 @@ export async function verifyExtensionScenario(
   await host.writeFile(joinHostPath(bad, 'hvir-extension.json'), '{invalid')
   await click(win, 'Open settings')
   await click(win, 'Extensions')
+  await verifyExtensionSettingsGeometry(win, waitFor)
   await click(win, 'Discover extensions')
   await waitFor(
     () => extensions.activations!.snapshot().installations.length === 2,

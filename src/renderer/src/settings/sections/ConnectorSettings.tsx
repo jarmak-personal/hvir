@@ -76,33 +76,42 @@ function ConnectorSetup({
   }, [installation, connector])
   return (
     <fieldset disabled={busy}>
-      <legend>Native connector: {connector.id}</legend>
+      <legend>Program access: {connector.id}</legend>
       <p>{connector.description}</p>
       <p>
-        This executable runs with your account’s authority on the selected host. It can
-        access files, credentials, network and other programs. Its working directory and
-        an action’s label do not confine it or prove that it is read-only. Enabling
-        extension views does not approve native execution.
+        Programs run as your account on the chosen host, with access to files,
+        credentials, network and other programs. Their working folder or action name does
+        not limit that access or prove they only read files. Enabling an extension does
+        not approve program execution.
       </p>
       <p>
-        Working context:{' '}
+        Working folder:{' '}
         {connector.context === 'application'
-          ? 'Local application scratch directory, independent of the selected workspace'
-          : 'Explicitly targeted workspace on the approved host'}{' '}
-        · Deadline: {connector.timeoutMs / 1000} seconds · Output: {connector.outputBytes}{' '}
-        bytes
+          ? 'hvir’s local scratch folder, separate from your project'
+          : 'The selected project on the approved host'}{' '}
       </p>
-      <p>
-        Available environment overrides: {connector.environment.join(', ') || 'None'}. The
-        host account’s normal environment is inherited.
-      </p>
+      <details>
+        <summary>Execution limits and environment</summary>
+        <p>
+          Deadline: {connector.timeoutMs / 1000} seconds · Output: {connector.outputBytes}{' '}
+          bytes
+        </p>
+        <p>
+          Available environment overrides: {connector.environment.join(', ') || 'None'}.
+          The host account’s normal environment is inherited.
+        </p>
+      </details>
       <p role="status">
-        {status?.availability ?? 'unavailable'}
+        {status?.availability === 'supported'
+          ? 'Approved'
+          : status?.availability === 'disconnected'
+            ? 'Host disconnected'
+            : 'Unavailable'}
         {status?.executable ? ` · ${status.host}: ${status.executable}` : ''}
         {status?.explanation ? ` · ${status.explanation}` : ''}
       </p>
       <label>
-        Connector host
+        Host
         <select
           aria-label={`Host for ${connector.id}`}
           value={host}
@@ -124,7 +133,7 @@ function ConnectorSetup({
         </select>
       </label>
       <label>
-        Absolute installed executable path
+        Installed program path (absolute)
         <input
           aria-label={`Executable for ${connector.id}`}
           value={path}
@@ -135,18 +144,21 @@ function ConnectorSetup({
           className="hvir-input"
         />
       </label>
-      <label>
-        Configuration (JSON argument prefix and environment overrides)
-        <textarea
-          aria-label={`Configuration for ${connector.id}`}
-          value={configuration}
-          onChange={(event) => {
-            setConfiguration(event.target.value)
-            setDecision(undefined)
-          }}
-          className="hvir-input"
-        />
-      </label>
+      <details>
+        <summary>Advanced configuration</summary>
+        <label>
+          Configuration (JSON argument prefix and environment overrides)
+          <textarea
+            aria-label={`Configuration for ${connector.id}`}
+            value={configuration}
+            onChange={(event) => {
+              setConfiguration(event.target.value)
+              setDecision(undefined)
+            }}
+            className="hvir-input"
+          />
+        </label>
+      </details>
       <button
         type="button"
         onClick={() =>

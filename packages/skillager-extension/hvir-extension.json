@@ -33,25 +33,25 @@
   "access": [
     {
       "id": "library",
-      "description": "Read selected current instructions and confined images within your personal library",
+      "description": "Read selected instruction files and images in your personal library",
       "context": "application",
       "mode": "read-only"
     },
     {
       "id": "project",
-      "description": "Read selected current instructions and confined images in the exact registered project/worktree",
+      "description": "Read selected instruction files and images in the selected project",
       "context": "workspace",
       "mode": "read-only"
     },
     {
       "id": "delivery-source",
-      "description": "Capture complete local approved Full exports inside your explicit export directory",
+      "description": "Use approved Full copies from the local export folder you choose",
       "context": "application",
       "mode": "delivery-source"
     },
     {
       "id": "delivery-target",
-      "description": "Add, update and preserve exact managed Full deliveries inside the selected SSH workspace",
+      "description": "Manage skill copies in the selected SSH project, preserving prior copies",
       "context": "workspace",
       "mode": "managed-delivery"
     }
@@ -538,7 +538,7 @@
   "connectors": [
     {
       "id": "library-cli",
-      "description": "Your installed Skillager CLI; personal-library observations use local application context",
+      "description": "Browse your personal library using the Skillager CLI you approve",
       "context": "application",
       "timeoutMs": 180000,
       "outputBytes": 4194304,
@@ -546,7 +546,7 @@
     },
     {
       "id": "project-cli",
-      "description": "Your installed local Skillager CLI; observations of the exact selected local project only",
+      "description": "Use the Skillager CLI you approve in the selected local project",
       "context": "workspace",
       "timeoutMs": 180000,
       "outputBytes": 4194304,

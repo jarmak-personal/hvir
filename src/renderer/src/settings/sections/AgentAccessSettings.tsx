@@ -133,17 +133,14 @@ export function AgentAccessSettings({
               }
             >
               <option value="standing">Allow actions within approved access</option>
-              <option value="confirm">Also confirm destructive actions</option>
+              <option value="confirm">Also confirm deletions and replacements</option>
             </select>
           </label>
           <p>
-            The harness controls its own approvals. Its sandbox does not constrain work
-            executed by hvir. Access does not enable extensions, approve native connectors
-            or expand grants. Same-user processes share this access.
-          </p>
-          <p>
-            Terminal defaults: HVIR_AGENT_ENDPOINT, HVIR_AGENT_WORKSPACE,
-            HVIR_AGENT_SESSION. Use hvir-agent guide targeting for command setup.
+            Your agents have their own permission prompts. Work they ask hvir to run uses
+            the access approved here; their sandbox does not restrict that work.
+            Extensions still need Enable, and programs and folders need separate approval.
+            Other processes running as your account share this access.
           </p>
           {(state?.forwards ?? []).map((forward) => (
             <div key={forward.host}>
@@ -195,9 +192,16 @@ export function AgentAccessSettings({
                 ))}
             </div>
           ))}
-          {state?.endpoint ? (
-            <p className="hvir-meta">Instance endpoint: {state.endpoint}</p>
-          ) : null}
+          <details>
+            <summary>Agent connection details</summary>
+            <p>
+              Terminal defaults: HVIR_AGENT_ENDPOINT, HVIR_AGENT_WORKSPACE,
+              HVIR_AGENT_SESSION. Use hvir-agent guide targeting for command setup.
+            </p>
+            {state?.endpoint ? (
+              <p className="hvir-meta">Instance endpoint: {state.endpoint}</p>
+            ) : null}
+          </details>
           {state?.explanation ? <p role="status">{state.explanation}</p> : null}
         </>
       )}

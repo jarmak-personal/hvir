@@ -95,13 +95,13 @@ function SourceSetup({
       <p>{source.description}</p>
       <p>
         {source.context === 'application'
-          ? 'An explicitly selected local directory, independent of the selected workspace.'
-          : 'One explicitly chosen registered project/worktree on its own host. Other current or future workspaces acquire no scope.'}{' '}
+          ? 'Choose a local folder, independent of the project you are viewing.'
+          : 'Choose one registered project or worktree on its own host. Other projects do not receive this access.'}{' '}
         {source.mode === 'read-only'
-          ? 'This grants selected document and confined image reads, never mutation or content acceptance. Agent and action callers cannot read instruction bodies.'
+          ? 'Allows you to read selected files and images inside this folder. It does not change files or approve a skill. Agents and extension actions cannot read skill instructions.'
           : source.mode === 'delivery-source'
-            ? 'This grants complete bounded local export capture for delivery, without instruction-body reading or domain approval. Native execution requires its own connector approval.'
-            : 'This grants managed delivery only to this exact SSH workspace. Add requires an absent target; Update and Remove require unchanged hvir-owned content. Displaced content is preserved outside active skill discovery.'}
+            ? 'Allows complete local exports from this folder for delivery. It does not approve skills or allow instruction reading. Running a command needs separate approval.'
+            : 'Allows delivery only to this SSH project. New copies need a destination that does not already exist. Updates and removal need unchanged hvir-owned copies. Replaced files are preserved outside the skill folders.'}
       </p>
       <p role="status">
         {status?.granted ? 'Granted' : 'Not granted'}
@@ -110,7 +110,7 @@ function SourceSetup({
       </p>
       {source.context === 'application' ? (
         <label>
-          Absolute local source root
+          Local folder (absolute path)
           <input
             className="hvir-input"
             aria-label={`Source root for ${source.id}`}
@@ -123,8 +123,9 @@ function SourceSetup({
         </label>
       ) : (
         <label>
-          Registered workspace
+          Project or worktree
           <select
+            className="hvir-input"
             aria-label={`Registered workspace for ${source.id}`}
             value={workspaceId}
             onChange={(event) => {
@@ -132,7 +133,7 @@ function SourceSetup({
               setDecision(undefined)
             }}
           >
-            <option value="">Choose a registered workspace</option>
+            <option value="">Choose a project or worktree</option>
             {workspaces
               .filter(
                 (entry) =>

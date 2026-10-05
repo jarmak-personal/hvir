@@ -22,7 +22,7 @@ async function observe() {
     if (!client.visible || revision !== generation) return
     const value = {
       item: 'library',
-      label: library.count === null ? 'Skills' : `Skills ${library.count}`,
+      label: library.count === null ? '?' : String(library.count),
       tooltip: `${library.count ?? 'Unknown number of'} personal library skills · current metadata`,
       observedAt: Date.now(),
       availability: 'current',
@@ -33,7 +33,7 @@ async function observe() {
     if (client.visible && revision === generation)
       await client
         .request('contributions.publish', {
-          ...(lastKnown ?? { item: 'library', label: 'Skills' }),
+          ...(lastKnown ?? { item: 'library', label: '?' }),
           tooltip: `${error.message}`.slice(0, 160),
           availability: lastKnown ? 'stale' : 'failed',
         })

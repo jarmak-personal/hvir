@@ -22,7 +22,7 @@ export async function verifyExtensionPresentationUi(
   )
   const renderedTypography = await query(`(() => {
     const body = getComputedStyle(document.body), mono = getComputedStyle(document.querySelector('pre'));
-    return body.fontFamily.includes('A'.repeat(100)) && Math.abs(parseFloat(body.fontSize) - 14.3) < 0.05 && mono.fontFamily.includes('ui-monospace');
+    return body.fontFamily.includes('A'.repeat(100)) && Math.abs(parseFloat(body.fontSize) - 13.2) < 0.05 && mono.fontFamily.includes('ui-monospace');
   })()`)
   if (renderedTypography !== true)
     throw new Error('Guest kit did not render host font/scale/monospace presentation')

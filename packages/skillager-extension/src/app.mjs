@@ -145,12 +145,18 @@ function rows(page) {
           : 'Your personal library is empty.',
       'empty',
     )
-  else
+  else {
+    const observation = query
+      ? `${page.rows.length} matches · ${page.presence ?? 'unknown'} installed presence · Page ${previous.length + 1}`
+      : `${page.rows.length}${library?.count !== null && library?.count !== undefined && view === 'library' ? ` of ${library.count}` : ''} skills${view === 'project' ? ' · Local observations; discovery coverage is not asserted' : ''} · Page ${previous.length + 1} · observed ${new Date().toLocaleTimeString()}`
+    if (element('observation-details'))
+      element('observation-details').textContent = observation
     say(
       query
-        ? `${page.rows.length} matches · ${page.presence ?? 'unknown'} installed presence · Page ${previous.length + 1}`
-        : `${page.rows.length}${library?.count !== null && library?.count !== undefined && view === 'library' ? ` of ${library.count}` : ''} skills${view === 'project' ? ' · Local observations; discovery coverage is not asserted' : ''} · Page ${previous.length + 1} · observed ${new Date().toLocaleTimeString()}`,
+        ? `${page.rows.length} matches · Page ${previous.length + 1}`
+        : `${page.rows.length}${library?.count !== null && library?.count !== undefined && view === 'library' ? ` of ${library.count}` : ''} skills · Page ${previous.length + 1}`,
     )
+  }
 }
 function pagingControls() {
   const changingSearch =
@@ -382,7 +388,7 @@ async function readSelected() {
       `Observation: ${row.status} · Current file read ${new Date(selected.readAt).toLocaleTimeString()} · File SHA-256 ${selected.sha256}. Current-file bytes are not an accepted tree snapshot.${row.matched && row.matched !== row.skillId ? ` Ranking matched ${row.matched}.` : ''}`
     element('canonical').hidden = !row.canonical
     if (body.dataset.mode !== 'source' || mode === 'source')
-      say('Current instructions · viewing grants no acceptance or execution')
+      say('Current file · reading does not approve or run this skill')
     if (body.dataset.mode !== 'source')
       await loadInstructionImages(
         client,
@@ -579,9 +585,11 @@ client.listen((message) => {
           ? 'Filter known installed identities before CLI limits'
           : 'Installed presence is unknown; search includes all personal-library candidates'
         if (element('installed-label'))
-          element('installed-label').textContent = local
-            ? 'Include installed'
-            : 'Installed presence unknown · library candidates only'
+          element('installed-label').textContent = 'Include installed'
+        if (element('installed-note'))
+          element('installed-note').textContent = local
+            ? 'Installed copies are observed for this project.'
+            : 'Installed copies are unknown here. Search covers your personal library.'
         if (changed || !local) installed.checked = local
       }
       if (renewed || changed)

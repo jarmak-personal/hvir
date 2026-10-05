@@ -64,11 +64,17 @@ export function DeliveryRecoverySettings(): ReactElement {
     }
   }, [])
   return (
-    <section aria-label="Retained extension deliveries">
-      <h4>Retained extension deliveries</h4>
+    <details
+      className="extension-delivery-recovery"
+      aria-label="Retained extension deliveries"
+      open={entries.length > 0 || !!message || !!decision}
+    >
+      <summary>
+        Delivery recovery{entries.length ? ` · ${entries.length} to inspect` : ''}
+      </summary>
       <p>
-        Package removal keeps these exact remote objects. Uncertain completion stays
-        unknown. Inspect before cleanup or ending tracking.
+        Removing an extension keeps these saved remote files. Inspect them before cleanup
+        or ending tracking; an unknown completion remains unknown.
       </p>
       <button
         type="button"
@@ -81,17 +87,24 @@ export function DeliveryRecoverySettings(): ReactElement {
       {entries.map((entry) => (
         <article key={entry.id}>
           <p>
-            {entry.outcome} · {entry.installation}
+            Delivery needs attention. Inspect the saved files before choosing what to
+            keep.
           </p>
           <p>
             Target: {entry.target.hostId}: {entry.target.path}
           </p>
-          <p>
-            Staging: {entry.staging.hostId}: {entry.staging.path}
-          </p>
-          <p>
-            Preserved: {entry.preserved.hostId}: {entry.preserved.path}
-          </p>
+          <details>
+            <summary>Delivery details</summary>
+            <p>
+              {entry.outcome} · {entry.installation}
+            </p>
+            <p>
+              Staging: {entry.staging.hostId}: {entry.staging.path}
+            </p>
+            <p>
+              Preserved: {entry.preserved.hostId}: {entry.preserved.path}
+            </p>
+          </details>
           <button
             type="button"
             className="hvir-button"
@@ -103,14 +116,12 @@ export function DeliveryRecoverySettings(): ReactElement {
                   id: entry.id,
                 })
                 if (!result.token || !result.objects || !result.completion)
-                  throw new Error(
-                    'Complete current recovery facts are unavailable; inspect again',
-                  )
+                  throw new Error('Current file details are unavailable; inspect again')
                 if (current()) setDecision(result)
               })
             }
           >
-            Inspect exact objects
+            Inspect retained files
           </button>
           <button
             type="button"
@@ -131,8 +142,12 @@ export function DeliveryRecoverySettings(): ReactElement {
               })
             }
           >
-            Reconcile exact delivery
+            Check delivery status
           </button>
+          <p>
+            Cleanup removes only verified saved staging and preserved old copies. Target
+            files stay in place; inspect Delivery details for the exact paths.
+          </p>
           <button
             type="button"
             className="hvir-button"
@@ -150,7 +165,7 @@ export function DeliveryRecoverySettings(): ReactElement {
               })
             }
           >
-            Clean verified retained objects
+            Remove saved staging and old copies
           </button>
         </article>
       ))}
@@ -199,6 +214,6 @@ export function DeliveryRecoverySettings(): ReactElement {
         </fieldset>
       ) : null}
       {message ? <p role="status">{message}</p> : null}
-    </section>
+    </details>
   )
 }
