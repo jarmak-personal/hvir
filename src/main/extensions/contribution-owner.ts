@@ -46,6 +46,7 @@ export class ExtensionContributionOwner {
       installationId: activation.installationId,
       extensionName: activation.revision.manifest.name,
       manifest: activation.revision.manifest,
+      navigationIcons: activation.revision.navigationIcons,
       values: this.presentation.values(activation),
       ...(this.errors.get(activation.installationId)
         ? { error: this.errors.get(activation.installationId) }
@@ -210,7 +211,7 @@ export class ExtensionContributionOwner {
           },
         ],
       })),
-    ]
+    ].filter(({ owner }) => this.guests.ownerForeground(owner))
   }
 
   private reconcile(): Promise<void> {

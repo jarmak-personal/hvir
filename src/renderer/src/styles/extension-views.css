@@ -196,3 +196,15 @@
 .extension-rail-builtins[hidden] {
   display: none;
 }
+.extension-navigation-icon {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 1.2em;
+  height: 1.2em;
+  margin-right: 0.4em;
+  vertical-align: -0.2em;
+  background-color: currentColor;
+  mask-size: contain;
+  mask-position: center;
+  mask-repeat: no-repeat;
+}

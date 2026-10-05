@@ -39,6 +39,7 @@ export interface ExtensionContributionState {
   readonly extensionName: string
   readonly manifest: ExtensionManifest
   readonly values: readonly ExtensionItemValue[]
+  readonly navigationIcons?: Readonly<Record<string, string>>
   readonly error?: string
 }
 export interface ExtensionSurfaceRequest {

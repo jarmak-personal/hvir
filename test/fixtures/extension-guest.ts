@@ -87,6 +87,7 @@ export function fixture(
     destroy,
     send: (guestId, message) => sent.push({ guestId, message }),
     visibility: vi.fn(),
+    foreground: () => true,
     ...overrides,
   }
   const publish = vi.fn()

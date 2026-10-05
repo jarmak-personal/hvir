@@ -109,9 +109,8 @@ it('builds deterministic ready-to-install Skillager ZIP bytes through the ordina
       'project.html',
       'skillager.css',
       'skillager.js',
+      'skillager.svg',
       'tokens.css',
-      'updater.html',
-      'updater.js',
     ])
     expect(Buffer.from(revision.files.get('management.html')!).toString()).toContain(
       'operations.js',

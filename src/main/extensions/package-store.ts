@@ -12,6 +12,7 @@ import { joinHostPath, type HostPath } from '../../shared/host-path'
 import type { ProjectHost } from '../project-host/project-host'
 import { captureExtensionArchive } from './package-archive'
 import type { CapturedExtensionBytes } from '../project-host/extension-storage-port'
+import { passiveNavigationIcon } from './navigation-icon'
 
 export interface ExtensionRevision {
   readonly hash: string
@@ -19,6 +20,7 @@ export interface ExtensionRevision {
   readonly warnings: readonly string[]
   readonly sourceIdentity: string
   readonly files: ReadonlyMap<string, Uint8Array>
+  readonly navigationIcons?: Readonly<Record<string, string>>
 }
 
 export function validateCapturedExtension(
@@ -48,12 +50,27 @@ export function validateCapturedExtension(
     if (!capture.files.has(view.entry) || !view.entry.endsWith('.html'))
       throw new Error(`Viewer entry ${view.entry} must be an existing HTML asset`)
   }
+  const navigationIcons: Record<string, string> = {}
+  const iconWarnings: string[] = []
+  for (const view of manifest.views) {
+    if (!view.navigationIcon) continue
+    try {
+      navigationIcons[view.id] = passiveNavigationIcon(
+        capture.files.get(view.navigationIcon),
+      )
+    } catch {
+      iconWarnings.push(
+        `Navigation icon for ${view.id} ignored: use a static SVG with simple paths (at most 8 KiB); text navigation remains available`,
+      )
+    }
+  }
   return {
     hash: hash.digest('hex'),
     manifest,
-    warnings,
+    warnings: [...iconWarnings, ...warnings].slice(0, EXTENSION_LIMITS.warnings),
     sourceIdentity: capture.sourceIdentity,
     files: capture.files,
+    navigationIcons,
   }
 }
 

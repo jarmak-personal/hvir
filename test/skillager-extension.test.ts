@@ -52,6 +52,12 @@ describe('ordinary maintained Skillager package contract', () => {
       ),
     ).manifest
     expect(manifest.id).toBe('skillager')
+    expect(manifest.railItems ?? []).toEqual([])
+    expect(manifest.updater).toBeUndefined()
+    expect(manifest.requiredCapabilities).not.toContain('contributions.publish')
+    expect(manifest.views.find((view) => view.id === 'project')?.navigationIcon).toBe(
+      'skillager.svg',
+    )
     expect(manifest.actions?.some((action) => /body|instruction/iu.test(action.id))).toBe(
       false,
     )
@@ -77,7 +83,6 @@ describe('ordinary maintained Skillager package contract', () => {
   it('reproduces maintained distribution assets byte for byte', () => {
     for (const [source, output] of [
       ['app', 'skillager'],
-      ['updater', 'updater'],
       ['operations', 'operations'],
     ]) {
       const result = buildSync({

@@ -1,13 +1,16 @@
 // @vitest-environment happy-dom
-import { act, createElement, Fragment } from 'react'
+import { act, createElement, Fragment, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { describe, expect, it, vi } from 'vitest'
-import type { ExtensionView } from '../src/shared/extensions/workbench'
+import type {
+  ExtensionView,
+  ExtensionContributionState,
+} from '../src/shared/extensions/workbench'
 import { validateExtensionManifest } from '../src/shared/extensions/manifest'
 import { exampleManifest } from './fixtures/extension-package'
 
-vi.mock('../src/renderer/src/sessions/use-sessions-foreground', () => ({
-  useSessionsForeground: () => true,
+vi.mock('../src/renderer/src/extensions/use-extension-foreground', () => ({
+  useExtensionForeground: () => true,
 }))
 vi.mock('../src/renderer/src/theme', () => ({ useAppTheme: () => 'dark' }))
 vi.mock('../src/renderer/src/settings/settings', () => ({
@@ -52,6 +55,295 @@ const view: ExtensionView = {
 }
 
 describe('extension contribution placement and focus', () => {
+  it.each([
+    'current-presence',
+    'late-absence',
+    'late-absence-after-other-publication',
+    'failed-read',
+  ] as const)(
+    'keeps an admitted top view selected through delayed publication and %s, then returns only after authoritative removal',
+    async (timing) => {
+      const manifest = validateExtensionManifest(
+        exampleManifest({
+          views: [
+            {
+              ...exampleManifest().views[0]!,
+              navigation: 'top',
+              placement: 'application',
+            },
+          ],
+        }),
+      ).manifest
+      const admitted = {
+        ...view,
+        id: 'new-top',
+        contributionId: manifest.views[0]!.id,
+        context: { surface: 'top' as const, visible: true },
+      }
+      let currentViews: readonly ExtensionView[] = [admitted]
+      let resolveRead!: (views: readonly ExtensionView[]) => void
+      const delayedRead = new Promise<readonly ExtensionView[]>((resolve) => {
+        resolveRead = resolve
+      })
+      let firstRead = true
+      let publish!: (views: readonly ExtensionView[]) => void
+      const onWorkspace = vi.fn()
+      const onError = vi.fn()
+      vi.stubGlobal('hvir', {
+        invoke: vi.fn((channel: string) => {
+          if (
+            channel === 'extensions:views' &&
+            timing !== 'current-presence' &&
+            firstRead
+          ) {
+            firstRead = false
+            if (timing === 'failed-read')
+              return Promise.reject(new Error('read unavailable'))
+            return delayedRead
+          }
+          return Promise.resolve(
+            channel === 'extensions:contributions'
+              ? [
+                  {
+                    installationId: 'one',
+                    extensionName: 'Example',
+                    manifest,
+                    values: [],
+                  },
+                ]
+              : channel === 'extensions:context'
+                ? { terminalIds: {}, sessions: [] }
+                : channel === 'extensions:open-view'
+                  ? admitted
+                  : channel === 'extensions:views'
+                    ? currentViews
+                    : undefined,
+          )
+        }),
+        on: () => () => undefined,
+        send: vi.fn(),
+      })
+      const element = document.createElement('div')
+      document.body.append(element)
+      const root = createRoot(element)
+      function Fixture() {
+        const [views, setViews] = useState<readonly ExtensionView[]>([]),
+          [active, setActive] = useState(false)
+        publish = setViews
+        return createElement(ExtensionContributionsProvider, {
+          views,
+          topActive: active,
+          obscured: false,
+          onTop: () => setActive(true),
+          onWorkspace: () => {
+            onWorkspace()
+            setActive(false)
+          },
+          onError,
+          children: createElement(
+            Fragment,
+            null,
+            createElement(ExtensionTopRail),
+            createElement(ExtensionTopDestination),
+          ),
+        })
+      }
+      try {
+        await act(async () => {
+          root.render(createElement(Fixture))
+          await Promise.resolve()
+        })
+        await act(async () => {
+          element.querySelector<HTMLButtonElement>('.sessions-destination')!.click()
+          await Promise.resolve()
+        })
+        expect(onWorkspace).not.toHaveBeenCalled()
+        if (timing === 'failed-read')
+          expect(onError).toHaveBeenCalledWith('read unavailable')
+        if (timing === 'late-absence-after-other-publication') {
+          await act(async () => {
+            publish([view])
+            await Promise.resolve()
+          })
+          await act(async () => {
+            resolveRead([])
+            await Promise.resolve()
+          })
+          expect(onWorkspace).not.toHaveBeenCalled()
+        }
+        await act(async () => {
+          publish([admitted])
+          await Promise.resolve()
+        })
+        expect(element.querySelector('[aria-current=page]')).not.toBeNull()
+        expect(
+          element.querySelector<HTMLElement>('.extension-top-destination')!.hidden,
+        ).toBe(false)
+        if (timing === 'late-absence') {
+          await act(async () => {
+            resolveRead([])
+            await Promise.resolve()
+          })
+          expect(onWorkspace).not.toHaveBeenCalled()
+          expect(element.querySelector('[aria-current=page]')).not.toBeNull()
+        }
+        currentViews = []
+        await act(async () => {
+          publish([])
+          await Promise.resolve()
+        })
+        expect(onWorkspace).toHaveBeenCalledOnce()
+        expect(
+          element.querySelector<HTMLElement>('.extension-top-destination')!.hidden,
+        ).toBe(true)
+      } finally {
+        await act(async () => {
+          root.unmount()
+          await Promise.resolve()
+        })
+        element.remove()
+        vi.unstubAllGlobals()
+      }
+    },
+  )
+  it('keeps navigation names and selection through icon replacement/fallback, and rejects a late initial icon after withdrawal', async () => {
+    const manifest = validateExtensionManifest(
+      exampleManifest({
+        views: [
+          {
+            ...exampleManifest().views[0]!,
+            navigation: 'left',
+            placement: 'workspace',
+            navigationIcon: 'icon.svg',
+          },
+        ],
+      }),
+    ).manifest
+    const item = {
+      installationId: 'one',
+      extensionName: 'Example',
+      manifest,
+      values: [],
+      navigationIcons: { [manifest.views[0]!.id]: 'data:image/svg+xml;base64,PHN2Zy8+' },
+    }
+    let initial!: (value: readonly ExtensionContributionState[]) => void
+    const initialState = new Promise<readonly ExtensionContributionState[]>((resolve) => {
+      initial = resolve
+    })
+    const listeners = new Map<
+      string,
+      (value: readonly ExtensionContributionState[]) => void
+    >()
+    const guest = {
+      ...view,
+      id: 'left',
+      contributionId: manifest.views[0]!.id,
+      context: { ...view.context!, surface: 'left' as const },
+    }
+    const invoke = vi.fn((channel: string) =>
+      channel === 'extensions:contributions'
+        ? initialState
+        : Promise.resolve(
+            channel === 'extensions:context'
+              ? { terminalIds: {}, sessions: [] }
+              : channel === 'extensions:open-view'
+                ? guest
+                : undefined,
+          ),
+    )
+    vi.stubGlobal('hvir', {
+      invoke,
+      on: (
+        event: string,
+        listener: (value: readonly ExtensionContributionState[]) => void,
+      ) => {
+        listeners.set(event, listener)
+        return () => {
+          listeners.delete(event)
+        }
+      },
+      send: vi.fn(),
+    })
+    const element = document.createElement('div')
+    document.body.append(element)
+    const root = createRoot(element)
+    const render = (views: readonly ExtensionView[]): void =>
+      root.render(
+        createElement(ExtensionContributionsProvider, {
+          views,
+          workspaceId: 'workspace',
+          topActive: false,
+          obscured: false,
+          onTop: vi.fn(),
+          onWorkspace: vi.fn(),
+          onError: vi.fn(),
+          children: createElement(ExtensionLeftRail, {
+            visible: true,
+            children: createElement('button', null, 'Files'),
+          }),
+        }),
+      )
+    try {
+      await act(async () => {
+        render([guest])
+        await Promise.resolve()
+      })
+      await act(async () => {
+        listeners.get('extensions:contributions-changed')!([item])
+        await Promise.resolve()
+      })
+      const button = element.querySelector<HTMLButtonElement>('nav button')!
+      expect(button.textContent).toBe(manifest.views[0]!.title)
+      expect(button.querySelector('[aria-hidden=true]')).not.toBeNull()
+      expect(element.querySelector('svg')).toBeNull()
+      await act(async () => {
+        button.click()
+        await Promise.resolve()
+      })
+      expect(button.getAttribute('aria-current')).toBe('page')
+      const firstMask = button.querySelector<HTMLElement>('span')!.style.maskImage
+      await act(async () => {
+        listeners.get('extensions:contributions-changed')!([
+          {
+            ...item,
+            navigationIcons: {
+              [manifest.views[0]!.id]: 'data:image/svg+xml;base64,PHN2ZyAvPg==',
+            },
+          },
+        ])
+        await Promise.resolve()
+      })
+      expect(button.querySelector<HTMLElement>('span')!.style.maskImage).not.toBe(
+        firstMask,
+      )
+      await act(async () => {
+        listeners.get('extensions:contributions-changed')!([
+          { ...item, navigationIcons: {} },
+        ])
+        await Promise.resolve()
+      })
+      expect(button.textContent).toBe(manifest.views[0]!.title)
+      expect(button.disabled).toBe(false)
+      expect(button.getAttribute('aria-current')).toBe('page')
+      expect(button.querySelector('span')).toBeNull()
+      await act(async () => {
+        listeners.get('extensions:contributions-changed')!([])
+        render([])
+        initial([item])
+        await Promise.resolve()
+      })
+      expect(element.querySelector('.extension-navigation-icon')).toBeNull()
+      expect(element.textContent).not.toContain(manifest.views[0]!.title)
+    } finally {
+      await act(async () => {
+        root.unmount()
+        await Promise.resolve()
+      })
+      element.remove()
+      vi.unstubAllGlobals()
+    }
+    expect(listeners.size).toBe(0)
+  })
   it.each(['empty', 'top-only'] as const)(
     'preserves builtin rail controls without an empty extension navigation strip for %s contributions',
     async (contributions) => {

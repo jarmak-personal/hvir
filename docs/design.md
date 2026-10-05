@@ -640,6 +640,14 @@ with durable operation custody, no-replace publication, preservation, and delibe
 The existing immutable release model includes the ordinary Skillager ZIP, while independent
 0.3.0 reference and clock fixtures retain released public-contract inputs.
 
+### [ADR-063 — Passive accepted-revision extension navigation icons](adr/ADR-063-passive-extension-navigation-icons.md)
+
+> Lifecycle: Active
+
+Optional bounded package SVG path icons use only accepted captured bytes and passive masks;
+invalid assets warn while text navigation remains usable. Existing contribution lifetime owns
+retirement, without inline package markup or a new asset protocol.
+
 ## 5. Architecture
 
 ### Process model

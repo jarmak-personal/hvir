@@ -1,16 +1,11 @@
+import { parseGuestAppearance } from './guest-appearance'
 import type { ExtensionGuestPorts } from './guest-capability-ports'
 import { routeGuestCapability } from './guest-capability-routing'
 import { extensionRequestDeadline } from '../../shared/extensions/request-deadline'
 import { openGuestOwnView } from './guest-view-opening'
 import { validateExtensionViewInput } from '../../shared/extensions/view-input'
+import { PRESENTATION_COLOR_DEFAULTS } from '../../shared/presentation/tokens'
 import {
-  PRESENTATION_COLOR_DEFAULTS,
-  PRESENTATION_COLOR_TOKENS,
-  PRESENTATION_COLOR_PATTERN,
-} from '../../shared/presentation/tokens'
-import {
-  MAX_INTERFACE_FONT_STACK_LENGTH,
-  MAX_MONOSPACE_FONT_STACK_LENGTH,
   SYSTEM_INTERFACE_FONT_STACK,
   SYSTEM_MONOSPACE_FONT_STACK,
 } from '../../shared/interface-typography'
@@ -53,6 +48,7 @@ export interface ExtensionGuestSurfacePort {
   destroy(viewId: string): Promise<void>
   send(guestId: number, reply: ExtensionReply): void
   visibility(guestId: number, visible: boolean): void
+  foreground(owner: RendererOwner): boolean
   runnable?(guestId: number, admitted: boolean): void
 }
 
@@ -374,50 +370,19 @@ export class ExtensionGuestOwner {
     if (!record || !sameOwner(record.owner, owner) || !this.current(record)) return
     const previousDemand = record.refreshDemand
     // Visibility authority is independent of parsing the latest appearance snapshot.
-    record.visible = record.view.role === 'updater' ? record.visible : visible === true
-    record.refreshDemand = record.visible && refreshDemand === true
+    record.visible =
+      record.view.role === 'updater'
+        ? record.visible
+        : visible === true &&
+          (!this.foregroundPlacement(record) || this.ownerForeground(owner))
+    record.refreshDemand =
+      record.visible && refreshDemand === true && this.ownerForeground(owner)
     this.ports.connectors.revalidate()
     this.ports.sources.revalidate()
     if (record.refreshDemand !== previousDemand) this.ports.visibleContributionsChanged()
     if (record.guestId !== undefined)
       this.surface.visibility(record.guestId, record.visible)
-    const colors = extensionObject(value.colors)
-    const color = (key: keyof ExtensionPresentation['colors']): string => {
-      const text = extensionText(colors[key], 'presentation color', 80)
-      if (!PRESENTATION_COLOR_PATTERN.test(text))
-        throw new Error('Invalid presentation color')
-      return text
-    }
-    if (value.appearance !== 'light' && value.appearance !== 'dark')
-      throw new Error('Invalid appearance')
-    if (
-      ![value.width, value.height].every(
-        (number) => Number.isFinite(number) && number >= 0 && number <= 16_384,
-      ) ||
-      !Number.isFinite(value.interfaceScale) ||
-      value.interfaceScale < 0.8 ||
-      value.interfaceScale > 1.5
-    )
-      throw new Error('Invalid view presentation size')
-    record.presentation = {
-      appearance: value.appearance,
-      colors: Object.fromEntries(
-        PRESENTATION_COLOR_TOKENS.map((token) => [token, color(token)]),
-      ) as ExtensionPresentation['colors'],
-      monospaceFontFamily: extensionText(
-        value.monospaceFontFamily,
-        'monospace font',
-        MAX_MONOSPACE_FONT_STACK_LENGTH,
-      ),
-      interfaceScale: value.interfaceScale,
-      fontFamily: extensionText(
-        value.fontFamily,
-        'interface font',
-        MAX_INTERFACE_FONT_STACK_LENGTH,
-      ),
-      width: value.width,
-      height: value.height,
-    }
+    record.presentation = parseGuestAppearance(value)
     this.sendContext(record)
     this.sendValues(record)
     if (record.guestId !== undefined) {
@@ -427,6 +392,39 @@ export class ExtensionGuestOwner {
           presentation: record.presentation,
         })
     }
+  }
+
+  ownerForeground(owner: RendererOwner): boolean {
+    return this.scopes.isCurrent(owner) && this.surface.foreground(owner)
+  }
+  /** Physical background withdrawal precedes any renderer publication. */
+  foregroundChanged(owner: RendererOwner): void {
+    if (this.ownerForeground(owner)) return
+    for (const record of this.records.values()) {
+      if (
+        !this.current(record) ||
+        (!sameOwner(record.owner, owner) && record.view.role !== 'updater')
+      )
+        continue
+      record.refreshDemand = false
+      if (
+        this.foregroundPlacement(record) ||
+        (record.view.role === 'updater' &&
+          !this.ports.connectorDemand(record.activation.installationId))
+      )
+        record.visible = false
+      if (record.guestId !== undefined)
+        this.surface.visibility(record.guestId, record.visible)
+      this.sendContext(record)
+    }
+    this.ports.connectors.revalidate()
+    this.ports.sources.revalidate()
+    this.ports.visibleContributionsChanged()
+  }
+  private foregroundPlacement(record: GuestRecord): boolean {
+    return (
+      record.view.context?.surface === 'top' || record.view.context?.surface === 'left'
+    )
   }
 
   /** A fixed isolated-preload signal invalidates state, never supplies visibility authority. */
@@ -517,7 +515,11 @@ export class ExtensionGuestOwner {
         record.view.id,
         message['actionId'],
       )
-      if (!record.visible && !invocation)
+      if (
+        (!record.visible ||
+          (this.foregroundPlacement(record) && !this.ownerForeground(record.owner))) &&
+        !invocation
+      )
         throw new Error(
           'Hidden extension views cannot request refresh or open another view',
         )
@@ -624,11 +626,17 @@ export class ExtensionGuestOwner {
     const assertOrigin = (): void => {
       this.assertRecord(record)
       signal.throwIfAborted()
+      if (
+        !invocation &&
+        this.foregroundPlacement(record) &&
+        !this.ownerForeground(record.owner)
+      )
+        throw new Error('Selected extension window is in the background')
       if (invocation && !this.ports.actions.provenance(record.view.id, invocation.id))
         throw new Error('Originating action was revoked')
     }
     assertOrigin()
-    return routeGuestCapability(
+    const result = await routeGuestCapability(
       this.ports,
       this.contexts,
       record,
@@ -640,7 +648,10 @@ export class ExtensionGuestOwner {
       (input, current, invocation) =>
         openGuestOwnView(this, record, input, current, this.ports.actions, invocation),
       invocation,
+      () => this.ownerForeground(record.owner),
     )
+    assertOrigin()
+    return result
   }
 
   visibleViewContributions(): readonly { owner: RendererOwner; view: ExtensionView }[] {

@@ -476,6 +476,7 @@ describe('IpcAuthorityRouter', () => {
         'extensions:add',
         'extensions:open-folder',
         'extensions:enable',
+        'extensions:foreground',
         'extensions:disable',
         'extensions:reload',
         'extensions:remove',

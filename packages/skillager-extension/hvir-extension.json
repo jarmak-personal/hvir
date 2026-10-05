@@ -7,8 +7,6 @@
     "presentation.read",
     "context.read",
     "viewer.open-own",
-    "contributions.read",
-    "contributions.publish",
     "connector.status",
     "connector.execute",
     "connector.output",
@@ -71,7 +69,8 @@
       "entry": "project.html",
       "placement": "workspace",
       "navigation": "left",
-      "representations": ["view"]
+      "representations": ["view"],
+      "navigationIcon": "skillager.svg"
     },
     {
       "id": "detail",
@@ -86,20 +85,6 @@
       "entry": "management.html",
       "placement": "application",
       "representations": ["view"]
-    }
-  ],
-  "railItems": [
-    {
-      "id": "library",
-      "placement": "header",
-      "icon": "\u25c7",
-      "tooltip": "Personal skill library",
-      "label": "Skills",
-      "kind": "observation",
-      "click": {
-        "view": "library",
-        "placement": "viewer"
-      }
     }
   ],
   "actions": [
@@ -534,7 +519,6 @@
       }
     }
   ],
-  "updater": "updater.html",
   "connectors": [
     {
       "id": "library-cli",

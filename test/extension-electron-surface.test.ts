@@ -8,9 +8,13 @@ import { exampleManifest } from './fixtures/extension-package'
 const electron = vi.hoisted(() => ({
   sessions: new Map<string, unknown>(),
   guests: new Map<number, unknown>(),
+  windows: new Map<number, unknown>(),
 }))
 vi.mock('electron', () => ({
   app: { getAppPath: () => '/owned-app' },
+  BrowserWindow: {
+    fromWebContents: (contents: { id: number }) => electron.windows.get(contents.id),
+  },
   session: { fromPartition: (partition: string) => electron.sessions.get(partition) },
   webContents: {
     fromDevToolsTargetId: () => electron.guests.get(1),
@@ -163,10 +167,67 @@ async function fixture(
 afterEach(() => {
   electron.sessions.clear()
   electron.guests.clear()
+  electron.windows.clear()
   vi.restoreAllMocks()
 })
 
 describe('Electron extension response, native teardown and closing capacity', () => {
+  it('publishes actual native foreground after synchronous withdrawal and retires native listeners on close', () => {
+    const surface = new ElectronExtensionGuestSurface()
+    let focused = true,
+      visible = true,
+      minimized = false
+    let generation = 1
+    const contents = {
+      id: 20,
+      isDestroyed: () => false,
+      mainFrame: { isDestroyed: () => false, postMessage: vi.fn() },
+    }
+    const win = Object.assign(new EventEmitter(), {
+      webContents: contents,
+      isDestroyed: () => false,
+      isFocused: () => focused,
+      isVisible: () => visible,
+      isMinimized: () => minimized,
+    })
+    electron.guests.set(20, contents)
+    electron.windows.set(20, win)
+    const withdraw = vi.fn(() => {
+      expect(contents.mainFrame.postMessage).toHaveBeenCalledTimes(
+        withdraw.mock.calls.length - 1,
+      )
+    })
+    surface.connect({ foregroundChanged: withdraw } as unknown as ExtensionGuestOwner)
+    surface.installWindowLifecycle(win as never, () => ({ id: 20, generation }))
+    expect(surface.foreground({ id: 20, generation })).toBe(true)
+    focused = false
+    win.emit('blur')
+    expect(withdraw).toHaveBeenLastCalledWith({ id: 20, generation: 1 })
+    expect(contents.mainFrame.postMessage).toHaveBeenLastCalledWith(
+      'extensions:foreground-changed',
+      false,
+    )
+    focused = true
+    minimized = true
+    win.emit('minimize')
+    expect(surface.foreground({ id: 20, generation })).toBe(false)
+    minimized = false
+    visible = false
+    generation = 2
+    win.emit('hide')
+    expect(withdraw).toHaveBeenLastCalledWith({ id: 20, generation: 2 })
+    visible = true
+    win.emit('focus')
+    expect(contents.mainFrame.postMessage).toHaveBeenLastCalledWith(
+      'extensions:foreground-changed',
+      true,
+    )
+    win.emit('closed')
+    win.emit('blur')
+    expect(withdraw).toHaveBeenCalledTimes(4)
+    expect(win.listenerCount('focus')).toBe(0)
+    expect(surface.foreground({ id: 99, generation })).toBe(false)
+  })
   it('commit barrier releases observed bytes first, then activates only the exact committed main frame', async () => {
     let nativeCommitted = false
     const data = await fixture(
@@ -181,7 +242,11 @@ describe('Electron extension response, native teardown and closing capacity', ()
     data.surface.visibility(data.guest.id, true)
     await turn()
     expect(await (await data.response()).text()).toBe('captured')
-    expect(data.debuggerPort.sendCommand.mock.calls.some(([method]) => method === 'Page.enable')).toBe(true)
+    expect(
+      data.debuggerPort.sendCommand.mock.calls.some(
+        ([method]) => method === 'Page.enable',
+      ),
+    ).toBe(true)
     expect(data.states()).toEqual([])
     data.guest.emit('did-frame-navigate', {}, data.view.url, 200, 'OK', false)
     data.commit('hvir-extension://foreign/index.html')
@@ -251,7 +316,9 @@ describe('Electron extension response, native teardown and closing capacity', ()
         category: 'timeout',
         attemptedState: 'active',
       })
-      expect(JSON.parse(report.mock.calls[0]![1] as string)).not.toHaveProperty('nativeRefusal')
+      expect(JSON.parse(report.mock.calls[0]![1] as string)).not.toHaveProperty(
+        'nativeRefusal',
+      )
       pending.resolve({})
       await turn()
       expect(data.states()).toEqual(['active'])
