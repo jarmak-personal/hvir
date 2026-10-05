@@ -216,7 +216,7 @@ export async function inspectSkillagerSearch(
         'globalThis.__hvirSearchProof.submissions',
       )) as number
       await ports.inspect(`(() => {
-        const input=document.getElementById('query'); input.value=${JSON.stringify(mode === 'button-no-match' ? 'hvir-owned-search-no-match-930' : '')};
+        const input=document.getElementById('query'); input.value=${JSON.stringify(mode === 'button-no-match' ? 'zzqv927xnohit' : '')};
         input.focus();
 
       })()`)
