@@ -7,6 +7,8 @@ import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import type { ExtensionApplicationRuntime } from '../extensions/extension-application'
 import { focusSmokeWindow } from './window-focus'
 
+const EXPECTED_OUTPUT = 'connector evidence\n'
+
 interface ConnectorControls {
   click(name: string): Promise<void>
   wait(predicate: () => boolean | Promise<boolean>, label: string): Promise<void>
@@ -158,22 +160,30 @@ export async function verifyExtensionConnectors(
   await guest.executeJavaScript("document.getElementById('native-run').click()")
   try {
     await controls.wait(
-      async () =>
-        (
-          (await guest.executeJavaScript(
-            "document.getElementById('native-status')?.textContent",
-          )) as string | undefined
-        )?.includes('completed') === true,
+      () =>
+        guest.executeJavaScript(`
+        document.getElementById('native-status')?.textContent?.includes('completed') === true &&
+        document.getElementById('native-run')?.disabled === false &&
+        document.getElementById('native-output')?.textContent === ${JSON.stringify(EXPECTED_OUTPUT)}
+      `) as Promise<boolean>,
       'approved native public result',
     )
+    const output = (await guest.executeJavaScript(
+      "document.getElementById('native-output')?.textContent",
+    )) as string | undefined
+    if (output !== EXPECTED_OUTPUT)
+      throw new Error(
+        'Connector result was not displayed through ordinary public controls',
+      )
   } catch (error) {
     let sample: unknown
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
       sample = await Promise.race([
         guest.executeJavaScript(`(() => ({
-          status:document.getElementById('native-status')?.textContent?.slice(0,120),
-          disabled:document.getElementById('native-run')?.disabled,
+          completed:document.getElementById('native-status')?.textContent?.includes('completed')===true,
+          busy:document.getElementById('native-run')?.disabled,
+          expectedOutput:document.getElementById('native-output')?.textContent===${JSON.stringify(EXPECTED_OUTPUT)},
           deliveredContextVisible:typeof context==='undefined'?null:context?.visible,
           requests:typeof requests==='undefined'?null:requests.size
         }))()`),
@@ -216,11 +226,6 @@ export async function verifyExtensionConnectors(
     )
     throw error
   }
-  const output = (await guest.executeJavaScript(
-    "document.getElementById('native-output')?.textContent",
-  )) as string | undefined
-  if (output !== 'connector evidence\n')
-    throw new Error('Connector result was not displayed through ordinary public controls')
   try {
     await controls.wait(
       () =>
