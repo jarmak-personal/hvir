@@ -23,6 +23,7 @@ import {
   type PackageRemoval,
 } from './installation-state'
 import { finishPackageRemoval } from './package-removal'
+import { importExtensionPackage } from './package-import'
 import { collectExtensionPackages } from './package-retention'
 import type { ExtensionWriterLease } from '../project-host/extension-storage-port'
 
@@ -42,6 +43,7 @@ export class ExtensionActivationOwner {
   private installations: ExtensionInstallation[] = []
   private writer?: ExtensionWriterLease
   private explanation?: string
+  private importCapacity = false
   private restoring = true
   private disposed = false
   private pending: Promise<unknown> = Promise.resolve()
@@ -184,7 +186,85 @@ export class ExtensionActivationOwner {
     return this.serialize(() => this.scan())
   }
 
-  private async scan(): Promise<ExtensionPlatformState> {
+  add(
+    pick: () => Promise<HostPath | undefined>,
+    assertCurrent: () => void,
+    signal: AbortSignal,
+  ): Promise<ExtensionPlatformState> {
+    return this.serialize(async () => {
+      const lifetime = AbortSignal.any([signal, this.authority.signal])
+      const current = async (): Promise<void> => {
+        lifetime.throwIfAborted()
+        assertCurrent()
+        await this.assertWritable()
+        lifetime.throwIfAborted()
+        assertCurrent()
+      }
+      await current()
+      const source = await pick()
+      await current()
+      if (!source) return this.snapshot()
+      await importExtensionPackage(
+        this.host,
+        this.directory,
+        this.packages.root,
+        source,
+        async (name, id) => {
+          if (
+            [...this.active.values()].some((entry) => entry.revision.manifest.id === id)
+          )
+            throw new Error(
+              'This extension identity is enabled. Use its existing Reload or Replace control.',
+            )
+          await current()
+          await this.scan(() => {
+            lifetime.throwIfAborted()
+            assertCurrent()
+          })
+          if (this.importCapacity)
+            throw new Error('Remove an unused package before adding another extension')
+          if (
+            this.installations.some(
+              (entry) => entry.source === name && entry.sourceIdentity,
+            )
+          )
+            throw new Error(
+              'A package with this filename already exists. Remove it explicitly or choose a different filename.',
+            )
+          if (
+            this.installations.some(
+              (entry) => entry.manifest?.id === id && entry.sourceIdentity,
+            ) ||
+            this.removals.some(
+              (entry) =>
+                entry.source === name ||
+                this.accepted.some(
+                  (saved) => saved.source === entry.source && saved.packageId === id,
+                ),
+            )
+          )
+            throw new Error(
+              'This extension identity is already present or removal is unfinished. Finish Remove before adding it again.',
+            )
+        },
+        current,
+        () => {
+          lifetime.throwIfAborted()
+          assertCurrent()
+        },
+        lifetime,
+      )
+      await current()
+      return this.scan(() => {
+        lifetime.throwIfAborted()
+        assertCurrent()
+      })
+    })
+  }
+
+  private async scan(
+    current: () => void = () => undefined,
+  ): Promise<ExtensionPlatformState> {
     if (this.disposed) throw new Error('Extensions have stopped')
     const entries = await this.host.extensionStorage!.installationNames(
       this.directory,
@@ -192,6 +272,7 @@ export class ExtensionActivationOwner {
     )
     const staged = new Set(this.removals.map((entry) => entry.staging))
     const ordinary = entries.filter((name) => !name.startsWith('.') && !staged.has(name))
+    this.importCapacity = ordinary.length >= EXTENSION_LIMITS.installations
     this.discovered.clear()
     this.sourceIdentities.clear()
     this.installations = []
@@ -204,6 +285,7 @@ export class ExtensionActivationOwner {
           error: `Keep at most ${EXTENSION_LIMITS.installations} packages in the extensions folder`,
         },
       ]
+      current()
       this.publish()
       return this.snapshot()
     }
@@ -302,6 +384,7 @@ export class ExtensionActivationOwner {
       next.some((entry, index) => entry !== this.accepted[index])
     )
       await this.save(next)
+    current()
     this.publish()
     return this.snapshot()
   }

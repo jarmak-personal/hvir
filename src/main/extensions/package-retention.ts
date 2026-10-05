@@ -1,3 +1,4 @@
+import { collectInterruptedExtensionImport } from './package-import'
 import { EXTENSION_LIMITS } from '../../shared/extensions/contract'
 import { joinHostPath } from '../../shared/host-path'
 import type { ProjectHost } from '../project-host/project-host'
@@ -27,7 +28,9 @@ export async function collectExtensionPackages(
   }[] = []
   for (const name of names) {
     const path = joinHostPath(packages.root, name)
-    if (/^\.capture-[a-f0-9-]{36}$/u.test(name)) {
+    if (/^\.import-[a-f0-9-]{36}$/u.test(name)) {
+      await collectInterruptedExtensionImport(host, path, assertWritable, signal)
+    } else if (/^\.capture-[a-f0-9-]{36}$/u.test(name)) {
       const captured = await storage.captureDirectory(path, EXTENSION_LIMITS, signal)
       await assertWritable()
       await storage.collectDirectory(path, captured, EXTENSION_LIMITS, signal)

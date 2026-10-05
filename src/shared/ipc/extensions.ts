@@ -69,6 +69,7 @@ export const extensionsIpc = {
     >(),
     'extensions:state': invoke<void, ExtensionPlatformState>(),
     'extensions:discover': invoke<void, ExtensionPlatformState>(),
+    'extensions:add': invoke<void, ExtensionPlatformState>(),
     'extensions:open-folder': invoke<void, void>(),
     'extensions:enable': invoke<
       { readonly source: string; readonly revision: string },

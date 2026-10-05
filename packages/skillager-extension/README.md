@@ -5,11 +5,11 @@ An ordinary hvir extension for Your library, skills observed in the current regi
 ## Build and install
 
 The 0.3 application release supplies `hvir-skillager-0.3.0.zip` as an ordinary downloadable
-package. Verify it against that release's checksums, place it directly in the actual extensions
-folder and Discover before Enable. It includes ready HTML/CSS/JS and public UI assets, with no
+package. Verify it against that release's checksums, then choose **Settings → Extensions →
+Add extension…** and select it. hvir copies and displays it; inspect before Enable. It includes ready HTML/CSS/JS and public UI assets, with no
 Skillager binary. Installed `hvir-agent guide` documents authoring and agent setup independently.
 
-From the hvir checkout, run `npm ci` and `npm run extension:skillager`. The checked-in HTML, CSS and bundled scripts are ready to run; the build reproduces them from `src/` and the public presentation kit. Copy this directory into the instance's **Settings → Extensions → Open extensions folder**, or explicitly create a top-level development link. Discover, inspect the access declarations, then Enable. Your library is an application destination; Skills in this project is a left workspace destination. Detail viewers remain individually closable. hvir requires an open project as usual; the library need not be registered as a project.
+From the hvir checkout, run `npm ci` and `npm run extension:skillager`. The checked-in HTML, CSS and bundled scripts are ready to run; the build reproduces them from `src/` and the public presentation kit. Choose **Settings → Extensions → Add extension…** and select this directory on macOS, or its `hvir-extension.json` on Linux. hvir copies it and displays it immediately; inspect the access declarations, then Enable. For an explicit development link, use the secondary **Author and discovery controls** and Discover. Your library is an application destination; Skills in this project is a left workspace destination. Detail viewers remain individually closable. hvir requires an open project as usual; the library need not be registered as a project.
 
 Install and configure Skillager separately. The supported minimum version is **0.9.3**, with the current public `skillager.library-status.v1`, `skillager.list.v1` and `skillager.search.v1` contracts, including cursors and CLI-owned pre-limit grouping, installed filtering and ranking. Published 0.9.3 predates those new contracts while current supported source also identifies as 0.9.3. A matching version alone therefore does not prove support: the package checks each required public schema and refuses missing contracts with a setup explanation. There is no legacy search fallback or automatic installation. A current-source installation is a supported explicit setup.
 

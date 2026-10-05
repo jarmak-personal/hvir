@@ -123,7 +123,7 @@ describe('extension Settings empty discovery guidance', () => {
         testCase.explanation,
       )
     if (testCase.showEmptyGuidance) {
-      expect(element.textContent).toContain('No extensions found. Add a directory or ZIP')
+      expect(element.textContent).toContain('No extensions found. Choose Add extension')
     } else {
       expect(element.textContent).not.toContain('No extensions found')
       expect(element.textContent).not.toContain('Add a directory or ZIP package')
@@ -246,5 +246,112 @@ describe('package lifecycle Settings intent', () => {
         (button) => button.textContent === 'Reload',
       ),
     ).toBe(false)
+  })
+})
+
+describe('single Add extension Settings intent', () => {
+  it('submits no path or package mode, stays busy through import, and shows an inactive candidate without Discover', async () => {
+    let finish!: (state: ExtensionPlatformState) => void
+    const pending = new Promise<ExtensionPlatformState>((resolve) => {
+      finish = resolve
+    })
+    const invoke = vi.fn((channel: string) =>
+      channel === 'extensions:delivery-recovery'
+        ? Promise.resolve([])
+        : channel === 'extensions:add'
+          ? pending
+          : Promise.resolve({ writable: true, installations: [] }),
+    )
+    vi.stubGlobal('hvir', { invoke, on: vi.fn(() => vi.fn()) })
+    element = document.createElement('div')
+    document.body.append(element)
+    root = createRoot(element)
+    await act(async () => {
+      root!.render(createElement(ExtensionsSettings))
+      await Promise.resolve()
+    })
+    const button = [...element.querySelectorAll('button')].find(
+      (item) => item.textContent === 'Add extension…',
+    )!
+    expect(element.querySelector('select')).toBeNull()
+    act(() => button.click())
+    expect(invoke).toHaveBeenCalledWith('extensions:add', undefined)
+    expect(button.disabled).toBe(true)
+    await act(async () => {
+      finish({
+        writable: true,
+        installations: [
+          {
+            source: 'chosen.zip',
+            kind: 'zip',
+            revision: 'a'.repeat(64),
+            enabled: false,
+            warnings: [],
+          },
+        ],
+      })
+      await pending
+    })
+    expect(button.disabled).toBe(false)
+    expect(element.textContent).toContain('chosen.zip')
+    expect(
+      [...element.querySelectorAll('article button')].map((item) => item.textContent),
+    ).toContain('Enable')
+    expect(
+      invoke.mock.calls.some(([channel]) =>
+        ['extensions:discover', 'extensions:enable'].includes(channel),
+      ),
+    ).toBe(false)
+    expect(element.querySelector('details')?.open).toBe(false)
+  })
+})
+
+describe('Add extension result authority order', () => {
+  it('keeps a newer writer revocation when an old Add reply arrives afterward', async () => {
+    let finish!: (state: ExtensionPlatformState) => void
+    let publish!: (state: ExtensionPlatformState) => void
+    const pending = new Promise<ExtensionPlatformState>((resolve) => {
+      finish = resolve
+    })
+    vi.stubGlobal('hvir', {
+      invoke: vi.fn((channel: string) =>
+        channel === 'extensions:delivery-recovery'
+          ? Promise.resolve([])
+          : channel === 'extensions:add'
+            ? pending
+            : Promise.resolve({ writable: true, installations: [] }),
+      ),
+      on: vi.fn((_channel: string, listener: (state: ExtensionPlatformState) => void) => {
+        publish = listener
+        return vi.fn()
+      }),
+    })
+    element = document.createElement('div')
+    document.body.append(element)
+    root = createRoot(element)
+    await act(async () => {
+      root!.render(createElement(ExtensionsSettings))
+      await Promise.resolve()
+    })
+    const button = [...element.querySelectorAll('button')].find(
+      (item) => item.textContent === 'Add extension…',
+    )!
+    act(() => button.click())
+    act(() =>
+      publish({
+        writable: false,
+        explanation: 'Extension write ownership was revoked',
+        installations: [],
+      }),
+    )
+    await act(async () => {
+      finish({ writable: true, installations: [] })
+      await pending
+    })
+    expect(button.disabled).toBe(true)
+    expect(element.querySelector('[role="status"]')?.textContent).toBe(
+      'Extension write ownership was revoked',
+    )
+    expect(element.textContent).not.toContain('No extensions found')
   })
 })

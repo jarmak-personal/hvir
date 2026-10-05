@@ -20,6 +20,25 @@ most 20 MiB, expanded assets 16 MiB, each asset 2 MiB, entries 256, depth 12, an
 Unsupported compression/encryption and links are refused. Incomplete drops stay rejected until
 the user finishes copying and explicitly discovers again.
 
+Settings has one Add extension intent. Main owns a window-attached native selection and detects
+the source form. macOS supports mixed file/directory selection; Linux's ordinary file chooser
+selects a ZIP or the exact package manifest to identify its parent directory. The renderer
+supplies no authoritative path, destination or format. The existing serialized activation writer
+coordinates bounded capture, a source recheck, exclusive staging in its existing package store,
+and atomic no-replace publication into the instance's extensions folder. Import preserves ZIP
+bytes or copies directory assets; it never creates an implicit development link. Present source
+names and package identities, capacity and unresolved removal conflicts refuse admission. An
+absent source with retained setup remains eligible for inactive reinstall and explicit Enable.
+
+Successful import immediately discovers the candidate, without accepting its revision, enabling
+code or granting access. Renderer and writer authority are rechecked across asynchronous work,
+including immediately before physical publication dispatch. Revocation before dispatch prevents
+publication; after an irreversible rename it cannot establish that the copy never occurred.
+Late completion does not publish a candidate for the revoked intent. A later ordinary discovery
+can observe a completed inactive copy. Exact exclusively owned staging is cleaned on settlement;
+bounded interrupted import staging is collected by the next serialized writer. Uncertain cleanup
+preserves its exact repair location rather than deleting an unexpected entry.
+
 Discovery treats directory and ZIP candidates equally. Duplicate manifest IDs are all refused;
 there is no filename, version, source-kind, or discovery-order preference. A top-level
 symbolic link is resolved once per capture to an ordinary canonical directory. Interior links

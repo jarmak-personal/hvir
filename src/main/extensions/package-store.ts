@@ -62,7 +62,13 @@ export async function captureExtensionSource(
   host: ProjectHost,
   source: HostPath,
   signal?: AbortSignal,
-): Promise<ExtensionRevision & { readonly kind: 'directory' | 'zip' | 'development' }> {
+  purpose: 'revision' | 'import' = 'revision',
+): Promise<
+  ExtensionRevision & {
+    readonly kind: 'directory' | 'zip' | 'development'
+    readonly archiveBytes?: Uint8Array
+  }
+> {
   const storage = host.extensionStorage
   if (!storage) throw new Error('Local extension storage is unavailable')
   const inspected = await storage.inspectSource(source)
@@ -89,6 +95,7 @@ export async function captureExtensionSource(
   return {
     ...validateCapturedExtension({ ...capture, sourceIdentity: inspected.identity }),
     kind: inspected.kind,
+    ...(archive && purpose === 'import' ? { archiveBytes: archive.bytes } : {}),
   }
 }
 
@@ -110,7 +117,7 @@ export class ExtensionPackageStore {
   captureSource(
     source: HostPath,
     signal?: AbortSignal,
-  ): Promise<ExtensionRevision & { readonly kind: 'directory' | 'zip' | 'development' }> {
+  ): ReturnType<typeof captureExtensionSource> {
     return captureExtensionSource(this.host, source, signal)
   }
 

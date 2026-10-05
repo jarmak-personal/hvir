@@ -473,6 +473,7 @@ describe('IpcAuthorityRouter', () => {
         'extensions:connector-revoke',
         'extensions:state',
         'extensions:discover',
+        'extensions:add',
         'extensions:open-folder',
         'extensions:enable',
         'extensions:disable',
