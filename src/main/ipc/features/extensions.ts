@@ -11,7 +11,7 @@ export function registerExtensionsIpc(
   }
   ipc.handle(
     'extensions:foreground',
-    (_req, context) => extensions?.guests?.ownerForeground(context.owner()) ?? false,
+    (_req, context) => extensions?.surface.foreground(context.owner()) ?? false,
   )
   ipc.handle('extensions:delivery-recovery', (_req, context) => {
     context.owner()

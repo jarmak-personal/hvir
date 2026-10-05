@@ -111,6 +111,28 @@ async function fixture() {
 }
 
 describe('native extension window foreground', () => {
+  it('keeps the selected view visible from its cold-start native query without requiring a later focus event', async () => {
+    const data = await fixture()
+    try {
+      await act(async () => {
+        data.resolve(true)
+        await Promise.resolve()
+      })
+      await data.render()
+      expect(
+        data.element.querySelector<HTMLElement>('[data-extension-view]')!.hidden,
+      ).toBe(false)
+      expect(data.send).toHaveBeenLastCalledWith(
+        'extensions:presentation',
+        expect.objectContaining({ visible: true, refreshDemand: true }),
+      )
+      expect(
+        data.invoke.mock.calls.filter(([channel]) => channel === 'extensions:foreground'),
+      ).toHaveLength(1)
+    } finally {
+      await data.unmount()
+    }
+  })
   it('keeps selected guest paint/demand through parent document blur, while native background and Settings withdraw both', async () => {
     const data = await fixture()
     try {
