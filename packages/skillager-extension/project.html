@@ -10,8 +10,7 @@
     <main>
       <h1>Skills in this project</h1>
       <p class="hvir-meta">
-        Registered project observations · Your library remains a separate application
-        destination.
+        Skills observed in this project. Your personal library stays separate.
       </p>
       <div class="toolbar">
         <button id="open-library" class="hvir-button">Your library</button
@@ -25,22 +24,28 @@
           class="hvir-input"
           type="search"
           aria-label="Skillager indexed search"
-          placeholder="Search Skillager index"
-        /><button class="hvir-button" type="submit">Search</button
-        ><label
-          ><input id="include-installed" type="checkbox" checked /><span
-            id="installed-label"
-            >Include installed</span
-          ></label
-        ><label><input id="separate-copies" type="checkbox" /> Separate copies</label
-        ><label
-          >Preferred agent
-          <select id="preferred-agent" class="hvir-input">
-            <option value="">All agents</option>
-            <option value="codex">Codex</option>
-            <option value="claude">Claude</option>
-          </select></label
-        >
+          placeholder="Search skills"
+        /><button class="hvir-button" type="submit">Search</button>
+        <details class="search-options">
+          <summary>Search options</summary>
+          <div>
+            <label
+              ><input id="include-installed" type="checkbox" checked /><span
+                id="installed-label"
+                >Include installed</span
+              ></label
+            ><label><input id="separate-copies" type="checkbox" /> Separate copies</label
+            ><label
+              >Preferred agent
+              <select id="preferred-agent" class="hvir-input">
+                <option value="">All agents</option>
+                <option value="codex">Codex</option>
+                <option value="claude">Claude</option>
+              </select></label
+            >
+          </div>
+          <p id="installed-note" class="hvir-meta"></p>
+        </details>
       </form>
       <p id="state" class="hvir-state" aria-live="polite">Connecting…</p>
       <div
@@ -53,6 +58,10 @@
         <button id="previous" class="hvir-button" disabled>Previous</button
         ><button id="next" class="hvir-button" disabled>Next</button>
       </nav>
+      <details class="observation-details">
+        <summary>Observation details</summary>
+        <p id="observation-details" class="hvir-meta"></p>
+      </details>
     </main>
     <script src="guest-ui.js"></script>
     <script src="skillager.js"></script>

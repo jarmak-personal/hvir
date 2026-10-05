@@ -62,10 +62,13 @@ export function guestClient(bridge, clock = globalThis) {
           waiting = {
             admitted,
             resume,
-            timer: clock.setTimeout(() => {
-              waiting = undefined
-              resume()
-            }, Math.max(1, sentAt[0] + 1000 - clock.performance.now())),
+            timer: clock.setTimeout(
+              () => {
+                waiting = undefined
+                resume()
+              },
+              Math.max(1, sentAt[0] + 1000 - clock.performance.now()),
+            ),
           }
         })
       }
@@ -81,11 +84,11 @@ export function guestClient(bridge, clock = globalThis) {
       pending.set(id, request)
       void sendQueued(
         {
-            kind: 'request',
-            id,
-            capability,
-            ...(actionId ? { actionId } : {}),
-            ...(input === undefined ? {} : { input }),
+          kind: 'request',
+          id,
+          capability,
+          ...(actionId ? { actionId } : {}),
+          ...(input === undefined ? {} : { input }),
         },
         () => current(actionId) && pending.has(id),
       )
@@ -109,8 +112,7 @@ export function guestClient(bridge, clock = globalThis) {
       if (request.submitted && notify)
         try {
           const message = { kind: 'cancel', id }
-          if (!trySend(message))
-            void sendQueued(message, () => alive).catch(() => {})
+          if (!trySend(message)) void sendQueued(message, () => alive).catch(() => {})
         } catch {
           /* Main revocation still applies; cancellation cannot prove rollback. */
         }
@@ -193,8 +195,7 @@ export function guestClient(bridge, clock = globalThis) {
     },
     hello() {
       const message = { kind: 'hello', contract: '1.0' }
-      if (!trySend(message))
-        void sendQueued(message, () => alive).catch(() => dispose())
+      if (!trySend(message)) void sendQueued(message, () => alive).catch(() => dispose())
     },
   }
 }
@@ -235,12 +236,14 @@ export async function runCli(client, args, context, retryFrequency = true) {
     }
     if (result.outcome !== 'completed' || result.code !== 0 || result.truncated)
       throw new Error(
-        result.outcome === 'not-started' &&
-          ['frequency', 'capacity'].includes(result.reason)
-          ? result.reason === 'frequency'
-            ? 'Refresh deferred by the completed-execution frequency limit; freshness unavailable.'
-            : 'Refresh deferred by execution capacity; freshness unavailable.'
-          : `Skillager ${result.outcome}: ${result.reason ?? `exit ${result.code ?? 'unknown'}`}${error ? ` · ${error.slice(0, 300)}` : ''}`,
+        result.outcome === 'not-started' && result.reason === 'unapproved'
+          ? 'Approve your Skillager CLI in Settings → Extensions → Skillager to browse skills.'
+          : result.outcome === 'not-started' &&
+              ['frequency', 'capacity'].includes(result.reason)
+            ? result.reason === 'frequency'
+              ? 'Refresh deferred by the completed-execution frequency limit; freshness unavailable.'
+              : 'Refresh deferred by execution capacity; freshness unavailable.'
+            : `Skillager ${result.outcome}: ${result.reason ?? `exit ${result.code ?? 'unknown'}`}${error ? ` · ${error.slice(0, 300)}` : ''}`,
       )
     return text
   } finally {

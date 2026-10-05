@@ -95,7 +95,7 @@ it('discloses exact supporting-parent identities and binds keep-files only to th
   vi.stubGlobal('hvir', { invoke })
   await render()
   await act(async () => {
-    button('Inspect exact objects').click()
+    button('Inspect retained files').click()
     await Promise.resolve()
   })
   expect(element.textContent).toContain('recorded identity created-parent')
@@ -121,7 +121,7 @@ it('ignores an inspection completion after unmount', async () => {
     invoke = vi.fn().mockResolvedValueOnce([row]).mockReturnValueOnce(pending)
   vi.stubGlobal('hvir', { invoke })
   await render()
-  act(() => button('Inspect exact objects').click())
+  act(() => button('Inspect retained files').click())
   act(() => root!.unmount())
   root = undefined
   await act(async () => {
@@ -129,4 +129,76 @@ it('ignores an inspection completion after unmount', async () => {
     await pending
   })
   expect(element.childElementCount).toBe(0)
+})
+
+it.each([
+  { situation: 'no retained files', result: [], open: false },
+  { situation: 'unknown retained completion', result: [row], open: true },
+])(
+  'keeps recovery reachable and automatically shows $situation',
+  async ({ result, open }) => {
+    vi.stubGlobal('hvir', { invoke: vi.fn().mockResolvedValue(result) })
+    await render()
+    const disclosure = element.querySelector('details')!
+    expect(disclosure.open).toBe(open)
+    expect(disclosure.querySelector('summary')?.textContent).toContain(
+      'Delivery recovery',
+    )
+    if (open) {
+      expect(element.textContent).toContain('Completion unknown')
+      expect(element.textContent).toContain('unknown completion remains unknown')
+      expect(element.textContent).toContain('ssh:host: /project/skill')
+      expect(button('Inspect retained files')).toBeDefined()
+    }
+  },
+)
+it('opens recovery when its current read fails, keeping an achievable error visible', async () => {
+  vi.stubGlobal('hvir', {
+    invoke: vi
+      .fn()
+      .mockRejectedValue(
+        new Error(
+          'Saved delivery files cannot be inspected. Check this host before cleanup.',
+        ),
+      ),
+  })
+  await render()
+  expect(element.querySelector('details')?.open).toBe(true)
+  expect(element.querySelector('[role=status]')?.textContent).toContain(
+    'Check this host before cleanup',
+  )
+})
+
+it('distinguishes owning extensions and actual outcomes without opening technical details', async () => {
+  vi.stubGlobal('hvir', {
+    invoke: vi.fn().mockResolvedValue([
+      row,
+      {
+        ...row,
+        id: 'completed',
+        installation: 'other-extension',
+        outcome: 'completed-with-retained-objects',
+      },
+      {
+        ...row,
+        id: 'conflicted',
+        installation: 'third-extension',
+        outcome: 'conflicted-with-retained-objects',
+      },
+    ]),
+  })
+  await render()
+  expect(element.querySelector('summary')?.textContent).toContain('3 to inspect')
+  const records = [...element.querySelectorAll('article')]
+  for (const [index, text] of [
+    'Completion unknown · Extension forgotten-installation',
+    'Delivery completed · saved files remain · Extension other-extension',
+    'Delivery conflict · saved files remain · Extension third-extension',
+  ].entries()) {
+    expect(records[index]!.querySelector('p')?.textContent).toBe(text)
+    expect(records[index]!.querySelector('p')?.closest('details')).toBe(
+      element.querySelector('details'),
+    )
+    expect(records[index]!.querySelector('details')?.open).toBe(false)
+  }
 })

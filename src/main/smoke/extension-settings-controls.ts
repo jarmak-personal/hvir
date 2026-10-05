@@ -80,6 +80,10 @@ export function extensionSettingsControls(
           `function(label, value) {
         const input = [...document.querySelectorAll('input, textarea, select')].find(e => e.getAttribute('aria-label') === label);
         if (!input) return false;
+        const closed = [];
+        for (let parent = input.parentElement; parent; parent = parent.parentElement) if (parent.tagName === 'DETAILS' && !parent.open) closed.unshift(parent);
+        for (const parent of closed) { const summary = parent.querySelector(':scope > summary'); if (!summary?.checkVisibility()) return false; summary.click(); }
+        if (!input.checkVisibility() || input.disabled) return false;
         const prototype = input.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : input.tagName === 'SELECT' ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
         Object.getOwnPropertyDescriptor(prototype, 'value').set.call(input, value);
         input.dispatchEvent(new Event(input.tagName === 'SELECT' ? 'change' : 'input', {bubbles: true})); return true;

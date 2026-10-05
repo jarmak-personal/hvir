@@ -1,10 +1,12 @@
 import { app, type BrowserWindow, type WebContents } from 'electron'
 import { joinHostPath, type HostPath } from '../../shared/host-path'
 import type { ExtensionManifest } from '../../shared/extensions/contract'
+import { validateExtensionManifest } from '../../shared/extensions/manifest'
 import type { ExtensionView } from '../../shared/extensions/workbench'
 import type { ProjectHost } from '../project-host/project-host'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import type { ExtensionApplicationRuntime } from '../extensions/extension-application'
+import { verifyExtensionRailGeometry } from './extension-presentation-geometry'
 import { focusSmokeWindow } from './window-focus'
 
 interface ContributionControls {
@@ -57,7 +59,17 @@ export async function verifyExtensionContributions(
   const staticManifest = {
     ...(JSON.parse(fullManifest.toString('utf8')) as ExtensionManifest),
   }
+  const header = staticManifest.railItems!.find((item) => item.placement === 'header')!
+  staticManifest.railItems = [
+    ...staticManifest.railItems!,
+    ...Array.from({ length: 6 }, (_, index) => ({
+      ...header,
+      id: `bounded-header-${index}`,
+      label: `Bounded header action ${index}`,
+    })),
+  ]
   delete staticManifest.updater
+  validateExtensionManifest(staticManifest)
   await host.writeFile(manifestPath, JSON.stringify(staticManifest))
   await controls.click('Discover extensions')
   await controls.wait(
@@ -125,6 +137,11 @@ export async function verifyExtensionContributions(
     throw new Error('Static session controls started a guest')
   console.log(
     '[smoke] static extension controls and two live Shell rows without guests OK',
+  )
+  await verifyExtensionRailGeometry(
+    win,
+    (predicate, label) => controls.wait(predicate, label),
+    7,
   )
 
   await host.writeFile(manifestPath, fullManifest)

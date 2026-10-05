@@ -1,3 +1,4 @@
+import { SettingsSection } from '../SettingsSection'
 import { DeliveryRecoverySettings } from './DeliveryRecoverySettings'
 import { SourceSettings } from './SourceSettings'
 import { AgentAccessSettings } from './AgentAccessSettings'
@@ -54,229 +55,248 @@ export function ExtensionsSettings(): ReactElement {
     }
   }, [])
   return (
-    <section
-      className="settings-section extension-settings"
-      aria-labelledby="settings-extensions-title"
+    <SettingsSection
+      section="extensions"
+      className="extension-settings"
+      title="Extensions"
+      description="Add an extension, review the access it needs, then choose Enable."
     >
-      <AgentAccessSettings />
-      <DeliveryRecoverySettings />
-      <h3 id="settings-extensions-title" tabIndex={-1}>
-        Extensions
-      </h3>
-      <p>
-        Add a ready-to-run extension ZIP or directory. hvir copies it into its extensions
-        folder without changing the original. Inspect its requested access, then choose
-        Enable.
-      </p>
-      <div className="settings-actions">
-        <button
-          type="button"
-          className="hvir-button"
-          disabled={busy || !state?.writable}
-          onClick={() =>
-            void run(async () => {
-              const observed = publication.current
-              const next = await window.hvir.invoke('extensions:add', undefined)
-              if (observed === publication.current) setState(next)
-            })
-          }
-        >
-          Add extension…
-        </button>
-      </div>
-      <details>
-        <summary>Author and discovery controls</summary>
-        <p>
-          For development links or packages copied manually, open the extensions folder
-          and discover them.
-        </p>
+      <div className="settings-section-scroll extension-settings-content">
         <div className="settings-actions">
           <button
             type="button"
-            disabled={busy}
-            onClick={() =>
-              void run(() => window.hvir.invoke('extensions:open-folder', undefined))
-            }
             className="hvir-button"
-          >
-            Open extensions folder
-          </button>
-          <button
-            type="button"
-            disabled={busy}
+            disabled={busy || !state?.writable}
             onClick={() =>
-              void run(async () =>
-                setState(await window.hvir.invoke('extensions:discover', undefined)),
-              )
+              void run(async () => {
+                const observed = publication.current
+                const next = await window.hvir.invoke('extensions:add', undefined)
+                if (observed === publication.current) setState(next)
+              })
             }
-            className="hvir-button"
           >
-            Discover extensions
+            Add extension…
           </button>
         </div>
-      </details>
-      {state?.explanation ? <p role="status">{state.explanation}</p> : null}
-      {error ? <p role="alert">{error}</p> : null}
-      {state?.installations.length === 0 && (state.writable || !state.explanation) ? (
-        <p>
-          No extensions found. Choose Add extension to select a directory or ZIP package.
-        </p>
-      ) : null}
-      {state?.installations.map((installation) => (
-        <article className="extension-installation" key={installation.source}>
-          <h4>{installation.manifest?.name ?? installation.source}</h4>
+        <details className="extension-author-controls">
+          <summary>Author and discovery controls</summary>
           <p>
-            Source: {installation.source}
-            {installation.kind === 'development'
-              ? ' · Development package (linked author directory)'
-              : installation.kind === 'zip'
-                ? ' · ZIP package'
-                : ''}
+            For development links or packages copied manually, open the extensions folder
+            and discover them.
           </p>
-          {installation.acceptedRevision ? (
-            <p>
-              Accepted revision: {installation.acceptedRevision.slice(0, 12)} · Candidate:{' '}
-              {installation.revision?.slice(0, 12) ?? 'unavailable'}
+          <div className="settings-actions">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                void run(() => window.hvir.invoke('extensions:open-folder', undefined))
+              }
+              className="hvir-button"
+            >
+              Open extensions folder
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                void run(async () =>
+                  setState(await window.hvir.invoke('extensions:discover', undefined)),
+                )
+              }
+              className="hvir-button"
+            >
+              Discover extensions
+            </button>
+          </div>
+        </details>
+        {state?.explanation ? <p role="status">{state.explanation}</p> : null}
+        {error ? <p role="alert">{error}</p> : null}
+        {state?.installations.length === 0 && (state.writable || !state.explanation) ? (
+          <p>
+            No extensions found. Choose Add extension to select a directory or ZIP
+            package.
+          </p>
+        ) : null}
+        <DeliveryRecoverySettings />
+        {state?.installations.map((installation) => (
+          <article className="extension-installation" key={installation.source}>
+            <h4>{installation.manifest?.name ?? installation.source}</h4>
+            <p className="hvir-meta">
+              {installation.enabled ? 'Enabled' : 'Not enabled'} · Version{' '}
+              {installation.manifest?.version ?? 'unknown'}
             </p>
-          ) : null}
-          {installation.retainedIdentity ? (
-            <p>Saved setup is kept. Choose Enable before opening views.</p>
-          ) : null}
-          {installation.acceptedRevision &&
-          installation.acceptedRevision !== installation.revision ? (
-            <p>
-              {installation.revision && !installation.error
-                ? 'The package changed. Use Reload or Replace to accept the new revision.'
-                : 'Restore or repair the package, then choose Discover extensions and explicitly Enable, Reload or Replace it.'}
-            </p>
-          ) : null}
-          {installation.error ? (
-            <p role="alert">{installation.error}</p>
-          ) : (
-            <>
+            <details className="extension-package-details">
+              <summary>Package details</summary>
               <p>
-                Package {installation.manifest?.version} · Extension contract{' '}
-                {installation.manifest?.contract}
+                Source: {installation.source}
+                {installation.kind === 'development'
+                  ? ' · Development package (linked author directory)'
+                  : installation.kind === 'zip'
+                    ? ' · ZIP package'
+                    : ''}
               </p>
-              <p>
-                Requested UI access: package-local views and declared observations. No
-                ambient project files, terminals or direct network access. Declared
-                read-only sources and native connectors require separate grants below.
-              </p>
-              <p>
-                Required capabilities:{' '}
-                {installation.manifest?.requiredCapabilities.join(', ') || 'None'}
-              </p>
-              <p>
-                Optional capabilities:{' '}
-                {installation.manifest?.optionalCapabilities.join(', ') || 'None'}
-              </p>
-              {installation.warnings.map((warning) => (
-                <p key={warning}>{warning}</p>
-              ))}
-              {installation.installationId && installation.revision ? (
-                <button
-                  type="button"
-                  disabled={busy || !state.writable || installation.removalPending}
-                  onClick={() =>
-                    void run(async () =>
-                      setState(
-                        await window.hvir.invoke('extensions:reload', {
-                          source: installation.source,
-                          revision: installation.revision!,
-                        }),
-                      ),
-                    )
-                  }
-                  className="hvir-button"
-                >
-                  {installation.kind === 'zip' ? 'Replace' : 'Reload'}
-                </button>
+              {installation.acceptedRevision ? (
+                <p>
+                  Accepted revision: {installation.acceptedRevision.slice(0, 12)} ·
+                  Candidate: {installation.revision?.slice(0, 12) ?? 'unavailable'}
+                </p>
               ) : null}
-              {installation.removalPending ? (
-                <p>Package removal is unfinished. Retry Remove to finish cleanup.</p>
-              ) : null}
-              {installation.enabled ? (
+            </details>
+            {installation.retainedIdentity ? (
+              <p>Saved setup is kept. Choose Enable before opening views.</p>
+            ) : null}
+            {installation.acceptedRevision &&
+            installation.acceptedRevision !== installation.revision ? (
+              <p>
+                {installation.revision && !installation.error
+                  ? 'The package changed. Use Reload or Replace to accept the new revision.'
+                  : 'Restore or repair the package, then choose Discover extensions and explicitly Enable, Reload or Replace it.'}
+              </p>
+            ) : null}
+            {!installation.error ? (
+              <>
+                <p>
+                  Extension views show their own content and information shared by hvir.
+                  They have no automatic access to project files, terminals or direct
+                  network connections. File and program access needs separate approval
+                  below.
+                </p>
+                {installation.warnings.map((warning) => (
+                  <p key={warning}>{warning}</p>
+                ))}
+                <details className="extension-package-details">
+                  <summary>Requested capabilities</summary>
+                  <p>Extension contract {installation.manifest?.contract}</p>
+                  <p>
+                    Required:{' '}
+                    {installation.manifest?.requiredCapabilities.join(', ') || 'None'}
+                  </p>
+                  <p>
+                    Optional:{' '}
+                    {installation.manifest?.optionalCapabilities.join(', ') || 'None'}
+                  </p>
+                </details>
+              </>
+            ) : null}
+            <div className="settings-actions extension-installation-actions">
+              {!installation.error ? (
                 <>
-                  <button
-                    type="button"
-                    disabled={busy || !state.writable || installation.removalPending}
-                    onClick={() =>
-                      void run(async () =>
-                        setState(
-                          await window.hvir.invoke('extensions:disable', {
-                            installationId: installation.installationId!,
-                          }),
-                        ),
-                      )
-                    }
-                    className="hvir-button"
-                  >
-                    Disable
-                  </button>
-                  <AgentAccessSettings installation={installation.installationId} />
-                  <ConnectorSettings installation={installation} />
-                  <SourceSettings installation={installation} />
-                  {installation.installationId ? (
-                    <ExtensionActions installationId={installation.installationId} />
-                  ) : null}
-                  {installation.manifest?.views
-                    .filter(
-                      (view) => view.placement === 'application' && !view.navigation,
-                    )
-                    .map((view) => (
-                      <button
-                        type="button"
-                        key={view.id}
-                        disabled={busy || !state.writable || installation.removalPending}
-                        onClick={() =>
-                          void run(() =>
-                            window.hvir.invoke('extensions:open-view', {
-                              installationId: installation.installationId!,
-                              contributionId: view.id,
+                  {installation.installationId && installation.revision ? (
+                    <button
+                      type="button"
+                      disabled={busy || !state.writable || installation.removalPending}
+                      onClick={() =>
+                        void run(async () =>
+                          setState(
+                            await window.hvir.invoke('extensions:reload', {
+                              source: installation.source,
+                              revision: installation.revision!,
                             }),
-                          )
-                        }
-                        className="hvir-button"
-                      >
-                        Open {view.title}
-                      </button>
-                    ))}
+                          ),
+                        )
+                      }
+                      className="hvir-button"
+                    >
+                      {installation.kind === 'zip' ? 'Replace' : 'Reload'}
+                    </button>
+                  ) : null}
+                  {installation.enabled ? (
+                    <button
+                      type="button"
+                      disabled={busy || !state.writable || installation.removalPending}
+                      onClick={() =>
+                        void run(async () =>
+                          setState(
+                            await window.hvir.invoke('extensions:disable', {
+                              installationId: installation.installationId!,
+                            }),
+                          ),
+                        )
+                      }
+                      className="hvir-button"
+                    >
+                      Disable
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={busy || !state.writable || installation.removalPending}
+                      onClick={() =>
+                        void run(async () =>
+                          setState(
+                            await window.hvir.invoke('extensions:enable', {
+                              source: installation.source,
+                              revision: installation.revision!,
+                            }),
+                          ),
+                        )
+                      }
+                      className="hvir-button"
+                    >
+                      Enable
+                    </button>
+                  )}
                 </>
-              ) : (
-                <button
-                  type="button"
-                  disabled={busy || !state.writable || installation.removalPending}
-                  onClick={() =>
-                    void run(async () =>
-                      setState(
-                        await window.hvir.invoke('extensions:enable', {
-                          source: installation.source,
-                          revision: installation.revision!,
-                        }),
-                      ),
-                    )
-                  }
-                  className="hvir-button"
-                >
-                  Enable
-                </button>
-              )}
-            </>
-          )}
-          <button
-            type="button"
-            disabled={busy || !state.writable}
-            onClick={() => {
-              setForget(false)
-              setRemoving(installation)
-            }}
-            className="hvir-button"
-          >
-            Remove
-          </button>
-        </article>
-      ))}
+              ) : null}
+              <button
+                type="button"
+                disabled={busy || !state.writable}
+                onClick={() => {
+                  setForget(false)
+                  setRemoving(installation)
+                }}
+                className="hvir-button"
+              >
+                Remove
+              </button>
+            </div>
+            {installation.error ? (
+              <p role="alert">{installation.error}</p>
+            ) : (
+              <>
+                {installation.removalPending ? (
+                  <p>Package removal is unfinished. Retry Remove to finish cleanup.</p>
+                ) : null}
+                {installation.enabled ? (
+                  <>
+                    <AgentAccessSettings installation={installation.installationId} />
+                    <ConnectorSettings installation={installation} />
+                    <SourceSettings installation={installation} />
+                    {installation.installationId ? (
+                      <ExtensionActions installationId={installation.installationId} />
+                    ) : null}
+                    {installation.manifest?.views
+                      .filter(
+                        (view) => view.placement === 'application' && !view.navigation,
+                      )
+                      .map((view) => (
+                        <button
+                          type="button"
+                          key={view.id}
+                          disabled={
+                            busy || !state.writable || installation.removalPending
+                          }
+                          onClick={() =>
+                            void run(() =>
+                              window.hvir.invoke('extensions:open-view', {
+                                installationId: installation.installationId!,
+                                contributionId: view.id,
+                              }),
+                            )
+                          }
+                          className="hvir-button"
+                        >
+                          Open {view.title}
+                        </button>
+                      ))}
+                  </>
+                ) : null}
+              </>
+            )}
+          </article>
+        ))}
+        <AgentAccessSettings />
+      </div>
       {removing ? (
         <ConfirmationDialog
           nested
@@ -333,6 +353,6 @@ export function ExtensionsSettings(): ReactElement {
           </p>
         </ConfirmationDialog>
       ) : null}
-    </section>
+    </SettingsSection>
   )
 }

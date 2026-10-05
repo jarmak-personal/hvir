@@ -27,6 +27,7 @@ function packageView(view = 'library', entry = 'app') {
     fail = false,
     hold = false,
     frequency = false,
+    unapproved = false,
     resume: (() => void) | undefined
   const send = (message: {
     kind: string
@@ -39,7 +40,10 @@ function packageView(view = 'library', entry = 'app') {
     if (message.capability === 'connector.execute') {
       const args = message.input.args as string[]
       calls.push(args)
-      if (frequency) {
+      if (unapproved) {
+        unapproved = false
+        value = { outcome: 'not-started', reason: 'unapproved' }
+      } else if (frequency) {
         frequency = false
         value = { outcome: 'not-started', reason: 'frequency' }
       } else if (fail) {
@@ -174,6 +178,9 @@ function packageView(view = 'library', entry = 'app') {
     flush,
     calls,
     publications,
+    unapproved: () => {
+      unapproved = true
+    },
     fail: () => {
       fail = true
     },
@@ -319,7 +326,7 @@ it('updater reads only needed status metadata and publishes last-known freshness
   await f.flush()
   expect(f.calls.map((args) => args[0])).toEqual(['--version', 'library'])
   expect(f.publications.at(-1)).toMatchObject({
-    label: 'Skills 3',
+    label: '3',
     availability: 'current',
   })
   const observedAt = f.publications.at(-1)!.observedAt
@@ -327,9 +334,42 @@ it('updater reads only needed status metadata and publishes last-known freshness
   f.context()
   await f.flush()
   expect(f.publications.at(-1)).toMatchObject({
-    label: 'Skills 3',
+    label: '3',
     availability: 'stale',
     observedAt,
   })
   expect(f.calls.some((args) => args[0] === 'list')).toBe(false)
+})
+
+it('makes native approval refusal actionable while retaining last-known observations and exact search options', async () => {
+  const f = packageView()
+  f.context()
+  await f.flush()
+  const before = document.getElementById('skills')!.textContent
+  f.unapproved()
+  f.button('refresh').click()
+  await f.flush()
+  expect(document.getElementById('state')!.textContent).toContain(
+    'Approve your Skillager CLI in Settings → Extensions → Skillager',
+  )
+  expect(document.getElementById('state')!.textContent).toContain(
+    'Last-known rows retained',
+  )
+  expect(document.getElementById('state')!.textContent).not.toContain(
+    'not-started: unapproved',
+  )
+  expect(document.getElementById('skills')!.textContent).toBe(before)
+  expect(document.getElementById('installed-note')!.textContent).toContain(
+    'Installed copies are unknown',
+  )
+  expect(
+    (document.getElementById('include-installed') as HTMLInputElement).disabled,
+  ).toBe(true)
+  expect((document.getElementById('include-installed') as HTMLInputElement).checked).toBe(
+    false,
+  )
+  const options = document.querySelector<HTMLDetailsElement>('.search-options')!
+  expect(options.open).toBe(false)
+  options.querySelector('summary')!.click()
+  expect(options.open).toBe(true)
 })

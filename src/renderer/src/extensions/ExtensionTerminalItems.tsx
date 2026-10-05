@@ -123,12 +123,15 @@ export function ExtensionTerminalItems({
           item.kind === 'observation'
             ? (value?.availability ?? (extension.error ? 'failed' : 'stale'))
             : undefined
-        const tooltip = `${value?.tooltip ?? item.tooltip}${availability ? ` · ${availability}` : ''}${extension.error ? ` · ${extension.error}` : ''}`
+        const description = [item.label, value?.label, value?.tooltip ?? item.tooltip]
+          .filter(Boolean)
+          .join(' · ')
+        const tooltip = `${description}${availability ? ` · ${availability}` : ''}${extension.error ? ` · ${extension.error}` : ''}`
         return (
           <button
             key={`${extension.installationId}:${item.id}`}
             type="button"
-            className="terminal-icon-button hvir-button"
+            className="terminal-icon-button extension-terminal-item hvir-button"
             title={tooltip}
             aria-label={tooltip}
             aria-haspopup={item.click.placement === 'popup' ? 'dialog' : undefined}
@@ -161,7 +164,11 @@ export function ExtensionTerminalItems({
             }}
           >
             <span aria-hidden="true">{value?.icon ?? item.icon}</span>
-            {value?.label ?? item.label}
+            {value?.label ? (
+              <span className="extension-terminal-value" aria-hidden="true">
+                {value.label}
+              </span>
+            ) : null}
           </button>
         )
       })}

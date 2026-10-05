@@ -1,4 +1,5 @@
 import { extensionSettingsControls } from './extension-settings-controls'
+import { captureExtensionVisuals } from './extension-visuals'
 import { createHash } from 'node:crypto'
 import { app, type BrowserWindow, type WebContents } from 'electron'
 import { join } from 'node:path'
@@ -30,6 +31,7 @@ export async function verifySkillagerExtension(
       'Skillager evidence needs an explicit checkout, CLI, catalog and library root',
     )
   const diagnostic = process.env.HVIR_SKILLAGER_EVIDENCE_READER_DIAGNOSTIC === '1'
+  const owner = scopes.currentOwner(win.webContents.id)
   const settings = extensionSettingsControls(win, 'Skillager', {
     wait: (predicate, label) => controls.wait(predicate, label),
     within: bounded,
@@ -60,6 +62,27 @@ export async function verifySkillagerExtension(
     throw new Error('Discovery enabled or rejected Skillager')
   await click('Enable')
   await controls.wait(() => installation()?.enabled === true, 'trusted Skillager Enable')
+  if (process.env.HVIR_EXTENSION_VISUAL_DIRECTORY) {
+    await controls.click('Close settings')
+    await controls.click('Skillager library')
+    await controls.wait(() => !!view('library'), 'unapproved library placement')
+    const unapproved = await bounded(controls.guest(view('library')!))
+    await ready(
+      unapproved,
+      () =>
+        inspect(
+          unapproved,
+          "document.getElementById('state')?.dataset.state==='error'",
+        ) as Promise<boolean>,
+      'actual unapproved CLI state',
+    )
+    await captureExtensionVisuals(win, unapproved, host, 'unapproved', {
+      ...controls,
+      select: () => controls.click('Skillager library'),
+    })
+    await controls.click('Open settings')
+    await controls.click('Extensions')
+  }
   const configuration = JSON.stringify({
     args: [],
     env: {
@@ -75,6 +98,31 @@ export async function verifySkillagerExtension(
     () => dom("document.body.textContent.includes('Approve local:')"),
     'canonical installed CLI decision',
   )
+  await win.webContents.executeJavaScript(`(() => {
+    const pre=[...document.querySelectorAll('.extension-installation pre')].find(e=>e.textContent===${JSON.stringify(JSON.stringify(JSON.parse(configuration), null, 2))});
+    pre.scrollIntoView({block:'center'});
+  })()`)
+  await controls.wait(
+    () =>
+      dom(`(() => {
+    const pre=[...document.querySelectorAll('.extension-installation pre')].find(e=>e.textContent===${JSON.stringify(JSON.stringify(JSON.parse(configuration), null, 2))});
+    if(!pre?.checkVisibility())return false;
+    const box=pre.getBoundingClientRect(), scroll=pre.closest('.settings-section-scroll').getBoundingClientRect();
+    return box.top>=scroll.top && box.bottom<=scroll.bottom;
+  })()`),
+    'complete approved configuration remains visible at the trusted decision',
+  )
+  await win.webContents.executeJavaScript(
+    'new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))',
+  )
+  if (process.env.HVIR_EXTENSION_VISUAL_DIRECTORY)
+    await host.writeFile(
+      joinHostPath(
+        localPath(process.env.HVIR_EXTENSION_VISUAL_DIRECTORY),
+        'native-approval.png',
+      ),
+      (await win.webContents.capturePage()).toPNG(),
+    )
   await click('Approve native execution', 'library-cli')
   await controls.wait(
     () =>
@@ -106,7 +154,6 @@ export async function verifySkillagerExtension(
   )
   await controls.click('Close settings')
   await controls.click('Skillager library')
-  const owner = scopes.currentOwner(win.webContents.id)
   await controls.wait(() => !!view('library'), 'ordinary application library placement')
   phase = 'ordinary library guest attachment'
   console.log(`[smoke] Skillager evidence: begin ${phase}`)
@@ -118,8 +165,14 @@ export async function verifySkillagerExtension(
         guest,
         "document.querySelectorAll('#skills [role=option]').length===100 && !['loading','stale','error'].includes(document.getElementById('state').dataset.state)",
       ) as Promise<boolean>,
-    'current first 100 of genuine 5000',
+    diagnostic
+      ? 'current first 100 public library observations'
+      : 'current first 100 of genuine 5000',
   )
+  await captureExtensionVisuals(win, guest, host, 'library', {
+    ...controls,
+    select: () => controls.click('Skillager library'),
+  })
   const observed = new Set<string>()
   let pages = 0
   for (;;) {
@@ -165,19 +218,21 @@ export async function verifySkillagerExtension(
     extensions.guests!.snapshot(owner).some((entry) => entry.contributionId === 'detail')
   )
     throw new Error('Keyboard focus prefetched instruction bodies')
-  await inspect(
-    guest,
-    "document.getElementById('query').value='catalogneedle';document.getElementById('search-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));",
-  )
-  await ready(
-    guest,
-    () =>
-      inspect(
-        guest,
-        "document.getElementById('state').textContent.includes('matches') && document.querySelectorAll('#skills [role=option]').length>0",
-      ) as Promise<boolean>,
-    'genuine public ranked search',
-  )
+  if (!process.env.HVIR_EXTENSION_VISUAL_DIRECTORY) {
+    await inspect(
+      guest,
+      "document.getElementById('query').value='catalogneedle';document.getElementById('search-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));",
+    )
+    await ready(
+      guest,
+      () =>
+        inspect(
+          guest,
+          "document.getElementById('state').textContent.includes('matches') && document.querySelectorAll('#skills [role=option]').length>0",
+        ) as Promise<boolean>,
+      'genuine public ranked search',
+    )
+  }
   const clicked = (await inspect(
     guest,
     "(() => {const row=document.querySelector('#skills [role=option]');return {id:row.dataset.id,source:row.dataset.source,path:row.dataset.sourcePath}})()",
@@ -254,6 +309,27 @@ export async function verifySkillagerExtension(
     isolation['worker'] !== 'object'
   )
     throw new Error('Selected reader escaped ordinary guest isolation')
+  await inspect(detail, "document.getElementById('rendered-mode').click()")
+  await captureExtensionVisuals(win, detail, host, 'instructions', {
+    ...controls,
+    select: async () => {
+      await controls.wait(
+        () =>
+          dom(
+            "(() => {const button=document.querySelector('.project-tab-main');if(!button?.checkVisibility()||button.disabled)return false;button.click();return true})()",
+          ),
+        'visual project destination',
+      )
+      await controls.wait(
+        () =>
+          dom(
+            "(() => {const button=[...document.querySelectorAll('.viewer-tab .tab-main')].find(e=>e.title==='Skillager · Skill instructions');if(!button?.checkVisibility()||button.disabled)return false;button.click();return true})()",
+          ),
+        'visual selected instructions',
+      )
+    },
+  })
+  await inspect(detail, "document.getElementById('source-mode').click()")
   await inspect(
     detail,
     `window.skillagerEvidenceVisible = undefined;
@@ -326,7 +402,7 @@ export async function verifySkillagerExtension(
     throw new Error('Revocation lost already-read current bytes')
   await inspect(detail, 'window.skillagerEvidenceStop(); void 0;')
   console.log(
-    `[smoke] Skillager ${diagnostic ? 'reader diagnostic (full traversal skipped)' : 'full installed-CLI walkthrough'} public schemas, ${observed.size} genuine library identities/${pages} cursor pages, metadata-only focus, ranked search, explicit current read, utility-process Markdown, ordinary guest isolation and revoke OK`,
+    `[smoke] Skillager ${diagnostic ? 'reader diagnostic (full traversal skipped)' : 'full installed-CLI walkthrough'} public schemas, ${observed.size} genuine library identities/${pages} cursor pages, metadata-only focus, ${process.env.HVIR_EXTENSION_VISUAL_DIRECTORY ? 'visual-only pending-list selection (ranked search skipped)' : 'ranked search'}, explicit current read, utility-process Markdown, ordinary guest isolation and revoke OK`,
   )
   console.log('HVIR_SMOKE_OK')
   return true
@@ -406,7 +482,7 @@ export async function verifySkillagerExtension(
       section === 'library'
         ? 'Read-only source: library'
         : section
-          ? `Native connector: ${section}`
+          ? `Program access: ${section}`
           : ''
     await settings.click(name, legend)
   }

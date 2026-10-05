@@ -48,7 +48,122 @@
 }
 .extension-terminal-items {
   display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
   gap: 2px;
+  overflow-x: auto;
+}
+.terminal-rail-header .extension-terminal-items {
+  min-width: 52px;
+}
+.extension-terminal-item {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: auto;
+  min-width: 26px;
+  max-width: 72px;
+  padding: 0 3px;
+  overflow: hidden;
+  font-size: calc(14px * var(--hvir-interface-scale));
+}
+.extension-settings-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.extension-settings-content p {
+  margin: 0;
+  line-height: 1.5;
+}
+.extension-settings-content h4 {
+  margin: 0;
+  font-size: calc(12px * var(--hvir-interface-scale));
+}
+.extension-settings-content details {
+  min-width: 0;
+}
+.extension-settings-content summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: calc(11px * var(--hvir-interface-scale));
+  line-height: 1.5;
+}
+.extension-settings-content details[open] > summary {
+  margin-bottom: 10px;
+}
+.extension-installation,
+.agent-access-settings,
+.extension-delivery-recovery[open] {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+.extension-installation > .hvir-button {
+  align-self: flex-start;
+}
+.extension-settings-content .settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.extension-installation-actions > .hvir-button {
+  margin: 0;
+}
+.extension-settings-content fieldset {
+  min-width: 0;
+  margin: 8px 0 0;
+  padding: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  display: grid;
+  gap: 10px;
+}
+.extension-settings-content fieldset > label {
+  display: grid;
+  gap: 6px;
+}
+.extension-settings-content fieldset > .hvir-button {
+  justify-self: start;
+  max-width: 100%;
+}
+.extension-settings-content .agent-access-settings label {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  flex-direction: row;
+  gap: 8px;
+}
+.extension-settings-content .agent-access-settings input[type='checkbox'] {
+  flex: 0 0 auto;
+  width: calc(14px * var(--hvir-interface-scale));
+  height: calc(14px * var(--hvir-interface-scale));
+  padding: 0;
+  margin: 0;
+}
+.extension-settings-content pre {
+  max-width: 100%;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 10px;
+  border-radius: 4px;
+  background: var(--surface-2);
+}
+.extension-settings-content textarea {
+  min-height: 64px;
+  resize: vertical;
+}
+.extension-terminal-value {
+  min-width: 0;
+  max-width: 40px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(11px * var(--hvir-interface-scale));
 }
 .extension-item-popup {
   position: fixed;

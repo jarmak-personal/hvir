@@ -87,7 +87,7 @@ export async function verifySkillagerManagement(
   for (const connector of ['library-cli', 'project-cli']) {
     await settings.set(`Executable for ${connector}`, executable)
     await settings.set(`Configuration for ${connector}`, configuration)
-    await settings.click('Inspect native access', `Native connector: ${connector}`)
+    await settings.click('Inspect native access', `Program access: ${connector}`)
     await controls.wait(
       async () =>
         Boolean(
@@ -99,7 +99,7 @@ export async function verifySkillagerManagement(
         ),
       `canonical ${connector} native decision`,
     )
-    await settings.click('Approve native execution', `Native connector: ${connector}`)
+    await settings.click('Approve native execution', `Program access: ${connector}`)
     await controls.wait(
       () =>
         extensions

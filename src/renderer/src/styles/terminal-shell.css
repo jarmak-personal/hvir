@@ -69,11 +69,14 @@
 .terminal-rail-header {
   position: relative;
   z-index: 7;
-  flex: 0 0 36px;
+  flex: 0 0 auto;
+  min-height: 36px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 8px 0 11px;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+  padding: 4px 8px 4px 11px;
   border-bottom: 1px solid var(--border-subtle);
   box-shadow: inset 1px 0 var(--border-subtle);
   background: var(--chrome-surface);
@@ -275,9 +278,21 @@
 }
 
 .terminal-header-actions {
+  min-width: 0;
+  flex: 1 1 180px;
+  justify-content: flex-end;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 1px;
+}
+
+.terminal-rail-header > span {
+  flex: 0 0 auto;
+}
+
+.terminal-header-actions > :not(.extension-terminal-items) {
+  flex-shrink: 0;
 }
 
 .terminal-icon-button,
