@@ -23,7 +23,10 @@ the user finishes copying and explicitly discovers again.
 Settings has one Add extension intent. Main owns a window-attached native selection and detects
 the source form. macOS supports mixed file/directory selection; Linux's ordinary file chooser
 selects a ZIP or the exact package manifest to identify its parent directory. The renderer
-supplies no authoritative path, destination or format. The existing serialized activation writer
+supplies no authoritative path, destination or format. Native selection remains outside the writer
+queue under the renderer and writer authority lifetime. Revocation settles the caller promptly
+and ignores any later native return; it does not promise to forcibly close the OS dialog. The
+existing serialized activation writer
 coordinates bounded capture, a source recheck, exclusive staging in its existing package store,
 and atomic no-replace publication into the instance's extensions folder. Import preserves ZIP
 bytes or copies directory assets; it never creates an implicit development link. Present source

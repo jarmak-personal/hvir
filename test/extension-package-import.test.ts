@@ -8,9 +8,14 @@ import { exampleManifest } from './fixtures/extension-package'
 import { RendererResourceScopes } from '../src/main/renderer-resource-scopes'
 import { ExtensionPackageAdditionOwner } from '../src/main/extensions/package-addition'
 
-async function authored(root: string, kind: 'zip' | 'directory', name = 'authored') {
+async function authored(
+  root: string,
+  kind: 'zip' | 'directory',
+  name = 'authored',
+  id = 'example.reference',
+) {
   const files = new Map([
-    ['hvir-extension.json', Buffer.from(JSON.stringify(exampleManifest()))],
+    ['hvir-extension.json', Buffer.from(JSON.stringify(exampleManifest({ id })))],
     ['index.html', Buffer.from('authored entry')],
     ['detail.html', Buffer.from('authored detail')],
     ['assets/nested.txt', Buffer.from('nested support')],
@@ -126,6 +131,7 @@ describe('Add extension serialized import', () => {
           data.root,
           'directory',
           collision === 'filename' ? 'existing' : 'other',
+          collision === 'filename' ? 'example.other' : 'example.reference',
         )
         await expect(
           owner.add(
@@ -133,7 +139,9 @@ describe('Add extension serialized import', () => {
             () => undefined,
             new AbortController().signal,
           ),
-        ).rejects.toThrow('identity')
+        ).rejects.toThrow(
+          collision === 'filename' ? 'filename already exists' : 'identity',
+        )
         expect([...owner.active.values()][0]).toBe(active)
         expect(
           await fs.readFile(join(data.directory, 'existing', 'index.html'), 'utf8'),
@@ -263,12 +271,92 @@ describe('Add extension serialized import', () => {
       const rejected = expect(pending).rejects.toThrow()
       await entered.promise
       await scopes.revokeOwner(caller.id)
-      chosen.resolve(input.source)
       await rejected
+      chosen.resolve(input.source)
+      await chosen.promise
       expect(await fs.readdir(data.directory)).toEqual([])
       expect(await fs.readdir(data.packages)).toEqual([])
     } finally {
       await scopes.dispose()
+      await owner.dispose()
+      await data.dispose()
+    }
+  })
+  it('allows Disable and writer disposal while the native picker remains open, and rejects a late selection', async () => {
+    const data = await extensionInstallationFixture(),
+      owner = data.make(),
+      replacement = data.make(),
+      scopes = new RendererResourceScopes()
+    const chosen = deferred<ReturnType<typeof localPath>>()
+    try {
+      await data.packageAt('existing')
+      await owner.start(data.lock)
+      const entry = owner.snapshot().installations[0]!
+      await owner.enable(entry.source, entry.revision!)
+      const id = owner.snapshot().installations[0]!.installationId!
+      const entered = deferred<void>()
+      const addition = new ExtensionPackageAdditionOwner(scopes, owner, {
+        pick: () => {
+          entered.resolve()
+          return chosen.promise
+        },
+      })
+      const operation = addition.add(scopes.activateOwner(102))
+      const rejected = expect(operation).rejects.toThrow()
+      await entered.promise
+      await owner.disable(id)
+      expect(owner.active.size).toBe(0)
+      await owner.dispose()
+      await rejected
+      await replacement.start(data.lock)
+      expect(replacement.snapshot().writable).toBe(true)
+      const input = await authored(data.root, 'directory', 'late')
+      chosen.resolve(input.source)
+      await chosen.promise
+      expect(await fs.readdir(data.directory)).toEqual(['existing'])
+      expect(await fs.readdir(data.packages)).not.toContainEqual(
+        expect.stringMatching(/^\.import-/),
+      )
+    } finally {
+      chosen.resolve(localPath(join(data.root, 'unused')))
+      await scopes.dispose()
+      await replacement.dispose()
+      await owner.dispose()
+      await data.dispose()
+    }
+  })
+  it('preserves a destination created after preflight and reports the no-replace filename collision', async () => {
+    const data = await extensionInstallationFixture(),
+      owner = data.make()
+    try {
+      const input = await authored(data.root, 'directory', 'racing', 'example.new')
+      await owner.start(data.lock)
+      const original = data.host.fileTransfer.renameNoReplace.bind(data.host.fileTransfer)
+      const rename = vi
+        .spyOn(data.host.fileTransfer, 'renameNoReplace')
+        .mockImplementation(async (source, destination, options) => {
+          await fs.mkdir(destination.path)
+          await fs.writeFile(
+            join(destination.path, 'foreign.txt'),
+            'preserve concurrent owner',
+          )
+          await original(source, destination, options)
+        })
+      await expect(
+        owner.add(
+          () => Promise.resolve(input.source),
+          () => undefined,
+          new AbortController().signal,
+        ),
+      ).rejects.toThrow('filename already exists')
+      rename.mockRestore()
+      expect(await fs.readdir(join(data.directory, 'racing'))).toEqual(['foreign.txt'])
+      expect(
+        await fs.readFile(join(data.directory, 'racing', 'foreign.txt'), 'utf8'),
+      ).toBe('preserve concurrent owner')
+      expect(await fs.readdir(data.packages)).toEqual([])
+    } finally {
+      vi.restoreAllMocks()
       await owner.dispose()
       await data.dispose()
     }

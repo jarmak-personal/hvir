@@ -24,7 +24,9 @@ never guesses which candidate you meant.
 The ready-to-run example is `packages/extension-reference` in a checkout. Installed
 macOS packages include it at `/Applications/hvir.app/Contents/Resources/extension-reference`;
 Linux packages include it beneath the application resources directory as `extension-reference`.
-Use **Add extension…** to select that directory (its manifest on Linux); it needs no build, project grant, or configured executable.
+Use **Add extension…** to select that directory (its manifest on Linux); it needs no build, project grant, or configured executable. On macOS, press **⇧⌘G** (Go to Folder) in the picker, enter
+`/Applications/hvir.app/Contents/Resources/extension-reference`, then select the directory.
+If hvir is installed elsewhere, use that application’s matching `Contents/Resources/extension-reference` path.
 Choose **Open Extension reference**, then use its **Open reference detail** button.
 Close tabs through hvir's tab or view controls. Disable in Settings closes all its views.
 Application-level tabs stay available when you switch workspaces and gain no project

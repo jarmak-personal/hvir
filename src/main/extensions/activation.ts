@@ -186,24 +186,42 @@ export class ExtensionActivationOwner {
     return this.serialize(() => this.scan())
   }
 
-  add(
+  async add(
     pick: () => Promise<HostPath | undefined>,
     assertCurrent: () => void,
     signal: AbortSignal,
   ): Promise<ExtensionPlatformState> {
+    const lifetime = AbortSignal.any([signal, this.authority.signal])
+    const current = async (): Promise<void> => {
+      lifetime.throwIfAborted()
+      assertCurrent()
+      await this.assertWritable()
+      lifetime.throwIfAborted()
+      assertCurrent()
+    }
+    await current()
+    let abort!: () => void
+    const source = await Promise.race([
+      Promise.resolve().then(() => {
+        lifetime.throwIfAborted()
+        assertCurrent()
+        return pick()
+      }),
+      new Promise<never>((_, reject) => {
+        abort = () =>
+          reject(
+            lifetime.reason instanceof Error
+              ? lifetime.reason
+              : new Error('Extension package selection was revoked'),
+          )
+        lifetime.addEventListener('abort', abort, { once: true })
+        if (lifetime.aborted) abort()
+      }),
+    ]).finally(() => lifetime.removeEventListener('abort', abort))
+    await current()
+    if (!source) return this.snapshot()
     return this.serialize(async () => {
-      const lifetime = AbortSignal.any([signal, this.authority.signal])
-      const current = async (): Promise<void> => {
-        lifetime.throwIfAborted()
-        assertCurrent()
-        await this.assertWritable()
-        lifetime.throwIfAborted()
-        assertCurrent()
-      }
       await current()
-      const source = await pick()
-      await current()
-      if (!source) return this.snapshot()
       await importExtensionPackage(
         this.host,
         this.directory,
