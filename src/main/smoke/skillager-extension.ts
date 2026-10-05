@@ -185,7 +185,7 @@ export async function verifySkillagerExtension(
       () =>
         inspect(
           uninitialized,
-          "document.getElementById('state').dataset.state==='empty'&&document.querySelectorAll('#skills [role=option]').length===0",
+          "document.getElementById('state')?.dataset.state==='empty'&&document.querySelectorAll('#skills [role=option]').length===0",
         ) as Promise<boolean>,
       'fresh uninitialized public catalog is empty without initialization',
     )
