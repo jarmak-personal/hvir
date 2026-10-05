@@ -4,6 +4,15 @@ import type {
   DeliveryRecoveryReply,
 } from '../../../../shared/extensions/managed-delivery'
 
+const deliveryOutcome = (outcome: string): string =>
+  outcome === 'completed-with-retained-objects'
+    ? 'Delivery completed · saved files remain'
+    : outcome === 'conflicted-with-retained-objects'
+      ? 'Delivery conflict · saved files remain'
+      : outcome === 'completion-unproven'
+        ? 'Completion unknown'
+        : outcome
+
 /** Exact recovery remains reachable after package demand and installation identity end. */
 export function DeliveryRecoverySettings(): ReactElement {
   const [entries, setEntries] = useState<readonly DeliveryRecoveryEntry[]>([])
@@ -87,17 +96,14 @@ export function DeliveryRecoverySettings(): ReactElement {
       {entries.map((entry) => (
         <article key={entry.id}>
           <p>
-            Delivery needs attention. Inspect the saved files before choosing what to
-            keep.
+            <strong>{deliveryOutcome(entry.outcome)}</strong> · Extension{' '}
+            {entry.installation}
           </p>
           <p>
             Target: {entry.target.hostId}: {entry.target.path}
           </p>
           <details>
             <summary>Delivery details</summary>
-            <p>
-              {entry.outcome} · {entry.installation}
-            </p>
             <p>
               Staging: {entry.staging.hostId}: {entry.staging.path}
             </p>

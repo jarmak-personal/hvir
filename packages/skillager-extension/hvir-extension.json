@@ -39,7 +39,7 @@
     },
     {
       "id": "project",
-      "description": "Read selected instruction files and images in the selected project",
+      "description": "Read selected instruction files and images in the exact registered project or worktree",
       "context": "workspace",
       "mode": "read-only"
     },
@@ -51,7 +51,7 @@
     },
     {
       "id": "delivery-target",
-      "description": "Manage skill copies in the selected SSH project, preserving prior copies",
+      "description": "Add, update or remove managed Full skill copies in the exact selected SSH project or worktree, preserving prior copies",
       "context": "workspace",
       "mode": "managed-delivery"
     }
@@ -546,7 +546,7 @@
     },
     {
       "id": "project-cli",
-      "description": "Use the Skillager CLI you approve in the selected local project",
+      "description": "Use the Skillager CLI you approve in the exact registered local project or worktree",
       "context": "workspace",
       "timeoutMs": 180000,
       "outputBytes": 4194304,

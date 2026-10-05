@@ -145,7 +145,7 @@ it.each([
       'Delivery recovery',
     )
     if (open) {
-      expect(element.textContent).toContain('Delivery needs attention')
+      expect(element.textContent).toContain('Completion unknown')
       expect(element.textContent).toContain('unknown completion remains unknown')
       expect(element.textContent).toContain('ssh:host: /project/skill')
       expect(button('Inspect retained files')).toBeDefined()
@@ -167,4 +167,38 @@ it('opens recovery when its current read fails, keeping an achievable error visi
   expect(element.querySelector('[role=status]')?.textContent).toContain(
     'Check this host before cleanup',
   )
+})
+
+it('distinguishes owning extensions and actual outcomes without opening technical details', async () => {
+  vi.stubGlobal('hvir', {
+    invoke: vi.fn().mockResolvedValue([
+      row,
+      {
+        ...row,
+        id: 'completed',
+        installation: 'other-extension',
+        outcome: 'completed-with-retained-objects',
+      },
+      {
+        ...row,
+        id: 'conflicted',
+        installation: 'third-extension',
+        outcome: 'conflicted-with-retained-objects',
+      },
+    ]),
+  })
+  await render()
+  expect(element.querySelector('summary')?.textContent).toContain('3 to inspect')
+  const records = [...element.querySelectorAll('article')]
+  for (const [index, text] of [
+    'Completion unknown · Extension forgotten-installation',
+    'Delivery completed · saved files remain · Extension other-extension',
+    'Delivery conflict · saved files remain · Extension third-extension',
+  ].entries()) {
+    expect(records[index]!.querySelector('p')?.textContent).toBe(text)
+    expect(records[index]!.querySelector('p')?.closest('details')).toBe(
+      element.querySelector('details'),
+    )
+    expect(records[index]!.querySelector('details')?.open).toBe(false)
+  }
 })

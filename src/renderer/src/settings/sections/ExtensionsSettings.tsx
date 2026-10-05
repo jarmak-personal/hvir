@@ -117,6 +117,7 @@ export function ExtensionsSettings(): ReactElement {
             package.
           </p>
         ) : null}
+        <DeliveryRecoverySettings />
         {state?.installations.map((installation) => (
           <article className="extension-installation" key={installation.source}>
             <h4>{installation.manifest?.name ?? installation.source}</h4>
@@ -151,6 +152,31 @@ export function ExtensionsSettings(): ReactElement {
                   ? 'The package changed. Use Reload or Replace to accept the new revision.'
                   : 'Restore or repair the package, then choose Discover extensions and explicitly Enable, Reload or Replace it.'}
               </p>
+            ) : null}
+            {!installation.error ? (
+              <>
+                <p>
+                  Extension views show their own content and information shared by hvir.
+                  They have no automatic access to project files, terminals or direct
+                  network connections. File and program access needs separate approval
+                  below.
+                </p>
+                {installation.warnings.map((warning) => (
+                  <p key={warning}>{warning}</p>
+                ))}
+                <details className="extension-package-details">
+                  <summary>Requested capabilities</summary>
+                  <p>Extension contract {installation.manifest?.contract}</p>
+                  <p>
+                    Required:{' '}
+                    {installation.manifest?.requiredCapabilities.join(', ') || 'None'}
+                  </p>
+                  <p>
+                    Optional:{' '}
+                    {installation.manifest?.optionalCapabilities.join(', ') || 'None'}
+                  </p>
+                </details>
+              </>
             ) : null}
             <div className="settings-actions extension-installation-actions">
               {!installation.error ? (
@@ -228,25 +254,6 @@ export function ExtensionsSettings(): ReactElement {
               <p role="alert">{installation.error}</p>
             ) : (
               <>
-                <p>
-                  Extension views can show information without running programs. Reading
-                  files and running programs require separate access below.
-                </p>
-                <details className="extension-package-details">
-                  <summary>Requested capabilities</summary>
-                  <p>Extension contract {installation.manifest?.contract}</p>
-                  <p>
-                    Required:{' '}
-                    {installation.manifest?.requiredCapabilities.join(', ') || 'None'}
-                  </p>
-                  <p>
-                    Optional:{' '}
-                    {installation.manifest?.optionalCapabilities.join(', ') || 'None'}
-                  </p>
-                </details>
-                {installation.warnings.map((warning) => (
-                  <p key={warning}>{warning}</p>
-                ))}
                 {installation.removalPending ? (
                   <p>Package removal is unfinished. Retry Remove to finish cleanup.</p>
                 ) : null}
@@ -289,7 +296,6 @@ export function ExtensionsSettings(): ReactElement {
           </article>
         ))}
         <AgentAccessSettings />
-        <DeliveryRecoverySettings />
       </div>
       {removing ? (
         <ConfirmationDialog

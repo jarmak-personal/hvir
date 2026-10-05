@@ -355,3 +355,67 @@ describe('Add extension result authority order', () => {
     expect(element.textContent).not.toContain('No extensions found')
   })
 })
+
+it('surfaces retained deliveries and access warnings before immediate Enable', async () => {
+  const state: ExtensionPlatformState = {
+    writable: true,
+    installations: [
+      {
+        source: 'reference',
+        revision: 'current',
+        enabled: false,
+        warnings: ['Newer contract: optional features may be unavailable'],
+        manifest: {
+          id: 'reference',
+          name: 'Reference',
+          version: '1.0.0',
+          contract: '1.1',
+          requiredCapabilities: ['presentation.read'],
+          optionalCapabilities: ['future.optional'],
+          access: [],
+          views: [],
+        },
+      },
+    ],
+  }
+  const invoke = vi.fn((channel: string) =>
+    Promise.resolve(channel === 'extensions:delivery-recovery' ? [] : state),
+  )
+  vi.stubGlobal('hvir', { invoke, on: vi.fn(() => vi.fn()) })
+  element = document.createElement('div')
+  document.body.append(element)
+  root = createRoot(element)
+  await act(async () => {
+    root!.render(createElement(ExtensionsSettings))
+    await Promise.resolve()
+  })
+  const card = element.querySelector('article')!,
+    enable = [...card.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent === 'Enable',
+    )!,
+    scope = [...card.querySelectorAll('p')].find((p) =>
+      p.textContent?.includes('no automatic access to project files'),
+    )!,
+    warning = [...card.querySelectorAll('p')].find((p) =>
+      p.textContent?.includes('Newer contract'),
+    )!,
+    recovery = element.querySelector('[aria-label="Retained extension deliveries"]')!
+  for (const disclosure of [scope, warning]) {
+    expect(disclosure.closest('details')).toBeNull()
+    expect(
+      disclosure.compareDocumentPosition(enable) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  }
+  expect(
+    recovery.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy()
+  expect(card.querySelector<HTMLDetailsElement>('details:last-of-type')?.open).toBe(false)
+  await act(async () => {
+    enable.click()
+    await Promise.resolve()
+  })
+  expect(invoke).toHaveBeenCalledWith('extensions:enable', {
+    source: 'reference',
+    revision: 'current',
+  })
+})
