@@ -49,7 +49,7 @@ form,
 }
 #query {
   flex: 1;
-  min-width: 140px;
+  min-width: 0;
 }
 #skills {
   flex: 1;

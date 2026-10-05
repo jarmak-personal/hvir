@@ -2,7 +2,10 @@ import type { BrowserWindow, WebContents } from 'electron'
 import type { HostPath } from '../../shared/host-path'
 import { joinHostPath } from '../../shared/host-path'
 import type { ProjectHost } from '../project-host/project-host'
-import { captureExtensionVisuals } from './extension-visuals'
+import {
+  captureExtensionVisuals,
+  verifySkillagerSearchGeometry,
+} from './extension-visuals'
 
 interface NavigationControls {
   click(name: string): Promise<void>
@@ -18,6 +21,7 @@ export async function verifySkillagerNavigation(
   host: ProjectHost,
   controls: NavigationControls,
 ): Promise<void> {
+  await controls.within(verifySkillagerSearchGeometry(guest))
   const painted = (): Promise<unknown> => navigationPaint(win, controls)
   await painted()
   win.webContents.focus()
