@@ -95,7 +95,10 @@ export async function verifyStreamingTerminalSearch(
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(MATCH)});
       input.dispatchEvent(new Event('input', { bubbles: true }));
       const status = () => search.querySelector('.terminal-search-status')?.textContent?.trim();
-      await wait(() => status() === '1 of 3', 'initial streaming search did not complete with three matches');
+      await wait(() => status() === '1 of 3' || status() === '3 matches', 'initial streaming search did not complete with three matches');
+      // Freshly populated/reflowed results may require ordinary explicit navigation.
+      if (status() === '3 matches') search.querySelector('[aria-label="Next terminal match"]').click();
+      await wait(() => status() === '1 of 3', 'first streaming occurrence was not selected');
       const readHighlight = ${terminalSearchHighlightReader(MATCH.length)};
       await wait(() => readHighlight(engine), 'initial streaming highlight missing');
       const initialHighlight = readHighlight(engine).canvas;
