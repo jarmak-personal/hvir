@@ -42,13 +42,7 @@ export function ExtensionsSettings(): ReactElement {
       void window.hvir.invoke('extensions:add-cancel-setup', { request }).catch(() => {})
   }
   useEffect(() => {
-    const unsubscribe = window.hvir.on('extensions:foreground-changed', (foreground) => {
-      if (!foreground) cancelSetup()
-    })
-    return () => {
-      cancelSetup()
-      void unsubscribe()
-    }
+    return () => cancelSetup()
   }, [])
   const publication = useRef(0)
   const addition = useRef<ReadonlySet<string> | undefined>(undefined)

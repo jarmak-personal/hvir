@@ -251,14 +251,14 @@ describe('package lifecycle Settings intent', () => {
 })
 
 describe('single Add extension Settings intent', () => {
-  it.each(['unmount', 'selection', 'background'] as const)(
-    'retires only the post-install setup intent on %s while Add may still commit',
+  it.each(['unmount', 'selection', 'picker-focus'] as const)(
+    'preserves install while ending setup only for actual UI departure, not %s',
     async (ending) => {
       let finish!: (state: ExtensionPlatformState) => void
       const pending = new Promise<ExtensionPlatformState>((resolve) => {
         finish = resolve
       })
-      let foreground!: (value: boolean) => void
+      let foreground: ((value: boolean) => void) | undefined
       const initial: ExtensionPlatformState = {
         writable: true,
         installations: [
@@ -312,8 +312,13 @@ describe('single Add extension Settings intent', () => {
             .find((entry) => entry.querySelector('strong')?.textContent === 'second')!
             .click(),
         )
-      else act(() => foreground(false))
-      expect(invoke).toHaveBeenCalledWith('extensions:add-cancel-setup', { request })
+      if (ending === 'picker-focus') {
+        act(() => foreground?.(false))
+        expect(invoke).not.toHaveBeenCalledWith('extensions:add-cancel-setup', {
+          request,
+        })
+      } else
+        expect(invoke).toHaveBeenCalledWith('extensions:add-cancel-setup', { request })
       await act(async () => {
         finish({
           ...initial,

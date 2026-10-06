@@ -88,7 +88,7 @@ export class ExtensionApplicationRuntime {
   private failure?: string
 
   constructor(
-    readonly scopes: RendererResourceScopes,
+    private readonly scopes: RendererResourceScopes,
     private readonly events: RendererEventPublisher,
     private readonly userData: HostPath,
     private readonly packagePicker: ExtensionPackagePicker = createElectronPackagePicker(),
@@ -219,6 +219,8 @@ export class ExtensionApplicationRuntime {
       activations.assertWritable(),
     )
     this.connections = new ExtensionConnectorConnectionOwner(
+      this.scopes,
+      (owner) => this.surface.windowVisible(owner),
       activations,
       approvals,
       createElectronConnectorConnection(),

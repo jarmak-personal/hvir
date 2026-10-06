@@ -56,13 +56,7 @@ function ConnectorSetup({
           .invoke('extensions:connection-cancel', { request })
           .catch(() => {})
     }
-    const unsubscribe = window.hvir.on('extensions:foreground-changed', (foreground) => {
-      if (!foreground) cancel()
-    })
-    return () => {
-      cancel()
-      void unsubscribe()
-    }
+    return () => cancel()
   }, [connector.setup])
   const [hosts, setHosts] = useState<readonly ProjectHostOption[]>([])
   const [host, setHost] = useState('local')

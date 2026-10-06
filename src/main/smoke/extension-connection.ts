@@ -1,13 +1,16 @@
 import {
+  app,
   dialog,
-  type BrowserWindow,
+  BrowserWindow,
   type WebContents,
   type OpenDialogOptions,
 } from 'electron'
-import { joinHostPath } from '../../shared/host-path'
+import { joinHostPath, localPath } from '../../shared/host-path'
+import { join } from 'node:path'
 import type { ProjectHost } from '../project-host/project-host'
 import type { ExtensionApplicationRuntime } from '../extensions/extension-application'
 import type { ExtensionView } from '../../shared/extensions/workbench'
+import type { ExtensionConnectionProposal } from '../../shared/extensions/connectors'
 import { extensionSettingsControls } from './extension-settings-controls'
 import { focusSmokeWindow } from './window-focus'
 
@@ -47,6 +50,7 @@ export async function verifyExtensionConnection(
           title: 'Connection example',
           entry: 'index.html',
           placement: 'application',
+          navigation: 'top',
           representations: ['view'],
         },
       ],
@@ -60,26 +64,50 @@ export async function verifyExtensionConnection(
           environment: [],
           setup: { executable: 'sh' },
         },
+        {
+          id: 'missing-tool',
+          description: 'Read owned demonstration metadata',
+          context: 'application',
+          timeoutMs: 5000,
+          outputBytes: 1024,
+          environment: [],
+          setup: { executable: 'hvir-owned-missing-tool-853' },
+        },
       ],
     }),
   )
   await host.writeFile(
     joinHostPath(source, 'index.html'),
-    '<!doctype html><button id="connect" disabled>Connect installed program</button><button id="read" disabled>Read metadata</button><p id="state"></p><pre id="output"></pre><script src="page.js"></script>',
+    '<!doctype html><button id="connect" disabled>Connect installed program</button><button id="locate" disabled>Locate another program</button><button id="read" disabled>Read metadata</button><p id="state"></p><pre id="output"></pre><script type="module" src="page.js"></script>',
+  )
+  // The authored package consumes the real maintained client in its own sandbox.
+  // This checkout smoke proves SDK/lifecycle, not Skillager domain compatibility.
+  await host.writeFile(
+    joinHostPath(source, 'client.mjs'),
+    await host.readFile(
+      localPath(join(app.getAppPath(), 'packages/skillager-extension/src/bridge.mjs')),
+    ),
   )
   const command = `printf x >> '${marker.path.replaceAll("'", "'\\''")}' ; printf 'owned connection output\\n'`
   await host.writeFile(
     joinHostPath(source, 'page.js'),
     `
-    const bridge=window.hvirExtension, requests=new Map();let serial=0;
-    function request(capability,input){return new Promise((resolve,reject)=>{const id='request-'+(++serial);requests.set(id,{resolve,reject});bridge.send({kind:'request',id,capability,input})})}
+    import {guestClient} from './client.mjs';
+    const bridge=window.hvirExtension, client=guestClient(bridge), request=(capability,input)=>client.request(capability,input);
+    let hiddenContexts=0;
     bridge.onMessage(message=>{
-      if(message.kind==='result'){const item=requests.get(message.id);if(item){requests.delete(message.id);message.ok?item.resolve(message.value):item.reject(new Error(message.error))}}
-      if(message.kind==='context'){document.getElementById('connect').disabled=!message.context.visible;document.getElementById('read').disabled=!message.context.visible}
+      if(message.kind==='context'){
+        if(!message.context.visible)hiddenContexts++;
+        document.body.dataset.hiddenContexts=String(hiddenContexts);
+        for(const id of ['connect','locate','read'])document.getElementById(id).disabled=!message.context.visible;
+      }
     });
-    document.getElementById('connect').onclick=async()=>{try{const result=await request('connector.connect',{connector:'tool'});document.getElementById('state').textContent=result.connections[0]?.outcome}catch(error){document.getElementById('state').textContent='refused'}};
+    window.addEventListener('pagehide',()=>client.dispose());
+    function connect(connector){document.getElementById('state').textContent='pending';request('connector.connect',{connector}).then(result=>{document.getElementById('state').textContent=result.connections[0]?.outcome},()=>{document.getElementById('state').textContent='refused'})}
+    document.getElementById('connect').onclick=()=>connect('tool');
+    document.getElementById('locate').onclick=()=>connect('missing-tool');
     document.getElementById('read').onclick=async()=>{try{const result=await request('connector.execute',{connector:'tool',host:'local',args:['-c',${JSON.stringify(command)}]});if(result.outcome!=='completed'||result.code!==0)throw new Error('execution failed');const page=await request('connector.output',{receipt:result.receipt,stream:'stdout',offset:0});document.getElementById('output').textContent=page.data;await request('connector.output',{receipt:result.receipt,release:true})}catch(error){document.getElementById('output').textContent='refused'}};
-    bridge.send({kind:'hello',contract:'1.0'});
+    client.hello();
   `,
   )
   const expected = await activations.packages.captureSource(source)
@@ -88,6 +116,8 @@ export async function verifyExtensionConnection(
   if (!originalDescriptor) throw new Error('Native picker property is unavailable')
   let decisions = 0,
     selections = 0
+  let focusWindow: BrowserWindow | undefined
+  let allowManual = false
   dialog.showOpenDialog = async (
     parent: BrowserWindow | OpenDialogOptions,
     options?: OpenDialogOptions,
@@ -96,8 +126,38 @@ export async function verifyExtensionConnection(
       return options
         ? originalOpen(parent as BrowserWindow, options)
         : originalOpen(parent as OpenDialogOptions)
+    if (options?.buttonLabel === 'Use program' && allowManual) {
+      selections++
+      focusWindow = new BrowserWindow({
+        show: false,
+        width: 240,
+        height: 140,
+        webPreferences: { sandbox: true, nodeIntegration: false, contextIsolation: true },
+      })
+      await focusWindow.loadURL('data:text/html,<p>Owned passive choice</p>')
+      focusWindow.show()
+      focusWindow.focus()
+      await controls.wait(
+        () => !win.isFocused() && win.isVisible() && !win.isMinimized(),
+        'actual non-key parent during passive program selection',
+      )
+      if (
+        (await proposals()).length ||
+        approvals.get(
+          [...activations.active.values()].find(
+            (entry) => entry.revision.manifest.id === 'hvir.connection-smoke',
+          )!,
+          'missing-tool',
+        )
+      )
+        throw new Error('Passive selection prepared a decision or grant')
+      focusWindow.destroy()
+      focusWindow = undefined
+      await focusSmokeWindow(win, 'window')
+      return { canceled: false, filePaths: ['/bin/sh'] }
+    }
     if (!options || options.buttonLabel !== 'Add extension')
-      throw new Error('Unnecessary program picker during unique conventional discovery')
+      throw new Error('Unexpected native chooser during connection scenario')
     selections++
     return {
       canceled: false,
@@ -134,20 +194,20 @@ export async function verifyExtensionConnection(
       wait: (predicate, label) => controls.wait(predicate, label),
       within: (work) => work,
     })
-    await settings.select('Extension actions')
-    await settings.click('Open Connection example')
     await controls.click('Close settings')
-    const owner = runtime.scopes.currentOwner(win.webContents.id)
+    await controls.click('Connection example')
     await controls.wait(
-      () =>
-        runtime
-          .guests!.snapshot(owner)
-          .some((view) => view.installationId === installed.installationId),
+      async () =>
+        (await views()).some(
+          (view: ExtensionView) =>
+            view.installationId === installed.installationId &&
+            view.context?.surface === 'top',
+        ),
       'ordinary installed view',
     )
-    const view = runtime
-        .guests!.snapshot(owner)
-        .find((entry) => entry.installationId === installed.installationId)!,
+    const view = (await views()).find(
+        (entry: ExtensionView) => entry.installationId === installed.installationId,
+      )!,
       guest = await controls.guest(view)
     await approvals.revoke(installed.installationId, 'tool')
     await guestClick('connect')
@@ -170,6 +230,27 @@ export async function verifyExtensionConnection(
         ),
       'guest connection uses the same trusted consent',
     )
+    const hiddenBefore = (await guest.executeJavaScript(
+      'Number(document.body.dataset.hiddenContexts)',
+    )) as number
+    allowManual = true
+    await guestClick('locate')
+    await decide(true)
+    await controls.wait(
+      () =>
+        guest.executeJavaScript(
+          "document.getElementById('state')?.textContent==='connected'",
+        ),
+      'missing-name manual retry survives actual native focus withdrawal and returns through SDK',
+    )
+    if (
+      (await guest.executeJavaScript('Number(document.body.dataset.hiddenContexts)')) <=
+        hiddenBefore ||
+      !(await views()).some((entry) => entry.id === view.id)
+    )
+      throw new Error(
+        'SDK intent did not survive actual top-view withdrawal on the same guest',
+      )
     await controls.wait(
       () =>
         guest.executeJavaScript(
@@ -186,8 +267,8 @@ export async function verifyExtensionConnection(
     )
     if (
       (await host.readFile(marker)).toString() !== 'x' ||
-      selections !== 1 ||
-      decisions !== 3
+      selections !== 2 ||
+      decisions !== 4
     )
       throw new Error('Discovery/consent executed a tool or repeated installation')
     await controls.click('Open settings')
@@ -199,15 +280,25 @@ export async function verifyExtensionConnection(
       'connection fixture removal',
     )
     console.log(
-      '[smoke] actual Add/passive metadata/default trusted connection/guest focus to trusted decline and allow/public finite output OK (only native Add selection substituted)',
+      '[smoke] actual Add/passive metadata/default trusted connection/top current SDK focus to trusted decline and allow/manual retry after native focus withdrawal/public finite output OK (OS Add/program selection substituted; authored metadata, no Skillager compatibility claim)',
     )
   } finally {
     Object.defineProperty(dialog, 'showOpenDialog', originalDescriptor)
+    if (focusWindow && !focusWindow.isDestroyed()) focusWindow.destroy()
+  }
+  function views(): Promise<readonly ExtensionView[]> {
+    return win.webContents.executeJavaScript(
+      "window.hvir.invoke('extensions:views', undefined)",
+    )
+  }
+  function proposals(): Promise<readonly ExtensionConnectionProposal[]> {
+    return win.webContents.executeJavaScript(
+      "window.hvir.invoke('extensions:connection-proposals', undefined)",
+    )
   }
   async function decide(accepted: boolean): Promise<void> {
-    const owner = runtime.scopes.currentOwner(win.webContents.id)
     await controls.wait(async () => {
-      const proposal = runtime.connections!.snapshot(owner)[0]
+      const proposal = (await proposals())[0]
       return (
         !!proposal &&
         proposal.name === 'Connection example' &&
@@ -221,28 +312,41 @@ export async function verifyExtensionConnection(
           })()`)) === true
       )
     }, 'live trusted confirmation and safe focus with exact default program')
-    if (!win.isFocused() || !win.isVisible() || (await exists()))
+    const facts = {
+      decision: decisions + 1,
+      focused: win.isFocused(),
+      visible: win.isVisible(),
+      minimized: win.isMinimized(),
+      currentProposal: (await proposals()).length === 1,
+      markerPresent: await exists(),
+    }
+    if (
+      !facts.focused ||
+      !facts.visible ||
+      facts.minimized ||
+      !facts.currentProposal ||
+      facts.markerPresent
+    ) {
+      console.log('[smoke:connection-consent-facts]', JSON.stringify(facts))
       throw new Error(
-        'Trusted consent lost native foreground or a program ran before consent',
+        'Trusted consent lost native foreground/current proposal or a program ran before consent',
       )
+    }
     await controls.click(accepted ? 'Connect' : 'Not now')
     decisions++
     await controls.wait(
-      () => runtime.connections!.snapshot(owner).length === 0,
+      async () => (await proposals()).length === 0,
       'exact trusted proposal retired',
     )
   }
   async function guestClick(id: string): Promise<void> {
-    const owner = runtime.scopes.currentOwner(win.webContents.id)
-    const view = runtime
-      .guests!.snapshot(owner)
-      .find(
-        (entry) =>
-          entry.installationId ===
-          [...activations.active.values()].find(
-            (entry) => entry.revision.manifest.id === 'hvir.connection-smoke',
-          )?.installationId,
-      )!
+    const view = (await views()).find(
+      (entry: ExtensionView) =>
+        entry.installationId ===
+        [...activations.active.values()].find(
+          (entry) => entry.revision.manifest.id === 'hvir.connection-smoke',
+        )?.installationId,
+    )!
     const guest = await controls.guest(view)
     await focusSmokeWindow(win, 'window')
     await controls.wait(

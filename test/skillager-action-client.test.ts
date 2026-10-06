@@ -296,3 +296,46 @@ it.each(['action-cancelled', 'revoked'])('rejects late paced completion and rele
     f.client.dispose()
   }
 })
+
+
+it('keeps only submitted Connect through passive picker focus loss, while hiding still cancels reads and disposal cancels Connect', async () => {
+  const f = fixture()
+  f.receive({ kind: 'context', context: { visible: true } })
+  const connect = f.client.request('connector.connect', { connector: 'library-cli' })
+  await vi.waitFor(() =>
+    expect(f.sent.some((message) => message.capability === 'connector.connect')).toBe(
+      true,
+    ),
+  )
+  const connectId = f.sent.find(
+    (message) => message.capability === 'connector.connect',
+  )!.id
+  const read = f.client.request('source.read')
+  const readRejected = expect(read).rejects.toThrow(/hidden/)
+  f.receive({ kind: 'context', context: { visible: false } })
+  await readRejected
+  expect(f.sent).not.toContainEqual({ kind: 'cancel', id: connectId })
+  await expect(f.client.request('connector.connect')).rejects.toThrow(/hidden/)
+  f.receive({ kind: 'context', context: { visible: true } })
+  f.receive({
+    kind: 'result',
+    id: connectId,
+    ok: true,
+    value: { connections: [{ outcome: 'connected' }] },
+  })
+  await expect(connect).resolves.toEqual({ connections: [{ outcome: 'connected' }] })
+  const next = f.client.request('connector.connect')
+  await vi.waitFor(() =>
+    expect(
+      f.sent.filter((message) => message.capability === 'connector.connect'),
+    ).toHaveLength(2),
+  )
+  const nextId = f.sent
+    .filter((message) => message.capability === 'connector.connect')
+    .at(-1)!.id
+  const ended = expect(next).rejects.toThrow(/closed/)
+  f.receive({ kind: 'context', context: { visible: false } })
+  f.client.dispose()
+  await ended
+  expect(f.sent).toContainEqual({ kind: 'cancel', id: nextId })
+})

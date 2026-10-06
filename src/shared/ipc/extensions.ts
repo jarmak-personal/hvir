@@ -146,6 +146,7 @@ export const extensionsIpc = {
       readonly viewId: string
       readonly presentation: ExtensionPresentation
       readonly visible: boolean
+      readonly selected: boolean
       readonly refreshDemand: boolean
     }>(),
   },

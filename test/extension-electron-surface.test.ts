@@ -201,6 +201,7 @@ describe('Electron extension response, native teardown and closing capacity', ()
     surface.installWindowLifecycle(win as never, () => ({ id: 20, generation }))
     expect(surface.foreground({ id: 20, generation })).toBe(true)
     focused = false
+    expect(surface.windowVisible({ id: 20, generation })).toBe(true)
     win.emit('blur')
     expect(withdraw).toHaveBeenLastCalledWith({ id: 20, generation: 1 })
     expect(contents.mainFrame.postMessage).toHaveBeenLastCalledWith(
@@ -210,11 +211,13 @@ describe('Electron extension response, native teardown and closing capacity', ()
     focused = true
     minimized = true
     win.emit('minimize')
+    expect(surface.windowVisible({ id: 20, generation })).toBe(false)
     expect(surface.foreground({ id: 20, generation })).toBe(false)
     minimized = false
     visible = false
     generation = 2
     win.emit('hide')
+    expect(surface.windowVisible({ id: 20, generation })).toBe(false)
     expect(withdraw).toHaveBeenLastCalledWith({ id: 20, generation: 2 })
     visible = true
     win.emit('focus')
@@ -227,6 +230,7 @@ describe('Electron extension response, native teardown and closing capacity', ()
     expect(withdraw).toHaveBeenCalledTimes(4)
     expect(win.listenerCount('focus')).toBe(0)
     expect(surface.foreground({ id: 99, generation })).toBe(false)
+    expect(surface.windowVisible({ id: 99, generation })).toBe(false)
   })
   it('commit barrier releases observed bytes first, then activates only the exact committed main frame', async () => {
     let nativeCommitted = false

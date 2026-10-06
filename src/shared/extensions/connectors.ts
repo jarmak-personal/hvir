@@ -77,6 +77,13 @@ export interface ExtensionConnectorStatus {
   readonly explanation?: string
 }
 
+/** One grammar for declaration hints and passive metadata discovery. */
+export function connectorExecutableBasename(value: unknown): string {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/u.test(value))
+    throw new Error('Invalid declared executable basename')
+  return value
+}
+
 function integer(value: unknown, maximum: number, label: string): number {
   if (
     !Number.isSafeInteger(value) ||
@@ -120,13 +127,9 @@ export function validateConnectorDeclarations(
     if (object['setup'] !== undefined) {
       const hint = extensionObject(object['setup'])
       warnings(hint, ['executable'])
-      if (
-        object['context'] !== 'application' ||
-        typeof hint['executable'] !== 'string' ||
-        !/^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/u.test(hint['executable'])
-      )
+      if (object['context'] !== 'application')
         throw new Error('Program setup requires an application-local executable basename')
-      setup = { executable: hint['executable'] }
+      setup = { executable: connectorExecutableBasename(hint['executable']) }
     }
     return {
       ...(setup ? { setup } : {}),

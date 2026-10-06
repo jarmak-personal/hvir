@@ -74,6 +74,8 @@ async function fixture(phase: 'consent' | 'picker' = 'consent') {
     selection = held<string | undefined>(),
     entered = held<void>()
   const connection = new ExtensionConnectorConnectionOwner(
+    scopes,
+    () => true,
     activations,
     approvals,
     {
@@ -158,6 +160,25 @@ describe('committed installation and post-install connection intent', () => {
       )
     } finally {
       selection.resolve(undefined)
+      await data.stop()
+    }
+  })
+  it('rejects malformed setup request identity before native picker or import', async () => {
+    const data = await fixture()
+    const pick = vi.fn(() => Promise.resolve(data.source))
+    const addition = new ExtensionPackageAdditionOwner(
+      data.scopes,
+      data.activations,
+      { pick },
+      data.connect,
+    )
+    try {
+      for (const request of ['', '_wrong', 'a'.repeat(81), 'with space'])
+        await expect(addition.add(data.renderer, request)).rejects.toThrow(/identity/)
+      expect(pick).not.toHaveBeenCalled()
+      expect(data.activations.active.size).toBe(0)
+      expect(data.connect).not.toHaveBeenCalled()
+    } finally {
       await data.stop()
     }
   })

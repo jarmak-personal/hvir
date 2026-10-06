@@ -40,3 +40,10 @@ export function extensionAssetPath(value: unknown): string {
   }
   return text
 }
+
+/** Bounded identities for extension messages and exact trusted setup requests. */
+export function extensionRequestIdentity(value: unknown): string {
+  const text = extensionText(value, 'request identity', 80)
+  if (!/^[A-Za-z0-9-]+$/u.test(text)) throw new Error('Invalid request identity')
+  return text
+}

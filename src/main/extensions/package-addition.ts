@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { extensionRequestIdentity } from '../../shared/extensions/validation'
 import type { ExtensionConnectionResult } from '../../shared/extensions/connectors'
 import type { ExtensionPlatformState } from '../../shared/extensions/workbench'
 import type { RendererOwner, RendererResourceScopes } from '../renderer-resource-scopes'
@@ -39,11 +40,8 @@ export class ExtensionPackageAdditionOwner {
     ExtensionPlatformState & { readonly connection?: ExtensionConnectionResult }
   > {
     this.scopes.assertCurrent(owner)
-    if (
-      !/^[A-Za-z0-9-]{1,80}$/u.test(request) ||
-      this.intents.has(request) ||
-      this.intents.size >= 4
-    )
+    extensionRequestIdentity(request)
+    if (this.intents.has(request) || this.intents.size >= 4)
       throw new Error('Invalid or busy extension installation request')
     const setup = new AbortController()
     const lifetime = new AbortController()

@@ -14,6 +14,7 @@ interface ConnectorGuest {
   readonly view: ExtensionView
   readonly owner: RendererOwner
   readonly context?: AdmittedExtensionContext
+  readonly selected: boolean
   readonly visible: boolean
   readonly refreshDemand: boolean
   readonly readingOrigin: 'human' | 'agent' | 'action'
@@ -25,7 +26,7 @@ export async function requestGuestConnector(
   input: unknown,
   record: ConnectorGuest,
   signal: AbortSignal,
-  assertOrigin: () => void,
+  assertOrigin: (selecting?: boolean) => void,
   contexts: ExtensionContextOwner,
   connectors: ExtensionGuestPorts['connectors'],
   connections: ExtensionGuestPorts['connections'],
@@ -50,10 +51,11 @@ export async function requestGuestConnector(
     return connections.request(
       record.activation,
       record.owner,
-      () => {
-        assertOrigin()
-        if (!record.visible || record.actions.size)
+      (selecting) => {
+        assertOrigin(selecting)
+        if (!(selecting ? record.selected : record.visible) || record.actions.size)
           throw new Error('Program connection demand ended')
+        return record.visible
       },
       signal,
       foreground,

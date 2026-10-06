@@ -52,9 +52,29 @@ tokens or replacement bindings. Retirement removes the proposal on every existin
 boundary. Native file selection remains a separate explicit fallback; its exact intent and
 fresh foreground are checked before and after selection, with late results inert. While the
 passive picker is pending, its own sheet becoming non-key does not retire that exact
-selection intent; renderer, request, activation, writer and guest provenance remain current.
-No prepared approval, consent proposal or execution occurs in that phase. No additional
-decision registry or generic prompt server is introduced.
+selection intent. The existing trusted presentation and guest record distinguish actual
+selected, unobscured placement from foreground-qualified visibility only for this finite
+connection intent. The parent must remain visible and not minimized; exact caller, request,
+view, activation and writer provenance remain current. No prepared approval, consent,
+execution or hidden runnable guest is introduced in that phase. Fresh foreground is required immediately on return. If the current ordinary visibility
+publication lags that callback, only the existing pending record waits for its current
+presentation/revalidation signal within the same sixty-second deadline. Selected, unobscured
+placement, physical parent visibility and fresh native foreground remain mandatory throughout
+that wait; actual withdrawal or cancellation ends it. No polling, new lifetime owner or
+visibility revival is introduced. Canonical preparation, consent and saving start only after
+ordinary visibility is confirmed, and retain fresh foreground at every boundary. True deselection,
+Settings obscuring, explicit cancellation and lifecycle revocation still retire the intent.
+The current package bridge retains only a submitted connection request across context
+invisibility; all other ordinary requests retain hide cancellation. No additional decision
+registry or generic prompt server is introduced.
+
+Incomplete metadata inspection cannot establish unique executable discovery. Continue bounded
+candidate collection while reporting incomplete resolution; automatic installation remains
+successful and unconnected without an empty picker. Explicit retry may select a program
+manually, then undergo the same canonical preparation and consent. An absent or non-executable
+saved program falls through to repair discovery; unknown saved-target metadata preserves
+incomplete truth. Never infer authority or silently select a later candidate after an unknown
+metadata failure.
 
 All unaffected native execution, canonical binding, output, finite admission, updater demand
 and isolation rules in ADR-051 and ADR-054 remain authoritative. ADR-064 continues to own

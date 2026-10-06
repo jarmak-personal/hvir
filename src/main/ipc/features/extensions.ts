@@ -86,7 +86,6 @@ export function registerExtensionsIpc(
     const activation = extensions?.activations?.active.get(req.installationId)
     if (!activation || !extensions?.connections) return unavailable()
     return extensions.connections.fromRenderer(
-      extensions.scopes,
       owner,
       activation,
       () => {
@@ -229,6 +228,7 @@ export function registerExtensionsIpc(
       req.presentation,
       req.visible,
       req.refreshDemand,
+      req.selected,
     )
   })
   // Only the exact main-frame guest WebContents identity, bound once during

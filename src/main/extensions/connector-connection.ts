@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { extensionRequestIdentity } from '../../shared/extensions/validation'
 import type { ExtensionActivation, ExtensionActivationOwner } from './activation'
 import {
   canonicalExecutablePath,
@@ -10,7 +11,10 @@ import type {
   ExtensionConnectionProposal,
   ExtensionConnectorApproval,
 } from '../../shared/extensions/connectors'
-import { discoverConnectorExecutables } from './connector-discovery'
+import {
+  discoverConnectorExecutables,
+  absentExecutableMetadata,
+} from './connector-discovery'
 
 export interface ExtensionConnectionDialog {
   readonly folders: readonly string[]
@@ -30,6 +34,7 @@ interface PendingConnection {
   readonly current: () => void
   proposal?: ExtensionConnectionProposal
   settle?: (accepted: boolean) => void
+  presentationReady?: () => void
 }
 
 /** Proposes native consent using existing approval tokens, outside the installation writer. */
@@ -41,6 +46,8 @@ export class ExtensionConnectorConnectionOwner {
   private readonly pending = new Set<PendingConnection>()
   private disposed = false
   constructor(
+    private readonly scopes: RendererResourceScopes,
+    private readonly windowVisible: (owner: RendererOwner) => boolean,
     private readonly activations: Pick<
       ExtensionActivationOwner,
       'active' | 'assertWritable'
@@ -54,7 +61,6 @@ export class ExtensionConnectorConnectionOwner {
   ) {}
 
   async fromRenderer(
-    scopes: RendererResourceScopes,
     owner: RendererOwner,
     activation: ExtensionActivation,
     current: () => void,
@@ -62,15 +68,12 @@ export class ExtensionConnectorConnectionOwner {
     request: string,
     foreground: () => boolean,
   ): Promise<ExtensionConnectionResult> {
-    scopes.assertCurrent(owner)
-    if (
-      !/^[A-Za-z0-9-]{1,80}$/u.test(request) ||
-      this.rendererIntents.has(request) ||
-      this.rendererIntents.size >= 4
-    )
+    this.scopes.assertCurrent(owner)
+    extensionRequestIdentity(request)
+    if (this.rendererIntents.has(request) || this.rendererIntents.size >= 4)
       throw new Error('Invalid or busy program connection request')
     const controller = new AbortController()
-    const lease = scopes.register(
+    const lease = this.scopes.register(
       owner,
       { lifetime: 'renderer', type: 'extension-program-connection' },
       () => controller.abort(),
@@ -81,7 +84,7 @@ export class ExtensionConnectorConnectionOwner {
         activation,
         owner,
         () => {
-          scopes.assertCurrent(owner)
+          this.scopes.assertCurrent(owner)
           current()
         },
         controller.signal,
@@ -104,7 +107,7 @@ export class ExtensionConnectorConnectionOwner {
   async request(
     activation: ExtensionActivation,
     owner: RendererOwner,
-    current: () => void,
+    current: (passive: boolean) => boolean | void,
     signal: AbortSignal,
     foreground: () => boolean,
     connector?: string,
@@ -124,9 +127,12 @@ export class ExtensionConnectorConnectionOwner {
     const tokens: string[] = []
     const connections: ExtensionConnectionResult['connections'][number][] = []
     let selecting = false
+    let awaitingPresentation = false
     const assertCurrent = (): void => {
       lifetime.throwIfAborted()
-      current()
+      const ready = current(selecting || awaitingPresentation)
+      if ((selecting || awaitingPresentation) && !this.windowVisible(owner))
+        throw new Error('Program selection window is unavailable')
       if (!selecting && !foreground())
         throw new Error('Program connection requires a foreground window')
       if (
@@ -134,6 +140,7 @@ export class ExtensionConnectorConnectionOwner {
         this.activations.active.get(activation.installationId) !== activation
       )
         throw new Error('Program connection context ended')
+      if (awaitingPresentation && ready !== false) pending.presentationReady?.()
     }
     const pending: PendingConnection = {
       activation,
@@ -157,19 +164,25 @@ export class ExtensionConnectorConnectionOwner {
       for (const declaration of declarations) {
         assertCurrent()
         const existing = this.approvals.get(activation, declaration.id)
-        if (
-          existing &&
-          this.approvals.current(activation, existing) &&
-          (await connectionWait(
-            canonicalExecutablePath(host, existing.executable),
-            lifetime,
-          )) === existing.canonicalExecutable
-        ) {
-          assertCurrent()
-          connections.push({ connector: declaration.id, outcome: 'connected' })
-          continue
+        let complete = true
+        if (existing && this.approvals.current(activation, existing)) {
+          try {
+            if (
+              (await connectionWait(
+                canonicalExecutablePath(host, existing.executable),
+                lifetime,
+              )) === existing.canonicalExecutable
+            ) {
+              assertCurrent()
+              connections.push({ connector: declaration.id, outcome: 'connected' })
+              continue
+            }
+          } catch (reason) {
+            assertCurrent()
+            if (!absentExecutableMetadata(reason)) complete = false
+          }
         }
-        const candidates = await connectionWait(
+        const discovered = await connectionWait(
           discoverConnectorExecutables(
             host,
             declaration.setup!.executable,
@@ -179,16 +192,20 @@ export class ExtensionConnectorConnectionOwner {
           lifetime,
         )
         assertCurrent()
-        if (automatic && candidates.length === 0) {
+        const candidates = discovered.candidates
+        complete &&= discovered.complete
+        if (automatic && (!complete || candidates.length === 0)) {
           connections.push({
             connector: declaration.id,
             outcome: 'unavailable',
-            explanation: `${declaration.setup!.executable} was not found. Install it, then choose Connect. The extension is already installed.`,
+            explanation: complete
+              ? `${declaration.setup!.executable} was not found. Install it, then choose Connect. The extension is already installed.`
+              : 'Some program locations could not be checked. The extension is installed; choose Connect to select the installed program.',
           })
           continue
         }
-        let executable = candidates.length === 1 ? candidates[0] : undefined
-        if (candidates.length !== 1) {
+        let executable = complete && candidates.length === 1 ? candidates[0] : undefined
+        if (!complete || candidates.length !== 1) {
           // Passive native selection can make its own parent non-key. Nothing is
           // prepared or approved until it returns to fresh foreground authority.
           assertCurrent()
@@ -200,6 +217,22 @@ export class ExtensionConnectorConnectionOwner {
             )
           } finally {
             selecting = false
+          }
+          // A native return can precede the foreground visibility publication.
+          // Retain only this selected intent; preparation still awaits actual visibility.
+          awaitingPresentation = true
+          try {
+            assertCurrent()
+            await connectionWait(
+              new Promise<void>((resolve) => {
+                pending.presentationReady = resolve
+                assertCurrent()
+              }),
+              lifetime,
+            )
+          } finally {
+            pending.presentationReady = undefined
+            awaitingPresentation = false
           }
         }
         assertCurrent()

@@ -19,6 +19,7 @@ const view = document.body.dataset.view
 const element = (id) => document.getElementById(id)
 let context = { visible: false },
   generation = 0,
+  connectionIntent = 0,
   timer,
   busy = false,
   pendingRefresh = false
@@ -514,10 +515,10 @@ on(
 )
 on('connect-program', 'click', () => {
   if (!available()) return
-  const admitted = generation
+  const admitted = ++connectionIntent
   void client.request('connector.connect', { connector: 'library-cli' }).then(
     (result) => {
-      if (!available() || admitted !== generation) return
+      if (!available() || admitted !== connectionIntent) return
       const connection = result.connections?.find(
         (entry) => entry.connector === 'library-cli',
       )
@@ -530,7 +531,7 @@ on('connect-program', 'click', () => {
         )
     },
     (error) => {
-      if (available() && admitted === generation) say(error.message, 'error')
+      if (available() && admitted === connectionIntent) say(error.message, 'error')
     },
   )
 })

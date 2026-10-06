@@ -1,3 +1,4 @@
+import { RendererResourceScopes } from '../src/main/renderer-resource-scopes'
 import type { ExtensionConnectionProposal } from '../src/shared/extensions/connectors'
 import { localPath } from '../src/shared/host-path'
 import { describe, expect, it, vi } from 'vitest'
@@ -53,7 +54,12 @@ function fixture(dialogOverride: Partial<FixtureDialog> = {}) {
     confirm: vi.fn(() => Promise.resolve(true)),
     ...dialogOverride,
   }
+  const scopes = new RendererResourceScopes()
+  const renderer = scopes.activateOwner(1)
+  let windowVisible = true
   const connection = new ExtensionConnectorConnectionOwner(
+    scopes,
+    () => windowVisible,
     data.authority,
     data.approvals,
     dialog,
@@ -79,6 +85,11 @@ function fixture(dialogOverride: Partial<FixtureDialog> = {}) {
     )
   return {
     ...data,
+    scopes,
+    renderer,
+    windowVisible: (value: boolean) => {
+      windowVisible = value
+    },
     dialog,
     connection,
     request,
@@ -120,7 +131,10 @@ describe('passive program connection', () => {
         ['/bin', '/usr/bin', '/other', 'relative'],
         () => undefined,
       )
-      expect(candidates).toEqual(['/canonical/tool', '/other/tool'])
+      expect(candidates).toEqual({
+        candidates: ['/canonical/tool', '/other/tool'],
+        complete: true,
+      })
       expect(data.host.realpath).toHaveBeenCalledTimes(3)
       expect(data.finiteExec.tryExec).not.toHaveBeenCalled()
       expect(data.host.exec).not.toHaveBeenCalled()
@@ -128,6 +142,199 @@ describe('passive program connection', () => {
       data.dispose()
     }
   })
+  it.each(['EACCES', 'ELOOP', 'EIO'])(
+    'retains incomplete %s metadata despite a later candidate, requiring explicit choice',
+    async (code) => {
+      const data = fixture({
+        folders: ['/unknown', '/installed'],
+        choose: vi.fn(() => Promise.resolve('/selected/tool')),
+      })
+      data.host.realpath.mockImplementation((path) =>
+        path.path.startsWith('/unknown')
+          ? Promise.reject(Object.assign(new Error('Unknown metadata'), { code }))
+          : Promise.resolve(path),
+      )
+      try {
+        const automatic = await data.connection.request(
+          data.activation,
+          { id: 1, generation: 1 },
+          () => undefined,
+          data.controller.signal,
+          () => true,
+          undefined,
+          true,
+        )
+        expect(automatic.connections[0]).toMatchObject({
+          outcome: 'unavailable',
+        })
+        expect(automatic.connections[0]?.explanation).toContain('could not be checked')
+        expect(data.dialog.choose).not.toHaveBeenCalled()
+        expect(data.dialog.confirm).not.toHaveBeenCalled()
+        expect(data.write).not.toHaveBeenCalled()
+        expect((await data.request()).connections[0]?.outcome).toBe('connected')
+        expect(data.dialog.choose).toHaveBeenCalledWith(
+          { id: 1, generation: 1 },
+          'tool',
+          ['/installed/tool'],
+        )
+        expect(data.approvals.get(data.activation, 'tool')?.canonicalExecutable).toBe(
+          '/selected/tool',
+        )
+      } finally {
+        data.stop()
+      }
+    },
+  )
+  it.each(['ENOENT', 'NOT_EXECUTABLE'])(
+    'a saved executable now %s reaches fresh discovery and new consent',
+    async (code) => {
+      const data = fixture()
+      try {
+        expect((await data.request()).connections[0]?.outcome).toBe('connected')
+        Object.defineProperty(data.dialog, 'folders', { value: ['/replacement'] })
+        if (code === 'ENOENT')
+          data.host.realpath.mockImplementation((path) =>
+            path.path === '/installed/tool'
+              ? Promise.reject(
+                  Object.assign(new Error('No usable saved target'), { code }),
+                )
+              : Promise.resolve(path),
+          )
+        else
+          data.host.stat.mockImplementation((path) =>
+            Promise.resolve({
+              type: 'file',
+              mode: path.path === '/installed/tool' ? 0o644 : 0o755,
+              size: 3,
+              mtimeMs: 0,
+            }),
+          )
+        expect((await data.request()).connections[0]?.outcome).toBe('connected')
+        expect(data.dialog.confirm).toHaveBeenCalledTimes(2)
+        expect(data.approvals.get(data.activation, 'tool')?.canonicalExecutable).toBe(
+          '/replacement/tool',
+        )
+      } finally {
+        data.stop()
+      }
+    },
+  )
+  it('unknown saved-target metadata cannot authorize a later unique replacement automatically', async () => {
+    const data = fixture()
+    try {
+      await data.request()
+      Object.defineProperty(data.dialog, 'folders', { value: ['/replacement'] })
+      data.host.realpath.mockImplementation((path) =>
+        path.path === '/installed/tool'
+          ? Promise.reject(
+              Object.assign(new Error('Unreadable saved target'), { code: 'EACCES' }),
+            )
+          : Promise.resolve(path),
+      )
+      const result = await data.connection.request(
+        data.activation,
+        { id: 1, generation: 1 },
+        () => undefined,
+        data.controller.signal,
+        () => true,
+        undefined,
+        true,
+      )
+      expect(result.connections[0]?.outcome).toBe('unavailable')
+      expect(data.dialog.confirm).toHaveBeenCalledOnce()
+      expect(data.dialog.choose).not.toHaveBeenCalled()
+      expect(data.approvals.get(data.activation, 'tool')?.canonicalExecutable).toBe(
+        '/installed/tool',
+      )
+    } finally {
+      data.stop()
+    }
+  })
+  it('rejects the shared hint grammar before any metadata operation', async () => {
+    const data = fixture()
+    try {
+      for (const executable of [
+        '_tool',
+        '.tool',
+        '-tool',
+        'a'.repeat(81),
+        'tool/child',
+      ]) {
+        expect(() =>
+          validateConnectorDeclarations(
+            [{ ...declaration, setup: { executable } }],
+            vi.fn(),
+          ),
+        ).toThrow(/basename/)
+        await expect(
+          discoverConnectorExecutables(
+            data.host,
+            '_tool',
+            data.dialog.folders,
+            () => undefined,
+          ),
+        ).rejects.toThrow(/basename/)
+      }
+      expect(data.host.realpath).not.toHaveBeenCalled()
+    } finally {
+      data.stop()
+    }
+  })
+  it('validates trusted setup request IDs before metadata or dialog admission', async () => {
+    const data = fixture()
+    try {
+      for (const request of ['', '_wrong', 'a'.repeat(81), 'with space'])
+        await expect(
+          data.connection.fromRenderer(
+            data.renderer,
+            data.activation,
+            () => undefined,
+            'tool',
+            request,
+            () => true,
+          ),
+        ).rejects.toThrow(/identity/)
+      expect(data.host.realpath).not.toHaveBeenCalled()
+      expect(data.dialog.choose).not.toHaveBeenCalled()
+    } finally {
+      data.stop()
+    }
+  })
+  it.each(['hidden', 'minimized'])(
+    'trusted Settings picker retires before late selection when its parent is %s',
+    async () => {
+      const entered = held<void>(),
+        selected = held<string | undefined>()
+      const data = fixture({
+        folders: [],
+        choose: () => {
+          entered.resolve()
+          return selected.promise
+        },
+      })
+      try {
+        const operation = data.connection.fromRenderer(
+          data.renderer,
+          data.activation,
+          () => undefined,
+          'tool',
+          'request',
+          () => true,
+        )
+        await entered.promise
+        data.windowVisible(false)
+        data.connection.revalidate()
+        expect((await operation).connections[0]?.outcome).toBe('unavailable')
+        selected.resolve('/late/tool')
+        await Promise.resolve()
+        expect(data.dialog.confirm).not.toHaveBeenCalled()
+        expect(data.write).not.toHaveBeenCalled()
+      } finally {
+        selected.resolve(undefined)
+        data.stop()
+      }
+    },
+  )
   it('prepares exact default config before one decision and persists only after consent', async () => {
     const data = fixture({
       confirm: vi.fn((_owner, _name, approvals) => {
@@ -379,6 +586,49 @@ describe('passive program connection', () => {
       data.stop()
     }
   })
+  it('presentation readiness shares the original 60-second operation deadline and cannot prepare on expiry', async () => {
+    vi.useFakeTimers()
+    const entered = held<void>(),
+      selected = held<string | undefined>()
+    const data = fixture({
+      folders: [],
+      choose: () => {
+        entered.resolve()
+        return selected.promise
+      },
+    })
+    let visible = true
+    const prepare = vi.spyOn(data.approvals, 'prepare')
+    try {
+      const operation = data.connection.request(
+        data.activation,
+        data.renderer,
+        (passive) => {
+          if (!passive && !visible) throw new Error('Ordinary view not visible')
+          return visible
+        },
+        data.controller.signal,
+        () => true,
+      )
+      await entered.promise
+      await vi.advanceTimersByTimeAsync(59_000)
+      visible = false
+      selected.resolve('/selected/tool')
+      await vi.advanceTimersByTimeAsync(0)
+      expect(prepare).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1000)
+      expect((await operation).connections[0]?.outcome).toBe('unavailable')
+      visible = true
+      data.connection.revalidate()
+      expect(prepare).not.toHaveBeenCalled()
+      expect(data.write).not.toHaveBeenCalled()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      selected.resolve(undefined)
+      data.stop()
+      vi.useRealTimers()
+    }
+  })
   it('expires held consent under the existing 60-second decision bound', async () => {
     vi.useFakeTimers()
     const entered = held<void>(),
@@ -503,6 +753,8 @@ describe('passive program connection', () => {
         },
       )
       connection = new ExtensionConnectorConnectionOwner(
+        new RendererResourceScopes(),
+        () => true,
         activations,
         approvals,
         {

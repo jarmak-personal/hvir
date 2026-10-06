@@ -27,7 +27,8 @@ function packageView(view = 'library') {
     hold = false,
     frequency = false,
     unapproved = false,
-    resume: (() => void) | undefined
+    resume: (() => void) | undefined,
+    finishConnection: ((value: unknown) => void) | undefined
   const send = (message: {
     kind: string
     id: string
@@ -36,6 +37,11 @@ function packageView(view = 'library') {
   }) => {
     if (message.kind !== 'request') return
     let value: unknown
+    if (message.capability === 'connector.connect') {
+      finishConnection = (value) =>
+        receive({ kind: 'result', id: message.id, ok: true, value })
+      return
+    }
     if (message.capability === 'connector.execute') {
       const args = message.input.args as string[]
       calls.push(args)
@@ -188,6 +194,7 @@ function packageView(view = 'library') {
       frequency = true
     },
     resume: () => resume?.(),
+    connected: (value: unknown) => finishConnection?.(value),
   }
 }
 
@@ -348,4 +355,29 @@ it('makes native approval refusal actionable while retaining last-known observat
   expect(options.open).toBe(false)
   options.querySelector('summary')!.click()
   expect(options.open).toBe(true)
+})
+
+it('delivers the current Connect result after picker context focus loss without confusing the browse generation', async () => {
+  const f = packageView()
+  f.context()
+  await f.flush()
+  f.button('connect-program').click()
+  await f.flush()
+  f.context(false)
+  await f.flush()
+  f.context(true)
+  await f.flush()
+  f.connected({
+    connections: [
+      {
+        connector: 'library-cli',
+        outcome: 'declined',
+        explanation: 'Program access was declined',
+      },
+    ],
+  })
+  await f.flush()
+  expect(document.getElementById('state')!.textContent).toBe(
+    'Program access was declined',
+  )
 })
