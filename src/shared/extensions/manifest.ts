@@ -104,6 +104,7 @@ export function validateExtensionManifest(value: unknown): ManifestValidation {
     'optionalCapabilities',
     'access',
     'views',
+    'landing',
     'railItems',
     'actions',
     'updater',
@@ -163,6 +164,13 @@ export function validateExtensionManifest(value: unknown): ManifestValidation {
   })
   if (new Set(views.map((view) => view.id)).size !== views.length)
     throw new Error('Duplicate viewer contribution identity')
+  const landing =
+    object['landing'] === undefined ? undefined : extensionId(object['landing'])
+  if (
+    landing &&
+    !views.some((view) => view.id === landing && view.placement === 'application')
+  )
+    throw new Error('Installation landing must name an ordinary application view')
   return {
     manifest: {
       id: extensionId(object['id']),
@@ -174,6 +182,7 @@ export function validateExtensionManifest(value: unknown): ManifestValidation {
       optionalCapabilities,
       access,
       views,
+      ...(landing ? { landing } : {}),
       ...(object['connectors'] === undefined
         ? {}
         : {

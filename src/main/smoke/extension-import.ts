@@ -1,12 +1,11 @@
 import { extensionSettingsControls } from './extension-settings-controls'
 import { ZipFile } from 'yazl'
-import type { BrowserWindow } from 'electron'
+import { dialog, type BrowserWindow, type OpenDialogOptions } from 'electron'
 import { joinHostPath } from '../../shared/host-path'
 import type { ProjectHost } from '../project-host/project-host'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import type { ExtensionApplicationRuntime } from '../extensions/extension-application'
-import { ExtensionPackageAdditionOwner } from '../extensions/package-addition'
-import { createElectronPackagePicker } from '../extensions/electron-package-picker'
+import { verifyInstalledLanding } from './extension-installation-landing'
 
 /** Ordinary Settings flow with only the native-dialog return replaced by owned selections. */
 export async function verifyExtensionImport(
@@ -19,17 +18,25 @@ export async function verifyExtensionImport(
     wait(predicate: () => boolean | Promise<boolean>, label: string): Promise<void>
   },
 ): Promise<void> {
-  const activations = extensions.activations!,
-    original = extensions.additions
+  const activations = extensions.activations!
   const root = joinHostPath(activations.packages.root, '..', 'smoke-import-sources')
   await host.createDirectoryExclusive(root, { mode: 0o755 })
   let selection: string | undefined,
     calls = 0
-  const picker = createElectronPackagePicker((owner, options) => {
-    scopes.assertCurrent(owner)
+  const originalOpen = dialog.showOpenDialog.bind(dialog)
+  const originalDescriptor = Object.getOwnPropertyDescriptor(dialog, 'showOpenDialog')
+  if (!originalDescriptor) throw new Error('Native picker property is unavailable')
+  dialog.showOpenDialog = (
+    parent: BrowserWindow | OpenDialogOptions,
+    options?: OpenDialogOptions,
+  ) => {
+    if (parent !== win)
+      return options
+        ? originalOpen(parent as BrowserWindow, options)
+        : originalOpen(parent as OpenDialogOptions)
+    scopes.assertCurrent(scopes.currentOwner(win.webContents.id))
     if (
-      owner.id !== win.webContents.id ||
-      options.buttonLabel !== 'Add extension' ||
+      options?.buttonLabel !== 'Add extension' ||
       options.properties?.includes('multiSelections')
     )
       throw new Error(
@@ -40,8 +47,7 @@ export async function verifyExtensionImport(
       canceled: selection === undefined,
       filePaths: selection ? [selection] : [],
     })
-  })
-  extensions.additions = new ExtensionPackageAdditionOwner(scopes, activations, picker)
+  }
   try {
     const before = activations.snapshot().installations.length
     await controls.click('Add extension…')
@@ -49,20 +55,25 @@ export async function verifyExtensionImport(
     await controls.wait(() => ready(), 'Add cancellation settles')
     if (activations.snapshot().installations.length !== before)
       throw new Error('Cancelled Add changed package discovery')
-    for (const kind of ['directory', 'zip'] as const) {
-      const name = `imported-${kind}`,
+    for (const { kind, landing } of [
+      { kind: 'directory', landing: false },
+      { kind: 'zip', landing: false },
+      { kind: 'zip', landing: true },
+    ] as const) {
+      const name = `imported-${kind}${landing ? '-landing' : ''}`,
         files = new Map([
           [
             'hvir-extension.json',
             Buffer.from(
               JSON.stringify({
-                id: `hvir.smoke-import-${kind}`,
+                id: `hvir.smoke-${name}`,
                 name,
                 version: '0.3.0',
                 contract: '1.0',
                 requiredCapabilities: [],
                 optionalCapabilities: [],
                 access: [],
+                ...(landing ? { landing: 'view' } : {}),
                 views: [
                   {
                     id: 'view',
@@ -78,7 +89,9 @@ export async function verifyExtensionImport(
           [
             'index.html',
             Buffer.from(
-              '<!doctype html><script>throw new Error("Capture must not execute")</script>',
+              landing
+                ? '<!doctype html><button>Ordinary landing</button>'
+                : '<!doctype html><script>throw new Error("Capture must not execute")</script>',
             ),
           ],
           ['assets/support.txt', Buffer.from('owned support')],
@@ -100,14 +113,37 @@ export async function verifyExtensionImport(
           : source.path
       const active = activations.active.size
       await controls.click('Add extension…')
-      await controls.wait(
-        async () =>
-          (await win.webContents.executeJavaScript(`(() => {
+      if (landing) {
+        await controls.wait(
+          () =>
+            activations
+              .snapshot()
+              .installations.some(
+                (entry) => entry.manifest?.id === `hvir.smoke-${name}` && entry.enabled,
+              ),
+          'exact ZIP landing installation commits',
+        )
+        const installed = activations
+          .snapshot()
+          .installations.find((entry) => entry.manifest?.id === `hvir.smoke-${name}`)!
+        await verifyInstalledLanding(
+          win,
+          installed.installationId!,
+          'viewer',
+          (predicate, label) => controls.wait(predicate, label),
+        )
+        await controls.click('Open settings')
+        await controls.click('Extensions')
+      } else {
+        await controls.wait(
+          async () =>
+            (await win.webContents.executeJavaScript(`(() => {
           const entry=[...document.querySelectorAll('.extension-installation-list button')].find(e=>e.querySelector('strong')?.textContent===${JSON.stringify(name)});
           return entry?.getAttribute('aria-current')==='true'&&document.querySelector('.extension-installation h4')?.textContent===${JSON.stringify(name)};
         })()`)) === true,
-        `Add ${kind} selects the imported package without a helper click`,
-      )
+          `Add ${kind} selects the imported package without a helper click`,
+        )
+      }
       await extensionSettingsControls(win, name, {
         wait: (predicate, label) => controls.wait(predicate, label),
         within: (work) => work,
@@ -115,9 +151,7 @@ export async function verifyExtensionImport(
       await controls.wait(async () => {
         const entry = activations
           .snapshot()
-          .installations.find(
-            (entry) => entry.manifest?.id === `hvir.smoke-import-${kind}`,
-          )
+          .installations.find((entry) => entry.manifest?.id === `hvir.smoke-${name}`)
         return (
           !!entry &&
           !entry.error &&
@@ -129,9 +163,7 @@ export async function verifyExtensionImport(
       }, `Add ${kind} enables the imported revision without Enable`)
       const entry = activations
         .snapshot()
-        .installations.find(
-          (entry) => entry.manifest?.id === `hvir.smoke-import-${kind}`,
-        )!
+        .installations.find((entry) => entry.manifest?.id === `hvir.smoke-${name}`)!
       if (
         !entry.enabled ||
         activations.active.size !== active + 1 ||
@@ -173,18 +205,16 @@ export async function verifyExtensionImport(
         () =>
           !activations
             .snapshot()
-            .installations.some(
-              (entry) => entry.manifest?.id === `hvir.smoke-import-${kind}`,
-            ),
+            .installations.some((entry) => entry.manifest?.id === `hvir.smoke-${name}`),
         'imported candidate removal settles',
       )
     }
-    if (calls !== 3) throw new Error('Each Add did not reach exactly one native dialog')
+    if (calls !== 4) throw new Error('Each Add did not reach exactly one native dialog')
     console.log(
       '[smoke] single Add native-dialog-boundary cancellation/ZIP/directory import, source preservation, exact activation without Enable OK',
     )
   } finally {
-    extensions.additions = original
+    Object.defineProperty(dialog, 'showOpenDialog', originalDescriptor)
   }
   async function ready(): Promise<boolean> {
     return Boolean(

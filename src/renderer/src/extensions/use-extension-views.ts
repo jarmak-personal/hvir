@@ -71,9 +71,9 @@ export function useExtensionViews(ports: {
     }
   }, [])
 
-  const activate = useCallback((id: string): void => {
+  const activate = useCallback((id: string, focus = true): void => {
     setPlacement((previous) => ({ ...previous, activeId: id, active: true }))
-    portsRef.current.onActivate()
+    portsRef.current.onActivate(focus)
   }, [])
   const deactivate = useCallback(
     () => setPlacement((previous) => ({ ...previous, active: false })),

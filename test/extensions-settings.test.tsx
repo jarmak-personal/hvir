@@ -1,9 +1,12 @@
 // @vitest-environment happy-dom
-import { act, createElement } from 'react'
+import { act, createElement, startTransition } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ExtensionsSettings } from '../src/renderer/src/settings/sections/ExtensionsSettings'
-import type { ExtensionPlatformState } from '../src/shared/extensions/workbench'
+import type {
+  ExtensionAdditionResult,
+  ExtensionPlatformState,
+} from '../src/shared/extensions/workbench'
 
 vi.mock('../src/renderer/src/settings/sections/AgentAccessSettings', () => ({
   AgentAccessSettings: () => null,
@@ -452,24 +455,32 @@ describe('Add extension result authority order', () => {
 describe('Add selected configuration authority', () => {
   const state = (sources: string[], writable = true): ExtensionPlatformState => ({
     writable,
-    installations: sources.map((source) => ({ source, enabled: false, warnings: [] })),
+    installations: sources.map((source) => ({
+      source,
+      installationId: source,
+      enabled: false,
+      warnings: [],
+    })),
   })
-  async function start() {
-    let finish!: (value: ExtensionPlatformState) => void
+  async function start(selectedSource?: string) {
+    let finish!: (value: ExtensionAdditionResult) => void
     let reject!: (reason: Error) => void
     let publish!: (value: ExtensionPlatformState) => void
-    const pending = new Promise<ExtensionPlatformState>((yes, no) => {
+    const pending = new Promise<ExtensionAdditionResult>((yes, no) => {
       finish = yes
       reject = no
     })
+    const invoke = vi.fn<
+      (channel: string) => Promise<ExtensionAdditionResult | unknown[]>
+    >((channel) =>
+      channel === 'extensions:delivery-recovery'
+        ? Promise.resolve([])
+        : channel === 'extensions:add'
+          ? pending
+          : Promise.resolve(state(['first', 'second'])),
+    )
     vi.stubGlobal('hvir', {
-      invoke: vi.fn((channel: string) =>
-        channel === 'extensions:delivery-recovery'
-          ? Promise.resolve([])
-          : channel === 'extensions:add'
-            ? pending
-            : Promise.resolve(state(['first', 'second'])),
-      ),
+      invoke,
       on: vi.fn((channel: string, listener: (value: ExtensionPlatformState) => void) => {
         if (channel === 'extensions:state-changed') publish = listener
         return vi.fn()
@@ -482,34 +493,164 @@ describe('Add selected configuration authority', () => {
       root!.render(createElement(ExtensionsSettings))
       await Promise.resolve()
     })
+    if (selectedSource)
+      act(() =>
+        element!
+          .querySelector<HTMLButtonElement>(`[data-source="${selectedSource}"]`)!
+          .click(),
+      )
     act(() =>
       [...element!.querySelectorAll('button')]
         .find((e) => e.textContent === 'Add extension…')!
         .click(),
     )
-    return { finish, reject, publish, pending }
+    return { finish, reject, publish, pending, invoke }
   }
   const selected = () =>
     element!
       .querySelector('.extension-installation-list [aria-current="true"]')
       ?.getAttribute('data-source')
+  it.each([true, false])(
+    'closes only an owned landing when no handoff callback consumes it (created=%s)',
+    async (created) => {
+      const data = await start('second')
+      await act(async () => {
+        data.finish({
+          ...state(['first', 'second', 'added']),
+          installed: {
+            installationId: 'added',
+            landingCreated: created,
+            landing: {
+              id: 'prepared',
+              installationId: 'added',
+              contributionId: 'detail',
+              extensionName: 'Example',
+              title: 'Detail',
+              partition: 'owned',
+              url: 'hvir-extension://prepared/index.html',
+            },
+          },
+        })
+        await data.pending
+      })
+      const invoke = data.invoke
+      expect(
+        invoke.mock.calls.filter(([channel]) => channel === 'extensions:close-view'),
+      ).toHaveLength(created ? 1 : 0)
+      if (created)
+        expect(invoke).toHaveBeenCalledWith('extensions:close-view', {
+          viewId: 'prepared',
+        })
+    },
+  )
+  it('reports committed installation truthfully when unused landing cleanup rejects', async () => {
+    const data = await start('second')
+    const invoke = data.invoke
+    invoke.mockImplementation((channel) =>
+      channel === 'extensions:close-view'
+        ? Promise.reject(new Error('owned cleanup refused'))
+        : Promise.resolve(state(['first', 'second'])),
+    )
+    await act(async () => {
+      data.finish({
+        ...state(['first', 'second', 'added']),
+        installed: {
+          installationId: 'added',
+          landingCreated: true,
+          landing: {
+            id: 'prepared',
+            installationId: 'added',
+            contributionId: 'detail',
+            extensionName: 'Example',
+            title: 'Detail',
+            partition: 'owned',
+            url: 'hvir-extension://prepared/index.html',
+          },
+        },
+      })
+      await data.pending
+    })
+    expect(element!.querySelector('[role="alert"]')?.textContent).toBe(
+      'Extension installed, but its view could not close. Restart hvir to finish cleanup.',
+    )
+    expect(selected()).toBe('added')
+  })
+  it('retains newest published installations and writer state while reporting an Add cleanup failure', async () => {
+    const data = await start('second')
+    act(() =>
+      data.publish({
+        ...state(['first', 'second', 'added', 'newest']),
+        explanation: 'Newest writer state',
+      }),
+    )
+    await act(async () => {
+      data.finish({
+        ...state(['first', 'second', 'added']),
+        explanation:
+          'Extension installed, but its view could not close. Restart hvir to finish cleanup.',
+        installed: { installationId: 'added' },
+      })
+      await data.pending
+    })
+    expect(element!.querySelector('[role="alert"]')?.textContent).toBe(
+      'Extension installed, but its view could not close. Restart hvir to finish cleanup.',
+    )
+    expect(element!.textContent).toContain('Newest writer state')
+    expect(element!.querySelector('[data-source="newest"]')).not.toBeNull()
+    expect(selected()).toBe('added')
+  })
+  it('preserves prior manual selection when picker cancellation returns no installation receipt', async () => {
+    const { finish, pending } = await start('second')
+    await act(async () => {
+      finish({
+        writable: true,
+        installations: [
+          { source: 'unaccepted', enabled: false, warnings: [] },
+          ...state(['first', 'second']).installations,
+        ],
+      })
+      await pending
+    })
+    expect(selected()).toBe('second')
+  })
+  it('keeps exact reply selection through an actual queued React publication with replaced row objects', async () => {
+    const { finish, publish, pending } = await start()
+    act(() =>
+      startTransition(() => publish(state(['unrelated', 'first', 'second', 'added']))),
+    )
+    await act(async () => {
+      finish({
+        ...state(['first', 'second', 'added']),
+        installed: { installationId: 'added' },
+      })
+      await pending
+    })
+    expect(selected()).toBe('added')
+    expect(element!.textContent).toContain('unrelated')
+  })
   it('selects a new package from a current reply when no publication has arrived', async () => {
     const { finish, pending } = await start()
     await act(async () => {
-      finish(state(['first', 'second', 'added']))
+      finish({
+        ...state(['first', 'second', 'added']),
+        installed: { installationId: 'added' },
+      })
       await pending
     })
     expect(selected()).toBe('added')
   })
-  it('selects the current Add publication after the pre-import scan and does not retarget from a late reply', async () => {
+  it('does not infer installation from a publication or retarget to a removed package from a late exact reply', async () => {
     const { finish, publish, pending } = await start()
     act(() => publish(state(['first', 'second'])))
     expect(selected()).toBe('first')
     act(() => publish(state(['first', 'second', 'added'])))
-    expect(selected()).toBe('added')
+    expect(selected()).toBe('first')
     act(() => publish(state(['first', 'second'])))
     await act(async () => {
-      finish(state(['first', 'second', 'added']))
+      finish({
+        ...state(['first', 'second', 'added']),
+        installed: { installationId: 'added' },
+      })
       await pending
     })
     expect(selected()).toBe('first')
@@ -531,7 +672,10 @@ describe('Add selected configuration authority', () => {
       })
       act(() => publish(state(['first', 'second', 'added'])))
       await act(async () => {
-        finish(state(['first', 'second', 'added']))
+        finish({
+          ...state(['first', 'second', 'added']),
+          installed: { installationId: 'added' },
+        })
         await pending
       })
       expect(selected()).toBe('second')

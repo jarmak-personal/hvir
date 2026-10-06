@@ -15,6 +15,7 @@ import type { KeybindingAction } from '../keybindings'
 import type { ExtensionPresentation } from '../extensions/contract'
 import type {
   ExtensionPlatformState,
+  ExtensionAdditionResult,
   ExtensionView,
   ExtensionContributionState,
   ExtensionSurfaceRequest,
@@ -86,12 +87,7 @@ export const extensionsIpc = {
     >(),
     'extensions:state': invoke<void, ExtensionPlatformState>(),
     'extensions:discover': invoke<void, ExtensionPlatformState>(),
-    'extensions:add': invoke<
-      { readonly request: string },
-      ExtensionPlatformState & {
-        readonly connection?: import('../extensions/connectors').ExtensionConnectionResult
-      }
-    >(),
+    'extensions:add': invoke<{ readonly request: string }, ExtensionAdditionResult>(),
     'extensions:add-cancel-setup': invoke<{ readonly request: string }, void>(),
     'extensions:connection-cancel': invoke<{ readonly request: string }, void>(),
     'extensions:open-folder': invoke<void, void>(),

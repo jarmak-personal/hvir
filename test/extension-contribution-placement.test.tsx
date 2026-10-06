@@ -131,7 +131,7 @@ describe('extension contribution placement and focus', () => {
           [active, setActive] = useState(false)
         publish = setViews
         return createElement(ExtensionContributionsProvider, {
-          views,
+          placement: { guests: views, activate: vi.fn() },
           topActive: active,
           obscured: false,
           onTop: () => setActive(true),
@@ -270,7 +270,7 @@ describe('extension contribution placement and focus', () => {
     const render = (views: readonly ExtensionView[]): void =>
       root.render(
         createElement(ExtensionContributionsProvider, {
-          views,
+          placement: { guests: views, activate: vi.fn() },
           workspaceId: 'workspace',
           topActive: false,
           obscured: false,
@@ -379,7 +379,7 @@ describe('extension contribution placement and focus', () => {
           root.render(
             createElement(ExtensionContributionsProvider, {
               workspaceId: 'workspace',
-              views: [],
+              placement: { guests: [], activate: vi.fn() },
               topActive: false,
               obscured: false,
               onTop: vi.fn(),
@@ -461,7 +461,7 @@ describe('extension contribution placement and focus', () => {
         root.render(
           createElement(ExtensionContributionsProvider, {
             workspaceId,
-            views: [retained],
+            placement: { guests: [retained], activate: vi.fn() },
             topActive: top,
             obscured: false,
             onTop: vi.fn(),
@@ -569,6 +569,9 @@ describe('extension contribution placement and focus', () => {
       },
       closeTop: vi.fn(),
       selectTop: vi.fn(),
+      selectViewer: vi.fn(),
+      retireLandingFocus: vi.fn(),
+      focusLanding: vi.fn(),
     }
     vi.stubGlobal('hvir', { invoke, send: vi.fn() })
     const element = document.createElement('div')
@@ -656,7 +659,7 @@ describe('extension contribution placement and focus', () => {
         root.render(
           createElement(ExtensionContributionsProvider, {
             workspaceId: 'workspace',
-            views,
+            placement: { guests: views, activate: vi.fn() },
             topActive: false,
             obscured: false,
             onTop: vi.fn(),
@@ -798,6 +801,9 @@ describe('extension contribution placement and focus', () => {
         close: vi.fn(),
         closeTop: vi.fn(),
         selectTop: vi.fn(),
+        selectViewer: vi.fn(),
+        retireLandingFocus: vi.fn(),
+        focusLanding: vi.fn(),
       }
       vi.stubGlobal('hvir', { send: vi.fn() })
       const element = document.createElement('div')
@@ -857,6 +863,9 @@ describe('extension contribution placement and focus', () => {
       close: vi.fn(),
       closeTop: vi.fn(),
       selectTop: vi.fn(),
+      selectViewer: vi.fn(),
+      retireLandingFocus: vi.fn(),
+      focusLanding: vi.fn(),
     }
     const send = vi.fn()
     vi.stubGlobal('hvir', { send })

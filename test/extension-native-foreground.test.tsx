@@ -76,7 +76,7 @@ async function fixture() {
         createElement(ExtensionContributionsProvider, {
           topActive: true,
           obscured,
-          views: [view],
+          placement: { guests: [view], activate: vi.fn() },
           onTop: () => {},
           onWorkspace: () => {},
           onError: () => {},

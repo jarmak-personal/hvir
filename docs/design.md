@@ -660,6 +660,15 @@ retirement, without inline package markup or a new asset protocol.
 Explicit native Add accepts and enables its exact validated copied revision through the existing
 writer; passive discovery and permission admission retain their separate boundaries.
 
+### [ADR-066 — Declared extension installation landing](adr/ADR-066-declared-extension-installation-landing.md)
+
+> Lifecycle: Active
+
+Optional manifest landing uses the exact explicit installation receipt and existing ordinary
+navigation owners. Preparation stays unselected and unfocused; live intent selects only after
+it settles. The deliberate Settings handoff preserves its existing unsaved application draft
+while retiring hidden resources, with ordinary Close and Save semantics unchanged.
+
 ### [ADR-065 — Passive extension program discovery and trusted connection](adr/ADR-065-passive-extension-program-connection.md)
 
 > Lifecycle: Active

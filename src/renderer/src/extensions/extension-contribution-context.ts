@@ -14,6 +14,10 @@ export interface Contributions {
   readonly close: (id: string) => void
   readonly closeTop: (id: string) => void
   readonly selectTop: (view: ExtensionView) => void
+  readonly selectViewer: (id: string) => void
+  readonly focusLanding: (view: ExtensionView) => void
+  readonly retireLandingFocus: (id: string) => void
+  readonly landingFocusId?: string
   readonly views: readonly ExtensionView[]
   readonly state: readonly ExtensionContributionState[]
   readonly terminalIds: Readonly<Record<string, string>>

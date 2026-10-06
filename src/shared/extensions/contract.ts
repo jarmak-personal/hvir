@@ -85,6 +85,8 @@ export interface ExtensionManifest {
   readonly optionalCapabilities: readonly string[]
   readonly access: readonly import('./source-access').ExtensionSourceDeclaration[]
   readonly views: readonly ExtensionContribution[]
+  /** Optional ordinary application view shown only after explicit installation. */
+  readonly landing?: string
   readonly railItems?: readonly ExtensionRailItem[]
   readonly actions?: readonly ExtensionAction[]
   readonly updater?: string

@@ -11,6 +11,7 @@ import type { AppSettings } from './settings-model'
 import type { SettingsDestination, SettingsSection } from './settings-navigation'
 
 interface SettingsControllerOptions {
+  readonly open?: boolean
   readonly theme: AppTheme
   readonly settings: AppSettings
   readonly initialDestination: SettingsDestination
@@ -20,6 +21,7 @@ interface SettingsControllerOptions {
 }
 
 export function useSettingsController({
+  open = true,
   theme,
   settings,
   initialDestination,
@@ -39,14 +41,23 @@ export function useSettingsController({
   const [composerConsentOpen, setComposerConsentOpen] = useState(false)
   const activeSectionRef = useRef(activeSection)
   const focusFrame = useRef(0)
+  const openRef = useRef(open)
+  openRef.current = open
   activeSectionRef.current = activeSection
 
   useEffect(
     () => () => {
       window.cancelAnimationFrame(focusFrame.current)
     },
-    [],
+    [open],
   )
+
+  useEffect(() => {
+    if (open) {
+      setActiveSection(initialDestination.section)
+      setPendingIntent(initialDestination.intent)
+    } else setComposerConsentOpen(false)
+  }, [open, initialDestination])
 
   useEffect(() => {
     if (activeSection === 'harnesses' && pendingIntent) setPendingIntent(undefined)
@@ -73,7 +84,7 @@ export function useSettingsController({
     (section: SettingsSection): void => {
       if (section === activeSectionRef.current) return
       void canActivate(section).then((confirmed) => {
-        if (confirmed) setActiveSection(section)
+        if (confirmed && openRef.current) setActiveSection(section)
       })
     },
     [canActivate],
@@ -81,14 +92,15 @@ export function useSettingsController({
 
   const requestClose = useCallback((): void => {
     void confirmSafeToLeaveHarnesses().then((confirmed) => {
-      if (confirmed) onClose()
+      if (confirmed && openRef.current) onClose()
     })
   }, [confirmSafeToLeaveHarnesses, onClose])
 
   const focusField = useCallback((fieldId: string): void => {
+    if (!openRef.current) return
     window.cancelAnimationFrame(focusFrame.current)
     focusFrame.current = window.requestAnimationFrame(() => {
-      document.getElementById(fieldId)?.focus()
+      if (openRef.current) document.getElementById(fieldId)?.focus()
     })
   }, [])
 
@@ -97,7 +109,7 @@ export function useSettingsController({
     if (!result.valid) {
       setValidation(result)
       setSaveError(undefined)
-      if (await canActivate(result.section)) {
+      if ((await canActivate(result.section)) && openRef.current) {
         setActiveSection(result.section)
         focusField(result.fieldId)
       }
@@ -106,7 +118,7 @@ export function useSettingsController({
 
     setValidation(undefined)
     setSaveError(undefined)
-    if (!(await confirmSafeToLeaveHarnesses())) return
+    if (!(await confirmSafeToLeaveHarnesses()) || !openRef.current) return
     try {
       if (result.settings.composerSubmitMode !== settings.composerSubmitMode) {
         await window.hvir.invoke('harness:configure-composer-submit', {
@@ -115,7 +127,7 @@ export function useSettingsController({
           previousMode: settings.composerSubmitMode,
         })
       }
-      onSave(result.theme, result.settings)
+      if (openRef.current) onSave(result.theme, result.settings)
     } catch (reason) {
       setSaveError(reason instanceof Error ? reason.message : String(reason))
     }

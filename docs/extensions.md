@@ -10,9 +10,17 @@ package form automatically. Other JSON files are refused with this selection ins
 
 hvir validates and copies the selection into this instance's extensions folder, then shows
 it immediately, accepting and enabling that exact validated copy. The original is preserved;
-directories are copied, never linked. Choose **Open** to view it. Capture and validation
+directories are copied, never linked. A package's optional `landing` names an ordinary
+application view in its own manifest. After its first-use program connection settles,
+that declared destination opens directly while the installation intent remains current.
+Without a declaration, choose **Open** to view it. Leaving the Add flow prevents late
+navigation. Unrelated unsaved app preferences remain in Settings for your next visit;
+explicit Close and Save retain their normal behavior. Capture and validation
 execute no package code. Installation grants no native program, file-root or agent access;
-review and approve needed access separately. Passive discovery remains nonactivating. Cancellation makes no copy.
+review and approve needed access separately. Passive discovery remains nonactivating.
+Canceling the native picker imports nothing. An interrupted import reports its outcome;
+do not assume an already submitted publication was rolled back. Once installation commits,
+leaving or canceling setup preserves the installed extension and prevents late landing navigation.
 An invalid or changing source is refused before publication. Filename or present package-ID
 conflicts preserve the existing installation; Remove explicitly before adding a replacement.
 An explicit reinstall through Add enables its validated revision and can reuse unchanged kept setup.
