@@ -63,6 +63,38 @@ export async function verifySkillagerExtension(
           await host.readFile(joinHostPath(assets, entry.name)),
         )
   }
+  if (process.env.HVIR_EXTENSION_VISUAL_DIRECTORY) {
+    const visualClock = joinHostPath(extensions.activations!.directory, 'visual-clock')
+    await host.createDirectoryExclusive(visualClock, { mode: 0o755 })
+    await host.writeFile(
+      joinHostPath(visualClock, 'hvir-extension.json'),
+      JSON.stringify({
+        id: 'hvir.visual-clock',
+        name: 'Clock',
+        version: '0.3.0',
+        contract: '1.0',
+        requiredCapabilities: [],
+        optionalCapabilities: [],
+        access: [],
+        views: [
+          {
+            id: 'clock',
+            title: 'Clock',
+            entry: 'clock.html',
+            placement: 'application',
+            representations: ['view'],
+          },
+        ],
+      }),
+    )
+    await host.writeFile(
+      joinHostPath(visualClock, 'clock.html'),
+      '<p>Owned inactive clock example</p>',
+    )
+    const invalid = joinHostPath(extensions.activations!.directory, 'visual-invalid')
+    await host.createDirectoryExclusive(invalid, { mode: 0o755 })
+    await host.writeFile(joinHostPath(invalid, 'hvir-extension.json'), '{invalid')
+  }
   await controls.click('Open settings')
   await controls.click('Extensions')
   await controls.click('Discover extensions')
@@ -118,6 +150,7 @@ export async function verifySkillagerExtension(
       XDG_STATE_HOME: join(directory.path, '..', '..', 'skillager-state'),
     },
   })
+  await settings.select('Program access')
   await set('Executable for library-cli', executable)
   await set('Configuration for library-cli', configuration)
   await click('Inspect native access', 'library-cli')
@@ -207,6 +240,7 @@ export async function verifySkillagerExtension(
     console.log('HVIR_SMOKE_OK')
     return true
   }
+  await settings.select('File access')
   await set('Source root for library', root)
   await click('Inspect read access', 'library')
   await controls.wait(
@@ -316,6 +350,7 @@ export async function verifySkillagerExtension(
     revokeProgram: async () => {
       await controls.click('Open settings')
       await controls.click('Extensions')
+      await settings.select('Program access')
       await click('Revoke native access', 'library-cli')
       await controls.click('Close settings')
       await controls.click('Skillager library')
@@ -511,6 +546,7 @@ export async function verifySkillagerExtension(
     () => inspect(detail, 'window.skillagerEvidenceVisible===false') as Promise<boolean>,
     'Settings obscures selected reader',
   )
+  await settings.select('File access')
   await click('Revoke read access', 'library')
   await controls.click('Close settings')
   const visibleAfterSettings = await inspect(detail, 'window.skillagerEvidenceVisible')

@@ -11,6 +11,7 @@ export function extensionSettingsControls(
   extensionName: string,
   ports: SettingsControlPorts,
 ): {
+  select(section?: string): Promise<void>
   click(name: string, legend?: string): Promise<void>
   set(label: string, value: string): Promise<void>
 } {
@@ -47,8 +48,31 @@ export function extensionSettingsControls(
       if (owned && debuggerPort.isAttached()) debuggerPort.detach()
     }
   }
+  async function select(section = ''): Promise<void> {
+    await ports.wait(
+      () =>
+        control(
+          `function(extension, section) {
+      const item=[...document.querySelectorAll('.extension-installation-list button')].find(e=>e.querySelector('strong')?.textContent===extension);
+      if(!item?.checkVisibility()||item.disabled)return false;
+      if(item.getAttribute('aria-current')!=='true'){item.click();return false}
+      const article=document.querySelector('.extension-installation');
+      if(article?.querySelector('h4')?.textContent!==extension)return false;
+      if(!section)return true;
+      const button=[...article.querySelectorAll('.extension-configuration-tabs button')].find(e=>e.textContent===section);
+      if(!button?.checkVisibility()||button.disabled)return false;
+      if(button.getAttribute('aria-current')!=='true'){button.click();return false}
+      return true;
+    }`,
+          [extensionName, section],
+        ),
+      `selected ${extensionName} ${section} configuration`,
+    )
+  }
   return {
+    select,
     async click(name, legend = '') {
+      await select()
       await ports.wait(
         () =>
           control(
@@ -56,7 +80,7 @@ export function extensionSettingsControls(
         const article = [...document.querySelectorAll('.extension-installation')].find(e => e.querySelector('h4')?.textContent === extension);
         const scope = legend ? [...(article?.querySelectorAll('fieldset') ?? [])].find(e => e.querySelector('legend')?.textContent.trim() === legend) : article;
         const button = [...(scope?.querySelectorAll('button') ?? [])].find(e => e.textContent.trim() === name);
-        if (!button || button.disabled) return false;
+        if (!button || button.disabled || !button.checkVisibility()) return false;
         button.click(); return true;
       }`,
             [extensionName, name, legend],

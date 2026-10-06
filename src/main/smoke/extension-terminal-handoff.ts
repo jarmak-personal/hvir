@@ -1,3 +1,4 @@
+import { extensionSettingsControls } from './extension-settings-controls'
 import type { BrowserWindow } from 'electron'
 import { hostPathEquals, joinHostPath, type HostPath } from '../../shared/host-path'
 import type { ProjectHost } from '../project-host/project-host'
@@ -120,7 +121,10 @@ export async function verifyExtensionTerminalHandoff(
   await controls.click('Discover extensions')
   await controls.wait(() => !!installation(), 'terminal fixture discovery')
   await selected('Enable')
-  await controls.wait(() => !!installation()?.installationId, 'terminal fixture admission')
+  await controls.wait(
+    () => !!installation()?.installationId,
+    'terminal fixture admission',
+  )
   const installationId = installation()?.installationId
   if (!installationId) throw new Error('Terminal fixture has no admitted installation')
   await controls.wait(
@@ -128,6 +132,10 @@ export async function verifyExtensionTerminalHandoff(
     'terminal fixture Enable',
   )
   const active = extensions.activations!.active.get(installationId)!
+  await extensionSettingsControls(win, 'Terminal reference', {
+    wait: (predicate, label) => controls.wait(predicate, label),
+    within: (work) => work,
+  }).select('Program access')
   await setInput('Executable for setup-tool', tool.path)
   await setInput(
     'Configuration for setup-tool',
@@ -147,6 +155,10 @@ export async function verifyExtensionTerminalHandoff(
       extensions.connectors!.approvals.status(active)[0]?.availability === 'supported',
     'terminal connector approval',
   )
+  await extensionSettingsControls(win, 'Terminal reference', {
+    wait: (predicate, label) => controls.wait(predicate, label),
+    within: (work) => work,
+  }).select('Extension actions')
   await controls.wait(
     () =>
       dom(`(() => {
@@ -306,6 +318,10 @@ export async function verifyExtensionTerminalHandoff(
     return win.webContents.executeJavaScript(`Boolean(${expression})`) as Promise<boolean>
   }
   async function selected(name: string): Promise<void> {
+    await extensionSettingsControls(win, 'Terminal reference', {
+      wait: (predicate, label) => controls.wait(predicate, label),
+      within: (work) => work,
+    }).select()
     await controls.wait(
       () =>
         dom(
@@ -315,13 +331,10 @@ export async function verifyExtensionTerminalHandoff(
     )
   }
   async function setInput(label: string, value: string): Promise<void> {
-    await controls.wait(
-      () =>
-        dom(
-          `(() => {const article=[...document.querySelectorAll('.extension-installation')].find(e=>e.querySelector('h4')?.textContent==='Terminal reference');const input=article?.querySelector(${JSON.stringify(`[aria-label="${label}"]`)});const setter=Object.getOwnPropertyDescriptor(input instanceof HTMLTextAreaElement?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,'value')?.set;if(!input||!setter)return false;setter.call(input,${JSON.stringify(value)});input.dispatchEvent(new Event('input',{bubbles:true}));return true})()`,
-        ),
-      `terminal fixture ${label}`,
-    )
+    await extensionSettingsControls(win, 'Terminal reference', {
+      wait: (predicate, label) => controls.wait(predicate, label),
+      within: (work) => work,
+    }).set(label, value)
   }
   async function exists(path: HostPath): Promise<boolean> {
     try {
@@ -394,10 +407,7 @@ export async function verifyTerminalCommandProcessRestart(
     return false
   }, 'new process ordinary shell recovery')
   const recovered = supervisor.get(proof.terminalId)!
-  if (
-    recovered.pid === proof.originalPid ||
-    recovered.pid === proof.precedingRecoveryPid
-  )
+  if (recovered.pid === proof.originalPid || recovered.pid === proof.precedingRecoveryPid)
     throw new Error('New process retained the preceding physical shell')
   const output = joinHostPath(root, '.terminal-shell-after-process-restart')
   const pwd = joinHostPath(root, '.terminal-pwd-after-process-restart')

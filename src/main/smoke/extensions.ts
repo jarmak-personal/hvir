@@ -1,3 +1,4 @@
+import { extensionSettingsControls } from './extension-settings-controls'
 import { verifySkillagerExtension } from './skillager-extension'
 import { verifySkillagerManagement } from './skillager-management'
 import { verifyExtensionPresentationUi } from './extension-presentation-ui'
@@ -137,6 +138,11 @@ export async function verifyExtensionScenario(
     click: (name) => click(win, name),
     wait: waitFor,
   })
+  await extensionSettingsControls(win, 'hvir Reference', {
+    wait: waitFor,
+    within: (work) => work,
+  }).select()
+  await verifyExtensionSettingsGeometry(win, waitFor)
   await click(win, 'Enable')
   await waitFor(() => extensions.activations!.active.size === 1, 'trusted Enable')
   await click(win, 'Open Extension reference')
@@ -337,6 +343,10 @@ export async function verifyExtensionScenario(
   void hung.executeJavaScript('while (true) {}').catch(() => undefined)
   await click(win, 'Open settings')
   await click(win, 'Extensions')
+  await extensionSettingsControls(win, 'hvir Reference', {
+    wait: waitFor,
+    within: (work) => work,
+  }).select()
   await click(win, 'Disable')
   await waitFor(
     () => hung.isDestroyed() && extensions.activations!.active.size === 0,
@@ -486,6 +496,11 @@ async function guestFor(view: ExtensionView): Promise<WebContents> {
 }
 
 async function click(win: BrowserWindow, name: string): Promise<void> {
+  if (name === 'Open Extension reference')
+    await extensionSettingsControls(win, 'hvir Reference', {
+      wait: waitFor,
+      within: (work) => work,
+    }).select('Extension actions')
   if (name === 'Discover extensions' || name === 'Open extensions folder')
     await waitFor(
       async () =>

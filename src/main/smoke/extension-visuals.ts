@@ -1,3 +1,4 @@
+import { verifyExtensionSettingsGeometry } from './extension-presentation-geometry'
 import type { BrowserWindow, WebContents } from 'electron'
 import { joinHostPath, localPath } from '../../shared/host-path'
 import type { ProjectHost } from '../project-host/project-host'
@@ -150,6 +151,17 @@ export async function captureExtensionVisuals(
         if (state !== 'instructions' && state !== 'project') {
           await controls.click('Open settings')
           await section('Extensions', 'extensions')
+          await verifyExtensionSettingsGeometry(win, (predicate, label) =>
+            controls.wait(predicate, label),
+          )
+          if (state === 'library')
+            await controls.wait(
+              async () =>
+                (await win.webContents.executeJavaScript(
+                  "[...document.querySelectorAll('.extension-installation fieldset [role=status]')].some(e=>e.textContent.trim().startsWith('Approved'))",
+                )) === true,
+              'current approved program identity',
+            )
           await settled()
           facts.push({
             theme,
@@ -172,7 +184,46 @@ export async function captureExtensionVisuals(
               buttonBorder:style.borderTopStyle, buttonBorderWidth:style.borderTopWidth, buttonRadius:style.borderTopLeftRadius};
           })()`)) as unknown,
           })
+          const configuration: unknown = await win.webContents.executeJavaScript(`(() => {
+            const panel=document.querySelector('.extension-configuration-layout'), list=panel?.querySelector('.extension-installation-list'), detail=panel?.querySelector('.extension-installation');
+            if(!panel||!list||!detail)return {present:false};
+            const p=panel.getBoundingClientRect(), l=list.getBoundingClientRect(), r=detail.getBoundingClientRect();
+            const selected=list.querySelector('[aria-current=true]');
+            const contained=l.left>=p.left&&r.right<=p.right+1&&l.right<=r.left+1&&l.height<=p.height&&r.height<=p.height;
+            if(!contained||getComputedStyle(list).overflowY!=='auto'||getComputedStyle(detail).overflowY!=='auto')throw new Error('Extension configuration list/detail is not bounded and independently scrollable');
+            return {present:true,count:list.querySelectorAll('button').length,selectedMatches:selected?.querySelector('strong')?.textContent===detail.querySelector('h4')?.textContent,contained,listWidth:l.width,detailWidth:r.width,panelHeight:p.height};
+          })()`)
+          facts.push({ theme, variant, state, configuration })
           await write(`settings-${state}-${theme}-${variant}`)
+          if (state === 'library') {
+            for (const name of ['File access', 'Extension actions']) {
+              await controls.click(name)
+              await controls.wait(
+                async () =>
+                  (await win.webContents.executeJavaScript(
+                    `document.querySelector('.extension-configuration-tabs [aria-current=true]')?.textContent===${JSON.stringify(name)}`,
+                  )) === true,
+                'current selected configuration section',
+              )
+              if (name === 'File access') {
+                await controls.wait(
+                  async () =>
+                    (await win.webContents.executeJavaScript(
+                      "[...document.querySelectorAll('.extension-installation fieldset [role=status]')].some(e=>e.textContent.trim().startsWith('Granted'))",
+                    )) === true,
+                  'current approved library folder',
+                )
+                await win.webContents.executeJavaScript(
+                  "document.querySelector('.extension-installation fieldset').scrollIntoView({block:'start'})",
+                )
+              }
+              await settled()
+              await write(
+                `settings-${name === 'File access' ? 'files' : 'actions'}-${theme}-${variant}`,
+              )
+            }
+            await controls.click('Program access')
+          }
           if (state === 'unapproved') {
             await section('Appearance', 'appearance')
             await settled()

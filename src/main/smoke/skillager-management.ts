@@ -83,6 +83,7 @@ export async function verifySkillagerManagement(
     () => installation()?.enabled === true,
     'explicit maintained package Enable',
   )
+  await settings.select('Program access')
   const configuration = JSON.stringify({ args: [], env: environment })
   for (const connector of ['library-cli', 'project-cli']) {
     await settings.set(`Executable for ${connector}`, executable)
@@ -110,6 +111,7 @@ export async function verifySkillagerManagement(
       `${connector} canonical native approval`,
     )
   }
+  await settings.select('File access')
   await settings.set('Registered workspace for project', workspace.id)
   await settings.click('Inspect read access', 'Read-only source: project')
   await controls.wait(
@@ -186,6 +188,7 @@ export async function verifySkillagerManagement(
   }
   await controls.click('Open settings')
   await controls.click('Extensions')
+  await settings.select('File access')
   await settings.set('Source root for library', library.path)
   await settings.click('Inspect read access', 'Read-only source: library')
   await controls.wait(

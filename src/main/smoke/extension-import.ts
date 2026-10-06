@@ -1,3 +1,4 @@
+import { extensionSettingsControls } from './extension-settings-controls'
 import { ZipFile } from 'yazl'
 import type { BrowserWindow } from 'electron'
 import { joinHostPath } from '../../shared/host-path'
@@ -99,6 +100,10 @@ export async function verifyExtensionImport(
           : source.path
       const active = activations.active.size
       await controls.click('Add extension…')
+      await extensionSettingsControls(win, name, {
+        wait: (predicate, label) => controls.wait(predicate, label),
+        within: (work) => work,
+      }).select()
       await controls.wait(async () => {
         const entry = activations
           .snapshot()

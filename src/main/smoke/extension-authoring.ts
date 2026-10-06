@@ -1,3 +1,4 @@
+import { extensionSettingsControls } from './extension-settings-controls'
 import { app, type BrowserWindow, type WebContents } from 'electron'
 import { join } from 'node:path'
 import { localPath, joinHostPath } from '../../shared/host-path'
@@ -170,6 +171,10 @@ export async function verifyExtensionAuthoring(
     return extensions.guests!.snapshot(renderer).find((entry) => entry.title === 'Clock')
   }
   async function selected(name: string): Promise<void> {
+    await extensionSettingsControls(win, 'Clock', {
+      wait: (predicate, label) => controls.wait(predicate, label),
+      within: (work) => work,
+    }).select()
     await controls.wait(
       async () =>
         Boolean(

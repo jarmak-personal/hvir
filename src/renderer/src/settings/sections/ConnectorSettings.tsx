@@ -14,15 +14,27 @@ export function ConnectorSettings({
   readonly installation: ExtensionInstallation
 }): ReactElement | null {
   if (!installation.enabled || !installation.installationId) return null
+  const connectors = installation.manifest?.connectors ?? []
+  const application = connectors.filter((entry) => entry.context === 'application')
+  const project = connectors.filter((entry) => entry.context !== 'application')
+  const setup = (connector: ExtensionConnectorDeclaration): ReactElement => (
+    <ConnectorSetup
+      key={connector.id}
+      installation={installation.installationId!}
+      connector={connector}
+    />
+  )
   return (
     <>
-      {installation.manifest?.connectors?.map((connector) => (
-        <ConnectorSetup
-          key={connector.id}
-          installation={installation.installationId!}
-          connector={connector}
-        />
-      ))}
+      {application.map(setup)}
+      {project.length ? (
+        <details className="extension-optional-setup">
+          <summary>Project program access</summary>
+          <p>Configure these separately for project observations or actions.</p>
+          {project.map(setup)}
+        </details>
+      ) : null}
+      {!connectors.length ? <p>This extension requests no program access.</p> : null}
     </>
   )
 }
@@ -78,29 +90,6 @@ function ConnectorSetup({
     <fieldset disabled={busy}>
       <legend>Program access: {connector.id}</legend>
       <p>{connector.description}</p>
-      <p>
-        Programs run as your account on the chosen host, with access to files,
-        credentials, network and other programs. Their working folder or action name does
-        not limit that access or prove they only read files. Enabling an extension does
-        not approve program execution.
-      </p>
-      <p>
-        Working folder:{' '}
-        {connector.context === 'application'
-          ? 'hvir’s local scratch folder, separate from your project'
-          : 'The selected project on the approved host'}{' '}
-      </p>
-      <details>
-        <summary>Execution limits and environment</summary>
-        <p>
-          Deadline: {connector.timeoutMs / 1000} seconds · Output: {connector.outputBytes}{' '}
-          bytes
-        </p>
-        <p>
-          Available environment overrides: {connector.environment.join(', ') || 'None'}.
-          The host account’s normal environment is inherited.
-        </p>
-      </details>
       <p role="status">
         {status?.availability === 'supported'
           ? 'Approved'
@@ -144,6 +133,29 @@ function ConnectorSetup({
           className="hvir-input"
         />
       </label>
+      <p>
+        This program runs with your account’s access to files, credentials, network and
+        other programs. Its working folder and action name do not limit that access or
+        guarantee read-only behavior.
+      </p>
+      <p>
+        Working folder:{' '}
+        {connector.context === 'application'
+          ? 'hvir’s local scratch folder, separate from your project'
+          : 'The selected project on the approved host'}{' '}
+      </p>
+      <details>
+        <summary>Execution limits and environment</summary>
+        <p>
+          Deadline: {connector.timeoutMs / 1000} seconds · Output: {connector.outputBytes}{' '}
+          bytes
+        </p>
+        <p>
+          Available environment overrides: {connector.environment.join(', ') || 'None'}.
+          The host account’s normal environment is inherited.
+        </p>
+      </details>
+
       <details>
         <summary>Advanced configuration</summary>
         <label>

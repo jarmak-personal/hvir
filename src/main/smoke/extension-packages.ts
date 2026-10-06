@@ -1,3 +1,4 @@
+import { extensionSettingsControls } from './extension-settings-controls'
 import { ZipFile } from 'yazl'
 import type { BrowserWindow, WebContents } from 'electron'
 import { joinHostPath } from '../../shared/host-path'
@@ -83,6 +84,10 @@ export async function verifyExtensionPackages(
     .installations.find((entry) => entry.source === 'reference.zip')!
   if (candidate.enabled || candidate.installationId !== installationId || candidate.error)
     throw new Error('Reappearing ZIP identity or activation was incorrect')
+  await extensionSettingsControls(win, 'hvir Reference', {
+    wait: (predicate, label) => controls.wait(predicate, label),
+    within: (work) => work,
+  }).select()
   await controls.click('Enable')
   await controls.wait(() => owner.active.has(installationId), 'ZIP explicit Enable')
   await controls.click('Open Extension reference')
@@ -100,6 +105,10 @@ export async function verifyExtensionPackages(
   )
   await controls.click('Open settings')
   await controls.click('Extensions')
+  await extensionSettingsControls(win, 'hvir Reference', {
+    wait: (predicate, label) => controls.wait(predicate, label),
+    within: (work) => work,
+  }).select()
   await controls.click('Replace')
   await controls.wait(
     () => zipGuest.isDestroyed() && owner.active.has(installationId),
@@ -126,6 +135,10 @@ export async function verifyExtensionPackages(
         ),
     'development discovery',
   )
+  await extensionSettingsControls(win, 'hvir Reference', {
+    wait: (predicate, label) => controls.wait(predicate, label),
+    within: (work) => work,
+  }).select()
   await controls.click('Enable')
   await controls.wait(() => owner.active.has(installationId), 'development Enable')
   await host.writeFile(
@@ -164,6 +177,16 @@ export async function verifyExtensionPackages(
   )
 
   async function remove(source: string, forget: boolean): Promise<void> {
+    await controls.wait(
+      async () =>
+        Boolean(
+          await win.webContents.executeJavaScript(`(() => {
+      const button=[...document.querySelectorAll('.extension-installation-list button')].find(e=>e.dataset.source===${JSON.stringify(source)});
+      if(!button?.checkVisibility())return false;if(button.getAttribute('aria-current')!=='true'){button.click();return false}return true;
+    })()`),
+        ),
+      'ordinary source-specific extension selection',
+    )
     await controls.wait(
       async () =>
         Boolean(
