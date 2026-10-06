@@ -18,16 +18,21 @@ metadata leaves the ordinary installed controls available. Discovery, startup, r
 reconnect and background work do not navigate.
 
 The installation owner retains its exact committed activation receipt and source binding
-in main. Prepare through the existing guest owner without selection or focus. Revalidate
-the exact active revision, accepted source, renderer, live continuation and native foreground
-before and after asynchronous preparation. Return only the bounded installed identity and
-optional existing prepared view descriptor. No additional registry, placement or grant is
-introduced.
+in main. Check the committed receipt's accepted revision once, then prepare through the
+existing guest owner without selection or focus. Revalidate the exact active object and
+physical captured source, renderer, live continuation and native foreground before and
+after asynchronous preparation. Return only the bounded installed identity and optional
+existing prepared view descriptor, paired with its newly-created versus reused ownership.
+If final admission or synchronous renderer consumption refuses, close only preparation
+created by this Add through the existing guest owner and close-view transport. Preserve
+reused views. No additional acknowledgment registry, placement or grant is introduced.
 
 The renderer matches its existing Add request immediately before synchronous selection
 through the existing top destination or ordinary viewer owner. Genuine departure cancels
 the continuation. Deferred guest focus belongs only to the exact still-selected, visible
-view and fresh native foreground; it is not replayed on background return.
+view and fresh native foreground. Retire the bounded hint on genuine foreground or
+presentation withdrawal, even before its first visible attempt and when publications are
+batched; ordinary return cannot replay it. Preparation alone arms no focus hint.
 
 During this deliberate handoff, retain the existing Settings controller and its unsaved
 application draft, including invalid editable strings. Retire the hidden dialog DOM,

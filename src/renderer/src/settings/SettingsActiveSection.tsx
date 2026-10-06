@@ -30,7 +30,7 @@ interface SettingsActiveSectionProps {
     value: SettingsDraft[K],
   ) => void
   readonly onComposerSubmitMode: (enabled: boolean) => void
-  readonly onInstalledLanding?: (view: ExtensionView) => void
+  readonly onInstalledLanding?: (view: ExtensionView) => boolean
   readonly installation?: RefObject<ExtensionsSettingsHandle | null>
 }
 

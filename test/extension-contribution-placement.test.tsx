@@ -570,6 +570,7 @@ describe('extension contribution placement and focus', () => {
       closeTop: vi.fn(),
       selectTop: vi.fn(),
       selectViewer: vi.fn(),
+      retireLandingFocus: vi.fn(),
       focusLanding: vi.fn(),
     }
     vi.stubGlobal('hvir', { invoke, send: vi.fn() })
@@ -801,6 +802,7 @@ describe('extension contribution placement and focus', () => {
         closeTop: vi.fn(),
         selectTop: vi.fn(),
         selectViewer: vi.fn(),
+        retireLandingFocus: vi.fn(),
         focusLanding: vi.fn(),
       }
       vi.stubGlobal('hvir', { send: vi.fn() })
@@ -862,6 +864,7 @@ describe('extension contribution placement and focus', () => {
       closeTop: vi.fn(),
       selectTop: vi.fn(),
       selectViewer: vi.fn(),
+      retireLandingFocus: vi.fn(),
       focusLanding: vi.fn(),
     }
     const send = vi.fn()

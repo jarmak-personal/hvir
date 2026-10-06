@@ -4,6 +4,7 @@ import type { ExtensionView } from '../../../shared/extensions/workbench'
 export interface ExtensionGuestSurfaceProps {
   readonly view: ExtensionView
   readonly focus?: boolean
+  readonly onFocusSettled?: () => void
 }
 
 const GuestTag = 'webview' as unknown as ComponentType<{
@@ -19,9 +20,12 @@ const GuestTag = 'webview' as unknown as ComponentType<{
 export function ElectronExtensionGuestSurface({
   view,
   focus = false,
+  onFocusSettled,
 }: ExtensionGuestSurfaceProps): ReactElement {
   const guest = useRef<HTMLElement>(null)
   const consumed = useRef(false)
+  const settled = useRef(onFocusSettled)
+  settled.current = onFocusSettled
   useEffect(() => {
     if (!focus || consumed.current) return
     consumed.current = true
@@ -35,6 +39,7 @@ export function ElectronExtensionGuestSurface({
           if (!current) return
           if (!foreground || !element.checkVisibility()) {
             current = false
+            settled.current?.()
             return
           }
           try {
@@ -42,11 +47,16 @@ export function ElectronExtensionGuestSurface({
             ;(element as HTMLElement & { getWebContentsId(): number }).getWebContentsId()
             element.focus()
             current = false
+            settled.current?.()
           } catch {
             /* Wait only for this exact guest's readiness. */
           }
         },
-        () => undefined,
+        () => {
+          if (!current) return
+          current = false
+          settled.current?.()
+        },
       )
     }
     element.addEventListener('dom-ready', focusReady)

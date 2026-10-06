@@ -62,12 +62,13 @@ export function SettingsDialog({
     close()
   }, [close])
   const contributions = useExtensionContributions()
-  const installedLanding = (view: ExtensionView): void => {
-    if (!contributions?.foreground || !onInstallationHandoff) return
+  const installedLanding = (view: ExtensionView): boolean => {
+    if (!contributions?.foreground || !onInstallationHandoff) return false
     onInstallationHandoff()
     if (view.context?.surface === 'top') contributions.selectTop(view)
     else contributions.selectViewer(view.id)
-    contributions.focusLanding(view.id)
+    contributions.focusLanding(view)
+    return true
   }
 
   useEffect(() => {

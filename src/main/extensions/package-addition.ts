@@ -4,8 +4,11 @@ import type { ExtensionConnectionResult } from '../../shared/extensions/connecto
 import type {
   ExtensionAdditionResult,
   ExtensionInstallation,
-  ExtensionView,
 } from '../../shared/extensions/workbench'
+import {
+  InstallationLandingCleanupError,
+  type PreparedInstallationLanding,
+} from './installation-landing'
 import type { RendererOwner, RendererResourceScopes } from '../renderer-resource-scopes'
 import type { ExtensionActivation, ExtensionActivationOwner } from './activation'
 import type { HostPath } from '../../shared/host-path'
@@ -41,9 +44,13 @@ export class ExtensionPackageAdditionOwner {
       owner: RendererOwner,
       current: () => void,
       signal: AbortSignal,
-    ) => Promise<ExtensionView | undefined>,
+    ) => Promise<PreparedInstallationLanding | undefined>,
     private readonly foreground: (owner: RendererOwner) => boolean = () => false,
-  ) {}
+    private readonly closeLanding?: (owner: RendererOwner, id: string) => Promise<void>,
+  ) {
+    if (landing && !closeLanding)
+      throw new Error('Installation landing requires its guest cleanup owner')
+  }
 
   async add(
     owner: RendererOwner,
@@ -81,7 +88,8 @@ export class ExtensionPackageAdditionOwner {
           /* Current Settings status remains authoritative for connection outcomes. */
         }
       }
-      let landing: ExtensionView | undefined
+      let landing: PreparedInstallationLanding | undefined
+      let landingCleanupError: InstallationLandingCleanupError | undefined
       const installed = receipt.installed
       const source = receipt.state.installations.find(
         (entry) => entry.installationId === installed?.installationId,
@@ -104,19 +112,29 @@ export class ExtensionPackageAdditionOwner {
             AbortSignal.any([lifetime.signal, setup.signal]),
           )
           current()
-        } catch {
+        } catch (reason) {
+          if (reason instanceof InstallationLandingCleanupError)
+            landingCleanupError = reason
+          if (landing?.created)
+            await this.closeLanding?.(owner, landing.view.id).catch((cause: unknown) => {
+              landingCleanupError = new InstallationLandingCleanupError(cause)
+            })
           landing = undefined
           /* The committed installation remains successful without automatic navigation. */
         }
       }
       return {
         ...receipt.state,
+        ...(landingCleanupError ? { explanation: landingCleanupError.message } : {}),
         ...(installed
           ? {
-              installed: {
-                installationId: installed.installationId,
-                ...(landing ? { landing } : {}),
-              },
+              installed: landing
+                ? {
+                    installationId: installed.installationId,
+                    landing: landing.view,
+                    landingCreated: landing.created,
+                  }
+                : { installationId: installed.installationId },
             }
           : {}),
         ...(connection ? { connection } : {}),

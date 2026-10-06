@@ -1,4 +1,10 @@
-import { useEffect, useRef, type ReactElement, type ComponentType } from 'react'
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  type ReactElement,
+  type ComponentType,
+} from 'react'
 import type { ExtensionView } from '../../../shared/extensions/workbench'
 import { createExtensionPresentationReader } from './extension-presentation'
 import { useExtensionContributions } from './extension-contribution-context'
@@ -54,6 +60,11 @@ export function ExtensionViewPane({
 }): ReactElement {
   const model = useExtensionContributions()
   const foreground = model?.foreground ?? true
+  const armed = model?.landingFocusId === view.id
+  const retireFocus = model?.retireLandingFocus
+  useLayoutEffect(() => {
+    if (armed && (!visible || !selected || !foreground)) retireFocus?.(view.id)
+  }, [armed, visible, selected, foreground, retireFocus, view.id])
   const root = useRef<HTMLDivElement>(null)
   const theme = useAppTheme()
   const settings = useAppSettings()
@@ -112,7 +123,11 @@ export function ExtensionViewPane({
       {view.failure ? (
         <p role="status">{view.failure}</p>
       ) : (
-        <Surface view={view} focus={visible && model?.landingFocusId === view.id} />
+        <Surface
+          view={view}
+          focus={visible && selected && foreground && armed}
+          onFocusSettled={() => retireFocus?.(view.id)}
+        />
       )}
     </div>
   )

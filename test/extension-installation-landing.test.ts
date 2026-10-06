@@ -11,12 +11,14 @@ import { extensionInstallationFixture } from './fixtures/extension-installation'
 import { exampleManifest } from './fixtures/extension-package'
 import { extensionZip } from './fixtures/extension-archive'
 
-async function fixture(kind: 'directory' | 'zip', landing: unknown = 'detail') {
+async function fixture(kind: 'directory' | 'zip', declaredLanding: unknown = 'detail') {
   const data = await extensionInstallationFixture()
   const activations = data.make()
   const scopes = new RendererResourceScopes()
   const owner = scopes.activateOwner(12)
-  const manifest = exampleManifest({ ...(landing === 'absent' ? {} : { landing }) })
+  const manifest = exampleManifest({
+    ...(declaredLanding === 'absent' ? {} : { landing: declaredLanding }),
+  })
   const files = new Map([
     ['hvir-extension.json', Buffer.from(JSON.stringify(manifest))],
     ['index.html', Buffer.from('index')],
@@ -29,7 +31,7 @@ async function fixture(kind: 'directory' | 'zip', landing: unknown = 'detail') {
     for (const [name, bytes] of files) await fs.writeFile(join(source, name), bytes)
   }
   await activations.start(data.lock)
-  const close = vi.fn(() => Promise.resolve())
+  const close = vi.fn<ExtensionGuestOwner['close']>(() => Promise.resolve())
   let reused = false
   const open = vi.fn<ExtensionGuestOwner['open']>(
     (_owner, installationId, contributionId, admit = () => {}, options = {}) => {
@@ -57,22 +59,27 @@ async function fixture(kind: 'directory' | 'zip', landing: unknown = 'detail') {
       connections: [{ connector: 'tool', outcome: 'unavailable' as const }],
     }),
   )
+  const landing = vi.fn<
+    NonNullable<ConstructorParameters<typeof ExtensionPackageAdditionOwner>[4]>
+  >((activation, source, caller, current, signal) =>
+    prepareInstallationLanding(
+      activations,
+      { open, close },
+      activation,
+      source,
+      caller,
+      current,
+      signal,
+    ),
+  )
   const addition = new ExtensionPackageAdditionOwner(
     scopes,
     activations,
     { pick: () => Promise.resolve(localPath(source)) },
     connected,
-    (activation, source, caller, current, signal) =>
-      prepareInstallationLanding(
-        activations,
-        { open, close },
-        activation,
-        source,
-        caller,
-        current,
-        signal,
-      ),
+    landing,
     () => foreground,
+    (owner, id) => close(owner, id),
   )
   return {
     ...data,
@@ -81,6 +88,7 @@ async function fixture(kind: 'directory' | 'zip', landing: unknown = 'detail') {
     owner,
     addition,
     connected,
+    landing,
     open,
     close,
     reuse: () => {
@@ -125,6 +133,7 @@ describe('exact explicit installation landing preparation', () => {
         const installed = [...data.activations.active.values()][0]!
         expect(result.installed).toEqual({
           installationId: installed.installationId,
+          landingCreated: true,
           landing: expect.objectContaining({
             contributionId: 'detail',
             installationId: installed.installationId,
@@ -261,6 +270,67 @@ describe('exact explicit installation landing preparation', () => {
         else expect(data.close).toHaveBeenCalledExactlyOnceWith(data.owner, 'prepared')
       } finally {
         finish()
+        await data.dispose()
+      }
+    },
+  )
+  it.each(['cancel', 'background', 'renderer'] as const)(
+    'drains only owned preparation if final main admission rejects after %s',
+    async (ending) => {
+      for (const reused of [false, true]) {
+        const data = await fixture('directory')
+        if (reused) data.reuse()
+        const original = data.landing.getMockImplementation()!
+        data.landing.mockImplementation(async (...args) => {
+          const prepared = await original(...args)
+          if (ending === 'cancel') data.addition.cancelSetup(data.owner, 'request')
+          if (ending === 'background') data.background()
+          if (ending === 'renderer') await data.scopes.revokeOwner(data.owner.id)
+          return prepared
+        })
+        try {
+          const result = await data.addition.add(data.owner, 'request')
+          expect(result.installed?.landing).toBeUndefined()
+          expect(result.installed?.installationId).toEqual(expect.any(String))
+          expect(data.open).toHaveBeenCalledOnce()
+          if (reused) expect(data.close).not.toHaveBeenCalled()
+          else expect(data.close).toHaveBeenCalledExactlyOnceWith(data.owner, 'prepared')
+        } finally {
+          await data.dispose()
+        }
+      }
+    },
+  )
+  it.each(['during-preparation', 'after-preparation'] as const)(
+    'reports the committed installation and cleanup failure %s without claiming a drain',
+    async (stage) => {
+      const data = await fixture('directory')
+      data.close.mockRejectedValue(new Error('owned surface disposal refused'))
+      if (stage === 'during-preparation') {
+        const original = data.open.getMockImplementation()!
+        data.open.mockImplementation(async (...args) => {
+          const view = await original(...args)
+          data.background()
+          return view
+        })
+      } else {
+        const original = data.landing.getMockImplementation()!
+        data.landing.mockImplementation(async (...args) => {
+          const prepared = await original(...args)
+          data.background()
+          return prepared
+        })
+      }
+      try {
+        const result = await data.addition.add(data.owner)
+        expect(result.installed?.landing).toBeUndefined()
+        expect(result.installed?.installationId).toEqual(expect.any(String))
+        expect(data.activations.active.has(result.installed!.installationId)).toBe(true)
+        expect(result.explanation).toBe(
+          'Extension installed, but its view could not close. Restart hvir to finish cleanup.',
+        )
+        expect(data.close).toHaveBeenCalledExactlyOnceWith(data.owner, 'prepared')
+      } finally {
         await data.dispose()
       }
     },

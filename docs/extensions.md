@@ -17,7 +17,10 @@ Without a declaration, choose **Open** to view it. Leaving the Add flow prevents
 navigation. Unrelated unsaved app preferences remain in Settings for your next visit;
 explicit Close and Save retain their normal behavior. Capture and validation
 execute no package code. Installation grants no native program, file-root or agent access;
-review and approve needed access separately. Passive discovery remains nonactivating. Cancellation makes no copy.
+review and approve needed access separately. Passive discovery remains nonactivating.
+Canceling the native picker imports nothing. An interrupted import reports its outcome;
+do not assume an already submitted publication was rolled back. Once installation commits,
+leaving or canceling setup preserves the installed extension and prevents late landing navigation.
 An invalid or changing source is refused before publication. Filename or present package-ID
 conflicts preserve the existing installation; Remove explicitly before adding a replacement.
 An explicit reinstall through Add enables its validated revision and can reuse unchanged kept setup.

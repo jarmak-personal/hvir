@@ -100,6 +100,7 @@ async function fixture(surface: 'top' | 'viewer' = 'top', initialView = true) {
     foreground: true,
     selectTop: top,
     selectViewer: viewer,
+    retireLandingFocus: vi.fn(),
     focusLanding: focus,
     close: vi.fn(),
     closeTop: vi.fn(),
@@ -188,14 +189,18 @@ describe('installation handoff preserves only the existing Settings application 
         data.finish({
           writable: true,
           installations: [],
-          installed: { installationId: 'exact', landing: data.view },
+          installed: {
+            installationId: 'exact',
+            landing: data.view,
+            landingCreated: true,
+          },
         })
         await data.pending
       })
       expect(data.viewer).toHaveBeenCalledExactlyOnceWith('prepared')
       expect(data.closed).toHaveBeenCalledOnce()
       expect(data.top).not.toHaveBeenCalled()
-      expect(data.focus).toHaveBeenCalledExactlyOnceWith('prepared')
+      expect(data.focus).toHaveBeenCalledExactlyOnceWith(data.view)
     },
   )
   it.each(['top', 'viewer'] as const)(
@@ -212,7 +217,11 @@ describe('installation handoff preserves only the existing Settings application 
         data.finish({
           writable: true,
           installations: [],
-          installed: { installationId: 'exact', landing: data.view },
+          installed: {
+            installationId: 'exact',
+            landing: data.view,
+            landingCreated: true,
+          },
         })
         await data.pending
       })
@@ -221,7 +230,7 @@ describe('installation handoff preserves only the existing Settings application 
       expect(surface === 'top' ? data.top : data.viewer).toHaveBeenCalledExactlyOnceWith(
         surface === 'top' ? data.view : data.view.id,
       )
-      expect(data.focus).toHaveBeenCalledExactlyOnceWith(data.view.id)
+      expect(data.focus).toHaveBeenCalledExactlyOnceWith(data.view)
       expect(data.saved).not.toHaveBeenCalled()
       expect(frames.size).toBe(0)
       expect(data.unsubscribed.mock.calls.length).toBeGreaterThan(initialUnsubscribed)
@@ -252,9 +261,13 @@ describe('installation handoff preserves only the existing Settings application 
       ).not.toBe('{ invalid unfinished')
     },
   )
-  it.each(['section', 'close', 'package', 'background'] as const)(
-    'does not navigate from a late exact reply after %s',
-    async (ending) => {
+  it.each(
+    (['section', 'close', 'package', 'background'] as const).flatMap((ending) =>
+      [true, false].map((created) => ({ ending, created })),
+    ),
+  )(
+    'does not navigate and drains only its own late preparation after $ending (created=$created)',
+    async ({ ending, created }) => {
       const data = await fixture()
       await click('Extensions')
       act(() => button('Add extension…').click())
@@ -274,7 +287,11 @@ describe('installation handoff preserves only the existing Settings application 
         data.finish({
           writable: true,
           installations: [],
-          installed: { installationId: 'exact', landing: data.view },
+          installed: {
+            installationId: 'exact',
+            landing: data.view,
+            landingCreated: created,
+          },
         })
         await data.pending
       })
@@ -282,6 +299,46 @@ describe('installation handoff preserves only the existing Settings application 
       expect(data.viewer).not.toHaveBeenCalled()
       expect(data.focus).not.toHaveBeenCalled()
       expect(data.saved).not.toHaveBeenCalled()
+      const closes = data.invoke.mock.calls.filter(
+        ([channel]) => channel === 'extensions:close-view',
+      )
+      expect(closes).toHaveLength(created ? 1 : 0)
+      if (created)
+        expect(data.invoke).toHaveBeenCalledWith('extensions:close-view', {
+          viewId: 'prepared',
+        })
+    },
+  )
+  it.each([true, false])(
+    'drains only its own prepared landing when synchronous selection throws (created=%s)',
+    async (created) => {
+      const data = await fixture()
+      data.top.mockImplementation(() => {
+        throw new Error('selection refused')
+      })
+      await click('Extensions')
+      act(() => button('Add extension…').click())
+      await act(async () => {
+        data.finish({
+          writable: true,
+          installations: [],
+          installed: {
+            installationId: 'exact',
+            landing: data.view,
+            landingCreated: created,
+          },
+        })
+        await data.pending
+      })
+      expect(data.focus).not.toHaveBeenCalled()
+      const closes = data.invoke.mock.calls.filter(
+        ([channel]) => channel === 'extensions:close-view',
+      )
+      expect(closes).toHaveLength(created ? 1 : 0)
+      if (created)
+        expect(data.invoke).toHaveBeenCalledWith('extensions:close-view', {
+          viewId: 'prepared',
+        })
     },
   )
   it('keeps ordinary explicit Save behavior after a retained draft reopens', async () => {
@@ -293,7 +350,7 @@ describe('installation handoff preserves only the existing Settings application 
       data.finish({
         writable: true,
         installations: [],
-        installed: { installationId: 'exact', landing: data.view },
+        installed: { installationId: 'exact', landing: data.view, landingCreated: true },
       })
       await data.pending
     })

@@ -96,6 +96,7 @@ describe('ProjectsBar status presentation', () => {
       closeTop: vi.fn(),
       selectTop: vi.fn(),
       selectViewer: vi.fn(),
+      retireLandingFocus: vi.fn(),
       focusLanding: vi.fn(),
     }
     const callbacks = renderProjectsBar(projectState(0, 0), {}, { contributions: model })

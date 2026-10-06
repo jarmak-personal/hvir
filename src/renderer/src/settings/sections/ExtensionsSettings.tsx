@@ -26,7 +26,7 @@ export function ExtensionsSettings({
   onInstalledLanding,
   ref,
 }: {
-  readonly onInstalledLanding?: (view: ExtensionView) => void
+  readonly onInstalledLanding?: (view: ExtensionView) => boolean
   readonly ref?: Ref<ExtensionsSettingsHandle>
 }): ReactElement {
   const [state, setState] = useState<ExtensionPlatformState>()
@@ -124,19 +124,37 @@ export function ExtensionsSettings({
                   setConnection(undefined)
                   setupRequest.current = request
                   const next = await window.hvir.invoke('extensions:add', { request })
-                  if (observed === publication.current) {
-                    setState(next)
+                  const landing = next.installed?.landing
+                  let consumed = false
+                  try {
+                    if (observed === publication.current) {
+                      setState(next)
+                    }
+                    if (setupRequest.current !== request) return
+                    if (observed !== publication.current && next.explanation)
+                      setError(next.explanation)
+                    setConnection(next.connection)
+                    const added =
+                      next.installed &&
+                      next.installations.find(
+                        (entry) =>
+                          entry.installationId === next.installed!.installationId,
+                      )
+                    if (added) setSelection(added)
+                    if (landing) consumed = landingCallback.current?.(landing) === true
+                  } finally {
+                    if (landing && next.installed?.landingCreated && !consumed)
+                      await window.hvir
+                        .invoke('extensions:close-view', {
+                          viewId: landing.id,
+                        })
+                        .catch((cause: unknown) => {
+                          throw new Error(
+                            'Extension installed, but its view could not close. Restart hvir to finish cleanup.',
+                            { cause },
+                          )
+                        })
                   }
-                  if (setupRequest.current !== request) return
-                  setConnection(next.connection)
-                  const added =
-                    next.installed &&
-                    next.installations.find(
-                      (entry) => entry.installationId === next.installed!.installationId,
-                    )
-                  if (added) setSelection(added)
-                  if (next.installed?.landing)
-                    landingCallback.current?.(next.installed.landing)
                 } finally {
                   if (setupRequest.current === request) setupRequest.current = undefined
                 }

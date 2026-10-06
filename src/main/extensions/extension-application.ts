@@ -259,6 +259,7 @@ export class ExtensionApplicationRuntime {
           signal,
         ),
       (owner) => this.surface.foreground(owner),
+      (owner, id) => this.guests!.close(owner, id),
     )
     const sourceApprovals = new ExtensionSourceApprovalOwner(
       hosts,

@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactElement,
@@ -42,6 +43,8 @@ export function ExtensionContributionsProvider({
   readonly placement: {
     readonly guests: readonly ExtensionView[]
     readonly activate: (id: string, focus?: boolean) => void
+    readonly active?: boolean
+    readonly activeId?: string
   }
   readonly onError: (message: string) => void
 }): ReactElement {
@@ -49,10 +52,23 @@ export function ExtensionContributionsProvider({
   const errorRef = useRef(onError)
   errorRef.current = onError
   const [topId, setTopId] = useState<string>()
-  const [landingFocusId, focusLanding] = useState<string>()
+  const [landingFocus, setLandingFocus] = useState<{
+    readonly id: string
+    readonly surface: 'top' | 'viewer'
+  }>()
+  const retireLandingFocus = useCallback((id: string): void => {
+    setLandingFocus((current) => (current?.id === id ? undefined : current))
+  }, [])
+  const focusLanding = useCallback((view: ExtensionView): void => {
+    setLandingFocus({
+      id: view.id,
+      surface: view.context?.surface === 'top' ? 'top' : 'viewer',
+    })
+  }, [])
   const selectedTop = views.find((view) => view.id === topId)
   const selectTop = useCallback(
     (view: ExtensionView): void => {
+      setLandingFocus(undefined)
       setTopId(view.id)
       onTop()
     },
@@ -80,7 +96,27 @@ export function ExtensionContributionsProvider({
   const [state, setState] = useState<readonly ExtensionContributionState[]>([])
   const [sessions, setSessions] = useState<readonly ExtensionSessionContext[]>([])
   const [terminalIds, setTerminalIds] = useState<Readonly<Record<string, string>>>({})
-  const foreground = useExtensionForeground()
+  const foreground = useExtensionForeground(() => setLandingFocus(undefined))
+  useLayoutEffect(() => {
+    if (
+      landingFocus &&
+      (!foreground ||
+        obscured ||
+        (landingFocus.surface === 'top'
+          ? !topActive || topId !== landingFocus.id
+          : !placement.active || placement.activeId !== landingFocus.id))
+    )
+      retireLandingFocus(landingFocus.id)
+  }, [
+    landingFocus,
+    foreground,
+    obscured,
+    topActive,
+    topId,
+    placement.active,
+    placement.activeId,
+    retireLandingFocus,
+  ])
   const demands = useRef(new Map<string, readonly ExtensionDemand[]>())
   const demandPump = useRef({ running: false, dirty: false })
   const publishDemand = useCallback((): void => {
@@ -189,15 +225,19 @@ export function ExtensionContributionsProvider({
     },
     [onError],
   )
-  const close = useCallback((id: string): void => {
-    void window.hvir
-      .invoke('extensions:close-view', { viewId: id })
-      .catch((reason: unknown) => {
-        errorRef.current(
-          reason instanceof Error ? reason.message : 'Extension view could not close',
-        )
-      })
-  }, [])
+  const close = useCallback(
+    (id: string): void => {
+      retireLandingFocus(id)
+      void window.hvir
+        .invoke('extensions:close-view', { viewId: id })
+        .catch((reason: unknown) => {
+          errorRef.current(
+            reason instanceof Error ? reason.message : 'Extension view could not close',
+          )
+        })
+    },
+    [retireLandingFocus],
+  )
   return (
     <ExtensionContributionContext.Provider
       value={{
@@ -205,9 +245,13 @@ export function ExtensionContributionsProvider({
         obscured,
         selectedTop,
         selectTop,
-        selectViewer: (id) => placement.activate(id, false),
+        selectViewer: (id) => {
+          setLandingFocus(undefined)
+          placement.activate(id, false)
+        },
         focusLanding,
-        landingFocusId,
+        retireLandingFocus,
+        landingFocusId: landingFocus?.id,
         close,
         closeTop: (id) => {
           close(id)

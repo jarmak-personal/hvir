@@ -470,14 +470,17 @@ describe('Add selected configuration authority', () => {
       finish = yes
       reject = no
     })
+    const invoke = vi.fn<
+      (channel: string) => Promise<ExtensionAdditionResult | unknown[]>
+    >((channel) =>
+      channel === 'extensions:delivery-recovery'
+        ? Promise.resolve([])
+        : channel === 'extensions:add'
+          ? pending
+          : Promise.resolve(state(['first', 'second'])),
+    )
     vi.stubGlobal('hvir', {
-      invoke: vi.fn((channel: string) =>
-        channel === 'extensions:delivery-recovery'
-          ? Promise.resolve([])
-          : channel === 'extensions:add'
-            ? pending
-            : Promise.resolve(state(['first', 'second'])),
-      ),
+      invoke,
       on: vi.fn((channel: string, listener: (value: ExtensionPlatformState) => void) => {
         if (channel === 'extensions:state-changed') publish = listener
         return vi.fn()
@@ -501,12 +504,101 @@ describe('Add selected configuration authority', () => {
         .find((e) => e.textContent === 'Add extension…')!
         .click(),
     )
-    return { finish, reject, publish, pending }
+    return { finish, reject, publish, pending, invoke }
   }
   const selected = () =>
     element!
       .querySelector('.extension-installation-list [aria-current="true"]')
       ?.getAttribute('data-source')
+  it.each([true, false])(
+    'closes only an owned landing when no handoff callback consumes it (created=%s)',
+    async (created) => {
+      const data = await start('second')
+      await act(async () => {
+        data.finish({
+          ...state(['first', 'second', 'added']),
+          installed: {
+            installationId: 'added',
+            landingCreated: created,
+            landing: {
+              id: 'prepared',
+              installationId: 'added',
+              contributionId: 'detail',
+              extensionName: 'Example',
+              title: 'Detail',
+              partition: 'owned',
+              url: 'hvir-extension://prepared/index.html',
+            },
+          },
+        })
+        await data.pending
+      })
+      const invoke = data.invoke
+      expect(
+        invoke.mock.calls.filter(([channel]) => channel === 'extensions:close-view'),
+      ).toHaveLength(created ? 1 : 0)
+      if (created)
+        expect(invoke).toHaveBeenCalledWith('extensions:close-view', {
+          viewId: 'prepared',
+        })
+    },
+  )
+  it('reports committed installation truthfully when unused landing cleanup rejects', async () => {
+    const data = await start('second')
+    const invoke = data.invoke
+    invoke.mockImplementation((channel) =>
+      channel === 'extensions:close-view'
+        ? Promise.reject(new Error('owned cleanup refused'))
+        : Promise.resolve(state(['first', 'second'])),
+    )
+    await act(async () => {
+      data.finish({
+        ...state(['first', 'second', 'added']),
+        installed: {
+          installationId: 'added',
+          landingCreated: true,
+          landing: {
+            id: 'prepared',
+            installationId: 'added',
+            contributionId: 'detail',
+            extensionName: 'Example',
+            title: 'Detail',
+            partition: 'owned',
+            url: 'hvir-extension://prepared/index.html',
+          },
+        },
+      })
+      await data.pending
+    })
+    expect(element!.querySelector('[role="alert"]')?.textContent).toBe(
+      'Extension installed, but its view could not close. Restart hvir to finish cleanup.',
+    )
+    expect(selected()).toBe('added')
+  })
+  it('retains newest published installations and writer state while reporting an Add cleanup failure', async () => {
+    const data = await start('second')
+    act(() =>
+      data.publish({
+        ...state(['first', 'second', 'added', 'newest']),
+        explanation: 'Newest writer state',
+      }),
+    )
+    await act(async () => {
+      data.finish({
+        ...state(['first', 'second', 'added']),
+        explanation:
+          'Extension installed, but its view could not close. Restart hvir to finish cleanup.',
+        installed: { installationId: 'added' },
+      })
+      await data.pending
+    })
+    expect(element!.querySelector('[role="alert"]')?.textContent).toBe(
+      'Extension installed, but its view could not close. Restart hvir to finish cleanup.',
+    )
+    expect(element!.textContent).toContain('Newest writer state')
+    expect(element!.querySelector('[data-source="newest"]')).not.toBeNull()
+    expect(selected()).toBe('added')
+  })
   it('preserves prior manual selection when picker cancellation returns no installation receipt', async () => {
     const { finish, pending } = await start('second')
     await act(async () => {

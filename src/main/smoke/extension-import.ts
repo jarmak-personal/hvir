@@ -1,13 +1,10 @@
 import { extensionSettingsControls } from './extension-settings-controls'
 import { ZipFile } from 'yazl'
-import type { BrowserWindow } from 'electron'
+import { dialog, type BrowserWindow, type OpenDialogOptions } from 'electron'
 import { joinHostPath } from '../../shared/host-path'
 import type { ProjectHost } from '../project-host/project-host'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import type { ExtensionApplicationRuntime } from '../extensions/extension-application'
-import { ExtensionPackageAdditionOwner } from '../extensions/package-addition'
-import { createElectronPackagePicker } from '../extensions/electron-package-picker'
-import { prepareInstallationLanding } from '../extensions/installation-landing'
 import { verifyInstalledLanding } from './extension-installation-landing'
 
 /** Ordinary Settings flow with only the native-dialog return replaced by owned selections. */
@@ -21,17 +18,25 @@ export async function verifyExtensionImport(
     wait(predicate: () => boolean | Promise<boolean>, label: string): Promise<void>
   },
 ): Promise<void> {
-  const activations = extensions.activations!,
-    original = extensions.additions
+  const activations = extensions.activations!
   const root = joinHostPath(activations.packages.root, '..', 'smoke-import-sources')
   await host.createDirectoryExclusive(root, { mode: 0o755 })
   let selection: string | undefined,
     calls = 0
-  const picker = createElectronPackagePicker((owner, options) => {
-    scopes.assertCurrent(owner)
+  const originalOpen = dialog.showOpenDialog.bind(dialog)
+  const originalDescriptor = Object.getOwnPropertyDescriptor(dialog, 'showOpenDialog')
+  if (!originalDescriptor) throw new Error('Native picker property is unavailable')
+  dialog.showOpenDialog = (
+    parent: BrowserWindow | OpenDialogOptions,
+    options?: OpenDialogOptions,
+  ) => {
+    if (parent !== win)
+      return options
+        ? originalOpen(parent as BrowserWindow, options)
+        : originalOpen(parent as OpenDialogOptions)
+    scopes.assertCurrent(scopes.currentOwner(win.webContents.id))
     if (
-      owner.id !== win.webContents.id ||
-      options.buttonLabel !== 'Add extension' ||
+      options?.buttonLabel !== 'Add extension' ||
       options.properties?.includes('multiSelections')
     )
       throw new Error(
@@ -42,63 +47,6 @@ export async function verifyExtensionImport(
       canceled: selection === undefined,
       filePaths: selection ? [selection] : [],
     })
-  })
-  extensions.additions = new ExtensionPackageAdditionOwner(
-    scopes,
-    activations,
-    picker,
-    undefined,
-    (activation, source, owner, current, signal) =>
-      prepareInstallationLanding(
-        activations,
-        extensions.guests!,
-        activation,
-        source,
-        owner,
-        current,
-        signal,
-      ),
-    (owner) => extensions.surface.foreground(owner),
-  )
-  const addition = extensions.additions,
-    add = addition.add.bind(addition),
-    cancel = addition.cancelSetup.bind(addition)
-  addition.add = (...args) => {
-    const pending = add(...args)
-    // Observe the original promise; preserve the exact handler's result/delivery path.
-    void pending.then(
-      (result) => {
-        console.log(
-          '[smoke] actual Add return facts',
-          JSON.stringify({
-            request: args[1],
-            rendererCurrent: scopes.isCurrent(args[0]),
-            installed: result.installed?.installationId,
-            landing: result.installed?.landing?.id,
-            active:
-              !!result.installed &&
-              activations.active.has(result.installed.installationId),
-            rows: result.installations
-              .slice(0, 32)
-              .map((entry) => ({
-                source: entry.source,
-                id: entry.installationId,
-                identity: entry.sourceIdentity,
-                enabled: entry.enabled,
-              })),
-          }),
-        )
-      },
-      () => console.log('[smoke] actual Add return refused'),
-    )
-    return pending
-  }
-  addition.cancelSetup = (owner, request) => {
-    console.log(
-      '[smoke] actual Add cancellation facts',
-      JSON.stringify({ request, rendererCurrent: scopes.isCurrent(owner) }),
-    )
-    cancel(owner, request)
   }
   try {
     const before = activations.snapshot().installations.length
@@ -187,34 +135,14 @@ export async function verifyExtensionImport(
         await controls.click('Open settings')
         await controls.click('Extensions')
       } else {
-        try {
-          await controls.wait(
-            async () =>
-              (await win.webContents.executeJavaScript(`(() => {
+        await controls.wait(
+          async () =>
+            (await win.webContents.executeJavaScript(`(() => {
           const entry=[...document.querySelectorAll('.extension-installation-list button')].find(e=>e.querySelector('strong')?.textContent===${JSON.stringify(name)});
           return entry?.getAttribute('aria-current')==='true'&&document.querySelector('.extension-installation h4')?.textContent===${JSON.stringify(name)};
         })()`)) === true,
-            `Add ${kind} selects the imported package without a helper click`,
-          )
-        } catch (reason) {
-          const controls: unknown = await win.webContents.executeJavaScript(`(() => ({
-            rows: [...document.querySelectorAll('.extension-installation-list button')].slice(0,32).map(entry=>({source:entry.dataset.source, name:entry.querySelector('strong')?.textContent?.slice(0,80), selected:entry.getAttribute('aria-current'), disabled:entry.disabled})),
-            title:document.querySelector('.extension-installation h4')?.textContent?.slice(0,80),
-            alerts:[...document.querySelectorAll('[role="alert"]')].slice(0,4).map(entry=>entry.textContent?.slice(0,240)),
-            addDisabled:[...document.querySelectorAll('.extension-settings button')].find(entry=>entry.textContent.trim()==='Add extension…')?.disabled,
-          }))()`)
-          const installed = activations.snapshot().installations.map((entry) => ({
-            id: entry.installationId,
-            package: entry.manifest?.id,
-            enabled: entry.enabled,
-            error: entry.error?.slice(0, 240),
-          }))
-          console.log(
-            '[smoke] exact Add row failure facts',
-            JSON.stringify({ controls, installed }),
-          )
-          throw reason
-        }
+          `Add ${kind} selects the imported package without a helper click`,
+        )
       }
       await extensionSettingsControls(win, name, {
         wait: (predicate, label) => controls.wait(predicate, label),
@@ -286,7 +214,7 @@ export async function verifyExtensionImport(
       '[smoke] single Add native-dialog-boundary cancellation/ZIP/directory import, source preservation, exact activation without Enable OK',
     )
   } finally {
-    extensions.additions = original
+    Object.defineProperty(dialog, 'showOpenDialog', originalDescriptor)
   }
   async function ready(): Promise<boolean> {
     return Boolean(
