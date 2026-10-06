@@ -9,12 +9,13 @@ its package directory; hvir copies that whole directory. The native picker ident
 package form automatically. Other JSON files are refused with this selection instruction.
 
 hvir validates and copies the selection into this instance's extensions folder, then shows
-it immediately. The original is preserved; directories are copied, never linked. Inspect
-its contract, capabilities and requested access, then choose **Enable** and **Open**.
-Import and discovery execute no package code and grant no access. Cancellation makes no copy.
+it immediately, accepting and enabling that exact validated copy. The original is preserved;
+directories are copied, never linked. Choose **Open** to view it. Capture and validation
+execute no package code. Installation grants no native program, file-root or agent access;
+review and approve needed access separately. Passive discovery remains nonactivating. Cancellation makes no copy.
 An invalid or changing source is refused before publication. Filename or present package-ID
 conflicts preserve the existing installation; Remove explicitly before adding a replacement.
-A reinstall can reuse kept setup, but still needs explicit Enable.
+An explicit reinstall through Add enables its validated revision and can reuse unchanged kept setup.
 
 **Author and discovery controls** contains **Open extensions folder** and **Discover
 extensions** for manual copies and explicit development links. Directories, ZIPs and
@@ -51,7 +52,7 @@ application-owned data root.
 ## ZIP, development, replacement and removal
 
 To package the reference example, run `zip -r ../extension-reference.zip .` from inside
-its directory, so `hvir-extension.json` is at ZIP root. Choose **Add extension…**, select the completed archive, then **Enable → Open Extension reference**.
+its directory, so `hvir-extension.json` is at ZIP root. Choose **Add extension…**, select the completed archive, then **Open Extension reference**.
 Do not leave the same package ID in both directory and ZIP forms. An incomplete copied ZIP
 is rejected; finish the copy and discover again. ZIPs have at most 20 MiB compressed input,
 16 MiB expanded assets, 256 materialized entries including implicit directories, 12 directory

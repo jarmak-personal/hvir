@@ -38,7 +38,7 @@ function deferred<T>() {
 
 describe('Add extension serialized import', () => {
   it.each(['zip', 'directory'] as const)(
-    'copies %s, automatically discovers inactive, preserves source, and reuses retained setup on explicit reinstall',
+    'copies and enables exact %s, preserves source, and reuses retained setup on explicit reinstall',
     async (kind) => {
       const data = await extensionInstallationFixture(),
         owner = data.make()
@@ -54,8 +54,12 @@ describe('Add extension serialized import', () => {
           )
         const first = (await add()).installations[0]!
         expect(first.kind).toBe(kind)
-        expect(first.enabled).toBe(false)
-        expect(owner.active.size).toBe(0)
+        expect(first.enabled).toBe(true)
+        expect(owner.active.size).toBe(1)
+        expect(owner.agentAccess()).toEqual([])
+        expect(owner.active.get(first.installationId!)?.revision.hash).toBe(
+          first.revision,
+        )
         expect(await fs.stat(input.source.path)).toMatchObject({
           ino: source.ino,
           size: source.size,
@@ -70,7 +74,6 @@ describe('Add extension serialized import', () => {
           expect(await fs.readFile(join(data.directory, first.source))).toEqual(
             await fs.readFile(input.source.path),
           )
-        await owner.enable(first.source, first.revision!)
         const id = owner.snapshot().installations[0]!.installationId!
         await owner.configureAgentAccess(id, true)
         await owner.remove(
@@ -80,8 +83,7 @@ describe('Add extension serialized import', () => {
         )
         const reinstalled = (await add()).installations[0]!
         expect(reinstalled.installationId).toBe(id)
-        expect(reinstalled.enabled).toBe(false)
-        await owner.enable(reinstalled.source, reinstalled.revision!)
+        expect(reinstalled.enabled).toBe(true)
         expect(owner.active.has(id)).toBe(true)
         expect(owner.agentAccess()).toContain(id)
         expect(await fs.readdir(data.packages)).not.toContainEqual(
@@ -93,6 +95,198 @@ describe('Add extension serialized import', () => {
       }
     },
   )
+  it('enables only the explicitly imported revision while passive and disabled packages remain inactive', async () => {
+    const data = await extensionInstallationFixture(),
+      owner = data.make()
+    try {
+      await data.packageAt('disabled', { id: 'example.disabled' })
+      await owner.start(data.lock)
+      const disabled = owner.snapshot().installations[0]!
+      await owner.enable(disabled.source, disabled.revision!)
+      const id = owner.snapshot().installations[0]!.installationId!
+      await owner.disable(id)
+      await data.packageAt('passive', { id: 'example.passive' })
+      const input = await authored(data.root, 'directory')
+      const state = await owner.add(
+        () => Promise.resolve(input.source),
+        () => undefined,
+        new AbortController().signal,
+      )
+      expect(
+        state.installations
+          .filter((entry) => entry.enabled)
+          .map((entry) => entry.manifest?.id),
+      ).toEqual(['example.reference'])
+      expect(owner.active.size).toBe(1)
+      await owner.discover()
+      expect(owner.active.size).toBe(1)
+      expect(owner.active.has(id)).toBe(false)
+      expect(await owner.readConnectorApprovals()).toEqual([])
+      expect(await owner.readSourceGrants()).toEqual([])
+      expect(owner.agentAccess()).toEqual([])
+    } finally {
+      await owner.dispose()
+      await data.dispose()
+    }
+  })
+  it.each(['bytes', 'identity'] as const)(
+    'refuses changed imported %s rather than accepting the newly discovered package',
+    async (change) => {
+      const data = await extensionInstallationFixture(),
+        owner = data.make()
+      try {
+        const input = await authored(data.root, 'directory')
+        await owner.start(data.lock)
+        const original = data.host.fileTransfer.renameNoReplace.bind(
+          data.host.fileTransfer,
+        )
+        vi.spyOn(data.host.fileTransfer, 'renameNoReplace').mockImplementation(
+          async (source, destination, options) => {
+            await original(source, destination, options)
+            if (change === 'bytes')
+              await fs.writeFile(
+                join(destination.path, 'index.html'),
+                'externally replaced',
+              )
+            else {
+              await fs.rename(destination.path, destination.path + '-retired')
+              await fs.cp(destination.path + '-retired', destination.path, {
+                recursive: true,
+              })
+            }
+          },
+        )
+        await expect(
+          owner.add(
+            () => Promise.resolve(input.source),
+            () => undefined,
+            new AbortController().signal,
+          ),
+        ).rejects.toThrow(
+          change === 'bytes' ? 'Discover this package again' : 'imported package changed',
+        )
+        expect(owner.active.size).toBe(0)
+        expect((await owner.discover()).installations[0]!.enabled).toBe(false)
+        expect(await fs.readFile(join(input.source.path, 'index.html'), 'utf8')).toBe(
+          'authored entry',
+        )
+      } finally {
+        vi.restoreAllMocks()
+        await owner.dispose()
+        await data.dispose()
+      }
+    },
+  )
+  it.each(['retain', 'save'] as const)(
+    'rejects renderer revocation during acceptance %s without enabling the completed copy',
+    async (boundary) => {
+      const data = await extensionInstallationFixture(),
+        owner = data.make(),
+        lifetime = new AbortController()
+      try {
+        const input = await authored(data.root, 'directory')
+        await owner.start(data.lock)
+        if (boundary === 'retain') {
+          const original = owner.packages.retain.bind(owner.packages)
+          vi.spyOn(owner.packages, 'retain').mockImplementation(
+            async (revision, signal) => {
+              await original(revision, signal)
+              lifetime.abort(new Error('Renderer acceptance revoked'))
+            },
+          )
+        } else {
+          const original = data.host.writeFile.bind(data.host)
+          vi.spyOn(data.host, 'writeFile').mockImplementation(
+            async (path, bytes, options) => {
+              if (path.path === join(data.root, 'state.json'))
+                lifetime.abort(new Error('Renderer acceptance revoked'))
+              await original(path, bytes, options)
+            },
+          )
+        }
+        await expect(
+          owner.add(
+            () => Promise.resolve(input.source),
+            () => undefined,
+            lifetime.signal,
+          ),
+        ).rejects.toThrow('Renderer acceptance revoked')
+        expect(owner.active.size).toBe(0)
+        expect((await owner.discover()).installations[0]!.enabled).toBe(false)
+        expect(
+          await fs.readFile(join(data.directory, 'authored', 'index.html'), 'utf8'),
+        ).toBe('authored entry')
+        expect(
+          await fs.readFile(join(data.root, 'state.json'), 'utf8').catch(() => undefined),
+        ).toBeUndefined()
+      } finally {
+        vi.restoreAllMocks()
+        await owner.dispose()
+        await data.dispose()
+      }
+    },
+  )
+  it('reports committed acceptance when the renderer is revoked after a successful state write, with consistent restart state', async () => {
+    const data = await extensionInstallationFixture(),
+      owner = data.make(),
+      restarted = data.make(),
+      lifetime = new AbortController()
+    try {
+      const input = await authored(data.root, 'directory')
+      await owner.start(data.lock)
+      const original = data.host.writeFile.bind(data.host)
+      vi.spyOn(data.host, 'writeFile').mockImplementation(
+        async (path, bytes, options) => {
+          await original(path, bytes, options)
+          if (path.path === join(data.root, 'state.json'))
+            lifetime.abort(new Error('Renderer revoked after committed write'))
+        },
+      )
+      const result = await owner.add(
+        () => Promise.resolve(input.source),
+        () => undefined,
+        lifetime.signal,
+      )
+      const installed = result.installations[0]!
+      expect(lifetime.signal.aborted).toBe(true)
+      expect(installed.enabled).toBe(true)
+      expect(owner.snapshot()).toEqual(result)
+      expect(owner.active.get(installed.installationId!)?.revision.hash).toBe(
+        installed.revision,
+      )
+      expect(
+        JSON.parse(await fs.readFile(join(data.root, 'state.json'), 'utf8')),
+      ).toMatchObject({
+        installations: [
+          {
+            installationId: installed.installationId,
+            revision: installed.revision,
+            enabled: true,
+            agentAccess: false,
+          },
+        ],
+      })
+      expect(await owner.readConnectorApprovals()).toEqual([])
+      expect(await owner.readSourceGrants()).toEqual([])
+      expect(owner.agentAccess()).toEqual([])
+      await owner.dispose()
+      await restarted.start(data.lock)
+      expect(restarted.snapshot().installations[0]).toMatchObject({
+        installationId: installed.installationId,
+        revision: installed.revision,
+        enabled: true,
+      })
+      expect(restarted.active.get(installed.installationId!)?.revision.hash).toBe(
+        installed.revision,
+      )
+      expect(restarted.agentAccess()).toEqual([])
+    } finally {
+      vi.restoreAllMocks()
+      await restarted.dispose()
+      await owner.dispose()
+      await data.dispose()
+    }
+  })
   it('cancels without capture or installation effects and refuses a second writer before opening the picker', async () => {
     const data = await extensionInstallationFixture(),
       first = data.make(),

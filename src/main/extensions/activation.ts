@@ -24,6 +24,7 @@ import {
 } from './installation-state'
 import { finishPackageRemoval } from './package-removal'
 import { importExtensionPackage } from './package-import'
+import { selectExtensionPackage } from './package-selection'
 import { collectExtensionPackages } from './package-retention'
 import type { ExtensionWriterLease } from '../project-host/extension-storage-port'
 
@@ -200,29 +201,12 @@ export class ExtensionActivationOwner {
       assertCurrent()
     }
     await current()
-    let abort!: () => void
-    const source = await Promise.race([
-      Promise.resolve().then(() => {
-        lifetime.throwIfAborted()
-        assertCurrent()
-        return pick()
-      }),
-      new Promise<never>((_, reject) => {
-        abort = () =>
-          reject(
-            lifetime.reason instanceof Error
-              ? lifetime.reason
-              : new Error('Extension package selection was revoked'),
-          )
-        lifetime.addEventListener('abort', abort, { once: true })
-        if (lifetime.aborted) abort()
-      }),
-    ]).finally(() => lifetime.removeEventListener('abort', abort))
+    const source = await selectExtensionPackage(pick, assertCurrent, lifetime)
     await current()
     if (!source) return this.snapshot()
     return this.serialize(async () => {
       await current()
-      await importExtensionPackage(
+      const imported = await importExtensionPackage(
         this.host,
         this.directory,
         this.packages.root,
@@ -273,10 +257,19 @@ export class ExtensionActivationOwner {
         lifetime,
       )
       await current()
-      return this.scan(() => {
+      await this.scan(() => {
         lifetime.throwIfAborted()
         assertCurrent()
       })
+      if (this.sourceIdentities.get(imported.source) !== imported.sourceIdentity)
+        throw new Error('The imported package changed; discover it before enabling it')
+      return this.acceptRevision(
+        imported.source,
+        imported.revision,
+        false,
+        current,
+        lifetime,
+      )
     })
   }
 
@@ -378,7 +371,7 @@ export class ExtensionActivationOwner {
         kind: saved.kind,
         error: this.removals.some((entry) => entry.source === saved.source)
           ? 'Package removal is unfinished. Retry Remove to finish cleanup.'
-          : 'Package is missing. Reinstall it and explicitly enable its revision.',
+          : 'Package is missing. Use Add extension to reinstall it.',
       })
     }
     for (const removal of this.removals) {
@@ -408,89 +401,94 @@ export class ExtensionActivationOwner {
   }
 
   enable(source: string, expectedRevision: string): Promise<ExtensionPlatformState> {
-    return this.acceptRevision(source, expectedRevision, false)
+    return this.serialize(() => this.acceptRevision(source, expectedRevision, false))
   }
 
   reload(source: string, expectedRevision: string): Promise<ExtensionPlatformState> {
-    return this.acceptRevision(source, expectedRevision, true)
+    return this.serialize(() => this.acceptRevision(source, expectedRevision, true))
   }
 
-  private acceptRevision(
+  private async acceptRevision(
     source: string,
     expectedRevision: string,
     replacing: boolean,
+    currentIntent: () => Promise<void> = () => this.assertWritable(),
+    signal: AbortSignal = this.authority.signal,
   ): Promise<ExtensionPlatformState> {
-    return this.serialize(async () => {
-      await this.assertWritable()
-      const discovered = this.discovered.get(source)
-      if (!discovered || (!replacing && discovered.hash !== expectedRevision))
-        throw new Error('Discover this package again before accepting it')
-      const current = await this.packages.captureSource(
-        joinHostPath(this.directory, source),
-        this.authority.signal,
+    await currentIntent()
+    const discovered = this.discovered.get(source)
+    if (!discovered || (!replacing && discovered.hash !== expectedRevision))
+      throw new Error('Discover this package again before accepting it')
+    const current = await this.packages.captureSource(
+      joinHostPath(this.directory, source),
+      signal,
+    )
+    if (
+      !replacing &&
+      (current.hash !== discovered.hash ||
+        current.sourceIdentity !== discovered.sourceIdentity)
+    )
+      throw new Error('The package changed; discover it and inspect its access again')
+    const prior = this.accepted.find((entry) => entry.packageId === current.manifest.id)
+    if (
+      replacing &&
+      expectedRevision !== discovered.hash &&
+      expectedRevision !== prior?.revision
+    )
+      throw new Error('Discover this package again before accepting its revision')
+    const occupied = this.accepted.find(
+      (entry) => entry.source === source && entry.packageId !== current.manifest.id,
+    )
+    if (occupied || this.removals.some((entry) => entry.source === source))
+      throw new Error(
+        'Remove the earlier installation state before accepting this package identity',
       )
-      if (
-        !replacing &&
-        (current.hash !== discovered.hash ||
-          current.sourceIdentity !== discovered.sourceIdentity)
-      )
-        throw new Error('The package changed; discover it and inspect its access again')
-      const prior = this.accepted.find((entry) => entry.packageId === current.manifest.id)
-      if (
-        replacing &&
-        expectedRevision !== discovered.hash &&
-        expectedRevision !== prior?.revision
-      )
-        throw new Error('Discover this package again before accepting its revision')
-      const occupied = this.accepted.find(
-        (entry) => entry.source === source && entry.packageId !== current.manifest.id,
-      )
-      if (occupied || this.removals.some((entry) => entry.source === source))
-        throw new Error(
-          'Remove the earlier installation state before accepting this package identity',
-        )
-      if (prior && this.active.has(prior.installationId) && !replacing)
-        throw new Error('Use Reload or Replace to accept the new revision')
-      if (!prior && this.accepted.length >= EXTENSION_LIMITS.installations)
-        throw new Error(
-          'Remove unused installation state before accepting another package',
-        )
-      await this.collect(current)
-      await this.packages.retain(current, this.authority.signal)
-      await this.assertWritable()
-      const record: AcceptedInstallation = {
-        installationId: prior?.installationId ?? randomUUID(),
-        packageId: current.manifest.id,
-        source,
-        sourceIdentity: current.sourceIdentity,
-        kind: current.kind,
-        revision: current.hash,
-        enabled: true,
-        agentAccess: prior?.agentAccess ?? false,
-      }
-      if (prior) this.revokeActivation(prior.installationId)
-      await this.save([...this.accepted.filter((entry) => entry !== prior), record])
-      this.discovered.set(source, current)
-      this.installations = this.installations.map((entry) =>
-        entry.source === source
-          ? {
-              ...entry,
-              revision: current.hash,
-              manifest: current.manifest,
-              warnings: current.warnings,
-              kind: current.kind,
-              sourceIdentity: current.sourceIdentity.split(':').slice(0, 2).join(':'),
-            }
-          : entry,
-      )
-      this.active.set(record.installationId, {
-        installationId: record.installationId,
-        generation: randomUUID(),
-        revision: current,
-      })
-      this.publish()
-      return this.snapshot()
+    if (prior && this.active.has(prior.installationId) && !replacing)
+      throw new Error('Use Reload or Replace to accept the new revision')
+    if (!prior && this.accepted.length >= EXTENSION_LIMITS.installations)
+      throw new Error('Remove unused installation state before accepting another package')
+    await currentIntent()
+    await this.collect(current)
+    await currentIntent()
+    await this.packages.retain(current, signal)
+    await currentIntent()
+    const record: AcceptedInstallation = {
+      installationId: prior?.installationId ?? randomUUID(),
+      packageId: current.manifest.id,
+      source,
+      sourceIdentity: current.sourceIdentity,
+      kind: current.kind,
+      revision: current.hash,
+      enabled: true,
+      agentAccess: prior?.agentAccess ?? false,
+    }
+    if (prior) this.revokeActivation(prior.installationId)
+    await this.save(
+      [...this.accepted.filter((entry) => entry !== prior), record],
+      this.removals,
+      currentIntent,
+      signal,
+    )
+    this.discovered.set(source, current)
+    this.installations = this.installations.map((entry) =>
+      entry.source === source
+        ? {
+            ...entry,
+            revision: current.hash,
+            manifest: current.manifest,
+            warnings: current.warnings,
+            kind: current.kind,
+            sourceIdentity: current.sourceIdentity.split(':').slice(0, 2).join(':'),
+          }
+        : entry,
+    )
+    this.active.set(record.installationId, {
+      installationId: record.installationId,
+      generation: randomUUID(),
+      revision: current,
     })
+    this.publish()
+    return this.snapshot()
   }
 
   remove(
@@ -639,15 +637,18 @@ export class ExtensionActivationOwner {
   private async save(
     next: AcceptedInstallation[],
     removals = this.removals,
+    current: () => Promise<void> = () => this.assertWritable(),
+    signal: AbortSignal = this.authority.signal,
   ): Promise<void> {
-    await this.assertWritable()
+    await current()
     await this.host.writeFile(
       this.stateFile,
       JSON.stringify({ installations: next, removals }),
       {
-        signal: this.authority.signal,
+        signal,
       },
     )
+    // Successful atomic write commits acceptance; renderer loss cannot undo it.
     await this.assertWritable()
     this.accepted = next
     this.removals = removals

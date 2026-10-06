@@ -528,7 +528,8 @@ unrelated contributor verification.
 
 ### [ADR-049 — Extension package lifecycle and bounded retention](adr/ADR-049-extension-package-lifecycle.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-064](adr/ADR-064-explicit-extension-installation-acceptance.md) | partial | Separate Enable after explicit user-selected installation, including reinstall only.
 
 Directory, ZIP and development-link sources share explicit revision acceptance, durable identity,
 exact removal and bounded retention under the extension state writer.
@@ -568,7 +569,8 @@ agent access, exact finite destructive confirmation and workspace-owned inert re
 
 ### [ADR-054 — Isolated extension packages and the public capability boundary](adr/ADR-054-isolated-extension-package-and-capability-boundary.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-064](adr/ADR-064-explicit-extension-installation-acceptance.md) | partial | Separate Enable for explicit user-selected installation only; passive discovery and all other revision actions remain unchanged.
 > Supersedes: [ADR-007](adr/ADR-007-explicit-view-modes.md) | partial | Requiring rendered, source, or diff modes for every viewer tab; extension UI uses only its declared meaningful representations.
 > Supersedes: [ADR-012](adr/ADR-012-harness-providers-launch-profiles.md) | partial | General extension-platform prohibition only; trusted bundled harness providers and their separate SDK decision remain unchanged.
 > Supersedes: [ADR-014](adr/ADR-014-modular-monolith-ownership.md) | partial | Excluding a plugin platform or additional isolation boundary; capability ownership, inward dependencies, lifecycle, styles, and test discipline remain unchanged.
@@ -647,6 +649,16 @@ The existing immutable release model includes the ordinary Skillager ZIP, while 
 Optional bounded package SVG path icons use only accepted captured bytes and passive masks;
 invalid assets warn while text navigation remains usable. Existing contribution lifetime owns
 retirement, without inline package markup or a new asset protocol.
+
+### [ADR-064 — Explicit extension installation accepts its validated revision](adr/ADR-064-explicit-extension-installation-acceptance.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-049](adr/ADR-049-extension-package-lifecycle.md) | partial | Separate Enable after explicit user-selected installation, including reinstall only.
+> Supersedes: [ADR-054](adr/ADR-054-isolated-extension-package-and-capability-boundary.md) | partial | Separate Enable for explicit user-selected installation only; passive discovery and all other revision actions remain unchanged.
+
+Explicit native Add accepts and enables its exact validated copied revision through the existing
+writer; passive discovery and permission admission retain their separate boundaries.
+
 
 ## 5. Architecture
 

@@ -1,6 +1,7 @@
 # ADR-049: Extension package lifecycle and bounded retention
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-064](ADR-064-explicit-extension-installation-acceptance.md) | partial | Separate Enable after explicit user-selected installation, including reinstall only.
 
 ## Context
 

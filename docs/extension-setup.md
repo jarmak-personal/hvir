@@ -22,8 +22,8 @@ ordinary extension package. Skillager itself is installed separately.
 Choose **Settings → Extensions → Add extension…** and select the completed ZIP or
 a ready-to-run directory on macOS. On Linux, select a ZIP or the exact `hvir-extension.json`
 inside the package directory. hvir copies the whole selected package, preserves the source
-and shows it immediately; no separate Discover is needed. Inspect the package
-and access declarations before **Enable**. Duplicate IDs are refused; keep one source form.
+and enables that exact validated copy immediately; no separate Discover or Enable is needed.
+Review its access declarations and approve needed program or file access separately. Duplicate IDs are refused; keep one source form.
 Discovery and validation execute no package code. **Disable** closes guests and revokes live
 work. **Reload** accepts edited directory/development bytes; **Replace** accepts a selected
 ZIP revision. Changed access needs its own trusted approval. A failed replacement keeps the

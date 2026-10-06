@@ -250,7 +250,7 @@ describe('package lifecycle Settings intent', () => {
 })
 
 describe('single Add extension Settings intent', () => {
-  it('submits no path or package mode, stays busy through import, and shows an inactive candidate without Discover', async () => {
+  it('submits no path or package mode, stays busy through import, and shows an enabled installation without Discover or Enable', async () => {
     let finish!: (state: ExtensionPlatformState) => void
     const pending = new Promise<ExtensionPlatformState>((resolve) => {
       finish = resolve
@@ -284,8 +284,9 @@ describe('single Add extension Settings intent', () => {
           {
             source: 'chosen.zip',
             kind: 'zip',
+            installationId: 'chosen',
             revision: 'a'.repeat(64),
-            enabled: false,
+            enabled: true,
             warnings: [],
           },
         ],
@@ -296,7 +297,7 @@ describe('single Add extension Settings intent', () => {
     expect(element.textContent).toContain('chosen.zip')
     expect(
       [...element.querySelectorAll('article button')].map((item) => item.textContent),
-    ).toContain('Enable')
+    ).toContain('Disable')
     expect(
       invoke.mock.calls.some(([channel]) =>
         ['extensions:discover', 'extensions:enable'].includes(channel),

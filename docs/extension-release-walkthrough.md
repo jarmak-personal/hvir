@@ -65,7 +65,7 @@ node scripts/agent-installed-reference-probe.mts --command /absolute/installed/h
 
 It reads every installed topic, scaffolds a new clock, validates directory and ZIP, exports the
 exact inspected skill and proves occupied-output refusals. Then follow the [user setup guide](extension-setup.md)
-through ordinary install/Enable, directory Reload, ZIP Replace, Disable and recoverable Remove.
+through ordinary Add installation without a separate Enable, directory Reload, ZIP Replace, Disable and recoverable Remove.
 Keep developer and installed instances in separate data directories.
 
 Use a real personal library of at least 5,000 skills and a supported separately installed
