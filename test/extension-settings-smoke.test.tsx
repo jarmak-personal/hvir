@@ -13,6 +13,38 @@ vi.mock('../src/renderer/src/settings/sections/AgentAccessSettings', () => ({
   AgentAccessSettings: () => null,
 }))
 
+it.each([{ source: undefined }, { source: 7 }, { name: '' }])(
+  'refuses incomplete captured identity before any native navigation',
+  async (missing) => {
+    const input = vi.fn()
+    const win = {
+      webContents: {
+        executeJavaScript: (script: string) =>
+          Promise.resolve(
+            script.includes('const section=document.querySelector')
+              ? true
+              : script.includes('.length') && !script.includes('return {source:')
+                ? 2
+                : {
+                    source: 'reference',
+                    name: 'Reference',
+                    nextSource: 'bad',
+                    nextName: 'bad',
+                    ...missing,
+                  },
+          ),
+        sendInputEvent: input,
+      },
+    } as unknown as BrowserWindow
+    await expect(
+      verifyExtensionSettingsGeometry(win, async (predicate) => {
+        expect(await predicate()).toBe(true)
+      }),
+    ).rejects.toThrow('Selected configuration identity is unavailable')
+    expect(input).not.toHaveBeenCalled()
+  },
+)
+
 it('restores the exact selected configuration when removal publication reorders a retained row', async () => {
   const reference = {
     source: 'reference',
@@ -73,6 +105,8 @@ it('restores the exact selected configuration when removal publication reorders 
   const selected = () =>
     element.querySelector('[aria-current="true"]')?.getAttribute('data-source')
   let reordered = false
+  let attached = false
+  const structuredValues: unknown[][] = []
   const win = {
     isFocused: () => true,
     isVisible: () => true,
@@ -83,17 +117,46 @@ it('restores the exact selected configuration when removal publication reorders 
         if (script.includes('const section=document.querySelector')) return true
         let value: unknown
         await act(async () => {
-          await Promise.resolve()
-          if (!reordered && script.includes('.click()')) {
-            publish(removed)
-            reordered = true
-          }
-        })
-        await act(async () => {
           value = runInContext(script, context) as unknown
           await Promise.resolve()
         })
         return value
+      },
+      debugger: {
+        isAttached: () => attached,
+        attach: () => {
+          attached = true
+        },
+        detach: () => {
+          attached = false
+        },
+        sendCommand: async (
+          command: string,
+          input: { functionDeclaration?: string; arguments?: { value: unknown }[] },
+        ) => {
+          if (command === 'Runtime.evaluate')
+            return { result: { objectId: 'owned-document' } }
+          if (command !== 'Runtime.callFunctionOn') return {}
+          const values = input.arguments!.map((argument) => argument.value)
+          structuredValues.push(values)
+          if (!reordered && input.functionDeclaration!.includes('item.click()')) {
+            await act(async () => {
+              publish(removed)
+              await Promise.resolve()
+            })
+            reordered = true
+          }
+          context.values = values
+          let value: unknown
+          await act(async () => {
+            value = runInContext(
+              `(${input.functionDeclaration})(...values)`,
+              context,
+            ) as unknown
+            await Promise.resolve()
+          })
+          return { result: { value } }
+        },
       },
       sendInputEvent: (event: { type: string }) => {
         if (event.type === 'keyDown')
@@ -114,13 +177,19 @@ it('restores the exact selected configuration when removal publication reorders 
       element.querySelector<HTMLButtonElement>('[data-source="reference"]')!.click(),
     )
     await verifyExtensionSettingsGeometry(win, async (predicate, label) => {
-      if (!(await predicate())) throw new Error(label)
+      if (await predicate()) return
+      expect(label).toContain('selected Reference')
+      expect(selected()).toBe(reference.source)
+      expect(await predicate()).toBe(true)
     })
     expect(reordered).toBe(true)
     expect(selected()).toBe(reference.source)
     expect(element.querySelector('.extension-installation h4')?.textContent).toBe(
       'Reference',
     )
+    expect(structuredValues).toContainEqual(['bad', 'bad', true])
+    expect(structuredValues).toContainEqual(['Reference', '', 'reference'])
+    expect(attached).toBe(false)
   } finally {
     act(() => root.unmount())
     element.remove()
