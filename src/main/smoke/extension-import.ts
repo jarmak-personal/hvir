@@ -1,3 +1,4 @@
+import { extensionSettingsControls } from './extension-settings-controls'
 import { ZipFile } from 'yazl'
 import type { BrowserWindow } from 'electron'
 import { joinHostPath } from '../../shared/host-path'
@@ -99,6 +100,18 @@ export async function verifyExtensionImport(
           : source.path
       const active = activations.active.size
       await controls.click('Add extension…')
+      await controls.wait(
+        async () =>
+          (await win.webContents.executeJavaScript(`(() => {
+          const entry=[...document.querySelectorAll('.extension-installation-list button')].find(e=>e.querySelector('strong')?.textContent===${JSON.stringify(name)});
+          return entry?.getAttribute('aria-current')==='true'&&document.querySelector('.extension-installation h4')?.textContent===${JSON.stringify(name)};
+        })()`)) === true,
+        `Add ${kind} selects the imported package without a helper click`,
+      )
+      await extensionSettingsControls(win, name, {
+        wait: (predicate, label) => controls.wait(predicate, label),
+        within: (work) => work,
+      }).select()
       await controls.wait(async () => {
         const entry = activations
           .snapshot()

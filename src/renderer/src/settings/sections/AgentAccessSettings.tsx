@@ -122,85 +122,101 @@ export function AgentAccessSettings({
             />
             Allow agents to inspect and present workspace content
           </label>
-          <label>
-            <select
-              className="hvir-input"
-              aria-label="Agent authorization"
-              disabled={!state || busy || !state.ready}
-              value={state?.confirmDestructive ? 'confirm' : 'standing'}
-              onChange={(event) =>
-                state && void configure(state.enabled, event.target.value === 'confirm')
-              }
-            >
-              <option value="standing">Allow actions within approved access</option>
-              <option value="confirm">Also confirm deletions and replacements</option>
-            </select>
-          </label>
           <p>
-            Your agents have their own permission prompts. Work they ask hvir to run uses
-            the access approved here; their sandbox does not restrict that work.
-            Extensions still need Enable, and programs and folders need separate approval.
-            Other processes running as your account share this access.
+            Work through hvir uses the access approved here, regardless of an agent’s own
+            prompts or sandbox. Programs and folders need separate approval. Other
+            processes running as your account share this access.
           </p>
           {(state?.forwards ?? []).map((forward) => (
-            <div key={forward.host}>
-              <p>
-                SSH agent access: {forward.host} — {forward.availability}
-                {forward.explanation ? `: ${forward.explanation}` : ''}
-              </p>
-              <p>
-                Processes under that SSH account and remote root can use its socket.
-                Default access stays on that host.
-              </p>
-              {[
-                ...(state?.forwardOptions ?? []),
-                ...forward.grants.filter(
-                  (grant) =>
-                    !(state?.forwardOptions ?? []).some(
-                      (choice) => JSON.stringify(choice) === JSON.stringify(grant),
-                    ),
-                ),
-              ]
-                .filter(
-                  (grant, index, all) =>
-                    grant.host === forward.host &&
-                    all.findIndex(
-                      (choice) => JSON.stringify(choice) === JSON.stringify(grant),
-                    ) === index,
-                )
-                .map((grant) => (
-                  <label key={JSON.stringify(grant)}>
-                    <input
-                      type="checkbox"
-                      className="hvir-input"
-                      disabled={
-                        busy || !state?.enabled || forward.availability !== 'ready'
-                      }
-                      checked={forward.grants.some(
-                        (choice) => JSON.stringify(choice) === JSON.stringify(grant),
-                      )}
-                      onChange={(event) =>
-                        void configureForward(grant, event.target.checked)
-                      }
-                    />
-                    Allow {grant.installation}/{grant.action} to run its approved native
-                    {grant.capability === 'delivery.capture'
-                      ? 'export capture'
-                      : 'connector'}{' '}
-                    on {grant.executionHost} for {grant.workspace}
-                  </label>
-                ))}
-            </div>
+            <p key={forward.host} role="status">
+              SSH agent access: {forward.host} — {forward.availability} ·{' '}
+              {forward.grants.length} enabled grant selections
+              {forward.explanation ? ` · ${forward.explanation}` : ''}
+            </p>
           ))}
           <details>
-            <summary>Agent connection details</summary>
-            <p>
-              Terminal defaults: HVIR_AGENT_ENDPOINT, HVIR_AGENT_WORKSPACE,
-              HVIR_AGENT_SESSION. Use hvir-agent guide targeting for command setup.
-            </p>
-            {state?.endpoint ? (
-              <p className="hvir-meta">Instance endpoint: {state.endpoint}</p>
-            ) : null}
+            <summary>
+              Agent permissions ·{' '}
+              {state
+                ? state.confirmDestructive
+                  ? 'confirm deletions and replacements'
+                  : 'actions within approved access'
+                : 'checking access'}
+            </summary>
+            <label>
+              <select
+                className="hvir-input"
+                aria-label="Agent authorization"
+                disabled={!state || busy || !state.ready}
+                value={state?.confirmDestructive ? 'confirm' : 'standing'}
+                onChange={(event) =>
+                  state && void configure(state.enabled, event.target.value === 'confirm')
+                }
+              >
+                <option value="standing">Allow actions within approved access</option>
+                <option value="confirm">Also confirm deletions and replacements</option>
+              </select>
+            </label>
+            {(state?.forwards ?? []).map((forward) => (
+              <div key={forward.host}>
+                <p>
+                  SSH agent access: {forward.host} — {forward.availability}
+                  {forward.explanation ? `: ${forward.explanation}` : ''}
+                </p>
+                <p>
+                  Processes under that SSH account and remote root can use its socket.
+                  Default access stays on that host.
+                </p>
+                {[
+                  ...(state?.forwardOptions ?? []),
+                  ...forward.grants.filter(
+                    (grant) =>
+                      !(state?.forwardOptions ?? []).some(
+                        (choice) => JSON.stringify(choice) === JSON.stringify(grant),
+                      ),
+                  ),
+                ]
+                  .filter(
+                    (grant, index, all) =>
+                      grant.host === forward.host &&
+                      all.findIndex(
+                        (choice) => JSON.stringify(choice) === JSON.stringify(grant),
+                      ) === index,
+                  )
+                  .map((grant) => (
+                    <label key={JSON.stringify(grant)}>
+                      <input
+                        type="checkbox"
+                        className="hvir-input"
+                        disabled={
+                          busy || !state?.enabled || forward.availability !== 'ready'
+                        }
+                        checked={forward.grants.some(
+                          (choice) => JSON.stringify(choice) === JSON.stringify(grant),
+                        )}
+                        onChange={(event) =>
+                          void configureForward(grant, event.target.checked)
+                        }
+                      />
+                      Allow {grant.installation}/{grant.action} to run its approved native
+                      {grant.capability === 'delivery.capture'
+                        ? 'export capture'
+                        : 'connector'}{' '}
+                      on {grant.executionHost} for {grant.workspace}
+                    </label>
+                  ))}
+              </div>
+            ))}
+            <details>
+              <summary>Agent connection details</summary>
+              <p>
+                Terminal defaults: HVIR_AGENT_ENDPOINT, HVIR_AGENT_WORKSPACE,
+                HVIR_AGENT_SESSION. Use hvir-agent guide targeting for command setup.
+              </p>
+              {state?.endpoint ? (
+                <p className="hvir-meta">Instance endpoint: {state.endpoint}</p>
+              ) : null}
+            </details>
           </details>
           {state?.explanation ? <p role="status">{state.explanation}</p> : null}
         </>

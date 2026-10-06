@@ -1,9 +1,7 @@
 import { SettingsSection } from '../SettingsSection'
 import { DeliveryRecoverySettings } from './DeliveryRecoverySettings'
-import { SourceSettings } from './SourceSettings'
 import { AgentAccessSettings } from './AgentAccessSettings'
-import { ConnectorSettings } from './ConnectorSettings'
-import { ExtensionActions } from '../../extensions/ExtensionActions'
+import { ExtensionInstallationSettings } from './ExtensionInstallationSettings'
 import { ConfirmationDialog } from '../../workbench/ConfirmationDialog'
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 import type {
@@ -17,7 +15,25 @@ export function ExtensionsSettings(): ReactElement {
   const [removing, setRemoving] = useState<ExtensionInstallation>()
   const [forget, setForget] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [selection, setSelection] = useState<ExtensionInstallation>()
+  const installations = state?.installations ?? []
+  const selected =
+    installations.find(
+      (entry) =>
+        (selection?.sourceIdentity &&
+          entry.sourceIdentity === selection.sourceIdentity) ||
+        entry.source === selection?.source,
+    ) ??
+    installations.find(
+      (entry) =>
+        selection?.installationId && entry.installationId === selection.installationId,
+    ) ??
+    installations[0]
+  useEffect(() => {
+    if (selected !== selection) setSelection(selected)
+  }, [selected, selection])
   const publication = useRef(0)
+  const addition = useRef<ReadonlySet<string> | undefined>(undefined)
   const run = async (operation: () => Promise<unknown>): Promise<void> => {
     setBusy(true)
     setError(undefined)
@@ -37,6 +53,15 @@ export function ExtensionsSettings(): ReactElement {
       publication.current++
       updated = true
       setState(next)
+      const intent = addition.current
+      if (!next.writable) addition.current = undefined
+      else if (intent) {
+        const added = next.installations.find((entry) => !intent.has(entry.source))
+        if (added) {
+          addition.current = undefined
+          setSelection(added)
+        }
+      }
     })
     void window.hvir.invoke('extensions:state', undefined).then(
       (next) => {
@@ -51,6 +76,7 @@ export function ExtensionsSettings(): ReactElement {
     )
     return () => {
       current = false
+      addition.current = undefined
       void dispose()
     }
   }, [])
@@ -59,9 +85,8 @@ export function ExtensionsSettings(): ReactElement {
       section="extensions"
       className="extension-settings"
       title="Extensions"
-      description="Add an extension, review the access it needs, then choose Enable."
-    >
-      <div className="settings-section-scroll extension-settings-content">
+      description="Select an extension to review its setup and access."
+      actions={
         <div className="settings-actions">
           <button
             type="button"
@@ -70,14 +95,107 @@ export function ExtensionsSettings(): ReactElement {
             onClick={() =>
               void run(async () => {
                 const observed = publication.current
-                const next = await window.hvir.invoke('extensions:add', undefined)
-                if (observed === publication.current) setState(next)
+                const previous = new Set(installations.map((entry) => entry.source))
+                addition.current = previous
+                try {
+                  const next = await window.hvir.invoke('extensions:add', undefined)
+                  if (observed === publication.current) {
+                    setState(next)
+                    const added = next.installations.find(
+                      (entry) => !previous.has(entry.source),
+                    )
+                    if (addition.current === previous && added) setSelection(added)
+                  }
+                } finally {
+                  if (addition.current === previous) addition.current = undefined
+                }
               })
             }
           >
             Add extension…
           </button>
         </div>
+      }
+    >
+      <div className="settings-section-scroll extension-settings-content">
+        {state?.explanation ? <p role="status">{state.explanation}</p> : null}
+        {error ? <p role="alert">{error}</p> : null}
+        {state?.installations.length === 0 && (state.writable || !state.explanation) ? (
+          <p>
+            No extensions found. Choose Add extension to select a directory or ZIP
+            package.
+          </p>
+        ) : null}
+        <DeliveryRecoverySettings />
+        {selected ? (
+          <div className="extension-configuration-layout">
+            <nav
+              className="extension-installation-list"
+              aria-label="Installed extensions"
+              onKeyDown={(event) => {
+                const buttons = [
+                  ...event.currentTarget.querySelectorAll<HTMLButtonElement>('button'),
+                ]
+                const index = buttons.indexOf(event.target as HTMLButtonElement)
+                if (
+                  index < 0 ||
+                  !['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)
+                )
+                  return
+                event.preventDefault()
+                const next =
+                  event.key === 'Home'
+                    ? 0
+                    : event.key === 'End'
+                      ? buttons.length - 1
+                      : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) %
+                        buttons.length
+                buttons[next]?.focus()
+                buttons[next]?.click()
+              }}
+            >
+              {installations.map((installation) => (
+                <button
+                  type="button"
+                  className="hvir-button"
+                  key={installation.source}
+                  data-source={installation.source}
+                  aria-current={selected === installation ? 'true' : undefined}
+                  onClick={() => {
+                    addition.current = undefined
+                    setSelection(installation)
+                    setRemoving(undefined)
+                  }}
+                >
+                  <strong>{installation.manifest?.name ?? installation.source}</strong>
+                  <small>
+                    {installation.removalPending
+                      ? 'Removal unfinished'
+                      : installation.error
+                        ? 'Needs attention'
+                        : installation.enabled
+                          ? 'Enabled'
+                          : installation.retainedIdentity
+                            ? 'Saved setup · not enabled'
+                            : 'Not enabled'}
+                  </small>
+                </button>
+              ))}
+            </nav>
+            <ExtensionInstallationSettings
+              key={`${selected.installationId ?? selected.sourceIdentity ?? selected.source}:${selected.acceptedRevision ?? ''}:${selected.revision ?? ''}:${selected.enabled}`}
+              installation={selected}
+              writable={state!.writable}
+              busy={busy}
+              onRun={run}
+              onState={setState}
+              onRemove={(installation) => {
+                setForget(false)
+                setRemoving(installation)
+              }}
+            />
+          </div>
+        ) : null}
         <details className="extension-author-controls">
           <summary>Author and discovery controls</summary>
           <p>
@@ -109,192 +227,6 @@ export function ExtensionsSettings(): ReactElement {
             </button>
           </div>
         </details>
-        {state?.explanation ? <p role="status">{state.explanation}</p> : null}
-        {error ? <p role="alert">{error}</p> : null}
-        {state?.installations.length === 0 && (state.writable || !state.explanation) ? (
-          <p>
-            No extensions found. Choose Add extension to select a directory or ZIP
-            package.
-          </p>
-        ) : null}
-        <DeliveryRecoverySettings />
-        {state?.installations.map((installation) => (
-          <article className="extension-installation" key={installation.source}>
-            <h4>{installation.manifest?.name ?? installation.source}</h4>
-            <p className="hvir-meta">
-              {installation.enabled ? 'Enabled' : 'Not enabled'} · Version{' '}
-              {installation.manifest?.version ?? 'unknown'}
-            </p>
-            <details className="extension-package-details">
-              <summary>Package details</summary>
-              <p>
-                Source: {installation.source}
-                {installation.kind === 'development'
-                  ? ' · Development package (linked author directory)'
-                  : installation.kind === 'zip'
-                    ? ' · ZIP package'
-                    : ''}
-              </p>
-              {installation.acceptedRevision ? (
-                <p>
-                  Accepted revision: {installation.acceptedRevision.slice(0, 12)} ·
-                  Candidate: {installation.revision?.slice(0, 12) ?? 'unavailable'}
-                </p>
-              ) : null}
-            </details>
-            {installation.retainedIdentity ? (
-              <p>Saved setup is kept. Choose Enable before opening views.</p>
-            ) : null}
-            {installation.acceptedRevision &&
-            installation.acceptedRevision !== installation.revision ? (
-              <p>
-                {installation.revision && !installation.error
-                  ? 'The package changed. Use Reload or Replace to accept the new revision.'
-                  : 'Restore or repair the package, then choose Discover extensions and explicitly Enable, Reload or Replace it.'}
-              </p>
-            ) : null}
-            {!installation.error ? (
-              <>
-                <p>
-                  Extension views show their own content and information shared by hvir.
-                  They have no automatic access to project files, terminals or direct
-                  network connections. File and program access needs separate approval
-                  below.
-                </p>
-                {installation.warnings.map((warning) => (
-                  <p key={warning}>{warning}</p>
-                ))}
-                <details className="extension-package-details">
-                  <summary>Requested capabilities</summary>
-                  <p>Extension contract {installation.manifest?.contract}</p>
-                  <p>
-                    Required:{' '}
-                    {installation.manifest?.requiredCapabilities.join(', ') || 'None'}
-                  </p>
-                  <p>
-                    Optional:{' '}
-                    {installation.manifest?.optionalCapabilities.join(', ') || 'None'}
-                  </p>
-                </details>
-              </>
-            ) : null}
-            <div className="settings-actions extension-installation-actions">
-              {!installation.error ? (
-                <>
-                  {installation.installationId && installation.revision ? (
-                    <button
-                      type="button"
-                      disabled={busy || !state.writable || installation.removalPending}
-                      onClick={() =>
-                        void run(async () =>
-                          setState(
-                            await window.hvir.invoke('extensions:reload', {
-                              source: installation.source,
-                              revision: installation.revision!,
-                            }),
-                          ),
-                        )
-                      }
-                      className="hvir-button"
-                    >
-                      {installation.kind === 'zip' ? 'Replace' : 'Reload'}
-                    </button>
-                  ) : null}
-                  {installation.enabled ? (
-                    <button
-                      type="button"
-                      disabled={busy || !state.writable || installation.removalPending}
-                      onClick={() =>
-                        void run(async () =>
-                          setState(
-                            await window.hvir.invoke('extensions:disable', {
-                              installationId: installation.installationId!,
-                            }),
-                          ),
-                        )
-                      }
-                      className="hvir-button"
-                    >
-                      Disable
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={busy || !state.writable || installation.removalPending}
-                      onClick={() =>
-                        void run(async () =>
-                          setState(
-                            await window.hvir.invoke('extensions:enable', {
-                              source: installation.source,
-                              revision: installation.revision!,
-                            }),
-                          ),
-                        )
-                      }
-                      className="hvir-button"
-                    >
-                      Enable
-                    </button>
-                  )}
-                </>
-              ) : null}
-              <button
-                type="button"
-                disabled={busy || !state.writable}
-                onClick={() => {
-                  setForget(false)
-                  setRemoving(installation)
-                }}
-                className="hvir-button"
-              >
-                Remove
-              </button>
-            </div>
-            {installation.error ? (
-              <p role="alert">{installation.error}</p>
-            ) : (
-              <>
-                {installation.removalPending ? (
-                  <p>Package removal is unfinished. Retry Remove to finish cleanup.</p>
-                ) : null}
-                {installation.enabled ? (
-                  <>
-                    <AgentAccessSettings installation={installation.installationId} />
-                    <ConnectorSettings installation={installation} />
-                    <SourceSettings installation={installation} />
-                    {installation.installationId ? (
-                      <ExtensionActions installationId={installation.installationId} />
-                    ) : null}
-                    {installation.manifest?.views
-                      .filter(
-                        (view) => view.placement === 'application' && !view.navigation,
-                      )
-                      .map((view) => (
-                        <button
-                          type="button"
-                          key={view.id}
-                          disabled={
-                            busy || !state.writable || installation.removalPending
-                          }
-                          onClick={() =>
-                            void run(() =>
-                              window.hvir.invoke('extensions:open-view', {
-                                installationId: installation.installationId!,
-                                contributionId: view.id,
-                              }),
-                            )
-                          }
-                          className="hvir-button"
-                        >
-                          Open {view.title}
-                        </button>
-                      ))}
-                  </>
-                ) : null}
-              </>
-            )}
-          </article>
-        ))}
         <AgentAccessSettings />
       </div>
       {removing ? (

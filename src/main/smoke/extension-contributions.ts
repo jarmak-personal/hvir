@@ -1,3 +1,4 @@
+import { extensionSettingsControls } from './extension-settings-controls'
 import { app, type BrowserWindow, type WebContents } from 'electron'
 import { joinHostPath, type HostPath } from '../../shared/host-path'
 import type { ExtensionManifest } from '../../shared/extensions/contract'
@@ -79,6 +80,10 @@ export async function verifyExtensionContributions(
         .installations.some((entry) => entry.source === 'contributions'),
     'contributions discovery',
   )
+  await extensionSettingsControls(win, staticManifest.name, {
+    wait: (predicate, label) => controls.wait(predicate, label),
+    within: (work) => work,
+  }).select()
   await controls.click('Enable')
   await controls.wait(() => activation.active.size === 1, 'contributions Enable')
   const installationId = [...activation.active.keys()][0]!
@@ -820,6 +825,10 @@ export async function verifyExtensionContributions(
         .catch(() => undefined)
     }
     await controls.click('Extensions')
+    await extensionSettingsControls(win, 'hvir Reference', {
+      wait: (predicate, label) => controls.wait(predicate, label),
+      within: (work) => work,
+    }).select('Extension actions')
   }
   async function connected(guest: WebContents): Promise<void> {
     await controls.wait(

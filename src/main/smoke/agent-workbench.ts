@@ -1,4 +1,5 @@
 import { app, type BrowserWindow } from 'electron'
+import { extensionSettingsControls } from './extension-settings-controls'
 import { join } from 'node:path'
 import type { ExtensionManifest, ExtensionAction } from '../../shared/extensions/contract'
 import type { HostPath } from '../../shared/host-path'
@@ -183,6 +184,10 @@ export async function verifyAgentWorkbench(
   await click(win, 'Enable')
   await wait(() => extensions.activations!.active.size === 1, 'reference Enable')
   const installation = [...extensions.activations!.active.keys()][0]!
+  await extensionSettingsControls(win, manifest.name, {
+    wait,
+    within: (work) => work,
+  }).select('Extension actions')
   await wait(
     () =>
       dom(

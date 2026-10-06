@@ -1,3 +1,4 @@
+import { extensionSettingsControls } from './extension-settings-controls'
 import type { BrowserWindow, WebContents } from 'electron'
 import { joinHostPath, type HostPath } from '../../shared/host-path'
 import type { ExtensionManifest } from '../../shared/extensions/contract'
@@ -412,6 +413,10 @@ export async function verifyExtensionConnectors(
     return win.webContents.executeJavaScript(`Boolean(${expression})`) as Promise<boolean>
   }
   async function clickInInstallation(name: string): Promise<void> {
+    await extensionSettingsControls(win, 'Connector reference', {
+      wait: (predicate, label) => controls.wait(predicate, label),
+      within: (work) => work,
+    }).select(name.startsWith('Open ') ? 'Extension actions' : '')
     await controls.wait(
       () =>
         dom(
@@ -421,6 +426,10 @@ export async function verifyExtensionConnectors(
     )
   }
   async function setValue(label: string, value: string): Promise<void> {
+    await extensionSettingsControls(win, 'Connector reference', {
+      wait: (predicate, label) => controls.wait(predicate, label),
+      within: (work) => work,
+    }).select('Program access')
     const selector = JSON.stringify(`[aria-label="${label}"]`)
     await controls.wait(
       () =>

@@ -356,6 +356,110 @@ describe('Add extension result authority order', () => {
   })
 })
 
+describe('Add selected configuration authority', () => {
+  const state = (sources: string[], writable = true): ExtensionPlatformState => ({
+    writable,
+    installations: sources.map((source) => ({ source, enabled: false, warnings: [] })),
+  })
+  async function start() {
+    let finish!: (value: ExtensionPlatformState) => void
+    let reject!: (reason: Error) => void
+    let publish!: (value: ExtensionPlatformState) => void
+    const pending = new Promise<ExtensionPlatformState>((yes, no) => {
+      finish = yes
+      reject = no
+    })
+    vi.stubGlobal('hvir', {
+      invoke: vi.fn((channel: string) =>
+        channel === 'extensions:delivery-recovery'
+          ? Promise.resolve([])
+          : channel === 'extensions:add'
+            ? pending
+            : Promise.resolve(state(['first', 'second'])),
+      ),
+      on: vi.fn((_channel: string, listener: (value: ExtensionPlatformState) => void) => {
+        publish = listener
+        return vi.fn()
+      }),
+    })
+    element = document.createElement('div')
+    document.body.append(element)
+    root = createRoot(element)
+    await act(async () => {
+      root!.render(createElement(ExtensionsSettings))
+      await Promise.resolve()
+    })
+    act(() =>
+      [...element!.querySelectorAll('button')]
+        .find((e) => e.textContent === 'Add extension…')!
+        .click(),
+    )
+    return { finish, reject, publish, pending }
+  }
+  const selected = () =>
+    element!
+      .querySelector('.extension-installation-list [aria-current="true"]')
+      ?.getAttribute('data-source')
+  it('selects a new package from a current reply when no publication has arrived', async () => {
+    const { finish, pending } = await start()
+    await act(async () => {
+      finish(state(['first', 'second', 'added']))
+      await pending
+    })
+    expect(selected()).toBe('added')
+  })
+  it('selects the current Add publication after the pre-import scan and does not retarget from a late reply', async () => {
+    const { finish, publish, pending } = await start()
+    act(() => publish(state(['first', 'second'])))
+    expect(selected()).toBe('first')
+    act(() => publish(state(['first', 'second', 'added'])))
+    expect(selected()).toBe('added')
+    act(() => publish(state(['first', 'second'])))
+    await act(async () => {
+      finish(state(['first', 'second', 'added']))
+      await pending
+    })
+    expect(selected()).toBe('first')
+    expect(element!.textContent).not.toContain('added')
+  })
+  it.each(['click', 'keyboard'] as const)(
+    'keeps a newer %s selection through Add publication and stale reply',
+    async (method) => {
+      const { finish, publish, pending } = await start()
+      act(() => {
+        if (method === 'click')
+          element!.querySelector<HTMLButtonElement>('[data-source="second"]')!.click()
+        else
+          element!
+            .querySelector<HTMLButtonElement>('[data-source="first"]')!
+            .dispatchEvent(
+              new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
+            )
+      })
+      act(() => publish(state(['first', 'second', 'added'])))
+      await act(async () => {
+        finish(state(['first', 'second', 'added']))
+        await pending
+      })
+      expect(selected()).toBe('second')
+    },
+  )
+  it.each(['failure', 'revocation'] as const)(
+    'retires Add selection after %s so later additions cannot retarget it',
+    async (mode) => {
+      const { reject, publish, pending } = await start()
+      if (mode === 'revocation') act(() => publish(state(['first', 'second'], false)))
+      await act(async () => {
+        reject(new Error('Selection cancelled'))
+        await pending.catch(() => undefined)
+      })
+      act(() => publish(state(['first', 'second', 'later'])))
+      expect(selected()).toBe('first')
+      expect(element!.textContent).toContain('Selection cancelled')
+    },
+  )
+})
+
 it('surfaces retained deliveries and access warnings before immediate Enable', async () => {
   const state: ExtensionPlatformState = {
     writable: true,
@@ -394,7 +498,7 @@ it('surfaces retained deliveries and access warnings before immediate Enable', a
       (button) => button.textContent === 'Enable',
     )!,
     scope = [...card.querySelectorAll('p')].find((p) =>
-      p.textContent?.includes('no automatic access to project files'),
+      p.textContent?.includes('does not give access to project files'),
     )!,
     warning = [...card.querySelectorAll('p')].find((p) =>
       p.textContent?.includes('Newer contract'),
@@ -417,5 +521,194 @@ it('surfaces retained deliveries and access warnings before immediate Enable', a
   expect(invoke).toHaveBeenCalledWith('extensions:enable', {
     source: 'reference',
     revision: 'current',
+  })
+})
+
+describe('selected extension configuration lifetime', () => {
+  const installation = (id: string, enabled = true) => ({
+    source: id,
+    installationId: id,
+    revision: 'revision',
+    acceptedRevision: 'revision',
+    enabled,
+    warnings: [],
+    manifest: {
+      id,
+      name: id,
+      version: '0.3.0',
+      contract: '1.0',
+      requiredCapabilities: [],
+      optionalCapabilities: [],
+      access: [],
+      views: [],
+      connectors: [
+        {
+          id: 'tool',
+          description: 'Installed tool',
+          context: 'application' as const,
+          timeoutMs: 1000,
+          outputBytes: 1024,
+          environment: [],
+        },
+      ],
+    },
+  })
+  async function renderSelection(prepare?: Promise<unknown>, failure?: boolean) {
+    let publish!: (state: ExtensionPlatformState) => void
+    const initial: ExtensionPlatformState = {
+      writable: true,
+      installations: [installation('First'), installation('Second')],
+    }
+    const invoke = vi.fn((channel: string) =>
+      channel === 'extensions:delivery-recovery'
+        ? Promise.resolve([])
+        : channel === 'extensions:connector-settings'
+          ? Promise.resolve({
+              hosts: [{ hostId: 'local', kind: 'local', label: 'Local' }],
+              connectors: [],
+            })
+          : channel === 'extensions:connector-prepare'
+            ? prepare
+            : channel === 'extensions:disable' && failure
+              ? Promise.reject(new Error('First could not be disabled'))
+              : Promise.resolve(initial),
+    )
+    vi.stubGlobal('hvir', {
+      invoke,
+      on: vi.fn((_channel: string, listener: (state: ExtensionPlatformState) => void) => {
+        publish = listener
+        return vi.fn()
+      }),
+    })
+    element = document.createElement('div')
+    document.body.append(element)
+    root = createRoot(element)
+    await act(async () => {
+      root!.render(createElement(ExtensionsSettings))
+      await Promise.resolve()
+    })
+    const choose = async (name: string) =>
+      act(async () => {
+        ;[
+          ...element!.querySelectorAll<HTMLButtonElement>(
+            '.extension-installation-list button',
+          ),
+        ]
+          .find((e) => e.querySelector('strong')?.textContent === name)!
+          .click()
+        await Promise.resolve()
+      })
+    return { publish, invoke, choose, initial }
+  }
+  it('shows one selected configuration, preserves identity across reordered publications, and selects the first remaining entry after removal', async () => {
+    const { publish, choose } = await renderSelection()
+    expect(element!.querySelectorAll('.extension-installation')).toHaveLength(1)
+    await choose('Second')
+    const input = element!.querySelector<HTMLInputElement>(
+      '[aria-label="Executable for tool"]',
+    )!
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+        input,
+        '/owned/program',
+      )
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    act(() =>
+      publish({
+        writable: true,
+        installations: [installation('Second'), installation('First')],
+      }),
+    )
+    expect(element!.querySelector('h4')!.textContent).toBe('Second')
+    expect(
+      element!.querySelector<HTMLInputElement>('[aria-label="Executable for tool"]')!
+        .value,
+    ).toBe('/owned/program')
+    act(() => publish({ writable: true, installations: [installation('First', false)] }))
+    expect(element!.querySelector('h4')!.textContent).toBe('First')
+    expect(element!.querySelector('[aria-label="Executable for tool"]')).toBeNull()
+    act(() =>
+      publish({
+        writable: true,
+        installations: [installation('First', false), installation('Second')],
+      }),
+    )
+    expect(element!.querySelector('h4')!.textContent).toBe('First')
+  })
+  it.each(['retarget', 'revision'] as const)(
+    'discards a held unconfirmed program proposal after %s without retargeting approval',
+    async (change) => {
+      let resolve!: (value: unknown) => void
+      const pending = new Promise((resolveValue) => {
+        resolve = resolveValue
+      })
+      const { publish, choose, invoke } = await renderSelection(pending)
+      act(() =>
+        [...element!.querySelectorAll<HTMLButtonElement>('button')]
+          .find((e) => e.textContent === 'Inspect native access')!
+          .click(),
+      )
+      if (change === 'retarget') await choose('Second')
+      else
+        act(() =>
+          publish({
+            writable: true,
+            installations: [
+              {
+                ...installation('First'),
+                revision: 'changed',
+                acceptedRevision: 'changed',
+              },
+              installation('Second'),
+            ],
+          }),
+        )
+      await act(async () => {
+        resolve({
+          token: 'never-approved',
+          approval: {
+            host: 'local',
+            canonicalExecutable: '/owned/program',
+            configuration: { args: [], env: {} },
+          },
+        })
+        await pending
+      })
+      expect(element!.textContent).not.toContain('Approve local:')
+      expect(
+        invoke.mock.calls.some(([channel]) => channel === 'extensions:connector-approve'),
+      ).toBe(false)
+      if (change === 'retarget') {
+        await choose('First')
+        expect(element!.textContent).not.toContain('Approve local:')
+      }
+    },
+  )
+  it('keeps invalid and retained entries reachable, and does not clear a meaningful operation failure on selection', async () => {
+    const { choose, publish } = await renderSelection(undefined, true)
+    await act(async () => {
+      ;[...element!.querySelectorAll<HTMLButtonElement>('button')]
+        .find((e) => e.textContent === 'Disable')!
+        .click()
+      await Promise.resolve()
+    })
+    await choose('Second')
+    expect(element!.querySelector('[role="alert"]')!.textContent).toBe(
+      'First could not be disabled',
+    )
+    act(() =>
+      publish({
+        writable: true,
+        installations: [
+          { ...installation('Invalid', false), error: 'Invalid package' },
+          { ...installation('Saved', false), retainedIdentity: true },
+        ],
+      }),
+    )
+    expect(element!.textContent).toContain('Invalid package')
+    await choose('Saved')
+    expect(element!.textContent).toContain('Saved setup is kept')
+    expect(element!.querySelectorAll('.extension-installation')).toHaveLength(1)
   })
 })

@@ -208,3 +208,74 @@
   mask-position: center;
   mask-repeat: no-repeat;
 }
+
+/* Feature-owned list/detail structure; shared primitives retain control presentation. */
+.extension-configuration-layout {
+  display: grid;
+  flex-shrink: 0;
+  grid-template-columns: clamp(100px, 30%, 180px) minmax(0, 1fr);
+  height: min(520px, 65vh);
+  min-height: 320px;
+  overflow: hidden;
+  min-width: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--surface-1);
+}
+.extension-installation-list {
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  background: var(--surface-0);
+  border-right: 1px solid var(--border-subtle);
+}
+.extension-installation-list > button {
+  display: grid;
+  width: 100%;
+  gap: 4px;
+  padding: 10px;
+  text-align: left;
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+}
+.extension-installation-list > button[aria-current='true'] {
+  background: var(--accent-soft);
+}
+.extension-installation-list strong,
+.extension-installation-list small {
+  overflow-wrap: anywhere;
+  font-size: calc(11px * var(--hvir-interface-scale));
+}
+.extension-installation-list small {
+  color: var(--text-muted);
+  font-size: calc(10px * var(--hvir-interface-scale));
+}
+.extension-configuration-layout > .extension-installation {
+  min-width: 0;
+  border-top: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px;
+}
+.extension-configuration-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.extension-configuration-tabs .hvir-button[aria-current='true'] {
+  background: var(--accent-soft);
+}
+.extension-configuration-layout .extension-installation button {
+  margin: 0;
+}
+.extension-configuration-layout .extension-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.extension-configuration-layout .extension-actions > label {
+  flex-basis: 100%;
+}

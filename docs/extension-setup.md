@@ -38,7 +38,7 @@ recovery in Settings; interrupted work is never replayed automatically.
 
 The [Skillager package guide](../packages/skillager-extension/README.md) covers executable and
 read-grant setup, exact acceptance, local copies, explicit terminal setup and SSH Full delivery.
-Configure the exact supported public CLI and explicit source roots in Settings. A matching CLI
+Select Skillager in Settings → Extensions. Program access configures the exact supported application-local CLI; File access separately grants the personal-library folder for selected instruction reading. Project program and project/delivery scopes are independent optional setup. A matching CLI
 version alone is insufficient when public contracts are missing. Missing Skillager, pending or
 blocked acceptance, unavailable SSH and missing optional native access have visible setup paths;
 they do not disable independent document browsing. Reading an unapproved skill does not accept it.

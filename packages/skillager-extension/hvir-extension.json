@@ -522,7 +522,7 @@
   "connectors": [
     {
       "id": "library-cli",
-      "description": "Browse your personal library using the Skillager CLI you approve",
+      "description": "Browse your personal library with this local CLI. Project observations and SSH delivery are separate optional setup.",
       "context": "application",
       "timeoutMs": 180000,
       "outputBytes": 4194304,

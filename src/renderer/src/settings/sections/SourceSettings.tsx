@@ -15,15 +15,29 @@ export function SourceSettings({
   readonly installation: ExtensionInstallation
 }): ReactElement | null {
   if (!installation.enabled || !installation.installationId) return null
+  const sources = installation.manifest?.access ?? []
+  const reading = sources.filter(
+    (entry) => entry.context === 'application' && entry.mode === 'read-only',
+  )
+  const optional = sources.filter((entry) => !reading.includes(entry))
+  const setup = (source: ExtensionSourceDeclaration): ReactElement => (
+    <SourceSetup
+      key={source.id}
+      installation={installation.installationId!}
+      source={source}
+    />
+  )
   return (
     <>
-      {installation.manifest?.access.map((source) => (
-        <SourceSetup
-          key={source.id}
-          installation={installation.installationId!}
-          source={source}
-        />
-      ))}
+      {reading.map(setup)}
+      {optional.length ? (
+        <details className="extension-optional-setup">
+          <summary>Project and delivery access</summary>
+          <p>Project reading and delivery have separate scopes.</p>
+          {optional.map(setup)}
+        </details>
+      ) : null}
+      {!sources.length ? <p>This extension requests no file access.</p> : null}
     </>
   )
 }
@@ -93,16 +107,6 @@ function SourceSetup({
         {source.mode === 'read-only' ? 'Read-only source' : 'Delivery scope'}: {source.id}
       </legend>
       <p>{source.description}</p>
-      <p>
-        {source.context === 'application'
-          ? 'Choose a local folder, independent of the project you are viewing.'
-          : 'Choose one registered project or worktree on its own host. Other projects do not receive this access.'}{' '}
-        {source.mode === 'read-only'
-          ? 'Allows you to read selected files and images inside this folder. It does not change files or approve a skill. Agents and extension actions cannot read skill instructions.'
-          : source.mode === 'delivery-source'
-            ? 'Allows complete local exports from this folder for delivery. It does not approve skills or allow instruction reading. Running a command needs separate approval.'
-            : 'Allows delivery only to this SSH project. New copies need a destination that does not already exist. Updates and removal need unchanged hvir-owned copies. Replaced files are preserved outside the skill folders.'}
-      </p>
       <p role="status">
         {status?.granted ? 'Granted' : 'Not granted'}
         {status?.root ? ` · ${status.root.hostId}: ${status.root.path}` : ''}
@@ -148,6 +152,17 @@ function SourceSetup({
           </select>
         </label>
       )}
+      <p>
+        {source.context === 'application'
+          ? 'Choose a local folder, independent of the project you are viewing.'
+          : 'Choose one registered project or worktree on its own host. Other projects do not receive this access.'}{' '}
+        {source.mode === 'read-only'
+          ? 'Allows you to read selected files and images inside this folder. It does not change files or approve a skill. Agents and extension actions cannot read skill instructions.'
+          : source.mode === 'delivery-source'
+            ? 'Allows complete local exports from this folder for delivery. It does not approve skills or allow instruction reading. Running a command needs separate approval.'
+            : 'Allows delivery only to this SSH project. New copies need a destination that does not already exist. Updates and removal need unchanged hvir-owned copies. Replaced files are preserved outside the skill folders.'}
+      </p>
+
       <button
         className="hvir-button"
         type="button"
