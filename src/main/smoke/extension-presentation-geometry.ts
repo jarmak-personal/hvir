@@ -38,8 +38,10 @@ export async function verifyExtensionSettingsGeometry(
   if (count > 1) {
     const original = (await win.webContents.executeJavaScript(`(() => {
       const buttons=[...document.querySelectorAll('.extension-installation-list button')];
-      const index=buttons.findIndex(e=>e.getAttribute('aria-current')==='true');buttons[index].focus();return index;
-    })()`)) as number
+      const index=buttons.findIndex(e=>e.getAttribute('aria-current')==='true'), selected=buttons[index], next=buttons[(index+1)%buttons.length];
+      if(!selected||!next)throw new Error('Selected configuration disappeared');
+      selected.focus();return {source:selected.dataset.source,name:selected.querySelector('strong')?.textContent,nextSource:next.dataset.source,nextName:next.querySelector('strong')?.textContent};
+    })()`)) as { source: string; name: string; nextSource: string; nextName: string }
     if (!win.isFocused() || !win.isVisible() || win.isMinimized())
       throw new Error(
         'Configuration keyboard check requires the actual foreground window',
@@ -49,18 +51,18 @@ export async function verifyExtensionSettingsGeometry(
     await wait(
       async () =>
         (await win.webContents.executeJavaScript(`(() => {
-      const buttons=[...document.querySelectorAll('.extension-installation-list button')], next=buttons[${(original + 1) % count}];
-      return next?.getAttribute('aria-current')==='true'&&document.activeElement===next&&document.querySelector('.extension-installation h4')?.textContent===next.querySelector('strong')?.textContent;
+      const next=[...document.querySelectorAll('.extension-installation-list button')].find(e=>e.dataset.source===${JSON.stringify(original.nextSource)});
+      return next?.getAttribute('aria-current')==='true'&&document.activeElement===next&&document.querySelector('.extension-installation h4')?.textContent===${JSON.stringify(original.nextName)};
     })()`)) === true,
       'native extension-list keyboard selection and focused configuration',
     )
     await win.webContents.executeJavaScript(
-      `document.querySelectorAll('.extension-installation-list button')[${original}].click()`,
+      `(() => {const original=[...document.querySelectorAll('.extension-installation-list button')].find(e=>e.dataset.source===${JSON.stringify(original.source)});if(!original)throw new Error('Original configuration disappeared');original.click()})()`,
     )
     await wait(
       async () =>
         (await win.webContents.executeJavaScript(
-          `document.querySelectorAll('.extension-installation-list button')[${original}]?.getAttribute('aria-current')==='true'`,
+          `(() => {const original=[...document.querySelectorAll('.extension-installation-list button')].find(e=>e.dataset.source===${JSON.stringify(original.source)});return original?.getAttribute('aria-current')==='true'&&document.querySelector('.extension-installation h4')?.textContent===${JSON.stringify(original.name)}})()`,
         )) === true,
       'original configuration restored after keyboard evidence',
     )

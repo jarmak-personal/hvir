@@ -12,6 +12,7 @@ export function extensionSettingsControls(
   ports: SettingsControlPorts,
 ): {
   select(section?: string): Promise<void>
+  settled(): Promise<boolean>
   click(name: string, legend?: string): Promise<void>
   set(label: string, value: string): Promise<void>
 } {
@@ -71,6 +72,16 @@ export function extensionSettingsControls(
   }
   return {
     select,
+    settled() {
+      return control(
+        `function() {
+          const section=document.querySelector('.extension-settings');
+          const add=[...(section?.querySelectorAll('button')??[])].find(e=>e.textContent.trim()==='Add extension…');
+          return !!add?.checkVisibility() && !add.disabled && !document.querySelector('[aria-labelledby="extension-remove-title"]');
+        }`,
+        [],
+      )
+    },
     async click(name, legend = '') {
       await select()
       await ports.wait(

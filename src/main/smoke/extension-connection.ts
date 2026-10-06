@@ -275,10 +275,32 @@ export async function verifyExtensionConnection(
     await controls.click('Extensions')
     await settings.click('Remove')
     await controls.click('Confirm remove')
-    await controls.wait(
-      () => !activations.active.has(installed.installationId),
-      'connection fixture removal',
-    )
+    let cleanupFacts:
+      { active: boolean; manifestPresent: boolean; ordinarySettled: boolean } | undefined
+    try {
+      await controls.wait(async () => {
+        cleanupFacts = {
+          active: activations.active.has(installed.installationId),
+          manifestPresent: activations
+            .snapshot()
+            .installations.some(
+              (entry) => entry.manifest?.id === installed.revision.manifest.id,
+            ),
+          ordinarySettled: await settings.settled(),
+        }
+        return (
+          !cleanupFacts.active &&
+          !cleanupFacts.manifestPresent &&
+          cleanupFacts.ordinarySettled
+        )
+      }, 'connection fixture removal')
+    } catch (reason) {
+      console.log(
+        '[smoke:connection-cleanup-facts]',
+        JSON.stringify(cleanupFacts ?? { observationUnavailable: true }),
+      )
+      throw reason
+    }
     console.log(
       '[smoke] actual Add/passive metadata/default trusted connection/top current SDK focus to trusted decline and allow/manual retry after native focus withdrawal/public finite output OK (OS Add/program selection substituted; authored metadata, no Skillager compatibility claim)',
     )
