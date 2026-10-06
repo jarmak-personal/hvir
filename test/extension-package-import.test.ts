@@ -226,6 +226,67 @@ describe('Add extension serialized import', () => {
       }
     },
   )
+  it('reports committed acceptance when the renderer is revoked after a successful state write, with consistent restart state', async () => {
+    const data = await extensionInstallationFixture(),
+      owner = data.make(),
+      restarted = data.make(),
+      lifetime = new AbortController()
+    try {
+      const input = await authored(data.root, 'directory')
+      await owner.start(data.lock)
+      const original = data.host.writeFile.bind(data.host)
+      vi.spyOn(data.host, 'writeFile').mockImplementation(
+        async (path, bytes, options) => {
+          await original(path, bytes, options)
+          if (path.path === join(data.root, 'state.json'))
+            lifetime.abort(new Error('Renderer revoked after committed write'))
+        },
+      )
+      const result = await owner.add(
+        () => Promise.resolve(input.source),
+        () => undefined,
+        lifetime.signal,
+      )
+      const installed = result.installations[0]!
+      expect(lifetime.signal.aborted).toBe(true)
+      expect(installed.enabled).toBe(true)
+      expect(owner.snapshot()).toEqual(result)
+      expect(owner.active.get(installed.installationId!)?.revision.hash).toBe(
+        installed.revision,
+      )
+      expect(
+        JSON.parse(await fs.readFile(join(data.root, 'state.json'), 'utf8')),
+      ).toMatchObject({
+        installations: [
+          {
+            installationId: installed.installationId,
+            revision: installed.revision,
+            enabled: true,
+            agentAccess: false,
+          },
+        ],
+      })
+      expect(await owner.readConnectorApprovals()).toEqual([])
+      expect(await owner.readSourceGrants()).toEqual([])
+      expect(owner.agentAccess()).toEqual([])
+      await owner.dispose()
+      await restarted.start(data.lock)
+      expect(restarted.snapshot().installations[0]).toMatchObject({
+        installationId: installed.installationId,
+        revision: installed.revision,
+        enabled: true,
+      })
+      expect(restarted.active.get(installed.installationId!)?.revision.hash).toBe(
+        installed.revision,
+      )
+      expect(restarted.agentAccess()).toEqual([])
+    } finally {
+      vi.restoreAllMocks()
+      await restarted.dispose()
+      await owner.dispose()
+      await data.dispose()
+    }
+  })
   it('cancels without capture or installation effects and refuses a second writer before opening the picker', async () => {
     const data = await extensionInstallationFixture(),
       first = data.make(),

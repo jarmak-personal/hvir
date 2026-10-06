@@ -25,9 +25,12 @@ Settings retains Enable for passively discovered and deliberately disabled packa
 ordinary Disable, Reload, Replace and Remove controls. Passive discovery never activates an
 externally copied, replaced or reappearing package.
 
-The Add intent retains renderer and writer authority through acceptance. Cancellation, rejected
-validation, conflict or revocation cannot accept another discovered revision or admit late
-activation. A physical copy already dispatched may complete; report its outcome truthfully and
+The Add intent requires current renderer and writer authority before its durable acceptance
+write. Successful atomic state writing is the installation commit point. After that success,
+the writer reconciles the exact accepted installation and activation and reports the committed
+outcome even if the initiating renderer has been revoked. It starts no guest or setup work for
+that revoked renderer. Cancellation, rejected validation, conflict or precommit revocation
+cannot accept another discovered revision or admit late activation. A physical copy already dispatched may complete; report its outcome truthfully and
 leave a later ordinary discovery nonactivating. Native selection stays outside the serialized
 writer queue so an open dialog cannot block revocation or Disable. No second activation owner,
 store or transaction framework is introduced.

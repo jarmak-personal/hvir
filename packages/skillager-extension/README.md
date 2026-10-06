@@ -6,7 +6,7 @@ An ordinary hvir extension for Your library, skills observed in the current regi
 
 The 0.3 application release supplies `hvir-skillager-0.3.0.zip` as an ordinary downloadable
 package. Verify it against that release's checksums, then choose **Settings → Extensions →
-Add extension…** and select it. hvir copies and displays it; inspect before Enable. It includes ready HTML/CSS/JS and public UI assets, with no
+Add extension…** and select it. hvir copies and enables its exact validated revision. Review and separately approve needed program or file access. It includes ready HTML/CSS/JS and public UI assets, with no
 Skillager binary. Installed `hvir-agent guide` documents authoring and agent setup independently.
 
 From the hvir checkout, run `npm ci` and `npm run extension:skillager`. The checked-in HTML, CSS and bundled scripts are ready to run; the build reproduces them from `src/` and the public presentation kit. Choose **Settings → Extensions → Add extension…** and select this directory on macOS, or its `hvir-extension.json` on Linux. hvir copies and enables its exact validated revision immediately. Inspect the access declarations and approve needed program or file access separately. For an explicit development link, use the secondary **Author and discovery controls** and Discover. Your library is an application destination; Skills in this project is a left workspace destination. Detail viewers remain individually closable. hvir requires an open project as usual; the library need not be registered as a project.

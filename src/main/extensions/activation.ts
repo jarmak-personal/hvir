@@ -469,7 +469,6 @@ export class ExtensionActivationOwner {
       currentIntent,
       signal,
     )
-    await currentIntent()
     this.discovered.set(source, current)
     this.installations = this.installations.map((entry) =>
       entry.source === source
@@ -649,7 +648,8 @@ export class ExtensionActivationOwner {
         signal,
       },
     )
-    await current()
+    // Successful atomic write commits acceptance; renderer loss cannot undo it.
+    await this.assertWritable()
     this.accepted = next
     this.removals = removals
     const retained = new Set(next.map((entry) => entry.installationId))
