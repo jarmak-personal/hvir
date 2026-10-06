@@ -356,6 +356,110 @@ describe('Add extension result authority order', () => {
   })
 })
 
+describe('Add selected configuration authority', () => {
+  const state = (sources: string[], writable = true): ExtensionPlatformState => ({
+    writable,
+    installations: sources.map((source) => ({ source, enabled: false, warnings: [] })),
+  })
+  async function start() {
+    let finish!: (value: ExtensionPlatformState) => void
+    let reject!: (reason: Error) => void
+    let publish!: (value: ExtensionPlatformState) => void
+    const pending = new Promise<ExtensionPlatformState>((yes, no) => {
+      finish = yes
+      reject = no
+    })
+    vi.stubGlobal('hvir', {
+      invoke: vi.fn((channel: string) =>
+        channel === 'extensions:delivery-recovery'
+          ? Promise.resolve([])
+          : channel === 'extensions:add'
+            ? pending
+            : Promise.resolve(state(['first', 'second'])),
+      ),
+      on: vi.fn((_channel: string, listener: (value: ExtensionPlatformState) => void) => {
+        publish = listener
+        return vi.fn()
+      }),
+    })
+    element = document.createElement('div')
+    document.body.append(element)
+    root = createRoot(element)
+    await act(async () => {
+      root!.render(createElement(ExtensionsSettings))
+      await Promise.resolve()
+    })
+    act(() =>
+      [...element!.querySelectorAll('button')]
+        .find((e) => e.textContent === 'Add extension…')!
+        .click(),
+    )
+    return { finish, reject, publish, pending }
+  }
+  const selected = () =>
+    element!
+      .querySelector('.extension-installation-list [aria-current="true"]')
+      ?.getAttribute('data-source')
+  it('selects a new package from a current reply when no publication has arrived', async () => {
+    const { finish, pending } = await start()
+    await act(async () => {
+      finish(state(['first', 'second', 'added']))
+      await pending
+    })
+    expect(selected()).toBe('added')
+  })
+  it('selects the current Add publication after the pre-import scan and does not retarget from a late reply', async () => {
+    const { finish, publish, pending } = await start()
+    act(() => publish(state(['first', 'second'])))
+    expect(selected()).toBe('first')
+    act(() => publish(state(['first', 'second', 'added'])))
+    expect(selected()).toBe('added')
+    act(() => publish(state(['first', 'second'])))
+    await act(async () => {
+      finish(state(['first', 'second', 'added']))
+      await pending
+    })
+    expect(selected()).toBe('first')
+    expect(element!.textContent).not.toContain('added')
+  })
+  it.each(['click', 'keyboard'] as const)(
+    'keeps a newer %s selection through Add publication and stale reply',
+    async (method) => {
+      const { finish, publish, pending } = await start()
+      act(() => {
+        if (method === 'click')
+          element!.querySelector<HTMLButtonElement>('[data-source="second"]')!.click()
+        else
+          element!
+            .querySelector<HTMLButtonElement>('[data-source="first"]')!
+            .dispatchEvent(
+              new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
+            )
+      })
+      act(() => publish(state(['first', 'second', 'added'])))
+      await act(async () => {
+        finish(state(['first', 'second', 'added']))
+        await pending
+      })
+      expect(selected()).toBe('second')
+    },
+  )
+  it.each(['failure', 'revocation'] as const)(
+    'retires Add selection after %s so later additions cannot retarget it',
+    async (mode) => {
+      const { reject, publish, pending } = await start()
+      if (mode === 'revocation') act(() => publish(state(['first', 'second'], false)))
+      await act(async () => {
+        reject(new Error('Selection cancelled'))
+        await pending.catch(() => undefined)
+      })
+      act(() => publish(state(['first', 'second', 'later'])))
+      expect(selected()).toBe('first')
+      expect(element!.textContent).toContain('Selection cancelled')
+    },
+  )
+})
+
 it('surfaces retained deliveries and access warnings before immediate Enable', async () => {
   const state: ExtensionPlatformState = {
     writable: true,

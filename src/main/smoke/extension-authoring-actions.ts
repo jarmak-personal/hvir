@@ -88,8 +88,18 @@ export async function verifyAuthoringActionExamples(
       async () =>
         Boolean(
           await win.webContents.executeJavaScript(`(() => {
+      const summary = [...document.querySelectorAll('.agent-access-settings summary')].find(e=>e.textContent.trim().startsWith('Agent permissions'));
+      if(!summary?.checkVisibility())return false;if(!summary.parentElement.open)summary.click();return summary.parentElement.open;
+    })()`),
+        ),
+      'ordinary visible agent permissions disclosure',
+    )
+    await controls.wait(
+      async () =>
+        Boolean(
+          await win.webContents.executeJavaScript(`(() => {
       const select = document.querySelector('select[aria-label="Agent authorization"]');
-      if (!select || select.disabled) return false;
+      if (!select || select.disabled || !select.checkVisibility()) return false;
       select.value = ${JSON.stringify(confirm ? 'confirm' : 'standing')};
       select.dispatchEvent(new Event('change', {bubbles:true})); return true;
     })()`),

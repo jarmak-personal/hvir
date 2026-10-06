@@ -127,6 +127,13 @@ export function AgentAccessSettings({
             prompts or sandbox. Programs and folders need separate approval. Other
             processes running as your account share this access.
           </p>
+          {(state?.forwards ?? []).map((forward) => (
+            <p key={forward.host} role="status">
+              SSH agent access: {forward.host} — {forward.availability} ·{' '}
+              {forward.grants.length} enabled grant selections
+              {forward.explanation ? ` · ${forward.explanation}` : ''}
+            </p>
+          ))}
           <details>
             <summary>
               Agent permissions ·{' '}
@@ -150,12 +157,6 @@ export function AgentAccessSettings({
                 <option value="confirm">Also confirm deletions and replacements</option>
               </select>
             </label>
-            <p>
-              Your agents have their own permission prompts. Work they ask hvir to run
-              uses the access approved here; their sandbox does not restrict that work.
-              Extensions still need Enable, and programs and folders need separate
-              approval. Other processes running as your account share this access.
-            </p>
             {(state?.forwards ?? []).map((forward) => (
               <div key={forward.host}>
                 <p>

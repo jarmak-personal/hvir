@@ -33,6 +33,7 @@ export function ExtensionsSettings(): ReactElement {
     if (selected !== selection) setSelection(selected)
   }, [selected, selection])
   const publication = useRef(0)
+  const addition = useRef<ReadonlySet<string> | undefined>(undefined)
   const run = async (operation: () => Promise<unknown>): Promise<void> => {
     setBusy(true)
     setError(undefined)
@@ -52,6 +53,15 @@ export function ExtensionsSettings(): ReactElement {
       publication.current++
       updated = true
       setState(next)
+      const intent = addition.current
+      if (!next.writable) addition.current = undefined
+      else if (intent) {
+        const added = next.installations.find((entry) => !intent.has(entry.source))
+        if (added) {
+          addition.current = undefined
+          setSelection(added)
+        }
+      }
     })
     void window.hvir.invoke('extensions:state', undefined).then(
       (next) => {
@@ -66,6 +76,7 @@ export function ExtensionsSettings(): ReactElement {
     )
     return () => {
       current = false
+      addition.current = undefined
       void dispose()
     }
   }, [])
@@ -85,12 +96,19 @@ export function ExtensionsSettings(): ReactElement {
               void run(async () => {
                 const observed = publication.current
                 const previous = new Set(installations.map((entry) => entry.source))
-                const next = await window.hvir.invoke('extensions:add', undefined)
-                if (observed === publication.current) setState(next)
-                const added = next.installations.find(
-                  (entry) => !previous.has(entry.source),
-                )
-                if (added) setSelection(added)
+                addition.current = previous
+                try {
+                  const next = await window.hvir.invoke('extensions:add', undefined)
+                  if (observed === publication.current) {
+                    setState(next)
+                    const added = next.installations.find(
+                      (entry) => !previous.has(entry.source),
+                    )
+                    if (addition.current === previous && added) setSelection(added)
+                  }
+                } finally {
+                  if (addition.current === previous) addition.current = undefined
+                }
               })
             }
           >
@@ -144,6 +162,7 @@ export function ExtensionsSettings(): ReactElement {
                   data-source={installation.source}
                   aria-current={selected === installation ? 'true' : undefined}
                   onClick={() => {
+                    addition.current = undefined
                     setSelection(installation)
                     setRemoving(undefined)
                   }}
