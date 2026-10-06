@@ -74,6 +74,7 @@ export function initializationResult(value, status, selection) {
   if (
     result.schema !== 'skillager.library-init.v1' ||
     !['initialized', 'already-initialized'].includes(result.status) ||
+    typeof result.created !== 'boolean' ||
     !Array.isArray(result.errors) ||
     result.errors.length ||
     result.library?.registration !== 'valid' ||
@@ -89,9 +90,11 @@ export function initializationResult(value, status, selection) {
     observed,
     created: result.created === true,
     connect:
-      selection.root.hostId === 'local' &&
-      selection.root.path === observed.root.path &&
-      desired === observed.gitMode,
+      selection.location === 'default' ||
+      (selection.location === 'custom' &&
+        selection.root.hostId === 'local' &&
+        absoluteLocalPath(selection.root.path).path === observed.root.path &&
+        desired === observed.gitMode),
     message:
       result.created === true
         ? 'Personal library created'

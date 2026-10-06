@@ -17,7 +17,7 @@ afterEach(() => {
   dispose?.()
   document.body.replaceChildren()
 })
-function fixture(cryptoPort: unknown = webcrypto) {
+function fixture(cryptoPort: unknown = webcrypto, initialize?: () => Promise<Value>) {
   const template = document.createElement('template')
   template.innerHTML = readFileSync(
     'packages/skillager-extension/management.html',
@@ -128,6 +128,7 @@ function fixture(cryptoPort: unknown = webcrypto) {
     request(capability: string, input: Value) {
       if (capability === 'actions.invoke') {
         actions.push(input as { action: string; input: Value })
+        if (input['action'] === 'initialize-library' && initialize) return initialize()
         return Promise.resolve({ outcome: 'verified' })
       }
       if (capability === 'connector.output')
@@ -462,4 +463,94 @@ it('rejects programmatic advanced retargeting before Confirm while keeping files
   await f.ready(/advanced selection changed/)
   expect(document.getElementById('review')!.hidden).toBe(true)
   expect(f.actions).toEqual([])
+})
+
+it('creates with one default action without requiring custom location or Git inputs', async () => {
+  const observed = {
+    id: 'owned-id',
+    root: { hostId: 'local', path: '/owned/library' },
+    gitMode: 'disabled',
+  }
+  const f = fixture(webcrypto, () =>
+    Promise.resolve({
+      outcome: 'verified',
+      observed,
+      connect: true,
+      message: 'Existing library preserved',
+      guidance: 'Refresh',
+    }),
+  )
+  expect(
+    (document.getElementById('custom-initialization') as HTMLDetailsElement).open,
+  ).toBe(false)
+  expect((document.getElementById('library-path') as HTMLInputElement).value).toBe('')
+  f.click('create-library')
+  await f.ready(/Existing library preserved/)
+  expect(f.actions).toEqual([
+    { action: 'initialize-library', input: { location: 'default' } },
+  ])
+  expect(document.getElementById('library-identity')!.textContent).toContain(
+    'Connected local: /owned/library',
+  )
+  expect(document.getElementById('library-identity')!.textContent).toContain(
+    'history disabled',
+  )
+})
+
+it('retains the advanced custom/no-Git action and ignores a creation reply after hiding', async () => {
+  let resolve!: (value: Value) => void
+  const held = new Promise<Value>((done) => {
+    resolve = done
+  })
+  const f = fixture(webcrypto, () => held)
+  ;(document.querySelector('#custom-initialization summary') as HTMLElement).click()
+  ;(document.getElementById('library-path') as HTMLInputElement).value = '/owned/custom'
+  ;(document.getElementById('git-history') as HTMLInputElement).checked = false
+  ;(document.getElementById('initialize') as HTMLFormElement).requestSubmit()
+  expect(f.actions).toEqual([
+    {
+      action: 'initialize-library',
+      input: {
+        location: 'custom',
+        root: { hostId: 'local', path: '/owned/custom' },
+        git: false,
+      },
+    },
+  ])
+  const before = document.getElementById('library-identity')!.textContent
+  f.hide()
+  resolve({
+    outcome: 'verified',
+    connect: true,
+    observed: {
+      id: 'late',
+      root: { hostId: 'local', path: '/owned/custom' },
+      gitMode: 'disabled',
+    },
+  })
+  await held
+  await Promise.resolve()
+  expect(document.getElementById('library-identity')!.textContent).toBe(before)
+  expect(document.getElementById('result')!.textContent).toBe('')
+  expect((document.getElementById('connect-library') as HTMLButtonElement).disabled).toBe(
+    true,
+  )
+})
+
+it('preserves current status when a creation rejection arrives after its view is hidden', async () => {
+  let reject!: (reason: Error) => void
+  const held = new Promise<Value>((_resolve, fail) => {
+    reject = fail
+  })
+  const f = fixture(webcrypto, () => held)
+  f.click('create-library')
+  expect(f.actions).toHaveLength(1)
+  f.hide()
+  const state = document.getElementById('state')!
+  state.textContent = 'Current public status retained'
+  reject(new Error('Late canceled initialization'))
+  await held.catch(() => {})
+  await Promise.resolve()
+  expect(state.textContent).toBe('Current public status retained')
+  expect(document.getElementById('result')!.textContent).toBe('')
 })

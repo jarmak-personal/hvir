@@ -91,17 +91,21 @@
   "actions": [
     {
       "id": "initialize-library",
-      "title": "Initialize selected personal library",
+      "title": "Create personal library",
       "view": "management",
       "agents": true,
       "effects": {
         "delete": false,
         "replace": false
       },
-      "description": "Initialize or register only the explicit local location; preserve existing Git mode and verify public status before connecting.",
+      "description": "Create using Skillager defaults or an explicit custom local location; preserve an existing registration and verify public status before connecting.",
       "inputSchema": {
         "type": "object",
         "properties": {
+          "location": {
+            "type": "string",
+            "enum": ["default", "custom"]
+          },
           "root": {
             "type": "object",
             "properties": {
@@ -121,7 +125,7 @@
             "type": "boolean"
           }
         },
-        "required": ["root", "git"],
+        "required": ["location"],
         "additionalProperties": false
       }
     },
@@ -525,7 +529,9 @@
       "id": "library-cli",
       "description": "Browse and manage your personal skills library.",
       "context": "application",
-      "setup": { "executable": "skillager" },
+      "setup": {
+        "executable": "skillager"
+      },
       "timeoutMs": 180000,
       "outputBytes": 4194304,
       "environment": ["SKILLAGER_CATALOG_STATE_DIR", "XDG_CACHE_HOME", "XDG_STATE_HOME"]

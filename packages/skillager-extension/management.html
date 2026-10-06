@@ -26,19 +26,27 @@
         <p id="library-identity" class="hvir-meta">
           No management connection selected. Browsing remains independent.
         </p>
-        <form id="initialize">
-          <label
-            >Explicit local library location
-            <input
-              id="library-path"
-              class="hvir-input"
-              placeholder="Absolute path"
-              required /></label
-          ><label
-            ><input id="git-history" type="checkbox" checked /> Use Git history for a new
-            library</label
-          ><button class="hvir-button" type="submit">Initialize selected location</button>
-        </form>
+        <button id="create-library" class="hvir-button">Create personal library</button>
+        <p class="hvir-meta">
+          Skillager chooses its default location and Git history. An existing library is
+          preserved.
+        </p>
+        <details id="custom-initialization">
+          <summary>Custom location and history</summary>
+          <form id="initialize">
+            <label
+              >Custom local library location
+              <input
+                id="library-path"
+                class="hvir-input"
+                placeholder="Absolute path"
+                required /></label
+            ><label
+              ><input id="git-history" type="checkbox" checked /> Use Git history for a
+              new library</label
+            ><button class="hvir-button" type="submit">Create at custom location</button>
+          </form>
+        </details>
         <p class="hvir-meta">
           Existing libraries preserve their actual history mode. A different registration
           is never relocated implicitly.

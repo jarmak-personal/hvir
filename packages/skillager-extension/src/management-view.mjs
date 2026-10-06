@@ -131,7 +131,7 @@ export function bindManagementView(document, client) {
     element('connect-library').disabled = !observed
     element('library-identity').textContent = observed
       ? `${observed.root.hostId}: ${observed.root.path} · ${observed.id} · history ${observed.gitMode} · observed; choose Connect`
-      : 'No registered personal library. Choose an explicit location and history for a new library.'
+      : 'No registered personal library. Choose Create personal library to use Skillager’s defaults.'
     say('Public library status observed; browsing and reading remain independent')
   })
   on('connect-library', 'click', async (_event, current) => {
@@ -151,19 +151,40 @@ export function bindManagementView(document, client) {
       'Management connected to the observed library. Select a source or preview approved-source sync.',
     )
   })
-  on('initialize', 'submit', async (_event, current) => {
-    const selection = {
-      root: absoluteLocalPath(element('library-path').value),
-      git: element('git-history').checked,
+  async function initialize(selection, current) {
+    let result
+    try {
+      result = await client.request('actions.invoke', {
+        action: 'initialize-library',
+        input: selection,
+      })
+    } catch (error) {
+      if (current()) throw error
+      return
     }
-    const result = await action('initialize-library', selection)
-    if (!current() || result.outcome !== 'verified') return
+    if (!current()) return
+    show(result)
+    say(result.message ?? 'Personal library creation result observed')
+    if (result.outcome !== 'verified') return
     observed = result.observed
     connection = result.connect ? result.observed : undefined
     element('connect-library').disabled = false
     element('library-identity').textContent =
       `${result.connect ? 'Connected' : 'Observed; explicitly choose Connect'} ${observed.root.hostId}: ${observed.root.path} · ${observed.id} · history ${observed.gitMode}`
     say(`${result.message}. ${result.guidance}`)
+  }
+  on('create-library', 'click', (_event, current) =>
+    initialize({ location: 'default' }, current),
+  )
+  on('initialize', 'submit', (_event, current) => {
+    return initialize(
+      {
+        location: 'custom',
+        root: absoluteLocalPath(element('library-path').value),
+        git: element('git-history').checked,
+      },
+      current,
+    )
   })
   on('preview-sync', 'click', async (_event, current) => {
     const library = connected(),

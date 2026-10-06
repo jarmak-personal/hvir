@@ -18,6 +18,13 @@ function agent(value) {
   return value
 }
 export function initializationArgs(selection) {
+  if (selection.location === 'default') {
+    if (selection.root !== undefined || selection.git !== undefined)
+      throw new Error('Default creation uses Skillager’s location and history settings')
+    return ['library', 'init', '--json']
+  }
+  if (selection.location !== 'custom')
+    throw new Error('Choose default creation or an explicit custom location')
   if (selection.root?.hostId !== 'local')
     throw new Error('Choose an explicit local library location')
   if (typeof selection.git !== 'boolean') throw new Error('Choose Git history explicitly')

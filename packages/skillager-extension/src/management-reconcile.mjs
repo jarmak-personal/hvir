@@ -16,11 +16,25 @@ export async function reconciliationFacts(io, record, workspace) {
     library = registeredLibrary(await io.run(['library', 'status', '--json']))
   let current
   if (operation.action === 'initialize-library') {
-    if (library.root.path !== operation.selection.root.path)
+    if (
+      operation.selection.location === 'custom' &&
+      library.root.path !== operation.selection.root.path
+    )
       throw new Error(
         'The selected initialization location is not the registered current library. Inspect/repair that location through ordinary file tools and the public CLI; original completion remains unknown.',
       )
-    current = { action: operation.action, registered: library }
+    current = {
+      action: operation.action,
+      registered: library,
+      originalCompletion: 'unknown',
+      ...(operation.selection.location === 'default'
+        ? {
+            target: 'unknown',
+            safeNext:
+              'Current registration is observed; original default initialization completion and any partial files remain unknown. Do not replay it automatically.',
+          }
+        : {}),
+    }
   } else {
     sameLibrary(operation.library, library)
     if (operation.action === 'change-exposure') {

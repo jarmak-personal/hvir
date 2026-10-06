@@ -180,6 +180,7 @@ it('constructs mutation argv from validated selectors and tokens, preserving spa
   ).toThrow(/identity/)
   expect(
     argv.initializationArgs({
+      location: 'custom',
       root: { hostId: 'local', path: '/owned library' },
       git: false,
     }),

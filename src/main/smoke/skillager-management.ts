@@ -158,6 +158,11 @@ export async function verifySkillagerManagement(
   } catch (error) {
     if ((error as { code?: unknown }).code !== 'ENOENT') throw error
   }
+  await ui.inspect("document.querySelector('#custom-initialization summary').click()")
+  await ui.ready(
+    "document.getElementById('custom-initialization').open",
+    'ordinary advanced custom location controls',
+  )
   await ui.set('library-path', library.path)
   await ui.inspect(
     `document.getElementById('git-history').checked=${mode === 'git'}; document.getElementById('initialize').requestSubmit()`,
@@ -175,6 +180,42 @@ export async function verifySkillagerManagement(
     throw new Error(
       'Selected init/current registered canonical path or history mode differs',
     )
+  await ui.inspect("document.getElementById('result').textContent=''")
+  await ui.click('create-library')
+  const preserved = await ui.result('initialize-library')
+  if (
+    preserved['outcome'] !== 'verified' ||
+    preserved['created'] !== false ||
+    preserved['connect'] !== true ||
+    JSON.stringify(preserved['observed']) !== JSON.stringify(initialized['observed'])
+  )
+    throw new Error(
+      'Default public initialization changed the owned existing registration',
+    )
+  console.log(
+    '[smoke] Skillager management: default init preserved owned registration; fresh HOME creation not exercised',
+  )
+  if (process.env.HVIR_SKILLAGER_MANAGEMENT_INITIALIZATION_ONLY === '1') {
+    await host.writeFile(
+      joinHostPath(owned, 'initialization-proof.json'),
+      JSON.stringify({
+        qualification:
+          'Initialization-only diagnostic: ordinary Settings/native approval/D4 action with the actual installed CLI. Custom creation and default existing-registration preservation only; no full management/sync or fresh default HOME creation claim.',
+        mode,
+        initialized,
+        defaultPreserved: preserved,
+        publicStatus: {
+          schema: firstStatus['schema'],
+          libraryId: registered['library_id'],
+          root: registered['root'],
+          gitMode: (firstStatus['git'] as Record<string, unknown>)['mode'],
+        },
+      }),
+    )
+    console.log(`[smoke] owned Skillager initialization-only ${mode}: PASS`)
+    console.log('HVIR_SMOKE_OK')
+    return true
+  }
   if (mode === 'git') {
     for (const [key, value] of [
       ['user.name', 'Owned hvir fixture'],
@@ -320,6 +361,9 @@ export async function verifySkillagerManagement(
           mode,
           workspace,
           initialized,
+          defaultPreserved: preserved,
+          defaultCreationQualification:
+            'Exact public default argv against an existing task-owned registration; no fresh HOME-based creation claim.',
           firstAccepted,
           editedAccepted,
           acceptedCanonicalSource: true,

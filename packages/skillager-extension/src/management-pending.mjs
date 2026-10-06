@@ -29,7 +29,9 @@ export function pendingManagement() {
             ) ||
           (descriptor.action === 'initialize-library' &&
             previous.action === descriptor.action &&
-            sameRoot(descriptor.selection.root, previous.selection.root)) ||
+            (descriptor.selection.location === 'default' ||
+              previous.selection.location === 'default' ||
+              sameRoot(descriptor.selection.root, previous.selection.root))) ||
           (descriptor.action === 'sync-library' &&
             previous.action === descriptor.action &&
             descriptor.library.id === previous.library.id &&
