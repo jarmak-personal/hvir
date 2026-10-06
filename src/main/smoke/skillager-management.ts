@@ -180,22 +180,22 @@ export async function verifySkillagerManagement(
     throw new Error(
       'Selected init/current registered canonical path or history mode differs',
     )
-  await ui.inspect("document.getElementById('result').textContent=''")
-  await ui.click('create-library')
-  const preserved = await ui.result('initialize-library')
-  if (
-    preserved['outcome'] !== 'verified' ||
-    preserved['created'] !== false ||
-    preserved['connect'] !== true ||
-    JSON.stringify(preserved['observed']) !== JSON.stringify(initialized['observed'])
-  )
-    throw new Error(
-      'Default public initialization changed the owned existing registration',
-    )
-  console.log(
-    '[smoke] Skillager management: default init preserved owned registration; fresh HOME creation not exercised',
-  )
   if (process.env.HVIR_SKILLAGER_MANAGEMENT_INITIALIZATION_ONLY === '1') {
+    await ui.inspect("document.getElementById('result').textContent=''")
+    await ui.click('create-library')
+    const preserved = await ui.result('initialize-library')
+    if (
+      preserved['outcome'] !== 'verified' ||
+      preserved['created'] !== false ||
+      preserved['connect'] !== true ||
+      JSON.stringify(preserved['observed']) !== JSON.stringify(initialized['observed'])
+    )
+      throw new Error(
+        'Default public initialization changed the owned existing registration',
+      )
+    console.log(
+      '[smoke] Skillager management: default init preserved owned registration; fresh HOME creation not exercised',
+    )
     await host.writeFile(
       joinHostPath(owned, 'initialization-proof.json'),
       JSON.stringify({
@@ -361,9 +361,6 @@ export async function verifySkillagerManagement(
           mode,
           workspace,
           initialized,
-          defaultPreserved: preserved,
-          defaultCreationQualification:
-            'Exact public default argv against an existing task-owned registration; no fresh HOME-based creation claim.',
           firstAccepted,
           editedAccepted,
           acceptedCanonicalSource: true,

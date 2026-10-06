@@ -90,12 +90,21 @@ export function bindManagementView(document, client) {
     target.addEventListener(event, callback)
     listeners.push(() => target.removeEventListener(event, callback))
   }
-  async function action(id, input = {}) {
-    const result = await client.request('actions.invoke', { action: id, input })
-    show(result)
-    say(
-      result.message ?? `${result.outcome ?? result.status ?? 'Result observed'} · ${id}`,
-    )
+  async function action(id, input = {}, current = () => true) {
+    let result
+    try {
+      result = await client.request('actions.invoke', { action: id, input })
+    } catch (error) {
+      if (current()) throw error
+      return
+    }
+    if (current()) {
+      show(result)
+      say(
+        result.message ??
+          `${result.outcome ?? result.status ?? 'Result observed'} · ${id}`,
+      )
+    }
     return result
   }
   function review(title, summary, plan, task, technicalDetails = false) {
@@ -152,20 +161,8 @@ export function bindManagementView(document, client) {
     )
   })
   async function initialize(selection, current) {
-    let result
-    try {
-      result = await client.request('actions.invoke', {
-        action: 'initialize-library',
-        input: selection,
-      })
-    } catch (error) {
-      if (current()) throw error
-      return
-    }
-    if (!current()) return
-    show(result)
-    say(result.message ?? 'Personal library creation result observed')
-    if (result.outcome !== 'verified') return
+    const result = await action('initialize-library', selection, current)
+    if (!current() || result?.outcome !== 'verified') return
     observed = result.observed
     connection = result.connect ? result.observed : undefined
     element('connect-library').disabled = false

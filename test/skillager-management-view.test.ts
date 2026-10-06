@@ -537,20 +537,24 @@ it('retains the advanced custom/no-Git action and ignores a creation reply after
   )
 })
 
-it('preserves current status when a creation rejection arrives after its view is hidden', async () => {
-  let reject!: (reason: Error) => void
-  const held = new Promise<Value>((_resolve, fail) => {
-    reject = fail
-  })
-  const f = fixture(webcrypto, () => held)
-  f.click('create-library')
-  expect(f.actions).toHaveLength(1)
-  f.hide()
-  const state = document.getElementById('state')!
-  state.textContent = 'Current public status retained'
-  reject(new Error('Late canceled initialization'))
-  await held.catch(() => {})
-  await Promise.resolve()
-  expect(state.textContent).toBe('Current public status retained')
-  expect(document.getElementById('result')!.textContent).toBe('')
-})
+it.each(['hidden', 'selection'])(
+  'preserves current status when a creation rejection arrives after %s withdrawal',
+  async (withdrawal) => {
+    let reject!: (reason: Error) => void
+    const held = new Promise<Value>((_resolve, fail) => {
+      reject = fail
+    })
+    const f = fixture(webcrypto, () => held)
+    f.click('create-library')
+    expect(f.actions).toHaveLength(1)
+    if (withdrawal === 'hidden') f.hide()
+    else f.row('lib/new-selection')
+    const state = document.getElementById('state')!
+    state.textContent = 'Current public status retained'
+    reject(new Error('Late canceled initialization'))
+    await held.catch(() => {})
+    await Promise.resolve()
+    expect(state.textContent).toBe('Current public status retained')
+    expect(document.getElementById('result')!.textContent).toBe('')
+  },
+)
