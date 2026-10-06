@@ -52,7 +52,7 @@ describe('Add extension serialized import', () => {
             () => undefined,
             new AbortController().signal,
           )
-        const first = (await add()).installations[0]!
+        const first = (await add()).state.installations[0]!
         expect(first.kind).toBe(kind)
         expect(first.enabled).toBe(true)
         expect(owner.active.size).toBe(1)
@@ -81,7 +81,7 @@ describe('Add extension serialized import', () => {
           owner.snapshot().installations[0]!.sourceIdentity,
           false,
         )
-        const reinstalled = (await add()).installations[0]!
+        const reinstalled = (await add()).state.installations[0]!
         expect(reinstalled.installationId).toBe(id)
         expect(reinstalled.enabled).toBe(true)
         expect(owner.active.has(id)).toBe(true)
@@ -113,7 +113,7 @@ describe('Add extension serialized import', () => {
         new AbortController().signal,
       )
       expect(
-        state.installations
+        state.state.installations
           .filter((entry) => entry.enabled)
           .map((entry) => entry.manifest?.id),
       ).toEqual(['example.reference'])
@@ -247,10 +247,10 @@ describe('Add extension serialized import', () => {
         () => undefined,
         lifetime.signal,
       )
-      const installed = result.installations[0]!
+      const installed = result.state.installations[0]!
       expect(lifetime.signal.aborted).toBe(true)
       expect(installed.enabled).toBe(true)
-      expect(owner.snapshot()).toEqual(result)
+      expect(owner.snapshot()).toEqual(result.state)
       expect(owner.active.get(installed.installationId!)?.revision.hash).toBe(
         installed.revision,
       )
@@ -296,7 +296,7 @@ describe('Add extension serialized import', () => {
       await second.start(data.lock)
       const pick = vi.fn(() => Promise.resolve(undefined))
       expect(
-        (await first.add(pick, () => undefined, new AbortController().signal))
+        (await first.add(pick, () => undefined, new AbortController().signal)).state
           .installations,
       ).toEqual([])
       await expect(

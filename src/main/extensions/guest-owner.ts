@@ -1,6 +1,7 @@
 import { parseGuestAppearance } from './guest-appearance'
 import type { ExtensionGuestPorts } from './guest-capability-ports'
 import { routeGuestCapability } from './guest-capability-routing'
+import { extensionRequestIdentity } from '../../shared/extensions/validation'
 import { extensionRequestDeadline } from '../../shared/extensions/request-deadline'
 import { openGuestOwnView } from './guest-view-opening'
 import { validateExtensionViewInput } from '../../shared/extensions/view-input'
@@ -49,6 +50,7 @@ export interface ExtensionGuestSurfacePort {
   send(guestId: number, reply: ExtensionReply): void
   visibility(guestId: number, visible: boolean): void
   foreground(owner: RendererOwner): boolean
+  windowVisible(owner: RendererOwner): boolean
   runnable?(guestId: number, admitted: boolean): void
 }
 
@@ -64,6 +66,7 @@ interface GuestRecord {
   claimed: boolean
   negotiated: boolean
   visible: boolean
+  selected: boolean
   refreshDemand: boolean
   rateStart: number
   messages: number
@@ -223,6 +226,7 @@ export class ExtensionGuestOwner {
       claimed: false,
       negotiated: false,
       visible: false,
+      selected: false,
       refreshDemand: false,
       rateStart: performance.now(),
       messages: 0,
@@ -365,9 +369,11 @@ export class ExtensionGuestOwner {
     value: ExtensionPresentation,
     visible: boolean,
     refreshDemand: boolean,
+    selected = visible,
   ): void {
     const record = this.records.get(viewId)
     if (!record || !sameOwner(record.owner, owner) || !this.current(record)) return
+    record.selected = selected === true
     const previousDemand = record.refreshDemand
     // Visibility authority is independent of parsing the latest appearance snapshot.
     record.visible =
@@ -377,6 +383,7 @@ export class ExtensionGuestOwner {
           (!this.foregroundPlacement(record) || this.ownerForeground(owner))
     record.refreshDemand =
       record.visible && refreshDemand === true && this.ownerForeground(owner)
+    this.ports.connections.revalidate()
     this.ports.connectors.revalidate()
     this.ports.sources.revalidate()
     if (record.refreshDemand !== previousDemand) this.ports.visibleContributionsChanged()
@@ -417,6 +424,7 @@ export class ExtensionGuestOwner {
         this.surface.visibility(record.guestId, record.visible)
       this.sendContext(record)
     }
+    this.ports.connections.revalidate()
     this.ports.connectors.revalidate()
     this.ports.sources.revalidate()
     this.ports.visibleContributionsChanged()
@@ -491,8 +499,7 @@ export class ExtensionGuestOwner {
         this.ports.actions.ready(record.view.id)
         return
       }
-      id = extensionText(message['id'], 'request identity', 80)
-      if (!/^[a-zA-Z0-9-]+$/u.test(id)) throw new Error('Invalid request identity')
+      id = extensionRequestIdentity(message['id'])
       if (message['kind'] === 'cancel') {
         record.requests.get(id)?.abort()
         return
@@ -623,10 +630,13 @@ export class ExtensionGuestOwner {
       : undefined
     if (invocationAuthority?.signal)
       signal = AbortSignal.any([signal, invocationAuthority.signal])
-    const assertOrigin = (): void => {
+    const assertOrigin = (selecting = false): void => {
       this.assertRecord(record)
       signal.throwIfAborted()
-      if (
+      if (selecting && capability === 'connector.connect') {
+        if (!record.selected || !this.surface.windowVisible(record.owner))
+          throw new Error('Program selection context ended')
+      } else if (
         !invocation &&
         this.foregroundPlacement(record) &&
         !this.ownerForeground(record.owner)
@@ -701,6 +711,7 @@ export class ExtensionGuestOwner {
       this.surface.runnable?.(record.guestId, record.actions.size > 0)
   }
   updateContext(): void {
+    this.ports.connections.revalidate()
     this.ports.connectors.revalidate()
     this.ports.sources.revalidate()
     for (const record of [...this.records.values()]) {
@@ -734,6 +745,7 @@ export class ExtensionGuestOwner {
     )
       return
     record.visible = demanded
+    this.ports.connections.revalidate()
     this.ports.connectors.revalidate()
     this.ports.sources.revalidate()
     this.sendContext(record)
@@ -808,6 +820,7 @@ export class ExtensionGuestOwner {
               'source.render',
               'source.reveal',
               'terminal.start',
+              'connector.connect',
             ].includes(capability))),
     )
   }
@@ -852,6 +865,7 @@ export class ExtensionGuestOwner {
     this.records.delete(record.view.id)
     this.ports.sources.closeView(record.view.id)
     record.authority.dispose()
+    this.ports.connections.revalidate()
     this.ports.connectors.revalidate()
     this.ports.sources.revalidate()
     if (record.visible && record.view.role !== 'updater')

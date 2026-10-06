@@ -1,4 +1,5 @@
 import type { BrowserWindow } from 'electron'
+import { extensionSettingsControls } from './extension-settings-controls'
 
 type Wait = (predicate: () => boolean | Promise<boolean>, label: string) => Promise<void>
 
@@ -38,32 +39,42 @@ export async function verifyExtensionSettingsGeometry(
   if (count > 1) {
     const original = (await win.webContents.executeJavaScript(`(() => {
       const buttons=[...document.querySelectorAll('.extension-installation-list button')];
-      const index=buttons.findIndex(e=>e.getAttribute('aria-current')==='true');buttons[index].focus();return index;
-    })()`)) as number
+      const index=buttons.findIndex(e=>e.getAttribute('aria-current')==='true'), selected=buttons[index], next=buttons[(index+1)%buttons.length];
+      if(!selected||!next)throw new Error('Selected configuration disappeared');
+      selected.focus();return {source:selected.dataset.source,name:selected.querySelector('strong')?.textContent,nextSource:next.dataset.source,nextName:next.querySelector('strong')?.textContent};
+    })()`)) as
+      | { source: unknown; name: unknown; nextSource: unknown; nextName: unknown }
+      | undefined
+    if (
+      !original ||
+      typeof original.source !== 'string' ||
+      !original.source ||
+      typeof original.name !== 'string' ||
+      !original.name ||
+      typeof original.nextSource !== 'string' ||
+      !original.nextSource ||
+      typeof original.nextName !== 'string' ||
+      !original.nextName
+    )
+      throw new Error('Selected configuration identity is unavailable')
     if (!win.isFocused() || !win.isVisible() || win.isMinimized())
       throw new Error(
         'Configuration keyboard check requires the actual foreground window',
       )
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Down' })
     win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Down' })
+    const ports = { wait, within: <T>(work: Promise<T>): Promise<T> => work }
+    const next = extensionSettingsControls(
+      win,
+      original.nextName,
+      ports,
+      original.nextSource,
+    )
     await wait(
-      async () =>
-        (await win.webContents.executeJavaScript(`(() => {
-      const buttons=[...document.querySelectorAll('.extension-installation-list button')], next=buttons[${(original + 1) % count}];
-      return next?.getAttribute('aria-current')==='true'&&document.activeElement===next&&document.querySelector('.extension-installation h4')?.textContent===next.querySelector('strong')?.textContent;
-    })()`)) === true,
+      () => next.selected(true),
       'native extension-list keyboard selection and focused configuration',
     )
-    await win.webContents.executeJavaScript(
-      `document.querySelectorAll('.extension-installation-list button')[${original}].click()`,
-    )
-    await wait(
-      async () =>
-        (await win.webContents.executeJavaScript(
-          `document.querySelectorAll('.extension-installation-list button')[${original}]?.getAttribute('aria-current')==='true'`,
-        )) === true,
-      'original configuration restored after keyboard evidence',
-    )
+    await extensionSettingsControls(win, original.name, ports, original.source).select()
   }
 }
 

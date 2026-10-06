@@ -1,3 +1,4 @@
+import type { ExtensionConnectorConnectionOwner } from './connector-connection'
 import type { ExtensionManagedDeliveryOwner } from './managed-delivery'
 import type { ExtensionSourceReadingOwner } from './source-reading'
 import type { ExtensionSourceReveal } from './source-reveal'
@@ -20,6 +21,7 @@ export interface ExtensionGuestPorts {
     ExtensionManagedDeliveryOwner,
     'capture' | 'manifest' | 'preview' | 'apply' | 'status' | 'domain' | 'reconcile'
   >
+  readonly connections: Pick<ExtensionConnectorConnectionOwner, 'request' | 'revalidate'>
   readonly connectors: Pick<
     ExtensionConnectorExecutionOwner,
     'execute' | 'output' | 'revalidate'

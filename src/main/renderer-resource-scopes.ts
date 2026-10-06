@@ -11,6 +11,7 @@ export type RendererResourceQualifier =
       readonly type:
         | 'extension-views'
         | 'extension-package-import'
+        | 'extension-program-connection'
         | 'extension-demand'
         | 'attention'
         | 'ssh-prompt-presentation'

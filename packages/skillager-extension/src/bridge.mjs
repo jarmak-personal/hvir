@@ -20,7 +20,10 @@ export function guestClient(bridge, clock = globalThis) {
           'This view is hidden',
           (request) =>
             !request.actionId &&
-            !(request.capability === 'actions.invoke' && request.submitted),
+            !(
+              ['actions.invoke', 'connector.connect'].includes(request.capability) &&
+              request.submitted
+            ),
         )
     }
     if (message.kind === 'action')

@@ -165,7 +165,6 @@ export class ExtensionConnectorApprovalOwner {
     return this.serialize(async () => {
       this.prune()
       const prepared = this.prepared.get(token)
-      this.prepared.delete(token)
       if (!prepared) throw new Error('Inspect native access again before approving')
       try {
         await this.assertWritable()
@@ -202,6 +201,7 @@ export class ExtensionConnectorApprovalOwner {
           approval,
         ]
       } finally {
+        this.prepared.delete(token)
         this.decisions.delete(prepared.decision)
       }
     })
@@ -228,6 +228,20 @@ export class ExtensionConnectorApprovalOwner {
         if (this.disposed) throw new Error('Native approvals ended')
       })
     })
+  }
+
+  preparedSignal(token: string): AbortSignal {
+    const prepared = this.prepared.get(token)
+    if (!prepared) throw new Error('Native approval decision ended')
+    return prepared.decision.controller.signal
+  }
+
+  cancelPrepared(token: string): void {
+    const prepared = this.prepared.get(token)
+    if (!prepared) return
+    prepared.decision.controller.abort()
+    this.prepared.delete(token)
+    this.decisions.delete(prepared.decision)
   }
 
   discardPrepared(installation: string, connector?: string): void {
@@ -347,7 +361,9 @@ export async function canonicalExecutablePath(
     stat.type !== 'file' ||
     (stat.mode & 0o111) === 0
   )
-    throw new Error('Select an executable file on this host')
+    throw Object.assign(new Error('Select an executable file on this host'), {
+      code: 'NOT_EXECUTABLE',
+    })
   return executablePath(canonical.path)
 }
 function key(approval: ExtensionConnectorApproval): string {

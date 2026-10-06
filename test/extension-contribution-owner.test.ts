@@ -65,6 +65,7 @@ function fixture(
     destroy: vi.fn<ExtensionGuestSurfacePort['destroy']>(() => Promise.resolve()),
     visibility: vi.fn(),
     foreground: (_owner: Parameters<ExtensionGuestSurfacePort['foreground']>[0]) => true,
+    windowVisible: () => true,
     send: vi.fn<ExtensionGuestSurfacePort['send']>(),
   }
   const contexts = contextFixture().contexts

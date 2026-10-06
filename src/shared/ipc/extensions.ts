@@ -59,6 +59,22 @@ export const extensionsIpc = {
         readonly connectors: readonly ExtensionConnectorStatus[]
       }
     >(),
+    'extensions:connection-proposals': invoke<
+      void,
+      readonly import('../extensions/connectors').ExtensionConnectionProposal[]
+    >(),
+    'extensions:connection-decide': invoke<
+      { readonly id: string; readonly accepted: boolean },
+      void
+    >(),
+    'extensions:connector-connect': invoke<
+      {
+        readonly installationId: string
+        readonly connector: string
+        readonly request: string
+      },
+      import('../extensions/connectors').ExtensionConnectionResult
+    >(),
     'extensions:connector-prepare': invoke<
       ExtensionConnectorSelection,
       { readonly token: string; readonly approval: ExtensionConnectorApproval }
@@ -70,7 +86,14 @@ export const extensionsIpc = {
     >(),
     'extensions:state': invoke<void, ExtensionPlatformState>(),
     'extensions:discover': invoke<void, ExtensionPlatformState>(),
-    'extensions:add': invoke<void, ExtensionPlatformState>(),
+    'extensions:add': invoke<
+      { readonly request: string },
+      ExtensionPlatformState & {
+        readonly connection?: import('../extensions/connectors').ExtensionConnectionResult
+      }
+    >(),
+    'extensions:add-cancel-setup': invoke<{ readonly request: string }, void>(),
+    'extensions:connection-cancel': invoke<{ readonly request: string }, void>(),
     'extensions:open-folder': invoke<void, void>(),
     'extensions:enable': invoke<
       { readonly source: string; readonly revision: string },
@@ -123,10 +146,15 @@ export const extensionsIpc = {
       readonly viewId: string
       readonly presentation: ExtensionPresentation
       readonly visible: boolean
+      readonly selected: boolean
       readonly refreshDemand: boolean
     }>(),
   },
   event: {
+    'extensions:connection-proposals-changed':
+      payload<
+        readonly import('../extensions/connectors').ExtensionConnectionProposal[]
+      >(),
     'extensions:foreground-changed': payload<boolean>(),
     'extensions:files-reveal': payload<{
       readonly workspaceId: string

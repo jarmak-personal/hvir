@@ -152,6 +152,7 @@ async function fixture() {
       send: (_id, message) => sent.push(message),
       visibility: () => undefined,
       foreground: () => true,
+      windowVisible: () => true,
     },
     () => undefined,
     context,

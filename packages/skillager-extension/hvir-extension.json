@@ -27,7 +27,7 @@
     "delivery.reconcile",
     "delivery.cleanup"
   ],
-  "optionalCapabilities": [],
+  "optionalCapabilities": ["connector.connect"],
   "access": [
     {
       "id": "library",
@@ -522,8 +522,9 @@
   "connectors": [
     {
       "id": "library-cli",
-      "description": "Browse your personal library with this local CLI. Project observations and SSH delivery are separate optional setup.",
+      "description": "Browse and manage your personal skills library.",
       "context": "application",
+      "setup": { "executable": "skillager" },
       "timeoutMs": 180000,
       "outputBytes": 4194304,
       "environment": ["SKILLAGER_CATALOG_STATE_DIR", "XDG_CACHE_HOME", "XDG_STATE_HOME"]

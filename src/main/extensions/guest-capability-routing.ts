@@ -20,6 +20,7 @@ interface GuestCapabilityCaller {
   readonly owner: RendererOwner
   readonly context?: AdmittedExtensionContext
   readonly presentation: ExtensionPresentation
+  readonly selected: boolean
   readonly visible: boolean
   readonly refreshDemand: boolean
   readonly readingOrigin: 'human' | 'agent' | 'action'
@@ -34,7 +35,7 @@ export async function routeGuestCapability(
   capability: string,
   input: unknown,
   signal: AbortSignal,
-  assertOrigin: () => void,
+  assertOrigin: (selecting?: boolean) => void,
   contextValue: () => ExtensionContext,
   openOwnView: (
     input: unknown,
@@ -63,6 +64,7 @@ export async function routeGuestCapability(
       assertOrigin,
       contexts,
       ports.connectors,
+      ports.connections,
       ports.actions,
       ports.connectorDemand,
       invocation,

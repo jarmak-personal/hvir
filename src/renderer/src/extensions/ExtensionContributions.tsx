@@ -257,6 +257,7 @@ export function ExtensionTopDestination(): ReactElement | null {
           <ExtensionViewPane
             key={view.id}
             view={view}
+            selected={!!model?.topActive && !model.obscured && view.id === selected?.id}
             visible={active && view.id === selected?.id}
             onClose={() => model?.closeTop(view.id)}
             Surface={ElectronExtensionGuestSurface}
@@ -411,6 +412,7 @@ export function ExtensionLeftRail({
           <ExtensionViewPane
             key={view.id}
             view={view}
+            selected={view.id === selected?.id && visible && !model.obscured}
             visible={
               view.id === selected?.id && visible && model.foreground && !model.obscured
             }

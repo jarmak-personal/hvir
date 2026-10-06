@@ -10,14 +10,17 @@ export function extensionSettingsControls(
   win: BrowserWindow,
   extensionName: string,
   ports: SettingsControlPorts,
+  source = '',
 ): {
   select(section?: string): Promise<void>
+  selected(focused?: boolean): Promise<boolean>
+  settled(): Promise<boolean>
   click(name: string, legend?: string): Promise<void>
   set(label: string, value: string): Promise<void>
 } {
   async function control(
     declaration: string,
-    values: readonly string[],
+    values: readonly (string | boolean)[],
   ): Promise<boolean> {
     const debuggerPort = win.webContents.debugger,
       owned = !debuggerPort.isAttached()
@@ -52,8 +55,8 @@ export function extensionSettingsControls(
     await ports.wait(
       () =>
         control(
-          `function(extension, section) {
-      const item=[...document.querySelectorAll('.extension-installation-list button')].find(e=>e.querySelector('strong')?.textContent===extension);
+          `function(extension, section, source) {
+      const item=[...document.querySelectorAll('.extension-installation-list button')].find(e=>(!source||e.dataset.source===source)&&e.querySelector('strong')?.textContent===extension);
       if(!item?.checkVisibility()||item.disabled)return false;
       if(item.getAttribute('aria-current')!=='true'){item.click();return false}
       const article=document.querySelector('.extension-installation');
@@ -64,13 +67,32 @@ export function extensionSettingsControls(
       if(button.getAttribute('aria-current')!=='true'){button.click();return false}
       return true;
     }`,
-          [extensionName, section],
+          [extensionName, section, source],
         ),
       `selected ${extensionName} ${section} configuration`,
     )
   }
   return {
     select,
+    selected(focused = false) {
+      return control(
+        `function(extension, source, focused) {
+        const item=[...document.querySelectorAll('.extension-installation-list button')].find(e=>(!source||e.dataset.source===source)&&e.querySelector('strong')?.textContent===extension);
+        return !!item?.checkVisibility() && item.getAttribute('aria-current')==='true' && (!focused || document.activeElement===item) && document.querySelector('.extension-installation h4')?.textContent===extension;
+      }`,
+        [extensionName, source, focused],
+      )
+    },
+    settled() {
+      return control(
+        `function() {
+          const section=document.querySelector('.extension-settings');
+          const add=[...(section?.querySelectorAll('button')??[])].find(e=>e.textContent.trim()==='Add extension…');
+          return !!add?.checkVisibility() && !add.disabled && !document.querySelector('[aria-labelledby="extension-remove-title"]');
+        }`,
+        [],
+      )
+    },
     async click(name, legend = '') {
       await select()
       await ports.wait(

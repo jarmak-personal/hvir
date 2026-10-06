@@ -19,6 +19,7 @@ const view = document.body.dataset.view
 const element = (id) => document.getElementById(id)
 let context = { visible: false },
   generation = 0,
+  connectionIntent = 0,
   timer,
   busy = false,
   pendingRefresh = false
@@ -512,6 +513,28 @@ on(
       })
       .catch((error) => say(error.message, 'error')),
 )
+on('connect-program', 'click', () => {
+  if (!available()) return
+  const admitted = ++connectionIntent
+  void client.request('connector.connect', { connector: 'library-cli' }).then(
+    (result) => {
+      if (!available() || admitted !== connectionIntent) return
+      const connection = result.connections?.find(
+        (entry) => entry.connector === 'library-cli',
+      )
+      if (connection?.outcome === 'connected') requestRefresh()
+      else
+        say(
+          connection?.explanation ??
+            'Not connected. Choose Connect Skillager when ready.',
+          connection?.outcome === 'interrupted-uncertain' ? 'error' : 'unapproved',
+        )
+    },
+    (error) => {
+      if (available() && admitted === connectionIntent) say(error.message, 'error')
+    },
+  )
+})
 on('search-form', 'submit', (event) => {
   event.preventDefault()
   const options = {
@@ -542,6 +565,9 @@ on('previous', 'click', () => {
   requestRefresh({ cursor: previous.at(-1), previous: previous.slice(0, -1) })
 })
 client.listen((message) => {
+  if (message.kind === 'hello' && element('connect-program'))
+    element('connect-program').hidden =
+      !message.capabilities.includes('connector.connect')
   if (message.kind === 'context') {
     const renewed = message.context.visible && !context.visible
     const changed =

@@ -460,6 +460,17 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
     )
   }
 
+  windowVisible(owner: RendererOwner): boolean {
+    const contents = webContents.fromId(owner.id)
+    const window =
+      contents && !contents.isDestroyed()
+        ? BrowserWindow.fromWebContents(contents)
+        : undefined
+    return (
+      !!window && !window.isDestroyed() && window.isVisible() && !window.isMinimized()
+    )
+  }
+
   installWindowLifecycle(win: BrowserWindow, owner: () => RendererOwner): void {
     let pending: ReturnType<typeof setImmediate> | undefined
     const reapply = (): void => {

@@ -35,7 +35,8 @@ describe('extension Settings observation order', () => {
           channel === 'extensions:delivery-recovery' ? Promise.resolve([]) : initial,
         ),
         on: vi.fn(
-          (_channel: string, callback: (state: ExtensionPlatformState) => void) => {
+          (channel: string, callback: (state: ExtensionPlatformState) => void) => {
+            if (channel !== 'extensions:state-changed') return vi.fn()
             publish = callback
             return unsubscribe
           },
@@ -250,17 +251,107 @@ describe('package lifecycle Settings intent', () => {
 })
 
 describe('single Add extension Settings intent', () => {
+  it.each(['unmount', 'selection', 'picker-focus'] as const)(
+    'preserves install while ending setup only for actual UI departure, not %s',
+    async (ending) => {
+      let finish!: (state: ExtensionPlatformState) => void
+      const pending = new Promise<ExtensionPlatformState>((resolve) => {
+        finish = resolve
+      })
+      let foreground: ((value: boolean) => void) | undefined
+      const initial: ExtensionPlatformState = {
+        writable: true,
+        installations: [
+          { source: 'first', enabled: false, warnings: [] },
+          { source: 'second', enabled: false, warnings: [] },
+        ],
+      }
+      const invoke = vi.fn((channel: string) =>
+        channel === 'extensions:delivery-recovery'
+          ? Promise.resolve([])
+          : channel === 'extensions:add'
+            ? pending
+            : channel === 'extensions:state'
+              ? Promise.resolve(initial)
+              : Promise.resolve(undefined),
+      )
+      vi.stubGlobal('hvir', {
+        invoke,
+        on: vi.fn((channel: string, callback: (value: boolean) => void) => {
+          if (channel === 'extensions:foreground-changed') foreground = callback
+          return vi.fn()
+        }),
+      })
+      element = document.createElement('div')
+      document.body.append(element)
+      root = createRoot(element)
+      await act(async () => {
+        root!.render(createElement(ExtensionsSettings))
+        await Promise.resolve()
+      })
+      act(() =>
+        [...element!.querySelectorAll<HTMLButtonElement>('button')]
+          .find((entry) => entry.textContent === 'Add extension…')!
+          .click(),
+      )
+      const request = (
+        invoke.mock.calls.find(
+          ([channel]) => channel === 'extensions:add',
+        ) as unknown as [string, { request: string }]
+      )[1].request
+      if (ending === 'unmount') {
+        act(() => root!.unmount())
+        root = undefined
+      } else if (ending === 'selection')
+        act(() =>
+          [
+            ...element!.querySelectorAll<HTMLButtonElement>(
+              '.extension-installation-list button',
+            ),
+          ]
+            .find((entry) => entry.querySelector('strong')?.textContent === 'second')!
+            .click(),
+        )
+      if (ending === 'picker-focus') {
+        act(() => foreground?.(false))
+        expect(invoke).not.toHaveBeenCalledWith('extensions:add-cancel-setup', {
+          request,
+        })
+      } else
+        expect(invoke).toHaveBeenCalledWith('extensions:add-cancel-setup', { request })
+      await act(async () => {
+        finish({
+          ...initial,
+          installations: [
+            ...initial.installations,
+            { source: 'imported', enabled: true, warnings: [] },
+          ],
+        })
+        await pending
+      })
+      expect(
+        invoke.mock.calls.filter(([channel]) => channel === 'extensions:add'),
+      ).toHaveLength(1)
+      expect(
+        invoke.mock.calls.some(
+          ([channel]) =>
+            channel === 'extensions:disable' || channel === 'extensions:remove',
+        ),
+      ).toBe(false)
+    },
+  )
   it('submits no path or package mode, stays busy through import, and shows an enabled installation without Discover or Enable', async () => {
     let finish!: (state: ExtensionPlatformState) => void
     const pending = new Promise<ExtensionPlatformState>((resolve) => {
       finish = resolve
     })
-    const invoke = vi.fn((channel: string) =>
-      channel === 'extensions:delivery-recovery'
-        ? Promise.resolve([])
-        : channel === 'extensions:add'
-          ? pending
-          : Promise.resolve({ writable: true, installations: [] }),
+    const invoke = vi.fn<(channel: string, input?: unknown) => Promise<unknown>>(
+      (channel: string) =>
+        channel === 'extensions:delivery-recovery'
+          ? Promise.resolve([])
+          : channel === 'extensions:add'
+            ? pending
+            : Promise.resolve({ writable: true, installations: [] }),
     )
     vi.stubGlobal('hvir', { invoke, on: vi.fn(() => vi.fn()) })
     element = document.createElement('div')
@@ -275,7 +366,8 @@ describe('single Add extension Settings intent', () => {
     )!
     expect(element.querySelector('select')).toBeNull()
     act(() => button.click())
-    expect(invoke).toHaveBeenCalledWith('extensions:add', undefined)
+    expect(invoke.mock.calls.at(-1)?.[0]).toBe('extensions:add')
+    expect(invoke.mock.calls.at(-1)?.[1]).toHaveProperty('request', expect.any(String))
     expect(button.disabled).toBe(true)
     await act(async () => {
       finish({
@@ -322,8 +414,8 @@ describe('Add extension result authority order', () => {
             ? pending
             : Promise.resolve({ writable: true, installations: [] }),
       ),
-      on: vi.fn((_channel: string, listener: (state: ExtensionPlatformState) => void) => {
-        publish = listener
+      on: vi.fn((channel: string, listener: (state: ExtensionPlatformState) => void) => {
+        if (channel === 'extensions:state-changed') publish = listener
         return vi.fn()
       }),
     })
@@ -378,8 +470,8 @@ describe('Add selected configuration authority', () => {
             ? pending
             : Promise.resolve(state(['first', 'second'])),
       ),
-      on: vi.fn((_channel: string, listener: (value: ExtensionPlatformState) => void) => {
-        publish = listener
+      on: vi.fn((channel: string, listener: (value: ExtensionPlatformState) => void) => {
+        if (channel === 'extensions:state-changed') publish = listener
         return vi.fn()
       }),
     })
@@ -576,8 +668,8 @@ describe('selected extension configuration lifetime', () => {
     )
     vi.stubGlobal('hvir', {
       invoke,
-      on: vi.fn((_channel: string, listener: (state: ExtensionPlatformState) => void) => {
-        publish = listener
+      on: vi.fn((channel: string, listener: (state: ExtensionPlatformState) => void) => {
+        if (channel === 'extensions:state-changed') publish = listener
         return vi.fn()
       }),
     })

@@ -42,11 +42,13 @@ export function ExtensionViewStack({
 export function ExtensionViewPane({
   view,
   visible,
+  selected = visible,
   onClose,
   Surface,
 }: {
   readonly view: ExtensionView
   readonly visible: boolean
+  readonly selected?: boolean
   readonly onClose: () => void
   readonly Surface: ComponentType<ExtensionGuestSurfaceProps>
 }): ReactElement {
@@ -65,6 +67,7 @@ export function ExtensionViewPane({
         viewId: view.id,
         presentation,
         visible,
+        selected,
         refreshDemand: visible && foreground,
       })
     }
@@ -78,6 +81,7 @@ export function ExtensionViewPane({
   }, [
     view.id,
     visible,
+    selected,
     foreground,
     theme,
     settings.interfaceScale,

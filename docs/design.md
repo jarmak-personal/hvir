@@ -543,7 +543,8 @@ context through ordinary non-focusing viewer placement, hiding, and explicit clo
 
 ### [ADR-051 — Approved finite connector execution](adr/ADR-051-approved-finite-connector-execution.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-065](adr/ADR-065-passive-extension-program-connection.md) | partial | Mandatory manually supplied absolute executable input and separate Inspect step for application-local first-use connections only.
 > Supersedes: [ADR-010](adr/ADR-010-project-host-remote-boundary.md) | partial | Registered-root requirement for explicit approved connector execution and its application-local working context only.
 
 Native connector approval pins host-account trust and explicit contexts; finite execution stays behind ProjectHost.
@@ -658,6 +659,14 @@ retirement, without inline package markup or a new asset protocol.
 
 Explicit native Add accepts and enables its exact validated copied revision through the existing
 writer; passive discovery and permission admission retain their separate boundaries.
+
+### [ADR-065 — Passive extension program discovery and trusted connection](adr/ADR-065-passive-extension-program-connection.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-051](adr/ADR-051-approved-finite-connector-execution.md) | partial | Mandatory manually supplied absolute executable input and separate Inspect step for application-local first-use connections only.
+
+Bounded passive program candidates feed the existing exact native approval decision after
+installation or a visible human proposal; package, file and agent authority stay separate.
 
 
 ## 5. Architecture
