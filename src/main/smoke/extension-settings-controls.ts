@@ -1,4 +1,5 @@
 import type { BrowserWindow } from 'electron'
+import { trustedRendererControl } from './trusted-renderer-control'
 
 interface SettingsControlPorts {
   wait(predicate: () => boolean | Promise<boolean>, label: string): Promise<void>
@@ -18,39 +19,11 @@ export function extensionSettingsControls(
   click(name: string, legend?: string): Promise<void>
   set(label: string, value: string): Promise<void>
 } {
-  async function control(
+  const control = (
     declaration: string,
     values: readonly (string | boolean)[],
-  ): Promise<boolean> {
-    const debuggerPort = win.webContents.debugger,
-      owned = !debuggerPort.isAttached()
-    let objectId: string | undefined
-    try {
-      if (owned) debuggerPort.attach('1.3')
-      const global = (await ports.within(
-        debuggerPort.sendCommand('Runtime.evaluate', { expression: 'globalThis' }),
-      )) as { result?: { objectId?: string } }
-      objectId = global.result?.objectId
-      if (!objectId) throw new Error('Trusted control document is unavailable')
-      const response = (await ports.within(
-        debuggerPort.sendCommand('Runtime.callFunctionOn', {
-          objectId,
-          functionDeclaration: declaration,
-          arguments: values.map((value) => ({ value })),
-          returnByValue: true,
-          awaitPromise: true,
-        }),
-      )) as { result?: { value?: unknown }; exceptionDetails?: unknown }
-      if (response.exceptionDetails) throw new Error('Trusted control operation failed')
-      return response.result?.value === true
-    } finally {
-      if (objectId && debuggerPort.isAttached())
-        await ports
-          .within(debuggerPort.sendCommand('Runtime.releaseObject', { objectId }))
-          .catch(() => {})
-      if (owned && debuggerPort.isAttached()) debuggerPort.detach()
-    }
-  }
+  ): Promise<boolean> =>
+    trustedRendererControl(win, declaration, values, (work) => ports.within(work))
   async function select(section = ''): Promise<void> {
     await ports.wait(
       () =>

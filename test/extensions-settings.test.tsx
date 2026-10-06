@@ -1,9 +1,12 @@
 // @vitest-environment happy-dom
-import { act, createElement } from 'react'
+import { act, createElement, startTransition } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ExtensionsSettings } from '../src/renderer/src/settings/sections/ExtensionsSettings'
-import type { ExtensionPlatformState } from '../src/shared/extensions/workbench'
+import type {
+  ExtensionAdditionResult,
+  ExtensionPlatformState,
+} from '../src/shared/extensions/workbench'
 
 vi.mock('../src/renderer/src/settings/sections/AgentAccessSettings', () => ({
   AgentAccessSettings: () => null,
@@ -452,13 +455,18 @@ describe('Add extension result authority order', () => {
 describe('Add selected configuration authority', () => {
   const state = (sources: string[], writable = true): ExtensionPlatformState => ({
     writable,
-    installations: sources.map((source) => ({ source, enabled: false, warnings: [] })),
+    installations: sources.map((source) => ({
+      source,
+      installationId: source,
+      enabled: false,
+      warnings: [],
+    })),
   })
-  async function start() {
-    let finish!: (value: ExtensionPlatformState) => void
+  async function start(selectedSource?: string) {
+    let finish!: (value: ExtensionAdditionResult) => void
     let reject!: (reason: Error) => void
     let publish!: (value: ExtensionPlatformState) => void
-    const pending = new Promise<ExtensionPlatformState>((yes, no) => {
+    const pending = new Promise<ExtensionAdditionResult>((yes, no) => {
       finish = yes
       reject = no
     })
@@ -482,6 +490,12 @@ describe('Add selected configuration authority', () => {
       root!.render(createElement(ExtensionsSettings))
       await Promise.resolve()
     })
+    if (selectedSource)
+      act(() =>
+        element!
+          .querySelector<HTMLButtonElement>(`[data-source="${selectedSource}"]`)!
+          .click(),
+      )
     act(() =>
       [...element!.querySelectorAll('button')]
         .find((e) => e.textContent === 'Add extension…')!
@@ -493,23 +507,58 @@ describe('Add selected configuration authority', () => {
     element!
       .querySelector('.extension-installation-list [aria-current="true"]')
       ?.getAttribute('data-source')
+  it('preserves prior manual selection when picker cancellation returns no installation receipt', async () => {
+    const { finish, pending } = await start('second')
+    await act(async () => {
+      finish({
+        writable: true,
+        installations: [
+          { source: 'unaccepted', enabled: false, warnings: [] },
+          ...state(['first', 'second']).installations,
+        ],
+      })
+      await pending
+    })
+    expect(selected()).toBe('second')
+  })
+  it('keeps exact reply selection through an actual queued React publication with replaced row objects', async () => {
+    const { finish, publish, pending } = await start()
+    act(() =>
+      startTransition(() => publish(state(['unrelated', 'first', 'second', 'added']))),
+    )
+    await act(async () => {
+      finish({
+        ...state(['first', 'second', 'added']),
+        installed: { installationId: 'added' },
+      })
+      await pending
+    })
+    expect(selected()).toBe('added')
+    expect(element!.textContent).toContain('unrelated')
+  })
   it('selects a new package from a current reply when no publication has arrived', async () => {
     const { finish, pending } = await start()
     await act(async () => {
-      finish(state(['first', 'second', 'added']))
+      finish({
+        ...state(['first', 'second', 'added']),
+        installed: { installationId: 'added' },
+      })
       await pending
     })
     expect(selected()).toBe('added')
   })
-  it('selects the current Add publication after the pre-import scan and does not retarget from a late reply', async () => {
+  it('does not infer installation from a publication or retarget to a removed package from a late exact reply', async () => {
     const { finish, publish, pending } = await start()
     act(() => publish(state(['first', 'second'])))
     expect(selected()).toBe('first')
     act(() => publish(state(['first', 'second', 'added'])))
-    expect(selected()).toBe('added')
+    expect(selected()).toBe('first')
     act(() => publish(state(['first', 'second'])))
     await act(async () => {
-      finish(state(['first', 'second', 'added']))
+      finish({
+        ...state(['first', 'second', 'added']),
+        installed: { installationId: 'added' },
+      })
       await pending
     })
     expect(selected()).toBe('first')
@@ -531,7 +580,10 @@ describe('Add selected configuration authority', () => {
       })
       act(() => publish(state(['first', 'second', 'added'])))
       await act(async () => {
-        finish(state(['first', 'second', 'added']))
+        finish({
+          ...state(['first', 'second', 'added']),
+          installed: { installationId: 'added' },
+        })
         await pending
       })
       expect(selected()).toBe('second')

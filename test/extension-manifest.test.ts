@@ -5,6 +5,43 @@ import { EXTENSION_LIMITS } from '../src/shared/extensions/contract'
 import { exampleManifest } from './fixtures/extension-package'
 
 describe('public extension manifest policy', () => {
+  it('admits only an optional declared ordinary application landing without guessing', () => {
+    expect(validateExtensionManifest(exampleManifest()).manifest.landing).toBeUndefined()
+    expect(
+      validateExtensionManifest(exampleManifest({ landing: 'detail' })).manifest.landing,
+    ).toBe('detail')
+    const view = exampleManifest().views[0]!
+    expect(
+      validateExtensionManifest(
+        exampleManifest({
+          landing: 'reference',
+          views: [{ ...view, navigation: 'top' }],
+        }),
+      ).manifest.landing,
+    ).toBe('reference')
+  })
+  it.each(['missing', '', '../index.html', 42, null])(
+    'rejects invalid or missing declared landing %j',
+    (landing) => {
+      expect(() => validateExtensionManifest(exampleManifest({ landing }))).toThrow()
+    },
+  )
+  it('rejects a workspace landing even when it names a declared view', () => {
+    expect(() =>
+      validateExtensionManifest(
+        exampleManifest({
+          landing: 'reference',
+          views: [
+            {
+              ...exampleManifest().views[0]!,
+              placement: 'workspace',
+              navigation: 'left',
+            },
+          ],
+        }),
+      ),
+    ).toThrow('ordinary application view')
+  })
   it.each(['1.0', '1.1', '1.99'])(
     'admits compatible target %s with all required capabilities',
     (contract) => {

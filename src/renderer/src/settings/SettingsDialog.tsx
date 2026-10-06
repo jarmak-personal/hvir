@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, type ReactElement } from 'react'
 
 import type { HostPath } from '../../../shared'
+import type { ExtensionView } from '../../../shared/extensions/workbench'
+import { useExtensionContributions } from '../extensions/extension-contribution-context'
 import type { AppTheme } from '../theme'
 import { ComposerSubmitConsentDialog } from './ComposerSubmitConsentDialog'
 import type { HarnessProfilesSettingsHandle } from './HarnessProfilesSettings'
@@ -13,6 +15,7 @@ import {
   type SettingsDestination,
 } from './settings-navigation'
 import { useSettingsController } from './use-settings-controller'
+import type { ExtensionsSettingsHandle } from './sections/ExtensionsSettings'
 
 interface SettingsDialogProps {
   readonly theme: AppTheme
@@ -22,6 +25,8 @@ interface SettingsDialogProps {
   readonly workspaceRoot?: HostPath
   readonly projectRoot?: HostPath
   readonly initialDestination?: SettingsDestination
+  readonly open?: boolean
+  readonly onInstallationHandoff?: () => void
 }
 
 export function SettingsDialog({
@@ -32,14 +37,18 @@ export function SettingsDialog({
   workspaceRoot,
   projectRoot,
   initialDestination = DEFAULT_SETTINGS_DESTINATION,
-}: SettingsDialogProps): ReactElement {
+  open = true,
+  onInstallationHandoff,
+}: SettingsDialogProps): ReactElement | null {
   const dialog = useRef<HTMLElement>(null)
   const harnessProfiles = useRef<HarnessProfilesSettingsHandle>(null)
+  const installation = useRef<ExtensionsSettingsHandle>(null)
   const confirmSafeToLeaveHarnesses = useCallback(
     () => harnessProfiles.current?.confirmSafeToLeave() ?? Promise.resolve(true),
     [],
   )
   const controller = useSettingsController({
+    open,
     theme,
     settings,
     initialDestination,
@@ -47,10 +56,22 @@ export function SettingsDialog({
     onSave,
     onClose,
   })
-  const requestClose = controller.requestClose
+  const close = controller.requestClose
+  const requestClose = useCallback(() => {
+    installation.current?.cancelInstallation()
+    close()
+  }, [close])
+  const contributions = useExtensionContributions()
+  const installedLanding = (view: ExtensionView): void => {
+    if (!contributions?.foreground || !onInstallationHandoff) return
+    onInstallationHandoff()
+    if (view.context?.surface === 'top') contributions.selectTop(view)
+    else contributions.selectViewer(view.id)
+    contributions.focusLanding(view.id)
+  }
 
   useEffect(() => {
-    if (initialDestination.intent === 'add-harness') return
+    if (!open || initialDestination.intent === 'add-harness') return
     const frame = window.requestAnimationFrame(() => {
       if (initialDestination.section === 'appearance') dialog.current?.focus()
       else
@@ -59,9 +80,10 @@ export function SettingsDialog({
           ?.focus()
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [initialDestination])
+  }, [open, initialDestination])
 
   useEffect(() => {
+    if (!open) return
     const keydown = (event: KeyboardEvent): void => {
       if (dialog.current?.querySelector('.modal-backdrop.nested')) return
       if (event.key === 'Escape' && !(event.target instanceof HTMLTextAreaElement)) {
@@ -70,9 +92,10 @@ export function SettingsDialog({
     }
     window.addEventListener('keydown', keydown)
     return () => window.removeEventListener('keydown', keydown)
-  }, [requestClose])
+  }, [open, requestClose])
 
   const statusMessage = controller.validation?.message ?? controller.saveError
+  if (!open) return null
 
   return (
     <div className="modal-backdrop">
@@ -94,7 +117,11 @@ export function SettingsDialog({
         <div className="settings-shell-body">
           <SettingsSectionNavigation
             activeSection={controller.activeSection}
-            onSelect={controller.requestSection}
+            onSelect={(section) => {
+              if (section !== controller.activeSection)
+                installation.current?.cancelInstallation()
+              controller.requestSection(section)
+            }}
           />
           <div className="settings-content">
             <SettingsActiveSection
@@ -107,6 +134,8 @@ export function SettingsDialog({
               initialAddOpen={controller.initialAddOpen}
               onChange={controller.updateDraft}
               onComposerSubmitMode={controller.requestComposerSubmitMode}
+              onInstalledLanding={installedLanding}
+              installation={installation}
             />
           </div>
         </div>
@@ -123,7 +152,7 @@ export function SettingsDialog({
           <div className="dialog-actions">
             <button
               type="button"
-              onClick={controller.requestClose}
+              onClick={requestClose}
               className="hvir-button hvir-control"
             >
               Close settings

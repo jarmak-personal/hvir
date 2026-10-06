@@ -21,6 +21,15 @@ export interface ExtensionPlatformState {
   readonly installations: readonly ExtensionInstallation[]
 }
 
+/** Exact committed installation, with an optional prepared ordinary landing view. */
+export type ExtensionAdditionResult = ExtensionPlatformState & {
+  readonly installed?: {
+    readonly installationId: string
+    readonly landing?: ExtensionView
+  }
+  readonly connection?: import('./connectors').ExtensionConnectionResult
+}
+
 export interface ExtensionView {
   readonly id: string
   readonly installationId: string

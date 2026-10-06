@@ -35,6 +35,7 @@ import {
 import { ExtensionConnectorConnectionOwner } from './connector-connection'
 import { createElectronConnectorConnection } from './electron-connector-connection'
 import { createElectronPackagePicker } from './electron-package-picker'
+import { prepareInstallationLanding } from './installation-landing'
 
 /** Application composition and lifetime of the extension platform; no extension package code. */
 export class ExtensionApplicationRuntime {
@@ -247,6 +248,17 @@ export class ExtensionApplicationRuntime {
           undefined,
           true,
         ),
+      (activation, source, owner, current, signal) =>
+        prepareInstallationLanding(
+          activations,
+          this.guests!,
+          activation,
+          source,
+          owner,
+          current,
+          signal,
+        ),
+      (owner) => this.surface.foreground(owner),
     )
     const sourceApprovals = new ExtensionSourceApprovalOwner(
       hosts,

@@ -95,6 +95,8 @@ describe('ProjectsBar status presentation', () => {
       close: vi.fn(),
       closeTop: vi.fn(),
       selectTop: vi.fn(),
+      selectViewer: vi.fn(),
+      focusLanding: vi.fn(),
     }
     const callbacks = renderProjectsBar(projectState(0, 0), {}, { contributions: model })
     expect(host.querySelector('.projects-bar [aria-current=page]')).toBeNull()

@@ -15,6 +15,57 @@ import { localPath } from '../src/shared/host-path'
 import { fixture, attached } from './fixtures/extension-guest'
 
 describe('extension guest capability and lifetime owner', () => {
+  it('reports allocation only for a new view while reuse remains independently owned', async () => {
+    const data = fixture()
+    const created = vi.fn(),
+      reused = vi.fn()
+    try {
+      const view = await data.owner.open(
+        data.renderer,
+        'installation',
+        'reference',
+        undefined,
+        { select: false, focus: false, onCreated: created },
+      )
+      expect(created).toHaveBeenCalledExactlyOnceWith(view)
+      expect(
+        await data.owner.open(data.renderer, 'installation', 'reference', undefined, {
+          select: false,
+          focus: false,
+          onCreated: reused,
+        }),
+      ).toBe(view)
+      expect(reused).not.toHaveBeenCalled()
+      expect(data.destroy).not.toHaveBeenCalled()
+    } finally {
+      await data.owner.dispose()
+    }
+    expect(data.destroy).toHaveBeenCalledOnce()
+  })
+  it.each(['allocation', 'preparation'] as const)(
+    'drains a newly allocated view when its %s callback fails',
+    async (stage) => {
+      const created = vi.fn(() => {
+        if (stage === 'allocation') throw new Error('creation refused')
+      })
+      const data = fixture({
+        prepare: () => Promise.reject(new Error('preparation refused')),
+      })
+      try {
+        await expect(
+          data.owner.open(data.renderer, 'installation', 'reference', undefined, {
+            onCreated: created,
+          }),
+        ).rejects.toThrow('refused')
+        expect(created).toHaveBeenCalledOnce()
+        expect(data.owner.snapshot(data.renderer)).toEqual([])
+        await data.owner.dispose()
+        expect(data.destroy).toHaveBeenCalledOnce()
+      } finally {
+        await data.owner.dispose()
+      }
+    },
+  )
   it('negotiates updater observation while excluding source reveal and terminal handoff', async () => {
     const data = fixture(
       {},

@@ -259,7 +259,7 @@ export function App(): ReactElement {
       onTop={() => setDestination('extension')}
       onWorkspace={() => setDestination('workspace')}
       workspaceId={activeWorkspace?.id}
-      views={extensions.guests}
+      placement={extensions}
       onError={session.reportError}
     >
       <div className="app-shell">

@@ -13,6 +13,10 @@ import type { ExtensionView } from '../../shared/extensions/workbench'
 import type { ExtensionConnectionProposal } from '../../shared/extensions/connectors'
 import { extensionSettingsControls } from './extension-settings-controls'
 import { focusSmokeWindow } from './window-focus'
+import {
+  prepareInstallationDraft,
+  verifyInstalledLanding,
+} from './extension-installation-landing'
 
 /** Real import, metadata, trusted consent and guest execution; only Add selection is substituted. */
 export async function verifyExtensionConnection(
@@ -37,6 +41,7 @@ export async function verifyExtensionConnection(
       name: 'Connection example',
       version: '0.3.0',
       contract: '1.0',
+      landing: 'main',
       requiredCapabilities: [
         'connector.execute',
         'connector.output',
@@ -169,6 +174,7 @@ export async function verifyExtensionConnection(
     }
   }
   try {
+    await prepareInstallationDraft(win, (name) => controls.click(name))
     await controls.click('Add extension…')
     await decide(true)
     const installed = [...activations.active.values()].find(
@@ -194,8 +200,29 @@ export async function verifyExtensionConnection(
       wait: (predicate, label) => controls.wait(predicate, label),
       within: (work) => work,
     })
+    await verifyInstalledLanding(
+      win,
+      installed.installationId,
+      'top',
+      (predicate, label) => controls.wait(predicate, label),
+    )
+    await controls.click('Open settings')
+    await controls.wait(
+      () =>
+        win.webContents.executeJavaScript(
+          "document.getElementById('settings-interface-scale')?.value==='1.25'",
+        ),
+      'landing preserves unsaved application appearance preference',
+    )
+    await controls.click('Keybindings')
+    await controls.wait(
+      () =>
+        win.webContents.executeJavaScript(
+          "document.getElementById('settings-keybindings-json')?.value==='{ unfinished draft'",
+        ),
+      'landing preserves invalid unsaved application draft text',
+    )
     await controls.click('Close settings')
-    await controls.click('Connection example')
     await controls.wait(
       async () =>
         (await views()).some(

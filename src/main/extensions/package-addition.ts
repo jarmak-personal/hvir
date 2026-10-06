@@ -1,7 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { extensionRequestIdentity } from '../../shared/extensions/validation'
 import type { ExtensionConnectionResult } from '../../shared/extensions/connectors'
-import type { ExtensionPlatformState } from '../../shared/extensions/workbench'
+import type {
+  ExtensionAdditionResult,
+  ExtensionInstallation,
+  ExtensionView,
+} from '../../shared/extensions/workbench'
 import type { RendererOwner, RendererResourceScopes } from '../renderer-resource-scopes'
 import type { ExtensionActivation, ExtensionActivationOwner } from './activation'
 import type { HostPath } from '../../shared/host-path'
@@ -31,14 +35,20 @@ export class ExtensionPackageAdditionOwner {
       owner: RendererOwner,
       signal: AbortSignal,
     ) => Promise<ExtensionConnectionResult>,
+    private readonly landing?: (
+      activation: ExtensionActivation,
+      source: ExtensionInstallation,
+      owner: RendererOwner,
+      current: () => void,
+      signal: AbortSignal,
+    ) => Promise<ExtensionView | undefined>,
+    private readonly foreground: (owner: RendererOwner) => boolean = () => false,
   ) {}
 
   async add(
     owner: RendererOwner,
     request: string = randomUUID(),
-  ): Promise<
-    ExtensionPlatformState & { readonly connection?: ExtensionConnectionResult }
-  > {
+  ): Promise<ExtensionAdditionResult> {
     this.scopes.assertCurrent(owner)
     extensionRequestIdentity(request)
     if (this.intents.has(request) || this.intents.size >= 4)
@@ -71,7 +81,46 @@ export class ExtensionPackageAdditionOwner {
           /* Current Settings status remains authoritative for connection outcomes. */
         }
       }
-      return { ...receipt.state, ...(connection ? { connection } : {}) }
+      let landing: ExtensionView | undefined
+      const installed = receipt.installed
+      const source = receipt.state.installations.find(
+        (entry) => entry.installationId === installed?.installationId,
+      )
+      if (installed && source && this.landing) {
+        const current = (): void => {
+          lifetime.signal.throwIfAborted()
+          setup.signal.throwIfAborted()
+          this.scopes.assertCurrent(owner)
+          if (!this.foreground(owner))
+            throw new Error('Installation landing requires a foreground window')
+        }
+        try {
+          current()
+          landing = await this.landing(
+            installed,
+            source,
+            owner,
+            current,
+            AbortSignal.any([lifetime.signal, setup.signal]),
+          )
+          current()
+        } catch {
+          landing = undefined
+          /* The committed installation remains successful without automatic navigation. */
+        }
+      }
+      return {
+        ...receipt.state,
+        ...(installed
+          ? {
+              installed: {
+                installationId: installed.installationId,
+                ...(landing ? { landing } : {}),
+              },
+            }
+          : {}),
+        ...(connection ? { connection } : {}),
+      }
     } finally {
       this.intents.delete(request)
       setup.abort()

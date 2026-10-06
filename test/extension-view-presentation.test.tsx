@@ -72,6 +72,8 @@ describe('extension presentation observation', () => {
         close: vi.fn(),
         closeTop: vi.fn(),
         selectTop: vi.fn(),
+        selectViewer: vi.fn(),
+        focusLanding: vi.fn(),
       }
       const send = vi.fn()
       vi.stubGlobal('hvir', { send })

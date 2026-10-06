@@ -3,6 +3,7 @@
   "name": "Skillager",
   "version": "0.3.0",
   "contract": "1.0",
+  "landing": "library",
   "requiredCapabilities": [
     "presentation.read",
     "context.read",

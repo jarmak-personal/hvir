@@ -4,13 +4,31 @@ import { DeliveryRecoverySettings } from './DeliveryRecoverySettings'
 import { AgentAccessSettings } from './AgentAccessSettings'
 import { ExtensionInstallationSettings } from './ExtensionInstallationSettings'
 import { ConfirmationDialog } from '../../workbench/ConfirmationDialog'
-import { useEffect, useRef, useState, type ReactElement } from 'react'
+import {
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type ReactElement,
+  type Ref,
+} from 'react'
 import type {
   ExtensionInstallation,
   ExtensionPlatformState,
+  ExtensionView,
 } from '../../../../shared/extensions/workbench'
 
-export function ExtensionsSettings(): ReactElement {
+export interface ExtensionsSettingsHandle {
+  cancelInstallation(): void
+}
+
+export function ExtensionsSettings({
+  onInstalledLanding,
+  ref,
+}: {
+  readonly onInstalledLanding?: (view: ExtensionView) => void
+  readonly ref?: Ref<ExtensionsSettingsHandle>
+}): ReactElement {
   const [state, setState] = useState<ExtensionPlatformState>()
   const [connection, setConnection] = useState<ExtensionConnectionResult>()
   const [error, setError] = useState<string>()
@@ -18,6 +36,8 @@ export function ExtensionsSettings(): ReactElement {
   const [forget, setForget] = useState(false)
   const [busy, setBusy] = useState(false)
   const [selection, setSelection] = useState<ExtensionInstallation>()
+  const landingCallback = useRef(onInstalledLanding)
+  landingCallback.current = onInstalledLanding
   const installations = state?.installations ?? []
   const selected =
     installations.find(
@@ -32,7 +52,8 @@ export function ExtensionsSettings(): ReactElement {
     ) ??
     installations[0]
   useEffect(() => {
-    if (selected !== selection) setSelection(selected)
+    if (selected !== selection)
+      setSelection((current) => (current === selection ? selected : current))
   }, [selected, selection])
   const setupRequest = useRef<string | undefined>(undefined)
   const cancelSetup = (): void => {
@@ -41,11 +62,11 @@ export function ExtensionsSettings(): ReactElement {
     if (request)
       void window.hvir.invoke('extensions:add-cancel-setup', { request }).catch(() => {})
   }
+  useImperativeHandle(ref, () => ({ cancelInstallation: cancelSetup }))
   useEffect(() => {
     return () => cancelSetup()
   }, [])
   const publication = useRef(0)
-  const addition = useRef<ReadonlySet<string> | undefined>(undefined)
   const run = async (operation: () => Promise<unknown>): Promise<void> => {
     setBusy(true)
     setError(undefined)
@@ -65,15 +86,7 @@ export function ExtensionsSettings(): ReactElement {
       publication.current++
       updated = true
       setState(next)
-      const intent = addition.current
-      if (!next.writable) addition.current = undefined
-      else if (intent) {
-        const added = next.installations.find((entry) => !intent.has(entry.source))
-        if (added) {
-          addition.current = undefined
-          setSelection(added)
-        }
-      }
+      if (!next.writable) cancelSetup()
     })
     void window.hvir.invoke('extensions:state', undefined).then(
       (next) => {
@@ -88,7 +101,6 @@ export function ExtensionsSettings(): ReactElement {
     )
     return () => {
       current = false
-      addition.current = undefined
       void dispose()
     }
   }, [])
@@ -107,24 +119,26 @@ export function ExtensionsSettings(): ReactElement {
             onClick={() =>
               void run(async () => {
                 const observed = publication.current
-                const previous = new Set(installations.map((entry) => entry.source))
-                addition.current = previous
+                const request = crypto.randomUUID()
                 try {
                   setConnection(undefined)
-                  const request = crypto.randomUUID()
                   setupRequest.current = request
                   const next = await window.hvir.invoke('extensions:add', { request })
-                  if (setupRequest.current === request) setConnection(next.connection)
                   if (observed === publication.current) {
                     setState(next)
-                    const added = next.installations.find(
-                      (entry) => !previous.has(entry.source),
-                    )
-                    if (addition.current === previous && added) setSelection(added)
                   }
+                  if (setupRequest.current !== request) return
+                  setConnection(next.connection)
+                  const added =
+                    next.installed &&
+                    next.installations.find(
+                      (entry) => entry.installationId === next.installed!.installationId,
+                    )
+                  if (added) setSelection(added)
+                  if (next.installed?.landing)
+                    landingCallback.current?.(next.installed.landing)
                 } finally {
-                  if (addition.current === previous) addition.current = undefined
-                  setupRequest.current = undefined
+                  if (setupRequest.current === request) setupRequest.current = undefined
                 }
               })
             }
@@ -191,7 +205,6 @@ export function ExtensionsSettings(): ReactElement {
                   data-source={installation.source}
                   aria-current={selected === installation ? 'true' : undefined}
                   onClick={() => {
-                    addition.current = undefined
                     cancelSetup()
                     setSelection(installation)
                     setRemoving(undefined)

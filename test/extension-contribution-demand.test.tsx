@@ -78,7 +78,7 @@ async function fixture() {
     root.render(
       createElement(ExtensionContributionsProvider, {
         workspaceId: 'workspace',
-        views: [],
+        placement: { guests: [], activate: vi.fn() },
         topActive: false,
         obscured,
         onTop: vi.fn(),

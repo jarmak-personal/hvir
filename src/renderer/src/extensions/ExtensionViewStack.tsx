@@ -52,7 +52,8 @@ export function ExtensionViewPane({
   readonly onClose: () => void
   readonly Surface: ComponentType<ExtensionGuestSurfaceProps>
 }): ReactElement {
-  const foreground = useExtensionContributions()?.foreground ?? true
+  const model = useExtensionContributions()
+  const foreground = model?.foreground ?? true
   const root = useRef<HTMLDivElement>(null)
   const theme = useAppTheme()
   const settings = useAppSettings()
@@ -108,7 +109,11 @@ export function ExtensionViewPane({
           Close
         </button>
       </div>
-      {view.failure ? <p role="status">{view.failure}</p> : <Surface view={view} />}
+      {view.failure ? (
+        <p role="status">{view.failure}</p>
+      ) : (
+        <Surface view={view} focus={visible && model?.landingFocusId === view.id} />
+      )}
     </div>
   )
 }

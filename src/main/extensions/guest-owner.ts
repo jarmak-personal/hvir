@@ -134,6 +134,7 @@ export class ExtensionGuestOwner {
       authority?: ExtensionViewAuthority
       input?: unknown
       readingOrigin?: 'human' | 'agent' | 'action'
+      onCreated?: (view: ExtensionView) => void
     } = {},
   ): Promise<ExtensionView> {
     this.scopes.assertCurrent(owner)
@@ -259,6 +260,7 @@ export class ExtensionGuestOwner {
       )
     }
     try {
+      options.onCreated?.(view)
       await this.surface.prepare(view, activation.revision)
       await this.activations.assertWritable()
       this.assertRecord(record)

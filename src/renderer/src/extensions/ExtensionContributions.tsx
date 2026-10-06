@@ -26,7 +26,7 @@ import { useExtensionForeground } from './use-extension-foreground'
 export function ExtensionContributionsProvider({
   children,
   workspaceId,
-  views,
+  placement,
   onError,
   topActive,
   obscured,
@@ -39,12 +39,17 @@ export function ExtensionContributionsProvider({
   readonly onWorkspace: () => void
   readonly children: ReactNode
   readonly workspaceId?: string
-  readonly views: readonly ExtensionView[]
+  readonly placement: {
+    readonly guests: readonly ExtensionView[]
+    readonly activate: (id: string, focus?: boolean) => void
+  }
   readonly onError: (message: string) => void
 }): ReactElement {
+  const views = placement.guests
   const errorRef = useRef(onError)
   errorRef.current = onError
   const [topId, setTopId] = useState<string>()
+  const [landingFocusId, focusLanding] = useState<string>()
   const selectedTop = views.find((view) => view.id === topId)
   const selectTop = useCallback(
     (view: ExtensionView): void => {
@@ -200,6 +205,9 @@ export function ExtensionContributionsProvider({
         obscured,
         selectedTop,
         selectTop,
+        selectViewer: (id) => placement.activate(id, false),
+        focusLanding,
+        landingFocusId,
         close,
         closeTop: (id) => {
           close(id)
