@@ -616,6 +616,7 @@ transient launch data never enters recovery, and handed-off terminals retain ord
 
 > Lifecycle: Partially superseded
 > Superseded by: [ADR-060](adr/ADR-060-public-skillager-advanced-exposure.md) | partial | Exclusion of native adoption from local management; complete public preservation-backed adoption is permitted by this decision.
+> Superseded by: [ADR-067](adr/ADR-067-cli-owned-personal-library-creation-defaults.md) | partial | Mandatory explicit initialization path and separate Git choice only.
 
 Extension-local workflows consume verified public initialization, approved synchronization and
 complete token-bound managed-copy plans; current reading and exact acceptance remain separate.
@@ -676,6 +677,14 @@ while retiring hidden resources, with ordinary Close and Save semantics unchange
 
 Bounded passive program candidates feed the existing exact native approval decision after
 installation or a visible human proposal; package, file and agent authority stay separate.
+
+### [ADR-067 — CLI-owned personal library creation defaults](adr/ADR-067-cli-owned-personal-library-creation-defaults.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-059](adr/ADR-059-public-local-skillager-management.md) | partial | Mandatory explicit initialization path and separate Git choice only.
+
+Explicit default creation consumes the public CLI's location and history policy; advanced
+custom intent remains available, and unknown-target completion requires public reconciliation.
 
 
 ## 5. Architecture
