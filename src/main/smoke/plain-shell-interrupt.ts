@@ -76,6 +76,13 @@ export async function verifyPlainShellInterrupt(
         supervisor,
         terminal,
         scenario: `command once ${name} cleanup`,
+        requestFixtureExit: () =>
+          supervisor.write(
+            terminal.id,
+            terminal.ownerId,
+            'exit\r',
+            terminal.ownerGeneration,
+          ),
       })
       console.log(`[smoke] Command-once ${name} interruption -> ordinary shell/input OK`)
     }
