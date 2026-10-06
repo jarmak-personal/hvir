@@ -63,6 +63,7 @@ export async function routeGuestCapability(
       assertOrigin,
       contexts,
       ports.connectors,
+      ports.connections,
       ports.actions,
       ports.connectorDemand,
       invocation,

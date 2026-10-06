@@ -1,6 +1,7 @@
 # ADR-051: Approved finite connector execution
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-065](ADR-065-passive-extension-program-connection.md) | partial | Mandatory manually supplied absolute executable input and separate Inspect step for application-local first-use connections only.
 > Supersedes: [ADR-010](ADR-010-project-host-remote-boundary.md) | partial | Registered-root requirement for explicit approved connector execution and its application-local working context only.
 
 ## Context

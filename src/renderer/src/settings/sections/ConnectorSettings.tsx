@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactElement } from 'react'
+import { useEffect, useRef, useState, type ReactElement } from 'react'
 import type { ProjectHostOption } from '../../../../shared'
 import type { ExtensionInstallation } from '../../../../shared/extensions/workbench'
 import type {
@@ -45,6 +45,25 @@ function ConnectorSetup({
   readonly installation: string
   readonly connector: ExtensionConnectorDeclaration
 }): ReactElement {
+  const connectionRequest = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    if (!connector.setup) return
+    const cancel = (): void => {
+      const request = connectionRequest.current
+      connectionRequest.current = undefined
+      if (request)
+        void window.hvir
+          .invoke('extensions:connection-cancel', { request })
+          .catch(() => {})
+    }
+    const unsubscribe = window.hvir.on('extensions:foreground-changed', (foreground) => {
+      if (!foreground) cancel()
+    })
+    return () => {
+      cancel()
+      void unsubscribe()
+    }
+  }, [connector.setup])
   const [hosts, setHosts] = useState<readonly ProjectHostOption[]>([])
   const [host, setHost] = useState('local')
   const [path, setPath] = useState('')
@@ -99,129 +118,169 @@ function ConnectorSetup({
         {status?.executable ? ` · ${status.host}: ${status.executable}` : ''}
         {status?.explanation ? ` · ${status.explanation}` : ''}
       </p>
-      <label>
-        Host
-        <select
-          aria-label={`Host for ${connector.id}`}
-          value={host}
-          onChange={(event) => {
-            setHost(event.target.value)
-            setDecision(undefined)
-          }}
-          className="hvir-input"
+      {connector.setup ? (
+        <button
+          type="button"
+          className="hvir-button"
+          onClick={() =>
+            void run(async () => {
+              const request = crypto.randomUUID()
+              connectionRequest.current = request
+              const result = await window.hvir.invoke('extensions:connector-connect', {
+                request,
+                installationId: installation,
+                connector: connector.id,
+              })
+              if (connectionRequest.current !== request) return
+              connectionRequest.current = undefined
+              const outcome = result.connections.find(
+                (entry) => entry.connector === connector.id,
+              )
+              if (outcome?.outcome === 'interrupted-uncertain')
+                setError(outcome.explanation)
+              else if (outcome?.outcome !== 'connected')
+                setError(
+                  outcome?.explanation ?? 'Not connected. Choose Connect when ready.',
+                )
+              setStatus(
+                (
+                  await window.hvir.invoke('extensions:connector-settings', {
+                    installationId: installation,
+                  })
+                ).connectors.find((entry) => entry.connector === connector.id),
+              )
+            })
+          }
         >
-          {hosts
-            .filter(
-              (entry) => connector.context !== 'application' || entry.kind === 'local',
-            )
-            .map((entry) => (
-              <option key={entry.hostId} value={entry.hostId}>
-                {entry.label}
-              </option>
-            ))}
-        </select>
-      </label>
-      <label>
-        Installed program path (absolute)
-        <input
-          aria-label={`Executable for ${connector.id}`}
-          value={path}
-          onChange={(event) => {
-            setPath(event.target.value)
-            setDecision(undefined)
-          }}
-          className="hvir-input"
-        />
-      </label>
-      <p>
-        This program runs with your account’s access to files, credentials, network and
-        other programs. Its working folder and action name do not limit that access or
-        guarantee read-only behavior.
-      </p>
-      <p>
-        Working folder:{' '}
-        {connector.context === 'application'
-          ? 'hvir’s local scratch folder, separate from your project'
-          : 'The selected project on the approved host'}{' '}
-      </p>
-      <details>
-        <summary>Execution limits and environment</summary>
-        <p>
-          Deadline: {connector.timeoutMs / 1000} seconds · Output: {connector.outputBytes}{' '}
-          bytes
-        </p>
-        <p>
-          Available environment overrides: {connector.environment.join(', ') || 'None'}.
-          The host account’s normal environment is inherited.
-        </p>
-      </details>
-
-      <details>
-        <summary>Advanced configuration</summary>
+          Connect {connector.setup.executable}
+        </button>
+      ) : null}
+      <details open={!connector.setup}>
+        <summary>Manual program configuration</summary>
         <label>
-          Configuration (JSON argument prefix and environment overrides)
-          <textarea
-            aria-label={`Configuration for ${connector.id}`}
-            value={configuration}
+          Host
+          <select
+            aria-label={`Host for ${connector.id}`}
+            value={host}
             onChange={(event) => {
-              setConfiguration(event.target.value)
+              setHost(event.target.value)
+              setDecision(undefined)
+            }}
+            className="hvir-input"
+          >
+            {hosts
+              .filter(
+                (entry) => connector.context !== 'application' || entry.kind === 'local',
+              )
+              .map((entry) => (
+                <option key={entry.hostId} value={entry.hostId}>
+                  {entry.label}
+                </option>
+              ))}
+          </select>
+        </label>
+        <label>
+          Installed program path (absolute)
+          <input
+            aria-label={`Executable for ${connector.id}`}
+            value={path}
+            onChange={(event) => {
+              setPath(event.target.value)
               setDecision(undefined)
             }}
             className="hvir-input"
           />
         </label>
-      </details>
-      <button
-        type="button"
-        onClick={() =>
-          void run(async () => {
-            setDecision(
-              await window.hvir.invoke('extensions:connector-prepare', {
-                installationId: installation,
-                connector: connector.id,
-                host,
-                executable: path,
-                configuration: JSON.parse(
-                  configuration,
-                ) as ExtensionConnectorApproval['configuration'],
-              }),
-            )
-          })
-        }
-        className="hvir-button"
-      >
-        Inspect native access
-      </button>
-      {decision ? (
-        <>
+        <p>
+          This program runs with your account’s access to files, credentials, network and
+          other programs. Its working folder and action name do not limit that access or
+          guarantee read-only behavior.
+        </p>
+        <p>
+          Working folder:{' '}
+          {connector.context === 'application'
+            ? 'hvir’s local scratch folder, separate from your project'
+            : 'The selected project on the approved host'}{' '}
+        </p>
+        <details>
+          <summary>Execution limits and environment</summary>
           <p>
-            Approve {decision.approval.host}: {decision.approval.canonicalExecutable} for
-            this connector?
+            Deadline: {connector.timeoutMs / 1000} seconds · Output:{' '}
+            {connector.outputBytes} bytes
           </p>
-          <pre>{JSON.stringify(decision.approval.configuration, null, 2)}</pre>
-          <button
-            type="button"
-            onClick={() =>
-              void run(async () => {
-                await window.hvir.invoke('extensions:connector-approve', {
-                  token: decision.token,
-                })
+          <p>
+            Available environment overrides: {connector.environment.join(', ') || 'None'}.
+            The host account’s normal environment is inherited.
+          </p>
+        </details>
+
+        <details>
+          <summary>Advanced configuration</summary>
+          <label>
+            Configuration (JSON argument prefix and environment overrides)
+            <textarea
+              aria-label={`Configuration for ${connector.id}`}
+              value={configuration}
+              onChange={(event) => {
+                setConfiguration(event.target.value)
                 setDecision(undefined)
-                setStatus(
-                  (
-                    await window.hvir.invoke('extensions:connector-settings', {
-                      installationId: installation,
-                    })
-                  ).connectors.find((entry) => entry.connector === connector.id),
-                )
-              })
-            }
-            className="hvir-button"
-          >
-            Approve native execution
-          </button>
-        </>
-      ) : null}
+              }}
+              className="hvir-input"
+            />
+          </label>
+        </details>
+        <button
+          type="button"
+          onClick={() =>
+            void run(async () => {
+              setDecision(
+                await window.hvir.invoke('extensions:connector-prepare', {
+                  installationId: installation,
+                  connector: connector.id,
+                  host,
+                  executable: path,
+                  configuration: JSON.parse(
+                    configuration,
+                  ) as ExtensionConnectorApproval['configuration'],
+                }),
+              )
+            })
+          }
+          className="hvir-button"
+        >
+          Inspect native access
+        </button>
+        {decision ? (
+          <>
+            <p>
+              Approve {decision.approval.host}: {decision.approval.canonicalExecutable}{' '}
+              for this connector?
+            </p>
+            <pre>{JSON.stringify(decision.approval.configuration, null, 2)}</pre>
+            <button
+              type="button"
+              onClick={() =>
+                void run(async () => {
+                  await window.hvir.invoke('extensions:connector-approve', {
+                    token: decision.token,
+                  })
+                  setDecision(undefined)
+                  setStatus(
+                    (
+                      await window.hvir.invoke('extensions:connector-settings', {
+                        installationId: installation,
+                      })
+                    ).connectors.find((entry) => entry.connector === connector.id),
+                  )
+                })
+              }
+              className="hvir-button"
+            >
+              Approve native execution
+            </button>
+          </>
+        ) : null}
+      </details>
       <button
         type="button"
         onClick={() =>

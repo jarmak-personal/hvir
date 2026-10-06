@@ -72,6 +72,31 @@ export function registerExtensionsIpc(
       connectors: approvals.status(activation),
     }
   })
+  ipc.handle(
+    'extensions:connection-proposals',
+    (_req, context) => extensions?.connections?.snapshot(context.owner()) ?? [],
+  )
+  ipc.handle(
+    'extensions:connection-decide',
+    (req, context) =>
+      extensions?.connections?.decide(context.owner(), req.id, req.accepted) ?? undefined,
+  )
+  ipc.handle('extensions:connector-connect', (req, context) => {
+    const owner = context.owner()
+    const activation = extensions?.activations?.active.get(req.installationId)
+    if (!activation || !extensions?.connections) return unavailable()
+    return extensions.connections.fromRenderer(
+      extensions.scopes,
+      owner,
+      activation,
+      () => {
+        extensions.guests?.assertOwner(owner)
+      },
+      req.connector,
+      req.request,
+      () => extensions.surface.foreground(owner),
+    )
+  })
   ipc.handle('extensions:connector-prepare', (req, context) => {
     const owner = context.owner()
     return (
@@ -107,8 +132,15 @@ export function registerExtensionsIpc(
   })
   ipc.handle(
     'extensions:add',
-    (_req, context) => extensions?.additions?.add(context.owner()) ?? unavailable(),
+    (req, context) =>
+      extensions?.additions?.add(context.owner(), req.request) ?? unavailable(),
   )
+  ipc.handle('extensions:add-cancel-setup', (req, context) => {
+    extensions?.additions?.cancelSetup(context.owner(), req.request)
+  })
+  ipc.handle('extensions:connection-cancel', (req, context) => {
+    extensions?.connections?.cancelRenderer(context.owner(), req.request)
+  })
   ipc.handle('extensions:open-folder', (_req, context) => {
     context.owner()
     return extensions?.openFolder() ?? unavailable()

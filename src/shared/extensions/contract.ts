@@ -13,6 +13,7 @@ export const EXTENSION_CAPABILITIES = [
   'connector.execute',
   'connector.output',
   'connector.status',
+  'connector.connect',
   'source.status',
   'source.select',
   'source.read',

@@ -75,7 +75,7 @@ export function ConfirmationDialog({
                 ' hvir-control'
               }
               type="button"
-              autoFocus={action === initialAction}
+              data-modal-initial={action === initialAction ? true : undefined}
               disabled={busy || action.disabled}
               key={`${action.kind}:${action.label}`}
               onClick={() => activate(action)}

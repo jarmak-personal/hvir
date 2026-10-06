@@ -32,6 +32,8 @@ import {
   ExtensionPackageAdditionOwner,
   type ExtensionPackagePicker,
 } from './package-addition'
+import { ExtensionConnectorConnectionOwner } from './connector-connection'
+import { createElectronConnectorConnection } from './electron-connector-connection'
 import { createElectronPackagePicker } from './electron-package-picker'
 
 /** Application composition and lifetime of the extension platform; no extension package code. */
@@ -39,6 +41,7 @@ export class ExtensionApplicationRuntime {
   terminalHandoffs?: TerminalCommandHandoffOwner
   deliveries?: ExtensionManagedDeliveryOwner
   sources?: ExtensionSourceReadingOwner
+  connections?: ExtensionConnectorConnectionOwner
   connectors?: ExtensionConnectorExecutionOwner
   readonly surface = new ElectronExtensionGuestSurface()
   activations?: ExtensionActivationOwner
@@ -85,7 +88,7 @@ export class ExtensionApplicationRuntime {
   private failure?: string
 
   constructor(
-    private readonly scopes: RendererResourceScopes,
+    readonly scopes: RendererResourceScopes,
     private readonly events: RendererEventPublisher,
     private readonly userData: HostPath,
     private readonly packagePicker: ExtensionPackagePicker = createElectronPackagePicker(),
@@ -102,6 +105,7 @@ export class ExtensionApplicationRuntime {
         await this.deliveries?.dispose()
         this.sources?.dispose()
         this.sources?.approvals.dispose()
+        this.connections?.dispose()
         this.connectors?.dispose()
         this.connectors?.approvals.dispose()
         await this.activations?.dispose()
@@ -137,6 +141,7 @@ export class ExtensionApplicationRuntime {
     await this.deliveries?.dispose()
     this.sources?.dispose()
     this.sources?.approvals.dispose()
+    this.connections?.dispose()
     this.connectors?.dispose()
     this.connectors?.approvals.dispose()
     await this.activations?.dispose()
@@ -176,6 +181,7 @@ export class ExtensionApplicationRuntime {
         this.deliveries?.revoke(id)
         this.sources?.approvals.discardPrepared(id)
         this.sources?.revoke(id)
+        this.connections?.revoke(id)
         this.connectors?.approvals.discardPrepared(id)
         this.connectors?.revoke(id)
         this.actions?.revokeInstallation(id)
@@ -196,11 +202,6 @@ export class ExtensionApplicationRuntime {
       (id, persisted) => this.deliveries?.forget(id, persisted),
     )
     this.activations = activations
-    this.additions = new ExtensionPackageAdditionOwner(
-      this.scopes,
-      activations,
-      this.packagePicker,
-    )
     const scratch = joinHostPath(storage, 'connector-scratch')
     try {
       await host.createDirectoryExclusive(scratch, { mode: 0o755 })
@@ -216,6 +217,34 @@ export class ExtensionApplicationRuntime {
     )
     this.connectors = new ExtensionConnectorExecutionOwner(approvals, scratch, () =>
       activations.assertWritable(),
+    )
+    this.connections = new ExtensionConnectorConnectionOwner(
+      activations,
+      approvals,
+      createElectronConnectorConnection(),
+      (owner, proposals) =>
+        this.events.toRenderer(
+          owner,
+          'extensions:connection-proposals-changed',
+          proposals,
+        ),
+    )
+    this.additions = new ExtensionPackageAdditionOwner(
+      this.scopes,
+      activations,
+      this.packagePicker,
+      (activation, owner, signal) =>
+        this.connections!.request(
+          activation,
+          owner,
+          () => {
+            this.scopes.assertCurrent(owner)
+          },
+          signal,
+          () => this.surface.foreground(owner),
+          undefined,
+          true,
+        ),
     )
     const sourceApprovals = new ExtensionSourceApprovalOwner(
       hosts,
@@ -264,6 +293,7 @@ export class ExtensionApplicationRuntime {
       contexts,
       {
         connectors: this.connectors,
+        connections: this.connections,
         sources: this.sources,
         deliveries: this.deliveries,
         sourceReveal: new ExtensionSourceReveal(sourceApprovals, (owner, request) =>

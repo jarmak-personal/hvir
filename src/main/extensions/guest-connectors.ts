@@ -1,3 +1,4 @@
+import { extensionId, extensionObject } from '../../shared/extensions/validation'
 import type { ExtensionGuestPorts } from './guest-capability-ports'
 import { requestGuestDelivery } from './guest-delivery'
 import type { ConnectorCaller } from './connector-execution'
@@ -16,6 +17,7 @@ interface ConnectorGuest {
   readonly visible: boolean
   readonly refreshDemand: boolean
   readonly readingOrigin: 'human' | 'agent' | 'action'
+  readonly actions: ReadonlySet<string>
 }
 /** Connector provenance/demand adapts admitted guests to the finite execution owner. */
 export async function requestGuestConnector(
@@ -26,12 +28,38 @@ export async function requestGuestConnector(
   assertOrigin: () => void,
   contexts: ExtensionContextOwner,
   connectors: ExtensionGuestPorts['connectors'],
+  connections: ExtensionGuestPorts['connections'],
   actions: ExtensionGuestPorts['actions'],
   connectorDemand: ExtensionGuestPorts['connectorDemand'],
   invocation: ExtensionInvocation | undefined,
   delivery: ExtensionGuestPorts['deliveries'],
   foreground: () => boolean,
 ): Promise<unknown> {
+  if (capability === 'connector.connect') {
+    if (
+      record.view.role === 'updater' ||
+      record.readingOrigin !== 'human' ||
+      record.authority.restricted ||
+      invocation ||
+      record.actions.size ||
+      !record.visible ||
+      !foreground()
+    )
+      throw new Error('Program connection requires a visible ordinary human view')
+    const connector = extensionId(extensionObject(input)['connector'])
+    return connections.request(
+      record.activation,
+      record.owner,
+      () => {
+        assertOrigin()
+        if (!record.visible || record.actions.size)
+          throw new Error('Program connection demand ended')
+      },
+      signal,
+      foreground,
+      connector,
+    )
+  }
   const invocationAuthority = invocation
     ? actions.authority(record.view.id, invocation.id)
     : undefined

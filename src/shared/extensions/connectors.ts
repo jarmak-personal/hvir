@@ -24,6 +24,7 @@ export interface ExtensionConnectorDeclaration {
   readonly context: 'application' | 'workspace'
   readonly timeoutMs: number
   readonly outputBytes: number
+  readonly setup?: { readonly executable: string }
   readonly environment: readonly string[]
 }
 export interface ExtensionConnectorConfiguration {
@@ -100,6 +101,7 @@ export function validateConnectorDeclarations(
       'timeoutMs',
       'outputBytes',
       'environment',
+      'setup',
     ])
     if (!['application', 'workspace'].includes(object['context'] as string))
       throw new Error('Invalid connector working context')
@@ -114,7 +116,20 @@ export function validateConnectorDeclarations(
       new Set(environment).size !== environment.length
     )
       throw new Error('Invalid connector environment declarations')
+    let setup: ExtensionConnectorDeclaration['setup']
+    if (object['setup'] !== undefined) {
+      const hint = extensionObject(object['setup'])
+      warnings(hint, ['executable'])
+      if (
+        object['context'] !== 'application' ||
+        typeof hint['executable'] !== 'string' ||
+        !/^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/u.test(hint['executable'])
+      )
+        throw new Error('Program setup requires an application-local executable basename')
+      setup = { executable: hint['executable'] }
+    }
     return {
+      ...(setup ? { setup } : {}),
       id: extensionId(object['id']),
       description: extensionText(object['description'], 'connector description', 240),
       context: object['context'] as 'application' | 'workspace',
@@ -127,6 +142,8 @@ export function validateConnectorDeclarations(
       environment: environment as string[],
     }
   })
+  if (declarations.filter((entry) => entry.setup).length > 4)
+    throw new Error('Too many program setup hints')
   if (new Set(declarations.map((entry) => entry.id)).size !== declarations.length)
     throw new Error('Duplicate connector identity')
   return declarations
@@ -173,4 +190,27 @@ export function connectorConfiguration(
   )
     throw new Error('Connector configuration exceeds its bound')
   return configuration
+}
+
+/** Outcomes describe individual consent writes, never an atomic group transaction. */
+export interface ExtensionConnectionResult {
+  readonly connections: readonly {
+    readonly connector: string
+    readonly outcome: 'connected' | 'declined' | 'unavailable' | 'interrupted-uncertain'
+    readonly explanation?: string
+  }[]
+}
+
+/** Trusted workbench display only; prepared grant tokens never leave main. */
+export interface ExtensionConnectionProposal {
+  readonly id: string
+  readonly installationId: string
+  readonly name: string
+  readonly programs: readonly {
+    readonly connector: string
+    readonly description: string
+    readonly host: string
+    readonly canonicalExecutable: string
+    readonly configuration: ExtensionConnectorConfiguration
+  }[]
 }

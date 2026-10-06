@@ -377,6 +377,7 @@ export class ExtensionGuestOwner {
           (!this.foregroundPlacement(record) || this.ownerForeground(owner))
     record.refreshDemand =
       record.visible && refreshDemand === true && this.ownerForeground(owner)
+    this.ports.connections.revalidate()
     this.ports.connectors.revalidate()
     this.ports.sources.revalidate()
     if (record.refreshDemand !== previousDemand) this.ports.visibleContributionsChanged()
@@ -417,6 +418,7 @@ export class ExtensionGuestOwner {
         this.surface.visibility(record.guestId, record.visible)
       this.sendContext(record)
     }
+    this.ports.connections.revalidate()
     this.ports.connectors.revalidate()
     this.ports.sources.revalidate()
     this.ports.visibleContributionsChanged()
@@ -701,6 +703,7 @@ export class ExtensionGuestOwner {
       this.surface.runnable?.(record.guestId, record.actions.size > 0)
   }
   updateContext(): void {
+    this.ports.connections.revalidate()
     this.ports.connectors.revalidate()
     this.ports.sources.revalidate()
     for (const record of [...this.records.values()]) {
@@ -734,6 +737,7 @@ export class ExtensionGuestOwner {
     )
       return
     record.visible = demanded
+    this.ports.connections.revalidate()
     this.ports.connectors.revalidate()
     this.ports.sources.revalidate()
     this.sendContext(record)
@@ -808,6 +812,7 @@ export class ExtensionGuestOwner {
               'source.render',
               'source.reveal',
               'terminal.start',
+              'connector.connect',
             ].includes(capability))),
     )
   }
@@ -852,6 +857,7 @@ export class ExtensionGuestOwner {
     this.records.delete(record.view.id)
     this.ports.sources.closeView(record.view.id)
     record.authority.dispose()
+    this.ports.connections.revalidate()
     this.ports.connectors.revalidate()
     this.ports.sources.revalidate()
     if (record.visible && record.view.role !== 'updater')

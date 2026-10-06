@@ -21,6 +21,7 @@ import { verifyExtensionWebRtc } from './extension-webrtc'
 import { verifyExtensionSettingsGeometry } from './extension-presentation-geometry'
 import { verifyExtensionAuthoring } from './extension-authoring'
 import { verifyExtensionPackages } from './extension-packages'
+import { verifyExtensionConnection } from './extension-connection'
 import { verifyExtensionImport } from './extension-import'
 import { verifyExtensionNetwork } from './extension-network'
 import {
@@ -137,6 +138,11 @@ export async function verifyExtensionScenario(
   await verifyExtensionImport(win, extensions, scopes, host, {
     click: (name) => click(win, name),
     wait: waitFor,
+  })
+  await verifyExtensionConnection(win, extensions, host, {
+    click: (name) => click(win, name),
+    wait: waitFor,
+    guest: guestFor,
   })
   await extensionSettingsControls(win, 'hvir Reference', {
     wait: waitFor,

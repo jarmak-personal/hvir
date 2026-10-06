@@ -1,3 +1,4 @@
+import type { ExtensionConnectionResult } from '../../../../shared/extensions/connectors'
 import { SettingsSection } from '../SettingsSection'
 import { DeliveryRecoverySettings } from './DeliveryRecoverySettings'
 import { AgentAccessSettings } from './AgentAccessSettings'
@@ -11,6 +12,7 @@ import type {
 
 export function ExtensionsSettings(): ReactElement {
   const [state, setState] = useState<ExtensionPlatformState>()
+  const [connection, setConnection] = useState<ExtensionConnectionResult>()
   const [error, setError] = useState<string>()
   const [removing, setRemoving] = useState<ExtensionInstallation>()
   const [forget, setForget] = useState(false)
@@ -32,6 +34,22 @@ export function ExtensionsSettings(): ReactElement {
   useEffect(() => {
     if (selected !== selection) setSelection(selected)
   }, [selected, selection])
+  const setupRequest = useRef<string | undefined>(undefined)
+  const cancelSetup = (): void => {
+    const request = setupRequest.current
+    setupRequest.current = undefined
+    if (request)
+      void window.hvir.invoke('extensions:add-cancel-setup', { request }).catch(() => {})
+  }
+  useEffect(() => {
+    const unsubscribe = window.hvir.on('extensions:foreground-changed', (foreground) => {
+      if (!foreground) cancelSetup()
+    })
+    return () => {
+      cancelSetup()
+      void unsubscribe()
+    }
+  }, [])
   const publication = useRef(0)
   const addition = useRef<ReadonlySet<string> | undefined>(undefined)
   const run = async (operation: () => Promise<unknown>): Promise<void> => {
@@ -98,7 +116,11 @@ export function ExtensionsSettings(): ReactElement {
                 const previous = new Set(installations.map((entry) => entry.source))
                 addition.current = previous
                 try {
-                  const next = await window.hvir.invoke('extensions:add', undefined)
+                  setConnection(undefined)
+                  const request = crypto.randomUUID()
+                  setupRequest.current = request
+                  const next = await window.hvir.invoke('extensions:add', { request })
+                  if (setupRequest.current === request) setConnection(next.connection)
                   if (observed === publication.current) {
                     setState(next)
                     const added = next.installations.find(
@@ -108,6 +130,7 @@ export function ExtensionsSettings(): ReactElement {
                   }
                 } finally {
                   if (addition.current === previous) addition.current = undefined
+                  setupRequest.current = undefined
                 }
               })
             }
@@ -120,6 +143,18 @@ export function ExtensionsSettings(): ReactElement {
       <div className="settings-section-scroll extension-settings-content">
         {state?.explanation ? <p role="status">{state.explanation}</p> : null}
         {error ? <p role="alert">{error}</p> : null}
+        {connection?.connections
+          .filter((entry) => entry.outcome !== 'connected')
+          .map((entry) => (
+            <p
+              key={entry.connector}
+              role={entry.outcome === 'interrupted-uncertain' ? 'alert' : 'status'}
+            >
+              {entry.connector}:{' '}
+              {entry.explanation ??
+                'Not connected. The extension is installed; choose Connect under Program access when ready.'}
+            </p>
+          ))}
         {state?.installations.length === 0 && (state.writable || !state.explanation) ? (
           <p>
             No extensions found. Choose Add extension to select a directory or ZIP
@@ -163,6 +198,7 @@ export function ExtensionsSettings(): ReactElement {
                   aria-current={selected === installation ? 'true' : undefined}
                   onClick={() => {
                     addition.current = undefined
+                    cancelSetup()
                     setSelection(installation)
                     setRemoving(undefined)
                   }}

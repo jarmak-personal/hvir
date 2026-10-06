@@ -100,7 +100,7 @@ destination; `navigation: 'left'` creates a workspace rail view. `access` declar
 
 Contract 1.0 provides `presentation.read`, `viewer.open-own`, `context.read`,
 `contributions.read`, `contributions.publish`, `actions.invoke`, `connector.status`,
-`connector.execute`, `connector.output`, `terminal.start`, `source.status`, `source.select`,
+`connector.execute`, `connector.output`, `connector.connect`, `terminal.start`, `source.status`, `source.select`,
 `source.read`, `source.asset`, `source.render`, `source.reveal`, `delivery.capture`, `delivery.manifest`, `delivery.preview`, `delivery.apply`, `delivery.status`, `delivery.domain`, `delivery.reconcile`, and `delivery.cleanup`. List required and
 optional capabilities explicitly. Same-major older or equal minor contracts activate;
 a newer minor also activates when every required capability exists. Unsupported major
@@ -346,8 +346,25 @@ Use **Revoke native access** to stop new admissions and revoke pending requests 
 
 Native code runs with the selected host account's authority, including its files, credentials,
 network and subprocesses. A working directory, action title, or claimed read-only effect is not
-confinement. UI enablement does not approve native execution. Executable selection uses an absolute
-path rather than probing ambient PATH. A symlink binds its canonical target: changing the target
+confinement. UI enablement does not approve native execution. Manual executable selection uses an absolute path. An application connector may also
+supply `setup: { executable: 'tool-name' }`, a simple basename (at most four hints per package).
+After an explicit Add commits, hvir can passively inspect bounded local PATH/conventional-bin
+metadata and present one **Connect** decision for the exact canonical programs and default
+`{ args: [], env: {} }` configuration. No program, shell or version probe executes before consent.
+Aliases to the same canonical executable are deduplicated. If an automatic Add finds no program,
+it leaves installation successful and offers Connect as a later step. Explicit Connect can use a
+native file selection for a missing or ambiguous program; hvir installs no dependency. Optional workspace/SSH
+connectors are excluded. Manual path/configuration controls remain available under advanced setup.
+Declining or canceling connection leaves the accepted extension installed and enabled.
+Each approved binding saves separately; an interrupted save can have committed and must be checked
+before retrying. Canceling a setup proposal retires only its prepared tokens.
+
+A package may negotiate `connector.connect` and send `{ connector: 'tool-id' }` from a visible
+ordinary human view to propose the same decision. Agent, updater, action-origin and admitted-action
+requests cannot prompt or grant this access. Hiding/closing the view, leaving its trusted Settings
+flow, native backgrounding, activation change or writer loss retires pending setup. The connection
+decision uses the existing 60-second prepared-approval lifetime; late native replies do nothing.
+No new file, project, delivery or agent authority is granted. A symlink binds its canonical target: changing the target
 requires another decision. Updating the tool in place at the same canonical path requires no
 new approval. hvir never hashes interpreted-tool contents. Explicit Reload or Replace reuses an
 unchanged declaration/path/configuration binding and pins every execution to the new activation.

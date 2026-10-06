@@ -25,6 +25,7 @@ import {
 import { finishPackageRemoval } from './package-removal'
 import { importExtensionPackage } from './package-import'
 import { selectExtensionPackage } from './package-selection'
+import { assertImportInactive, assertImportAvailable } from './package-import-admission'
 import { collectExtensionPackages } from './package-retention'
 import type { ExtensionWriterLease } from '../project-host/extension-storage-port'
 
@@ -191,7 +192,7 @@ export class ExtensionActivationOwner {
     pick: () => Promise<HostPath | undefined>,
     assertCurrent: () => void,
     signal: AbortSignal,
-  ): Promise<ExtensionPlatformState> {
+  ): Promise<{ state: ExtensionPlatformState; installed?: ExtensionActivation }> {
     const lifetime = AbortSignal.any([signal, this.authority.signal])
     const current = async (): Promise<void> => {
       lifetime.throwIfAborted()
@@ -203,7 +204,7 @@ export class ExtensionActivationOwner {
     await current()
     const source = await selectExtensionPackage(pick, assertCurrent, lifetime)
     await current()
-    if (!source) return this.snapshot()
+    if (!source) return { state: this.snapshot() }
     return this.serialize(async () => {
       await current()
       const imported = await importExtensionPackage(
@@ -212,42 +213,21 @@ export class ExtensionActivationOwner {
         this.packages.root,
         source,
         async (name, id) => {
-          if (
-            [...this.active.values()].some((entry) => entry.revision.manifest.id === id)
+          assertImportInactive(
+            id,
+            [...this.active.values()].map((entry) => entry.revision.manifest.id),
           )
-            throw new Error(
-              'This extension identity is enabled. Use its existing Reload or Replace control.',
-            )
           await current()
           await this.scan(() => {
             lifetime.throwIfAborted()
             assertCurrent()
           })
-          if (this.importCapacity)
-            throw new Error('Remove an unused package before adding another extension')
-          if (
-            this.installations.some(
-              (entry) => entry.source === name && entry.sourceIdentity,
-            )
-          )
-            throw new Error(
-              'A package with this filename already exists. Remove it explicitly or choose a different filename.',
-            )
-          if (
-            this.installations.some(
-              (entry) => entry.manifest?.id === id && entry.sourceIdentity,
-            ) ||
-            this.removals.some(
-              (entry) =>
-                entry.source === name ||
-                this.accepted.some(
-                  (saved) => saved.source === entry.source && saved.packageId === id,
-                ),
-            )
-          )
-            throw new Error(
-              'This extension identity is already present or removal is unfinished. Finish Remove before adding it again.',
-            )
+          assertImportAvailable(name, id, {
+            capacity: this.importCapacity,
+            installations: this.installations,
+            accepted: this.accepted,
+            removals: this.removals,
+          })
         },
         current,
         () => {
@@ -263,13 +243,14 @@ export class ExtensionActivationOwner {
       })
       if (this.sourceIdentities.get(imported.source) !== imported.sourceIdentity)
         throw new Error('The imported package changed; discover it before enabling it')
-      return this.acceptRevision(
+      const installed = await this.acceptRevision(
         imported.source,
         imported.revision,
         false,
         current,
         lifetime,
       )
+      return { state: this.snapshot(), installed }
     })
   }
 
@@ -401,11 +382,17 @@ export class ExtensionActivationOwner {
   }
 
   enable(source: string, expectedRevision: string): Promise<ExtensionPlatformState> {
-    return this.serialize(() => this.acceptRevision(source, expectedRevision, false))
+    return this.serialize(async () => {
+      await this.acceptRevision(source, expectedRevision, false)
+      return this.snapshot()
+    })
   }
 
   reload(source: string, expectedRevision: string): Promise<ExtensionPlatformState> {
-    return this.serialize(() => this.acceptRevision(source, expectedRevision, true))
+    return this.serialize(async () => {
+      await this.acceptRevision(source, expectedRevision, true)
+      return this.snapshot()
+    })
   }
 
   private async acceptRevision(
@@ -414,7 +401,7 @@ export class ExtensionActivationOwner {
     replacing: boolean,
     currentIntent: () => Promise<void> = () => this.assertWritable(),
     signal: AbortSignal = this.authority.signal,
-  ): Promise<ExtensionPlatformState> {
+  ): Promise<ExtensionActivation> {
     await currentIntent()
     const discovered = this.discovered.get(source)
     if (!discovered || (!replacing && discovered.hash !== expectedRevision))
@@ -482,13 +469,14 @@ export class ExtensionActivationOwner {
           }
         : entry,
     )
-    this.active.set(record.installationId, {
+    const installed: ExtensionActivation = {
       installationId: record.installationId,
       generation: randomUUID(),
       revision: current,
-    })
+    }
+    this.active.set(record.installationId, installed)
     this.publish()
-    return this.snapshot()
+    return installed
   }
 
   remove(
