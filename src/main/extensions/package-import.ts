@@ -15,7 +15,11 @@ export async function importExtensionPackage(
   current: () => Promise<void>,
   assertCurrent: () => void,
   signal: AbortSignal,
-): Promise<void> {
+): Promise<{
+  readonly source: string
+  readonly revision: string
+  readonly sourceIdentity: string
+}> {
   const storage = host.extensionStorage,
     transfer = host.fileTransfer
   if (!storage || !transfer) throw new Error('Atomic extension storage is unavailable')
@@ -45,6 +49,7 @@ export async function importExtensionPackage(
     kind === 'zip' ? new Map([[name, revision.archiveBytes!]]) : revision.files
   const created = new Map<string, Uint8Array>()
   const directories = new Set<string>()
+  let publishedIdentity: string | undefined
   let published = false
   let failure: Error | undefined
   try {
@@ -81,6 +86,8 @@ export async function importExtensionPackage(
         'The selected package changed; finish copying it and Add extension again',
       )
     await available(name, revision.manifest.id)
+    await current()
+    publishedIdentity = await storage.entryIdentity(output)
     await current()
     await transfer.renameNoReplace(output, destination, {
       signal,
@@ -122,6 +129,7 @@ export async function importExtensionPackage(
     }
   }
   if (failure !== undefined) throw failure
+  return { source: name, revision: revision.hash, sourceIdentity: publishedIdentity! }
 }
 
 /** Only the current serialized writer collects its bounded interrupted import staging. */

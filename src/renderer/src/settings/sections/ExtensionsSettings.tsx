@@ -280,8 +280,8 @@ export function ExtensionsSettings(): ReactElement {
           </label>
           <p>
             {forget
-              ? 'Reinstall starts with fresh setup and requires Enable. Delivered files stay where they are; hvir will no longer update or remove them. Unresolved delivery objects stay in recovery above.'
-              : 'Keep saved setup and completed delivery records for reinstall. Enable is still required.'}
+              ? 'Reinstall with Add extension starts with fresh setup. Delivered files stay where they are; hvir will no longer update or remove them. Unresolved delivery objects stay in recovery above.'
+              : 'Keep saved setup and completed delivery records for reinstall with Add extension.'}
           </p>
         </ConfirmationDialog>
       ) : null}

@@ -78,7 +78,7 @@ export async function verifyExtensionImport(
           [
             'index.html',
             Buffer.from(
-              '<!doctype html><script>throw new Error("Import must not execute")</script>',
+              '<!doctype html><script>throw new Error("Capture must not execute")</script>',
             ),
           ],
           ['assets/support.txt', Buffer.from('owned support')],
@@ -123,21 +123,23 @@ export async function verifyExtensionImport(
           !entry.error &&
           !!(await win.webContents.executeJavaScript(`(() => {
           const entry = [...document.querySelectorAll('.extension-installation')].find(item => item.querySelector('h4')?.textContent === ${JSON.stringify(name)});
-          return !!entry && entry.checkVisibility() && [...entry.querySelectorAll('button')].some(button => button.textContent.trim() === 'Enable' && !button.disabled);
+          return !!entry && entry.checkVisibility() && [...entry.querySelectorAll('button')].some(button => button.textContent.trim() === 'Disable' && !button.disabled);
         })()`))
         )
-      }, `Add ${kind} auto-discovers inactive candidate`)
+      }, `Add ${kind} enables the imported revision without Enable`)
       const entry = activations
         .snapshot()
         .installations.find(
           (entry) => entry.manifest?.id === `hvir.smoke-import-${kind}`,
         )!
       if (
-        entry.enabled ||
-        activations.active.size !== active ||
+        !entry.enabled ||
+        activations.active.size !== active + 1 ||
+        activations.active.get(entry.installationId!)?.revision.hash !== expected.hash ||
+        activations.agentAccess().includes(entry.installationId!) ||
         (await host.extensionStorage!.entryIdentity(source)) !== sourceIdentity
       )
-        throw new Error('Import enabled code or replaced the author source')
+        throw new Error('Import failed exact activation or replaced the author source')
       const copy = await activations.packages.captureSource(
         joinHostPath(activations.directory, entry.source),
       )
@@ -179,7 +181,7 @@ export async function verifyExtensionImport(
     }
     if (calls !== 3) throw new Error('Each Add did not reach exactly one native dialog')
     console.log(
-      '[smoke] single Add native-dialog-boundary cancellation/ZIP/directory import, source preservation, inactive auto-discovery OK',
+      '[smoke] single Add native-dialog-boundary cancellation/ZIP/directory import, source preservation, exact activation without Enable OK',
     )
   } finally {
     extensions.additions = original

@@ -1,6 +1,7 @@
 # ADR-054: Isolated extension packages and the public capability boundary
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-064](ADR-064-explicit-extension-installation-acceptance.md) | partial | Separate Enable for explicit user-selected installation only; passive discovery and all other revision actions remain unchanged.
 > Supersedes: [ADR-007](ADR-007-explicit-view-modes.md) | partial | Requiring rendered, source, or diff modes for every viewer tab; extension UI uses only its declared meaningful representations.
 > Supersedes: [ADR-012](ADR-012-harness-providers-launch-profiles.md) | partial | General extension-platform prohibition only; trusted bundled harness providers and their separate SDK decision remain unchanged.
 > Supersedes: [ADR-014](ADR-014-modular-monolith-ownership.md) | partial | Excluding a plugin platform or additional isolation boundary; capability ownership, inward dependencies, lifecycle, styles, and test discipline remain unchanged.
