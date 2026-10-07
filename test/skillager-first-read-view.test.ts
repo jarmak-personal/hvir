@@ -9,7 +9,7 @@ afterEach(() => {
   document.body.replaceChildren()
   vi.useRealTimers()
 })
-function fixture() {
+function fixture(options: { cadence?: boolean; omitRoot?: boolean } = {}) {
   vi.useFakeTimers()
   const template = document.createElement('template')
   template.innerHTML = readFileSync('packages/skillager-extension/detail.html', 'utf8')
@@ -21,7 +21,12 @@ function fixture() {
     serial = 0,
     root = '/library',
     uuid = 'original',
-    changeAfterBody = false
+    changeAfterBody = false,
+    statusStarted = -Infinity,
+    afterBody = false,
+    collideAfterBody = false,
+    bodyText = '# Current instruction'
+  const statusStarts: number[] = []
   const sent: {
       id: string
       kind: string
@@ -41,10 +46,23 @@ function fixture() {
       if (message.kind !== 'request') return
       const input = message.input!
       if (message.capability === 'connector.execute') {
+        const version = (input['args'] as string[])[0] === '--version'
+        if (
+          !version &&
+          ((options.cadence && Date.now() - statusStarted < 1000) ||
+            (collideAfterBody && afterBody))
+        ) {
+          reply(message.id, { outcome: 'not-started', reason: 'frequency' })
+          return
+        }
+        if (!version) {
+          statusStarted = Date.now()
+          statusStarts.push(statusStarted)
+        }
         const receipt = String(++serial)
         outputs.set(
           receipt,
-          (input['args'] as string[])[0] === '--version'
+          version
             ? 'skillager 0.9.3'
             : JSON.stringify({
                 schema: 'skillager.library-status.v1',
@@ -67,8 +85,10 @@ function fixture() {
                 nextOffset: null,
               },
         )
-      else if (message.capability === 'source.request') decision = message.id
-      else if (message.capability === 'source.select')
+      else if (message.capability === 'source.request') {
+        decision = message.id
+        afterBody = false
+      } else if (message.capability === 'source.select')
         reply(message.id, {
           receipt: 'selected',
           path: { hostId: 'local', path: '/library/skill/SKILL.md' },
@@ -76,11 +96,9 @@ function fixture() {
           readAt: 0,
         })
       else if (message.capability === 'source.read') {
+        if (!input['release']) afterBody = true
         if (changeAfterBody && !input['release']) uuid = 'replacement'
-        reply(
-          message.id,
-          input['release'] ? null : { data: '# Current instruction', nextOffset: null },
-        )
+        reply(message.id, input['release'] ? null : { data: bodyText, nextOffset: null })
       } else if (message.capability === 'source.render')
         reply(message.id, { sourceFallback: true })
       else reply(message.id, null)
@@ -125,12 +143,13 @@ function fixture() {
             kind: 'Your library',
             status: 'pending',
           },
-          library: { id: 'original', root: '/library' },
+          library: { id: 'original', ...(options.omitRoot ? {} : { root: '/library' }) },
         },
       },
     })
   return {
     sent,
+    statusStarts,
     context,
     flush: () => vi.advanceTimersByTimeAsync(2500),
     change: (newRoot: string, id = 'original') => {
@@ -142,6 +161,10 @@ function fixture() {
     },
     decide: (granted: boolean) => reply(decision!, { granted }),
     read: () => document.getElementById('read-current')!.click(),
+    collideOnNextBody: () => {
+      collideAfterBody = true
+      bodyText = '# Replacement bytes'
+    },
   }
 }
 it('asks only after explicit selected metadata, using reported host-qualified root, and leaves decline without bytes', async () => {
@@ -166,6 +189,65 @@ it('asks only after explicit selected metadata, using reported host-qualified ro
   expect(document.getElementById('instructions')?.textContent).toBe(
     '# Current instruction',
   )
+})
+it('uses selected metadata only as a proposal and obtains two fresh observations with one cadence deferral', async () => {
+  const f = fixture({ cadence: true })
+  f.context()
+  await f.flush()
+  expect(f.statusStarts).toEqual([])
+  expect(f.sent.some((entry) => entry.capability === 'source.select')).toBe(false)
+  f.decide(true)
+  await f.flush()
+  expect(f.statusStarts).toHaveLength(2)
+  expect(f.statusStarts[1]! - f.statusStarts[0]!).toBe(1100)
+  expect(document.getElementById('instructions')?.textContent).toBe(
+    '# Current instruction',
+  )
+})
+it('resolves an omitted bounded input root before proposing access', async () => {
+  const f = fixture({ omitRoot: true })
+  f.context()
+  await f.flush()
+  expect(f.statusStarts).toHaveLength(1)
+  expect(f.sent.find((entry) => entry.capability === 'source.request')?.input).toEqual({
+    source: 'library',
+    root: { hostId: 'local', path: '/library' },
+  })
+  f.decide(true)
+  await f.flush()
+  expect(f.statusStarts).toHaveLength(3)
+  expect(document.getElementById('instructions')?.textContent).toBe(
+    '# Current instruction',
+  )
+})
+it('retains last-read bytes when sibling observation cadence makes post-read freshness unavailable', async () => {
+  const f = fixture()
+  f.context()
+  await f.flush()
+  f.decide(true)
+  await f.flush()
+  expect(document.getElementById('instructions')?.textContent).toBe(
+    '# Current instruction',
+  )
+  f.collideOnNextBody()
+  f.read()
+  await f.flush()
+  f.decide(true)
+  await f.flush()
+  expect(document.getElementById('state')?.textContent).toContain('freshness unavailable')
+  expect(document.getElementById('instructions')?.textContent).toBe(
+    '# Current instruction',
+  )
+  expect(document.getElementById('instructions')?.textContent).not.toContain(
+    'Replacement',
+  )
+  expect(
+    f.sent.filter(
+      (entry) =>
+        entry.capability === 'connector.execute' &&
+        (entry.input?.['args'] as string[])[0] === 'library',
+    ),
+  ).toHaveLength(5) // Two initial successes, new pre-read success, one refusal + one retry.
 })
 it.each([
   ['/another', 'original'],

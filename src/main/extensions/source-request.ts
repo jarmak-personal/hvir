@@ -1,4 +1,4 @@
-import { hostPathEquals } from '../../shared/host-path'
+import { containsHostPath } from '../../shared/host-path'
 import {
   SOURCE_LIMITS,
   type ExtensionSourceRequestProposal,
@@ -96,7 +96,7 @@ export class ExtensionSourceRequestOwner {
       if (
         existing?.root &&
         prepared.grant.root &&
-        hostPathEquals(existing.root, prepared.grant.root)
+        containsHostPath(existing.root, prepared.grant.root)
       )
         return { granted: true }
       pending.proposal = {

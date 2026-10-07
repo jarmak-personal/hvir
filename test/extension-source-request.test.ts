@@ -3,6 +3,7 @@ import { ExtensionSourceRequestOwner } from '../src/main/extensions/source-reque
 import { RendererResourceScopes } from '../src/main/renderer-resource-scopes'
 import { sourceFixture } from './fixtures/extension-source'
 import { SOURCE_LIMITS } from '../src/shared/extensions/source-access'
+import { hostPath, asHostId, localPath } from '../src/shared/host-path'
 
 const dispose: (() => void)[] = []
 afterEach(() => {
@@ -66,6 +67,63 @@ async function proposal(f: Awaited<ReturnType<typeof fixture>>) {
   return f.owner.snapshot(f.renderer)[0]!
 }
 describe('in-context canonical human read decision', () => {
+  it('reuses a current manual ancestor grant without replacing its scope', async () => {
+    const f = await fixture(),
+      manual = localPath('/')
+    const stat = f.host.stat.getMockImplementation()!
+    f.host.stat.mockImplementation((value) =>
+      value.path === manual.path
+        ? Promise.resolve({ type: 'dir', size: 0, mode: 0o755, mtimeMs: 0 })
+        : stat(value),
+    )
+    const prepared = await f.approvals.prepare(
+      { installationId: 'installation', source: 'source', root: manual },
+      () => {},
+    )
+    await f.approvals.approve(prepared.token)
+    const saved = f.state(),
+      writes = f.authority.saveSourceGrants.mock.calls.length
+    await expect(f.request()).resolves.toEqual({ granted: true })
+    expect(f.owner.snapshot(f.renderer)).toEqual([])
+    expect(f.publish).not.toHaveBeenCalled()
+    expect(f.approvals.get(f.activation, 'source')?.root).toEqual(manual)
+    expect(f.state()).toEqual(saved)
+    expect(f.authority.saveSourceGrants).toHaveBeenCalledTimes(writes)
+    await expect(
+      f.reading.select(f.caller, { source: 'source', path: f.path }),
+    ).resolves.toMatchObject({ path: f.path })
+  })
+  it('does not reuse an unrelated sibling saved scope', async () => {
+    const f = await fixture()
+    f.authority.readSourceGrants.mockResolvedValueOnce([
+      {
+        installationId: 'installation',
+        declaration: f.declaration,
+        root: localPath('/library-other'),
+      },
+    ])
+    await f.approvals.start()
+    const request = f.request(),
+      p = await proposal(f)
+    expect(p.root).toEqual(f.root)
+    f.owner.decide(f.renderer, p.id, false)
+    await expect(request).resolves.toEqual({ granted: false })
+    expect(f.authority.saveSourceGrants).not.toHaveBeenCalled()
+  })
+  it('refuses persisted application scope on another host through the canonical owner', async () => {
+    const f = await fixture()
+    f.authority.readSourceGrants.mockResolvedValueOnce([
+      {
+        installationId: 'installation',
+        declaration: f.declaration,
+        root: hostPath(asHostId('ssh:test'), '/library'),
+      },
+    ])
+    await f.approvals.start()
+    await expect(f.request()).rejects.toThrow(/Saved read grants/)
+    expect(f.owner.snapshot(f.renderer)).toEqual([])
+    expect(f.authority.saveSourceGrants).not.toHaveBeenCalled()
+  })
   it('publishes the canonical root and persists only a distinct trusted decision', async () => {
     const f = await fixture(),
       request = f.request(),

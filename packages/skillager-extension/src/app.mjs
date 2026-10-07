@@ -432,10 +432,14 @@ async function readSelected() {
     )
       throw new Error('Selected source does not match its observing host/workspace')
     if (row.source === 'library') {
-      const observed = sameCurrentLibrary(
-        detailInput.library,
-        libraryStatus(await cli(['library', 'status', '--json'])),
-      )
+      // Selected metadata prefills a proposal, not authority or current library truth.
+      // Bounded detail input can omit the root; resolve it through public status then.
+      const observed = detailInput.library?.root
+        ? detailInput.library
+        : sameCurrentLibrary(
+            detailInput.library,
+            libraryStatus(await cli(['library', 'status', '--json'])),
+          )
       if (!available() || revision !== generation) return
       readingLibrary = observed
       const decision = await client.request(
