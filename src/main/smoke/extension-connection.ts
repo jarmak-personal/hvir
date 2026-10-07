@@ -93,6 +93,14 @@ export async function verifyExtensionConnection(
       localPath(join(app.getAppPath(), 'packages/skillager-extension/src/bridge.mjs')),
     ),
   )
+  await host.writeFile(
+    joinHostPath(source, 'library-first-use.mjs'),
+    await host.readFile(
+      localPath(
+        join(app.getAppPath(), 'packages/skillager-extension/src/library-first-use.mjs'),
+      ),
+    ),
+  )
   const command = `printf x >> '${marker.path.replaceAll("'", "'\\''")}' ; printf 'owned connection output\\n'`
   await host.writeFile(
     joinHostPath(source, 'page.js'),
