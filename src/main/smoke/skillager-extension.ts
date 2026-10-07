@@ -1,18 +1,17 @@
-import {
-  inspectSkillagerCaret,
-  inspectSkillagerSearch,
-  submitSkillagerSearch,
-} from './skillager-search'
+import { inspectSkillagerSearch, submitSkillagerSearch } from './skillager-search'
 import {
   verifySkillagerNavigation,
   verifySkillagerNavigationFallback,
 } from './skillager-navigation'
+import {
+  installSkillagerFirstUse,
+  assertRetiredSkillagerReadDecision,
+} from './skillager-first-use'
 import { extensionSettingsControls } from './extension-settings-controls'
 import { captureExtensionVisuals } from './extension-visuals'
 import { createHash } from 'node:crypto'
 import { app, type BrowserWindow, type WebContents } from 'electron'
-import { join } from 'node:path'
-import { joinHostPath, localPath } from '../../shared/host-path'
+import { localPath } from '../../shared/host-path'
 import type { ProjectHost } from '../project-host/project-host'
 import type { ExtensionApplicationRuntime } from '../extensions/extension-application'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
@@ -47,222 +46,39 @@ export async function verifySkillagerExtension(
   })
   let phase = 'trusted setup'
   console.log('[smoke] Skillager evidence: trusted setup')
-  const source = archive ? 'skillager.zip' : 'skillager'
-  const directory = joinHostPath(extensions.activations!.directory, source)
-  if (archive) {
-    if (!archive.startsWith('/'))
-      throw new Error('Select an absolute owned extension ZIP')
-    await host.writeFile(directory, await host.readFile(localPath(archive)))
-  } else {
-    await host.createDirectoryExclusive(directory, { mode: 0o755 })
-    const assets = localPath(join(app.getAppPath(), 'packages/skillager-extension'))
-    for (const entry of await host.readdir(assets))
-      if (entry.type === 'file')
-        await host.writeFile(
-          joinHostPath(directory, entry.name),
-          await host.readFile(joinHostPath(assets, entry.name)),
-        )
-  }
-  if (process.env.HVIR_EXTENSION_VISUAL_DIRECTORY) {
-    const visualClock = joinHostPath(extensions.activations!.directory, 'visual-clock')
-    await host.createDirectoryExclusive(visualClock, { mode: 0o755 })
-    await host.writeFile(
-      joinHostPath(visualClock, 'hvir-extension.json'),
-      JSON.stringify({
-        id: 'hvir.visual-clock',
-        name: 'Clock',
-        version: '0.3.0',
-        contract: '1.0',
-        requiredCapabilities: [],
-        optionalCapabilities: [],
-        access: [],
-        views: [
-          {
-            id: 'clock',
-            title: 'Clock',
-            entry: 'clock.html',
-            placement: 'application',
-            representations: ['view'],
-          },
-        ],
-      }),
-    )
-    await host.writeFile(
-      joinHostPath(visualClock, 'clock.html'),
-      '<p>Owned inactive clock example</p>',
-    )
-    const invalid = joinHostPath(extensions.activations!.directory, 'visual-invalid')
-    await host.createDirectoryExclusive(invalid, { mode: 0o755 })
-    await host.writeFile(joinHostPath(invalid, 'hvir-extension.json'), '{invalid')
-  }
-  await controls.click('Open settings')
-  await controls.click('Extensions')
-  await controls.click('Discover extensions')
-  await controls.wait(() => !!installation(), 'ordinary Skillager discovery')
-  if (installation()!.enabled || installation()!.error)
-    throw new Error('Discovery enabled or rejected Skillager')
-  await click('Enable')
-  await controls.wait(() => installation()?.enabled === true, 'trusted Skillager Enable')
-  if (
-    process.env.HVIR_EXTENSION_VISUAL_DIRECTORY ||
-    process.env.HVIR_SKILLAGER_SEARCH_PROOF
-  ) {
-    await controls.click('Close settings')
-    await controls.click('Skillager library')
-    await controls.wait(() => !!view('library'), 'unapproved library placement')
-    const unapproved = await bounded(controls.guest(view('library')!))
-    await ready(
-      unapproved,
-      () =>
-        inspect(
-          unapproved,
-          "document.getElementById('state')?.dataset.state==='error'",
-        ) as Promise<boolean>,
-      'actual unapproved CLI state',
-    )
-    if (process.env.HVIR_SKILLAGER_SEARCH_PROOF) {
-      const id = view('library')!.id
-      await inspectSkillagerCaret(
-        win,
-        unapproved,
-        host,
-        {
-          within: bounded,
-          inspect: (expression) => inspect(unapproved, expression),
-          wait: (predicate, label) => ready(unapproved, predicate, label),
-          current: () => view('library')?.id === id && !view('library')?.failure,
-        },
-        'unapproved',
-      )
-    }
-    await captureExtensionVisuals(win, unapproved, host, 'unapproved', {
-      ...controls,
-      select: () => controls.click('Skillager library'),
-    })
-    await controls.click('Open settings')
-    await controls.click('Extensions')
-  }
-  const configuration = JSON.stringify({
-    args: [],
-    env: {
-      SKILLAGER_CATALOG_STATE_DIR: catalog,
-      XDG_CACHE_HOME: join(directory.path, '..', '..', 'skillager-cache'),
-      XDG_STATE_HOME: join(directory.path, '..', '..', 'skillager-state'),
-    },
-  })
-  await settings.select('Program access')
-  await set('Executable for library-cli', executable)
-  await set('Configuration for library-cli', configuration)
-  await click('Inspect native access', 'library-cli')
+  const directory = await installSkillagerFirstUse(
+    win,
+    extensions,
+    owner,
+    executable,
+    host,
+    archive,
+    controls,
+  )
+  const source = directory.path.slice(extensions.activations!.directory.path.length + 1)
   await controls.wait(
-    () => dom("document.body.textContent.includes('Approve local:')"),
-    'canonical installed CLI decision',
+    () => !!view('library'),
+    'Add prepared ordinary application library placement',
   )
-  await win.webContents.executeJavaScript(`(() => {
-    const pre=[...document.querySelectorAll('.extension-installation pre')].find(e=>e.textContent===${JSON.stringify(JSON.stringify(JSON.parse(configuration), null, 2))});
-    pre.scrollIntoView({block:'center'});
-  })()`)
-  await controls.wait(
-    () =>
-      dom(`(() => {
-    const pre=[...document.querySelectorAll('.extension-installation pre')].find(e=>e.textContent===${JSON.stringify(JSON.stringify(JSON.parse(configuration), null, 2))});
-    if(!pre?.checkVisibility())return false;
-    const box=pre.getBoundingClientRect(), scroll=pre.closest('.settings-section-scroll').getBoundingClientRect();
-    return box.top>=scroll.top && box.bottom<=scroll.bottom;
-  })()`),
-    'complete approved configuration remains visible at the trusted decision',
-  )
-  await win.webContents.executeJavaScript(
-    'new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))',
-  )
-  if (process.env.HVIR_EXTENSION_VISUAL_DIRECTORY)
-    await host.writeFile(
-      joinHostPath(
-        localPath(process.env.HVIR_EXTENSION_VISUAL_DIRECTORY),
-        'native-approval.png',
-      ),
-      (await win.webContents.capturePage()).toPNG(),
-    )
-  await click('Approve native execution', 'library-cli')
-  await controls.wait(
-    () =>
-      extensions
-        .connectors!.approvals.status(
-          extensions.activations!.active.get(installation()!.installationId!)!,
-        )
-        .some(
-          (entry) =>
-            entry.connector === 'library-cli' && entry.availability === 'supported',
-        ),
-    'trusted CLI approval',
-  )
+  phase = 'ordinary library guest attachment'
+  console.log(`[smoke] Skillager evidence: begin ${phase}`)
+  const guest = await bounded(controls.guest(view('library')!))
   if (process.env.HVIR_SKILLAGER_EVIDENCE_UNINITIALIZED === '1') {
-    if (!diagnostic || !process.env.HVIR_SKILLAGER_SEARCH_PROOF)
-      throw new Error('Uninitialized caret proof requires the owned diagnostic route')
-    const priorView = view('library')!.id
-    await controls.click('Close settings')
-    await controls.click('Close Skillager library')
-    await controls.wait(
-      () => !view('library'),
-      'prior unapproved library closes before recreation',
-    )
-    await controls.click('Skillager library')
-    await controls.wait(
-      () => !!view('library') && view('library')!.id !== priorView,
-      'fresh uninitialized library placement',
-    )
-    const uninitialized = await bounded(controls.guest(view('library')!)),
-      id = view('library')!.id
     await ready(
-      uninitialized,
+      guest,
       () =>
         inspect(
-          uninitialized,
-          "document.getElementById('state')?.dataset.state==='empty'&&document.querySelectorAll('#skills [role=option]').length===0",
+          guest,
+          "document.getElementById('state')?.dataset.state==='no-personal-library'&&document.querySelectorAll('#skills [role=option]').length===0&&!document.getElementById('create-library').disabled",
         ) as Promise<boolean>,
-      'fresh uninitialized public catalog is empty without initialization',
-    )
-    await inspectSkillagerCaret(
-      win,
-      uninitialized,
-      host,
-      {
-        within: bounded,
-        inspect: (expression) => inspect(uninitialized, expression),
-        wait: (predicate, label) => ready(uninitialized, predicate, label),
-        current: () => view('library')?.id === id && !view('library')?.failure,
-      },
-      'uninitialized',
+      'automatic uninitialized state offers CLI-owned default creation without initializing',
     )
     console.log(
-      '[smoke] actual caret first interaction/unapproved and never-initialized catalog; setup controls retained, no initialization OK',
+      '[smoke] ordinary first use: public uninitialized catalog, explicit Create personal library available, no automatic initialization OK',
     )
     console.log('HVIR_SMOKE_OK')
     return true
   }
-  await settings.select('File access')
-  await set('Source root for library', root)
-  await click('Inspect read access', 'library')
-  await controls.wait(
-    () => dom("document.body.textContent.includes('Grant read-only access to')"),
-    'canonical library source decision',
-  )
-  await click('Grant read-only access', 'library')
-  await controls.wait(
-    () =>
-      extensions
-        .sources!.approvals.status(
-          extensions.activations!.active.get(installation()!.installationId!)!,
-        )
-        .some((entry) => entry.source === 'library' && entry.granted),
-    'trusted source grant',
-  )
-  await controls.click('Close settings')
-  await controls.click('Skillager library')
-  await controls.wait(() => !!view('library'), 'ordinary application library placement')
-  phase = 'ordinary library guest attachment'
-  console.log(`[smoke] Skillager evidence: begin ${phase}`)
-  const guest = await bounded(controls.guest(view('library')!))
   await inspect(
     guest,
     `(() => {
@@ -285,7 +101,7 @@ export async function verifySkillagerExtension(
       () =>
         inspect(
           guest,
-          "document.querySelectorAll('#skills [role=option]').length===100 && !['loading','stale','error'].includes(document.getElementById('state').dataset.state)",
+          "document.querySelectorAll('#skills [role=option]').length===100 && document.getElementById('state').dataset.state==='ready'",
         ) as Promise<boolean>,
       diagnostic
         ? 'current first 100 public library observations'
@@ -391,7 +207,7 @@ export async function verifySkillagerExtension(
       () =>
         inspect(
           guest,
-          `document.querySelector('#skills [role=option]')?.dataset.id !== ${JSON.stringify(first)} && !['loading','stale','error'].includes(document.getElementById('state').dataset.state)`,
+          `document.querySelector('#skills [role=option]')?.dataset.id !== ${JSON.stringify(first)} && document.getElementById('state').dataset.state==='ready'`,
         ) as Promise<boolean>,
       `public cursor page ${pages + 1}`,
     )
@@ -413,6 +229,8 @@ export async function verifySkillagerExtension(
     extensions.guests!.snapshot(owner).some((entry) => entry.contributionId === 'detail')
   )
     throw new Error('Keyboard focus prefetched instruction bodies')
+  if (extensions.sourceRequests!.snapshot(owner).length)
+    throw new Error('Metadata browsing or keyboard focus requested file access')
   if (!process.env.HVIR_EXTENSION_VISUAL_DIRECTORY) {
     await inspect(guest, "document.getElementById('query').value='catalogneedle';")
     for (const mode of ['button', 'enter'] as const) {
@@ -436,7 +254,126 @@ export async function verifySkillagerExtension(
   await inspect(guest, "document.querySelector('#skills [role=option]').click()")
   await controls.wait(() => !!view('detail'), 'explicit selected detail')
   phase = 'selected detail guest attachment'
-  const detail = await bounded(controls.guest(view('detail')!))
+  let detail = await bounded(controls.guest(view('detail')!))
+  await controls.wait(
+    () => extensions.sourceRequests!.snapshot(owner).length === 1,
+    'explicit selected read proposes one canonical local root',
+  )
+  const readProposal = extensions.sourceRequests!.snapshot(owner)[0]!
+  if (
+    readProposal.root.hostId !== 'local' ||
+    readProposal.root.path !== root ||
+    readProposal.source !== 'library'
+  )
+    throw new Error('First read proposed a different library source')
+  await controls.click('Close Skill instructions')
+  await controls.wait(
+    () => !view('detail') && !extensions.sourceRequests!.snapshot(owner).length,
+    'closed reader retires its undecided root request',
+  )
+  await assertRetiredSkillagerReadDecision(win, readProposal.id, bounded)
+  await controls.click('Skillager library')
+  await ready(
+    guest,
+    () =>
+      inspect(
+        guest,
+        "!!document.querySelector('#skills [role=option]') && document.getElementById('state').dataset.state==='ready' && document.getElementById('manage').disabled===false",
+      ) as Promise<boolean>,
+    'ordinary library restored after reader close',
+  )
+  await inspect(guest, "document.querySelector('#skills [role=option]').click()")
+  try {
+    await controls.wait(() => !!view('detail'), 'new explicit reader after close')
+  } catch (error) {
+    console.log(
+      '[smoke] bounded reader reopen failure facts',
+      JSON.stringify({
+        package: await inspect(
+          guest,
+          `({state:document.getElementById('state')?.dataset.state??null,message:document.getElementById('state')?.textContent?.slice(0,240)??null,manageDisabled:document.getElementById('manage')?.disabled??null,rows:document.querySelectorAll('#skills [role=option]').length,firstId:document.querySelector('#skills [role=option]')?.dataset.id??null})`,
+        ),
+        views: extensions.guests!.snapshot(owner).map((entry) => ({
+          id: entry.id,
+          contribution: entry.contributionId,
+          failure: entry.failure ?? null,
+        })),
+        decisions: extensions.sourceRequests!.snapshot(owner).length,
+      }),
+    )
+    throw error
+  }
+  detail = await bounded(controls.guest(view('detail')!))
+  await controls.wait(
+    () => extensions.sourceRequests!.snapshot(owner).length === 1,
+    'new reader has a distinct root request',
+  )
+  await inspect(
+    detail,
+    `window.skillagerEvidenceVisible = undefined;
+    window.skillagerEvidenceStop = window.hvirExtension.onMessage(message => {
+      if (message.kind === 'context') window.skillagerEvidenceVisible = message.context.visible;
+      if (message.kind === 'result' && message.id === 'skillager-evidence-context' && message.ok) window.skillagerEvidenceVisible = message.value.visible;
+    }); window.hvirExtension.send({kind:'request',id:'skillager-evidence-context',capability:'context.read'}); void 0;`,
+  )
+  await ready(
+    detail,
+    () => inspect(detail, 'window.skillagerEvidenceVisible===true') as Promise<boolean>,
+    'selected reader current public visibility',
+  )
+  const hiddenProposal = extensions.sourceRequests!.snapshot(owner)[0]!
+  await controls.click('Open settings')
+  await controls.wait(
+    () => !extensions.sourceRequests!.snapshot(owner).length,
+    'hidden reader promptly retires root decision',
+  )
+  await assertRetiredSkillagerReadDecision(win, hiddenProposal.id, bounded)
+  await controls.click('Close settings')
+  await restoreSelectedReader(detail)
+  await inspect(detail, "document.getElementById('read-current').click()")
+  try {
+    await controls.wait(
+      () => extensions.sourceRequests!.snapshot(owner).length === 1,
+      'explicit retry after hiding asks again',
+    )
+  } catch (error) {
+    console.log(
+      '[smoke] bounded reader retry failure facts',
+      JSON.stringify({
+        package: await inspect(
+          detail,
+          "({visible:window.skillagerEvidenceVisible??null,state:document.getElementById('state')?.dataset.state??null,manageDisabled:document.getElementById('manage')?.disabled??null,readVisible:document.getElementById('read-current')?.checkVisibility()??null})",
+        ),
+        placement: await placementFacts(detail),
+        decisions: extensions.sourceRequests!.snapshot(owner).length,
+      }),
+    )
+    throw error
+  }
+  await controls.click('Not now')
+  await ready(
+    detail,
+    () =>
+      inspect(
+        detail,
+        "document.getElementById('state').dataset.state==='unapproved'&&!document.getElementById('instructions').textContent",
+      ) as Promise<boolean>,
+    'declined first read exposes no instruction bytes',
+  )
+  if (
+    extensions
+      .sources!.approvals.status(
+        extensions.activations!.active.get(installation()!.installationId!)!,
+      )
+      .some((entry) => entry.granted)
+  )
+    throw new Error('Declined read persisted access')
+  await inspect(detail, "document.getElementById('read-current').click()")
+  await controls.wait(
+    () => extensions.sourceRequests!.snapshot(owner).length === 1,
+    'new explicit Read current decision',
+  )
+  await controls.click('Allow read-only access')
   console.log(
     '[smoke] Skillager evidence: attached detail readiness',
     JSON.stringify({
@@ -493,6 +430,18 @@ export async function verifySkillagerExtension(
     throw new Error(
       'Selected current bytes/hash do not match the exact clicked public occurrence',
     )
+  await inspect(detail, "document.getElementById('read-current').click()")
+  await ready(
+    detail,
+    () =>
+      inspect(
+        detail,
+        "document.getElementById('state').dataset.state==='ready' && document.getElementById('instructions').textContent.length>0",
+      ) as Promise<boolean>,
+    'unchanged canonical grant supports another explicit current read without a prompt',
+  )
+  if (extensions.sourceRequests!.snapshot(owner).length)
+    throw new Error('Unchanged canonical source grant repeated its trusted decision')
   const isolation = (await inspect(
     detail,
     '({node:typeof process,require:typeof require,workbench:typeof window.hvir,worker:typeof window.hvirExtension})',
@@ -525,19 +474,6 @@ export async function verifySkillagerExtension(
     },
   })
   await inspect(detail, "document.getElementById('source-mode').click()")
-  await inspect(
-    detail,
-    `window.skillagerEvidenceVisible = undefined;
-    window.skillagerEvidenceStop = window.hvirExtension.onMessage(message => {
-      if (message.kind === 'context') window.skillagerEvidenceVisible = message.context.visible;
-      if (message.kind === 'result' && message.id === 'skillager-evidence-context' && message.ok) window.skillagerEvidenceVisible = message.value.visible;
-    }); window.hvirExtension.send({kind:'request',id:'skillager-evidence-context',capability:'context.read'}); void 0;`,
-  )
-  await ready(
-    detail,
-    () => inspect(detail, 'window.skillagerEvidenceVisible===true') as Promise<boolean>,
-    'selected reader current public visibility',
-  )
   const before = text
   await controls.click('Open settings')
   await controls.click('Extensions')
@@ -549,31 +485,7 @@ export async function verifySkillagerExtension(
   await settings.select('File access')
   await click('Revoke read access', 'library')
   await controls.click('Close settings')
-  const visibleAfterSettings = await inspect(detail, 'window.skillagerEvidenceVisible')
-  console.log(
-    `[smoke] Skillager evidence: selected reader visible after Settings=${visibleAfterSettings === true}`,
-  )
-  if (visibleAfterSettings !== true) {
-    await controls.wait(
-      () =>
-        dom(
-          `(() => { const button=document.querySelector('.project-tab-main'); if(!button?.checkVisibility()||button.disabled)return false; button.click(); return true })()`,
-        ),
-      'ordinary project destination',
-    )
-    await controls.wait(
-      () =>
-        dom(
-          `(() => { const button=[...document.querySelectorAll('.viewer-tab .tab-main')].find(e=>e.title==='Skillager · Skill instructions'); if(!button?.checkVisibility()||button.disabled)return false; button.click(); return true })()`,
-        ),
-      'ordinary selected instructions tab',
-    )
-  }
-  await ready(
-    detail,
-    () => inspect(detail, 'window.skillagerEvidenceVisible===true') as Promise<boolean>,
-    'ordinary selected reader restored',
-  )
+  await restoreSelectedReader(detail)
   if (
     !(await inspect(
       detail,
@@ -582,14 +494,19 @@ export async function verifySkillagerExtension(
   )
     throw new Error('Read current control is hidden')
 
+  await controls.wait(
+    () => extensions.sourceRequests!.snapshot(owner).length === 1,
+    'revoked source requires another explicit read decision',
+  )
+  await controls.click('Not now')
   await ready(
     detail,
     () =>
       inspect(
         detail,
-        "document.getElementById('state').dataset.state==='error'",
+        "document.getElementById('state').dataset.state==='unapproved'",
       ) as Promise<boolean>,
-    'revoked selected-source refusal',
+    'revoked selected-source read declined',
   )
   if (
     (await inspect(detail, "document.getElementById('instructions').textContent")) !==
@@ -684,9 +601,6 @@ export async function verifySkillagerExtension(
           : ''
     await settings.click(name, legend)
   }
-  async function set(label: string, value: string): Promise<void> {
-    await settings.set(label, value)
-  }
   async function ready(
     guest: WebContents,
     predicate: () => Promise<boolean>,
@@ -731,6 +645,33 @@ export async function verifySkillagerExtension(
       throw error
     }
     console.log(`[smoke] Skillager evidence: ready ${label}`)
+  }
+  async function restoreSelectedReader(detail: WebContents): Promise<void> {
+    const visibleAfterSettings = await inspect(detail, 'window.skillagerEvidenceVisible')
+    console.log(
+      `[smoke] Skillager evidence: selected reader visible after Settings=${visibleAfterSettings === true}`,
+    )
+    if (visibleAfterSettings !== true) {
+      await controls.wait(
+        () =>
+          dom(
+            `(() => { const button=document.querySelector('.project-tab-main'); if(!button?.checkVisibility()||button.disabled)return false; button.click(); return true })()`,
+          ),
+        'ordinary project destination',
+      )
+      await controls.wait(
+        () =>
+          dom(
+            `(() => { const button=[...document.querySelectorAll('.viewer-tab .tab-main')].find(e=>e.title==='Skillager · Skill instructions'); if(!button?.checkVisibility()||button.disabled)return false; button.click(); return true })()`,
+          ),
+        'ordinary selected instructions tab',
+      )
+    }
+    await ready(
+      detail,
+      () => inspect(detail, 'window.skillagerEvidenceVisible===true') as Promise<boolean>,
+      'ordinary selected reader restored',
+    )
   }
   async function placementFacts(guest: WebContents): Promise<unknown> {
     return bounded<unknown>(

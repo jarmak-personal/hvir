@@ -12,6 +12,7 @@
     "connector.execute",
     "connector.output",
     "source.status",
+    "source.request",
     "source.select",
     "source.read",
     "source.asset",

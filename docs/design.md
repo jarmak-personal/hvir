@@ -599,7 +599,8 @@ local storage while public starter lifetimes and ordinary enablement retain thei
 
 ### [ADR-057 — Selected extension source reading](adr/ADR-057-selected-extension-source-reading.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-068](adr/ADR-068-in-context-human-source-read-decisions.md) | partial | Settings-only application-local read-only root decision surface only.
 
 Explicit source grants and selection-bound reads keep current instruction viewing separate
 from connector authority, content acceptance and agent actions.
@@ -686,6 +687,13 @@ installation or a visible human proposal; package, file and agent authority stay
 Explicit default creation consumes the public CLI's location and history policy; advanced
 custom intent remains available, and unknown-target completion requires public reconciliation.
 
+### [ADR-068 — In-context human source read decisions](adr/ADR-068-in-context-human-source-read-decisions.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-057](adr/ADR-057-selected-extension-source-reading.md) | partial | Settings-only application-local read-only root decision surface only.
+
+Current ordinary human instruction reads propose a canonical local scope through the existing
+source-approval owner and a trusted in-context decision; metadata and agents receive no file authority.
 
 ## 5. Architecture
 

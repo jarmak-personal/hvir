@@ -1,6 +1,7 @@
 # ADR-057: Selected extension source reading
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-068](ADR-068-in-context-human-source-read-decisions.md) | partial | Settings-only application-local read-only root decision surface only.
 
 ## Context
 

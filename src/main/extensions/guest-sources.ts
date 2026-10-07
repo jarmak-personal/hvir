@@ -25,6 +25,7 @@ export async function requestGuestSource(
   sources: ExtensionGuestPorts['sources'],
   invocation: ExtensionInvocation | undefined,
   reveal: ExtensionGuestPorts['sourceReveal'],
+  requests: ExtensionGuestPorts['sourceRequests'],
 ): Promise<unknown> {
   if (capability === 'source.status')
     return sources.approvals
@@ -44,9 +45,20 @@ export async function requestGuestSource(
     current: () => {
       assertOrigin()
       if (!record.visible) throw new Error('Selected source view is hidden')
+      if (
+        capability === 'source.request' &&
+        (record.view.role === 'updater' ||
+          record.readingOrigin !== 'human' ||
+          record.authority.restricted ||
+          invocation ||
+          record.actions.size)
+      )
+        throw new Error('Read access requires a current ordinary human-selected view')
     },
     context: () => record.context,
   }
+  if (capability === 'source.request')
+    return requests.request(caller, input, record.owner)
   if (capability === 'source.reveal') {
     return reveal.reveal(caller, input, record.owner)
   }

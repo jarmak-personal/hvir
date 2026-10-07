@@ -1,4 +1,5 @@
 /* global AbortController */
+import { SkillagerSetupError } from './library-first-use.mjs'
 /** A guest-local lifetime over the public bridge; no private workbench imports. */
 export function guestClient(bridge, clock = globalThis) {
   let alive = true,
@@ -80,11 +81,24 @@ export function guestClient(bridge, clock = globalThis) {
     queue = delivery.catch(() => false)
     return delivery
   }
-  function request(capability, input, actionId) {
+  function request(capability, input, actionId, signal) {
     return new Promise((resolve, reject) => {
       const id = `skillager-${++serial}`
       const request = { resolve, reject, actionId, capability, submitted: false }
       pending.set(id, request)
+      const canceled = () =>
+        cancelPending('Selected read ended', (entry) => entry === request)
+      const finish = (callback) => (value) => {
+        signal?.removeEventListener('abort', canceled)
+        callback(value)
+      }
+      request.resolve = finish(resolve)
+      request.reject = finish(reject)
+      signal?.addEventListener('abort', canceled, { once: true })
+      if (signal?.aborted) {
+        canceled()
+        return
+      }
       void sendQueued(
         {
           kind: 'request',
@@ -100,7 +114,7 @@ export function guestClient(bridge, clock = globalThis) {
         })
         .catch((error) => {
           pending.delete(id)
-          reject(error)
+          request.reject(error)
         })
     })
   }
@@ -143,7 +157,7 @@ export function guestClient(bridge, clock = globalThis) {
     cancelPending('This view closed', () => true, notify)
   }
   return {
-    request,
+    request: (capability, input, signal) => request(capability, input, undefined, signal),
     forAction(invocation) {
       const action = actions.get(invocation.id)
       if (!action) throw new Error('This action is no longer admitted')
@@ -238,9 +252,12 @@ export async function runCli(client, args, context, retryFrequency = true) {
       error = await outputText(client, result.receipt, 'stderr')
     }
     if (result.outcome !== 'completed' || result.code !== 0 || result.truncated)
-      throw new Error(
+      throw new SkillagerSetupError(
         result.outcome === 'not-started' && result.reason === 'unapproved'
-          ? 'Approve your Skillager CLI in Settings → Extensions → Skillager to browse skills.'
+          ? 'missing-program'
+          : 'failed-observation',
+        result.outcome === 'not-started' && result.reason === 'unapproved'
+          ? 'Connect the installed Skillager CLI to browse skills. Program approval is separate from file reading.'
           : result.outcome === 'not-started' &&
               ['frequency', 'capacity'].includes(result.reason)
             ? result.reason === 'frequency'

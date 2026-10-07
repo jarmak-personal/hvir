@@ -25,6 +25,14 @@ import type {
 /** Trusted Settings/viewer transport. This contract is never exposed to a guest. */
 export const extensionsIpc = {
   invoke: {
+    'extensions:source-proposals': invoke<
+      void,
+      readonly import('../extensions/source-access').ExtensionSourceRequestProposal[]
+    >(),
+    'extensions:source-decide': invoke<
+      { readonly id: string; readonly accepted: boolean },
+      void
+    >(),
     'extensions:foreground': invoke<void, boolean>(),
     'extensions:delivery-recovery': invoke<
       void,
@@ -147,6 +155,10 @@ export const extensionsIpc = {
     }>(),
   },
   event: {
+    'extensions:source-proposals-changed':
+      payload<
+        readonly import('../extensions/source-access').ExtensionSourceRequestProposal[]
+      >(),
     'extensions:connection-proposals-changed':
       payload<
         readonly import('../extensions/connectors').ExtensionConnectionProposal[]

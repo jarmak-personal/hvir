@@ -4,6 +4,7 @@ import {
   metadataText as text,
   metadataSourcePath as sourcePath,
 } from './public-metadata.mjs'
+import { SkillagerSetupError } from './library-first-use.mjs'
 export const MINIMUM_SKILLAGER = '0.9.3'
 export function requireVersion(text) {
   const match = /skillager\s+(\d+)\.(\d+)\.(\d+)/u.exec(text)
@@ -12,14 +13,16 @@ export function requireVersion(text) {
     (Number(match[1]) === 0 &&
       (Number(match[2]) < 9 || (Number(match[2]) === 9 && Number(match[3]) < 3)))
   )
-    throw new Error(
-      `Skillager ${MINIMUM_SKILLAGER} or newer is required. Configure a supported installed CLI in Settings → Extensions.`,
+    throw new SkillagerSetupError(
+      'update-required',
+      `Skillager ${MINIMUM_SKILLAGER} or newer is required. Use the supported official current source and choose Connect Skillager.`,
     )
 }
 export function libraryStatus(value) {
   const data = object(value)
   if (data.schema !== 'skillager.library-status.v1')
-    throw new Error(
+    throw new SkillagerSetupError(
+      'update-required',
       'Required public contract skillager.library-status.v1 is missing. Install the current supported Skillager source; version alone does not establish support.',
     )
   if (!data.initialized) return { initialized: false, count: 0 }
@@ -47,7 +50,8 @@ export function libraryPage(value) {
       (typeof data.next_cursor === 'string' && data.next_cursor.length <= 4096)
     )
   )
-    throw new Error(
+    throw new SkillagerSetupError(
+      'update-required',
       'Required public contract skillager.list.v1 is missing or invalid. Skillager ≥0.9.3 with the current public library contract is required; no legacy fallback is used.',
     )
   return {
@@ -79,7 +83,8 @@ export function searchPage(value, workspace) {
       (typeof data.next_cursor === 'string' && data.next_cursor.length <= 4096)
     )
   )
-    throw new Error(
+    throw new SkillagerSetupError(
+      'update-required',
       `Required public contract skillager.search.v1 is unavailable${data.reason_code ? `: ${data.reason_code}` : ''}. Install the current supported Skillager source; no legacy search fallback is used.`,
     )
   return {
@@ -218,7 +223,7 @@ export function searchArgs(
 
 let selectionSerial = 0
 /** Descriptions and unused observations never enter an instruction selection. */
-export function detailInputFor(row) {
+export function detailInputFor(row, library) {
   if (row.host !== 'local' || (row.source === 'project' && !row.workspaceId))
     throw new Error('Selected source lacks an exact observing host/workspace')
   const identity = {
@@ -231,7 +236,15 @@ export function detailInputFor(row) {
     status: row.status,
     ...(validCanonical(row.canonical) ? { canonical: row.canonical } : {}),
   }
-  const input = { selection: `${Date.now()}-${++selectionSerial}`, row: identity }
+  const input = {
+    selection: `${Date.now()}-${++selectionSerial}`,
+    row: identity,
+    ...(row.source === 'library' && library?.initialized
+      ? { library: { id: library.id, root: library.root } }
+      : {}),
+  }
+  if (new TextEncoder().encode(JSON.stringify(input)).length > 6144 && input.library)
+    delete input.library.root
   if (new TextEncoder().encode(JSON.stringify(input)).length > 6144)
     throw new Error(
       'Selected source identity exceeds the public detail-input byte bound; no path was truncated or substituted',

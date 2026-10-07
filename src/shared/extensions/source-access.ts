@@ -10,6 +10,7 @@ export const SOURCE_LIMITS = {
   receiptBytes: 16 * 1024 * 1024,
   receiptMs: 300_000,
   pageBytes: 2048,
+  decisionMs: 60_000,
 } as const
 
 export interface ExtensionSourceDeclaration {
@@ -36,6 +37,17 @@ export interface ExtensionSourceStatus {
   readonly root?: HostPath
   readonly workspaceId?: string
   readonly explanation?: string
+}
+/** Trusted workbench transport only; guests never receive its decision identity. */
+export interface ExtensionSourceRequestProposal {
+  readonly id: string
+  readonly name: string
+  readonly source: string
+  readonly description: string
+  readonly root: HostPath
+}
+export interface ExtensionSourceRequestResult {
+  readonly granted: boolean
 }
 export function validateSourceDeclarations(
   value: unknown,

@@ -464,6 +464,8 @@ describe('IpcAuthorityRouter', () => {
         'extensions:delivery-recovery',
         'extensions:delivery-resolve',
         'extensions:source-settings',
+        'extensions:source-proposals',
+        'extensions:source-decide',
         'extensions:source-prepare',
         'extensions:source-approve',
         'extensions:source-revoke',
