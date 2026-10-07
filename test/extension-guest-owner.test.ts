@@ -72,7 +72,7 @@ describe('extension guest capability and lifetime owner', () => {
       {
         updater: 'index.html',
         requiredCapabilities: ['presentation.read'],
-        optionalCapabilities: ['source.reveal', 'terminal.start'],
+        optionalCapabilities: ['source.request', 'source.reveal', 'terminal.start'],
       },
     )
     const view = await data.owner.open(

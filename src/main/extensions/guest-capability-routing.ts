@@ -81,6 +81,7 @@ export async function routeGuestCapability(
       ports.sources,
       invocation,
       ports.sourceReveal,
+      ports.sourceRequests,
     )
   if (capability === 'presentation.read') return record.presentation
   if (capability === 'context.read') return contextValue()

@@ -386,6 +386,7 @@ export class ExtensionGuestOwner {
     record.refreshDemand =
       record.visible && refreshDemand === true && this.ownerForeground(owner)
     this.ports.connections.revalidate()
+    this.ports.sourceRequests.revalidate()
     this.ports.connectors.revalidate()
     this.ports.sources.revalidate()
     if (record.refreshDemand !== previousDemand) this.ports.visibleContributionsChanged()
@@ -427,6 +428,7 @@ export class ExtensionGuestOwner {
       this.sendContext(record)
     }
     this.ports.connections.revalidate()
+    this.ports.sourceRequests.revalidate()
     this.ports.connectors.revalidate()
     this.ports.sources.revalidate()
     this.ports.visibleContributionsChanged()
@@ -626,7 +628,9 @@ export class ExtensionGuestOwner {
     signal: AbortSignal,
     invocation?: ExtensionInvocation,
   ): Promise<unknown> {
-    await this.activations.assertWritable()
+    // Source preparation owns this same writer gate after registering its finite intent.
+    // Enter it before an await so a withdrawn presentation cannot renew an old decision.
+    if (capability !== 'source.request') await this.activations.assertWritable()
     const invocationAuthority = invocation
       ? this.ports.actions.authority(record.view.id, invocation.id)
       : undefined
@@ -714,6 +718,7 @@ export class ExtensionGuestOwner {
   }
   updateContext(): void {
     this.ports.connections.revalidate()
+    this.ports.sourceRequests.revalidate()
     this.ports.connectors.revalidate()
     this.ports.sources.revalidate()
     for (const record of [...this.records.values()]) {
@@ -748,6 +753,7 @@ export class ExtensionGuestOwner {
       return
     record.visible = demanded
     this.ports.connections.revalidate()
+    this.ports.sourceRequests.revalidate()
     this.ports.connectors.revalidate()
     this.ports.sources.revalidate()
     this.sendContext(record)
@@ -816,6 +822,7 @@ export class ExtensionGuestOwner {
             ![
               'actions.invoke',
               'viewer.open-own',
+              'source.request',
               'source.select',
               'source.read',
               'source.asset',
@@ -868,6 +875,7 @@ export class ExtensionGuestOwner {
     this.ports.sources.closeView(record.view.id)
     record.authority.dispose()
     this.ports.connections.revalidate()
+    this.ports.sourceRequests.revalidate()
     this.ports.connectors.revalidate()
     this.ports.sources.revalidate()
     if (record.visible && record.view.role !== 'updater')

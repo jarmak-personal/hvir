@@ -1,4 +1,4 @@
-/* global window, document */
+/* global window, document, AbortController */
 import { guestClient, runCli } from './bridge.mjs'
 import {
   requireVersion,
@@ -11,6 +11,11 @@ import {
   detailInputFor,
   localWorkspace,
 } from './catalog.mjs'
+import {
+  firstUseFailure,
+  setupRequest,
+  sameCurrentLibrary,
+} from './library-first-use.mjs'
 import { sourcePages, loadInstructionImages } from './reader.mjs'
 const bridge = window.hvirExtension,
   client = guestClient(bridge)
@@ -20,6 +25,7 @@ const element = (id) => document.getElementById(id)
 let context = { visible: false },
   generation = 0,
   connectionIntent = 0,
+  selectionIntent = 0,
   timer,
   busy = false,
   pendingRefresh = false
@@ -49,6 +55,10 @@ function say(message, kind = 'ready') {
     state.textContent = message
     state.dataset.state = kind
   }
+  if (element('create-library'))
+    element('create-library').disabled = !available() || kind !== 'no-personal-library'
+  if (element('library-setup'))
+    element('library-setup').hidden = kind !== 'no-personal-library'
 }
 async function cli(args, project) {
   const key = project?.workspace?.id ?? 'library'
@@ -67,11 +77,12 @@ function refreshManagementAvailability() {
 function scope() {
   return view === 'project' ? context : undefined
 }
-function sourceInput(row) {
-  return detailInputFor(row)
-}
 async function choose(row) {
   if (!available()) return
+  const intent = ++selectionIntent,
+    revision = generation
+  const current = () =>
+    available() && intent === selectionIntent && revision === generation
   if (
     row.source === 'project' &&
     (row.host !== 'local' ||
@@ -81,10 +92,40 @@ async function choose(row) {
     throw new Error(
       'Selected installed presence is unknown for this workspace; no host was substituted',
     )
+  let selectedLibrary = library
+  if (row.source === 'library' && view === 'project') {
+    if (!row.canonical)
+      throw new Error(
+        'Selected library result lacks its public library identity; no source was substituted.',
+      )
+    try {
+      selectedLibrary = sameCurrentLibrary(
+        { id: row.canonical.library_id },
+        libraryStatus(await cli(['library', 'status', '--json'])),
+      )
+    } catch (error) {
+      if (!current()) return
+      throw error
+    }
+  }
+  if (!current()) return
+  if (row.source === 'library') {
+    sameCurrentLibrary(
+      row.canonical ? { id: row.canonical.library_id } : selectedLibrary,
+      selectedLibrary,
+    )
+    if (
+      row.host !== 'local' ||
+      !row.path.startsWith(`${selectedLibrary.root.replace(/\/+$/u, '')}/`)
+    )
+      throw new Error(
+        'Selected occurrence no longer belongs to the reported personal library; no source was substituted.',
+      )
+  }
   await client.request('viewer.open-own', {
     contributionId: 'detail',
     ...(row.source === 'library' ? { context: 'application' } : {}),
-    input: sourceInput(row),
+    input: detailInputFor(row, selectedLibrary),
   })
 }
 const navigation = list
@@ -144,7 +185,7 @@ function rows(page) {
         : view === 'project'
           ? 'No local project skills observed. Discovery coverage is not asserted; your library is independent.'
           : 'Your personal library is empty.',
-      'empty',
+      view === 'project' ? 'empty' : 'empty-library',
     )
   else {
     const observation = query
@@ -194,11 +235,28 @@ async function refresh() {
       previous: [...previous],
     }
   say(
-    lastPage ? 'Refreshing… last-known rows retained.' : 'Loading Skillager…',
-    lastPage ? 'stale' : 'loading',
+    lastPage ? 'Refreshing… last-known rows retained.' : 'Connecting to Skillager…',
+    lastPage ? 'stale' : 'connecting',
   )
   try {
     let page
+    if (view === 'library') {
+      const observed = libraryStatus(await cli(['library', 'status', '--json']))
+      if (!available() || generation !== revision) return
+      library = observed
+      if (element('program-setup')) element('program-setup').hidden = true
+      if (element('connect-program')) element('connect-program').hidden = true
+      if (!observed.initialized) {
+        lastPage = undefined
+        list?.replaceChildren()
+        pageRequest = undefined
+        say(
+          'No personal library yet. Create one with Skillager’s defaults when you are ready.',
+          'no-personal-library',
+        )
+        return
+      }
+    }
     if (target.query) {
       const workspace = view === 'project' ? localWorkspace(context.workspace) : undefined
       const root = workspace?.root.path
@@ -249,7 +307,6 @@ async function refresh() {
         next: offset + 100 < observed.length ? String(offset + 100) : null,
       }
     } else {
-      library = libraryStatus(await cli(['library', 'status', '--json']))
       page = libraryPage(
         await cli([
           'list',
@@ -271,11 +328,14 @@ async function refresh() {
       rows(page)
     }
   } catch (error) {
-    if (available() && generation === revision)
-      say(
-        `${error.message}${lastPage ? ' · Last-known rows retained; freshness unavailable.' : ''}`,
-        lastPage ? 'stale' : 'error',
-      )
+    if (available() && generation === revision) {
+      const failure = firstUseFailure(error, !!lastPage)
+      if (element('program-setup')) element('program-setup').hidden = !failure.setup
+      if (element('connect-program')) element('connect-program').hidden = !failure.setup
+      if (element('observation-details'))
+        element('observation-details').textContent = failure.detail
+      say(failure.message, failure.state)
+    }
   } finally {
     busy = false
     pagingControls()
@@ -289,6 +349,7 @@ function schedule() {
     timer = window.setTimeout(() => requestRefresh(), 30_000 - (Date.now() % 30_000))
 }
 let detailInput,
+  selectedRead,
   sourceReceipt,
   instructionText = '',
   renderedHtml,
@@ -352,8 +413,11 @@ async function readSelected() {
   const selecting = pendingSelection
   pendingSelection = false
   reading = true
+  const controller = new AbortController()
+  selectedRead = controller
   const revision = generation,
     row = detailInput.row
+  let readingLibrary
   const scroll = selecting ? selectedScroll : body.scrollTop,
     mode = body.dataset.mode
   say('Reading selected current file…', 'loading')
@@ -367,13 +431,49 @@ async function readSelected() {
       (row.source === 'project' && row.workspaceId !== context.workspace?.id)
     )
       throw new Error('Selected source does not match its observing host/workspace')
+    if (row.source === 'library') {
+      // Selected metadata prefills a proposal, not authority or current library truth.
+      // Bounded detail input can omit the root; resolve it through public status then.
+      const observed = detailInput.library?.root
+        ? detailInput.library
+        : sameCurrentLibrary(
+            detailInput.library,
+            libraryStatus(await cli(['library', 'status', '--json'])),
+          )
+      if (!available() || revision !== generation) return
+      readingLibrary = observed
+      const decision = await client.request(
+        'source.request',
+        {
+          source: 'library',
+          root: { hostId: 'local', path: observed.root },
+        },
+        controller.signal,
+      )
+      if (!available() || revision !== generation) return
+      if (!decision.granted) {
+        say('Read access was not granted. The skill remains selected.', 'unapproved')
+        return
+      }
+      sameCurrentLibrary(
+        observed,
+        libraryStatus(await cli(['library', 'status', '--json'])),
+      )
+      if (!available() || revision !== generation) return
+    }
     const selected = await client.request('source.select', {
       source: row.source,
       path: { hostId: row.host, path: row.path },
       ...(row.workspaceId ? { workspaceId: row.workspaceId } : {}),
     })
+    if (!available() || revision !== generation) return
     sourceReceipt = selected.receipt
     const text = await sourcePages(client, selected.receipt)
+    if (readingLibrary)
+      sameCurrentLibrary(
+        readingLibrary,
+        libraryStatus(await cli(['library', 'status', '--json'])),
+      )
     if (!available() || revision !== generation) return
     instructionText = text
     renderedHtml = undefined
@@ -404,12 +504,15 @@ async function readSelected() {
         'error',
       )
   } finally {
+    controller.abort()
+    if (selectedRead === controller) selectedRead = undefined
     reading = false
     if (pendingSelection && available()) void readSelected()
   }
 }
 on('read-current', 'click', () => {
   selectedScroll = body.scrollTop
+  selectedRead?.abort()
   generation++
   pendingSelection = true
   void readSelected()
@@ -478,6 +581,7 @@ on('canonical', 'click', async () => {
       throw new Error(
         'Canonical relationship no longer matches the connected current library',
       )
+    library = current
     await choose({
       id: canonical.skill_id,
       name: value.skill.name ?? canonical.skill_id,
@@ -513,6 +617,41 @@ on(
       })
       .catch((error) => say(error.message, 'error')),
 )
+if (element('setup-request')) element('setup-request').value = setupRequest
+on('create-library', 'click', async () => {
+  if (!available() || busy || library?.initialized) return
+  busy = true
+  const revision = ++generation
+  say('Creating your personal library with Skillager’s defaults…', 'connecting')
+  try {
+    const result = await client.request('actions.invoke', {
+      action: 'initialize-library',
+      input: { location: 'default' },
+    })
+    if (!available() || generation !== revision) return
+    if (result?.outcome !== 'verified' || !result.connect || !result.observed)
+      throw new Error(
+        result?.message ??
+          'Skillager did not verify creation of the default library. No ready state is claimed.',
+      )
+    // The existing action owns initialization; bind its verified result to fresh public status.
+    if (result.observed.root?.hostId !== 'local')
+      throw new Error('Skillager did not verify an application-local default library.')
+    const observed = libraryStatus(await cli(['library', 'status', '--json']))
+    if (!available() || generation !== revision) return
+    library = sameCurrentLibrary(
+      { id: result.observed.id, root: result.observed.root.path },
+      observed,
+    )
+    pendingRefresh = true
+  } catch (error) {
+    if (available() && generation === revision) say(error.message, 'failed-observation')
+  } finally {
+    busy = false
+    if (pendingRefresh && available())
+      requestRefresh({ query: '', options: {}, cursor: undefined, previous: [] })
+  }
+})
 on('connect-program', 'click', () => {
   if (!available()) return
   const admitted = ++connectionIntent
@@ -575,6 +714,7 @@ client.listen((message) => {
     context = message.context
     refreshManagementAvailability()
     if (!context.visible) {
+      selectedRead?.abort()
       generation++
       window.clearTimeout(timer)
       if (reading)
@@ -586,6 +726,7 @@ client.listen((message) => {
     if (view === 'detail') {
       if (context.input && context.input.selection !== detailInput?.selection) {
         rememberPosition()
+        selectedRead?.abort()
         generation++
         detailInput = context.input
         element('reveal-original').hidden =
@@ -625,6 +766,7 @@ client.listen((message) => {
 })
 window.addEventListener('pagehide', dispose, { once: true })
 function dispose() {
+  selectedRead?.abort()
   generation++
   window.clearTimeout(timer)
   navigation?.dispose()

@@ -8,6 +8,7 @@ import { createDocumentMarkdownOwner } from '../viewer/document-markdown-runtime
 import { ExtensionSourceApprovalOwner, type SourceHostCatalog } from './source-approval'
 import { ExtensionSourceReadingOwner } from './source-reading'
 import { ExtensionSourceReveal } from './source-reveal'
+import { ExtensionSourceRequestOwner } from './source-request'
 import {
   ExtensionConnectorApprovalOwner,
   type ConnectorHostCatalog,
@@ -42,6 +43,7 @@ export class ExtensionApplicationRuntime {
   terminalHandoffs?: TerminalCommandHandoffOwner
   deliveries?: ExtensionManagedDeliveryOwner
   sources?: ExtensionSourceReadingOwner
+  sourceRequests?: ExtensionSourceRequestOwner
   connections?: ExtensionConnectorConnectionOwner
   connectors?: ExtensionConnectorExecutionOwner
   readonly surface = new ElectronExtensionGuestSurface()
@@ -105,6 +107,7 @@ export class ExtensionApplicationRuntime {
         this.failure = `Extensions could not start: ${reason instanceof Error ? reason.message.slice(0, 240) : 'storage unavailable'}. Check the extensions and extension-state folders in this data directory.`
         await this.deliveries?.dispose()
         this.sources?.dispose()
+        this.sourceRequests?.dispose()
         this.sources?.approvals.dispose()
         this.connections?.dispose()
         this.connectors?.dispose()
@@ -141,6 +144,7 @@ export class ExtensionApplicationRuntime {
     await this.starting?.catch(() => undefined)
     await this.deliveries?.dispose()
     this.sources?.dispose()
+    this.sourceRequests?.dispose()
     this.sources?.approvals.dispose()
     this.connections?.dispose()
     this.connectors?.dispose()
@@ -264,12 +268,22 @@ export class ExtensionApplicationRuntime {
     const sourceApprovals = new ExtensionSourceApprovalOwner(
       hosts,
       activations,
-      (id, source) => this.sources?.revoke(id, source),
+      (id, source) => {
+        this.sources?.revoke(id, source)
+        this.sourceRequests?.revalidate()
+      },
       contexts,
     )
     this.sources = new ExtensionSourceReadingOwner(
       sourceApprovals,
       createDocumentMarkdownOwner(),
+    )
+    this.sourceRequests = new ExtensionSourceRequestOwner(
+      this.scopes,
+      sourceApprovals,
+      (owner) => this.surface.foreground(owner),
+      (owner, proposals) =>
+        this.events.toRenderer(owner, 'extensions:source-proposals-changed', proposals),
     )
     this.deliveries = new ExtensionManagedDeliveryOwner(
       hosts,
@@ -310,6 +324,7 @@ export class ExtensionApplicationRuntime {
         connectors: this.connectors,
         connections: this.connections,
         sources: this.sources,
+        sourceRequests: this.sourceRequests,
         deliveries: this.deliveries,
         sourceReveal: new ExtensionSourceReveal(sourceApprovals, (owner, request) =>
           this.events.toRenderer(owner, 'extensions:files-reveal', request),

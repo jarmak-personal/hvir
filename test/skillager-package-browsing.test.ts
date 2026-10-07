@@ -24,11 +24,21 @@ function packageView(view = 'library') {
     outputs = new Map<string, string>()
   let serial = 0,
     fail = false,
+    failOn: string | undefined,
+    initialized = true,
+    identifier = 'library',
+    canonicalIdentifier: string | undefined,
+    occurrencePath = '/library/search/SKILL.md',
+    supported = true,
+    count = 3,
+    initialization: unknown,
     hold = false,
     frequency = false,
     unapproved = false,
     resume: (() => void) | undefined,
     finishConnection: ((value: unknown) => void) | undefined
+  const opened: Record<string, unknown>[] = []
+  const initializationRequests: Record<string, unknown>[] = []
   const send = (message: {
     kind: string
     id: string
@@ -37,6 +47,24 @@ function packageView(view = 'library') {
   }) => {
     if (message.kind !== 'request') return
     let value: unknown
+    if (message.capability === 'viewer.open-own') opened.push(message.input)
+    if (message.capability === 'actions.invoke') {
+      initializationRequests.push(message.input)
+      if (initialization) {
+        initialized = true
+        count = 0
+      }
+      receive({
+        kind: 'result',
+        id: message.id,
+        ok: true,
+        value: initialization ?? {
+          outcome: 'uncertain',
+          message: 'Creation did not settle; no ready state claimed.',
+        },
+      })
+      return
+    }
     if (message.capability === 'connector.connect') {
       finishConnection = (value) =>
         receive({ kind: 'result', id: message.id, ok: true, value })
@@ -51,7 +79,7 @@ function packageView(view = 'library') {
       } else if (frequency) {
         frequency = false
         value = { outcome: 'not-started', reason: 'frequency' }
-      } else if (fail) {
+      } else if (fail && (!failOn || args[0] === failOn)) {
         fail = false
         value = { outcome: 'failed', code: 1 }
       } else {
@@ -64,14 +92,14 @@ function packageView(view = 'library') {
             : JSON.stringify(
                 args[0] === 'library'
                   ? {
-                      schema: 'skillager.library-status.v1',
-                      initialized: true,
+                      schema: supported ? 'skillager.library-status.v1' : 'old-status',
+                      initialized,
                       library: {
                         registration: 'valid',
-                        library_id: 'library',
+                        library_id: identifier,
                         root: '/library',
                       },
-                      counts: { skills: 3 },
+                      counts: { skills: count },
                     }
                   : args[0] === 'search'
                     ? {
@@ -81,10 +109,18 @@ function packageView(view = 'library') {
                           {
                             id: 'lib/search',
                             search: {
+                              ...(canonicalIdentifier
+                                ? {
+                                    canonical: {
+                                      library_id: canonicalIdentifier,
+                                      skill_id: 'lib/search',
+                                    },
+                                  }
+                                : {}),
                               occurrence: {
                                 id: `search-${index}`,
                                 kind: 'library',
-                                entrypoint: '/library/search/SKILL.md',
+                                entrypoint: occurrencePath,
                               },
                             },
                           },
@@ -98,16 +134,18 @@ function packageView(view = 'library') {
                         : {
                             schema: 'skillager.list.v1',
                             scope: 'library',
-                            skills: [
-                              {
-                                id: `lib/${index}`,
-                                name: `Page ${index}`,
-                                description: '',
-                                status: 'pending',
-                                skill_file: `/library/${index}/SKILL.md`,
-                              },
-                            ],
-                            next_cursor: index < 2 ? String(index + 1) : null,
+                            skills: count
+                              ? [
+                                  {
+                                    id: `lib/${index}`,
+                                    name: `Page ${index}`,
+                                    description: '',
+                                    status: 'pending',
+                                    skill_file: `/library/${index}/SKILL.md`,
+                                  },
+                                ]
+                              : [],
+                            next_cursor: count && index < 2 ? String(index + 1) : null,
                           },
               )
         outputs.set(receipt, text)
@@ -184,8 +222,30 @@ function packageView(view = 'library') {
     unapproved: () => {
       unapproved = true
     },
-    fail: () => {
+    fail: (command?: string) => {
       fail = true
+      failOn = command
+    },
+    initializationRequests,
+    opened,
+    initialize: (result: unknown) => {
+      initialization = result
+    },
+    searchPath: (path: string) => {
+      occurrencePath = path
+    },
+    identities: (current: string, observed = current) => {
+      identifier = current
+      canonicalIdentifier = observed
+    },
+    uninitialized: () => {
+      initialized = false
+    },
+    unsupported: () => {
+      supported = false
+    },
+    empty: () => {
+      count = 0
     },
     hold: () => {
       hold = true
@@ -239,7 +299,7 @@ it('keeps failed search descriptors separate from old-page navigation and retrie
   await f.flush()
   const input = document.getElementById('query') as HTMLInputElement
   input.value = 'new query'
-  f.fail()
+  f.fail('search')
   document
     .getElementById('search-form')!
     .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
@@ -256,7 +316,7 @@ it('keeps failed search descriptors separate from old-page navigation and retrie
   expect(document.getElementById('state')?.textContent).toContain('Page 1')
   expect(document.getElementById('skills')?.textContent).toContain('lib/search')
   expect(f.button('previous').disabled).toBe(true)
-  f.fail()
+  f.fail('list')
   f.button('browse').click()
   await f.flush()
   expect(document.getElementById('skills')?.textContent).toContain('lib/search')
@@ -333,7 +393,7 @@ it('makes native approval refusal actionable while retaining last-known observat
   f.button('refresh').click()
   await f.flush()
   expect(document.getElementById('state')!.textContent).toContain(
-    'Approve your Skillager CLI in Settings → Extensions → Skillager',
+    'choose Connect Skillager',
   )
   expect(document.getElementById('state')!.textContent).toContain(
     'Last-known rows retained',
@@ -379,5 +439,197 @@ it('delivers the current Connect result after picker context focus loss without 
   await f.flush()
   expect(document.getElementById('state')!.textContent).toBe(
     'Program access was declined',
+  )
+})
+
+it('automatically observes an uninitialized library without listing or initializing it', async () => {
+  const f = packageView()
+  f.uninitialized()
+  f.context()
+  await f.flush()
+  expect(document.getElementById('state')?.dataset['state']).toBe('no-personal-library')
+  expect(f.calls.map((args) => args[0])).toEqual(['--version', 'library'])
+  expect(f.button('create-library').disabled).toBe(false)
+  expect(document.getElementById('library-setup')?.hidden).toBe(false)
+  expect(document.getElementById('skills')?.textContent).toBe('')
+})
+it('shows an empty current library and actionable supported-source guidance independently', async () => {
+  const f = packageView()
+  f.empty()
+  f.context()
+  await f.flush()
+  expect(document.getElementById('state')?.dataset['state']).toBe('empty-library')
+  f.unsupported()
+  f.button('refresh').click()
+  await f.flush()
+  expect(document.getElementById('state')?.textContent).toContain('Update Skillager')
+  expect(document.getElementById('observation-details')?.textContent).toContain(
+    'skillager.library-status.v1',
+  )
+  expect(document.getElementById('program-setup')?.hidden).toBe(false)
+  const request = (document.getElementById('setup-request') as HTMLTextAreaElement).value
+  expect(request).toContain('https://github.com/jarmak-personal/skillager/pull/75')
+  expect(request).toContain('Version 0.9.3 alone is insufficient')
+  expect(f.calls.filter((args) => args[0] === 'list')).toHaveLength(1)
+})
+
+it('delegates explicit default creation to the existing action and automatically browses only its verified current library', async () => {
+  const f = packageView()
+  f.uninitialized()
+  f.initialize({
+    outcome: 'verified',
+    connect: true,
+    observed: { id: 'library', root: { hostId: 'local', path: '/library' } },
+  })
+  f.context()
+  await f.flush()
+  expect(f.initializationRequests).toEqual([])
+  f.button('create-library').click()
+  await f.flush()
+  expect(f.initializationRequests).toEqual([
+    { action: 'initialize-library', input: { location: 'default' } },
+  ])
+  expect(document.getElementById('state')?.dataset['state']).toBe('empty-library')
+  expect(f.calls.filter((args) => args[0] === 'list')).toHaveLength(1)
+  expect(f.calls.some((args) => args.includes('init'))).toBe(false)
+})
+it('does not call a different observed library the verified default creation result', async () => {
+  const f = packageView()
+  f.uninitialized()
+  f.initialize({
+    outcome: 'verified',
+    connect: true,
+    observed: { id: 'another-library', root: { hostId: 'local', path: '/library' } },
+  })
+  f.context()
+  await f.flush()
+  f.button('create-library').click()
+  await f.flush()
+  expect(document.getElementById('state')?.textContent).toContain(
+    'personal library changed',
+  )
+  expect(f.calls.some((args) => args[0] === 'list')).toBe(false)
+})
+it('never reports readiness from an unverified initialization reply', async () => {
+  const f = packageView()
+  f.uninitialized()
+  f.context()
+  await f.flush()
+  f.button('create-library').click()
+  await f.flush()
+  expect(document.getElementById('state')?.textContent).toContain(
+    'Creation did not settle',
+  )
+  expect(f.calls.some((args) => args[0] === 'list')).toBe(false)
+})
+
+it('requires renewed package visibility before retained ready rows can open a reader', async () => {
+  const f = packageView()
+  f.context()
+  await f.flush()
+  f.context(false)
+  expect(document.getElementById('state')?.dataset['state']).toBe('ready')
+  expect(document.querySelectorAll('#skills [role="option"]')).toHaveLength(1)
+  expect(f.button('manage').disabled).toBe(true)
+  ;(document.querySelector('#skills [role="option"]') as HTMLButtonElement).click()
+  await f.flush()
+  expect(f.opened).toEqual([])
+  f.context()
+  await f.flush()
+  expect(f.button('manage').disabled).toBe(false)
+  ;(document.querySelector('#skills [role="option"]') as HTMLButtonElement).click()
+  await f.flush()
+  expect(f.opened).toHaveLength(1)
+  expect(f.opened[0]).toMatchObject({
+    contributionId: 'detail',
+    context: 'application',
+    input: { library: { id: 'library', root: '/library' } },
+  })
+})
+
+it('qualifies library search selections from an SSH project through public application status without substituting the host', async () => {
+  const f = packageView('project'),
+    id = '720e24b1-53e0-45f6-a84e-3df65177b38c'
+  f.identities(id)
+  f.context(true, { id: 'ssh', host: 'ssh-host', name: 'Remote' })
+  await f.flush()
+  ;(document.getElementById('query') as HTMLInputElement).value = 'skill'
+  document
+    .getElementById('search-form')!
+    .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  await f.flush()
+  ;(document.querySelector('#skills [role="option"]') as HTMLButtonElement).click()
+  await f.flush()
+  expect(f.opened).toHaveLength(1)
+  expect(f.opened[0]).toMatchObject({
+    context: 'application',
+    input: {
+      library: { id, root: '/library' },
+      row: { host: 'local', source: 'library' },
+    },
+  })
+  expect(f.calls.some((args) => args[0] === 'library')).toBe(true)
+  expect(f.calls.some((args) => args.includes('--installed-project'))).toBe(false)
+})
+
+async function searchedProjectLibrary() {
+  const f = packageView('project'),
+    id = '720e24b1-53e0-45f6-a84e-3df65177b38c'
+  f.identities(id)
+  f.context(true, { id: 'ssh', host: 'ssh-host', name: 'Remote' })
+  await f.flush()
+  ;(document.getElementById('query') as HTMLInputElement).value = 'skill'
+  document
+    .getElementById('search-form')!
+    .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  await f.flush()
+  return { ...f, id }
+}
+it('does not retarget a project search occurrence when the public library UUID changed', async () => {
+  const f = await searchedProjectLibrary()
+  f.identities('replacement', f.id)
+  ;(document.querySelector('#skills [role="option"]') as HTMLButtonElement).click()
+  await f.flush()
+  expect(f.opened).toEqual([])
+  expect(document.getElementById('state')?.textContent).toContain(
+    'personal library changed',
+  )
+})
+it.each(['hide', 'generation', 'new selection'] as const)(
+  'does not open a project result from a stale explicit selection status reply after %s',
+  async (edge) => {
+    const f = await searchedProjectLibrary()
+    f.hold()
+    ;(document.querySelector('#skills [role="option"]') as HTMLButtonElement).click()
+    await vi.advanceTimersByTimeAsync(100)
+    if (edge === 'hide') f.context(false)
+    if (edge === 'generation') f.button('browse').click()
+    if (edge === 'new selection') {
+      ;(document.querySelector('#skills [role="option"]') as HTMLButtonElement).click()
+      await f.flush()
+    }
+    f.resume()
+    await f.flush()
+    expect(f.opened).toHaveLength(edge === 'new selection' ? 1 : 0)
+    expect(f.calls.some((args) => args.includes('--installed-project'))).toBe(false)
+  },
+)
+it('does not substitute a selected library occurrence outside the public reported root', async () => {
+  const f = packageView('project'),
+    id = '720e24b1-53e0-45f6-a84e-3df65177b38c'
+  f.identities(id)
+  f.searchPath('/another/SKILL.md')
+  f.context(true, { id: 'ssh', host: 'ssh-host' })
+  await f.flush()
+  ;(document.getElementById('query') as HTMLInputElement).value = 'skill'
+  document
+    .getElementById('search-form')!
+    .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  await f.flush()
+  ;(document.querySelector('#skills [role="option"]') as HTMLButtonElement).click()
+  await f.flush()
+  expect(f.opened).toEqual([])
+  expect(document.getElementById('state')?.textContent).toContain(
+    'Selected occurrence no longer belongs',
   )
 })

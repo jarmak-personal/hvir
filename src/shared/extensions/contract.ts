@@ -15,6 +15,7 @@ export const EXTENSION_CAPABILITIES = [
   'connector.status',
   'connector.connect',
   'source.status',
+  'source.request',
   'source.select',
   'source.read',
   'source.asset',

@@ -45,6 +45,27 @@
           <p id="installed-note" class="hvir-meta"></p>
         </details>
       </form>
+      <section id="library-setup" hidden>
+        <button id="create-library" class="hvir-button">Create personal library</button>
+        <p id="setup-guidance">
+          Skillager creates its default library only when you choose Create personal
+          library. Use Manage library for advanced locations.
+        </p>
+      </section>
+      <details id="program-setup" hidden>
+        <summary>Set up Skillager with your agent</summary>
+        <p>
+          Copy this request into your preferred agent. hvir does not install programs or
+          send it to a terminal.
+        </p>
+        <textarea
+          id="setup-request"
+          class="hvir-input"
+          rows="7"
+          readonly
+          aria-label="Copyable Skillager setup request"
+        ></textarea>
+      </details>
       <p id="state" class="hvir-state" aria-live="polite">Connecting…</p>
       <div
         id="skills"

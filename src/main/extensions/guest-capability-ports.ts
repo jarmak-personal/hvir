@@ -1,4 +1,5 @@
 import type { ExtensionConnectorConnectionOwner } from './connector-connection'
+import type { ExtensionSourceRequestOwner } from './source-request'
 import type { ExtensionManagedDeliveryOwner } from './managed-delivery'
 import type { ExtensionSourceReadingOwner } from './source-reading'
 import type { ExtensionSourceReveal } from './source-reveal'
@@ -16,6 +17,7 @@ export interface ExtensionGuestPorts {
     'select' | 'read' | 'render' | 'asset' | 'closeView' | 'revalidate'
   > & { readonly approvals: Pick<ExtensionSourceReadingOwner['approvals'], 'status'> }
   readonly sourceReveal: Pick<ExtensionSourceReveal, 'reveal'>
+  readonly sourceRequests: Pick<ExtensionSourceRequestOwner, 'request' | 'revalidate'>
   readonly terminals?: Pick<ExtensionTerminalHandoff, 'start'>
   readonly deliveries: Pick<
     ExtensionManagedDeliveryOwner,

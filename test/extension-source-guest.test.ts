@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { DEFAULT_EXTENSION_PRESENTATION } from '../src/main/extensions/guest-owner'
+import { ExtensionSourceRequestOwner } from '../src/main/extensions/source-request'
 import { sourceFixture } from './fixtures/extension-source'
 import { fixture, attached } from './fixtures/extension-guest'
 describe('main-owned source origin and current visibility', () => {
@@ -13,6 +14,7 @@ describe('main-owned source origin and current visibility', () => {
           'context.read',
           'viewer.open-own',
           'source.status',
+          'source.request',
           'source.select',
           'source.read',
           'source.asset',
@@ -21,7 +23,19 @@ describe('main-owned source origin and current visibility', () => {
         access: [source.declaration],
       },
       undefined,
-      { sources: source.reading },
+      {
+        sources: source.reading,
+        sourceRequests: {
+          request: (...args) => requests.request(...args),
+          revalidate: () => requests?.revalidate(),
+        },
+      },
+    )
+    const requests = new ExtensionSourceRequestOwner(
+      data.scopes,
+      source.approvals,
+      () => true,
+      () => {},
     )
     await source.grant()
     source.active.set('installation', data.active.get('installation')!)
@@ -31,7 +45,9 @@ describe('main-owned source origin and current visibility', () => {
       data,
       source,
       view,
+      requests,
       async close() {
+        requests.dispose()
         await data.owner.dispose()
         source.dispose()
       },
@@ -126,12 +142,100 @@ describe('main-owned source origin and current visibility', () => {
               'Instruction bodies are available only to ordinary human-selected views, never actions, agents or updaters',
           })
         }
+        expect(
+          await result(f.data, 10, 'human-forgery', 'source.request', {
+            source: 'source',
+            root: f.source.root,
+            caller: 'human',
+          }),
+        ).toMatchObject({
+          ok: false,
+          error: 'Read access requires an ordinary human-selected view',
+        })
+        expect(f.requests.snapshot(f.data.renderer)).toEqual([])
         expect(f.source.host.readTextFilePrefix).not.toHaveBeenCalled()
       } finally {
         await f.close()
       }
     },
   )
+  it('reuses an unchanged canonical read grant only from the actual ordinary human view', async () => {
+    const f = await sourceGuest('human')
+    try {
+      expect(
+        await result(f.data, 10, 'current-read', 'source.request', {
+          source: 'source',
+          root: f.source.root,
+        }),
+      ).toMatchObject({ ok: true, value: { granted: true } })
+      expect(f.requests.snapshot(f.data.renderer)).toEqual([])
+      expect(f.source.host.readTextFilePrefix).not.toHaveBeenCalled()
+    } finally {
+      await f.close()
+    }
+  })
+  it('retires the request before its first physical writer await when visibility withdraws and returns', async () => {
+    const f = await sourceGuest('human')
+    let resume!: () => void, entered!: () => void
+    const waiting = new Promise<void>((resolve) => {
+        resume = resolve
+      }),
+      reached = new Promise<void>((resolve) => {
+        entered = resolve
+      })
+    const hold = async () => {
+      entered()
+      await waiting
+    }
+    f.data.assertWritable.mockImplementationOnce(hold)
+    f.source.authority.assertWritable.mockImplementationOnce(hold)
+    try {
+      const request = result(f.data, 10, 'early-withdrawal', 'source.request', {
+        source: 'source',
+        root: f.source.root,
+      })
+      await reached
+      f.data.owner.presentation(
+        f.data.renderer,
+        f.view.id,
+        DEFAULT_EXTENSION_PRESENTATION,
+        false,
+        false,
+      )
+      f.data.owner.presentation(
+        f.data.renderer,
+        f.view.id,
+        DEFAULT_EXTENSION_PRESENTATION,
+        true,
+        true,
+      )
+      resume()
+      expect(await request).toMatchObject({ ok: false })
+      expect(f.requests.snapshot(f.data.renderer)).toEqual([])
+      expect(f.source.host.readTextFilePrefix).not.toHaveBeenCalled()
+    } finally {
+      resume()
+      await f.close()
+    }
+  })
+  it('denies a source request when the canonical writer gate is unavailable', async () => {
+    const f = await sourceGuest('human')
+    f.source.authority.assertWritable.mockRejectedValueOnce(
+      new Error('Extension writer was lost'),
+    )
+    try {
+      expect(
+        await result(f.data, 10, 'writer-lost', 'source.request', {
+          source: 'source',
+          root: f.source.root,
+        }),
+      ).toMatchObject({ ok: false, error: 'Extension writer was lost' })
+      expect(f.requests.snapshot(f.data.renderer)).toEqual([])
+      expect(f.source.host.readTextFilePrefix).not.toHaveBeenCalled()
+    } finally {
+      await f.close()
+    }
+  })
   it.each([false, true])(
     'rejects a new hidden selection and prevents publication when its real guest becomes hidden during the owning read (renew visibility: %s)',
     async (renew) => {

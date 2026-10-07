@@ -43,6 +43,13 @@ export function registerExtensionsIpc(
       workspaces: extensions.contexts?.workspaces() ?? [],
     }
   })
+  ipc.handle(
+    'extensions:source-proposals',
+    (_req, context) => extensions?.sourceRequests?.snapshot(context.owner()) ?? [],
+  )
+  ipc.handle('extensions:source-decide', (req, context) =>
+    extensions?.sourceRequests?.decide(context.owner(), req.id, req.accepted),
+  )
   ipc.handle('extensions:source-prepare', (req, context) => {
     const owner = context.owner()
     return (

@@ -162,7 +162,7 @@ export class ExtensionSourceApprovalOwner {
         activation,
         current: assertIntent,
         intent,
-        expires: Date.now() + 60_000,
+        expires: Date.now() + SOURCE_LIMITS.decisionMs,
       })
       return { token, grant }
     } finally {
@@ -207,9 +207,16 @@ export class ExtensionSourceApprovalOwner {
       this.grants = [...this.grants.filter((entry) => key(entry) !== key(grant)), grant]
     })
   }
+  cancelPrepared(token: string): void {
+    this.prepared.delete(token)
+  }
+  hasPrepared(token: string): boolean {
+    this.prune()
+    return this.prepared.get(token)?.intent === this.intent
+  }
   revoke(installation: string, source?: string): Promise<void> {
-    this.revoked(installation, source)
     this.discardPrepared(installation, source)
+    this.revoked(installation, source)
     this.grants = this.grants.filter(
       (entry) =>
         entry.installationId !== installation ||
