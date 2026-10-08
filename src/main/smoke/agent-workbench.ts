@@ -361,44 +361,16 @@ export async function verifyAgentWorkbench(
     `printf 'Explicit workspace result' | ELECTRON_RUN_AS_NODE=1 ${shellQuote(process.execPath)} ${shellQuote(entry)} report --workspace ${shellQuote(other.id)} --stdin > ${shellQuote(output.path)}\r`,
     terminal.ownerGeneration,
   )
-  let explicitResult = {
-    parsed: false,
-    ok: false,
-    report: false,
-    failure: 'none',
-    connectionEnded: false,
-  }
-  try {
-    await wait(async () => {
-      try {
-        const result = JSON.parse((await host.readFile(output)).toString('utf8')) as {
-          ok?: boolean
-          report?: { id?: string }
-          error?: { code?: string; message?: string }
-        }
-        explicitResult = {
-          parsed: true,
-          ok: result.ok === true,
-          report: typeof result.report?.id === 'string',
-          failure: ['unavailable', 'invalid-command', 'interrupted'].includes(
-            result.error?.code ?? '',
-          )
-            ? result.error!.code!
-            : result.error
-              ? 'other'
-              : 'none',
-          connectionEnded:
-            result.error?.message === 'Agent connection ended before a result',
-        }
-        return explicitResult.report
-      } catch {
-        return false
-      }
-    }, 'explicit workspace replaces inherited session')
-  } catch (reason) {
-    console.log('[smoke] explicit workspace result facts', explicitResult)
-    throw reason
-  }
+  await wait(async () => {
+    try {
+      return Boolean(
+        (JSON.parse((await host.readFile(output)).toString('utf8')) as AgentCliOutcome)
+          .report?.id,
+      )
+    } catch {
+      return false
+    }
+  }, 'explicit workspace replaces inherited session')
   completedSubmission()
   const explicit = JSON.parse(
     (await host.readFile(output)).toString('utf8'),

@@ -109,6 +109,49 @@ describe('agent commands through capability owners', () => {
     expect(f.reports.snapshot()).toHaveLength(2)
   })
 
+  it('refuses a live session on another registered workspace without withdrawing the report', async () => {
+    const f = fixture(),
+      other = localPath('/other'),
+      state = f.sources.projectState()
+    const contexts = new ExtensionContextOwner({
+      ...f.sources,
+      projectState: () => ({
+        ...state,
+        projects: state.projects.map((project) => ({
+          ...project,
+          workspaces: [
+            ...project.workspaces,
+            { ...project.workspaces[0]!, id: 'other', root: other },
+          ],
+        })),
+      }),
+      ptys: {
+        ...f.sources.ptys,
+        observationSnapshot: () =>
+          f.sources.ptys
+            .observationSnapshot()
+            .map((entry, index) =>
+              index ? { ...entry, info: { ...entry.info, workspaceRoot: other } } : entry,
+            ),
+      },
+    })
+    vi.spyOn(f.ports, 'contexts').mockReturnValue(contexts)
+    await f.access.configure({ enabled: true, confirmDestructive: false })
+    const session = contexts
+      .sessionsForAgents()
+      .find((entry) => entry.workspace.id === 'other')!
+    expect(session.workspace.root).toEqual(other)
+    expect(contexts.sessionOwner(session.id)).toBeDefined()
+    const report = f.reports.publish('workspace', f.root, 'First', 'text', 'kept')
+    const close = ['report', '--handle', report.handle, '--close']
+    const before = f.reports.snapshot()
+    expect((await f.run([...close, '--session', session.id])).exitStatus).toBe(69)
+    expect(f.reports.snapshot()).toEqual(before)
+    expect((await f.run(close, '', { session: session.id })).exitStatus).toBe(69)
+    expect(f.reports.snapshot()).toEqual(before)
+    expect(f.reports.read(report.id).content).toBe('kept')
+  })
+
   it('fences access Off before withdrawal but returns completed withdrawal truthfully after revocation', async () => {
     const f = fixture()
     const report = f.reports.publish('workspace', f.root, 'First', 'text', 'kept')
