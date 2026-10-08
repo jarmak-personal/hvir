@@ -5,8 +5,17 @@ publishes into the calling terminal's workspace without taking focus. Outside hv
 `--instance ENDPOINT --workspace ID`. Text and Markdown are accepted up to 128 KiB. Reports
 remain closable for the application session; restart persistence is not promised.
 
-The result includes an opaque ID and replacement handle. Only `--handle HANDLE` can replace
-that exact report in the same workspace. Capacity is 64 reports/4 MiB application-wide and
+The result includes an opaque ID and publisher handle. Only `--handle HANDLE` can replace
+that exact report in the same workspace. Withdraw it with
+`hvir-agent report --handle HANDLE --close`; outside hvir also supply `--instance ENDPOINT`.
+No stdin, title or format is accepted with `--close`. Its handle identifies the stored workspace;
+any supplied workspace/session targeting must agree. A report ID cannot replace the handle.
+Unknown or stale handles change nothing. Agent access must remain enabled, and trusted SSH
+forwarding keeps its existing host/generation scope. A successful response includes
+`report: { id, workspace, closed: true }`. Withdrawal takes no keyboard focus and removes
+only that report and its quiet attention, leaving other reports intact.
+
+Capacity is 64 reports/4 MiB application-wide and
 one request and one report of up to 128 KiB per connection. Close unused reports when capacity is full.
 
 A quiet agent badge appears on the tab and rolls up to workspace/project rows. Viewing clears

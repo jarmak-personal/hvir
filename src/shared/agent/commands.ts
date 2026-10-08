@@ -137,11 +137,11 @@ export const AGENT_COMMANDS = [
   },
   {
     name: 'report',
-    summary: 'Publish or replace a workspace report from stdin.',
-    flags: [...targetFlags, 'title', 'format', 'handle', 'stdin'],
+    summary: 'Publish, replace or withdraw a workspace report.',
+    flags: [...targetFlags, 'title', 'format', 'handle', 'stdin', 'close'],
     access: 'agent access',
-    input: 'Bounded text or Markdown on stdin; handle for replacement',
-    output: 'Opaque report ID and replacement handle',
+    input: 'Bounded text or Markdown on stdin; exact handle for replacement or --close',
+    output: 'Opaque report ID/handle, or exact report withdrawal result',
     example:
       'printf "# Result\\n" | hvir-agent report --title Result --format markdown --stdin',
   },
@@ -182,9 +182,10 @@ export function parseAgentCommand(argv: readonly string[]): ParsedAgentCommand {
     )
       throw new Error(`Unknown option for ${name}`)
     if (Object.hasOwn(flags, key)) throw new Error('Duplicate command option')
-    if (key === 'stdin' && inline !== undefined)
-      throw new Error('The stdin option takes no value')
-    const value = key === 'stdin' ? 'true' : (inline ?? argv[++index])
+    const booleanOption = key === 'stdin' || key === 'close'
+    if (booleanOption && inline !== undefined)
+      throw new Error(`The ${key} option takes no value`)
+    const value = booleanOption ? 'true' : (inline ?? argv[++index])
     if (!value || value.startsWith('--')) throw new Error(`Missing ${key} value`)
     flags[key] = value
   }
@@ -200,6 +201,11 @@ export function parseAgentCommand(argv: readonly string[]): ParsedAgentCommand {
   for (const key of ['session', 'extension', 'action', 'view', 'handle'])
     if (flags[key] && flags[key].length > 128)
       throw new Error('Target identity is too long')
+  if (name === 'report' && flags['close']) {
+    if (!flags['handle']) throw new Error('Closing a report requires --handle HANDLE')
+    if (['title', 'format', 'stdin'].some((key) => Object.hasOwn(flags, key)))
+      throw new Error('Report --close cannot include title, format or stdin')
+  }
   return Object.freeze({
     name: declaration.name,
     flags: Object.freeze(flags),

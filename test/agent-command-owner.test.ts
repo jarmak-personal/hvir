@@ -11,7 +11,8 @@ import { AgentReportOwner } from '../src/main/viewer/agent-report-owner'
 import { ExtensionContextOwner } from '../src/main/extensions/context-owner'
 import { ProjectRegistry } from '../src/main/project-registry'
 import { LocalHost } from '../src/main/project-host/local-host'
-import { localPath } from '../src/shared/host-path'
+import { localPath, hostPath, asHostId } from '../src/shared/host-path'
+import { AgentForwardScopeOwner } from '../src/main/agent/forward-scope'
 import { AGENT_CONTRACT, validateAgentRequest } from '../src/shared/agent/contract'
 import { contextFixture } from './fixtures/extension-context'
 function fixture() {
@@ -47,6 +48,169 @@ function fixture() {
   return { ...context, reports, access, ports, run }
 }
 describe('agent commands through capability owners', () => {
+  it('withdraws by handle outside a terminal without selection or extension authority, preserving another report', async () => {
+    const f = fixture()
+    await f.access.configure({ enabled: true, confirmDestructive: false })
+    const report = f.reports.publish('workspace', f.root, 'First', 'text', 'old')
+    const other = f.reports.publish('workspace', f.root, 'Other', 'text', 'kept')
+    const state = f.sources.projectState()
+    vi.spyOn(f.sources, 'projectState').mockReturnValue({
+      ...state,
+      activeWorkspaceId: 'other',
+      projects: state.projects.map((project) => ({
+        ...project,
+        activeWorkspaceId: 'other',
+        workspaces: [
+          ...project.workspaces,
+          { ...project.workspaces[0]!, id: 'other', root: localPath('/other') },
+        ],
+      })),
+    })
+    const response = await f.run(['report', '--handle', report.handle, '--close'])
+    expect(response.exitStatus).toBe(0)
+    expect(JSON.parse(response.stdout)).toMatchObject({
+      report: { id: report.id, workspace: 'workspace', closed: true },
+    })
+    expect(f.reports.snapshot()).toEqual([
+      expect.objectContaining({ id: other.id, unread: true }),
+    ])
+    expect(f.sources.projectState().activeWorkspaceId).toBe('other')
+    expect(f.ports.openView).not.toHaveBeenCalled()
+    expect(f.ports.invokeAction).not.toHaveBeenCalled()
+    expect(
+      (await f.run(['report', '--handle', report.handle, '--close'])).exitStatus,
+    ).toBe(69)
+    expect((await f.run(['report', '--handle', other.id, '--close'])).exitStatus).toBe(69)
+  })
+
+  it('refuses conflicting targets, stale defaults/root binding and content without withdrawing', async () => {
+    const f = fixture()
+    await f.access.configure({ enabled: true, confirmDestructive: false })
+    const report = f.reports.publish('workspace', f.root, 'First', 'text', 'kept')
+    const close = ['report', '--handle', report.handle, '--close']
+    for (const [argv, defaults] of [
+      [[...close, '--workspace', 'other'], {}],
+      [[...close, '--session', 'stale'], {}],
+      [close, { workspace: 'other' }],
+      [close, { session: 'stale' }],
+    ] as const)
+      expect((await f.run([...argv], '', defaults)).exitStatus).toBe(69)
+    expect((await f.run(close, 'ignored content')).exitStatus).toBe(64)
+    const rootChanged = f.reports.publish(
+      'workspace',
+      localPath('/different'),
+      'Moved',
+      'text',
+      'kept',
+    )
+    expect(
+      (await f.run(['report', '--handle', rootChanged.handle, '--close'])).exitStatus,
+    ).toBe(69)
+    expect(f.reports.snapshot()).toHaveLength(2)
+  })
+
+  it('fences access Off before withdrawal but returns completed withdrawal truthfully after revocation', async () => {
+    const f = fixture()
+    const report = f.reports.publish('workspace', f.root, 'First', 'text', 'kept')
+    const close = ['report', '--handle', report.handle, '--close']
+    expect((await f.run(close)).exitStatus).toBe(69)
+    await f.access.configure({ enabled: true, confirmDestructive: false })
+    let revoked: Promise<void> | undefined
+    vi.spyOn(f.ports, 'assertOwner').mockImplementationOnce(() => {
+      revoked = f.access.configure({ enabled: false, confirmDestructive: false })
+    })
+    expect((await f.run(close)).exitStatus).toBe(69)
+    await revoked
+    expect(f.reports.read(report.id).content).toBe('kept')
+    await f.access.configure({ enabled: true, confirmDestructive: false })
+    const original = f.reports.withdraw.bind(f.reports)
+    vi.spyOn(f.reports, 'withdraw').mockImplementation((...args) => {
+      const completed = original(...args)
+      revoked = f.access.configure({ enabled: false, confirmDestructive: false })
+      return completed
+    })
+    expect((await f.run(close)).exitStatus).toBe(0)
+    await revoked
+    expect(() => f.reports.read(report.id)).toThrow('closed')
+  })
+
+  it('uses trusted SSH host/generation scope for handle withdrawal, never caller claims', async () => {
+    const f = fixture(),
+      scopes = new AgentForwardScopeOwner(() => undefined)
+    scopes.register('ssh', 'current')
+    const root = hostPath(asHostId('ssh'), '/remote')
+    const state = f.sources.projectState()
+    const contexts = new ExtensionContextOwner({
+      ...f.sources,
+      projectState: () => ({
+        ...state,
+        projects: state.projects.map((project) => ({
+          ...project,
+          workspaces: [
+            ...project.workspaces,
+            { ...project.workspaces[0]!, id: 'remote', root },
+          ],
+        })),
+      }),
+    })
+    vi.spyOn(f.ports, 'contexts').mockReturnValue(contexts)
+    const owner = new AgentWorkbenchCommandOwner({ ...f.ports, forwardScopes: scopes })
+    await f.access.configure({ enabled: true, confirmDestructive: false })
+    const local = f.reports.publish('workspace', f.root, 'Local', 'text', 'kept')
+    const remote = f.reports.publish('remote', root, 'Remote', 'text', 'kept')
+    const run = (handle: string, generation = 'current', extra: string[] = []) =>
+      owner.run(
+        {
+          contract: AGENT_CONTRACT,
+          argv: ['report', '--handle', handle, '--close', ...extra],
+          stdin: '',
+          defaults: {},
+        },
+        {
+          id: 'forwarded',
+          origin: 'ssh-forward',
+          host: asHostId('ssh'),
+          generation,
+          signal: new AbortController().signal,
+          current: () => undefined,
+        },
+      )
+    expect((await run(local.handle)).exitStatus).toBe(69)
+    expect((await run(remote.handle, 'stale')).exitStatus).toBe(69)
+    expect(
+      (await run(remote.handle, 'current', ['--workspace', 'workspace'])).exitStatus,
+    ).toBe(69)
+    expect(
+      (await run(remote.handle, 'current', ['--origin', 'application-local'])).exitStatus,
+    ).toBe(64)
+    const forged = validateAgentRequest({
+      contract: AGENT_CONTRACT,
+      argv: ['report', '--handle', local.handle, '--close'],
+      stdin: '',
+      defaults: {},
+      origin: 'application-local',
+      host: 'local',
+      authorization: 'human',
+    })
+    expect(
+      (
+        await owner.run(forged, {
+          id: 'forwarded',
+          origin: 'ssh-forward',
+          host: asHostId('ssh'),
+          generation: 'current',
+          signal: new AbortController().signal,
+          current: () => undefined,
+        })
+      ).exitStatus,
+    ).toBe(69)
+    expect((await run(remote.handle)).exitStatus).toBe(0)
+    expect(f.reports.snapshot()).toEqual([
+      expect.objectContaining({ id: local.id, unread: true }),
+    ])
+    scopes.revoke('ssh')
+    expect((await run(local.handle)).exitStatus).toBe(69)
+  })
   it('uses a real registered nested workspace identity through explicit CLI targets and protected defaults', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'hvir-agent-workspace-')),
       nested = join(

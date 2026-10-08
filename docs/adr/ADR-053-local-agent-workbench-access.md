@@ -58,8 +58,13 @@ Harness permission modes are neither inferred nor changed; a harness sandbox doe
 work executed by hvir under hvir's own admitted authority.
 
 A viewer-owned in-memory report store retains bounded workspace-qualified text/Markdown content
-after command exit. Reports have real opaque identity and replacement handles, no fake path or
-diagnostic-report storage. Markdown parsing/highlighting reuses the worker; automatic resources
+after command exit. Reports have real opaque identity and publisher handles for exact replacement
+or withdrawal, no fake path or diagnostic-report storage. Publisher withdrawal resolves its
+workspace-qualified report from that handle, checks any supplied target assertions and the
+ordinary standing access/transport scope, then uses the existing viewer closure and quiet-attention
+publication. Report IDs and desktop selection cannot retarget withdrawal. Unknown/stale handles
+change nothing; completed closure remains truthful after later revocation.
+Markdown parsing/highlighting reuses the worker; automatic resources
 are inert before DOM publication. Explicit human file-link clicks retain ADR-045 authority,
 with the report workspace root as link base. Agent document opening remains canonically confined
 to registered roots and returns presentation metadata only. Publishing preserves focus by

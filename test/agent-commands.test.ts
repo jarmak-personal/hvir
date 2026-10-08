@@ -4,6 +4,38 @@ import { AGENT_CONTRACT, validateAgentRequest } from '../src/shared/agent/contra
 import { readAgentGuide } from '../src/agent-transport/reference-assets'
 
 describe('installed agent contract discovery', () => {
+  it('accepts handle-qualified withdrawal and rejects content or invented close values', () => {
+    expect(
+      parseAgentCommand([
+        'report',
+        '--instance',
+        '/instance.sock',
+        '--handle',
+        'opaque',
+        '--close',
+      ]).flags,
+    ).toEqual({ instance: '/instance.sock', handle: 'opaque', close: 'true' })
+    for (const argv of [
+      ['report', '--close'],
+      ['report', '--handle', 'opaque', '--close=true'],
+      ['report', '--handle', 'opaque', '--close', 'false'],
+      ['report', '--handle', 'opaque', '--close', '--close'],
+      ...['title', 'format', 'stdin'].map((flag) => [
+        'report',
+        '--handle',
+        'opaque',
+        '--close',
+        '--' + flag,
+        ...(flag === 'stdin' ? [] : ['value']),
+      ]),
+    ])
+      expect(() => parseAgentCommand(argv)).toThrow()
+    const reference = JSON.parse(
+      staticAgentReference(parseAgentCommand(['help', 'report']), readAgentGuide)!.stdout,
+    ) as { reference: { flags: string[]; input: string } }
+    expect(reference.reference.flags).toContain('close')
+    expect(reference.reference.input).toContain('--close')
+  })
   it('keeps top-level help progressive and returns focused installed reference offline', () => {
     const help = staticAgentReference(parseAgentCommand([]), readAgentGuide)!
     expect(help.exitStatus).toBe(0)

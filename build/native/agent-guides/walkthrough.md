@@ -7,6 +7,9 @@ Open a project in hvir. In Settings > Extensions enable Agent access. From its t
 `hvir-agent workspaces`, `hvir-agent sessions`, `hvir-agent open --path README.md`, then
 `printf '# Agent result\n' | hvir-agent report --title Result --stdin`.
 Focus stays in the terminal. Select the report tab to clear its quiet badge, then close it.
+Alternatively, keep the returned handle and withdraw your report with
+`hvir-agent report --handle HANDLE --close`. Report IDs and desktop selection do not replace
+the handle, and withdrawal does not move keyboard focus.
 Outside hvir run `hvir-agent instances`, then `hvir-agent workspaces --instance ENDPOINT`
 and `hvir-agent sessions --instance ENDPOINT --workspace ID`. Supply `--instance ENDPOINT`
 and `--workspace ID` to document opening and report publication. Workspace, view and action

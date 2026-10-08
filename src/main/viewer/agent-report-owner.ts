@@ -4,7 +4,7 @@ import {
   type AgentReport,
   type AgentReportSummary,
 } from '../../shared/agent/contract'
-import type { HostPath } from '../../shared/host-path'
+import { hostPathEquals, type HostPath } from '../../shared/host-path'
 
 interface RetainedReport {
   report: AgentReport
@@ -37,17 +37,7 @@ export class AgentReportOwner {
       throw new Error('Invalid report presentation')
     const bytes = Buffer.byteLength(content)
     if (bytes > AGENT_LIMITS.reportBytes) throw new Error('Report exceeds its byte limit')
-    const previous = handle
-      ? [...this.retained.values()].find((entry) => entry.handle === handle)
-      : undefined
-    if (
-      handle &&
-      (!previous ||
-        previous.report.workspace !== workspace ||
-        previous.report.root.hostId !== root.hostId ||
-        previous.report.root.path !== root.path)
-    )
-      throw new Error('Report handle is stale or belongs to another target')
+    const previous = handle ? this.forHandle(handle, { workspace, root }) : undefined
     const current = [...this.retained.values()].filter((entry) => entry !== previous)
     if (
       current.length >= AGENT_LIMITS.reports ||
@@ -84,6 +74,26 @@ export class AgentReportOwner {
   close(id: string): void {
     if (this.retained.delete(id)) this.changed()
   }
+  targetForHandle(handle: string): {
+    readonly workspace: string
+    readonly root: HostPath
+  } {
+    const { workspace, root } = this.forHandle(handle).report
+    return { workspace, root }
+  }
+  withdraw(
+    handle: string,
+    workspace: string,
+    root: HostPath,
+  ): {
+    readonly id: string
+    readonly workspace: string
+    readonly closed: true
+  } {
+    const { id } = this.forHandle(handle, { workspace, root }).report
+    this.close(id)
+    return { id, workspace, closed: true }
+  }
   retainWorkspaces(ids: ReadonlySet<string>): void {
     let changed = false
     for (const [id, entry] of this.retained)
@@ -95,5 +105,19 @@ export class AgentReportOwner {
   }
   dispose(): void {
     this.retained.clear()
+  }
+  private forHandle(
+    handle: string,
+    target?: { readonly workspace: string; readonly root: HostPath },
+  ): RetainedReport {
+    const entry = [...this.retained.values()].find((value) => value.handle === handle)
+    if (
+      !entry ||
+      (target &&
+        (entry.report.workspace !== target.workspace ||
+          !hostPathEquals(entry.report.root, target.root)))
+    )
+      throw new Error('Report handle is stale or belongs to another target')
+    return entry
   }
 }
