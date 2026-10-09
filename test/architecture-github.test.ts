@@ -297,6 +297,10 @@ describe('architecture GitHub evidence boundary', () => {
         { status: 'ahead', merge_base_commit: { sha: base } },
       ],
       [
+        `compare/${head}...${head}`,
+        { status: 'identical', merge_base_commit: { sha: head } },
+      ],
+      [
         `git/commits/${merge}`,
         {
           sha: merge,
@@ -345,6 +349,12 @@ describe('architecture GitHub evidence boundary', () => {
     if (defect === 'valid' || defect === 'recovered') {
       expect(await result).toEqual({ epic, pullRequest: 20, base, head, merge })
       expect(requests).toContain('actions/runs/42/attempts/2/jobs?per_page=100&page=1')
-    } else await expect(result).rejects.toThrow()
+    } else {
+      await expect(result).rejects.toThrow()
+      // A missing fake response must not masquerade as rejection of the named defect.
+      await expect(result).rejects.not.toThrow(
+        /API unavailable|request failed|Unexpected fixture/,
+      )
+    }
   })
 })

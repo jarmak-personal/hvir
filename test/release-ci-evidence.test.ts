@@ -705,6 +705,35 @@ describe('release CI evidence', () => {
     }
   })
 
+  it('retains available candidate identities when a later API read is unavailable', async () => {
+    const fallback = releaseCiFetch()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: string | URL | Request) => {
+        if (requestUrl(input).includes('/actions/runs/42/attempts/1/jobs'))
+          return Promise.resolve(githubJson({}, 503))
+        return (fallback as (value: string | URL | Request) => Promise<Response>)(input)
+      }),
+    )
+    const result = loadReleaseCiEvidence(
+      RELEASE_REPOSITORY,
+      'main',
+      sourceSha,
+      'test-token',
+    )
+    for (const identity of [
+      'PR #625',
+      baseSha,
+      headSha,
+      sourceSha,
+      'run=42',
+      'attempt=1',
+      'API evidence unavailable',
+      'retry',
+    ])
+      await expect(result).rejects.toThrow(identity)
+  })
+
   it('distinguishes unavailable API reads from absent evidence without leaking errors', async () => {
     stubReleaseEnvironment()
     vi.stubGlobal(

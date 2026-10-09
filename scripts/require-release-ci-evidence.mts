@@ -531,77 +531,92 @@ export async function loadCandidateCiEvidence(
   token: string,
   pullRequests: readonly MergedPullRequest[] = [pullRequest],
 ): Promise<ReleaseCiEvidence> {
-  const runs = await loadWorkflowRuns(repository, pullRequest.head.sha, token)
-  const selection = selectCandidateRun(runs, repository, pullRequest)
-  const candidateRun = 'run' in selection ? selection.run : null
-  if (candidateRun) {
-    for (const association of candidateRun.pullRequests) {
-      association.baseToHead = await loadComparison(
-        repository,
-        association.base.sha,
-        pullRequest.head.sha,
-        token,
-      )
-    }
-  }
-  const jobs = candidateRun
-    ? await loadCiAttemptJobs(repository, candidateRun.id, candidateRun.runAttempt, token)
-    : []
-  const [sourceToDefault, sourceCommit, headCommit] = await Promise.all([
-    loadComparison(repository, sourceSha, defaultBranch, token),
-    loadCommit(repository, sourceSha, token),
-    loadCommit(repository, pullRequest.head.sha, token),
-  ])
-  const mergedBaseSha = sourceCommit.parents[0]
-  const baseToHead = mergedBaseSha
-    ? await loadComparison(repository, mergedBaseSha, pullRequest.head.sha, token)
-    : null
-
-  const prBaseToHead =
-    mergedBaseSha === pullRequest.base.sha
-      ? baseToHead
-      : await loadComparison(
+  let selectedRun: CiWorkflowRun | null = null
+  try {
+    const runs = await loadWorkflowRuns(repository, pullRequest.head.sha, token)
+    const selection = selectCandidateRun(runs, repository, pullRequest)
+    const candidateRun = 'run' in selection ? selection.run : null
+    selectedRun = candidateRun
+    if (candidateRun) {
+      for (const association of candidateRun.pullRequests) {
+        association.baseToHead = await loadComparison(
           repository,
-          pullRequest.base.sha,
+          association.base.sha,
           pullRequest.head.sha,
           token,
         )
-  const releaseClassifier = jobs.filter(
-    (job) => job.name === RELEASE_VERSION_INTEGRITY_JOB,
-  )
-  let versionOnlyIntegrityAccepted: boolean | null = null
-  if (
-    releaseClassifier.length === 1 &&
-    releaseClassifier[0]?.status === 'completed' &&
-    releaseClassifier[0].conclusion === 'success'
-  ) {
-    const decision = await loadReleasePrIntegrityDecision({
-      repository,
-      defaultBranch,
-      token,
-      mode: 'merged',
-      pullRequestNumber: pullRequest.number,
-      expectedHeadSha: pullRequest.head.sha,
-      sourceSha,
-    })
-    versionOnlyIntegrityAccepted = decision.accepted
-  }
+      }
+    }
+    const jobs = candidateRun
+      ? await loadCiAttemptJobs(
+          repository,
+          candidateRun.id,
+          candidateRun.runAttempt,
+          token,
+        )
+      : []
+    const [sourceToDefault, sourceCommit, headCommit] = await Promise.all([
+      loadComparison(repository, sourceSha, defaultBranch, token),
+      loadCommit(repository, sourceSha, token),
+      loadCommit(repository, pullRequest.head.sha, token),
+    ])
+    const mergedBaseSha = sourceCommit.parents[0]
+    const baseToHead = mergedBaseSha
+      ? await loadComparison(repository, mergedBaseSha, pullRequest.head.sha, token)
+      : null
 
-  return {
-    sourceSha,
-    defaultBranch,
-    repository,
-    pullRequests,
-    runs,
-    jobs,
-    jobsRunId: candidateRun?.id ?? null,
-    jobsRunAttempt: candidateRun?.runAttempt ?? null,
-    baseToHead,
-    prBaseToHead,
-    sourceToDefault,
-    sourceCommit,
-    headCommit,
-    versionOnlyIntegrityAccepted,
+    const prBaseToHead =
+      mergedBaseSha === pullRequest.base.sha
+        ? baseToHead
+        : await loadComparison(
+            repository,
+            pullRequest.base.sha,
+            pullRequest.head.sha,
+            token,
+          )
+    const releaseClassifier = jobs.filter(
+      (job) => job.name === RELEASE_VERSION_INTEGRITY_JOB,
+    )
+    let versionOnlyIntegrityAccepted: boolean | null = null
+    if (
+      releaseClassifier.length === 1 &&
+      releaseClassifier[0]?.status === 'completed' &&
+      releaseClassifier[0].conclusion === 'success'
+    ) {
+      const decision = await loadReleasePrIntegrityDecision({
+        repository,
+        defaultBranch,
+        token,
+        mode: 'merged',
+        pullRequestNumber: pullRequest.number,
+        expectedHeadSha: pullRequest.head.sha,
+        sourceSha,
+      })
+      versionOnlyIntegrityAccepted = decision.accepted
+    }
+
+    return {
+      sourceSha,
+      defaultBranch,
+      repository,
+      pullRequests,
+      runs,
+      jobs,
+      jobsRunId: candidateRun?.id ?? null,
+      jobsRunAttempt: candidateRun?.runAttempt ?? null,
+      baseToHead,
+      prBaseToHead,
+      sourceToDefault,
+      sourceCommit,
+      headCommit,
+      versionOnlyIntegrityAccepted,
+    }
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : 'GitHub evidence read failed'
+    throw new Error(
+      `Candidate PR #${pullRequest.number} base=${pullRequest.base.ref}@${pullRequest.base.sha} head=${pullRequest.head.ref}@${pullRequest.head.sha} merge=${sourceSha}${selectedRun ? ` run=${selectedRun.id} attempt=${selectedRun.runAttempt}` : ''}: ${detail}`,
+      { cause: error },
+    )
   }
 }
 
