@@ -111,11 +111,20 @@ export class AgentWorkbenchCommandOwner {
       admitted.current()
       const contexts = this.ports.contexts()
       if (!contexts) throw new Error('Workspace context is unavailable')
+      const withdrawal =
+        command.name === 'report' && command.flags['close']
+          ? this.ports.reports.targetForHandle(command.flags['handle']!)
+          : undefined
+      if (withdrawal && request.stdin)
+        return agentFailure('invalid-command', 'Report --close takes no content', 64)
       const explicitTarget =
         command.flags['workspace'] !== undefined || command.flags['session'] !== undefined
-      const workspace =
+      const assertedWorkspace =
         command.flags['workspace'] ??
         (explicitTarget ? undefined : request.defaults.workspace)
+      if (withdrawal && assertedWorkspace && withdrawal.workspace !== assertedWorkspace)
+        throw new Error('Report handle belongs to another workspace')
+      const workspace = withdrawal?.workspace ?? assertedWorkspace
       const session =
         command.flags['session'] ??
         (explicitTarget ? undefined : request.defaults.session)
@@ -196,6 +205,16 @@ export class AgentWorkbenchCommandOwner {
       if (command.name === 'report') {
         if (!target.root || !target.value.workspace)
           throw new Error('Report requires an explicit workspace')
+        if (withdrawal) {
+          current()
+          const report = this.ports.reports.withdraw(
+            command.flags['handle']!,
+            target.value.workspace.id,
+            target.root,
+          )
+          // Withdrawal committed; later cancellation cannot restore retained content.
+          return agentOutput({ report })
+        }
         const format = command.flags['format'] ?? 'markdown'
         if (!['text', 'markdown'].includes(format))
           return agentFailure(

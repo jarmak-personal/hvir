@@ -11,6 +11,9 @@ its workspace; explicit workspace and session together must agree. Stale inherit
 fail when no explicit target is selected. Desktop selection does not retarget a request. Outside hvir use
 `workspaces` and `sessions` to discover IDs, then explicit flags. Relative document paths
 resolve within that workspace; absolute paths stay on its host and within its canonical root.
+For `report --handle HANDLE --close`, the handle identifies the stored report's workspace.
+No workspace flag is needed outside a terminal; any explicit or inherited workspace/session
+assertion must still agree with that report. SSH forwarding keeps its trusted host scope.
 
 `help COMMAND` documents one command. `commands` gives a structured installed contract index.
 Discovery has `--filter TEXT`, `--limit 1..32`, and snapshot-bound `--cursor CURSOR`.

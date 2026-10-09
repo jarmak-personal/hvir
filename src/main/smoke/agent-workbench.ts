@@ -11,6 +11,7 @@ import type { ElectronSmokeDependencies } from './bootstrap-contract'
 import { focusSmokeWindow } from './window-focus'
 import { ensureExplicitBareShellLaunch } from './terminal-explicit-launch'
 import { verifyAuthoringActionExamples } from './extension-authoring-actions'
+import { AGENT_LIMITS } from '../../shared/agent/contract'
 import {
   verifyExtensionTerminalHandoff,
   verifyTerminalCommandProcessRestart,
@@ -21,7 +22,11 @@ interface AgentCliOutcome {
   readonly items?: readonly { readonly id: string }[]
   readonly untrusted?: boolean
   readonly declaration?: ExtensionAction
-  readonly report?: { readonly id: string; readonly handle: string }
+  readonly report?: {
+    readonly id: string
+    readonly handle: string
+    readonly closed?: true
+  }
   readonly document?: { readonly path: HostPath; readonly content?: never }
   readonly value?: unknown
 }
@@ -86,17 +91,29 @@ export async function verifyAgentWorkbench(
   const entry = app.isPackaged
     ? join(process.resourcesPath, 'app.asar/out/main/agent-cli.js')
     : join(app.getAppPath(), 'out/main/agent-cli.js')
+  // This serial fixture is a bounded publisher, not a request-rate overload test.
+  // Leave the production admission limit intact and pace after each observed result.
+  let nextSubmissionAt = 0
+  const paceSubmission = async (): Promise<void> => {
+    const remaining = nextSubmissionAt - Date.now()
+    if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining))
+  }
+  const completedSubmission = (): void => {
+    nextSubmissionAt = Date.now() + 1000 / AGENT_LIMITS.requestsPerSecond
+  }
   async function command(
     args: readonly string[],
     input?: string,
     expected = 0,
   ): Promise<AgentCliOutcome> {
+    await paceSubmission()
     const result = await host.exec(process.execPath, [entry, ...args], {
       env: { ELECTRON_RUN_AS_NODE: '1' },
       unsetEnv: ['HVIR_AGENT_ENDPOINT', 'HVIR_AGENT_WORKSPACE', 'HVIR_AGENT_SESSION'],
       input,
       maxBuffer: 256 * 1024,
     })
+    completedSubmission()
     if (result.code !== expected)
       throw new Error(
         `Agent CLI ${args[0]} failed (${result.code}): ${result.stdout} ${result.stderr}`,
@@ -141,6 +158,114 @@ export async function verifyAgentWorkbench(
     )
     return true
   }
+  await click(win, 'Close settings')
+  if (extensions.activations!.active.size !== 0)
+    throw new Error('Publisher withdrawal fixture unexpectedly enabled an extension')
+  const publisherFocus = (await win.webContents.executeJavaScript(
+    `(() => { const input = document.createElement('input'); input.id = 'publisher-withdrawal-focus'; document.body.append(input); input.focus(); return document.activeElement.id; })()`,
+  )) as string
+  const badgeBefore = app.getBadgeCount()
+  const terminalAttentionBefore = (await win.webContents.executeJavaScript(
+    "JSON.stringify([...document.querySelectorAll('.terminal-attention-badge')].map(item => item.className))",
+  )) as string
+  const retained = await command(
+    [
+      'report',
+      '--instance',
+      endpoint,
+      '--workspace',
+      workspace,
+      '--title',
+      'Retained publisher report',
+      '--stdin',
+    ],
+    'other report remains unread',
+  )
+  const withdrawn = await command(
+    [
+      'report',
+      '--instance',
+      endpoint,
+      '--workspace',
+      workspace,
+      '--title',
+      'Withdrawn publisher report',
+      '--stdin',
+    ],
+    'initial publisher report',
+  )
+  await command(
+    [
+      'report',
+      '--instance',
+      endpoint,
+      '--workspace',
+      workspace,
+      '--handle',
+      withdrawn.report!.handle,
+      '--stdin',
+    ],
+    'replacement before withdrawal',
+  )
+  const closed = await command([
+    'report',
+    '--instance',
+    endpoint,
+    '--handle',
+    withdrawn.report!.handle,
+    '--close',
+  ])
+  if (closed.report?.id !== withdrawn.report!.id || closed.report.closed !== true)
+    throw new Error('Public withdrawal did not identify the completed exact report')
+  await wait(
+    () =>
+      dom(
+        win,
+        "document.querySelectorAll('.agent-report-tab').length === 1 && document.querySelector('.projects-bar .agent-report-badge') !== null",
+      ),
+    'withdrawal removes only its report tab and retains other quiet attention',
+  )
+  if (
+    agents.reports.snapshot().length !== 1 ||
+    !agents.reports.read(retained.report!.id).unread ||
+    agents.reports.read(retained.report!.id).content !== 'other report remains unread' ||
+    (await win.webContents.executeJavaScript('document.activeElement?.id')) !==
+      publisherFocus ||
+    (await win.webContents.executeJavaScript(
+      "JSON.stringify([...document.querySelectorAll('.terminal-attention-badge')].map(item => item.className))",
+    )) !== terminalAttentionBefore ||
+    app.getBadgeCount() !== badgeBefore
+  )
+    throw new Error('Withdrawal changed another report, keyboard focus or OS attention')
+  await command(
+    ['report', '--instance', endpoint, '--handle', withdrawn.report!.handle, '--close'],
+    undefined,
+    69,
+  )
+  await command([
+    'report',
+    '--instance',
+    endpoint,
+    '--handle',
+    retained.report!.handle,
+    '--close',
+  ])
+  await wait(
+    () =>
+      dom(
+        win,
+        "document.querySelector('.agent-report-tab') === null && document.querySelector('.agent-report-badge') === null",
+      ),
+    'last publisher withdrawal releases report attention',
+  )
+  await win.webContents.executeJavaScript(
+    "document.getElementById('publisher-withdrawal-focus').remove()",
+  )
+  console.log(
+    '[smoke] outside-terminal public report publish/replace/withdraw, no active extension, quiet attention and focus OK',
+  )
+  await click(win, 'Open settings')
+  await click(win, 'Extensions')
   const directory = extensions.activations!.directory,
     reference = joinHostPath(directory, 'agent-reference')
   await host.createDirectoryExclusive(reference, { mode: 0o755 })
@@ -206,6 +331,7 @@ export async function verifyAgentWorkbench(
   // Execute through the supervised shell without target flags: its protected values must work.
   const output = joinHostPath(sources.projectState().root, '.agent-terminal-result.json')
   const shellQuote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`
+  await paceSubmission()
   supervisor.write(
     terminal.id,
     terminal.ownerId,
@@ -222,11 +348,13 @@ export async function verifyAgentWorkbench(
       return false
     }
   }, 'protected terminal defaults')
+  completedSubmission()
   await host.removeFile(output)
   const other = (await command(['workspaces', '--instance', endpoint])).items?.find(
     (item) => item.id !== workspace,
   )
   if (!other) throw new Error('Explicit other workspace fixture is missing')
+  await paceSubmission()
   supervisor.write(
     terminal.id,
     terminal.ownerId,
@@ -243,12 +371,20 @@ export async function verifyAgentWorkbench(
       return false
     }
   }, 'explicit workspace replaces inherited session')
+  completedSubmission()
   const explicit = JSON.parse(
     (await host.readFile(output)).toString('utf8'),
   ) as AgentCliOutcome
   if (agents.reports.read(explicit.report!.id).workspace !== other.id)
     throw new Error('CLI inherited the wrong workspace')
-  agents.reports.close(explicit.report!.id)
+  await command([
+    'report',
+    '--instance',
+    endpoint,
+    '--handle',
+    explicit.report!.handle,
+    '--close',
+  ])
   await host.removeFile(output)
 
   const selected = await command([
