@@ -47,8 +47,17 @@ export interface CiWorkflowRun {
   headBranch: string | null
   headSha: string
   runAttempt: number
+  runNumber: number
+  pullRequests: readonly RunPullRequest[]
   status: string
   conclusion: string | null
+}
+
+export interface RunPullRequest {
+  number: number
+  base: PullRequestRef
+  head: PullRequestRef
+  baseToHead: CommitComparison | null
 }
 
 export interface CommitComparison {
@@ -88,7 +97,10 @@ export interface ReleaseCiEvidence {
   pullRequests: readonly MergedPullRequest[]
   runs: readonly CiWorkflowRun[]
   jobs: readonly CiWorkflowJob[]
+  jobsRunId: number | null
+  jobsRunAttempt: number | null
   baseToHead: CommitComparison | null
+  prBaseToHead: CommitComparison | null
   sourceToDefault: CommitComparison | null
   sourceCommit: CommitIdentity | null
   headCommit: CommitIdentity | null
@@ -135,17 +147,77 @@ export function evaluateReleaseCiEvidence(evidence: ReleaseCiEvidence): Evidence
     return { accepted: false, rejection: 'invalid-pull-request' }
   }
 
-  const candidateRuns = evidence.runs.filter((run) =>
-    matchesRunCandidate(run, evidence.repository, pullRequest),
-  )
-  if (candidateRuns.length === 0) {
-    return { accepted: false, rejection: 'missing-run' }
-  }
-  if (candidateRuns.length !== 1) {
-    return { accepted: false, rejection: 'ambiguous-run' }
-  }
+  return evaluateCandidateCiEvidence(evidence, pullRequest)
+}
 
-  const run = candidateRuns[0]!
+/** GitHub's workflow-specific run_number is creation order, unchanged by reruns. */
+function selectCandidateRun(
+  runs: readonly CiWorkflowRun[],
+  repository: string,
+  pullRequest: MergedPullRequest,
+): { run: CiWorkflowRun } | { rejection: EvidenceRejection } {
+  const candidates = runs.filter((run) =>
+    matchesRunCandidate(run, repository, pullRequest),
+  )
+  if (!candidates.length) return { rejection: 'missing-run' }
+  const numbers = new Set<number>(),
+    ids = new Set<number>()
+  for (const run of candidates) {
+    if (
+      !Number.isSafeInteger(run.runNumber) ||
+      run.runNumber <= 0 ||
+      !Number.isSafeInteger(run.id) ||
+      run.id <= 0 ||
+      numbers.has(run.runNumber) ||
+      ids.has(run.id)
+    )
+      return { rejection: 'ambiguous-run' }
+    numbers.add(run.runNumber)
+    ids.add(run.id)
+  }
+  return {
+    run: candidates.reduce((latest, run) =>
+      run.runNumber > latest.runNumber ? run : latest,
+    ),
+  }
+}
+
+/** Tested candidate facts confer no recorded merge acceptance by themselves. */
+export function evaluateCandidateCiEvidence(
+  evidence: ReleaseCiEvidence,
+  pullRequest: MergedPullRequest,
+): EvidenceDecision {
+  const selection = selectCandidateRun(evidence.runs, evidence.repository, pullRequest)
+  if ('rejection' in selection) return { accepted: false, rejection: selection.rejection }
+  const { run } = selection
+  if (
+    !Number.isSafeInteger(run.runAttempt) ||
+    run.runAttempt <= 0 ||
+    evidence.jobsRunId !== run.id ||
+    evidence.jobsRunAttempt !== run.runAttempt
+  )
+    return { accepted: false, rejection: 'changed-candidate' }
+  // Association snapshots can name a different base for the same tested head.
+  // An ancestor base proves the default merge-ref checkout has the exact head tree.
+  // Empty redundant association metadata is permitted; the canonical PR base proof
+  // and trusted CI verification/checkout contract remain required below.
+  for (const association of run.pullRequests) {
+    if (
+      association.number !== pullRequest.number ||
+      association.head.sha !== pullRequest.head.sha ||
+      association.head.ref !== pullRequest.head.ref ||
+      association.head.repository !== evidence.repository ||
+      association.base.ref !== pullRequest.base.ref ||
+      association.base.repository !== evidence.repository
+    )
+      return { accepted: false, rejection: 'changed-candidate' }
+    if (
+      !association.baseToHead ||
+      !['ahead', 'identical'].includes(association.baseToHead.status) ||
+      association.baseToHead.mergeBaseSha !== association.base.sha
+    )
+      return { accepted: false, rejection: 'stale-base' }
+  }
   if (run.status !== 'completed') {
     return { accepted: false, rejection: 'pending-run' }
   }
@@ -170,6 +242,12 @@ export function evaluateReleaseCiEvidence(evidence: ReleaseCiEvidence): Evidence
   ) {
     return { accepted: false, rejection: 'stale-base' }
   }
+  if (
+    !evidence.prBaseToHead ||
+    !['ahead', 'identical'].includes(evidence.prBaseToHead.status) ||
+    evidence.prBaseToHead.mergeBaseSha !== pullRequest.base.sha
+  )
+    return { accepted: false, rejection: 'stale-base' }
   if (
     evidence.sourceToDefault === null ||
     !['ahead', 'identical'].includes(evidence.sourceToDefault.status) ||
@@ -200,12 +278,12 @@ interface GitHubPullRequestResponse {
   base?: {
     ref?: unknown
     sha?: unknown
-    repo?: { full_name?: unknown } | null
+    repo?: { full_name?: unknown; url?: unknown } | null
   }
   head?: {
     ref?: unknown
     sha?: unknown
-    repo?: { full_name?: unknown } | null
+    repo?: { full_name?: unknown; url?: unknown } | null
   }
 }
 
@@ -223,6 +301,8 @@ interface GitHubWorkflowRun {
   head_branch?: unknown
   head_sha?: unknown
   run_attempt?: unknown
+  run_number?: unknown
+  pull_requests?: GitHubPullRequestResponse[]
   status?: unknown
   conclusion?: unknown
 }
@@ -243,7 +323,7 @@ const githubEvidence = new ReleaseGitHubEvidenceReader('GitHub merge evidence')
 function pullRequestRef(value: {
   ref?: unknown
   sha?: unknown
-  repo?: { full_name?: unknown } | null
+  repo?: { full_name?: unknown; url?: unknown } | null
 }): PullRequestRef {
   return {
     ref: githubEvidence.requiredString(value.ref),
@@ -251,7 +331,12 @@ function pullRequestRef(value: {
       'pull request ref SHA',
       githubEvidence.requiredString(value.sha),
     ),
-    repository: githubEvidence.requiredString(value.repo?.full_name),
+    repository: githubEvidence.requiredString(
+      value.repo?.full_name ??
+        (value.repo?.url === `https://api.github.com/repos/${RELEASE_REPOSITORY}`
+          ? RELEASE_REPOSITORY
+          : undefined),
+    ),
   }
 }
 
@@ -271,7 +356,7 @@ async function loadBoundedPages<T>(
   return githubEvidence.incomplete()
 }
 
-async function loadPullRequests(
+export async function loadPullRequests(
   repository: string,
   sourceSha: string,
   token: string,
@@ -338,6 +423,16 @@ async function loadWorkflowRuns(
         githubEvidence.requiredString(run.head_sha),
       ),
       runAttempt: githubEvidence.requiredNumber(run.run_attempt),
+      runNumber: githubEvidence.requiredNumber(run.run_number),
+      pullRequests: (Array.isArray(run.pull_requests)
+        ? run.pull_requests
+        : githubEvidence.incomplete()
+      ).map((pr) => ({
+        number: githubEvidence.requiredNumber(pr.number),
+        base: pullRequestRef(pr.base ?? {}),
+        head: pullRequestRef(pr.head ?? {}),
+        baseToHead: null,
+      })),
       status: githubEvidence.requiredString(run.status),
       conclusion: githubEvidence.nullableString(run.conclusion),
     }
@@ -407,7 +502,10 @@ export async function loadReleaseCiEvidence(
       pullRequests,
       runs: [],
       jobs: [],
+      jobsRunId: null,
+      jobsRunAttempt: null,
       baseToHead: null,
+      prBaseToHead: null,
       sourceToDefault: null,
       sourceCommit: null,
       headCommit: null,
@@ -415,11 +513,37 @@ export async function loadReleaseCiEvidence(
     }
   }
 
-  const runs = await loadWorkflowRuns(repository, pullRequest.head.sha, token)
-  const candidateRuns = runs.filter((run) =>
-    matchesRunCandidate(run, repository, pullRequest),
+  return loadCandidateCiEvidence(
+    repository,
+    defaultBranch,
+    sourceSha,
+    pullRequest,
+    token,
+    pullRequests,
   )
-  const candidateRun = candidateRuns.length === 1 ? candidateRuns[0]! : null
+}
+
+export async function loadCandidateCiEvidence(
+  repository: string,
+  defaultBranch: string,
+  sourceSha: string,
+  pullRequest: MergedPullRequest,
+  token: string,
+  pullRequests: readonly MergedPullRequest[] = [pullRequest],
+): Promise<ReleaseCiEvidence> {
+  const runs = await loadWorkflowRuns(repository, pullRequest.head.sha, token)
+  const selection = selectCandidateRun(runs, repository, pullRequest)
+  const candidateRun = 'run' in selection ? selection.run : null
+  if (candidateRun) {
+    for (const association of candidateRun.pullRequests) {
+      association.baseToHead = await loadComparison(
+        repository,
+        association.base.sha,
+        pullRequest.head.sha,
+        token,
+      )
+    }
+  }
   const jobs = candidateRun
     ? await loadCiAttemptJobs(repository, candidateRun.id, candidateRun.runAttempt, token)
     : []
@@ -433,6 +557,15 @@ export async function loadReleaseCiEvidence(
     ? await loadComparison(repository, mergedBaseSha, pullRequest.head.sha, token)
     : null
 
+  const prBaseToHead =
+    mergedBaseSha === pullRequest.base.sha
+      ? baseToHead
+      : await loadComparison(
+          repository,
+          pullRequest.base.sha,
+          pullRequest.head.sha,
+          token,
+        )
   const releaseClassifier = jobs.filter(
     (job) => job.name === RELEASE_VERSION_INTEGRITY_JOB,
   )
@@ -461,12 +594,47 @@ export async function loadReleaseCiEvidence(
     pullRequests,
     runs,
     jobs,
+    jobsRunId: candidateRun?.id ?? null,
+    jobsRunAttempt: candidateRun?.runAttempt ?? null,
     baseToHead,
+    prBaseToHead,
     sourceToDefault,
     sourceCommit,
     headCommit,
     versionOnlyIntegrityAccepted,
   }
+}
+
+export function formatCiEvidenceFailure(
+  evidence: ReleaseCiEvidence,
+  requirement: string,
+): string {
+  const prs = evidence.pullRequests
+    .slice(0, 5)
+    .map(
+      (pr) =>
+        `PR #${pr.number} base=${pr.base.ref}@${pr.base.sha} head=${pr.head.ref}@${pr.head.sha} recorded-merge=${pr.mergeCommitSha ?? 'absent'}`,
+    )
+  const runs = evidence.runs
+    .filter((run) =>
+      evidence.pullRequests.some((pr) =>
+        matchesRunCandidate(run, evidence.repository, pr),
+      ),
+    )
+    .sort((a, b) => b.runNumber - a.runNumber)
+    .slice(0, 5)
+    .map((run) => `run=${run.id} order=${run.runNumber} attempt=${run.runAttempt}`)
+  const action =
+    requirement.includes('run') || requirement.includes('job')
+      ? 'Inspect the latest equivalent CI run; wait for pending work or request a full workflow rerun, then reverify.'
+      : 'Inspect canonical PR and Git identities; restore the required evidence and reverify. Release requires a recorded accepted merge.'
+  const jobFacts = requirement.includes('job')
+    ? evidence.jobs
+        .slice(0, 10)
+        .map((job) => `${job.name}=${job.status}/${job.conclusion ?? 'absent'}`)
+        .join(', ')
+    : ''
+  return `Trusted CI evidence rejected: ${requirement}; source=${evidence.sourceSha} target=${evidence.defaultBranch}; ${prs.join('; ') || 'PR absent'}; ${runs.join('; ') || 'run absent'}${jobFacts ? '; jobs: ' + jobFacts : ''}. ${action}`
 }
 
 export async function requireReleaseCiEvidence(): Promise<void> {
@@ -481,11 +649,15 @@ export async function requireReleaseCiEvidence(): Promise<void> {
   )
   const token = requireReleaseEnvironment('GITHUB_TOKEN')
 
-  const decision = evaluateReleaseCiEvidence(
-    await loadReleaseCiEvidence(repository, defaultBranch, sourceSha, token),
+  const evidence = await loadReleaseCiEvidence(
+    repository,
+    defaultBranch,
+    sourceSha,
+    token,
   )
+  const decision = evaluateReleaseCiEvidence(evidence)
   if (!decision.accepted) {
-    throw new Error(`Trusted CI evidence rejected: ${decision.rejection}`)
+    throw new Error(formatCiEvidenceFailure(evidence, decision.rejection))
   }
 
   process.stdout.write(`Trusted ${decision.kind} merge evidence accepted.\n`)

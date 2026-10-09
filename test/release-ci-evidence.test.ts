@@ -10,6 +10,7 @@ import {
   loadReleaseCiEvidence,
   RELEASE_REPOSITORY,
   requireReleaseCiEvidence,
+  formatCiEvidenceFailure,
   type CiWorkflowRun,
   type MergedPullRequest,
   type ReleaseCiEvidence,
@@ -59,6 +60,8 @@ function workflowRun(overrides: Partial<CiWorkflowRun> = {}): CiWorkflowRun {
     headBranch: pr.head.ref,
     headSha: pr.head.sha,
     runAttempt: 1,
+    runNumber: 1,
+    pullRequests: [],
     status: 'completed',
     conclusion: 'success',
     ...overrides,
@@ -89,7 +92,10 @@ function evidence(overrides: Partial<ReleaseCiEvidence> = {}): ReleaseCiEvidence
     pullRequests: [pullRequest()],
     runs: [workflowRun()],
     jobs: successfulJobs(),
+    jobsRunId: 42,
+    jobsRunAttempt: 1,
     baseToHead: { status: 'ahead', mergeBaseSha: baseSha },
+    prBaseToHead: { status: 'ahead', mergeBaseSha: baseSha },
     sourceToDefault: { status: 'identical', mergeBaseSha: sourceSha },
     sourceCommit: { sha: sourceSha, treeSha, parents: [baseSha] },
     headCommit: { sha: headSha, treeSha, parents: [baseSha] },
@@ -147,6 +153,7 @@ function apiWorkflowRun(
     head_branch: 'agent/issue-625',
     head_sha: headSha,
     run_attempt: 1,
+    run_number: 1,
     status: 'completed',
     conclusion: 'success',
     pull_requests: [],
@@ -322,7 +329,7 @@ describe('release CI evidence', () => {
   })
 
   it('accepts one complete rerun attempt and rejects partial-attempt job evidence', () => {
-    const rerun = evidence({ runs: [workflowRun({ runAttempt: 2 })] })
+    const rerun = evidence({ runs: [workflowRun({ runAttempt: 2 })], jobsRunAttempt: 2 })
     expect(evaluateReleaseCiEvidence(rerun)).toEqual({
       accepted: true,
       kind: 'ordinary',
@@ -333,6 +340,158 @@ describe('release CI evidence', () => {
         jobs: successfulJobs().filter((job) => job.name !== REQUIRED_CI_JOBS[0]),
       }),
     ).toEqual({ accepted: false, rejection: 'missing-job' })
+  })
+
+  it.each(['success', 'failure', 'cancelled'])(
+    'selects the latest equivalent run after %s regardless of API order',
+    (earlierConclusion) => {
+      const earlier = workflowRun({ conclusion: earlierConclusion, runAttempt: 9 })
+      const latest = workflowRun({ id: 43, runNumber: 2 })
+      for (const runs of [
+        [earlier, latest],
+        [latest, earlier],
+      ])
+        expect(evaluateReleaseCiEvidence(evidence({ runs, jobsRunId: 43 }))).toEqual({
+          accepted: true,
+          kind: 'ordinary',
+        })
+    },
+  )
+
+  it.each(['pending', 'failure', 'partial'])(
+    'does not fall back to an older success after newer %s evidence',
+    (defect) => {
+      const latest = workflowRun({
+        id: 43,
+        runNumber: 2,
+        ...(defect === 'pending' ? { status: 'queued', conclusion: null } : {}),
+        ...(defect === 'failure' ? { conclusion: 'failure' } : {}),
+      })
+      const current = evidence({
+        runs: [latest, workflowRun()],
+        jobsRunId: 43,
+        ...(defect === 'partial' ? { jobs: successfulJobs().slice(1) } : {}),
+      })
+      expect(evaluateReleaseCiEvidence(current)).toEqual({
+        accepted: false,
+        rejection:
+          defect === 'pending'
+            ? 'pending-run'
+            : defect === 'failure'
+              ? 'unsuccessful-run'
+              : 'missing-job',
+      })
+    },
+  )
+
+  it('requires proven equivalent bases and rejects contradictory run associations', () => {
+    const pr = pullRequest()
+    const association = {
+      number: pr.number,
+      head: pr.head,
+      base: { ...pr.base, sha: otherSha },
+      baseToHead: { status: 'ahead', mergeBaseSha: otherSha },
+    }
+    const current = evidence({ runs: [workflowRun({ pullRequests: [association] })] })
+    expect(evaluateReleaseCiEvidence(current)).toEqual({
+      accepted: true,
+      kind: 'ordinary',
+    })
+    for (const changed of [
+      { ...association, baseToHead: null },
+      { ...association, baseToHead: { status: 'diverged', mergeBaseSha: baseSha } },
+    ])
+      expect(
+        evaluateReleaseCiEvidence({
+          ...current,
+          runs: [workflowRun({ pullRequests: [changed] })],
+        }),
+      ).toEqual({ accepted: false, rejection: 'stale-base' })
+    for (const changed of [
+      { ...association, number: 999 },
+      { ...association, head: { ...pr.head, sha: otherSha } },
+      { ...association, base: { ...pr.base, ref: 'epic/other' } },
+      { ...association, head: { ...pr.head, repository: 'other/repo' } },
+    ])
+      expect(
+        evaluateReleaseCiEvidence({
+          ...current,
+          runs: [workflowRun({ pullRequests: [changed] })],
+        }),
+      ).toEqual({ accepted: false, rejection: 'changed-candidate' })
+  })
+
+  it('ignores unrelated runs and rejects unresolved creation order and cross-run/attempt jobs', () => {
+    expect(
+      evaluateReleaseCiEvidence(
+        evidence({
+          runs: [
+            workflowRun(),
+            workflowRun({ id: 90, runNumber: 90, headSha: otherSha }),
+          ],
+        }),
+      ),
+    ).toEqual({ accepted: true, kind: 'ordinary' })
+    for (const runNumber of [0, NaN, 1.5])
+      expect(
+        evaluateReleaseCiEvidence(evidence({ runs: [workflowRun({ runNumber })] })),
+      ).toEqual({ accepted: false, rejection: 'ambiguous-run' })
+    for (const changes of [{ jobsRunId: 43 }, { jobsRunAttempt: 2 }])
+      expect(evaluateReleaseCiEvidence(evidence(changes))).toEqual({
+        accepted: false,
+        rejection: 'changed-candidate',
+      })
+    expect(
+      evaluateReleaseCiEvidence(
+        evidence({ jobs: [...successfulJobs(), successfulJobs()[1]!] }),
+      ),
+    ).toEqual({ accepted: false, rejection: 'ambiguous-job' })
+    const message = formatCiEvidenceFailure(evidence(), 'missing-job')
+    for (const identity of [
+      'PR #625',
+      baseSha,
+      headSha,
+      sourceSha,
+      'run=42',
+      'attempt=1',
+      'full workflow rerun',
+    ])
+      expect(message).toContain(identity)
+  })
+
+  it('loads only the latest run current attempt, including when it is incomplete', async () => {
+    const fallback = releaseCiFetch()
+    const fetchMock = vi.fn((input: string | URL | Request) => {
+      const url = input instanceof Request ? new URL(input.url) : new URL(input)
+      if (url.pathname.endsWith('/actions/workflows/ci.yml/runs'))
+        return Promise.resolve(
+          githubJson({
+            workflow_runs: [
+              apiWorkflowRun({ id: 43, run_number: 2, run_attempt: 3 }),
+              apiWorkflowRun(),
+            ],
+          }),
+        )
+      if (url.pathname.endsWith('/actions/runs/43/attempts/3/jobs'))
+        return Promise.resolve(githubJson({ jobs: successfulJobs().slice(1) }))
+      return (fallback as (value: string | URL | Request) => Promise<Response>)(input)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const current = await loadReleaseCiEvidence(
+      RELEASE_REPOSITORY,
+      'main',
+      sourceSha,
+      'test-token',
+    )
+    expect(evaluateReleaseCiEvidence(current)).toEqual({
+      accepted: false,
+      rejection: 'missing-job',
+    })
+    expect(
+      fetchMock.mock.calls
+        .map(([input]) => requestUrl(input))
+        .some((url) => url.includes('/runs/42/')),
+    ).toBe(false)
   })
 
   it('rejects a source without the exact merge or squash parent shape', () => {
@@ -494,6 +653,67 @@ describe('release CI evidence', () => {
       loadReleaseCiEvidence(RELEASE_REPOSITORY, 'main', sourceSha, 'test-token'),
     ).rejects.toThrow('GitHub merge evidence response was incomplete')
     expect(fetchMock).toHaveBeenCalledTimes(10)
+  })
+
+  it('loads a different proven CI base and rejects unproven association trees', async () => {
+    const fallback = releaseCiFetch()
+    const association = {
+      number: 625,
+      base: {
+        ref: 'main',
+        sha: otherSha,
+        repo: { url: `https://api.github.com/repos/${RELEASE_REPOSITORY}` },
+      },
+      head: {
+        ref: 'agent/issue-625',
+        sha: headSha,
+        repo: { url: `https://api.github.com/repos/${RELEASE_REPOSITORY}` },
+      },
+    }
+    for (const status of ['ahead', 'diverged']) {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((input: string | URL | Request) => {
+          const url = new URL(requestUrl(input))
+          if (url.pathname.endsWith('/actions/workflows/ci.yml/runs'))
+            return Promise.resolve(
+              githubJson({
+                workflow_runs: [apiWorkflowRun({ pull_requests: [association] })],
+              }),
+            )
+          if (url.pathname.endsWith(`/compare/${otherSha}...${headSha}`))
+            return Promise.resolve(
+              githubJson({
+                status,
+                merge_base_commit: { sha: status === 'ahead' ? otherSha : baseSha },
+              }),
+            )
+          return (fallback as (value: string | URL | Request) => Promise<Response>)(input)
+        }),
+      )
+      const current = await loadReleaseCiEvidence(
+        RELEASE_REPOSITORY,
+        'main',
+        sourceSha,
+        'test-token',
+      )
+      expect(evaluateReleaseCiEvidence(current)).toEqual(
+        status === 'ahead'
+          ? { accepted: true, kind: 'ordinary' }
+          : { accepted: false, rejection: 'stale-base' },
+      )
+    }
+  })
+
+  it('distinguishes unavailable API reads from absent evidence without leaking errors', async () => {
+    stubReleaseEnvironment()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.reject(new Error('secret-token response data'))),
+    )
+    const failure = requireReleaseCiEvidence()
+    await expect(failure).rejects.toThrow(/API unavailable.*restore connectivity/)
+    await expect(failure).rejects.not.toThrow('secret-token')
   })
 
   it('requires all local inputs before making an evidence request', async () => {

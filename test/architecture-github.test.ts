@@ -172,95 +172,179 @@ describe('architecture GitHub evidence boundary', () => {
       requireCurrentRemovalIssues(githubAdapter('fixture'), policy),
     ).rejects.toThrow(/completed or invalid/)
   })
-  it.each(['valid', 'partial-attempt', 'wrong-parent', 'wrong-tree', 'wrong-base'])(
-    'loads exact accepted epic PR and coherent CI: %s',
-    async (defect) => {
-      const r = repo(),
-        base = r.initial
-      r.git('switch', '-c', 'epic/733-fixture')
-      r.git('switch', '-c', 'policy-child')
-      r.write('docs/architecture-budgets.md', 'fixture')
-      const head = r.commit()
-      const merge = r.integrate('policy-child', base)
-      const tree = r.git('rev-parse', `${head}^{tree}`)
-      const pr = {
-        number: 20,
-        state: 'closed',
-        merged_at: '2026-09-05T00:00:00Z',
-        merge_commit_sha: merge,
-        body: 'Completes-child: #409',
-        base: ref(epic, defect === 'wrong-base' ? head : base),
-        head: ref('policy-child', head),
-      }
-      const jobs = [
-        { name: 'Release version integrity', status: 'completed', conclusion: 'skipped' },
-        ...REQUIRED_CI_JOBS.map((name) => ({
-          name,
-          status: 'completed',
-          conclusion: 'success',
-        })),
-        { name: 'Merge acceptance', status: 'completed', conclusion: 'success' },
-      ]
-      if (defect === 'partial-attempt') jobs.splice(1, 1)
-      const responses = new Map<string, unknown>([
-        [`commits/${merge}/pulls?per_page=100&page=1`, [pr]],
-        [
-          `actions/workflows/ci.yml/runs?event=pull_request&head_sha=${head}&per_page=100&page=1`,
-          {
-            workflow_runs: [
-              {
-                id: 42,
-                name: 'CI',
-                path: '.github/workflows/ci.yml',
-                repository: { full_name: canonical },
-                head_repository: { full_name: canonical },
-                event: 'pull_request',
-                head_branch: 'policy-child',
-                head_sha: head,
-                run_attempt: 2,
-                status: 'completed',
-                conclusion: 'success',
-              },
-            ],
-          },
-        ],
-        ['actions/runs/42/attempts/2/jobs?per_page=100&page=1', { jobs }],
-        [
-          `compare/${merge}...${encodeURIComponent(epic)}`,
-          { status: 'identical', merge_base_commit: { sha: merge } },
-        ],
-        [
-          `compare/${base}...${head}`,
-          { status: 'ahead', merge_base_commit: { sha: base } },
-        ],
-        [
-          `git/commits/${merge}`,
-          {
-            sha: merge,
-            tree: { sha: defect === 'wrong-tree' ? base : tree },
-            parents: [{ sha: base }, { sha: head }],
-          },
-        ],
-        [
-          `git/commits/${head}`,
-          { sha: head, tree: { sha: tree }, parents: [{ sha: base }] },
-        ],
-        ['pulls/20', pr],
-        ['issues/409', { state: 'closed' }],
-        ['issues/409/parent', defect === 'wrong-parent' ? null : parent],
-        ['git/matching-refs/heads/epic/733-', [{ ref: `refs/heads/${epic}` }]],
-      ])
-      const requests = mockRequests(responses)
-      const result = loadArchitectureIntegration(
-        r.root,
-        githubAdapter('fixture'),
-        merge,
+  it.each([
+    'valid',
+    'partial-attempt',
+    'wrong-parent',
+    'wrong-tree',
+    'wrong-base',
+    'recovered',
+    'open-recovery',
+    'ambiguous-recovery',
+    'accepted-metadata',
+    'policy-recovery',
+    'checker-recovery',
+    'wiring-recovery',
+    'decision-recovery',
+    'unreachable-recovery',
+    'failed-recovery',
+    'wrong-epic-recovery',
+    'wrong-base-recovery',
+    'wrong-tree-recovery',
+    'wrong-head-recovery',
+    'missing-ci-recovery',
+    'missing-pr-recovery',
+    'wrong-child-recovery',
+    'wrong-repository-recovery',
+    'renamed-policy-recovery',
+  ])('loads exact accepted epic PR and coherent CI: %s', async (defect) => {
+    const r = repo(),
+      base = r.initial
+    r.git('switch', '-c', 'epic/733-fixture')
+    r.git('switch', '-c', 'policy-child')
+    const recovery =
+      defect !== 'valid' &&
+      defect !== 'partial-attempt' &&
+      defect !== 'wrong-parent' &&
+      defect !== 'wrong-tree' &&
+      defect !== 'wrong-base'
+    r.write(
+      defect === 'policy-recovery'
+        ? 'scripts/architecture-hotspots.json'
+        : defect === 'checker-recovery'
+          ? 'scripts/architecture-github.mts'
+          : defect === 'wiring-recovery'
+            ? 'package.json'
+            : defect === 'decision-recovery'
+              ? 'docs/adr/ADR-099-fixture.md'
+              : recovery
+                ? 'src/fixture.ts'
+                : 'docs/architecture-budgets.md',
+      'fixture',
+    )
+    if (defect === 'renamed-policy-recovery')
+      r.git('mv', 'scripts/architecture-hotspots.json', 'src/renamed-policy.json')
+    const head = r.commit()
+    const merge = r.integrate('policy-child', base)
+    const tree = r.git('rev-parse', `${head}^{tree}`)
+    const pr = {
+      number: 20,
+      state: defect === 'open-recovery' ? 'open' : 'closed',
+      merged_at:
+        recovery && defect !== 'accepted-metadata' ? null : '2026-09-05T00:00:00Z',
+      merge_commit_sha: recovery ? base : merge,
+      body:
+        defect === 'wrong-child-recovery'
+          ? 'Completes-child: #999'
+          : 'Completes-child: #409',
+      base: ref(
         epic,
+        defect === 'wrong-base' || defect === 'wrong-base-recovery' ? head : base,
+      ),
+      head:
+        defect === 'wrong-repository-recovery'
+          ? { ...ref('policy-child', head), repo: { full_name: 'other/hvir' } }
+          : ref('policy-child', head),
+    }
+    const jobs = [
+      { name: 'Release version integrity', status: 'completed', conclusion: 'skipped' },
+      ...REQUIRED_CI_JOBS.map((name) => ({
+        name,
+        status: 'completed',
+        conclusion: 'success',
+      })),
+      { name: 'Merge acceptance', status: 'completed', conclusion: 'success' },
+    ]
+    if (defect === 'partial-attempt') jobs.splice(1, 1)
+    if (defect === 'failed-recovery') jobs[1]!.conclusion = 'failure'
+    const responses = new Map<string, unknown>([
+      [
+        `commits/${merge}/pulls?per_page=100&page=1`,
+        defect === 'missing-pr-recovery' ? [] : [pr],
+      ],
+      [
+        `actions/workflows/ci.yml/runs?event=pull_request&head_sha=${head}&per_page=100&page=1`,
+        {
+          workflow_runs: [
+            {
+              id: 42,
+              name: 'CI',
+              path: '.github/workflows/ci.yml',
+              repository: { full_name: canonical },
+              head_repository: { full_name: canonical },
+              event: 'pull_request',
+              head_branch: 'policy-child',
+              head_sha: defect === 'missing-ci-recovery' ? base : head,
+              run_attempt: 2,
+              run_number: 1,
+              pull_requests: [],
+              status: 'completed',
+              conclusion: 'success',
+            },
+          ],
+        },
+      ],
+      ['actions/runs/42/attempts/2/jobs?per_page=100&page=1', { jobs }],
+      [
+        `compare/${merge}...${encodeURIComponent(epic)}`,
+        {
+          status: defect === 'unreachable-recovery' ? 'diverged' : 'identical',
+          merge_base_commit: { sha: merge },
+        },
+      ],
+      [
+        `compare/${base}...${head}`,
+        { status: 'ahead', merge_base_commit: { sha: base } },
+      ],
+      [
+        `git/commits/${merge}`,
+        {
+          sha: merge,
+          tree: {
+            sha:
+              defect === 'wrong-tree' || defect === 'wrong-tree-recovery' ? base : tree,
+          },
+          parents: [
+            { sha: base },
+            { sha: defect === 'wrong-head-recovery' ? base : head },
+          ],
+        },
+      ],
+      [
+        `git/commits/${head}`,
+        { sha: head, tree: { sha: tree }, parents: [{ sha: base }] },
+      ],
+      ['pulls/20', pr],
+      ['issues/409', { state: 'closed' }],
+      ['issues/999', { ...parent, number: 999 }],
+      ['issues/999/parent', null],
+      [
+        'issues/409/parent',
+        defect === 'wrong-parent' || defect === 'wrong-epic-recovery' ? null : parent,
+      ],
+      ['git/matching-refs/heads/epic/733-', [{ ref: `refs/heads/${epic}` }]],
+    ])
+    if (recovery) {
+      responses.set(
+        `commits/${head}/pulls?per_page=100&page=1`,
+        defect === 'ambiguous-recovery'
+          ? [pr, { ...pr, number: 21 }]
+          : defect === 'missing-pr-recovery'
+            ? []
+            : [pr],
       )
-      if (defect === 'valid') {
-        expect(await result).toEqual({ epic, pullRequest: 20, base, head, merge })
-        expect(requests).toContain('actions/runs/42/attempts/2/jobs?per_page=100&page=1')
-      } else await expect(result).rejects.toThrow()
-    },
-  )
+      responses.set(`git/ref/heads/${epic}`, { object: { sha: merge } })
+    }
+    const requests = mockRequests(responses)
+    const result = loadArchitectureIntegration(
+      r.root,
+      githubAdapter('fixture'),
+      merge,
+      epic,
+    )
+    if (defect === 'valid' || defect === 'recovered') {
+      expect(await result).toEqual({ epic, pullRequest: 20, base, head, merge })
+      expect(requests).toContain('actions/runs/42/attempts/2/jobs?per_page=100&page=1')
+    } else await expect(result).rejects.toThrow()
+  })
 })

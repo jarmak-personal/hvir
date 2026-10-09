@@ -100,3 +100,20 @@ separate acceptance. Generator source always retains ordinary maintained-source 
 Focused policy, real temporary Git-history, and immediate GitHub-boundary fixtures run through
 `npx vitest run test/architecture-*.test.ts`; they need no network credentials. Normal
 `npm run verify` retains its blocking architecture gate.
+
+ADR-048 permits architecture to recover tested non-policy epic history from a Closed canonical
+PR without recorded merge acceptance. Bounded merge/head association reads must identify one
+PR whose exact base/head match a two-parent integration reachable from the same native epic.
+Its integrated tree must equal the tested head tree and shared CI evidence must pass. The
+complete PR diff must exclude policy, enforcing checkers, verification wiring and decision
+records. Recovery proves integrated tested code; it grants no recorded approval or release
+authority. Policy changes still need separately recorded merged-PR acceptance.
+
+Both architecture and release select the latest equivalent CI workflow run by GitHub creation
+sequence (`run_number`), then evaluate only its complete current attempt. Newer pending,
+failed or incomplete evidence cannot fall back to an older pass. Another recorded CI base is
+equivalent only when ancestry proves the same tested head tree. Empty redundant PR-association
+metadata is permitted when canonical identity and ancestry proofs remain complete. On failure,
+inspect the reported PR/base/head/merge/run/attempt identities and requirement. Restore API
+access for unavailable reads; wait for pending work or explicitly request a full workflow rerun
+for incomplete CI, then reverify. These commands do not dispatch, retry or merge anything.

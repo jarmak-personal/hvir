@@ -97,6 +97,21 @@ describe('resolved adapter for existing dependency direction policy', () => {
       'src/main/Harness/provider.ts',
       '../../../main/Harness/provider',
     ],
+    [
+      'scripts/require-release-ci-evidence.mts',
+      'scripts/architecture-github.mts',
+      './architecture-github.mts',
+    ],
+    [
+      'scripts/ci-attempt-evidence.mts',
+      'scripts/architecture-authorization.mts',
+      './architecture-authorization.mts',
+    ],
+    [
+      'scripts/release-github-evidence.mts',
+      'scripts/architecture-github.mts',
+      './architecture-github.mts',
+    ],
     ['src/main/smoke/viewer-content.ts', 'src/main/smoke/index.ts', './index'],
     [
       'src/main/harness/harness-provider.ts',

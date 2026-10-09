@@ -139,4 +139,18 @@ describe('coherent CI attempt evidence', () => {
       rejection: 'missing-job',
     })
   })
+  it.each([
+    { run_id: 43, run_attempt: 3 },
+    { run_id: 42, run_attempt: 2 },
+  ])('rejects contradictory job run/attempt identity %j', async (identity) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(githubJson({ jobs: [{ ...successfulJobs()[0], ...identity }] })),
+      ),
+    )
+    await expect(
+      loadCiAttemptJobs('jarmak-personal/hvir', 42, 3, 'test-token'),
+    ).rejects.toThrow(/run=42 attempt=3: contradictory job identity/)
+  })
 })
