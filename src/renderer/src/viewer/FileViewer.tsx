@@ -186,7 +186,11 @@ export function FileViewer({
       {tab ? (
         <div className="viewer-floating-controls" role="toolbar" aria-label="Viewer">
           {tab.conflict ? (
-            <button className="conflict-badge" type="button" onClick={onReload}>
+            <button
+              className="conflict-badge hvir-button"
+              type="button"
+              onClick={onReload}
+            >
               Changed on disk · reload
             </button>
           ) : null}
@@ -232,7 +236,7 @@ export function FileViewer({
             />
             {tab.mode === 'diff' && !tab.diffRevision ? (
               <select
-                className="diff-base-select"
+                className="diff-base-select hvir-input"
                 aria-label="Diff base"
                 value={tab.diffBase}
                 onChange={(event) => onDiffBase(event.currentTarget.value as DiffBase)}
@@ -245,7 +249,7 @@ export function FileViewer({
             {tab.mode === 'source' && !tab.externalWorkspaceRoot ? (
               <button
                 type="button"
-                className={`blame-toggle${showBlame ? ' active' : ''}`}
+                className={`blame-toggle${showBlame ? ' active' : ''}` + ' hvir-button'}
                 aria-pressed={showBlame}
                 onClick={() => setShowBlame((shown) => !shown)}
               >
@@ -277,7 +281,7 @@ export function FileViewer({
               {(['rendered', 'source', 'diff'] as const).map((mode) => (
                 <button
                   type="button"
-                  className={tab.mode === mode ? 'active' : ''}
+                  className={(tab.mode === mode ? 'active' : '') + ' hvir-button'}
                   aria-pressed={tab.mode === mode}
                   aria-expanded={tab.mode === mode ? modeControlExpanded : undefined}
                   title={
@@ -308,7 +312,7 @@ export function FileViewer({
               ))}
             </div>
             <select
-              className="mode-select"
+              className="mode-select hvir-input"
               aria-label="View mode"
               value={tab.mode}
               onChange={(event) => {
@@ -374,7 +378,7 @@ function BinaryFileView({
 }): ReactElement {
   const extension = basenameHostPath(path).split('.').at(-1)?.toUpperCase()
   return (
-    <div className="viewer-empty binary-file-summary">
+    <div className="viewer-empty binary-file-summary hvir-state">
       <strong>{extension ? `${extension} binary file` : 'Binary file'}</strong>
       <span>{formatViewerBytes(size)}</span>
       <span>Source, diff, and review capture are unavailable.</span>
@@ -496,5 +500,7 @@ function EmptyViewer({
   readonly text: string
   readonly error?: boolean
 }): ReactElement {
-  return <div className={`viewer-empty${error ? ' error' : ''}`}>{text}</div>
+  return (
+    <div className={`viewer-empty${error ? ' error' : ''}` + ' hvir-state'}>{text}</div>
+  )
 }

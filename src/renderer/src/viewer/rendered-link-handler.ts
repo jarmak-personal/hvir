@@ -1,11 +1,13 @@
 import type { MouseEvent } from 'react'
 
 import { resolveRenderedLink, type HostPath } from '../../../shared'
+import { resolveRenderedDirectoryLink } from '../../../shared/rendered-link'
 
 export function handleRenderedLinkClick(
   event: MouseEvent<HTMLDivElement>,
   documentPath: HostPath,
   onOpenPath?: (path: HostPath) => void,
+  baseKind: 'document' | 'directory' = 'document',
 ): void {
   if (!(event.target instanceof Element)) return
   const anchor = event.target.closest<HTMLAnchorElement>('a[href]')
@@ -13,7 +15,10 @@ export function handleRenderedLinkClick(
   const href = anchor.getAttribute('href')
   if (!href) return
 
-  const target = resolveRenderedLink(documentPath, href)
+  const target =
+    baseKind === 'directory'
+      ? resolveRenderedDirectoryLink(documentPath, href)
+      : resolveRenderedLink(documentPath, href)
   event.preventDefault()
   if (target.kind === 'file') {
     onOpenPath?.(target.path)

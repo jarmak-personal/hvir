@@ -1,12 +1,17 @@
 import type { ReactElement, RefObject } from 'react'
 
 import type { HostPath } from '../../../shared'
+import type { ExtensionView } from '../../../shared/extensions/workbench'
 import {
   HarnessProfilesSettings,
   type HarnessProfilesSettingsHandle,
 } from './HarnessProfilesSettings'
 import type { SettingsDraft, SettingsDraftValidation } from './settings-draft'
 import type { SettingsSection } from './settings-navigation'
+import {
+  ExtensionsSettings,
+  type ExtensionsSettingsHandle,
+} from './sections/ExtensionsSettings'
 import { AppearanceSettings } from './sections/AppearanceSettings'
 import { GitSettings } from './sections/GitSettings'
 import { KeybindingsSettings } from './sections/KeybindingsSettings'
@@ -25,6 +30,8 @@ interface SettingsActiveSectionProps {
     value: SettingsDraft[K],
   ) => void
   readonly onComposerSubmitMode: (enabled: boolean) => void
+  readonly onInstalledLanding?: (view: ExtensionView) => boolean
+  readonly installation?: RefObject<ExtensionsSettingsHandle | null>
 }
 
 export function SettingsActiveSection({
@@ -37,8 +44,14 @@ export function SettingsActiveSection({
   initialAddOpen,
   onChange,
   onComposerSubmitMode,
+  onInstalledLanding,
+  installation,
 }: SettingsActiveSectionProps): ReactElement {
   switch (activeSection) {
+    case 'extensions':
+      return (
+        <ExtensionsSettings ref={installation} onInstalledLanding={onInstalledLanding} />
+      )
     case 'appearance':
       return <AppearanceSettings draft={draft} onChange={onChange} />
     case 'terminal':

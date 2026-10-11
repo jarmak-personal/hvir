@@ -155,7 +155,9 @@ export function RenderedView({
       />
     )
   }
-  return <div className="viewer-empty">No rendered view for this file type</div>
+  return (
+    <div className="viewer-empty hvir-state">No rendered view for this file type</div>
+  )
 }
 
 function CsvView({
@@ -198,8 +200,9 @@ function CsvView({
   useRenderedPosition(container, content, position, onPosition, positionCapture, table)
   useRenderedFindTarget(container, table, registerFindTarget)
 
-  if (error) return <div className="viewer-empty error">Invalid CSV: {error}</div>
-  if (!table) return <div className="viewer-empty">Parsing CSV…</div>
+  if (error)
+    return <div className="viewer-empty error hvir-state">Invalid CSV: {error}</div>
+  if (!table) return <div className="viewer-empty hvir-state">Parsing CSV…</div>
   const [headings = [], ...rows] = table.rows
   const visibleColumns = table.rows.reduce(
     (maximum, row) => Math.max(maximum, row.length),
@@ -215,7 +218,7 @@ function CsvView({
       : undefined,
   ].filter((note): note is string => Boolean(note))
   return (
-    <div className="rendered-scroll csv-view" ref={container}>
+    <div className="rendered-scroll csv-view hvir-scroll" ref={container}>
       {notes.length > 0 ? <div className="csv-note">{notes.join(' · ')}</div> : null}
       <table>
         <thead>
@@ -284,8 +287,9 @@ function HtmlPreview({
     }
   }, [content, path, renderGeneration, workspaceRoot])
 
-  if (error) return <div className="viewer-empty error">{error}</div>
-  if (!preview) return <div className="viewer-empty">Preparing HTML preview…</div>
+  if (error) return <div className="viewer-empty error hvir-state">{error}</div>
+  if (!preview)
+    return <div className="viewer-empty hvir-state">Preparing HTML preview…</div>
   return (
     <iframe
       className="html-preview"
@@ -403,11 +407,11 @@ function MarkdownView({
   useRenderedPosition(container, content, position, onPosition, positionCapture, html)
   useRenderedFindTarget(container, html || undefined, registerFindTarget)
 
-  if (error) return <div className="viewer-empty error">{error}</div>
-  if (!html) return <div className="viewer-empty">Rendering markdown…</div>
+  if (error) return <div className="viewer-empty error hvir-state">{error}</div>
+  if (!html) return <div className="viewer-empty hvir-state">Rendering markdown…</div>
   return (
     <div
-      className="rendered-scroll markdown-body"
+      className="rendered-scroll markdown-body hvir-scroll"
       ref={container}
       onClick={(event) => handleRenderedLinkClick(event, path, onOpenPath)}
     />
@@ -449,7 +453,7 @@ function StandaloneMermaid({
     `${content}:${renderGeneration}:${theme}`,
     registerFindTarget,
   )
-  return <div className="rendered-scroll mermaid-standalone" ref={ref} />
+  return <div className="rendered-scroll mermaid-standalone hvir-scroll" ref={ref} />
 }
 
 async function renderMermaidNodes(
@@ -540,14 +544,14 @@ function StructuredDataView({
 
   if (error)
     return (
-      <div className="viewer-empty error">
+      <div className="viewer-empty error hvir-state">
         Invalid {format.toUpperCase()}: {error}
       </div>
     )
   if (!document)
-    return <div className="viewer-empty">Parsing {format.toUpperCase()}…</div>
+    return <div className="viewer-empty hvir-state">Parsing {format.toUpperCase()}…</div>
   return (
-    <div className="rendered-scroll json-tree" ref={container}>
+    <div className="rendered-scroll json-tree hvir-scroll" ref={container}>
       <JsonNode node={document.root} documentId={document.id} initiallyOpen />
     </div>
   )
@@ -690,7 +694,7 @@ function JsonNode({
           ))}
           {error ? <div className="json-error">{error}</div> : null}
           {children.length < total ? (
-            <button className="json-more" type="button" onClick={loadMore}>
+            <button className="json-more hvir-button" type="button" onClick={loadMore}>
               {loading ? 'Loading…' : `Show more (${children.length}/${total})`}
             </button>
           ) : null}

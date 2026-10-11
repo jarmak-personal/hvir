@@ -4,8 +4,8 @@
   align-items: center;
   gap: 6px 10px;
   padding: 9px 10px;
-  border-bottom: 1px solid #394453;
-  background: #202833;
+  border-bottom: 1px solid var(--border-strong);
+  background: var(--surface-hover);
 }
 
 .sessions-project-header h2 {
@@ -13,19 +13,19 @@
   min-width: 0;
   margin: 0;
   overflow-wrap: anywhere;
-  color: #d9e0e9;
+  color: var(--text-strong);
   font-size: calc(15px * var(--hvir-interface-scale));
   font-weight: 650;
 }
 
 .sessions-project-header > span {
-  color: #a5b1c0;
+  color: var(--text-secondary);
   font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .sessions-project-host {
   padding: 1px 4px;
-  border: 1px solid #4b5c70;
+  border: 1px solid var(--accent);
   border-radius: 3px;
 }
 
@@ -33,7 +33,7 @@
   margin: 0;
   padding: 9px 10px 3px;
   overflow-wrap: anywhere;
-  color: #9ba8b9;
+  color: var(--text-secondary);
   font-size: calc(11px * var(--hvir-interface-scale));
   font-weight: 550;
 }
@@ -56,9 +56,9 @@
   margin-bottom: 10px;
   min-width: 0;
   overflow: hidden;
-  border: 1px solid #2b323d;
+  border: 1px solid var(--border-subtle);
   border-radius: 7px;
-  background: rgb(18 21 26 / 78%);
+  background: color-mix(in srgb, var(--surface-1) 78%, transparent);
 }
 
 .sessions-group.ungrouped {
@@ -88,22 +88,22 @@
   content-visibility: auto;
   contain-intrinsic-size: calc(104px * var(--hvir-interface-scale));
   padding: 0;
-  border: 1px solid #333d4a;
+  border: 1px solid var(--border-strong);
   border-radius: 5px;
   outline: none;
-  background: #191e26;
-  box-shadow: 0 1px 2px rgb(0 0 0 / 24%);
+  background-color: var(--surface-raised);
+  box-shadow: 0 1px 2px var(--shadow);
 }
 
 .session-card:hover,
 .session-card.selected,
 .session-card:focus-visible {
-  border-color: #496785;
-  background: #1a2028;
+  border-color: var(--accent);
+  background-color: var(--surface-hover);
 }
 
 .session-card:focus-visible {
-  box-shadow: inset 0 0 0 1px #6e91b7;
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 .session-card > header {
@@ -122,10 +122,10 @@
   display: flex;
   min-height: calc(30px * var(--hvir-interface-scale));
   margin-top: 7px;
-  border-top: 1px solid #354151;
+  border-top: 1px solid var(--border-strong);
   border-radius: 0 0 4px 4px;
   overflow: hidden;
-  background: #151c25;
+  background: var(--surface-raised);
 }
 
 .session-card-actions {
@@ -142,24 +142,24 @@
   flex: 1 1 0;
   min-width: 0;
   padding: 5px 3px;
-  border: 0;
-  border-left: 1px solid #354151;
+  border-width: 0;
+  border-left: 1px solid var(--border-strong);
   border-radius: 0;
-  background: #1c2531;
-  color: #c8d3e1;
+  background-color: var(--surface-hover);
+  color: var(--text);
   font: inherit;
   font-size: calc(10px * var(--hvir-interface-scale));
   overflow-wrap: anywhere;
 }
 
 .session-card-actions button:first-child {
-  background: #243143;
+  background-color: var(--accent-soft);
 }
 
 .session-card-actions button:focus-visible {
-  outline: 2px solid #8db7e3;
+  outline: 2px solid var(--accent);
   outline-offset: -3px;
-  color: #f0f4f9;
+  color: var(--text-strong);
 }
 
 .session-card h3 {
@@ -171,6 +171,7 @@
   font-weight: 660;
 }
 
+/* Fixed provider-kind category hues; session chrome and state use shared roles. */
 .session-kind {
   flex: 0 0 auto;
   color: #7ea6cf;
@@ -218,44 +219,44 @@
   align-items: baseline;
   gap: 2px 4px;
   padding: 1px 4px;
-  border: 1px solid #354151;
+  border: 1px solid var(--border-strong);
   border-radius: 3px;
 }
 
 .session-fact.available dd {
-  color: #d0d7e0;
+  color: var(--text);
   font-weight: 560;
 }
 
 .session-fact.status dd {
-  color: #a5b0bd;
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
 .session-fact.actionable {
   padding-left: 4px;
-  border-left: 2px solid #7ea6cf;
+  border-left: 2px solid var(--accent);
 }
 
 .session-fact.actionable dd {
-  color: #e4edf7;
+  color: var(--text-strong);
   font-weight: 680;
 }
 
 .session-fact.pending dd,
 .session-fact.stale dd {
-  color: #c8a76d;
+  color: var(--warning-text);
 }
 
 .session-facts dt {
-  color: #6f7987;
+  color: var(--text-muted);
   font-size: calc(9px * var(--hvir-interface-scale));
 }
 
 .session-facts dd {
   margin: 0;
   overflow-wrap: anywhere;
-  color: #b8c0ca;
+  color: var(--text-secondary);
   font-size: calc(10px * var(--hvir-interface-scale));
 }
 

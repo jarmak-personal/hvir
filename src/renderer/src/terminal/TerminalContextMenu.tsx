@@ -189,6 +189,7 @@ export function TerminalContextMenu({
             disabled={!request.copyAvailable || pending !== undefined}
             onPointerDown={retainTerminalFocus}
             onClick={copy}
+            className="hvir-button"
           >
             Copy Selection
           </button>
@@ -198,6 +199,7 @@ export function TerminalContextMenu({
             disabled={pending !== undefined}
             onPointerDown={retainTerminalFocus}
             onClick={paste}
+            className="hvir-button"
           >
             Paste
           </button>
@@ -207,6 +209,7 @@ export function TerminalContextMenu({
             disabled={pending !== undefined}
             onPointerDown={retainTerminalFocus}
             onClick={() => runWorkspaceAction(onSearch)}
+            className="hvir-button"
           >
             Search Terminal…
           </button>
@@ -216,6 +219,7 @@ export function TerminalContextMenu({
             disabled={pending !== undefined}
             onPointerDown={retainTerminalFocus}
             onClick={() => act('select-all', ({ target }) => target.selectAll())}
+            className="hvir-button"
           >
             Select All
           </button>
@@ -226,6 +230,7 @@ export function TerminalContextMenu({
             disabled={pending !== undefined}
             onPointerDown={retainTerminalFocus}
             onClick={() => act('clear', ({ target }) => target.clear())}
+            className="hvir-button"
           >
             Clear Screen and Scrollback
           </button>
@@ -235,6 +240,7 @@ export function TerminalContextMenu({
             disabled={pending !== undefined}
             onPointerDown={retainTerminalFocus}
             onClick={() => act('reset', ({ target }) => target.reset())}
+            className="hvir-button"
           >
             Reset Terminal
           </button>
@@ -245,13 +251,14 @@ export function TerminalContextMenu({
             disabled={pending !== undefined}
             onPointerDown={retainTerminalFocus}
             onClick={() => runWorkspaceAction(onSplit)}
+            className="hvir-button"
           >
             Split Terminal
           </button>
           <button
             type="button"
             role="menuitem"
-            className="terminal-context-menu-explained"
+            className="terminal-context-menu-explained hvir-button"
             disabled={!forkAvailability.available || pending !== undefined}
             title={forkAvailability.available ? undefined : forkAvailability.reason}
             onPointerDown={retainTerminalFocus}
@@ -270,6 +277,7 @@ export function TerminalContextMenu({
             disabled={pending !== undefined}
             onPointerDown={retainTerminalFocus}
             onClick={() => runWorkspaceAction(onOpenSettings)}
+            className="hvir-button"
           >
             Terminal Settings…
           </button>

@@ -2,6 +2,8 @@
 
 > Lifecycle: Partially superseded
 > Superseded by: [ADR-045](ADR-045-explicit-outside-project-viewing.md) | partial | Temporary document viewing addendum: location, document-type, and automatic image-read scope.
+> Superseded by: [ADR-051](ADR-051-approved-finite-connector-execution.md) | partial | Registered-root requirement for explicit approved connector execution and its application-local working context only.
+> Superseded by: [ADR-055](ADR-055-connection-scoped-remote-agent-client.md) | partial | Prohibition on cached remote helper files, only for the bundled connection-scoped hvir-agent client; no remote service or daemon is authorized.
 
 ## Context
 

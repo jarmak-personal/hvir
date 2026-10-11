@@ -22,6 +22,7 @@ const HOST_PRIMITIVE_BANS = [
   'node:child_process',
   'chokidar',
   'node-pty',
+  '@hvir/extension-storage',
 ].map((name) => ({
   name,
   message:
@@ -41,6 +42,20 @@ const IPC_RENDERER_BAN = {
   message:
     'ipcRenderer may only be used in src/preload. The renderer talks to main ' +
     'through the typed bridge (window.hvir), never ipcRenderer directly.',
+}
+
+const EXTENSION_PACKAGE_IMPORT_BAN = {
+  selector:
+    "ImportDeclaration[source.value=/packages\\/(extension-reference|extension-authoring|skillager-extension)(\\/|$)/], ExportNamedDeclaration[source.value=/packages\\/(extension-reference|extension-authoring|skillager-extension)(\\/|$)/], ExportAllDeclaration[source.value=/packages\\/(extension-reference|extension-authoring|skillager-extension)(\\/|$)/], ImportExpression[source.value=/packages\\/(extension-reference|extension-authoring|skillager-extension)(\\/|$)/], TSImportType[source.value=/packages\\/(extension-reference|extension-authoring|skillager-extension)(\\/|$)/], CallExpression[callee.name='require'] > Literal.arguments[value=/packages\\/(extension-reference|extension-authoring|skillager-extension)(\\/|$)/]",
+  message:
+    'Core and public contracts never import extension example or Skillager package implementations; consume the public extension contract.',
+}
+
+const NATIVE_EXTENSION_IMPORT_BAN = {
+  selector:
+    "ImportDeclaration[source.value=/(^@hvir\\/extension-storage$|packages\\/extension-storage(\\/|$))/], ExportNamedDeclaration[source.value=/(^@hvir\\/extension-storage$|packages\\/extension-storage(\\/|$))/], ExportAllDeclaration[source.value=/(^@hvir\\/extension-storage$|packages\\/extension-storage(\\/|$))/], ImportExpression[source.value=/(^@hvir\\/extension-storage$|packages\\/extension-storage(\\/|$))/], TSImportType[source.value=/(^@hvir\\/extension-storage$|packages\\/extension-storage(\\/|$))/], CallExpression[callee.name='require'] > Literal.arguments[value=/(^@hvir\\/extension-storage$|packages\\/extension-storage(\\/|$))/]",
+  message:
+    'Extension-storage native mechanics are private to the bounded LocalHost extension-storage adapter.',
 }
 
 const SPAWN_PTY_BAN = {
@@ -100,6 +115,8 @@ function dependencyDirectionRules(
     'no-restricted-syntax': [
       'error',
       SPAWN_PTY_BAN,
+      EXTENSION_PACKAGE_IMPORT_BAN,
+      NATIVE_EXTENSION_IMPORT_BAN,
       ...DYNAMIC_HOST_IMPORT_BANS,
       {
         selector: `ImportExpression[source.value=/${selector}/], TSImportType[source.value=/${selector}/], CallExpression[callee.name='require'] > Literal.arguments[value=/${selector}/]`,
@@ -110,7 +127,17 @@ function dependencyDirectionRules(
 }
 
 export default tseslint.config(
-  { ignores: ['out/**', 'dist/**', 'node_modules/**', 'coverage/**'] },
+  {
+    ignores: [
+      'out/**',
+      'dist/**',
+      'node_modules/**',
+      'coverage/**',
+      'packages/skillager-extension/skillager.js',
+      'packages/skillager-extension/updater.js',
+      'packages/skillager-extension/operations.js',
+    ],
+  },
 
   js.configs.recommended,
   {
@@ -134,7 +161,13 @@ export default tseslint.config(
         'error',
         { paths: [...HOST_PRIMITIVE_BANS, IPC_RENDERER_BAN] },
       ],
-      'no-restricted-syntax': ['error', SPAWN_PTY_BAN, ...DYNAMIC_HOST_IMPORT_BANS],
+      'no-restricted-syntax': [
+        'error',
+        SPAWN_PTY_BAN,
+        EXTENSION_PACKAGE_IMPORT_BAN,
+        NATIVE_EXTENSION_IMPORT_BAN,
+        ...DYNAMIC_HOST_IMPORT_BANS,
+      ],
       'no-unused-vars': 'off',
       '@typescript-eslint/no-unused-vars': [
         'error',
@@ -159,6 +192,8 @@ export default tseslint.config(
       'no-restricted-syntax': [
         'error',
         SPAWN_PTY_BAN,
+        EXTENSION_PACKAGE_IMPORT_BAN,
+        NATIVE_EXTENSION_IMPORT_BAN,
         ...DYNAMIC_HOST_IMPORT_BANS,
         {
           selector: `ImportExpression[source.value=/${SHARED_CONTRACT_EXPRESSION_SELECTOR}/], TSImportType[source.value=/${SHARED_CONTRACT_EXPRESSION_SELECTOR}/], CallExpression[callee.name='require'] > Literal.arguments[value=/${SHARED_CONTRACT_EXPRESSION_SELECTOR}/]`,
@@ -166,6 +201,53 @@ export default tseslint.config(
         },
       ],
     },
+  },
+
+  // Public presentation imports browser-safe leaves only, including erased edges.
+  {
+    files: ['src/shared/presentation/**/*.{ts,tsx,mts,cts,js,mjs}'],
+    rules: dependencyDirectionRules(
+      '^node:|^react(?:/|$)|^electron$|(^|/)(main|workers|renderer|preload)(/|$)|(^|/)packages(/|$)',
+      'Shared presentation depends only on public presentation leaves and browser code, never private workbench, native or package implementations.',
+    ),
+  },
+
+  {
+    files: ['packages/extension-authoring/**/*.{js,mjs,ts,tsx,mts,cts}'],
+    rules: dependencyDirectionRules(
+      '^node:|^electron$|(^|/)(main|workers|renderer|preload)(/|$)|(^|/)packages/(?!extension-authoring/)',
+      'Authoring starters consume public contracts and browser-safe guest UI only, including type-only references.',
+    ),
+  },
+
+  {
+    files: ['packages/skillager-extension/**/*.{js,mjs,ts,tsx,mts,cts}'],
+    rules: dependencyDirectionRules(
+      '^node:|^electron$|(^|/)(main|workers|renderer|preload)(/|$)|(^|/)packages/(?!skillager-extension/)',
+      'The Skillager package consumes public contracts and browser-safe presentation only, never private workbench or other package implementations.',
+    ),
+  },
+
+  // Extension package policy and caller lifetime consume ports, never their Electron/native edges.
+  {
+    files: [
+      'src/main/extensions/source-approval.ts',
+      'src/main/extensions/source-reading.ts',
+      'src/main/extensions/guest-connectors.ts',
+      'src/main/extensions/guest-sources.ts',
+      'src/main/extensions/guest-view-opening.ts',
+      'src/main/extensions/connector-approval.ts',
+      'src/main/extensions/connector-execution.ts',
+      'src/main/extensions/activation.ts',
+      'src/main/extensions/guest-owner.ts',
+      'src/main/extensions/guest-lifecycle.ts',
+      'src/main/extensions/package-store.ts',
+      'src/main/extensions/extension-authoring.ts',
+    ],
+    rules: dependencyDirectionRules(
+      '^electron$|^@hvir/extension-storage$|(^|/)project-host/(local|ssh)-|(^|/)electron-|(^|/)window(/|$)|(^|/)(preload|renderer)(/|$)',
+      'Extension package policy and admission depend on public leaves and ProjectHost ports, never concrete guest, filesystem or renderer owners.',
+    ),
   },
 
   // The facade is for application compatibility, not an internal contract owner.
@@ -293,7 +375,10 @@ export default tseslint.config(
   // Viewer presentation and effects depend inward, including erased imports.
   {
     files: ['src/renderer/src/viewer/**/*.{ts,tsx}'],
-    ignores: ['src/renderer/src/viewer/FileViewer.tsx'],
+    ignores: [
+      'src/renderer/src/viewer/FileViewer.tsx',
+      'src/renderer/src/viewer/WorkbenchViewer.tsx',
+    ],
     rules: dependencyDirectionRules(
       '(^|/)FileViewer(\\.[cm]?[jt]sx?)?$',
       'Viewer presentation and effect owners cannot depend on FileViewer orchestration or harness implementation.',
@@ -428,10 +513,93 @@ export default tseslint.config(
 
   // Seam exemption: LocalHost owns the host primitives (but still not ipcRenderer).
   {
-    files: ['src/main/project-host/local-host.ts'],
+    files: [
+      'src/main/project-host/local-host.ts',
+      'src/main/project-host/local-extension-storage.ts',
+    ],
     rules: {
       'no-restricted-imports': ['error', { paths: [IPC_RENDERER_BAN] }],
-      'no-restricted-syntax': ['error', SPAWN_PTY_BAN],
+      'no-restricted-syntax': ['error', SPAWN_PTY_BAN, EXTENSION_PACKAGE_IMPORT_BAN],
+    },
+  },
+
+  // Private native descriptor loader shared by LocalHost storage mechanics only.
+  {
+    files: ['src/main/project-host/local-extension-storage-binding.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            ...HOST_PRIMITIVE_BANS.filter(
+              ({ name }) => name !== '@hvir/extension-storage',
+            ),
+            IPC_RENDERER_BAN,
+          ],
+        },
+      ],
+      'no-restricted-syntax': [
+        'error',
+        SPAWN_PTY_BAN,
+        EXTENSION_PACKAGE_IMPORT_BAN,
+        ...DYNAMIC_HOST_IMPORT_BANS.filter(
+          (entry) => !entry.selector.includes('@hvir/extension-storage'),
+        ),
+      ],
+    },
+  },
+
+  // Focused LocalHost filesystem mechanics and standalone fixed bootstrap asset reads.
+  {
+    files: [
+      'src/main/project-host/local-extension-authoring.ts',
+      'src/main/project-host/local-agent-endpoint.ts',
+      'src/agent-transport/endpoint-directory.ts',
+      'src/agent-transport/reference-assets.ts',
+    ],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            ...HOST_PRIMITIVE_BANS.filter(
+              ({ name }) => !['node:fs', 'node:fs/promises'].includes(name),
+            ),
+            IPC_RENDERER_BAN,
+          ],
+        },
+      ],
+      'no-restricted-syntax': [
+        'error',
+        SPAWN_PTY_BAN,
+        EXTENSION_PACKAGE_IMPORT_BAN,
+        ...DYNAMIC_HOST_IMPORT_BANS,
+      ],
+    },
+  },
+  // The facade composes the private adapter; only that adapter loads its native mechanics.
+  {
+    files: ['src/main/project-host/local-host.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        SPAWN_PTY_BAN,
+        EXTENSION_PACKAGE_IMPORT_BAN,
+        NATIVE_EXTENSION_IMPORT_BAN,
+      ],
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            IPC_RENDERER_BAN,
+            {
+              name: '@hvir/extension-storage',
+              message:
+                'Extension-storage native mechanics are private to the bounded LocalHost extension-storage adapter.',
+            },
+          ],
+        },
+      ],
     },
   },
 
@@ -447,7 +615,12 @@ export default tseslint.config(
   {
     files: ['src/main/pty/pty-supervisor.ts'],
     rules: {
-      'no-restricted-syntax': ['error', ...DYNAMIC_HOST_IMPORT_BANS],
+      'no-restricted-syntax': [
+        'error',
+        EXTENSION_PACKAGE_IMPORT_BAN,
+        NATIVE_EXTENSION_IMPORT_BAN,
+        ...DYNAMIC_HOST_IMPORT_BANS,
+      ],
     },
   },
 
@@ -457,7 +630,12 @@ export default tseslint.config(
     files: ['test/**/*.ts'],
     rules: {
       'no-restricted-imports': 'off',
-      'no-restricted-syntax': ['error', SPAWN_PTY_BAN],
+      'no-restricted-syntax': [
+        'error',
+        SPAWN_PTY_BAN,
+        EXTENSION_PACKAGE_IMPORT_BAN,
+        NATIVE_EXTENSION_IMPORT_BAN,
+      ],
     },
   },
 
@@ -478,12 +656,19 @@ export default tseslint.config(
       'scripts/smoke-failure-artifact.mts',
       'scripts/inspect-packaged-runtime.mts',
       'scripts/installed-startup-probe.mts',
+      'scripts/agent-installed-reference-probe.mts',
+      'scripts/build-agent-client.mts',
+      'scripts/assemble-agent-clients.mts',
+      'scripts/probe-agent-client.mts',
+      'scripts/probe-agent-ssh-client.mts',
       'scripts/real-host-ssh-contract.mts',
       'scripts/run-real-host-ssh-acceptance.mts',
       'scripts/require-release-ci-evidence.mts',
       'scripts/prepare-release-linux-package.mts',
       'scripts/validate-release-pr.mts',
       'scripts/generate-terminal-theme-catalog.mts',
+      'scripts/prepare-extension-ui.mts',
+      'scripts/prepare-skillager-extension.mts',
       'scripts/check-terminal-runtime.mts',
       'scripts/agent-work-checkpoint-store.mts',
       'scripts/ghostty-web-update/candidate-bundle.mts',

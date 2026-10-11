@@ -26,6 +26,10 @@ import type { PtyObservationSource } from '../pty/pty-supervisor'
 import type { RendererOwner } from '../renderer-resource-scopes'
 import type { TerminalSessionObservationSource } from '../terminal/session-registry'
 import {
+  liveSessionMetadataSources,
+  type LiveSessionMetadataSources,
+} from '../terminal/live-session-metadata'
+import {
   createSessionsProjectionIdentityScope,
   sessionsProjectionRootKey,
   type SessionsProjectionIdentityScope,
@@ -45,13 +49,9 @@ export interface SessionsObservationProvider {
   readonly contextPressure?: SessionsProviderProjection['contextPressure']
 }
 
-export interface SessionsObservationPortOptions {
-  readonly projectState: () => ProjectState
+export interface SessionsObservationPortOptions extends LiveSessionMetadataSources {
   readonly hosts: () => readonly ProjectHostOption[]
   readonly providers: () => readonly SessionsObservationProvider[]
-  readonly sessions: TerminalSessionObservationSource
-  readonly ptys: PtyObservationSource
-  readonly observeProjects: (listener: () => void) => Disposer
   readonly emit: (owner: RendererOwner, change: SessionsProjectionChange) => void
 }
 
@@ -74,6 +74,7 @@ type ObservationBase = Omit<SessionsObservationSnapshot, 'demandGeneration' | 'r
  * Demand-scoped main adapter over existing owners. It owns no session policy or state.
  */
 export class SessionsObservationPort {
+  readonly context: LiveSessionMetadataSources
   private readonly leases = new Map<string, DemandLease>()
   private sourceDisposers: Disposer[] = []
   private current?: ObservationBase
@@ -83,7 +84,9 @@ export class SessionsObservationPort {
   private readonly sourceListeners = new Set<() => void>()
   private disposed = false
 
-  constructor(private readonly options: SessionsObservationPortOptions) {}
+  constructor(private readonly options: SessionsObservationPortOptions) {
+    this.context = liveSessionMetadataSources(options)
+  }
 
   acquire(owner: RendererOwner, demandGeneration: number): SessionsObservationSnapshot {
     this.assertDemandGeneration(demandGeneration)

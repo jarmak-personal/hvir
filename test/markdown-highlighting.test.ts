@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { renderMarkdownDocument } from '../src/renderer/src/viewer/markdown-renderer'
+import { renderMarkdownDocument } from '../src/shared/presentation/document-markdown/rendering'
 import { createViewerGrammarRegistry } from '../src/renderer/src/viewer/shiki-grammar-registry'
 
 describe('rendered Markdown language handling', () => {

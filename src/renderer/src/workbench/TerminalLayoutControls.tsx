@@ -24,7 +24,7 @@ export function TerminalLayoutControls({
     <div className="terminal-mode-controls" role="group" aria-label="Terminal layout">
       <button
         type="button"
-        className="terminal-focus-toggle"
+        className="terminal-focus-toggle hvir-button"
         data-resizer-action
         aria-label={terminalLabel}
         aria-pressed={mode === 'maximized'}
@@ -44,7 +44,7 @@ export function TerminalLayoutControls({
       </button>
       <button
         type="button"
-        className="terminal-collapse-toggle"
+        className="terminal-collapse-toggle hvir-button"
         data-resizer-action
         aria-label={viewerLabel}
         aria-pressed={mode === 'collapsed'}

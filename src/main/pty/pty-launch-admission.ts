@@ -37,8 +37,11 @@ export class PtyLaunchAdmission {
     return this.pending.has(id)
   }
 
-  reserve(id: string, owner: PendingOwner): PtyLaunchReservation {
+  reserve(id: string, owner: PendingOwner, signal?: AbortSignal): PtyLaunchReservation {
     const pending = { ...owner, controller: new AbortController() }
+    const cancel = () => pending.controller.abort()
+    signal?.addEventListener('abort', cancel, { once: true })
+    if (signal?.aborted) cancel()
     this.pending.set(id, pending)
     return {
       signal: pending.controller.signal,
@@ -51,6 +54,7 @@ export class PtyLaunchAdmission {
         }
       },
       release: () => {
+        signal?.removeEventListener('abort', cancel)
         if (this.pending.get(id) === pending) this.pending.delete(id)
       },
     }
@@ -118,6 +122,7 @@ export class PtyLaunchAdmission {
 
   private cancel(id: string): void {
     this.pending.get(id)?.controller.abort()
-    this.pending.delete(id)
+    // Cancellation cannot release a physical start that is still settling.
+    // Its original reservation remains the identity owner until release().
   }
 }

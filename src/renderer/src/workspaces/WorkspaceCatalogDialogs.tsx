@@ -72,7 +72,7 @@ export function ClosedWorktreesDialog({
       <p>Reopen a present worktree or manage a worktree that Git no longer finds.</p>
       <div className="closed-worktrees-list">
         {workspaces.map((workspace) => (
-          <div className="closed-worktree-row" key={workspace.id}>
+          <div className="closed-worktree-row hvir-row" key={workspace.id}>
             <span>
               <strong>{workspace.name}</strong>
               <code>{displayHostPath(workspace.root)}</code>
@@ -85,13 +85,14 @@ export function ClosedWorktreesDialog({
                 onClick={() => onReopen(workspace.id)}
                 aria-label={`Reopen workspace ${workspace.name}`}
                 title={`Reopen workspace ${workspace.name}`}
+                className="hvir-button"
               >
                 Reopen
               </button>
             ) : !workspace.prunableReason ? (
               <button
                 type="button"
-                className="destructive"
+                className="destructive hvir-button"
                 disabled={busy}
                 onClick={() => onDismiss(workspace.id)}
                 aria-label={`Dismiss removed workspace ${workspace.name}`}

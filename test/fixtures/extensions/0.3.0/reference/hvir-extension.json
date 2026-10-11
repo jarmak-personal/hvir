@@ -1,0 +1,124 @@
+{
+  "id": "hvir.reference",
+  "name": "hvir Reference",
+  "version": "0.3.0",
+  "contract": "1.0",
+  "requiredCapabilities": [
+    "presentation.read",
+    "viewer.open-own",
+    "context.read",
+    "contributions.read",
+    "contributions.publish",
+    "actions.invoke"
+  ],
+  "optionalCapabilities": ["connector.execute", "connector.output", "connector.status"],
+  "access": [],
+  "views": [
+    {
+      "id": "reference",
+      "title": "Extension reference",
+      "entry": "index.html",
+      "placement": "application",
+      "representations": ["view"]
+    },
+    {
+      "id": "detail",
+      "title": "Reference detail",
+      "entry": "detail.html",
+      "placement": "application",
+      "representations": ["view"]
+    },
+    {
+      "id": "workspace",
+      "title": "Reference workspace",
+      "entry": "index.html",
+      "placement": "workspace",
+      "navigation": "left",
+      "representations": ["view"]
+    },
+    {
+      "id": "library",
+      "title": "Reference library",
+      "entry": "index.html",
+      "placement": "application",
+      "navigation": "top",
+      "representations": ["view"]
+    },
+    {
+      "id": "session",
+      "title": "Reference session",
+      "entry": "session.html",
+      "placement": "workspace",
+      "representations": ["view"]
+    }
+  ],
+  "railItems": [
+    {
+      "id": "pulse",
+      "placement": "header",
+      "icon": "◷",
+      "tooltip": "Reference observation",
+      "label": "Waiting",
+      "kind": "observation",
+      "click": {
+        "view": "reference",
+        "placement": "viewer"
+      }
+    },
+    {
+      "id": "session",
+      "placement": "session",
+      "icon": "◇",
+      "tooltip": "Reference session popup",
+      "kind": "control",
+      "click": {
+        "view": "session",
+        "placement": "popup"
+      }
+    }
+  ],
+  "actions": [
+    {
+      "id": "describe-session",
+      "title": "Describe session",
+      "view": "detail",
+      "agents": true,
+      "effects": {
+        "delete": false,
+        "replace": false
+      },
+      "description": "Describe the exact admitted session and caller; no connector or mutation is involved.",
+      "inputSchema": {
+        "type": ["object", "null"],
+        "properties": {
+          "delayMs": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "preview-replacement",
+      "title": "Preview replacement",
+      "view": "detail",
+      "agents": true,
+      "description": "Inert replacement preview for inspecting optional destructive confirmation; does not mutate user data.",
+      "effects": {
+        "delete": false,
+        "replace": true
+      }
+    }
+  ],
+  "updater": "updater.html",
+  "connectors": [
+    {
+      "id": "installed-tool",
+      "description": "Run a separately approved user-installed tool and show its finite result. The optional updater reads its version while contributions are visible.",
+      "context": "application",
+      "timeoutMs": 180000,
+      "outputBytes": 4194304,
+      "environment": []
+    }
+  ]
+}

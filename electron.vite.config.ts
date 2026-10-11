@@ -65,6 +65,8 @@ const baseConfig: UserConfig = {
           // process can `utilityProcess.fork` their compiled output.
           'echo-worker': resolve('src/workers/echo-worker.ts'),
           'git-worker': resolve('src/workers/git-worker.ts'),
+          'document-worker': resolve('src/workers/document-worker.ts'),
+          'agent-cli': resolve('src/agent-cli/index.ts'),
         },
       },
     },
@@ -75,6 +77,7 @@ const baseConfig: UserConfig = {
       rollupOptions: {
         input: {
           index: resolve('src/preload/index.ts'),
+          'extension-guest': resolve('src/preload/extension-guest.ts'),
         },
       },
     },

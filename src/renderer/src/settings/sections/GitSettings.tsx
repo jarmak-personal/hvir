@@ -28,6 +28,7 @@ export function GitSettings({
             onChange={(event) =>
               onChange('gitAutoFetchIntervalMs', event.currentTarget.value)
             }
+            className="hvir-input"
           >
             <option value="0">Off</option>
             <option value={String(60_000)}>Every minute</option>

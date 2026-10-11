@@ -30,11 +30,24 @@ export const ARCHITECTURE_TESTS = [
   'test/architecture-module-directions.test.ts',
   'test/architecture-command.test.ts',
 ] as const
+// Preserve the historical Rust identity for accepted proposal replay after renumbering.
+const RUST_DECISIONS = [
+  'docs/adr/ADR-048-rust-client-source-policy.md',
+  'docs/adr/ADR-069-rust-client-source-policy.md',
+]
+// Exact records needed to admit the Rust language policy; no general docs exemption.
+const POLICY_DOCUMENTS = [
+  'docs/architecture-dependencies.md',
+  'docs/adr/ADR-040-complete-source-budgets-and-dependency-policy.md',
+  ...RUST_DECISIONS,
+  'docs/design.md',
+]
 const WIRING_PATHS = ['package.json', '.github/workflows/ci.yml', 'eslint.config.mjs']
-export function policyOnlyPath(path: string): boolean {
+export function policyOnlyPath(path: string, adoptsCoverage = false): boolean {
   return (
     path === 'scripts/architecture-hotspots.json' ||
     path === 'docs/architecture-budgets.md' ||
+    (adoptsCoverage && POLICY_DOCUMENTS.includes(path)) ||
     [...ARCHITECTURE_MODULES, ...ARCHITECTURE_TESTS, ...WIRING_PATHS].includes(path)
   )
 }
@@ -166,11 +179,61 @@ function admitEslint(before: Buffer, after: Buffer): void {
   if (oldText === newText) return
   equal(oldText.replace(marker, marker + added), newText)
 }
-export function admitArchitectureWiring(
+function admitCoverageDocumentation(
   path: string,
   before: Buffer | null,
   after: Buffer | null,
 ): void {
+  if (!after || (!before && !RUST_DECISIONS.includes(path)))
+    throw new Error(
+      'Coverage policy cannot add or remove an existing documentation owner',
+    )
+  if (RUST_DECISIONS.includes(path)) {
+    if (before && !before.equals(after))
+      throw new Error('Coverage adoption cannot rewrite an accepted Rust decision')
+    return
+  }
+  const original = before!.toString(),
+    proposed = after.toString()
+  const compact = (text: string) => text.replace(/\n{3,}/g, '\n\n').trimEnd()
+  if (path === 'docs/design.md') {
+    const outsideIndex = (text: string) =>
+      compact(
+        text.replace(
+          /^### \[ADR-(?:040|069|048(?= — Rust))[^\n]*\n[\s\S]*?(?=^### |^---$|^## |\s*$(?![\s\S]))/gm,
+          '',
+        ),
+      )
+    equal(outsideIndex(original), outsideIndex(proposed))
+  } else if (path === 'docs/architecture-dependencies.md') {
+    const outsideRustBoundary = (text: string) =>
+      compact(
+        text.replace(/^## Rust client boundary\n[\s\S]*?(?=^## |\s*$(?![\s\S]))/gm, ''),
+      )
+    equal(outsideRustBoundary(original), outsideRustBoundary(proposed))
+  } else {
+    const withoutLifecycle = (text: string) =>
+      text
+        .replace(/^> Lifecycle: [^\n]*\n/gm, '')
+        .replace(
+          /^> Superseded by: \[ADR-(048|069)\]\(ADR-\1-rust-client-source-policy\.md\)[^\n]*\n/gm,
+          '',
+        )
+    equal(withoutLifecycle(original), withoutLifecycle(proposed))
+  }
+}
+export function admitArchitectureWiring(
+  path: string,
+  before: Buffer | null,
+  after: Buffer | null,
+  adoptsCoverage = false,
+): void {
+  if (POLICY_DOCUMENTS.includes(path)) {
+    if (!adoptsCoverage)
+      throw new Error('Coverage documentation requires language/root adoption')
+    admitCoverageDocumentation(path, before, after)
+    return
+  }
   if (!WIRING_PATHS.includes(path)) return
   if (!before || !after)
     throw new Error('Policy proposal cannot add or remove an entire verification owner')

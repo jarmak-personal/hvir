@@ -33,13 +33,13 @@ export function GitChangesView({
     return (
       <>
         {error ? <div className="tree-error">Changes unavailable: {error}</div> : null}
-        {loading ? <div className="git-empty">Loading changes…</div> : null}
+        {loading ? <div className="git-empty hvir-state">Loading changes…</div> : null}
       </>
     )
   }
   let content: ReactElement
   if (changes.repositoryState === 'not-git') {
-    content = <div className="git-empty">Not a Git repository</div>
+    content = <div className="git-empty hvir-state">Not a Git repository</div>
   } else if (changes.workingTreeLimited) {
     content = (
       <>
@@ -59,7 +59,7 @@ export function GitChangesView({
     )
   } else if (changes.workingTree.length === 0 && changes.branchPoint.length === 0) {
     content = (
-      <div className="git-empty">
+      <div className="git-empty hvir-state">
         {changes.repositoryState === 'unborn'
           ? 'No commits yet · working tree clean'
           : 'Working tree clean'}
@@ -68,29 +68,29 @@ export function GitChangesView({
   } else {
     content = (
       <>
-      {gitChangeGroups(changes).map((group) => (
-        <ChangeGroup
-          key={
-            group.key === 'branch-point'
-              ? `${root.hostId}:${root.path}:branch-point`
-              : group.key
-          }
-          title={group.title}
-          files={group.files}
-          root={root}
-          base={group.base}
-          onOpen={onOpen}
-          collapsible={group.collapsible}
-        />
-      ))}
-      {!changes.branchPointAvailable ? (
-        <div
-          className="git-empty git-branch-unavailable"
-          title={changes.branchPointUnavailableReason}
-        >
-          Branch point unavailable
-        </div>
-      ) : null}
+        {gitChangeGroups(changes).map((group) => (
+          <ChangeGroup
+            key={
+              group.key === 'branch-point'
+                ? `${root.hostId}:${root.path}:branch-point`
+                : group.key
+            }
+            title={group.title}
+            files={group.files}
+            root={root}
+            base={group.base}
+            onOpen={onOpen}
+            collapsible={group.collapsible}
+          />
+        ))}
+        {!changes.branchPointAvailable ? (
+          <div
+            className="git-empty git-branch-unavailable hvir-state"
+            title={changes.branchPointUnavailableReason}
+          >
+            Branch point unavailable
+          </div>
+        ) : null}
       </>
     )
   }
@@ -103,7 +103,11 @@ export function GitChangesView({
   )
 }
 
-function GitChangeLimitNotice({ changes }: { readonly changes: GitChanges }): ReactElement {
+function GitChangeLimitNotice({
+  changes,
+}: {
+  readonly changes: GitChanges
+}): ReactElement {
   return (
     <div className="git-limit-notice" role="status">
       {changes.workingTree.length >= (changes.workingTreeLimit ?? 2_000) ? (
@@ -144,7 +148,7 @@ function ChangeGroup({
         {collapsible ? (
           <button
             type="button"
-            className="git-group-toggle"
+            className="git-group-toggle hvir-button"
             aria-expanded={expanded}
             onClick={() => setExpanded((value) => !value)}
           >
@@ -220,7 +224,9 @@ function VirtualChangeFiles({
           return (
             <button
               type="button"
-              className={`git-file git-status-${tone}`}
+              className={
+                `git-file git-status-${tone}` + ' hvir-button hvir-row' + ' hvir-control'
+              }
               key={`${file.path.hostId}:${file.path.path}`}
               style={{
                 height: DETAIL_ROW_HEIGHT,

@@ -53,10 +53,14 @@ export function useWorkbenchCommands(
     const disposeCommand = window.hvir.on('web-pane:command', ({ action, paneId }) =>
       perform(action, paneId),
     )
+    const disposeExtensionCommand = window.hvir.on('extensions:command', (action) =>
+      perform(action, undefined, 'web-pane'),
+    )
     window.addEventListener('keydown', keydown, true)
     return () => {
       window.removeEventListener('keydown', keydown, true)
       void disposeCommand()
+      void disposeExtensionCommand()
     }
   }, [keybindings])
 }

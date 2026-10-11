@@ -1,8 +1,10 @@
 # Contributing to hvir
 
 hvir is deliberately smaller than an IDE. Contributions should reinforce its view-first,
-agent-aware workflow without quietly widening the product into an editor, extension platform,
-task runner, or session orchestrator.
+agent-aware workflow without quietly widening the product into an editor, task runner, or
+session orchestrator. The 0.3.0 extension platform follows
+[ADR-054](docs/adr/ADR-054-isolated-extension-package-and-capability-boundary.md): packages run in isolated guests through scoped public
+capabilities. Third-party harness providers and terminal engines remain excluded.
 
 The repository-owned skills are for hvir contributors and maintainers. People using the hvir
 application do not need an agent skill.
@@ -279,14 +281,14 @@ blocking score threshold, and uses only Node and the locally installed test depe
 not launch Electron, require a display, or access the network.
 
 `npm run smoke` runs the focused `pty-native`, `viewer-position`, `viewer-content`,
-`git-workflow`, `workspace-remote`, `web-pane`, `renderer-authority`, `renderer-recovery`,
+`git-workflow`, `workspace-remote`, `web-pane`, `extensions`, `agent-workbench`, `renderer-authority`, `renderer-recovery`,
 `sessions-projection`, `document-review`, `terminal-presentation`, and `terminal-lifecycle` groups plus the focused
 `native-host-worker`, `workbench-health`, `platform-contracts`, `terminal-theme`,
 `terminal-move`, `workbench-layout`, `terminal-split`, `app-settings`, and `harness-profiles` groups in separate Electron processes with fresh project and user-data roots, then
 reports a result for every scheduled group. Direct single-process invocations require
 `HVIR_SMOKE_SCENARIO`; missing and invalid names fail with a selection diagnostic. Select one group locally with
 `npm run smoke:scenario -- <name>`; the complete name set is `pty-native`, `viewer-position`, `viewer-content`,
-`git-workflow`, `workspace-remote`, `web-pane`, `renderer-authority`, `platform-contracts`,
+`git-workflow`, `workspace-remote`, `web-pane`, `extensions`, `agent-workbench`, `renderer-authority`, `platform-contracts`,
 `diagnostic-report-restart`, `renderer-recovery`, `sessions-projection`, `document-review`, `development-performance`,
 `terminal-presentation`, `terminal-lifecycle`, `native-host-worker`, `workbench-health`,
 `terminal-theme`, `terminal-move`, `workbench-layout`, `terminal-split`, `app-settings`,
@@ -314,6 +316,15 @@ reconnect, watcher, and late-completion policy remains in direct Vitest suites a
 real SSH host. `web-pane` starts its own authorized terminal source and proves guest isolation,
 authenticated routing, blocked navigation, ordinary input, full-page controls, workspace
 hide/restore without reload, bounded redacted diagnostics, reserved close, and route cleanup.
+`agent-workbench` proves the actual Node CLI and private socket through ordinary Settings
+controls, protected supervised-shell defaults, connector-free action dispatch, inert reports,
+keyboard focus, confined document presentation and access/endpoint revocation. Installed-package
+acceptance separately runs offline reference commands with no display; signed native release
+requirements remain unchanged.
+
+`extensions` exercises the ordinary directory-package Settings workflow, captured-byte
+isolation, public guest protocol, reachable HTTP/WebSocket and TCP/UDP WebRTC denial,
+presentation, inactive timer suspension, and trusted lifecycle controls against Electron.
 `renderer-authority` owns real renderer reload/destruction revocation for routes and HTML previews;
 it does not depend on a terminal scenario. Each focused process records a bounded semantic
 snapshot when readiness fails.

@@ -2,6 +2,7 @@
 
 > Lifecycle: Partially superseded
 > Superseded by: [ADR-019](ADR-019-working-output-is-not-actionable-attention.md) | partial | Classifying ongoing post-submission output as actionable new-output attention.
+> Superseded by: [ADR-053](ADR-053-local-agent-workbench-access.md) | partial | Terminal-only attention vocabulary: add separate quiet report attention, cleared by viewing that report.
 
 ## Context
 

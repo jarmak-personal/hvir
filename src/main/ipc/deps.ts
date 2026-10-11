@@ -15,6 +15,8 @@ import type {
   RenderContainmentDiagnosticBatch,
   WorkbenchHealthSnapshot,
 } from '../../shared'
+import type { AgentApplicationRuntime } from '../agent/agent-application'
+import type { ExtensionApplicationRuntime } from '../extensions/extension-application'
 import type { HarnessProfileStoreContract } from '../harness/harness-profile-store'
 import type { HarnessProbeManager } from '../harness/harness-probe'
 import type { RemoteImagePasteCoordinator } from '../harness/remote-image-paste'
@@ -22,6 +24,7 @@ import type { HtmlPreviewProtocol } from '../html-preview-protocol'
 import type { ProjectHost } from '../project-host'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import type { RendererOwner } from '../renderer-resource-scopes'
+import type { TerminalCommandHandoffOwner } from '../terminal/command-handoff-owner'
 import type { TerminalSessionStore } from '../terminal/session-registry'
 import type { TerminalWorkspaceMoveCoordinator } from '../terminal/terminal-workspace-move-coordinator'
 import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
@@ -50,6 +53,8 @@ export interface SystemClipboardPort {
 }
 
 export interface IpcDeps extends IpcRouterAuthorityPort {
+  readonly agents?: AgentApplicationRuntime
+  readonly extensions?: ExtensionApplicationRuntime
   readonly echoWorker: WorkerClient<EchoWorkerProtocol>
   readonly gitWorker: WorkerClient<GitWorkerProtocol>
   readonly filenameSearch: Pick<FilenameSearchCoordinator, 'search' | 'cancel' | 'revoke'>
@@ -152,6 +157,7 @@ export interface IpcDeps extends IpcRouterAuthorityPort {
     batch: RenderContainmentDiagnosticBatch,
   ) => void
   readonly ptySupervisor: PtySupervisor
+  readonly terminalHandoffs?: TerminalCommandHandoffOwner
   readonly terminalSessions: TerminalSessionStore
   readonly sessionsObservation: Pick<
     SessionsObservationPort,

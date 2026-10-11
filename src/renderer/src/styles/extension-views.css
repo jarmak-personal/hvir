@@ -1,0 +1,281 @@
+.extension-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+.extension-view[hidden] {
+  display: none;
+}
+.extension-view-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 12px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.extension-view-heading button {
+  color: var(--text);
+  background-color: var(--surface-1);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  padding: 4px 8px;
+}
+.extension-guest {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+.extension-installation {
+  border-top: 1px solid var(--border-subtle);
+  padding: 12px 0;
+  overflow-wrap: anywhere;
+}
+.extension-installation button {
+  margin: 4px;
+}
+
+.extension-updater {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  left: -100px;
+  top: -100px;
+  overflow: hidden;
+  pointer-events: none;
+}
+.extension-terminal-items {
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  gap: 2px;
+  overflow-x: auto;
+}
+.terminal-rail-header .extension-terminal-items {
+  min-width: 52px;
+}
+.extension-terminal-item {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: auto;
+  min-width: 26px;
+  max-width: 72px;
+  padding: 0 3px;
+  overflow: hidden;
+  font-size: calc(14px * var(--hvir-interface-scale));
+}
+.extension-settings-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.extension-settings-content p {
+  margin: 0;
+  line-height: 1.5;
+}
+.extension-settings-content h4 {
+  margin: 0;
+  font-size: calc(12px * var(--hvir-interface-scale));
+}
+.extension-settings-content details {
+  min-width: 0;
+}
+.extension-settings-content summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: calc(11px * var(--hvir-interface-scale));
+  line-height: 1.5;
+}
+.extension-settings-content details[open] > summary {
+  margin-bottom: 10px;
+}
+.extension-installation,
+.agent-access-settings,
+.extension-delivery-recovery[open] {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+.extension-installation > .hvir-button {
+  align-self: flex-start;
+}
+.extension-settings-content .settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.extension-installation-actions > .hvir-button {
+  margin: 0;
+}
+.extension-settings-content fieldset {
+  min-width: 0;
+  margin: 8px 0 0;
+  padding: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  display: grid;
+  gap: 10px;
+}
+.extension-settings-content fieldset > label {
+  display: grid;
+  gap: 6px;
+}
+.extension-settings-content fieldset > .hvir-button {
+  justify-self: start;
+  max-width: 100%;
+}
+.extension-settings-content .agent-access-settings label {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  flex-direction: row;
+  gap: 8px;
+}
+.extension-settings-content .agent-access-settings input[type='checkbox'] {
+  flex: 0 0 auto;
+  width: calc(14px * var(--hvir-interface-scale));
+  height: calc(14px * var(--hvir-interface-scale));
+  padding: 0;
+  margin: 0;
+}
+.extension-settings-content pre {
+  max-width: 100%;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 10px;
+  border-radius: 4px;
+  background: var(--surface-2);
+}
+.extension-settings-content textarea {
+  min-height: 64px;
+  resize: vertical;
+}
+.extension-terminal-value {
+  min-width: 0;
+  max-width: 40px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(11px * var(--hvir-interface-scale));
+}
+.extension-item-popup {
+  position: fixed;
+  z-index: 1100;
+  width: min(440px, calc(100vw - 16px));
+  height: min(320px, calc(100vh - 16px));
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.extension-item-popup .extension-view {
+  height: 100%;
+}
+.extension-top-destination {
+  flex: 1;
+  min-height: 0;
+  background: var(--app-bg);
+}
+.extension-top-destination .extension-view {
+  height: 100%;
+}
+
+.extension-top-destination[hidden] {
+  display: none;
+}
+.extension-rail-builtins {
+  display: contents;
+}
+.extension-rail-builtins[hidden] {
+  display: none;
+}
+.extension-navigation-icon {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 1.2em;
+  height: 1.2em;
+  margin-right: 0.4em;
+  vertical-align: -0.2em;
+  background-color: currentColor;
+  mask-size: contain;
+  mask-position: center;
+  mask-repeat: no-repeat;
+}
+
+/* Feature-owned list/detail structure; shared primitives retain control presentation. */
+.extension-configuration-layout {
+  display: grid;
+  flex-shrink: 0;
+  grid-template-columns: clamp(100px, 30%, 180px) minmax(0, 1fr);
+  height: min(520px, 65vh);
+  min-height: 320px;
+  overflow: hidden;
+  min-width: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--surface-1);
+}
+.extension-installation-list {
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  background: var(--surface-0);
+  border-right: 1px solid var(--border-subtle);
+}
+.extension-installation-list > button {
+  display: grid;
+  width: 100%;
+  gap: 4px;
+  padding: 10px;
+  text-align: left;
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+}
+.extension-installation-list > button[aria-current='true'] {
+  background: var(--accent-soft);
+}
+.extension-installation-list strong,
+.extension-installation-list small {
+  overflow-wrap: anywhere;
+  font-size: calc(11px * var(--hvir-interface-scale));
+}
+.extension-installation-list small {
+  color: var(--text-muted);
+  font-size: calc(10px * var(--hvir-interface-scale));
+}
+.extension-configuration-layout > .extension-installation {
+  min-width: 0;
+  border-top: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px;
+}
+.extension-configuration-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.extension-configuration-tabs .hvir-button[aria-current='true'] {
+  background: var(--accent-soft);
+}
+.extension-configuration-layout .extension-installation button {
+  margin: 0;
+}
+.extension-configuration-layout .extension-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.extension-configuration-layout .extension-actions > label {
+  flex-basis: 100%;
+}

@@ -1,4 +1,5 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { managedTransfer } from './managed-transfer'
+import { createHash } from 'node:crypto'
 import { StringDecoder } from 'node:string_decoder'
 
 import { Client, utils, type ClientChannel, type ConnectConfig } from 'ssh2'
@@ -41,6 +42,9 @@ import {
   type SshTransportRole,
 } from './ssh-transport-pool'
 import { SshWatchService } from './ssh-watch-service'
+import { startBufferedSshExec } from './ssh-buffered-exec'
+import { remoteCommand } from './ssh-command'
+import { SshStreamLocalOwner } from './ssh-stream-local'
 
 export {
   SSH_CONTROL_CHANNEL_BUDGET,
@@ -65,7 +69,16 @@ let nextRemotePid = -1
 
 export class SshHost implements ProjectHost {
   readonly hostId: HostId
+  readonly finiteExec = {
+    tryExec: (command: string, args: readonly string[], opts: ExecOptions = {}) =>
+      startBufferedSshExec(this.transportPool, command, args, opts, true),
+  }
   readonly fileDeletion = { capability: 'permanent' } as const
+  readonly managedTransfer = managedTransfer(
+    this,
+    (path, chunks, options) => this.files.writeFileChunksExclusive(path, chunks, options),
+    (path, options) => this.files.setProjectFileMetadata(path, options),
+  )
   readonly fileTransfer: ProjectFileTransferPort
   private state: HostConnectionState = 'disconnected'
   private tier: HostWatchTier = 'polling'
@@ -98,6 +111,7 @@ export class SshHost implements ProjectHost {
     abort?: () => void
   }> = []
   private readonly transportPool: SshTransportPool
+  private readonly streamLocalOwner: SshStreamLocalOwner
   private readonly files: SshFileAccess
   private readonly watches: SshWatchService
   constructor(private readonly options: SshHostOptions) {
@@ -108,6 +122,7 @@ export class SshHost implements ProjectHost {
       openAuxiliaryTransport: (role) => this.openAuxiliaryTransport(role),
       lifecycleSignal: () => this.lifecycleAbort.signal,
     })
+    this.streamLocalOwner = new SshStreamLocalOwner(this.transportPool)
     this.files = new SshFileAccess(
       {
         hostId: this.hostId,
@@ -153,6 +168,21 @@ export class SshHost implements ProjectHost {
       ),
     )
   }
+  get streamLocal() {
+    const client = this.client,
+      generation = this.clientGeneration
+    if (!client || this.state !== 'connected') return undefined
+    return this.streamLocalOwner.binding(
+      this.hostId,
+      generation,
+      client,
+      () =>
+        this.client === client &&
+        this.clientGeneration === generation &&
+        this.state === 'connected' &&
+        !this.disposed,
+    )
+  }
   get connectionState(): HostConnectionState {
     return this.state
   }
@@ -193,6 +223,7 @@ export class SshHost implements ProjectHost {
     this.disposed = true
     this.lifecycleAbort.abort()
     this.promptAbort?.abort()
+    this.streamLocalOwner.revoke()
     this.clientGeneration++
     this.cancelConnecting?.(new Error('SSH connection cancelled'))
     this.cancelConnecting = undefined
@@ -241,95 +272,10 @@ export class SshHost implements ProjectHost {
     args: readonly string[],
     opts: ExecOptions = {},
   ): Promise<ExecResult> {
-    const statusMarker = `__hvir_exec_status_${randomUUID()}__`
-    // Connecting performs its own short capability probe through exec(). Do
-    // not reserve a buffered slot until that handshake has completed.
+    // Connecting performs its own short probe before reserving ordinary buffered capacity.
     const release = await this.acquireExecSlot(opts.signal)
     try {
-      const stream = await this.transportPool.openChannel(
-        'control',
-        (client) =>
-          new Promise<ClientChannel>((resolve, reject) => {
-            try {
-              client.exec(
-                remoteBufferedCommand(command, args, opts, statusMarker),
-                (error, value) => (error ? reject(error) : resolve(value)),
-              )
-            } catch (error) {
-              reject(asError(error))
-            }
-          }),
-        opts.signal,
-      )
-      return await new Promise((resolve, reject) => {
-        let stdout = '',
-          stderr = '',
-          bytes = 0,
-          stdoutNulRecords = 0,
-          code: number | null = null,
-          signal: string | null = null
-        let settled = false
-        let truncated = false
-        const stdoutDecoder = new StringDecoder('utf8')
-        const stderrDecoder = new StringDecoder('utf8')
-        const append = (kind: 'out' | 'err', chunk: Buffer): void => {
-          if (truncated) return
-          bytes += chunk.length
-          if (kind === 'out' && opts.maxStdoutNulRecords !== undefined) {
-            for (const byte of chunk) if (byte === 0) stdoutNulRecords++
-          }
-          if (kind === 'out') stdout += stdoutDecoder.write(chunk)
-          else stderr += stderrDecoder.write(chunk)
-          if (
-            bytes > (opts.maxBuffer ?? 10 * 1024 * 1024) ||
-            (opts.maxStdoutNulRecords !== undefined &&
-              stdoutNulRecords >= opts.maxStdoutNulRecords)
-          ) {
-            if (opts.allowTruncatedOutput) {
-              truncated = true
-              return stream.close()
-            }
-            if (!settled) reject(new Error('SSH exec output exceeded maxBuffer'))
-            settled = true
-            return stream.close()
-          }
-        }
-        stream.on('data', (chunk: Buffer) => append('out', chunk))
-        stream.stderr.on('data', (chunk: Buffer) => append('err', chunk))
-        stream.on('exit', (exitCode: number | null, exitSignal?: string) => {
-          code = exitCode
-          signal = exitSignal ?? null
-        })
-        stream.on('error', (reason: Error) => {
-          if (!settled) reject(reason)
-          settled = true
-        })
-        stream.on('close', () => {
-          if (!settled) {
-            stdout += stdoutDecoder.end()
-            stderr += stderrDecoder.end()
-            const recovered = recoverBufferedExecStatus(stderr, statusMarker)
-            resolve({
-              code: recovered.code ?? code,
-              signal,
-              stdout,
-              stderr: recovered.stderr,
-              ...(truncated ? { outputTruncated: true } : {}),
-            })
-          }
-          settled = true
-        })
-        if (opts.signal) {
-          const abort = (): void => {
-            if (!settled) reject(abortError())
-            settled = true
-            stream.close()
-          }
-          opts.signal.addEventListener('abort', abort, { once: true })
-          stream.once('close', () => opts.signal?.removeEventListener('abort', abort))
-        }
-        stream.end(opts.input)
-      })
+      return await startBufferedSshExec(this.transportPool, command, args, opts)!
     } finally {
       release()
     }
@@ -551,24 +497,18 @@ export class SshHost implements ProjectHost {
           }
           stopExit = subscribe(exits, () =>
             finish(
-              new PtyWriteIndeterminateError(
-                'SSH PTY exited before write completion',
-              ),
+              new PtyWriteIndeterminateError('SSH PTY exited before write completion'),
             ),
           )
           timer = setTimeout(
             () =>
               finish(
-                new PtyWriteIndeterminateError(
-                  'SSH PTY write completion timed out',
-                ),
+                new PtyWriteIndeterminateError('SSH PTY write completion timed out'),
               ),
             SSH_PTY_WRITE_CONFIRM_TIMEOUT_MS,
           )
           try {
-            channel.write(value, (error?: Error | null) =>
-              finish(error ?? undefined),
-            )
+            channel.write(value, (error?: Error | null) => finish(error ?? undefined))
           } catch (error) {
             finish(asError(error))
           }
@@ -623,6 +563,7 @@ export class SshHost implements ProjectHost {
     this.promptAbort = promptAbort
     const client = this.options.clientFactory?.() ?? new Client()
     this.pendingClients.add(client)
+    this.streamLocalOwner.revoke()
     const generation = ++this.clientGeneration
     const previousClient = this.client
     this.client = client
@@ -658,6 +599,7 @@ export class SshHost implements ProjectHost {
         this.transportPool.retireClient(client)
         const current = this.client === client && this.clientGeneration === generation
         if (current) {
+          this.streamLocalOwner.revoke()
           this.client = undefined
           this.files.advanceGeneration()
         }
@@ -924,6 +866,7 @@ export class SshHost implements ProjectHost {
                 cwd: opts.cwd,
                 env: opts.env,
                 unsetEnv: opts.unsetEnv,
+                pathPrefix: opts.pathPrefix,
               }),
               {
                 pty: {
@@ -1119,44 +1062,6 @@ export class SshHost implements ProjectHost {
   }
 }
 
-function remoteCommand(
-  command: string,
-  args: readonly string[],
-  opts: Pick<ExecOptions, 'cwd' | 'env' | 'unsetEnv'>,
-): string {
-  const executable = [command, ...args].map(quote).join(' ')
-  const unset = (opts.unsetEnv ?? []).map((key) => `-u ${quote(key)}`).join(' ')
-  const env = Object.entries(opts.env ?? {})
-    .map(([k, v]) => `${k}=${quote(v)}`)
-    .join(' ')
-  const environment = [unset, env].filter(Boolean).join(' ')
-  const invocation = environment ? `env ${environment} ${executable}` : executable
-  return opts.cwd ? `cd -- ${quote(opts.cwd.path)} && ${invocation}` : invocation
-}
-function remoteBufferedCommand(
-  command: string,
-  args: readonly string[],
-  opts: Pick<ExecOptions, 'cwd' | 'env' | 'unsetEnv'>,
-  statusMarker: string,
-): string {
-  const invocation = remoteCommand(command, args, opts)
-  return `( ${invocation} ); hvir_status=$?; printf '%s%s' ${quote(statusMarker)} "$hvir_status" >&2; exit "$hvir_status"`
-}
-function recoverBufferedExecStatus(
-  stderr: string,
-  statusMarker: string,
-): { readonly code?: number; readonly stderr: string } {
-  const markerAt = stderr.lastIndexOf(statusMarker)
-  if (markerAt < 0) return { stderr }
-  const rawCode = stderr.slice(markerAt + statusMarker.length)
-  if (!/^\d{1,3}$/.test(rawCode)) return { stderr }
-  const code = Number(rawCode)
-  if (!Number.isSafeInteger(code) || code > 255) return { stderr }
-  return { code, stderr: stderr.slice(0, markerAt) }
-}
-function quote(value: string): string {
-  return `'${value.replaceAll("'", `'"'"'`)}'`
-}
 function subscribe<T>(set: Set<(v: T) => void>, cb: (v: T) => void): Disposer {
   set.add(cb)
   return () => {

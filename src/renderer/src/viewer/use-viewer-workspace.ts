@@ -48,6 +48,10 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
     viewerWorkspaceReducer,
     initialViewerWorkspaceModel,
   )
+  const [fileActivation, markFileActivated] = useReducer(
+    (revision: number) => revision + 1,
+    0,
+  )
   const modelRef = useRef(model)
   const optionsRef = useRef(options)
   const warmWorkspaces = useRef(new RetainedViewerWorkspaceCache())
@@ -159,6 +163,7 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
     (id: string, pane?: ViewerPaneId): void => {
       flushPendingPositions()
       send({ type: 'activate', id, pane })
+      markFileActivated()
       optionsRef.current.onActivateFile()
     },
     [flushPendingPositions, send],
@@ -188,6 +193,7 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
             : undefined,
         },
       })
+      markFileActivated()
       optionsRef.current.onActivateFile()
       // Reopening a dirty tab is navigation, not a reload. Its in-memory buffer
       // is authoritative until the user saves or explicitly chooses reload.
@@ -195,6 +201,31 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
     },
     [flushPendingPositions, loadFileAt, send],
   )
+
+  useEffect(() => {
+    const dispose = window.hvir.on('agent:document-opened', (document) => {
+      if (modelRef.current.root && hostPathEquals(modelRef.current.root, document.root)) {
+        openFile(document.path, true)
+        return
+      }
+      const key = viewerStorageKey(document.root)
+      const retained =
+        warmWorkspaces.current.take(key) ?? restoreViewerTabs(document.root)
+      const opened = viewerWorkspaceReducer(
+        {
+          ...initialViewerWorkspaceModel,
+          root: document.root,
+          tabs: retained.tabs,
+          activeId: retained.activeId,
+        },
+        { type: 'open', request: { path: document.path, pinned: true } },
+      )
+      warmWorkspaces.current.set(key, { tabs: opened.tabs, activeId: opened.activeId })
+    })
+    return () => {
+      void dispose()
+    }
+  }, [openFile])
 
   const closeTab = useCallback(
     (id: string): void => {
@@ -396,6 +427,7 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
       if (pane === 'secondary' && current.root) {
         persistWorkspaceLayout(current.root, { viewerSplit: true })
       }
+      markFileActivated()
       optionsRef.current.onActivateFile()
     },
     [flushPendingPositions, send],
@@ -459,6 +491,7 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
 
   return {
     model,
+    fileActivation,
     tabs: model.tabs,
     activeId: model.activeId,
     activeTab: selectActiveTab(model),

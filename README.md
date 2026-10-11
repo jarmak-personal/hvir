@@ -47,6 +47,9 @@ or Apple-silicon macOS before invoking the platform installation step.
 
 Want to manage the installation yourself? [Follow these steps.](docs/manual-installation.md)
 
+For the 0.3 extension release, follow the [extension and agent setup guide](docs/extension-setup.md)
+to install the separate Skillager ZIP or make a clock using installed `hvir-agent` guides.
+
 hvir does expect the system `git` binary. Claude Code and Codex launch options use those CLIs
 from the selected host's login-shell environment; plain shells work without either.
 

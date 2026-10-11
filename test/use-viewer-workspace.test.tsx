@@ -22,7 +22,7 @@ beforeEach(() => {
   invoke = vi.fn()
   Object.defineProperty(window, 'hvir', {
     configurable: true,
-    value: { invoke },
+    value: { invoke, on: vi.fn(() => () => undefined) },
   })
   act(() => reactRoot.render(<ViewerWorkspaceHarness />))
 })

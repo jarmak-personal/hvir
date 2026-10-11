@@ -1,0 +1,17 @@
+[
+  {
+    "id": "library",
+    "title": "Searchable library",
+    "detail": "A Skillager-style library uses labeled search, a keyboard-navigable list, and a readable detail view. Host access remains separately approved."
+  },
+  {
+    "id": "clock",
+    "title": "Small clock",
+    "detail": "A small clock can use the same typography and theme tokens. A local timer changes guest content without host access or a build step."
+  },
+  {
+    "id": "document",
+    "title": "Document details",
+    "detail": "Select a row with the mouse or Arrow keys. Home and End reach the first and last result. No results leaves a useful message and keeps search available."
+  }
+]

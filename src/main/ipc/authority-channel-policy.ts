@@ -1,6 +1,48 @@
 import { SEND_CHANNELS, type IpcInvokeChannel } from '../../shared'
 
 export const OWNER_SCOPED_INVOKE_CHANNELS = [
+  'agent:access',
+  'agent:configure',
+  'agent:extension-configure',
+  'agent:forward-grant',
+  'agent:decide',
+  'agent:reports',
+  'agent:report-read',
+  'agent:report-viewed',
+  'agent:report-close',
+  'extensions:delivery-recovery',
+  'extensions:delivery-resolve',
+  'extensions:source-settings',
+  'extensions:source-proposals',
+  'extensions:source-decide',
+  'extensions:source-prepare',
+  'extensions:source-approve',
+  'extensions:source-revoke',
+  'extensions:connector-settings',
+  'extensions:connector-connect',
+  'extensions:connection-proposals',
+  'extensions:connection-decide',
+  'extensions:connection-cancel',
+  'extensions:connector-prepare',
+  'extensions:connector-approve',
+  'extensions:connector-revoke',
+  'extensions:state',
+  'extensions:discover',
+  'extensions:add',
+  'extensions:add-cancel-setup',
+  'extensions:open-folder',
+  'extensions:enable',
+  'extensions:disable',
+  'extensions:reload',
+  'extensions:remove',
+  'extensions:open-view',
+  'extensions:close-view',
+  'extensions:views',
+  'extensions:contributions',
+  'extensions:context',
+  'extensions:foreground',
+  'extensions:action',
+  'extensions:demand',
   'workbench-health:acknowledge',
   'diagnostic-evidence:get',
   'diagnostic-evidence:delete',
@@ -66,7 +108,10 @@ export const OWNER_SCOPED_INVOKE_CHANNELS = [
   'pty:start',
 ] as const satisfies readonly IpcInvokeChannel[]
 
-export const OWNER_SCOPED_SEND_CHANNELS = SEND_CHANNELS
+export const OWNER_SCOPED_SEND_CHANNELS = SEND_CHANNELS.filter(
+  (channel) =>
+    channel !== 'extension-guest:message' && channel !== 'extension-guest:visible',
+)
 
 export const AUTHORITY_SCOPED_INVOKE_CHANNELS = [
   'project:watch-interests',

@@ -25,6 +25,19 @@ else
   ln -sf "$HVIR_COMMAND" '/usr/bin/${executable}'
 fi
 
+stage='configuring the hvir-agent command'
+HVIR_AGENT_COMMAND='/opt/${sanitizedProductName}/resources/hvir-agent-command'
+HVIR_AGENT_LINK='/usr/bin/hvir-agent'
+if [ -e "$HVIR_AGENT_LINK" ] || [ -L "$HVIR_AGENT_LINK" ]; then
+  if [ ! -L "$HVIR_AGENT_LINK" ] || [ "$(readlink "$HVIR_AGENT_LINK")" != "$HVIR_AGENT_COMMAND" ]; then
+    echo 'Refusing to replace an unowned hvir-agent command' >&2
+    false
+  fi
+fi
+chown root:root "$HVIR_AGENT_COMMAND"
+chmod 0755 "$HVIR_AGENT_COMMAND"
+ln -sf "$HVIR_AGENT_COMMAND" "$HVIR_AGENT_LINK"
+
 stage='configuring the Chromium sandbox helper'
 chown root:root '/opt/${sanitizedProductName}/chrome-sandbox'
 if command -v runuser >/dev/null 2>&1 &&

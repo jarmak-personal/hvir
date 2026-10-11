@@ -73,6 +73,115 @@ describe('architecture accepted Git history', () => {
       await expect(r.check(base, kind)).rejects.toThrow(/policy-only/)
     },
   )
+  it.each([false, true])(
+    'requires policy-only language adoption before consuming Rust, ignored=%s',
+    async (ignored) => {
+      const r = repo(),
+        base = r.initial,
+        policy = ordinaryPolicy()
+      policy.extensions.push('.rs')
+      policy.rustClient = {
+        root: 'packages/hvir-agent',
+        cargoOutput: 'packages/hvir-agent/target',
+      }
+      r.policy(policy)
+      expect((await r.check(base, 'epic-child')).admission.kind).toBe('policy-proposal')
+      if (ignored) {
+        r.write('.gitignore', 'packages/hvir-agent/src/main.rs\n')
+        r.commit()
+      }
+      r.write('packages/hvir-agent/src/main.rs', 'fn main() {}\n')
+      await expect(r.check(base, 'epic-child')).rejects.toThrow(
+        /policy-only|newly authorized source/,
+      )
+    },
+  )
+  it('checks ignored consuming Rust even when the exclusion predates the policy proposal', async () => {
+    const r = repo(),
+      policy = ordinaryPolicy()
+    r.write('.gitignore', 'packages/hvir-agent/src/main.rs\n')
+    const base = r.commit()
+    policy.extensions.push('.rs')
+    policy.rustClient = {
+      root: 'packages/hvir-agent',
+      cargoOutput: 'packages/hvir-agent/target',
+    }
+    r.policy(policy)
+    r.write('packages/hvir-agent/src/main.rs', 'fn main() {}\n')
+    await expect(r.check(base)).rejects.toThrow(/newly authorized source/)
+  })
+  it('replays accepted language policy before a consuming Rust child', async () => {
+    const r = repo(),
+      main = r.initial
+    r.git('switch', '-c', 'epic/733-fixture')
+    r.git('switch', '-c', 'policy-child')
+    const policy = ordinaryPolicy()
+    policy.extensions.push('.rs')
+    policy.rustClient = {
+      root: 'packages/hvir-agent',
+      cargoOutput: 'packages/hvir-agent/target',
+    }
+    r.policy(policy)
+    r.commit()
+    const accepted = r.integrate('policy-child', main)
+    r.git('switch', '-c', 'client-child')
+    r.write('packages/hvir-agent/src/main.rs', 'fn main() {}\n')
+    r.commit()
+    r.integrate('client-child', accepted)
+    const report = await r.check(main, 'cumulative')
+    expect(report.rows.find((row) => row.path.endsWith('.rs'))).toMatchObject({
+      governingRule: 'ordinary',
+      effectiveLimit: 1000,
+      status: 'ok',
+    })
+    r.evidence.clear()
+    await expect(r.check(main, 'cumulative')).rejects.toThrow(/Missing accepted/)
+  })
+  it.each(['packages/native-agent', 'packages'])(
+    'requires policy before moving/widening Rust authority to %s',
+    async (root) => {
+      const r = repo(),
+        policy = ordinaryPolicy()
+      policy.extensions.push('.rs')
+      policy.rustClient = {
+        root: 'packages/hvir-agent',
+        cargoOutput: 'packages/hvir-agent/target',
+      }
+      r.policy(policy)
+      const path = `${root}/src/client.rs`
+      r.write('.gitignore', `${path}\n`)
+      const base = r.commit()
+      policy.rustClient = { root, cargoOutput: `${root}/target` }
+      r.policy(policy)
+      expect((await r.check(base, 'epic-child')).admission.kind).toBe('policy-proposal')
+      r.write(path, 'fn main() {}\n')
+      await expect(r.check(base, 'epic-child')).rejects.toThrow(
+        /newly authorized source|outside declared roots/,
+      )
+      r.remove(path)
+      const accepted = r.commit()
+      r.write(path, 'fn main() {}\n')
+      expect((await r.check(accepted, 'epic-child')).admission.kind).toBe(
+        'accepted-policy',
+      )
+    },
+  )
+  it('rejects ignored Rust hidden by a newly widened Cargo output role', async () => {
+    const r = repo(),
+      policy = ordinaryPolicy()
+    policy.extensions.push('.rs')
+    policy.rustClient = {
+      root: 'packages/hvir-agent',
+      cargoOutput: 'packages/hvir-agent/target',
+    }
+    r.policy(policy)
+    r.write('.gitignore', 'packages/target/client.rs\n')
+    const base = r.commit()
+    policy.rustClient = { root: 'packages', cargoOutput: 'packages/target' }
+    r.policy(policy)
+    r.write('packages/target/client.rs', 'fn main() {}\n')
+    await expect(r.check(base)).rejects.toThrow(/outside declared roots/)
+  })
   it('rejects an untouched unspecified over-default sibling', async () => {
     const r = repo()
     r.source(1300, 'src/unspecified.ts')

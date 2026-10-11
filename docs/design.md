@@ -36,9 +36,11 @@ Scope creep is endemic to this kind of tool — "just one more thing" is always 
 These are the lines we hold:
 
 - **No real editing.** "Minor edit + save" only. The moment we add serious editing
-  (LSP, refactors, debugger, extension host) we are rebuilding VSCode and inheriting its
+  (LSP, refactors, debugger) we are rebuilding VSCode and inheriting its
   weight. Editing is the guardrail; **surfacing information is not.**
-- **No extension host / plugin platform** (at least through v1).
+- **Bounded extension packages are permitted for 0.3.0** under [ADR-054](adr/ADR-054-isolated-extension-package-and-capability-boundary.md).
+  No package code runs in main or the trusted workbench renderer. Third-party harness providers,
+  terminal engines, unrestricted background execution, and build/task systems remain excluded.
 - **No language servers, no debugger, no build/task system.**
 - **Not a session orchestrator.** We host and observe terminals; we don't try to
   out-orchestrate the dedicated worktree managers. (We may *use* worktrees as our
@@ -145,10 +147,11 @@ persistence; hvir does not guess ambient sessions or preserve PTYs in a daemon.
 
 ### [ADR-007 — Per-tab view mode: rendered / source / diff](adr/ADR-007-explicit-view-modes.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-054](adr/ADR-054-isolated-extension-package-and-capability-boundary.md) | partial | Requiring rendered, source, or diff modes for every viewer tab; extension UI uses only its declared meaningful representations.
 
-Every tab exposes one visible, sticky representation mode with predictable defaults and
-sandboxed HTML rendering.
+Document tabs expose visible, sticky rendered/source/diff modes with predictable defaults
+and sandboxed HTML rendering. Extension UI uses declared meaningful representations.
 
 ### [ADR-008 — Workspaces: project → worktree tiers](adr/ADR-008-project-worktree-workspaces.md)
 
@@ -165,6 +168,7 @@ worktree orchestrator.
 
 > Lifecycle: Partially superseded
 > Superseded by: [ADR-019](adr/ADR-019-working-output-is-not-actionable-attention.md) | partial | Classifying ongoing post-submission output as actionable new-output attention.
+> Superseded by: [ADR-053](adr/ADR-053-local-agent-workbench-access.md) | partial | Terminal-only attention vocabulary: add separate quiet report attention, cleared by viewing that report.
 
 Terminal focus is the single clearing rule; workspace/project and OS surfaces only aggregate
 the appropriate unseen child attention.
@@ -173,6 +177,8 @@ the appropriate unseen child attention.
 
 > Lifecycle: Partially superseded
 > Superseded by: [ADR-045](adr/ADR-045-explicit-outside-project-viewing.md) | partial | Temporary document viewing addendum: location, document-type, and automatic image-read scope.
+> Superseded by: [ADR-055](adr/ADR-055-connection-scoped-remote-agent-client.md) | partial | Prohibition on cached remote helper files, only for the bundled connection-scoped hvir-agent client; no remote service or daemon is authorized.
+> Superseded by: [ADR-051](adr/ADR-051-approved-finite-connector-execution.md) | partial | Registered-root requirement for explicit approved connector execution and its application-local working context only.
 
 All project operations and paths are host-qualified behind `ProjectHost`; SSH remains a
 bounded transport owned by one logical host, not an installed remote service.
@@ -191,9 +197,13 @@ Apple-silicon macOS targets.
 > Superseded by: [ADR-015](adr/ADR-015-missing-resume-artifact-blocks-fresh-launch.md) | partial | Definitely absent or empty resume artifacts implicitly starting a fresh harness.
 > Superseded by: [ADR-024](adr/ADR-024-demand-driven-terminal-workspace-lifecycle.md) | partial | Bare Shell defaults implicitly launching a session in an empty workspace.
 > Superseded by: [ADR-036](adr/ADR-036-retire-static-harness-risk-classification.md) | partial | Provider launch-risk rules, derived risk in profile launch revision, and risk classification and acknowledgment.
+> Superseded by: [ADR-054](adr/ADR-054-isolated-extension-package-and-capability-boundary.md) | partial | General extension-platform prohibition only; trusted bundled harness providers and their separate SDK decision remain unchanged.
+> Superseded by: [ADR-053](adr/ADR-053-local-agent-workbench-access.md) | partial | Protected terminal environment vocabulary only: add instance endpoint and exact workspace/session targeting.
+> Superseded by: [ADR-058](adr/ADR-058-explicit-command-once-terminal-handoff.md) | partial | Explicit fresh ordinary-shell command handoff only; persistent profiles, trusted providers, protected environment, and exact harness recovery remain unchanged.
 
 Trusted main-owned providers supply exact harness semantics; data-only profiles customize
-launches without opaque shell commands or a third-party extension platform.
+launches without opaque shell commands or third-party harness providers. General extension
+packages use ADR-054's separate isolated capability boundary.
 
 ### [ADR-013 — User-activated loopback web panes over `ProjectHost` routes](adr/ADR-013-user-activated-loopback-web-panes.md)
 
@@ -207,6 +217,7 @@ a hostile isolated web pane while preserving remote loopback origins.
 > Lifecycle: Partially superseded
 > Superseded by: [ADR-035](adr/ADR-035-bounded-osc52-clipboard-write.md) | partial | Expiry and removal metadata requirement for the named terminal-runtime.ts 600-line non-growth cap.
 > Superseded by: [ADR-040](adr/ADR-040-complete-source-budgets-and-dependency-policy.md) | partial | Architecture hotspot budgets paragraph: complete source budgets and extended dependency enforcement; authority/seam checks stay blocking.
+> Superseded by: [ADR-054](adr/ADR-054-isolated-extension-package-and-capability-boundary.md) | partial | Excluding a plugin platform or additional isolation boundary; capability ownership, inward dependencies, lifecycle, styles, and test discipline remain unchanged.
 
 Feature ownership, inward dependency direction, typed resource lifetimes, explicit style
 order, seam checks, and blocking hotspot ratchets govern the existing process boundaries.
@@ -354,7 +365,8 @@ installation.
 
 ### [ADR-030 — Bounded project file operations and explicit external-source authority](adr/ADR-030-bounded-project-file-operations.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-061](adr/ADR-061-explicit-managed-extension-delivery.md) | partial | External source acquisition and no-replacement rules only for explicitly granted managed extension delivery; ordinary Files remains unchanged.
 
 One main-owned coordinator applies fixed targeting, confinement, collision, transfer,
 verification, deletion, and lifecycle policy over immediate `ProjectHost` primitives; explicit
@@ -439,6 +451,7 @@ provider-derived branches of registered identities; ambient transitions are neve
 ### [ADR-040 — Complete source budgets and dependency policy](adr/ADR-040-complete-source-budgets-and-dependency-policy.md)
 
 > Lifecycle: Partially superseded
+> Superseded by: [ADR-069](adr/ADR-069-rust-client-source-policy.md) | partial | Maintained-source language list: add Rust and Cargo dispositions; all existing budget, provenance, and TypeScript/JavaScript dependency rules remain authoritative.
 > Supersedes: [ADR-014](adr/ADR-014-modular-monolith-ownership.md) | partial | Architecture hotspot budgets paragraph: complete source budgets and extended dependency enforcement; authority/seam checks stay blocking.
 > Superseded by: [ADR-048](adr/ADR-048-equivalent-ci-runs-and-epic-history-recovery.md) | partial | Recorded merged-PR requirement for tested non-policy epic history only; policy authorization remains unchanged.
 
@@ -514,6 +527,187 @@ own delivery and feedback, while existing logical hosts retain connection lifeti
 
 Shared candidate evidence selects the latest equivalent CI run's complete current attempt;
 architecture alone can recover tested non-policy epic history without claiming recorded approval.
+
+---
+
+### [ADR-049 — Extension package lifecycle and bounded retention](adr/ADR-049-extension-package-lifecycle.md)
+
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-064](adr/ADR-064-explicit-extension-installation-acceptance.md) | partial | Separate Enable after explicit user-selected installation, including reinstall only.
+
+Directory, ZIP and development-link sources share explicit revision acceptance, durable identity,
+exact removal and bounded retention under the extension state writer.
+
+### [ADR-050 — Extension contributions and action lifetimes](adr/ADR-050-extension-contributions-and-action-lifetimes.md)
+
+> Lifecycle: Active
+
+Visible contribution demand owns one isolated updater; finite named actions retain caller and
+context through ordinary non-focusing viewer placement, hiding, and explicit close.
+
+### [ADR-051 — Approved finite connector execution](adr/ADR-051-approved-finite-connector-execution.md)
+
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-065](adr/ADR-065-passive-extension-program-connection.md) | partial | Mandatory manually supplied absolute executable input and separate Inspect step for application-local first-use connections only.
+> Supersedes: [ADR-010](adr/ADR-010-project-host-remote-boundary.md) | partial | Registered-root requirement for explicit approved connector execution and its application-local working context only.
+
+Native connector approval pins host-account trust and explicit contexts; finite execution stays behind ProjectHost.
+
+
+### [ADR-052 — Shared workbench and guest presentation](adr/ADR-052-shared-workbench-and-guest-presentation.md)
+
+> Lifecycle: Active
+
+Browser-safe semantic tokens and primitive styles serve built-in views and revision-captured
+optional guest assets; theme/settings, feature layout and authority retain their existing owners.
+
+### [ADR-053 — Local agent workbench access](adr/ADR-053-local-agent-workbench-access.md)
+
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-055](adr/ADR-055-connection-scoped-remote-agent-client.md) | partial | Application-local transport and client-only reference response ownership, only for SSH-forwarded requests and live remote reference commands, plus protected client-path/unavailable metadata and transport-owned PATH setup.
+> Superseded by: [ADR-056](adr/ADR-056-explicit-local-extension-authoring.md) | partial | Standalone CLI physical filesystem edge limited to fixed shipped reference reads, for explicit local scaffold, validate and skill export only.
+> Supersedes: [ADR-012](adr/ADR-012-harness-providers-launch-profiles.md) | partial | Protected terminal environment vocabulary only: add instance endpoint and exact workspace/session targeting.
+> Supersedes: [ADR-009](adr/ADR-009-hierarchical-attention.md) | partial | Terminal-only attention vocabulary: add separate quiet report attention, cleared by viewing that report.
+
+Private local sockets adapt existing public capability owners with independent standing
+agent access, exact finite destructive confirmation and workspace-owned inert reports.
+
+### [ADR-054 — Isolated extension packages and the public capability boundary](adr/ADR-054-isolated-extension-package-and-capability-boundary.md)
+
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-064](adr/ADR-064-explicit-extension-installation-acceptance.md) | partial | Separate Enable for explicit user-selected installation only; passive discovery and all other revision actions remain unchanged.
+> Supersedes: [ADR-007](adr/ADR-007-explicit-view-modes.md) | partial | Requiring rendered, source, or diff modes for every viewer tab; extension UI uses only its declared meaningful representations.
+> Supersedes: [ADR-012](adr/ADR-012-harness-providers-launch-profiles.md) | partial | General extension-platform prohibition only; trusted bundled harness providers and their separate SDK decision remain unchanged.
+> Supersedes: [ADR-014](adr/ADR-014-modular-monolith-ownership.md) | partial | Excluding a plugin platform or additional isolation boundary; capability ownership, inward dependencies, lifecycle, styles, and test discipline remain unchanged.
+
+Validated immutable packages run in isolated guests through a scoped public capability contract.
+Explicit revision and permission decisions retain separate authority; application-level viewing
+does not grant project access. The initial directory-to-view slice needs no later capability.
+
+### [ADR-055 — Connection-scoped remote agent client](adr/ADR-055-connection-scoped-remote-agent-client.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-010](adr/ADR-010-project-host-remote-boundary.md) | partial | Prohibition on cached remote helper files, only for the bundled connection-scoped hvir-agent client; no remote service or daemon is authorized.
+> Supersedes: [ADR-053](adr/ADR-053-local-agent-workbench-access.md) | partial | Application-local transport and client-only reference response ownership, only for SSH-forwarded requests and live remote reference commands, plus protected client-path/unavailable metadata and transport-owned PATH setup.
+
+A transport-only bundled Rust client reaches one host-scoped, generation-pinned SSH forward,
+with bounded private cache retention and explicit additional capability grants.
+
+### [ADR-056 — Explicit local extension authoring](adr/ADR-056-explicit-local-extension-authoring.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-053](adr/ADR-053-local-agent-workbench-access.md) | partial | Standalone CLI physical filesystem edge limited to fixed shipped reference reads, for explicit local scaffold, validate and skill export only.
+
+Explicit offline scaffold, validation and skill export share package policy and descriptor-relative
+local storage while public starter lifetimes and ordinary enablement retain their existing owners.
+
+### [ADR-057 — Selected extension source reading](adr/ADR-057-selected-extension-source-reading.md)
+
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-068](adr/ADR-068-in-context-human-source-read-decisions.md) | partial | Settings-only application-local read-only root decision surface only.
+
+Explicit source grants and selection-bound reads keep current instruction viewing separate
+from connector authority, content acceptance and agent actions.
+
+### [ADR-058 — Explicit command-once terminal handoff](adr/ADR-058-explicit-command-once-terminal-handoff.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-012](adr/ADR-012-harness-providers-launch-profiles.md) | partial | Explicit fresh ordinary-shell command handoff only; persistent profiles, trusted providers, protected environment, and exact harness recovery remain unchanged.
+
+An exact admitted action may hand one structured command to a new ordinary shell terminal;
+transient launch data never enters recovery, and handed-off terminals retain ordinary ownership.
+
+### [ADR-059 — Public local Skillager management](adr/ADR-059-public-local-skillager-management.md)
+
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-060](adr/ADR-060-public-skillager-advanced-exposure.md) | partial | Exclusion of native adoption from local management; complete public preservation-backed adoption is permitted by this decision.
+> Superseded by: [ADR-067](adr/ADR-067-cli-owned-personal-library-creation-defaults.md) | partial | Mandatory explicit initialization path and separate Git choice only.
+
+Extension-local workflows consume verified public initialization, approved synchronization and
+complete token-bound managed-copy plans; current reading and exact acceptance remain separate.
+
+### [ADR-060 — Public Skillager advanced local exposure](adr/ADR-060-public-skillager-advanced-exposure.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-059](adr/ADR-059-public-local-skillager-management.md) | partial | Exclusion of native adoption from local management; complete public preservation-backed adoption is permitted by this decision.
+
+Extension-local advanced choices consume complete public token plans, preservation semantics
+and truthful per-target recovery through the existing bounded action and connector owners.
+
+### [ADR-061 — Explicit managed extension delivery](adr/ADR-061-explicit-managed-extension-delivery.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-030](adr/ADR-030-bounded-project-file-operations.md) | partial | External source acquisition and no-replacement rules only for explicitly granted managed extension delivery; ordinary Files remains unchanged.
+
+Explicit local export capture and exact SSH workspace grants admit bounded managed delivery,
+with durable operation custody, no-replace publication, preservation, and deliberate recovery.
+
+### [ADR-062 — Exact-source extension release artifacts](adr/ADR-062-exact-source-extension-release-artifacts.md)
+
+> Lifecycle: Active
+
+The existing immutable release model includes the ordinary Skillager ZIP, while independent
+0.3.0 reference and clock fixtures retain released public-contract inputs.
+
+### [ADR-063 — Passive accepted-revision extension navigation icons](adr/ADR-063-passive-extension-navigation-icons.md)
+
+> Lifecycle: Active
+
+Optional bounded package SVG path icons use only accepted captured bytes and passive masks;
+invalid assets warn while text navigation remains usable. Existing contribution lifetime owns
+retirement, without inline package markup or a new asset protocol.
+
+### [ADR-064 — Explicit extension installation accepts its validated revision](adr/ADR-064-explicit-extension-installation-acceptance.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-049](adr/ADR-049-extension-package-lifecycle.md) | partial | Separate Enable after explicit user-selected installation, including reinstall only.
+> Supersedes: [ADR-054](adr/ADR-054-isolated-extension-package-and-capability-boundary.md) | partial | Separate Enable for explicit user-selected installation only; passive discovery and all other revision actions remain unchanged.
+
+Explicit native Add accepts and enables its exact validated copied revision through the existing
+writer; passive discovery and permission admission retain their separate boundaries.
+
+### [ADR-066 — Declared extension installation landing](adr/ADR-066-declared-extension-installation-landing.md)
+
+> Lifecycle: Active
+
+Optional manifest landing uses the exact explicit installation receipt and existing ordinary
+navigation owners. Preparation stays unselected and unfocused; live intent selects only after
+it settles. The deliberate Settings handoff preserves its existing unsaved application draft
+while retiring hidden resources, with ordinary Close and Save semantics unchanged.
+
+### [ADR-065 — Passive extension program discovery and trusted connection](adr/ADR-065-passive-extension-program-connection.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-051](adr/ADR-051-approved-finite-connector-execution.md) | partial | Mandatory manually supplied absolute executable input and separate Inspect step for application-local first-use connections only.
+
+Bounded passive program candidates feed the existing exact native approval decision after
+installation or a visible human proposal; package, file and agent authority stay separate.
+
+### [ADR-067 — CLI-owned personal library creation defaults](adr/ADR-067-cli-owned-personal-library-creation-defaults.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-059](adr/ADR-059-public-local-skillager-management.md) | partial | Mandatory explicit initialization path and separate Git choice only.
+
+Explicit default creation consumes the public CLI's location and history policy; advanced
+custom intent remains available, and unknown-target completion requires public reconciliation.
+
+### [ADR-068 — In-context human source read decisions](adr/ADR-068-in-context-human-source-read-decisions.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-057](adr/ADR-057-selected-extension-source-reading.md) | partial | Settings-only application-local read-only root decision surface only.
+
+Current ordinary human instruction reads propose a canonical local scope through the existing
+source-approval owner and a trusted in-context decision; metadata and agents receive no file authority.
+
+### [ADR-069 — Rust client source coverage and dependency evidence](adr/ADR-069-rust-client-source-policy.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-040](adr/ADR-040-complete-source-budgets-and-dependency-policy.md) | partial | Maintained-source language list: add Rust and Cargo dispositions; all existing budget, provenance, and TypeScript/JavaScript dependency rules remain authoritative.
+
+Rust client source receives ordinary physical-line budgets under `packages/hvir-agent/`.
+Cargo metadata and exact disposable output remain distinct from maintained or generated source;
+the client owns Rust build, dependency, and protocol evidence without requiring a toolchain for
+unrelated contributor verification.
 
 ## 5. Architecture
 

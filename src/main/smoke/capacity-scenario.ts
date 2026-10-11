@@ -15,7 +15,7 @@ export async function verifyCapacityScenario(
   host: LocalHost,
   liveReloadPath: HostPath,
   providerId: HarnessProviderId,
-  sessions: ReturnType<typeof createSmokeTerminalSessionStore>,
+  sessions: Awaited<ReturnType<typeof createSmokeTerminalSessionStore>>,
 ): Promise<void> {
   await runCapacityLoadSmoke(win, supervisor, host, liveReloadPath)
   sessions.set(capacityRecoverySessions(supervisor, providerId))

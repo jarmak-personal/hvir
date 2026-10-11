@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Skill instructions</title>
+    <link rel="stylesheet" href="presentation.css" />
+    <link rel="stylesheet" href="skillager.css" />
+  </head>
+  <body class="hvir-guest" data-view="detail">
+    <main>
+      <h1 id="detail-title">Skill instructions</h1>
+      <div class="toolbar">
+        <button id="read-current" class="hvir-button">Read current</button
+        ><button id="rendered-mode" class="hvir-button">Rendered</button
+        ><button id="source-mode" class="hvir-button">Source</button
+        ><button id="manage" class="hvir-button" disabled>Manage selected source</button
+        ><button id="reveal-original" class="hvir-button" hidden>
+          Reveal original folder in Files</button
+        ><button id="canonical" class="hvir-button" hidden>
+          Open canonical library source
+        </button>
+      </div>
+      <p id="state" class="hvir-state" aria-live="polite">Waiting for selection…</p>
+      <article
+        id="instructions"
+        tabindex="0"
+        aria-label="Selected current skill instructions"
+      ></article>
+      <details>
+        <summary>Source and current-file details</summary>
+        <p id="source-label" class="hvir-meta">
+          Select an occurrence to read its current SKILL.md.
+        </p>
+        <p id="details" class="hvir-meta"></p>
+      </details>
+    </main>
+    <script src="guest-ui.js"></script>
+    <script src="skillager.js"></script>
+  </body>
+</html>

@@ -56,6 +56,7 @@ export function TerminalThemeGallery({
                 value={target}
                 checked={appearance === target}
                 onChange={() => setAppearance(target)}
+                className="hvir-input"
               />
               {target === 'dark' ? 'Dark appearance' : 'Light appearance'}
             </label>
@@ -76,6 +77,7 @@ export function TerminalThemeGallery({
             placeholder="Search by theme name"
             autoComplete="off"
             onChange={(event) => setQuery(event.currentTarget.value)}
+            className="hvir-input"
           />
         </label>
         <p className="terminal-theme-result-status" role="status">
@@ -90,7 +92,7 @@ export function TerminalThemeGallery({
             <button
               key={theme.id}
               type="button"
-              className={theme.id === selected.id ? 'selected' : undefined}
+              className={(theme.id === selected.id ? 'selected' : '') + ' hvir-button'}
               data-terminal-theme-id={theme.id}
               aria-pressed={theme.id === selected.id}
               aria-label={`Use ${theme.name} for ${appearance} appearance`}

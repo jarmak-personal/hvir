@@ -108,6 +108,7 @@ export function TerminalSearch({
           spellCheck={false}
           value={snapshot.query}
           onChange={(event) => controller.setQuery(event.currentTarget.value)}
+          className="hvir-input"
         />
         <span className="terminal-search-status" role="status" aria-live="polite">
           {status}
@@ -118,6 +119,7 @@ export function TerminalSearch({
           title="Previous match (Shift+Enter)"
           disabled={snapshot.matchCount === 0}
           onClick={() => controller.navigate('previous')}
+          className="hvir-button"
         >
           ↑
         </button>
@@ -127,6 +129,7 @@ export function TerminalSearch({
           title="Next match (Enter)"
           disabled={snapshot.matchCount === 0}
           onClick={() => controller.navigate('next')}
+          className="hvir-button"
         >
           ↓
         </button>
@@ -135,6 +138,7 @@ export function TerminalSearch({
           aria-label="Close terminal search"
           title="Close search (Escape)"
           onClick={() => controller.close(true)}
+          className="hvir-button"
         >
           ×
         </button>
@@ -145,6 +149,7 @@ export function TerminalSearch({
             type="checkbox"
             checked={snapshot.caseSensitive}
             onChange={(event) => controller.setCaseSensitive(event.currentTarget.checked)}
+            className="hvir-input"
           />
           Match case
         </label>
@@ -152,6 +157,7 @@ export function TerminalSearch({
           type="button"
           disabled={snapshot.matchIndex === undefined || pendingCopy !== undefined}
           onClick={() => copy('match')}
+          className="hvir-button"
         >
           Copy Match
         </button>
@@ -161,6 +167,7 @@ export function TerminalSearch({
             title="Copy the current semantic prompt, command, or output block"
             disabled={pendingCopy !== undefined}
             onClick={() => copy('region')}
+            className="hvir-button"
           >
             Copy Semantic Region
           </button>

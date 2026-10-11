@@ -1,0 +1,270 @@
+{
+  "agent": "codex",
+  "confirmation_token": "8075cad10d4fa3449d2a1fd0867cec6ad5c26711e74602a05ba4313ea8d45c5c",
+  "group": null,
+  "library_id": "1dac73b2-c4eb-400d-9fd7-a298ea536438",
+  "next_command_argv": [
+    "skillager",
+    "expose",
+    "--request-json",
+    "{\"action\":\"adopt-native\",\"mode\":\"stub\",\"origin_id\":\"d3b94d7ba7dd75144a90c3ea3774031f0d4d59a6a5688bfcc1e4f39e57056150\",\"schema\":\"skillager.exposure-request.v1\",\"source\":{\"library_id\":\"1dac73b2-c4eb-400d-9fd7-a298ea536438\",\"skill_id\":\"lib/native-58b72abb645e2767\"}}",
+    "--agent",
+    "codex",
+    "--scope",
+    "project",
+    "--json",
+    "--yes",
+    "--confirmation-token",
+    "8075cad10d4fa3449d2a1fd0867cec6ad5c26711e74602a05ba4313ea8d45c5c"
+  ],
+  "project": "/owned-fixture/advanced/project",
+  "request": {
+    "action": "adopt-native",
+    "mode": "stub",
+    "origin_id": "d3b94d7ba7dd75144a90c3ea3774031f0d4d59a6a5688bfcc1e4f39e57056150",
+    "schema": "skillager.exposure-request.v1",
+    "source": {
+      "library_id": "1dac73b2-c4eb-400d-9fd7-a298ea536438",
+      "skill_id": "lib/native-58b72abb645e2767"
+    }
+  },
+  "schema": "skillager.exposure-plan.v1",
+  "scope": "project",
+  "sources": [
+    {
+      "approval": {
+        "content_hash": "37f1e0cebcd9029eb8a26578757755ae85d33dee28cc49c27a4e73f4c8a11a4f",
+        "decision_skill_id": "lib/native-58b72abb645e2767",
+        "evidence_id": "c2b6d6a535f55f7e2f57a379bd52b9ffbddc597197294be12fe91797cdbe8e16",
+        "lint_override": false,
+        "risk_override": false,
+        "scope": "global",
+        "state": "reviewed"
+      },
+      "compatibility": {
+        "assumptions": {},
+        "exclusive_to": null,
+        "incompatible_with": [],
+        "inferred": [],
+        "warnings": {}
+      },
+      "content_hash": "37f1e0cebcd9029eb8a26578757755ae85d33dee28cc49c27a4e73f4c8a11a4f",
+      "entrypoint": "/owned-fixture/advanced/library/skills/native-58b72abb645e2767/SKILL.md",
+      "id": "lib/native-58b72abb645e2767",
+      "lineages": [
+        {
+          "approval": {
+            "content_hash": "37f1e0cebcd9029eb8a26578757755ae85d33dee28cc49c27a4e73f4c8a11a4f",
+            "decision_skill_id": "project/native",
+            "evidence_id": "2060bce3bf2fe244cccaa6f5759f0a8db735fd6deb84321736ec52fdeceb7b36",
+            "lint_override": false,
+            "risk_override": false,
+            "scope": "project",
+            "state": "reviewed"
+          },
+          "canonical": {
+            "acceptance": "accepted",
+            "accepted_hash": "37f1e0cebcd9029eb8a26578757755ae85d33dee28cc49c27a4e73f4c8a11a4f",
+            "git_commit": null,
+            "library_id": "1dac73b2-c4eb-400d-9fd7-a298ea536438",
+            "path": "/owned-fixture/advanced/library/skills/native-58b72abb645e2767",
+            "reuse": "all-projects",
+            "skill_id": "lib/native-58b72abb645e2767",
+            "trust": "reviewed",
+            "working_hash": "37f1e0cebcd9029eb8a26578757755ae85d33dee28cc49c27a4e73f4c8a11a4f"
+          },
+          "lineage_id": "9de5ca1ebfec0c39981858d14e82d9ed8db30ed2e48893bd1d8464b330429121",
+          "origin": {
+            "entrypoint": "/owned-fixture/advanced/project/.agents/skills/native/SKILL.md",
+            "native": {
+              "agent": "codex",
+              "project_root": "/owned-fixture/advanced/project",
+              "scope": "project"
+            },
+            "observation": {
+              "approval_evidence_id": "2060bce3bf2fe244cccaa6f5759f0a8db735fd6deb84321736ec52fdeceb7b36",
+              "content_hash": "37f1e0cebcd9029eb8a26578757755ae85d33dee28cc49c27a4e73f4c8a11a4f",
+              "status": "current",
+              "trust": "reviewed"
+            },
+            "origin_id": "d3b94d7ba7dd75144a90c3ea3774031f0d4d59a6a5688bfcc1e4f39e57056150",
+            "path": "/owned-fixture/advanced/project/.agents/skills/native",
+            "provenance": {},
+            "skill_id": "project/native",
+            "source_type": "project"
+          },
+          "preservation": "verified",
+          "source_approval": {
+            "content_hash": "37f1e0cebcd9029eb8a26578757755ae85d33dee28cc49c27a4e73f4c8a11a4f",
+            "decision_skill_id": "project/native",
+            "evidence_id": "2060bce3bf2fe244cccaa6f5759f0a8db735fd6deb84321736ec52fdeceb7b36",
+            "lint_override": false,
+            "risk_override": false,
+            "scope": "project",
+            "state": "reviewed"
+          },
+          "source_identity": "58b72abb645e2767831e5b8cb503ef08a52f037aed269d128bebc00f51fd3eb2"
+        }
+      ],
+      "root": "/owned-fixture/advanced/library/skills/native-58b72abb645e2767",
+      "source": {
+        "collection": "lib",
+        "library_id": "1dac73b2-c4eb-400d-9fd7-a298ea536438",
+        "library_root": "/owned-fixture/advanced/library",
+        "library_skill": "native-58b72abb645e2767",
+        "ownership": "library",
+        "path": "/owned-fixture/advanced/library/skills",
+        "type": "collection"
+      },
+      "target_state": {
+        "mode": 493,
+        "tree": "ae6f90827e1036a0b90ec21ff6677eeea691221db5512f3d01209f0c5b759568"
+      },
+      "trust": "reviewed"
+    }
+  ],
+  "staging": {
+    "candidate_bytes": 1631,
+    "limit_bytes": 134217728,
+    "peak_bytes": 1773,
+    "retained_original_bytes": 142,
+    "transfer_reserve_bytes": 0
+  },
+  "status": "would_apply",
+  "targets": [
+    {
+      "action": "keep",
+      "after": {
+        "mode": 493,
+        "state_hash": "02eeba4f3d87aa333a9d652c36bd9b0c17882e2e2d0292c752594c5b77230997"
+      },
+      "before": {
+        "mode": 493,
+        "state_hash": "02eeba4f3d87aa333a9d652c36bd9b0c17882e2e2d0292c752594c5b77230997"
+      },
+      "file_effects": [
+        {
+          "action": "keep",
+          "after": {
+            "mode": 493,
+            "type": "directory"
+          },
+          "before": {
+            "mode": 493,
+            "type": "directory"
+          },
+          "path": "."
+        }
+      ],
+      "kind": "parent",
+      "path": "/owned-fixture/advanced/project/.agents",
+      "target_id": "b44099a59f4fae61ef328b2005e9c62ba914e1b6eaa57edbddbe8896d731863f"
+    },
+    {
+      "action": "keep",
+      "after": {
+        "mode": 493,
+        "state_hash": "02eeba4f3d87aa333a9d652c36bd9b0c17882e2e2d0292c752594c5b77230997"
+      },
+      "before": {
+        "mode": 493,
+        "state_hash": "02eeba4f3d87aa333a9d652c36bd9b0c17882e2e2d0292c752594c5b77230997"
+      },
+      "file_effects": [
+        {
+          "action": "keep",
+          "after": {
+            "mode": 493,
+            "type": "directory"
+          },
+          "before": {
+            "mode": 493,
+            "type": "directory"
+          },
+          "path": "."
+        }
+      ],
+      "kind": "parent",
+      "path": "/owned-fixture/advanced/project/.agents/skills",
+      "target_id": "6e2574f58b8199680c26a29228c93763197c12aec319e4b1f77550a350640f17"
+    },
+    {
+      "action": "replace",
+      "after": {
+        "mode": 493,
+        "state_hash": "92a3937f174e4440f9caf971ecb2c3d67fcc47a29d30eaddf3d189c1bcc9b767"
+      },
+      "before": {
+        "mode": 493,
+        "state_hash": "76fc39adf21d76fd991803748e70a19f4bbb62cc91d4f8929a17adad3aaaa877"
+      },
+      "exposure_id": "native",
+      "file_effects": [
+        {
+          "action": "replace",
+          "after": {
+            "mode": 420,
+            "sha256": "54aefdd6273a22673e5cf2176b639fc81cd967329f7ecfb0d7efc9487bb3d06e",
+            "size": 522,
+            "type": "file"
+          },
+          "before": {
+            "mode": 420,
+            "sha256": "bf4a8ec3203fdaeacbab6a833f9790a95c7eeaa77b9dc19b2b3eac2dd7ac3a6b",
+            "size": 114,
+            "type": "file"
+          },
+          "path": "SKILL.md"
+        },
+        {
+          "action": "create",
+          "after": {
+            "generated_fields": {
+              "materialized_at": "UTC installation time",
+              "materialized_fingerprint": "advisory fingerprint of installed file metadata",
+              "materialized_sidecar_hash": "integrity hash of the complete generated sidecar"
+            },
+            "metadata": {
+              "adopted_native_origin": "d3b94d7ba7dd75144a90c3ea3774031f0d4d59a6a5688bfcc1e4f39e57056150",
+              "agent": "codex",
+              "id": "lib/native-58b72abb645e2767",
+              "materialized_hash": "5041b23f12e633539ecf335be86df0a613adf75de48be0ade73950c1b50a4277",
+              "materialized_target_hash": "da104b9dea458361369404f87f250d9fcc9009cf5f6e11fcde26ce2d12271d9b",
+              "projection_identity": "direct:5c0872901ebb3563466872b43441547e97b90811462f160c2b3222b88ed33cf1",
+              "projection_kind": "direct",
+              "schema": "skillager.materialized.v1",
+              "scope": "project",
+              "source_entrypoint": "/owned-fixture/advanced/library/skills/native-58b72abb645e2767/SKILL.md",
+              "source_hash": "37f1e0cebcd9029eb8a26578757755ae85d33dee28cc49c27a4e73f4c8a11a4f",
+              "source_id": "lib/native-58b72abb645e2767",
+              "source_library_id": "1dac73b2-c4eb-400d-9fd7-a298ea536438",
+              "source_package": "lib",
+              "source_trust": "reviewed",
+              "source_type": "skillager-stub"
+            },
+            "mode": 420,
+            "type": "file"
+          },
+          "before": null,
+          "path": "skillager.materialized.yaml"
+        },
+        {
+          "action": "remove",
+          "after": null,
+          "before": {
+            "mode": 420,
+            "sha256": "51865ca6a5b08aef2c41a36eabbba95c69b5fd6e03fe47a8a2c9f616fdbef552",
+            "size": 28,
+            "type": "file"
+          },
+          "path": "support.txt"
+        }
+      ],
+      "kind": "direct",
+      "mode": "stub",
+      "path": "/owned-fixture/advanced/project/.agents/skills/native",
+      "skill_id": "lib/native-58b72abb645e2767",
+      "target_id": "13284a5f726f072df415d3e75f32c0f7ff75a6d9f641d5b108da9ad6a3660084"
+    }
+  ]
+}

@@ -5,12 +5,12 @@
 }
 
 .git-rail-history-row.commit {
-  border-bottom: 1px solid #1e232b;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .git-rail-history-row.commit:hover,
 .git-rail-history-row.commit:focus-within {
-  background: #1b2027;
+  background: var(--surface-hover);
 }
 
 .git-rail-commit {
@@ -20,15 +20,15 @@
   align-items: center;
   padding: 0 28px 0 0;
   overflow: hidden;
-  border: 0;
+  border-width: 0;
   outline: none;
-  background: transparent;
-  color: #b9c0ca;
+  background-color: transparent;
+  color: var(--text-secondary);
   text-align: left;
 }
 
 .git-rail-commit:focus-visible {
-  box-shadow: inset 0 0 0 1px #4d8fd8;
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 .git-rail-commit-copy {
@@ -59,13 +59,13 @@
 .git-rail-commit-copy strong > i {
   width: 8px;
   flex: 0 0 8px;
-  color: #788392;
+  color: var(--text-muted);
   font-size: calc(9px * var(--hvir-interface-scale));
   font-style: normal;
 }
 
 .git-rail-commit-copy small {
-  color: #727c8a;
+  color: var(--text-muted);
   font-size: calc(9px * var(--hvir-interface-scale));
 }
 
@@ -76,10 +76,10 @@
   top: 8px;
   right: 3px;
   padding: 0;
-  border: 0;
+  border-width: 0;
   border-radius: 3px;
-  background: #1b2027;
-  color: #8e98a7;
+  background-color: var(--surface-hover);
+  color: var(--text-muted);
   font-size: calc(13px * var(--hvir-interface-scale));
   opacity: 0;
 }
@@ -90,18 +90,18 @@
 }
 
 .git-rail-open-full:hover {
-  background: #303844;
-  color: #eef1f5;
+  background-color: var(--surface-hover);
+  color: var(--text-strong);
 }
 
 .git-rail-history-row.child {
   display: flex;
   align-items: stretch;
-  background: #111419;
+  background: var(--surface-0);
 }
 
 .git-rail-history-row.child.error {
-  color: #dc7b82;
+  color: var(--danger-text);
 }
 
 .git-rail-history-state,
@@ -115,14 +115,14 @@
   align-self: center;
   overflow: hidden;
   padding: 0 7px 0 4px;
-  color: #747e8d;
+  color: var(--text-muted);
   font-size: calc(9px * var(--hvir-interface-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .git-rail-history-row.child.error .git-rail-history-state {
-  color: #dc7b82;
+  color: var(--danger-text);
 }
 
 .git-rail-history-summary {
@@ -131,7 +131,7 @@
   justify-content: space-between;
   gap: 6px;
   padding: 0 8px 0 4px;
-  color: #8d96a4;
+  color: var(--text-muted);
   font-size: calc(9px * var(--hvir-interface-scale));
   text-transform: uppercase;
 }
@@ -145,12 +145,12 @@
 
 .git-rail-history-summary b,
 .git-rail-history-tree b {
-  color: #67ae77;
+  color: var(--success-text);
 }
 
 .git-rail-history-summary i,
 .git-rail-history-tree i {
-  color: #d76d76;
+  color: var(--danger-text);
   font-style: normal;
 }
 
@@ -163,22 +163,22 @@
   padding-right: 8px;
   padding-bottom: 0;
   overflow: hidden;
-  border: 0;
-  background: transparent;
-  color: #aeb5c0;
+  border-width: 0;
+  background-color: transparent;
+  color: var(--text-secondary);
   font-size: calc(9px * var(--hvir-interface-scale));
   text-align: left;
 }
 
 .git-rail-history-tree:hover,
 .git-rail-history-tree:focus-visible {
-  background: #20242c;
+  background-color: var(--surface-hover);
 }
 
 .git-rail-history-tree.directory > i {
   width: 8px;
   flex: 0 0 8px;
-  color: #77818f;
+  color: var(--text-muted);
   font-style: normal;
 }
 
@@ -213,18 +213,18 @@
   justify-content: space-between;
   margin: 8px;
   padding: 7px 9px;
-  border: 1px solid #3b4654;
+  border: 1px solid var(--border-strong);
   border-radius: 4px;
-  background: #1a1f26;
-  color: #c2c9d3;
+  background-color: var(--surface-raised);
+  color: var(--text);
   font-size: calc(11px * var(--hvir-interface-scale));
   text-align: left;
 }
 
 .git-open-graph:hover {
-  border-color: #4d8fd8;
-  background: #202630;
-  color: #eef1f5;
+  border-color: var(--accent);
+  background-color: var(--surface-hover);
+  color: var(--text-strong);
 }
 
 .git-history-viewport {

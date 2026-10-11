@@ -1,0 +1,67 @@
+{
+  "results": [
+    {
+      "agent": "codex",
+      "current_status": "current",
+      "exposure_id": "lib-pinned-c681b43b7c5d0b47",
+      "local_changes": false,
+      "mode": "stub",
+      "next_command_argv": [
+        "skillager",
+        "expose",
+        "--remove",
+        "lib-pinned-c681b43b7c5d0b47",
+        "--agent",
+        "codex",
+        "--scope",
+        "project",
+        "--json",
+        "--yes",
+        "--confirmation-token",
+        "4ed7c0a04c61d206c2d2307af744b01d34ddb0b4db7c01c1b3f9743605c32e3c"
+      ],
+      "preview": {
+        "file_effects": [
+          {
+            "action": "remove",
+            "after": null,
+            "before": {
+              "mode": 420,
+              "sha256": "4b5b703f3324bf077d2a88b0a9115243f885330a19e9895a29dcf1422e05f255",
+              "size": 515,
+              "type": "file"
+            },
+            "path": "SKILL.md"
+          },
+          {
+            "action": "remove",
+            "after": null,
+            "before": {
+              "mode": 420,
+              "sha256": "531571fc8e649512e805f5bff5988da9c01ad17aec9a52f555fb53257314de24",
+              "size": 1024,
+              "type": "file"
+            },
+            "path": "skillager.materialized.yaml"
+          }
+        ],
+        "schema": "skillager.exposure-remove-preview.v1",
+        "target_directory": {
+          "after_mode": null,
+          "before_mode": 493
+        },
+        "target_state_hash": "cd7fa6a1c1cc5d824f15ae679360ec1af6d58e23ce8bbd50a7ce69523c42acee"
+      },
+      "reason": null,
+      "requires_force": false,
+      "restart_required": true,
+      "schema": "skillager.exposure.v1",
+      "scope": "project",
+      "skill_id": "lib/pinned-c681b43b7c5d0b47",
+      "source_library_id": "c7d5b812-82d0-4681-a4a8-38a913385913",
+      "status": "would_remove",
+      "target": "/owned-fixture/mode-change-codex/.agents/skills/lib-pinned-c681b43b7c5d0b47"
+    }
+  ],
+  "schema": "skillager.exposure-remove.v1"
+}

@@ -7,11 +7,11 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #cdd2da;
+  color: var(--text);
 }
 
 .settings-fields .settings-checkbox-copy small {
-  color: #737d8b;
+  color: var(--text-muted);
   font-size: calc(9px * var(--hvir-interface-scale));
 }
 
@@ -19,5 +19,5 @@
   width: auto;
   margin: 0;
   padding: 0;
-  accent-color: #4d8fd8;
+  accent-color: var(--accent);
 }

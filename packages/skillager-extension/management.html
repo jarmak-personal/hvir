@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Manage skills</title>
+    <link rel="stylesheet" href="presentation.css" />
+    <link rel="stylesheet" href="skillager.css" />
+  </head>
+  <body class="hvir-guest" data-view="management">
+    <main>
+      <h1>Manage skills</h1>
+      <p id="destination" class="hvir-meta">
+        Personal library · select a local project for copies and terminal setup.
+      </p>
+      <p id="state" class="hvir-state" aria-live="polite">
+        Observe and explicitly connect your personal library.
+      </p>
+      <section aria-label="Personal library">
+        <h2>Personal library</h2>
+        <div class="toolbar">
+          <button id="observe-library" class="hvir-button">Observe library</button
+          ><button id="connect-library" class="hvir-button" disabled>
+            Connect observed library
+          </button>
+        </div>
+        <p id="library-identity" class="hvir-meta">
+          No management connection selected. Browsing remains independent.
+        </p>
+        <button id="create-library" class="hvir-button">Create personal library</button>
+        <p class="hvir-meta">
+          Skillager chooses its default location and Git history. An existing library is
+          preserved.
+        </p>
+        <details id="custom-initialization">
+          <summary>Custom location and history</summary>
+          <form id="initialize">
+            <label
+              >Custom local library location
+              <input
+                id="library-path"
+                class="hvir-input"
+                placeholder="Absolute path"
+                required /></label
+            ><label
+              ><input id="git-history" type="checkbox" checked /> Use Git history for a
+              new library</label
+            ><button class="hvir-button" type="submit">Create at custom location</button>
+          </form>
+        </details>
+        <p class="hvir-meta">
+          Existing libraries preserve their actual history mode. A different registration
+          is never relocated implicitly.
+        </p>
+        <div class="toolbar">
+          <button id="preview-sync" class="hvir-button">
+            Preview approved-source sync
+          </button>
+        </div>
+      </section>
+      <section aria-label="Local project copies">
+        <h2>Local project copies</h2>
+        <label
+          >Library skill
+          <input id="skill-id" class="hvir-input" placeholder="lib/name" /></label
+        ><button id="observe-source" class="hvir-button">
+          Select current accepted version
+        </button>
+        <p id="source-identity" class="hvir-meta">
+          Select an accepted source. Pending and blocked instructions remain independently
+          readable.
+        </p>
+        <label
+          >Agent
+          <select id="copy-agent" class="hvir-input">
+            <option value="codex">Codex</option>
+            <option value="claude">Claude</option>
+          </select></label
+        >
+        <label
+          >Copy mode
+          <select id="copy-mode" class="hvir-input">
+            <option value="native">Full</option>
+            <option value="stub">Stub</option>
+          </select></label
+        >
+        <div class="toolbar">
+          <button id="add-copy" class="hvir-button">Add selected version</button
+          ><button id="observe-copies" class="hvir-button">Observe managed copies</button>
+        </div>
+        <div id="managed-copies" class="hvir-list" aria-label="Managed copies"></div>
+      </section>
+      <section aria-label="SSH Full delivery">
+        <h2>SSH Full delivery</h2>
+        <p>
+          Use the selected local approved library skill and agent above. Full files go to
+          the exact SSH workspace; Skillager is needed only locally. Stub and Router are
+          not delivered.
+        </p>
+        <label
+          >Explicit local export directory<input
+            id="delivery-export"
+            class="hvir-input"
+            placeholder="Missing or empty absolute directory inside your granted exports folder"
+        /></label>
+        <p class="hvir-meta">
+          Preparing creates a complete local export, which remains your data. Grant the
+          existing local exports folder and the exact SSH workspace in Settings →
+          Extensions. Review every file, mode, supporting directory and record effect
+          before confirmation.
+        </p>
+        <button id="prepare-delivery" class="hvir-button">
+          Prepare approved Full Add for review
+        </button>
+        <button id="observe-deliveries" class="hvir-button">
+          Observe recorded SSH deliveries
+        </button>
+        <div
+          id="delivery-list"
+          class="hvir-list"
+          aria-label="Recorded SSH deliveries"
+        ></div>
+      </section>
+      <section aria-label="Advanced local exposure">
+        <h2>Advanced local choices</h2>
+        <p>
+          Group related skills behind one Router, change its members, ungroup it, or adopt
+          an original whose bytes are preserved in your library. Full/Stub mode and agent
+          above apply.
+        </p>
+        <button id="observe-advanced" class="hvir-button">
+          Observe Routers and preserved originals
+        </button>
+        <label
+          >Operation
+          <select id="advanced-operation" class="hvir-input">
+            <option value="group">Group in a new Router</option>
+            <option value="set-members">Edit Router members</option>
+            <option value="ungroup">Ungroup Router</option>
+            <option value="adopt-native">Adopt preserved native skill</option>
+          </select></label
+        >
+        <label id="advanced-name-row"
+          >New Router name <input id="advanced-name" class="hvir-input"
+        /></label>
+        <label id="advanced-router-row" hidden
+          >Existing Router
+          <select id="advanced-router" class="hvir-input"></select
+        ></label>
+        <label id="advanced-members-row"
+          >Complete desired library members, one lib/name per line
+          <textarea id="advanced-members" class="hvir-input"></textarea>
+        </label>
+        <div id="advanced-departures" hidden></div>
+        <label id="advanced-replace-row"
+          >Standalone copies to replace (unselected copies remain)
+          <select id="advanced-replacements" class="hvir-input" multiple></select
+        ></label>
+        <label id="advanced-origin-row" hidden
+          >Preserved native original
+          <select id="advanced-origin" class="hvir-input"></select
+        ></label>
+        <button id="preview-advanced" class="hvir-button">Review advanced change</button>
+        <details>
+          <summary>Observed identities and preservation details</summary>
+          <pre id="advanced-observation" tabindex="0"></pre>
+        </details>
+      </section>
+      <section aria-label="Exact canonical review">
+        <h2>Review exact library version</h2>
+        <p class="hvir-meta">
+          Human-only complete-file review uses independent source reading permission.
+          Pending/blocked bodies remain readable; viewing does not accept them.
+        </p>
+        <button id="start-review" class="hvir-button">
+          Start complete current-tree review
+        </button>
+        <div id="exact-review" hidden>
+          <p id="review-version" class="hvir-meta"></p>
+          <div
+            id="review-files"
+            class="hvir-list"
+            aria-label="Complete eligible files"
+          ></div>
+          <p id="review-file-label" class="hvir-meta"></p>
+          <div
+            id="review-file-body"
+            tabindex="0"
+            aria-label="Selected complete review file"
+          ></div>
+          <p id="review-page-label"></p>
+          <div class="toolbar">
+            <button id="review-previous" class="hvir-button" disabled>
+              Previous file page</button
+            ><button id="review-next" class="hvir-button" disabled>Next file page</button
+            ><button id="acknowledge-file" class="hvir-button" disabled>
+              I reviewed this complete file
+            </button>
+          </div>
+          <details>
+            <summary>Complete manifest and Skillager gate details</summary>
+            <pre id="review-manifest" tabindex="0"></pre>
+          </details>
+          <div class="toolbar">
+            <button id="prepare-acceptance" class="hvir-button">
+              Prepare fresh exact acceptance</button
+            ><button id="accept-version" class="hvir-button" disabled>
+              Accept this exact reviewed version
+            </button>
+          </div>
+        </div>
+      </section>
+      <section aria-label="Explicit project setup">
+        <h2>Project setup</h2>
+        <p class="hvir-meta">
+          Run Skillager setup once in a new terminal in this folder, then control an
+          ordinary shell. Recovery never replays setup.
+        </p>
+        <label
+          >Setup agent
+          <select id="setup-agent" class="hvir-input">
+            <option value="codex">Codex</option>
+            <option value="claude">Claude</option>
+          </select></label
+        ><button id="setup-project" class="hvir-button">
+          Open setup in new terminal
+        </button>
+      </section>
+      <section id="review" hidden aria-label="Complete operation review">
+        <h2 id="review-title">Review complete plan</h2>
+        <p id="review-summary"></p>
+        <details id="review-details" open>
+          <summary>Complete plan and technical details</summary>
+          <pre id="review-plan" tabindex="0"></pre>
+        </details>
+        <button id="confirm-plan" class="hvir-button">Confirm this exact plan</button
+        ><button id="dismiss-plan" class="hvir-button">Dismiss review</button>
+      </section>
+      <section aria-label="Uncertain operations">
+        <h2>Uncertain operations</h2>
+        <p class="hvir-meta">
+          Refresh, hide, dismiss and reconnect do not resolve an unknown completion.
+          Reload or Disable loses ephemeral records; a new explicit operation still
+          requires fresh public preflight.
+        </p>
+        <button id="pending-operations" class="hvir-button">
+          Observe pending operations
+        </button>
+        <div id="pending-list"></div>
+        <pre id="operation-report" tabindex="0"></pre>
+      </section>
+      <pre id="result" tabindex="0" aria-label="Operation result"></pre>
+    </main>
+    <script src="guest-ui.js"></script>
+    <script src="operations.js"></script>
+  </body>
+</html>

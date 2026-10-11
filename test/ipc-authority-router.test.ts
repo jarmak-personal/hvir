@@ -452,6 +452,48 @@ describe('IpcAuthorityRouter', () => {
   it('keeps the reviewed owner and authority channel policies explicit', () => {
     expect(new Set(OWNER_SCOPED_INVOKE_CHANNELS)).toEqual(
       new Set<IpcInvokeChannel>([
+        'agent:access',
+        'agent:configure',
+        'agent:extension-configure',
+        'agent:forward-grant',
+        'agent:decide',
+        'agent:reports',
+        'agent:report-read',
+        'agent:report-viewed',
+        'agent:report-close',
+        'extensions:delivery-recovery',
+        'extensions:delivery-resolve',
+        'extensions:source-settings',
+        'extensions:source-proposals',
+        'extensions:source-decide',
+        'extensions:source-prepare',
+        'extensions:source-approve',
+        'extensions:source-revoke',
+        'extensions:connector-settings',
+        'extensions:connector-connect',
+        'extensions:connection-proposals',
+        'extensions:connection-decide',
+        'extensions:connection-cancel',
+        'extensions:connector-prepare',
+        'extensions:connector-approve',
+        'extensions:connector-revoke',
+        'extensions:state',
+        'extensions:discover',
+        'extensions:add',
+        'extensions:add-cancel-setup',
+        'extensions:open-folder',
+        'extensions:enable',
+        'extensions:foreground',
+        'extensions:disable',
+        'extensions:reload',
+        'extensions:remove',
+        'extensions:open-view',
+        'extensions:close-view',
+        'extensions:views',
+        'extensions:context',
+        'extensions:contributions',
+        'extensions:demand',
+        'extensions:action',
         'workbench-health:acknowledge',
         'diagnostic-evidence:get',
         'diagnostic-evidence:delete',
@@ -518,7 +560,13 @@ describe('IpcAuthorityRouter', () => {
       ]),
     )
     expect(new Set(OWNER_SCOPED_SEND_CHANNELS)).toEqual(
-      new Set<IpcSendChannel>(SEND_CHANNELS),
+      new Set<IpcSendChannel>(
+        SEND_CHANNELS.filter(
+          (channel) =>
+            channel !== 'extension-guest:message' &&
+            channel !== 'extension-guest:visible',
+        ),
+      ),
     )
     expect(new Set(AUTHORITY_SCOPED_INVOKE_CHANNELS)).toEqual(
       new Set<IpcInvokeChannel>([
@@ -575,6 +623,8 @@ describe('IpcAuthorityRouter', () => {
   it('keeps feature registrars free of direct IPC and canonicalization primitives', async () => {
     const featureDirectory = join(process.cwd(), 'src/main/ipc/features')
     const features = [
+      'extensions.ts',
+      'agent.ts',
       'app.ts',
       'filesystem.ts',
       'git.ts',
@@ -894,12 +944,13 @@ function registrationBlock(
   method: 'handle' | 'handleSend',
   channel: string,
 ): string {
-  const marker = `ipc.${method}('${channel}'`
-  const start = source.indexOf(marker)
+  const marker = new RegExp(`ipc\\.${method}\\(\\s*'${channel}'`)
+  const found = marker.exec(source)
+  const start = found?.index ?? -1
   if (start < 0) throw new Error(`Missing ${method} registration for ${channel}`)
   const candidates = [
-    source.indexOf('\n  ipc.handle(', start + marker.length),
-    source.indexOf('\n  ipc.handleSend(', start + marker.length),
+    source.indexOf('\n  ipc.handle(', start + found![0].length),
+    source.indexOf('\n  ipc.handleSend(', start + found![0].length),
   ].filter((index) => index >= 0)
   const end = candidates.length > 0 ? Math.min(...candidates) : source.length
   return source.slice(start, end)

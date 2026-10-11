@@ -1,0 +1,90 @@
+{
+  "release": "0.3.0",
+  "contract": "1.0",
+  "files": {
+    "reference/catalog.json": {
+      "bytes": 664,
+      "sha256": "be8553c6d3feb6bc08ae620c1df0ed86627950bf27ef7d1289be1be8c79c0cd0"
+    },
+    "reference/detail.html": {
+      "bytes": 1493,
+      "sha256": "c87dae8715e8aff227f9fb3cce588c3a05480f3eccd628daeab9cc5fb61727a4"
+    },
+    "reference/guest-ui.js": {
+      "bytes": 3609,
+      "sha256": "adee2711ab4b4f9a1cc636af1249e13df4b8a9c242dd49cecd502736179f9a88"
+    },
+    "reference/hvir-extension.json": {
+      "bytes": 3076,
+      "sha256": "b68b37c8c9cc111fda02c84986f32b09131ba2473b3eb62cb036f6775708fcd9"
+    },
+    "reference/index.html": {
+      "bytes": 3944,
+      "sha256": "9f8db9a9a66ab56ccc764dc098d34d4f7a858a3d7b4f63be8141ebcf1416f1b2"
+    },
+    "reference/presentation.css": {
+      "bytes": 124,
+      "sha256": "715401b9ccdcbdc1bce167083cece8446abd56523f4da47c39c24af3ef4a16e1"
+    },
+    "reference/primitives.css": {
+      "bytes": 3349,
+      "sha256": "b6a7f21d19d3cf076b88fe471c3dc7773449be0dc6b972b39256867c2fa3af24"
+    },
+    "reference/reference.css": {
+      "bytes": 299,
+      "sha256": "dcbc2e88fb564d1ff0e39e52a4482e57686ef4fc02d241c4fff224c9e7f7e435"
+    },
+    "reference/reference.js": {
+      "bytes": 10678,
+      "sha256": "e0bc7ca799fd2d565ff4e53d551ea2eb5939dbe1237f81c03c04a288a1d5cd17"
+    },
+    "reference/session.html": {
+      "bytes": 843,
+      "sha256": "76416c2a9a483a089c4599c628f318e74010e79d1fdcac76f7508f801e157288"
+    },
+    "reference/tokens.css": {
+      "bytes": 4486,
+      "sha256": "50ce2e02b2cf5c687b037f8e549ae7166c21b24f6a90237628b064fab598369d"
+    },
+    "reference/updater.html": {
+      "bytes": 187,
+      "sha256": "2d2673dd83d5c57a05a4d736a7fc88adce161e41fbd398401dd1f8e888a2e818"
+    },
+    "reference/updater.js": {
+      "bytes": 3249,
+      "sha256": "b8ca612b4701abfd8abdc882eec3da4819f6fcb7e9f04f8bb19b69f8731095e8"
+    },
+    "clock/clock.css": {
+      "bytes": 107,
+      "sha256": "7a0a7190587ea1eb9dbb56e2c7c4550371e89386973d735aac2db8767ee68c89"
+    },
+    "clock/clock.js": {
+      "bytes": 1584,
+      "sha256": "70fd36161ff6cb3277b37b6793087adab3aba5f36b9bd560b3e3c8b774b93447"
+    },
+    "clock/guest-ui.js": {
+      "bytes": 3609,
+      "sha256": "adee2711ab4b4f9a1cc636af1249e13df4b8a9c242dd49cecd502736179f9a88"
+    },
+    "clock/hvir-extension.json": {
+      "bytes": 370,
+      "sha256": "662672e401d62f4534adda99b577add73b24f3691aaaa47c54c40ed2d442b3f8"
+    },
+    "clock/index.html": {
+      "bytes": 543,
+      "sha256": "b0581cfd954e82826e025bdf5ce5814e41709626ef81ede3f679f40640c4f430"
+    },
+    "clock/presentation.css": {
+      "bytes": 124,
+      "sha256": "715401b9ccdcbdc1bce167083cece8446abd56523f4da47c39c24af3ef4a16e1"
+    },
+    "clock/primitives.css": {
+      "bytes": 3349,
+      "sha256": "b6a7f21d19d3cf076b88fe471c3dc7773449be0dc6b972b39256867c2fa3af24"
+    },
+    "clock/tokens.css": {
+      "bytes": 4486,
+      "sha256": "50ce2e02b2cf5c687b037f8e549ae7166c21b24f6a90237628b064fab598369d"
+    }
+  }
+}

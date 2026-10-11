@@ -21,10 +21,17 @@ export function terminalStartRequest(
   size: Readonly<{ cols: number; rows: number }>,
   title: string,
   resume: boolean,
+  firstStart = true,
 ): StartPtyRequest {
   const fork = !replacement && !resume ? options.forkRequest : undefined
   return {
     sessionId,
+    ...(firstStart && !replacement && !resume && !fork
+      ? {
+          commandTicket: options.commandTicket,
+          commandWorkspaceId: options.commandWorkspaceId,
+        }
+      : {}),
     replacesSessionId: replacement?.replacesSessionId,
     profileId: options.profileId,
     launchRevision: options.launchRevision,

@@ -17,7 +17,7 @@ export function DocumentReviewToolbar({
     <div className="document-review-toolbar" role="group" aria-label="Document review">
       <button
         type="button"
-        className={interaction.active ? 'active' : ''}
+        className={(interaction.active ? 'active' : '') + ' hvir-button'}
         aria-label={
           interaction.active ? 'Exit Document review mode' : 'Enter Document review mode'
         }
@@ -41,6 +41,7 @@ export function DocumentReviewToolbar({
                 : 'Choose a source line or range first'
           }
           onClick={interaction.captureSource}
+          className="hvir-button"
         >
           Add comment
         </button>
@@ -102,7 +103,7 @@ export function DocumentReviewChrome({
             <button
               key={comment.id}
               type="button"
-              className="document-review-orphan"
+              className="document-review-orphan hvir-button"
               onClick={() => interaction.navigate(comment)}
             >
               Open unplaced comment · {lineRangeLabel(comment.anchor.range)}
@@ -111,7 +112,7 @@ export function DocumentReviewChrome({
           {interaction.activeBatchId ? (
             <button
               type="button"
-              className="document-review-primary"
+              className="document-review-primary hvir-button"
               aria-label={`Send ${interaction.activeBatchCount} review ${interaction.activeBatchCount === 1 ? 'comment' : 'comments'} to the top terminal`}
               disabled={
                 interaction.delivery.loading || interaction.delivery.directHandoffBlocked
@@ -142,6 +143,7 @@ export function DocumentReviewChrome({
                   interaction.discardReview()
                 }
               }}
+              className="hvir-button"
             >
               Discard review
             </button>
@@ -153,6 +155,7 @@ export function DocumentReviewChrome({
               onClick={() =>
                 interaction.delivery.previewBatch(interaction.activeBatchId!)
               }
+              className="hvir-button"
             >
               Review and send…
             </button>
@@ -162,6 +165,7 @@ export function DocumentReviewChrome({
               type="button"
               aria-label={`Clear ${interaction.historyCount} sent and resolved review ${interaction.historyCount === 1 ? 'comment' : 'comments'} from this workspace`}
               onClick={interaction.clearHistory}
+              className="hvir-button"
             >
               Clear sent review {interaction.historyCount}
             </button>
