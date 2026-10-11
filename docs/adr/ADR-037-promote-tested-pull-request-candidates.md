@@ -2,6 +2,7 @@
 
 > Lifecycle: Partially superseded
 > Superseded by: [ADR-038](ADR-038-coherent-ci-attempts.md) | partial | First-attempt-only and rerun restrictions on otherwise exact candidate CI evidence.
+> Superseded by: [ADR-048](ADR-048-equivalent-ci-runs-and-epic-history-recovery.md) | partial | Single-run candidate selection and missing redundant run association metadata; recorded release merge acceptance remains required.
 
 ## Context
 

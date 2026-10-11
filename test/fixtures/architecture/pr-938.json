@@ -1,0 +1,145 @@
+{
+  "pullRequest": {
+    "number": 938,
+    "state": "closed",
+    "merged_at": null,
+    "merge_commit_sha": "ec7a19483bd6ee873eab07defbbe2d470094f08b",
+    "body": "Completes-child: #859",
+    "base": {
+      "ref": "epic/848-extension-platform",
+      "sha": "7eda2f7f765109b5a3dbb2b3173e79fa1776ba1e",
+      "repo": {
+        "full_name": "jarmak-personal/hvir"
+      }
+    },
+    "head": {
+      "ref": "agent/issue-859",
+      "sha": "66e46396166e08860c4f79264f91f126d11742d5",
+      "repo": {
+        "full_name": "jarmak-personal/hvir"
+      }
+    }
+  },
+  "run": {
+    "id": 37386966200,
+    "name": "CI",
+    "path": ".github/workflows/ci.yml",
+    "event": "pull_request",
+    "head_branch": "agent/issue-859",
+    "head_sha": "66e46396166e08860c4f79264f91f126d11742d5",
+    "run_attempt": 1,
+    "run_number": 1162,
+    "status": "completed",
+    "conclusion": "success",
+    "pull_requests": [],
+    "repository": {
+      "full_name": "jarmak-personal/hvir"
+    },
+    "head_repository": {
+      "full_name": "jarmak-personal/hvir"
+    }
+  },
+  "commits": [
+    {
+      "sha": "bff3bbfe0cb48ae5aa42974b50b48b765c93fabb",
+      "tree": {
+        "sha": "db0b6556f25f7f8e5a07de26ff3a2eb1a1b0fdee"
+      },
+      "parents": [
+        {
+          "sha": "7eda2f7f765109b5a3dbb2b3173e79fa1776ba1e"
+        },
+        {
+          "sha": "66e46396166e08860c4f79264f91f126d11742d5"
+        }
+      ]
+    },
+    {
+      "sha": "66e46396166e08860c4f79264f91f126d11742d5",
+      "tree": {
+        "sha": "db0b6556f25f7f8e5a07de26ff3a2eb1a1b0fdee"
+      },
+      "parents": [
+        {
+          "sha": "7eda2f7f765109b5a3dbb2b3173e79fa1776ba1e"
+        }
+      ]
+    }
+  ],
+  "jobs": [
+    {
+      "name": "Electron smoke (Linux)",
+      "status": "completed",
+      "conclusion": "success",
+      "run_id": 37386966200,
+      "run_attempt": 1
+    },
+    {
+      "name": "CodeQL analysis",
+      "status": "completed",
+      "conclusion": "success",
+      "run_id": 37386966200,
+      "run_attempt": 1
+    },
+    {
+      "name": "Remote client verification / Select focused client checks",
+      "status": "completed",
+      "conclusion": "success",
+      "run_id": 37386966200,
+      "run_attempt": 1
+    },
+    {
+      "name": "Electron correctness (macOS arm64; temporary reduced gate)",
+      "status": "completed",
+      "conclusion": "success",
+      "run_id": 37386966200,
+      "run_attempt": 1
+    },
+    {
+      "name": "Verification (Linux)",
+      "status": "completed",
+      "conclusion": "success",
+      "run_id": 37386966200,
+      "run_attempt": 1
+    },
+    {
+      "name": "Release version integrity",
+      "status": "completed",
+      "conclusion": "skipped",
+      "run_id": 37386966200,
+      "run_attempt": 1
+    },
+    {
+      "name": "Remote client verification / Focused client acceptance",
+      "status": "completed",
+      "conclusion": "success",
+      "run_id": 37386966200,
+      "run_attempt": 1
+    },
+    {
+      "name": "Remote client verification / Build and execute ${{ matrix.target }}",
+      "status": "completed",
+      "conclusion": "skipped",
+      "run_id": 37386966200,
+      "run_attempt": 1
+    },
+    {
+      "name": "Merge acceptance",
+      "status": "completed",
+      "conclusion": "success",
+      "run_id": 37386966200,
+      "run_attempt": 1
+    }
+  ],
+  "baseComparison": {
+    "status": "ahead",
+    "merge_base_commit": {
+      "sha": "7eda2f7f765109b5a3dbb2b3173e79fa1776ba1e"
+    }
+  },
+  "changedPaths": [
+    "packages/skillager-extension/skillager.css",
+    "src/main/smoke/extension-visuals.ts",
+    "src/main/smoke/skillager-navigation.ts"
+  ]
+}

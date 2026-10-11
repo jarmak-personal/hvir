@@ -504,5 +504,38 @@ export default tseslint.config(
     extends: [tseslint.configs.disableTypeChecked],
   },
 
+  {
+    files: [
+      'scripts/require-release-ci-evidence.mts',
+      'scripts/ci-attempt-evidence.mts',
+      'scripts/release-github-evidence.mts',
+    ],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [...HOST_PRIMITIVE_BANS, IPC_RENDERER_BAN],
+          patterns: [
+            {
+              regex: '(^|/)architecture-[^/]+',
+              message:
+                'Shared candidate and attempt evidence cannot depend on architecture admission, including type-only imports.',
+            },
+          ],
+        },
+      ],
+      'no-restricted-syntax': [
+        'error',
+        SPAWN_PTY_BAN,
+        ...DYNAMIC_HOST_IMPORT_BANS,
+        {
+          selector:
+            "ImportExpression[source.value=/architecture-/], TSImportType[source.value=/architecture-/], CallExpression[callee.name='require'] > Literal.arguments[value=/architecture-/]",
+          message:
+            'Shared candidate and attempt evidence cannot depend on architecture admission.',
+        },
+      ],
+    },
+  },
   prettier,
 )

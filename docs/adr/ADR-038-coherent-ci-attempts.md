@@ -1,7 +1,8 @@
 # ADR-038: Trust one coherent CI attempt per candidate
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
 > Supersedes: [ADR-037](ADR-037-promote-tested-pull-request-candidates.md) | partial | First-attempt-only and rerun restrictions on otherwise exact candidate CI evidence.
+> Superseded by: [ADR-048](ADR-048-equivalent-ci-runs-and-epic-history-recovery.md) | partial | Selection among separately created equivalent workflow runs; current complete-attempt rules remain required.
 
 ## Context
 
