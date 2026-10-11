@@ -41,12 +41,19 @@ type FixtureDialog = ExtensionConnectionDialog & {
     programs: ExtensionConnectionProposal['programs'],
   ): Promise<boolean>
 }
-function fixture(dialogOverride: Partial<FixtureDialog> = {}) {
+function fixture(
+  dialogOverride: Partial<FixtureDialog> = {},
+  context: 'application' | 'workspace' = 'application',
+  additional?: typeof declaration,
+) {
   const base = connectorFixture()
   base.dispose()
   const data = connectorFixture('application', undefined, undefined, {
     ...base.activation.revision,
-    manifest: { ...base.activation.revision.manifest, connectors: [declaration] },
+    manifest: {
+      ...base.activation.revision.manifest,
+      connectors: [{ ...declaration, context }, ...(additional ? [additional] : [])],
+    },
   })
   const dialog: FixtureDialog = {
     folders: ['/installed'],
@@ -82,6 +89,14 @@ function fixture(dialogOverride: Partial<FixtureDialog> = {}) {
       () => data.controller.signal.throwIfAborted(),
       data.controller.signal,
       foreground,
+      context === 'workspace' ? 'tool' : undefined,
+      false,
+      context === 'workspace'
+        ? {
+            ...data.caller.context('42-workspace')!,
+            observeCurrent: () => () => undefined,
+          }
+        : undefined,
     )
   return {
     ...data,
@@ -100,11 +115,183 @@ function fixture(dialogOverride: Partial<FixtureDialog> = {}) {
   }
 }
 
+describe('explicit local workspace connection', () => {
+  it.each(['missing', 'ambiguous'])(
+    'uses manual selection and explicit canonical consent for a %s local project program',
+    async (discovery) => {
+      const data = fixture(
+        {
+          folders: discovery === 'missing' ? [] : ['/one', '/two'],
+          choose: vi.fn(() => Promise.resolve('/selected/tool')),
+        },
+        'workspace',
+      )
+      try {
+        expect((await data.request()).connections[0]?.outcome).toBe('connected')
+        expect(data.dialog.choose).toHaveBeenCalledTimes(1)
+        expect(data.dialog.confirm).toHaveBeenCalledWith(
+          data.renderer,
+          data.activation.revision.manifest.name,
+          [
+            expect.objectContaining({
+              canonicalExecutable: '/selected/tool',
+              context: 'workspace',
+              host: 'local',
+            }),
+          ],
+        )
+        expect(data.host.exec).not.toHaveBeenCalled()
+      } finally {
+        data.stop()
+      }
+    },
+  )
+  it('uses the existing local host-scoped approval and reuses only its unchanged binding', async () => {
+    const data = fixture({}, 'workspace')
+    try {
+      expect((await data.request()).connections).toEqual([
+        { connector: 'tool', outcome: 'connected' },
+      ])
+      expect(data.dialog.confirm).toHaveBeenCalledWith(
+        data.renderer,
+        data.activation.revision.manifest.name,
+        [expect.objectContaining({ context: 'workspace', host: 'local' })],
+      )
+      expect(data.approvals.get(data.activation, 'tool')).toMatchObject({
+        host: 'local',
+        declaration: { context: 'workspace' },
+        configuration: { args: [], env: {} },
+      })
+      expect(data.state()).toHaveLength(1)
+      expect((data.state() as readonly unknown[])[0]).not.toHaveProperty('workspace')
+      expect((await data.request()).connections[0]?.outcome).toBe('connected')
+      expect(data.dialog.confirm).toHaveBeenCalledTimes(1)
+      expect(data.write).toHaveBeenCalledTimes(1)
+      expect(data.host.exec).not.toHaveBeenCalled()
+    } finally {
+      data.stop()
+    }
+  })
+  it('ignores workspace hints during automatic Add and refuses untargeted Settings connection', async () => {
+    const data = fixture({}, 'workspace')
+    try {
+      const automatic = await data.connection.request(
+        data.activation,
+        data.renderer,
+        () => undefined,
+        data.controller.signal,
+        () => true,
+        undefined,
+        true,
+      )
+      expect(automatic.connections).toEqual([])
+      const untargeted = await data.connection.fromRenderer(
+        data.renderer,
+        data.activation,
+        () => undefined,
+        'tool',
+        'request',
+        () => true,
+      )
+      expect(untargeted.connections[0]?.outcome).toBe('unavailable')
+      expect(data.host.realpath).not.toHaveBeenCalled()
+      expect(data.dialog.choose).not.toHaveBeenCalled()
+      expect(data.dialog.confirm).not.toHaveBeenCalled()
+      expect(data.write).not.toHaveBeenCalled()
+    } finally {
+      data.stop()
+    }
+  })
+  it('requires separate consent even when another connector approved the identical local program', async () => {
+    const data = fixture({}, 'workspace', { ...declaration, id: 'library' })
+    try {
+      await data.approvals.start()
+      const library = await data.approvals.prepare(
+        {
+          installationId: 'installation',
+          connector: 'library',
+          host: 'local',
+          executable: '/installed/tool',
+          configuration: { args: [], env: {} },
+        },
+        () => undefined,
+      )
+      await data.approvals.approve(library.token)
+      expect(data.approvals.get(data.activation, 'tool')).toBeUndefined()
+      expect((await data.request()).connections[0]?.outcome).toBe('connected')
+      expect(data.dialog.confirm).toHaveBeenCalledTimes(1)
+      expect(data.state()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ connector: 'library' }),
+          expect.objectContaining({ connector: 'tool' }),
+        ]),
+      )
+    } finally {
+      data.stop()
+    }
+  })
+  it.each(['discovery', 'picker', 'consent', 'persistence'] as const)(
+    'withdraws the pinned project during %s and rejects late effects',
+    async (boundary) => {
+      const metadata = held<ReturnType<typeof localPath>>(),
+        selection = held<string | undefined>(),
+        consent = held<boolean>(),
+        saved = held<void>()
+      const data = fixture(
+        {
+          ...(boundary === 'picker'
+            ? { folders: [], choose: vi.fn(() => selection.promise) }
+            : {}),
+          ...(boundary === 'consent' ? { confirm: vi.fn(() => consent.promise) } : {}),
+        },
+        'workspace',
+      )
+      if (boundary === 'discovery')
+        data.host.realpath.mockImplementationOnce(() => metadata.promise)
+      if (boundary === 'persistence') {
+        const write = data.write.getMockImplementation()!
+        data.write.mockImplementation((value, current) =>
+          saved.promise.then(() => write(value, current)),
+        )
+      }
+      try {
+        const operation = data.request()
+        await vi.waitFor(() => {
+          if (boundary === 'discovery') expect(data.host.realpath).toHaveBeenCalled()
+          else if (boundary === 'picker') expect(data.dialog.choose).toHaveBeenCalled()
+          else if (boundary === 'consent') expect(data.dialog.confirm).toHaveBeenCalled()
+          else expect(data.write).toHaveBeenCalled()
+        })
+        data.endContext()
+        data.connection.revalidate()
+        expect(data.connection.snapshot(data.renderer)).toEqual([])
+        metadata.resolve(localPath('/installed/tool'))
+        selection.resolve('/installed/tool')
+        consent.resolve(true)
+        saved.resolve()
+        expect((await operation).connections[0]?.outcome).toBe(
+          boundary === 'persistence' ? 'interrupted-uncertain' : 'unavailable',
+        )
+        expect(data.approvals.get(data.activation, 'tool')).toBeUndefined()
+        expect(data.state()).toEqual([])
+        if (boundary !== 'persistence') expect(data.write).not.toHaveBeenCalled()
+      } finally {
+        metadata.resolve(localPath('/installed/tool'))
+        selection.resolve(undefined)
+        consent.resolve(false)
+        saved.resolve()
+        data.stop()
+      }
+    },
+  )
+})
+
 describe('passive program connection', () => {
-  it('validates only bounded app-local basename hints', () => {
+  it('validates bounded application and workspace basename hints', () => {
     expect(validateConnectorDeclarations([declaration], vi.fn())).toEqual([declaration])
+    const workspace = { ...declaration, context: 'workspace' }
+    expect(validateConnectorDeclarations([workspace], vi.fn())).toEqual([workspace])
     for (const value of [
-      { ...declaration, context: 'workspace' },
       { ...declaration, setup: { executable: '/bin/tool' } },
       { ...declaration, setup: { executable: 'tool; command' } },
     ])
@@ -463,6 +650,7 @@ describe('passive program connection', () => {
       expect(proposal.programs[0]).toEqual({
         connector: 'tool',
         description: declaration.description,
+        context: 'application',
         host: 'local',
         canonicalExecutable: '/installed/tool',
         configuration: { args: [], env: {} },

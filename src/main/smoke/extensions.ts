@@ -22,6 +22,7 @@ import { verifyExtensionSettingsGeometry } from './extension-presentation-geomet
 import { verifyExtensionAuthoring } from './extension-authoring'
 import { verifyExtensionPackages } from './extension-packages'
 import { verifyExtensionConnection } from './extension-connection'
+import { verifyLocalWorkspaceConnection } from './extension-local-workspace-connection'
 import { verifyExtensionImport } from './extension-import'
 import { verifyExtensionNetwork } from './extension-network'
 import {
@@ -380,6 +381,16 @@ export async function verifyExtensionScenario(
     wait: waitFor,
     guest: guestFor,
   })
+  await verifyLocalWorkspaceConnection(
+    win,
+    extensions,
+    host,
+    {
+      id: sources.context.projectState().activeWorkspaceId,
+      root: sources.context.projectState().root,
+    },
+    { click: (name) => click(win, name), wait: waitFor, guest: guestFor },
+  )
   console.log(
     `[smoke] directory extension capture, public viewer, guest isolation, TCP/UDP WebRTC denial, presentation, hidden timers, crash/hang and revocation OK (Electron ${process.versions.electron}; Chromium ${process.versions.chrome})`,
   )

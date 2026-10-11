@@ -13,6 +13,7 @@ const proposal: ExtensionConnectionProposal = {
     {
       connector: 'tool',
       description: 'Read library metadata',
+      context: 'application',
       host: 'local',
       canonicalExecutable: '/usr/bin/tool',
       configuration: { args: [], env: {} },
@@ -78,6 +79,7 @@ it('keeps a fresh published decision over an older snapshot and submits only its
   expect(host.textContent).not.toContain('Old library')
   expect(host.textContent).toContain('local: /usr/bin/tool')
   expect(host.textContent).toContain('No extra arguments or environment overrides')
+  expect(host.textContent).toContain('local scratch folder')
   act(() => button('Connect').click())
   expect(invoke).toHaveBeenLastCalledWith('extensions:connection-decide', {
     id: 'decision-one',
@@ -109,6 +111,23 @@ it('retires the old component while a reply is held and keeps the next decision 
   expect(host.textContent).toContain('Connect Next library')
   expect(host.querySelector('[role="alert"]')).toBeNull()
   expect(button('Connect').disabled).toBe(false)
+})
+it('describes workspace approval as host-scoped account access rather than folder confinement', async () => {
+  await act(async () => {
+    publish([
+      {
+        ...proposal,
+        programs: proposal.programs.map((program) => ({
+          ...program,
+          context: 'workspace',
+        })),
+      },
+    ])
+    await Promise.resolve()
+  })
+  expect(host.textContent).toContain('registered projects on this host')
+  expect(host.textContent).toContain('folder does not restrict account access')
+  expect(host.textContent).not.toContain('local scratch folder')
 })
 it('cleans its subscription and ignores an initial reply after unmount', async () => {
   act(() => root.render(null))

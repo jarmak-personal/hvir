@@ -76,6 +76,11 @@ function ConnectionDecision({
           <pre>
             {program.host}: {program.canonicalExecutable}
           </pre>
+          <p>
+            {program.context === 'workspace'
+              ? 'Approval lets this connector run the program for registered projects on this host. Each command uses its admitted project folder; that folder does not restrict account access.'
+              : 'This connector uses hvir’s local scratch folder, separate from project selection.'}
+          </p>
         </div>
       ))}
       <p>

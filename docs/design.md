@@ -548,6 +548,7 @@ context through ordinary non-focusing viewer placement, hiding, and explicit clo
 ### [ADR-051 — Approved finite connector execution](adr/ADR-051-approved-finite-connector-execution.md)
 
 > Lifecycle: Partially superseded
+> Superseded by: [ADR-070](adr/ADR-070-explicit-local-workspace-program-connection.md) | partial | Mandatory manually supplied absolute executable input and separate Inspect step for explicit ordinary-human local-workspace connections only.
 > Superseded by: [ADR-065](adr/ADR-065-passive-extension-program-connection.md) | partial | Mandatory manually supplied absolute executable input and separate Inspect step for application-local first-use connections only.
 > Supersedes: [ADR-010](adr/ADR-010-project-host-remote-boundary.md) | partial | Registered-root requirement for explicit approved connector execution and its application-local working context only.
 
@@ -677,7 +678,8 @@ while retiring hidden resources, with ordinary Close and Save semantics unchange
 
 ### [ADR-065 — Passive extension program discovery and trusted connection](adr/ADR-065-passive-extension-program-connection.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-070](adr/ADR-070-explicit-local-workspace-program-connection.md) | partial | Application-only restriction on setup hints and ordinary-human connection requests.
 > Supersedes: [ADR-051](adr/ADR-051-approved-finite-connector-execution.md) | partial | Mandatory manually supplied absolute executable input and separate Inspect step for application-local first-use connections only.
 
 Bounded passive program candidates feed the existing exact native approval decision after
@@ -708,6 +710,15 @@ Rust client source receives ordinary physical-line budgets under `packages/hvir-
 Cargo metadata and exact disposable output remain distinct from maintained or generated source;
 the client owns Rust build, dependency, and protocol evidence without requiring a toolchain for
 unrelated contributor verification.
+
+### [ADR-070 — Explicit local workspace program connection](adr/ADR-070-explicit-local-workspace-program-connection.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-065](adr/ADR-065-passive-extension-program-connection.md) | partial | Application-only restriction on setup hints and ordinary-human connection requests.
+> Supersedes: [ADR-051](adr/ADR-051-approved-finite-connector-execution.md) | partial | Mandatory manually supplied absolute executable input and separate Inspect step for explicit ordinary-human local-workspace connections only.
+
+An explicit ordinary human project view can propose local program connection through its
+main-admitted workspace, preserving host-scoped native approval and application-only Add setup.
 
 ## 5. Architecture
 

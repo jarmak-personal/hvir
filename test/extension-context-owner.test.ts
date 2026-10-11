@@ -4,6 +4,7 @@ import {
   boundedExtensionSessions,
   boundedExtensionContext,
 } from '../src/main/extensions/context-owner'
+import { localPath } from '../src/shared/host-path'
 import { contextFixture } from './fixtures/extension-context'
 
 describe('extension metadata from existing context owners', () => {
@@ -79,6 +80,43 @@ describe('extension metadata from existing context owners', () => {
     dispose()
     await Promise.resolve()
     expect(listener).toHaveBeenCalledTimes(1)
+  })
+  it('observes main selection and registration identity without withdrawing ordinary admitted contexts', async () => {
+    const data = contextFixture(),
+      listener = vi.fn()
+    const admitted = data.contexts.admit(
+      { id: 1, generation: 1 },
+      { surface: 'left', workspaceId: 'workspace' },
+    )
+    const state = data.sources.projectState()
+    let current = state
+    vi.spyOn(data.sources, 'projectState').mockImplementation(() => current)
+    const dispose = data.contexts.observe(listener)
+    try {
+      current = {
+        ...state,
+        activeProjectId: 'other-project',
+        activeWorkspaceId: 'other-workspace',
+      }
+      for (const changed of data.listeners[0]!) changed()
+      await Promise.resolve()
+      expect(listener).toHaveBeenCalledTimes(1)
+      expect(admitted.current()).toBe(true)
+      current = {
+        ...current,
+        projects: state.projects.map((project) => ({
+          ...project,
+          registeredRoot: localPath('/replacement'),
+        })),
+      }
+      for (const changed of data.listeners[0]!) changed()
+      await Promise.resolve()
+      expect(listener).toHaveBeenCalledTimes(2)
+      expect(admitted.current()).toBe(true)
+    } finally {
+      dispose()
+    }
+    expect(data.listeners.flat()).toHaveLength(0)
   })
   it('bounds qualified metadata by encoded bytes even below the session count limit', () => {
     const source = contextFixture().contexts.sessions({ id: 1, generation: 1 })[0]!

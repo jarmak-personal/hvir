@@ -16,6 +16,10 @@ export interface AdmittedExtensionContext {
   readonly current: () => boolean
 }
 
+export interface PinnedWorkspaceConnectionContext extends AdmittedExtensionContext {
+  readonly observeCurrent: (listener: () => void) => () => void
+}
+
 /** Read-only metadata adaptation. Existing project and PTY owners retain identity and authority. */
 export class ExtensionContextOwner {
   revision = 0
@@ -169,19 +173,23 @@ export class ExtensionContextOwner {
           .observationSnapshot()
           .map((entry) => [entry.id, entry.title]),
       )
+      const state = this.sources.projectState()
       return JSON.stringify({
-        workspaces: this.sources
-          .projectState()
-          .projects.flatMap((project) =>
-            project.workspaces.map((workspace) => [
-              workspace.id,
-              workspace.root,
-              workspace.name,
-              workspace.closed,
-              workspace.missing,
-              project.connectionState,
-            ]),
-          ),
+        selection: [state.activeProjectId, state.activeWorkspaceId],
+        registrations: state.projects.map((project) => [
+          project.id,
+          project.registeredRoot,
+        ]),
+        workspaces: state.projects.flatMap((project) =>
+          project.workspaces.map((workspace) => [
+            workspace.id,
+            workspace.root,
+            workspace.name,
+            workspace.closed,
+            workspace.missing,
+            project.connectionState,
+          ]),
+        ),
         sessions: this.sources.ptys
           .observationSnapshot()
           .map(({ info }) => [
@@ -218,6 +226,58 @@ export class ExtensionContextOwner {
     return () => {
       disposed = true
       for (const dispose of disposers.reverse()) void dispose()
+    }
+  }
+
+  /** Finite setup pins main selection; ordinary admitted view contexts remain independent. */
+  pinWorkspaceConnection(
+    context: AdmittedExtensionContext,
+  ): PinnedWorkspaceConnectionContext {
+    const workspace = context.value.workspace,
+      root = context.root
+    const state = this.sources.projectState()
+    const project = state.projects.find(
+      (entry) =>
+        entry.id === state.activeProjectId &&
+        entry.workspaces.some((entry) => entry.id === workspace?.id),
+    )
+    if (!workspace || !root || !project)
+      throw new Error('Program connection requires the current registered project')
+    const registration = project.registeredRoot,
+      projectId = project.id
+    let withdrawn = false
+    const current = (): boolean => {
+      if (withdrawn) return false
+      const state = this.sources.projectState()
+      const registered = state.projects.find((entry) => entry.id === projectId)
+      const member = registered?.workspaces.find((entry) => entry.id === workspace.id)
+      const valid =
+        context.current() &&
+        state.activeProjectId === projectId &&
+        state.activeWorkspaceId === workspace.id &&
+        !!registered &&
+        hostPathEquals(registered.registeredRoot, registration) &&
+        registered.activeWorkspaceId === workspace.id &&
+        registered.connectionState === 'connected' &&
+        !!member &&
+        !member.closed &&
+        !member.missing &&
+        hostPathEquals(member.root, root)
+      withdrawn = !valid
+      return valid
+    }
+    if (!current()) throw new Error('Program connection project changed')
+    return {
+      ...context,
+      current,
+      observeCurrent: (listener) => {
+        const changed = (): void => {
+          if (!current()) listener()
+        }
+        const dispose = this.sources.observeProjects(changed)
+        changed()
+        return dispose
+      },
     }
   }
 

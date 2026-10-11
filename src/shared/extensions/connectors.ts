@@ -127,8 +127,6 @@ export function validateConnectorDeclarations(
     if (object['setup'] !== undefined) {
       const hint = extensionObject(object['setup'])
       warnings(hint, ['executable'])
-      if (object['context'] !== 'application')
-        throw new Error('Program setup requires an application-local executable basename')
       setup = { executable: connectorExecutableBasename(hint['executable']) }
     }
     return {
@@ -212,6 +210,7 @@ export interface ExtensionConnectionProposal {
   readonly programs: readonly {
     readonly connector: string
     readonly description: string
+    readonly context: ExtensionConnectorDeclaration['context']
     readonly host: string
     readonly canonicalExecutable: string
     readonly configuration: ExtensionConnectorConfiguration
