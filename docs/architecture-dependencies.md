@@ -104,7 +104,7 @@ override any forbidden direction.
 
 ## Rust client boundary
 
-[ADR-048](adr/ADR-048-rust-client-source-policy.md) governs Rust under the maintained client
+[ADR-069](adr/ADR-069-rust-client-source-policy.md) governs Rust under the maintained client
 root `packages/hvir-agent/`. The source-budget inventory includes `.rs`; the module graph
 continues to analyze only TypeScript/JavaScript. Its cycle/direction gates remain blocking and
 provide no Rust import or Cargo dependency proof.

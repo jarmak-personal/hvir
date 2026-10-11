@@ -427,14 +427,16 @@ acknowledgment while preserving exact provider, host, artifact, and recovery aut
 
 > Lifecycle: Partially superseded
 > Superseded by: [ADR-038](adr/ADR-038-coherent-ci-attempts.md) | partial | First-attempt-only and rerun restrictions on otherwise exact candidate CI evidence.
+> Superseded by: [ADR-048](adr/ADR-048-equivalent-ci-runs-and-epic-history-recovery.md) | partial | Single-run candidate selection and missing redundant run association metadata; recorded release merge acceptance remains required.
 
 Strict first-attempt pull-request checks admit one exact candidate tree to merge and release,
 while native certification moves to Release and capacity evidence moves to controlled machines.
 
 ### [ADR-038 — Trust one coherent CI attempt per candidate](adr/ADR-038-coherent-ci-attempts.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
 > Supersedes: [ADR-037](adr/ADR-037-promote-tested-pull-request-candidates.md) | partial | First-attempt-only and rerun restrictions on otherwise exact candidate CI evidence.
+> Superseded by: [ADR-048](adr/ADR-048-equivalent-ci-runs-and-epic-history-recovery.md) | partial | Selection among separately created equivalent workflow runs; current complete-attempt rules remain required.
 
 One complete workflow attempt may certify an exact candidate after approval or an explicit full
 rerun, while partial reruns and cross-attempt job assembly remain ineligible.
@@ -449,8 +451,9 @@ provider-derived branches of registered identities; ambient transitions are neve
 ### [ADR-040 — Complete source budgets and dependency policy](adr/ADR-040-complete-source-budgets-and-dependency-policy.md)
 
 > Lifecycle: Partially superseded
-> Superseded by: [ADR-048](adr/ADR-048-rust-client-source-policy.md) | partial | Maintained-source language list: add Rust and Cargo dispositions; all existing budget, provenance, and TypeScript/JavaScript dependency rules remain authoritative.
+> Superseded by: [ADR-069](adr/ADR-069-rust-client-source-policy.md) | partial | Maintained-source language list: add Rust and Cargo dispositions; all existing budget, provenance, and TypeScript/JavaScript dependency rules remain authoritative.
 > Supersedes: [ADR-014](adr/ADR-014-modular-monolith-ownership.md) | partial | Architecture hotspot budgets paragraph: complete source budgets and extended dependency enforcement; authority/seam checks stay blocking.
+> Superseded by: [ADR-048](adr/ADR-048-equivalent-ci-runs-and-epic-history-recovery.md) | partial | Recorded merged-PR requirement for tested non-policy epic history only; policy authorization remains unchanged.
 
 Every maintained source file has a blocking budget, with a 500-line comfort signal, a 1,000-line
 default, exact prior authorization for exceptions, and distinct runtime-cycle and type-direction
@@ -514,15 +517,16 @@ without adding product instrumentation.
 
 Main owns bounded, fixed-destination SSH host additions and catalog refresh; chooser requests
 own delivery and feedback, while existing logical hosts retain connection lifetimes.
-### [ADR-048 — Rust client source coverage and dependency evidence](adr/ADR-048-rust-client-source-policy.md)
+
+### [ADR-048 — Equivalent CI runs and verified epic history recovery](adr/ADR-048-equivalent-ci-runs-and-epic-history-recovery.md)
 
 > Lifecycle: Active
-> Supersedes: [ADR-040](adr/ADR-040-complete-source-budgets-and-dependency-policy.md) | partial | Maintained-source language list: add Rust and Cargo dispositions; all existing budget, provenance, and TypeScript/JavaScript dependency rules remain authoritative.
+> Supersedes: [ADR-037](adr/ADR-037-promote-tested-pull-request-candidates.md) | partial | Single-run candidate selection and missing redundant run association metadata; recorded release merge acceptance remains required.
+> Supersedes: [ADR-038](adr/ADR-038-coherent-ci-attempts.md) | partial | Selection among separately created equivalent workflow runs; current complete-attempt rules remain required.
+> Supersedes: [ADR-040](adr/ADR-040-complete-source-budgets-and-dependency-policy.md) | partial | Recorded merged-PR requirement for tested non-policy epic history only; policy authorization remains unchanged.
 
-Rust client source receives ordinary physical-line budgets under `packages/hvir-agent/`.
-Cargo metadata and exact disposable output remain distinct from maintained or generated source;
-the client owns Rust build, dependency, and protocol evidence without requiring a toolchain for
-unrelated contributor verification.
+Shared candidate evidence selects the latest equivalent CI run's complete current attempt;
+architecture alone can recover tested non-policy epic history without claiming recorded approval.
 
 ---
 
@@ -694,6 +698,16 @@ custom intent remains available, and unknown-target completion requires public r
 
 Current ordinary human instruction reads propose a canonical local scope through the existing
 source-approval owner and a trusted in-context decision; metadata and agents receive no file authority.
+
+### [ADR-069 — Rust client source coverage and dependency evidence](adr/ADR-069-rust-client-source-policy.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-040](adr/ADR-040-complete-source-budgets-and-dependency-policy.md) | partial | Maintained-source language list: add Rust and Cargo dispositions; all existing budget, provenance, and TypeScript/JavaScript dependency rules remain authoritative.
+
+Rust client source receives ordinary physical-line budgets under `packages/hvir-agent/`.
+Cargo metadata and exact disposable output remain distinct from maintained or generated source;
+the client owns Rust build, dependency, and protocol evidence without requiring a toolchain for
+unrelated contributor verification.
 
 ## 5. Architecture
 

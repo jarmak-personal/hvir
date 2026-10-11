@@ -1,4 +1,4 @@
-# ADR-048: Rust client source coverage and dependency evidence
+# ADR-069: Rust client source coverage and dependency evidence
 
 > Lifecycle: Active
 > Supersedes: [ADR-040](ADR-040-complete-source-budgets-and-dependency-policy.md) | partial | Maintained-source language list: add Rust and Cargo dispositions; all existing budget, provenance, and TypeScript/JavaScript dependency rules remain authoritative.
@@ -67,7 +67,7 @@ is added. Its exact documentation identities may include this decision, ADR-040'
 notice, the design index, and the architecture guides. Additional documentation admission
 requires actual language/root adoption: ADR-040 admits only lifecycle notice changes, the
 design document only the relevant decision-index entries, and the dependency guide only its
-Rust boundary section. An accepted ADR-048 cannot be rewritten. Ordinary budget relaxation
+Rust boundary section. An accepted ADR-069 cannot be rewritten. Ordinary budget relaxation
 retains the original budget-guide admission without these additional records. This grants no general documentation,
 product-source, unrelated-tooling, or relaxed-check exception. Cumulative delivery validates
 separately accepted language-policy integrations through the existing provenance owner.

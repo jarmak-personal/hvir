@@ -30,11 +30,16 @@ export const ARCHITECTURE_TESTS = [
   'test/architecture-module-directions.test.ts',
   'test/architecture-command.test.ts',
 ] as const
+// Preserve the historical Rust identity for accepted proposal replay after renumbering.
+const RUST_DECISIONS = [
+  'docs/adr/ADR-048-rust-client-source-policy.md',
+  'docs/adr/ADR-069-rust-client-source-policy.md',
+]
 // Exact records needed to admit the Rust language policy; no general docs exemption.
 const POLICY_DOCUMENTS = [
   'docs/architecture-dependencies.md',
   'docs/adr/ADR-040-complete-source-budgets-and-dependency-policy.md',
-  'docs/adr/ADR-048-rust-client-source-policy.md',
+  ...RUST_DECISIONS,
   'docs/design.md',
 ]
 const WIRING_PATHS = ['package.json', '.github/workflows/ci.yml', 'eslint.config.mjs']
@@ -179,11 +184,11 @@ function admitCoverageDocumentation(
   before: Buffer | null,
   after: Buffer | null,
 ): void {
-  if (!after || (!before && path !== 'docs/adr/ADR-048-rust-client-source-policy.md'))
+  if (!after || (!before && !RUST_DECISIONS.includes(path)))
     throw new Error(
       'Coverage policy cannot add or remove an existing documentation owner',
     )
-  if (path === 'docs/adr/ADR-048-rust-client-source-policy.md') {
+  if (RUST_DECISIONS.includes(path)) {
     if (before && !before.equals(after))
       throw new Error('Coverage adoption cannot rewrite an accepted Rust decision')
     return
@@ -195,7 +200,7 @@ function admitCoverageDocumentation(
     const outsideIndex = (text: string) =>
       compact(
         text.replace(
-          /^### \[ADR-(?:040|048)[^\n]*\n[\s\S]*?(?=^### |^---$|^## |\s*$(?![\s\S]))/gm,
+          /^### \[ADR-(?:040|069|048(?= — Rust))[^\n]*\n[\s\S]*?(?=^### |^---$|^## |\s*$(?![\s\S]))/gm,
           '',
         ),
       )
@@ -210,7 +215,10 @@ function admitCoverageDocumentation(
     const withoutLifecycle = (text: string) =>
       text
         .replace(/^> Lifecycle: [^\n]*\n/gm, '')
-        .replace(/^> Superseded by: \[ADR-048\][^\n]*\n/gm, '')
+        .replace(
+          /^> Superseded by: \[ADR-(048|069)\]\(ADR-\1-rust-client-source-policy\.md\)[^\n]*\n/gm,
+          '',
+        )
     equal(withoutLifecycle(original), withoutLifecycle(proposed))
   }
 }

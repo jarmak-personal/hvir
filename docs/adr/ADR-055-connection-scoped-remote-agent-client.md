@@ -13,7 +13,7 @@ which process sent a request.
 
 ## Decision
 
-Ship a transport-only Rust client under ADR-048's maintained root. It serializes argv,
+Ship a transport-only Rust client under ADR-069's maintained root. It serializes argv,
 bounded UTF-8 stdin and nonsecret target defaults using the same public 1.0 JSON-line
 framing as the local client, then relays stdout, stderr and exit status. Main owns parsing,
 help, discovery, targeting, authorization and command semantics. Remote authoring is
