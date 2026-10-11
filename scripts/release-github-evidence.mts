@@ -23,26 +23,42 @@ export class ReleaseGitHubEvidenceReader {
     return value
   }
 
-  async requestJson<T>(url: URL, token: string): Promise<T> {
-    const response = await fetch(url, {
-      headers: {
-        Accept: 'application/vnd.github+json',
-        Authorization: `Bearer ${token}`,
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
-    })
+  requestJson<T>(url: URL, token: string): Promise<T>
+  requestJson<T>(url: URL, token: string, allowAbsent: true): Promise<T | null>
+  async requestJson<T>(url: URL, token: string, allowAbsent = false): Promise<T | null> {
+    let response: Response
+    try {
+      response = await fetch(url, {
+        headers: {
+          Accept: 'application/vnd.github+json',
+          Authorization: `Bearer ${token}`,
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+      })
+    } catch {
+      throw new Error(
+        `${this.evidenceName} API unavailable at ${url.pathname}; restore connectivity and retry the read-only check`,
+      )
+    }
+    if (allowAbsent && response.status === 404) return null
     if (!response.ok) {
-      throw new Error(`${this.evidenceName} request failed (${response.status})`)
+      throw new Error(
+        `${this.evidenceName} request failed (${response.status}) at ${url.pathname}; API evidence unavailable, check access/service availability and retry`,
+      )
     }
     try {
       return (await response.json()) as T
     } catch {
-      throw new Error(`${this.evidenceName} response was invalid`)
+      throw new Error(
+        `${this.evidenceName} response was invalid; inspect the API metadata and retry the read-only check`,
+      )
     }
   }
 
   incomplete(): never {
-    throw new Error(`${this.evidenceName} response was incomplete`)
+    throw new Error(
+      `${this.evidenceName} response was incomplete; restore required API metadata and reverify`,
+    )
   }
 }
 
