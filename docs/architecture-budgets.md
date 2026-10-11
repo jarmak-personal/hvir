@@ -119,8 +119,12 @@ Focused policy, real temporary Git-history, and immediate GitHub-boundary fixtur
 `npm run verify` retains its blocking architecture gate.
 
 ADR-048 permits architecture to recover tested non-policy epic history from a Closed canonical
-PR without recorded merge acceptance. Bounded merge/head association reads must identify one
+PR without recorded merge acceptance. Bounded merge/head association reads identify one
 PR whose exact base/head match a two-parent integration reachable from the same native epic.
+If both association sources omit the candidate, discovery also reads the canonical Closed PR
+list for that exact epic target, consuming all pages within the existing 1,000-record bound.
+Incomplete discovery or multiple matching PRs reject recovery. Listing results only discover
+the PR; its refreshed canonical record supplies the same required identities.
 Its integrated tree must equal the tested head tree and shared CI evidence must pass. The
 complete PR diff must exclude policy, enforcing checkers, verification wiring and decision
 records. Recovery proves integrated tested code; it grants no recorded approval or release
