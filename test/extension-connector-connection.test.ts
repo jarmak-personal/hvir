@@ -82,6 +82,7 @@ function fixture(
         })
     },
   )
+  const workspaceListeners = new Set<() => void>()
   const request = (foreground: () => boolean = () => true) =>
     connection.request(
       data.activation,
@@ -94,7 +95,12 @@ function fixture(
       context === 'workspace'
         ? {
             ...data.caller.context('42-workspace')!,
-            observeCurrent: () => () => undefined,
+            observeCurrent: (listener: () => void) => {
+              workspaceListeners.add(listener)
+              return () => {
+                workspaceListeners.delete(listener)
+              }
+            },
           }
         : undefined,
     )
@@ -108,6 +114,11 @@ function fixture(
     dialog,
     connection,
     request,
+    workspaceListeners,
+    withdrawWorkspace: () => {
+      data.endContext()
+      for (const listener of workspaceListeners) listener()
+    },
     stop: () => {
       connection.dispose()
       data.dispose()
@@ -167,6 +178,7 @@ describe('explicit local workspace connection', () => {
       expect((await data.request()).connections[0]?.outcome).toBe('connected')
       expect(data.dialog.confirm).toHaveBeenCalledTimes(1)
       expect(data.write).toHaveBeenCalledTimes(1)
+      expect(data.workspaceListeners.size).toBe(0)
       expect(data.host.exec).not.toHaveBeenCalled()
     } finally {
       data.stop()
@@ -262,8 +274,7 @@ describe('explicit local workspace connection', () => {
           else if (boundary === 'consent') expect(data.dialog.confirm).toHaveBeenCalled()
           else expect(data.write).toHaveBeenCalled()
         })
-        data.endContext()
-        data.connection.revalidate()
+        data.withdrawWorkspace()
         expect(data.connection.snapshot(data.renderer)).toEqual([])
         metadata.resolve(localPath('/installed/tool'))
         selection.resolve('/installed/tool')
@@ -274,6 +285,7 @@ describe('explicit local workspace connection', () => {
         )
         expect(data.approvals.get(data.activation, 'tool')).toBeUndefined()
         expect(data.state()).toEqual([])
+        expect(data.workspaceListeners.size).toBe(0)
         if (boundary !== 'persistence') expect(data.write).not.toHaveBeenCalled()
       } finally {
         metadata.resolve(localPath('/installed/tool'))

@@ -388,6 +388,10 @@ closure, hide, cancellation or revocation retires the request. An SSH project ca
 flow to discover, authenticate or approve a replacement program. Existing explicit SSH Settings
 setup is unchanged. Valid unchanged approval of that exact connector and local host needs no new
 decision; another connector's approval never supplies permission, even for the same executable.
+A connector retains one saved host binding. Connecting locally when it has a saved SSH binding
+names that exact replaced host in the same trusted decision; accepting replaces that binding,
+and its SSH projects need new approval. Declining preserves it. Saving refuses a changed prior
+binding rather than applying stale replacement consent.
 Native workspace approval remains host-scoped rather than folder-confined; each command still
 requires its own admitted project context. No install-time workspace connection or project
 mutation is introduced. File reading, agent access and delivery require their independent grants.

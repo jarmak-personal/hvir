@@ -148,67 +148,74 @@ describe('main-admitted local project connection', () => {
       await data.stop()
     }
   })
-  it('requires new local consent instead of reusing a current SSH approval with identical executable paths', async () => {
-    const data = await fixture()
-    try {
-      const hosts = data.native.hosts
-      const local = hosts.hostById(asHostId('local'))!
-      const remoteId = asHostId('ssh-server')
-      const remote = { ...local, hostId: remoteId }
-      vi.spyOn(hosts, 'listHosts').mockReturnValue([
-        ...hosts.listHosts(),
-        {
-          hostId: remoteId,
-          label: 'Server',
-          kind: 'ssh',
-          connectionState: 'connected',
-          watchTier: 'polling',
-        },
-      ])
-      vi.spyOn(hosts, 'hostById').mockImplementation((id) =>
-        id === remoteId ? remote : id === local.hostId ? local : undefined,
-      )
-      vi.spyOn(hosts, 'materializeHost').mockImplementation((id) =>
-        Promise.resolve(id === remoteId ? remote : local),
-      )
-      const activation = [...data.native.active.values()][0]!
-      const prepared = await data.native.approvals.prepare(
-        {
-          installationId: activation.installationId,
-          connector: 'tool',
-          host: remoteId,
-          executable: '/installed/tool',
-          configuration: { args: [], env: {} },
-        },
-        () => undefined,
-      )
-      await data.native.approvals.approve(prepared.token)
-      expect(data.native.approvals.current(activation, prepared.approval)).toBe(true)
-      expect(prepared.approval.canonicalExecutable).toBe('/installed/tool')
-      data.connect()
-      await vi.waitFor(() =>
-        expect(data.connection.snapshot(data.renderer)).toHaveLength(1),
-      )
-      const proposal = data.connection.snapshot(data.renderer)[0]!
-      expect(proposal.programs[0]).toMatchObject({
-        host: 'local',
-        canonicalExecutable: '/installed/tool',
-      })
-      expect(data.result()).toBeUndefined()
-      data.connection.decide(data.renderer, proposal.id, true)
-      await vi.waitFor(() =>
-        expect(data.result()).toMatchObject({
-          ok: true,
-          value: { connections: [{ outcome: 'connected' }] },
-        }),
-      )
-      expect(data.native.approvals.get(activation, 'tool')?.host).toBe('local')
-      expect(data.native.write).toHaveBeenCalledTimes(2)
-      expect(data.native.host.exec).not.toHaveBeenCalled()
-    } finally {
-      await data.stop()
-    }
-  })
+  it.each([false, true])(
+    'discloses replacing a saved SSH approval with identical paths and preserves it when consent=%s',
+    async (accepted) => {
+      const data = await fixture()
+      try {
+        const hosts = data.native.hosts
+        const local = hosts.hostById(asHostId('local'))!
+        const remoteId = asHostId('ssh-server')
+        const remote = { ...local, hostId: remoteId }
+        vi.spyOn(hosts, 'listHosts').mockReturnValue([
+          ...hosts.listHosts(),
+          {
+            hostId: remoteId,
+            label: 'Server',
+            kind: 'ssh',
+            connectionState: 'connected',
+            watchTier: 'polling',
+          },
+        ])
+        vi.spyOn(hosts, 'hostById').mockImplementation((id) =>
+          id === remoteId ? remote : id === local.hostId ? local : undefined,
+        )
+        vi.spyOn(hosts, 'materializeHost').mockImplementation((id) =>
+          Promise.resolve(id === remoteId ? remote : local),
+        )
+        const activation = [...data.native.active.values()][0]!
+        const prepared = await data.native.approvals.prepare(
+          {
+            installationId: activation.installationId,
+            connector: 'tool',
+            host: remoteId,
+            executable: '/installed/tool',
+            configuration: { args: [], env: {} },
+          },
+          () => undefined,
+        )
+        await data.native.approvals.approve(prepared.token)
+        expect(data.native.approvals.current(activation, prepared.approval)).toBe(true)
+        expect(prepared.approval.canonicalExecutable).toBe('/installed/tool')
+        data.connect()
+        await vi.waitFor(() =>
+          expect(data.connection.snapshot(data.renderer)).toHaveLength(1),
+        )
+        const proposal = data.connection.snapshot(data.renderer)[0]!
+        expect(proposal.programs[0]).toMatchObject({
+          host: 'local',
+          replacesHost: remoteId,
+          canonicalExecutable: '/installed/tool',
+        })
+        expect(proposal.programs[0]?.replacesHost).toBe(remoteId)
+        expect(data.result()).toBeUndefined()
+        data.connection.decide(data.renderer, proposal.id, accepted)
+        await vi.waitFor(() =>
+          expect(data.result()).toMatchObject({
+            ok: true,
+            value: { connections: [{ outcome: accepted ? 'connected' : 'declined' }] },
+          }),
+        )
+        expect(data.native.approvals.get(activation, 'tool')?.host).toBe(
+          accepted ? 'local' : remoteId,
+        )
+        expect(data.native.write).toHaveBeenCalledTimes(accepted ? 2 : 1)
+        expect(data.native.host.exec).not.toHaveBeenCalled()
+      } finally {
+        await data.stop()
+      }
+    },
+  )
   it('withdraws a pending request on a same-turn switch away and back, disposing its observer', async () => {
     const data = await fixture()
     const update = vi.fn(() => data.owner.updateContext())

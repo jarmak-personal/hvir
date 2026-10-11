@@ -88,11 +88,23 @@ export async function verifyLocalWorkspaceConnection(
   })
   await controls.click('Discover extensions')
   await settings.click('Enable')
+  await controls.wait(
+    async () =>
+      [...activations.active.values()].some(
+        (entry) => entry.revision.manifest.id === 'hvir.local-project-connection',
+      ) && (await settings.settled()),
+    'explicit project package activation and Settings completion',
+  )
   const installed = [...activations.active.values()].find(
     (entry) => entry.revision.manifest.id === 'hvir.local-project-connection',
   )!
-  if (!installed || approvals.get(installed, 'project-tool') || (await exists()))
-    throw new Error('Installation implicitly connected or executed the workspace program')
+  if (approvals.get(installed, 'project-tool'))
+    throw new Error('Settled installation implicitly approved the workspace program')
+  if (await exists())
+    throw new Error('Settled installation executed the workspace program')
+  console.log(
+    '[smoke] local project package activation settled without native approval or execution marker OK',
+  )
   const first = await open()
   await guestClick(first.guest, 'connect')
   const withdrawn = await proposal()
@@ -125,7 +137,7 @@ export async function verifyLocalWorkspaceConnection(
     () =>
       win.webContents.executeJavaScript(`(() => {
     const modal=document.querySelector('[aria-labelledby="connection-confirmation-title"]');
-    return !!modal?.checkVisibility() && modal.contains(document.activeElement) && modal.textContent.includes('registered projects on this host') && modal.textContent.includes('folder does not restrict account access');
+    return !!modal?.checkVisibility() && modal.contains(document.activeElement) && modal.textContent.includes('projects on this computer') && modal.textContent.includes('folder does not limit access to your account');
   })()`),
     'trusted project native scope and safe focus',
   )

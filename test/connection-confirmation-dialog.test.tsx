@@ -125,9 +125,31 @@ it('describes workspace approval as host-scoped account access rather than folde
     ])
     await Promise.resolve()
   })
-  expect(host.textContent).toContain('registered projects on this host')
-  expect(host.textContent).toContain('folder does not restrict account access')
+  expect(host.textContent).toContain('projects on this computer')
+  expect(host.textContent).toContain('folder does not limit access to your account')
   expect(host.textContent).not.toContain('local scratch folder')
+})
+it('names the exact host replaced by the same local native decision', async () => {
+  await act(async () => {
+    publish([
+      {
+        ...proposal,
+        programs: proposal.programs.map((program) => ({
+          ...program,
+          context: 'workspace',
+          replacesHost: 'ssh:production-library',
+        })),
+      },
+    ])
+    await Promise.resolve()
+  })
+  expect(host.textContent).toContain('program connection on ssh:production-library')
+  expect(host.textContent).toContain('Reconnect to use it there again')
+  act(() => button('Not now').click())
+  expect(invoke).toHaveBeenLastCalledWith('extensions:connection-decide', {
+    id: 'decision-one',
+    accepted: false,
+  })
 })
 it('cleans its subscription and ignores an initial reply after unmount', async () => {
   act(() => root.render(null))

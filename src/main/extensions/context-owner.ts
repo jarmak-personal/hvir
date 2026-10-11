@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { hostPathEquals, type HostPath } from '../../shared'
+import { hostPathEquals, LOCAL_HOST_ID, type HostPath } from '../../shared'
 import {
   EXTENSION_LIMITS,
   type ExtensionContext,
@@ -175,11 +175,6 @@ export class ExtensionContextOwner {
       )
       const state = this.sources.projectState()
       return JSON.stringify({
-        selection: [state.activeProjectId, state.activeWorkspaceId],
-        registrations: state.projects.map((project) => [
-          project.id,
-          project.registeredRoot,
-        ]),
         workspaces: state.projects.flatMap((project) =>
           project.workspaces.map((workspace) => [
             workspace.id,
@@ -241,7 +236,13 @@ export class ExtensionContextOwner {
         entry.id === state.activeProjectId &&
         entry.workspaces.some((entry) => entry.id === workspace?.id),
     )
-    if (!workspace || !root || !project)
+    if (
+      !workspace ||
+      !root ||
+      !project ||
+      root.hostId !== LOCAL_HOST_ID ||
+      workspace.host !== LOCAL_HOST_ID
+    )
       throw new Error('Program connection requires the current registered project')
     const registration = project.registeredRoot,
       projectId = project.id
@@ -252,6 +253,8 @@ export class ExtensionContextOwner {
       const registered = state.projects.find((entry) => entry.id === projectId)
       const member = registered?.workspaces.find((entry) => entry.id === workspace.id)
       const valid =
+        root.hostId === LOCAL_HOST_ID &&
+        workspace.host === LOCAL_HOST_ID &&
         context.current() &&
         state.activeProjectId === projectId &&
         state.activeWorkspaceId === workspace.id &&

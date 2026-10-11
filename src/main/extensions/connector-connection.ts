@@ -136,13 +136,7 @@ export class ExtensionConnectorConnectionOwner {
     let awaitingPresentation = false
     const assertCurrent = (): void => {
       lifetime.throwIfAborted()
-      if (
-        needsWorkspace &&
-        (!workspace?.value.workspace ||
-          workspace.root?.hostId !== this.approvals.hosts.local.hostId ||
-          workspace.value.workspace.host !== this.approvals.hosts.local.hostId ||
-          !workspace.current())
-      )
+      if (needsWorkspace && !workspace?.current())
         throw new Error('Program connection requires a current registered local project')
       const ready = current(selecting || awaitingPresentation)
       if ((selecting || awaitingPresentation) && !this.windowVisible(owner))
@@ -180,7 +174,11 @@ export class ExtensionConnectorConnectionOwner {
       assertCurrent()
       const host = this.approvals.hosts.hostById(this.approvals.hosts.local.hostId)
       if (!host) throw new Error('Local program metadata is unavailable')
-      const prepared: { token: string; approval: ExtensionConnectorApproval }[] = []
+      const prepared: {
+        token: string
+        approval: ExtensionConnectorApproval
+        replacesHost?: string
+      }[] = []
       for (const declaration of declarations) {
         assertCurrent()
         const existing = this.approvals.get(activation, declaration.id)
@@ -279,6 +277,7 @@ export class ExtensionConnectorConnectionOwner {
             configuration: { args: [], env: {} },
           },
           assertCurrent,
+          { approval: existing },
         )
         // Late completion has no authority to retain a prepared decision after cancellation.
         void preparation.then(
@@ -295,14 +294,22 @@ export class ExtensionConnectorConnectionOwner {
             once: true,
             signal: lifetime,
           })
-        prepared.push(decision)
+        prepared.push({
+          ...decision,
+          ...(existing && existing.host !== host.hostId
+            ? { replacesHost: existing.host }
+            : {}),
+        })
       }
       assertCurrent()
       if (
         prepared.length &&
         !(await this.confirm(
           pending,
-          prepared.map((entry) => entry.approval),
+          prepared.map((entry) => ({
+            ...entry.approval,
+            ...(entry.replacesHost ? { replacesHost: entry.replacesHost } : {}),
+          })),
         ))
       ) {
         assertCurrent()
@@ -367,7 +374,9 @@ export class ExtensionConnectorConnectionOwner {
 
   private confirm(
     pending: PendingConnection,
-    approvals: readonly ExtensionConnectorApproval[],
+    approvals: readonly (ExtensionConnectorApproval & {
+      readonly replacesHost?: string
+    })[],
   ): Promise<boolean> {
     pending.current()
     return new Promise((resolve, reject) => {
@@ -398,6 +407,7 @@ export class ExtensionConnectorConnectionOwner {
           connector: entry.connector,
           description: entry.declaration.description,
           context: entry.declaration.context,
+          ...(entry.replacesHost ? { replacesHost: entry.replacesHost } : {}),
           host: entry.host,
           canonicalExecutable: entry.canonicalExecutable,
           configuration: entry.configuration,

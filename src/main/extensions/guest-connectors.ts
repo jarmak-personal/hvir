@@ -8,7 +8,6 @@ import type { ExtensionActivation } from './activation'
 import type { ExtensionInvocation } from '../../shared/extensions/contract'
 import type { ExtensionView } from '../../shared/extensions/workbench'
 import type { RendererOwner } from '../renderer-resource-scopes'
-import { LOCAL_HOST_ID } from '../../shared/host-path'
 interface ConnectorGuest {
   readonly authority: ExtensionGuestAuthority
   readonly activation: ExtensionActivation
@@ -56,14 +55,6 @@ export async function requestGuestConnector(
       (entry) => entry.id === connector,
     )
     const admitted = declaration?.context === 'workspace' ? record.context : undefined
-    if (
-      declaration?.context === 'workspace' &&
-      (!admitted?.value.workspace ||
-        admitted.root?.hostId !== LOCAL_HOST_ID ||
-        admitted.value.workspace.host !== LOCAL_HOST_ID ||
-        !admitted.current())
-    )
-      throw new Error('Program connection requires this view’s registered local project')
     const workspace = admitted ? contexts.pinWorkspaceConnection(admitted) : undefined
     return connections.request(
       record.activation,

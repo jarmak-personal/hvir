@@ -211,6 +211,7 @@ export interface ExtensionConnectionProposal {
     readonly connector: string
     readonly description: string
     readonly context: ExtensionConnectorDeclaration['context']
+    readonly replacesHost?: string
     readonly host: string
     readonly canonicalExecutable: string
     readonly configuration: ExtensionConnectorConfiguration

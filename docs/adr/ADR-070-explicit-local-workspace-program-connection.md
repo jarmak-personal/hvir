@@ -20,8 +20,7 @@ registered local workspace and exact host-qualified root; the guest supplies onl
 declared connector identity, never a host, project or replacement root. The existing
 context owner supplies a setup-only pin of main's active project/workspace selection and
 owning registration identity/root; ordinary admitted view contexts remain independent.
-Its existing observation includes selection and registration changes. A setup-only raw
-project observation withdraws a pending connection immediately on mismatch, even when
+A setup-only raw project observation withdraws a pending connection immediately on mismatch, even when
 selection returns before the ordinary coalesced metadata publication. The existing finite
 connection lifetime owns and disposes that subscription; withdrawal is permanent for the
 request. The context and guest owners revalidate registration, root, renderer, placement,
@@ -35,7 +34,10 @@ Unchanged valid approval of that exact connector on the local host needs no new 
 Approval remains installation-, declaration-, program-, configuration- and host-scoped,
 as in ADR-051; it is not a folder grant or native confinement. Every subsequent command
 still pins its own admitted workspace root. Approval of another connector grants nothing
-to this connector, even when both select the same program.
+to this connector, even when both select the same program. The approval store retains one
+host binding per connector. If local connection replaces its saved host binding, the same
+trusted decision names that exact replaced host, and saving revalidates that prior binding;
+declining leaves it intact.
 
 Installation-time connection considers application hints only. No installation operation
 connects a workspace, mutates a project, discovers SSH tools or authenticates a remote host.
