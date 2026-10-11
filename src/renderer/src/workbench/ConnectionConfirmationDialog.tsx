@@ -76,6 +76,17 @@ function ConnectionDecision({
           <pre>
             {program.host}: {program.canonicalExecutable}
           </pre>
+          {program.replacesHost ? (
+            <p>
+              Connecting here replaces this program connection on{' '}
+              <strong>{program.replacesHost}</strong>. Reconnect to use it there again.
+            </p>
+          ) : null}
+          <p>
+            {program.context === 'workspace'
+              ? 'This program can run for projects on this computer. Commands start in their project folder; that folder does not limit access to your account.'
+              : 'This connector uses hvir’s local scratch folder, separate from project selection.'}
+          </p>
         </div>
       ))}
       <p>

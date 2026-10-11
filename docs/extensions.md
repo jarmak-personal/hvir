@@ -354,15 +354,17 @@ Use **Revoke native access** to stop new admissions and revoke pending requests 
 
 Native code runs with the selected host account's authority, including its files, credentials,
 network and subprocesses. A working directory, action title, or claimed read-only effect is not
-confinement. UI enablement does not approve native execution. Manual executable selection uses an absolute path. An application connector may also
+confinement. UI enablement does not approve native execution. Manual executable selection uses an absolute path. An application or workspace connector may also
 supply `setup: { executable: 'tool-name' }`, a simple basename (at most four hints per package).
 After an explicit Add commits, hvir can passively inspect bounded local PATH/conventional-bin
 metadata and present one **Connect** decision for the exact canonical programs and default
 `{ args: [], env: {} }` configuration. No program, shell or version probe executes before consent.
 Aliases to the same canonical executable are deduplicated. If an automatic Add finds no program,
 it leaves installation successful and offers Connect as a later step. Explicit Connect can use a
-native file selection for a missing or ambiguous program; hvir installs no dependency. Optional workspace/SSH
-connectors are excluded. Manual path/configuration controls remain available under advanced setup.
+native file selection for a missing or ambiguous program; hvir installs no dependency. Automatic
+connection after Add considers application connectors only. Manual path/configuration controls
+remain available; Settings keeps workspace configuration open because it has no admitted project
+target for passive Connect.
 Declining or canceling connection leaves the accepted extension installed and enabled.
 Each approved binding saves separately; an interrupted save can have committed and must be checked
 before retrying. Canceling a setup proposal retires only its prepared tokens.
@@ -377,6 +379,22 @@ requires another decision. Updating the tool in place at the same canonical path
 new approval. hvir never hashes interpreted-tool contents. Explicit Reload or Replace reuses an
 unchanged declaration/path/configuration binding and pins every execution to the new activation.
 Forget saved setup removes native grants and platform identity while preserving tool/domain data.
+
+For a declared workspace connector with a setup hint, that same explicit `{ connector: 'tool-id' }`
+request uses only the current ordinary human view's main-admitted registered local project.
+The guest cannot supply a host, workspace ID or replacement root. Main pins the registration and
+host-qualified root through discovery, selection, consent and saving; a project/worktree switch,
+closure, hide, cancellation or revocation retires the request. An SSH project cannot use this
+flow to discover, authenticate or approve a replacement program. Existing explicit SSH Settings
+setup is unchanged. Valid unchanged approval of that exact connector and local host needs no new
+decision; another connector's approval never supplies permission, even for the same executable.
+A connector retains one saved host binding. Connecting locally when it has a saved SSH binding
+names that exact replaced host in the same trusted decision; accepting replaces that binding,
+and its SSH projects need new approval. Declining preserves it. Saving refuses a changed prior
+binding rather than applying stale replacement consent.
+Native workspace approval remains host-scoped rather than folder-confined; each command still
+requires its own admitted project context. No install-time workspace connection or project
+mutation is introduced. File reading, agent access and delivery require their independent grants.
 
 `application` connectors run locally in hvir's scratch directory without registering a project,
 regardless of the selected workspace's host. `workspace` connectors require an explicit live
