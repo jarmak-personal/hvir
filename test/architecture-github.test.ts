@@ -180,9 +180,12 @@ describe('architecture GitHub evidence boundary', () => {
     'wrong-base',
     'recovered',
     'unassociated-recovery',
+    'deleted-fork-list-recovery',
     'paginated-list-recovery',
     'ambiguous-list-recovery',
     'incomplete-list-recovery',
+    'incomplete-candidate-list-recovery',
+    'indeterminate-list-recovery',
     'unterminated-list-recovery',
     'contradictory-list-recovery',
     'open-recovery',
@@ -351,10 +354,21 @@ describe('architecture GitHub evidence boundary', () => {
       if (listDiscovery) {
         const unrelated = { ...pr, number: 19, head: ref('other-child', base) }
         responses.set(`${closedList}1`, [unrelated, pr])
+        if (defect === 'deleted-fork-list-recovery')
+          responses.set(`${closedList}1`, [
+            { ...unrelated, head: { ...unrelated.head, repo: null } },
+            pr,
+          ])
         if (defect === 'ambiguous-list-recovery')
           responses.set(`${closedList}1`, [pr, { ...pr, number: 21 }])
         if (defect === 'incomplete-list-recovery')
           responses.set(`${closedList}1`, [{ ...pr, head: undefined }])
+        if (defect === 'incomplete-candidate-list-recovery')
+          responses.set(`${closedList}1`, [{ ...pr, head: { ...pr.head, repo: null } }])
+        if (defect === 'indeterminate-list-recovery')
+          responses.set(`${closedList}1`, [
+            { ...pr, head: { ...pr.head, sha: undefined } },
+          ])
         if (defect === 'contradictory-list-recovery')
           responses.set('pulls/20', { ...pr, base: ref(epic, head) })
         const fullPage = Array.from({ length: 100 }, (_, index) => ({
@@ -378,9 +392,13 @@ describe('architecture GitHub evidence boundary', () => {
       epic,
     )
     if (
-      ['valid', 'recovered', 'unassociated-recovery', 'paginated-list-recovery'].includes(
-        defect,
-      )
+      [
+        'valid',
+        'recovered',
+        'unassociated-recovery',
+        'paginated-list-recovery',
+        'deleted-fork-list-recovery',
+      ].includes(defect)
     ) {
       expect(await result).toEqual({ epic, pullRequest: 20, base, head, merge })
       expect(requests).toContain('actions/runs/42/attempts/2/jobs?per_page=100&page=1')
@@ -393,6 +411,14 @@ describe('architecture GitHub evidence boundary', () => {
       await expect(result).rejects.not.toThrow(
         /API unavailable|request failed|Unexpected fixture/,
       )
+      if (
+        defect === 'incomplete-list-recovery' ||
+        defect === 'incomplete-candidate-list-recovery' ||
+        defect === 'indeterminate-list-recovery'
+      )
+        await expect(result).rejects.toThrow(
+          `Epic recovery merge=${merge} base=${base} head=${head}: GitHub merge evidence response was incomplete`,
+        )
       if (defect === 'unterminated-list-recovery') {
         expect(requests.filter((path) => path.startsWith('pulls?'))).toHaveLength(10)
         expect(requests).not.toContain('pulls/20')

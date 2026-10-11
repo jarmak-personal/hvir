@@ -249,10 +249,23 @@ export async function loadArchitectureIntegration(
     const associated = await loadPullRequests(RELEASE_REPOSITORY, parents[1]!, api.token)
     const candidates = new Map<number, MergedPullRequest>()
     const discovered = [...evidence.pullRequests, ...associated]
-    if (!discovered.some((pr) => pr.head.sha === parents[1] && pr.base.ref === epic))
-      discovered.push(
-        ...(await loadClosedPullRequests(RELEASE_REPOSITORY, epic, api.token)),
-      )
+    if (!discovered.some((pr) => pr.head.sha === parents[1] && pr.base.ref === epic)) {
+      try {
+        discovered.push(
+          ...(await loadClosedPullRequests(
+            RELEASE_REPOSITORY,
+            epic,
+            parents[1]!,
+            api.token,
+          )),
+        )
+      } catch (error) {
+        throw new Error(
+          `Epic recovery merge=${merge} base=${parents[0]} head=${parents[1]}: ${error instanceof Error ? error.message : 'closed PR discovery failed'}; inspect closed PR metadata and API access for ${epic}, then reverify`,
+          { cause: error },
+        )
+      }
+    }
     for (const candidate of discovered) {
       if (candidate.head.sha === parents[1] && candidate.base.ref === epic) {
         const prior = candidates.get(candidate.number)

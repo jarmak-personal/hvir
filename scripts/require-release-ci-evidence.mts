@@ -380,6 +380,7 @@ export async function loadPullRequests(
 export async function loadClosedPullRequests(
   repository: string,
   base: string,
+  headSha: string,
   token: string,
 ): Promise<MergedPullRequest[]> {
   const raw = await loadBoundedPages(
@@ -394,7 +395,17 @@ export async function loadClosedPullRequests(
     (response) => (Array.isArray(response) ? response : undefined),
     token,
   )
-  return decodePullRequests(raw)
+  // A deleted fork may omit head.repo. Ignore it only when raw identities prove it
+  // unrelated; indeterminate or matching records still require complete decoding.
+  return decodePullRequests(
+    raw.filter((value) => {
+      const pr = value as GitHubPullRequestResponse | null
+      return !(
+        (typeof pr?.head?.sha === 'string' && pr.head.sha !== headSha) ||
+        (typeof pr?.base?.ref === 'string' && pr.base.ref !== base)
+      )
+    }),
+  )
 }
 
 function decodePullRequests(raw: readonly unknown[]): MergedPullRequest[] {
