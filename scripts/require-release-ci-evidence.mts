@@ -373,6 +373,42 @@ export async function loadPullRequests(
     (response) => (Array.isArray(response) ? response : undefined),
     token,
   )
+  return decodePullRequests(raw)
+}
+
+/** Discovery fallback when GitHub's commit-to-PR associations omit closed history. */
+export async function loadClosedPullRequests(
+  repository: string,
+  base: string,
+  headSha: string,
+  token: string,
+): Promise<MergedPullRequest[]> {
+  const raw = await loadBoundedPages(
+    (page) => {
+      const url = new URL(`https://api.github.com/repos/${repository}/pulls`)
+      url.searchParams.set('state', 'closed')
+      url.searchParams.set('base', base)
+      url.searchParams.set('per_page', String(PAGE_SIZE))
+      url.searchParams.set('page', String(page))
+      return url
+    },
+    (response) => (Array.isArray(response) ? response : undefined),
+    token,
+  )
+  // A deleted fork may omit head.repo. Ignore it only when raw identities prove it
+  // unrelated; indeterminate or matching records still require complete decoding.
+  return decodePullRequests(
+    raw.filter((value) => {
+      const pr = value as GitHubPullRequestResponse | null
+      return !(
+        (typeof pr?.head?.sha === 'string' && pr.head.sha !== headSha) ||
+        (typeof pr?.base?.ref === 'string' && pr.base.ref !== base)
+      )
+    }),
+  )
+}
+
+function decodePullRequests(raw: readonly unknown[]): MergedPullRequest[] {
   return raw.map((value) => {
     const pullRequest = value as GitHubPullRequestResponse
     return {
