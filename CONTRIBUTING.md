@@ -225,6 +225,21 @@ through `hvir-merge-pr`, which requests GitHub's protected merge and reconciles 
 fields. Optional epic branch and worktree cleanup remains a later coordinator operation and never
 blocks acceptance. Retain uncertain cleanup state for maintainer action.
 
+## Recover contributor evidence
+
+Architecture and release verification use the latest GitHub-created CI run for an equivalent
+candidate and only that run's current complete attempt (ADR-048). A later pending, failed or
+partial run replaces earlier success. Review the diagnostic's PR/base/head/merge/run/attempt
+identities; wait for pending execution or explicitly request a full workflow rerun, then reverify.
+An API-unavailable error requires restoring read access or connectivity before retrying the check.
+
+For cumulative epic verification, architecture can prove non-policy history already integrated
+from a Closed canonical PR without claiming recorded approval. This requires exact Git parents,
+equal tested/integrated trees, native epic-child identity, reachability and complete ordinary CI.
+Policy, checker, verification wiring and decision changes still require a recorded accepted
+merge. Release always requires recorded merged-PR acceptance. Main acceptance remains protected;
+recovery never dispatches CI, merges PRs, closes issues or rewrites history.
+
 ## Develop locally
 
 Development requires Node 24 or newer; release CI uses Node 24.

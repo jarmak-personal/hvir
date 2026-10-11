@@ -33,6 +33,8 @@ export type CiAttemptDecision =
 interface GitHubJobsResponse {
   jobs?: Array<{
     name?: unknown
+    run_id?: unknown
+    run_attempt?: unknown
     status?: unknown
     conclusion?: unknown
   }>
@@ -125,6 +127,15 @@ export async function loadCiAttemptJobs(
     url.searchParams.set('page', String(page))
     const response = await githubEvidence.requestJson<GitHubJobsResponse>(url, token)
     if (!Array.isArray(response.jobs)) return githubEvidence.incomplete()
+    for (const job of response.jobs) {
+      if (
+        (job.run_id !== undefined && job.run_id !== runId) ||
+        (job.run_attempt !== undefined && job.run_attempt !== runAttempt)
+      )
+        throw new Error(
+          `GitHub CI attempt evidence run=${runId} attempt=${runAttempt}: contradictory job identity; inspect the exact attempt and reverify`,
+        )
+    }
     result.push(
       ...response.jobs.map((job) => ({
         name: githubEvidence.requiredString(job.name),

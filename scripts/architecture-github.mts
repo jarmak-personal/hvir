@@ -4,6 +4,11 @@ import { URL } from 'node:url'
 import { ReleaseGitHubEvidenceReader } from './release-github-evidence.mts'
 import {
   evaluateReleaseCiEvidence,
+  evaluateCandidateCiEvidence,
+  formatCiEvidenceFailure,
+  loadCandidateCiEvidence,
+  loadPullRequests,
+  type MergedPullRequest,
   loadReleaseCiEvidence,
   RELEASE_REPOSITORY,
 } from './require-release-ci-evidence.mts'
@@ -46,35 +51,32 @@ export function githubAdapter(token: string | undefined) {
     throw new Error(
       'HVIR_REPO_TOKEN is required for enforcing architecture provenance; offline architecture:report remains available',
     )
+  const credential = token
   const request = <T,>(path: string): Promise<T> =>
     reader.requestJson<T>(
       new URL(`https://api.github.com/repos/${RELEASE_REPOSITORY}/${path}`),
-      token,
+      credential,
     )
   async function issue(number: string | number): Promise<GitHubIssue> {
     // Native parent is read from the documented issue relationship endpoint, never PR prose.
     const record = await request<GitHubIssue>(`issues/${number}`)
-    let parent: GitHubIssue | null = null
-    const response = await globalThis.fetch(
-      `https://api.github.com/repos/${RELEASE_REPOSITORY}/issues/${number}/parent`,
-      {
-        headers: {
-          Accept: 'application/vnd.github+json',
-          Authorization: `Bearer ${token}`,
-          'X-GitHub-Api-Version': '2022-11-28',
-        },
-      },
+    const parent = await reader.requestJson<GitHubIssue>(
+      new URL(
+        `https://api.github.com/repos/${RELEASE_REPOSITORY}/issues/${number}/parent`,
+      ),
+      credential,
+      true,
     )
-    if (response.status !== 404) {
-      if (!response.ok)
-        throw new Error(`Native parent evidence failed (${response.status})`)
-      parent = (await response.json()) as GitHubIssue
-      if (parent.repository_url !== `https://api.github.com/repos/${RELEASE_REPOSITORY}`)
-        throw new Error('Cross-repository native parent')
-    }
+    if (
+      parent &&
+      parent.repository_url !== `https://api.github.com/repos/${RELEASE_REPOSITORY}`
+    )
+      throw new Error(
+        `Issue #${number}: cross-repository native parent; inspect the canonical child relationship and reverify`,
+      )
     return { ...record, parent }
   }
-  return { request, issue, token }
+  return { request, issue, token: credential }
 }
 
 type ArchitectureGitHub = ReturnType<typeof githubAdapter>
@@ -200,32 +202,185 @@ export async function resolveArchitectureContext(
   return { kind, target, epic, base, head, tested }
 }
 
+/** Recovery never establishes authority for the code that enforces or defines policy. */
+function recoveryProtectedPath(path: string): boolean {
+  return (
+    path.startsWith('scripts/architecture-') ||
+    path.startsWith('test/architecture-') ||
+    path.startsWith('test/fixtures/architecture/') ||
+    path.startsWith('docs/adr/') ||
+    path.startsWith('docs/architecture-') ||
+    path === 'docs/design.md' ||
+    path === 'AGENTS.md' ||
+    path === 'CONTRIBUTING.md' ||
+    path === 'package.json' ||
+    path === 'package-lock.json' ||
+    path === 'eslint.config.mjs' ||
+    path.startsWith('.github/') ||
+    path.startsWith('.githooks/') ||
+    path.startsWith('.claude/') ||
+    path.startsWith('.agents/') ||
+    /^tsconfig.*\.json$/.test(path) ||
+    /^vitest\.config\./.test(path) ||
+    /^scripts\/(check-|run-smoke|phase8-gauntlet|smoke-import-boundary)/.test(path) ||
+    /^(scripts|test)\/(require-release-ci-evidence|release-ci-evidence|release-github-evidence|ci-attempt-evidence|validate-release-pr|check-seams|check-adrs|install-git-hooks)\./.test(
+      path,
+    )
+  )
+}
+
 export async function loadArchitectureIntegration(
   root: string,
   api: ArchitectureGitHub,
   merge: string,
   epic: string,
 ): Promise<ArchitectureIntegration> {
-  const evidence = await loadReleaseCiEvidence(RELEASE_REPOSITORY, epic, merge, api.token)
-  // This shares the exact-head/tree and coherent-attempt policy, with the epic as the
-  // reachability target. The result confers architecture policy authority only.
-  const decision = evaluateReleaseCiEvidence(evidence)
+  let evidence = await loadReleaseCiEvidence(RELEASE_REPOSITORY, epic, merge, api.token)
+  let decision = evaluateReleaseCiEvidence(evidence)
+  let pr: MergedPullRequest | undefined
+  let recovered = false
+  if (!decision.accepted && decision.rejection === 'missing-pull-request') {
+    const parents = git(root, ['show', '-s', '--format=%P', merge]).split(' ')
+    if (parents.length !== 2)
+      throw new Error(
+        `Epic recovery merge=${merge}: requires two parents; inspect the integrated Git history and reverify`,
+      )
+    const associated = await loadPullRequests(RELEASE_REPOSITORY, parents[1]!, api.token)
+    const candidates = new Map<number, MergedPullRequest>()
+    for (const candidate of [...evidence.pullRequests, ...associated]) {
+      if (candidate.head.sha === parents[1] && candidate.base.ref === epic) {
+        const prior = candidates.get(candidate.number)
+        if (prior && JSON.stringify(prior) !== JSON.stringify(candidate))
+          throw new Error(
+            `Epic recovery PR #${candidate.number} merge=${merge}: contradictory merge/head PR records; refresh canonical evidence and reverify`,
+          )
+        candidates.set(candidate.number, candidate)
+      }
+    }
+    if (candidates.size !== 1)
+      throw new Error(
+        `Epic recovery merge=${merge} base=${parents[0]} head=${parents[1]}: ${candidates.size ? 'ambiguous' : 'absent'} canonical PR; inspect merge/head PR associations and restore unambiguous evidence`,
+      )
+    pr = [...candidates.values()][0]!
+    // Refresh the full canonical PR record; association results are discovery only.
+    const detail = await api.request<
+      GitHubPullRequest & {
+        state: string
+        merged_at: string | null
+        merge_commit_sha: string | null
+      }
+    >(`pulls/${pr.number}`)
+    if (
+      detail.number !== pr.number ||
+      detail.state !== 'closed' ||
+      detail.merged_at !== null ||
+      pr.state !== 'closed' ||
+      pr.mergedAt !== null ||
+      detail.head.sha !== parents[1] ||
+      detail.base.sha !== parents[0] ||
+      detail.base.ref !== epic ||
+      detail.head.ref !== pr.head.ref ||
+      detail.base.repo?.full_name !== RELEASE_REPOSITORY ||
+      detail.head.repo?.full_name !== RELEASE_REPOSITORY ||
+      pr.base.repository !== RELEASE_REPOSITORY ||
+      pr.head.repository !== RELEASE_REPOSITORY ||
+      detail.merge_commit_sha !== pr.mergeCommitSha ||
+      pr.base.sha !== parents[0]
+    )
+      throw new Error(
+        `Epic recovery PR #${pr.number} merge=${merge} base=${parents[0]} head=${parents[1]}: Closed non-accepted canonical PR identities required; inspect contradictory PR metadata and reverify`,
+      )
+    // Disable rename detection so moving a protected owner cannot hide its old path.
+    const sensitive = git(root, [
+      'diff',
+      '--no-renames',
+      '--name-only',
+      '-z',
+      pr.base.sha,
+      pr.head.sha,
+      '--',
+    ])
+      .split('\0')
+      .filter(Boolean)
+      .filter(recoveryProtectedPath)
+    if (sensitive.length)
+      throw new Error(
+        `Epic recovery PR #${pr.number} merge=${merge}: recorded merged-PR acceptance required for policy/checker/wiring/decision changes (${sensitive.join(', ')}); restore recorded acceptance through the normal protected PR path`,
+      )
+    requireAncestor(root, pr.base.sha, pr.head.sha)
+    evidence = await loadCandidateCiEvidence(
+      RELEASE_REPOSITORY,
+      epic,
+      merge,
+      pr,
+      api.token,
+    )
+    decision = evaluateCandidateCiEvidence(evidence, pr)
+    recovered = true
+  }
   if (!decision.accepted || decision.kind !== 'ordinary')
     throw new Error(
-      `Missing accepted epic CI evidence: ${merge} (${decision.accepted ? decision.kind : decision.rejection})`,
+      formatCiEvidenceFailure(
+        evidence,
+        decision.accepted ? decision.kind : decision.rejection,
+      ),
     )
-  const pr = evidence.pullRequests.find((pr) => pr.mergeCommitSha === merge)
-  if (!pr || !evidence.sourceCommit) throw new Error('Missing accepted PR identities')
-  const detail = await api.request<GitHubPullRequest>(`pulls/${pr.number}`)
+  pr ??= evidence.pullRequests.find((pr) => pr.mergeCommitSha === merge)
+  if (!pr || !evidence.sourceCommit)
+    throw new Error(
+      `Missing accepted PR identities merge=${merge}; inspect canonical PR metadata and reverify`,
+    )
+  const detail = await api.request<
+    GitHubPullRequest & {
+      state: string
+      merged_at: string | null
+      merge_commit_sha: string | null
+    }
+  >(`pulls/${pr.number}`)
+  if (
+    detail.number !== pr.number ||
+    detail.state !== pr.state ||
+    detail.merged_at !== pr.mergedAt ||
+    detail.merge_commit_sha !== pr.mergeCommitSha ||
+    detail.head.sha !== pr.head.sha ||
+    detail.head.ref !== pr.head.ref ||
+    detail.base.sha !== pr.base.sha ||
+    detail.base.ref !== epic ||
+    detail.base.repo?.full_name !== RELEASE_REPOSITORY ||
+    detail.head.repo?.full_name !== RELEASE_REPOSITORY
+  )
+    throw new Error(
+      `PR #${pr.number} merge=${merge} base=${pr.base.sha} head=${pr.head.sha}: current canonical PR contradicts selected evidence; refresh PR/Git identities and reverify`,
+    )
   const trailer = parseCompletingChildTrailer(detail.body ?? '', pr.number)
   if (!trailer.issueNumber || trailer.errors.length)
-    throw new Error('Accepted PR lacks exact completing-child relationship')
+    throw new Error(
+      `PR #${pr.number} merge=${merge}: exact completing-child relationship required; correct the PR trailer and reverify`,
+    )
   const child = await api.issue(trailer.issueNumber)
   if (!child.parent || (await epicBranch(api, child.parent)) !== epic)
-    throw new Error('Accepted PR belongs to a different native epic')
+    throw new Error(
+      `PR #${pr.number} child=#${trailer.issueNumber} merge=${merge} epic=${epic}: matching native parent required; inspect the child parent and epic target, then reverify`,
+    )
   if (pr.base.sha !== evidence.sourceCommit.parents[0])
-    throw new Error('Recorded PR base differs from accepted merge base')
+    throw new Error(
+      `PR #${pr.number} base=${pr.base.sha} head=${pr.head.sha} merge=${merge}: recorded base must equal first merge parent; inspect Git/PR identities and reverify`,
+    )
   requireAncestor(root, pr.base.sha, pr.head.sha)
+  if (recovered) {
+    const parents = git(root, ['show', '-s', '--format=%P', merge]).split(' ')
+    if (
+      parents.length !== 2 ||
+      parents[1] !== pr.head.sha ||
+      git(root, ['rev-parse', `${merge}^{tree}`]) !==
+        git(root, ['rev-parse', `${pr.head.sha}^{tree}`])
+    )
+      throw new Error(
+        `PR #${pr.number} merge=${merge}: exact integrated parents/tree required; inspect Git history and reverify`,
+      )
+    const live = await api.request<{ object?: { sha?: string } }>(`git/ref/heads/${epic}`)
+    requireAncestor(root, merge, reader.requiredString(live.object?.sha))
+  }
   return { epic, pullRequest: pr.number, base: pr.base.sha, head: pr.head.sha, merge }
 }
 
