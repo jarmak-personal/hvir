@@ -8,6 +8,7 @@ import {
   formatCiEvidenceFailure,
   loadCandidateCiEvidence,
   loadPullRequests,
+  loadClosedPullRequests,
   type MergedPullRequest,
   loadReleaseCiEvidence,
   RELEASE_REPOSITORY,
@@ -247,7 +248,12 @@ export async function loadArchitectureIntegration(
       )
     const associated = await loadPullRequests(RELEASE_REPOSITORY, parents[1]!, api.token)
     const candidates = new Map<number, MergedPullRequest>()
-    for (const candidate of [...evidence.pullRequests, ...associated]) {
+    const discovered = [...evidence.pullRequests, ...associated]
+    if (!discovered.some((pr) => pr.head.sha === parents[1] && pr.base.ref === epic))
+      discovered.push(
+        ...(await loadClosedPullRequests(RELEASE_REPOSITORY, epic, api.token)),
+      )
+    for (const candidate of discovered) {
       if (candidate.head.sha === parents[1] && candidate.base.ref === epic) {
         const prior = candidates.get(candidate.number)
         if (prior && JSON.stringify(prior) !== JSON.stringify(candidate))
@@ -259,7 +265,7 @@ export async function loadArchitectureIntegration(
     }
     if (candidates.size !== 1)
       throw new Error(
-        `Epic recovery merge=${merge} base=${parents[0]} head=${parents[1]}: ${candidates.size ? 'ambiguous' : 'absent'} canonical PR; inspect merge/head PR associations and restore unambiguous evidence`,
+        `Epic recovery merge=${merge} base=${parents[0]} head=${parents[1]}: ${candidates.size ? 'ambiguous' : 'absent'} canonical PR; inspect merge/head PR associations and the closed PR list for ${epic}, then restore unambiguous evidence`,
       )
     pr = [...candidates.values()][0]!
     // Refresh the full canonical PR record; association results are discovery only.

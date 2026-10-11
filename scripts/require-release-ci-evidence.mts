@@ -373,6 +373,31 @@ export async function loadPullRequests(
     (response) => (Array.isArray(response) ? response : undefined),
     token,
   )
+  return decodePullRequests(raw)
+}
+
+/** Discovery fallback when GitHub's commit-to-PR associations omit closed history. */
+export async function loadClosedPullRequests(
+  repository: string,
+  base: string,
+  token: string,
+): Promise<MergedPullRequest[]> {
+  const raw = await loadBoundedPages(
+    (page) => {
+      const url = new URL(`https://api.github.com/repos/${repository}/pulls`)
+      url.searchParams.set('state', 'closed')
+      url.searchParams.set('base', base)
+      url.searchParams.set('per_page', String(PAGE_SIZE))
+      url.searchParams.set('page', String(page))
+      return url
+    },
+    (response) => (Array.isArray(response) ? response : undefined),
+    token,
+  )
+  return decodePullRequests(raw)
+}
+
+function decodePullRequests(raw: readonly unknown[]): MergedPullRequest[] {
   return raw.map((value) => {
     const pullRequest = value as GitHubPullRequestResponse
     return {
