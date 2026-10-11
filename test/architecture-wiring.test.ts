@@ -293,6 +293,18 @@ describe('architecture verification and bounded proposal wiring', () => {
       ),
     ).toThrow(/unrelated verification wiring/)
   })
+  it('requires a Rust lifecycle reference to match its decision identity', () => {
+    expect(() =>
+      admitArchitectureWiring(
+        'docs/adr/ADR-040-complete-source-budgets-and-dependency-policy.md',
+        Buffer.from('> Lifecycle: Active\n'),
+        Buffer.from(
+          '> Lifecycle: Partially superseded\n> Superseded by: [ADR-048](ADR-069-rust-client-source-policy.md) | partial | Rust coverage.\n',
+        ),
+        true,
+      ),
+    ).toThrow(/unrelated verification wiring/)
+  })
   it('preserves the exact bootstrap lint insertion without extending native authority to current graph owners', () => {
     const marker = "      'scripts/run-smoke-scenarios.mts',\n"
     const before = Buffer.from(`export default [\n${marker}]\n`)

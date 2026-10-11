@@ -216,7 +216,7 @@ function admitCoverageDocumentation(
       text
         .replace(/^> Lifecycle: [^\n]*\n/gm, '')
         .replace(
-          /^> Superseded by: \[ADR-(?:048|069)\]\(ADR-(?:048|069)-rust-client-source-policy\.md\)[^\n]*\n/gm,
+          /^> Superseded by: \[ADR-(048|069)\]\(ADR-\1-rust-client-source-policy\.md\)[^\n]*\n/gm,
           '',
         )
     equal(withoutLifecycle(original), withoutLifecycle(proposed))
