@@ -32,6 +32,7 @@ export async function verifyLocalWorkspaceConnection(
       version: '0.3.0',
       contract: '1.0',
       requiredCapabilities: [
+        'context.read',
         'connector.connect',
         'connector.execute',
         'connector.output',
@@ -78,7 +79,7 @@ export async function verifyLocalWorkspaceConnection(
       if(message.kind==='result'){const request=pending.get(message.id);if(!request)return;pending.delete(message.id);message.ok?request.resolve(message.value):request.reject()}
     });
     document.getElementById('connect').onclick=async()=>{action();document.getElementById('state').textContent='pending';try{const result=await request('connector.connect',{connector:'project-tool'});document.getElementById('state').textContent=result.connections[0]?.outcome}catch{document.getElementById('state').textContent='refused'}};
-    document.getElementById('run').onclick=async()=>{action();document.getElementById('state').textContent='running';try{const result=await request('connector.execute',{connector:'project-tool',host:context.workspace.host,workspace:context.workspace.id,args:['-c',${JSON.stringify(command)}]});if(result.outcome!=='completed'||result.code!==0||result.truncated)throw 0;const page=await request('connector.output',{receipt:result.receipt,stream:'stdout',offset:0});await request('connector.output',{receipt:result.receipt,release:true});document.getElementById('state').textContent=page.data==='workspace connected\\n'?'completed':'refused'}catch{document.getElementById('state').textContent='refused'}};
+    document.getElementById('run').onclick=async()=>{action();document.getElementById('state').textContent='running';document.body.dataset.phase='execute';try{const result=await request('connector.execute',{connector:'project-tool',host:context.workspace.host,workspace:context.workspace.id,args:['-c',${JSON.stringify(command)}]});Object.assign(document.body.dataset,{outcome:result.outcome,reason:result.reason||'none',code:String(result.code),truncated:String(result.truncated),receipt:String(!!result.receipt)});if(result.outcome!=='completed'||result.code!==0||result.truncated)throw 0;document.body.dataset.phase='output';const page=await request('connector.output',{receipt:result.receipt,stream:'stdout',offset:0});document.body.dataset.phase='release';document.body.dataset.matched=String(page.data==='workspace connected\\n');await request('connector.output',{receipt:result.receipt,release:true});document.body.dataset.phase='done';document.getElementById('state').textContent=page.data==='workspace connected\\n'?'completed':'refused'}catch{document.getElementById('state').textContent='refused'}};
     bridge.send({kind:'hello',contract:'1.0'});
   `,
   )
@@ -160,13 +161,23 @@ export async function verifyLocalWorkspaceConnection(
   if ((await proposals()).length)
     throw new Error('Unchanged local project approval prompted again')
   await guestClick(current.guest, 'run')
-  await controls.wait(
-    () =>
-      current.guest.executeJavaScript(
-        "document.getElementById('state')?.textContent==='completed'",
-      ),
-    'public native project observation and complete output',
-  )
+  try {
+    await controls.wait(
+      () =>
+        current.guest.executeJavaScript(
+          "document.getElementById('state')?.textContent==='completed'",
+        ),
+      'public native project observation and complete output',
+    )
+  } catch (reason) {
+    const evidence: unknown = await current.guest.executeJavaScript(`(() => {
+      const data=document.body.dataset;
+      const known=(value,values)=>values.includes(value)?value:'unknown';
+      return {phase:known(data.phase,['execute','output','release','done']),outcome:known(data.outcome,['not-started','completed','interrupted-uncertain']),reason:known(data.reason,['none','unavailable','unapproved','disconnected','capacity','frequency','context-ended','interrupted','deadline','output-limit','transport']),code:/^(?:null|-?\\d{1,3})$/.test(data.code)?data.code:'unknown',truncated:data.truncated==='true',receipt:data.receipt==='true',matched:data.matched==='true'};
+    })()`)
+    console.log('[smoke] bounded local project native result', JSON.stringify(evidence))
+    throw reason
+  }
   if (
     (await host.readFile(marker)).toString().trim() !==
     (await host.realpath(workspace.root)).path
@@ -186,13 +197,27 @@ export async function verifyLocalWorkspaceConnection(
   )
 
   async function open(): Promise<{ view: ExtensionView; guest: WebContents }> {
-    await settings.click('Open Local connection')
+    await controls.click('Close settings')
     await controls.wait(
       async () =>
         !(await win.webContents.executeJavaScript(
           "!!document.querySelector('.settings-dialog')",
         )),
-      'project view closes Settings',
+      'ordinary Settings closed before selecting project view',
+    )
+    await controls.click('Local connection')
+    await controls.wait(
+      async () =>
+        (
+          (await win.webContents.executeJavaScript(
+            "window.hvir.invoke('extensions:views',undefined)",
+          )) as readonly ExtensionView[]
+        ).some(
+          (view) =>
+            view.installationId === installed.installationId &&
+            view.context?.surface === 'left',
+        ),
+      'ordinary local project view admission',
     )
     const views = (await win.webContents.executeJavaScript(
       "window.hvir.invoke('extensions:views',undefined)",
