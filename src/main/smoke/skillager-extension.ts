@@ -256,11 +256,12 @@ export async function verifySkillagerExtension(
   phase = 'selected detail guest attachment'
   let detail = await bounded(controls.guest(view('detail')!))
   await controls.wait(
-    () => extensions.sourceRequests!.snapshot(owner).length === 1,
+    () => extensions.sourceRequests!.snapshot(owner)[0]?.state === 'ready',
     'explicit selected read proposes one canonical local root',
   )
   const readProposal = extensions.sourceRequests!.snapshot(owner)[0]!
   if (
+    readProposal.state !== 'ready' ||
     readProposal.root.hostId !== 'local' ||
     readProposal.root.path !== root ||
     readProposal.source !== 'library'
@@ -305,7 +306,7 @@ export async function verifySkillagerExtension(
   }
   detail = await bounded(controls.guest(view('detail')!))
   await controls.wait(
-    () => extensions.sourceRequests!.snapshot(owner).length === 1,
+    () => extensions.sourceRequests!.snapshot(owner)[0]?.state === 'ready',
     'new reader has a distinct root request',
   )
   await inspect(
@@ -333,7 +334,7 @@ export async function verifySkillagerExtension(
   await inspect(detail, "document.getElementById('read-current').click()")
   try {
     await controls.wait(
-      () => extensions.sourceRequests!.snapshot(owner).length === 1,
+      () => extensions.sourceRequests!.snapshot(owner)[0]?.state === 'ready',
       'explicit retry after hiding asks again',
     )
   } catch (error) {
@@ -370,7 +371,7 @@ export async function verifySkillagerExtension(
     throw new Error('Declined read persisted access')
   await inspect(detail, "document.getElementById('read-current').click()")
   await controls.wait(
-    () => extensions.sourceRequests!.snapshot(owner).length === 1,
+    () => extensions.sourceRequests!.snapshot(owner)[0]?.state === 'ready',
     'new explicit Read current decision',
   )
   await controls.click('Allow read-only access')
@@ -495,7 +496,7 @@ export async function verifySkillagerExtension(
     throw new Error('Read current control is hidden')
 
   await controls.wait(
-    () => extensions.sourceRequests!.snapshot(owner).length === 1,
+    () => extensions.sourceRequests!.snapshot(owner)[0]?.state === 'ready',
     'revoked source requires another explicit read decision',
   )
   await controls.click('Not now')

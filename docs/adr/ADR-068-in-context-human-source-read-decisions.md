@@ -17,10 +17,16 @@ agent, restricted and action origins independently of request data. Workspace an
 scopes retain their existing explicit owners and decision surfaces.
 
 A source-specific request adapter reuses the existing source-approval owner's canonical
-host-qualified preparation, finite tokens and persistence. Trusted workbench UI displays the
-actual canonical root and supplies the human decision. Guests receive neither approval tokens
-nor an approve capability. An existing valid grant for that unchanged canonical scope needs
-no repeat decision. Metadata browse, refresh, focus and reported paths grant no access.
+host-qualified preparation, finite tokens and persistence. Ungranted requests present the same
+trusted decision before canonical preparation. Trusted UI distinguishes the reported folder
+from its checked canonical root and enables the existing Allow decision only for a ready root.
+Preparation success or failure remains private to that UI; the guest request stays pending
+until the human decision, cancellation or deadline. Failed and ready decisions share finite
+admission, including physical preparation after cancellation. Guests receive neither approval
+tokens nor an approve capability. An existing current grant that lexically covers the reported
+folder needs no repeat decision or filesystem probe. That reuse conveys permission only; the
+selected-current reader remains responsible for canonical confinement and file validity.
+Metadata browse, refresh, focus and reported paths grant no access.
 
 Bind the request to its current view, renderer, installation, declaration, activation and
 request lifetime. Cancellation, hiding, closure, revocation and replacement retire the UI and

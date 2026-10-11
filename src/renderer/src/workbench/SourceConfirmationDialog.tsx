@@ -1,8 +1,9 @@
 import { useEffect, useState, type ReactElement } from 'react'
 import type { ExtensionSourceRequestProposal } from '../../../shared/extensions/source-access'
+import { hostPathEquals } from '../../../shared/host-path'
 import { ConfirmationDialog } from './ConfirmationDialog'
 
-/** Only main-issued canonical roots are presented; the guest cannot approve access. */
+/** Preparation facts stay in trusted chrome; the guest cannot observe or approve them. */
 export function SourceConfirmationDialog(): ReactElement | null {
   const [proposals, setProposals] = useState<readonly ExtensionSourceRequestProposal[]>(
     [],
@@ -59,15 +60,42 @@ function SourceDecision({
         {
           label: 'Allow read-only access',
           kind: 'primary',
+          disabled: proposal.state !== 'ready',
           onSelect: () => respond(true),
         },
       ]}
     >
       <h4 id="source-confirmation-title">Read with {proposal.name}</h4>
       <p>{proposal.description}</p>
-      <pre>
-        {proposal.root.hostId}: {proposal.root.path}
-      </pre>
+      {proposal.state === 'ready' ? (
+        <>
+          <p>Folder to read</p>
+          <pre>
+            {proposal.root.hostId}: {proposal.root.path}
+          </pre>
+          {!hostPathEquals(proposal.root, proposal.reportedRoot) ? (
+            <>
+              <p>Requested folder</p>
+              <pre>
+                {proposal.reportedRoot.hostId}: {proposal.reportedRoot.path}
+              </pre>
+            </>
+          ) : null}
+        </>
+      ) : (
+        <>
+          <p>Requested folder (not verified)</p>
+          <pre>
+            {proposal.reportedRoot.hostId}: {proposal.reportedRoot.path}
+          </pre>
+        </>
+      )}
+      {proposal.state === 'preparing' ? <p>Checking this folder…</p> : null}
+      {proposal.state === 'failed' ? (
+        <p role="alert">
+          {proposal.explanation} No read access was granted. Choose Not now to return.
+        </p>
+      ) : null}
       <p>
         Allow this extension to read selected files in this folder. This does not permit
         writing files or grant access to agents.

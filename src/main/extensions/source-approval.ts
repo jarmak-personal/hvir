@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto'
-import { asHostId, hostPath, hostPathEquals, type HostPath } from '../../shared/host-path'
+import {
+  asHostId,
+  containsHostPath,
+  hostPath,
+  hostPathEquals,
+  type HostPath,
+} from '../../shared/host-path'
 import {
   SOURCE_LIMITS,
   validateSourceDeclarations,
@@ -88,11 +94,8 @@ export class ExtensionSourceApprovalOwner {
   ): Promise<{ token: string; grant: ExtensionSourceGrant }> {
     this.prune()
     const intent = this.intent
-    const assertIntent = () => {
-      current()
-      if (this.intent !== intent) throw new Error('Source decision was revoked')
-    }
-    if (this.prepared.size + this.preparing >= 4)
+    const assertIntent = this.decisionCurrent(current)
+    if (this.prepared.size + this.preparing >= SOURCE_LIMITS.decisions)
       throw new Error('Too many pending source decisions')
     this.preparing++
     try {
@@ -168,6 +171,27 @@ export class ExtensionSourceApprovalOwner {
     } finally {
       this.preparing--
     }
+  }
+  /** Share the canonical decision lifetime even before a prepared token exists. */
+  decisionCurrent(current: () => void): () => void {
+    const intent = this.intent
+    return () => {
+      current()
+      if (this.disposed || this.intent !== intent)
+        throw new Error('Source decision was revoked')
+    }
+  }
+  /** Permission coverage only; selected-current reads still canonicalize and confine files. */
+  async canReuseGrant(
+    activation: ExtensionActivation,
+    source: string,
+    root: HostPath,
+    current: () => void,
+  ): Promise<boolean> {
+    await this.assertWritable()
+    current()
+    const existing = this.get(activation, source)
+    return !!existing?.root && containsHostPath(existing.root, root)
   }
   approve(token: string): Promise<void> {
     return this.serialize(async () => {

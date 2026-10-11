@@ -11,6 +11,8 @@ const proposal: ExtensionSourceRequestProposal = {
   name: 'Library',
   source: 'library',
   description: 'Read selected library files',
+  reportedRoot: localPath('/reported/library'),
+  state: 'ready',
   root: localPath('/library'),
 }
 let host: HTMLDivElement,
@@ -105,6 +107,42 @@ it('retires the old component while a reply is held and keeps the next decision 
   expect(host.textContent).toContain('Read with Next library')
   expect(host.querySelector('[role="alert"]')).toBeNull()
   expect(button('Allow read-only access').disabled).toBe(false)
+})
+it('shows the actual ready folder once when it equals the requested folder', async () => {
+  await act(async () => {
+    publish([{ ...proposal, reportedRoot: proposal.root }])
+    await Promise.resolve()
+  })
+  expect(host.textContent).toContain('Folder to read')
+  expect(host.textContent).not.toContain('Requested folder')
+  expect(host.textContent?.split('local: /library')).toHaveLength(2)
+  expect(button('Allow read-only access').disabled).toBe(false)
+})
+it('keeps one decision while showing private preparation and failure without enabling Allow', async () => {
+  const { root: _canonical, ...base } = proposal
+  await act(async () => {
+    publish([{ ...base, state: 'preparing' }])
+    await Promise.resolve()
+  })
+  expect(host.textContent).toContain('Requested folder (not verified)')
+  expect(host.textContent).toContain('local: /reported/library')
+  expect(host.textContent).not.toContain('Folder to read')
+  expect(button('Allow read-only access').disabled).toBe(true)
+  expect(button('Not now').disabled).toBe(false)
+  act(() => button('Allow read-only access').click())
+  expect(invoke).not.toHaveBeenCalledWith('extensions:source-decide', expect.anything())
+  act(() =>
+    publish([{ ...base, state: 'failed', explanation: 'This folder is inaccessible.' }]),
+  )
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain(
+    'This folder is inaccessible.',
+  )
+  expect(button('Allow read-only access').disabled).toBe(true)
+  expect(button('Not now').disabled).toBe(false)
+  act(() => publish([proposal]))
+  expect(host.textContent).toContain('Folder to read')
+  expect(button('Allow read-only access').disabled).toBe(false)
+  expect(host.querySelector('[role="alert"]')).toBeNull()
 })
 it('cleans its subscription and ignores an initial reply after unmount', async () => {
   act(() => root.render(null))
