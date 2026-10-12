@@ -45,9 +45,10 @@ function ConnectorSetup({
   readonly installation: string
   readonly connector: ExtensionConnectorDeclaration
 }): ReactElement {
+  const canConnect = connector.context === 'application' && !!connector.setup
   const connectionRequest = useRef<string | undefined>(undefined)
   useEffect(() => {
-    if (!connector.setup) return
+    if (!canConnect) return
     const cancel = (): void => {
       const request = connectionRequest.current
       connectionRequest.current = undefined
@@ -57,7 +58,7 @@ function ConnectorSetup({
           .catch(() => {})
     }
     return () => cancel()
-  }, [connector.setup])
+  }, [canConnect])
   const [hosts, setHosts] = useState<readonly ProjectHostOption[]>([])
   const [host, setHost] = useState('local')
   const [path, setPath] = useState('')
@@ -112,7 +113,7 @@ function ConnectorSetup({
         {status?.executable ? ` · ${status.host}: ${status.executable}` : ''}
         {status?.explanation ? ` · ${status.explanation}` : ''}
       </p>
-      {connector.setup ? (
+      {canConnect && connector.setup ? (
         <button
           type="button"
           className="hvir-button"
@@ -149,7 +150,13 @@ function ConnectorSetup({
           Connect {connector.setup.executable}
         </button>
       ) : null}
-      <details open={!connector.setup}>
+      {connector.context === 'workspace' && connector.setup ? (
+        <p>
+          Connect {connector.setup.executable} from an open local project view, or
+          configure program access here.
+        </p>
+      ) : null}
+      <details open={!canConnect}>
         <summary>Manual program configuration</summary>
         <label>
           Host

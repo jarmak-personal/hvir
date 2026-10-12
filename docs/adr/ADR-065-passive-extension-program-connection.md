@@ -1,6 +1,7 @@
 # ADR-065: Passive extension program discovery and trusted connection
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-070](ADR-070-explicit-local-workspace-program-connection.md) | partial | Application-only restriction on setup hints and ordinary-human connection requests.
 > Supersedes: [ADR-051](ADR-051-approved-finite-connector-execution.md) | partial | Mandatory manually supplied absolute executable input and separate Inspect step for application-local first-use connections only.
 
 ## Context

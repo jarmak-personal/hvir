@@ -13,6 +13,106 @@ function fixture(context: 'application' | 'workspace' = 'application') {
   return value
 }
 describe('native connector approval', () => {
+  it.each(['absent', 'saved'] as const)(
+    'binds the exact %s approval at consent and refuses a different saved binding before replacement',
+    async (before) => {
+      const f = fixture()
+      if (before === 'saved') await f.approve('/installed/old', { args: [], env: {} })
+      const expected = f.approvals.get(f.activation, 'tool')
+      const prepared = await f.approvals.prepare(
+        {
+          installationId: 'installation',
+          connector: 'tool',
+          host: 'local',
+          executable: '/installed/replacement',
+          configuration: { args: [], env: {} },
+        },
+        () => undefined,
+        { approval: expected },
+      )
+      const newer = await f.approve('/installed/newer', { args: [], env: {} })
+      const writes = f.write.mock.calls.length
+      await expect(f.approvals.approve(prepared.token)).rejects.toThrow(
+        'Saved connector access changed',
+      )
+      expect(f.approvals.get(f.activation, 'tool')).toBe(newer)
+      expect(f.write).toHaveBeenCalledTimes(writes)
+      expect(f.state()).toEqual([newer])
+      expect(f.host.exec).not.toHaveBeenCalled()
+    },
+  )
+  it('refuses replacement whose expected saved binding changes during canonical preparation', async () => {
+    const f = fixture()
+    const prior = await f.approve('/installed/old', { args: [], env: {} })
+    let resume!: () => void, entered!: () => void
+    const blocked = new Promise<void>((resolve) => {
+      resume = resolve
+    })
+    const reached = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    f.host.realpath.mockImplementationOnce(async (path) => {
+      entered()
+      await blocked
+      return path
+    })
+    const preparation = f.approvals.prepare(
+      {
+        installationId: 'installation',
+        connector: 'tool',
+        host: 'local',
+        executable: '/installed/replacement',
+        configuration: { args: [], env: {} },
+      },
+      () => undefined,
+      { approval: prior },
+    )
+    const rejected = expect(preparation).rejects.toThrow('Saved connector access changed')
+    await reached
+    const newer = await f.approve('/installed/newer', { args: [], env: {} })
+    resume()
+    await rejected
+    expect(f.approvals.get(f.activation, 'tool')).toBe(newer)
+    expect(f.state()).toEqual([newer])
+  })
+  it('keeps a prior-bound replacement revoked during its submitted save from restoring authority', async () => {
+    const f = fixture()
+    const prior = await f.approve('/installed/old', { args: [], env: {} })
+    const prepared = await f.approvals.prepare(
+      {
+        installationId: 'installation',
+        connector: 'tool',
+        host: 'local',
+        executable: '/installed/replacement',
+        configuration: { args: [], env: {} },
+      },
+      () => undefined,
+      { approval: prior },
+    )
+    let resume!: () => void, entered!: () => void
+    const blocked = new Promise<void>((resolve) => {
+      resume = resolve
+    })
+    const reached = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const write = f.write.getMockImplementation()!
+    f.write.mockImplementationOnce(async (value, current) => {
+      entered()
+      await blocked
+      await write(value, current)
+    })
+    const saving = f.approvals.approve(prepared.token)
+    const rejected = expect(saving).rejects.toThrow()
+    await reached
+    const revoking = f.approvals.revoke('installation', 'tool')
+    expect(f.approvals.get(f.activation, 'tool')).toBeUndefined()
+    resume()
+    await rejected
+    await revoking
+    expect(f.state()).toEqual([])
+    expect(f.approvals.get(f.activation, 'tool')).toBeUndefined()
+  })
   it.each(['writable', 'canonical'] as const)(
     'cannot publish a prepared decision revoked during %s inspection',
     async (boundary) => {

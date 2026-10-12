@@ -35,6 +35,7 @@ interface PreparedApproval {
   readonly expires: number
   readonly current: () => void
   readonly decision: ApprovalDecision
+  readonly prior?: { readonly approval: ExtensionConnectorApproval | undefined }
 }
 interface ApprovalDecision {
   readonly installationId: string
@@ -99,8 +100,19 @@ export class ExtensionConnectorApprovalOwner {
   async prepare(
     selection: ExtensionConnectorSelection,
     current: () => void,
+    prior?: { readonly approval: ExtensionConnectorApproval | undefined },
   ): Promise<{ token: string; approval: ExtensionConnectorApproval }> {
     this.prune()
+    const assertCurrent = (): void => {
+      current()
+      if (
+        prior &&
+        this.approvals.find((entry) => key(entry) === key(selection)) !== prior.approval
+      )
+        throw new Error(
+          'Saved connector access changed; connect again to review its replacement',
+        )
+    }
     if (this.decisions.size >= 4)
       throw new Error('Too many pending native approval decisions')
     const decision: ApprovalDecision = {
@@ -113,7 +125,7 @@ export class ExtensionConnectorApprovalOwner {
     try {
       await this.assertWritable()
       decision.controller.signal.throwIfAborted()
-      current()
+      assertCurrent()
       const activation = this.activations.active.get(selection.installationId)
       const declaration = activation?.revision.manifest.connectors?.find(
         (entry) => entry.id === selection.connector,
@@ -145,7 +157,7 @@ export class ExtensionConnectorApprovalOwner {
         configuration,
         declaration,
       }
-      current()
+      assertCurrent()
       const token = randomUUID()
       this.prepared.set(token, {
         approval,
@@ -153,6 +165,7 @@ export class ExtensionConnectorApprovalOwner {
         expires: Date.now() + 60_000,
         current,
         decision,
+        ...(prior ? { prior } : {}),
       })
       retained = true
       return { token, approval }
@@ -187,6 +200,13 @@ export class ExtensionConnectorApprovalOwner {
             throw new Error('Native approval context ended')
         }
         current()
+        if (
+          prepared.prior &&
+          this.get(activation, approval.connector) !== prepared.prior.approval
+        )
+          throw new Error(
+            'Saved connector access changed; connect again to review its replacement',
+          )
         this.revoked(approval.installationId, approval.connector)
         this.approvals = this.approvals.filter((entry) => key(entry) !== key(approval))
         const next = [
@@ -366,6 +386,8 @@ export async function canonicalExecutablePath(
     })
   return executablePath(canonical.path)
 }
-function key(approval: ExtensionConnectorApproval): string {
+function key(
+  approval: Pick<ExtensionConnectorSelection, 'installationId' | 'connector'>,
+): string {
   return JSON.stringify([approval.installationId, approval.connector])
 }
