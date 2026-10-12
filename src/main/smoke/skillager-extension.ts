@@ -166,6 +166,7 @@ export async function verifySkillagerExtension(
     executable,
     {
       wait: (predicate, label) => controls.wait(predicate, label),
+      ready: (predicate, label) => ready(projectGuest, predicate, label),
       within: bounded,
     },
   )

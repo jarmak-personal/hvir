@@ -17,6 +17,7 @@ export async function verifySkillagerProjectConnection(
   executable: string,
   controls: {
     wait(predicate: () => boolean | Promise<boolean>, label: string): Promise<void>
+    ready(predicate: () => Promise<boolean>, label: string): Promise<void>
     within<T>(work: Promise<T>): Promise<T>
   },
 ): Promise<void> {
@@ -56,6 +57,7 @@ export async function verifySkillagerProjectConnection(
   const inspect = (expression: string): Promise<unknown> =>
     controls.within(guest.executeJavaScript(expression))
   try {
+    await observe()
     await controls.wait(
       async () =>
         (await inspect(
@@ -88,7 +90,7 @@ export async function verifySkillagerProjectConnection(
     )
     await connect()
     await decide(true)
-    await controls.wait(
+    await controls.ready(
       async () =>
         (await inspect(`(() => {
           const state=document.getElementById('state'), query=document.getElementById('query');
@@ -99,7 +101,7 @@ export async function verifySkillagerProjectConnection(
       'current project connection automatically observes genuine search metadata and preserves options',
     )
     await inspect("document.getElementById('browse').click()")
-    await controls.wait(
+    await controls.ready(
       async () =>
         (await inspect(
           "document.getElementById('state')?.dataset.state==='ready' && [...document.querySelectorAll('#skills [role=option]')].some(row=>row.dataset.id==='project/project-connection-proof')",
@@ -111,6 +113,10 @@ export async function verifySkillagerProjectConnection(
     console.log(
       '[smoke] maintained left project Connect → trusted decline/retry/allow → automatic genuine metadata; preserved public query/options and actual owned project discovery, no Settings/path/JSON/Inspect/init OK (successful OS program choice substituted)',
     )
+    console.log(
+      '[smoke] bounded project public replies',
+      JSON.stringify(await inspect('globalThis.__hvirProjectConnectionProof')),
+    )
   } catch (error) {
     console.log(
       '[smoke] bounded maintained project connection facts',
@@ -119,13 +125,68 @@ export async function verifySkillagerProjectConnection(
         const state=document.getElementById('state'), connect=document.getElementById('connect-program');
         return {state:state?.dataset.state, connectVisible:!!connect?.checkVisibility(), connectDisabled:connect?.disabled,
           rows:document.querySelectorAll('#skills [role=option]').length, nativeFocus:document.hasFocus(),
-          queryRetained:document.getElementById('query')?.value==='catalogneedle'};
-      })()`),
+          queryRetained:document.getElementById('query')?.value==='catalogneedle', publicReplies:globalThis.__hvirProjectConnectionProof??null};
+      })()`).catch(() => ({ inspectionUnavailable: true })),
       ),
     )
     throw error
   } finally {
     Object.defineProperty(dialog, 'showOpenDialog', descriptor)
+    if (!guest.isDestroyed())
+      await inspect(
+        'globalThis.__hvirProjectConnectionProofStop?.(); delete globalThis.__hvirProjectConnectionProofStop; delete globalThis.__hvirProjectConnectionProof',
+      ).catch(() => console.log('[smoke] project proof observer cleanup unavailable'))
+  }
+  async function observe(): Promise<void> {
+    const debuggerPort = guest.debugger,
+      owned = !debuggerPort.isAttached()
+    let objectId: string | undefined
+    try {
+      if (owned) debuggerPort.attach('1.3')
+      const global = (await controls.within(
+        debuggerPort.sendCommand('Runtime.evaluate', { expression: 'globalThis' }),
+      )) as { result?: { objectId?: string } }
+      objectId = global.result?.objectId
+      if (!objectId) throw new Error('Project public observer document unavailable')
+      const observed = (await controls.within(
+        debuggerPort.sendCommand('Runtime.callFunctionOn', {
+          objectId,
+          functionDeclaration: `function(expectedHost, expectedRoot) {
+          const facts={contexts:0,visible:null,workspaceRootMatches:null,connections:0,connection:null,executeReplies:0,execution:null,reason:null,completed:0,outputPages:0,errorReplies:0,saturated:false};
+          globalThis.__hvirProjectConnectionProof=facts;
+          const count=key=>{if(facts[key]<64)facts[key]++;else facts.saturated=true};
+          const closed=(value,values)=>values.includes(value)?value:'unknown';
+          globalThis.__hvirProjectConnectionProofStop=window.hvirExtension.onMessage(message=>{
+            if(message.kind==='context'){
+              count('contexts');facts.visible=message.context.visible===true;
+              const workspace=message.context.workspace;
+              facts.workspaceRootMatches=workspace?.host===expectedHost&&workspace.root?.hostId===expectedHost&&workspace.root.path===expectedRoot;
+            }
+            if(message.kind!=='result')return;
+            if(!message.ok){count('errorReplies');return}
+            const value=message.value, connection=value?.connections?.find(item=>item.connector==='project-cli');
+            if(connection){count('connections');facts.connection=closed(connection.outcome,['connected','declined','unavailable','interrupted-uncertain'])}
+            if(value&&['completed','not-started','interrupted-uncertain'].includes(value.outcome)){
+              count('executeReplies');facts.execution=value.outcome;
+              facts.reason=closed(value.reason??'none',['none','unavailable','unapproved','disconnected','capacity','frequency','context-ended','interrupted','deadline','output-limit','transport']);
+              if(value.outcome==='completed'&&value.code===0&&!value.truncated)count('completed');
+            }
+            if(typeof value?.data==='string')count('outputPages');
+          });return true;
+        }`,
+          arguments: [{ value: root.hostId }, { value: root.path }],
+          returnByValue: true,
+        }),
+      )) as { result?: { value?: unknown }; exceptionDetails?: unknown }
+      if (observed.exceptionDetails || observed.result?.value !== true)
+        throw new Error('Project public observer could not subscribe')
+    } finally {
+      if (objectId && debuggerPort.isAttached())
+        await controls
+          .within(debuggerPort.sendCommand('Runtime.releaseObject', { objectId }))
+          .catch(() => {})
+      if (owned && debuggerPort.isAttached()) debuggerPort.detach()
+    }
   }
   async function connect(): Promise<void> {
     await controls.wait(
