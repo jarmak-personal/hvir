@@ -85,6 +85,7 @@ export async function verifyExtensionScenario(
     return true
   if (
     await verifySkillagerExtension(win, extensions, scopes, host, {
+      projectRoot: project.root,
       click: (name) => click(win, name),
       wait: waitFor,
       guest: guestFor,

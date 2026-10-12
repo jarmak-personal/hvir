@@ -28,7 +28,10 @@ let context = { visible: false },
   selectionIntent = 0,
   timer,
   busy = false,
-  pendingRefresh = false
+  pendingRefresh = false,
+  connectAvailable = false,
+  connectionPending = false,
+  setupNeeded = false
 let lastPage,
   library,
   query = '',
@@ -61,19 +64,63 @@ function say(message, kind = 'ready') {
     element('library-setup').hidden = kind !== 'no-personal-library'
 }
 async function cli(args, project) {
-  const key = project?.workspace?.id ?? 'library'
+  const revision = generation,
+    workspace = project?.workspace
+  const current = () => {
+    if (
+      !available() ||
+      generation !== revision ||
+      (workspace && JSON.stringify(workspace) !== JSON.stringify(context.workspace))
+    )
+      throw new Error('This observation is no longer current')
+  }
+  // Fence each public transport phase, including version -> command and frequency deferral.
+  const scopedClient = {
+    request: async (...input) => {
+      // Retired observations may release their own opaque output receipt, never read it.
+      if (!(input[0] === 'connector.output' && input[1]?.release === true)) current()
+      return client.request(...input)
+    },
+    delay: async (milliseconds) => {
+      current()
+      await client.delay(milliseconds)
+      current()
+    },
+    get alive() {
+      return client.alive
+    },
+    get visible() {
+      return client.visible
+    },
+  }
+  const key = workspace?.id ?? 'library'
   if (!verifiedVersions.has(key)) {
-    requireVersion(await runCli(client, ['--version'], project))
+    requireVersion(await runCli(scopedClient, ['--version'], project))
+    current()
     verifiedVersions.add(key)
   }
-  return JSON.parse(await runCli(client, args, project))
+  const text = await runCli(scopedClient, args, project)
+  current()
+  return JSON.parse(text)
 }
+
 function available() {
   return client.alive && context.visible
 }
 function refreshManagementAvailability() {
   if (element('manage')) element('manage').disabled = !available()
+  refreshConnectionAvailability()
 }
+function refreshConnectionAvailability() {
+  const button = element('connect-program')
+  if (!button) return
+  button.hidden =
+    !connectAvailable ||
+    !setupNeeded ||
+    (view === 'project' && !localWorkspace(context.workspace))
+  button.disabled = !available() || connectionPending
+}
+
 function scope() {
   return view === 'project' ? context : undefined
 }
@@ -217,7 +264,7 @@ function requestRefresh(
     previous: [...previous],
   },
 ) {
-  pageRequest = { query, options: searchOptions, ...target }
+  pageRequest = { query, options: searchOptions, ...pageRequest, ...target }
   pagingControls()
   generation++
   pendingRefresh = true
@@ -240,12 +287,15 @@ async function refresh() {
   )
   try {
     let page
+    const project = scope(),
+      workspace = view === 'project' ? localWorkspace(project?.workspace) : undefined
     if (view === 'library') {
       const observed = libraryStatus(await cli(['library', 'status', '--json']))
       if (!available() || generation !== revision) return
       library = observed
       if (element('program-setup')) element('program-setup').hidden = true
-      if (element('connect-program')) element('connect-program').hidden = true
+      setupNeeded = false
+      refreshConnectionAvailability()
       if (!observed.initialized) {
         lastPage = undefined
         list?.replaceChildren()
@@ -258,7 +308,6 @@ async function refresh() {
       }
     }
     if (target.query) {
-      const workspace = view === 'project' ? localWorkspace(context.workspace) : undefined
       const root = workspace?.root.path
       page = searchPage(
         await cli(
@@ -267,11 +316,12 @@ async function refresh() {
             cursor: target.cursor ?? '',
             ...(root ? { installedProject: root } : {}),
           }),
+          workspace ? project : undefined,
         ),
         workspace,
       )
     } else if (view === 'project') {
-      if (!localWorkspace(context.workspace))
+      if (!workspace)
         throw new Error(
           'Project presence is unknown without an available exact local root. Open Your library for independent local browsing; no remote CLI is run.',
         )
@@ -285,16 +335,16 @@ async function refresh() {
             '--include-lint-blocked',
             '--json',
           ],
-          scope(),
+          project,
         ),
-        context.workspace,
+        workspace,
       )
       const exposures = projectExposures(
         await cli(
           ['expose', '--list', '--all-agents', '--scope', 'project', '--json'],
-          scope(),
+          project,
         ),
-        context.workspace,
+        workspace,
       )
       const paths = new Set(exposures.map((item) => item.path))
       const observed = [
@@ -325,13 +375,17 @@ async function refresh() {
       cursor = target.cursor
       previous = target.previous
       pageRequest = undefined
+      setupNeeded = false
+      if (element('program-setup')) element('program-setup').hidden = true
+      refreshConnectionAvailability()
       rows(page)
     }
   } catch (error) {
     if (available() && generation === revision) {
-      const failure = firstUseFailure(error, !!lastPage)
+      const failure = firstUseFailure(error, !!lastPage, view)
       if (element('program-setup')) element('program-setup').hidden = !failure.setup
-      if (element('connect-program')) element('connect-program').hidden = !failure.setup
+      setupNeeded = failure.setup
+      refreshConnectionAvailability()
       if (element('observation-details'))
         element('observation-details').textContent = failure.detail
       say(failure.message, failure.state)
@@ -652,27 +706,56 @@ on('create-library', 'click', async () => {
       requestRefresh({ query: '', options: {}, cursor: undefined, previous: [] })
   }
 })
-on('connect-program', 'click', () => {
-  if (!available()) return
-  const admitted = ++connectionIntent
-  void client.request('connector.connect', { connector: 'library-cli' }).then(
-    (result) => {
-      if (!available() || admitted !== connectionIntent) return
-      const connection = result.connections?.find(
-        (entry) => entry.connector === 'library-cli',
-      )
-      if (connection?.outcome === 'connected') requestRefresh()
-      else
-        say(
-          connection?.explanation ??
-            'Not connected. Choose Connect Skillager when ready.',
-          connection?.outcome === 'interrupted-uncertain' ? 'error' : 'unapproved',
-        )
-    },
-    (error) => {
-      if (available() && admitted === connectionIntent) say(error.message, 'error')
-    },
+on('connect-program', 'click', async () => {
+  const workspace = view === 'project' ? localWorkspace(context.workspace) : undefined
+  if (
+    !available() ||
+    !connectAvailable ||
+    connectionPending ||
+    (view === 'project' && !workspace)
   )
+    return
+  const admitted = ++connectionIntent,
+    revision = generation,
+    identity = JSON.stringify(workspace),
+    connector = workspace ? 'project-cli' : 'library-cli'
+  const current = () =>
+    available() &&
+    admitted === connectionIntent &&
+    (view !== 'project' ||
+      (revision === generation &&
+        identity === JSON.stringify(localWorkspace(context.workspace))))
+  connectionPending = true
+  refreshConnectionAvailability()
+  say(
+    view === 'project'
+      ? 'Connecting Skillager for this project…'
+      : 'Connecting to Skillager…',
+    'connecting',
+  )
+  try {
+    // Main owns any submitted picker/write even if this result's UI lifetime ends.
+    const result = await client.request('connector.connect', { connector })
+    if (!current()) return
+    const connection = result.connections?.find((entry) => entry.connector === connector)
+    if (connection?.outcome === 'connected') requestRefresh()
+    else {
+      setupNeeded = true
+      say(
+        connection?.explanation ?? 'Not connected. Choose Connect Skillager when ready.',
+        connection?.outcome === 'interrupted-uncertain' ? 'error' : 'unapproved',
+      )
+    }
+  } catch (error) {
+    if (current()) {
+      setupNeeded = true
+      if (element('program-setup')) element('program-setup').hidden = false
+      say(error.message, 'error')
+    }
+  } finally {
+    connectionPending = false
+    refreshConnectionAvailability()
+  }
 })
 on('search-form', 'submit', (event) => {
   event.preventDefault()
@@ -704,14 +787,16 @@ on('previous', 'click', () => {
   requestRefresh({ cursor: previous.at(-1), previous: previous.slice(0, -1) })
 })
 client.listen((message) => {
-  if (message.kind === 'hello' && element('connect-program'))
-    element('connect-program').hidden =
-      !message.capabilities.includes('connector.connect')
+  if (message.kind === 'hello') {
+    connectAvailable = message.capabilities.includes('connector.connect')
+    refreshConnectionAvailability()
+  }
   if (message.kind === 'context') {
     const renewed = message.context.visible && !context.visible
     const changed =
       JSON.stringify(message.context.workspace) !== JSON.stringify(context.workspace)
     context = message.context
+    if (view === 'project' && (changed || !context.visible)) connectionIntent++
     refreshManagementAvailability()
     if (!context.visible) {
       selectedRead?.abort()

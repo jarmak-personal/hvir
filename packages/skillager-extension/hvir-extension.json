@@ -543,7 +543,10 @@
       "context": "workspace",
       "timeoutMs": 180000,
       "outputBytes": 4194304,
-      "environment": ["SKILLAGER_CATALOG_STATE_DIR", "XDG_CACHE_HOME", "XDG_STATE_HOME"]
+      "environment": ["SKILLAGER_CATALOG_STATE_DIR", "XDG_CACHE_HOME", "XDG_STATE_HOME"],
+      "setup": {
+        "executable": "skillager"
+      }
     }
   ]
 }

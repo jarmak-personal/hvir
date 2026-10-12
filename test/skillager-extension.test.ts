@@ -54,6 +54,9 @@ describe('ordinary maintained Skillager package contract', () => {
     expect(manifest.id).toBe('skillager')
     expect(manifest.railItems ?? []).toEqual([])
     expect(manifest.updater).toBeUndefined()
+    expect(
+      manifest.connectors?.find((connector) => connector.id === 'project-cli')?.setup,
+    ).toEqual({ executable: 'skillager' })
     expect(manifest.requiredCapabilities).not.toContain('contributions.publish')
     expect(manifest.views.find((view) => view.id === 'project')?.navigationIcon).toBe(
       'skillager.svg',
