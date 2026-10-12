@@ -382,7 +382,12 @@ async function refresh() {
     }
   } catch (error) {
     if (available() && generation === revision) {
-      const failure = firstUseFailure(error, !!lastPage, view)
+      const failure = firstUseFailure(
+        error,
+        !!lastPage,
+        view,
+        connectAvailable && (view !== 'project' || !!localWorkspace(context.workspace)),
+      )
       if (element('program-setup')) element('program-setup').hidden = !failure.setup
       setupNeeded = failure.setup
       refreshConnectionAvailability()
@@ -716,15 +721,12 @@ on('connect-program', 'click', async () => {
   )
     return
   const admitted = ++connectionIntent,
-    revision = generation,
     identity = JSON.stringify(workspace),
     connector = workspace ? 'project-cli' : 'library-cli'
   const current = () =>
     available() &&
     admitted === connectionIntent &&
-    (view !== 'project' ||
-      (revision === generation &&
-        identity === JSON.stringify(localWorkspace(context.workspace))))
+    (view !== 'project' || identity === JSON.stringify(localWorkspace(context.workspace)))
   connectionPending = true
   refreshConnectionAvailability()
   say(
@@ -741,8 +743,18 @@ on('connect-program', 'click', async () => {
     if (connection?.outcome === 'connected') requestRefresh()
     else {
       setupNeeded = true
+      if (element('program-setup')) element('program-setup').hidden = false
+      if (element('observation-details'))
+        element('observation-details').textContent = connection?.explanation ?? ''
       say(
-        connection?.explanation ?? 'Not connected. Choose Connect Skillager when ready.',
+        view === 'project'
+          ? connection?.outcome === 'interrupted-uncertain'
+            ? 'Skillager’s connection for this project could not be confirmed. Access may have been saved; normal refresh will check it. Choose Connect Skillager to try again if needed, or set it up with your agent.'
+            : connection?.outcome === 'declined'
+              ? 'Skillager was not connected for this project. Choose Connect Skillager when ready, or set it up with your agent.'
+              : 'Skillager could not connect for this project. Set it up with your agent, then choose Connect Skillager.'
+          : (connection?.explanation ??
+              'Not connected. Choose Connect Skillager when ready.'),
         connection?.outcome === 'interrupted-uncertain' ? 'error' : 'unapproved',
       )
     }

@@ -489,7 +489,7 @@ function submitQuery(query: string) {
 }
 const projectConnection = (outcome = 'connected') => ({
   connections: [
-    { connector: 'project-cli', outcome, explanation: 'Project connection was declined' },
+    { connector: 'project-cli', outcome, explanation: 'Opaque core connection fact' },
   ],
 })
 it('connects the current project and automatically preserves exact query/options without library program approval', async () => {
@@ -530,6 +530,36 @@ it('connects the current project and automatically preserves exact query/options
   expect(document.getElementById('state')?.dataset.state).toBe('ready')
   expect(f.initializationRequests).toEqual([])
 })
+it.each(['timer', 'query'] as const)(
+  'automatically discovers after a current pending connection survives %s observations',
+  async (edge) => {
+    const f = packageView('project')
+    f.projectApproval(false)
+    f.libraryApproval(false)
+    f.context(true, localProject)
+    await f.flush()
+    submitQuery('retained query')
+    await f.flush()
+    f.button('connect-program').click()
+    await f.flush()
+    if (edge === 'timer') await vi.advanceTimersByTimeAsync(31_000)
+    else {
+      ;(document.getElementById('separate-copies') as HTMLInputElement).checked = true
+      submitQuery('new query')
+      await f.flush()
+    }
+    const before = f.calls.length
+    f.connected(projectConnection())
+    await f.flush()
+    expect(f.calls.length).toBeGreaterThan(before)
+    const command = f.requests.filter((r) => r.capability === 'connector.execute').at(-1)!
+    const args = command.input.args as string[]
+    expect(command.input.connector).toBe('project-cli')
+    expect(args[1]).toBe(edge === 'timer' ? 'retained query' : 'new query')
+    expect(args[args.indexOf('--view') + 1]).toBe(edge === 'timer' ? 'skills' : 'copies')
+    expect(document.getElementById('state')?.dataset.state).toBe('ready')
+  },
+)
 it.each(['declined', 'unavailable', 'interrupted-uncertain'] as const)(
   'keeps %s connection actionable without pretending discovery succeeded',
   async (outcome) => {
@@ -537,15 +567,28 @@ it.each(['declined', 'unavailable', 'interrupted-uncertain'] as const)(
     f.projectApproval(false)
     f.context(true, localProject)
     await f.flush()
+    document.getElementById('program-setup')!.hidden = true
     f.button('connect-program').click()
     await f.flush()
     const before = f.calls.length
     f.connected(projectConnection(outcome))
     await f.flush()
     expect(f.calls).toHaveLength(before)
-    expect(document.getElementById('state')?.textContent).toContain(
-      'Project connection was declined',
+    expect(document.getElementById('state')?.textContent).toContain('this project')
+    expect(document.getElementById('state')?.textContent).not.toContain('Opaque core')
+    expect(document.getElementById('observation-details')?.textContent).toBe(
+      'Opaque core connection fact',
     )
+    expect(document.getElementById('program-setup')?.hidden).toBe(false)
+    expect(
+      (document.getElementById('setup-request') as HTMLTextAreaElement).value,
+    ).toContain('releases/tag/v0.9.5')
+    if (outcome === 'interrupted-uncertain') {
+      expect(document.getElementById('state')?.textContent).toContain(
+        'may have been saved',
+      )
+      expect(document.getElementById('state')?.dataset.state).toBe('error')
+    }
     expect(f.button('connect-program').disabled).toBe(false)
     expect(f.button('connect-program').hidden).toBe(false)
   },
@@ -651,6 +694,14 @@ it.each(['ssh', 'missing-root', 'capability'] as const)(
     await f.flush()
     expect(f.requests.some((r) => r.capability === 'connector.connect')).toBe(false)
     if (kind !== 'capability') expect(f.calls).toEqual([])
+    else {
+      expect(document.getElementById('state')?.textContent).toContain(
+        'Project program access',
+      )
+      expect(document.getElementById('state')?.textContent).not.toContain(
+        'Choose Connect Skillager here',
+      )
+    }
   },
 )
 it('shows supported-release update guidance in the project tab without initialization', async () => {

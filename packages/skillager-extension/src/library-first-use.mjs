@@ -19,13 +19,18 @@ export function sameCurrentLibrary(selected, current) {
     )
   return current
 }
-export function firstUseFailure(error, retained = false, destination = 'library') {
+export function firstUseFailure(
+  error,
+  retained = false,
+  destination = 'library',
+  canConnect = false,
+) {
   const state = error.setupState ?? 'failed-observation'
   const project = destination === 'project'
   return {
     state: retained ? 'stale' : state,
     setup: ['missing-program', 'update-required'].includes(state),
-    message: `${state === 'missing-program' ? (project ? 'Skillager is not connected for this project. Choose Connect Skillager here to discover its skills.' : 'Skillager is not connected. Set it up, then choose Connect Skillager.') : state === 'update-required' ? 'Update Skillager to a supported current public contract.' : project ? 'Skillager could not observe this project. Your personal library stays separate.' : 'Skillager could not observe your library.'}${retained ? ' Last-known rows retained; freshness unavailable.' : ''}`,
+    message: `${state === 'missing-program' ? (project ? (canConnect ? 'Skillager is not connected for this project. Choose Connect Skillager here to discover its skills.' : 'Skillager is not connected for this project. Open Settings → Extensions → Project program access to choose and approve its program.') : canConnect ? 'Skillager is not connected. Set it up, then choose Connect Skillager.' : 'Skillager is not connected. Open Settings → Extensions → Program access to choose and approve its program.') : state === 'update-required' ? 'Update Skillager to a supported current public contract.' : project ? 'Skillager could not observe this project. Your personal library stays separate.' : 'Skillager could not observe your library.'}${retained ? ' Last-known rows retained; freshness unavailable.' : ''}`,
     detail: error.message,
   }
 }
