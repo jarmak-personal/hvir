@@ -9,14 +9,16 @@ import {
 } from './skillager-first-use'
 import { extensionSettingsControls } from './extension-settings-controls'
 import { captureExtensionVisuals } from './extension-visuals'
+import { verifySkillagerProjectConnection } from './skillager-project-connection'
 import { createHash } from 'node:crypto'
 import { app, type BrowserWindow, type WebContents } from 'electron'
-import { localPath } from '../../shared/host-path'
+import { localPath, type HostPath } from '../../shared/host-path'
 import type { ProjectHost } from '../project-host/project-host'
 import type { ExtensionApplicationRuntime } from '../extensions/extension-application'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import type { ExtensionView } from '../../shared/extensions/workbench'
 interface Controls {
+  readonly projectRoot: HostPath
   click(name: string): Promise<void>
   wait(predicate: () => boolean | Promise<boolean>, label: string): Promise<void>
   guest(view: ExtensionView): Promise<WebContents>
@@ -156,6 +158,18 @@ export async function verifySkillagerExtension(
     'actual project package document/presentation',
   )
   await verifySkillagerNavigation(win, projectGuest, host, navigationControls)
+  await verifySkillagerProjectConnection(
+    win,
+    projectGuest,
+    host,
+    controls.projectRoot,
+    executable,
+    {
+      wait: (predicate, label) => controls.wait(predicate, label),
+      ready: (predicate, label) => ready(projectGuest, predicate, label),
+      within: bounded,
+    },
+  )
   await selectFreshLibrary()
   const searchPorts = {
     within: bounded,
@@ -256,11 +270,12 @@ export async function verifySkillagerExtension(
   phase = 'selected detail guest attachment'
   let detail = await bounded(controls.guest(view('detail')!))
   await controls.wait(
-    () => extensions.sourceRequests!.snapshot(owner).length === 1,
+    () => extensions.sourceRequests!.snapshot(owner)[0]?.state === 'ready',
     'explicit selected read proposes one canonical local root',
   )
   const readProposal = extensions.sourceRequests!.snapshot(owner)[0]!
   if (
+    readProposal.state !== 'ready' ||
     readProposal.root.hostId !== 'local' ||
     readProposal.root.path !== root ||
     readProposal.source !== 'library'
@@ -305,7 +320,7 @@ export async function verifySkillagerExtension(
   }
   detail = await bounded(controls.guest(view('detail')!))
   await controls.wait(
-    () => extensions.sourceRequests!.snapshot(owner).length === 1,
+    () => extensions.sourceRequests!.snapshot(owner)[0]?.state === 'ready',
     'new reader has a distinct root request',
   )
   await inspect(
@@ -333,7 +348,7 @@ export async function verifySkillagerExtension(
   await inspect(detail, "document.getElementById('read-current').click()")
   try {
     await controls.wait(
-      () => extensions.sourceRequests!.snapshot(owner).length === 1,
+      () => extensions.sourceRequests!.snapshot(owner)[0]?.state === 'ready',
       'explicit retry after hiding asks again',
     )
   } catch (error) {
@@ -370,7 +385,7 @@ export async function verifySkillagerExtension(
     throw new Error('Declined read persisted access')
   await inspect(detail, "document.getElementById('read-current').click()")
   await controls.wait(
-    () => extensions.sourceRequests!.snapshot(owner).length === 1,
+    () => extensions.sourceRequests!.snapshot(owner)[0]?.state === 'ready',
     'new explicit Read current decision',
   )
   await controls.click('Allow read-only access')
@@ -495,7 +510,7 @@ export async function verifySkillagerExtension(
     throw new Error('Read current control is hidden')
 
   await controls.wait(
-    () => extensions.sourceRequests!.snapshot(owner).length === 1,
+    () => extensions.sourceRequests!.snapshot(owner)[0]?.state === 'ready',
     'revoked source requires another explicit read decision',
   )
   await controls.click('Not now')

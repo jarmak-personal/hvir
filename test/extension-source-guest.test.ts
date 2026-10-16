@@ -4,7 +4,7 @@ import { ExtensionSourceRequestOwner } from '../src/main/extensions/source-reque
 import { sourceFixture } from './fixtures/extension-source'
 import { fixture, attached } from './fixtures/extension-guest'
 describe('main-owned source origin and current visibility', () => {
-  async function sourceGuest(origin: 'human' | 'agent' | 'action') {
+  async function sourceGuest(origin: 'human' | 'agent' | 'action', granted = true) {
     const source = sourceFixture()
     const data = fixture(
       {},
@@ -37,7 +37,8 @@ describe('main-owned source origin and current visibility', () => {
       () => true,
       () => {},
     )
-    await source.grant()
+    if (granted) await source.grant()
+    else await source.approvals.start()
     source.active.set('installation', data.active.get('installation')!)
     const view = await attached(data, 10, origin)
     data.owner.receive(10, { kind: 'hello', contract: '1.0' })
@@ -154,6 +155,73 @@ describe('main-owned source origin and current visibility', () => {
         })
         expect(f.requests.snapshot(f.data.renderer)).toEqual([])
         expect(f.source.host.readTextFilePrefix).not.toHaveBeenCalled()
+      } finally {
+        await f.close()
+      }
+    },
+  )
+  it.each(['missing', 'file', 'unreadable', 'valid'] as const)(
+    'withholds %s preflight and repeated cancellation outcomes at the real guest transport',
+    async (kind) => {
+      const f = await sourceGuest('human', false)
+      if (kind === 'missing')
+        f.source.host.realpath.mockRejectedValue(
+          new Error('ENOENT private missing folder'),
+        )
+      if (kind === 'unreadable')
+        f.source.host.realpath.mockRejectedValue(new Error('EACCES private folder'))
+      if (kind === 'file')
+        f.source.host.stat.mockResolvedValue({
+          type: 'file',
+          size: 10,
+          mode: 0o644,
+          mtimeMs: 0,
+        })
+      const publicReply = (id: string) =>
+        f.data.sent.filter(
+          (entry) => entry.message.kind === 'result' && entry.message.id === id,
+        )
+      try {
+        for (const id of ['probe-one', 'probe-two']) {
+          f.data.owner.receive(10, {
+            kind: 'request',
+            id,
+            capability: 'source.request',
+            input: { source: 'source', root: f.source.root },
+          })
+          await vi.waitFor(() =>
+            expect(f.requests.snapshot(f.data.renderer)[0]?.state).toBe(
+              kind === 'valid' ? 'ready' : 'failed',
+            ),
+          )
+          expect(publicReply(id)).toEqual([])
+          f.data.owner.receive(10, { kind: 'cancel', id })
+          await vi.waitFor(() => expect(f.requests.snapshot(f.data.renderer)).toEqual([]))
+          await Promise.resolve()
+          expect(publicReply(id)).toEqual([])
+        }
+        f.data.owner.receive(10, {
+          kind: 'request',
+          id: 'human-decision',
+          capability: 'source.request',
+          input: { source: 'source', root: f.source.root },
+        })
+        await vi.waitFor(() =>
+          expect(f.requests.snapshot(f.data.renderer)[0]?.state).toBe(
+            kind === 'valid' ? 'ready' : 'failed',
+          ),
+        )
+        const p = f.requests.snapshot(f.data.renderer)[0]!
+        expect(publicReply('human-decision')).toEqual([])
+        f.requests.decide(f.data.renderer, p.id, false)
+        await vi.waitFor(() => expect(publicReply('human-decision')).toHaveLength(1))
+        expect(publicReply('human-decision')[0]!.message).toMatchObject({
+          kind: 'result',
+          ok: true,
+          value: { granted: false },
+        })
+        expect(f.source.host.readTextFilePrefix).not.toHaveBeenCalled()
+        expect(f.source.state()).toEqual([])
       } finally {
         await f.close()
       }

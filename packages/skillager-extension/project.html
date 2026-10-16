@@ -16,6 +16,7 @@
         <button id="open-library" class="hvir-button">Your library</button
         ><button id="browse" class="hvir-button">Browse</button
         ><button id="refresh" class="hvir-button">Refresh</button>
+        <button id="connect-program" class="hvir-button" hidden>Connect Skillager</button>
         <button id="manage" class="hvir-button" disabled>Manage skills / setup</button>
       </div>
       <form id="search-form">
@@ -47,6 +48,20 @@
           <p id="installed-note" class="hvir-meta"></p>
         </details>
       </form>
+      <details id="program-setup" hidden>
+        <summary>Set up Skillager with your agent</summary>
+        <p>
+          Copy this request into your preferred agent. hvir does not install programs or
+          send it to a terminal.
+        </p>
+        <textarea
+          id="setup-request"
+          class="hvir-input"
+          rows="7"
+          readonly
+          aria-label="Copyable Skillager setup request"
+        ></textarea>
+      </details>
       <p id="state" class="hvir-state" aria-live="polite">Connecting…</p>
       <div
         id="skills"

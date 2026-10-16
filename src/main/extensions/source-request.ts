@@ -1,4 +1,4 @@
-import { containsHostPath } from '../../shared/host-path'
+import { randomUUID } from 'node:crypto'
 import {
   SOURCE_LIMITS,
   type ExtensionSourceRequestProposal,
@@ -25,7 +25,12 @@ export class ExtensionSourceRequestOwner {
     private readonly scopes: Pick<RendererResourceScopes, 'assertCurrent'>,
     private readonly approvals: Pick<
       ExtensionSourceApprovalOwner,
-      'prepare' | 'approve' | 'cancelPrepared' | 'hasPrepared' | 'get'
+      | 'prepare'
+      | 'approve'
+      | 'cancelPrepared'
+      | 'hasPrepared'
+      | 'decisionCurrent'
+      | 'canReuseGrant'
     >,
     private readonly foreground: (owner: RendererOwner) => boolean,
     private readonly publish: (
@@ -52,10 +57,11 @@ export class ExtensionSourceRequestOwner {
       throw new Error(
         'In-context requests cover application-local read-only sources only',
       )
+    const root = readSourcePath(input['root'])
     const controller = new AbortController()
     const signal = AbortSignal.any([caller.signal, controller.signal])
     let proposalToken: string | undefined
-    const current = (): void => {
+    const current = this.approvals.decisionCurrent(() => {
       signal.throwIfAborted()
       caller.current()
       this.scopes.assertCurrent(owner)
@@ -63,84 +69,109 @@ export class ExtensionSourceRequestOwner {
         throw new Error('Read access request ended')
       if (proposalToken && !this.approvals.hasPrepared(proposalToken))
         throw new Error('Read access decision was revoked')
-    }
+    })
     current()
+    if (this.pending.size >= SOURCE_LIMITS.decisions)
+      throw new Error('Too many pending source decisions')
     const pending: SourceDecision = { owner, controller, current }
     this.pending.add(pending)
     let token: string | undefined
     const retire = (): void => {
       if (token) this.approvals.cancelPrepared(token)
-      if (!pending.proposal) return
       proposalToken = undefined
+      if (!pending.proposal) return
       delete pending.proposal
       delete pending.settle
       this.publish(owner, this.snapshot(owner))
     }
-    signal.addEventListener('abort', retire)
+    let abort!: () => void
+    const decision = new Promise<boolean>((resolve, reject) => {
+      pending.settle = resolve
+      abort = () => {
+        try {
+          retire()
+        } catch (reason) {
+          // A publication failure belongs to this request, not an uncaught abort event.
+          reject(
+            reason instanceof Error
+              ? reason
+              : new Error('Read decision publication failed'),
+          )
+        }
+        reject(
+          signal.reason instanceof Error
+            ? signal.reason
+            : new Error('Read access request ended'),
+        )
+      }
+      signal.addEventListener('abort', abort, { once: true })
+    })
+    // Own cancellation before publication or any physical preparation can throw.
+    void decision.catch(() => undefined)
     const deadline = setTimeout(
       () => controller.abort(new Error('Read access decision expired')),
       SOURCE_LIMITS.decisionMs,
     )
     try {
-      const prepared = await this.approvals.prepare(
-        {
-          installationId: caller.activation.installationId,
-          source,
-          root: readSourcePath(input['root']),
-        },
-        current,
-      )
-      token = prepared.token
-      current()
-      const existing = this.approvals.get(caller.activation, source)
-      if (
-        existing?.root &&
-        prepared.grant.root &&
-        containsHostPath(existing.root, prepared.grant.root)
-      )
+      if (await this.approvals.canReuseGrant(caller.activation, source, root, current))
         return { granted: true }
+      current()
       pending.proposal = {
-        id: token,
+        id: randomUUID(),
         name: caller.activation.revision.manifest.name,
         source,
         description: declaration.description,
-        root: prepared.grant.root!,
+        reportedRoot: root,
+        state: 'preparing',
       }
-      proposalToken = token
-      let abort!: () => void
-      const decision = new Promise<boolean>((resolve, reject) => {
-        abort = () =>
-          reject(
-            signal.reason instanceof Error
-              ? signal.reason
-              : new Error('Read access request ended'),
-          )
-        pending.settle = resolve
-        signal.addEventListener('abort', abort, { once: true })
-      })
-      // Publication can throw before the await; the same promise still owns cancellation.
-      void decision.catch(() => undefined)
+      this.publish(owner, this.snapshot(owner))
+      current()
       try {
+        const prepared = await this.approvals.prepare(
+          { installationId: caller.activation.installationId, source, root },
+          current,
+        )
+        token = prepared.token
         current()
-        this.publish(owner, this.snapshot(owner))
-        const accepted = await decision
-        proposalToken = undefined
+        proposalToken = token
+        if (pending.proposal)
+          pending.proposal = {
+            ...pending.proposal,
+            state: 'ready',
+            root: prepared.grant.root!,
+          }
+      } catch (reason) {
         current()
-        if (!accepted) return { granted: false }
-        // Await the owning physical write; cancellation cannot prove its rollback.
-        await this.approvals.approve(token)
-        current()
-        return { granted: true }
-      } finally {
-        signal.removeEventListener('abort', abort)
+        // Preparation distinctions belong only to trusted chrome, never the guest reply.
+        if (pending.proposal)
+          pending.proposal = {
+            ...pending.proposal,
+            state: 'failed',
+            explanation:
+              reason instanceof Error
+                ? reason.message
+                : 'This folder could not be checked.',
+          }
       }
+      if (pending.proposal) this.publish(owner, this.snapshot(owner))
+      const accepted = await decision
+      proposalToken = undefined
+      current()
+      if (!accepted) return { granted: false }
+      // Await the owning physical write; cancellation cannot prove its rollback.
+      await this.approvals.approve(token!)
+      current()
+      return { granted: true }
     } finally {
       clearTimeout(deadline)
-      signal.removeEventListener('abort', retire)
-      retire()
-      if (token) this.approvals.cancelPrepared(token)
-      this.pending.delete(pending)
-      controller.abort()
+      signal.removeEventListener('abort', abort)
+      try {
+        retire()
+      } finally {
+        if (token) this.approvals.cancelPrepared(token)
+        this.pending.delete(pending)
+        controller.abort()
+      }
     }
   }
 
@@ -156,6 +187,8 @@ export class ExtensionSourceRequestOwner {
     if (!entry?.settle || typeof accepted !== 'boolean')
       throw new Error('Read access decision is no longer current')
     entry.current()
+    if (accepted && entry.proposal?.state !== 'ready')
+      throw new Error('Wait for an accessible canonical folder before allowing access')
     const settle = entry.settle
     delete entry.proposal
     delete entry.settle

@@ -20,7 +20,8 @@ function packageView(view = 'library') {
   document.body.replaceChildren(template.content.cloneNode(true))
   document.body.dataset.view = view
   let receive!: (message: unknown) => void
-  const calls: string[][] = [],
+  const requests: Array<{ capability: string; input: Record<string, unknown> }> = [],
+    calls: string[][] = [],
     outputs = new Map<string, string>()
   let serial = 0,
     fail = false,
@@ -35,8 +36,11 @@ function packageView(view = 'library') {
     hold = false,
     frequency = false,
     unapproved = false,
+    projectApproved = true,
+    libraryApproved = true,
+    version = '0.9.3',
     resume: (() => void) | undefined,
-    finishConnection: ((value: unknown) => void) | undefined
+    finishConnection: ((value: unknown, error?: string) => void) | undefined
   const opened: Record<string, unknown>[] = []
   const initializationRequests: Record<string, unknown>[] = []
   const send = (message: {
@@ -45,7 +49,12 @@ function packageView(view = 'library') {
     capability: string
     input: Record<string, unknown>
   }) => {
+    if (message.kind === 'hello') {
+      receive({ kind: 'hello', capabilities: ['connector.connect'] })
+      return
+    }
     if (message.kind !== 'request') return
+    requests.push({ capability: message.capability, input: message.input })
     let value: unknown
     if (message.capability === 'viewer.open-own') opened.push(message.input)
     if (message.capability === 'actions.invoke') {
@@ -66,14 +75,27 @@ function packageView(view = 'library') {
       return
     }
     if (message.capability === 'connector.connect') {
-      finishConnection = (value) =>
-        receive({ kind: 'result', id: message.id, ok: true, value })
+      finishConnection = (value, error) => {
+        if (
+          (
+            value as { connections?: { connector: string; outcome: string }[] }
+          )?.connections?.some(
+            (entry) => entry.connector === 'project-cli' && entry.outcome === 'connected',
+          )
+        )
+          projectApproved = true
+        receive({ kind: 'result', id: message.id, ok: !error, value, error })
+      }
       return
     }
     if (message.capability === 'connector.execute') {
       const args = message.input.args as string[]
       calls.push(args)
-      if (unapproved) {
+      if (
+        unapproved ||
+        (message.input.connector === 'project-cli' && !projectApproved) ||
+        (message.input.connector === 'library-cli' && !libraryApproved)
+      ) {
         unapproved = false
         value = { outcome: 'not-started', reason: 'unapproved' }
       } else if (frequency) {
@@ -88,7 +110,7 @@ function packageView(view = 'library') {
         const index = args.includes('--cursor') && cursor ? Number(cursor) : 0
         const text =
           args[0] === '--version'
-            ? 'skillager 0.9.3'
+            ? `skillager ${version}`
             : JSON.stringify(
                 args[0] === 'library'
                   ? {
@@ -216,6 +238,17 @@ function packageView(view = 'library') {
   const flush = () => vi.advanceTimersByTimeAsync(1500)
   return {
     context,
+    projectApproval: (approved: boolean) => {
+      projectApproved = approved
+    },
+    libraryApproval: (approved: boolean) => {
+      libraryApproved = approved
+    },
+    version: (value: string) => {
+      version = value
+    },
+    capabilities: (capabilities: string[]) => receive({ kind: 'hello', capabilities }),
+    requests,
     button,
     flush,
     calls,
@@ -255,6 +288,7 @@ function packageView(view = 'library') {
     },
     resume: () => resume?.(),
     connected: (value: unknown) => finishConnection?.(value),
+    connectionFailed: () => finishConnection?.(undefined, 'Old connection failed'),
   }
 }
 
@@ -442,6 +476,289 @@ it('delivers the current Connect result after picker context focus loss without 
   )
 })
 
+const localProject = {
+  id: 'project-a',
+  host: 'local',
+  root: { hostId: 'local', path: '/project-a' },
+}
+function submitQuery(query: string) {
+  ;(document.getElementById('query') as HTMLInputElement).value = query
+  document
+    .getElementById('search-form')!
+    .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+}
+const projectConnection = (outcome = 'connected') => ({
+  connections: [
+    { connector: 'project-cli', outcome, explanation: 'Opaque core connection fact' },
+  ],
+})
+it('connects the current project and automatically preserves exact query/options without library program approval', async () => {
+  const f = packageView('project')
+  f.projectApproval(false)
+  f.libraryApproval(false)
+  f.context(true, localProject)
+  await f.flush()
+  expect(f.button('connect-program').hidden).toBe(false)
+  expect(document.getElementById('state')?.textContent).toContain('for this project')
+  ;(document.getElementById('separate-copies') as HTMLInputElement).checked = true
+  ;(document.getElementById('preferred-agent') as HTMLSelectElement).value = 'claude'
+  submitQuery('exact query')
+  await f.flush()
+  f.button('connect-program').click()
+  await f.flush()
+  expect(f.requests.filter((r) => r.capability === 'connector.connect')).toEqual([
+    { capability: 'connector.connect', input: { connector: 'project-cli' } },
+  ])
+  f.connected(projectConnection())
+  await f.flush()
+  const commands = f.requests.filter((r) => r.capability === 'connector.execute')
+  expect(
+    commands.every(
+      (r) =>
+        r.input.connector === 'project-cli' &&
+        r.input.workspace === 'project-a' &&
+        r.input.host === 'local',
+    ),
+  ).toBe(true)
+  const search = commands.at(-1)!.input.args as string[]
+  expect(search[0]).toBe('search')
+  expect(search[1]).toBe('exact query')
+  expect(search[search.indexOf('--installed-project') + 1]).toBe('/project-a')
+  expect(search[search.indexOf('--view') + 1]).toBe('copies')
+  expect(search[search.indexOf('--agent') + 1]).toBe('claude')
+  expect(f.button('connect-program').hidden).toBe(true)
+  expect(document.getElementById('state')?.dataset.state).toBe('ready')
+  expect(f.initializationRequests).toEqual([])
+})
+it.each(['timer', 'query'] as const)(
+  'automatically discovers after a current pending connection survives %s observations',
+  async (edge) => {
+    const f = packageView('project')
+    f.projectApproval(false)
+    f.libraryApproval(false)
+    f.context(true, localProject)
+    await f.flush()
+    submitQuery('retained query')
+    await f.flush()
+    f.button('connect-program').click()
+    await f.flush()
+    if (edge === 'timer') await vi.advanceTimersByTimeAsync(31_000)
+    else {
+      ;(document.getElementById('separate-copies') as HTMLInputElement).checked = true
+      submitQuery('new query')
+      await f.flush()
+    }
+    const before = f.calls.length
+    f.connected(projectConnection())
+    await f.flush()
+    expect(f.calls.length).toBeGreaterThan(before)
+    const command = f.requests.filter((r) => r.capability === 'connector.execute').at(-1)!
+    const args = command.input.args as string[]
+    expect(command.input.connector).toBe('project-cli')
+    expect(args[1]).toBe(edge === 'timer' ? 'retained query' : 'new query')
+    expect(args[args.indexOf('--view') + 1]).toBe(edge === 'timer' ? 'skills' : 'copies')
+    expect(document.getElementById('state')?.dataset.state).toBe('ready')
+  },
+)
+it.each(['declined', 'unavailable', 'interrupted-uncertain'] as const)(
+  'keeps %s connection actionable without pretending discovery succeeded',
+  async (outcome) => {
+    const f = packageView('project')
+    f.projectApproval(false)
+    f.context(true, localProject)
+    await f.flush()
+    document.getElementById('program-setup')!.hidden = true
+    f.button('connect-program').click()
+    await f.flush()
+    const before = f.calls.length
+    f.connected(projectConnection(outcome))
+    await f.flush()
+    expect(f.calls).toHaveLength(before)
+    expect(document.getElementById('state')?.textContent).toContain('this project')
+    expect(document.getElementById('state')?.textContent).not.toContain('Opaque core')
+    expect(document.getElementById('observation-details')?.textContent).toBe(
+      'Opaque core connection fact',
+    )
+    expect(document.getElementById('program-setup')?.hidden).toBe(false)
+    expect(
+      (document.getElementById('setup-request') as HTMLTextAreaElement).value,
+    ).toContain('releases/tag/v0.9.5')
+    if (outcome === 'interrupted-uncertain') {
+      expect(document.getElementById('state')?.textContent).toContain(
+        'may have been saved',
+      )
+      expect(document.getElementById('state')?.dataset.state).toBe('error')
+    }
+    expect(f.button('connect-program').disabled).toBe(false)
+    expect(f.button('connect-program').hidden).toBe(false)
+  },
+)
+it.each(['switch', 'roundtrip', 'root', 'hide'] as const)(
+  'ignores both late connection branches after %s and observes only renewed current demand',
+  async (edge) => {
+    const f = packageView('project')
+    f.projectApproval(false)
+    f.context(true, localProject)
+    await f.flush()
+    submitQuery('kept query')
+    await f.flush()
+    f.button('connect-program').click()
+    await f.flush()
+    if (edge === 'switch' || edge === 'roundtrip')
+      f.context(true, {
+        ...localProject,
+        id: 'project-b',
+        root: { hostId: 'local', path: '/project-b' },
+      })
+    if (edge === 'roundtrip') f.context(true, localProject)
+    if (edge === 'root')
+      f.context(true, {
+        ...localProject,
+        root: { hostId: 'local', path: '/replacement' },
+      })
+    if (edge === 'hide') {
+      f.context(false, localProject)
+      f.context(true, localProject)
+    }
+    await f.flush()
+    const before = document.getElementById('state')?.textContent,
+      calls = f.calls.length
+    f.connectionFailed()
+    await f.flush()
+    expect(document.getElementById('state')?.textContent).toBe(before)
+    expect(f.calls).toHaveLength(calls)
+    f.button('connect-program').click()
+    await f.flush()
+    f.context(false, localProject)
+    f.context(true, localProject)
+    await f.flush()
+    const resumed = f.calls.length
+    f.connected(projectConnection())
+    await f.flush()
+    expect(f.calls).toHaveLength(resumed) // Retired result does not trigger refresh.
+    await vi.advanceTimersByTimeAsync(31_000)
+    expect(f.calls.length).toBeGreaterThan(resumed)
+    expect(document.getElementById('state')?.dataset.state).toBe('ready')
+    expect((document.getElementById('query') as HTMLInputElement).value).toBe(
+      'kept query',
+    )
+  },
+)
+it.each(['root', 'roundtrip', 'hide'] as const)(
+  'stops version-to-command continuation after %s',
+  async (edge) => {
+    const f = packageView('project')
+    f.hold()
+    f.context(true, localProject)
+    await vi.advanceTimersByTimeAsync(100)
+    if (edge === 'root')
+      f.context(true, {
+        ...localProject,
+        root: { hostId: 'local', path: '/replacement' },
+      })
+    if (edge === 'roundtrip') {
+      f.context(true, { ...localProject, id: 'project-b' })
+      f.context(true, localProject)
+    }
+    if (edge === 'hide') {
+      f.context(false, localProject)
+      f.context(true, localProject)
+    }
+    f.resume()
+    await f.flush()
+    const executed = f.requests.filter((r) => r.capability === 'connector.execute')
+    expect(executed.slice(0, 2).map((r) => (r.input.args as string[])[0])).toEqual([
+      '--version',
+      '--version',
+    ])
+    expect(executed.every((r) => r.input.connector === 'project-cli')).toBe(true)
+  },
+)
+it.each(['ssh', 'missing-root', 'capability'] as const)(
+  'hides unusable project Connect for %s',
+  async (kind) => {
+    const f = packageView('project')
+    f.projectApproval(false)
+    if (kind === 'capability') f.capabilities([])
+    f.context(
+      true,
+      kind === 'ssh'
+        ? { ...localProject, host: 'ssh', root: { hostId: 'ssh', path: '/remote' } }
+        : kind === 'missing-root'
+          ? { id: 'project-a', host: 'local' }
+          : localProject,
+    )
+    await f.flush()
+    expect(f.button('connect-program').hidden).toBe(true)
+    f.button('connect-program').click()
+    await f.flush()
+    expect(f.requests.some((r) => r.capability === 'connector.connect')).toBe(false)
+    if (kind !== 'capability') expect(f.calls).toEqual([])
+    else {
+      expect(document.getElementById('state')?.textContent).toContain(
+        'Project program access',
+      )
+      expect(document.getElementById('state')?.textContent).not.toContain(
+        'Choose Connect Skillager here',
+      )
+    }
+  },
+)
+it('shows supported-release update guidance in the project tab without initialization', async () => {
+  const f = packageView('project')
+  f.version('0.9.2')
+  f.context(true, localProject)
+  await f.flush()
+  expect(document.getElementById('state')?.textContent).toContain('Update Skillager')
+  expect(document.getElementById('observation-details')?.textContent).toContain('0.9.3')
+  expect(document.getElementById('program-setup')?.hidden).toBe(false)
+  expect(
+    (document.getElementById('setup-request') as HTMLTextAreaElement).value,
+  ).toContain('releases/tag/v0.9.5')
+  expect(f.initializationRequests).toEqual([])
+})
+
+it.each(['ssh', 'missing-root'] as const)(
+  'guides an unapproved independent library query in %s context to application Program access',
+  async (kind) => {
+    const f = packageView('project')
+    f.libraryApproval(false)
+    f.context(
+      true,
+      kind === 'ssh'
+        ? { ...localProject, host: 'ssh', root: { hostId: 'ssh', path: '/remote' } }
+        : { id: 'project-a', host: 'local' },
+    )
+    await f.flush()
+    expect(f.calls).toEqual([]) // Unknown project presence did not run a local project command.
+    expect(document.getElementById('state')?.textContent).toContain('this project')
+    submitQuery('independent library query')
+    await f.flush()
+    const commands = f.requests.filter(
+      (request) => request.capability === 'connector.execute',
+    )
+    expect(commands.length).toBeGreaterThan(0)
+    expect(
+      commands.every(
+        (request) =>
+          request.input.connector === 'library-cli' &&
+          request.input.host === 'local' &&
+          !request.input.workspace,
+      ),
+    ).toBe(true)
+    expect(
+      commands.every(
+        (request) => !(request.input.args as string[]).includes('--installed-project'),
+      ),
+    ).toBe(true)
+    expect(document.getElementById('state')?.textContent).toContain('Program access')
+    expect(document.getElementById('state')?.textContent).not.toContain(
+      'Project program access',
+    )
+    expect(f.button('connect-program').hidden).toBe(true)
+  },
+)
+
 it('automatically observes an uninitialized library without listing or initializing it', async () => {
   const f = packageView()
   f.uninitialized()
@@ -468,8 +785,10 @@ it('shows an empty current library and actionable supported-source guidance inde
   )
   expect(document.getElementById('program-setup')?.hidden).toBe(false)
   const request = (document.getElementById('setup-request') as HTMLTextAreaElement).value
-  expect(request).toContain('https://github.com/jarmak-personal/skillager/pull/75')
-  expect(request).toContain('Version 0.9.3 alone is insufficient')
+  expect(request).toContain(
+    'https://github.com/jarmak-personal/skillager/releases/tag/v0.9.5',
+  )
+  expect(request).toContain('Preserve my existing libraries and project skills')
   expect(f.calls.filter((args) => args[0] === 'list')).toHaveLength(1)
 })
 

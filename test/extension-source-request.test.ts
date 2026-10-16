@@ -63,8 +63,10 @@ function barrier() {
   return { resume, enter, waiting, entered }
 }
 async function proposal(f: Awaited<ReturnType<typeof fixture>>) {
-  await vi.waitFor(() => expect(f.owner.snapshot(f.renderer)).toHaveLength(1))
-  return f.owner.snapshot(f.renderer)[0]!
+  await vi.waitFor(() => expect(f.owner.snapshot(f.renderer)[0]?.state).toBe('ready'))
+  const p = f.owner.snapshot(f.renderer)[0]!
+  if (p.state !== 'ready') throw new Error('Canonical proposal not ready')
+  return p
 }
 describe('in-context canonical human read decision', () => {
   it('reuses a current manual ancestor grant without replacing its scope', async () => {
@@ -93,6 +95,151 @@ describe('in-context canonical human read decision', () => {
       f.reading.select(f.caller, { source: 'source', path: f.path }),
     ).resolves.toMatchObject({ path: f.path })
   })
+  it('reuses permission without probing but still refuses covered missing or escaping files', async () => {
+    const f = await fixture()
+    await f.grant()
+    f.host.realpath.mockClear()
+    f.host.stat.mockClear()
+    f.host.realpath.mockImplementation((path) =>
+      path.path === f.path.path
+        ? Promise.reject(new Error('ENOENT private missing file'))
+        : Promise.resolve(path),
+    )
+    await expect(f.request()).resolves.toEqual({ granted: true })
+    expect(f.host.realpath).not.toHaveBeenCalled()
+    await expect(
+      f.reading.select(f.caller, { source: 'source', path: f.path }),
+    ).rejects.toThrow(/ENOENT/)
+    f.host.realpath.mockImplementation((path) =>
+      Promise.resolve(path.path === f.path.path ? localPath('/private/escape.md') : path),
+    )
+    await expect(
+      f.reading.select(f.caller, { source: 'source', path: f.path }),
+    ).rejects.toThrow()
+    expect(f.host.readTextFilePrefix).not.toHaveBeenCalled()
+  })
+  it.each(['missing', 'file', 'unreadable', 'valid'] as const)(
+    'keeps %s preparation private until the same human decision',
+    async (kind) => {
+      const f = await fixture(),
+        b = barrier()
+      const original = f.host.realpath.getMockImplementation()!
+      f.host.realpath.mockImplementationOnce(async (...args) => {
+        b.enter()
+        await b.waiting
+        if (kind === 'missing') throw new Error('ENOENT private missing folder')
+        if (kind === 'unreadable') throw new Error('EACCES private folder')
+        return original(...args)
+      })
+      if (kind === 'file')
+        f.host.stat.mockResolvedValue({ type: 'file', size: 10, mode: 0o644, mtimeMs: 0 })
+      const settled = vi.fn(),
+        request = f.request().then(settled)
+      await b.entered
+      const preparing = f.owner.snapshot(f.renderer)[0]!
+      expect(preparing).toMatchObject({ state: 'preparing', reportedRoot: f.root })
+      expect(preparing).not.toHaveProperty('root')
+      expect(() => f.owner.decide(f.renderer, preparing.id, true)).toThrow(/canonical/)
+      b.resume()
+      await vi.waitFor(() =>
+        expect(f.owner.snapshot(f.renderer)[0]?.state).toBe(
+          kind === 'valid' ? 'ready' : 'failed',
+        ),
+      )
+      expect(settled).not.toHaveBeenCalled()
+      f.owner.decide(f.renderer, preparing.id, false)
+      await request
+      expect(settled).toHaveBeenCalledWith({ granted: false })
+      expect(f.owner.snapshot(f.renderer)).toEqual([])
+      expect(f.state()).toEqual([])
+    },
+  )
+  it('retires a human decline immediately but owns late physical preparation and token cleanup', async () => {
+    const f = await fixture(),
+      b = barrier(),
+      original = f.host.realpath.getMockImplementation()!
+    f.host.realpath.mockImplementationOnce(async (...args) => {
+      b.enter()
+      await b.waiting
+      return original(...args)
+    })
+    const settled = vi.fn(),
+      request = f.request().then(settled)
+    await b.entered
+    const p = f.owner.snapshot(f.renderer)[0]!
+    f.owner.decide(f.renderer, p.id, false)
+    expect(f.owner.snapshot(f.renderer)).toEqual([])
+    expect(settled).not.toHaveBeenCalled()
+    b.resume()
+    await request
+    expect(settled).toHaveBeenCalledWith({ granted: false })
+    expect(f.owner.snapshot(f.renderer)).toEqual([])
+    expect(f.state()).toEqual([])
+    // All canonical slots are available: no orphan token remains after late completion.
+    const tokens = await Promise.all(
+      Array.from({ length: SOURCE_LIMITS.decisions }, () =>
+        f.approvals.prepare(
+          { installationId: 'installation', source: 'source', root: f.root },
+          () => {},
+        ),
+      ),
+    )
+    for (const prepared of tokens) f.approvals.cancelPrepared(prepared.token)
+  })
+  it.each(['ready', 'failed'] as const)(
+    'retains %s admission and physical canceled preparation',
+    async (state) => {
+      const f = await fixture(),
+        b = barrier()
+      f.host.realpath.mockImplementation(async () => {
+        b.enter()
+        await b.waiting
+        throw new Error('ENOENT private folder')
+      })
+      const requests = Array.from({ length: SOURCE_LIMITS.decisions }, () => f.request())
+      const rejected = requests.map((request) => expect(request).rejects.toThrow())
+      await b.entered
+      expect(f.owner.snapshot(f.renderer)).toHaveLength(SOURCE_LIMITS.decisions)
+      f.controller.abort()
+      expect(f.owner.snapshot(f.renderer)).toEqual([])
+      const caller = { ...f.caller, signal: new AbortController().signal }
+      await expect(
+        f.owner.request(caller, { source: 'source', root: f.root }, f.renderer),
+      ).rejects.toThrow(/Too many/)
+      b.resume()
+      await Promise.all(rejected)
+      if (state === 'ready')
+        f.host.realpath.mockImplementation((path) => Promise.resolve(path))
+      const failed = Array.from({ length: SOURCE_LIMITS.decisions }, () =>
+        f.owner.request(caller, { source: 'source', root: f.root }, f.renderer),
+      )
+      await vi.waitFor(() =>
+        expect(
+          f.owner.snapshot(f.renderer).filter((p) => p.state === state),
+        ).toHaveLength(SOURCE_LIMITS.decisions),
+      )
+      expect(f.owner.snapshot(f.renderer)).toHaveLength(SOURCE_LIMITS.decisions)
+      await expect(
+        f.owner.request(caller, { source: 'source', root: f.root }, f.renderer),
+      ).rejects.toThrow(/Too many/)
+      for (const p of f.owner.snapshot(f.renderer))
+        f.owner.decide(f.renderer, p.id, false)
+      await expect(Promise.all(failed)).resolves.toEqual(
+        Array.from({ length: SOURCE_LIMITS.decisions }, () => ({ granted: false })),
+      )
+    },
+  )
+  it('retires failed preparation on canonical revocation even without a token', async () => {
+    const f = await fixture()
+    f.host.realpath.mockRejectedValue(new Error('ENOENT private folder'))
+    const request = f.request(),
+      rejected = expect(request).rejects.toThrow(/revoked|ended/)
+    await vi.waitFor(() => expect(f.owner.snapshot(f.renderer)[0]?.state).toBe('failed'))
+    f.approvals.discardPrepared('installation', 'source')
+    f.owner.revalidate()
+    expect(f.owner.snapshot(f.renderer)).toEqual([])
+    await rejected
+  })
   it('does not reuse an unrelated sibling saved scope', async () => {
     const f = await fixture()
     f.authority.readSourceGrants.mockResolvedValueOnce([
@@ -120,7 +267,8 @@ describe('in-context canonical human read decision', () => {
       },
     ])
     await f.approvals.start()
-    await expect(f.request()).rejects.toThrow(/Saved read grants/)
+    const request = f.request()
+    await expect(request).rejects.toThrow(/Saved read grants/)
     expect(f.owner.snapshot(f.renderer)).toEqual([])
     expect(f.authority.saveSourceGrants).not.toHaveBeenCalled()
   })
@@ -186,7 +334,7 @@ describe('in-context canonical human read decision', () => {
     expect(f.state()).not.toEqual([])
     expect(f.owner.snapshot(f.renderer)).toEqual([])
   })
-  it('retains preparation admission and rejects a hidden-then-returned intent before publication', async () => {
+  it('retains preparation admission and rejects a hidden-then-returned intent without late publication', async () => {
     const f = await fixture(),
       b = barrier(),
       original = f.host.realpath.getMockImplementation()!
@@ -261,6 +409,19 @@ describe('in-context canonical human read decision', () => {
     await rejected
     expect(f.state()).toEqual([])
   })
+  it('contains abort-time publication failure in the owning request and frees admission', async () => {
+    const f = await fixture(),
+      request = f.request(),
+      rejected = expect(request).rejects.toThrow(/Publication failed/)
+    await proposal(f)
+    f.publish.mockImplementationOnce(() => {
+      throw new Error('Publication failed')
+    })
+    f.controller.abort()
+    await rejected
+    expect(f.owner.snapshot(f.renderer)).toEqual([])
+    expect(f.state()).toEqual([])
+  })
   it.each(['initial', 'decision'] as const)(
     'cleans tokens and admission after %s publication fails',
     async (edge) => {
@@ -287,18 +448,23 @@ describe('in-context canonical human read decision', () => {
       await expect(next).resolves.toEqual({ granted: false })
     },
   )
-  it('expires a finite decision without a grant', async () => {
-    vi.useFakeTimers()
-    const f = await fixture(),
-      request = f.request(),
-      rejection = expect(request).rejects.toThrow(/expired/)
-    await vi.advanceTimersByTimeAsync(0)
-    expect(f.owner.snapshot(f.renderer)).toHaveLength(1)
-    await vi.advanceTimersByTimeAsync(SOURCE_LIMITS.decisionMs)
-    await rejection
-    expect(f.owner.snapshot(f.renderer)).toEqual([])
-    expect(f.state()).toEqual([])
-  })
+  it.each(['ready', 'failed'] as const)(
+    'expires a finite %s decision without a grant',
+    async (state) => {
+      vi.useFakeTimers()
+      const f = await fixture()
+      if (state === 'failed')
+        f.host.realpath.mockRejectedValue(new Error('ENOENT private folder'))
+      const request = f.request(),
+        rejection = expect(request).rejects.toThrow(/expired/)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(f.owner.snapshot(f.renderer)[0]?.state).toBe(state)
+      await vi.advanceTimersByTimeAsync(SOURCE_LIMITS.decisionMs)
+      await rejection
+      expect(f.owner.snapshot(f.renderer)).toEqual([])
+      expect(f.state()).toEqual([])
+    },
+  )
   it('does not admit workspace, agent, or caller-supplied authority requests', async () => {
     const f = await fixture('workspace')
     await expect(f.request()).rejects.toThrow(/application-local/)
