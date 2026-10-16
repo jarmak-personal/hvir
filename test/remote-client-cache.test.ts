@@ -86,10 +86,12 @@ function fixture(owner: CacheCase, parent = tmpdir()) {
       instance = randomUUID()
     let directory = ''
     // Registered before startup: chmod failure and late mkdtemp completion are owned too.
-    owner.cleanups.push(async () => {
-      await host.dispose()
-      if (directory) await rm(directory, { recursive: true, force: true })
-    })
+    owner.cleanups.push(
+      async () => {
+        if (directory) await rm(directory, { recursive: true, force: true })
+      },
+      () => host.dispose(),
+    )
     directory = await mkdtemp(join(parent, 'hvir-cache-'))
     await chmod(directory, 0o700)
     const asset = (version = 'one') => {
@@ -575,26 +577,74 @@ it('drains rejected-acquisition siblings and reports every reverse cleanup failu
   await rejected
   expect(events).toEqual(['second', 'first'])
 })
-it('retains cleanup registered during partial cache startup before its first await', async () => {
+it('registers real fixture host cleanup before its first startup await can fail', async () => {
   const owner = new CacheCase(),
-    startup = cacheDeferred(),
+    dispose = vi.spyOn(LocalHost.prototype, 'dispose'),
+    missingParent = join(tmpdir(), `absent-cache-parent-${randomUUID()}`)
+  try {
+    await expect(fixture(owner, missingParent)).rejects.toMatchObject({ code: 'ENOENT' })
+    await owner.dispose()
+    expect(dispose).toHaveBeenCalledOnce()
+  } finally {
+    dispose.mockRestore()
+  }
+})
+it('drains detached cache work admitted after disposal starts and outliving its first snapshot', async () => {
+  const owner = new CacheCase(),
+    admit = cacheDeferred(),
     started = cacheDeferred(),
-    failure = new Error('startup failed'),
+    lateStarted = cacheDeferred(),
+    late = cacheDeferred(),
     events: string[] = []
-  const work = owner.retain(async () => {
-    owner.cleanups.push(() => {
-      events.push('host disposed', 'partial root removed')
-      return Promise.resolve()
-    })
+  owner.cleanups.push(() => {
+    events.push('cleanup')
+    return Promise.resolve()
+  })
+  let detached!: Promise<void>
+  const first = owner.retain(async () => {
     started.resolve()
-    await startup.promise
+    await admit.promise
+    detached = owner.retain(async () => {
+      lateStarted.resolve()
+      await late.promise
+      events.push('detached settled')
+    })
+    // The first snapshot's operation does not await this new operation.
   })
   await started.promise
   const cleanup = owner.dispose()
-  const failed = expect(work).rejects.toBe(failure)
-  expect(events).toEqual([])
-  startup.reject(failure)
-  await failed
-  await cleanup
-  expect(events).toEqual(['host disposed', 'partial root removed'])
+  admit.resolve()
+  try {
+    await lateStarted.promise
+    await first
+    // Drain the first snapshot's microtasks before observing cleanup.
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(events).toEqual([])
+  } finally {
+    late.resolve()
+    await detached
+    await cleanup
+  }
+  expect(events).toEqual(['detached settled', 'cleanup'])
+})
+it('attempts real fixture root removal after host disposal rejects and preserves the failure', async () => {
+  const owner = new CacheCase(),
+    f = await fixture(owner),
+    original = f.host.dispose.bind(f.host),
+    failure = new Error('host disposal failed after physical settlement'),
+    events: string[] = []
+  const dispose = vi.spyOn(f.host, 'dispose').mockImplementation(async () => {
+    await original()
+    expect((await stat(f.directory)).isDirectory()).toBe(true)
+    events.push('host disposal attempted before root removal')
+    throw failure
+  })
+  try {
+    await expect(owner.dispose()).rejects.toMatchObject({ errors: [failure] })
+    expect(events).toEqual(['host disposal attempted before root removal'])
+    await expect(stat(f.directory)).rejects.toMatchObject({ code: 'ENOENT' })
+  } finally {
+    dispose.mockRestore()
+    await rm(f.directory, { recursive: true, force: true })
+  }
 })
