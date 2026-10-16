@@ -14,45 +14,122 @@ import { tmpdir } from 'node:os'
 import { afterEach, expect, it, vi } from 'vitest'
 import { LocalHost } from '../src/main/project-host/local-host'
 import { localPath } from '../src/shared/host-path'
-import { RemoteClientCache } from '../src/main/agent/remote-client-cache'
+import {
+  RemoteClientCache,
+  type CachedRemoteClient,
+} from '../src/main/agent/remote-client-cache'
 
-const cleanups: (() => Promise<void>)[] = []
-afterEach(async () => {
-  for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
-})
-async function fixture(parent = tmpdir()) {
-  const directory = await mkdtemp(join(parent, 'hvir-cache-')),
-    host = new LocalHost(),
-    cache = new RemoteClientCache(),
-    instance = randomUUID()
-  await chmod(directory, 0o700)
-  cleanups.push(async () => {
-    await host.dispose()
-    await rm(directory, { recursive: true, force: true })
-  })
-  const asset = (version = 'one') => {
-    const bytes = Buffer.from(
-      `#!/bin/sh\n# ${version}\ncase "$1" in --hvir-client-probe) printf 'hvir-agent transport 1.0\\n';; --hvir-client-probe-socket) printf stale;; *) exit 69;; esac\n`,
+// Retain the callback, not just the commands visible when Vitest times it out.
+class CacheCase {
+  private readonly pending = new Set<Promise<void>>()
+  readonly cleanups: (() => Promise<void>)[] = []
+  private disposal?: Promise<void>
+
+  retain<T>(work: () => Promise<T>): Promise<T> {
+    const result = Promise.resolve().then(work)
+    const settled = result.then(
+      () => undefined,
+      () => undefined,
     )
-    return {
-      bytes,
-      sha256: createHash('sha256').update(bytes).digest('hex'),
-      target: 'macos-arm64',
+    this.pending.add(settled)
+    void settled.then(() => this.pending.delete(settled))
+    return result
+  }
+
+  dispose(): Promise<void> {
+    return (this.disposal ??= (async () => {
+      while (this.pending.size) await Promise.all([...this.pending])
+      const failures: unknown[] = []
+      for (const cleanup of this.cleanups.splice(0).reverse()) {
+        try {
+          await cleanup()
+        } catch (reason) {
+          failures.push(reason)
+        }
+      }
+      if (failures.length)
+        throw new AggregateError(failures, 'Cache fixture cleanup failed')
+    })())
+  }
+}
+const cases: CacheCase[] = []
+afterEach(async () => {
+  const failures: unknown[] = []
+  for (const owner of cases.splice(0).reverse()) {
+    try {
+      await owner.dispose()
+    } catch (reason) {
+      failures.push(reason)
     }
   }
-  const acquire = (value = asset()) =>
-    cache.acquire(
-      host,
-      localPath(directory),
-      value,
-      instance,
-      'host-object:1',
-      new AbortController().signal,
-    )
-  return { directory, host, cache, asset, acquire }
+  if (failures.length) throw new AggregateError(failures, 'Cache case cleanup failed')
+}, 20_000)
+function cacheTest(
+  name: string,
+  work: (owner: CacheCase) => Promise<void>,
+  timeout?: number,
+) {
+  it(
+    name,
+    () => {
+      const owner = new CacheCase()
+      cases.push(owner)
+      return owner.retain(() => work(owner))
+    },
+    timeout,
+  )
 }
-it('publishes verified private files, reuses one upload, and bounds unleased revisions', async () => {
-  const f = await fixture(),
+function fixture(owner: CacheCase, parent = tmpdir()) {
+  return owner.retain(async () => {
+    const host = new LocalHost(),
+      cache = new RemoteClientCache(),
+      instance = randomUUID()
+    let directory = ''
+    // Registered before startup: chmod failure and late mkdtemp completion are owned too.
+    owner.cleanups.push(
+      async () => {
+        if (directory) await rm(directory, { recursive: true, force: true })
+      },
+      () => host.dispose(),
+    )
+    directory = await mkdtemp(join(parent, 'hvir-cache-'))
+    await chmod(directory, 0o700)
+    const asset = (version = 'one') => {
+      const bytes = Buffer.from(
+        `#!/bin/sh\n# ${version}\ncase "$1" in --hvir-client-probe) printf 'hvir-agent transport 1.0\\n';; --hvir-client-probe-socket) printf stale;; *) exit 69;; esac\n`,
+      )
+      return {
+        bytes,
+        sha256: createHash('sha256').update(bytes).digest('hex'),
+        target: 'macos-arm64',
+      }
+    }
+    const acquire = (
+      value = asset(),
+      base = localPath(directory),
+      generation = 'host-object:1',
+      clientInstance: string = instance,
+    ): Promise<CachedRemoteClient> =>
+      owner.retain(async () => {
+        const client = await cache.acquire(
+          host,
+          base,
+          value,
+          clientInstance,
+          generation,
+          new AbortController().signal,
+        )
+        return {
+          ...client,
+          recordSocket: (signal) => owner.retain(() => client.recordSocket(signal)),
+          release: () => owner.retain(() => client.release()),
+        }
+      })
+    return { directory, host, asset, acquire }
+  })
+}
+cacheTest('publishes verified private files, reuses one upload, and bounds unleased revisions', async (owner) => {
+  const f = await fixture(owner),
     upload = vi.spyOn(f.host.fileTransfer, 'writeFileChunksExclusive')
   const a = await f.acquire(),
     b = await f.acquire()
@@ -69,9 +146,9 @@ it('publishes verified private files, reuses one upload, and bounds unleased rev
     await (await f.acquire(f.asset(version))).release()
   expect(await readdir(join(f.directory, 'agent-client'))).toHaveLength(3)
 }, 20_000)
-it('recovers exact interrupted upload and publication objects without executing a partial client', async () => {
+cacheTest('recovers exact interrupted upload and publication objects without executing a partial client', async (owner) => {
   for (const publication of [false, true]) {
-    const f = await fixture(),
+    const f = await fixture(owner),
       original = f.host.fileTransfer.writeFileChunksExclusive.bind(f.host.fileTransfer)
     const spy = vi.spyOn(f.host.fileTransfer, 'writeFileChunksExclusive')
     if (!publication)
@@ -109,8 +186,8 @@ it('recovers exact interrupted upload and publication objects without executing 
     await recovered.release()
   }
 })
-it('preserves an externally replaced failed upload and admits unrelated hashes within cache limits', async () => {
-  const f = await fixture(),
+cacheTest('preserves an externally replaced failed upload and admits unrelated hashes within cache limits', async (owner) => {
+  const f = await fixture(owner),
     original = f.host.fileTransfer.writeFileChunksExclusive.bind(f.host.fileTransfer)
   let upload = ''
   const spy = vi
@@ -143,8 +220,8 @@ it('preserves an externally replaced failed upload and admits unrelated hashes w
   await unrelated.release()
   expect(await readFile(upload, 'utf8')).toBe('foreign')
 })
-it('preserves live leases, reconciles old dead sockets by actual transport probe, and uses a short socket namespace', async () => {
-  const f = await fixture(),
+cacheTest('preserves live leases, reconciles old dead sockets by actual transport probe, and uses a short socket namespace', async (owner) => {
+  const f = await fixture(owner),
     clients = []
   for (const version of ['one', 'two', 'three'])
     clients.push(await f.acquire(f.asset(version)))
@@ -161,20 +238,13 @@ it('preserves live leases, reconciles old dead sockets by actual transport probe
   const long = join(f.directory, 'long'.repeat(24))
   const { mkdir } = await import('node:fs/promises')
   await mkdir(long, { mode: 0o700 })
-  const short = await f.cache.acquire(
-    f.host,
-    localPath(long),
-    f.asset(),
-    'instance',
-    'host-object:1',
-    new AbortController().signal,
-  )
+  const short = await f.acquire(f.asset(), localPath(long), 'host-object:1', 'instance')
   expect(Buffer.byteLength(short.socket.path)).toBeLessThan(104)
   expect(short.directory.path).toContain(long)
   await short.release()
 }, 20_000)
-it('preserves a leaf replaced after quarantine starts instead of deleting an external object', async () => {
-  const f = await fixture()
+cacheTest('preserves a leaf replaced after quarantine starts instead of deleting an external object', async (owner) => {
+  const f = await fixture(owner)
   for (const version of ['one', 'two', 'three'])
     await (await f.acquire(f.asset(version))).release()
   const original = f.host.exec.bind(f.host)
@@ -195,15 +265,15 @@ it('preserves a leaf replaced after quarantine starts instead of deleting an ext
   const root = join(f.directory, 'agent-client'),
     retired = (await readdir(root)).find((entry) => entry.startsWith('retired.'))!
   expect(await readFile(join(root, retired, 'hvir-agent'), 'utf8')).toBe('foreign')
-})
+}, 20_000)
 
-it('removes only receipted dead socket leaves and preserves replacements during socket quarantine', async () => {
+cacheTest('removes only receipted dead socket leaves and preserves replacements during socket quarantine', async (owner) => {
   const { createServer } = await import('node:net')
   for (const replace of [false, true]) {
-    const f = await fixture('/tmp'),
+    const f = await fixture(owner, '/tmp'),
       client = await f.acquire(),
       server = createServer()
-    cleanups.push(
+    owner.cleanups.push(
       () =>
         new Promise<void>((done) =>
           server.listening ? server.close(() => done()) : done(),
@@ -239,21 +309,21 @@ it('removes only receipted dead socket leaves and preserves replacements during 
     }
   }
 }, 20_000)
-it('bounds the separate socket namespace without deleting unrecognized leaves', async () => {
-  const f = await fixture('/tmp')
+cacheTest('bounds the separate socket namespace without deleting unrecognized leaves', async (owner) => {
+  const f = await fixture(owner, '/tmp')
   for (let index = 0; index < 63; index++)
     await writeFile(join(f.directory, `foreign-${index}`), 'preserve')
   await expect(f.acquire()).rejects.toThrow('socket namespace capacity')
   expect(await readdir(f.directory)).toHaveLength(64)
   expect(await readFile(join(f.directory, 'foreign-0'), 'utf8')).toBe('preserve')
 }, 20_000)
-it('reconciles a stale dead receipted socket and its exact lease after interrupted application cleanup', async () => {
+cacheTest('reconciles a stale dead receipted socket and its exact lease after interrupted application cleanup', async (owner) => {
   const { createServer } = await import('node:net'),
     { utimes, stat } = await import('node:fs/promises')
-  const f = await fixture('/tmp'),
+  const f = await fixture(owner, '/tmp'),
     client = await f.acquire(),
     server = createServer()
-  cleanups.push(
+  owner.cleanups.push(
     () =>
       new Promise<void>((done) =>
         server.listening ? server.close(() => done()) : done(),
@@ -279,8 +349,8 @@ it('reconciles a stale dead receipted socket and its exact lease after interrupt
   await next.release()
 }, 20_000)
 
-it('retries the same hash in a fresh bounded revision after disconnect prevents settled upload cleanup', async () => {
-  const f = await fixture(),
+cacheTest('retries the same hash in a fresh bounded revision after disconnect prevents settled upload cleanup', async (owner) => {
+  const f = await fixture(owner),
     original = f.host.fileTransfer.writeFileChunksExclusive.bind(f.host.fileTransfer)
   const execute = f.host.exec.bind(f.host)
   let disconnected = false,
@@ -318,19 +388,12 @@ it('retries the same hash in a fresh bounded revision after disconnect prevents 
   expect(await readdir(join(f.directory, 'agent-client'))).toHaveLength(2)
 })
 
-it('serializes concurrent same-host cache acquisition across forward generations, reuses one upload and maintains revision bounds', async () => {
-  const f = await fixture(),
+cacheTest('serializes concurrent same-host cache acquisition across forward generations, reuses one upload and maintains revision bounds', async (owner) => {
+  const f = await fixture(owner),
     upload = vi.spyOn(f.host.fileTransfer, 'writeFileChunksExclusive')
   const clients = await Promise.all(
     Array.from({ length: 6 }, (_, index) =>
-      f.cache.acquire(
-        f.host,
-        localPath(f.directory),
-        f.asset(),
-        'instance',
-        `forward:${index}`,
-        new AbortController().signal,
-      ),
+      f.acquire(f.asset(), localPath(f.directory), `forward:${index}`, 'instance'),
     ),
   )
   expect(
@@ -346,9 +409,9 @@ it('serializes concurrent same-host cache acquisition across forward generations
   await Promise.all(revisions.map((client) => client.release()))
 }, 20_000)
 
-it('preserves directory-created and partial initial-marker interruptions, charges them conservatively and retries in fresh revisions', async () => {
+cacheTest('preserves directory-created and partial initial-marker interruptions, charges them conservatively and retries in fresh revisions', async (owner) => {
   for (const beforeMarker of [true, false]) {
-    const f = await fixture()
+    const f = await fixture(owner)
     let uncertain = ''
     const execute = f.host.exec.bind(f.host)
     const exec = vi
@@ -391,8 +454,8 @@ it('preserves directory-created and partial initial-marker interruptions, charge
     await recovered.release()
   }
 }, 20_000)
-it('bounds unreceipted recognized private revisions without assigning their ownership from a filename', async () => {
-  const f = await fixture(),
+cacheTest('bounds unreceipted recognized private revisions without assigning their ownership from a filename', async (owner) => {
+  const f = await fixture(owner),
     execute = f.host.exec.bind(f.host)
   const exec = vi
     .spyOn(f.host, 'exec')
@@ -411,8 +474,8 @@ it('bounds unreceipted recognized private revisions without assigning their owne
   expect(await readdir(join(f.directory, 'agent-client'))).toEqual(entries)
 })
 
-it('never recreates an unreceipted revision that disappeared after directory discovery', async () => {
-  const f = await fixture(),
+cacheTest('never recreates an unreceipted revision that disappeared after directory discovery', async (owner) => {
+  const f = await fixture(owner),
     client = await f.acquire()
   await client.release()
   const execute = f.host.exec.bind(f.host)
@@ -436,4 +499,152 @@ it('never recreates an unreceipted revision that disappeared after directory dis
   const next = await f.acquire()
   expect(next.directory.path).not.toBe(client.directory.path)
   await next.release()
+})
+
+function cacheDeferred() {
+  let resolve!: () => void, reject!: (reason: unknown) => void
+  const promise = new Promise<void>((done, fail) => {
+    resolve = done
+    reject = fail
+  })
+  return { promise, resolve, reject }
+}
+it('drains the full cache case including a late continuation before host and root cleanup', async () => {
+  const owner = new CacheCase(),
+    acquired = cacheDeferred(),
+    continued = cacheDeferred(),
+    late = cacheDeferred(),
+    started = cacheDeferred(),
+    events: string[] = []
+  owner.cleanups.push(() => {
+    events.push('host disposed', 'root removed')
+    return Promise.resolve()
+  })
+  const work = owner.retain(async () => {
+    started.resolve()
+    await acquired.promise
+    events.push('acquired')
+    continued.resolve()
+    await owner.retain(() => late.promise)
+    events.push('late work settled')
+  })
+  await started.promise
+  const cleanup = owner.dispose()
+  expect(events).toEqual([])
+  acquired.resolve()
+  await continued.promise
+  expect(events).toEqual(['acquired'])
+  late.resolve()
+  await work
+  await cleanup
+  expect(events).toEqual([
+    'acquired',
+    'late work settled',
+    'host disposed',
+    'root removed',
+  ])
+  await owner.dispose()
+  expect(events).toHaveLength(4)
+})
+it('drains rejected-acquisition siblings and reports every reverse cleanup failure separately from the case failure', async () => {
+  const owner = new CacheCase(),
+    sibling = cacheDeferred(),
+    started = cacheDeferred(),
+    failure = new Error('acquisition failed'),
+    first = new Error('host cleanup failed'),
+    second = new Error('other host cleanup failed'),
+    events: string[] = []
+  owner.cleanups.push(() => {
+    events.push('first')
+    return Promise.reject(first)
+  })
+  owner.cleanups.push(() => {
+    events.push('second')
+    return Promise.reject(second)
+  })
+  const work = owner.retain(async () => {
+    const pending = owner.retain(() => sibling.promise)
+    started.resolve()
+    await Promise.all([owner.retain(() => Promise.reject(failure)), pending])
+  })
+  await started.promise
+  await expect(work).rejects.toBe(failure)
+  const cleanup = owner.dispose()
+  // Attach the rejection observer before releasing the remaining physical work.
+  const rejected = expect(cleanup).rejects.toMatchObject({ errors: [second, first] })
+  expect(events).toEqual([])
+  sibling.resolve()
+  await rejected
+  expect(events).toEqual(['second', 'first'])
+})
+it('registers real fixture host cleanup before its first startup await can fail', async () => {
+  const owner = new CacheCase(),
+    dispose = vi.spyOn(LocalHost.prototype, 'dispose'),
+    missingParent = join(tmpdir(), `absent-cache-parent-${randomUUID()}`)
+  try {
+    await expect(fixture(owner, missingParent)).rejects.toMatchObject({ code: 'ENOENT' })
+    await owner.dispose()
+    expect(dispose).toHaveBeenCalledOnce()
+  } finally {
+    dispose.mockRestore()
+  }
+})
+it('drains detached cache work admitted after disposal starts and outliving its first snapshot', async () => {
+  const owner = new CacheCase(),
+    admit = cacheDeferred(),
+    started = cacheDeferred(),
+    lateStarted = cacheDeferred(),
+    late = cacheDeferred(),
+    events: string[] = []
+  owner.cleanups.push(() => {
+    events.push('cleanup')
+    return Promise.resolve()
+  })
+  let detached!: Promise<void>
+  const first = owner.retain(async () => {
+    started.resolve()
+    await admit.promise
+    detached = owner.retain(async () => {
+      lateStarted.resolve()
+      await late.promise
+      events.push('detached settled')
+    })
+    // The first snapshot's operation does not await this new operation.
+  })
+  await started.promise
+  const cleanup = owner.dispose()
+  admit.resolve()
+  try {
+    await lateStarted.promise
+    await first
+    // Drain the first snapshot's microtasks before observing cleanup.
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(events).toEqual([])
+  } finally {
+    late.resolve()
+    await detached
+    await cleanup
+  }
+  expect(events).toEqual(['detached settled', 'cleanup'])
+})
+it('attempts real fixture root removal after host disposal rejects and preserves the failure', async () => {
+  const owner = new CacheCase(),
+    f = await fixture(owner),
+    original = f.host.dispose.bind(f.host),
+    failure = new Error('host disposal failed after physical settlement'),
+    events: string[] = []
+  const dispose = vi.spyOn(f.host, 'dispose').mockImplementation(async () => {
+    await original()
+    expect((await stat(f.directory)).isDirectory()).toBe(true)
+    events.push('host disposal attempted before root removal')
+    throw failure
+  })
+  try {
+    await expect(owner.dispose()).rejects.toMatchObject({ errors: [failure] })
+    expect(events).toEqual(['host disposal attempted before root removal'])
+    await expect(stat(f.directory)).rejects.toMatchObject({ code: 'ENOENT' })
+  } finally {
+    dispose.mockRestore()
+    await rm(f.directory, { recursive: true, force: true })
+  }
 })
