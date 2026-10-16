@@ -718,6 +718,47 @@ it('shows supported-release update guidance in the project tab without initializ
   expect(f.initializationRequests).toEqual([])
 })
 
+it.each(['ssh', 'missing-root'] as const)(
+  'guides an unapproved independent library query in %s context to application Program access',
+  async (kind) => {
+    const f = packageView('project')
+    f.libraryApproval(false)
+    f.context(
+      true,
+      kind === 'ssh'
+        ? { ...localProject, host: 'ssh', root: { hostId: 'ssh', path: '/remote' } }
+        : { id: 'project-a', host: 'local' },
+    )
+    await f.flush()
+    expect(f.calls).toEqual([]) // Unknown project presence did not run a local project command.
+    expect(document.getElementById('state')?.textContent).toContain('this project')
+    submitQuery('independent library query')
+    await f.flush()
+    const commands = f.requests.filter(
+      (request) => request.capability === 'connector.execute',
+    )
+    expect(commands.length).toBeGreaterThan(0)
+    expect(
+      commands.every(
+        (request) =>
+          request.input.connector === 'library-cli' &&
+          request.input.host === 'local' &&
+          !request.input.workspace,
+      ),
+    ).toBe(true)
+    expect(
+      commands.every(
+        (request) => !(request.input.args as string[]).includes('--installed-project'),
+      ),
+    ).toBe(true)
+    expect(document.getElementById('state')?.textContent).toContain('Program access')
+    expect(document.getElementById('state')?.textContent).not.toContain(
+      'Project program access',
+    )
+    expect(f.button('connect-program').hidden).toBe(true)
+  },
+)
+
 it('automatically observes an uninitialized library without listing or initializing it', async () => {
   const f = packageView()
   f.uninitialized()

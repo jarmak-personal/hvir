@@ -35,8 +35,12 @@ absolute paths. Run on an unlocked supported desktop:
 npm run probe:extension:skillager -- --package /absolute/owned/hvir-skillager-0.3.0.zip
 ```
 
-This existing native owner discovers the ZIP, obtains ordinary Settings connector and read
-approval, traverses all 50 public pages, searches and explicitly reads current text/images.
+This existing native owner installs the ZIP through Add, obtains the compact trusted program
+decision, and lands in the library. It traverses all 50 public pages, searches, obtains the
+in-context selected-current read decision, and explicitly reads current text/images. The
+project tab separately exercises Connect Skillager and automatic project discovery. Successful
+OS chooser replies are substituted; actual Electron focus, keyboard, consent and public SDK
+transport are exercised. This development lane does not establish signed installed-release proof.
 It exercises visibility/revocation without prefetching instruction bodies. Its finite aggregate
 15-minute capacity bound and per-inspection/per-page bounds remain unchanged. Record the actual
 CLI source/wheel binding, ZIP digest, source/build maps, full outcome and owned-process/resource

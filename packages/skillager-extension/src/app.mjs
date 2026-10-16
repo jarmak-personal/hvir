@@ -285,10 +285,12 @@ async function refresh() {
     lastPage ? 'Refreshing… last-known rows retained.' : 'Connecting to Skillager…',
     lastPage ? 'stale' : 'connecting',
   )
+  const project = scope(),
+    workspace = view === 'project' ? localWorkspace(project?.workspace) : undefined,
+    failureDestination =
+      view === 'project' && target.query && !workspace ? 'library' : view
   try {
     let page
-    const project = scope(),
-      workspace = view === 'project' ? localWorkspace(project?.workspace) : undefined
     if (view === 'library') {
       const observed = libraryStatus(await cli(['library', 'status', '--json']))
       if (!available() || generation !== revision) return
@@ -385,7 +387,7 @@ async function refresh() {
       const failure = firstUseFailure(
         error,
         !!lastPage,
-        view,
+        failureDestination,
         connectAvailable && (view !== 'project' || !!localWorkspace(context.workspace)),
       )
       if (element('program-setup')) element('program-setup').hidden = !failure.setup
