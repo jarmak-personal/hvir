@@ -1,6 +1,7 @@
 import type { ExtensionActionAuthority } from './action-owner'
 
 export interface ExtensionViewAuthority extends ExtensionActionAuthority {
+  readonly forwarded: boolean
   readonly key: string
   readonly signal: AbortSignal
   current(): void
@@ -10,8 +11,14 @@ export class ExtensionGuestAuthority {
   get restricted(): boolean {
     return this.authorities.size > 0
   }
+  get forwarded(): boolean {
+    return [...this.authorities.values()].some(({ authority }) => authority.forwarded)
+  }
   assertReuse(authority: ExtensionViewAuthority | undefined): void {
-    if (Boolean(authority) !== this.restricted)
+    if (
+      Boolean(authority) !== this.restricted ||
+      Boolean(authority?.forwarded) !== this.forwarded
+    )
       throw new Error(
         'This view has a different origin; close it before opening it again',
       )
@@ -48,6 +55,7 @@ export class ExtensionGuestAuthority {
     const authorities = [...this.authorities.values()].map((entry) => entry.authority)
     if (!authorities.length) return undefined
     return {
+      forwarded: this.forwarded,
       key: authorities.map((authority) => authority.key).join('|'),
       signal: AbortSignal.any(authorities.map((authority) => authority.signal)),
       current: () => {

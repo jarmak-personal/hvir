@@ -230,7 +230,8 @@ async function fixture(origin: 'ssh-forward' | 'application-local' = 'ssh-forwar
   const view = async () => {
     const result = await run(['view', '--extension', 'installation', '--view', 'main'])
     expect(result.exitStatus).toBe(0)
-    const opened = guests.snapshot(renderer)[0]!
+    const { view: selected } = JSON.parse(result.stdout) as { view: { id: string } }
+    const opened = guests.snapshot(renderer).find((entry) => entry.id === selected.id)!
     attach(opened)
     return opened
   }
@@ -274,6 +275,7 @@ async function fixture(origin: 'ssh-forward' | 'application-local' = 'ssh-forwar
     connector.dispose()
   })
   return {
+    activation,
     connector,
     workspace,
     session: context.sessions(renderer)[0]?.id,
@@ -433,48 +435,39 @@ it('the command owner filters multi-host discovery and rejects origin spoofing, 
   expect(() => f.scopes.configure(f.grant, true)).toThrow('stale')
 })
 
-it.each(['ssh-forward', 'application-local'] as const)(
-  'refuses %s agent reuse without narrowing or closing a human view, including an opening view',
-  async (origin) => {
-    const f = await fixture(origin)
-    const local = await f.guests.open(f.renderer, 'installation', 'main', undefined, {
-      context: { surface: 'viewer', workspaceId: f.workspace },
-    })
-    const refusedOpening = await f.run([
-      'view',
-      '--extension',
-      'installation',
-      '--view',
-      'main',
-    ])
-    expect(refusedOpening.exitStatus).toBe(69)
-    f.guests.claim(f.renderer, local.partition, local.url, local.id)
-    f.guests.bind(f.renderer, local.partition, 10)
-    f.guests.presentation(
-      f.renderer,
-      local.id,
-      DEFAULT_EXTENSION_PRESENTATION,
-      true,
-      true,
-    )
-    f.guests.receive(10, { kind: 'hello', contract: '1.0' })
-    const refusedReady = await f.run([
-      'view',
-      '--extension',
-      'installation',
-      '--view',
-      'main',
-    ])
-    expect(refusedReady.exitStatus).toBe(69)
-    f.lifetime.abort()
-    await f.access.configure({ enabled: false, confirmDestructive: false })
-    f.guests.assertView(local.id)
-    expect(
-      await f.request('local-survives', 'connector.execute', f.connector.input),
-    ).toMatchObject({ ok: true })
-    expect(f.connector.host.exec).toHaveBeenCalledOnce()
-  },
-)
+it('refuses SSH agent reuse without narrowing or closing a human view, including an opening view', async () => {
+  const f = await fixture()
+  const local = await f.guests.open(f.renderer, 'installation', 'main', undefined, {
+    context: { surface: 'viewer', workspaceId: f.workspace },
+  })
+  const refusedOpening = await f.run([
+    'view',
+    '--extension',
+    'installation',
+    '--view',
+    'main',
+  ])
+  expect(refusedOpening.exitStatus).toBe(69)
+  f.guests.claim(f.renderer, local.partition, local.url, local.id)
+  f.guests.bind(f.renderer, local.partition, 10)
+  f.guests.presentation(f.renderer, local.id, DEFAULT_EXTENSION_PRESENTATION, true, true)
+  f.guests.receive(10, { kind: 'hello', contract: '1.0' })
+  const refusedReady = await f.run([
+    'view',
+    '--extension',
+    'installation',
+    '--view',
+    'main',
+  ])
+  expect(refusedReady.exitStatus).toBe(69)
+  f.lifetime.abort()
+  await f.access.configure({ enabled: false, confirmDestructive: false })
+  f.guests.assertView(local.id)
+  expect(
+    await f.request('local-survives', 'connector.execute', f.connector.input),
+  ).toMatchObject({ ok: true })
+  expect(f.connector.host.exec).toHaveBeenCalledOnce()
+})
 
 it('relevant grant removal cancels the real connector admission and queued action while additions and unrelated removal preserve the view', async () => {
   const f = await fixture()
@@ -665,11 +658,11 @@ it('local retained views and own-view descendants stay agent-origin after CLI EO
     ok: true,
     value: { workspace: { id: f.workspace, host: 'local' } },
   })
-  await expect(
-    f.guests.open(f.renderer, 'installation', 'main', undefined, {
-      context: { surface: 'viewer', workspaceId: f.workspace },
-    }),
-  ).rejects.toThrow('different origin')
+  const human = await f.guests.open(f.renderer, 'installation', 'main', undefined, {
+    context: { surface: 'viewer', workspaceId: f.workspace },
+  })
+  expect(human.id).not.toBe(view.id)
+  f.attach(human, 12)
   expect(
     await f.request('human', 'actions.invoke', { action: 'human-only' }),
   ).toMatchObject({ ok: false })
@@ -679,7 +672,9 @@ it('local retained views and own-view descendants stay agent-origin after CLI EO
       context: 'application',
     }),
   ).toMatchObject({ ok: true })
-  const descendant = f.guests.snapshot(f.renderer).find((entry) => entry.id !== view.id)!
+  const descendant = f.guests
+    .snapshot(f.renderer)
+    .find((entry) => !entry.context?.workspace)!
   f.attach(descendant, 11)
   expect(
     await f.request(
@@ -716,8 +711,123 @@ it('local retained views and own-view descendants stay agent-origin after CLI EO
     ),
   )
   await f.access.configure({ enabled: false, confirmDestructive: false })
-  expect(f.guests.snapshot(f.renderer)).toEqual([])
+  expect(f.guests.snapshot(f.renderer).map((entry) => entry.id)).toEqual([human.id])
+  expect(
+    await f.request('human-survives', 'context.read', null, undefined, 12),
+  ).toMatchObject({ ok: true })
 })
+
+it('opens a separate local agent view beside an opening human view and reuses each only within its origin', async () => {
+  const f = await fixture('application-local')
+  const context = { surface: 'viewer' as const, workspaceId: f.workspace }
+  const human = await f.guests.open(f.renderer, 'installation', 'main', undefined, {
+    context,
+  })
+  const agent = await f.view()
+  expect(agent.id).not.toBe(human.id)
+  expect((await f.view()).id).toBe(agent.id)
+  f.attach(human, 11)
+  expect(
+    (await f.guests.open(f.renderer, 'installation', 'main', undefined, { context })).id,
+  ).toBe(human.id)
+  f.cli.abort()
+  f.installation.abort()
+  expect(f.guests.snapshot(f.renderer).map((entry) => entry.id)).toEqual([human.id])
+  expect(
+    await f.request(
+      'human-survives',
+      'connector.execute',
+      f.connector.input,
+      undefined,
+      11,
+    ),
+  ).toMatchObject({ ok: true })
+})
+
+it.each(['ssh-first', 'local-first'] as const)(
+  'refuses mixing forwarded and local agent view authority (%s)',
+  async (order) => {
+    const f = await fixture()
+    const local = {
+      origin: 'application-local' as const,
+      id: 'local-cli',
+      signal: new AbortController().signal,
+    }
+    const open = (connection: typeof local | typeof f.connection) =>
+      f.commands.run(
+        {
+          contract: '1.0',
+          argv: ['view', '--extension', 'installation', '--view', 'main'],
+          stdin: '',
+          defaults: { workspace: f.workspace },
+        },
+        connection,
+      )
+    expect((await open(order === 'ssh-first' ? f.connection : local)).exitStatus).toBe(0)
+    expect((await open(order === 'ssh-first' ? local : f.connection)).exitStatus).toBe(69)
+    const original = f.guests.snapshot(f.renderer)[0]!
+    f.attach(original)
+    expect((await open(order === 'ssh-first' ? local : f.connection)).exitStatus).toBe(69)
+    expect(f.guests.snapshot(f.renderer).map((view) => view.id)).toEqual([original.id])
+    expect(await f.request('original', 'context.read', null)).toMatchObject({ ok: true })
+  },
+)
+
+it.each(['human-first', 'agent-first'] as const)(
+  'keeps human and local agent action records independent (%s)',
+  async (order) => {
+    const f = await fixture('application-local')
+    const human = () =>
+      f.actions.invoke(
+        f.renderer,
+        f.activation,
+        'human-only',
+        null,
+        { surface: 'viewer', workspaceId: f.workspace },
+        'human',
+        'interactive',
+        () => undefined,
+      )
+    const agent = () =>
+      f.run(['run', '--extension', 'installation', '--action', 'allowed'])
+    const first = order === 'human-first' ? human() : agent()
+    await vi.waitFor(() => expect(f.guests.snapshot(f.renderer)).toHaveLength(1))
+    const firstView = f.guests.snapshot(f.renderer)[0]!
+    // Start the second caller while the first record is still opening.
+    const second = order === 'human-first' ? agent() : human()
+    await vi.waitFor(() => expect(f.guests.snapshot(f.renderer)).toHaveLength(2))
+    const secondView = f.guests
+      .snapshot(f.renderer)
+      .find((view) => view.id !== firstView.id)!
+    const humanView = order === 'human-first' ? firstView : secondView
+    const agentView = order === 'human-first' ? secondView : firstView
+    f.attach(humanView, 11)
+    f.attach(agentView, 10)
+    await invocation(f, 1)
+    const actions = f.sent.filter((message) => message.kind === 'action')
+    const humanAction = actions.find(
+      (message) => message.invocation.caller === 'human',
+    )!.invocation
+    const agentAction = actions.find(
+      (message) => message.invocation.caller === 'agent',
+    )!.invocation
+    await f.access.configure({ enabled: false, confirmDestructive: false })
+    expect(f.actions.provenance(agentView.id, agentAction.id)).toBeUndefined()
+    expect(f.actions.provenance(humanView.id, humanAction.id)).toMatchObject({
+      caller: 'human',
+    })
+    expect(f.guests.snapshot(f.renderer).map((view) => view.id)).toEqual([humanView.id])
+    f.guests.receive(11, {
+      kind: 'action-result',
+      id: humanAction.id,
+      value: 'human completed',
+    })
+    expect(await (order === 'human-first' ? first : second)).toBe('human completed')
+    expect(await (order === 'human-first' ? second : first)).toMatchObject({
+      exitStatus: 69,
+    })
+  },
+)
 
 it('a local descendant confirmation uses its application target rather than the initial workspace and is cancelled by extension revocation', async () => {
   const f = await fixture('application-local')

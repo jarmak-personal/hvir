@@ -370,6 +370,7 @@ export class AgentWorkbenchCommandOwner {
       this.ports.access.extensionSignal(installation),
     ])
     return {
+      forwarded,
       key: `${forwarded ? `${connection.host}:${connection.generation}` : 'application-local'}:${installation}:${workspace ?? ''}`,
       signal,
       current: () => {
