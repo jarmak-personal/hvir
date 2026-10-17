@@ -244,7 +244,7 @@ export function ExtensionsSettings({
               ))}
             </nav>
             <ExtensionInstallationSettings
-              key={`${selected.installationId ?? selected.sourceIdentity ?? selected.source}:${selected.acceptedRevision ?? ''}:${selected.revision ?? ''}:${selected.enabled}`}
+              key={selected.source}
               installation={selected}
               writable={state!.writable}
               busy={busy}
