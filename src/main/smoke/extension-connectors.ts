@@ -413,17 +413,12 @@ export async function verifyExtensionConnectors(
     return win.webContents.executeJavaScript(`Boolean(${expression})`) as Promise<boolean>
   }
   async function clickInInstallation(name: string): Promise<void> {
-    await extensionSettingsControls(win, 'Connector reference', {
+    const settings = extensionSettingsControls(win, 'Connector reference', {
       wait: (predicate, label) => controls.wait(predicate, label),
       within: (work) => work,
-    }).select(name.startsWith('Open ') ? 'Extension actions' : '')
-    await controls.wait(
-      () =>
-        dom(
-          `(() => { const article=[...document.querySelectorAll('.extension-installation')].find(e=>e.querySelector('h4')?.textContent==='Connector reference'); const button=[...(article?.querySelectorAll('button')??[])].find(e=>e.textContent.trim()===${JSON.stringify(name)}); if(!button || button.disabled)return false;button.click();return true })()`,
-        ),
-      `connector control ${name}`,
-    )
+    })
+    await settings.select(name.startsWith('Open ') ? 'Extension actions' : '')
+    await settings.click(name)
   }
   async function setValue(label: string, value: string): Promise<void> {
     await extensionSettingsControls(win, 'Connector reference', {

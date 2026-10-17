@@ -52,6 +52,7 @@ function SourceDecision({
   }
   return (
     <ConfirmationDialog
+      className="extension-confirmation-dialog"
       nested={false}
       labelledBy="source-confirmation-title"
       busy={busy}

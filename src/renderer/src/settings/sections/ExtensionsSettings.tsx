@@ -292,6 +292,7 @@ export function ExtensionsSettings({
       </div>
       {removing ? (
         <ConfirmationDialog
+          className="extension-confirmation-dialog"
           nested
           busy={busy}
           labelledBy="extension-remove-title"

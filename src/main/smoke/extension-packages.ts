@@ -31,7 +31,7 @@ export async function verifyExtensionPackages(
   const index = joinHostPath(reference, 'index.html')
   const changed = `${(await host.readFile(index)).toString('utf8')}<p id="package-reloaded">Reloaded author bytes</p>`
   await host.writeFile(index, changed)
-  await controls.click('Reload')
+  await settings('reference').click('Reload')
   await controls.wait(
     () =>
       owner.active.size === 1 &&
@@ -84,11 +84,7 @@ export async function verifyExtensionPackages(
     .installations.find((entry) => entry.source === 'reference.zip')!
   if (candidate.enabled || candidate.installationId !== installationId || candidate.error)
     throw new Error('Reappearing ZIP identity or activation was incorrect')
-  await extensionSettingsControls(win, 'hvir Reference', {
-    wait: (predicate, label) => controls.wait(predicate, label),
-    within: (work) => work,
-  }).select()
-  await controls.click('Enable')
+  await settings('reference.zip').click('Enable')
   await controls.wait(() => owner.active.has(installationId), 'ZIP explicit Enable')
   await controls.click('Open Extension reference')
   await controls.wait(
@@ -105,11 +101,7 @@ export async function verifyExtensionPackages(
   )
   await controls.click('Open settings')
   await controls.click('Extensions')
-  await extensionSettingsControls(win, 'hvir Reference', {
-    wait: (predicate, label) => controls.wait(predicate, label),
-    within: (work) => work,
-  }).select()
-  await controls.click('Replace')
+  await settings('reference.zip').click('Replace')
   await controls.wait(
     () => zipGuest.isDestroyed() && owner.active.has(installationId),
     'Replace revokes stale ZIP guest',
@@ -135,17 +127,13 @@ export async function verifyExtensionPackages(
         ),
     'development discovery',
   )
-  await extensionSettingsControls(win, 'hvir Reference', {
-    wait: (predicate, label) => controls.wait(predicate, label),
-    within: (work) => work,
-  }).select()
-  await controls.click('Enable')
+  await settings('development').click('Enable')
   await controls.wait(() => owner.active.has(installationId), 'development Enable')
   await host.writeFile(
     joinHostPath(externalAuthor, 'index.html'),
     `${changed}<p id="development-edited">Linked author edit</p>`,
   )
-  await controls.click('Reload')
+  await settings('development').click('Reload')
   await controls.click('Open Extension reference')
   await controls.wait(
     () => extensions.guests!.snapshot(renderer).length === 1,
@@ -176,28 +164,20 @@ export async function verifyExtensionPackages(
     '[smoke] directory Reload, same ZIP Enable/Replace, durable identity and development edit/link-only Remove OK',
   )
 
+  function settings(source: string) {
+    return extensionSettingsControls(
+      win,
+      'hvir Reference',
+      {
+        wait: (predicate, label) => controls.wait(predicate, label),
+        within: (work) => work,
+      },
+      source,
+    )
+  }
+
   async function remove(source: string, forget: boolean): Promise<void> {
-    await controls.wait(
-      async () =>
-        Boolean(
-          await win.webContents.executeJavaScript(`(() => {
-      const button=[...document.querySelectorAll('.extension-installation-list button')].find(e=>e.dataset.source===${JSON.stringify(source)});
-      if(!button?.checkVisibility())return false;if(button.getAttribute('aria-current')!=='true'){button.click();return false}return true;
-    })()`),
-        ),
-      'ordinary source-specific extension selection',
-    )
-    await controls.wait(
-      async () =>
-        Boolean(
-          await win.webContents.executeJavaScript(`(() => {
-      const article = [...document.querySelectorAll('.extension-installation')].find((element) => element.textContent.includes(${JSON.stringify(`Source: ${source}`)}));
-      const button = [...(article?.querySelectorAll('button') ?? [])].find((element) => element.textContent.trim() === 'Remove');
-      if (!button || button.disabled) return false; button.click(); return true;
-    })()`),
-        ),
-      'selected ordinary Remove control',
-    )
+    await settings(source).click('Remove')
     await controls.wait(
       async () =>
         Boolean(
