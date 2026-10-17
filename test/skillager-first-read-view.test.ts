@@ -10,7 +10,12 @@ afterEach(() => {
   vi.useRealTimers()
 })
 function fixture(
-  options: { cadence?: boolean; omitRoot?: boolean; inline?: boolean } = {},
+  options: {
+    cadence?: boolean
+    omitRoot?: boolean
+    inline?: boolean
+    holdSource?: 'source.select' | 'source.render'
+  } = {},
 ) {
   vi.useFakeTimers()
   const template = document.createElement('template')
@@ -32,6 +37,7 @@ function fixture(
     collideAfterBody = false,
     bodyText = '# Current instruction',
     holdStatus = false,
+    holdSource = options.holdSource,
     heldStatus: (() => void) | undefined
   const statusStarts: number[] = []
   const sent: {
@@ -51,6 +57,10 @@ function fixture(
     send: (message: (typeof sent)[number]) => {
       sent.push(message)
       if (message.kind !== 'request') return
+      if (message.capability === holdSource) {
+        holdSource = undefined
+        return
+      }
       const input = message.input!
       if (message.capability === 'connector.execute') {
         const command = (input['args'] as string[])[0]
@@ -172,6 +182,7 @@ function fixture(
     })
   return {
     sent,
+    receive: (message: unknown) => receive(message),
     holdStatus: () => {
       holdStatus = true
     },
@@ -217,6 +228,59 @@ it('asks only after explicit selected metadata, using reported host-qualified ro
     '# Current instruction',
   )
 })
+
+it.each(['source.select', 'source.render'] as const)(
+  'leaves the waiting state after a correlated %s deadline and ignores late completion',
+  async (capability) => {
+    const f = fixture({ holdSource: capability })
+    f.context()
+    await f.flush()
+    f.decide(true)
+    await f.flush()
+    const pending = f.sent.find((entry) => entry.capability === capability)!
+    expect(pending).toBeDefined()
+    expect(document.getElementById('reader-state')?.dataset['state']).toBe('loading')
+    f.receive({
+      kind: 'result',
+      id: pending.id,
+      ok: false,
+      error:
+        'Extension request timed out; completion was not confirmed. Check the outcome before retrying.',
+    })
+    await f.flush()
+    expect(document.getElementById('reader-state')?.dataset['state']).toBe(
+      capability === 'source.select' ? 'error' : 'stale',
+    )
+    expect(document.getElementById('reader-state')?.textContent).toContain('timed out')
+    const expectedBody = capability === 'source.select' ? '' : '# Current instruction'
+    expect(document.getElementById('instructions')?.textContent).toBe(expectedBody)
+    if (capability === 'source.render')
+      expect(document.getElementById('instructions')?.dataset['mode']).toBe('source')
+    f.receive({
+      kind: 'result',
+      id: pending.id,
+      ok: true,
+      value: { receipt: 'late-source' },
+    })
+    await f.flush()
+    expect(document.getElementById('instructions')?.textContent).toBe(expectedBody)
+    expect(document.getElementById('reader-state')?.textContent).toContain('timed out')
+    expect(f.sent.filter((entry) => entry.capability === capability)).toHaveLength(1)
+    f.read()
+    await f.flush()
+    expect(f.sent.filter((entry) => entry.capability === 'source.request')).toHaveLength(
+      2,
+    )
+    f.decide(true)
+    await f.flush()
+    expect(document.getElementById('instructions')?.textContent).toBe(
+      '# Current instruction',
+    )
+    expect(document.getElementById('reader-state')?.textContent).not.toContain(
+      'timed out',
+    )
+  },
+)
 it('uses selected metadata only as a proposal and obtains two fresh observations with one cadence deferral', async () => {
   const f = fixture({ cadence: true })
   f.context()
