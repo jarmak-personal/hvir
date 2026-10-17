@@ -1,4 +1,5 @@
 .extension-view {
+  container-type: inline-size;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -13,7 +14,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 6px 12px;
+  padding: 5px 10px;
+  font-size: calc(12px * var(--hvir-interface-scale));
   color: var(--text-muted);
   border-bottom: 1px solid var(--border-subtle);
 }
@@ -33,9 +35,6 @@
   border-top: 1px solid var(--border-subtle);
   padding: 12px 0;
   overflow-wrap: anywhere;
-}
-.extension-installation button {
-  margin: 4px;
 }
 
 .extension-updater {
@@ -73,7 +72,8 @@
 .extension-settings-content {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
+  font-size: calc(11px * var(--hvir-interface-scale));
 }
 .extension-settings-content p {
   margin: 0;
@@ -108,6 +108,7 @@
 }
 .extension-settings-content .settings-actions {
   display: flex;
+  align-items: end;
   flex-wrap: wrap;
   gap: 8px;
 }
@@ -123,9 +124,27 @@
   display: grid;
   gap: 10px;
 }
-.extension-settings-content fieldset > label {
+.extension-settings-content fieldset label {
   display: grid;
   gap: 6px;
+  min-width: 0;
+}
+.extension-settings-content fieldset :is(input, select, textarea):not([type='checkbox']) {
+  width: 100%;
+}
+.extension-settings-content fieldset details[open] {
+  display: grid;
+  gap: 10px;
+}
+.extension-settings-content fieldset details[open] > summary {
+  margin-bottom: 0;
+}
+.extension-settings-content fieldset details > button {
+  justify-self: start;
+}
+.extension-settings .hvir-button,
+.extension-settings .hvir-input {
+  font-size: calc(11px * var(--hvir-interface-scale));
 }
 .extension-settings-content fieldset > .hvir-button {
   justify-self: start;
@@ -216,7 +235,7 @@
   display: grid;
   flex-shrink: 0;
   grid-template-columns: clamp(100px, 30%, 180px) minmax(0, 1fr);
-  height: min(520px, 65vh);
+  height: min(540px, 65vh);
   min-height: 320px;
   overflow: hidden;
   min-width: 0;
@@ -264,11 +283,36 @@
 }
 .extension-configuration-tabs {
   display: flex;
-  gap: 6px;
+  gap: 12px;
   flex-wrap: wrap;
+  border-bottom: 1px solid var(--border-subtle);
 }
-.extension-configuration-tabs .hvir-button[aria-current='true'] {
-  background: var(--accent-soft);
+.settings-dialog .extension-configuration-tabs .hvir-button {
+  padding: 8px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+}
+.settings-dialog .extension-configuration-tabs .hvir-button[aria-current='true'] {
+  color: var(--text-strong);
+  box-shadow: inset 0 -2px var(--accent);
+}
+.extension-installation-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 12px;
+}
+.extension-installation-heading > div {
+  display: grid;
+  gap: 4px;
+}
+.extension-installation-actions {
+  padding: 8px 0;
+}
+.extension-lifecycle > summary {
+  white-space: nowrap;
 }
 .extension-configuration-layout .extension-installation button {
   margin: 0;
@@ -300,4 +344,27 @@
 }
 .extension-workspace-target > [role='status'] {
   color: var(--warning-text);
+}
+
+@container (max-width: 650px) {
+  .extension-view-heading {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px 10px;
+  }
+  .extension-view-heading > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .extension-view-heading > button {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .extension-workspace-target {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    margin: 0;
+  }
 }

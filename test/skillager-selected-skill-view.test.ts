@@ -611,6 +611,12 @@ it('keeps independent source review and one acceptance available before project 
   )
   expect(f.button('task-primary').disabled).toBe(true)
   expect(f.button('task-connect').hidden).toBe(false)
+  expect(document.getElementById('task-state')?.textContent).toContain(
+    'Version accepted.',
+  )
+  expect(document.getElementById('task-state')?.textContent).toContain(
+    'Connect Skillager for this project',
+  )
   expect(
     f.executions.every((execution) => execution['connector'] === 'library-cli'),
   ).toBe(true)

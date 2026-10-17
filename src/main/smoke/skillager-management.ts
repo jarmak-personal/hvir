@@ -18,6 +18,7 @@ import { verifyOwnedManagedCopies } from './skillager-management-copies'
 import { verifyOwnedApprovedSync } from './skillager-management-sync'
 import { verifyOwnedOriginalReveal } from './skillager-management-reveal'
 import { verifyOwnedReviewRefusals } from './skillager-management-refusals'
+import { captureExtensionVisuals } from './extension-visuals'
 import { managementActionTrace } from './skillager-management-trace'
 
 interface Controls extends SkillagerManagementControls {
@@ -159,7 +160,9 @@ export async function verifySkillagerManagement(
   } catch (error) {
     if ((error as { code?: unknown }).code !== 'ENOENT') throw error
   }
-  await ui.inspect("document.querySelector('#custom-initialization summary').click()")
+  await ui.inspect(
+    "document.querySelector('.library-creation > summary').click();document.querySelector('#custom-initialization summary').click()",
+  )
   await ui.ready(
     "document.getElementById('custom-initialization').open",
     'ordinary advanced custom location controls',
@@ -292,6 +295,41 @@ export async function verifySkillagerManagement(
       await withinExtensionInspection(controls.guest(actionView)),
       'action',
     )
+    await captureExtensionVisuals(win, guest, host, 'management', {
+      ...controls,
+      select: async () => {
+        await win.webContents.executeJavaScript(
+          "document.querySelector('.project-tab-main').click()",
+        )
+        await controls.wait(
+          async () =>
+            (await win.webContents.executeJavaScript(`(() => {
+          const tab=[...document.querySelectorAll('.viewer-tab .tab-main')].find(item=>item.title==='Skillager · Manage skills');
+          if(!tab?.checkVisibility())return false;tab.click();
+          return [...document.querySelectorAll('webview')].some(frame=>frame.checkVisibility()&&frame.getWebContentsId()===${guest.id});
+        })()`)) === true,
+          'actual management view selected',
+        )
+        await ui.inspect(
+          "document.querySelector('.library-creation').open=false;document.querySelector('main').scrollTop=0",
+        )
+      },
+      painted: async () => {
+        const menu = await projectControls.inspect(`(() => {
+          const options=document.querySelector('.library-options');options.open=true;
+          const menu=options.querySelector('.skill-menu'), rect=menu.getBoundingClientRect();
+          if(!menu.checkVisibility()||rect.left<0||rect.right>innerWidth+1||menu.scrollWidth>menu.clientWidth+1)throw new Error('Project options menu escapes its rail');
+          return {width:rect.width,viewport:innerWidth,contained:true};
+        })()`)
+        const management = await ui.inspect(`(() => {
+        const main=document.querySelector('main'), fields=[...document.querySelectorAll('label input,label select,label textarea')].filter(e=>e.checkVisibility());
+        if(document.documentElement.scrollWidth>innerWidth||getComputedStyle(main).overflowY!=='auto')throw new Error('Management page is not bounded');
+        for(const field of fields){const r=field.getBoundingClientRect();if(r.left<0||r.right>innerWidth+1)throw new Error('Management field escapes viewport')}
+        return {fieldCount:fields.length,scrolls:main.scrollHeight>main.clientHeight,width:innerWidth};
+      })()`)
+        return { menu, management }
+      },
+    })
     const firstAccepted = await reviewOwnedSkill(ui, skillId, [
       'SKILL.md',
       'support.sh',

@@ -17,9 +17,11 @@ import {
   sameCurrentLibrary,
 } from './library-first-use.mjs'
 import { bindSkillReader } from './detail-view.mjs'
+import { bindCommandMenus } from './command-menus.mjs'
 const bridge = window.hvirExtension,
   client = guestClient(bridge)
 const releasePresentation = window.hvirUI.bindPresentation(bridge)
+bindCommandMenus(document, client.signal)
 const view = document.body.dataset.view
 const element = (id) => document.getElementById(id)
 let context = { visible: false },

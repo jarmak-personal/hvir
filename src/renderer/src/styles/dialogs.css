@@ -342,6 +342,7 @@
 }
 
 .project-dialog.confirmation-dialog {
+  font-size: calc(12px * var(--hvir-interface-scale));
   width: min(460px, calc(100vw - 24px));
   max-height: calc(100dvh - 24px);
   gap: 0;
@@ -367,7 +368,8 @@
 }
 
 .confirmation-dialog-content h2,
-.confirmation-dialog-content h3 {
+.confirmation-dialog-content h3,
+.confirmation-dialog-content h4 {
   margin: 0;
   color: var(--text-strong);
   font-size: calc(16px * var(--hvir-interface-scale));
@@ -379,6 +381,17 @@
 .confirmation-dialog-content p {
   color: var(--text-muted);
   line-height: 1.55;
+}
+
+.confirmation-dialog-content pre {
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--surface-1);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: calc(11px * var(--hvir-interface-scale));
 }
 
 .confirmation-dialog-content small {

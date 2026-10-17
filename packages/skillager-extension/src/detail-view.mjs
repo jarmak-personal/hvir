@@ -169,10 +169,9 @@ export function bindSkillReader(document, client, ports) {
         `${row.kind} · ${selected.path.hostId}: ${selected.path.path}`
       element('details').dataset.sha256 = selected.sha256
       element('details').textContent =
-        `Observation: ${row.status} · Current file read ${new Date(selected.readAt).toLocaleTimeString()} · File SHA-256 ${selected.sha256}. Current-file bytes are not an accepted tree snapshot.${row.matched && row.matched !== row.skillId ? ` Ranking matched ${row.matched}.` : ''}`
+        `Observation: ${row.status} · Current file read ${new Date(selected.readAt).toLocaleTimeString()} · File SHA-256 ${selected.sha256}. Current-file bytes are not an accepted tree snapshot. Reading does not approve or run this skill.${row.matched && row.matched !== row.skillId ? ` Ranking matched ${row.matched}.` : ''}`
       element('canonical').hidden = !row.canonical
-      if (body.dataset.mode !== 'source' || mode === 'source')
-        say('Current file · reading does not approve or run this skill')
+      if (body.dataset.mode !== 'source' || mode === 'source') say('')
       if (body.dataset.mode !== 'source')
         await loadInstructionImages(
           client,

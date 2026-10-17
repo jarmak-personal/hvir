@@ -75,7 +75,11 @@ export function extensionSettingsControls(
         const article = [...document.querySelectorAll('.extension-installation')].find(e => e.querySelector('h4')?.textContent === extension);
         const scope = legend ? [...(article?.querySelectorAll('fieldset') ?? [])].find(e => e.querySelector('legend')?.textContent.trim() === legend) : article;
         const button = [...(scope?.querySelectorAll('button') ?? [])].find(e => e.textContent.trim() === name);
-        if (!button || button.disabled || !button.checkVisibility()) return false;
+        if (!button || button.disabled) return false;
+        const closed=[];
+        for(let parent=button.parentElement;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS'&&!parent.open)closed.unshift(parent);
+        for(const parent of closed){const summary=parent.querySelector(':scope > summary');if(!summary?.checkVisibility())return false;summary.click()}
+        if (!button.checkVisibility()) return false;
         button.click(); return true;
       }`,
             [extensionName, name, legend],

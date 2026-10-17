@@ -17,13 +17,32 @@ function fixture() {
   for (const node of template.content.querySelectorAll('script, link')) node.remove()
   document.body.replaceChildren(template.content.cloneNode(true))
   let context = { visible: true, workspace: { ...f.workspace, name: 'Remote' } }
+  let pendingAcceptance = false
   const client = {
     ...f.client,
     signal: controller.signal,
     listen: () => () => {},
     request: (capability: string, input: Record<string, unknown>) =>
       capability === 'actions.invoke'
-        ? Promise.resolve({ ids: [] })
+        ? Promise.resolve(
+            input['input'] &&
+              (input['input'] as Record<string, unknown>)['mode'] === 'report'
+              ? {
+                  data: JSON.stringify({
+                    id: 'accepting',
+                    operation: {
+                      action: 'accept-version',
+                      library: {
+                        id: f.input['library'].id,
+                        root: { hostId: 'local', path: '/library' },
+                      },
+                      source: { id: 'lib/skill' },
+                    },
+                  }),
+                  nextOffset: null,
+                }
+              : { ids: pendingAcceptance ? ['accepting'] : [] },
+          )
         : f.client.request(capability, input),
   }
   const sandbox = { TextEncoder, Module: undefined as unknown }
@@ -79,6 +98,9 @@ function fixture() {
     ready,
     exportFolder,
     prepared,
+    pendingAcceptance: () => {
+      pendingAcceptance = true
+    },
     target: () => {
       context = {
         ...context,
@@ -188,4 +210,19 @@ it('does not silently substitute a same-name source from another library', async
   )
   expect(f.button('task-primary').disabled).toBe(true)
   expect(f.calls.some((call) => call.capability.startsWith('delivery.'))).toBe(false)
+})
+
+it('labels library acceptance uncertainty by its owner when an SSH project is selected', async () => {
+  const f = fixture()
+  f.pendingAcceptance()
+  f.view.select(f.selection)
+  await vi.waitFor(() => expect(f.button('task-reconcile').hidden).toBe(false))
+  expect(f.button('task-reconcile').textContent).toBe('Inspect uncertain operation')
+  expect(document.getElementById('task-state')?.textContent).toContain(
+    'uncertain outcome',
+  )
+  expect(document.getElementById('task-state')?.textContent).not.toContain(
+    'Delivery recovery',
+  )
+  expect(f.button('task-primary').disabled).toBe(true)
 })

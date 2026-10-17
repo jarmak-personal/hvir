@@ -26,31 +26,36 @@
         <p id="library-identity" class="hvir-meta">
           No management connection selected. Browsing remains independent.
         </p>
-        <button id="create-library" class="hvir-button">Create personal library</button>
-        <p class="hvir-meta">
-          Skillager chooses its default location and Git history. An existing library is
-          preserved.
-        </p>
-        <details id="custom-initialization">
-          <summary>Custom location and history</summary>
-          <form id="initialize">
-            <label
-              >Custom local library location
-              <input
-                id="library-path"
-                class="hvir-input"
-                placeholder="Absolute path"
-                required /></label
-            ><label
-              ><input id="git-history" type="checkbox" checked /> Use Git history for a
-              new library</label
-            ><button class="hvir-button" type="submit">Create at custom location</button>
-          </form>
+        <details class="library-creation">
+          <summary>Create a library</summary>
+          <button id="create-library" class="hvir-button">Create personal library</button>
+          <p class="hvir-meta">
+            Skillager chooses its default location and Git history. An existing library is
+            preserved.
+          </p>
+          <details id="custom-initialization">
+            <summary>Custom location and history</summary>
+            <form id="initialize">
+              <label
+                >Custom local library location
+                <input
+                  id="library-path"
+                  class="hvir-input"
+                  placeholder="Absolute path"
+                  required /></label
+              ><label
+                ><input id="git-history" type="checkbox" checked /> Use Git history for a
+                new library</label
+              ><button class="hvir-button" type="submit">
+                Create at custom location
+              </button>
+            </form>
+          </details>
+          <p class="hvir-meta">
+            Existing libraries preserve their actual history mode. A different
+            registration is never relocated implicitly.
+          </p>
         </details>
-        <p class="hvir-meta">
-          Existing libraries preserve their actual history mode. A different registration
-          is never relocated implicitly.
-        </p>
         <div class="toolbar">
           <button id="preview-sync" class="hvir-button">
             Preview approved-source sync
@@ -89,8 +94,8 @@
         </div>
         <div id="managed-copies" class="hvir-list" aria-label="Managed copies"></div>
       </section>
-      <section aria-label="SSH Full delivery">
-        <h2>SSH Full delivery</h2>
+      <details class="management-section" aria-label="SSH Full delivery">
+        <summary>SSH Full delivery</summary>
         <p>
           Use the selected local approved library skill and agent above. Full files go to
           the exact SSH workspace; Skillager is needed only locally. Stub and Router are
@@ -119,9 +124,9 @@
           class="hvir-list"
           aria-label="Recorded SSH deliveries"
         ></div>
-      </section>
-      <section aria-label="Advanced local exposure">
-        <h2>Advanced local choices</h2>
+      </details>
+      <details class="management-section" aria-label="Advanced local exposure">
+        <summary>Advanced local choices</summary>
         <p>
           Group related skills behind one Router, change its members, ungroup it, or adopt
           an original whose bytes are preserved in your library. Full/Stub mode and agent
@@ -164,12 +169,12 @@
           <summary>Observed identities and preservation details</summary>
           <pre id="advanced-observation" tabindex="0"></pre>
         </details>
-      </section>
-      <section aria-label="Exact canonical review">
-        <h2>Review exact library version</h2>
+      </details>
+      <details class="management-section" aria-label="Exact canonical review">
+        <summary>Review exact library version</summary>
         <p class="hvir-meta">
-          Human-only complete-file review uses independent source reading permission.
-          Pending/blocked bodies remain readable; viewing does not accept them.
+          Inspect any file with independent source reading permission, then choose Accept
+          version once. Reading pending or blocked content does not accept it.
         </p>
         <button id="start-review" class="hvir-button">Review version</button>
         <div id="exact-review" hidden>
@@ -201,9 +206,9 @@
             ><button id="cancel-review" class="hvir-button">Cancel</button>
           </div>
         </div>
-      </section>
-      <section aria-label="Explicit project setup">
-        <h2>Project setup</h2>
+      </details>
+      <details class="management-section" aria-label="Explicit project setup">
+        <summary>Project setup</summary>
         <p class="hvir-meta">
           Run Skillager setup once in a new terminal in this folder, then control an
           ordinary shell. Recovery never replays setup.
@@ -217,7 +222,7 @@
         ><button id="setup-project" class="hvir-button">
           Open setup in new terminal
         </button>
-      </section>
+      </details>
       <section id="review" hidden aria-label="Complete operation review">
         <h2 id="review-title">Review complete plan</h2>
         <p id="review-summary"></p>
@@ -228,8 +233,8 @@
         <button id="confirm-plan" class="hvir-button">Confirm this exact plan</button
         ><button id="dismiss-plan" class="hvir-button">Dismiss review</button>
       </section>
-      <section aria-label="Uncertain operations">
-        <h2>Uncertain operations</h2>
+      <details class="management-section" aria-label="Uncertain operations">
+        <summary>Uncertain operations</summary>
         <p class="hvir-meta">
           Refresh, hide, dismiss and reconnect do not resolve an unknown completion.
           Reload or Disable loses ephemeral records; a new explicit operation still
@@ -240,7 +245,7 @@
         </button>
         <div id="pending-list"></div>
         <pre id="operation-report" tabindex="0"></pre>
-      </section>
+      </details>
       <pre id="result" tabindex="0" aria-label="Operation result"></pre>
     </main>
     <script src="guest-ui.js"></script>
