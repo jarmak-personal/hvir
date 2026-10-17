@@ -18,6 +18,24 @@ function deferred() {
   return { promise, resolve, reject }
 }
 describe('local agent authorization lifetime', () => {
+  it('retains standing access after a command ends and revokes both lifetimes on stricter settings', async () => {
+    const owner = new LocalAgentAccessOwner(
+      () => undefined,
+      () => Promise.resolve(),
+      consent,
+    )
+    await owner.configure(enabled)
+    const command = new AbortController()
+    const request = owner.admit(command.signal),
+      retained = owner.admit()
+    command.abort()
+    expect(() => request.current()).toThrow()
+    expect(() => retained.current()).not.toThrow()
+    await owner.configure({ ...enabled, confirmDestructive: true })
+    expect(retained.signal.aborted).toBe(true)
+    expect(() => retained.current()).toThrow()
+    owner.dispose()
+  })
   it.each(['success', 'failure'])(
     'serializes older save %s without overwriting the newer trusted setting',
     async (outcome) => {

@@ -82,13 +82,15 @@ export class LocalAgentAccessOwner {
       throw reason
     }
   }
-  admit(signal: AbortSignal): {
+  admit(signal?: AbortSignal): {
     readonly signal: AbortSignal
     readonly current: () => void
   } {
     if (!this.settings.enabled || this.disposed)
       throw new Error('Agent access is off; enable it in Settings > Extensions')
-    const combined = AbortSignal.any([signal, this.generation.signal])
+    const combined = signal
+      ? AbortSignal.any([signal, this.generation.signal])
+      : this.generation.signal
     return {
       signal: combined,
       current: () => {

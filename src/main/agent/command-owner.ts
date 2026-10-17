@@ -361,29 +361,31 @@ export class AgentWorkbenchCommandOwner {
     installation: string,
     revision: string,
     workspace?: string,
-  ): ExtensionViewAuthority | undefined {
-    if (connection.origin === 'application-local') return undefined
+  ): ExtensionViewAuthority {
+    // A local command's EOF ends its request, not the retained view it opened.
+    const forwarded = connection.origin === 'ssh-forward'
     const signal = AbortSignal.any([
-      this.ports.forwardScopes!.viewSignal(connection),
-      this.ports.access.admit(connection.lifetime ?? connection.signal).signal,
+      ...(forwarded ? [this.ports.forwardScopes!.viewSignal(connection)] : []),
+      this.ports.access.admit().signal,
       this.ports.access.extensionSignal(installation),
     ])
     return {
-      key: `${connection.host}:${connection.generation}:${installation}:${workspace ?? ''}`,
+      forwarded,
+      key: `${forwarded ? `${connection.host}:${connection.generation}` : 'application-local'}:${installation}:${workspace ?? ''}`,
       signal,
       current: () => {
         signal.throwIfAborted()
-        connection.current()
+        if (forwarded) connection.current()
         this.ports.access.assertExtension(installation)
       },
       assertCapability: (_capability, host, destination) => {
         signal.throwIfAborted()
-        this.ports.forwardScopes!.assertTarget(connection, host)
-        if (destination && destination !== workspace)
+        if (forwarded) this.ports.forwardScopes!.assertTarget(connection, host)
+        if (forwarded && destination && destination !== workspace)
           throw new Error('SSH view cannot change its admitted destination')
       },
       forAction: (action) =>
-        this.actionAuthority(connection, installation, revision, action, workspace)!,
+        this.actionAuthority(connection, installation, revision, action, workspace),
     }
   }
   private actionAuthority(
@@ -392,27 +394,30 @@ export class AgentWorkbenchCommandOwner {
     revision: string,
     action: string,
     workspace?: string,
-  ): ExtensionActionAuthority | undefined {
-    if (connection.origin === 'application-local') return undefined
-    const admitted = this.ports.forwardScopes!.actionAuthority(connection, {
-      installation,
-      revision,
-      action,
-      workspace,
-    })
+  ): ExtensionActionAuthority {
+    const view = this.viewAuthority(connection, installation, revision, workspace)
+    const admitted =
+      connection.origin === 'ssh-forward'
+        ? this.ports.forwardScopes!.actionAuthority(connection, {
+            installation,
+            revision,
+            action,
+            workspace,
+          })
+        : view
     return {
-      signal: admitted.signal,
-      view: this.viewAuthority(connection, installation, revision, workspace),
+      signal: AbortSignal.any([view.signal, admitted.signal]),
+      view,
       authorizeAction: (binding, current, signal) =>
         this.ports.access.authorizeAction(
-          { installation, ...binding, workspace },
+          { installation, ...binding },
           current,
-          AbortSignal.any([signal, admitted.signal]),
+          AbortSignal.any([signal, view.signal, admitted.signal]),
         ),
       assertCapability: (capability, host, destination) =>
         admitted.assertCapability(capability, host, destination),
       forAction: (next) =>
-        this.actionAuthority(connection, installation, revision, next, workspace)!,
+        this.actionAuthority(connection, installation, revision, next, workspace),
     }
   }
   private page(

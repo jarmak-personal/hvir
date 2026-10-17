@@ -115,32 +115,38 @@ export async function routeGuestCapability(
   if (capability === 'actions.invoke') {
     const target = extensionObject(input)
     const action = extensionId(target['action'])
+    const actionInput = target['input']
+    const caller = invocation?.caller ?? (record.authority.restricted ? 'agent' : 'guest')
+    const declaration = ports.actions.validateInvocation(
+      record.activation,
+      action,
+      actionInput,
+      caller,
+    )
     const authority =
       record.authority.forAction(action) ??
       (invocation
         ? ports.actions.authority(record.view.id, invocation.id)?.forAction?.(action)
         : undefined)
-    const declaration = record.activation.revision.manifest.actions?.find(
-      (action) => action.id === target['action'],
-    )
-    const authorization =
-      authority?.authorizeAction && declaration
-        ? await authority.authorizeAction(
-            {
-              title: declaration.title,
-              input: JSON.stringify(target['input'] ?? null),
-              effects: declaration.effects,
-            },
-            assertOrigin,
-            signal,
-          )
-        : (invocation?.authorization ?? 'unapproved')
+    const authorization = authority?.authorizeAction
+      ? await authority.authorizeAction(
+          {
+            title: declaration.title,
+            input: JSON.stringify(actionInput ?? null),
+            workspace: record.context?.value.workspace?.id,
+            session: record.context?.value.session?.id,
+            effects: declaration.effects,
+          },
+          assertOrigin,
+          signal,
+        )
+      : (invocation?.authorization ?? 'unapproved')
     assertOrigin()
     return ports.actions.invoke(
       record.owner,
       record.activation,
-      extensionId(target['action']),
-      target['input'],
+      action,
+      actionInput,
       {
         surface: 'viewer',
         ...(record.context?.value.workspace
@@ -150,7 +156,7 @@ export async function routeGuestCapability(
           ? { sessionId: record.context.value.session.id }
           : {}),
       },
-      invocation?.caller ?? (record.authority.restricted ? 'agent' : 'guest'),
+      caller,
       authorization,
       assertOrigin,
       signal,

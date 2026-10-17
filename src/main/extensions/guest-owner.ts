@@ -199,11 +199,15 @@ export class ExtensionGuestOwner {
         entry.context?.value.session?.id === context?.value.session?.id &&
         entry.context?.value.surface === context?.value.surface,
     )
-    // Preserve the established restricted-origin refusal before separating human body caches.
-    for (const record of matching) record.authority.assertReuse(options.authority)
+    // Forwarded origins keep their cross-origin refusal; local agent and human caches coexist.
+    for (const record of matching)
+      if (record.authority.forwarded || options.authority?.forwarded)
+        record.authority.assertReuse(options.authority)
     const human = (options.readingOrigin ?? 'human') === 'human'
     const existing = matching.find(
-      (record) => (record.readingOrigin === 'human') === human,
+      (record) =>
+        (record.readingOrigin === 'human') === human &&
+        record.authority.restricted === Boolean(options.authority),
     )
     if (existing) {
       if (!existing.ready || existing.view.failure)
