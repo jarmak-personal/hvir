@@ -25,13 +25,17 @@ const cleanups: (() => Promise<void>)[] = []
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) await cleanup()
 })
-async function fixture() {
+async function fixture(origin: 'ssh-forward' | 'application-local' = 'ssh-forward') {
   const connector = connectorFixture(),
     contexts = contextFixture(),
     resourceScopes = new RendererResourceScopes(),
     renderer = resourceScopes.activateOwner(1)
-  const root = hostPath(asHostId('remote'), '/' + 'nested-project/'.repeat(16)),
-    workspace = `workspace:remote:${root.path}`
+  const root =
+      origin === 'application-local'
+        ? contexts.root
+        : hostPath(asHostId('remote'), '/' + 'nested-project/'.repeat(16)),
+    workspace =
+      origin === 'application-local' ? 'workspace' : `workspace:remote:${root.path}`
   const state = contexts.sources.projectState(),
     project = state.projects[0]!
   const context = new ExtensionContextOwner({
@@ -50,7 +54,7 @@ async function fixture() {
             {
               ...project.workspaces[0]!,
               id: workspace + 'second',
-              root: hostPath(asHostId('remote'), root.path + '/second'),
+              root: hostPath(root.hostId, root.path + '/second'),
             },
           ],
         },
@@ -100,6 +104,25 @@ async function fixture() {
             view: 'main',
             agents: true,
             effects: { delete: true, replace: false },
+          },
+          {
+            id: 'human-only',
+            title: 'Human only',
+            view: 'main',
+            agents: false,
+            effects: { delete: true, replace: false },
+          },
+          {
+            id: 'replace-exact',
+            title: 'Replace exact',
+            view: 'main',
+            agents: true,
+            effects: { delete: false, replace: true },
+            inputSchema: {
+              type: 'object' as const,
+              properties: { target: { type: 'string' as const } },
+              required: ['target'],
+            },
           },
         ],
       },
@@ -171,32 +194,44 @@ async function fixture() {
     assertOwner: () => resourceScopes.assertCurrent(renderer),
     host: () => undefined,
     openDocument: () => undefined,
-    forwardScopes: scopes,
+    ...(origin === 'ssh-forward' ? { forwardScopes: scopes } : {}),
   })
-  const connection = {
-    origin: 'ssh-forward' as const,
-    id: 'cli',
-    host: asHostId('remote'),
-    generation: 'object:1:forward',
-    signal: cli.signal,
-    lifetime: lifetime.signal,
-    current: () => lifetime.signal.throwIfAborted(),
-  }
+  const connection =
+    origin === 'application-local'
+      ? {
+          origin,
+          id: 'cli',
+          signal: cli.signal,
+        }
+      : {
+          origin: 'ssh-forward' as const,
+          id: 'cli',
+          host: asHostId('remote'),
+          generation: 'object:1:forward',
+          signal: cli.signal,
+          lifetime: lifetime.signal,
+          current: () => lifetime.signal.throwIfAborted(),
+        }
   const run = (argv: string[]) =>
     commands.run(
       { contract: '1.0', argv, stdin: '', defaults: { workspace } },
       connection,
     )
+  const attached = new Set<string>()
+  const attach = (opened: ReturnType<typeof guests.snapshot>[number], guest = 10) => {
+    if (!attached.has(opened.id)) {
+      guests.claim(renderer, opened.partition, opened.url, opened.id)
+      guests.bind(renderer, opened.partition, guest)
+      guests.presentation(renderer, opened.id, DEFAULT_EXTENSION_PRESENTATION, true, true)
+      guests.receive(guest, { kind: 'hello', contract: '1.0' })
+      attached.add(opened.id)
+    }
+  }
   const view = async () => {
     const result = await run(['view', '--extension', 'installation', '--view', 'main'])
     expect(result.exitStatus).toBe(0)
     const opened = guests.snapshot(renderer)[0]!
-    if (!sent.some((message) => message.kind === 'hello')) {
-      guests.claim(renderer, opened.partition, opened.url, opened.id)
-      guests.bind(renderer, opened.partition, 10)
-      guests.presentation(renderer, opened.id, DEFAULT_EXTENSION_PRESENTATION, true, true)
-      guests.receive(10, { kind: 'hello', contract: '1.0' })
-    }
+    attach(opened)
     return opened
   }
   const request = async (
@@ -204,8 +239,9 @@ async function fixture() {
     capability: string,
     input: unknown,
     actionId?: string,
+    guest = 10,
   ) => {
-    guests.receive(10, {
+    guests.receive(guest, {
       kind: 'request',
       id,
       capability,
@@ -221,7 +257,7 @@ async function fixture() {
   }
   const grant = {
     host: 'remote',
-    generation: connection.generation,
+    generation: 'object:1:forward',
     installation: 'installation',
     revision: activation.revision.hash,
     action: 'allowed',
@@ -240,18 +276,22 @@ async function fixture() {
   return {
     connector,
     workspace,
+    session: context.sessions(renderer)[0]?.id,
     guests,
+    actions,
     renderer,
     commands,
     connection,
     run,
     view,
+    attach,
     request,
     sent,
     scopes,
     grant,
     cli,
     lifetime,
+    installation,
     access,
   }
 }
@@ -393,39 +433,48 @@ it('the command owner filters multi-host discovery and rejects origin spoofing, 
   expect(() => f.scopes.configure(f.grant, true)).toThrow('stale')
 })
 
-it('refuses remote reuse without narrowing or closing a local view, including an opening view', async () => {
-  const f = await fixture()
-  const local = await f.guests.open(f.renderer, 'installation', 'main', undefined, {
-    context: { surface: 'viewer', workspaceId: f.workspace },
-  })
-  const refusedOpening = await f.run([
-    'view',
-    '--extension',
-    'installation',
-    '--view',
-    'main',
-  ])
-  expect(refusedOpening.exitStatus).toBe(69)
-  f.guests.claim(f.renderer, local.partition, local.url, local.id)
-  f.guests.bind(f.renderer, local.partition, 10)
-  f.guests.presentation(f.renderer, local.id, DEFAULT_EXTENSION_PRESENTATION, true, true)
-  f.guests.receive(10, { kind: 'hello', contract: '1.0' })
-  const refusedReady = await f.run([
-    'view',
-    '--extension',
-    'installation',
-    '--view',
-    'main',
-  ])
-  expect(refusedReady.exitStatus).toBe(69)
-  f.lifetime.abort()
-  await f.access.configure({ enabled: false, confirmDestructive: false })
-  f.guests.assertView(local.id)
-  expect(
-    await f.request('local-survives', 'connector.execute', f.connector.input),
-  ).toMatchObject({ ok: true })
-  expect(f.connector.host.exec).toHaveBeenCalledOnce()
-})
+it.each(['ssh-forward', 'application-local'] as const)(
+  'refuses %s agent reuse without narrowing or closing a human view, including an opening view',
+  async (origin) => {
+    const f = await fixture(origin)
+    const local = await f.guests.open(f.renderer, 'installation', 'main', undefined, {
+      context: { surface: 'viewer', workspaceId: f.workspace },
+    })
+    const refusedOpening = await f.run([
+      'view',
+      '--extension',
+      'installation',
+      '--view',
+      'main',
+    ])
+    expect(refusedOpening.exitStatus).toBe(69)
+    f.guests.claim(f.renderer, local.partition, local.url, local.id)
+    f.guests.bind(f.renderer, local.partition, 10)
+    f.guests.presentation(
+      f.renderer,
+      local.id,
+      DEFAULT_EXTENSION_PRESENTATION,
+      true,
+      true,
+    )
+    f.guests.receive(10, { kind: 'hello', contract: '1.0' })
+    const refusedReady = await f.run([
+      'view',
+      '--extension',
+      'installation',
+      '--view',
+      'main',
+    ])
+    expect(refusedReady.exitStatus).toBe(69)
+    f.lifetime.abort()
+    await f.access.configure({ enabled: false, confirmDestructive: false })
+    f.guests.assertView(local.id)
+    expect(
+      await f.request('local-survives', 'connector.execute', f.connector.input),
+    ).toMatchObject({ ok: true })
+    expect(f.connector.host.exec).toHaveBeenCalledOnce()
+  },
+)
 
 it('relevant grant removal cancels the real connector admission and queued action while additions and unrelated removal preserve the view', async () => {
   const f = await fixture()
@@ -498,3 +547,273 @@ it('relevant grant removal cancels the real connector admission and queued actio
   expect(f.connector.host.exec).toHaveBeenCalledOnce()
   resolve({ code: 0, signal: null, stdout: '', stderr: '' })
 })
+
+async function invocation(f: Awaited<ReturnType<typeof fixture>>, index = 0) {
+  const delivered = () => f.sent.filter((message) => message.kind === 'action')
+  await vi.waitFor(() => expect(delivered().length).toBeGreaterThan(index))
+  return delivered()[index]!.invocation
+}
+
+it('refuses forbidden destructive actions and invalid child input before offering confirmation', async () => {
+  const f = await fixture('application-local')
+  await f.access.configure({ enabled: true, confirmDestructive: true })
+  await f.view()
+  for (const [id, action, input] of [
+    ['forbidden', 'human-only', null],
+    ['invalid', 'replace-exact', {}],
+  ] as const) {
+    expect(await f.request(id, 'actions.invoke', { action, input })).toMatchObject({
+      ok: false,
+    })
+    expect(f.access.snapshot().confirmations).toEqual([])
+    expect(f.sent.some((message) => message.kind === 'action')).toBe(false)
+  }
+})
+
+it('CLI disconnect cancels its active local command while its retained view keeps standing agent access', async () => {
+  const f = await fixture('application-local')
+  const pending = f.run(['run', '--extension', 'installation', '--action', 'allowed'])
+  await vi.waitFor(() => expect(f.guests.snapshot(f.renderer)).toHaveLength(1))
+  const view = f.guests.snapshot(f.renderer)[0]!
+  f.attach(view)
+  const action = await invocation(f)
+  f.cli.abort()
+  expect((await pending).exitStatus).toBe(75)
+  expect(f.actions.provenance(view.id, action.id)).toBeUndefined()
+  f.guests.assertView(view.id)
+  expect(await f.request('retained', 'context.read', null)).toMatchObject({ ok: true })
+  expect(
+    await f.request('human', 'actions.invoke', { action: 'human-only' }),
+  ).toMatchObject({ ok: false })
+})
+
+it('a local standing parent cannot authorize its destructive child: confirmation binds the exact child input, effects, workspace and session', async () => {
+  const f = await fixture('application-local')
+  await f.access.configure({ enabled: true, confirmDestructive: true })
+  const pending = f.run([
+    'run',
+    '--extension',
+    'installation',
+    '--action',
+    'allowed',
+    '--input',
+    '{"parent":true}',
+    '--session',
+    f.session!,
+  ])
+  await vi.waitFor(() => expect(f.guests.snapshot(f.renderer)).toHaveLength(1))
+  f.attach(f.guests.snapshot(f.renderer)[0]!)
+  const parent = await invocation(f)
+  expect(parent).toMatchObject({ caller: 'agent', authorization: 'standing' })
+  expect(f.access.snapshot().confirmations).toEqual([])
+  f.guests.receive(10, {
+    kind: 'request',
+    id: 'child',
+    capability: 'actions.invoke',
+    actionId: parent.id,
+    input: { action: 'delete', input: { exact: 'child' } },
+  })
+  await vi.waitFor(() => expect(f.access.snapshot().confirmations).toHaveLength(1))
+  const decision = f.access.snapshot().confirmations[0]!
+  expect(decision).toMatchObject({
+    title: 'Delete',
+    input: '{"exact":"child"}',
+    effects: ['delete'],
+    workspace: f.workspace,
+    session: f.session,
+  })
+  expect(f.sent.filter((message) => message.kind === 'action')).toHaveLength(1)
+  f.access.decide(decision.id, true)
+  const child = await invocation(f, 1)
+  expect(child).toMatchObject({
+    action: 'delete',
+    input: { exact: 'child' },
+    caller: 'agent',
+    authorization: 'interactive',
+    context: { workspace: { id: f.workspace }, session: { id: f.session } },
+  })
+  f.guests.receive(10, { kind: 'action-result', id: child.id, value: 'child completed' })
+  await vi.waitFor(() =>
+    expect(f.sent).toContainEqual(
+      expect.objectContaining({
+        kind: 'result',
+        id: 'child',
+        ok: true,
+        value: 'child completed',
+      }),
+    ),
+  )
+  f.guests.receive(10, {
+    kind: 'action-result',
+    id: parent.id,
+    value: 'parent completed',
+  })
+  const result = await pending
+  expect(result.exitStatus).toBe(0)
+  expect(JSON.parse(result.stdout)).toMatchObject({ ok: true, value: 'parent completed' })
+})
+
+it('local retained views and own-view descendants stay agent-origin after CLI EOF and cannot omit action IDs to invoke human-only actions', async () => {
+  const f = await fixture('application-local'),
+    view = await f.view()
+  expect(
+    (await f.run(['view', '--extension', 'installation', '--view', 'main'])).exitStatus,
+  ).toBe(0)
+  f.cli.abort()
+  f.guests.assertView(view.id)
+  expect(await f.request('context', 'context.read', null)).toMatchObject({
+    ok: true,
+    value: { workspace: { id: f.workspace, host: 'local' } },
+  })
+  await expect(
+    f.guests.open(f.renderer, 'installation', 'main', undefined, {
+      context: { surface: 'viewer', workspaceId: f.workspace },
+    }),
+  ).rejects.toThrow('different origin')
+  expect(
+    await f.request('human', 'actions.invoke', { action: 'human-only' }),
+  ).toMatchObject({ ok: false })
+  expect(
+    await f.request('own', 'viewer.open-own', {
+      contributionId: 'main',
+      context: 'application',
+    }),
+  ).toMatchObject({ ok: true })
+  const descendant = f.guests.snapshot(f.renderer).find((entry) => entry.id !== view.id)!
+  f.attach(descendant, 11)
+  expect(
+    await f.request(
+      'descendant-human',
+      'actions.invoke',
+      { action: 'human-only' },
+      undefined,
+      11,
+    ),
+  ).toMatchObject({ ok: false })
+  f.guests.receive(11, {
+    kind: 'request',
+    id: 'standing',
+    capability: 'actions.invoke',
+    input: { action: 'delete', input: null },
+  })
+  const action = await invocation(f)
+  expect(action).toMatchObject({
+    caller: 'agent',
+    authorization: 'standing',
+    action: 'delete',
+  })
+  expect(action.context.workspace).toBeUndefined()
+  expect(f.access.snapshot().confirmations).toEqual([])
+  f.guests.receive(11, { kind: 'action-result', id: action.id, value: 'completed' })
+  await vi.waitFor(() =>
+    expect(f.sent).toContainEqual(
+      expect.objectContaining({
+        kind: 'result',
+        id: 'standing',
+        ok: true,
+        value: 'completed',
+      }),
+    ),
+  )
+  await f.access.configure({ enabled: false, confirmDestructive: false })
+  expect(f.guests.snapshot(f.renderer)).toEqual([])
+})
+
+it('a local descendant confirmation uses its application target rather than the initial workspace and is cancelled by extension revocation', async () => {
+  const f = await fixture('application-local')
+  await f.access.configure({ enabled: true, confirmDestructive: true })
+  const view = await f.view()
+  expect(
+    await f.request('own', 'viewer.open-own', {
+      contributionId: 'main',
+      context: 'application',
+    }),
+  ).toMatchObject({ ok: true })
+  const descendant = f.guests.snapshot(f.renderer).find((entry) => entry.id !== view.id)!
+  f.attach(descendant, 11)
+  f.cli.abort()
+  f.guests.receive(11, {
+    kind: 'request',
+    id: 'delete',
+    capability: 'actions.invoke',
+    input: { action: 'delete', input: null },
+  })
+  await vi.waitFor(() => expect(f.access.snapshot().confirmations).toHaveLength(1))
+  const decision = f.access.snapshot().confirmations[0]!
+  expect(decision.effects).toEqual(['delete'])
+  expect(decision.workspace).toBeUndefined()
+  expect(decision.session).toBeUndefined()
+  f.installation.abort()
+  expect(f.access.snapshot().confirmations).toEqual([])
+  expect(() => f.access.decide(decision.id, true)).toThrow('stale')
+  expect(f.guests.snapshot(f.renderer)).toEqual([])
+  expect(f.sent.some((message) => message.kind === 'action')).toBe(false)
+})
+
+it.each(['global-off', 'stricter', 'extension'] as const)(
+  'local %s revocation cancels pending agent work and rejects late completion after CLI EOF',
+  async (revocation) => {
+    const f = await fixture('application-local')
+    const view = await f.view()
+    f.cli.abort()
+    f.guests.receive(10, {
+      kind: 'request',
+      id: 'nested',
+      capability: 'actions.invoke',
+      input: { action: 'allowed', input: null },
+    })
+    const action = await invocation(f)
+    let resolve!: (value: {
+      code: number
+      signal: null
+      stdout: string
+      stderr: string
+    }) => void
+    const pending = new Promise<{
+      code: number
+      signal: null
+      stdout: string
+      stderr: string
+    }>((done) => {
+      resolve = done
+    })
+    let nativeSignal: AbortSignal | undefined
+    f.connector.host.exec.mockImplementationOnce((_command, _args, options) => {
+      nativeSignal = options?.signal
+      return pending
+    })
+    f.guests.receive(10, {
+      kind: 'request',
+      id: 'execute',
+      capability: 'connector.execute',
+      input: f.connector.input,
+      actionId: action.id,
+    })
+    await vi.waitFor(() => expect(f.connector.host.exec).toHaveBeenCalledOnce())
+    expect(nativeSignal?.aborted).toBe(false)
+    if (revocation === 'extension') f.installation.abort()
+    else
+      await f.access.configure({
+        enabled: revocation !== 'global-off',
+        confirmDestructive: revocation === 'stricter',
+      })
+    expect(nativeSignal?.aborted).toBe(true)
+    expect(f.guests.snapshot(f.renderer)).toEqual([])
+    expect(f.sent).toContainEqual({ kind: 'revoked' })
+    expect(f.actions.provenance(view.id, action.id)).toBeUndefined()
+    await f.access.configure({ enabled: true, confirmDestructive: false })
+    resolve({ code: 0, signal: null, stdout: 'completed after revocation', stderr: '' })
+    await pending
+    f.guests.receive(10, { kind: 'action-result', id: action.id, value: 'late' })
+    await Promise.resolve()
+    expect(
+      f.sent.some(
+        (message) =>
+          message.kind === 'result' &&
+          ['execute', 'nested'].includes(message.id) &&
+          message.ok,
+      ),
+    ).toBe(false)
+    expect(f.guests.snapshot(f.renderer)).toEqual([])
+  },
+)

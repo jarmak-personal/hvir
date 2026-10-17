@@ -32,7 +32,13 @@ export interface ExtensionGuestPorts {
   }
   readonly actions: Pick<
     ExtensionActionOwner,
-    'authority' | 'provenance' | 'invoke' | 'result' | 'ready' | 'revokeView'
+    | 'authority'
+    | 'provenance'
+    | 'validateInvocation'
+    | 'invoke'
+    | 'result'
+    | 'ready'
+    | 'revokeView'
   >
   readonly presentationState: Pick<ExtensionPresentationState, 'values' | 'publish'>
   readonly connectorDemand: (

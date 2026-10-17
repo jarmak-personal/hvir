@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { validateActionInput } from '../../shared/extensions/action-input'
 import {
   EXTENSION_LIMITS,
+  type ExtensionAction,
   type ExtensionInvocation,
 } from '../../shared/extensions/contract'
 import type {
@@ -50,6 +51,8 @@ export interface ExtensionActionAuthority {
     binding: {
       readonly title: string
       readonly input: string
+      readonly workspace?: string
+      readonly session?: string
       readonly effects: { readonly delete: boolean; readonly replace: boolean }
     },
     current: () => void,
@@ -67,6 +70,22 @@ export class ExtensionActionOwner {
   private readonly pending = new Map<string, PendingAction>()
   constructor(private readonly guests: ExtensionActionGuestPort) {}
 
+  validateInvocation(
+    activation: ExtensionActivation,
+    actionId: string,
+    input: unknown,
+    caller: ExtensionInvocation['caller'],
+  ): ExtensionAction {
+    const action = activation.revision.manifest.actions?.find(
+      (entry) => entry.id === actionId,
+    )
+    if (!action || (caller === 'agent' && !action.agents))
+      throw new Error('Action is unavailable to this caller')
+    boundedValue(input)
+    if (action.inputSchema) validateActionInput(input, action.inputSchema)
+    return action
+  }
+
   invoke(
     owner: RendererOwner,
     activation: ExtensionActivation,
@@ -83,13 +102,7 @@ export class ExtensionActionOwner {
       signal = signal ? AbortSignal.any([signal, authority.signal]) : authority.signal
     current()
     signal?.throwIfAborted()
-    const action = activation.revision.manifest.actions?.find(
-      (entry) => entry.id === actionId,
-    )
-    if (!action || (caller === 'agent' && !action.agents))
-      throw new Error('Action is unavailable to this caller')
-    boundedValue(input)
-    if (action.inputSchema) validateActionInput(input, action.inputSchema)
+    const action = this.validateInvocation(activation, actionId, input, caller)
     if (
       this.pending.size >= EXTENSION_LIMITS.actionsPending ||
       [...this.pending.values()].filter((entry) => entry.activation === activation)
