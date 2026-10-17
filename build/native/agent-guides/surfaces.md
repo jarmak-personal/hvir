@@ -10,4 +10,16 @@ A static item runs no guest. One separate updater supplies live values while a t
 
 Use `guide ui` for default controls, `guide lifetimes` for demand and `guide actions` for named view actions. All surfaces use the same public guest bridge and admission owners.
 
-Own contributions may receive JSON input bounded to 6144 encoded bytes through viewer.open-own. Optional context:"application" applies only to an application contribution; neither input nor root metadata grants access or changes caller origin. Read-only workspace.root metadata may be omitted to preserve the complete 7KiB context bound. Treat absent roots and SSH installed presence as unknown; never infer local project discovery. Selected human views can read granted current documents with source.select/read and confined source.asset images. Each source receipt expires after five minutes, including idle views; only nextOffset:null completes a paged read. See the maintained extension manual for exact source bounds.
+### viewer.open-own
+
+Input: `{contributionId:'detail',input?,context?:'application'}`. Returns `{viewId}` for the hvir-owned tab. The contribution must exist in this package. Input is JSON bounded to 6144 encoded bytes; context:'application' applies only to an application contribution. Neither grants access or changes caller origin. Hidden ordinary requests and updaters cannot open further views; a current finite action must carry actionId as described in `guide bridge`.
+
+### contributions.read
+
+No input. Returns the installation's admitted presentation values as an array and enables `{kind:'contributions',values}` snapshots. Each value is `{item,session?,icon?,label?,tooltip?,availability?,observedAt?}`. Hidden subscriptions retain the current snapshot without queueing history and receive it on resume.
+
+### contributions.publish
+
+Input: `{item:'pulse',session?,icon?,label?,tooltip?,availability?,observedAt?}`. Returns `null` after successful validation/publication. Use an own declared item and, for a session value, the exact current session id. Omit session for an all-sessions value. Observations accept current/stale/disconnected/failed; current requires a finite timestamp. Controls cannot claim observation freshness. Icons are one or two plain Unicode glyphs (at most eight UTF-16 units); labels are at most 24 characters and tooltips 160. Invalid values, stale sessions, missing refresh demand or exceeded bounds refuse. Retained all-sessions controls persist; observations are in-memory and historical observations are stale, never mutation authority. Presentation is bounded to 16 KiB/installation and 256 KiB globally.
+
+Read-only workspace.root metadata may be omitted to preserve the complete 7 KiB context bound. Treat absent roots and SSH installed presence as unknown; never infer local project discovery. Use `guide sources` for complete selected-document inputs, result paging, grants and reveal, and `guide bridge` for request correlation and context shape.

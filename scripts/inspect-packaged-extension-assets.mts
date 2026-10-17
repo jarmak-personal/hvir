@@ -20,8 +20,14 @@ export async function inspectPackagedExtensionAssets(
     if (!(await readFile(join(resources, path))).length)
       throw new Error(`Packaged public extension asset is empty: ${path}`)
   }
-  for (const topic of Object.keys(AGENT_GUIDE_TOPICS))
-    await requireBytes(`agent-guides/${topic}.md`)
+  for (const topic of Object.keys(AGENT_GUIDE_TOPICS)) {
+    const installed = await readFile(join(resources, `agent-guides/${topic}.md`))
+    const maintained = await readFile(
+      fileURLToPath(new URL(`../build/native/agent-guides/${topic}.md`, import.meta.url)),
+    )
+    if (!installed.length || !Buffer.from(installed).equals(Buffer.from(maintained)))
+      throw new Error(`Packaged guide differs from maintained input: ${topic}`)
+  }
   for (const asset of ['extension-authoring/SKILL.md', 'hvir-agent-command'])
     await requireBytes(asset)
   for (const [directory, source] of [
