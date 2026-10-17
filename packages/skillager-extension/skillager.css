@@ -77,9 +77,9 @@ form,
   line-height: 1.55;
   overflow-wrap: anywhere;
 }
-#instructions:not([data-mode='source']) {
-  width: min(100%, 76ch);
-  align-self: center;
+#instructions:not([data-mode='source'])
+  > :is(p:not(:has(img)), ul, ol, blockquote, h1, h2, h3, h4, h5, h6, details) {
+  max-width: 960px;
 }
 #instructions[data-mode='source'] {
   white-space: pre-wrap;
