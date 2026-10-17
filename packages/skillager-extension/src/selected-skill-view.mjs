@@ -359,9 +359,11 @@ export function bindSelectedSkill(document, client, ports) {
                     ? 'Full copy recorded · remote state has not been verified.'
                     : `In this project · ${installed.mode === 'stub' ? 'Stub' : 'Full copy'} · ${installed.status}`
                   : source
-                    ? remote()
-                      ? 'Full delivery · choose an empty or new local export folder, then review every file before adding.'
-                      : 'Ready to add'
+                    ? !context().workspace
+                      ? 'Version accepted'
+                      : remote()
+                        ? 'Full delivery · choose an empty or new local export folder, then review every file before adding.'
+                        : 'Ready to add'
                     : 'This version needs your acceptance before adding.')),
         )
       }

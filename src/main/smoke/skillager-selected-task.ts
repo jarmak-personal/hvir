@@ -3,6 +3,7 @@ import type { ExtensionView } from '../../shared/extensions/workbench'
 import type { HostPath } from '../../shared/host-path'
 import type { ProjectHost } from '../project-host/project-host'
 import { captureExtensionVisuals } from './extension-visuals'
+import { focusSmokeWindow } from './window-focus'
 import {
   skillagerManagementControls,
   withinExtensionInspection,
@@ -94,8 +95,25 @@ export async function verifySelectedSkillTasks(
       )
       throw error
     })
+  await captureReview('add', 'selected-task', 'task-primary')
+  await focusSmokeWindow(win, 'window')
+  // Appearance captures return focus to the workbench; enter the guest with real input.
+  await pointer('#task-destination')
   await ui.inspect("document.getElementById('task-mode').focus()")
-  guest.focus()
+  await ui
+    .ready(
+      "document.hasFocus() && document.activeElement.id==='task-mode'",
+      'native selected-task keyboard starting focus',
+    )
+    .catch(async (error) => {
+      console.log(
+        '[smoke] selected keyboard starting boundary',
+        await ui.inspect(
+          "({focus:document.hasFocus(),active:document.activeElement.id,visible:document.getElementById('task-mode').checkVisibility(),disabled:document.getElementById('task-mode').disabled})",
+        ),
+      )
+      throw error
+    })
   guest.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' })
   guest.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' })
   await ui.ready(
@@ -189,6 +207,7 @@ export async function verifySelectedSkillTasks(
     "!document.getElementById('task-confirmation').hidden",
     'contextual remove summary',
   )
+  await captureReview('remove', 'task-confirmation', 'task-confirm')
   await pointer('#task-confirm')
   await result('remove-copy')
   console.log(
@@ -236,7 +255,7 @@ export async function verifySelectedSkillTasks(
   }
 
   async function captureReview(
-    state: 'acceptance' | 'update',
+    state: 'acceptance' | 'add' | 'update' | 'remove',
     section: string,
     confirm: string,
   ): Promise<void> {
@@ -252,11 +271,16 @@ export async function verifySelectedSkillTasks(
           'review capture belongs to the visible guest',
         )
         await ui.ready(
-          "document.getElementById('instructions').textContent.length>0 && !document.getElementById('task-primary').disabled",
+          `document.getElementById('instructions').textContent.length>0 && !document.getElementById('${state === 'remove' ? 'task-remove' : 'task-primary'}').disabled`,
           'current selected review task',
         )
-        if (await ui.inspect(`document.getElementById('${section}').hidden`))
-          await pointer('#task-primary')
+        if (await ui.inspect(`document.getElementById('${section}').hidden`)) {
+          if (state === 'remove') {
+            if (!(await ui.inspect("document.getElementById('task-options').open")))
+              await pointer('#task-options > summary')
+            await pointer('#task-remove')
+          } else await pointer('#task-primary')
+        }
         await ui.ready(
           `!document.getElementById('${section}').hidden && !document.getElementById('${confirm}').disabled`,
           'review decision ready',
@@ -264,12 +288,16 @@ export async function verifySelectedSkillTasks(
         await ui.inspect(
           "document.getElementById('selected-task').scrollTop=0;document.getElementById('instructions').scrollTop=0",
         )
+        await ui.inspect(
+          `document.getElementById('${confirm}').scrollIntoView({block:'nearest'})`,
+        )
       },
       painted: async () =>
         ui.inspect(`(() => {
         const reader=document.getElementById('instructions').getBoundingClientRect(), action=document.getElementById('${confirm}'), task=document.getElementById('selected-task');
         const rect=action.getBoundingClientRect(), bounds=task.getBoundingClientRect();
         if(reader.height<120||reader.width<180||document.documentElement.scrollWidth>innerWidth)throw new Error('Review lost usable reading space');
+        if(!action.checkVisibility()||rect.top<bounds.top||rect.bottom>bounds.bottom+1||rect.left<0||rect.right>innerWidth+1||rect.bottom>innerHeight+1)throw new Error('Review action is not fully visible within its task');
         return {readerHeight:reader.height,readerWidth:reader.width,confirmationVisible:action.checkVisibility(),confirmationWithinTask:rect.bottom<=bounds.bottom,taskScrolls:task.scrollHeight>task.clientHeight};
       })()`),
     })

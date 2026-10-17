@@ -7,6 +7,7 @@ if (button) button.disabled = true
 let alive = true
 const cleanups = new Set()
 const timers = new Set()
+const actionTimers = new Map()
 const requests = new Map()
 const listen = (callback) => {
   const stop = bridge.onMessage((message) => {
@@ -40,6 +41,7 @@ function dispose() {
   requests.clear()
   for (const timer of timers) window.clearTimeout(timer)
   timers.clear()
+  actionTimers.clear()
   for (const cleanup of [...cleanups].reverse()) cleanup()
   cleanups.clear()
 }
@@ -113,7 +115,8 @@ listen((message) => {
     const timer = window.setTimeout(
       () => {
         timers.delete(timer)
-        if (!alive) return
+        if (!alive || actionTimers.get(invocation.id) !== timer) return
+        actionTimers.delete(invocation.id)
         bridge.send({
           kind: 'action-result',
           id: invocation.id,
@@ -130,6 +133,13 @@ listen((message) => {
       Math.max(500, Math.min(5000, Number(invocation.input?.delayMs) || 500)),
     )
     timers.add(timer)
+    actionTimers.set(invocation.id, timer)
+  } else if (message.kind === 'action-cancelled') {
+    const timer = actionTimers.get(message.id)
+    if (timer === undefined) return
+    window.clearTimeout(timer)
+    timers.delete(timer)
+    actionTimers.delete(message.id)
   }
 })
 on(document.getElementById('mark-session'), 'click', () => {

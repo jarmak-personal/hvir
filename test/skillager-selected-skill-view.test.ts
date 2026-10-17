@@ -289,8 +289,8 @@ function fixture() {
       hold = true
     },
     release: () => release?.(),
-    target: (id: string) => {
-      context = { ...context, workspace: { ...workspace, id } }
+    target: (id: string | undefined) => {
+      context = { ...context, workspace: id ? { ...workspace, id } : undefined }
       view.contextChanged()
     },
     result: (value: Value) => {
@@ -318,6 +318,22 @@ it('resolves selection internally and adds the accepted version with one action 
   })
   await vi.waitFor(() => expect(f.button('task-primary').textContent).toBe('Added'))
   expect(f.button('task-primary').disabled).toBe(true)
+})
+it('describes an accepted version without claiming Add readiness before a destination is selected', async () => {
+  const f = fixture()
+  f.target(undefined)
+  f.view.select(f.selection)
+  await vi.waitFor(() =>
+    expect(document.getElementById('task-state')?.textContent).toBe('Version accepted'),
+  )
+  expect(document.getElementById('task-destination')?.textContent).toContain(
+    'Choose a project',
+  )
+  expect(f.button('task-primary').disabled).toBe(true)
+  expect(f.actions).toEqual([])
+  f.target('workspace')
+  await f.ready()
+  expect(document.getElementById('task-state')?.textContent).toBe('Ready to add')
 })
 it('keeps a current project-bound copy quiet after refresh and presents affected files with one confirmation for mode changes', async () => {
   const f = fixture()
