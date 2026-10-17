@@ -70,7 +70,7 @@ export async function verifyInstalledLanding(
   await wait(
     () =>
       guest!.executeJavaScript(
-        "document.hasFocus() && document.activeElement?.tagName === 'BUTTON'",
+        "document.hasFocus() && document.activeElement?.matches('button, summary') && document.activeElement.checkVisibility() && document.activeElement.matches(':focus-visible')",
       ),
     'native Tab reaches an ordinary landing control without focus helpers',
   )

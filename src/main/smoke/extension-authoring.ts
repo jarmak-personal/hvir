@@ -171,20 +171,14 @@ export async function verifyExtensionAuthoring(
     return extensions.guests!.snapshot(renderer).find((entry) => entry.title === 'Clock')
   }
   async function selected(name: string): Promise<void> {
-    await extensionSettingsControls(win, 'Clock', {
-      wait: (predicate, label) => controls.wait(predicate, label),
-      within: (work) => work,
-    }).select()
-    await controls.wait(
-      async () =>
-        Boolean(
-          await win.webContents.executeJavaScript(`(() => {
-      const article = [...document.querySelectorAll('.extension-installation')].find(element => element.textContent.includes('Source: clock-development'));
-      const button = [...(article?.querySelectorAll('button') ?? [])].find(element => element.textContent.trim() === ${JSON.stringify(name)});
-      if (!button || button.disabled) return false; button.click(); return true;
-    })()`),
-        ),
-      `selected clock ${name}`,
-    )
+    await extensionSettingsControls(
+      win,
+      'Clock',
+      {
+        wait: (predicate, label) => controls.wait(predicate, label),
+        within: (work) => work,
+      },
+      'clock-development',
+    ).click(name)
   }
 }

@@ -7,7 +7,7 @@ body[data-view='management'] main {
   overflow: auto;
   display: block;
 }
-body[data-view='management'] section {
+body[data-view='management'] :is(section, .management-section) {
   margin-top: 20px;
   padding-top: 12px;
   border-top: 1px solid var(--border-subtle);
@@ -117,7 +117,7 @@ form,
 }
 #source-label {
   margin: 0;
-  font-size: 12px;
+  font-size: calc(11px * var(--hvir-interface-scale));
   overflow-wrap: anywhere;
 }
 summary {
@@ -177,7 +177,7 @@ body[data-view='management'] h2 {
 /* Package-owned task composition; shared controls retain hvir typography and theme. */
 .library-layout {
   display: grid;
-  grid-template-columns: minmax(200px, 26%) minmax(0, 1fr);
+  grid-template-columns: minmax(210px, 24%) minmax(0, 1fr);
   padding: 0;
   gap: 0;
 }
@@ -186,8 +186,8 @@ body[data-view='management'] h2 {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  gap: 10px;
-  padding: 12px;
+  gap: 8px;
+  padding: 10px;
   border-right: 1px solid var(--border-subtle);
 }
 .library-browser > .hvir-meta {
@@ -196,7 +196,7 @@ body[data-view='management'] h2 {
 .library-reader {
   min-width: 0;
   min-height: 0;
-  padding: 16px;
+  padding: 12px 16px;
   overflow: hidden;
 }
 #reader-content {
@@ -222,7 +222,8 @@ body[data-view='management'] h2 {
 .skill-heading h1 {
   overflow-wrap: anywhere;
 }
-.skill-more {
+.instruction-modes,
+.task-controls {
   position: relative;
 }
 .skill-more > summary {
@@ -231,18 +232,30 @@ body[data-view='management'] h2 {
 .skill-menu {
   position: absolute;
   right: 0;
+  top: 100%;
   z-index: 2;
-  min-width: 180px;
+  min-width: min(180px, 100%);
+  max-width: 100%;
   display: grid;
   gap: 4px;
   padding: 6px;
   border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--surface-1);
-  box-shadow: 0 4px 12px #0003;
+  box-shadow: 0 4px 12px var(--shadow);
 }
 .skill-menu > button {
   text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+#task-options[open] {
+  flex-basis: 100%;
+}
+#task-options .skill-menu {
+  position: static;
+  width: min(320px, 100%);
+  margin-top: 4px;
 }
 #selected-task {
   border-bottom: 1px solid var(--border-subtle);
@@ -264,7 +277,6 @@ body[data-view='management'] h2 {
 #task-state {
   margin: 8px 0 0;
 }
-.skill-heading [aria-pressed='true'],
 #task-primary,
 #accept-version,
 #task-confirm {
@@ -336,7 +348,7 @@ body[data-view='management'] h2 {
 }
 @media (max-width: 620px) {
   .library-layout {
-    grid-template-columns: minmax(160px, 32%) minmax(0, 1fr);
+    grid-template-columns: minmax(155px, 30%) minmax(0, 1fr);
   }
   .library-browser,
   .library-reader {
@@ -350,4 +362,137 @@ body[data-view='management'] h2 {
     flex-direction: column;
     gap: 2px;
   }
+}
+
+.library-heading {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.library-heading h1 {
+  font-size: 1em;
+}
+.instruction-modes {
+  gap: 2px;
+  max-width: 100%;
+}
+.instruction-modes > .hvir-button {
+  padding: 5px 7px;
+  border-color: transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+}
+.instruction-modes > .hvir-button[aria-pressed='true'] {
+  color: var(--text-strong);
+  box-shadow: inset 0 -2px var(--accent);
+}
+.skill-menu > .hvir-button {
+  border-color: transparent;
+  background: transparent;
+}
+#reader-state:empty,
+#task-state:empty {
+  display: none;
+}
+#reader-state {
+  padding: 0;
+  font-size: calc(11px * var(--hvir-interface-scale));
+}
+#task-state {
+  padding: 0;
+}
+#task-export-field:not([hidden]) {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+}
+#task-export-field input {
+  width: 100%;
+}
+body[data-view='management'] main {
+  padding: 16px 20px;
+}
+body[data-view='management'] :is(section, .management-section) {
+  max-width: 760px;
+}
+body[data-view='management'] :is(h2, .management-section > summary) {
+  margin: 0 0 10px;
+  color: var(--text-strong);
+  font-size: 1em;
+  font-weight: 600;
+}
+body[data-view='management'] :is(section, details, form) > label:not([hidden]) {
+  display: grid;
+  grid-template-columns: minmax(100px, 150px) minmax(0, 1fr);
+  align-items: start;
+  gap: 8px 16px;
+  margin: 12px 0;
+}
+body[data-view='management'] label:not([hidden]):has(input[type='checkbox']) {
+  display: flex;
+  align-items: center;
+}
+body[data-view='management'] label :is(input, select, textarea):not([type='checkbox']) {
+  width: 100%;
+}
+body[data-view='management'] form {
+  display: block;
+}
+body[data-view='management'] textarea {
+  min-height: 84px;
+  resize: vertical;
+}
+body[data-view='management'] .toolbar {
+  margin: 10px 0;
+}
+body[data-view='management'] :is(#result, #operation-report):empty {
+  display: none;
+}
+@media (max-width: 620px) {
+  body[data-view='management'] main {
+    padding: 12px;
+  }
+  body[data-view='management'] :is(section, details, form) > label:not([hidden]) {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+  .library-heading {
+    align-items: flex-start;
+  }
+  .task-controls {
+    gap: 6px;
+  }
+}
+
+#selected-task:has(.task-review:not([hidden])) #task-primary {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-muted);
+}
+.review-file-row > button {
+  border-color: transparent;
+  background: transparent;
+  padding: 4px 6px;
+}
+.review-file-row > button:not(:disabled) {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+#review-file-label:empty ~ .toolbar:has(#review-previous) {
+  display: none;
+}
+body[data-view='project'] #open-library {
+  align-self: flex-start;
+}
+
+.task-review > .review-actions {
+  position: sticky;
+  bottom: 0;
+  padding: 6px 0 4px;
+  background: var(--surface-1);
 }

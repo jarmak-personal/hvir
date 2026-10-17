@@ -61,6 +61,7 @@ function ConnectionDecision({
   }
   return (
     <ConfirmationDialog
+      className="extension-confirmation-dialog"
       nested={nested}
       labelledBy="connection-confirmation-title"
       busy={busy}

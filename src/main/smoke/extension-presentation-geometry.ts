@@ -29,7 +29,8 @@ export async function verifyExtensionSettingsGeometry(
       selected=left.width>0&&right.width>0&&left.right<=right.left+1&&left.left>=panel.left&&right.right<=panel.right+1&&left.height<=panel.height&&right.height<=panel.height&&getComputedStyle(list).overflowY==='auto'&&getComputedStyle(detail).overflowY==='auto';
     }
     const style=getComputedStyle(add), bounds=section.getBoundingClientRect(), box=scroll.getBoundingClientRect();
-    return selected && beside && heading.checkVisibility() && heading.getBoundingClientRect().bottom <= box.top + 1 && box.bottom <= bounds.bottom + 1 && box.height > 0 && getComputedStyle(scroll).overflowY==='auto' && style.borderTopStyle==='solid' && parseFloat(style.borderTopLeftRadius)>=3;
+    const scale=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--hvir-interface-scale'));
+    return Math.abs(parseFloat(style.fontSize)-11*scale)<.1 && selected && beside && heading.checkVisibility() && heading.getBoundingClientRect().bottom <= box.top + 1 && box.bottom <= bounds.bottom + 1 && box.height > 0 && getComputedStyle(scroll).overflowY==='auto' && style.borderTopStyle==='solid' && parseFloat(style.borderTopLeftRadius)>=3;
   })()`)) === true,
     'Extensions heading, scroll containment and flat rounded Add control',
   )

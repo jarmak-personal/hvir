@@ -144,10 +144,11 @@ export async function verifyExtensionImport(
           `Add ${kind} selects the imported package without a helper click`,
         )
       }
-      await extensionSettingsControls(win, name, {
+      const settings = extensionSettingsControls(win, name, {
         wait: (predicate, label) => controls.wait(predicate, label),
         within: (work) => work,
-      }).select()
+      })
+      await settings.select()
       await controls.wait(async () => {
         const entry = activations
           .snapshot()
@@ -189,17 +190,7 @@ export async function verifyExtensionImport(
         )
       )
         throw new Error('ZIP import did not preserve archive bytes')
-      await controls.wait(
-        async () =>
-          Boolean(
-            await win.webContents.executeJavaScript(`(() => {
-        const entry = [...document.querySelectorAll('.extension-installation')].find(item => item.querySelector('h4')?.textContent === ${JSON.stringify(name)});
-        const button = entry && [...entry.querySelectorAll('button')].find(item => item.textContent.trim() === 'Remove');
-        if (!button || !button.checkVisibility() || button.disabled) return false; button.click(); return true;
-      })()`),
-          ),
-        'ordinary imported package Remove',
-      )
+      await settings.click('Remove')
       await controls.click('Confirm remove')
       await controls.wait(
         () =>

@@ -321,14 +321,7 @@ export async function verifyExtensionTerminalHandoff(
     await extensionSettingsControls(win, 'Terminal reference', {
       wait: (predicate, label) => controls.wait(predicate, label),
       within: (work) => work,
-    }).select()
-    await controls.wait(
-      () =>
-        dom(
-          `(() => {const article=[...document.querySelectorAll('.extension-installation')].find(e=>e.querySelector('h4')?.textContent==='Terminal reference');const button=[...(article?.querySelectorAll('button')??[])].find(e=>e.textContent.trim()===${JSON.stringify(name)});if(!button||button.disabled)return false;button.click();return true})()`,
-        ),
-      `terminal fixture ${name}`,
-    )
+    }).click(name)
   }
   async function setInput(label: string, value: string): Promise<void> {
     await extensionSettingsControls(win, 'Terminal reference', {

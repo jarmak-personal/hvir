@@ -80,11 +80,16 @@ export async function verifyExtensionContributions(
         .installations.some((entry) => entry.source === 'contributions'),
     'contributions discovery',
   )
-  await extensionSettingsControls(win, staticManifest.name, {
-    wait: (predicate, label) => controls.wait(predicate, label),
-    within: (work) => work,
-  }).select()
-  await controls.click('Enable')
+  const installationSettings = extensionSettingsControls(
+    win,
+    staticManifest.name,
+    {
+      wait: (predicate, label) => controls.wait(predicate, label),
+      within: (work) => work,
+    },
+    'contributions',
+  )
+  await installationSettings.click('Enable')
   await controls.wait(() => activation.active.size === 1, 'contributions Enable')
   const installationId = [...activation.active.keys()][0]!
   await controls.click('Close settings')
@@ -151,7 +156,7 @@ export async function verifyExtensionContributions(
 
   await host.writeFile(manifestPath, fullManifest)
   await settings()
-  await controls.click('Reload')
+  await installationSettings.click('Reload')
   await controls.click('Close settings')
   try {
     await controls.wait(
@@ -724,7 +729,7 @@ export async function verifyExtensionContributions(
   )
     throw new Error('Failed updater automatically restarted')
   await settings()
-  await controls.click('Disable')
+  await installationSettings.click('Disable')
   await controls.wait(
     () => guests.snapshot(renderer).length === 0 && updaterGuest.isDestroyed(),
     'Disable revokes all contribution guests',

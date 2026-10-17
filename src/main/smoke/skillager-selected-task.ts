@@ -62,6 +62,7 @@ export async function verifySelectedSkillTasks(
     "!document.getElementById('exact-review').hidden && document.querySelectorAll('[data-review-path]').length===3 && !document.getElementById('accept-version').disabled",
     'complete optional inventory with one acceptance decision',
   )
+  await captureReview('acceptance', 'exact-review', 'accept-version')
   await pointer('#accept-version')
   const accepted = await result('accept-version')
   await ui.ready(
@@ -79,16 +80,26 @@ export async function verifySelectedSkillTasks(
     'accepted indexed search result',
   )
   await pointer('#skills [role=option]')
-  await ui.ready(
-    "document.getElementById('task-primary').textContent==='Add to project' && !document.getElementById('task-primary').disabled && document.getElementById('instructions').textContent.length>0",
-    'search occurrence resolved to the exact accepted source',
-  )
+  await ui
+    .ready(
+      "document.getElementById('task-primary').textContent==='Add to project' && !document.getElementById('task-primary').disabled && document.getElementById('instructions').textContent.length>0",
+      'search occurrence resolved to the exact accepted source',
+    )
+    .catch(async (error) => {
+      console.log(
+        '[smoke] selected search boundary',
+        await ui.inspect(
+          "({task:document.getElementById('task-state').textContent,primary:document.getElementById('task-primary').textContent,disabled:document.getElementById('task-primary').disabled,reader:document.getElementById('reader-state').textContent,reading:document.getElementById('instructions').textContent.length,selected:document.querySelector('#skills [aria-selected=true]')?.dataset.id,reviewHidden:document.getElementById('exact-review').hidden})",
+        ),
+      )
+      throw error
+    })
   await ui.inspect("document.getElementById('task-mode').focus()")
   guest.focus()
   guest.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' })
   guest.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' })
   await ui.ready(
-    "document.hasFocus() && document.activeElement.id==='task-primary' && !document.activeElement.disabled",
+    "document.hasFocus() && document.activeElement.id==='task-primary' && document.activeElement.matches(':focus-visible') && getComputedStyle(document.activeElement).outlineStyle!=='none' && !document.activeElement.disabled",
     'keyboard reaches the primary Add action',
   )
   guest.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' })
@@ -163,6 +174,7 @@ export async function verifySelectedSkillTasks(
     "!document.getElementById('task-confirmation').hidden && document.getElementById('task-effects').textContent.includes('SKILL.md')",
     'complete affected-file summary',
   )
+  await captureReview('update', 'task-confirmation', 'task-confirm')
   await pointer('#task-cancel')
   await pointer('#task-primary')
   await ui.ready(
@@ -221,6 +233,46 @@ export async function verifySelectedSkillTasks(
     guest.sendInputEvent({ type: 'mouseMove', ...point })
     guest.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1, ...point })
     guest.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: 1, ...point })
+  }
+
+  async function captureReview(
+    state: 'acceptance' | 'update',
+    section: string,
+    confirm: string,
+  ): Promise<void> {
+    await captureExtensionVisuals(win, guest, host, state, {
+      ...controls,
+      select: async () => {
+        await controls.click('Skillager library')
+        await controls.wait(
+          async () =>
+            (await win.webContents.executeJavaScript(
+              `document.querySelector('.extension-top-destination .extension-view:not([hidden]) webview')?.getWebContentsId()===${guest.id}`,
+            )) === true,
+          'review capture belongs to the visible guest',
+        )
+        await ui.ready(
+          "document.getElementById('instructions').textContent.length>0 && !document.getElementById('task-primary').disabled",
+          'current selected review task',
+        )
+        if (await ui.inspect(`document.getElementById('${section}').hidden`))
+          await pointer('#task-primary')
+        await ui.ready(
+          `!document.getElementById('${section}').hidden && !document.getElementById('${confirm}').disabled`,
+          'review decision ready',
+        )
+        await ui.inspect(
+          "document.getElementById('selected-task').scrollTop=0;document.getElementById('instructions').scrollTop=0",
+        )
+      },
+      painted: async () =>
+        ui.inspect(`(() => {
+        const reader=document.getElementById('instructions').getBoundingClientRect(), action=document.getElementById('${confirm}'), task=document.getElementById('selected-task');
+        const rect=action.getBoundingClientRect(), bounds=task.getBoundingClientRect();
+        if(reader.height<120||reader.width<180||document.documentElement.scrollWidth>innerWidth)throw new Error('Review lost usable reading space');
+        return {readerHeight:reader.height,readerWidth:reader.width,confirmationVisible:action.checkVisibility(),confirmationWithinTask:rect.bottom<=bounds.bottom,taskScrolls:task.scrollHeight>task.clientHeight};
+      })()`),
+    })
   }
 
   async function result(action: string): Promise<Record<string, unknown>> {

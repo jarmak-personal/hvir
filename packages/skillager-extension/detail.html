@@ -11,11 +11,11 @@
       <section id="reader-content" hidden aria-label="Selected skill">
         <header class="skill-heading">
           <h1 id="detail-title">Skill instructions</h1>
-          <div class="toolbar" aria-label="Instruction view">
+          <div class="toolbar instruction-modes" aria-label="Instruction view">
             <button id="rendered-mode" class="hvir-button">Rendered</button
             ><button id="source-mode" class="hvir-button">Source</button>
             <details class="skill-more">
-              <summary>More</summary>
+              <summary class="hvir-focus">More</summary>
               <div class="skill-menu">
                 <button id="close-instructions" class="hvir-button">
                   Close instructions
@@ -58,7 +58,7 @@
               Connect for this project
             </button>
             <details id="task-options" class="skill-more" hidden>
-              <summary>Skill actions</summary>
+              <summary class="hvir-focus">Skill actions</summary>
               <div class="skill-menu">
                 <button id="task-update" class="hvir-button" hidden>
                   Review Full update…
@@ -94,7 +94,7 @@
               <summary>Version and file details</summary>
               <pre id="task-plan"></pre>
             </details>
-            <div class="toolbar">
+            <div class="toolbar review-actions">
               <button id="task-confirm" class="hvir-button"></button
               ><button id="task-cancel" class="hvir-button">Cancel</button>
             </div>
@@ -124,7 +124,7 @@
               <summary>Complete version details</summary>
               <pre id="review-manifest" tabindex="0"></pre>
             </details>
-            <div class="toolbar">
+            <div class="toolbar review-actions">
               <button id="accept-version" class="hvir-button" disabled>
                 Accept version</button
               ><button id="cancel-review" class="hvir-button">Cancel</button>

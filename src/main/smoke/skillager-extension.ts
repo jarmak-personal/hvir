@@ -1,3 +1,4 @@
+import { captureExtensionDecision } from './extension-decision-visuals'
 import { inspectSkillagerSearch, submitSkillagerSearch } from './skillager-search'
 import {
   verifySkillagerNavigation,
@@ -371,6 +372,16 @@ export async function verifySkillagerExtension(
   await controls.wait(
     () => extensions.sourceRequests!.snapshot(owner)[0]?.state === 'ready',
     'new explicit Read current decision',
+  )
+  if (
+    await inspect(
+      detail,
+      "document.getElementById('read-current').closest('details').open",
+    )
+  )
+    throw new Error('Instruction refresh left its command menu open behind consent')
+  await captureExtensionDecision(win, host, 'read', (predicate, label) =>
+    controls.wait(predicate, label),
   )
   await controls.click('Allow read-only access')
   console.log(

@@ -109,7 +109,7 @@ export function ExtensionsSettings({
       section="extensions"
       className="extension-settings"
       title="Extensions"
-      description="Select an extension to review its setup and access."
+      description="Extension changes apply immediately. App preferences use Save below."
       actions={
         <div className="settings-actions">
           <button
@@ -292,6 +292,7 @@ export function ExtensionsSettings({
       </div>
       {removing ? (
         <ConfirmationDialog
+          className="extension-confirmation-dialog"
           nested
           busy={busy}
           labelledBy="extension-remove-title"

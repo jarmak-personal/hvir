@@ -32,7 +32,14 @@ export async function captureExtensionVisuals(
   win: BrowserWindow,
   guest: WebContents,
   host: ProjectHost,
-  state: 'unapproved' | 'library' | 'instructions' | 'project',
+  state:
+    | 'unapproved'
+    | 'library'
+    | 'instructions'
+    | 'project'
+    | 'acceptance'
+    | 'update'
+    | 'management',
   controls: VisualControls,
   captureDirectory = process.env.HVIR_EXTENSION_VISUAL_DIRECTORY,
 ): Promise<void> {
@@ -91,7 +98,14 @@ export async function captureExtensionVisuals(
             'current public library result after appearance save',
           )
         await settled()
-        if (state !== 'instructions')
+        const visibleIdentity: unknown = await win.webContents.executeJavaScript(`(() => {
+          const frame=[...document.querySelectorAll('webview')].find(item=>item.getWebContentsId()===${guest.id});
+          const r=frame?.getBoundingClientRect();
+          if(!frame?.checkVisibility()||!r||r.width<=0||r.height<=0||r.left<0||r.right>innerWidth+1||r.top<0||r.bottom>innerHeight+1)throw new Error('Captured guest is hidden or outside the workbench viewport');
+          return {guestId:${guest.id},viewId:frame.closest('[data-extension-view]')?.dataset.extensionView,width:r.width,height:r.height};
+        })()`)
+        facts.push({ theme, variant, state, visibleIdentity })
+        if (['unapproved', 'library', 'project'].includes(state))
           facts.push({
             theme,
             variant,
@@ -124,7 +138,120 @@ export async function captureExtensionVisuals(
         })()`)) as unknown,
         })
         await write(`${state}-${theme}-${variant}`)
+        if (state === 'management') {
+          await guest.executeJavaScript(
+            "document.querySelector('[aria-label=\"Local project copies\"]').scrollIntoView({block:'start'})",
+          )
+          await settled()
+          await write(`management-${theme}-${variant}-copy-form`)
+          await guest.executeJavaScript(
+            "document.querySelector('[aria-label=\"Advanced local exposure\"] > summary').click();document.querySelector('[aria-label=\"Advanced local exposure\"]').scrollIntoView({block:'start'})",
+          )
+          await settled()
+          await write(`management-${theme}-${variant}-advanced-form`)
+          const advanced: unknown = await guest.executeJavaScript(`(() => {
+            const section=document.querySelector('[aria-label="Advanced local exposure"]');
+            if([...section.querySelectorAll('[hidden]')].some(item=>item.checkVisibility()))throw new Error('Advanced choices expose hidden fields');
+            for(const field of section.querySelectorAll('input,select,textarea')) {
+              if(!field.checkVisibility())continue;
+              const rect=field.getBoundingClientRect();
+              if(rect.left<0||rect.right>innerWidth+1)throw new Error('Advanced field escapes viewport');
+            }
+            const action=document.getElementById('preview-advanced');
+            action.scrollIntoView({block:'end'});
+            const rect=action.getBoundingClientRect();
+            if(rect.top<0||rect.bottom>innerHeight+1)throw new Error('Advanced action cannot be reached by scrolling');
+            return {actionVisible:true,hiddenFieldsPreserved:true,width:innerWidth,height:innerHeight};
+          })()`)
+          facts.push({ theme, variant, state, advanced })
+          await settled()
+          await write(`management-${theme}-${variant}-advanced-action`)
+          await guest.executeJavaScript(
+            "document.querySelector('[aria-label=\"Advanced local exposure\"]').open=false;document.querySelector('main').scrollTop=0",
+          )
+        }
+        if (state === 'instructions') {
+          const position: unknown = await guest.executeJavaScript(
+            "document.getElementById('instructions').scrollTop",
+          )
+          await guest.executeJavaScript(
+            "document.getElementById('instructions').scrollTop=0",
+          )
+          await settled()
+          await write(`instructions-${theme}-${variant}-top`)
+          for (const [name, selector] of [
+            ['more', '.instruction-modes > .skill-more'],
+            ['skill-actions', '#task-options'],
+          ]) {
+            const point = (await guest.executeJavaScript(`(() => {
+              const details=document.querySelector(${JSON.stringify(selector)}), summary=details.querySelector('summary');
+              details.open=false;summary.scrollIntoView({block:'nearest'});
+              const rect=summary.getBoundingClientRect();
+              if(!summary.checkVisibility()||rect.top<0||rect.bottom>innerHeight)throw new Error('Command disclosure is not reachable');
+              return {x:Math.round(rect.left+rect.width/2),y:Math.round(rect.top+rect.height/2)};
+            })()`)) as { x: number; y: number }
+            guest.focus()
+            guest.sendInputEvent({
+              type: 'mouseDown',
+              button: 'left',
+              clickCount: 1,
+              ...point,
+            })
+            guest.sendInputEvent({
+              type: 'mouseUp',
+              button: 'left',
+              clickCount: 1,
+              ...point,
+            })
+            await controls.wait(
+              async () =>
+                (await guest.executeJavaScript(
+                  `document.querySelector(${JSON.stringify(selector)}).open`,
+                )) === true,
+              'native command disclosure opens',
+            )
+            const menu: unknown = await guest.executeJavaScript(`(() => {
+              const menu=document.querySelector(${JSON.stringify(selector)}).querySelector('.skill-menu');
+              menu.scrollIntoView({block:'nearest'});
+              const bounds=menu.getBoundingClientRect(), task=document.getElementById('selected-task').getBoundingClientRect();
+              const fits=rect=>rect.left>=0&&rect.right<=innerWidth+1&&rect.top>=0&&rect.bottom<=innerHeight+1;
+              const items=[...menu.querySelectorAll('button')].filter(button=>button.checkVisibility());
+              if(!fits(bounds)||menu.scrollWidth>menu.clientWidth+1||items.some(button=>!fits(button.getBoundingClientRect()))||(${JSON.stringify(name)}==='skill-actions'&&(bounds.top<task.top||bounds.bottom>task.bottom+1)))throw new Error('Command menu or its buttons escape the visible reader');
+              return {width:bounds.width,height:bounds.height,contained:true};
+            })()`)
+            facts.push({ theme, variant, state, command: name, menu })
+            await settled()
+            await write(`instructions-${theme}-${variant}-${name}`)
+            guest.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
+            guest.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
+            await controls.wait(
+              async () =>
+                (await guest.executeJavaScript(`(() => {
+                const details=document.querySelector(${JSON.stringify(selector)}), summary=details.querySelector('summary');
+                return !details.open&&document.hasFocus()&&document.activeElement===summary&&summary.matches(':focus-visible')&&getComputedStyle(summary).outlineStyle!=='none';
+              })()`)) === true,
+              'Escape closes commands and returns visible summary focus',
+            )
+          }
+          await guest.executeJavaScript(
+            `document.getElementById('selected-task').scrollTop=0;document.getElementById('instructions').scrollTop=${Number(position)}`,
+          )
+        }
         if (state === 'library') {
+          await guest.executeJavaScript(
+            "document.querySelector('.library-options > summary').click()",
+          )
+          await settled()
+          await write(`library-${theme}-${variant}-library-options`)
+          const menu: unknown = await guest.executeJavaScript(`(() => {
+            const options=document.querySelector('.library-options'), menu=options.querySelector('.skill-menu'), sidebar=document.querySelector('.library-browser').getBoundingClientRect();
+            const bounds=menu.getBoundingClientRect();
+            const contained=rect=>rect.left>=sidebar.left&&rect.right<=sidebar.right+1&&rect.left>=0&&rect.right<=innerWidth+1;
+            if(!menu.checkVisibility()||!contained(bounds)||menu.scrollWidth>menu.clientWidth+1||[...menu.querySelectorAll('button')].some(button=>!contained(button.getBoundingClientRect())))throw new Error('Library options escape the sidebar or guest');
+            options.querySelector('summary').click();
+            return {left:bounds.left,right:bounds.right,sidebarWidth:sidebar.width,viewport:innerWidth,contained:true};
+          })()`)
+          facts.push({ theme, variant, state, menu })
           await controls.wait(
             async () =>
               (await guest.executeJavaScript(`(() => {
@@ -148,13 +275,13 @@ export async function captureExtensionVisuals(
             "document.querySelector('.search-options > summary').click()",
           )
         }
-        if (state !== 'instructions' && state !== 'project') {
+        if (['unapproved', 'library', 'instructions'].includes(state)) {
           await controls.click('Open settings')
           await section('Extensions', 'extensions')
           await verifyExtensionSettingsGeometry(win, (predicate, label) =>
             controls.wait(predicate, label),
           )
-          if (state === 'library')
+          if (state === 'library' || state === 'instructions')
             await controls.wait(
               async () =>
                 (await win.webContents.executeJavaScript(
@@ -195,7 +322,7 @@ export async function captureExtensionVisuals(
           })()`)
           facts.push({ theme, variant, state, configuration })
           await write(`settings-${state}-${theme}-${variant}`)
-          if (state === 'library') {
+          if (state === 'library' || state === 'instructions') {
             for (const name of ['File access', 'Extension actions']) {
               await controls.click(name)
               await controls.wait(
@@ -209,12 +336,12 @@ export async function captureExtensionVisuals(
                 await controls.wait(
                   async () =>
                     (await win.webContents.executeJavaScript(
-                      "[...document.querySelectorAll('.extension-installation fieldset [role=status]')].some(e=>e.textContent.trim().startsWith('Granted'))",
+                      `[...document.querySelectorAll('.extension-installation fieldset [role=status]')].some(e=>e.textContent.trim().startsWith(${JSON.stringify(state === 'instructions' ? 'Granted' : 'Not granted')}))`,
                     )) === true,
-                  'current approved library folder',
+                  'current library reading permission state',
                 )
                 await win.webContents.executeJavaScript(
-                  "document.querySelector('.extension-installation fieldset').scrollIntoView({block:'start'})",
+                  "document.querySelector('.extension-settings-content').scrollTop=0;document.querySelector('.extension-installation').scrollTop=0",
                 )
               }
               await settled()
@@ -343,7 +470,11 @@ export async function captureExtensionVisuals(
       joinHostPath(output, `${name}.png`),
       (await win.webContents.capturePage()).toPNG(),
     )
-    if (/^(unapproved|library|instructions|project)-/.test(name))
+    if (
+      /^(unapproved|library|instructions|project|acceptance|update|management)-/.test(
+        name,
+      )
+    )
       await host.writeFile(
         joinHostPath(output, `${name}-guest.png`),
         (await guest.capturePage()).toPNG(),

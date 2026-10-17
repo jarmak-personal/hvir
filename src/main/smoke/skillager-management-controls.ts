@@ -43,7 +43,13 @@ export function skillagerManagementControls(
       `!!document.getElementById(${JSON.stringify(id)}) && !document.getElementById(${JSON.stringify(id)}).disabled`,
       id,
     )
-    await inspect(`document.getElementById(${JSON.stringify(id)}).click()`)
+    await inspect(`(() => {
+      const button=document.getElementById(${JSON.stringify(id)}), closed=[];
+      for(let parent=button.parentElement;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS'&&!parent.open)closed.unshift(parent);
+      for(const parent of closed)parent.querySelector(':scope > summary').click();
+      if(!button.checkVisibility())throw new Error('Management control is not visible');
+      button.click();
+    })()`)
   }
   return {
     inspect,

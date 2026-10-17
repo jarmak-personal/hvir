@@ -40,7 +40,7 @@ export function bindSelectedSkill(document, client, ports) {
     say,
     action: (id, input) => invoke(id, input),
     accepted: () => {
-      void refresh('Version accepted. Choose Add to use it in this project.')
+      void refresh('Version accepted.')
     },
   })
   const taskKey = () =>
@@ -100,9 +100,10 @@ export function bindSelectedSkill(document, client, ports) {
     el('task-connect').disabled = working
     el('task-refresh').disabled = working
     el('task-reconcile').hidden = !pending.length
-    el('task-reconcile').textContent = remote()
-      ? 'Inspect delivery recovery'
-      : 'Inspect uncertain operation'
+    el('task-reconcile').textContent =
+      remote() && !pending[0]?.id
+        ? 'Inspect delivery recovery'
+        : 'Inspect uncertain operation'
     el('task-options').hidden = !library
   }
   function invalidate() {
@@ -347,11 +348,12 @@ export function bindSelectedSkill(document, client, ports) {
         ready = true
         say(
           pending.length
-            ? remote()
+            ? remote() && !pending[0]?.id
               ? 'Delivery recovery needs attention for this exact target. Inspect its recorded operations before trying again.'
               : 'This operation has an uncertain outcome. Inspect it before trying again.'
-            : (message ??
-                projectIssue ??
+            : message
+              ? `${message} ${projectIssue ?? (!context().workspace ? 'Choose a project above to add this skill.' : !installed && source ? 'Ready to add.' : '')}`.trim()
+              : (projectIssue ??
                 (installed
                   ? remote()
                     ? 'Full copy recorded · remote state has not been verified.'

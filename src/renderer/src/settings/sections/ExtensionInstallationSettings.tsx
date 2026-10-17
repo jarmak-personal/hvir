@@ -31,11 +31,15 @@ export function ExtensionInstallationSettings({
       className="extension-installation"
       aria-label={`${installation.manifest?.name ?? installation.source} configuration`}
     >
-      <h4>{installation.manifest?.name ?? installation.source}</h4>
-      <p className="hvir-meta">
-        {installation.enabled ? 'Enabled' : 'Not enabled'} · Version{' '}
-        {installation.manifest?.version ?? 'unknown'}
-      </p>
+      <header className="extension-installation-heading">
+        <div>
+          <h4>{installation.manifest?.name ?? installation.source}</h4>
+          <p className="hvir-meta">
+            {installation.enabled ? 'Enabled' : 'Not enabled'} · Version{' '}
+            {installation.manifest?.version ?? 'unknown'}
+          </p>
+        </div>
+      </header>
 
       {installation.retainedIdentity ? (
         <p>Saved setup is kept. Choose Enable before opening views.</p>
@@ -61,77 +65,85 @@ export function ExtensionInstallationSettings({
           ))}
         </>
       ) : null}
-      <div className="settings-actions extension-installation-actions">
-        {!installation.error ? (
-          <>
-            {installation.installationId && installation.revision ? (
-              <button
-                type="button"
-                disabled={busy || !writable || installation.removalPending}
-                onClick={() =>
-                  void onRun(async () =>
-                    onState(
-                      await window.hvir.invoke('extensions:reload', {
-                        source: installation.source,
-                        revision: installation.revision!,
-                      }),
-                    ),
-                  )
-                }
-                className="hvir-button"
-              >
-                {installation.kind === 'zip' ? 'Replace' : 'Reload'}
-              </button>
-            ) : null}
-            {installation.enabled ? (
-              <button
-                type="button"
-                disabled={busy || !writable || installation.removalPending}
-                onClick={() =>
-                  void onRun(async () =>
-                    onState(
-                      await window.hvir.invoke('extensions:disable', {
-                        installationId: installation.installationId!,
-                      }),
-                    ),
-                  )
-                }
-                className="hvir-button"
-              >
-                Disable
-              </button>
-            ) : (
-              <button
-                type="button"
-                disabled={busy || !writable || installation.removalPending}
-                onClick={() =>
-                  void onRun(async () =>
-                    onState(
-                      await window.hvir.invoke('extensions:enable', {
-                        source: installation.source,
-                        revision: installation.revision!,
-                      }),
-                    ),
-                  )
-                }
-                className="hvir-button"
-              >
-                Enable
-              </button>
-            )}
-          </>
-        ) : null}
-        <button
-          type="button"
-          disabled={busy || !writable}
-          onClick={() => {
-            onRemove(installation)
-          }}
-          className="hvir-button"
-        >
-          Remove
-        </button>
-      </div>
+      <details
+        className="extension-lifecycle"
+        open={
+          !installation.enabled || !!installation.error || !!installation.removalPending
+        }
+      >
+        <summary>Manage extension</summary>
+        <div className="settings-actions extension-installation-actions">
+          {!installation.error ? (
+            <>
+              {installation.installationId && installation.revision ? (
+                <button
+                  type="button"
+                  disabled={busy || !writable || installation.removalPending}
+                  onClick={() =>
+                    void onRun(async () =>
+                      onState(
+                        await window.hvir.invoke('extensions:reload', {
+                          source: installation.source,
+                          revision: installation.revision!,
+                        }),
+                      ),
+                    )
+                  }
+                  className="hvir-button"
+                >
+                  {installation.kind === 'zip' ? 'Replace' : 'Reload'}
+                </button>
+              ) : null}
+              {installation.enabled ? (
+                <button
+                  type="button"
+                  disabled={busy || !writable || installation.removalPending}
+                  onClick={() =>
+                    void onRun(async () =>
+                      onState(
+                        await window.hvir.invoke('extensions:disable', {
+                          installationId: installation.installationId!,
+                        }),
+                      ),
+                    )
+                  }
+                  className="hvir-button"
+                >
+                  Disable
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={busy || !writable || installation.removalPending}
+                  onClick={() =>
+                    void onRun(async () =>
+                      onState(
+                        await window.hvir.invoke('extensions:enable', {
+                          source: installation.source,
+                          revision: installation.revision!,
+                        }),
+                      ),
+                    )
+                  }
+                  className="hvir-button"
+                >
+                  Enable
+                </button>
+              )}
+            </>
+          ) : null}
+          <button
+            type="button"
+            disabled={busy || !writable}
+            onClick={() => {
+              onRemove(installation)
+            }}
+            className="hvir-button"
+          >
+            Remove
+          </button>
+        </div>
+      </details>
       {installation.error ? (
         <p role="alert">{installation.error}</p>
       ) : (

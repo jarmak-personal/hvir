@@ -146,12 +146,18 @@ export async function verifyExtensionScenario(
     wait: waitFor,
     guest: guestFor,
   })
-  await extensionSettingsControls(win, 'hvir Reference', {
-    wait: waitFor,
-    within: (work) => work,
-  }).select()
+  const referenceSettings = extensionSettingsControls(
+    win,
+    'hvir Reference',
+    {
+      wait: waitFor,
+      within: (work) => work,
+    },
+    'reference',
+  )
+  await referenceSettings.select()
   await verifyExtensionSettingsGeometry(win, waitFor)
-  await click(win, 'Enable')
+  await referenceSettings.click('Enable')
   await waitFor(() => extensions.activations!.active.size === 1, 'trusted Enable')
   await click(win, 'Open Extension reference')
   const owner = scopes.currentOwner(win.webContents.id)
@@ -351,11 +357,7 @@ export async function verifyExtensionScenario(
   void hung.executeJavaScript('while (true) {}').catch(() => undefined)
   await click(win, 'Open settings')
   await click(win, 'Extensions')
-  await extensionSettingsControls(win, 'hvir Reference', {
-    wait: waitFor,
-    within: (work) => work,
-  }).select()
-  await click(win, 'Disable')
+  await referenceSettings.click('Disable')
   await waitFor(
     () => hung.isDestroyed() && extensions.activations!.active.size === 0,
     'trusted Disable',

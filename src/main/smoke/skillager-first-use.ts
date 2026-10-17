@@ -5,6 +5,7 @@ import type { ProjectHost } from '../project-host/project-host'
 import type { RendererOwner } from '../renderer-resource-scopes'
 import type { ExtensionApplicationRuntime } from '../extensions/extension-application'
 import { verifyInstalledLanding } from './extension-installation-landing'
+import { captureExtensionDecision } from './extension-decision-visuals'
 import { trustedRendererControl } from './trusted-renderer-control'
 
 interface FirstUseControls {
@@ -36,7 +37,7 @@ export async function installSkillagerFirstUse(
   extensions: ExtensionApplicationRuntime,
   owner: RendererOwner,
   executable: string,
-  host: Pick<ProjectHost, 'realpath'>,
+  host: ProjectHost,
   archive: string | undefined,
   controls: FirstUseControls,
 ): Promise<HostPath> {
@@ -82,6 +83,9 @@ export async function installSkillagerFirstUse(
       const proposals = extensions.connections!.snapshot(owner)
       return proposals.length === 1
     }, 'one trusted Skillager program connection')
+    await captureExtensionDecision(win, host, 'program', (predicate, label) =>
+      controls.wait(predicate, label),
+    )
     await controls.wait(
       () =>
         trustedRendererControl(
