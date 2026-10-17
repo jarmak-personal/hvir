@@ -16,8 +16,11 @@ Keep browsing, selected instructions, and contextual Add, Update and Remove cont
 the installed extension. Resolve public library identity and eligibility within that task;
 reuse the existing CLI plans, tokens, action admission and uncertainty owners. Display the
 exact host-qualified project/worktree, agent and Full/Stub mode before mutation. Create-only
-Add needs no second confirmation. Update and Remove present their affected files and one
-confirmation. Advanced workflows remain separately reachable.
+local Add needs no second confirmation. Update and Remove present their affected files and
+one confirmation. SSH Full delivery keeps its existing explicit local export choice, complete
+preview, grants and confirmation in the selected task. Recorded remote presence is distinct
+from freshly verified presence; inspection, update and removal remain available. Advanced
+workflows remain separately reachable.
 
 Present the complete public review manifest with every file's path, size, SHA-256 and
 executable state. All supported files can be inspected, without mandatory visits, page

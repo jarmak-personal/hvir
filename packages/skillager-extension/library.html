@@ -144,6 +144,9 @@
               <details id="task-options" class="skill-more" hidden>
                 <summary>Skill actions</summary>
                 <div class="skill-menu">
+                  <button id="task-update" class="hvir-button" hidden>
+                    Review Full update…
+                  </button>
                   <button id="task-refresh" class="hvir-button">Refresh status</button
                   ><button id="task-remove" class="hvir-button" hidden>
                     Remove from project…
@@ -151,6 +154,13 @@
                 </div>
               </details>
             </div>
+            <label id="task-export-field" hidden
+              >Local export folder
+              <input
+                id="task-export"
+                class="hvir-input"
+                placeholder="New or empty local folder"
+            /></label>
             <p id="task-state" class="hvir-state" role="status"></p>
             <button id="task-reconcile" class="hvir-button" hidden>
               Inspect uncertain operation

@@ -7,6 +7,7 @@ import { AgentAccessSettings } from './AgentAccessSettings'
 import { ConnectorSettings } from './ConnectorSettings'
 import { SourceSettings } from './SourceSettings'
 import { ExtensionActions } from '../../extensions/ExtensionActions'
+import { ExtensionViewLauncher } from './ExtensionViewLauncher'
 
 /** Selected package configuration; remounting retires unconfirmed access proposals. */
 export function ExtensionInstallationSettings({
@@ -172,26 +173,11 @@ export function ExtensionInstallationSettings({
                   ) : null}
                 </>
               ) : null}
-              {installation.manifest?.views
-                .filter((view) => view.id === installation.manifest?.landing)
-                .map((view) => (
-                  <button
-                    type="button"
-                    key={view.id}
-                    disabled={busy || !writable || installation.removalPending}
-                    onClick={() =>
-                      void onRun(() =>
-                        window.hvir.invoke('extensions:open-view', {
-                          installationId: installation.installationId!,
-                          contributionId: view.id,
-                        }),
-                      )
-                    }
-                    className="hvir-button"
-                  >
-                    Open {view.title}
-                  </button>
-                ))}
+              <ExtensionViewLauncher
+                installation={installation}
+                disabled={busy || !writable || !!installation.removalPending}
+                onRun={onRun}
+              />
             </>
           ) : null}
         </>

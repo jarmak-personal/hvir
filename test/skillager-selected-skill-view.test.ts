@@ -63,6 +63,17 @@ function fixture() {
     accepted_hash: selected.content_hash,
     acceptance: 'accepted',
   })
+  const review = JSON.parse(
+    readFileSync('test/fixtures/skillager-management/first-no-git-review.json', 'utf8')
+      .replaceAll('f06e01bd-5e1f-4aa0-b1ef-3cf9c66f2a85', selected.source.library_id)
+      .replaceAll('/owned-manifest-fixture/library/skills/owned-first', selected.root)
+      .replaceAll('/owned-manifest-fixture/library', selected.source.library_root)
+      .replaceAll('lib/owned-first', selected.id)
+      .replaceAll(
+        '0cc360070c6fc5542d08e3c5c85bb5a9299a39a7d56193db8eb3e12d6b6a445a',
+        selected.content_hash,
+      ),
+  ) as unknown
   const workspace = {
     id: 'workspace',
     name: 'Project',
@@ -72,6 +83,9 @@ function fixture() {
   let context: Value = { visible: true, workspace },
     exposures: unknown[] = [],
     failure = false,
+    failureMessage: string | undefined,
+    actionError: string | undefined,
+    records: Value[] = [],
     hold = false,
     release: (() => void) | undefined
   let actionResult: Value = {
@@ -81,6 +95,8 @@ function fixture() {
     target: { hostId: 'local', path: preview[0].target },
   }
   const actions: Value[] = [],
+    recovery: Value[] = [],
+    executions: Value[] = [],
     outputs = new Map<string, unknown>(),
     controller = new AbortController()
   let count = 0
@@ -89,8 +105,52 @@ function fixture() {
     signal: controller.signal,
     listen: () => () => undefined,
     request: async (capability: string, input: Value): Promise<unknown> => {
+      if (capability === 'connector.status')
+        return [
+          {
+            connector: 'project-cli',
+            availability: failure ? 'unavailable' : 'supported',
+          },
+        ]
       if (capability === 'actions.invoke') {
+        const request = input['input'] as Value
+        if (input['action'] === 'operation-state') {
+          recovery.push(request)
+          if (request['mode'] === 'observe')
+            return {
+              outcome: 'observed',
+              observation: JSON.stringify({ target: preview[0].target, current: true }),
+              message: 'Exact current facts',
+            }
+          if (request['mode'] === 'acknowledge') {
+            records = []
+            return { outcome: 'reconciled', message: 'Current facts acknowledged' }
+          }
+          if (request['mode'] === 'list')
+            return { ids: records.map((entry) => entry['id']) }
+          if (request['mode'] === 'report')
+            return {
+              data: JSON.stringify(
+                records.find((entry) => entry['id'] === request['operationId']),
+              ),
+              nextOffset: null,
+            }
+        }
         actions.push(input)
+        if (actionResult['outcome'] === 'uncertain')
+          records.push({
+            id: actionResult['operationId'],
+            operation: {
+              action: input['action'],
+              library: request['library'],
+              source: { id: selected.id },
+              workspace,
+              agent: request['agent'],
+              target: { hostId: 'local', path: preview[0].target },
+            },
+          })
+        if (actionError) throw new Error(actionError)
+        if (input['action'] === 'accept-version') status.skill.acceptance = 'accepted'
         return actionResult
       }
       if (capability === 'connector.output')
@@ -107,6 +167,9 @@ function fixture() {
         failure = false
         return { connections: [{ outcome: 'connected' }] }
       }
+      if (failureMessage && input['connector'] === 'project-cli')
+        throw new Error(failureMessage)
+      executions.push(input)
       const args = input['args'] as string[]
       if (failure && input['connector'] === 'project-cli')
         return { outcome: 'not-started', reason: 'unapproved' }
@@ -115,11 +178,13 @@ function fixture() {
         receipt,
         args.includes('--list')
           ? { schema: 'skillager.exposures.v1', exposures }
-          : args[0] === 'expose'
-            ? preview
-            : input['connector'] === 'project-cli'
-              ? status
-              : { ...status, skill: { ...status.skill, exposures: [] } },
+          : args.includes('accept')
+            ? review
+            : args[0] === 'expose'
+              ? preview
+              : input['connector'] === 'project-cli'
+                ? status
+                : { ...status, skill: { ...status.skill, exposures: [] } },
       )
       if (hold) {
         hold = false
@@ -164,6 +229,8 @@ function fixture() {
     selection,
     status,
     actions,
+    recovery,
+    executions,
     preview,
     button,
     ready,
@@ -172,25 +239,48 @@ function fixture() {
       select.value = mode
       select.dispatchEvent(new Event('change'))
     },
-    installed: () => {
+    mode: () => (document.getElementById('task-mode') as HTMLSelectElement).value,
+    changeAgent: (agent: string) => {
+      const select = document.getElementById('task-agent') as HTMLSelectElement
+      select.value = agent
+      select.dispatchEvent(new Event('change'))
+    },
+    installed: (mode = 'native', agent = 'codex') => {
       exposures = [
         {
           ...preview[0],
           skill_id: selected.id,
           source_library_id: selected.source.library_id,
-          mode: 'native',
+          mode,
+          agent,
           status: 'current',
         },
       ]
       status.skill.exposures = [
         {
           path: preview[0].target,
-          agent: 'codex',
+          agent,
           scope: 'project',
           source_library_id: selected.source.library_id,
           source_hash: selected.content_hash,
         },
       ]
+    },
+    failureMessage: (message: string) => {
+      failureMessage = message
+    },
+    actionError: (message: string) => {
+      actionError = message
+    },
+    recovered: () => {
+      records = []
+    },
+    pending: (record: Value) => {
+      records.push(record)
+    },
+    visibility: (visible: boolean) => {
+      context = { ...context, visible }
+      view.contextChanged()
     },
     fail: () => {
       failure = true
@@ -279,7 +369,7 @@ it('invalidates an old preparation immediately on destination changes and ignore
   await vi.waitFor(() => expect(f.button('task-primary').disabled).toBe(true))
   f.target('other')
   f.release()
-  await f.ready()
+  await vi.waitFor(() => expect(f.button('task-primary').textContent).toBe('Added'))
   expect((document.getElementById('task-confirmation') as HTMLElement).hidden).toBe(true)
   expect(f.actions).toEqual([])
 })
@@ -317,6 +407,10 @@ it('retains uncertainty for the exact source and target across selection and des
   )
   expect(f.button('task-primary').disabled).toBe(true)
   expect(f.button('task-reconcile').hidden).toBe(false)
+  f.recovered()
+  f.button('task-refresh').click()
+  await f.ready()
+  expect(f.button('task-reconcile').hidden).toBe(true)
 })
 
 it('uses the canonical skill identity while retaining a searched occurrence selection', async () => {
@@ -370,3 +464,154 @@ it.each(['foreign-library', 'stale-entrypoint'])(
     expect(f.actions).toEqual([])
   },
 )
+
+it('observes an existing Stub and preserves deliberate mode intent only for the selected task', async () => {
+  const f = fixture()
+  f.installed('stub')
+  f.view.select(f.selection)
+  await vi.waitFor(() => expect(f.button('task-primary').textContent).toBe('Added'))
+  expect(f.mode()).toBe('stub')
+  f.changeMode('native')
+  await f.ready()
+  expect(f.button('task-primary').textContent).toBe('Update')
+  f.button('task-refresh').click()
+  await f.ready()
+  expect(f.mode()).toBe('native')
+  f.visibility(false)
+  f.visibility(true)
+  await f.ready()
+  expect(f.mode()).toBe('native')
+  f.target('another')
+  await vi.waitFor(() => expect(f.button('task-primary').textContent).toBe('Added'))
+  expect(f.mode()).toBe('stub')
+  f.installed('native', 'claude')
+  f.changeAgent('claude')
+  await vi.waitFor(() => expect(f.mode()).toBe('native'))
+  expect(f.button('task-primary').textContent).toBe('Added')
+})
+it('keeps admission failures actionable and does not invent an uncertain submitted operation', async () => {
+  const f = fixture()
+  f.view.select(f.selection)
+  await f.ready()
+  f.actionError('This view is hidden before submission')
+  f.button('task-primary').click()
+  await vi.waitFor(() =>
+    expect(document.getElementById('task-state')?.textContent).toContain(
+      'hidden before submission',
+    ),
+  )
+  expect(f.button('task-reconcile').hidden).toBe(true)
+  expect(f.button('task-primary').disabled).toBe(false)
+  f.button('task-refresh').click()
+  await f.ready()
+  expect(f.button('task-reconcile').hidden).toBe(true)
+})
+it('preserves CLI failures mentioning connection or grants when structured connection state is supported', async () => {
+  const f = fixture()
+  f.failureMessage('Connection index has corrupt grant metadata')
+  f.view.select(f.selection)
+  await vi.waitFor(() =>
+    expect(document.getElementById('task-state')?.textContent).toBe(
+      'Connection index has corrupt grant metadata',
+    ),
+  )
+  expect(f.button('task-connect').hidden).toBe(true)
+  expect(f.button('task-primary').disabled).toBe(true)
+})
+it.each(['library', 'source', 'workspace', 'target', 'agent'])(
+  'does not borrow a pending operation with a different %s binding',
+  async (part) => {
+    const f = fixture()
+    f.installed()
+    const operation = {
+      library: {
+        id: f.selection.library.id,
+        root: { hostId: 'local', path: f.selection.library.root },
+      },
+      source: { id: f.selection.row.id },
+      workspace: {
+        id: 'workspace',
+        host: 'local',
+        root: { hostId: 'local', path: f.preview[0].preview.project },
+      },
+      target: { hostId: 'local', path: f.preview[0].target },
+      agent: 'codex',
+    } as Value
+    if (part === 'agent') operation[part] = 'claude'
+    else
+      operation[part] = {
+        ...(operation[part] as Value),
+        [part === 'target' ? 'path' : 'id']: 'another',
+      }
+    f.pending({ id: 'unrelated', operation })
+    f.view.select(f.selection)
+    await vi.waitFor(() => expect(f.button('task-primary').textContent).toBe('Added'))
+    expect(f.button('task-reconcile').hidden).toBe(true)
+    f.changeMode('stub')
+    await f.ready()
+  },
+)
+
+it('acknowledges exact fresh recovery facts through the operation owner without replaying the mutation', async () => {
+  const f = fixture()
+  f.view.select(f.selection)
+  await f.ready()
+  f.result({
+    outcome: 'uncertain',
+    operationId: 'submitted',
+    message: 'Unknown completion',
+  })
+  f.button('task-primary').click()
+  await vi.waitFor(() => expect(f.button('task-reconcile').hidden).toBe(false))
+  f.button('task-reconcile').click()
+  await vi.waitFor(() => expect(f.button('task-confirm').textContent).toBe('Acknowledge'))
+  expect(f.actions).toHaveLength(1)
+  f.button('task-confirm').click()
+  await f.ready()
+  expect(f.recovery).toContainEqual({
+    mode: 'acknowledge',
+    operationId: 'submitted',
+    observation: JSON.stringify({ target: f.preview[0].target, current: true }),
+  })
+  expect(f.actions).toHaveLength(1)
+  expect(f.button('task-reconcile').hidden).toBe(true)
+})
+
+it('reobserves retained exact pending facts after a lost action reply before allowing a retry', async () => {
+  const f = fixture()
+  f.view.select(f.selection)
+  await f.ready()
+  f.result({ outcome: 'uncertain', operationId: 'physically-submitted' })
+  f.actionError('The submitted reply was lost')
+  f.button('task-primary').click()
+  await vi.waitFor(() =>
+    expect(document.getElementById('task-state')?.textContent).toBe(
+      'The submitted reply was lost',
+    ),
+  )
+  expect(f.button('task-reconcile').hidden).toBe(false)
+  expect(f.button('task-primary').disabled).toBe(true)
+  expect(f.actions).toHaveLength(1)
+})
+it('keeps independent source review and one acceptance available before project connection', async () => {
+  const f = fixture()
+  f.status.skill.acceptance = 'pending'
+  f.fail()
+  f.view.select(f.selection)
+  await f.ready()
+  expect(f.button('task-primary').textContent).toBe('Review version')
+  expect(f.button('task-connect').hidden).toBe(false)
+  f.button('task-primary').click()
+  await vi.waitFor(() => expect(f.button('accept-version').disabled).toBe(false))
+  f.button('accept-version').click()
+  await vi.waitFor(() => expect(f.actions).toHaveLength(1))
+  expect(f.actions[0]).toMatchObject({ action: 'accept-version' })
+  await vi.waitFor(() =>
+    expect(f.button('task-primary').textContent).toBe('Add to project'),
+  )
+  expect(f.button('task-primary').disabled).toBe(true)
+  expect(f.button('task-connect').hidden).toBe(false)
+  expect(
+    f.executions.every((execution) => execution['connector'] === 'library-cli'),
+  ).toBe(true)
+})

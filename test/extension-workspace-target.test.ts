@@ -189,3 +189,44 @@ it('refuses hidden target changes and retains request identity admission until o
     await f.owner.dispose()
   }
 })
+
+it.each(['completed', 'rejected'] as const)(
+  'pins a physically unsettled delivery apply until it is %s',
+  async (outcome) => {
+    const f = fixture({}, { requiredCapabilities: ['delivery.apply'] })
+    let resolve!: (value: unknown) => void, reject!: (reason: Error) => void
+    const physical = new Promise<unknown>((yes, no) => {
+      resolve = yes
+      reject = no
+    })
+    vi.mocked(f.ports.deliveries.apply).mockReturnValue(physical as never)
+    try {
+      const view = await attached(f)
+      f.owner.receive(10, { kind: 'hello', contract: '1.0' })
+      f.owner.receive(10, {
+        kind: 'request',
+        id: 'delivery',
+        capability: 'delivery.apply',
+        input: { receipt: 'prepared' },
+      })
+      await vi.waitFor(() => expect(f.ports.deliveries.apply).toHaveBeenCalledTimes(1))
+      expect(() => f.owner.targetWorkspace(f.renderer, view.id, 'workspace')).toThrow(
+        /current extension operation/,
+      )
+      if (outcome === 'completed') resolve({ outcome: 'completed' })
+      else reject(new Error('Delivery reply failed'))
+      await vi.waitFor(() =>
+        expect(
+          f.sent.some(
+            ({ message }) => message.kind === 'result' && message.id === 'delivery',
+          ),
+        ).toBe(true),
+      )
+      expect(
+        f.owner.targetWorkspace(f.renderer, view.id, 'workspace').context?.workspace?.id,
+      ).toBe('workspace')
+    } finally {
+      await f.owner.dispose()
+    }
+  },
+)

@@ -1,5 +1,5 @@
 import { useState, type ReactElement } from 'react'
-import { validateActionInput } from '../../../shared/extensions/action-input'
+import { extensionActionRoutes } from './extension-action-routes'
 import { useExtensionContributions } from './extension-contribution-context'
 
 /** Trusted action activation is available in Settings regardless of rail visibility. */
@@ -29,19 +29,7 @@ export function ExtensionActions({
     ...(workspace ? { workspaceId: workspace.id } : {}),
     ...(selected ? { sessionId: selected.id } : {}),
   }
-  const runnable = extension.manifest.actions.filter((action) => {
-    try {
-      if (action.inputSchema) validateActionInput(null, action.inputSchema)
-      return true
-    } catch {
-      return false
-    }
-  })
-  const taskViews = extension.manifest.views.filter((view) =>
-    extension.manifest.actions!.some(
-      (action) => action.view === view.id && !runnable.includes(action),
-    ),
-  )
+  const { runnable, taskViews } = extensionActionRoutes(extension.manifest)
 
   return (
     <div className="extension-actions">

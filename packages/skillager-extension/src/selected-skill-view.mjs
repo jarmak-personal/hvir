@@ -4,6 +4,9 @@ import { localWorkspace } from './catalog.mjs'
 import { prepareCopy } from './management-copy.mjs'
 import { copyChangeInput } from './exposure-operation.mjs'
 import { bindExactReview } from './review-view.mjs'
+import { selectedPendingOperations } from './operation-report.mjs'
+import { selectedDelivery } from './selected-delivery.mjs'
+import { prepareDelivery, applyPreparedDelivery } from './delivery-operation.mjs'
 
 /** Selected-skill task composition. Public CLI owners retain all mutation policy. */
 export function bindSelectedSkill(document, client, ports) {
@@ -13,13 +16,15 @@ export function bindSelectedSkill(document, client, ports) {
     source,
     installed,
     prepared,
-    pending,
+    pending = [],
+    modeKey,
+    chosenMode = false,
     busy = false,
     activeAction = false,
     ready = false,
+    projectReady = false,
     refreshQueued = false,
     serial = 0
-  const uncertain = new Map()
   const context = ports.context
   const skillId = () =>
     selection?.row.canonical?.skill_id ??
@@ -46,8 +51,9 @@ export function bindSelectedSkill(document, client, ports) {
       context().workspace?.root,
       el('task-agent').value,
     ])
+  const remote = () => !!context().workspace && context().workspace.host !== 'local'
   const unchanged = () =>
-    installed?.status === 'current' &&
+    ['current', 'recorded'].includes(installed?.status) &&
     installed.sourceHash === source?.hash &&
     installed.mode === el('task-mode').value
   function controls() {
@@ -60,7 +66,9 @@ export function bindSelectedSkill(document, client, ports) {
     el('task-primary').textContent = source
       ? installed
         ? unchanged()
-          ? 'Added'
+          ? remote()
+            ? 'Recorded'
+            : 'Added'
           : 'Update'
         : 'Add to project'
       : 'Review version'
@@ -68,28 +76,43 @@ export function bindSelectedSkill(document, client, ports) {
       working ||
       !ready ||
       !context().visible ||
-      !!pending ||
+      !!prepared ||
+      pending.length > 0 ||
       !library ||
-      (!!source && (!local || unchanged()))
+      (!!source && (!workspace || !projectReady || unchanged()))
+    el('task-update').hidden = !remote() || !installed
+    el('task-update').disabled =
+      working || !ready || !projectReady || !!prepared || pending.length > 0 || !source
     el('task-remove').hidden = !installed
-    el('task-remove').disabled = working || !ready || !context().visible || !!pending
-    el('task-agent').disabled = working || !!pending
-    el('task-mode').disabled = working || !!pending
+    el('task-remove').disabled =
+      working ||
+      !ready ||
+      !projectReady ||
+      !context().visible ||
+      !!prepared ||
+      pending.length > 0
+    el('task-agent').disabled = working
+    el('task-mode').disabled = working || pending.length > 0 || remote()
+    el('task-export-field').hidden = !remote()
+    el('task-export').disabled = working
+    if (remote()) el('task-mode').value = 'native'
     el('task-connect').hidden = !local || !el('task-connect').dataset.needed
     el('task-connect').disabled = working
     el('task-refresh').disabled = working
-    el('task-reconcile').hidden = !pending || pending === 'unknown'
+    el('task-reconcile').hidden = !pending.length
+    el('task-reconcile').textContent = remote()
+      ? 'Inspect delivery recovery'
+      : 'Inspect uncertain operation'
     el('task-options').hidden = !library
   }
   function invalidate() {
     serial++
     ready = false
-    prepared = undefined
-    el('task-confirmation').hidden = true
+    clearPrepared()
     review.invalidate()
   }
-  function io(project, revision) {
-    const scoped = {
+  function scopedClient(revision) {
+    return {
       get alive() {
         return current(revision)
       },
@@ -97,13 +120,34 @@ export function bindSelectedSkill(document, client, ports) {
         return context().visible
       },
       request: (...args) => {
-        if (!(args[0] === 'connector.output' && args[1]?.release) && !current(revision))
+        if (
+          !(
+            ['connector.output', 'delivery.manifest'].includes(args[0]) &&
+            args[1]?.release
+          ) &&
+          !current(revision)
+        )
           throw new Error('Selected skill or destination changed')
         return client.request(...args)
       },
       delay: (ms) => client.delay(ms),
     }
-    return managementCli(scoped, project ? context() : undefined)
+  }
+  function io(project, revision) {
+    return managementCli(scopedClient(revision), project ? context() : undefined)
+  }
+  function clearPrepared() {
+    const previous = prepared
+    prepared = undefined
+    el('task-confirmation').hidden = true
+    controls()
+    if (previous?.delivery?.capture)
+      void client
+        .request('delivery.manifest', {
+          receipt: previous.delivery.capture,
+          release: true,
+        })
+        .catch(() => {})
   }
   async function guarded(work) {
     if (busy || activeAction || !client.alive || !context().visible) return
@@ -123,13 +167,114 @@ export function bindSelectedSkill(document, client, ports) {
       }
     }
   }
+  async function observeProject(revision) {
+    try {
+      const connections = await scopedClient(revision).request('connector.status'),
+        connection = connections.find((entry) => entry.connector === 'project-cli')
+      if (connection?.availability !== 'supported') {
+        if (connection?.availability === 'unavailable')
+          el('task-connect').dataset.needed = 'true'
+        else delete el('task-connect').dataset.needed
+        return (
+          connection?.explanation ??
+          'Connect Skillager for this project to manage its copies.'
+        )
+      }
+      delete el('task-connect').dataset.needed
+      const value = await io(true, revision).run([
+        'expose',
+        '--list',
+        '--agent',
+        el('task-agent').value,
+        '--scope',
+        'project',
+        '--json',
+      ])
+      if (value.schema !== 'skillager.exposures.v1' || !Array.isArray(value.exposures))
+        throw new Error('Installed copy status is unavailable')
+      const matches = value.exposures.filter(
+        (item) =>
+          item.skill_id === skillId() &&
+          item.source_library_id === library.id &&
+          item.agent === el('task-agent').value &&
+          item.scope === 'project' &&
+          ['native', 'stub'].includes(item.mode),
+      )
+      if (matches.length > 1)
+        throw new Error(
+          'More than one managed copy matches. Choose the exact copy in advanced management.',
+        )
+      if (!current(revision)) return
+      installed = matches[0]
+      if (installed) {
+        // Public library status reports exposures for its project directory.
+        // Read that binding in the same exact project scope as expose --list.
+        const projectStatus = await io(true, revision).run([
+          'library',
+          'status',
+          skillId(),
+          '--json',
+        ])
+        sameLibrary(library, registeredLibrary(projectStatus))
+        if (
+          projectStatus.skill?.id !== skillId() ||
+          (selection.row.source === 'library' &&
+            projectStatus.skill.entrypoint !== selection.row.path)
+        )
+          throw new Error(
+            'The selected source changed. Select its current occurrence from your library.',
+          )
+        if (!current(revision)) return
+        source =
+          projectStatus.skill.acceptance === 'accepted' &&
+          projectStatus.skill.accepted_hash === projectStatus.skill.working_hash
+            ? acceptedSource(projectStatus, library, skillId())
+            : undefined
+        installed = {
+          ...installed,
+          sourceHash: projectStatus.skill.exposures?.find(
+            (entry) =>
+              entry.path === installed.target &&
+              entry.agent === installed.agent &&
+              entry.scope === 'project' &&
+              entry.source_library_id === library.id,
+          )?.source_hash,
+        }
+      }
+      delete el('task-connect').dataset.needed
+      projectReady = true
+    } catch (error) {
+      if (!current(revision)) return
+      if (error.setupState === 'missing-program') {
+        el('task-connect').dataset.needed = 'true'
+        return 'Connect Skillager for this project to see and manage its installed copies.'
+      }
+      return error.message
+    }
+  }
+  function pendingSelection() {
+    return {
+      library,
+      skillId: skillId(),
+      workspace: context().workspace,
+      agent: el('task-agent').value,
+      ...(installed
+        ? { target: { hostId: context().workspace.host, path: installed.target } }
+        : {}),
+    }
+  }
   async function refresh(message) {
     if (busy || activeAction) {
       refreshQueued = true
       return
     }
     ready = false
-    pending = uncertain.get(taskKey())
+    projectReady = false
+    pending = []
+    if (modeKey !== taskKey()) {
+      modeKey = taskKey()
+      chosenMode = false
+    }
     return guarded(async (revision) => {
       if (!skillId()) return
       say('Checking this skill…')
@@ -170,99 +315,50 @@ export function bindSelectedSkill(document, client, ports) {
           ? acceptedSource(status, library, skillId())
           : undefined
       installed = undefined
-      if (localWorkspace(context().workspace)) {
+      let projectIssue = localWorkspace(context().workspace)
+        ? await observeProject(revision)
+        : undefined
+      if (!current(revision)) return
+      if (remote()) {
         try {
-          const value = await io(true, revision).run([
-            'expose',
-            '--list',
-            '--agent',
-            el('task-agent').value,
-            '--scope',
-            'project',
-            '--json',
-          ])
-          if (
-            value.schema !== 'skillager.exposures.v1' ||
-            !Array.isArray(value.exposures)
-          )
-            throw new Error('Installed copy status is unavailable')
-          const matches = value.exposures.filter(
-            (item) =>
-              item.skill_id === skillId() &&
-              item.source_library_id === library.id &&
-              item.agent === el('task-agent').value &&
-              item.scope === 'project' &&
-              ['native', 'stub'].includes(item.mode),
-          )
-          if (matches.length > 1)
-            throw new Error(
-              'More than one managed copy matches. Choose the exact copy in advanced management.',
-            )
+          const observation = await selectedDelivery(scopedClient(revision), {
+            library,
+            skillId: skillId(),
+            workspace: context().workspace,
+            agent: el('task-agent').value,
+          })
           if (!current(revision)) return
-          installed = matches[0]
-          if (installed) {
-            // Public library status reports exposures for its project directory.
-            // Read that binding in the same exact project scope as expose --list.
-            const projectStatus = await io(true, revision).run([
-              'library',
-              'status',
-              skillId(),
-              '--json',
-            ])
-            sameLibrary(library, registeredLibrary(projectStatus))
-            if (
-              projectStatus.skill?.id !== skillId() ||
-              (selection.row.source === 'library' &&
-                projectStatus.skill.entrypoint !== selection.row.path)
-            )
-              throw new Error(
-                'The selected source changed. Select its current occurrence from your library.',
-              )
-            if (!current(revision)) return
-            source =
-              projectStatus.skill.acceptance === 'accepted' &&
-              projectStatus.skill.accepted_hash === projectStatus.skill.working_hash
-                ? acceptedSource(projectStatus, library, skillId())
-                : undefined
-            installed = {
-              ...installed,
-              sourceHash: projectStatus.skill.exposures?.find(
-                (entry) =>
-                  entry.path === installed.target &&
-                  entry.agent === installed.agent &&
-                  entry.scope === 'project' &&
-                  entry.source_library_id === library.id,
-              )?.source_hash,
-            }
-          }
-          delete el('task-connect').dataset.needed
+          installed = observation.installed
+          pending = observation.pending
+          projectReady = true
         } catch (error) {
           if (!current(revision)) return
-          if (
-            /unapproved|approval|not approved|not configured|not connected|grant|connection/iu.test(
-              error.message,
-            )
-          ) {
-            el('task-connect').dataset.needed = 'true'
-            say(
-              'Connect Skillager for this project to see and manage its installed copies.',
-            )
-            return
-          }
-          throw error
+          projectIssue = error.message
         }
       }
+      const observedPending = await selectedPendingOperations(
+        scopedClient(revision),
+        pendingSelection(),
+      )
+      if (!current(revision)) return
+      pending.push(...observedPending)
       if (current(revision)) {
+        if (installed && !chosenMode) el('task-mode').value = installed.mode
         ready = true
         say(
-          pending
-            ? 'This operation has an uncertain outcome. Inspect it before trying again.'
+          pending.length
+            ? remote()
+              ? 'Delivery recovery needs attention for this exact target. Inspect its recorded operations before trying again.'
+              : 'This operation has an uncertain outcome. Inspect it before trying again.'
             : (message ??
+                projectIssue ??
                 (installed
-                  ? `In this project · ${installed.mode === 'stub' ? 'Stub' : 'Full copy'} · ${installed.status}`
+                  ? remote()
+                    ? 'Full copy recorded · remote state has not been verified.'
+                    : `In this project · ${installed.mode === 'stub' ? 'Stub' : 'Full copy'} · ${installed.status}`
                   : source
-                    ? context().workspace && !localWorkspace(context().workspace)
-                      ? 'Project copy management is available for local projects. Open Advanced management for remote setup.'
+                    ? remote()
+                      ? 'Full delivery · choose an empty or new local export folder, then review every file before adding.'
                       : 'Ready to add'
                     : 'This version needs your acceptance before adding.')),
         )
@@ -288,20 +384,30 @@ export function bindSelectedSkill(document, client, ports) {
   }
   async function invoke(action, input) {
     const revision = serial
-    const key = taskKey()
     let result
     activeAction = true
     controls()
     try {
       result = await client.request('actions.invoke', { action, input })
     } catch (error) {
-      uncertain.set(key, 'unknown')
-      if (current(revision)) {
-        pending = 'unknown'
-        say(
-          `Completion could not be confirmed. ${error.message} Inspect advanced management before retrying.`,
-        )
-        controls()
+      if (current(revision) && library) {
+        try {
+          const observed = await selectedPendingOperations(
+            scopedClient(revision),
+            pendingSelection(),
+          )
+          if (current(revision))
+            pending = [
+              ...pending.filter((entry) => typeof entry.operation === 'string'),
+              ...observed,
+            ]
+        } catch (observationError) {
+          if (current(revision)) ready = false
+          throw new Error(
+            `${error.message} Operation status could not be refreshed: ${observationError.message}`,
+            { cause: observationError },
+          )
+        }
       }
       throw error
     } finally {
@@ -312,10 +418,11 @@ export function bindSelectedSkill(document, client, ports) {
         void refresh()
       }
     }
-    if (result?.outcome === 'uncertain')
-      uncertain.set(key, result.operationId ?? 'unknown')
     if (!current(revision)) return result
-    pending = uncertain.get(key)
+    if (result?.outcome === 'uncertain') {
+      if (busy) refreshQueued = true
+      else void refresh()
+    }
     say(
       result?.outcome === 'verified'
         ? `${action === 'accept-version' ? 'Version accepted' : action === 'remove-copy' ? 'Removed from this project' : action === 'add-copy' ? 'Added to this project' : 'Project copy updated'}${result.restartRequired ? ' · Restart your agent to use the change.' : ''}`
@@ -328,6 +435,63 @@ export function bindSelectedSkill(document, client, ports) {
     return result
   }
   async function prepare(remove, revision) {
+    if (remote()) {
+      const input = {
+        library,
+        skillId: skillId(),
+        hash: source?.hash ?? installed?.sourceHash,
+        agent: el('task-agent').value,
+        mode: 'native',
+        exportDirectory: el('task-export').value.trim(),
+        ...(installed
+          ? {
+              record: installed.record,
+              target: { hostId: context().workspace.host, path: installed.target },
+            }
+          : {}),
+      }
+      const delivery = await prepareDelivery(
+        scopedClient(revision),
+        input,
+        context().workspace,
+        remove ? 'remove' : installed ? 'update' : 'add',
+      )
+      if (!current(revision)) {
+        if (delivery.capture)
+          await client
+            .request('delivery.manifest', { receipt: delivery.capture, release: true })
+            .catch(() => {})
+        return
+      }
+      prepared = { delivery, revision }
+      el('task-confirm-title').textContent = `Review Full ${delivery.kind}`
+      el('task-confirm-target').textContent =
+        `${context().workspace.host}: ${delivery.preview.target.path}. ${delivery.disclosure}`
+      el('task-effects').replaceChildren(
+        ...delivery.entries.map((entry) => {
+          const row = document.createElement('li')
+          row.textContent = `${entry.path || '.'} · ${entry.type} · mode ${entry.mode.toString(8)}`
+          return row
+        }),
+      )
+      el('task-plan').textContent = JSON.stringify(
+        {
+          ...delivery.preview,
+          files: delivery.entries,
+          requirements: delivery.requirements,
+          localExport: delivery.localExport,
+        },
+        null,
+        2,
+      )
+      el('task-confirm').textContent = remove
+        ? 'Remove'
+        : installed
+          ? 'Update'
+          : 'Add to project'
+      el('task-confirmation').hidden = false
+      return
+    }
     const input = copyInput(remove)
     const value = await prepareCopy(
       io(true, revision),
@@ -366,7 +530,7 @@ export function bindSelectedSkill(document, client, ports) {
       return
     }
     void guarded(async (revision) => {
-      if (installed) await prepare(false, revision)
+      if (installed || remote()) await prepare(false, revision)
       else {
         const input = copyInput()
         const result = await invoke('add-copy', input)
@@ -382,6 +546,7 @@ export function bindSelectedSkill(document, client, ports) {
       }
     })
   })
+  on('task-update', 'click', () => void guarded((revision) => prepare(false, revision)))
   on('task-remove', 'click', () => void guarded((revision) => prepare(true, revision)))
   on(
     'task-confirm',
@@ -392,7 +557,24 @@ export function bindSelectedSkill(document, client, ports) {
         if (!task || task.revision !== revision) return
         prepared = undefined
         el('task-confirmation').hidden = true
+        if (task.delivery) {
+          const result = await applyPreparedDelivery(
+            scopedClient(revision),
+            task.delivery,
+          )
+          if (current(revision)) {
+            el('task-result').textContent = JSON.stringify(result, null, 2)
+            say(result.message)
+            el('task-export').value = ''
+            refreshQueued = true
+          }
+          return
+        }
         const result = await invoke(task.action, task.input)
+        if (task.action === 'operation-state') {
+          refreshQueued = true
+          return
+        }
         if (
           current(revision) &&
           result?.outcome === 'verified' &&
@@ -408,12 +590,11 @@ export function bindSelectedSkill(document, client, ports) {
           }
       }),
   )
-  on('task-cancel', 'click', () => {
-    prepared = undefined
-    el('task-confirmation').hidden = true
-  })
+  on('task-cancel', 'click', clearPrepared)
+  on('task-export', 'input', clearPrepared)
   for (const id of ['task-agent', 'task-mode'])
     on(id, 'change', () => {
+      if (id === 'task-mode') chosenMode = true
       invalidate()
       void refresh()
     })
@@ -442,17 +623,44 @@ export function bindSelectedSkill(document, client, ports) {
     'click',
     () =>
       void guarded(async (revision) => {
+        if (remote() && !pending[0]?.id) {
+          el('task-result').textContent = JSON.stringify(pending, null, 2)
+          el('task-operation-details').open = true
+          say(
+            'Inspect these exact recorded operations in Settings → Extensions → Delivery recovery. No delivery is replayed.',
+          )
+          return
+        }
+        const operationId = pending[0]?.id
+        if (!operationId) return
         const result = await client.request('actions.invoke', {
           action: 'operation-state',
-          input: { mode: 'observe', operationId: pending },
+          input: { mode: 'observe', operationId },
         })
         if (!current(revision)) return
-        el('task-result').textContent = JSON.stringify(result, null, 2)
+        el('task-result').textContent = JSON.stringify(
+          { record: pending[0], ...result },
+          null,
+          2,
+        )
         el('task-operation-details').open = true
         say(
           result.message ??
             'Current facts observed. Original completion remains unknown.',
         )
+        if (result.outcome === 'observed') {
+          prepared = {
+            action: 'operation-state',
+            input: { mode: 'acknowledge', operationId, observation: result.observation },
+            revision,
+          }
+          el('task-confirm-title').textContent = 'Acknowledge these current facts?'
+          el('task-confirm-target').textContent = result.message
+          el('task-effects').replaceChildren()
+          el('task-plan').textContent = result.observation
+          el('task-confirm').textContent = 'Acknowledge'
+          el('task-confirmation').hidden = false
+        }
       }),
   )
   return {
@@ -461,8 +669,9 @@ export function bindSelectedSkill(document, client, ports) {
       el('task-result').textContent = ''
       el('task-operation-details').open = false
       selection = input
+      chosenMode = false
       library = source = installed = undefined
-      pending = uncertain.get(taskKey())
+      pending = []
       el('selected-task').hidden = !skillId()
       if (skillId()) void refresh()
     },

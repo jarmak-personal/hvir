@@ -594,7 +594,8 @@ export class ExtensionGuestOwner {
         ].slice(0, EXTENSION_LIMITS.warnings)
       const controller = new AbortController()
       record.requests.set(id, controller)
-      if (capability === 'actions.invoke') record.actionRequests.add(id)
+      if (capability === 'actions.invoke' || capability === 'delivery.apply')
+        record.actionRequests.add(id)
       const timer = setTimeout(
         () => controller.abort(),
         extensionRequestDeadline(capability),

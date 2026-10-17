@@ -54,6 +54,10 @@ export async function applyCopy(io, action, input, workspace, admit = () => {}) 
       agent: request.agent,
       mode: request.mode,
       source: request.source,
+      skillId:
+        remove && plan.result.source_library_id === request.library.id
+          ? plan.result.skill_id
+          : request.source?.id,
       exposureId: plan.result.exposure_id,
       target: { hostId: 'local', path: plan.target },
       token: plan.token,

@@ -1,3 +1,4 @@
+import { readOperationReport } from './operation-report.mjs'
 import { bindDeliveryView } from './delivery-view.mjs'
 import { managementCli } from './management-cli.mjs'
 import {
@@ -330,25 +331,9 @@ export function bindManagementView(document, client) {
         'click',
         () =>
           void guarded(async (current) => {
-            let report = '',
-              offset = 0
-            for (;;) {
-              const page = await client.request('actions.invoke', {
-                action: 'operation-state',
-                input: { mode: 'report', operationId: id, offset },
-              })
-              report += page.data
-              if (report.length > 2 * 256 * 1024 + 8192)
-                throw new Error(
-                  'Complete operation report exceeds its bounded lifetime storage',
-                )
-              if (page.nextOffset === null) break
-              if (page.nextOffset <= offset)
-                throw new Error('Operation report page did not advance')
-              offset = page.nextOffset
-            }
+            const report = await readOperationReport(client, id)
             if (!current()) return
-            element('operation-report').textContent = report
+            element('operation-report').textContent = JSON.stringify(report, null, 2)
             const observed = await action('operation-state', {
               mode: 'observe',
               operationId: id,
