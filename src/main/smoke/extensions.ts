@@ -18,7 +18,11 @@ import type { ElectronSmokeDependencies } from './bootstrap-contract'
 import type { LiveSessionMetadataSources } from '../terminal/live-session-metadata'
 import { focusSmokeWindow } from './window-focus'
 import { verifyExtensionWebRtc } from './extension-webrtc'
-import { verifyExtensionSettingsGeometry } from './extension-presentation-geometry'
+import {
+  verifyExtensionSettingsGeometry,
+  verifyExtensionEnableFocus,
+  verifyExtensionAttentionFocus,
+} from './extension-presentation-geometry'
 import { verifyExtensionAuthoring } from './extension-authoring'
 import { verifyExtensionPackages } from './extension-packages'
 import { verifyExtensionConnection } from './extension-connection'
@@ -137,6 +141,44 @@ export async function verifyExtensionScenario(
       .installations.find((entry) => entry.source === 'bad')?.error
   )
     throw new Error('Malformed package had no visible refusal')
+  await extensionSettingsControls(win, 'bad', {
+    wait: waitFor,
+    within: (work) => work,
+  }).select()
+  try {
+    await verifyExtensionAttentionFocus(win, waitFor, async () => {
+      await host.writeFile(joinHostPath(bad, 'index.html'), '<!doctype html><p>Owned</p>')
+      await host.writeFile(
+        joinHostPath(bad, 'hvir-extension.json'),
+        JSON.stringify({
+          id: 'hvir.lifecycle-focus',
+          name: 'Repaired lifecycle fixture',
+          version: '0.3.0',
+          contract: '1.0',
+          requiredCapabilities: [],
+          optionalCapabilities: [],
+          access: [],
+          views: [
+            {
+              id: 'repair',
+              title: 'Lifecycle fixture',
+              entry: 'index.html',
+              placement: 'application',
+              representations: ['view'],
+            },
+          ],
+        }),
+      )
+      const repaired = (await extensions.activations!.discover()).installations.find(
+        (entry) => entry.source === 'bad',
+      )
+      if (repaired?.error || repaired?.manifest?.id !== 'hvir.lifecycle-focus')
+        throw new Error('Owned lifecycle repair did not produce a valid package')
+    })
+  } finally {
+    await host.writeFile(joinHostPath(bad, 'hvir-extension.json'), '{invalid')
+    await extensions.activations!.discover()
+  }
   await verifyExtensionImport(win, extensions, scopes, host, {
     click: (name) => click(win, name),
     wait: waitFor,
@@ -157,8 +199,13 @@ export async function verifyExtensionScenario(
   )
   await referenceSettings.select()
   await verifyExtensionSettingsGeometry(win, waitFor)
-  await referenceSettings.click('Enable')
+  if (installed.installationId)
+    throw new Error('First Enable focus fixture already has an installation identity')
+  await verifyExtensionEnableFocus(win, waitFor)
   await waitFor(() => extensions.activations!.active.size === 1, 'trusted Enable')
+  console.log(
+    '[smoke] first Enable identity admission and repaired-package attention clearing retain visible native keyboard focus in Settings OK',
+  )
   await click(win, 'Open Extension reference')
   const owner = scopes.currentOwner(win.webContents.id)
   await waitFor(() => extensions.guests!.snapshot(owner).length === 1, 'viewer placement')

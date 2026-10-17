@@ -9,7 +9,7 @@ import { SourceSettings } from './SourceSettings'
 import { ExtensionActions } from '../../extensions/ExtensionActions'
 import { ExtensionViewLauncher } from './ExtensionViewLauncher'
 
-/** Selected package configuration; remounting retires unconfirmed access proposals. */
+/** Stable selected-package lifecycle chrome; access configuration owns proposal retirement. */
 export function ExtensionInstallationSettings({
   installation,
   writable,
@@ -25,7 +25,9 @@ export function ExtensionInstallationSettings({
   readonly onState: (state: ExtensionPlatformState) => void
   readonly onRemove: (installation: ExtensionInstallation) => void
 }): ReactElement {
-  const [tab, setTab] = useState<'programs' | 'files' | 'actions'>('programs')
+  const [lifecycleOpen, setLifecycleOpen] = useState(
+    () => !installation.enabled || !!installation.error || !!installation.removalPending,
+  )
   return (
     <article
       className="extension-installation"
@@ -67,9 +69,16 @@ export function ExtensionInstallationSettings({
       ) : null}
       <details
         className="extension-lifecycle"
-        open={
-          !installation.enabled || !!installation.error || !!installation.removalPending
-        }
+        open={lifecycleOpen}
+        onToggle={(event) => setLifecycleOpen(event.currentTarget.open)}
+        onClickCapture={(event) => {
+          if (
+            event.target instanceof HTMLButtonElement &&
+            !event.target.disabled &&
+            document.activeElement === event.target
+          )
+            event.currentTarget.querySelector<HTMLElement>('summary')?.focus()
+        }}
       >
         <summary>Manage extension</summary>
         <div className="settings-actions extension-installation-actions">
@@ -152,45 +161,13 @@ export function ExtensionInstallationSettings({
             <p>Package removal is unfinished. Retry Remove to finish cleanup.</p>
           ) : null}
           {installation.enabled ? (
-            <>
-              <nav
-                className="extension-configuration-tabs"
-                aria-label="Extension configuration"
-              >
-                {(['programs', 'files', 'actions'] as const).map((id) => (
-                  <button
-                    type="button"
-                    className="hvir-button"
-                    key={id}
-                    aria-current={tab === id ? 'true' : undefined}
-                    onClick={() => setTab(id)}
-                  >
-                    {id === 'programs'
-                      ? 'Program access'
-                      : id === 'files'
-                        ? 'File access'
-                        : 'Extension actions'}
-                  </button>
-                ))}
-              </nav>
-              {tab === 'programs' ? (
-                <ConnectorSettings installation={installation} />
-              ) : null}
-              {tab === 'files' ? <SourceSettings installation={installation} /> : null}
-              {tab === 'actions' ? (
-                <>
-                  <AgentAccessSettings installation={installation.installationId} />
-                  {installation.installationId ? (
-                    <ExtensionActions installationId={installation.installationId} />
-                  ) : null}
-                </>
-              ) : null}
-              <ExtensionViewLauncher
-                installation={installation}
-                disabled={busy || !writable || !!installation.removalPending}
-                onRun={onRun}
-              />
-            </>
+            <ExtensionConfigurationSettings
+              key={`${installation.installationId ?? installation.sourceIdentity ?? installation.source}:${installation.acceptedRevision ?? ''}:${installation.revision ?? ''}:${installation.enabled}`}
+              installation={installation}
+              writable={writable}
+              busy={busy}
+              onRun={onRun}
+            />
           ) : null}
         </>
       )}
@@ -224,5 +201,56 @@ export function ExtensionInstallationSettings({
         </details>
       ) : null}
     </article>
+  )
+}
+
+/** A new authority identity or revision discards unconfirmed access and local setup state. */
+function ExtensionConfigurationSettings({
+  installation,
+  writable,
+  busy,
+  onRun,
+}: {
+  readonly installation: ExtensionInstallation
+  readonly writable: boolean
+  readonly busy: boolean
+  readonly onRun: (operation: () => Promise<unknown>) => Promise<void>
+}): ReactElement {
+  const [tab, setTab] = useState<'programs' | 'files' | 'actions'>('programs')
+  return (
+    <>
+      <nav className="extension-configuration-tabs" aria-label="Extension configuration">
+        {(['programs', 'files', 'actions'] as const).map((id) => (
+          <button
+            type="button"
+            className="hvir-button"
+            key={id}
+            aria-current={tab === id ? 'true' : undefined}
+            onClick={() => setTab(id)}
+          >
+            {id === 'programs'
+              ? 'Program access'
+              : id === 'files'
+                ? 'File access'
+                : 'Extension actions'}
+          </button>
+        ))}
+      </nav>
+      {tab === 'programs' ? <ConnectorSettings installation={installation} /> : null}
+      {tab === 'files' ? <SourceSettings installation={installation} /> : null}
+      {tab === 'actions' ? (
+        <>
+          <AgentAccessSettings installation={installation.installationId} />
+          {installation.installationId ? (
+            <ExtensionActions installationId={installation.installationId} />
+          ) : null}
+        </>
+      ) : null}
+      <ExtensionViewLauncher
+        installation={installation}
+        disabled={busy || !writable || !!installation.removalPending}
+        onRun={onRun}
+      />
+    </>
   )
 }

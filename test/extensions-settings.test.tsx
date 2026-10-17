@@ -873,7 +873,7 @@ describe('selected extension configuration lifetime', () => {
     )
     expect(element!.querySelector('h4')!.textContent).toBe('First')
   })
-  it.each(['retarget', 'revision'] as const)(
+  it.each(['retarget', 'revision', 'candidate-revision', 'enabled', 'identity'] as const)(
     'discards a held unconfirmed program proposal after %s without retargeting approval',
     async (change) => {
       let resolve!: (value: unknown) => void
@@ -894,13 +894,20 @@ describe('selected extension configuration lifetime', () => {
             installations: [
               {
                 ...installation('First'),
-                revision: 'changed',
-                acceptedRevision: 'changed',
+                ...(change === 'revision'
+                  ? { acceptedRevision: 'changed' }
+                  : change === 'candidate-revision'
+                    ? { revision: 'changed' }
+                    : change === 'identity'
+                      ? { installationId: 'replaced' }
+                      : { enabled: false }),
               },
               installation('Second'),
             ],
           }),
         )
+      if (change === 'enabled')
+        act(() => publish({ writable: true, installations: [installation('First')] }))
       await act(async () => {
         resolve({
           token: 'never-approved',

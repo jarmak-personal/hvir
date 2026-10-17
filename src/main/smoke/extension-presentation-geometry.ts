@@ -79,6 +79,77 @@ export async function verifyExtensionSettingsGeometry(
   }
 }
 
+/** Enter must retain visible keyboard focus when first Enable admits a new installation. */
+export async function verifyExtensionEnableFocus(
+  win: BrowserWindow,
+  wait: Wait,
+): Promise<void> {
+  await wait(
+    async () =>
+      (await win.webContents.executeJavaScript(`(() => {
+      const button=[...document.querySelectorAll('.extension-lifecycle button')].find(e=>e.textContent.trim()==='Enable');
+      if(!button?.checkVisibility()||button.disabled)return false;
+      button.focus();return document.hasFocus()&&document.activeElement===button;
+    })()`)) === true,
+    'visible keyboard Enable control',
+  )
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' })
+  win.webContents.sendInputEvent({ type: 'char', keyCode: '\r' })
+  win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' })
+  await wait(
+    async () =>
+      (await win.webContents.executeJavaScript(`(() => {
+      const details=document.querySelector('.extension-lifecycle'), summary=details?.querySelector('summary');
+      const disable=[...(details?.querySelectorAll('button')??[])].find(e=>e.textContent.trim()==='Disable');
+      const dialog=document.querySelector('.settings-dialog'), bounds=summary?.getBoundingClientRect();
+      return !!summary?.checkVisibility()&&details.open&&!!disable&&!disable.disabled&&document.hasFocus()&&document.activeElement===summary&&summary.matches(':focus-visible')&&dialog.contains(summary)&&bounds.top>=0&&bounds.bottom<=innerHeight;
+    })()`)) === true,
+    'first Enable retains visible summary focus inside Settings',
+  ).catch(async (reason: unknown) => {
+    console.log(
+      '[smoke] Enable focus facts',
+      JSON.stringify(
+        await win.webContents.executeJavaScript(`(() => {
+        const details=document.querySelector('.extension-lifecycle'), summary=details?.querySelector('summary');
+        const disable=[...(details?.querySelectorAll('button')??[])].find(e=>e.textContent.trim()==='Disable');
+        return {open:details?.open,visible:summary?.checkVisibility(),enabled:!!disable,busy:disable?.disabled,documentFocus:document.hasFocus(),summaryFocus:document.activeElement===summary,focusTag:document.activeElement?.tagName,focusVisible:summary?.matches(':focus-visible'),bounds:summary?.getBoundingClientRect().toJSON(),viewport:innerHeight};
+      })()`),
+      ),
+    )
+    throw reason
+  })
+}
+
+/** Real discovery may clear attention and replace configuration without losing the focused control. */
+export async function verifyExtensionAttentionFocus(
+  win: BrowserWindow,
+  wait: Wait,
+  clearAttention: () => Promise<void>,
+): Promise<void> {
+  await win.webContents.executeJavaScript(
+    "document.querySelector('.extension-lifecycle > summary').focus()",
+  )
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' })
+  win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' })
+  await wait(
+    async () =>
+      (await win.webContents.executeJavaScript(`(() => {
+      const details=document.querySelector('.extension-lifecycle'), button=document.activeElement;
+      return !!document.querySelector('.extension-installation [role=alert]')&&details.open&&details.contains(button)&&button.textContent.trim()==='Remove'&&button.checkVisibility()&&button.matches(':focus-visible');
+    })()`)) === true,
+    'attention lifecycle Remove reached through native Tab',
+  )
+  await clearAttention()
+  await wait(
+    async () =>
+      (await win.webContents.executeJavaScript(`(() => {
+      const article=document.querySelector('.extension-installation'), details=article?.querySelector('.extension-lifecycle'), button=document.activeElement;
+      return !!article&&!article.querySelector('[role=alert]')&&details.open&&details.contains(button)&&button.textContent.trim()==='Remove'&&button.checkVisibility()&&button.matches(':focus-visible')&&document.hasFocus();
+    })()`)) === true,
+    'attention clearing retains visible keyboard focus inside Settings',
+  )
+}
+
 /** Full declared static demand remains present while overflow gives controls real room. */
 export async function verifyExtensionRailGeometry(
   win: BrowserWindow,
