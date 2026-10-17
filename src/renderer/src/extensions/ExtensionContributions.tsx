@@ -7,7 +7,10 @@ import {
   type ReactElement,
   type ReactNode,
 } from 'react'
-import type { ExtensionSessionContext } from '../../../shared/extensions/contract'
+import type {
+  ExtensionSessionContext,
+  ExtensionWorkspaceContext,
+} from '../../../shared/extensions/contract'
 import type {
   ExtensionContributionState,
   ExtensionDemand,
@@ -95,6 +98,7 @@ export function ExtensionContributionsProvider({
   }, [topId, selectedTop, topActive, onWorkspace, views])
   const [state, setState] = useState<readonly ExtensionContributionState[]>([])
   const [sessions, setSessions] = useState<readonly ExtensionSessionContext[]>([])
+  const [workspaces, setWorkspaces] = useState<readonly ExtensionWorkspaceContext[]>([])
   const [terminalIds, setTerminalIds] = useState<Readonly<Record<string, string>>>({})
   const foreground = useExtensionForeground(() => setLandingFocus(undefined))
   useLayoutEffect(() => {
@@ -157,6 +161,7 @@ export function ExtensionContributionsProvider({
               (value) => {
                 if (current) {
                   setSessions(value.sessions ?? [])
+                  setWorkspaces(value.workspaces ?? [])
                   setTerminalIds(value.terminalIds)
                 }
               },
@@ -260,6 +265,7 @@ export function ExtensionContributionsProvider({
         views,
         state,
         sessions,
+        workspaces,
         terminalIds,
         workspaceId,
         foreground,
@@ -343,6 +349,18 @@ export function ExtensionTopRail(): ReactElement | null {
               : undefined
           }
           onClick={() => {
+            const existing = model.views.find(
+              (entry) =>
+                entry.installationId === extension.installationId &&
+                entry.contributionId === view.id &&
+                entry.context?.surface === 'top' &&
+                entry.canChooseWorkspace &&
+                !entry.failure,
+            )
+            if (existing) {
+              model.selectTop(existing)
+              return
+            }
             void model
               .open(extension.installationId, view.id, { surface: 'top' })
               .then(model.selectTop)

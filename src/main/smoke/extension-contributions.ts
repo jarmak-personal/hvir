@@ -497,11 +497,11 @@ export async function verifyExtensionContributions(
     'ordinary Settings action context control',
   )
   await win.webContents.executeJavaScript(
-    `(() => { const select = document.querySelector('[aria-label="Extension action context"]'); select.value = ${JSON.stringify(sessions[0]!.id)}; select.dispatchEvent(new Event('change', { bubbles: true })); select.focus(); })()`,
+    `(() => { const select = document.querySelector('[aria-label="Extension action context"]'); select.value = ${JSON.stringify(`session:${sessions[0]!.id}`)}; select.dispatchEvent(new Event('change', { bubbles: true })); select.focus(); })()`,
   )
   if (
     !(await dom(
-      "document.hasFocus() && document.activeElement?.getAttribute('aria-label') === 'Extension action context'",
+      `document.hasFocus() && document.activeElement?.getAttribute('aria-label') === 'Extension action context' && document.activeElement.value === ${JSON.stringify(`session:${sessions[0]!.id}`)}`,
     ))
   )
     throw new Error('Settings action focus positive control failed')

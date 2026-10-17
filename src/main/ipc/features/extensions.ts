@@ -181,6 +181,12 @@ export function registerExtensionsIpc(
         { context: req.context },
       ) ?? unavailable(),
   )
+  ipc.handle(
+    'extensions:target-view',
+    (req, context) =>
+      extensions?.guests?.targetWorkspace(context.owner(), req.viewId, req.workspaceId) ??
+      unavailable(),
+  )
   ipc.handle('extensions:contributions', (_req, context) => {
     context.owner()
     return extensions?.contributions?.snapshot() ?? []
@@ -188,6 +194,7 @@ export function registerExtensionsIpc(
   ipc.handle('extensions:context', (_req, context) => ({
     surface: 'viewer' as const,
     visible: true,
+    workspaces: extensions?.contexts?.workspaces() ?? [],
     terminalIds: extensions?.contexts?.terminalIds(context.owner()) ?? {},
     sessions: extensions?.contexts?.sessions(context.owner()) ?? [],
   }))

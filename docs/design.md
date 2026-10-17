@@ -621,6 +621,7 @@ transient launch data never enters recovery, and handed-off terminals retain ord
 ### [ADR-059 — Public local Skillager management](adr/ADR-059-public-local-skillager-management.md)
 
 > Lifecycle: Partially superseded
+> Superseded by: [ADR-071](adr/ADR-071-selected-skill-tasks-and-version-acceptance.md) | partial | Mandatory complete-file presentation and acknowledgment before accepting an exact version, and refusal of acceptance solely because a file format cannot be previewed.
 > Superseded by: [ADR-060](adr/ADR-060-public-skillager-advanced-exposure.md) | partial | Exclusion of native adoption from local management; complete public preservation-backed adoption is permitted by this decision.
 > Superseded by: [ADR-067](adr/ADR-067-cli-owned-personal-library-creation-defaults.md) | partial | Mandatory explicit initialization path and separate Git choice only.
 
@@ -719,6 +720,15 @@ unrelated contributor verification.
 
 An explicit ordinary human project view can propose local program connection through its
 main-admitted workspace, preserving host-scoped native approval and application-only Add setup.
+
+### [ADR-071 — Selected-skill tasks and version acceptance](adr/ADR-071-selected-skill-tasks-and-version-acceptance.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-059](adr/ADR-059-public-local-skillager-management.md) | partial | Mandatory complete-file presentation and acknowledgment before accepting an exact version, and refusal of acceptance solely because a file format cannot be previewed.
+
+Selected-skill tasks retain CLI authority, one exact-version acceptance decision, optional
+complete-file inspection, and explicit trusted project targeting for independent views.
+
 
 ## 5. Architecture
 

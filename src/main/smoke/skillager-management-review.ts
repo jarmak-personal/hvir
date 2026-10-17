@@ -2,7 +2,7 @@ import type { skillagerManagementControls } from './skillager-management-control
 
 type ReviewControls = ReturnType<typeof skillagerManagementControls>
 
-/** Human complete current-file presentation, acknowledgments and exact public action. */
+/** Human optional file inspection and one exact-version acceptance action. */
 export async function reviewOwnedSkill(
   controls: ReviewControls,
   skillId: string,
@@ -11,7 +11,7 @@ export async function reviewOwnedSkill(
   await controls.set('skill-id', skillId)
   await controls.click('start-review')
   await controls.ready(
-    "!document.getElementById('exact-review').hidden && document.getElementById('state').textContent.includes('manifest loaded')",
+    "!document.getElementById('exact-review').hidden && document.getElementById('state').textContent.includes('Inspect any file')",
     'complete owned review manifest',
   )
   const files = (await controls.inspect(
@@ -19,27 +19,24 @@ export async function reviewOwnedSkill(
   )) as string[]
   if (JSON.stringify([...files].sort()) !== JSON.stringify([...expectedFiles].sort()))
     throw new Error('Owned complete review omitted or substituted an eligible file')
-  for (const path of files) {
-    await controls.inspect(
-      `document.querySelector('[data-review-path='+CSS.escape(${JSON.stringify(path)})+']').click()`,
-    )
-    await controls.ready(
-      "!document.getElementById('acknowledge-file').disabled || !document.getElementById('review-next').disabled",
-      `complete owned file ${path}`,
-    )
-    while (!(await controls.inspect("document.getElementById('review-next').disabled")))
-      await controls.click('review-next')
-    await controls.click('acknowledge-file')
-    await controls.ready(
-      "document.getElementById('state').textContent.includes('complete files acknowledged')",
-      `human acknowledgment ${path}`,
-    )
-  }
-  await controls.click('prepare-acceptance')
+  // The complete inventory is available without visitation or acknowledgment gates.
   await controls.ready(
     "!document.getElementById('accept-version').disabled",
-    'fresh identical exact manifest/token',
+    'one exact version decision',
   )
+  for (const path of expectedFiles.filter(
+    (file) => file === 'SKILL.md' || file === 'owned.png',
+  )) {
+    await controls.inspect(
+      `document.querySelector('[data-review-path=${JSON.stringify(path)}]').click()`,
+    )
+    await controls.ready(
+      path.endsWith('.png')
+        ? "!!document.querySelector('#review-file-body img')?.complete && document.getElementById('review-page-label').textContent.includes('complete bytes verified')"
+        : "document.getElementById('review-file-body').textContent.length>0 && document.getElementById('state').textContent.includes('complete supported bytes verified')",
+      'optional supported file inspection',
+    )
+  }
   await controls.inspect("document.getElementById('result').textContent=''")
   await controls.click('accept-version')
   const accepted = await controls.result('accept-version')

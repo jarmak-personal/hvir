@@ -858,12 +858,9 @@ it('requires renewed package visibility before retained ready rows can open a re
   expect(f.button('manage').disabled).toBe(false)
   ;(document.querySelector('#skills [role="option"]') as HTMLButtonElement).click()
   await f.flush()
-  expect(f.opened).toHaveLength(1)
-  expect(f.opened[0]).toMatchObject({
-    contributionId: 'detail',
-    context: 'application',
-    input: { library: { id: 'library', root: '/library' } },
-  })
+  expect(f.opened).toEqual([])
+  expect((document.getElementById('reader-content') as HTMLElement).hidden).toBe(false)
+  expect(document.querySelectorAll('#skills [role="option"]')).toHaveLength(1)
 })
 
 it('qualifies library search selections from an SSH project through public application status without substituting the host', async () => {
@@ -881,7 +878,6 @@ it('qualifies library search selections from an SSH project through public appli
   await f.flush()
   expect(f.opened).toHaveLength(1)
   expect(f.opened[0]).toMatchObject({
-    context: 'application',
     input: {
       library: { id, root: '/library' },
       row: { host: 'local', source: 'library' },

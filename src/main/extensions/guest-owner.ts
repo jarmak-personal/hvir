@@ -1,3 +1,4 @@
+import { targetGuestWorkspace } from './guest-workspace-target'
 import { parseGuestAppearance } from './guest-appearance'
 import type { ExtensionGuestPorts } from './guest-capability-ports'
 import { routeGuestCapability } from './guest-capability-routing'
@@ -74,6 +75,7 @@ interface GuestRecord {
   context?: AdmittedExtensionContext
   contextLease?: RendererResourceLease
   readonly actions: Set<string>
+  readonly actionRequests: Set<string>
   sentContext?: ExtensionContext
   initialInput?: unknown
   readonly readingOrigin: 'human' | 'agent' | 'action'
@@ -119,6 +121,32 @@ export class ExtensionGuestOwner {
     return [...this.records.values()]
       .filter((record) => record.ready && sameOwner(record.owner, owner))
       .map((record) => record.view)
+  }
+
+  targetWorkspace(
+    owner: RendererOwner,
+    viewId: string,
+    workspaceId?: string,
+  ): ExtensionView {
+    this.scopes.assertCurrent(owner)
+    const record = this.records.get(viewId)
+    if (!record || !sameOwner(record.owner, owner))
+      throw new Error('Extension view is unavailable')
+    this.assertRecord(record)
+    if (!this.surface.windowVisible(owner) || !this.ownerForeground(owner))
+      throw new Error('Select this window before choosing a project')
+    targetGuestWorkspace(record, workspaceId, {
+      contexts: this.contexts,
+      scopes: this.scopes,
+      close: () => {
+        void this.close(owner, viewId)
+      },
+      retireReads: () => this.ports.sources.closeView(viewId),
+      send: (guest, reply) => this.surface.send(guest, reply),
+    })
+    this.updateContext()
+    this.publish(owner, this.snapshot(owner))
+    return record.view
   }
 
   async open(
@@ -214,6 +242,12 @@ export class ExtensionGuestOwner {
       partition: `hvir-extension-${id}`,
       url: `hvir-extension://${id}/${contribution.entry}`,
       role: options.updater ? 'updater' : 'view',
+      canChooseWorkspace:
+        human &&
+        !options.authority &&
+        !options.updater &&
+        'placement' in contribution &&
+        contribution.placement === 'application',
       ...(context ? { context: context.value } : {}),
     }
     const record: GuestRecord = {
@@ -233,6 +267,7 @@ export class ExtensionGuestOwner {
       messages: 0,
       context,
       actions: new Set(),
+      actionRequests: new Set(),
       initialInput: validateExtensionViewInput(options.input),
       readingOrigin: options.readingOrigin ?? 'human',
     }
@@ -559,6 +594,8 @@ export class ExtensionGuestOwner {
         ].slice(0, EXTENSION_LIMITS.warnings)
       const controller = new AbortController()
       record.requests.set(id, controller)
+      if (capability === 'actions.invoke' || capability === 'delivery.apply')
+        record.actionRequests.add(id)
       const timer = setTimeout(
         () => controller.abort(),
         extensionRequestDeadline(capability),
@@ -595,6 +632,7 @@ export class ExtensionGuestOwner {
         .finally(() => {
           clearTimeout(timer)
           record.requests.delete(id!)
+          record.actionRequests.delete(id!)
         })
     } catch (reason) {
       if (!id)

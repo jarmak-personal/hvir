@@ -266,9 +266,8 @@ export async function verifySkillagerExtension(
   )) as { id: string; source: string; path: string }
   const canonical = await host.realpath(localPath(clicked.path))
   await inspect(guest, "document.querySelector('#skills [role=option]').click()")
-  await controls.wait(() => !!view('detail'), 'explicit selected detail')
-  phase = 'selected detail guest attachment'
-  let detail = await bounded(controls.guest(view('detail')!))
+  const detail = guest
+  phase = 'selected inline reader'
   await controls.wait(
     () => extensions.sourceRequests!.snapshot(owner)[0]?.state === 'ready',
     'explicit selected read proposes one canonical local root',
@@ -281,9 +280,9 @@ export async function verifySkillagerExtension(
     readProposal.source !== 'library'
   )
     throw new Error('First read proposed a different library source')
-  await controls.click('Close Skill instructions')
+  await inspect(guest, "document.getElementById('close-instructions').click()")
   await controls.wait(
-    () => !view('detail') && !extensions.sourceRequests!.snapshot(owner).length,
+    () => !extensions.sourceRequests!.snapshot(owner).length,
     'closed reader retires its undecided root request',
   )
   await assertRetiredSkillagerReadDecision(win, readProposal.id, bounded)
@@ -298,27 +297,6 @@ export async function verifySkillagerExtension(
     'ordinary library restored after reader close',
   )
   await inspect(guest, "document.querySelector('#skills [role=option]').click()")
-  try {
-    await controls.wait(() => !!view('detail'), 'new explicit reader after close')
-  } catch (error) {
-    console.log(
-      '[smoke] bounded reader reopen failure facts',
-      JSON.stringify({
-        package: await inspect(
-          guest,
-          `({state:document.getElementById('state')?.dataset.state??null,message:document.getElementById('state')?.textContent?.slice(0,240)??null,manageDisabled:document.getElementById('manage')?.disabled??null,rows:document.querySelectorAll('#skills [role=option]').length,firstId:document.querySelector('#skills [role=option]')?.dataset.id??null})`,
-        ),
-        views: extensions.guests!.snapshot(owner).map((entry) => ({
-          id: entry.id,
-          contribution: entry.contributionId,
-          failure: entry.failure ?? null,
-        })),
-        decisions: extensions.sourceRequests!.snapshot(owner).length,
-      }),
-    )
-    throw error
-  }
-  detail = await bounded(controls.guest(view('detail')!))
   await controls.wait(
     () => extensions.sourceRequests!.snapshot(owner)[0]?.state === 'ready',
     'new reader has a distinct root request',
@@ -345,7 +323,10 @@ export async function verifySkillagerExtension(
   await assertRetiredSkillagerReadDecision(win, hiddenProposal.id, bounded)
   await controls.click('Close settings')
   await restoreSelectedReader(detail)
-  await inspect(detail, "document.getElementById('read-current').click()")
+  await inspect(
+    detail,
+    "document.getElementById('read-current').closest('details').open=true;document.getElementById('read-current').click()",
+  )
   try {
     await controls.wait(
       () => extensions.sourceRequests!.snapshot(owner)[0]?.state === 'ready',
@@ -357,7 +338,7 @@ export async function verifySkillagerExtension(
       JSON.stringify({
         package: await inspect(
           detail,
-          "({visible:window.skillagerEvidenceVisible??null,state:document.getElementById('state')?.dataset.state??null,manageDisabled:document.getElementById('manage')?.disabled??null,readVisible:document.getElementById('read-current')?.checkVisibility()??null})",
+          "({visible:window.skillagerEvidenceVisible??null,state:document.getElementById('reader-state')?.dataset.state??null,manageDisabled:document.getElementById('manage')?.disabled??null,readVisible:document.getElementById('read-current')?.checkVisibility()??null})",
         ),
         placement: await placementFacts(detail),
         decisions: extensions.sourceRequests!.snapshot(owner).length,
@@ -371,7 +352,7 @@ export async function verifySkillagerExtension(
     () =>
       inspect(
         detail,
-        "document.getElementById('state').dataset.state==='unapproved'&&!document.getElementById('instructions').textContent",
+        "document.getElementById('reader-state').dataset.state==='unapproved'&&!document.getElementById('instructions').textContent",
       ) as Promise<boolean>,
     'declined first read exposes no instruction bytes',
   )
@@ -383,7 +364,10 @@ export async function verifySkillagerExtension(
       .some((entry) => entry.granted)
   )
     throw new Error('Declined read persisted access')
-  await inspect(detail, "document.getElementById('read-current').click()")
+  await inspect(
+    detail,
+    "document.getElementById('read-current').closest('details').open=true;document.getElementById('read-current').click()",
+  )
   await controls.wait(
     () => extensions.sourceRequests!.snapshot(owner)[0]?.state === 'ready',
     'new explicit Read current decision',
@@ -445,13 +429,16 @@ export async function verifySkillagerExtension(
     throw new Error(
       'Selected current bytes/hash do not match the exact clicked public occurrence',
     )
-  await inspect(detail, "document.getElementById('read-current').click()")
+  await inspect(
+    detail,
+    "document.getElementById('read-current').closest('details').open=true;document.getElementById('read-current').click()",
+  )
   await ready(
     detail,
     () =>
       inspect(
         detail,
-        "document.getElementById('state').dataset.state==='ready' && document.getElementById('instructions').textContent.length>0",
+        "document.getElementById('reader-state').dataset.state==='ready' && document.getElementById('instructions').textContent.length>0",
       ) as Promise<boolean>,
     'unchanged canonical grant supports another explicit current read without a prompt',
   )
@@ -472,20 +459,7 @@ export async function verifySkillagerExtension(
   await captureExtensionVisuals(win, detail, host, 'instructions', {
     ...controls,
     select: async () => {
-      await controls.wait(
-        () =>
-          dom(
-            "(() => {const button=document.querySelector('.project-tab-main');if(!button?.checkVisibility()||button.disabled)return false;button.click();return true})()",
-          ),
-        'visual project destination',
-      )
-      await controls.wait(
-        () =>
-          dom(
-            "(() => {const button=[...document.querySelectorAll('.viewer-tab .tab-main')].find(e=>e.title==='Skillager · Skill instructions');if(!button?.checkVisibility()||button.disabled)return false;button.click();return true})()",
-          ),
-        'visual selected instructions',
-      )
+      await controls.click('Skillager library')
     },
   })
   await inspect(detail, "document.getElementById('source-mode').click()")
@@ -504,7 +478,7 @@ export async function verifySkillagerExtension(
   if (
     !(await inspect(
       detail,
-      "(() => {const button=document.getElementById('read-current');if(!button?.checkVisibility())return false;button.click();return true})()",
+      "(() => {const button=document.getElementById('read-current');button.closest('details').open=true;if(!button?.checkVisibility())return false;button.click();return true})()",
     ))
   )
     throw new Error('Read current control is hidden')
@@ -519,7 +493,7 @@ export async function verifySkillagerExtension(
     () =>
       inspect(
         detail,
-        "document.getElementById('state').dataset.state==='unapproved'",
+        "document.getElementById('reader-state').dataset.state==='unapproved'",
       ) as Promise<boolean>,
     'revoked selected-source read declined',
   )
@@ -666,22 +640,7 @@ export async function verifySkillagerExtension(
     console.log(
       `[smoke] Skillager evidence: selected reader visible after Settings=${visibleAfterSettings === true}`,
     )
-    if (visibleAfterSettings !== true) {
-      await controls.wait(
-        () =>
-          dom(
-            `(() => { const button=document.querySelector('.project-tab-main'); if(!button?.checkVisibility()||button.disabled)return false; button.click(); return true })()`,
-          ),
-        'ordinary project destination',
-      )
-      await controls.wait(
-        () =>
-          dom(
-            `(() => { const button=[...document.querySelectorAll('.viewer-tab .tab-main')].find(e=>e.title==='Skillager · Skill instructions'); if(!button?.checkVisibility()||button.disabled)return false; button.click(); return true })()`,
-          ),
-        'ordinary selected instructions tab',
-      )
-    }
+    if (visibleAfterSettings !== true) await controls.click('Skillager library')
     await ready(
       detail,
       () => inspect(detail, 'window.skillagerEvidenceVisible===true') as Promise<boolean>,

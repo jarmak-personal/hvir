@@ -1,7 +1,7 @@
-/* global window, document, AbortController */
-import { guestClient, runCli } from './bridge.mjs'
+/* global window, document */
+import { guestClient } from './bridge.mjs'
+import { catalogCli } from './catalog-cli.mjs'
 import {
-  requireVersion,
   libraryStatus,
   libraryPage,
   searchPage,
@@ -16,7 +16,7 @@ import {
   setupRequest,
   sameCurrentLibrary,
 } from './library-first-use.mjs'
-import { sourcePages, loadInstructionImages } from './reader.mjs'
+import { bindSkillReader } from './detail-view.mjs'
 const bridge = window.hvirExtension,
   client = guestClient(bridge)
 const releasePresentation = window.hvirUI.bindPresentation(bridge)
@@ -43,7 +43,12 @@ let lastPage,
 const state = element('state'),
   list = element('skills'),
   body = element('instructions')
-const verifiedVersions = new Set()
+const cli = catalogCli(
+  client,
+  () => context,
+  () => generation,
+)
+const reader = body ? bindSkillReader(document, client, { choose }) : undefined
 const on = (id, event, callback) => {
   const target = element(id)
   target?.addEventListener(event, callback)
@@ -62,46 +67,6 @@ function say(message, kind = 'ready') {
     element('create-library').disabled = !available() || kind !== 'no-personal-library'
   if (element('library-setup'))
     element('library-setup').hidden = kind !== 'no-personal-library'
-}
-async function cli(args, project) {
-  const revision = generation,
-    workspace = project?.workspace
-  const current = () => {
-    if (
-      !available() ||
-      generation !== revision ||
-      (workspace && JSON.stringify(workspace) !== JSON.stringify(context.workspace))
-    )
-      throw new Error('This observation is no longer current')
-  }
-  // Fence each public transport phase, including version -> command and frequency deferral.
-  const scopedClient = {
-    request: async (...input) => {
-      // Retired observations may release their own opaque output receipt, never read it.
-      if (!(input[0] === 'connector.output' && input[1]?.release === true)) current()
-      return client.request(...input)
-    },
-    delay: async (milliseconds) => {
-      current()
-      await client.delay(milliseconds)
-      current()
-    },
-    get alive() {
-      return client.alive
-    },
-    get visible() {
-      return client.visible
-    },
-  }
-  const key = workspace?.id ?? 'library'
-  if (!verifiedVersions.has(key)) {
-    requireVersion(await runCli(scopedClient, ['--version'], project))
-    current()
-    verifiedVersions.add(key)
-  }
-  const text = await runCli(scopedClient, args, project)
-  current()
-  return JSON.parse(text)
 }
 
 function available() {
@@ -124,7 +89,7 @@ function refreshConnectionAvailability() {
 function scope() {
   return view === 'project' ? context : undefined
 }
-async function choose(row) {
+async function choose(row, sourceLibrary) {
   if (!available()) return
   const intent = ++selectionIntent,
     revision = generation
@@ -139,7 +104,7 @@ async function choose(row) {
     throw new Error(
       'Selected installed presence is unknown for this workspace; no host was substituted',
     )
-  let selectedLibrary = library
+  let selectedLibrary = sourceLibrary ?? library
   if (row.source === 'library' && view === 'project') {
     if (!row.canonical)
       throw new Error(
@@ -169,11 +134,9 @@ async function choose(row) {
         'Selected occurrence no longer belongs to the reported personal library; no source was substituted.',
       )
   }
-  await client.request('viewer.open-own', {
-    contributionId: 'detail',
-    ...(row.source === 'library' ? { context: 'application' } : {}),
-    input: detailInputFor(row, selectedLibrary),
-  })
+  const input = detailInputFor(row, selectedLibrary)
+  if (view === 'library') reader.select(input)
+  else await client.request('viewer.open-own', { contributionId: 'detail', input })
 }
 const navigation = list
   ? window.hvirUI.bindList(list, (row) => {
@@ -409,254 +372,6 @@ function schedule() {
   if (available() && view !== 'detail')
     timer = window.setTimeout(() => requestRefresh(), 30_000 - (Date.now() % 30_000))
 }
-let detailInput,
-  selectedRead,
-  sourceReceipt,
-  instructionText = '',
-  renderedHtml,
-  reading = false,
-  pendingSelection = false,
-  selectedScroll = 0
-const positions = new Map()
-function rememberPosition() {
-  if (detailInput) {
-    positions.set(
-      `${detailInput.row.host}:${detailInput.row.workspaceId ?? ''}:${detailInput.row.source}:${detailInput.row.path}`,
-      {
-        scroll: body.scrollTop,
-        mode: body.dataset.mode,
-      },
-    )
-    if (positions.size > 16) positions.delete(positions.keys().next().value)
-  }
-}
-async function showInstructions(text, revision = generation) {
-  if (body.dataset.mode === 'source') {
-    body.textContent = text
-    return
-  }
-  let renderReceipt
-  try {
-    let html = renderedHtml
-    if (html === undefined) {
-      const result = await client.request('source.render', { receipt: sourceReceipt })
-      renderReceipt = result.receipt
-      html = result.sourceFallback ? null : await sourcePages(client, renderReceipt)
-    }
-    if (!available() || revision !== generation || body.dataset.mode === 'source') return
-    renderedHtml = html
-    if (html === null) {
-      body.textContent = text
-      body.dataset.mode = 'source'
-      say(
-        'Complete current instructions in Source mode · rendered output exceeds the display bound',
-      )
-    } else body.innerHTML = html
-  } catch (error) {
-    if (available() && revision === generation) {
-      body.textContent = text
-      body.dataset.mode = 'source'
-      say(
-        `Complete current instructions in Source mode · Rendering unavailable: ${error.message}`,
-        'stale',
-      )
-    }
-  } finally {
-    if (renderReceipt)
-      await client
-        .request('source.read', { receipt: renderReceipt, release: true })
-        .catch(() => {})
-  }
-}
-
-async function readSelected() {
-  if (!available() || !detailInput?.row || reading) return
-  const selecting = pendingSelection
-  pendingSelection = false
-  reading = true
-  const controller = new AbortController()
-  selectedRead = controller
-  const revision = generation,
-    row = detailInput.row
-  let readingLibrary
-  const scroll = selecting ? selectedScroll : body.scrollTop,
-    mode = body.dataset.mode
-  say('Reading selected current file…', 'loading')
-  try {
-    if (sourceReceipt)
-      await client
-        .request('source.read', { receipt: sourceReceipt, release: true })
-        .catch(() => {})
-    if (
-      row.host !== 'local' ||
-      (row.source === 'project' && row.workspaceId !== context.workspace?.id)
-    )
-      throw new Error('Selected source does not match its observing host/workspace')
-    if (row.source === 'library') {
-      // Selected metadata prefills a proposal, not authority or current library truth.
-      // Bounded detail input can omit the root; resolve it through public status then.
-      const observed = detailInput.library?.root
-        ? detailInput.library
-        : sameCurrentLibrary(
-            detailInput.library,
-            libraryStatus(await cli(['library', 'status', '--json'])),
-          )
-      if (!available() || revision !== generation) return
-      readingLibrary = observed
-      const decision = await client.request(
-        'source.request',
-        {
-          source: 'library',
-          root: { hostId: 'local', path: observed.root },
-        },
-        controller.signal,
-      )
-      if (!available() || revision !== generation) return
-      if (!decision.granted) {
-        say('Read access was not granted. The skill remains selected.', 'unapproved')
-        return
-      }
-      sameCurrentLibrary(
-        observed,
-        libraryStatus(await cli(['library', 'status', '--json'])),
-      )
-      if (!available() || revision !== generation) return
-    }
-    const selected = await client.request('source.select', {
-      source: row.source,
-      path: { hostId: row.host, path: row.path },
-      ...(row.workspaceId ? { workspaceId: row.workspaceId } : {}),
-    })
-    if (!available() || revision !== generation) return
-    sourceReceipt = selected.receipt
-    const text = await sourcePages(client, selected.receipt)
-    if (readingLibrary)
-      sameCurrentLibrary(
-        readingLibrary,
-        libraryStatus(await cli(['library', 'status', '--json'])),
-      )
-    if (!available() || revision !== generation) return
-    instructionText = text
-    renderedHtml = undefined
-    body.dataset.mode = mode
-    await showInstructions(text, revision)
-    if (!available() || revision !== generation) return
-    body.scrollTop = scroll
-    element('detail-title').textContent = row.name
-    element('source-label').textContent =
-      `${row.kind} · ${selected.path.hostId}: ${selected.path.path}`
-    element('details').dataset.sha256 = selected.sha256
-    element('details').textContent =
-      `Observation: ${row.status} · Current file read ${new Date(selected.readAt).toLocaleTimeString()} · File SHA-256 ${selected.sha256}. Current-file bytes are not an accepted tree snapshot.${row.matched && row.matched !== row.skillId ? ` Ranking matched ${row.matched}.` : ''}`
-    element('canonical').hidden = !row.canonical
-    if (body.dataset.mode !== 'source' || mode === 'source')
-      say('Current file · reading does not approve or run this skill')
-    if (body.dataset.mode !== 'source')
-      await loadInstructionImages(
-        client,
-        body,
-        selected.receipt,
-        () => available() && revision === generation && body.dataset.mode !== 'source',
-      )
-  } catch (error) {
-    if (available() && revision === generation)
-      say(
-        `${error.message} · The selected source remains selected; no other occurrence was substituted.`,
-        'error',
-      )
-  } finally {
-    controller.abort()
-    if (selectedRead === controller) selectedRead = undefined
-    reading = false
-    if (pendingSelection && available()) void readSelected()
-  }
-}
-on('read-current', 'click', () => {
-  selectedScroll = body.scrollTop
-  selectedRead?.abort()
-  generation++
-  pendingSelection = true
-  void readSelected()
-})
-on('reveal-original', 'click', async () => {
-  const row = detailInput?.row
-  if (
-    !available() ||
-    row?.source !== 'project' ||
-    row.kind !== 'Project original' ||
-    row.workspaceId !== context.workspace?.id ||
-    row.host !== context.workspace?.host
-  )
-    return
-  try {
-    await client.request('source.reveal', {
-      source: 'project',
-      workspaceId: row.workspaceId,
-      path: { hostId: row.host, path: row.path.slice(0, row.path.lastIndexOf('/')) },
-    })
-    say(
-      'Original folder revealed in Files. Its separate file actions own deletion; no original was removed.',
-    )
-  } catch (error) {
-    say(error.message, 'error')
-  }
-})
-on('source-mode', 'click', () => {
-  if (instructionText) {
-    body.textContent = instructionText
-    body.dataset.mode = 'source'
-  }
-})
-on('rendered-mode', 'click', () => {
-  if (instructionText) {
-    body.dataset.mode = 'rendered'
-    const revision = generation,
-      receipt = sourceReceipt
-    void showInstructions(instructionText, revision).then(
-      () =>
-        available() &&
-        revision === generation &&
-        receipt &&
-        loadInstructionImages(
-          client,
-          body,
-          receipt,
-          () => available() && revision === generation && body.dataset.mode !== 'source',
-        ),
-    )
-  }
-})
-on('canonical', 'click', async () => {
-  const canonical = detailInput?.row.canonical
-  if (!canonical || !available()) return
-  try {
-    const value = await cli(['library', 'status', canonical.skill_id, '--json']),
-      current = libraryStatus(value)
-    if (
-      !current.initialized ||
-      current.id !== canonical.library_id ||
-      !canonical.skill_id.startsWith('lib/') ||
-      value.skill?.id !== canonical.skill_id ||
-      value.skill?.status === 'missing'
-    )
-      throw new Error(
-        'Canonical relationship no longer matches the connected current library',
-      )
-    library = current
-    await choose({
-      id: canonical.skill_id,
-      name: value.skill.name ?? canonical.skill_id,
-      description: value.skill.summary ?? '',
-      path: value.skill.entrypoint,
-      source: 'library',
-      host: 'local',
-      kind: 'Your library',
-      status: value.skill.acceptance ?? 'observed',
-    })
-  } catch (error) {
-    say(error.message, 'error')
-  }
-})
 on(
   'open-library',
   'click',
@@ -672,9 +387,6 @@ on(
     void client
       .request('viewer.open-own', {
         contributionId: 'management',
-        ...(view === 'detail' && detailInput?.row?.source === 'library'
-          ? { input: { row: { id: detailInput.row.id, source: 'library' } } }
-          : {}),
       })
       .catch((error) => say(error.message, 'error')),
 )
@@ -812,37 +524,12 @@ client.listen((message) => {
     context = message.context
     if (view === 'project' && (changed || !context.visible)) connectionIntent++
     refreshManagementAvailability()
+    reader?.context(context)
     if (!context.visible) {
-      selectedRead?.abort()
       generation++
       window.clearTimeout(timer)
-      if (reading)
-        say(
-          'Reading interrupted while hidden. Select Read current to finish; partial bytes are not shown.',
-          'stale',
-        )
     }
-    if (view === 'detail') {
-      if (context.input && context.input.selection !== detailInput?.selection) {
-        rememberPosition()
-        selectedRead?.abort()
-        generation++
-        detailInput = context.input
-        element('reveal-original').hidden =
-          detailInput.row.source !== 'project' ||
-          detailInput.row.kind !== 'Project original'
-        pendingSelection = true
-        instructionText = ''
-        renderedHtml = undefined
-        body.replaceChildren()
-        const position = positions.get(
-          `${detailInput.row.host}:${detailInput.row.workspaceId ?? ''}:${detailInput.row.source}:${detailInput.row.path}`,
-        )
-        body.dataset.mode = position?.mode ?? 'rendered'
-        selectedScroll = position?.scroll ?? 0
-      }
-      if (pendingSelection && available()) void readSelected()
-    } else {
+    if (view !== 'detail') {
       const installed = element('include-installed'),
         local = view === 'project' && !!localWorkspace(context.workspace)
       if (installed) {
@@ -858,14 +545,16 @@ client.listen((message) => {
             : 'Installed copies are unknown here. Search covers your personal library.'
         if (changed || !local) installed.checked = local
       }
-      if (renewed || changed)
-        requestRefresh(changed ? { cursor: undefined, previous: [] } : undefined)
+      if (renewed || (changed && view === 'project'))
+        requestRefresh(
+          changed && view === 'project' ? { cursor: undefined, previous: [] } : undefined,
+        )
     }
   }
 })
 window.addEventListener('pagehide', dispose, { once: true })
 function dispose() {
-  selectedRead?.abort()
+  reader?.dispose()
   generation++
   window.clearTimeout(timer)
   navigation?.dispose()
@@ -879,6 +568,7 @@ client.signal.addEventListener(
     navigation?.dispose()
     releasePresentation()
     refreshManagementAvailability()
+    reader?.dispose()
   },
   { once: true },
 )

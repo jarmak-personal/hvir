@@ -45,8 +45,17 @@ export async function renderMarkdownDocument(
       return '</span>'
     }
   }
+  // Leading document metadata is not a Markdown heading. Preserve line offsets and
+  // all original text in Source; the rendered representation keeps it secondary.
+  const frontmatter =
+    resources === 'selected'
+      ? /^(?:\uFEFF)?---\r?\n([\s\S]*?)\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/u.exec(source)
+      : null
+  const content = frontmatter
+    ? frontmatter[0].replace(/[^\r\n]/gu, '') + source.slice(frontmatter[0].length)
+    : source
   const env: Record<string, unknown> = {}
-  const tokens = markdown.parse(source, env)
+  const tokens = markdown.parse(content, env)
   const loaded = await loadFenceGrammars(
     tokens.map((token) => token.info),
     grammars,
@@ -75,7 +84,10 @@ export async function renderMarkdownDocument(
       return plainFence(token)
     }
   }
-  return markdown.renderer.render(tokens, markdown.options, env)
+  const metadata = frontmatter
+    ? `<details class="document-frontmatter"><summary>Metadata</summary><pre>${escapeHtml(frontmatter[1] ?? '')}</pre></details>`
+    : ''
+  return metadata + markdown.renderer.render(tokens, markdown.options, env)
 }
 
 async function loadFenceGrammars(

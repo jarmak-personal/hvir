@@ -227,6 +227,7 @@ export function detailInputFor(row, library) {
   if (row.host !== 'local' || (row.source === 'project' && !row.workspaceId))
     throw new Error('Selected source lacks an exact observing host/workspace')
   const identity = {
+    id: row.id,
     path: row.path,
     source: row.source,
     host: row.host,

@@ -488,6 +488,7 @@ describe('IpcAuthorityRouter', () => {
         'extensions:reload',
         'extensions:remove',
         'extensions:open-view',
+        'extensions:target-view',
         'extensions:close-view',
         'extensions:views',
         'extensions:context',

@@ -1,5 +1,8 @@
 import { createContext, useContext, useEffect } from 'react'
-import type { ExtensionSessionContext } from '../../../shared/extensions/contract'
+import type {
+  ExtensionSessionContext,
+  ExtensionWorkspaceContext,
+} from '../../../shared/extensions/contract'
 import type {
   ExtensionContributionState,
   ExtensionDemand,
@@ -22,6 +25,7 @@ export interface Contributions {
   readonly state: readonly ExtensionContributionState[]
   readonly terminalIds: Readonly<Record<string, string>>
   readonly sessions: readonly ExtensionSessionContext[]
+  readonly workspaces?: readonly ExtensionWorkspaceContext[]
   readonly workspaceId?: string
   readonly foreground: boolean
   readonly open: (
