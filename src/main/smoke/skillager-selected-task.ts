@@ -46,6 +46,7 @@ export async function verifySelectedSkillTasks(
     )
     throw error
   }
+  await ownedImage()
   await withinExtensionInspection(
     win.webContents.executeJavaScript(`(() => {
     const pane=document.querySelector('.extension-top-destination .extension-view:not([hidden])');
@@ -95,6 +96,7 @@ export async function verifySelectedSkillTasks(
       )
       throw error
     })
+  await ownedImage()
   await captureReview('add', 'selected-task', 'task-primary')
   await focusSmokeWindow(win, 'window')
   // Appearance captures return focus to the workbench; enter the guest with real input.
@@ -142,6 +144,7 @@ export async function verifySelectedSkillTasks(
     throw new Error('Owned instructions did not exercise reading position')
   await captureExtensionVisuals(win, guest, host, 'instructions', {
     ...controls,
+    expectedInstructionImages: 1,
     select: async () => {
       await controls.click('Skillager library')
       await controls.wait(
@@ -231,6 +234,13 @@ export async function verifySelectedSkillTasks(
     'return to advanced management',
   )
   return accepted
+
+  async function ownedImage(): Promise<void> {
+    await ui.ready(
+      "(() => { const images=[...document.querySelectorAll('#instructions img')]; return images.length===1 && images[0].complete && images[0].naturalWidth===1280 && images[0].naturalHeight===120; })()",
+      'known selected image decoded before changing destination or hiding the reader',
+    )
+  }
 
   async function pointer(selector: string): Promise<void> {
     await ui.inspect(

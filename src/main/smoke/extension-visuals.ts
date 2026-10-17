@@ -9,6 +9,7 @@ interface VisualControls {
   wait(predicate: () => boolean | Promise<boolean>, label: string): Promise<void>
   select(): Promise<void>
   painted?(): Promise<unknown>
+  readonly expectedInstructionImages?: number
 }
 
 /** Actual search controls must share the available guest width without covering each other. */
@@ -174,6 +175,7 @@ export async function captureExtensionVisuals(
           )
         }
         if (state === 'instructions') {
+          await instructionImages('after Settings and appearance changes')
           const position: unknown = await guest.executeJavaScript(
             "document.getElementById('instructions').scrollTop",
           )
@@ -220,6 +222,14 @@ export async function captureExtensionVisuals(
               "document.querySelector('#instructions img').scrollIntoView({block:'center'})",
             )
             await settled()
+            if (controls.expectedInstructionImages !== undefined) {
+              const image: unknown = await guest.executeJavaScript(`(() => {
+                const reader=document.getElementById('instructions'), image=reader.querySelector('img'), bounds=reader.getBoundingClientRect(), rect=image.getBoundingClientRect();
+                if(!image.complete||!image.naturalWidth||rect.top<bounds.top-1||rect.bottom>bounds.bottom+1||rect.left<bounds.left-1||rect.right>bounds.right+1)throw new Error('Known image is not decoded and visible inside its reader');
+                return {decoded:true,contained:true,width:rect.width,height:rect.height,naturalWidth:image.naturalWidth,naturalHeight:image.naturalHeight};
+              })()`)
+              facts.push({ theme, variant, state, image })
+            }
             await write(`instructions-${theme}-${variant}-image`)
           }
           await guest.executeJavaScript("document.getElementById('source-mode').click()")
@@ -251,6 +261,7 @@ export async function captureExtensionVisuals(
               )) === true,
             'rendered instructions restored',
           )
+          await instructionImages('after Source and Rendered changes')
           await guest.executeJavaScript(
             "document.getElementById('instructions').scrollTop=0",
           )
@@ -569,6 +580,17 @@ export async function captureExtensionVisuals(
     }
   }
   if (cleanupFailure) throw cleanupFailure
+  async function instructionImages(phase: string): Promise<void> {
+    if (controls.expectedInstructionImages === undefined) return
+    await controls.wait(
+      async () =>
+        (await guest.executeJavaScript(`(() => {
+          const images=[...document.querySelectorAll('#instructions img')];
+          return images.length===${controls.expectedInstructionImages} && images.every(image=>image.complete&&image.naturalWidth>0&&image.naturalHeight>0&&image.checkVisibility());
+        })()`)) === true,
+      `all known instruction images remain decoded ${phase}`,
+    )
+  }
   async function section(name: string, id: string): Promise<void> {
     const responsive = (await win.webContents.executeJavaScript(`(() => {
       const selector=document.querySelector('.settings-section-selector select');

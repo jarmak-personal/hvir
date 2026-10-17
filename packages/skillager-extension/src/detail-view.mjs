@@ -29,7 +29,7 @@ export function bindSkillReader(document, client, ports) {
     selectedRead,
     sourceReceipt,
     instructionText = '',
-    renderedHtml,
+    renderedRead,
     reading = false,
     pendingSelection = false,
     selectedScroll = 0
@@ -51,43 +51,104 @@ export function bindSkillReader(document, client, ports) {
       if (positions.size > 16) positions.delete(positions.keys().next().value)
     }
   }
+  function showSource(text) {
+    // Move the exact rendered nodes; a representation change grants no new source read.
+    if (renderedRead?.attached) {
+      renderedRead.renderedScroll = body.scrollTop
+      while (body.firstChild) renderedRead.content.appendChild(body.firstChild)
+      renderedRead.attached = false
+    }
+    if (body.dataset.mode === 'source' && body.textContent === text) return
+    body.textContent = text
+    body.scrollTop = renderedRead?.sourceScroll ?? 0
+  }
   async function showInstructions(text, revision = generation) {
     if (body.dataset.mode === 'source') {
-      body.textContent = text
+      showSource(text)
       return
     }
-    let renderReceipt
+    const read = renderedRead
     try {
-      let html = renderedHtml
-      if (html === undefined) {
-        const result = await client.request('source.render', { receipt: sourceReceipt })
-        renderReceipt = result.receipt
-        html = result.sourceFallback ? null : await sourcePages(client, renderReceipt)
+      if (!read.ready) {
+        if (!read.pending) {
+          if (
+            !available() ||
+            read.revision !== generation ||
+            read.controller.signal.aborted
+          )
+            throw new Error('Use Read current to prepare the rendered document')
+          read.pending = (async () => {
+            let receipt
+            try {
+              const result = await client.request(
+                'source.render',
+                { receipt: read.receipt },
+                read.controller.signal,
+              )
+              receipt = result.receipt
+              const html = result.sourceFallback
+                ? null
+                : await sourcePages(client, receipt, read.controller.signal)
+              const current = () =>
+                available() &&
+                read === renderedRead &&
+                read.revision === generation &&
+                !read.controller.signal.aborted
+              if (!current()) return
+              read.ready = true
+              if (html === null) read.content = null
+              else {
+                const template = document.createElement('template')
+                template.innerHTML = html
+                read.content = template.content
+                // One admitted image pass can finish while Source is shown. Selection,
+                // visibility and read retirement still cancel its public requests.
+                read.images = loadInstructionImages(
+                  client,
+                  read.content,
+                  read.receipt,
+                  current,
+                  read.controller.signal,
+                )
+              }
+            } finally {
+              if (receipt)
+                await client
+                  .request('source.read', { receipt, release: true })
+                  .catch(() => {})
+            }
+          })()
+        }
+        await read.pending
       }
-      if (!available() || revision !== generation || body.dataset.mode === 'source')
+      if (
+        !available() ||
+        read !== renderedRead ||
+        !read.ready ||
+        body.dataset.mode === 'source'
+      )
         return
-      renderedHtml = html
-      if (html === null) {
-        body.textContent = text
+      if (read.content === null) {
+        showSource(text)
         setMode('source')
         say(
           'Complete current instructions in Source mode · rendered output exceeds the display bound',
         )
-      } else body.innerHTML = html
+      } else if (!read.attached) {
+        read.sourceScroll = body.scrollTop
+        body.replaceChildren(read.content)
+        body.scrollTop = read.renderedScroll ?? 0
+        read.attached = true
+      }
     } catch (error) {
-      if (available() && revision === generation) {
-        body.textContent = text
+      if (available() && read === renderedRead && revision === generation) {
+        showSource(text)
         setMode('source')
         say(
           `Complete current instructions in Source mode · Rendering unavailable: ${error.message}`,
           'stale',
         )
       }
-    } finally {
-      if (renderReceipt)
-        await client
-          .request('source.read', { receipt: renderReceipt, release: true })
-          .catch(() => {})
     }
   }
 
@@ -159,7 +220,12 @@ export function bindSkillReader(document, client, ports) {
         )
       if (!available() || revision !== generation) return
       instructionText = text
-      renderedHtml = undefined
+      renderedRead?.controller.abort()
+      renderedRead = {
+        receipt: selected.receipt,
+        revision,
+        controller: new AbortController(),
+      }
       body.dataset.mode = mode
       await showInstructions(text, revision)
       if (!available() || revision !== generation) return
@@ -172,13 +238,7 @@ export function bindSkillReader(document, client, ports) {
         `Observation: ${row.status} · Current file read ${new Date(selected.readAt).toLocaleTimeString()} · File SHA-256 ${selected.sha256}. Current-file bytes are not an accepted tree snapshot. Reading does not approve or run this skill.${row.matched && row.matched !== row.skillId ? ` Ranking matched ${row.matched}.` : ''}`
       element('canonical').hidden = !row.canonical
       if (body.dataset.mode !== 'source' || mode === 'source') say('')
-      if (body.dataset.mode !== 'source')
-        await loadInstructionImages(
-          client,
-          body,
-          selected.receipt,
-          () => available() && revision === generation && body.dataset.mode !== 'source',
-        )
+      await renderedRead.images
     } catch (error) {
       if (available() && revision === generation)
         say(
@@ -195,6 +255,7 @@ export function bindSkillReader(document, client, ports) {
   on('read-current', 'click', () => {
     selectedScroll = body.scrollTop
     selectedRead?.abort()
+    renderedRead?.controller.abort()
     generation++
     pendingSelection = true
     void readSelected()
@@ -224,28 +285,19 @@ export function bindSkillReader(document, client, ports) {
   })
   on('source-mode', 'click', () => {
     if (instructionText) {
-      body.textContent = instructionText
+      showSource(instructionText)
       setMode('source')
+      if (
+        renderedRead?.revision === generation &&
+        element('reader-state').dataset.state === 'loading'
+      )
+        say('')
     }
   })
   on('rendered-mode', 'click', () => {
     if (instructionText) {
       setMode('rendered')
-      const revision = generation,
-        receipt = sourceReceipt
-      void showInstructions(instructionText, revision).then(
-        () =>
-          available() &&
-          revision === generation &&
-          receipt &&
-          loadInstructionImages(
-            client,
-            body,
-            receipt,
-            () =>
-              available() && revision === generation && body.dataset.mode !== 'source',
-          ),
-      )
+      void showInstructions(instructionText)
     }
   })
   on('canonical', 'click', async () => {
@@ -285,6 +337,10 @@ export function bindSkillReader(document, client, ports) {
   on('close-instructions', 'click', () => {
     rememberPosition()
     selectedRead?.abort()
+    renderedRead?.controller.abort()
+    renderedRead = undefined
+    instructionText = ''
+    body.replaceChildren()
     generation++
     pendingSelection = false
     detailInput = undefined
@@ -313,6 +369,7 @@ export function bindSkillReader(document, client, ports) {
   function select(input) {
     rememberPosition()
     selectedRead?.abort()
+    renderedRead?.controller.abort()
     generation++
     detailInput = input
     element('reader-empty')?.setAttribute('hidden', '')
@@ -322,7 +379,7 @@ export function bindSkillReader(document, client, ports) {
       input.row.source !== 'project' || input.row.kind !== 'Project original'
     pendingSelection = true
     instructionText = ''
-    renderedHtml = undefined
+    renderedRead = undefined
     body.replaceChildren()
     const position = positions.get(
       `${input.row.host}:${input.row.workspaceId ?? ''}:${input.row.source}:${input.row.path}`,
@@ -343,6 +400,7 @@ export function bindSkillReader(document, client, ports) {
       element('reader-manage').disabled = !available()
       if (changed || hidden) {
         selectedRead?.abort()
+        renderedRead?.controller.abort()
         generation++
       }
       if (changed || hidden || renewed) task.contextChanged()
@@ -352,6 +410,10 @@ export function bindSkillReader(document, client, ports) {
     },
     dispose() {
       selectedRead?.abort()
+      renderedRead?.controller.abort()
+      renderedRead = undefined
+      instructionText = ''
+      body.replaceChildren()
       generation++
       task.dispose()
       element('reader-manage').disabled = true
