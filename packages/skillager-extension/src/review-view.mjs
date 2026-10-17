@@ -5,19 +5,17 @@ import { exactReviewManifest, sameReviewedManifest } from './review-contract.mjs
 import { readReviewFile } from './review-reading.mjs'
 
 const TEXT_PAGE = 32 * 1024
-/** Every file remains visible in the manifest; unsupported material cannot become approval. */
+/** Inspection is optional; the complete manifest and CLI token bind one human decision. */
 export function bindExactReview(document, client, ports) {
   const element = (id) => document.getElementById(id),
-    releases = [],
-    reviewed = new Set()
+    releases = []
   let selection,
     activeFile,
     text = '',
     page = 0,
-    pagesSeen = new Set(),
     busy = false,
-    serial = 0,
-    ready = false
+    serial = 0
+  const skillId = () => ports.skillId?.() ?? element('skill-id').value.trim()
   const io = () => managementCli(client)
   function available(revision) {
     try {
@@ -26,7 +24,7 @@ export function bindExactReview(document, client, ports) {
         ports.context().visible &&
         serial === revision &&
         (!selection ||
-          (element('skill-id').value.trim() === selection.skillId &&
+          (skillId() === selection.skillId &&
             JSON.stringify(selection.workspace) ===
               JSON.stringify(ports.context().workspace) &&
             (sameLibrary(selection.library, ports.library()), true)))
@@ -37,40 +35,37 @@ export function bindExactReview(document, client, ports) {
   }
   function invalidate() {
     serial++
-    ready = false
-    element('accept-version').disabled = true
-    element('acknowledge-file').disabled = true
-  }
-  function retarget() {
-    invalidate()
     selection = undefined
     activeFile = undefined
-    reviewed.clear()
+    element('accept-version').disabled = true
     element('exact-review').hidden = true
     element('review-files').replaceChildren()
     element('review-file-body').replaceChildren()
   }
   function showPage() {
-    pagesSeen.add(page)
     element('review-file-body').textContent = text.slice(
       page * TEXT_PAGE,
       (page + 1) * TEXT_PAGE,
     )
     const count = Math.max(1, Math.ceil(text.length / TEXT_PAGE))
-    element('review-page-label').textContent =
-      `Complete file: page ${page + 1} of ${count}`
+    element('review-page-label').textContent = `Page ${page + 1} of ${count}`
     element('review-previous').disabled = page === 0
     element('review-next').disabled = page + 1 === count
-    element('acknowledge-file').disabled = pagesSeen.size !== count
   }
   async function guarded(work) {
     if (busy || !ports.context().visible || !client.alive) return
     busy = true
+    const revision = serial,
+      identity = JSON.stringify([skillId(), ports.context().workspace])
     try {
-      await work(serial)
+      await work(revision)
     } catch (error) {
-      invalidate()
-      ports.say(error.message)
+      if (
+        client.alive &&
+        ports.context().visible &&
+        identity === JSON.stringify([skillId(), ports.context().workspace])
+      )
+        ports.say(error.message)
     } finally {
       busy = false
     }
@@ -80,71 +75,76 @@ export function bindExactReview(document, client, ports) {
       listener = () => {
         void guarded(callback)
       }
-    target.addEventListener('click', listener)
-    releases.push(() => target.removeEventListener('click', listener))
+    target?.addEventListener('click', listener)
+    releases.push(() => target?.removeEventListener('click', listener))
   }
   async function read(file, revision) {
-    ready = false
-    element('accept-version').disabled = true
-    element('acknowledge-file').disabled = true
     element('review-file-body').replaceChildren()
     element('review-file-label').textContent =
-      `${file.path} · ${file.size} bytes · executable ${file.executable} · SHA-256 ${file.sha256}`
-    const value = await readReviewFile(client, selection.manifest, file, () =>
-      available(revision),
-    )
+      `${file.path} · ${file.size} bytes${file.executable ? ' · executable' : ''}`
+    const decision = await client.request('source.request', {
+      source: 'library',
+      root: selection.library.root,
+    })
     if (!available(revision)) return
-    activeFile = file
-    pagesSeen = new Set()
-    page = 0
-    if (value.kind === 'text') {
-      text = value.text
-      showPage()
-    } else {
-      text = ''
-      const image = document.createElement('img')
-      image.alt = file.path
-      image.src = value.data
-      element('review-file-body').replaceChildren(image)
-      try {
-        await image.decode()
-      } catch (error) {
-        throw new Error(
-          `${file.path}: the recognized image cannot be fully presented. Use suitable ordinary file tools and public Skillager CLI review/accept, then Refresh; acceptance is unavailable.`,
-          { cause: error },
-        )
-      }
+    if (!decision.granted)
+      throw new Error(
+        'Read access was not granted. The version remains available to review.',
+      )
+    try {
+      const value = await readReviewFile(client, selection.manifest, file, () =>
+        available(revision),
+      )
       if (!available(revision)) return
-      element('review-page-label').textContent =
-        'Complete recognized image decoded; exact byte SHA-256 and size verified'
+      activeFile = file
+      page = 0
+      if (value.kind === 'text') {
+        text = value.text
+        showPage()
+      } else {
+        text = ''
+        const image = document.createElement('img')
+        image.alt = file.path
+        image.src = value.data
+        element('review-file-body').replaceChildren(image)
+        await image.decode()
+        if (!available(revision)) return
+        element('review-page-label').textContent = 'Image · complete bytes verified'
+        element('review-previous').disabled = true
+        element('review-next').disabled = true
+      }
+      ports.say(`${file.path} · complete supported bytes verified`)
+    } catch (error) {
+      if (!available(revision)) return
+      element('review-file-body').textContent = `Preview unavailable. ${error.message}`
+      element('review-page-label').textContent = ''
       element('review-previous').disabled = true
       element('review-next').disabled = true
-      element('acknowledge-file').disabled = false
+      ports.say(
+        'This file remains in the version. Inspect it with suitable file tools; Skillager determines acceptance eligibility.',
+      )
     }
-    ports.say(
-      `${file.path}: complete supported bytes verified. Inspect all pages/image and explicitly acknowledge this file.`,
-    )
   }
-  on('start-review', async () => {
-    retarget()
+  async function start() {
+    invalidate()
     const revision = serial,
       library = ports.library(),
-      skillId = element('skill-id').value.trim()
-    const status = await io().run(['library', 'status', skillId, '--json'])
+      id = skillId()
+    const status = await io().run(['library', 'status', id, '--json'])
     sameLibrary(library, registeredLibrary(status))
-    if (status.skill?.id !== skillId || status.skill.status === 'missing')
+    if (status.skill?.id !== id || status.skill.status === 'missing')
       throw new Error('Select a current canonical skill to review')
-    const value = await io().run(acceptanceArgs(skillId))
+    const value = await io().run(acceptanceArgs(id))
     const result = exactReviewManifest(value, {
       library,
-      skillId,
+      skillId: id,
       root: { hostId: 'local', path: status.skill.path },
       hash: status.skill.working_hash,
     })
-    if (!available(revision) || element('skill-id').value.trim() !== skillId) return
+    if (!available(revision) || skillId() !== id) return
     selection = {
       library,
-      skillId,
+      skillId: id,
       manifest: result.manifest,
       eligible: result.eligible,
       workspace: ports.context().workspace
@@ -152,29 +152,35 @@ export function bindExactReview(document, client, ports) {
         : undefined,
     }
     element('exact-review').hidden = false
-    element('review-files').replaceChildren()
-    element('review-file-body').replaceChildren()
     element('review-manifest').textContent = JSON.stringify(value, null, 2)
     element('review-version').textContent =
-      `${result.manifest.library_id} · local: ${result.manifest.skill_root} · working hash ${result.manifest.working_hash} · ${result.manifest.file_count} eligible files / ${result.manifest.total_bytes} bytes. Every file and executable state is included.`
+      `${result.manifest.file_count} files · ${result.manifest.total_bytes} bytes · version ${result.manifest.working_hash.slice(0, 12)}`
     for (const file of result.manifest.files) {
-      const button = document.createElement('button')
+      const row = document.createElement('div'),
+        button = document.createElement('button'),
+        metadata = document.createElement('span')
+      row.className = 'review-file-row'
       button.type = 'button'
       button.className = 'hvir-button'
       button.dataset.reviewPath = file.path
-      button.textContent = `${file.path} · ${file.size} bytes · executable ${file.executable}`
+      button.textContent = file.path
+      metadata.className = 'hvir-meta'
+      metadata.textContent = `${file.size} bytes${file.executable ? ' · executable' : ''}`
+      button.title = `SHA-256 ${file.sha256}`
       button.addEventListener(
         'click',
         () => void guarded((revision) => read(file, revision)),
         { signal: client.signal },
       )
-      element('review-files').append(button)
+      row.append(button, metadata)
+      element('review-files').append(row)
     }
+    element('accept-version').disabled = !result.eligible
     ports.say(
-      result.gate ??
-        'Complete exact manifest loaded. Read and acknowledge every listed file; viewing does not accept it.',
+      result.gate ?? 'Inspect any file, then accept this version when you are ready.',
     )
-  })
+  }
+  on('start-review', start)
   on('review-previous', () => {
     if (activeFile && text && page > 0) {
       page--
@@ -187,75 +193,61 @@ export function bindExactReview(document, client, ports) {
       showPage()
     }
   })
-  on('acknowledge-file', (revision) => {
-    if (!activeFile || element('acknowledge-file').disabled || !available(revision))
-      return
-    reviewed.add(activeFile.path)
-    const button = [...element('review-files').children].find(
-      (node) => node.dataset.reviewPath === activeFile.path,
-    )
-    if (button)
-      button.textContent = `Reviewed · ${activeFile.path} · executable ${activeFile.executable}`
-    element('acknowledge-file').disabled = true
-    ports.say(
-      `${reviewed.size} of ${selection.manifest.file_count} complete files acknowledged. Prepare a fresh exact confirmation after all files.`,
-    )
-  })
-  on('prepare-acceptance', async (revision) => {
-    if (selection && !available(revision)) retarget()
-    if (
-      !selection ||
-      !available(revision) ||
-      reviewed.size !== selection.manifest.file_count
-    )
-      throw new Error(
-        'Read and acknowledge every complete manifest file; omitted material cannot be accepted',
-      )
-    const fresh = exactReviewManifest(
-      await io().run(acceptanceArgs(selection.skillId)),
-      selection,
-    )
-    sameReviewedManifest(selection.manifest, fresh.manifest)
-    if (!fresh.eligible) throw new Error(fresh.gate)
-    if (!available(revision)) return
-    ready = true
-    element('accept-version').disabled = false
-    ports.say(
-      'Every file was presented and acknowledged; fresh complete manifest/token matches. Confirm acceptance of this exact version.',
-    )
-  })
+  on('cancel-review', invalidate)
   on('accept-version', async (revision) => {
-    if (selection && !available(revision)) retarget()
-    if (!ready || !selection || !available(revision))
-      throw new Error('Prepare one fresh exact reviewed version before acceptance')
-    ready = false
+    if (!selection?.eligible || !available(revision)) {
+      invalidate()
+      throw new Error('Review the current version before acceptance')
+    }
+    const chosen = selection
     element('accept-version').disabled = true
-    await ports.action('accept-version', {
-      library: selection.library,
-      skillId: selection.skillId,
-      hash: selection.manifest.working_hash,
-      token: selection.manifest.confirmation_token,
-    })
+    try {
+      const fresh = exactReviewManifest(
+        await io().run(acceptanceArgs(chosen.skillId)),
+        chosen,
+      )
+      sameReviewedManifest(chosen.manifest, fresh.manifest)
+      if (!fresh.eligible) throw new Error(fresh.gate)
+      if (!available(revision)) return
+      const result = await ports.action('accept-version', {
+        library: chosen.library,
+        skillId: chosen.skillId,
+        hash: chosen.manifest.working_hash,
+        token: chosen.manifest.confirmation_token,
+      })
+      if (available(revision) && result?.outcome === 'verified') {
+        invalidate()
+        ports.accepted?.(result)
+      }
+    } catch (error) {
+      invalidate()
+      throw error
+    }
   })
   const stop = client.listen((message) => {
-    if (message.kind !== 'context') return
+    const row = message.context?.input?.row
     if (
+      message.kind === 'context' &&
       selection &&
-      (JSON.stringify(selection.workspace) !==
-        JSON.stringify(message.context.workspace) ||
-        element('skill-id').value.trim() !== selection.skillId ||
-        (message.context.input?.row?.id &&
-          message.context.input.row.id !== selection.skillId))
+      (!message.context.visible ||
+        JSON.stringify(selection.workspace) !==
+          JSON.stringify(message.context.workspace) ||
+        skillId() !== selection.skillId ||
+        (row &&
+          ((row.canonical?.skill_id ?? row.id) !== selection.skillId ||
+            (row.canonical?.library_id &&
+              row.canonical.library_id !== selection.library.id))))
     )
-      retarget()
-    else if (!message.context.visible) invalidate()
+      invalidate()
   })
-  element('skill-id').addEventListener('input', retarget)
-  releases.push(() => element('skill-id').removeEventListener('input', retarget))
+  element('skill-id')?.addEventListener('input', invalidate)
   return {
+    start: () => guarded(start),
+    invalidate,
     dispose() {
       invalidate()
       stop()
+      element('skill-id')?.removeEventListener('input', invalidate)
       for (const release of releases) release()
     },
   }

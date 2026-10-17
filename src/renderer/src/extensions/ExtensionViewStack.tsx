@@ -8,6 +8,7 @@ import {
 import type { ExtensionView } from '../../../shared/extensions/workbench'
 import { createExtensionPresentationReader } from './extension-presentation'
 import { useExtensionContributions } from './extension-contribution-context'
+import { ExtensionWorkspaceTarget } from './ExtensionWorkspaceTarget'
 import { useAppTheme } from '../theme'
 import { useAppSettings } from '../settings/settings'
 import {
@@ -111,6 +112,7 @@ export function ExtensionViewPane({
         <span>
           {view.extensionName} · {view.title}
         </span>
+        <ExtensionWorkspaceTarget view={view} />
         <button
           type="button"
           onClick={onClose}

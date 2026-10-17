@@ -123,12 +123,17 @@ export const extensionsIpc = {
       },
       ExtensionView
     >(),
+    'extensions:target-view': invoke<
+      { readonly viewId: string; readonly workspaceId?: string },
+      ExtensionView
+    >(),
     'extensions:close-view': invoke<{ readonly viewId: string }, void>(),
     'extensions:contributions': invoke<void, readonly ExtensionContributionState[]>(),
     'extensions:context': invoke<
       void,
       import('../extensions/contract').ExtensionContext & {
         readonly terminalIds: Readonly<Record<string, string>>
+        readonly workspaces: readonly import('../extensions/contract').ExtensionWorkspaceContext[]
       }
     >(),
     'extensions:action': invoke<

@@ -11,6 +11,7 @@ import {
   withinExtensionInspection,
   type SkillagerManagementControls,
 } from './skillager-management-controls'
+import { verifySelectedSkillTasks } from './skillager-selected-task'
 import { reviewOwnedSkill } from './skillager-management-review'
 import { verifyOwnedAdvancedExposure } from './skillager-advanced-exposure'
 import { verifyOwnedManagedCopies } from './skillager-management-copies'
@@ -298,16 +299,23 @@ export async function verifySkillagerManagement(
     ])
     await host.writeFile(
       entry,
-      `${original}\nOwned complete fixture revision two.\n\n![Owned image](owned.png)\n`,
+      `${original}\nOwned complete fixture revision two.\n${'\nOwned reading paragraph for retained position.\n'.repeat(60)}\n![Owned image](owned.png)\n`,
     )
     const edit = await cli(['library', 'status', skillId, '--json'])
     if ((edit['skill'] as Record<string, unknown>)['acceptance'] !== 'pending')
       throw new Error('Canonical edit did not remain pending')
-    const editedAccepted = await reviewOwnedSkill(ui, skillId, [
-      'SKILL.md',
-      'support.sh',
-      'owned.png',
-    ])
+    const editedAccepted = await verifySelectedSkillTasks(win, host, workspace, skillId, {
+      ...controls,
+      library: () =>
+        extensions
+          .guests!.snapshot(owner)
+          .find(
+            (item) =>
+              item.installationId === installation()!.installationId &&
+              item.contributionId === 'library' &&
+              item.role === 'view',
+          ),
+    })
     if (
       (firstAccepted['source'] as Record<string, unknown>)['hash'] ===
       (editedAccepted['source'] as Record<string, unknown>)['hash']
@@ -329,7 +337,13 @@ export async function verifySkillagerManagement(
         if ((pending['skill'] as Record<string, unknown>)['acceptance'] !== 'pending')
           throw new Error('Remove fixture canonical source was not pending')
       },
-    )
+    ).catch(async (error: unknown) => {
+      console.log(
+        '[smoke] owned management failure state',
+        await ui.inspect("document.getElementById('state').textContent.slice(0,512)"),
+      )
+      throw error
+    })
     const synchronization = await verifyOwnedApprovedSync(ui, host, owned, library, cli)
     const refusals = await verifyOwnedReviewRefusals(
       ui,

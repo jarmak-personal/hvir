@@ -171,9 +171,7 @@
           Human-only complete-file review uses independent source reading permission.
           Pending/blocked bodies remain readable; viewing does not accept them.
         </p>
-        <button id="start-review" class="hvir-button">
-          Start complete current-tree review
-        </button>
+        <button id="start-review" class="hvir-button">Review version</button>
         <div id="exact-review" hidden>
           <p id="review-version" class="hvir-meta"></p>
           <div
@@ -191,21 +189,16 @@
           <div class="toolbar">
             <button id="review-previous" class="hvir-button" disabled>
               Previous file page</button
-            ><button id="review-next" class="hvir-button" disabled>Next file page</button
-            ><button id="acknowledge-file" class="hvir-button" disabled>
-              I reviewed this complete file
-            </button>
+            ><button id="review-next" class="hvir-button" disabled>Next file page</button>
           </div>
           <details>
             <summary>Complete manifest and Skillager gate details</summary>
             <pre id="review-manifest" tabindex="0"></pre>
           </details>
           <div class="toolbar">
-            <button id="prepare-acceptance" class="hvir-button">
-              Prepare fresh exact acceptance</button
-            ><button id="accept-version" class="hvir-button" disabled>
-              Accept this exact reviewed version
-            </button>
+            <button id="accept-version" class="hvir-button" disabled>
+              Accept version</button
+            ><button id="cancel-review" class="hvir-button">Cancel</button>
           </div>
         </div>
       </section>

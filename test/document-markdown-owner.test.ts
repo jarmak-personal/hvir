@@ -29,6 +29,22 @@ describe('document-owned selected Markdown parsing', () => {
     expect(html).toContain('const current = true')
     expect(html).toContain('data-source-line')
   })
+  it('renders leading frontmatter as escaped secondary metadata without turning it into a heading', async () => {
+    const source =
+      '---\nname: example\ndescription: <script>unsafe</script>\n---\n# Instructions\n\nRead this.'
+    const html = await renderMarkdownDocument(
+      source,
+      'dark',
+      { load: () => Promise.resolve(undefined) },
+      'selected',
+    )
+    expect(html).toContain('<details class="document-frontmatter">')
+    expect(html).toContain('name: example')
+    expect(html).toContain('&lt;script&gt;unsafe&lt;/script&gt;')
+    expect(html).not.toContain('<h2')
+    expect(html).toMatch(/<h1[^>]*>Instructions/)
+    expect(html).toContain('Read this.')
+  })
   it('admits one lazy physical parse and holds admission until its actual RPC settles', async () => {
     const b = barrier(),
       worker = { render: vi.fn(() => b.promise), dispose: vi.fn() },

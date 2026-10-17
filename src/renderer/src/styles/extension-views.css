@@ -1,4 +1,5 @@
 .extension-view {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -179,6 +180,7 @@
   height: 100%;
 }
 .extension-top-destination {
+  min-width: 0;
   flex: 1;
   min-height: 0;
   background: var(--app-bg);
@@ -278,4 +280,24 @@
 }
 .extension-configuration-layout .extension-actions > label {
   flex-basis: 100%;
+}
+
+.extension-view-heading {
+  flex-wrap: wrap;
+}
+.extension-workspace-target {
+  display: flex;
+  align-items: center;
+  flex: 0 1 460px;
+  gap: 8px;
+  min-width: 0;
+  margin-left: auto;
+}
+.extension-workspace-target select {
+  min-width: 0;
+  max-width: 100%;
+  flex: 1;
+}
+.extension-workspace-target > [role='status'] {
+  color: var(--warning-text);
 }

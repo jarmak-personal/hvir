@@ -173,7 +173,7 @@ export function ExtensionInstallationSettings({
                 </>
               ) : null}
               {installation.manifest?.views
-                .filter((view) => view.placement === 'application' && !view.navigation)
+                .filter((view) => view.id === installation.manifest?.landing)
                 .map((view) => (
                   <button
                     type="button"

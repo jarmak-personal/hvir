@@ -2,7 +2,7 @@ import { joinHostPath, type HostPath } from '../../shared/host-path'
 import type { ProjectHost } from '../project-host/project-host'
 import type { skillagerManagementControls } from './skillager-management-controls'
 
-/** Complete unsupported manifests refuse approval, while blocked current text remains human-readable. */
+/** Unsupported previews remain explicit and complete; Skillager owns acceptance eligibility. */
 export async function verifyOwnedReviewRefusals(
   ui: ReturnType<typeof skillagerManagementControls>,
   host: ProjectHost,
@@ -25,15 +25,11 @@ export async function verifyOwnedReviewRefusals(
       'document.querySelector(\'[data-review-path="owned-binary.dat"]\').click()',
     )
     await ui.ready(
-      "document.getElementById('state').textContent.includes('owned-binary.dat:') && document.getElementById('state').textContent.includes('public Skillager CLI')",
+      "document.getElementById('review-file-body').textContent.includes('owned-binary.dat:') && document.getElementById('review-file-body').textContent.includes('Preview unavailable')",
       'exact unsupported path and achievable CLI route',
     )
-    if (
-      !(await ui.inspect(
-        "document.getElementById('accept-version').disabled && document.querySelectorAll('[data-review-path]').length===4",
-      ))
-    )
-      throw new Error('Unsupported eligible binary was omitted or called ready')
+    if (!(await ui.inspect("document.querySelectorAll('[data-review-path]').length===4")))
+      throw new Error('Unsupported eligible binary was omitted')
     if (!(await host.readFile(path)).equals(bytes))
       throw new Error('Unsupported review changed owned bytes')
   } finally {
@@ -66,12 +62,20 @@ export async function verifyOwnedReviewRefusals(
     "document.getElementById('state').textContent.includes('complete supported bytes verified')",
     'blocked human current text remains readable',
   )
-  if (!(await ui.inspect("document.getElementById('accept-version').disabled")))
-    throw new Error('Independent blocked reading implicitly accepted a version')
+  // The CLI can offer an explicit acceptance command for a blocked version.
+  // Reading must leave canonical acceptance unchanged; button readiness is not approval.
+  const afterRead = await cli(['library', 'status', skillId, '--json']),
+    beforeSkill = status['skill'] as Record<string, unknown>,
+    afterSkill = afterRead['skill'] as Record<string, unknown>
+  if (
+    afterSkill['acceptance'] !== 'blocked' ||
+    afterSkill['accepted_hash'] !== beforeSkill['accepted_hash']
+  )
+    throw new Error('Independent blocked reading changed canonical acceptance')
   return {
     unsupportedPath: path,
     completeManifestRetained: true,
-    unsupportedAcceptanceRefused: true,
+    unsupportedPreviewLabeled: true,
     publicBlockedObserved: true,
     blockTrustScope: catalog,
     blockQualification:

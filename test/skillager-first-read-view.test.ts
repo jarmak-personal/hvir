@@ -9,13 +9,18 @@ afterEach(() => {
   document.body.replaceChildren()
   vi.useRealTimers()
 })
-function fixture(options: { cadence?: boolean; omitRoot?: boolean } = {}) {
+function fixture(
+  options: { cadence?: boolean; omitRoot?: boolean; inline?: boolean } = {},
+) {
   vi.useFakeTimers()
   const template = document.createElement('template')
-  template.innerHTML = readFileSync('packages/skillager-extension/detail.html', 'utf8')
+  template.innerHTML = readFileSync(
+    `packages/skillager-extension/${options.inline ? 'library' : 'detail'}.html`,
+    'utf8',
+  )
   for (const node of template.content.querySelectorAll('script,link')) node.remove()
   document.body.replaceChildren(template.content.cloneNode(true))
-  document.body.dataset['view'] = 'detail'
+  document.body.dataset['view'] = options.inline ? 'library' : 'detail'
   let receive!: (message: unknown) => void,
     decision: string | undefined,
     serial = 0,
@@ -25,7 +30,9 @@ function fixture(options: { cadence?: boolean; omitRoot?: boolean } = {}) {
     statusStarted = -Infinity,
     afterBody = false,
     collideAfterBody = false,
-    bodyText = '# Current instruction'
+    bodyText = '# Current instruction',
+    holdStatus = false,
+    heldStatus: (() => void) | undefined
   const statusStarts: number[] = []
   const sent: {
       id: string
@@ -46,7 +53,8 @@ function fixture(options: { cadence?: boolean; omitRoot?: boolean } = {}) {
       if (message.kind !== 'request') return
       const input = message.input!
       if (message.capability === 'connector.execute') {
-        const version = (input['args'] as string[])[0] === '--version'
+        const command = (input['args'] as string[])[0]
+        const version = command === '--version'
         if (
           !version &&
           ((options.cadence && Date.now() - statusStarted < 1000) ||
@@ -64,14 +72,26 @@ function fixture(options: { cadence?: boolean; omitRoot?: boolean } = {}) {
           receipt,
           version
             ? 'skillager 0.9.3'
-            : JSON.stringify({
-                schema: 'skillager.library-status.v1',
-                initialized: true,
-                library: { registration: 'valid', library_id: uuid, root },
-                counts: { skills: 1 },
-              }),
+            : command === 'list'
+              ? JSON.stringify({
+                  schema: 'skillager.list.v1',
+                  scope: 'library',
+                  skills: [],
+                  next_cursor: null,
+                })
+              : JSON.stringify({
+                  schema: 'skillager.library-status.v1',
+                  initialized: true,
+                  library: { registration: 'valid', library_id: uuid, root },
+                  counts: { skills: 1 },
+                }),
         )
-        reply(message.id, { outcome: 'completed', code: 0, receipt })
+        const completed = () =>
+          reply(message.id, { outcome: 'completed', code: 0, receipt })
+        if (holdStatus && command === 'library') {
+          holdStatus = false
+          heldStatus = completed
+        } else completed()
       } else if (message.capability === 'connector.output')
         reply(
           message.id,
@@ -115,7 +135,10 @@ function fixture(options: { cadence?: boolean; omitRoot?: boolean } = {}) {
     document,
     window: {
       hvirExtension: bridge,
-      hvirUI: { bindPresentation: () => () => {} },
+      hvirUI: {
+        bindPresentation: () => () => {},
+        bindList: () => ({ refresh() {}, dispose() {} }),
+      },
       addEventListener: (_: string, callback: () => void) => callbacks.push(callback),
       setTimeout,
       clearTimeout,
@@ -149,6 +172,10 @@ function fixture(options: { cadence?: boolean; omitRoot?: boolean } = {}) {
     })
   return {
     sent,
+    holdStatus: () => {
+      holdStatus = true
+    },
+    resumeStatus: () => heldStatus?.(),
     statusStarts,
     context,
     flush: () => vi.advanceTimersByTimeAsync(2500),
@@ -180,7 +207,7 @@ it('asks only after explicit selected metadata, using reported host-qualified ro
   expect(f.sent.some((entry) => entry.capability === 'source.select')).toBe(false)
   f.decide(false)
   await f.flush()
-  expect(document.getElementById('state')?.dataset['state']).toBe('unapproved')
+  expect(document.getElementById('reader-state')?.dataset['state']).toBe('unapproved')
   expect(document.getElementById('instructions')?.textContent).toBe('')
   f.read()
   await f.flush()
@@ -234,7 +261,9 @@ it('retains last-read bytes when sibling observation cadence makes post-read fre
   await f.flush()
   f.decide(true)
   await f.flush()
-  expect(document.getElementById('state')?.textContent).toContain('freshness unavailable')
+  expect(document.getElementById('reader-state')?.textContent).toContain(
+    'freshness unavailable',
+  )
   expect(document.getElementById('instructions')?.textContent).toBe(
     '# Current instruction',
   )
@@ -259,7 +288,7 @@ it.each([
   f.change(root, id)
   f.decide(true)
   await f.flush()
-  expect(document.getElementById('state')?.textContent).toContain(
+  expect(document.getElementById('reader-state')?.textContent).toContain(
     'personal library changed',
   )
   expect(f.sent.some((entry) => entry.capability === 'source.select')).toBe(false)
@@ -289,11 +318,15 @@ it('requires restored public visibility before an explicit retry after hiding', 
   f.context('one', false)
   await f.flush()
   expect(f.sent).toContainEqual({ kind: 'cancel', id: first.id })
-  expect((document.getElementById('manage') as HTMLButtonElement).disabled).toBe(true)
+  expect((document.getElementById('reader-manage') as HTMLButtonElement).disabled).toBe(
+    true,
+  )
   expect(document.getElementById('instructions')?.textContent).toBe('')
   f.context('one', true)
   await f.flush()
-  expect((document.getElementById('manage') as HTMLButtonElement).disabled).toBe(false)
+  expect((document.getElementById('reader-manage') as HTMLButtonElement).disabled).toBe(
+    false,
+  )
   expect(f.sent.filter((entry) => entry.capability === 'source.request')).toHaveLength(1)
   f.read()
   await f.flush()
@@ -311,8 +344,28 @@ it('does not publish body bytes if public library identity changes while the sel
   f.decide(true)
   await f.flush()
   expect(f.sent.some((entry) => entry.capability === 'source.select')).toBe(true)
-  expect(document.getElementById('state')?.textContent).toContain(
+  expect(document.getElementById('reader-state')?.textContent).toContain(
     'personal library changed',
   )
   expect(document.getElementById('instructions')?.textContent).toBe('')
+})
+
+it('keeps an inline selected read current across an unrelated catalog refresh', async () => {
+  const f = fixture({ inline: true })
+  f.context()
+  await f.flush()
+  f.holdStatus()
+  f.decide(true)
+  await f.flush()
+  expect(f.sent.some((entry) => entry.capability === 'source.select')).toBe(false)
+  document.getElementById('refresh')!.click()
+  await f.flush()
+  f.resumeStatus()
+  await f.flush()
+  expect(document.getElementById('instructions')?.textContent).toBe(
+    '# Current instruction',
+  )
+  expect(document.getElementById('reader-state')?.textContent).not.toContain(
+    'no longer current',
+  )
 })

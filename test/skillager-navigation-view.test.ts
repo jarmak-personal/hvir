@@ -56,7 +56,9 @@ it.each(['project', 'library', 'detail'])(
       setTimeout,
       clearTimeout,
     })
-    const manage = document.getElementById('manage') as HTMLButtonElement
+    const manage = document.getElementById(
+      view === 'detail' ? 'reader-manage' : 'manage',
+    ) as HTMLButtonElement
     expect(manage.disabled).toBe(true)
     manage.click()
     await vi.advanceTimersByTimeAsync(50)

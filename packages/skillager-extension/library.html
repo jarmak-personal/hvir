@@ -7,80 +7,221 @@
     <link rel="stylesheet" href="skillager.css" />
   </head>
   <body class="hvir-guest" data-view="library">
-    <main>
-      <h1>Your library</h1>
-      <p class="hvir-meta">Your personal skills. Reading does not approve or run them.</p>
-      <div class="toolbar">
-        <button id="open-library" class="hvir-button">Your library</button
-        ><button id="browse" class="hvir-button">Browse</button
-        ><button id="refresh" class="hvir-button">Refresh</button>
-        <button id="connect-program" class="hvir-button" hidden>Connect Skillager</button>
-        <button id="manage" class="hvir-button" disabled>Manage library</button>
-      </div>
-      <form id="search-form">
-        <input
-          id="query"
-          class="hvir-input"
-          type="search"
-          aria-label="Skillager indexed search"
-          placeholder="Search skills"
-        /><button class="hvir-button" type="submit">Search</button>
-        <details class="search-options">
-          <summary>Search options</summary>
-          <div>
-            <label
-              ><input id="include-installed" type="checkbox" /><span id="installed-label"
-                >Include installed</span
-              ></label
-            ><label><input id="separate-copies" type="checkbox" /> Separate copies</label
-            ><label
-              >Preferred agent
-              <select id="preferred-agent" class="hvir-input">
-                <option value="">All agents</option>
-                <option value="codex">Codex</option>
-                <option value="claude">Claude</option>
-              </select></label
-            >
-          </div>
-          <p id="installed-note" class="hvir-meta"></p>
+    <main class="library-layout">
+      <aside class="library-browser" aria-label="Browse skills">
+        <h1>Your library</h1>
+        <p class="hvir-meta">Browse your skills, then choose where to use them.</p>
+        <div class="toolbar">
+          <button id="browse" class="hvir-button">Browse</button
+          ><button id="refresh" class="hvir-button">Refresh</button>
+          <button id="connect-program" class="hvir-button" hidden>
+            Connect Skillager
+          </button>
+          <button id="manage" class="hvir-button" disabled>Advanced management</button>
+        </div>
+        <form id="search-form">
+          <input
+            id="query"
+            class="hvir-input"
+            type="search"
+            aria-label="Skillager indexed search"
+            placeholder="Search skills"
+          /><button class="hvir-button" type="submit">Search</button>
+          <details class="search-options">
+            <summary>Search options</summary>
+            <div>
+              <label
+                ><input id="include-installed" type="checkbox" /><span
+                  id="installed-label"
+                  >Include installed</span
+                ></label
+              ><label
+                ><input id="separate-copies" type="checkbox" /> Separate copies</label
+              ><label
+                >Preferred agent
+                <select id="preferred-agent" class="hvir-input">
+                  <option value="">All agents</option>
+                  <option value="codex">Codex</option>
+                  <option value="claude">Claude</option>
+                </select></label
+              >
+            </div>
+            <p id="installed-note" class="hvir-meta"></p>
+          </details>
+        </form>
+        <section id="library-setup" hidden>
+          <button id="create-library" class="hvir-button">Create personal library</button>
+          <p id="setup-guidance">
+            Skillager creates its default library only when you choose Create personal
+            library. Use Advanced management for advanced locations.
+          </p>
+        </section>
+        <details id="program-setup" hidden>
+          <summary>Set up Skillager with your agent</summary>
+          <p>
+            Copy this request into your preferred agent. hvir does not install programs or
+            send it to a terminal.
+          </p>
+          <textarea
+            id="setup-request"
+            class="hvir-input"
+            rows="7"
+            readonly
+            aria-label="Copyable Skillager setup request"
+          ></textarea>
         </details>
-      </form>
-      <section id="library-setup" hidden>
-        <button id="create-library" class="hvir-button">Create personal library</button>
-        <p id="setup-guidance">
-          Skillager creates its default library only when you choose Create personal
-          library. Use Manage library for advanced locations.
+        <p id="state" class="hvir-state" aria-live="polite">Connecting…</p>
+        <div
+          id="skills"
+          class="hvir-list"
+          role="listbox"
+          aria-label="Skill observations"
+        ></div>
+        <nav class="toolbar" aria-label="Skill pages">
+          <button id="previous" class="hvir-button" disabled>Previous</button
+          ><button id="next" class="hvir-button" disabled>Next</button>
+        </nav>
+        <details class="observation-details">
+          <summary>Observation details</summary>
+          <p id="observation-details" class="hvir-meta"></p>
+        </details>
+      </aside>
+      <div class="library-reader">
+        <p id="reader-empty" class="hvir-meta">
+          Select a skill to read its instructions and add it to a project.
         </p>
-      </section>
-      <details id="program-setup" hidden>
-        <summary>Set up Skillager with your agent</summary>
-        <p>
-          Copy this request into your preferred agent. hvir does not install programs or
-          send it to a terminal.
-        </p>
-        <textarea
-          id="setup-request"
-          class="hvir-input"
-          rows="7"
-          readonly
-          aria-label="Copyable Skillager setup request"
-        ></textarea>
-      </details>
-      <p id="state" class="hvir-state" aria-live="polite">Connecting…</p>
-      <div
-        id="skills"
-        class="hvir-list"
-        role="listbox"
-        aria-label="Skill observations"
-      ></div>
-      <nav class="toolbar" aria-label="Skill pages">
-        <button id="previous" class="hvir-button" disabled>Previous</button
-        ><button id="next" class="hvir-button" disabled>Next</button>
-      </nav>
-      <details class="observation-details">
-        <summary>Observation details</summary>
-        <p id="observation-details" class="hvir-meta"></p>
-      </details>
+        <section id="reader-content" hidden aria-label="Selected skill">
+          <header class="skill-heading">
+            <h1 id="detail-title">Skill instructions</h1>
+            <div class="toolbar" aria-label="Instruction view">
+              <button id="rendered-mode" class="hvir-button">Rendered</button
+              ><button id="source-mode" class="hvir-button">Source</button>
+              <details class="skill-more">
+                <summary>More</summary>
+                <div class="skill-menu">
+                  <button id="close-instructions" class="hvir-button">
+                    Close instructions
+                  </button>
+                  <button id="read-current" class="hvir-button">
+                    Refresh instructions
+                  </button>
+                  <button id="reader-manage" class="hvir-button">
+                    Advanced management
+                  </button>
+                  <button id="reveal-original" class="hvir-button" hidden>
+                    Reveal original in Files
+                  </button>
+                  <button id="canonical" class="hvir-button" hidden>
+                    Read library source
+                  </button>
+                </div>
+              </details>
+            </div>
+          </header>
+          <section id="selected-task" hidden aria-label="Use this skill">
+            <p id="task-destination" class="hvir-meta"></p>
+            <div class="toolbar task-controls">
+              <label
+                >Agent
+                <select id="task-agent" class="hvir-input">
+                  <option value="codex">Codex</option>
+                  <option value="claude">Claude</option>
+                </select></label
+              >
+              <label
+                >Copy
+                <select id="task-mode" class="hvir-input">
+                  <option value="native">Full</option>
+                  <option value="stub">Stub</option>
+                </select></label
+              >
+              <button id="task-primary" class="hvir-button" disabled>
+                Add to project
+              </button>
+              <button id="task-connect" class="hvir-button" hidden>
+                Connect for this project
+              </button>
+              <details id="task-options" class="skill-more" hidden>
+                <summary>Skill actions</summary>
+                <div class="skill-menu">
+                  <button id="task-refresh" class="hvir-button">Refresh status</button
+                  ><button id="task-remove" class="hvir-button" hidden>
+                    Remove from project…
+                  </button>
+                </div>
+              </details>
+            </div>
+            <p id="task-state" class="hvir-state" role="status"></p>
+            <button id="task-reconcile" class="hvir-button" hidden>
+              Inspect uncertain operation
+            </button>
+            <section
+              id="task-confirmation"
+              class="task-review"
+              hidden
+              aria-label="Confirm project change"
+            >
+              <h2 id="task-confirm-title"></h2>
+              <p id="task-confirm-target" class="hvir-meta"></p>
+              <ul id="task-effects"></ul>
+              <details>
+                <summary>Version and file details</summary>
+                <pre id="task-plan"></pre>
+              </details>
+              <div class="toolbar">
+                <button id="task-confirm" class="hvir-button"></button
+                ><button id="task-cancel" class="hvir-button">Cancel</button>
+              </div>
+            </section>
+            <section
+              id="exact-review"
+              class="task-review"
+              hidden
+              aria-label="Review skill version"
+            >
+              <h2>Review version</h2>
+              <p id="review-version" class="hvir-meta"></p>
+              <div id="review-files" aria-label="All files in this version"></div>
+              <p id="review-file-label" class="hvir-meta"></p>
+              <pre
+                id="review-file-body"
+                tabindex="0"
+                aria-label="Selected review file"
+              ></pre>
+              <div class="toolbar">
+                <button id="review-previous" class="hvir-button" disabled>
+                  Previous page</button
+                ><span id="review-page-label"></span
+                ><button id="review-next" class="hvir-button" disabled>Next page</button>
+              </div>
+              <details>
+                <summary>Complete version details</summary>
+                <pre id="review-manifest" tabindex="0"></pre>
+              </details>
+              <div class="toolbar">
+                <button id="accept-version" class="hvir-button" disabled>
+                  Accept version</button
+                ><button id="cancel-review" class="hvir-button">Cancel</button>
+              </div>
+            </section>
+            <details id="task-operation-details">
+              <summary>Operation details</summary>
+              <pre id="task-result"></pre>
+            </details>
+          </section>
+          <p id="reader-state" class="hvir-state" aria-live="polite"></p>
+          <article
+            id="instructions"
+            tabindex="0"
+            aria-label="Selected current skill instructions"
+          ></article>
+          <details class="source-details">
+            <summary>Source details</summary>
+            <p id="source-label" class="hvir-meta"></p>
+            <p id="details" class="hvir-meta"></p>
+          </details>
+        </section>
+      </div>
     </main>
     <script src="guest-ui.js"></script>
     <script src="skillager.js"></script>

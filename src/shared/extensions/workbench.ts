@@ -44,6 +44,8 @@ export interface ExtensionView {
   readonly url: string
   readonly context?: ExtensionContext
   readonly role?: 'view' | 'updater'
+  /** Trusted shell eligibility; never grants guest targeting authority. */
+  readonly canChooseWorkspace?: boolean
   readonly failure?: string
 }
 

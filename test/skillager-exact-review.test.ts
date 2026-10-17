@@ -194,7 +194,7 @@ it('refuses nonimage binary and hidden/late reads with exact path and achievable
   const f = readingFixture('binary\0content')
   await expect(
     reader.readReviewFile(f.client, f.manifest, f.file, () => true),
-  ).rejects.toThrow(/support.sh:.*nonimage binary.*public Skillager CLI/)
+  ).rejects.toThrow(/support.sh:.*nonimage binary.*suitable file tools/)
   const hidden = readingFixture('complete instructions')
   await expect(
     reader.readReviewFile(hidden.client, hidden.manifest, hidden.file, () => false),

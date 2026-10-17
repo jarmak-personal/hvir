@@ -71,7 +71,7 @@ export async function readReviewFile(client, manifest, file, current) {
     return { kind: 'image', data: `data:${asset.mime};base64,${base64}`, file }
   } catch (error) {
     throw new Error(
-      `${file.path}: ${error.message}. No acceptance is ready. For unsupported binary/oversized/unreadable material, use suitable ordinary file tools and public Skillager CLI review/accept, then Refresh.`,
+      `${file.path}: ${error.message}. Use suitable file tools for unsupported binary, oversized or unreadable material. This preview does not determine acceptance eligibility.`,
       { cause: error },
     )
   } finally {

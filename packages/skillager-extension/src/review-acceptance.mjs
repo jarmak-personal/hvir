@@ -8,7 +8,7 @@ import {
 import { exactReviewManifest } from './review-contract.mjs'
 import { acceptanceArgs } from './management-argv.mjs'
 
-/** This action cannot obtain bodies; the ordinary human view already reviewed every bound file. */
+/** This action cannot obtain bodies; the ordinary human view offered every bound file for inspection. */
 export async function acceptReviewedVersion(io, input, invocation, admit) {
   if (invocation.caller === 'agent')
     throw new Error(
@@ -26,7 +26,7 @@ export async function acceptReviewedVersion(io, input, invocation, admit) {
   if (!current.eligible || current.manifest.confirmation_token !== input.token)
     throw new Error(
       current.gate ??
-        'The exact human-reviewed version/token changed; read and confirm a fresh complete review.',
+        'The exact human-reviewed version/token changed; inspect and accept the current version.',
     )
   const root = { hostId: 'local', path: current.manifest.skill_root }
   admit({
