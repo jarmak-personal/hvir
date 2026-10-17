@@ -596,10 +596,20 @@ export class ExtensionGuestOwner {
       record.requests.set(id, controller)
       if (capability === 'actions.invoke' || capability === 'delivery.apply')
         record.actionRequests.add(id)
-      const timer = setTimeout(
-        () => controller.abort(),
-        extensionRequestDeadline(capability),
-      )
+      const timer = setTimeout(() => {
+        if (controller.signal.aborted) return
+        controller.abort()
+        if (this.current(record))
+          this.surface.send(guestId, {
+            kind: 'result',
+            id: id!,
+            ok: false,
+            error:
+              'Extension request timed out; completion was not confirmed. Check the outcome before retrying.',
+            warnings,
+          })
+        // Keep capacity reserved until the underlying request actually settles.
+      }, extensionRequestDeadline(capability))
       void this.request(
         record,
         capability,
