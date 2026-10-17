@@ -15,6 +15,9 @@ function fixture(
     omitRoot?: boolean
     inline?: boolean
     holdSource?: 'source.select' | 'source.render'
+    rendered?: string
+    holdAsset?: number
+    holdAssetRead?: boolean
   } = {},
 ) {
   vi.useFakeTimers()
@@ -38,7 +41,11 @@ function fixture(
     bodyText = '# Current instruction',
     holdStatus = false,
     holdSource = options.holdSource,
-    heldStatus: (() => void) | undefined
+    heldStatus: (() => void) | undefined,
+    heldAsset: (() => void) | undefined,
+    assetSerial = 0,
+    receiptsRetired = false,
+    holdAssetRead = options.holdAssetRead
   const statusStarts: number[] = []
   const sent: {
       id: string
@@ -62,6 +69,19 @@ function fixture(
         return
       }
       const input = message.input!
+      if (
+        receiptsRetired &&
+        message.capability?.startsWith('source.') &&
+        !input['release']
+      ) {
+        receive({
+          kind: 'result',
+          id: message.id,
+          ok: false,
+          error: 'Selected source access ended',
+        })
+        return
+      }
       if (message.capability === 'connector.execute') {
         const command = (input['args'] as string[])[0]
         const version = command === '--version'
@@ -126,12 +146,41 @@ function fixture(
           readAt: 0,
         })
       else if (message.capability === 'source.read') {
+        if (input['receipt'] === 'rendered') {
+          reply(
+            message.id,
+            input['release'] ? null : { data: options.rendered, nextOffset: null },
+          )
+          return
+        }
+        if (String(input['receipt']).startsWith('asset-')) {
+          const completed = () =>
+            reply(
+              message.id,
+              input['release'] ? null : { data: 'AQID', nextOffset: null },
+            )
+          if (!input['release'] && holdAssetRead) {
+            holdAssetRead = false
+            heldAsset = completed
+          } else completed()
+          return
+        }
         if (!input['release']) afterBody = true
         if (changeAfterBody && !input['release']) uuid = 'replacement'
         reply(message.id, input['release'] ? null : { data: bodyText, nextOffset: null })
       } else if (message.capability === 'source.render')
-        reply(message.id, { sourceFallback: true })
-      else reply(message.id, null)
+        reply(
+          message.id,
+          options.rendered
+            ? { receipt: 'rendered', sourceFallback: false }
+            : { sourceFallback: true },
+        )
+      else if (message.capability === 'source.asset') {
+        const receipt = `asset-${++assetSerial}`
+        const completed = () => reply(message.id, { receipt, mime: 'image/png' })
+        if (options.holdAsset === assetSerial) heldAsset = completed
+        else completed()
+      } else reply(message.id, null)
     },
   }
   const callbacks: (() => void)[] = []
@@ -183,6 +232,13 @@ function fixture(
   return {
     sent,
     receive: (message: unknown) => receive(message),
+    resumeAsset: () => heldAsset?.(),
+    retireReceipts: () => {
+      receiptsRetired = true
+    },
+    replaceBody: () => {
+      bodyText = '# Changed on disk'
+    },
     holdStatus: () => {
       holdStatus = true
     },
@@ -433,3 +489,245 @@ it('keeps an inline selected read current across an unrelated catalog refresh', 
     'no longer current',
   )
 })
+
+const illustrated =
+  '<p>Current instructions</p><p><span data-instruction-image="owned.png">Owned image</span></p>'
+function mode(name: 'source' | 'rendered') {
+  document.getElementById(`${name}-mode`)!.click()
+}
+it('retains decoded image nodes across modes, hidden receipt retirement and expiry without new reads', async () => {
+  const f = fixture({ rendered: illustrated })
+  f.context()
+  await f.flush()
+  f.decide(true)
+  await f.flush()
+  const image = document.querySelector('#instructions img')!
+  expect(image?.getAttribute('src')).toBe('data:image/png;base64,AQID')
+  document.getElementById('instructions')!.scrollTop = 140
+  const reads = f.sent.filter((entry) => entry.capability?.startsWith('source.')).length
+  f.replaceBody()
+  f.retireReceipts()
+  mode('source')
+  f.context('one', false)
+  await f.flush()
+  f.context('one', true)
+  await vi.advanceTimersByTimeAsync(300_001)
+  for (let index = 0; index < 3; index++) {
+    mode('rendered')
+    await f.flush()
+    expect(document.querySelector('#instructions img')).toBe(image)
+    expect(document.getElementById('instructions')!.scrollTop).toBe(140)
+    mode('source')
+  }
+  expect(document.getElementById('instructions')?.textContent).toBe(
+    '# Current instruction',
+  )
+  expect(f.sent.filter((entry) => entry.capability?.startsWith('source.'))).toHaveLength(
+    reads,
+  )
+})
+
+it('retains the existing eight-image display bound across repeated representation changes', async () => {
+  const f = fixture({
+    rendered: Array.from(
+      { length: 10 },
+      (_, index) =>
+        `<p><span data-instruction-image="${index}.png">Image ${index}</span></p>`,
+    ).join(''),
+  })
+  f.context()
+  await f.flush()
+  f.decide(true)
+  await f.flush()
+  mode('source')
+  mode('rendered')
+  await f.flush()
+  expect(document.querySelectorAll('#instructions img')).toHaveLength(8)
+  expect(f.sent.filter((entry) => entry.capability === 'source.asset')).toHaveLength(8)
+  expect(
+    document.querySelectorAll('#instructions [data-instruction-image]'),
+  ).toHaveLength(2)
+  expect(document.getElementById('instructions')?.textContent).toContain(
+    'eight-image display limit',
+  )
+})
+
+it('reports an image read deadline without blaming source confinement and permits an explicit current read', async () => {
+  const f = fixture({ rendered: illustrated, holdAssetRead: true })
+  f.context()
+  await f.flush()
+  f.decide(true)
+  await f.flush()
+  const pending = f.sent.find(
+    (entry) =>
+      entry.capability === 'source.read' && entry.input?.['receipt'] === 'asset-1',
+  )!
+  f.receive({ kind: 'result', id: pending.id, ok: false, error: 'Image read timed out' })
+  await f.flush()
+  expect(document.getElementById('instructions')?.textContent).toContain(
+    'Image read timed out',
+  )
+  expect(document.getElementById('instructions')?.textContent).not.toContain(
+    'outside the selected source',
+  )
+  f.resumeAsset()
+  await f.flush()
+  expect(document.querySelector('#instructions img')).toBeNull()
+  f.read()
+  await f.flush()
+  f.decide(true)
+  await f.flush()
+  expect(document.querySelectorAll('#instructions img')).toHaveLength(1)
+})
+
+it('finishes an admitted image into the retained document through quick mode changes', async () => {
+  const f = fixture({ rendered: illustrated, holdAssetRead: true })
+  f.context()
+  await f.flush()
+  f.decide(true)
+  await f.flush()
+  mode('source')
+  mode('rendered')
+  mode('source')
+  f.resumeAsset()
+  await f.flush()
+  expect(document.getElementById('instructions')?.textContent).toBe(
+    '# Current instruction',
+  )
+  mode('rendered')
+  await f.flush()
+  expect(document.querySelectorAll('#instructions img')).toHaveLength(1)
+  expect(f.sent.filter((entry) => entry.capability === 'source.asset')).toHaveLength(1)
+  expect(f.sent.filter((entry) => entry.capability === 'source.render')).toHaveLength(1)
+})
+
+it('preserves completed images and labels an interrupted remainder without reusing hidden receipts', async () => {
+  const f = fixture({
+    rendered:
+      illustrated +
+      '<p><span data-instruction-image="second.png">Second image</span></p>',
+    holdAsset: 2,
+  })
+  f.context()
+  await f.flush()
+  f.decide(true)
+  await f.flush()
+  const image = document.querySelector('#instructions img')!
+  const pending = f.sent.filter((entry) => entry.capability === 'source.asset')[1]!
+  expect(image).toBeTruthy()
+  f.context('one', false)
+  await f.flush()
+  expect(f.sent).toContainEqual({ kind: 'cancel', id: pending.id })
+  f.resumeAsset()
+  f.context('one', true)
+  mode('source')
+  mode('rendered')
+  await f.flush()
+  expect(document.querySelector('#instructions img')).toBe(image)
+  expect(document.getElementById('instructions')?.textContent).toContain(
+    'image reading interrupted',
+  )
+  expect(document.getElementById('instructions')?.textContent).not.toContain(
+    'outside the selected source',
+  )
+  expect(f.sent.filter((entry) => entry.capability === 'source.asset')).toHaveLength(2)
+  f.read()
+  await f.flush()
+  f.decide(true)
+  await f.flush()
+  expect(document.querySelectorAll('#instructions img')).toHaveLength(2)
+  expect(document.getElementById('instructions')?.textContent).not.toContain(
+    'interrupted',
+  )
+})
+
+it.each(['selection', 'close', 'dispose'] as const)(
+  'retires unfinished detached images on %s without publishing late bytes',
+  async (ending) => {
+    const f = fixture({ rendered: illustrated, holdAssetRead: true })
+    f.context()
+    await f.flush()
+    f.decide(true)
+    await f.flush()
+    mode('source')
+    const pending = f.sent.find(
+      (entry) =>
+        entry.capability === 'source.read' && entry.input?.['receipt'] === 'asset-1',
+    )!
+    if (ending === 'selection') f.context('two')
+    else if (ending === 'close') document.getElementById('close-instructions')!.click()
+    else stop()
+    await f.flush()
+    expect(f.sent).toContainEqual({ kind: 'cancel', id: pending.id })
+    f.resumeAsset()
+    await f.flush()
+    expect(document.getElementById('instructions')?.textContent).toBe('')
+    expect(document.querySelector('#instructions img')).toBeNull()
+    if (ending === 'selection') {
+      f.decide(true)
+      await f.flush()
+      mode('rendered')
+      await f.flush()
+      expect(document.querySelectorAll('#instructions img')).toHaveLength(1)
+    }
+  },
+)
+
+it('shares pending rendering through rapid toggles and keeps the same image pass', async () => {
+  const f = fixture({ rendered: illustrated, holdSource: 'source.render' })
+  f.context()
+  await f.flush()
+  f.decide(true)
+  await f.flush()
+  const pending = f.sent.find((entry) => entry.capability === 'source.render')!
+  mode('source')
+  mode('rendered')
+  mode('rendered')
+  f.receive({
+    kind: 'result',
+    id: pending.id,
+    ok: true,
+    value: { receipt: 'rendered', sourceFallback: false },
+  })
+  await f.flush()
+  expect(document.querySelectorAll('#instructions img')).toHaveLength(1)
+  expect(f.sent.filter((entry) => entry.capability === 'source.render')).toHaveLength(1)
+  expect(f.sent.filter((entry) => entry.capability === 'source.asset')).toHaveLength(1)
+})
+
+it.each([true, false])(
+  'ends loading when complete Source is chosen during rendering while preserving later fallback messages (%s)',
+  async (success) => {
+    const f = fixture({ rendered: illustrated, holdSource: 'source.render' })
+    f.context()
+    await f.flush()
+    f.decide(true)
+    await f.flush()
+    const pending = f.sent.find((entry) => entry.capability === 'source.render')!
+    expect(document.getElementById('reader-state')?.dataset['state']).toBe('loading')
+    mode('source')
+    expect(document.getElementById('instructions')?.textContent).toBe(
+      '# Current instruction',
+    )
+    expect(document.getElementById('reader-state')?.dataset['state']).toBe('ready')
+    f.receive(
+      success
+        ? {
+            kind: 'result',
+            id: pending.id,
+            ok: true,
+            value: { receipt: 'rendered', sourceFallback: false },
+          }
+        : { kind: 'result', id: pending.id, ok: false, error: 'Rendering timed out' },
+    )
+    await f.flush()
+    expect(document.getElementById('instructions')?.dataset['mode']).toBe('source')
+    expect(document.getElementById('reader-state')?.dataset['state']).toBe(
+      success ? 'ready' : 'stale',
+    )
+    if (!success)
+      expect(document.getElementById('reader-state')?.textContent).toContain(
+        'Rendering timed out',
+      )
+  },
+)
