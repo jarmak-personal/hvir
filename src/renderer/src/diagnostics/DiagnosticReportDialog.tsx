@@ -234,7 +234,12 @@ export function DiagnosticReportDialog({
             ) : (
               <p>No screenshot is captured by default.</p>
             )}
-            <button type="button" disabled={busy !== undefined} onClick={capture}>
+            <button
+              type="button"
+              disabled={busy !== undefined}
+              onClick={capture}
+              className="hvir-button"
+            >
               {state.artifact.screenshot
                 ? 'Replace screenshot'
                 : 'Capture masked screenshot'}
@@ -249,6 +254,7 @@ export function DiagnosticReportDialog({
               type="button"
               disabled={busy !== undefined}
               onClick={() => action('copy')}
+              className="hvir-button"
             >
               Copy exact artifact
             </button>
@@ -256,13 +262,14 @@ export function DiagnosticReportDialog({
               type="button"
               disabled={busy !== undefined}
               onClick={() => action('save')}
+              className="hvir-button"
             >
               Save exact artifact…
             </button>
             <button
               type="button"
               disabled={busy !== undefined}
-              className="danger-button"
+              className="danger-button hvir-button"
               onClick={deleteReport}
             >
               Delete temporary report

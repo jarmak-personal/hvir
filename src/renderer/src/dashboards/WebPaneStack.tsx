@@ -32,11 +32,13 @@ export function WebPaneStack({
         // Visibility-based hiding: display:none breaks <webview> guests, so
         // inactive panes collapse to zero height instead.
         <div
-          className={`workspace-view${
-            hostPathEquals(view.workspaceRoot, root) && active && activeId === view.id
-              ? ''
-              : ' web-view-hidden'
-          }`}
+          className={
+            `workspace-view${
+              hostPathEquals(view.workspaceRoot, root) && active && activeId === view.id
+                ? ''
+                : ' web-view-hidden'
+            }` + ' hvir-panel'
+          }
           key={view.id}
         >
           <WebPane

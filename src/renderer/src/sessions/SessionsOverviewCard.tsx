@@ -48,12 +48,17 @@ export function SessionsOverviewCard({
         </dl>
         <div className="session-card-actions">
           {onInteract ? (
-            <button type="button" onClick={onInteract}>
+            <button type="button" onClick={onInteract} className="hvir-button">
               Interact
             </button>
           ) : null}
           {onOpen ? (
-            <button type="button" disabled={opening} onClick={onOpen}>
+            <button
+              type="button"
+              disabled={opening}
+              onClick={onOpen}
+              className="hvir-button"
+            >
               {opening ? 'Opening…' : 'Open'}
             </button>
           ) : null}

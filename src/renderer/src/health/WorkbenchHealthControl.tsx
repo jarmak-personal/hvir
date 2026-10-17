@@ -26,7 +26,10 @@ export function WorkbenchHealthControl(): ReactElement {
     <>
       <button
         type="button"
-        className={`workbench-health-toggle${critical ? ' critical' : ''}${newCount > 0 ? ' new' : ''}${health.snapshot.evidence === 'unavailable' ? ' unavailable' : ''}`}
+        className={
+          `workbench-health-toggle${critical ? ' critical' : ''}${newCount > 0 ? ' new' : ''}${health.snapshot.evidence === 'unavailable' ? ' unavailable' : ''}` +
+          ' hvir-button'
+        }
         aria-label={label}
         title={label}
         onClick={() => setOpen(true)}
@@ -71,7 +74,7 @@ export function WorkbenchHealthControl(): ReactElement {
           <DiagnosticEvidenceDetails evidence={evidence} />
           <button
             type="button"
-            className="prepare-diagnostic-report"
+            className="prepare-diagnostic-report hvir-button"
             onClick={() => {
               setOpen(false)
               setReportOpen(true)
@@ -123,6 +126,7 @@ function DiagnosticEvidenceDetails({
         type="button"
         disabled={evidence.deleting || !state}
         onClick={evidence.deleteEvidence}
+        className="hvir-button"
       >
         {evidence.deleting ? 'Deleting evidence…' : 'Delete local evidence'}
       </button>
@@ -161,7 +165,7 @@ function HealthItem({
       ) : null}
       <code>{item.correlation}</code>
       {item.state === 'open' ? (
-        <button type="button" onClick={onAcknowledge}>
+        <button type="button" onClick={onAcknowledge} className="hvir-button">
           Acknowledge
         </button>
       ) : null}

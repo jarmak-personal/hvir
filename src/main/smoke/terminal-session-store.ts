@@ -2,9 +2,22 @@ import type {
   TerminalSessionObservationSource,
   TerminalSessionStore,
 } from '../terminal/session-registry'
-import { hostPathEquals, type HostPath, type TerminalRecoverySession } from '../../shared'
+import {
+  hostPathEquals,
+  joinHostPath,
+  type HostPath,
+  type TerminalRecoverySession,
+} from '../../shared'
+import { TerminalSessionRegistry } from '../terminal/session-registry'
+import type { ProjectHost } from '../project-host/project-host'
 
-export function createSmokeTerminalSessionStore(defaultRoot: HostPath) {
+export async function createSmokeTerminalSessionStore(
+  defaultRoot: HostPath,
+  resources: {
+    readonly host: ProjectHost
+    readonly cleanup: { defer(name: string, dispose: () => Promise<void>): void }
+  },
+) {
   let sessions: readonly TerminalRecoverySession[] = []
   const roots = new Map<string, HostPath>()
   const listeners = new Set<() => void>()
@@ -59,8 +72,16 @@ export function createSmokeTerminalSessionStore(defaultRoot: HostPath) {
     authorizeReplacement: () => false,
     flush: () => Promise.resolve(),
   }
+  const selected =
+    process.env['HVIR_EXTENSION_TERMINAL_PROBE'] === '1'
+      ? await TerminalSessionRegistry.load(
+          resources.host,
+          joinHostPath(defaultRoot, '.terminal-command-recovery.json'),
+        )
+      : store
+  resources.cleanup.defer('smoke terminal session store', () => selected.flush())
   return {
-    store,
+    store: selected,
     set: (next: readonly TerminalRecoverySession[]): void => {
       sessions = next
       roots.clear()

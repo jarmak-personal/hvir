@@ -153,6 +153,7 @@ describe('CI workflow', () => {
       'electron-smoke',
       'macos-electron-smoke',
       'codeql',
+      'agent-clients',
     ])
     expect(aggregate.steps[0]).toEqual({
       name: 'Check out exact head for base ancestry proof',
@@ -244,9 +245,9 @@ describe('CI workflow', () => {
   })
 
   it('records the comparable candidate and default-branch workload counts', () => {
-    expect(Object.keys(workflow.jobs)).toHaveLength(6)
+    expect(Object.keys(workflow.jobs)).toHaveLength(7)
     const dependencyInstalls = Object.values(workflow.jobs).flatMap((job) =>
-      job.steps.filter((step) => step.run === 'npm ci'),
+      (job.steps ?? []).filter((step) => step.run === 'npm ci'),
     )
     expect(dependencyInstalls).toHaveLength(3)
     expect(workflowSource).not.toMatch(/^ {2}push:/m)
@@ -258,5 +259,73 @@ describe('CI workflow', () => {
       group: 'ci-${{ github.event.pull_request.number || github.ref }}',
       'cancel-in-progress': true,
     })
+  })
+})
+
+describe('focused native client verification', () => {
+  const source = readFileSync(
+    new URL('../.github/workflows/agent-clients.yml', import.meta.url),
+    'utf8',
+  )
+  const clients = parse(source) as {
+    jobs: Record<
+      string,
+      WorkflowJob & {
+        strategy?: { matrix: { include: { target: string; os: string }[] } }
+      }
+    >
+  }
+  it('builds and executes all four exact-source targets with the pinned focused toolchain', () => {
+    const build = clients.jobs.build
+    if (!build) throw new Error('Missing native build job')
+    expect(build.strategy?.matrix.include).toEqual([
+      { target: 'linux-x64', os: 'ubuntu-24.04' },
+      { target: 'linux-arm64', os: 'ubuntu-24.04-arm' },
+      { target: 'macos-x64', os: 'macos-15-intel' },
+      { target: 'macos-arm64', os: 'macos-15' },
+    ])
+    expect(
+      build.steps.find((step) => step.uses?.startsWith('actions/checkout@'))?.with?.ref,
+    ).toBe('${{ inputs.source_sha }}')
+    expect(build.steps.map((step) => step.run).filter(Boolean)).toEqual([
+      'rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy',
+      'node scripts/build-agent-client.mts "$TARGET"',
+      'node scripts/probe-agent-client.mts "out/agent-clients/$TARGET/hvir-agent"',
+    ])
+    expect(clients.jobs.acceptance?.needs).toEqual(['select', 'build'])
+    expect(clients.jobs.acceptance?.steps[0]?.run).toContain('[ "$BUILD" = success ]')
+    expect(workflow.jobs['agent-clients']?.needs).toBe('release-version-integrity')
+    expect(
+      workflow.jobs['merge-acceptance']?.steps.find(
+        (step) => step.name === 'Require focused client verification',
+      )?.run,
+    ).toContain('[ "$CLIENTS" = success ]')
+  })
+  it('selects maintained client producer/probe inputs and leaves unrelated changes to ordinary verification', () => {
+    const pattern = source.match(/grep -Eq '([^']+)'/)?.[1]
+    expect(pattern).toBeDefined()
+    const selected = new RegExp(pattern!)
+    for (const path of [
+      'packages/hvir-agent/Cargo.lock',
+      'src/shared/host-path.ts',
+      'scripts/build-agent-client.mts',
+      'scripts/probe-agent-client.mts',
+      'scripts/probe-agent-ssh-client.mts',
+      'scripts/agent-client-artifacts.mjs',
+      'scripts/assemble-agent-clients.mts',
+      'build/native/sign-agent-clients.cjs',
+      '.github/workflows/agent-clients.yml',
+      '.github/workflows/release.yml',
+      '.github/workflows/macos-package-release.yml',
+      'electron-builder.yml',
+      'LICENSE',
+    ])
+      expect(selected.test(path)).toBe(true)
+    for (const path of [
+      'docs/unrelated.md',
+      'src/renderer/src/unrelated.tsx',
+      'scripts/unrelated.mts',
+    ])
+      expect(selected.test(path)).toBe(false)
   })
 })

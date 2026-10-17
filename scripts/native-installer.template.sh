@@ -544,6 +544,10 @@ validate_macos_inventory() {
     'inventory=/Library/Application Support/hvir/package-inventory-v1.txt' \
     "$inventory"
   /usr/bin/grep -Fxq 'receipt=dev.hvir.app' "$inventory"
+  if /usr/bin/grep -Fxq 'agent-command=/usr/local/bin/hvir-agent' "$inventory"; then
+    [[ -f /usr/local/bin/hvir-agent ]] &&
+      /usr/bin/grep -Fq 'hvir-native-agent-command-v1' /usr/local/bin/hvir-agent
+  fi
   [[ -f /usr/local/bin/hvir ]] &&
     /usr/bin/grep -Fq 'hvir-native-package-command-v1' /usr/local/bin/hvir
 }
@@ -562,6 +566,9 @@ remove_native_package() {
       stage='validating package-owned macOS removal state'
       validate_macos_inventory
       stage='removing package-owned macOS application state'
+      if /usr/bin/grep -Fxq 'agent-command=/usr/local/bin/hvir-agent' '/Library/Application Support/hvir/package-inventory-v1.txt'; then
+        /usr/bin/sudo /bin/rm -f -- /usr/local/bin/hvir-agent
+      fi
       /usr/bin/sudo /bin/rm -rf -- /Applications/hvir.app
       /usr/bin/sudo /bin/rm -f -- \
         /usr/local/bin/hvir \

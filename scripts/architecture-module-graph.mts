@@ -175,12 +175,21 @@ export function collectModuleGraph(
       if (!target) {
         target = resolver.asset(from, ref.specifier)
         if (
-          from === 'packages/rename-noreplace/index.js' &&
-          target === 'packages/rename-noreplace/build/Release/rename_noreplace.node'
+          (from === 'packages/rename-noreplace/index.js' &&
+            target === 'packages/rename-noreplace/build/Release/rename_noreplace.node') ||
+          (from === 'packages/extension-storage/index.js' &&
+            target === 'packages/extension-storage/build/Release/extension_storage.node')
         ) {
           for (const input of [
-            'packages/rename-noreplace/binding.gyp',
-            'packages/rename-noreplace/rename_noreplace.c',
+            ...(from === 'packages/extension-storage/index.js'
+              ? [
+                  'packages/extension-storage/binding.gyp',
+                  'packages/extension-storage/extension_storage.c',
+                ]
+              : [
+                  'packages/rename-noreplace/binding.gyp',
+                  'packages/rename-noreplace/rename_noreplace.c',
+                ]),
           ]) {
             if (!existsSync(resolve(root, input)))
               throw new Error(`Missing required native build input: ${input}`)

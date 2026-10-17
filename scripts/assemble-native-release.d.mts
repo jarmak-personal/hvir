@@ -27,6 +27,13 @@ export interface NativeReleaseManifest {
     readonly sha256: string
   }
   readonly artifacts: readonly NativeReleaseArtifact[]
+  readonly extensions: readonly {
+    readonly id: string
+    readonly version: string
+    readonly contract: string
+    readonly name: string
+    readonly sha256: string
+  }[]
 }
 
 export interface NativeReleaseAssemblyResult {

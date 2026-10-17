@@ -1,7 +1,7 @@
 /* --- Web panes (agent-link servers) ------------------------------------- */
 
 .web-pane-tab .tab-status {
-  color: #58b26a;
+  color: var(--success-text);
   font-size: calc(11px * var(--hvir-interface-scale));
 }
 
@@ -37,13 +37,13 @@
   padding: 2px 7px;
   border: 1px solid var(--border-strong);
   border-radius: 4px;
-  background: var(--surface-raised);
+  background-color: var(--surface-raised);
   color: var(--text);
   cursor: pointer;
 }
 
 .web-pane-toolbar button:hover {
-  background: var(--surface-hover);
+  background-color: var(--surface-hover);
 }
 
 .web-pane-frame {
@@ -97,7 +97,7 @@ webview.web-pane-frame {
   padding: 2px 7px;
   border: 1px solid var(--border-subtle);
   border-radius: 4px;
-  background: var(--surface-1);
+  background-color: var(--surface-1);
   color: var(--text);
   font-size: calc(11px * var(--hvir-interface-scale));
   font-family: inherit;
@@ -126,7 +126,7 @@ webview.web-pane-frame {
   padding: 3px 8px;
   border: 1px solid var(--border-strong);
   border-radius: 4px;
-  background: var(--surface-raised);
+  background-color: var(--surface-raised);
   color: var(--text);
   cursor: pointer;
 }

@@ -115,7 +115,18 @@ async function rendererStep(win: BrowserWindow, action: string): Promise<void> {
       observer = new MutationObserver(inspect);
       window.addEventListener('focus', inspect, true);
       observer.observe(document.body, { childList: true, subtree: true, attributes: true, characterData: true });
-      deadline = setTimeout(() => { stop(); reject(new Error('Sessions command semantic readiness timed out: ' + stage)); }, 15000);
+      deadline = setTimeout(() => {
+        stop();
+        const boundary = stage === 'transferred-surface' ? {
+          dialogAbsent: !document.querySelector('.terminal-move-dialog'),
+          workspaceMatches: document.querySelector('.sessions-terminal-detail header p')?.textContent.includes('smoke-move-target') === true,
+          readyCanvasPresent: !!document.querySelector('.sessions-detail-terminal.ready canvas'),
+          canvasMatches: document.querySelector('.sessions-detail-terminal.ready canvas') === window.__hvirSessionsCommandCanvas,
+          sessionsSelected: document.querySelector('.sessions-destination')?.getAttribute('aria-current') === 'page',
+          documentFocused: document.hasFocus(),
+        } : undefined;
+        reject(new Error('Sessions command semantic readiness timed out: ' + stage + (boundary ? ' ' + JSON.stringify(boundary) : '')));
+      }, 15000);
       inspect();
     });
     ${action}

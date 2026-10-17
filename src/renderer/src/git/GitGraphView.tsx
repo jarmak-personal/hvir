@@ -299,8 +299,8 @@ export function GitGraphView({
   }
 
   return (
-    <section className="git-graph-view" aria-label="Git history graph">
-      <header className="git-graph-toolbar">
+    <section className="git-graph-view hvir-panel" aria-label="Git history graph">
+      <header className="git-graph-toolbar hvir-toolbar">
         <div>
           <strong>Git history</strong>
           <span>{basenameHostPath(root)}</span>
@@ -341,7 +341,7 @@ export function GitGraphView({
             ) : null}
             <div
               ref={viewport}
-              className="git-graph-viewport"
+              className="git-graph-viewport hvir-scroll"
               role="listbox"
               tabIndex={0}
               aria-label="Repository commits"
@@ -372,7 +372,10 @@ export function GitGraphView({
                     <button
                       type="button"
                       id={`git-graph-commit-${row.commit.hash}`}
-                      className={`git-graph-row${selected ? ' active' : ''}`}
+                      className={
+                        `git-graph-row${selected ? ' active' : ''}` +
+                        ' hvir-button hvir-row'
+                      }
                       key={row.commit.hash}
                       role="option"
                       aria-selected={selected}
@@ -416,7 +419,11 @@ export function GitGraphView({
                 })}
               </div>
               {hasMore ? (
-                <button type="button" className="git-graph-load-more" onClick={loadMore}>
+                <button
+                  type="button"
+                  className="git-graph-load-more hvir-button"
+                  onClick={loadMore}
+                >
                   Load more
                 </button>
               ) : null}
@@ -478,7 +485,12 @@ function CommitInspector({
     <aside className="git-commit-inspector" aria-label="Commit details">
       <header>
         <strong>Commit details</strong>
-        <button type="button" aria-label="Close commit details" onClick={onClose}>
+        <button
+          type="button"
+          aria-label="Close commit details"
+          onClick={onClose}
+          className="hvir-button"
+        >
           ×
         </button>
       </header>
@@ -644,7 +656,7 @@ function CommitFileTree({
                   type="button"
                   role="treeitem"
                   aria-expanded={entry.expanded}
-                  className="git-commit-tree-row directory"
+                  className="git-commit-tree-row directory hvir-button hvir-row"
                   key={`directory:${entry.path}`}
                   style={{
                     height: rowHeight,
@@ -669,7 +681,7 @@ function CommitFileTree({
               <button
                 type="button"
                 role="treeitem"
-                className="git-commit-tree-row file"
+                className="git-commit-tree-row file hvir-button hvir-row"
                 key={`file:${entry.file.path.hostId}:${entry.file.path.path}`}
                 title={entry.file.path.path}
                 style={{

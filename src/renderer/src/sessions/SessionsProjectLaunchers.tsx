@@ -20,6 +20,7 @@ export function SessionsProjectLaunchers({
           <button
             type="button"
             onClick={() => onNew(project.projectId, project.projectName)}
+            className="hvir-button"
           >
             New session
           </button>

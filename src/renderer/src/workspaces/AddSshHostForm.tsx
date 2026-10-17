@@ -25,6 +25,7 @@ export function AddSshHostForm({
     <label>
       <span>{label}</span>
       <input
+        className="hvir-input hvir-control"
         aria-label={label}
         autoFocus={autoFocus}
         required
@@ -53,6 +54,7 @@ export function AddSshHostForm({
         <label>
           <span>Port</span>
           <input
+            className="hvir-input hvir-control"
             aria-label="Port"
             type="number"
             min={1}
@@ -72,11 +74,17 @@ export function AddSshHostForm({
           ) : (
             <small>Use existing authentication defaults</small>
           )}
-          <button type="button" disabled={busy} onClick={onPickIdentity}>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onPickIdentity}
+            className="hvir-button hvir-control"
+          >
             Choose identity file…
           </button>
           {fields.identityFile ? (
             <button
+              className="hvir-button hvir-control"
               type="button"
               disabled={busy}
               onClick={() => onChange({ ...fields, identityFile: undefined })}
@@ -87,10 +95,15 @@ export function AddSshHostForm({
         </div>
       </details>
       <div className="dialog-actions">
-        <button type="button" disabled={busy} onClick={onCancel}>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onCancel}
+          className="hvir-button hvir-control"
+        >
           Cancel
         </button>
-        <button type="submit" disabled={busy}>
+        <button type="submit" disabled={busy} className="hvir-button hvir-control">
           {busy ? 'Saving…' : 'Add host'}
         </button>
       </div>

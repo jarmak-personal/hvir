@@ -1,3 +1,4 @@
+import { captureSessionPresentationVisuals } from './presentation-visual'
 import type { BrowserWindow } from 'electron'
 
 import { joinHostPath, type HostPath } from '../../shared'
@@ -18,6 +19,7 @@ export async function captureSessionsVisuals(
   host: ProjectHost,
   outputDirectory: HostPath | undefined,
 ): Promise<readonly HostPath[]> {
+  await captureSessionPresentationVisuals(win, host)
   if (!outputDirectory) return []
   if (
     outputDirectory.hostId !== host.hostId ||

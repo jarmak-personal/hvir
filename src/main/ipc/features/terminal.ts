@@ -27,6 +27,7 @@ type TerminalIpcDeps = Pick<
   | 'rendererResources'
   | 'ptySupervisor'
   | 'terminalMoves'
+  | 'terminalHandoffs'
 >
 
 export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): void {
@@ -125,6 +126,15 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
 
   ipc.handle('pty:start', async (req, context) => {
     if (!isTerminalId(req.sessionId)) throw new Error('Invalid PTY session id')
+    if (
+      (req.commandTicket !== undefined &&
+        (!isTerminalId(req.commandTicket) ||
+          typeof req.commandWorkspaceId !== 'string' ||
+          !req.commandWorkspaceId ||
+          req.commandWorkspaceId.length > 160)) ||
+      (req.commandTicket === undefined && req.commandWorkspaceId !== undefined)
+    )
+      throw new Error('Invalid terminal command admission')
     const requestedMode = terminalLaunchMode(req)
     if (
       req.replacesSessionId !== undefined &&
@@ -178,247 +188,295 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
     ) {
       throw new Error('Harness profile is scoped to another project')
     }
-    const availabilityRequest = {
-      host,
-      projectRoot,
-      workspaceRoot: cwd,
-      profiles: [profile],
-      store: deps.harnessProfiles,
-    } as const
-    let effectiveCapabilities =
-      requestedMode === 'fork'
-        ? await deps.harnessProbes.resolveLaunchCapabilities(
-            availabilityRequest,
-            profile,
-            req.composerSubmitMode,
-          )
-        : deps.harnessProbes.effectiveLaunchCapabilities(
-            availabilityRequest,
-            profile,
-            req.composerSubmitMode,
-          )
-    if (requestedMode === 'resume') {
-      if (
-        !effectiveCapabilities.exactResume ||
-        !isHarnessSessionId(req.harnessSessionId) ||
-        !deps.terminalSessions.authorizeResume({
-          id: req.sessionId,
-          providerId: profile.providerId,
-          profileId: profile.id,
-          launchRevision: profile.launchRevision,
-          harnessSessionId: req.harnessSessionId,
-          workspaceRoot: root,
-          cwd,
+    const handoff = req.commandTicket
+      ? deps.terminalHandoffs?.consume(req.commandTicket, {
+          owner,
+          terminalId: req.sessionId,
+          workspaceId: req.commandWorkspaceId ?? '',
+          root,
         })
-      ) {
-        throw new Error('Terminal resume is not authorized for this project')
-      }
-    }
-    if (requestedMode === 'fork') {
-      if (!isAuthorizedTerminalFork({
-        request: req,
-        capabilities: effectiveCapabilities,
-        providerSupportsFork: provider.fork !== undefined,
-        source: isTerminalId(req.forkSourceSessionId)
-          ? deps.ptySupervisor.get(req.forkSourceSessionId)
-          : undefined,
-        profile,
-        sessions: deps.terminalSessions,
-        workspaceRoot: root,
-        cwd,
-      })) {
-        throw new Error('Terminal fork is not authorized for this project')
-      }
-    } else if (
-      req.forkSourceSessionId !== undefined ||
-      req.parentHarnessSessionId !== undefined
-    ) {
-      throw new Error('Invalid terminal fork request')
-    }
+      : undefined
     if (
-      req.replacesSessionId &&
-      (!effectiveCapabilities.exactResume ||
-        !deps.terminalSessions.authorizeReplacement({
-          replacedId: req.replacesSessionId,
-          replacementId: req.sessionId,
-          providerId: profile.providerId,
-          profileId: profile.id,
-          launchRevision: profile.launchRevision,
-          workspaceRoot: root,
-          cwd,
-        }))
+      req.commandTicket &&
+      (!handoff ||
+        requestedMode !== 'fresh' ||
+        profile.id !== 'plain-shell-default' ||
+        !hostPathEquals(cwd, root) ||
+        req.replacesSessionId ||
+        req.harnessSessionId ||
+        req.forkSourceSessionId)
     ) {
-      throw new Error('Terminal replacement is not authorized for this project')
+      handoff?.finish(false)
+      throw new Error('Command handoff requires its exact new default-shell terminal')
     }
-    const qualifier = rendererPtyQualifier(root, req.sessionId)
-    if (deps.rendererResources.hasTransferredResource(owner, qualifier)) {
-      if (
-        !deps.terminalSessions.authorizeReattach({
-          id: req.sessionId,
-          providerId: profile.providerId,
-          profileId: profile.id,
-          launchRevision: profile.launchRevision,
-          harnessSessionId: req.harnessSessionId,
-          workspaceRoot: root,
-          cwd,
-        })
-      ) {
-        throw new Error('Terminal reattachment is not authorized for this project')
-      }
-      const retained = deps.ptySupervisor.get(req.sessionId)
-      if (retained) {
+    let handedOff = false
+    try {
+      handoff?.current()
+      const availabilityRequest = {
+        host,
+        projectRoot,
+        workspaceRoot: cwd,
+        profiles: [profile],
+        store: deps.harnessProfiles,
+      } as const
+      let effectiveCapabilities =
+        requestedMode === 'fork'
+          ? await deps.harnessProbes.resolveLaunchCapabilities(
+              availabilityRequest,
+              profile,
+              req.composerSubmitMode,
+            )
+          : deps.harnessProbes.effectiveLaunchCapabilities(
+              availabilityRequest,
+              profile,
+              req.composerSubmitMode,
+            )
+      if (requestedMode === 'resume') {
         if (
-          !canAttachRetainedRendererPty(deps, retained, {
-            owner,
-            root,
+          !effectiveCapabilities.exactResume ||
+          !isHarnessSessionId(req.harnessSessionId) ||
+          !deps.terminalSessions.authorizeResume({
+            id: req.sessionId,
+            providerId: profile.providerId,
+            profileId: profile.id,
+            launchRevision: profile.launchRevision,
+            harnessSessionId: req.harnessSessionId,
+            workspaceRoot: root,
             cwd,
-            profile,
-            request: req,
           })
         ) {
-          throw new Error('Retained terminal identity changed during reattachment')
+          throw new Error('Terminal resume is not authorized for this project')
         }
+      }
+      if (requestedMode === 'fork') {
+        if (
+          !isAuthorizedTerminalFork({
+            request: req,
+            capabilities: effectiveCapabilities,
+            providerSupportsFork: provider.fork !== undefined,
+            source: isTerminalId(req.forkSourceSessionId)
+              ? deps.ptySupervisor.get(req.forkSourceSessionId)
+              : undefined,
+            profile,
+            sessions: deps.terminalSessions,
+            workspaceRoot: root,
+            cwd,
+          })
+        ) {
+          throw new Error('Terminal fork is not authorized for this project')
+        }
+      } else if (
+        req.forkSourceSessionId !== undefined ||
+        req.parentHarnessSessionId !== undefined
+      ) {
+        throw new Error('Invalid terminal fork request')
+      }
+      if (
+        req.replacesSessionId &&
+        (!effectiveCapabilities.exactResume ||
+          !deps.terminalSessions.authorizeReplacement({
+            replacedId: req.replacesSessionId,
+            replacementId: req.sessionId,
+            providerId: profile.providerId,
+            profileId: profile.id,
+            launchRevision: profile.launchRevision,
+            workspaceRoot: root,
+            cwd,
+          }))
+      ) {
+        throw new Error('Terminal replacement is not authorized for this project')
+      }
+      const qualifier = rendererPtyQualifier(root, req.sessionId)
+      if (deps.rendererResources.hasTransferredResource(owner, qualifier)) {
+        if (
+          !deps.terminalSessions.authorizeReattach({
+            id: req.sessionId,
+            providerId: profile.providerId,
+            profileId: profile.id,
+            launchRevision: profile.launchRevision,
+            harnessSessionId: req.harnessSessionId,
+            workspaceRoot: root,
+            cwd,
+          })
+        ) {
+          throw new Error('Terminal reattachment is not authorized for this project')
+        }
+        const retained = deps.ptySupervisor.get(req.sessionId)
+        if (retained) {
+          if (
+            !canAttachRetainedRendererPty(deps, retained, {
+              owner,
+              root,
+              cwd,
+              profile,
+              request: req,
+            })
+          ) {
+            throw new Error('Retained terminal identity changed during reattachment')
+          }
+          const ptyLease = deps.rendererResources.claimTransferredResource(
+            owner,
+            qualifier,
+          )
+          if (!ptyLease) throw new Error('Retained terminal was already reattached')
+          deps.rendererResources.assertCurrent(owner)
+          // If a concurrent rollover has already transferred this lease again,
+          // attachment fails closed without disposing the newer owner's PTY.
+          attachRendererPty(deps, retained, ptyLease, owner, context.sender)
+          return terminalStartedResponse(retained, true)
+        }
+        // The PTY exited after rollover but before recovery was accepted. Retire
+        // its transferred lease and continue through the existing exact-resume path.
         const ptyLease = deps.rendererResources.claimTransferredResource(owner, qualifier)
         if (!ptyLease) throw new Error('Retained terminal was already reattached')
-        deps.rendererResources.assertCurrent(owner)
-        // If a concurrent rollover has already transferred this lease again,
-        // attachment fails closed without disposing the newer owner's PTY.
-        attachRendererPty(deps, retained, ptyLease, owner, context.sender)
-        return terminalStartedResponse(retained, true)
+        ptyLease.release()
       }
-      // The PTY exited after rollover but before recovery was accepted. Retire
-      // its transferred lease and continue through the existing exact-resume path.
-      const ptyLease = deps.rendererResources.claimTransferredResource(owner, qualifier)
-      if (!ptyLease) throw new Error('Retained terminal was already reattached')
-      ptyLease.release()
-    }
-    if (requestedMode !== 'fork') {
-      effectiveCapabilities = await deps.harnessProbes.resolveLaunchCapabilities(
-        availabilityRequest,
+      if (requestedMode !== 'fork') {
+        effectiveCapabilities = await deps.harnessProbes.resolveLaunchCapabilities(
+          availabilityRequest,
+          profile,
+          req.composerSubmitMode,
+        )
+      }
+      const defaultShell = await host.defaultShell()
+      handoff?.current()
+      const resolved = await resolveHarnessLaunch({
         profile,
-        req.composerSubmitMode,
-      )
-    }
-    const defaultShell = await host.defaultShell()
-    const resolved = await resolveHarnessLaunch({
-      profile,
-      expectedLaunchRevision: req.launchRevision,
-      projectRoot,
-      workspaceRoot: cwd,
-      host,
-      store: deps.harnessProfiles,
-      mode: requestedMode,
-      context: {
-        sessionId: requestedMode === 'resume' ? req.harnessSessionId! : req.sessionId,
-        parentSessionId:
-          requestedMode === 'fork' ? req.parentHarnessSessionId : undefined,
-        cwd,
-        cols,
-        rows,
-        defaultShell,
-        composerSubmitMode: req.composerSubmitMode,
-        effectiveCapabilities,
-      },
-    })
-    const launchDecision = await selectHarnessLaunch(host, provider, requestedMode, {
-      sessionId:
-        requestedMode === 'fork'
-          ? req.parentHarnessSessionId!
-          : requestedMode === 'resume'
-            ? req.harnessSessionId!
-            : req.sessionId,
-      cwd,
-      artifact: resolved.artifact,
-    }, effectiveCapabilities)
-    if (launchDecision.outcome !== 'launch') return launchDecision
-    const launchMode = launchDecision.mode
-    const refreshAfterClassifiedLaunchFailure = (): void =>
-      deps.harnessProbes.refreshProfile(availabilityRequest, profile)
-    const ptyLease = registerRendererPty(deps, owner, root, req.sessionId)
-    let managed
-    try {
-      managed = await deps.ptySupervisor.spawn({
+        expectedLaunchRevision: req.launchRevision,
+        projectRoot,
+        workspaceRoot: cwd,
+        host,
+        store: deps.harnessProfiles,
+        mode: requestedMode,
+        context: {
+          sessionId: requestedMode === 'resume' ? req.harnessSessionId! : req.sessionId,
+          parentSessionId:
+            requestedMode === 'fork' ? req.parentHarnessSessionId : undefined,
+          cwd,
+          cols,
+          rows,
+          defaultShell,
+          composerSubmitMode: req.composerSubmitMode,
+          effectiveCapabilities,
+          ...(handoff ? { commandOnce: handoff.command } : {}),
+        },
+      })
+      handoff?.current()
+      const launchDecision = await selectHarnessLaunch(
         host,
         provider,
-        launchSpec: resolved.spec,
-        unsetEnvironment: resolved.unsetEnvironment,
-        artifact: resolved.artifact,
+        requestedMode,
+        {
+          sessionId:
+            requestedMode === 'fork'
+              ? req.parentHarnessSessionId!
+              : requestedMode === 'resume'
+                ? req.harnessSessionId!
+                : req.sessionId,
+          cwd,
+          artifact: resolved.artifact,
+        },
         effectiveCapabilities,
+      )
+      if (launchDecision.outcome !== 'launch') return launchDecision
+      const launchMode = launchDecision.mode
+      const refreshAfterClassifiedLaunchFailure = (): void =>
+        deps.harnessProbes.refreshProfile(availabilityRequest, profile)
+      const ptyLease = registerRendererPty(deps, owner, root, req.sessionId)
+      let managed
+      try {
+        managed = await deps.ptySupervisor.spawn({
+          host,
+          provider,
+          signal: handoff?.signal,
+          beforeDispatch: handoff?.prepareDispatch,
+          onDispatch: handoff?.dispatched,
+          launchSpec: resolved.spec,
+          unsetEnvironment: resolved.unsetEnvironment,
+          artifact: resolved.artifact,
+          effectiveCapabilities,
+          profileId: profile.id,
+          launchRevision: profile.launchRevision,
+          providerContractVersion: profile.providerContractVersion,
+          composerSubmitMode: req.composerSubmitMode,
+          cwd,
+          workspaceRoot: root,
+          ownerId: owner.id,
+          ownerGeneration: owner.generation,
+          sessionId: req.sessionId,
+          harnessSessionId: launchMode === 'resume' ? req.harnessSessionId : undefined,
+          launchMode,
+          parentHarnessSessionId:
+            launchMode === 'fork' ? req.parentHarnessSessionId : undefined,
+          resume: launchMode === 'resume',
+          admission: req.admission,
+          cols,
+          rows,
+          onClassifiedLaunchFailure: refreshAfterClassifiedLaunchFailure,
+        })
+      } catch (reason) {
+        await ptyLease.dispose()
+        if (reason instanceof PtyStartUnavailableError)
+          return {
+            outcome: 'launch-unavailable',
+            reason: reason.reason,
+            retryable: reason.retryable,
+          }
+        if (isClassifiedHarnessLaunchFailure(reason)) {
+          refreshAfterClassifiedLaunchFailure()
+        }
+        throw reason
+      }
+      deps.harnessProbes.recordSuccessfulLaunch(
+        availabilityRequest,
+        profile,
+        managed.capabilities,
+      )
+      try {
+        deps.rendererResources.assertCurrent(owner)
+        handoff?.current()
+      } catch (error) {
+        await ptyLease.dispose()
+        throw error
+      }
+      const spawnRecord = {
+        id: managed.id,
+        providerId: profile.providerId,
         profileId: profile.id,
         launchRevision: profile.launchRevision,
-        providerContractVersion: profile.providerContractVersion,
-        composerSubmitMode: req.composerSubmitMode,
-        cwd,
+        artifactIdentity: resolved.artifactIdentity,
+        harnessSessionId: managed.harnessSessionId,
         workspaceRoot: root,
-        ownerId: owner.id,
-        ownerGeneration: owner.generation,
-        sessionId: req.sessionId,
-        harnessSessionId: launchMode === 'resume' ? req.harnessSessionId : undefined,
-        launchMode,
-        parentHarnessSessionId:
-          launchMode === 'fork' ? req.parentHarnessSessionId : undefined,
-        resume: launchMode === 'resume',
-        admission: req.admission,
-        cols,
-        rows,
-        onClassifiedLaunchFailure: refreshAfterClassifiedLaunchFailure,
-      })
-    } catch (reason) {
-      await ptyLease.dispose()
-      if (reason instanceof PtyStartUnavailableError)
-        return {
-          outcome: 'launch-unavailable',
-          reason: reason.reason,
-          retryable: reason.retryable,
+        cwd,
+        title: req.title,
+        position: req.position,
+        active: req.active,
+      }
+      let detach: () => void | Promise<void> = () => undefined
+      try {
+        detach = attachRendererPty(deps, managed, ptyLease, owner, context.sender)
+        if (req.replacesSessionId) {
+          await deps.terminalSessions.recordReplacement({
+            replacedId: req.replacesSessionId,
+            spawn: spawnRecord,
+          })
+        } else {
+          void deps.terminalSessions
+            .recordSpawn(spawnRecord)
+            .catch((error) =>
+              console.error('[terminal] session persistence failed', error),
+            )
         }
-      if (isClassifiedHarnessLaunchFailure(reason)) {
-        refreshAfterClassifiedLaunchFailure()
+      } catch (error) {
+        await detach()
+        await ptyLease.dispose()
+        throw error
       }
-      throw reason
+      handedOff = true
+      return terminalStartedResponse(managed, false)
+    } finally {
+      handoff?.finish(handedOff)
     }
-    deps.harnessProbes.recordSuccessfulLaunch(
-      availabilityRequest,
-      profile,
-      managed.capabilities,
-    )
-    try {
-      deps.rendererResources.assertCurrent(owner)
-    } catch (error) {
-      await ptyLease.dispose()
-      throw error
-    }
-    const spawnRecord = {
-      id: managed.id,
-      providerId: profile.providerId,
-      profileId: profile.id,
-      launchRevision: profile.launchRevision,
-      artifactIdentity: resolved.artifactIdentity,
-      harnessSessionId: managed.harnessSessionId,
-      workspaceRoot: root,
-      cwd,
-      title: req.title,
-      position: req.position,
-      active: req.active,
-    }
-    let detach: () => void | Promise<void> = () => undefined
-    try {
-      detach = attachRendererPty(deps, managed, ptyLease, owner, context.sender)
-      if (req.replacesSessionId) {
-        await deps.terminalSessions.recordReplacement({
-          replacedId: req.replacesSessionId,
-          spawn: spawnRecord,
-        })
-      } else {
-        void deps.terminalSessions
-          .recordSpawn(spawnRecord)
-          .catch((error) => console.error('[terminal] session persistence failed', error))
-      }
-    } catch (error) {
-      await detach()
-      await ptyLease.dispose()
-      throw error
-    }
-    return terminalStartedResponse(managed, false)
   })
 
   ipc.handleSend('pty:write', ({ id, data }, context) => {

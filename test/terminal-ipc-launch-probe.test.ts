@@ -1,4 +1,9 @@
 import { EventEmitter } from 'node:events'
+import type { TerminalSessionStore } from '../src/main/terminal/session-registry'
+import {
+  TerminalCommandHandoffOwner,
+  type TerminalCommandRequest,
+} from '../src/main/terminal/command-handoff-owner'
 
 import type { Client, SFTPWrapper } from 'ssh2'
 import { describe, expect, it, vi } from 'vitest'
@@ -31,6 +36,106 @@ import { createTestSshHost } from './ssh-host-test-fixture'
 const HARNESS_SESSION_ID = '05ea41ff-026f-4ab6-b930-64eb3b497806'
 
 describe('terminal IPC launch probe binding', () => {
+  it('persists ordinary shell identity and recovery never repeats command-once bytes', async () => {
+    let admission!: TerminalCommandRequest
+    const handoffs = new TerminalCommandHandoffOwner((_owner, request) => {
+      admission = request
+    })
+    const f = launchProbeFixture('', undefined, 'plain-shell', handoffs)
+    const controller = new AbortController()
+    try {
+      const outcome = handoffs.request({
+        owner: f.context.owner(),
+        workspaceId: 'workspace-1',
+        root: f.request.workspaceRoot,
+        command: {
+          executable: '/installed/tool',
+          args: ['setup-private-once'],
+          environment: { TOOL_CONFIG: 'private-config-once' },
+        },
+        current: () => undefined,
+        signal: controller.signal,
+      })
+      const request = {
+        ...f.request,
+        sessionId: admission.terminalId,
+        commandTicket: admission.ticket,
+        commandWorkspaceId: admission.workspaceId,
+      }
+      expect(await f.start(request, f.context)).toMatchObject({ outcome: 'started' })
+      expect(await outcome).toMatchObject({ outcome: 'handed-off' })
+      expect(f.spawn.mock.calls[0]?.[0].launchSpec?.args).toContain('setup-private-once')
+      expect(f.spawn.mock.calls[0]?.[0].launchSpec?.args).toContain(
+        'TOOL_CONFIG=private-config-once',
+      )
+      expect(JSON.stringify(f.recordSpawn.mock.calls)).not.toMatch(
+        /private-once|private-config-once|commandTicket/u,
+      )
+      expect(f.recordSpawn.mock.calls[0]?.[0]).toMatchObject({
+        providerId: 'plain-shell',
+        profileId: 'plain-shell-default',
+      })
+      await expect(f.start(request, f.context)).rejects.toThrow('stale')
+      expect(f.spawn).toHaveBeenCalledOnce()
+      await f.start({ ...f.request, sessionId: 'recovered-ordinary-shell' }, f.context)
+      expect(f.spawn.mock.calls[1]?.[0].launchSpec).toMatchObject({
+        file: '/bin/zsh',
+        args: ['-l'],
+      })
+      expect(JSON.stringify(f.spawn.mock.calls[1])).not.toMatch(
+        /private-once|private-config-once/u,
+      )
+      controller.abort()
+    } finally {
+      handoffs.dispose()
+      f.probes.dispose()
+    }
+  })
+
+  it('settles consumed admission after cancellation during IPC default-shell lookup', async () => {
+    let admission!: TerminalCommandRequest
+    const handoffs = new TerminalCommandHandoffOwner((_owner, request) => {
+      admission = request
+    })
+    const f = launchProbeFixture('', undefined, 'plain-shell', handoffs)
+    const controller = new AbortController()
+    let release!: (shell: string) => void
+    f.defaultShell.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve
+        }),
+    )
+    try {
+      const outcome = handoffs.request({
+        owner: f.context.owner(),
+        workspaceId: 'workspace-1',
+        root: f.request.workspaceRoot,
+        command: { executable: '/tool', args: [], environment: {} },
+        current: () => undefined,
+        signal: controller.signal,
+      })
+      const request = {
+        ...f.request,
+        sessionId: admission.terminalId,
+        commandTicket: admission.ticket,
+        commandWorkspaceId: admission.workspaceId,
+      }
+      const starting = f.start(request, f.context),
+        rejected = expect(starting).rejects.toThrow()
+      await vi.waitFor(() => expect(f.defaultShell).toHaveBeenCalledOnce())
+      controller.abort()
+      expect(await outcome).toMatchObject({ outcome: 'not-started' })
+      release('/bin/zsh')
+      await rejected
+      expect(f.spawn).not.toHaveBeenCalled()
+      await expect(f.start(request, f.context)).rejects.toThrow('stale')
+    } finally {
+      handoffs.dispose()
+      f.probes.dispose()
+    }
+  })
+
   it.each([
     ['fresh', false],
     ['restored resume', true],
@@ -159,6 +264,7 @@ function launchProbeFixture(
   initialVersion: string,
   suppliedHost?: ProjectHost,
   providerId = 'codex',
+  terminalHandoffs?: TerminalCommandHandoffOwner,
 ) {
   const root = hostPath(suppliedHost?.hostId ?? LOCAL_HOST_ID, '/repo')
   const profile = {
@@ -185,13 +291,14 @@ function launchProbeFixture(
     })
   })
   const listeners = new Set<(state: HostConnectionState) => void>()
+  const defaultShell = vi.fn(() => Promise.resolve('/bin/zsh'))
   const host =
     suppliedHost ??
     ({
       hostId: LOCAL_HOST_ID,
       connectionState: 'connected',
       watchTier: 'native',
-      defaultShell: () => Promise.resolve('/bin/zsh'),
+      defaultShell,
       realpath: (path: typeof root) => Promise.resolve(path),
       exec,
       onConnectionState: (listener: (state: HostConnectionState) => void) => {
@@ -219,8 +326,10 @@ function launchProbeFixture(
     profiles: [profile],
     store,
   }
-  const spawn = vi.fn((request: PtySpawnRequest): Promise<ManagedPty> =>
-    Promise.resolve({
+  const spawn = vi.fn(async (request: PtySpawnRequest): Promise<ManagedPty> => {
+    await request.beforeDispatch?.()
+    request.onDispatch?.()
+    return {
       instanceId: 'instance-1',
       id: request.sessionId!,
       ownerId: request.ownerId,
@@ -239,8 +348,8 @@ function launchProbeFixture(
       resumed: request.resume === true,
       harnessSessionId: request.resume ? request.harnessSessionId : request.sessionId,
       identityStatus: 'identified',
-    }),
-  )
+    }
+  })
   const handlers = new Map<
     string,
     (request: unknown, context: IpcInvokeContext) => unknown
@@ -260,7 +369,9 @@ function launchProbeFixture(
     handleSend: vi.fn(),
   } as unknown as IpcRegistrar
   const lease = { dispose: vi.fn(() => Promise.resolve()), release: vi.fn() }
+  const recordSpawn = vi.fn<TerminalSessionStore['recordSpawn']>(() => Promise.resolve())
   registerTerminalIpc(ipc, {
+    terminalHandoffs,
     getHost: () => host,
     terminalSessions: {
       authorizeReattach: vi.fn(() => false),
@@ -268,7 +379,7 @@ function launchProbeFixture(
       authorizeFork: vi.fn(() => false),
       authorizeReplacement: vi.fn(() => false),
       recordRecoveryDecision: vi.fn(() => Promise.resolve()),
-      recordSpawn: vi.fn(() => Promise.resolve()),
+      recordSpawn,
       recordReplacement: vi.fn(() => Promise.resolve()),
       rebindProfile: vi.fn(),
     },
@@ -327,6 +438,8 @@ function launchProbeFixture(
     start,
     request,
     context,
+    defaultShell,
+    recordSpawn,
     setVersion: (next: string) => {
       version = next
     },

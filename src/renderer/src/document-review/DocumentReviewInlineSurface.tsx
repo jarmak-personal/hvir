@@ -138,7 +138,7 @@ function DocumentReviewInlineThread({
         <span>{lineRangeLabel(range)}</span>
         <button
           type="button"
-          className="document-review-close"
+          className="document-review-close hvir-button"
           aria-label={`Close review at ${lineRangeLabel(range)}`}
           onClick={interaction.cancelCapture}
         >
@@ -216,12 +216,13 @@ function NewCommentForm({
         aria-label="New review comment"
         value={body}
         onChange={(event) => onBody(event.currentTarget.value)}
+        className="hvir-input"
       />
       <div>
-        <button type="submit" disabled={body.trim().length === 0}>
+        <button type="submit" disabled={body.trim().length === 0} className="hvir-button">
           Add review comment
         </button>
-        <button type="button" onClick={onCancel}>
+        <button type="button" onClick={onCancel} className="hvir-button">
           Cancel
         </button>
       </div>
@@ -278,18 +279,23 @@ function ReviewCommentCard({
             aria-label={`Edit comment at ${lineRangeLabel(comment.anchor.range)}`}
             value={edit.body}
             onChange={(event) => onEditBody(event.currentTarget.value)}
+            className="hvir-input"
           />
-          <button type="submit" disabled={edit.body.trim().length === 0}>
+          <button
+            type="submit"
+            disabled={edit.body.trim().length === 0}
+            className="hvir-button"
+          >
             Save
           </button>
-          <button type="button" onClick={onCancelEdit}>
+          <button type="button" onClick={onCancelEdit} className="hvir-button">
             Cancel
           </button>
         </form>
       ) : comment.lifecycle === 'draft' ? (
         <button
           type="button"
-          className="document-review-comment-body"
+          className="document-review-comment-body hvir-button"
           aria-label={`Edit comment at ${lineRangeLabel(comment.anchor.range)}`}
           onClick={onBeginEdit}
         >
@@ -303,7 +309,7 @@ function ReviewCommentCard({
           {showLocation ? (
             <button
               type="button"
-              className="document-review-comment-location"
+              className="document-review-comment-location hvir-button"
               aria-label={`Go to review comment at ${lineRangeLabel(comment.anchor.range)}`}
               onClick={() => interaction.navigate(comment)}
             >
@@ -319,6 +325,7 @@ function ReviewCommentCard({
               type="button"
               aria-label={`Acknowledge stale location for comment at ${lineRangeLabel(comment.anchor.range)}`}
               onClick={() => interaction.reviewStale(comment.id)}
+              className="hvir-button"
             >
               Use stale location
             </button>
@@ -326,7 +333,7 @@ function ReviewCommentCard({
           {comment.lifecycle === 'draft' ? (
             <button
               type="button"
-              className="document-review-comment-delete"
+              className="document-review-comment-delete hvir-button"
               aria-label={`Delete comment at ${lineRangeLabel(comment.anchor.range)}`}
               onClick={() => interaction.remove(comment.id)}
             >

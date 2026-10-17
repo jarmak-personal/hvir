@@ -22,19 +22,23 @@ export function useModalKeyboard(
     const focusableSelector =
       'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
     const focusFirst = window.requestAnimationFrame(() => {
-      if (!activeRef.current) return
-      const preferred = dialog.querySelector<HTMLElement>('[autofocus]')
+      if (!activeRef.current || topmostModal() !== dialog) return
+      const preferred = dialog.querySelector<HTMLElement>(
+        '[data-modal-initial], [autofocus]',
+      )
       const first = dialog.querySelector<HTMLElement>(focusableSelector)
       ;(preferred ?? first ?? dialog).focus()
     })
     const handleKeyDown = (event: KeyboardEvent): void => {
-      if (!activeRef.current) return
-      if (event.key === 'Escape' && enabledRef.current) {
+      if (!activeRef.current || topmostModal() !== dialog) return
+      if (event.key === 'Escape') {
         event.preventDefault()
-        dismissRef.current()
+        event.stopImmediatePropagation()
+        if (enabledRef.current) dismissRef.current()
         return
       }
       if (event.key !== 'Tab') return
+      event.stopImmediatePropagation()
       const focusable = [
         ...dialog.querySelectorAll<HTMLElement>(focusableSelector),
       ].filter((element) => element.offsetParent !== null)
@@ -52,9 +56,21 @@ export function useModalKeyboard(
     return () => {
       window.cancelAnimationFrame(focusFirst)
       document.removeEventListener('keydown', handleKeyDown, true)
-      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
+      const remaining = topmostModal()
+      if (
+        previousFocus instanceof HTMLElement &&
+        previousFocus.isConnected &&
+        (!remaining || remaining.contains(previousFocus))
+      ) {
         previousFocus.focus()
       }
     }
   }, [dialogRef])
+}
+
+/** Shared backdrop siblings paint in DOM order; nested dialogs remain within that stack. */
+function topmostModal(): HTMLElement | undefined {
+  return [...document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]')]
+    .filter((dialog) => !dialog.hidden)
+    .at(-1)
 }

@@ -2,7 +2,7 @@
   flex: 1;
   overflow: auto;
   padding: 6px 0 14px;
-  background: #13161b;
+  background: var(--panel-surface);
 }
 
 .tree-scroll[hidden] {
@@ -25,7 +25,7 @@
   padding: 0;
   border: 1px solid transparent;
   border-radius: 4px;
-  background: transparent;
+  background-color: transparent;
   color: var(--text-muted);
 }
 
@@ -33,7 +33,7 @@
 .filename-search-trigger:focus-visible {
   border-color: var(--border-subtle);
   outline: none;
-  background: var(--surface-hover);
+  background-color: var(--surface-hover);
   color: var(--text);
 }
 
@@ -81,7 +81,7 @@
   border: 1px solid var(--border-subtle);
   border-radius: 4px;
   outline: none;
-  background: var(--surface-0);
+  background-color: var(--surface-0);
   color: var(--text);
   font: inherit;
   font-size: calc(12px * var(--hvir-interface-scale));
@@ -101,8 +101,8 @@
   position: absolute;
   right: 38px;
   bottom: 7px;
-  border: 0;
-  background: transparent;
+  border-width: 0;
+  background-color: transparent;
   color: var(--text-muted);
   font-size: calc(16px * var(--hvir-interface-scale));
 }
@@ -113,7 +113,7 @@
   padding: 0;
   border: 1px solid transparent;
   border-radius: 4px;
-  background: transparent;
+  background-color: transparent;
   color: var(--text-muted);
   font-size: calc(16px * var(--hvir-interface-scale));
 }
@@ -122,7 +122,7 @@
 .filename-search-close:focus-visible {
   border-color: var(--border-subtle);
   outline: none;
-  background: var(--surface-hover);
+  background-color: var(--surface-hover);
   color: var(--text);
 }
 
@@ -169,8 +169,8 @@
   justify-content: center;
   gap: 1px;
   padding: 0 10px;
-  border: 0;
-  background: transparent;
+  border-width: 0;
+  background-color: transparent;
   color: var(--text);
   text-align: left;
 }
@@ -178,7 +178,7 @@
 .filename-search-result:hover,
 .filename-search-result:focus {
   outline: none;
-  background: var(--surface-hover);
+  background-color: var(--surface-hover);
 }
 
 .filename-search-parent {
@@ -204,9 +204,9 @@
   padding-top: 0;
   padding-right: 8px;
   padding-bottom: 0;
-  border: 0;
-  color: #aeb4bf;
-  background: transparent;
+  border-width: 0;
+  color: var(--text-secondary);
+  background-color: transparent;
   font-size: calc(12px * var(--hvir-interface-scale));
   text-align: left;
   cursor: default;
@@ -215,36 +215,36 @@
 .directory-row {
   position: sticky;
   top: 0;
-  background: #13161b;
+  background-color: var(--surface-1);
 }
 
 .tree-row:hover {
-  background: #20242c;
+  background-color: var(--surface-hover);
 }
 
 .tree-row.selected {
-  color: #eef0f4;
-  background: #29303b;
+  color: var(--text-strong);
+  background-color: var(--surface-active);
 }
 
 .tree-row.gitignored:not(.selected) {
-  color: #68717e;
+  color: var(--text-muted);
 }
 
 .tree-row.gitignored:not(.selected) .tree-chevron,
 .tree-row.gitignored:not(.selected) .tree-symlink {
-  color: #59626f;
+  color: var(--text-disabled);
 }
 
 .tree-row:disabled,
 .tree-row[aria-disabled='true'] {
-  color: #59616e;
+  color: var(--text-disabled);
 }
 
 .tree-chevron {
   width: 9px;
   flex: 0 0 9px;
-  color: #737d8c;
+  color: var(--text-muted);
   font-size: calc(15px * var(--hvir-interface-scale));
   line-height: 1;
 }
@@ -269,17 +269,18 @@
 
 .tree-file-extension {
   flex: 0 0 auto;
-  color: #7c8592;
+  color: var(--text-muted);
 }
 
 .tree-row.gitignored:not(.selected) .tree-file-extension {
-  color: #59626f;
+  color: var(--text-disabled);
 }
 
 .tree-row.selected .tree-file-extension {
-  color: #a5afbc;
+  color: var(--text-secondary);
 }
 
+/* Fixed Git status hues encode repository state; selected rows use shared text roles. */
 .file-row.git-status-untracked:not(.selected) .tree-file-stem,
 .directory-row[aria-expanded='false'].git-status-untracked:not(.selected) .tree-name {
   color: #67ae77;
@@ -297,7 +298,7 @@
 
 .file-row.selected .tree-file-stem,
 .directory-row.selected .tree-name {
-  color: #eef0f4;
+  color: var(--text-strong);
 }
 
 .tree-git-status {
@@ -351,42 +352,42 @@
   width: 14px;
   height: 100%;
   flex: 0 0 14px;
-  border-left: 1px solid #242a32;
+  border-left: 1px solid var(--border-subtle);
 }
 
 .tree-row:hover .tree-depth-guide,
 .tree-row.selected .tree-depth-guide {
-  border-color: #39414d;
+  border-color: var(--border-strong);
 }
 
 .tree-gitignored {
   flex: 0 0 auto;
-  color: #626d7b;
+  color: var(--text-disabled);
   font-size: calc(8px * var(--hvir-interface-scale));
   letter-spacing: 0;
   text-transform: uppercase;
 }
 
 .tree-row.selected .tree-gitignored {
-  color: #8994a3;
+  color: var(--text-muted);
 }
 
 .tree-loading {
   margin-left: auto;
-  color: #737d8c;
+  color: var(--text-muted);
 }
 
 .tree-symlink {
   width: 9px;
   flex: 0 0 9px;
-  color: #778b9f;
+  color: var(--accent-text);
   font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .tree-error {
   padding-top: 3px;
   padding-bottom: 6px;
-  color: #dc7b82;
+  color: var(--danger-text);
   font-size: calc(11px * var(--hvir-interface-scale));
 }
 

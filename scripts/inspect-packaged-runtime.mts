@@ -1,14 +1,20 @@
 import { execFileSync } from 'node:child_process'
 import { closeSync, openSync, readFileSync, readSync, statSync } from 'node:fs'
 import { parseArgs } from 'node:util'
-import { resolve } from 'node:path'
+import { resolve, dirname } from 'node:path'
+import {
+  inspectPackagedExtensionAssets,
+  type PackagedExtensionValidation,
+} from './inspect-packaged-extension-assets.mts'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
 
 const REQUIRED_MAIN_ENTRIES = [
   '/out/main/index.js',
+  '/out/main/agent-cli.js',
   '/out/main/echo-worker.js',
   '/out/main/git-worker.js',
+  '/out/main/document-worker.js',
 ] as const
 const PTY_NATIVE_ENTRY = '/node_modules/node-pty/build/Release/pty.node'
 const PTY_SPAWN_HELPER_ENTRY = '/node_modules/node-pty/build/Release/spawn-helper'
@@ -26,6 +32,20 @@ const APPROVED_RENAME_PACKAGE_ENTRIES = new Set([
   `${RENAME_PACKAGE_ROOT}/build/Release`,
   ...REQUIRED_RENAME_PACKAGE_ENTRIES,
   RENAME_NATIVE_ENTRY,
+])
+const EXTENSION_STORAGE_ROOT = '/node_modules/@hvir/extension-storage'
+const EXTENSION_STORAGE_NATIVE = `${EXTENSION_STORAGE_ROOT}/build/Release/extension_storage.node`
+const REQUIRED_EXTENSION_STORAGE_ENTRIES = [
+  `${EXTENSION_STORAGE_ROOT}/index.js`,
+  `${EXTENSION_STORAGE_ROOT}/package.json`,
+  `${EXTENSION_STORAGE_ROOT}/LICENSE`,
+]
+const APPROVED_EXTENSION_STORAGE_ENTRIES = new Set([
+  EXTENSION_STORAGE_ROOT,
+  `${EXTENSION_STORAGE_ROOT}/build`,
+  `${EXTENSION_STORAGE_ROOT}/build/Release`,
+  EXTENSION_STORAGE_NATIVE,
+  ...REQUIRED_EXTENSION_STORAGE_ENTRIES,
 ])
 const runtimeRequire = createRequire(import.meta.url)
 const FORBIDDEN_RUNTIME_MARKERS = [
@@ -156,8 +176,13 @@ export function requiredNativeEntries(
   _architecture: string,
 ): readonly string[] {
   return platform === 'darwin'
-    ? [PTY_NATIVE_ENTRY, PTY_SPAWN_HELPER_ENTRY, RENAME_NATIVE_ENTRY]
-    : [PTY_NATIVE_ENTRY, RENAME_NATIVE_ENTRY]
+    ? [
+        PTY_NATIVE_ENTRY,
+        PTY_SPAWN_HELPER_ENTRY,
+        RENAME_NATIVE_ENTRY,
+        EXTENSION_STORAGE_NATIVE,
+      ]
+    : [PTY_NATIVE_ENTRY, RENAME_NATIVE_ENTRY, EXTENSION_STORAGE_NATIVE]
 }
 
 export function inspectRenameNoReplaceApi(binding: unknown): void {
@@ -201,6 +226,22 @@ export function inspectPackagedRuntimeGraph(
       throw new Error(`Packaged runtime is missing no-replace helper entry ${required}`)
     }
   }
+  for (const required of [
+    '/out/preload/extension-guest.js',
+    ...REQUIRED_EXTENSION_STORAGE_ENTRIES,
+  ]) {
+    if (!entries.includes(required))
+      throw new Error(`Packaged runtime is missing extension support ${required}`)
+  }
+  const unexpectedExtensionEntry = entries.find(
+    (entry) =>
+      entry.startsWith(`${EXTENSION_STORAGE_ROOT}/`) &&
+      !APPROVED_EXTENSION_STORAGE_ENTRIES.has(entry),
+  )
+  if (unexpectedExtensionEntry)
+    throw new Error(
+      `Packaged extension storage retained unexpected build entry ${unexpectedExtensionEntry}`,
+    )
   const unexpectedRenameEntry = entries.find(
     (entry) =>
       entry.startsWith(`${RENAME_PACKAGE_ROOT}/`) &&
@@ -264,7 +305,7 @@ function inspectNativePayloads(
   }
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const { values } = parseArgs({
     options: {
       archive: { type: 'string' },
@@ -297,6 +338,54 @@ function main(): void {
   inspectRenameNoReplaceApi(
     runtimeRequire(`${values.archive}.unpacked${RENAME_NATIVE_ENTRY}`),
   )
+  const extensionStorage = runtimeRequire(
+    `${values.archive}.unpacked${EXTENSION_STORAGE_NATIVE}`,
+  ) as {
+    metadata(): string
+    lockWriter?: unknown
+    openChild?: unknown
+    entryNames?: unknown
+    unlinkChild?: unknown
+  }
+  if (
+    extensionStorage.metadata() !== 'hvir.extension-storage.v1' ||
+    [
+      extensionStorage.lockWriter,
+      extensionStorage.openChild,
+      extensionStorage.entryNames,
+      extensionStorage.unlinkChild,
+    ].some((entry) => typeof entry !== 'function')
+  )
+    throw new Error('Packaged extension storage does not expose its approved private API')
+  const archivePath = resolve(values.archive)
+  const resources = dirname(archivePath)
+  const executable = resolve(
+    resources,
+    platform === 'darwin' ? '../MacOS/hvir' : '../hvir',
+  )
+  await inspectPackagedExtensionAssets(
+    resources,
+    (path) => Promise.resolve(readFileSync(path)),
+    (path) => {
+      const output = execFileSync(
+        executable,
+        [`${archivePath}/out/main/agent-cli.js`, 'validate', '--path', path],
+        {
+          env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+          timeout: 10000,
+          maxBuffer: 256 * 1024,
+          encoding: 'utf8',
+        },
+      )
+      const result = JSON.parse(output) as {
+        ok?: boolean
+        validation?: PackagedExtensionValidation
+      }
+      if (!result.ok || !result.validation)
+        throw new Error('Packaged offline extension validation did not complete')
+      return Promise.resolve(result.validation)
+    },
+  )
   console.log(
     `Verified packaged production graph (${inspection.mainEntries.length} entries) and native payload (${inspection.nativeEntries.length} files).`,
   )
@@ -304,7 +393,7 @@ function main(): void {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    main()
+    await main()
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error))
     process.exitCode = 1

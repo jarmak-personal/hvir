@@ -1,0 +1,18 @@
+{
+  "id": "hvir.future-optional",
+  "name": "Clock",
+  "version": "0.3.0",
+  "contract": "1.1",
+  "requiredCapabilities": ["presentation.read", "context.read"],
+  "optionalCapabilities": ["future.optional-observation"],
+  "access": [],
+  "views": [
+    {
+      "id": "reference",
+      "title": "Clock",
+      "entry": "index.html",
+      "placement": "application",
+      "representations": ["view"]
+    }
+  ]
+}

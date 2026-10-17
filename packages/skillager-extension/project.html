@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Skills in this project</title>
+    <link rel="stylesheet" href="presentation.css" />
+    <link rel="stylesheet" href="skillager.css" />
+  </head>
+  <body class="hvir-guest" data-view="project">
+    <main>
+      <header class="library-heading">
+        <h1>Project skills</h1>
+        <details class="skill-more library-options">
+          <summary class="hvir-focus">Options</summary>
+          <div class="skill-menu">
+            <button id="browse" class="hvir-button">Browse all skills</button>
+            <button id="refresh" class="hvir-button">Refresh skills</button>
+            <button id="manage" class="hvir-button" disabled>Advanced management</button>
+          </div>
+        </details>
+      </header>
+      <button id="open-library" class="hvir-button">Your library</button>
+      <button id="connect-program" class="hvir-button" hidden>Connect Skillager</button>
+      <form id="search-form">
+        <input
+          id="query"
+          class="hvir-input"
+          type="search"
+          aria-label="Skillager indexed search"
+          placeholder="Search skills"
+        /><button class="hvir-button" type="submit">Search</button>
+        <details class="search-options">
+          <summary>Search options</summary>
+          <div>
+            <label
+              ><input id="include-installed" type="checkbox" checked /><span
+                id="installed-label"
+                >Include installed</span
+              ></label
+            ><label><input id="separate-copies" type="checkbox" /> Separate copies</label
+            ><label
+              >Preferred agent
+              <select id="preferred-agent" class="hvir-input">
+                <option value="">All agents</option>
+                <option value="codex">Codex</option>
+                <option value="claude">Claude</option>
+              </select></label
+            >
+          </div>
+          <p id="installed-note" class="hvir-meta"></p>
+        </details>
+      </form>
+      <details id="program-setup" hidden>
+        <summary>Set up Skillager with your agent</summary>
+        <p>
+          Copy this request into your preferred agent. hvir does not install programs or
+          send it to a terminal.
+        </p>
+        <textarea
+          id="setup-request"
+          class="hvir-input"
+          rows="7"
+          readonly
+          aria-label="Copyable Skillager setup request"
+        ></textarea>
+      </details>
+      <p id="state" class="hvir-state" aria-live="polite">Connecting…</p>
+      <div
+        id="skills"
+        class="hvir-list"
+        role="listbox"
+        aria-label="Skill observations"
+      ></div>
+      <nav class="toolbar" aria-label="Skill pages">
+        <button id="previous" class="hvir-button" disabled>Previous</button
+        ><button id="next" class="hvir-button" disabled>Next</button>
+      </nav>
+      <details class="observation-details">
+        <summary>Observation details</summary>
+        <p id="observation-details" class="hvir-meta"></p>
+      </details>
+    </main>
+    <script src="guest-ui.js"></script>
+    <script src="skillager.js"></script>
+  </body>
+</html>

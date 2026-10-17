@@ -228,14 +228,14 @@ export class SshFileAccess {
   async writeFileChunksExclusive(
     path: HostPath,
     chunks: AsyncIterable<Uint8Array>,
-    opts: ProjectFileWriteStreamOptions,
+    opts: Omit<ProjectFileWriteStreamOptions, 'mode'> & { readonly mode: number },
   ): Promise<void> {
     return this.projectTransfer.writeFileChunksExclusive(path, chunks, opts)
   }
 
   async setProjectFileMetadata(
     path: HostPath,
-    opts: ProjectFileMetadataOptions,
+    opts: Omit<ProjectFileMetadataOptions, 'mode'> & { readonly mode: number },
   ): Promise<void> {
     return this.projectTransfer.setMetadata(path, opts)
   }

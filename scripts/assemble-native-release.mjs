@@ -8,6 +8,7 @@ import process from 'node:process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import { renderNativeInstaller } from './render-native-installer.mjs'
+import { buildSkillagerExtensionArchive } from './prepare-skillager-extension.mts'
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const noticesSource = resolve(repositoryRoot, 'THIRD_PARTY_NOTICES.md')
@@ -43,7 +44,15 @@ export async function assembleNativeRelease(options) {
   await requireExactInputs(
     assetDirectory,
     expectedArtifacts.map(({ name }) => name),
+    `hvir-skillager-${version}.zip`,
   )
+
+  const extensionName = `hvir-skillager-${version}.zip`
+  const extension = {
+    ...(await buildSkillagerExtensionArchive(resolve(assetDirectory, extensionName))),
+    name: extensionName,
+    sha256: await sha256File(resolve(assetDirectory, extensionName)),
+  }
 
   const artifacts = await Promise.all(
     expectedArtifacts.map(async (artifact) => ({
@@ -96,6 +105,7 @@ export async function assembleNativeRelease(options) {
     installer,
     notices,
     artifacts,
+    extensions: [extension],
   }
   const manifestName = 'release-manifest.json'
   const manifestPath = resolve(assetDirectory, manifestName)
@@ -103,6 +113,7 @@ export async function assembleNativeRelease(options) {
 
   const checksumNames = [
     ...artifacts.map(({ name }) => name),
+    extension.name,
     installer.name,
     manifestName,
     notices.name,
@@ -143,13 +154,14 @@ function validateOptions(options) {
   }
 }
 
-async function requireExactInputs(assetDirectory, expectedNames) {
+async function requireExactInputs(assetDirectory, expectedNames, extensionName) {
   const entries = await readdir(assetDirectory)
   const allowedGenerated = new Set([
     'install.sh',
     'release-manifest.json',
     'SHA256SUMS',
     'THIRD_PARTY_NOTICES.md',
+    extensionName,
   ])
   const unexpected = entries.filter(
     (name) => !expectedNames.includes(name) && !allowedGenerated.has(name),

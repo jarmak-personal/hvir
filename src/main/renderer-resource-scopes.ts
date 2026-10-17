@@ -9,6 +9,10 @@ export type RendererResourceQualifier =
   | {
       readonly lifetime: 'renderer'
       readonly type:
+        | 'extension-views'
+        | 'extension-package-import'
+        | 'extension-program-connection'
+        | 'extension-demand'
         | 'attention'
         | 'ssh-prompt-presentation'
         | 'diagnostic-report'
@@ -21,6 +25,7 @@ export type RendererResourceQualifier =
   | {
       readonly lifetime: 'workspace'
       readonly type:
+        | 'extension-context'
         | 'pty-session'
         | 'web-pane'
         | 'html-preview'

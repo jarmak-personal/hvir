@@ -25,7 +25,7 @@
   padding: 4px 6px;
   border: 1px solid var(--border-strong);
   border-radius: 4px;
-  background: var(--surface);
+  background-color: var(--surface-2);
   color: var(--text-strong);
 }
 
@@ -34,7 +34,7 @@
   padding: 2px 7px;
   border: 1px solid var(--border-strong);
   border-radius: 4px;
-  background: var(--surface);
+  background-color: var(--surface-2);
   color: var(--text);
   white-space: nowrap;
 }
@@ -42,7 +42,7 @@
 .terminal-search button:hover:not(:disabled),
 .terminal-search button:focus-visible {
   border-color: var(--accent);
-  background: var(--accent-soft);
+  background-color: var(--accent-soft);
   color: var(--text-strong);
 }
 
@@ -83,5 +83,5 @@
 }
 
 .terminal-search-feedback[role='alert'] {
-  color: var(--danger-text, #ef9a9a);
+  color: var(--danger-text);
 }

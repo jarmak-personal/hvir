@@ -83,7 +83,7 @@ describe('compact terminal rail', () => {
     expect(strip?.hidden).toBe(false)
     expect(strip?.firstElementChild).toBe(restore)
     expect(strip?.querySelector('button')).toBe(restore)
-    expect([...(strip?.children ?? [])].map((child) => child.className)).toEqual([
+    expect([...(strip?.children ?? [])].map((child) => child.classList[0])).toEqual([
       'terminal-rail-restore',
       'terminal-rail-compact-rollups',
       'terminal-rail-compact-markers',

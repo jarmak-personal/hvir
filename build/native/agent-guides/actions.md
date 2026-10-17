@@ -1,0 +1,9 @@
+# Named actions and progressive discovery
+
+Installed extension and agent contracts: 1.0. An action declares id, title, view, agents and effects {delete:false,replace:false}; optional description/inputSchema/timeoutMs are bounded. Its view is an ordinary manifest view. It is not a background executor. Use `hvir-agent actions` for metadata, then `hvir-agent action --extension INSTALLATION --action hello` for one untrusted declaration/schema. Use exact installation IDs from live discovery; the package manifest id is not the installation identity.
+
+`hvir-agent run --extension INSTALLATION --action hello --input '{}'` invokes the admitted action without taking focus. In the view, handle {kind:"action",invocation}; reply through bridge.send({kind:"action-result",id:invocation.id,value:{message:"Hello"}}). The invocation exposes action, input, context, caller (human/agent/guest) and authorization (interactive/standing/unapproved). These are hvir's facts; an input claiming human approval changes nothing. Handle action-cancelled and revoked with disposal before late completions.
+
+Global Settings > Extensions > Agent access starts off. The extension must be enabled and have its separate agent-access control on; the action must declare agents:true. Standing "Allow actions within approved access" avoids repeated confirmations for admitted operations. "Also confirm destructive actions" asks for actions declaring delete or replace. Confirmation binds exact input/target/access generation; tighter settings revoke uncommitted work. Declared effects are not native-program confinement.
+
+Action input/result is at most8KiB, concurrency4/installation and16globally. Default lifetime120seconds, optional declared timeoutMs1000–180000. Changing selection cannot retarget an admitted invocation. Hiding does not cancel; closing does. See `guide access`, `guide examples`, `guide connectors`, `guide targeting`.

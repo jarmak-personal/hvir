@@ -31,6 +31,8 @@ export interface StopPtyOptions {
   readonly terminal: ManagedPty
   readonly scenario: string
   readonly signal?: string
+  /** Fixture-owned completion requested only after the exact exit subscription exists. */
+  readonly requestFixtureExit?: () => void
   readonly timeoutMs?: number
   readonly diagnosticProbeTimeoutMs?: number
   readonly probeChildLiveness?: (pid: number) => string | Promise<string>
@@ -179,6 +181,7 @@ export async function stopPtyAndWaitForExit(options: StopPtyOptions): Promise<vo
     terminal,
     scenario,
     signal,
+    requestFixtureExit,
     timeoutMs = 5_000,
     diagnosticProbeTimeoutMs = 250,
     probeChildLiveness = processLiveness,
@@ -198,7 +201,8 @@ export async function stopPtyAndWaitForExit(options: StopPtyOptions): Promise<vo
       })
     })
 
-    supervisor.kill(terminal.id, terminal.ownerId, signal, terminal.ownerGeneration)
+    if (requestFixtureExit) requestFixtureExit()
+    else supervisor.kill(terminal.id, terminal.ownerId, signal, terminal.ownerGeneration)
     if (!(await eventBeforeDeadline(exitEvent, timeoutMs))) {
       const childLiveness = await boundedLivenessProbe(
         () => probeChildLiveness(terminal.pid),
@@ -209,7 +213,10 @@ export async function stopPtyAndWaitForExit(options: StopPtyOptions): Promise<vo
       throw new Error(
         `${scenario} timed out (` +
           `terminalId=${terminal.id}, pid=${terminal.pid}, ` +
-          `requestedSignal=${signal ?? 'default'}, elapsedMs=${elapsedMs}, ` +
+          (requestFixtureExit
+            ? 'requestedAction=fixture-exit, '
+            : `requestedSignal=${signal ?? 'default'}, `) +
+          `elapsedMs=${elapsedMs}, ` +
           `exitCallbackFired=${exitCallbackFired}, ` +
           `supervisorMember=${supervisorMember}, childLiveness=${childLiveness})`,
       )

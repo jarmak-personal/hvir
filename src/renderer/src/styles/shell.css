@@ -11,7 +11,7 @@
   grid-template-rows: minmax(180px, 4fr) 1px var(--terminal-track);
   width: 100%;
   min-height: 0;
-  background: #0f1115;
+  background: var(--panel-surface);
 }
 
 .workbench[hidden] {
@@ -59,7 +59,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #282d36;
+  border-right: 1px solid var(--border-subtle);
 }
 
 .terminal-panel {
@@ -77,8 +77,8 @@
   display: flex;
   align-items: end;
   padding: 4px 6px 0;
-  border-bottom: 1px solid #343a45;
-  background: #111419;
+  border-bottom: 1px solid var(--border-strong);
+  background: var(--chrome-surface);
 }
 
 .rail-nav button {
@@ -88,29 +88,29 @@
   padding: 0 5px;
   overflow: hidden;
   border: 1px solid transparent;
-  border-bottom-color: #343a45;
+  border-bottom-color: var(--border-strong);
   border-radius: 5px 5px 0 0;
-  background: transparent;
-  color: #77808e;
+  background-color: transparent;
+  color: var(--text-muted);
   font-size: calc(10px * var(--hvir-interface-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .rail-nav button:hover:not(:disabled) {
-  color: #c6ccd5;
-  background: #171b21;
+  color: var(--text);
+  background-color: var(--surface-hover);
 }
 
 .rail-nav button.active {
-  border-color: #343a45;
-  border-bottom-color: #15181e;
-  background: #15181e;
-  color: #e1e5eb;
+  border-color: var(--border-strong);
+  border-bottom-color: var(--panel-surface);
+  background-color: var(--navigation-active-surface);
+  color: var(--text-strong);
 }
 
 .rail-nav button:disabled {
-  color: #505865;
+  color: var(--text-disabled);
 }
 
 .rail-content,
@@ -119,7 +119,7 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: #15181e;
+  background: var(--panel-surface);
 }
 
 .rail-section[hidden] {
@@ -129,5 +129,261 @@
 .rail-section .panel-header {
   height: 28px;
   flex-basis: 28px;
-  background: #15181e;
+  background: var(--panel-surface);
+}
+
+.pane-resizer {
+  position: relative;
+  z-index: 5;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: var(--border-subtle);
+  touch-action: none;
+}
+
+.pane-resizer::before,
+.pane-resizer::after {
+  content: '';
+  position: absolute;
+}
+
+.pane-resizer::before {
+  z-index: 0;
+  background: transparent;
+}
+
+.pane-resizer::after {
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 100ms ease;
+}
+
+.pane-resizer:hover::after,
+.pane-resizer:focus-visible::after,
+.pane-resizer:has(:focus-visible)::after,
+.pane-resizer.dragging::after {
+  opacity: 1;
+}
+
+.tree-resizer {
+  grid-column: 2;
+  grid-row: 1 / -1;
+  cursor: col-resize;
+}
+
+/* The track is a hairline; the ::before pseudo keeps a wide invisible grab
+ * zone and paints a soft lens that swells mid-span, echoing the tapered
+ * focus highlight that appears on hover/drag. */
+
+.tree-resizer::before,
+.viewer-split-resizer::before,
+.terminal-split-resizer::before {
+  inset: 0 -3px;
+  background: linear-gradient(
+      to bottom,
+      transparent,
+      color-mix(in srgb, var(--border-strong) 65%, transparent) 30%,
+      var(--border-strong) 50%,
+      color-mix(in srgb, var(--border-strong) 65%, transparent) 70%,
+      transparent
+    )
+    center / 3px min(42%, 360px) no-repeat;
+}
+
+.tree-resizer::after,
+.viewer-split-resizer::after,
+.terminal-split-resizer::after {
+  top: 50%;
+  left: 50%;
+  width: 2px;
+  height: min(42%, 360px);
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    var(--accent-glow) 24%,
+    var(--accent) 50%,
+    var(--accent-glow) 76%,
+    transparent
+  );
+  transform: translate(-50%, -50%);
+}
+
+.viewer-split-resizer {
+  grid-column: 2;
+  min-width: 1px;
+  cursor: col-resize;
+}
+
+.terminal-split-resizer {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 1px;
+  cursor: col-resize;
+}
+
+.terminal-resizer {
+  grid-column: 3 / 5;
+  grid-row: 2;
+  cursor: row-resize;
+}
+
+/* Keep a deliberate full-width horizon only while both primary surfaces are visible. */
+
+.workbench:not(.terminal-focused):not(.terminal-collapsed) > .terminal-resizer {
+  background: var(--border-strong);
+}
+
+.terminal-resizer::before {
+  inset: -3px 0;
+  background: linear-gradient(
+      to right,
+      transparent,
+      color-mix(in srgb, var(--border-strong) 65%, transparent) 24%,
+      var(--border-strong) 50%,
+      color-mix(in srgb, var(--border-strong) 65%, transparent) 76%,
+      transparent
+    )
+    center / min(42%, 440px) 3px no-repeat;
+}
+
+.terminal-resizer::after {
+  top: 50%;
+  left: 50%;
+  width: min(42%, 440px);
+  height: 2px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--accent-glow) 24%,
+    var(--accent) 50%,
+    var(--accent-glow) 76%,
+    transparent
+  );
+  transform: translate(-50%, -50%);
+}
+
+.terminal-mode-controls,
+.tree-collapse-toggle {
+  position: absolute;
+  z-index: 3;
+  top: 50%;
+  left: 50%;
+  opacity: 0;
+  transform: translate(-50%, -50%);
+  transition: opacity 100ms ease;
+}
+
+.pane-resizer:hover > :is(.terminal-mode-controls, .tree-collapse-toggle),
+.pane-resizer:focus-visible > :is(.terminal-mode-controls, .tree-collapse-toggle),
+.pane-resizer:has(:focus-visible) > :is(.terminal-mode-controls, .tree-collapse-toggle),
+.pane-resizer.dragging > :is(.terminal-mode-controls, .tree-collapse-toggle) {
+  opacity: 1;
+}
+
+.terminal-mode-controls {
+  display: flex;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  overflow: hidden;
+  background: var(--surface-raised);
+}
+
+.workbench.terminal-collapsed .terminal-mode-controls {
+  top: auto;
+  bottom: 0;
+  transform: translateX(-50%);
+}
+
+.terminal-focus-toggle,
+.terminal-collapse-toggle,
+.tree-collapse-toggle {
+  border-width: 0;
+  background-color: var(--surface-raised);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.terminal-focus-toggle,
+.terminal-collapse-toggle {
+  width: 28px;
+  height: 22px;
+  padding: 3px 6px;
+}
+
+.terminal-collapse-toggle {
+  border-left: 1px solid var(--border-strong);
+}
+
+.tree-collapse-toggle {
+  width: 20px;
+  height: 30px;
+  padding: 7px 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+}
+
+.terminal-focus-toggle:hover,
+.terminal-focus-toggle:focus-visible,
+.terminal-collapse-toggle:hover,
+.terminal-collapse-toggle:focus-visible,
+.tree-collapse-toggle:hover,
+.tree-collapse-toggle:focus-visible {
+  outline: none;
+  background-color: var(--surface-hover);
+  color: var(--text-strong);
+}
+
+.terminal-focus-toggle:focus-visible,
+.terminal-collapse-toggle:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.terminal-mode-controls:has(:focus-visible),
+.terminal-mode-controls:hover {
+  border-color: var(--accent);
+}
+
+.tree-collapse-toggle:hover,
+.tree-collapse-toggle:focus-visible {
+  border-color: var(--accent);
+}
+
+.terminal-focus-toggle svg,
+.terminal-collapse-toggle svg,
+.tree-collapse-toggle svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+}
+
+body.pane-resizing {
+  user-select: none;
+}
+
+body.pane-resizing-column,
+body.pane-resizing-column * {
+  cursor: col-resize !important;
+}
+
+body.pane-resizing-row,
+body.pane-resizing-row * {
+  cursor: row-resize !important;
+}
+
+.panel-header {
+  flex: 0 0 36px;
+  padding: 0 12px;
+}
+
+.panel-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

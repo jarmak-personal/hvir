@@ -2,8 +2,8 @@
   display: flex;
   gap: 5px;
   padding: 7px 8px;
-  border-bottom: 1px solid #282d36;
-  background: #13161b;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--chrome-surface);
 }
 
 .git-branch-control {
@@ -12,12 +12,12 @@
   align-items: center;
   gap: 5px 7px;
   padding: 7px 8px;
-  border-bottom: 1px solid #282d36;
-  background: #12151a;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-1);
 }
 
 .git-branch-control label {
-  color: #747f8e;
+  color: var(--text-muted);
   font-size: calc(9px * var(--hvir-interface-scale));
   font-weight: 650;
   letter-spacing: 0.04em;
@@ -28,34 +28,34 @@
   min-width: 0;
   height: 25px;
   padding: 0 22px 0 7px;
-  border: 1px solid #343b46;
+  border: 1px solid var(--border-strong);
   border-radius: 4px;
   outline: none;
-  background: #171b21;
-  color: #c7cdd6;
+  background-color: var(--surface-raised);
+  color: var(--text);
   font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .git-branch-control select:focus-visible {
-  border-color: #4d8fd8;
+  border-color: var(--accent);
 }
 
 .git-branch-control select:disabled {
-  color: #7c8592;
+  color: var(--text-muted);
   opacity: 0.72;
 }
 
 .git-branch-control small {
   grid-column: 1 / -1;
   overflow: hidden;
-  color: #7e8998;
+  color: var(--text-muted);
   font-size: calc(9px * var(--hvir-interface-scale));
   line-height: 1.35;
   text-overflow: ellipsis;
 }
 
 .git-branch-control small.error {
-  color: #df858b;
+  color: var(--danger-text);
 }
 
 .git-sync-row {
@@ -73,7 +73,7 @@
   flex: 1;
   flex-direction: column;
   gap: 2px;
-  color: #8c97a6;
+  color: var(--text-muted);
   font-size: calc(9px * var(--hvir-interface-scale));
   line-height: 1.35;
 }
@@ -85,7 +85,7 @@
 }
 
 .git-sync-summary .needs-agent {
-  color: #c6a36c;
+  color: var(--warning-text);
 }
 
 .git-sync-actions {
@@ -107,8 +107,8 @@
 }
 
 .git-tabs button.active {
-  border-color: #4d8fd8;
-  color: #e5e8ed;
+  border-color: var(--accent);
+  color: var(--text-strong);
 }
 
 .git-tabs button:disabled {
@@ -117,7 +117,7 @@
 
 .git-empty {
   padding: 14px 10px;
-  color: #747e8d;
+  color: var(--text-muted);
   font-size: calc(11px * var(--hvir-interface-scale));
 }
 
@@ -135,7 +135,7 @@
   display: flex;
   justify-content: space-between;
   margin: 10px 10px 4px;
-  color: #7f8898;
+  color: var(--text-muted);
   font-size: calc(10px * var(--hvir-interface-scale));
   font-weight: 600;
   text-transform: uppercase;
@@ -144,7 +144,7 @@
 .git-group.branch-point {
   margin-top: 8px;
   padding-top: 4px;
-  border-top: 1px solid #2c323b;
+  border-top: 1px solid var(--border-subtle);
 }
 
 .git-group-toggle {
@@ -153,15 +153,15 @@
   align-items: center;
   gap: 4px;
   padding: 0;
-  border: 0;
-  background: transparent;
+  border-width: 0;
+  background-color: transparent;
   color: inherit;
   font: inherit;
   text-transform: inherit;
 }
 
 .git-group-toggle:hover {
-  color: #b0b8c4;
+  color: var(--text-secondary);
 }
 
 .git-group-chevron {
@@ -189,7 +189,7 @@
 }
 
 .git-file:hover {
-  background: #20242c;
+  background-color: var(--surface-hover);
 }
 
 .git-file-copy {
@@ -213,6 +213,7 @@
   display: flex;
 }
 
+/* Match Files: fixed repository status hues, independent of appearance. */
 .git-file.git-status-untracked .tree-file-stem,
 .git-change-summary.untracked .git-change-marker {
   color: #67ae77;
@@ -237,21 +238,21 @@
 
 .git-file-directory {
   margin-top: 2px;
-  color: #697383;
+  color: var(--text-muted);
   font-size: calc(8px * var(--hvir-interface-scale));
 }
 
 .git-file small {
   flex: 0 0 auto;
-  color: #87909d;
+  color: var(--text-muted);
   font-size: calc(9px * var(--hvir-interface-scale));
   font-variant-numeric: tabular-nums;
 }
 
 .git-file b {
-  color: #67ae77;
+  color: var(--success-text);
 }
 .git-file i {
-  color: #d76d76;
+  color: var(--danger-text);
   font-style: normal;
 }

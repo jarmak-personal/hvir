@@ -11,6 +11,7 @@ import {
 import { LocalHost } from '../project-host'
 import { PtySupervisor } from '../pty/pty-supervisor'
 import { SmokeCleanup } from './cleanup'
+import { verifyPlainShellInterrupt } from './plain-shell-interrupt'
 import {
   reportSmokeFailureEvidence,
   smokeCleanupResource,
@@ -198,6 +199,7 @@ export async function runNativePtySmoke(
             loginShellFixtureRoot,
           )
         : undefined
+    await verifyPlainShellInterrupt(host, supervisor, projectRoot)
     assertNoWindows('after native PTY exit')
     console.log(
       `[smoke] Custom profile + native node-pty ABI OK (pid ${terminal.pid} · no window)`,

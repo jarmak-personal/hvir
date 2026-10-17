@@ -71,7 +71,7 @@ export class SshProjectFileTransfer {
   async writeFileChunksExclusive(
     path: HostPath,
     chunks: AsyncIterable<Uint8Array>,
-    opts: ProjectFileWriteStreamOptions,
+    opts: Omit<ProjectFileWriteStreamOptions, 'mode'> & { readonly mode: number },
   ): Promise<void> {
     this.assertPath(path)
     const session = await this.port.getSftp(opts.signal)
@@ -122,16 +122,20 @@ export class SshProjectFileTransfer {
         await callbackRequest<void>(session, (session, done) =>
           session.close(handle!, done),
         ).catch(() => undefined)
-        await this.perform<void>((session, done) =>
-          session.unlink(path.path, done),
-        ).catch(() => undefined)
+        if (!opts.preserveOnFailure)
+          await this.perform<void>((session, done) =>
+            session.unlink(path.path, done),
+          ).catch(() => undefined)
       }
       throw reason
     }
     this.port.invalidate(path.path)
   }
 
-  async setMetadata(path: HostPath, opts: ProjectFileMetadataOptions): Promise<void> {
+  async setMetadata(
+    path: HostPath,
+    opts: Omit<ProjectFileMetadataOptions, 'mode'> & { readonly mode: number },
+  ): Promise<void> {
     this.assertPath(path)
     await this.request<void>(
       (session, done) =>
@@ -273,6 +277,10 @@ export class SshProjectFileTransfer {
   }
 }
 
+const sessions = new WeakMap<
+  SFTPWrapper,
+  { closed: boolean; pending: Set<(reason: Error) => void> }
+>()
 function callbackRequest<T>(
   session: SFTPWrapper,
   operation: (
@@ -281,14 +289,34 @@ function callbackRequest<T>(
   ) => void,
   onSubmitted?: () => void,
 ): Promise<T> {
+  let lifetime = sessions.get(session)
+  if (!lifetime) {
+    lifetime = { closed: false, pending: new Set() }
+    sessions.set(session, lifetime)
+    const owned = lifetime
+    session.once('close', () => {
+      owned.closed = true
+      for (const cancel of owned.pending) cancel(new Error('SSH SFTP session closed'))
+    })
+  }
+  if (lifetime.closed) return Promise.reject(new Error('SSH SFTP session closed'))
+  const owned = lifetime
   return new Promise<T>((resolve, reject) => {
+    let completed = false
+    const cancel = (reason: Error): void => {
+      settle(reason, undefined as T)
+    }
     let synchronous = true
     let synchronousResult:
       { readonly reason: Error | null | undefined; readonly value: T } | undefined
     const settle = (reason: Error | null | undefined, value: T): void => {
+      if (completed) return
+      completed = true
+      owned.pending.delete(cancel)
       if (reason) reject(reason)
       else resolve(value)
     }
+    owned.pending.add(cancel)
     try {
       operation(session, (reason, value) => {
         if (synchronous) synchronousResult = { reason, value }
@@ -301,7 +329,7 @@ function callbackRequest<T>(
       }
     } catch (reason) {
       synchronous = false
-      reject(reason instanceof Error ? reason : new Error(String(reason)))
+      settle(reason instanceof Error ? reason : new Error(String(reason)), undefined as T)
     }
   })
 }

@@ -1,0 +1,162 @@
+// @vitest-environment happy-dom
+import { act } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import type { ExtensionSourceRequestProposal } from '../src/shared/extensions/source-access'
+import { localPath } from '../src/shared/host-path'
+import { SourceConfirmationDialog } from '../src/renderer/src/workbench/SourceConfirmationDialog'
+
+const proposal: ExtensionSourceRequestProposal = {
+  id: 'decision-one',
+  name: 'Library',
+  source: 'library',
+  description: 'Read selected library files',
+  reportedRoot: localPath('/reported/library'),
+  state: 'ready',
+  root: localPath('/library'),
+}
+let host: HTMLDivElement,
+  root: Root,
+  publish: (next: readonly ExtensionSourceRequestProposal[]) => void,
+  initial: (next: readonly ExtensionSourceRequestProposal[]) => void
+let invoke: ReturnType<
+    typeof vi.fn<(channel: string, input?: unknown) => Promise<unknown>>
+  >,
+  unsubscribe: ReturnType<typeof vi.fn>
+beforeEach(() => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    callback(0)
+    return 1
+  })
+  vi.stubGlobal('cancelAnimationFrame', vi.fn())
+  unsubscribe = vi.fn()
+  const snapshot = new Promise<readonly ExtensionSourceRequestProposal[]>((resolve) => {
+    initial = resolve
+  })
+  invoke = vi.fn<(channel: string, input?: unknown) => Promise<unknown>>(
+    (channel: string) =>
+      channel === 'extensions:source-proposals' ? snapshot : Promise.resolve(),
+  )
+  Object.defineProperty(window, 'hvir', {
+    configurable: true,
+    value: {
+      invoke,
+      on: vi.fn(
+        (
+          _channel: string,
+          listener: (next: readonly ExtensionSourceRequestProposal[]) => void,
+        ) => {
+          publish = listener
+          return unsubscribe
+        },
+      ),
+    },
+  })
+  host = document.createElement('div')
+  document.body.append(host)
+  root = createRoot(host)
+  act(() => root.render(<SourceConfirmationDialog />))
+})
+afterEach(() => {
+  act(() => root.unmount())
+  host.remove()
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+})
+it('keeps a fresh published decision over an older snapshot and submits only its ID and consent', async () => {
+  await act(async () => {
+    publish([proposal])
+    initial([{ ...proposal, id: 'old', name: 'Old library' }])
+    await Promise.resolve()
+  })
+  expect(host.textContent).toContain('Read with Library')
+  expect(host.textContent).not.toContain('Old library')
+  expect(host.textContent).toContain('local: /library')
+  expect(host.textContent).toContain(
+    'does not permit writing files or grant access to agents',
+  )
+  act(() => button('Allow read-only access').click())
+  expect(invoke).toHaveBeenLastCalledWith('extensions:source-decide', {
+    id: 'decision-one',
+    accepted: true,
+  })
+  act(() => publish([]))
+  expect(host.querySelector('[role="dialog"]')).toBeNull()
+})
+it('retires the old component while a reply is held and keeps the next decision independent', async () => {
+  let reject!: (error: Error) => void
+  const reply = new Promise<void>((_resolve, fail) => {
+    reject = fail
+  })
+  invoke.mockImplementationOnce(() => reply)
+  await act(async () => {
+    publish([proposal])
+    await Promise.resolve()
+  })
+  act(() => button('Not now').click())
+  expect(invoke).toHaveBeenLastCalledWith('extensions:source-decide', {
+    id: 'decision-one',
+    accepted: false,
+  })
+  act(() => publish([{ ...proposal, id: 'decision-two', name: 'Next library' }]))
+  await act(async () => {
+    reject(new Error('Old response ended'))
+    await Promise.resolve()
+  })
+  expect(host.textContent).toContain('Read with Next library')
+  expect(host.querySelector('[role="alert"]')).toBeNull()
+  expect(button('Allow read-only access').disabled).toBe(false)
+})
+it('shows the actual ready folder once when it equals the requested folder', async () => {
+  await act(async () => {
+    publish([{ ...proposal, reportedRoot: proposal.root }])
+    await Promise.resolve()
+  })
+  expect(host.textContent).toContain('Folder to read')
+  expect(host.textContent).not.toContain('Requested folder')
+  expect(host.textContent?.split('local: /library')).toHaveLength(2)
+  expect(button('Allow read-only access').disabled).toBe(false)
+})
+it('keeps one decision while showing private preparation and failure without enabling Allow', async () => {
+  const { root: _canonical, ...base } = proposal
+  await act(async () => {
+    publish([{ ...base, state: 'preparing' }])
+    await Promise.resolve()
+  })
+  expect(host.textContent).toContain('Requested folder (not verified)')
+  expect(host.textContent).toContain('local: /reported/library')
+  expect(host.textContent).not.toContain('Folder to read')
+  expect(button('Allow read-only access').disabled).toBe(true)
+  expect(button('Not now').disabled).toBe(false)
+  act(() => button('Allow read-only access').click())
+  expect(invoke).not.toHaveBeenCalledWith('extensions:source-decide', expect.anything())
+  act(() =>
+    publish([{ ...base, state: 'failed', explanation: 'This folder is inaccessible.' }]),
+  )
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain(
+    'This folder is inaccessible.',
+  )
+  expect(button('Allow read-only access').disabled).toBe(true)
+  expect(button('Not now').disabled).toBe(false)
+  act(() => publish([proposal]))
+  expect(host.textContent).toContain('Folder to read')
+  expect(button('Allow read-only access').disabled).toBe(false)
+  expect(host.querySelector('[role="alert"]')).toBeNull()
+})
+it('cleans its subscription and ignores an initial reply after unmount', async () => {
+  act(() => root.render(null))
+  expect(unsubscribe).toHaveBeenCalledOnce()
+  await act(async () => {
+    initial([proposal])
+    await Promise.resolve()
+  })
+  expect(host.querySelector('[role="dialog"]')).toBeNull()
+})
+function button(label: string): HTMLButtonElement {
+  const result = [...host.querySelectorAll('button')].find(
+    (button) => button.textContent === label,
+  )
+  if (!result) throw new Error('Missing trusted action')
+  return result
+}

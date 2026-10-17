@@ -8,7 +8,7 @@
   padding: 0;
   overflow: hidden;
   border-radius: 5px;
-  background: var(--surface-raised);
+  background: var(--surface-0);
 }
 
 .settings-shell-heading {
@@ -68,10 +68,10 @@
 .project-dialog.settings-dialog .settings-section-index button {
   width: 100%;
   padding: 8px 10px;
-  border: 0;
+  border-width: 0;
   border-radius: 3px;
-  color: var(--text-muted);
-  background: transparent;
+  color: var(--text);
+  background-color: transparent;
   font-size: calc(11px * var(--hvir-interface-scale));
   font-weight: 540;
   text-align: left;
@@ -80,13 +80,13 @@
 .project-dialog.settings-dialog .settings-section-index button:hover,
 .project-dialog.settings-dialog .settings-section-index button:focus-visible {
   color: var(--text);
-  background: var(--surface-hover);
+  background-color: var(--surface-hover);
   outline: none;
 }
 
 .project-dialog.settings-dialog .settings-section-index button.active {
   color: var(--text-strong);
-  background: var(--accent-soft);
+  background-color: var(--accent-soft);
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
@@ -96,7 +96,7 @@
 
 .settings-dialog .settings-section-selector select {
   border-color: var(--border-strong);
-  background: var(--surface-2);
+  background-color: var(--surface-2);
   color: var(--text);
 }
 
@@ -255,7 +255,7 @@
   border-radius: 4px;
   outline: none;
   color: var(--text);
-  background: var(--surface-2);
+  background-color: var(--surface-2);
   font: inherit;
 }
 
@@ -357,13 +357,13 @@
 
 .project-dialog.settings-dialog button {
   border-color: var(--border-strong);
-  background: var(--surface-2);
+  background-color: var(--surface-2);
   color: var(--text);
 }
 
 .project-dialog.settings-dialog button:hover:not(:disabled),
 .project-dialog.settings-dialog button:focus-visible {
-  background: var(--surface-hover);
+  background-color: var(--surface-hover);
   color: var(--text-strong);
 }
 

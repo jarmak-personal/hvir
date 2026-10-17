@@ -1,5 +1,6 @@
 import { asHarnessProviderId, asHarnessProfileId } from '../../../shared'
 import type { HarnessProvider, HarnessLaunchSpec } from '../harness-provider-contract'
+import { plainShellLaunch } from './plain-shell-launch'
 import { staticProbe } from '../harness-provider-probes'
 
 /**
@@ -33,11 +34,11 @@ export const plainShellProvider: HarnessProvider = {
   probe: staticProbe('none', false, 'none'),
 
   launch(ctx): HarnessLaunchSpec {
-    return { file: ctx.defaultShell, args: ['-l'] }
+    return plainShellLaunch(ctx.defaultShell, ctx.commandOnce)
   },
 
   resume(ctx): HarnessLaunchSpec {
-    return this.launch(ctx)
+    return plainShellLaunch(ctx.defaultShell)
   },
 }
 

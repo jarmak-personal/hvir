@@ -120,7 +120,7 @@ export function createArchitectureInventory(repositoryRoot: string) {
     const result: SourceInventory = new Map()
     const tracked = [...tree(revision ?? fullCommit(root, 'HEAD')).keys()]
     function add(path: string, bytes: Buffer): void {
-      if (disposableDirectory(path))
+      if (disposableDirectory(path, policy))
         throw new Error(`Tracked maintained path hidden by disposable role: ${path}`)
       if (!isSource(path, bytes, policy)) return
       if (!inScope(path, policy))
@@ -130,7 +130,7 @@ export function createArchitectureInventory(repositoryRoot: string) {
     if (revision) {
       const entries = tree(revision)
       for (const path of entries.keys())
-        if (disposableDirectory(path))
+        if (disposableDirectory(path, policy))
           throw new Error(`Tracked files hidden by disposable role: ${path}`)
       // Data/binary bodies have no role in line-count or alias proof.
       const required = [...entries].filter(
@@ -193,7 +193,7 @@ export function createArchitectureInventory(repositoryRoot: string) {
       }
       if (visited.has(path)) return
       visited.add(path)
-      if (disposableDirectory(path)) {
+      if (disposableDirectory(path, policy)) {
         if ([...owned].some((p) => p === path || p.startsWith(`${path}/`)))
           throw new Error(`Tracked files hidden by disposable role: ${path}`)
         return

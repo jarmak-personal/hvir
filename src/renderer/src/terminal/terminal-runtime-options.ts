@@ -26,6 +26,8 @@ export interface FreshTerminalStart {
 }
 
 export interface TerminalRuntimeOptions {
+  readonly commandTicket?: string
+  readonly commandWorkspaceId?: string
   readonly sessionId: string
   readonly profileId: HarnessProfileId
   readonly launchRevision: number

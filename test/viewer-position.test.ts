@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import {
   enableSourceLineAnchors,
   enableTaskLists,
-} from '../src/renderer/src/viewer/markdown-extensions'
+} from '../src/shared/presentation/document-markdown/extensions'
 import {
   approximateLineAtScroll,
   approximateScrollForLine,

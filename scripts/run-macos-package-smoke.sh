@@ -28,6 +28,7 @@ package_id='dev.hvir.app'
 application='/Applications/hvir.app'
 executable="$application/Contents/MacOS/hvir"
 command='/usr/local/bin/hvir'
+agent_command='/usr/local/bin/hvir-agent'
 inventory='/Library/Application Support/hvir/package-inventory-v1.txt'
 receipt="$package_id"
 expected_team_id=${HVIR_MACOS_EXPECTED_TEAM_ID:-}
@@ -42,7 +43,7 @@ if [[ ${#package_matches[@]} -ne 1 ]]; then
 fi
 package_path="$source_checkout/${package_matches[0]}"
 
-for path in "$application" "$command" "$inventory"; do
+for path in "$application" "$command" "$agent_command" "$inventory"; do
   if [[ -e "$path" || -L "$path" ]]; then
     echo "Refusing to replace pre-existing acceptance host state: $path" >&2
     exit 1
@@ -74,7 +75,7 @@ installed_by_smoke=0
 
 remove_package_state() {
   sudo /bin/rm -rf -- "$application"
-  sudo /bin/rm -f -- "$command" "$inventory"
+  sudo /bin/rm -f -- "$command" "$agent_command" "$inventory"
   sudo /bin/rmdir '/Library/Application Support/hvir' 2>/dev/null || true
   sudo pkgutil --forget "$receipt" >/dev/null 2>&1 || true
 }
@@ -366,6 +367,8 @@ grep -Fxq 'hvir-native-package-inventory-v1' "$inventory"
 grep -Fxq 'package-id=dev.hvir.app' "$inventory"
 grep -Fxq 'application=/Applications/hvir.app' "$inventory"
 grep -Fxq 'command=/usr/local/bin/hvir' "$inventory"
+grep -Fxq 'agent-command=/usr/local/bin/hvir-agent' "$inventory"
+grep -Fq 'hvir-native-agent-command-v1' "$agent_command"
 grep -Fxq 'inventory=/Library/Application Support/hvir/package-inventory-v1.txt' \
   "$inventory"
 grep -Fxq 'receipt=dev.hvir.app' "$inventory"
@@ -447,6 +450,7 @@ else
 fi
 
 assert_packaged_runtime
+HOME="$home_root" node scripts/agent-installed-reference-probe.mts --command "$agent_command"
 run_installed_startup current
 
 if HOME="$home_root" \
@@ -462,7 +466,7 @@ HOME="$home_root" \
   PATH='/usr/bin:/bin:/usr/sbin:/sbin' \
   "$current_installer" --uninstall
 installed_by_smoke=0
-for path in "$application" "$command" "$inventory"; do
+for path in "$application" "$command" "$agent_command" "$inventory"; do
   if [[ -e "$path" || -L "$path" ]]; then
     echo "Package-owned state survived removal: $path" >&2
     exit 1

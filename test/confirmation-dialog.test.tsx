@@ -29,6 +29,103 @@ afterEach(() => {
 })
 
 describe('ConfirmationDialog', () => {
+  it('gives only the topmost trusted dialog focus and keyboard, including a later background mount', () => {
+    const agentCancel = vi.fn(),
+      connectionCancel = vi.fn(),
+      settingsEscape = vi.fn()
+    const settingsKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') settingsEscape()
+    }
+    window.addEventListener('keydown', settingsKey)
+    const render = (agent: boolean): void => {
+      act(() =>
+        root.render(
+          <>
+            {agent ? (
+              <ConfirmationDialog
+                key="agent"
+                labelledBy="agent-title"
+                actions={[
+                  { label: 'Cancel agent', kind: 'cancel', onSelect: agentCancel },
+                ]}
+              >
+                <h4 id="agent-title">Agent</h4>
+              </ConfirmationDialog>
+            ) : null}
+            <ConfirmationDialog
+              key="connection"
+              labelledBy="connection-title"
+              actions={[
+                { label: 'Not now', kind: 'cancel', onSelect: connectionCancel },
+                { label: 'Connect', kind: 'primary', onSelect: vi.fn() },
+              ]}
+            >
+              <h4 id="connection-title">Connection</h4>
+            </ConfirmationDialog>
+          </>,
+        ),
+      )
+    }
+    try {
+      render(false)
+      const connection = host.querySelector<HTMLElement>(
+        '[aria-labelledby="connection-title"]',
+      )!
+      exposeForFocus(connection, button('Not now'), button('Connect'))
+      expect(document.activeElement).toBe(button('Not now'))
+      render(true)
+      expect(document.activeElement).toBe(button('Not now'))
+      act(() => keydown(button('Not now'), 'Tab'))
+      expect(document.activeElement).toBe(button('Connect'))
+      act(() => keydown(button('Connect'), 'Escape'))
+      expect(connectionCancel).toHaveBeenCalledOnce()
+      expect(agentCancel).not.toHaveBeenCalled()
+      expect(settingsEscape).not.toHaveBeenCalled()
+    } finally {
+      window.removeEventListener('keydown', settingsKey)
+    }
+  })
+  it('contains busy Escape instead of leaking it to another confirmation or Settings', () => {
+    const cancel = vi.fn(),
+      underlying = vi.fn(),
+      settingsEscape = vi.fn()
+    const settingsKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') settingsEscape()
+    }
+    window.addEventListener('keydown', settingsKey)
+    try {
+      act(() =>
+        root.render(
+          <>
+            <ConfirmationDialog
+              labelledBy="underlying-title"
+              actions={[
+                { label: 'Cancel underneath', kind: 'cancel', onSelect: underlying },
+              ]}
+            >
+              <h4 id="underlying-title">Underlying</h4>
+            </ConfirmationDialog>
+            <ConfirmationDialog
+              busy
+              labelledBy="busy-connection-title"
+              actions={[{ label: 'Wait', kind: 'cancel', onSelect: cancel }]}
+            >
+              <h4 id="busy-connection-title">Saving</h4>
+            </ConfirmationDialog>
+          </>,
+        ),
+      )
+      const top = host.querySelector<HTMLElement>(
+        '[aria-labelledby="busy-connection-title"]',
+      )!
+      act(() => keydown(top, 'Escape'))
+      expect(cancel).not.toHaveBeenCalled()
+      expect(underlying).not.toHaveBeenCalled()
+      expect(settingsEscape).not.toHaveBeenCalled()
+    } finally {
+      window.removeEventListener('keydown', settingsKey)
+    }
+  })
   it('focuses the safest action, contains Tab, handles Escape, and marks intent', () => {
     const onCancel = vi.fn()
     const onConfirm = vi.fn()

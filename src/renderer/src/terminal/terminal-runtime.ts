@@ -342,7 +342,7 @@ export class TerminalRuntime {
           replacement,
           this.terminalSize,
           this.currentSnapshot.title,
-          resume,
+          resume, !manualRestart && !reconnect && !this.hasStarted,
         ),
       )
       if (!this.isCurrent(generation)) {

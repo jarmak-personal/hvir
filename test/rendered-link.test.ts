@@ -1,11 +1,11 @@
-import { renderMarkdownDocument } from '../src/renderer/src/viewer/markdown-renderer'
+import { renderMarkdownDocument } from '../src/shared/presentation/document-markdown/rendering'
 import MarkdownIt from 'markdown-it'
 import { describe, expect, it } from 'vitest'
 
 import { localPath, repositoryImageMimeType, resolveRenderedLink } from '../src/shared'
 import { isSafeExternalUrl, isWorkbenchDocument } from '../src/main/navigation-policy'
 import { MARKDOWN_OPTIONS } from '../src/renderer/src/viewer/render-protocol'
-import { enableTaskLists } from '../src/renderer/src/viewer/markdown-extensions'
+import { enableTaskLists } from '../src/shared/presentation/document-markdown/extensions'
 
 describe('rendered document links', () => {
   const document = localPath('/repo/docs/plan/00-overview.md')

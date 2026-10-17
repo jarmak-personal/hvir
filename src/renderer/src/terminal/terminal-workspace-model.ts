@@ -20,6 +20,8 @@ export interface TerminalForkRequest {
 }
 
 export interface TerminalSession {
+  readonly commandTicket?: string
+  readonly commandWorkspaceId?: string
   readonly id: string
   readonly providerId: HarnessProviderId
   readonly profileId: HarnessProfileId

@@ -11,11 +11,13 @@ import {
   type WebContents,
 } from 'electron'
 
+import type { ElectronExtensionGuestSurface } from '../extensions/electron-guest-surface'
 import type { HtmlPreviewProtocol } from '../html-preview-protocol'
 import type { WindowHealthDiagnostic } from '../health/workbench-health-events'
 import { isSafeExternalUrl, isWorkbenchDocument } from '../navigation-policy'
 import { sendRendererEvent } from '../renderer-event-delivery'
 import type { RendererOwner } from '../renderer-resource-scopes'
+import { installGuestWorkbenchKeys } from './electron-guest-keybindings'
 import { installRendererDocumentLifecycle } from './electron-renderer-document-lifecycle'
 import { ElectronRendererRecovery } from './electron-renderer-recovery'
 import { WindowHealthTracker } from './window-health-tracker'
@@ -30,15 +32,13 @@ import {
 } from '../web-pane/web-pane-route-registry'
 import {
   DEFAULT_KEYBINDINGS,
-  keybindingAvailableInContext,
-  matchesKeybinding,
-  type KeybindingAction,
   type KeybindingMap,
   type RendererDiagnosticSession,
   type WebPaneCommandAction,
 } from '../../shared'
 
 export interface ElectronWindowManagerDependencies {
+  readonly extensionGuests?: ElectronExtensionGuestSurface
   readonly htmlPreviews: HtmlPreviewProtocol
   readonly activateRenderer: (ownerId: number) => RendererOwner
   readonly rolloverRenderer: (owner: RendererOwner) => RendererOwner
@@ -199,45 +199,21 @@ export function createElectronWindowManager(
     guest.on('will-redirect', enforceNavigation)
     guest.on('will-prevent-unload', (event) => event.preventDefault())
     guest.on('devtools-opened', () => guest.closeDevTools())
-    guest.on('before-input-event', (event, input) => {
-      if (input.type !== 'keyDown' || input.isAutoRepeat) return
-      const bindings = webPaneBindings.get(ownerId) ?? DEFAULT_KEYBINDINGS
-      const primaryModifier = process.platform === 'darwin' ? input.meta : input.control
-      let action: WebPaneCommandAction | undefined
-      if (
-        input.key.toLowerCase() === 'w' &&
-        primaryModifier &&
-        !input.alt &&
-        !input.shift
-      ) {
-        action = 'closeWebPane'
-      } else if (input.key === 'Escape' && fullPageWebPanes.get(ownerId) === paneId) {
-        action = 'escapeWebPaneFocus'
-      } else {
-        action = (Object.entries(bindings) as [KeybindingAction, string][]).find(
-          ([candidate, binding]) =>
-            keybindingAvailableInContext(candidate, 'web-pane') &&
-            matchesKeybinding(
-              {
-                key: input.key,
-                code: input.code,
-                ctrlKey: input.control,
-                metaKey: input.meta,
-                altKey: input.alt,
-                shiftKey: input.shift,
-              },
-              binding,
-              process.platform === 'darwin',
-            ),
-        )?.[0]
-      }
-      if (!action) return
-      event.preventDefault()
-      if (!dependencies.isRendererCurrent(rendererOwner)) return
-      const owner = webContents.fromId(ownerId)
-      if (owner && !owner.isDestroyed()) {
-        sendRendererEvent(owner, 'web-pane:command', { paneId, action })
-      }
+    installGuestWorkbenchKeys(guest, {
+      bindings: () => webPaneBindings.get(ownerId) ?? DEFAULT_KEYBINDINGS,
+      escapeFullPage: () => fullPageWebPanes.get(ownerId) === paneId,
+      command: (command) => {
+        if (!dependencies.isRendererCurrent(rendererOwner)) return
+        const owner = webContents.fromId(ownerId)
+        const action: WebPaneCommandAction =
+          command === 'closeGuest'
+            ? 'closeWebPane'
+            : command === 'escapeGuestFocus'
+              ? 'escapeWebPaneFocus'
+              : command
+        if (owner && !owner.isDestroyed())
+          sendRendererEvent(owner, 'web-pane:command', { paneId, action })
+      },
     })
   }
 
@@ -258,6 +234,7 @@ export function createElectronWindowManager(
     let hadUsableDocument = false
     const windowHealth = new WindowHealthTracker(dependencies.recordWindowHealth)
 
+    dependencies.extensionGuests?.installWindowLifecycle(win, () => rendererOwner)
     win.on('focus', () => dependencies.setOwnerFocused(rendererOwner, true))
     win.on('blur', () => dependencies.setOwnerFocused(rendererOwner, false))
 
@@ -410,6 +387,11 @@ export function createElectronWindowManager(
 
     // A one-use main-owned route controls each guest and its security preferences.
     win.webContents.on('will-attach-webview', (event, webPreferences, params) => {
+      if (params['partition']?.startsWith('hvir-extension-')) {
+        if (!dependencies.extensionGuests?.claim(rendererOwner, webPreferences, params))
+          event.preventDefault()
+        return
+      }
       const partition = params['partition'] ?? ''
       const paneId =
         params['name'] ||
@@ -441,6 +423,23 @@ export function createElectronWindowManager(
       params['partition'] = route.partition
     })
     win.webContents.on('did-attach-webview', (_event, guest) => {
+      if (
+        dependencies.extensionGuests?.attached(rendererOwner, guest, (close) => {
+          installGuestWorkbenchKeys(guest, {
+            bindings: () => webPaneBindings.get(ownerId) ?? DEFAULT_KEYBINDINGS,
+            command: (action) => {
+              if (!dependencies.isRendererCurrent(rendererOwner)) return
+              if (action === 'closeGuest') {
+                close()
+                return
+              }
+              if (action !== 'escapeGuestFocus')
+                sendRendererEvent(win.webContents, 'extensions:command', action)
+            },
+          })
+        })
+      )
+        return
       const partition = webPaneSessionPartitions.get(guest.session)
       const paneId = partition
         ? webPaneRoutes.bindGuestForPartition(

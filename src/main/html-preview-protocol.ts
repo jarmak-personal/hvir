@@ -25,13 +25,9 @@ export class HtmlPreviewProtocol {
   >()
   private registered = false
 
-  static registerScheme(): void {
-    protocol.registerSchemesAsPrivileged([
-      {
-        scheme: HTML_PREVIEW_SCHEME,
-        privileges: { standard: true, secure: true, bypassCSP: false },
-      },
-    ])
+  static readonly privilegedScheme: Electron.CustomScheme = {
+    scheme: HTML_PREVIEW_SCHEME,
+    privileges: { standard: true, secure: true, bypassCSP: false },
   }
 
   register(): void {

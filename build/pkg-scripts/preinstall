@@ -2,6 +2,7 @@
 set -eu
 
 command_marker='hvir-native-package-command-v1'
+agent_marker='hvir-native-agent-command-v1'
 inventory_marker='hvir-native-package-inventory-v1'
 target_volume=${3:-/}
 
@@ -20,6 +21,14 @@ inventory="$volume_root/Library/Application Support/hvir/package-inventory-v1.tx
 if [ -e "$command" ] || [ -L "$command" ]; then
   if [ ! -f "$command" ] || ! /usr/bin/grep -Fq "$command_marker" "$command"; then
     echo "hvir package preflight refused unowned command: $command" >&2
+    exit 1
+  fi
+fi
+
+agent_command="$volume_root/usr/local/bin/hvir-agent"
+if [ -e "$agent_command" ] || [ -L "$agent_command" ]; then
+  if [ ! -f "$agent_command" ] || ! /usr/bin/grep -Fq "$agent_marker" "$agent_command"; then
+    echo "hvir package preflight refused unowned command: $agent_command" >&2
     exit 1
   fi
 fi

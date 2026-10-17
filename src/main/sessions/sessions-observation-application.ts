@@ -8,11 +8,13 @@ import type {
 } from '../pty/pty-supervisor'
 import type { RendererEventPublisher } from '../renderer-event-publisher'
 import type { TerminalSessionObservationSource } from '../terminal/session-registry'
+import type { LiveSessionMetadataSources } from '../terminal/live-session-metadata'
 import type { WorkbenchRuntime } from '../workbench-runtime'
 import { SessionsObservationPort } from './sessions-observation-port'
 import { SessionsUsageObservationPort } from './sessions-usage-observation-port'
 
 export interface ApplicationSessionsObservation {
+  readonly context: LiveSessionMetadataSources
   readonly observation: SessionsObservationPort
   readonly usage: SessionsUsageObservationPort
 }
@@ -62,5 +64,5 @@ export function installApplicationSessionsObservation(
     }),
     (port) => port.dispose(),
   )
-  return { observation, usage }
+  return { observation, usage, context: observation.context }
 }

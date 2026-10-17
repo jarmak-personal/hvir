@@ -4,8 +4,8 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: #15181e;
-  color: #c9ced7;
+  background: var(--surface-2);
+  color: var(--text);
 }
 
 .diff-shell > .diff-fallback {
@@ -18,19 +18,19 @@
   display: grid;
   gap: 3px;
   padding: 12px 14px;
-  border-bottom: 1px solid #2a3039;
-  color: #9ba5b4;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
   font-size: calc(11px * var(--hvir-interface-scale));
 }
 
 .diff-fallback > header strong {
-  color: #d6a75f;
+  color: var(--warning-text);
   font-size: calc(12px * var(--hvir-interface-scale));
 }
 
 .diff-fallback-path {
   overflow: hidden;
-  color: #c9ced7;
+  color: var(--text);
   font-family: var(--hvir-monospace-font);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -51,7 +51,7 @@
 }
 
 .diff-fallback-side + .diff-fallback-side {
-  border-left: 1px solid #2a3039;
+  border-left: 1px solid var(--border-subtle);
 }
 
 .diff-fallback-meta {
@@ -59,8 +59,8 @@
   display: grid;
   gap: 2px;
   padding: 7px 10px;
-  border-bottom: 1px solid #242933;
-  color: #747e8d;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-muted);
   font-size: calc(10px * var(--hvir-interface-scale));
 }
 
@@ -70,7 +70,7 @@
   margin: 0;
   overflow: auto;
   padding: 10px 12px 48px;
-  color: #aeb6c2;
+  color: var(--text-secondary);
   font-family: var(--hvir-monospace-font);
   font-size: calc(11px * var(--hvir-interface-scale));
   line-height: 1.5;

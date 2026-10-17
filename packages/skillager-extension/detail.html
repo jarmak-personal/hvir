@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Skill instructions</title>
+    <link rel="stylesheet" href="presentation.css" />
+    <link rel="stylesheet" href="skillager.css" />
+  </head>
+  <body class="hvir-guest" data-view="detail">
+    <main>
+      <section id="reader-content" hidden aria-label="Selected skill">
+        <header class="skill-heading">
+          <h1 id="detail-title">Skill instructions</h1>
+          <div class="toolbar instruction-modes" aria-label="Instruction view">
+            <button id="rendered-mode" class="hvir-button">Rendered</button
+            ><button id="source-mode" class="hvir-button">Source</button>
+            <details class="skill-more">
+              <summary class="hvir-focus">More</summary>
+              <div class="skill-menu">
+                <button id="close-instructions" class="hvir-button">
+                  Close instructions
+                </button>
+                <button id="read-current" class="hvir-button">
+                  Refresh instructions
+                </button>
+                <button id="reader-manage" class="hvir-button">
+                  Advanced management
+                </button>
+                <button id="reveal-original" class="hvir-button" hidden>
+                  Reveal original in Files
+                </button>
+                <button id="canonical" class="hvir-button" hidden>
+                  Read library source
+                </button>
+              </div>
+            </details>
+          </div>
+        </header>
+        <section id="selected-task" hidden aria-label="Use this skill">
+          <p id="task-destination" class="hvir-meta"></p>
+          <div class="toolbar task-controls">
+            <label
+              >Agent
+              <select id="task-agent" class="hvir-input">
+                <option value="codex">Codex</option>
+                <option value="claude">Claude</option>
+              </select></label
+            >
+            <label
+              >Copy
+              <select id="task-mode" class="hvir-input">
+                <option value="native">Full</option>
+                <option value="stub">Stub</option>
+              </select></label
+            >
+            <button id="task-primary" class="hvir-button" disabled>Add to project</button>
+            <button id="task-connect" class="hvir-button" hidden>
+              Connect for this project
+            </button>
+            <details id="task-options" class="skill-more" hidden>
+              <summary class="hvir-focus">Skill actions</summary>
+              <div class="skill-menu">
+                <button id="task-update" class="hvir-button" hidden>
+                  Review Full update…
+                </button>
+                <button id="task-refresh" class="hvir-button">Refresh status</button
+                ><button id="task-remove" class="hvir-button" hidden>
+                  Remove from project…
+                </button>
+              </div>
+            </details>
+          </div>
+          <label id="task-export-field" hidden
+            >Local export folder
+            <input
+              id="task-export"
+              class="hvir-input"
+              placeholder="New or empty local folder"
+          /></label>
+          <p id="task-state" class="hvir-state" role="status"></p>
+          <button id="task-reconcile" class="hvir-button" hidden>
+            Inspect uncertain operation
+          </button>
+          <section
+            id="task-confirmation"
+            class="task-review"
+            hidden
+            aria-label="Confirm project change"
+          >
+            <h2 id="task-confirm-title"></h2>
+            <p id="task-confirm-target" class="hvir-meta"></p>
+            <ul id="task-effects"></ul>
+            <details>
+              <summary>Version and file details</summary>
+              <pre id="task-plan"></pre>
+            </details>
+            <div class="toolbar review-actions">
+              <button id="task-confirm" class="hvir-button"></button
+              ><button id="task-cancel" class="hvir-button">Cancel</button>
+            </div>
+          </section>
+          <section
+            id="exact-review"
+            class="task-review"
+            hidden
+            aria-label="Review skill version"
+          >
+            <h2>Review version</h2>
+            <p id="review-version" class="hvir-meta"></p>
+            <div id="review-files" aria-label="All files in this version"></div>
+            <p id="review-file-label" class="hvir-meta"></p>
+            <pre
+              id="review-file-body"
+              tabindex="0"
+              aria-label="Selected review file"
+            ></pre>
+            <div class="toolbar">
+              <button id="review-previous" class="hvir-button" disabled>
+                Previous page</button
+              ><span id="review-page-label"></span
+              ><button id="review-next" class="hvir-button" disabled>Next page</button>
+            </div>
+            <details>
+              <summary>Complete version details</summary>
+              <pre id="review-manifest" tabindex="0"></pre>
+            </details>
+            <div class="toolbar review-actions">
+              <button id="accept-version" class="hvir-button" disabled>
+                Accept version</button
+              ><button id="cancel-review" class="hvir-button">Cancel</button>
+            </div>
+          </section>
+          <details id="task-operation-details">
+            <summary>Operation details</summary>
+            <pre id="task-result"></pre>
+          </details>
+        </section>
+        <p id="reader-state" class="hvir-state" aria-live="polite"></p>
+        <article
+          id="instructions"
+          tabindex="0"
+          aria-label="Selected current skill instructions"
+        ></article>
+        <details class="source-details">
+          <summary>Source details</summary>
+          <p id="source-label" class="hvir-meta"></p>
+          <p id="details" class="hvir-meta"></p>
+        </details>
+      </section>
+    </main>
+    <script src="guest-ui.js"></script>
+    <script src="skillager.js"></script>
+  </body>
+</html>

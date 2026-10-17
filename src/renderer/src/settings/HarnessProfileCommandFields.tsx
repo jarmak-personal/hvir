@@ -24,6 +24,7 @@ export function HarnessProfileCommandFields({
           value={draft.argvText}
           placeholder="--add-dir {binding:monorepo}"
           onChange={(event) => onArguments(event.currentTarget.value)}
+          className="hvir-input"
         />
         <small id="harness-arguments-help">
           Shell-style quoting only; no expansion or command execution. Parsed as{' '}

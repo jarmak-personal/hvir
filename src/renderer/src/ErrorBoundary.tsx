@@ -34,7 +34,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   override render(): ReactNode {
     if (!this.state.error) return this.props.children
     return (
-      <main className="fatal-error" role="alert">
+      <main className="fatal-error hvir-state" role="alert">
         <h1>hvir hit a rendering problem</h1>
         <p>{this.state.error}</p>
         {this.state.occurrenceId ? (
@@ -42,7 +42,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             Reference <code>{this.state.occurrenceId}</code>
           </p>
         ) : null}
-        <button type="button" onClick={() => location.reload()}>
+        <button type="button" onClick={() => location.reload()} className="hvir-button">
           Reload workbench
         </button>
       </main>
