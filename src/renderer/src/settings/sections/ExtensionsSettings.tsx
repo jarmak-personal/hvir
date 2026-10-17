@@ -331,14 +331,14 @@ export function ExtensionsSettings({
             skills, issue databases and other data created by the extension are kept.
           </p>
 
-          <label>
+          <label className="extension-forget-choice">
             <input
               type="checkbox"
               checked={forget}
               onChange={(event) => setForget(event.target.checked)}
               className="hvir-input"
             />
-            Forget saved setup for this extension
+            <span>Forget saved setup for this extension</span>
           </label>
           <p>
             {forget

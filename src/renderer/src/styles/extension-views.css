@@ -389,3 +389,17 @@
   overflow-wrap: anywhere;
   font-size: calc(11px * var(--hvir-interface-scale));
 }
+.extension-confirmation-dialog .extension-forget-choice {
+  display: grid;
+  grid-template-columns: 1em minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  font-size: inherit;
+  line-height: 1.5;
+}
+.extension-confirmation-dialog .extension-forget-choice input {
+  width: 1em;
+  height: 1em;
+  margin: 0.2em 0 0;
+  padding: 0;
+}

@@ -1,4 +1,4 @@
-import { app, type BrowserWindow, type WebContents } from 'electron'
+import { app, nativeImage, type BrowserWindow, type WebContents } from 'electron'
 import { join } from 'node:path'
 import { joinHostPath, localPath, type HostPath } from '../../shared/host-path'
 import type { ProjectHost } from '../project-host/project-host'
@@ -267,10 +267,12 @@ export async function verifySkillagerManagement(
   await host.writeFile(joinHostPath(source, 'support.sh'), support)
   await host.writeFile(
     joinHostPath(source, 'owned.png'),
-    Buffer.from(
-      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZ1kAAAAASUVORK5CYII=',
-      'base64',
-    ),
+    nativeImage
+      .createFromBitmap(Buffer.alloc(1280 * 120 * 4, Buffer.from([165, 135, 92, 255])), {
+        width: 1280,
+        height: 120,
+      })
+      .toPNG(),
   )
   await host.writeFile(
     entry,
@@ -337,7 +339,33 @@ export async function verifySkillagerManagement(
     ])
     await host.writeFile(
       entry,
-      `${original}\nOwned complete fixture revision two.\n${'\nOwned reading paragraph for retained position.\n'.repeat(60)}\n![Owned image](owned.png)\n`,
+      `${original}
+Owned complete fixture revision two.
+
+## Read the current project
+
+Review the selected skill in the context of the project you are working on. Start with its purpose and the constraints that govern a change, then inspect the files and examples that explain the workflow. Reading does not approve a version or run its instructions; those are separate, explicit decisions.
+
+Keep the code viewer and project history nearby while you compare the proposed work with the repository. A useful handoff names the owner of the behavior, describes the smallest coherent change, and gives enough evidence for another contributor to understand what was verified. Preserve the user's local work and report any environment that could not be exercised.
+
+### A representative command
+
+\`\`\`sh
+# Review the exact selected project before making changes.
+skillager project review --project /owned/example/with/a/deliberately/long/path/for/horizontal/reading/without/resizing/the/workbench --json
+\`\`\`
+
+| Step | Expected result | Evidence to retain |
+| --- | --- | --- |
+| Browse the library | Choose the intended skill and read its current instructions | Exact library identity and the visible source name |
+| Review the version | Inspect the complete file inventory before accepting the current version | Acceptance belongs to the current bytes, independently of reading |
+| Add to the project | Select the visible destination and keep the current copy mode | The project result remains independently verifiable after the action |
+
+![Owned image](owned.png)
+
+### Preserve the reading position
+
+${'Follow the existing product boundaries and inspect neighboring consumers before changing a shared owner. Keep authority checks explicit, verify the meaningful lifecycle transitions, and leave the project in a state that another contributor can review without reconstructing the conversation.\n\n'.repeat(24)}`,
     )
     const edit = await cli(['library', 'status', skillId, '--json'])
     if ((edit['skill'] as Record<string, unknown>)['acceptance'] !== 'pending')

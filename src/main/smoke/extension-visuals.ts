@@ -1,4 +1,5 @@
 import { verifyExtensionSettingsGeometry } from './extension-presentation-geometry'
+import { extensionSettingsControls } from './extension-settings-controls'
 import type { BrowserWindow, WebContents } from 'electron'
 import { joinHostPath, localPath } from '../../shared/host-path'
 import type { ProjectHost } from '../project-host/project-host'
@@ -38,7 +39,9 @@ export async function captureExtensionVisuals(
     | 'instructions'
     | 'project'
     | 'acceptance'
+    | 'add'
     | 'update'
+    | 'remove'
     | 'management',
   controls: VisualControls,
   captureDirectory = process.env.HVIR_EXTENSION_VISUAL_DIRECTORY,
@@ -179,6 +182,78 @@ export async function captureExtensionVisuals(
           )
           await settled()
           await write(`instructions-${theme}-${variant}-top`)
+          const reader: unknown = await guest.executeJavaScript(`(() => {
+            const content=document.getElementById('reader-content'), instructions=document.getElementById('instructions'), heading=document.querySelector('.skill-heading');
+            const body=instructions.getBoundingClientRect(), available=content.getBoundingClientRect(), title=heading.getBoundingClientRect();
+            const blocks=[...instructions.querySelectorAll('pre,table,img')].filter(block=>block.checkVisibility());
+            if(Math.abs(body.left-title.left)>1||Math.abs(body.width-available.width)>2||body.right>innerWidth+1||document.documentElement.scrollWidth>innerWidth+1)throw new Error('Instructions are inset from their heading or escape the available pane');
+            if(blocks.some(block=>{const r=block.getBoundingClientRect();return r.left<body.left-1||r.right>body.right+1}))throw new Error('A wide instruction block escapes its reader');
+            return {left:body.left,width:body.width,availableWidth:available.width,blocks:blocks.map(block=>({kind:block.tagName,width:block.getBoundingClientRect().width,scrollWidth:block.scrollWidth})),aligned:true,contained:true};
+          })()`)
+          facts.push({ theme, variant, state, reader })
+          if (
+            await guest.executeJavaScript(
+              "[...document.querySelectorAll('#instructions pre')].some(block=>block.checkVisibility())",
+            )
+          ) {
+            await guest.executeJavaScript(`(() => {
+              const instructions=document.getElementById('instructions'), block=[...instructions.querySelectorAll('pre')].find(item=>item.checkVisibility());
+              instructions.scrollTop+=block.getBoundingClientRect().top-instructions.getBoundingClientRect().top;
+            })()`)
+            await settled()
+            const code: unknown = await guest.executeJavaScript(`(() => {
+              const instructions=document.getElementById('instructions'), block=[...instructions.querySelectorAll('pre')].find(item=>item.checkVisibility());
+              const bounds=instructions.getBoundingClientRect(), rect=block.getBoundingClientRect();
+              if(rect.top<bounds.top-1||rect.bottom>bounds.bottom+1||rect.left<bounds.left-1||rect.right>bounds.right+1)throw new Error('Code capture does not show the visible contained block');
+              block.scrollLeft=block.scrollWidth-block.clientWidth;
+              const overflow=block.scrollWidth>block.clientWidth+1, reachedEnd=Math.abs(block.scrollLeft-(block.scrollWidth-block.clientWidth))<=1;
+              if(!reachedEnd||document.documentElement.scrollWidth>innerWidth+1)throw new Error('Code horizontal scrolling escapes the reader or cannot reach the end');
+              const result={visible:true,contained:true,overflow,scrollLeft:block.scrollLeft,reachedEnd};block.scrollLeft=0;return result;
+            })()`)
+            facts.push({ theme, variant, state, code })
+            await write(`instructions-${theme}-${variant}-blocks`)
+          }
+          if (
+            await guest.executeJavaScript("!!document.querySelector('#instructions img')")
+          ) {
+            await guest.executeJavaScript(
+              "document.querySelector('#instructions img').scrollIntoView({block:'center'})",
+            )
+            await settled()
+            await write(`instructions-${theme}-${variant}-image`)
+          }
+          await guest.executeJavaScript("document.getElementById('source-mode').click()")
+          await controls.wait(
+            async () =>
+              (await guest.executeJavaScript(
+                "document.getElementById('instructions').dataset.mode==='source' && document.getElementById('instructions').textContent.length>0",
+              )) === true,
+            'actual source instructions',
+          )
+          await guest.executeJavaScript(
+            "document.getElementById('instructions').scrollTop=0",
+          )
+          await settled()
+          const source: unknown = await guest.executeJavaScript(`(() => {
+            const instructions=document.getElementById('instructions'), rect=instructions.getBoundingClientRect();
+            if(rect.left<0||rect.right>innerWidth+1||instructions.scrollWidth>instructions.clientWidth+1||document.documentElement.scrollWidth>innerWidth+1)throw new Error('Source instructions overflow the reader');
+            return {contained:true,wrapped:true,width:rect.width,scrollWidth:instructions.scrollWidth};
+          })()`)
+          facts.push({ theme, variant, state, source })
+          await write(`instructions-${theme}-${variant}-source`)
+          await guest.executeJavaScript(
+            "document.getElementById('rendered-mode').click()",
+          )
+          await controls.wait(
+            async () =>
+              (await guest.executeJavaScript(
+                "document.getElementById('instructions').dataset.mode==='rendered' && !!document.getElementById('instructions').firstElementChild",
+              )) === true,
+            'rendered instructions restored',
+          )
+          await guest.executeJavaScript(
+            "document.getElementById('instructions').scrollTop=0",
+          )
           for (const [name, selector] of [
             ['more', '.instruction-modes > .skill-more'],
             ['skill-actions', '#task-options'],
@@ -351,6 +426,65 @@ export async function captureExtensionVisuals(
             }
             await controls.click('Program access')
           }
+          if (state === 'instructions') {
+            await extensionSettingsControls(win, 'Skillager', {
+              wait: (predicate, label) => controls.wait(predicate, label),
+              within: (work) => work,
+            }).click('Remove')
+            await controls.wait(
+              async () =>
+                (await win.webContents.executeJavaScript(`(() => {
+                  const dialog=document.querySelector('[aria-labelledby="extension-remove-title"]');
+                  return !!dialog&&dialog.contains(document.activeElement)&&document.activeElement.textContent.trim()==='Cancel'&&!dialog.querySelector('input[type=checkbox]').checked;
+                })()`)) === true,
+              'removal defaults to keeping setup with safe Cancel focus',
+            )
+            await settled()
+            await write(`settings-removal-${theme}-${variant}-unchecked`)
+            const checkbox = (await win.webContents.executeJavaScript(`(() => {
+              const label=document.querySelector('.extension-forget-choice'), input=label.querySelector('input'), text=label.querySelector('span');
+              const range=document.createRange();range.selectNodeContents(text);const first=range.getClientRects()[0], box=input.getBoundingClientRect();
+              if(!input.checkVisibility()||box.width<=0||box.right>first.left||box.top>=first.bottom||box.bottom<=first.top||text.getBoundingClientRect().right>innerWidth)throw new Error('Removal checkbox is not beside the first label line');
+              return {x:Math.round(first.left+first.width/2),y:Math.round(first.top+first.height/2),checkboxWidth:box.width,firstLineHeight:first.height,aligned:true};
+            })()`)) as { x: number; y: number }
+            win.webContents.sendInputEvent({
+              type: 'mouseDown',
+              button: 'left',
+              clickCount: 1,
+              x: checkbox.x,
+              y: checkbox.y,
+            })
+            win.webContents.sendInputEvent({
+              type: 'mouseUp',
+              button: 'left',
+              clickCount: 1,
+              x: checkbox.x,
+              y: checkbox.y,
+            })
+            await controls.wait(
+              async () =>
+                (await win.webContents.executeJavaScript(
+                  "document.querySelector('.extension-forget-choice input').checked && document.querySelector('[aria-labelledby=\"extension-remove-title\"]').textContent.includes('fresh setup')",
+                )) === true,
+              'native label activation toggles the removal choice and explanation',
+            )
+            await settled()
+            await write(`settings-removal-${theme}-${variant}-checked`)
+            facts.push({
+              theme,
+              variant,
+              state,
+              removal: { checkbox, labelToggles: true, defaultCancelFocus: true },
+            })
+            await controls.click('Cancel')
+            await controls.wait(
+              async () =>
+                (await win.webContents.executeJavaScript(
+                  "!document.querySelector('[aria-labelledby=\"extension-remove-title\"]') && document.querySelector('.extension-installation h4')?.textContent==='Skillager'",
+                )) === true,
+              'Cancel preserves the selected installation',
+            )
+          }
           if (state === 'unapproved') {
             await section('Appearance', 'appearance')
             await settled()
@@ -471,7 +605,7 @@ export async function captureExtensionVisuals(
       (await win.webContents.capturePage()).toPNG(),
     )
     if (
-      /^(unapproved|library|instructions|project|acceptance|update|management)-/.test(
+      /^(unapproved|library|instructions|project|acceptance|add|update|remove|management)-/.test(
         name,
       )
     )
