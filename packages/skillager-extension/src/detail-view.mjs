@@ -55,7 +55,7 @@ export function bindSkillReader(document, client, ports) {
     // Move the exact rendered nodes; a representation change grants no new source read.
     if (renderedRead?.attached) {
       renderedRead.renderedScroll = body.scrollTop
-      renderedRead.content.append(...body.childNodes)
+      while (body.firstChild) renderedRead.content.appendChild(body.firstChild)
       renderedRead.attached = false
     }
     if (body.dataset.mode === 'source' && body.textContent === text) return
