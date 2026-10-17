@@ -3,12 +3,19 @@ import { runInNewContext } from 'node:vm'
 import { describe, expect, it, vi } from 'vitest'
 import { AGENT_GUIDE_TOPICS } from '../src/shared/agent/reference-catalog'
 import { AGENT_COMMANDS, parseAgentCommand } from '../src/shared/agent/commands'
-import { EXTENSION_CONTRACT } from '../src/shared/extensions/contract'
+import {
+  EXTENSION_CAPABILITIES,
+  EXTENSION_CONTRACT,
+} from '../src/shared/extensions/contract'
 import { validateExtensionManifest } from '../src/shared/extensions/manifest'
 import { validateExtensionItemValue } from '../src/shared/extensions/contributions'
 import { validateConnectorDeclarations } from '../src/shared/extensions/connectors'
 import { connectorFixture } from './fixtures/extension-connector'
 import { installedAuthoringAssets } from '../src/agent-transport/reference-assets'
+import { readAgentGuide } from '../src/agent-transport/reference-assets'
+import { sourceFixture } from './fixtures/extension-source'
+import { deliveryFixture } from './fixtures/extension-delivery'
+import type { HostPath } from '../src/shared/host-path'
 
 describe('installed authoring guides and executable public examples', () => {
   it('indexes every maintained topic, keeps command examples parseable and uses the current starter contract', () => {
@@ -45,6 +52,19 @@ describe('installed authoring guides and executable public examples', () => {
     expect(manifest.access).toEqual([])
     expect(installedAuthoringAssets()).toMatch(/packages\/extension-authoring$/)
   })
+  it('makes every current capability contract reachable through the installed topic lookup exactly once', () => {
+    const documented: string[] = []
+    for (const topic of Object.keys(AGENT_GUIDE_TOPICS)) {
+      const guide = readAgentGuide(topic) as { id: string; content: string }
+      expect(guide.id).toBe(topic)
+      for (const match of guide.content.matchAll(/^### ([a-z]+\.[a-z-]+)$/gm))
+        documented.push(match[1]!)
+    }
+    expect(documented.sort()).toEqual([...EXTENSION_CAPABILITIES].sort())
+    const manifest = (readAgentGuide('manifest') as { content: string }).content
+    for (const capability of EXTENSION_CAPABILITIES)
+      expect(manifest).toContain(capability)
+  })
   it('runs the guide observation against the owning bounded value schema and ships inert destructive preview metadata', () => {
     const text = readFileSync('build/native/agent-guides/examples.md', 'utf8')
     const send = vi.fn()
@@ -71,6 +91,89 @@ describe('installed authoring guides and executable public examples', () => {
       }),
     )
   })
+})
+
+it('executes the installed source example with real grant, paging, release and refusal behavior', async () => {
+  const guide = (readAgentGuide('sources') as { content: string }).content
+  const readCurrent = runInNewContext(
+    `${guide.match(/```js\n([\s\S]*?)```/)![1]!}\nreadCurrentDocument`,
+  ) as (
+    request: (capability: string, input: unknown) => Promise<unknown>,
+    path: HostPath,
+  ) => Promise<{ text: string; selected: { receipt: string; bytes: number } }>
+  const f = sourceFixture()
+  const text = 'Current instructions · '.repeat(300)
+  f.host.readTextFilePrefix.mockResolvedValue({
+    content: text,
+    complete: true,
+    byteLength: Buffer.byteLength(text),
+    lineCount: 1,
+    validUtf8: true,
+  })
+  const request = async (capability: string, input: unknown) => {
+    if (capability === 'source.select') return f.reading.select(f.caller, input)
+    if (capability === 'source.read') return f.reading.read(f.caller, input)
+    throw new Error('Unexpected source operation')
+  }
+  try {
+    await expect(readCurrent(request, f.path)).rejects.toThrow('Grant this source')
+    await f.grant()
+    const result = await readCurrent(request, f.path)
+    expect(result.text).toBe(text)
+    expect(result.selected.bytes).toBe(Buffer.byteLength(text))
+    expect(() => f.reading.read(f.caller, { receipt: result.selected.receipt })).toThrow()
+    let receipt: string | undefined
+    const interrupted = async (capability: string, input: unknown) => {
+      if (capability === 'source.select') {
+        const result = (await request(capability, input)) as { receipt: string }
+        receipt = result.receipt
+        return result
+      }
+      if (!(input as { release?: boolean }).release) throw new Error('View hidden')
+      return request(capability, input)
+    }
+    await expect(readCurrent(interrupted, f.path)).rejects.toThrow('View hidden')
+    expect(() => f.reading.read(f.caller, { receipt })).toThrow()
+  } finally {
+    f.dispose()
+  }
+})
+
+it('executes installed delivery observation against the journal and rejects mixed-revision pages', async () => {
+  const guide = (readAgentGuide('delivery') as { content: string }).content
+  const observe = runInNewContext(
+    `${guide.match(/```js\n([\s\S]*?)```/)![1]!}\nobserveDelivery`,
+  ) as (
+    request: (capability: string, input: unknown) => Promise<unknown>,
+    kind?: string,
+  ) => Promise<{ entries: unknown[]; revision: string }>
+  const f = await deliveryFixture()
+  try {
+    const preview = await f.preview('add')
+    const result = await f.owner.apply(f.caller, { receipt: preview.receipt })
+    expect(result.outcome).toBe('completed')
+    const observed = await observe((capability, input) => {
+      expect(capability).toBe('delivery.status')
+      return Promise.resolve(f.owner.status(f.caller, input))
+    })
+    expect(observed.entries).toEqual([result.record])
+    expect(observed.revision).toBeTypeOf('string')
+    const changed = vi
+      .fn()
+      .mockResolvedValueOnce({
+        entries: [result.record],
+        nextOffset: 1,
+        revision: 'first',
+      })
+      .mockResolvedValueOnce({ entries: [], nextOffset: null, revision: 'changed' })
+    await expect(observe(changed, 'operations')).rejects.toThrow('Delivery changed')
+    expect(changed).toHaveBeenNthCalledWith(2, 'delivery.status', {
+      kind: 'operations',
+      offset: 1,
+    })
+  } finally {
+    await f.dispose()
+  }
 })
 
 it('executes installed connector request examples through the owning approval/execution ports', async () => {

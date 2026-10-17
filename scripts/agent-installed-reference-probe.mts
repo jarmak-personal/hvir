@@ -6,6 +6,7 @@ import { promisify, parseArgs } from 'node:util'
 import { AGENT_CONTRACT } from '../src/shared/agent/contract.ts'
 import { extensionPackageArchive } from './extension-package-archive.mts'
 import { AGENT_GUIDE_TOPICS } from '../src/shared/agent/reference-catalog.ts'
+import { EXTENSION_CAPABILITIES } from '../src/shared/extensions/contract.ts'
 
 const exec = promisify(execFile)
 const { values } = parseArgs({ options: { command: { type: 'string' } }, strict: true })
@@ -50,6 +51,7 @@ async function invoke(
   return response
 }
 try {
+  const guides: string[] = []
   for (const argv of [
     [],
     ['commands'],
@@ -59,8 +61,25 @@ try {
     ['help', 'scaffold'],
     ['help', 'validate'],
     ['help', 'skill'],
-  ])
-    await invoke(argv)
+  ]) {
+    const response = await invoke(argv)
+    if (argv[0] === 'guide' && argv.length === 2) {
+      const guide = response['guide'] as { content?: unknown } | undefined
+      if (typeof guide?.content !== 'string')
+        throw new Error(`Installed guide content is missing: ${argv[1]}`)
+      guides.push(guide.content)
+    }
+  }
+  const documented = guides.flatMap((guide) =>
+    [...guide.matchAll(/^### ([a-z]+\.[a-z-]+)$/gm)].map((match) => match[1]!),
+  )
+  if (
+    JSON.stringify(documented.sort()) !==
+    JSON.stringify([...EXTENSION_CAPABILITIES].sort())
+  )
+    throw new Error(
+      'Installed guides omit, duplicate or retain stale capability contracts',
+    )
   const skill = (await invoke(['skill']))['skill']
   const output = join(directory, 'clock'),
     exported = join(directory, 'SKILL.md')
@@ -86,7 +105,7 @@ try {
   if ((await readdir(directory)).some((name) => name.startsWith('.hvir-authoring-')))
     throw new Error('Known occupied-output refusal left a stage')
   console.log(
-    `HVIR_AGENT_INSTALLED_REFERENCE_OK topics=${Object.keys(AGENT_GUIDE_TOPICS).length} scaffold=1 directory-validate=1 zip-validate=1 exact-skill=1 expected-refusals=5`,
+    `HVIR_AGENT_INSTALLED_REFERENCE_OK topics=${Object.keys(AGENT_GUIDE_TOPICS).length} capabilities=${documented.length} scaffold=1 directory-validate=1 zip-validate=1 exact-skill=1 expected-refusals=5`,
   )
 } finally {
   await rm(temporary, { recursive: true, force: true })

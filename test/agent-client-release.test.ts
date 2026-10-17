@@ -179,6 +179,17 @@ it('inspects complete installed guides, starter, reference and four final client
   try {
     await inspectPackagedExtensionAssets(resources, readFile, validate)
     expect(await readFile(join(f.root, 'manifest.json'))).toEqual(before)
+    const guide = join(resources, 'agent-guides/sources.md'),
+      guideBytes = await readFile(guide)
+    await writeFile(guide, '# Stale installed source guidance\n')
+    await expect(
+      inspectPackagedExtensionAssets(resources, readFile, validate),
+    ).rejects.toThrow('Packaged guide differs')
+    await rm(guide)
+    await expect(
+      inspectPackagedExtensionAssets(resources, readFile, validate),
+    ).rejects.toThrow('ENOENT')
+    await writeFile(guide, guideBytes)
     for (const asset of ['reference.js', 'reference.css', 'catalog.json']) {
       const path = join(resources, 'extension-reference', asset),
         bytes = await readFile(path)

@@ -121,10 +121,18 @@ Each guest gets only `window.hvirExtension.send(message)` and
 First send `{ kind: 'hello', contract: '1.0' }`. hvir replies with `kind: 'hello'`,
 its supported contract, admitted capabilities, presentation, and validation warnings.
 Check the returned capabilities before sending a request. Requests use a bounded
-unique `id`, a `capability`, and optional `input`. Results retain that `id`, contain
+unique `id`, a `capability`, optional `input`, and `actionId: invocation.id` for requests
+made on behalf of a current finite action. Results retain that `id`, contain
 `ok`, and return either `value` or `error` plus warnings. Send `{ kind: 'cancel', id }`
-to cancel pending work. Revocation rejects late completion; canceled work publishes no
-new authority.
+to cancel pending work. Cancellation and revocation suppress later result delivery. A
+still-current request reaching its transport deadline receives exactly one correlated failure;
+completion remains unconfirmed. Physical work retains capacity until settlement, and late
+results are discarded. A timeout does not establish rollback or safe mutation retry.
+
+The complete offline inputs, results, prerequisites and errors are available through
+`hvir-agent guide bridge`, `guide connectors`, `guide sources` and `guide delivery`.
+`guide manifest` indexes every capability; the connector-free `guide authoring` remains
+the short starting path. These guides ship with the installed application and need no checkout.
 
 `presentation.read` returns appearance, the closed semantic CSS color vocabulary,
 interface and monospace font stacks, interface scale, and available
@@ -202,7 +210,9 @@ and a 32 KiB manifest. Interior links and nonregular assets are refused; the exp
 32 installations. Each extension has at most eight views; the application has thirty-two (including updaters).
 Messages are bounded to 16 KiB and thirty per second; pending requests are bounded to
 eight per view, sixteen per extension, and sixty-four application-wide, with a ten
-second ordinary deadline. Finite actions and connectors use their separately bounded lifetimes. hvir refuses excess work instead of maintaining unbounded queues.
+second ordinary deadline. Source decisions, finite actions, connectors and managed delivery
+use their separately bounded lifetimes; `guide bridge` lists their transport deadlines.
+hvir refuses excess work instead of maintaining unbounded queues.
 
 The application registers the HTML preview and extension scheme descriptors together
 once before Electron readiness. Their protocols, origins, policies and resources
@@ -300,14 +310,21 @@ caller. Its optional `delayMs` input is bounded to 500–5000 ms for observing h
 
 The public `actions.invoke` request takes `{ action, input? }` and returns its bounded result.
 hvir sends the target guest `{ kind: 'action', invocation }`; reply with
-`{ kind: 'action-result', id: invocation.id, value }` or an `error`. A hidden handler includes
+`{ kind: 'action-result', id: invocation.id, value }` or an `error`. An action handler includes
 `actionId: invocation.id` on hvir-mediated capability requests. hvir retains the originating
 caller, authorization and context through those requests and any child invocation; expired
 provenance grants nothing. Invocation IDs are delivered once to their negotiated guest,
 and late results cannot settle newer or sibling work. At most four invocations run per
 extension and sixteen globally. Inputs/results are at most 8 KiB. A deadline starts before
 opening: 120 seconds by default, or declared `timeoutMs` from 1000 through 180000. Later
-agent authorization consumes this same main-owned seam.
+agent authorization consumes this same main-owned seam. Nested actions independently validate
+their own input, agent eligibility and effects before any required confirmation. Local human
+and agent view/handler records can coexist with separate authority. A local agent-opened view
+retains its restricted access lifetime after the opening command completes and the CLI exits;
+active commands/actions still cancel with their request. Access revocation retires the view.
+SSH forwarding retains its
+host/connection restrictions. `action-cancelled` retires only the named invocation's work;
+whole-view revocation disposes all work.
 
 ## Local implementation evidence
 
