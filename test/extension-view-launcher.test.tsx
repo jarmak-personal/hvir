@@ -61,21 +61,17 @@ it.each([
     })
   },
 )
-it('preserves secondary manual views without duplicating parameterized task routes', async () => {
+it('uses the declared landing without exposing input-dependent secondary or duplicate task routes', async () => {
   const f = fixture('packages/skillager-extension/hvir-extension.json')
-  const choices = f.host.querySelector<HTMLSelectElement>('select')!
-  expect([...choices.options].map((entry) => entry.value)).toEqual(['library', 'detail'])
+  expect(f.host.querySelector('select')).toBeNull()
+  expect(f.host.querySelectorAll('button')).toHaveLength(1)
   expect(f.host.querySelector('button')?.textContent).toBe('Open Skillager library')
-  act(() => {
-    choices.value = 'detail'
-    choices.dispatchEvent(new Event('change', { bubbles: true }))
-  })
   await act(async () => {
     f.host.querySelector('button')!.click()
     await Promise.resolve()
   })
   expect(f.invoke).toHaveBeenCalledWith('extensions:open-view', {
     installationId: 'installed',
-    contributionId: 'detail',
+    contributionId: 'library',
   })
 })

@@ -18,8 +18,9 @@ export function ExtensionViewLauncher({
   const { taskViews } = extensionActionRoutes(manifest)
   const views = manifest.views.filter(
     (view) =>
-      (view.id === manifest.landing ||
-        (view.placement === 'application' && !view.navigation)) &&
+      (manifest.landing
+        ? view.id === manifest.landing
+        : view.placement === 'application' && !view.navigation) &&
       !taskViews.includes(view),
   )
   const view =
