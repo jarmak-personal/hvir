@@ -54,7 +54,6 @@ export function TerminalRail({
   providers,
   profiles,
   onSplit,
-  onOpenSettings,
   onToggleMenu,
   onToggleMoveMenu,
   onPlanMove,
@@ -86,7 +85,6 @@ export function TerminalRail({
   readonly providers: readonly HarnessProviderDescriptor[]
   readonly profiles: readonly HarnessProfile[]
   readonly onSplit: () => void
-  readonly onOpenSettings: () => void
   readonly onToggleMenu: () => void
   readonly onToggleMoveMenu: () => void
   readonly onPlanMove: (target: WorkspaceState) => void
@@ -166,7 +164,6 @@ export function TerminalRail({
       hidden={!visible}
     >
       <header className="terminal-rail-header hvir-panel" hidden={compact}>
-        <span>Terminals</span>
         <div className="terminal-header-actions">
           <ExtensionTerminalItems placement="header" active={surfaceActive} />
           <button
@@ -253,15 +250,6 @@ export function TerminalRail({
             onClick={onSplit}
           >
             ◫
-          </button>
-          <button
-            type="button"
-            className="terminal-icon-button terminal-settings-button hvir-button"
-            aria-label="Open settings"
-            title="Settings"
-            onClick={onOpenSettings}
-          >
-            ⚙
           </button>
           <div className="terminal-new-control">
             <button

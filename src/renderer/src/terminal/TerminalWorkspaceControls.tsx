@@ -34,7 +34,6 @@ export function TerminalWorkspaceControls({
   commands,
   moving,
   preferences,
-  onOpenSettings,
   onOpenHarnessSettings,
   onAddHarness,
 }: {
@@ -53,7 +52,6 @@ export function TerminalWorkspaceControls({
   readonly commands: ReturnType<typeof useTerminalSessionCommands>
   readonly moving: ReturnType<typeof useTerminalWorkspaceMove>
   readonly preferences: TerminalPreferences
-  readonly onOpenSettings: () => void
   readonly onOpenHarnessSettings: () => void
   readonly onAddHarness: () => void
 }): ReactElement {
@@ -112,7 +110,6 @@ export function TerminalWorkspaceControls({
         providers={providers}
         profiles={profiles}
         onSplit={commands.split}
-        onOpenSettings={onOpenSettings}
         onToggleMenu={() => setMenuOpen((open) => !open)}
         onToggleMoveMenu={() => {
           setMenuOpen(false)

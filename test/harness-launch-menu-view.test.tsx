@@ -146,7 +146,6 @@ describe('harness launch-menu view', () => {
           providers={[provider]}
           profiles={profiles}
           onSplit={vi.fn()}
-          onOpenSettings={vi.fn()}
           onToggleMenu={vi.fn()}
           onToggleMoveMenu={vi.fn()}
           onPlanMove={vi.fn()}
