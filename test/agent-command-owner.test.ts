@@ -13,14 +13,25 @@ import { ProjectRegistry } from '../src/main/project-registry'
 import { LocalHost } from '../src/main/project-host/local-host'
 import { localPath, hostPath, asHostId } from '../src/shared/host-path'
 import { AgentForwardScopeOwner } from '../src/main/agent/forward-scope'
-import { AGENT_CONTRACT, validateAgentRequest } from '../src/shared/agent/contract'
+import {
+  AGENT_CONTRACT,
+  AGENT_LIMITS,
+  validateAgentRequest,
+} from '../src/shared/agent/contract'
+import { validateCapturedExtension } from '../src/main/extensions/package-store'
 import { contextFixture } from './fixtures/extension-context'
-function fixture() {
+import { exampleManifest } from './fixtures/extension-package'
+function fixture(allowedExtensions: readonly string[] = []) {
   const context = contextFixture(),
     reports = new AgentReportOwner(() => undefined)
   const access = new LocalAgentAccessOwner(
     () => undefined,
     () => Promise.resolve(),
+    {
+      allowed: () => allowedExtensions,
+      writable: () => true,
+      signal: () => new AbortController().signal,
+    },
   )
   const ports: AgentWorkbenchPorts = {
     contexts: () => context.contexts,
@@ -48,6 +59,88 @@ function fixture() {
   return { ...context, reports, access, ports, run }
 }
 describe('agent commands through capability owners', () => {
+  it('discovers every action in sixteen-action packages with bounded pages and complete focused declarations', async () => {
+    const installations = ['first', 'second', 'third']
+    const f = fixture(installations)
+    const declared = Array.from({ length: 16 }, (_, index) => ({
+      id: `action-${index}`,
+      title: 'A'.repeat(80),
+      description: 'D'.repeat(500),
+      view: 'detail',
+      agents: true,
+      effects: { delete: false, replace: false },
+      inputSchema: {
+        type: 'object',
+        properties: { name: { type: 'string', maxLength: 64 } },
+        required: ['name'],
+        additionalProperties: false,
+      },
+    }))
+    const revision = validateCapturedExtension({
+      sourceIdentity: '1:1',
+      files: new Map([
+        ['index.html', new Uint8Array()],
+        ['detail.html', new Uint8Array()],
+        [
+          'hvir-extension.json',
+          new TextEncoder().encode(
+            JSON.stringify(exampleManifest({ actions: declared })),
+          ),
+        ],
+      ]),
+    })
+    const activations = installations.map((installationId) => ({
+      installationId,
+      generation: 'current',
+      revision,
+    }))
+    vi.spyOn(f.ports, 'activeInstallations').mockReturnValue(activations)
+    vi.spyOn(f.ports, 'activeInstallation').mockImplementation((id) =>
+      activations.find((activation) => activation.installationId === id),
+    )
+    await f.access.configure({ enabled: true, confirmDestructive: false })
+    const discovered: { installation: string; id: string }[] = []
+    let cursor: string | undefined
+    do {
+      const response = await f.run(['actions', ...(cursor ? ['--cursor', cursor] : [])])
+      expect(response.exitStatus).toBe(0)
+      expect(Buffer.byteLength(JSON.stringify(response) + '\n')).toBeLessThan(
+        AGENT_LIMITS.frameBytes,
+      )
+      const page = JSON.parse(response.stdout) as {
+        items: { installation: string; id: string }[]
+        nextCursor?: string
+      }
+      expect(page.items.length).toBeLessThanOrEqual(32)
+      discovered.push(...page.items.map(({ installation, id }) => ({ installation, id })))
+      cursor = page.nextCursor
+    } while (cursor)
+    expect(discovered).toEqual(
+      installations.flatMap((installation) =>
+        declared.map(({ id }) => ({ installation, id })),
+      ),
+    )
+    for (const declaration of declared) {
+      const response = await f.run([
+        'action',
+        '--extension',
+        'first',
+        '--action',
+        declaration.id,
+      ])
+      expect(response.exitStatus).toBe(0)
+      expect(Buffer.byteLength(JSON.stringify(response) + '\n')).toBeLessThan(
+        AGENT_LIMITS.frameBytes,
+      )
+      expect(JSON.parse(response.stdout)).toMatchObject({
+        installation: 'first',
+        untrusted: true,
+        declaration,
+      })
+    }
+    expect(f.ports.openView).not.toHaveBeenCalled()
+    expect(f.ports.invokeAction).not.toHaveBeenCalled()
+  })
   it('withdraws by handle outside a terminal without selection or extension authority, preserving another report', async () => {
     const f = fixture()
     await f.access.configure({ enabled: true, confirmDestructive: false })

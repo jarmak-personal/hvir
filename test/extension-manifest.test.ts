@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { validateExtensionManifest } from '../src/shared/extensions/manifest'
 import { EXTENSION_LIMITS } from '../src/shared/extensions/contract'
+import { validateCapturedExtension } from '../src/main/extensions/package-store'
 
 import { exampleManifest } from './fixtures/extension-package'
 
@@ -202,17 +203,35 @@ describe('public extension manifest policy', () => {
       tooltip: 'Open',
       click: { view: views[0]!.id, placement: 'viewer' },
     }))
-    const actions = Array.from({ length: EXTENSION_LIMITS.actions }, (_, index) => ({
+    const actions = Array.from({ length: 16 }, (_, index) => ({
       id: `action-${index}`,
-      title: 'Action',
+      title: 'A'.repeat(80),
+      description: 'D'.repeat(500),
       view: views[0]!.id,
       agents: false,
       effects: { delete: false, replace: false },
     }))
-    expect(
-      validateExtensionManifest(exampleManifest({ views, railItems, actions })).manifest
-        .views,
-    ).toHaveLength(8)
+    const manifest = exampleManifest({ views, railItems, actions })
+    const admitted = validateExtensionManifest(manifest).manifest
+    expect(admitted.views).toHaveLength(8)
+    expect(admitted.railItems).toHaveLength(8)
+    expect(admitted.actions).toHaveLength(16)
+    const serialized = JSON.stringify(manifest)
+    const capture = (bytes: number) =>
+      validateCapturedExtension({
+        sourceIdentity: '1:1',
+        files: new Map([
+          ['index.html', new Uint8Array()],
+          [
+            'hvir-extension.json',
+            new TextEncoder().encode(
+              serialized + ' '.repeat(bytes - Buffer.byteLength(serialized)),
+            ),
+          ],
+        ]),
+      })
+    expect(capture(32 * 1024).manifest.actions).toHaveLength(16)
+    expect(() => capture(32 * 1024 + 1)).toThrow('bounded hvir-extension.json')
     for (const overflow of [
       { views: [...views, { ...views[0]!, id: 'extra' }] },
       { railItems: [...railItems, { ...railItems[0]!, id: 'extra' }] },
