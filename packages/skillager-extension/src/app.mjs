@@ -557,11 +557,11 @@ on('refresh', 'click', () => {
   requestRefresh()
 })
 on('next', 'click', () => {
-  if (!lastPage?.next || busy || element('next').disabled) return
+  if (!lastPage?.next || element('next').disabled) return
   requestRefresh({ cursor: lastPage.next, previous: [...previous, cursor] })
 })
 on('previous', 'click', () => {
-  if (!previous.length || busy || element('previous').disabled) return
+  if (!previous.length || element('previous').disabled) return
   requestRefresh({ cursor: previous.at(-1), previous: previous.slice(0, -1) })
 })
 client.listen((message) => {

@@ -99,6 +99,66 @@ it('keeps failed search descriptors separate from old-page navigation and retrie
   expect(f.button('previous').disabled).toBe(true)
 })
 
+it.each(['next', 'previous'] as const)(
+  'honors enabled %s navigation during a background refresh without committing stale rows or duplicate history',
+  async (direction) => {
+    const f = packageView()
+    f.context()
+    await f.flush()
+    if (direction === 'previous') {
+      f.button('next').click()
+      await f.flush()
+    }
+    f.hold()
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(document.getElementById('state')?.dataset.state).toBe('stale')
+    expect(f.button(direction).disabled).toBe(false)
+    f.button(direction).click()
+    f.button(direction).click()
+    f.resume()
+    await f.flush()
+    expect(document.getElementById('skills')?.textContent).toContain(
+      direction === 'next' ? 'Page 1' : 'Page 0',
+    )
+    expect(document.getElementById('state')?.textContent).toContain(
+      direction === 'next' ? 'Page 2' : 'Page 1',
+    )
+    if (direction === 'next') {
+      f.button('previous').click()
+      await f.flush()
+    }
+    expect(f.button('previous').disabled).toBe(true)
+  },
+)
+
+it('replaces queued paging with explicit search/filter intent through a pending connection and hide/show', async () => {
+  const f = packageView()
+  f.context()
+  await f.flush()
+  f.hold()
+  f.button('refresh').click()
+  await vi.advanceTimersByTimeAsync(100)
+  f.button('next').click()
+  f.button('connect-program').click()
+  ;(document.getElementById('separate-copies') as HTMLInputElement).checked = true
+  submitQuery('replacement')
+  expect(f.button('next').disabled).toBe(true)
+  f.button('next').click()
+  f.context(false)
+  f.resume()
+  await f.flush()
+  f.context()
+  f.connected({ connections: [{ connector: 'library-cli', outcome: 'declined' }] })
+  await f.flush()
+  const search = f.calls.find((args) => args[0] === 'search')!
+  expect(search[1]).toBe('replacement')
+  expect(search[search.indexOf('--cursor') + 1]).toBe('')
+  expect(search[search.indexOf('--view') + 1]).toBe('copies')
+  expect(f.calls.filter((args) => args[0] === 'list')).toHaveLength(1)
+  expect(document.getElementById('state')?.textContent).toContain('Page 1')
+  expect(f.button('previous').disabled).toBe(true)
+})
+
 it.each(['library', 'ssh', 'local'])(
   'defaults installed controls only for available exact local workspace (%s)',
   async (kind) => {
