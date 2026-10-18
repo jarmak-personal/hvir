@@ -70,6 +70,11 @@ export async function verifySkillagerProjectConnection(
     joinHostPath(packages, 'example', 'skills', 'package-only', 'SKILL.md'),
     '---\nname: project-connection-proof\ndescription: Unrelated package copy.\n---\n\n# Package copy\n',
   )
+  const currentInventory = `(() => {
+    const rows=[...document.querySelectorAll('#skills [role=option]')];
+    return rows.filter(row=>row.dataset.sourcePath===${JSON.stringify(joinHostPath(skill, 'SKILL.md').path)}).length===1 &&
+      rows.every(row=>row.dataset.sourcePath!==${JSON.stringify(joinHostPath(packages, 'example', 'skills', 'package-only', 'SKILL.md').path)});
+  })()`
   const canonical = (await host.realpath(localPath(executable))).path
   const descriptor = Object.getOwnPropertyDescriptor(dialog, 'showOpenDialog')
   if (!descriptor) throw new Error('Native program chooser is unavailable')
@@ -150,7 +155,7 @@ export async function verifySkillagerProjectConnection(
     await controls.ready(
       async () =>
         (await inspect(
-          `document.getElementById('state')?.dataset.state==='ready' && document.querySelectorAll('#skills [role=option]').length===1 && document.querySelector('#skills [role=option]')?.dataset.sourcePath===${JSON.stringify(joinHostPath(skill, 'SKILL.md').path)}`,
+          `document.getElementById('state')?.dataset.state==='ready' && ${currentInventory}`,
         )) === true,
       'public project inventory includes the pending editable-classified native file once and excludes its package copy',
     )
@@ -167,7 +172,7 @@ export async function verifySkillagerProjectConnection(
     await controls.ready(
       async () =>
         (await inspect(
-          `document.getElementById('state')?.dataset.state==='ready' && document.getElementById('connect-program').hidden && document.getElementById('query').value==='' && document.querySelectorAll('#skills [role=option]').length===1 && document.querySelector('#skills [role=option]')?.dataset.sourcePath===${JSON.stringify(joinHostPath(skill, 'SKILL.md').path)}`,
+          `document.getElementById('state')?.dataset.state==='ready' && document.getElementById('connect-program').hidden && document.getElementById('query').value==='' && ${currentInventory}`,
         )) === true,
       'a fresh already-connected project document automatically lists its current native skill with no interaction',
     )
