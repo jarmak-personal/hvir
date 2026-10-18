@@ -303,6 +303,9 @@ async function refresh() {
           cursor = target.cursor = undefined
           previous = target.previous = []
           pagingControls()
+          if (element('observation-details'))
+            element('observation-details').textContent = ''
+          say('Loading your personal library…', 'connecting')
         }
         library = observed
         libraryStatusNeeded = false

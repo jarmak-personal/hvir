@@ -154,6 +154,9 @@ it.each(['root', 'UUID'] as const)(
     await vi.advanceTimersByTimeAsync(30_000 - Date.now())
     await f.flush()
     expect(document.getElementById('skills')?.children).toHaveLength(0)
+    expect(state().dataset.state).toBe('connecting')
+    expect(state().textContent).toBe('Loading your personal library…')
+    expect(document.getElementById('observation-details')?.textContent).toBe('')
     expect(f.button('next').disabled).toBe(true)
     expect(f.button('previous').disabled).toBe(true)
     const command = f.calls.filter((args) => args[0] === 'list').at(-1)!
