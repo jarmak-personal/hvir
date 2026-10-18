@@ -1,6 +1,7 @@
 # ADR-050: Extension contributions, updater demand, and finite action lifetimes
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-072](ADR-072-sixteen-declared-extension-actions.md) | partial | Eight exported action declarations per installation only.
 
 ## Context
 

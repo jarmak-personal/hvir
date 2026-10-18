@@ -1,6 +1,7 @@
 # ADR-060: Public Skillager advanced local exposure
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-072](ADR-072-sixteen-declared-extension-actions.md) | partial | Prohibition on increasing the eight-action declaration ceiling only.
 > Supersedes: [ADR-059](ADR-059-public-local-skillager-management.md) | partial | Exclusion of native adoption from local management; complete public preservation-backed adoption is permitted by this decision.
 
 ## Context

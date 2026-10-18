@@ -16,15 +16,13 @@ function fixture() {
         new TextEncoder().encode(
           JSON.stringify(
             exampleManifest({
-              actions: [
-                {
-                  id: 'describe',
-                  title: 'Describe',
-                  view: 'detail',
-                  agents: true,
-                  effects: { delete: false, replace: false },
-                },
-              ],
+              actions: Array.from({ length: 16 }, (_, index) => ({
+                id: index ? `describe-${index}` : 'describe',
+                title: 'Describe',
+                view: 'detail',
+                agents: true,
+                effects: { delete: false, replace: false },
+              })),
             }),
           ),
         ),
@@ -62,6 +60,36 @@ function fixture() {
 }
 
 describe('finite named extension actions', () => {
+  it('keeps the 8 KiB input and result bound independent of declaration capacity', async () => {
+    const data = fixture()
+    const input = 'a'.repeat(8190) // JSON's two quotes fill the remaining bytes.
+    expect(() =>
+      data.actions.validateInvocation(
+        data.activation,
+        'describe-15',
+        input + 'a',
+        'human',
+      ),
+    ).toThrow('byte limit')
+    const result = data.actions.invoke(
+      data.owner,
+      data.activation,
+      'describe-15',
+      input,
+      { surface: 'viewer' },
+      'human',
+      'interactive',
+      () => undefined,
+    )
+    await Promise.resolve()
+    const invocation = vi.mocked(data.ports.dispatch).mock.calls[0]![1]
+    expect(invocation.input).toBe(input)
+    expect(() => data.actions.result('view', invocation.id, input + 'a')).toThrow(
+      'byte limit',
+    )
+    data.actions.result('view', invocation.id, input)
+    await expect(result).resolves.toBe(input)
+  })
   it('retains the human caller selection while its separate action view remains runnable and result-bound', async () => {
     const data = fixture()
     const result = data.actions.invoke(
@@ -197,12 +225,12 @@ describe('finite named extension actions', () => {
   it('reserves per-activation opening slots while unrelated installations keep capacity', async () => {
     const data = fixture()
     vi.mocked(data.ports.open).mockImplementation(() => new Promise(() => undefined))
-    const requests = Array.from({ length: 4 }, () =>
+    const requests = Array.from({ length: 4 }, (_, index) =>
       data.actions
         .invoke(
           data.owner,
           data.activation,
-          'describe',
+          `describe-${index + 1}`,
           null,
           { surface: 'viewer' },
           'human',
@@ -215,7 +243,7 @@ describe('finite named extension actions', () => {
       data.actions.invoke(
         data.owner,
         data.activation,
-        'describe',
+        'describe-5',
         null,
         { surface: 'viewer' },
         'human',

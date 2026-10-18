@@ -8,7 +8,7 @@ Every host request for that invocation carries actionId:invocation.id on its req
 
 Global Settings > Extensions > Agent access starts off. The extension must be enabled and have its separate agent-access control on; the action must declare agents:true. Standing "Allow actions within approved access" avoids repeated confirmations for admitted operations. "Also confirm destructive actions" asks for actions declaring delete or replace. Confirmation binds exact input/target/access generation; tighter settings revoke uncommitted work. Declared effects are not native-program confinement.
 
-Action input/result is at most8KiB, concurrency4/installation and16globally. Default lifetime120seconds, optional declared timeoutMs1000–180000. Changing selection cannot retarget an admitted invocation. Hiding does not cancel; closing does. See `guide access`, `guide examples`, `guide connectors`, `guide targeting`.
+Declare at most 16 named actions within the complete 32 KiB manifest. Discovery pages list metadata; the focused action command returns the selected declaration and schema. This does not require one primary button per action. Action input/result is at most 8 KiB, concurrency 4/installation and 16 globally. Default lifetime120seconds, optional declared timeoutMs1000–180000. Changing selection cannot retarget an admitted invocation. Hiding does not cancel; closing does. See `guide access`, `guide examples`, `guide connectors`, `guide targeting`.
 
 ### actions.invoke
 

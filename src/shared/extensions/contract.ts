@@ -54,7 +54,7 @@ export const EXTENSION_LIMITS = {
   messagesPerSecond: 30,
   requestTimeoutMs: 10_000,
   railItems: 8,
-  actions: 8,
+  actions: 16,
   sessions: 128,
   contextBytes: 7 * 1024,
   actionBytes: 8 * 1024,

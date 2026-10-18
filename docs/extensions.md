@@ -297,7 +297,7 @@ setup preserves them through reinstall. Queued writes cannot restore forgotten i
 
 `actions` declare `id`, `title`, a named `view`, whether `agents` may call it, and
 `effects: { delete: boolean, replace: boolean }`. These declarations grant no host access
-or trusted decision. Each package has at most eight actions. A finite invocation opens its
+or trusted decision. Each package has at most sixteen actions within its 32 KiB manifest bound. A finite invocation opens its
 ordinary closable viewer without taking keyboard focus. Hiding stops refresh while the
 admitted invocation continues; close, context revocation, Disable or replacement cancels it.
 An invocation originating in a visible guest retains that caller's selected view; its separate

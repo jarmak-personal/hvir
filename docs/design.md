@@ -540,7 +540,8 @@ exact removal and bounded retention under the extension state writer.
 
 ### [ADR-050 — Extension contributions and action lifetimes](adr/ADR-050-extension-contributions-and-action-lifetimes.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-072](adr/ADR-072-sixteen-declared-extension-actions.md) | partial | Eight exported action declarations per installation only.
 
 Visible contribution demand owns one isolated updater; finite named actions retain caller and
 context through ordinary non-focusing viewer placement, hiding, and explicit close.
@@ -630,7 +631,8 @@ complete token-bound managed-copy plans; current reading and exact acceptance re
 
 ### [ADR-060 — Public Skillager advanced local exposure](adr/ADR-060-public-skillager-advanced-exposure.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-072](adr/ADR-072-sixteen-declared-extension-actions.md) | partial | Prohibition on increasing the eight-action declaration ceiling only.
 > Supersedes: [ADR-059](adr/ADR-059-public-local-skillager-management.md) | partial | Exclusion of native adoption from local management; complete public preservation-backed adoption is permitted by this decision.
 
 Extension-local advanced choices consume complete public token plans, preservation semantics
@@ -728,6 +730,16 @@ main-admitted workspace, preserving host-scoped native approval and application-
 
 Selected-skill tasks retain CLI authority, one exact-version acceptance decision, optional
 complete-file inspection, and explicit trusted project targeting for independent views.
+
+
+### [ADR-072 — Sixteen declared extension actions](adr/ADR-072-sixteen-declared-extension-actions.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-050](adr/ADR-050-extension-contributions-and-action-lifetimes.md) | partial | Eight exported action declarations per installation only.
+> Supersedes: [ADR-060](adr/ADR-060-public-skillager-advanced-exposure.md) | partial | Prohibition on increasing the eight-action declaration ceiling only.
+
+Packages may declare sixteen semantic actions within the existing manifest and discovery bounds;
+invocation capacity, payloads, deadlines, caller provenance and grants remain independently bounded.
 
 
 ## 5. Architecture
