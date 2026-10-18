@@ -35,6 +35,10 @@ export function createSkillagerPackageView(view = 'library') {
     projectApproved = true,
     libraryApproved = true,
     version = '0.9.3',
+    projectInventory: unknown,
+    projectScopeSupported = true,
+    unavailableProject = false,
+    currentWorkspace: { root?: { path?: string } } | undefined,
     resume: (() => void) | undefined,
     finishConnection: ((value: unknown, error?: string) => void) | undefined
   const opened: Record<string, unknown>[] = []
@@ -97,6 +101,43 @@ export function createSkillagerPackageView(view = 'library') {
       } else if (frequency) {
         frequency = false
         value = { outcome: 'not-started', reason: 'frequency' }
+      } else if (
+        !projectScopeSupported &&
+        args[0] === 'list' &&
+        args[args.indexOf('--scope') + 1] === 'project'
+      ) {
+        const receipt = String(++serial)
+        outputs.set(receipt, '')
+        errors.set(
+          receipt,
+          `usage: skillager list ${'options '.repeat(60)}\nskillager list: error: argument --scope: invalid choice: 'project' (choose from 'workspace', 'library')`,
+        )
+        value = { outcome: 'completed', code: 2, receipt }
+      } else if (
+        unavailableProject &&
+        args[0] === 'list' &&
+        args[args.indexOf('--scope') + 1] === 'project'
+      ) {
+        const receipt = String(++serial)
+        outputs.set(
+          receipt,
+          JSON.stringify({
+            schema: 'skillager.list.v1',
+            scope: 'project',
+            project_root: currentWorkspace?.root?.path,
+            observation: {
+              status: 'unavailable',
+              errors: [
+                { code: 'project-unavailable', path: currentWorkspace?.root?.path },
+              ],
+              error_count: 1,
+            },
+            skills: [],
+            next_cursor: null,
+          }),
+        )
+        errors.set(receipt, 'The selected project could not be observed.')
+        value = { outcome: 'completed', code: 2, receipt }
       } else if (fail && (!failOn || args[0] === failOn)) {
         fail = false
         value = { outcome: 'failed', code: 1 }
@@ -154,26 +195,36 @@ export function createSkillagerPackageView(view = 'library') {
                         ],
                         next_cursor: index < 2 ? String(index + 1) : null,
                       }
-                    : args[0] === 'review'
-                      ? { selected: [], action: { changed: [] } }
-                      : args[0] === 'expose'
-                        ? { schema: 'skillager.exposures.v1', exposures: [] }
-                        : {
-                            schema: 'skillager.list.v1',
-                            scope: 'library',
-                            skills: count
-                              ? [
-                                  {
-                                    id: `lib/${index}`,
-                                    name: `Page ${index}`,
-                                    description: '',
-                                    status: 'pending',
-                                    skill_file: `${root}/${index}/SKILL.md`,
-                                  },
-                                ]
-                              : [],
-                            next_cursor: count && index < 2 ? String(index + 1) : null,
-                          },
+                    : args[0] === 'list' &&
+                        args[args.indexOf('--scope') + 1] === 'project'
+                      ? (projectInventory ?? {
+                          schema: 'skillager.list.v1',
+                          scope: 'project',
+                          project_root: currentWorkspace?.root?.path,
+                          observation: { status: 'complete', errors: [], error_count: 0 },
+                          skills: [],
+                          next_cursor: null,
+                        })
+                      : args[0] === 'review'
+                        ? { selected: [], action: { changed: [] } }
+                        : args[0] === 'expose'
+                          ? { schema: 'skillager.exposures.v1', exposures: [] }
+                          : {
+                              schema: 'skillager.list.v1',
+                              scope: 'library',
+                              skills: count
+                                ? [
+                                    {
+                                      id: `lib/${index}`,
+                                      name: `Page ${index}`,
+                                      description: '',
+                                      status: 'pending',
+                                      skill_file: `${root}/${index}/SKILL.md`,
+                                    },
+                                  ]
+                                : [],
+                              next_cursor: count && index < 2 ? String(index + 1) : null,
+                            },
               )
         outputs.set(receipt, text)
         value = { outcome: 'completed', code: 0, receipt }
@@ -241,8 +292,10 @@ export function createSkillagerPackageView(view = 'library') {
     clearTimeout,
   })
   const dispose = () => disposeListeners.forEach((listener) => listener())
-  const context = (visible = true, workspace?: unknown) =>
+  const context = (visible = true, workspace?: unknown) => {
+    currentWorkspace = workspace as typeof currentWorkspace
     receive({ kind: 'context', context: { visible, workspace } })
+  }
   const button = (id: string) => document.getElementById(id) as HTMLButtonElement
   const flush = () => vi.advanceTimersByTimeAsync(1500)
   return {
@@ -256,6 +309,15 @@ export function createSkillagerPackageView(view = 'library') {
     },
     version: (value: string) => {
       version = value
+    },
+    projectInventory: (value: unknown) => {
+      projectInventory = value
+    },
+    unavailableProject: () => {
+      unavailableProject = true
+    },
+    unsupportedProjectScope: () => {
+      projectScopeSupported = false
     },
     capabilities: (capabilities: string[]) => receive({ kind: 'hello', capabilities }),
     requests,

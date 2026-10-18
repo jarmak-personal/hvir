@@ -5,7 +5,9 @@ export class SkillagerSetupError extends Error {
     this.setupState = state
   }
 }
-export const setupRequest = `Install or update the official Skillager CLI from https://github.com/jarmak-personal/skillager/releases/tag/v0.9.5 or a newer official release. Preserve my existing libraries and project skills. Verify skillager --version and the public skillager.library-status.v1, skillager.list.v1 and skillager.search.v1 contracts with pagination. Do not initialize a library or change project setup without my explicit decision. Show me the installed executable so I can choose Connect Skillager in hvir.`
+export const projectInventoryRequirement =
+  'Project inventory requires Skillager 0.9.7 or a supported source build.'
+export const setupRequest = `Install or update the official Skillager CLI from https://github.com/jarmak-personal/skillager/releases or the current supported official source. Preserve my existing libraries and project skills. Verify skillager --version and the public skillager.library-status.v1, skillager.list.v1 and skillager.search.v1 contracts with pagination. ${projectInventoryRequirement} Check list --scope project. Do not initialize a library or change project setup without my explicit decision. Show me the installed executable so I can choose Connect Skillager in hvir.`
 
 export function sameCurrentLibrary(selected, current) {
   if (
@@ -30,7 +32,7 @@ export function firstUseFailure(
   return {
     state: retained ? 'stale' : state,
     setup: ['missing-program', 'update-required'].includes(state),
-    message: `${state === 'missing-program' ? (project ? (canConnect ? 'Skillager is not connected for this project. Choose Connect Skillager here to discover its skills.' : 'Skillager is not connected for this project. Open Settings → Extensions → Project program access to choose and approve its program.') : canConnect ? 'Skillager is not connected. Set it up, then choose Connect Skillager.' : 'Skillager is not connected. Open Settings → Extensions → Program access to choose and approve its program.') : state === 'update-required' ? 'Update Skillager to a supported current public contract.' : project ? 'Skillager could not observe this project. Your personal library stays separate.' : 'Skillager could not observe your library.'}${retained ? ' Last-known rows retained; freshness unavailable.' : ''}`,
+    message: `${state === 'missing-program' ? (project ? (canConnect ? 'Skillager is not connected for this project. Choose Connect Skillager here to discover its skills.' : 'Skillager is not connected for this project. Open Settings → Extensions → Project program access to choose and approve its program.') : canConnect ? 'Skillager is not connected. Set it up, then choose Connect Skillager.' : 'Skillager is not connected. Open Settings → Extensions → Program access to choose and approve its program.') : state === 'update-required' ? (project ? 'Update Skillager to load project skills.' : 'Update Skillager to a supported current public contract.') : project ? (retained ? 'Could not refresh project skills. Showing the last result.' : 'Could not load skills in this project.') : 'Skillager could not observe your library.'}${retained && (!project || state !== 'failed-observation') ? ' Last-known rows retained; freshness unavailable.' : ''}`,
     detail: error.message,
   }
 }

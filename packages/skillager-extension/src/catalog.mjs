@@ -4,7 +4,7 @@ import {
   metadataText as text,
   metadataSourcePath as sourcePath,
 } from './public-metadata.mjs'
-import { SkillagerSetupError } from './library-first-use.mjs'
+import { SkillagerSetupError, projectInventoryRequirement } from './library-first-use.mjs'
 export const MINIMUM_SKILLAGER = '0.9.3'
 export function requireVersion(text) {
   const match = /skillager\s+(\d+)\.(\d+)\.(\d+)/u.exec(text)
@@ -38,11 +38,11 @@ export function libraryStatus(value) {
     count: data.counts?.skills ?? null,
   }
 }
-export function libraryPage(value) {
+function listEnvelope(value, scope) {
   const data = object(value)
   if (
     data.schema !== 'skillager.list.v1' ||
-    data.scope !== 'library' ||
+    data.scope !== scope ||
     !Array.isArray(data.skills) ||
     data.skills.length > 100 ||
     !(
@@ -52,8 +52,14 @@ export function libraryPage(value) {
   )
     throw new SkillagerSetupError(
       'update-required',
-      'Required public contract skillager.list.v1 is missing or invalid. Skillager ≥0.9.3 with the current public library contract is required; no legacy fallback is used.',
+      scope === 'project'
+        ? projectInventoryRequirement
+        : 'Required public contract skillager.list.v1 is missing or invalid. Skillager ≥0.9.3 with the current public library contract is required; no legacy fallback is used.',
     )
+  return data
+}
+export function libraryPage(value) {
+  const data = listEnvelope(value, 'library')
   return {
     rows: data.skills.map((item) => {
       const row = object(item)
@@ -131,63 +137,98 @@ export function searchPage(value, workspace) {
     presence: data.context?.installed_observation ?? 'unknown',
   }
 }
+/** Only this command owns the meaning of argparse's unsupported project scope. */
+export function projectInventoryFailure(error) {
+  if (
+    error.cli?.outcome === 'completed' &&
+    error.cli.code === 2 &&
+    /argument --scope: invalid choice: ['"]project['"]/u.test(error.cli.stderr)
+  )
+    return new SkillagerSetupError('update-required', projectInventoryRequirement)
+  return error
+}
+/** Project membership and copy identity are observed by Skillager, never inferred here. */
 export function projectInventory(value, workspace) {
   if (!localWorkspace(workspace))
     throw new Error('Project presence is unknown without an exact local workspace')
-  const data = object(value)
+  const data = listEnvelope(value, 'project')
+  if (data.project_root !== workspace.root.path)
+    throw new Error('Project inventory does not match the selected local workspace')
+  const observation = object(data.observation)
   if (
-    !Array.isArray(data.selected) ||
-    !Array.isArray(data.action?.changed) ||
-    data.action.changed.length !== 0
+    !['complete', 'partial'].includes(observation.status) ||
+    !Array.isArray(observation.errors) ||
+    observation.errors.length > 20 ||
+    !Number.isSafeInteger(observation.error_count) ||
+    observation.error_count < observation.errors.length ||
+    (observation.status === 'complete' && observation.error_count !== 0) ||
+    (observation.status === 'partial' && observation.error_count === 0)
   )
-    throw new Error('Public project inventory is unavailable')
+    throw new Error('Skillager could not complete this project observation')
+  const errors = observation.errors.map((item) => {
+    const error = object(item)
+    return `${text(error.code, 80)}${error.path === null ? '' : ` · ${text(error.path)}`}`
+  })
+  const identities = new Set()
   return {
-    rows: data.selected.map((item) => {
-      const row = object(item)
+    rows: data.skills.map((item) => {
+      const row = object(item),
+        native = object(row.native),
+        path = sourcePath(row.skill_file)
+      const id = text(row.occurrence_id, 256),
+        managed = row.kind !== 'native'
+      if (
+        !['native', 'full', 'stub', 'router'].includes(row.kind) ||
+        native.scope !== 'project' ||
+        native.managed !== managed ||
+        !path.startsWith(`${workspace.root.path.replace(/\/+$/u, '')}/`) ||
+        path.split('/').some((part) => part === '.' || part === '..') ||
+        identities.has(id) ||
+        (!managed &&
+          (!['pending', 'accepted', 'blocked', 'lint_blocked'].includes(row.status) ||
+            row.exposure !== null)) ||
+        (managed && (row.status !== 'present' || row.trust !== null))
+      )
+        throw new Error('Skillager returned an invalid project occurrence')
+      identities.add(id)
+      const exposure = managed ? object(row.exposure) : undefined
+      if (
+        exposure &&
+        (exposure.scope !== 'project' ||
+          exposure.agent !== native.agent ||
+          `${text(exposure.target)}/SKILL.md` !== path ||
+          exposure.mode !== (row.kind === 'full' ? 'native' : row.kind))
+      )
+        throw new Error('Managed project occurrence does not match its exposure')
+      const canonical = exposure && {
+        library_id: exposure.source_library_id,
+        skill_id: exposure.skill_id,
+      }
       return {
-        id: text(row.id, 256),
-        name: row.name ?? row.id,
-        description: row.summary ?? '',
-        status: text(row.trust ?? 'observed', 80),
-        path: text(row.entrypoint ?? `${text(row.root)}/SKILL.md`),
+        id,
+        skillId: text(row.id, 256),
+        name: text(row.name, 256),
+        description: row.description === null ? '' : text(row.description, 1000),
+        status: text(row.status, 80),
+        path,
         source: 'project',
         host: 'local',
         workspaceId: workspace.id,
-        kind: 'Project original',
+        kind:
+          row.kind === 'native'
+            ? 'Project original'
+            : row.kind === 'stub'
+              ? 'Installed Stub'
+              : row.kind === 'router'
+                ? 'Installed Router'
+                : 'Installed Full',
+        canonical: validCanonical(canonical) ? canonical : null,
       }
     }),
-    coverage: 'observed',
+    next: data.next_cursor,
+    coverage: observation.status,
+    detail: `${observation.error_count} observation issue${observation.error_count === 1 ? '' : 's'}${errors.length ? `\n${errors.join('\n')}` : ''}`,
   }
-}
-export function projectExposures(value, workspace) {
-  if (!localWorkspace(workspace))
-    throw new Error('Project presence is unknown without an exact local workspace')
-  const data = object(value)
-  if (data.schema !== 'skillager.exposures.v1' || !Array.isArray(data.exposures))
-    throw new Error('Public project exposures are unavailable')
-  return data.exposures.map((item) => {
-    const row = object(item)
-    return {
-      id: text(row.exposure_id, 256),
-      name: row.skill_id ?? row.router_slug ?? 'Router',
-      description: `${row.agent} · ${row.mode}`,
-      status: row.status ?? 'observed',
-      path: `${text(row.target)}/SKILL.md`,
-      source: 'project',
-      host: 'local',
-      workspaceId: workspace.id,
-      kind:
-        row.mode === 'stub'
-          ? 'Installed Stub'
-          : row.mode === 'router'
-            ? 'Installed Router'
-            : 'Installed Full',
-      canonical:
-        row.source_library_id && row.skill_id?.startsWith('lib/')
-          ? { library_id: row.source_library_id, skill_id: row.skill_id }
-          : null,
-    }
-  })
 }
 export function searchArgs(
   query,

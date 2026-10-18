@@ -375,7 +375,7 @@ it.each(['declined', 'unavailable', 'interrupted-uncertain'] as const)(
     expect(document.getElementById('program-setup')?.hidden).toBe(false)
     expect(
       (document.getElementById('setup-request') as HTMLTextAreaElement).value,
-    ).toContain('releases/tag/v0.9.5')
+    ).toContain('releases')
     if (outcome === 'interrupted-uncertain') {
       expect(document.getElementById('state')?.textContent).toContain(
         'may have been saved',
@@ -513,7 +513,10 @@ it('shows supported-release update guidance in the project tab without initializ
   expect(document.getElementById('program-setup')?.hidden).toBe(false)
   expect(
     (document.getElementById('setup-request') as HTMLTextAreaElement).value,
-  ).toContain('releases/tag/v0.9.5')
+  ).toContain('releases')
+  expect(
+    (document.getElementById('setup-request') as HTMLTextAreaElement).value,
+  ).toContain('Project inventory requires Skillager 0.9.7 or a supported source build.')
   expect(f.initializationRequests).toEqual([])
 })
 
@@ -584,9 +587,7 @@ it('shows an empty current library and actionable supported-source guidance inde
   )
   expect(document.getElementById('program-setup')?.hidden).toBe(false)
   const request = (document.getElementById('setup-request') as HTMLTextAreaElement).value
-  expect(request).toContain(
-    'https://github.com/jarmak-personal/skillager/releases/tag/v0.9.5',
-  )
+  expect(request).toContain('https://github.com/jarmak-personal/skillager/releases')
   expect(request).toContain('Preserve my existing libraries and project skills')
   expect(f.calls.filter((args) => args[0] === 'list')).toHaveLength(1)
 })

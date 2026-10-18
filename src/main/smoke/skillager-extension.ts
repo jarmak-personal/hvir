@@ -148,7 +148,7 @@ export async function verifySkillagerExtension(
     revision: () => installation()?.acceptedRevision,
   }
   await navigationControls.select()
-  const projectGuest = await bounded(controls.guest(view('project')!))
+  let projectGuest = await bounded(controls.guest(view('project')!))
   await ready(
     projectGuest,
     () =>
@@ -169,8 +169,23 @@ export async function verifySkillagerExtension(
       wait: (predicate, label) => controls.wait(predicate, label),
       ready: (predicate, label) => ready(projectGuest, predicate, label),
       within: bounded,
+      reopen: async () => {
+        await controls.click('Close Skills in this project')
+        await controls.wait(
+          () => !view('project') && projectGuest.isDestroyed(),
+          'ordinary project Close releases the old guest',
+        )
+        await navigationControls.select()
+        projectGuest = await bounded(controls.guest(view('project')!))
+        return projectGuest
+      },
     },
   )
+  if (process.env.HVIR_SKILLAGER_PROJECT_PROOF === '1') {
+    console.log('[smoke] focused genuine project inventory walkthrough complete')
+    console.log('HVIR_SMOKE_OK')
+    return true
+  }
   await selectFreshLibrary()
   const searchPorts = {
     within: bounded,
