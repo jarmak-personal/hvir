@@ -1,6 +1,7 @@
 import { useState, type ReactElement } from 'react'
 import type { ExtensionView } from '../../../shared/extensions/workbench'
 import { useExtensionContributions } from './extension-contribution-context'
+import { ExtensionProjectPicker } from './ExtensionProjectPicker'
 
 /** Only the trusted shell sees the catalog; a guest receives one explicit destination. */
 export function ExtensionWorkspaceTarget({
@@ -16,20 +17,19 @@ export function ExtensionWorkspaceTarget({
     ?.manifest.views.find((entry) => entry.id === view.contributionId)
   if (!view.canChooseWorkspace || contribution?.placement !== 'application') return null
   return (
-    <label className="extension-workspace-target">
-      <span>Project</span>
-      <select
-        className="hvir-input"
-        aria-label="Extension project destination"
-        value={view.context?.workspace?.id ?? ''}
+    <div className="extension-workspace-target" aria-busy={busy}>
+      <ExtensionProjectPicker
+        projects={model?.projects}
+        workspaces={model?.workspaces ?? []}
+        workspace={view.context?.workspace}
         disabled={busy}
-        onChange={(event) => {
+        onChange={(workspaceId) => {
           setBusy(true)
           setError('')
           void window.hvir
             .invoke('extensions:target-view', {
               viewId: view.id,
-              workspaceId: event.target.value || undefined,
+              workspaceId,
             })
             .catch((reason: unknown) =>
               setError(
@@ -40,17 +40,8 @@ export function ExtensionWorkspaceTarget({
             )
             .finally(() => setBusy(false))
         }}
-      >
-        <option value="">Choose a project…</option>
-        {model?.workspaces?.map((workspace) => (
-          <option key={workspace.id} value={workspace.id}>
-            {workspace.id === model.workspaceId ? 'Current · ' : ''}
-            {workspace.name} · {workspace.host}:{' '}
-            {workspace.root?.path ?? 'Path unavailable'}
-          </option>
-        ))}
-      </select>
+      />
       {error ? <span role="status">{error}</span> : null}
-    </label>
+    </div>
   )
 }

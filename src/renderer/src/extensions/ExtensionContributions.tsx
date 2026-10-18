@@ -25,11 +25,12 @@ import {
   useExtensionContributions,
 } from './extension-contribution-context'
 import { useExtensionForeground } from './use-extension-foreground'
+import type { ProjectState } from '../../../shared/workspace-types'
 
 /** Shared trusted data and presentation subscriptions; never executes package code. */
 export function ExtensionContributionsProvider({
   children,
-  workspaceId,
+  projectContext,
   placement,
   onError,
   topActive,
@@ -42,7 +43,10 @@ export function ExtensionContributionsProvider({
   readonly onTop: () => void
   readonly onWorkspace: () => void
   readonly children: ReactNode
-  readonly workspaceId?: string
+  readonly projectContext?: {
+    readonly activeWorkspace?: { readonly id: string }
+    readonly projectState?: Pick<ProjectState, 'projects'>
+  }
   readonly placement: {
     readonly guests: readonly ExtensionView[]
     readonly activate: (id: string, focus?: boolean) => void
@@ -51,6 +55,8 @@ export function ExtensionContributionsProvider({
   }
   readonly onError: (message: string) => void
 }): ReactElement {
+  const workspaceId = projectContext?.activeWorkspace?.id
+  const projects = projectContext?.projectState?.projects
   const views = placement.guests
   const errorRef = useRef(onError)
   errorRef.current = onError
@@ -266,6 +272,7 @@ export function ExtensionContributionsProvider({
         state,
         sessions,
         workspaces,
+        projects,
         terminalIds,
         workspaceId,
         foreground,

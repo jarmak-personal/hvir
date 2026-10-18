@@ -9,6 +9,7 @@ import type {
   ExtensionSurfaceRequest,
   ExtensionView,
 } from '../../../shared/extensions/workbench'
+import type { RegisteredProjectState } from '../../../shared/workspace-types'
 
 export interface Contributions {
   readonly topActive: boolean
@@ -26,6 +27,7 @@ export interface Contributions {
   readonly terminalIds: Readonly<Record<string, string>>
   readonly sessions: readonly ExtensionSessionContext[]
   readonly workspaces?: readonly ExtensionWorkspaceContext[]
+  readonly projects?: readonly RegisteredProjectState[]
   readonly workspaceId?: string
   readonly foreground: boolean
   readonly open: (

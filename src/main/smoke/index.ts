@@ -215,10 +215,8 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       smokeRoot,
       smokeRemoteRoot,
       smokeWebSwitchRoot,
-      mode !== 'platform-contracts' && mode !== 'renderer-recovery',
-      mode === 'terminal-presentation' ||
-        mode === 'document-review' ||
-        mode === 'agent-workbench',
+      mode,
+      Boolean(process.env.HVIR_SKILLAGER_MANAGEMENT_FIXTURE),
     )
     const {
       base: smokeProjectState,

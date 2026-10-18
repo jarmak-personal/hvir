@@ -1,6 +1,7 @@
 import { useState, type ReactElement } from 'react'
 import { extensionActionRoutes } from './extension-action-routes'
 import { useExtensionContributions } from './extension-contribution-context'
+import { ExtensionProjectPicker } from './ExtensionProjectPicker'
 
 /** Trusted action activation is available in Settings regardless of rail visibility. */
 export function ExtensionActions({
@@ -29,33 +30,43 @@ export function ExtensionActions({
     ...(workspace ? { workspaceId: workspace.id } : {}),
     ...(selected ? { sessionId: selected.id } : {}),
   }
+  const sessions =
+    model?.sessions.filter((session) => session.workspace.id === workspace?.id) ?? []
   const { runnable, taskViews } = extensionActionRoutes(extension.manifest)
 
   return (
     <div className="extension-actions">
       {runnable.length || taskViews.some((view) => view.placement === 'workspace') ? (
-        <label>
-          Action context{' '}
-          <select
-            aria-label="Extension action context"
-            value={destination}
-            onChange={(event) => setContextId(event.target.value)}
-            className="hvir-input"
-          >
-            <option value="">Application</option>
-            {workspaces.map((entry) => (
-              <option key={entry.id} value={`workspace:${entry.id}`}>
-                {entry.name} · {entry.host}: {entry.root?.path ?? 'Path unavailable'}
-              </option>
-            ))}
-            {model?.sessions.map((session) => (
-              <option key={session.id} value={`session:${session.id}`}>
-                {session.title} · {session.workspace.host}:{' '}
-                {session.workspace.root?.path ?? session.workspace.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="extension-action-destination">
+          <ExtensionProjectPicker
+            projects={model?.projects}
+            workspaces={workspaces}
+            workspace={workspace}
+            onChange={(id) => setContextId(id ? `workspace:${id}` : '')}
+          />
+          {sessions.length ? (
+            <label>
+              Session
+              <select
+                aria-label="Extension action context"
+                value={selected ? `session:${selected.id}` : ''}
+                onChange={(event) =>
+                  setContextId(
+                    event.target.value || (workspace ? `workspace:${workspace.id}` : ''),
+                  )
+                }
+                className="hvir-input"
+              >
+                <option value="">No session</option>
+                {sessions.map((session) => (
+                  <option key={session.id} value={`session:${session.id}`}>
+                    {session.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+        </div>
       ) : null}
       {taskViews.map((view) => (
         <button

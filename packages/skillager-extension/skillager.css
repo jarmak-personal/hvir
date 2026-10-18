@@ -47,6 +47,9 @@ form,
   flex-wrap: wrap;
   align-items: center;
 }
+#connection-controls:has(> #connect-program[hidden]):has(> #connection-status[hidden]) {
+  display: none;
+}
 #query {
   flex: 1;
   min-width: 0;

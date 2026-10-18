@@ -24,6 +24,41 @@ it('retains the same ordinary guest and selected input while admitting an exact 
     await f.owner.dispose()
   }
 })
+it.each([undefined, 'application'] as const)(
+  'uses only explicit own-view launch context (%s), preserving independent application entry',
+  async (context) => {
+    const f = fixture()
+    try {
+      const source = await attached(f)
+      f.owner.targetWorkspace(f.renderer, source.id, 'workspace')
+      f.owner.receive(10, { kind: 'hello', contract: '1.0' })
+      f.owner.receive(10, {
+        kind: 'request',
+        id: 'open-library',
+        capability: 'viewer.open-own',
+        input: { contributionId: 'detail', ...(context ? { context } : {}) },
+      })
+      await vi.waitFor(() =>
+        expect(
+          f.sent.some(
+            ({ message }) =>
+              message.kind === 'result' && message.id === 'open-library' && message.ok,
+          ),
+        ).toBe(true),
+      )
+      const opened = f.owner
+        .snapshot(f.renderer)
+        .find(({ contributionId }) => contributionId === 'detail')!
+      expect(opened.context?.workspace?.id).toBe(context ? undefined : 'workspace')
+      expect(
+        f.owner.snapshot(f.renderer).find(({ id }) => id === source.id)?.context
+          ?.workspace?.id,
+      ).toBe('workspace')
+    } finally {
+      await f.owner.dispose()
+    }
+  },
+)
 it.each(['agent', 'action'] as const)(
   'does not grant trusted targeting to a %s origin',
   async (origin) => {
