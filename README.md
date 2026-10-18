@@ -75,17 +75,16 @@ Public contributions happen through discussion. Maintainers author issues and ow
 implementation; outside issues and pull requests aren't accepted. See the
 [contributor guide](CONTRIBUTING.md) for the contribution model and workflow.
 
-## Development
+## Customize hvir with your agent
 
-To run from source, install Node 24 or newer:
+Extensions add views, terminal controls, and actions to hvir. The installed `hvir-agent`
+CLI gives your agent offline guides, a ready-to-run starter, and package validation—no
+hvir checkout or build step needed.
 
-```sh
-npm ci
-npm run dev
-```
+> Add a clock to hvir. Start with `hvir-agent guide authoring`, create and validate an
+> extension, then show me how to add it in Settings.
 
-See the [contributor guide](CONTRIBUTING.md) for verification and development workflows,
-and [design and architecture](docs/design.md) for the product philosophy and decisions.
+[Extension setup](docs/extension-setup.md) · [Authoring guide](build/native/agent-guides/authoring.md)
 
 ## License
 
