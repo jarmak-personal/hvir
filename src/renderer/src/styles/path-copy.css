@@ -50,6 +50,6 @@
 
 .path-copy-feedback.error {
   border-color: var(--danger-border);
-  background: var(--surface-raised);
+  background: var(--danger-surface);
   color: var(--danger-text);
 }

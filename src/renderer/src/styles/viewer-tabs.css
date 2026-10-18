@@ -115,7 +115,7 @@
 }
 
 .viewer-tab:hover {
-  background: var(--surface-hover);
+  background: var(--surface-raised);
 }
 
 .viewer-tab.active {
@@ -234,7 +234,7 @@
   padding: 3px 7px;
   border: 1px solid var(--danger-border);
   border-radius: 4px;
-  background-color: var(--surface-2);
+  background-color: var(--danger-surface);
   color: var(--danger-text);
   font-size: calc(10px * var(--hvir-interface-scale));
   white-space: nowrap;
@@ -248,7 +248,7 @@
   padding: 4px 7px;
   border: 1px solid var(--danger-border);
   border-radius: 4px;
-  background: var(--surface-2);
+  background: var(--danger-surface);
   color: var(--danger-text);
   font-size: calc(10px * var(--hvir-interface-scale));
   text-overflow: ellipsis;
@@ -269,6 +269,7 @@
   padding: 3px 8px;
   border-width: 0;
   border-right: 1px solid var(--border-strong);
+  border-radius: 0;
   background-color: var(--surface-2);
   color: var(--text-muted);
   cursor: pointer;
@@ -379,7 +380,7 @@
 
 .mode-control button:hover,
 .mode-control button.active {
-  background-color: var(--surface-hover);
+  background-color: var(--accent-soft);
   color: var(--text-strong);
 }
 
@@ -403,7 +404,7 @@
 }
 
 .mode-control button:disabled:hover {
-  background-color: var(--surface-hover);
+  background-color: var(--surface-2);
   color: var(--text-muted);
 }
 
@@ -453,4 +454,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+:root[data-theme='light'] .blame-toggle.active,
+:root[data-theme='light'] .viewer-tab:hover {
+  background-color: var(--accent-soft);
 }

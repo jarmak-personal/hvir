@@ -76,7 +76,7 @@
   padding: 4px 8px;
   border-bottom: 1px solid var(--border-subtle);
   box-shadow: inset 1px 0 var(--border-subtle);
-  background: var(--chrome-surface);
+  background: var(--toolbar-surface);
   color: var(--text);
   font-size: calc(10px * var(--hvir-interface-scale));
   font-weight: 650;
@@ -228,7 +228,7 @@
 }
 
 .terminal-rail-compact-marker.active::before {
-  border: 2px solid var(--border-strong);
+  border: 2px solid var(--text);
 }
 
 .terminal-rail-compact-marker:hover {
@@ -336,7 +336,7 @@
   padding: 4px;
   border: 1px solid var(--border-strong);
   border-radius: 4px;
-  background: var(--chrome-surface);
+  background: var(--toolbar-surface);
   box-shadow: 0 8px 24px var(--shadow);
 }
 

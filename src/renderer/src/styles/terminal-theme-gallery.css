@@ -111,7 +111,7 @@
 
 .terminal-theme-current > .terminal-theme-preview {
   border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-soft);
 }
 
 .settings-dialog .terminal-theme-search {

@@ -2,7 +2,7 @@
   flex: 1;
   overflow: auto;
   padding: 6px 0 14px;
-  background: var(--panel-surface);
+  background: var(--surface-1);
 }
 
 .tree-scroll[hidden] {
@@ -224,7 +224,7 @@
 
 .tree-row.selected {
   color: var(--text-strong);
-  background-color: var(--surface-active);
+  background-color: var(--surface-selected-neutral);
 }
 
 .tree-row.gitignored:not(.selected) {
@@ -239,6 +239,7 @@
 .tree-row:disabled,
 .tree-row[aria-disabled='true'] {
   color: var(--text-disabled);
+  opacity: 1;
 }
 
 .tree-chevron {
@@ -426,4 +427,13 @@
   max-width: 100%;
   color: var(--text);
   overflow-wrap: anywhere;
+}
+
+:root[data-theme='light']
+  .tree-row:not(.selected):not(.gitignored):not(:disabled):not([aria-disabled='true']) {
+  color: var(--text);
+}
+
+:root[data-theme='light'] .tree-row:hover {
+  background-color: var(--surface-selected-neutral);
 }

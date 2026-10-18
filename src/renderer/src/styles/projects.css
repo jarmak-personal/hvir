@@ -138,22 +138,15 @@
 }
 
 .project-tab:hover {
-  background: var(--surface-hover);
+  background: var(--surface-raised);
   color: var(--text-strong);
 }
 
 .project-tab.active {
   border-color: var(--border-strong);
-  border-bottom-color: var(--border-subtle);
-  background: var(--navigation-active-surface);
+  border-bottom-color: var(--chrome-surface);
+  background: var(--chrome-surface);
   color: var(--text-strong);
-}
-
-/* Open into the row actually below: the workspaces bar when present,
- * otherwise the rail-nav / tab-strip band. */
-.projects-shell:has(.workspaces-bar) .project-tab.active {
-  border-bottom-color: var(--border-subtle);
-  background: var(--navigation-active-surface);
 }
 
 .project-tab strong {
@@ -327,7 +320,7 @@
 }
 
 .workspace-tab.active {
-  border-color: var(--accent);
+  border-color: var(--selection-muted-border);
   background: var(--surface-active);
 }
 
@@ -422,7 +415,7 @@
   padding: 0 5px;
   border: 1px solid var(--warning-border);
   border-radius: 8px;
-  background: var(--surface-raised);
+  background: var(--warning-surface);
   color: var(--warning-text);
   font-size: calc(8px * var(--hvir-interface-scale));
   font-weight: 750;
@@ -477,4 +470,12 @@
 
 .project-dialog .worktree-prune-warning {
   color: var(--warning-text);
+}
+
+:root[data-theme='light'] .project-tab strong {
+  color: var(--text-strong);
+}
+
+:root[data-theme='light'] .project-tab:hover:not(.active) {
+  background: var(--surface-active);
 }

@@ -97,7 +97,7 @@
 }
 
 .workbench-health-item.critical {
-  border-left-color: var(--danger-border);
+  border-left-color: var(--danger-text);
 }
 
 .workbench-health-item.resolved {

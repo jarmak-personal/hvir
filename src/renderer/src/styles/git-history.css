@@ -21,6 +21,7 @@
   padding: 0 28px 0 0;
   overflow: hidden;
   border-width: 0;
+  border-radius: 0;
   outline: none;
   background-color: transparent;
   color: var(--text-secondary);
@@ -164,6 +165,7 @@
   padding-bottom: 0;
   overflow: hidden;
   border-width: 0;
+  border-radius: 0;
   background-color: transparent;
   color: var(--text-secondary);
   font-size: calc(9px * var(--hvir-interface-scale));
@@ -284,4 +286,8 @@
 .git-load-more {
   margin: 8px 10px;
   padding: 5px 8px;
+}
+
+:root[data-theme='light'] :is(.git-rail-commit, .git-rail-history-tree) {
+  color: var(--text);
 }

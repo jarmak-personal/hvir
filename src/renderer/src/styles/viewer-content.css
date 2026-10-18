@@ -63,8 +63,8 @@
 .diff-refresh-error {
   flex: 0 0 auto;
   padding: 5px 10px;
-  border-bottom: 1px solid var(--border-strong);
-  background: var(--surface-raised);
+  border-bottom: 1px solid var(--danger-border);
+  background: var(--danger-surface);
   color: var(--danger-text);
   font-size: calc(11px * var(--hvir-interface-scale));
 }
@@ -392,7 +392,7 @@
   margin-top: 2em;
   margin-bottom: 2em;
   border: 0;
-  background: var(--accent-soft);
+  background: var(--border-subtle);
 }
 
 .markdown-body table {

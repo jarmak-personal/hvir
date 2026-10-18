@@ -19,7 +19,7 @@
   padding: 20px;
   border: 1px solid var(--border-strong);
   border-radius: 7px;
-  background: var(--surface-0);
+  background: var(--toolbar-surface);
   box-shadow: 0 18px 60px var(--shadow);
 }
 
@@ -339,6 +339,15 @@
 }
 .dialog-actions button {
   padding: 5px 10px;
+}
+
+.dialog-actions button,
+.session-host-option,
+.harness-folder-list button,
+.folder-path-form button,
+.folder-create-form button {
+  font-size: inherit;
+  line-height: normal;
 }
 
 .project-dialog.confirmation-dialog {

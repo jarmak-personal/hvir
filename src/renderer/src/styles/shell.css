@@ -111,6 +111,7 @@
 
 .rail-nav button:disabled {
   color: var(--text-disabled);
+  opacity: 1;
 }
 
 .rail-content,
@@ -386,4 +387,9 @@ body.pane-resizing-row * {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+:root[data-theme='light'] .rail-nav button:hover:not(:disabled) {
+  color: var(--text-strong);
+  background-color: var(--accent-soft);
 }

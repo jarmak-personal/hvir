@@ -279,3 +279,7 @@
     box-shadow: -16px 0 36px var(--shadow);
   }
 }
+
+:root[data-theme='light'] .git-commit-tree-row {
+  color: var(--text);
+}
