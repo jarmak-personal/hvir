@@ -354,21 +354,63 @@ export async function verifyExtensionConnection(
     )
   }
   async function decide(accepted: boolean): Promise<void> {
-    await controls.wait(async () => {
-      const proposal = (await proposals())[0]
-      return (
-        !!proposal &&
-        proposal.name === 'Connection example' &&
-        (await win.webContents.executeJavaScript(`(() => {
-            const modal = document.querySelector('[aria-labelledby="connection-confirmation-title"]');
-            return !!modal?.checkVisibility() && modal.contains(document.activeElement) &&
-              modal.textContent.includes('Programs run with your account’s access') &&
-              modal.textContent.includes('No extra arguments or environment overrides') &&
-              modal.querySelector('pre')?.textContent.includes('local: /') &&
-              [...modal.querySelectorAll('button')].some(button=>button.textContent==='Not now' && document.activeElement===button);
-          })()`)) === true
+    let consentFacts: unknown
+    try {
+      await controls.wait(async () => {
+        const current = await proposals()
+        const presentation = (await win.webContents.executeJavaScript(`(() => {
+          const modal = document.querySelector('[aria-labelledby="connection-confirmation-title"]');
+          return {
+            documentFocused: document.hasFocus(),
+            modalPresent: !!modal,
+            modalVisible: !!modal?.checkVisibility(),
+            modalContainsFocus: !!modal?.contains(document.activeElement),
+            accountAccessVisible: !!modal?.textContent.includes('Programs run with your account’s access'),
+            defaultsVisible: !!modal?.textContent.includes('No extra arguments or environment overrides'),
+            localProgramVisible: !!modal?.querySelector('pre')?.textContent.includes('local: /'),
+            safeActionFocused: [...(modal?.querySelectorAll('button') ?? [])].some(button=>button.textContent==='Not now' && document.activeElement===button),
+            guestFocused: document.activeElement?.tagName === 'WEBVIEW',
+          };
+        })()`)) as {
+          documentFocused: boolean
+          modalPresent: boolean
+          modalVisible: boolean
+          modalContainsFocus: boolean
+          accountAccessVisible: boolean
+          defaultsVisible: boolean
+          localProgramVisible: boolean
+          safeActionFocused: boolean
+          guestFocused: boolean
+        }
+        const expectedProposal = current[0]?.name === 'Connection example'
+        consentFacts = {
+          decision: decisions + 1,
+          selections,
+          proposalCount: current.length,
+          expectedProposal,
+          focused: win.isFocused(),
+          visible: win.isVisible(),
+          minimized: win.isMinimized(),
+          passiveChoiceOpen: !!focusWindow && !focusWindow.isDestroyed(),
+          ...presentation,
+        }
+        return (
+          expectedProposal &&
+          presentation.modalVisible &&
+          presentation.modalContainsFocus &&
+          presentation.accountAccessVisible &&
+          presentation.defaultsVisible &&
+          presentation.localProgramVisible &&
+          presentation.safeActionFocused
+        )
+      }, 'live trusted confirmation and safe focus with exact default program')
+    } catch (reason) {
+      console.log(
+        '[smoke:connection-consent-wait-facts]',
+        JSON.stringify(consentFacts ?? { observationUnavailable: true }),
       )
-    }, 'live trusted confirmation and safe focus with exact default program')
+      throw reason
+    }
     const facts = {
       decision: decisions + 1,
       focused: win.isFocused(),
