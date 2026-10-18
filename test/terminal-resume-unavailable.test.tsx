@@ -704,7 +704,6 @@ describe('terminal resume unavailable state', () => {
           providers={[provider]}
           profiles={[profile]}
           onSplit={vi.fn()}
-          onOpenSettings={vi.fn()}
           onToggleMenu={vi.fn()}
           onToggleMoveMenu={vi.fn()}
           onPlanMove={vi.fn()}

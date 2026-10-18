@@ -1,4 +1,6 @@
 import type { BrowserWindow } from 'electron'
+import { joinHostPath, localPath } from '../../shared/host-path'
+import type { ProjectHost } from '../project-host/project-host'
 import { extensionSettingsControls } from './extension-settings-controls'
 
 type Wait = (predicate: () => boolean | Promise<boolean>, label: string) => Promise<void>
@@ -150,54 +152,120 @@ export async function verifyExtensionAttentionFocus(
   )
 }
 
-/** Full declared static demand remains present while overflow gives controls real room. */
+/** One compact row keeps built-ins and the full declared extension demand reachable. */
 export async function verifyExtensionRailGeometry(
   win: BrowserWindow,
   wait: Wait,
   headerItems: number,
+  host: ProjectHost,
 ): Promise<void> {
-  const original = win.getContentSize()
+  const size = win.getContentSize()
+  const original = (await win.webContents.executeJavaScript(
+    `({theme:document.documentElement.dataset.theme,scale:document.documentElement.style.getPropertyValue('--hvir-interface-scale')})`,
+  )) as { theme: string; scale: string }
+  const directory = process.env.HVIR_EXTENSION_VISUAL_DIRECTORY
+  if (directory && (!directory.startsWith('/') || directory === '/'))
+    throw new Error('Select an absolute owned extension visual directory')
+  const output = directory ? localPath(directory) : undefined
+  if (output)
+    await host
+      .createDirectoryExclusive(output, { mode: 0o755 })
+      .catch(async (error: unknown) => {
+        if (
+          (error as NodeJS.ErrnoException).code !== 'EEXIST' ||
+          (await host.stat(output)).type !== 'dir'
+        )
+          throw error
+      })
+  const facts: unknown[] = []
   try {
-    win.setContentSize(760, original[1]!)
+    for (const theme of ['dark', 'light']) {
+      for (const variant of ['ordinary', 'narrow-scaled']) {
+        const scale = variant === 'ordinary' ? '1' : '1.3'
+        win.setContentSize(variant === 'ordinary' ? 1280 : 760, 800)
+        await win.webContents.executeJavaScript(
+          `document.documentElement.dataset.theme=${JSON.stringify(theme)};document.documentElement.style.setProperty('--hvir-interface-scale',${JSON.stringify(scale)})`,
+        )
+        const geometry = `(() => {
+          const rail=document.querySelector('.terminal-rail:not([hidden])'), header=rail?.querySelector('.terminal-rail-header'), group=header?.querySelector('.extension-terminal-items');
+          if(!header||!group||group.querySelectorAll('button').length!==${headerItems})return false;
+          const bounds=header.getBoundingClientRect(), part=group.getBoundingClientRect();
+          const actions=[...header.querySelector('.terminal-header-actions').children].filter(e=>e!==group).map(e=>e.getBoundingClientRect());
+          const buttons=[...group.querySelectorAll('button')];
+          const controls=[part,...actions];
+          const singleRow=controls.every(e=>Math.abs((e.top+e.bottom)/2-(part.top+part.bottom)/2)<1);
+          const contained=controls.every((e,i)=>e.left>=bounds.left&&e.right<=bounds.right&&e.top>=bounds.top&&e.bottom<=bounds.bottom&&controls.slice(i+1).every(other=>e.right<=other.left+1||other.right<=e.left+1));
+          const accessible=[...header.querySelectorAll('button')].every(e=>e.getAttribute('aria-label')&&e.title);
+          const chrome=header.querySelectorAll('.terminal-header-actions > button, .terminal-move-control > button, .terminal-new-control > button');
+          const oneRowHeight=bounds.height<=Math.max(...controls.map(e=>e.height))+10;
+          if(!rail.getAttribute('aria-label')||header.querySelector('.terminal-settings-button')||header.textContent.includes('Terminals')||chrome.length!==4||part.width<52||!singleRow||!contained||!accessible||!oneRowHeight||buttons.some(e=>e.scrollWidth>e.clientWidth||e.getBoundingClientRect().width>28)||getComputedStyle(group).overflowX!=='auto')return false;
+          return {width:bounds.width,height:bounds.height,contributionWidth:part.width,contributions:buttons.length,singleRow,contained,accessible,scale:getComputedStyle(document.documentElement).getPropertyValue('--hvir-interface-scale').trim(),theme:document.documentElement.dataset.theme};
+        })()`
+        await wait(
+          async () => !!(await win.webContents.executeJavaScript(geometry)),
+          `single-row terminal controls without overlap: ${theme} ${variant}`,
+        )
+        await win.webContents.executeJavaScript(
+          "document.querySelector('.terminal-rail-header .extension-terminal-items button:last-child').focus()",
+        )
+        win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' })
+        win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' })
+        win.webContents.sendInputEvent({
+          type: 'keyDown',
+          keyCode: 'Tab',
+          modifiers: ['shift'],
+        })
+        win.webContents.sendInputEvent({
+          type: 'keyUp',
+          keyCode: 'Tab',
+          modifiers: ['shift'],
+        })
+        await wait(
+          async () =>
+            (await win.webContents.executeJavaScript(`(() => {
+              const button=document.querySelector('.terminal-rail-header .extension-terminal-items button:last-child'), group=button.parentElement;
+              const box=button.getBoundingClientRect(), bounds=group.getBoundingClientRect();
+              return document.hasFocus()&&document.activeElement===button&&button.matches(':focus-visible')&&box.left>=bounds.left-1&&box.right<=bounds.right+1;
+            })()`)) === true,
+          `last contribution reached with native Tab and visible focus: ${theme} ${variant}`,
+        )
+        facts.push({
+          theme,
+          variant,
+          geometry: (await win.webContents.executeJavaScript(geometry)) as unknown,
+          keyboardReachable: true,
+        })
+        if (output) {
+          await win.webContents.executeJavaScript(
+            'new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))',
+          )
+          await host.writeFile(
+            joinHostPath(output, `terminal-header-${theme}-${variant}.png`),
+            (await win.webContents.capturePage()).toPNG(),
+          )
+        }
+      }
+    }
     await wait(
       async () =>
         (await win.webContents.executeJavaScript(`(() => {
-      const header=document.querySelector('.terminal-rail-header'), group=header?.querySelector('.extension-terminal-items');
-      if(!header||!group||group.querySelectorAll('button').length!==${headerItems})return false;
-      const bounds=header.getBoundingClientRect(), part=group.getBoundingClientRect();
-      const title=header.firstElementChild.getBoundingClientRect();
-      const actions=[...header.querySelector('.terminal-header-actions').children].filter(e=>e!==group).map(e=>e.getBoundingClientRect());
-      const buttons=[...group.querySelectorAll('button')];
-      const separate=(a,b)=>a.right<=b.left+1||b.right<=a.left+1||a.bottom<=b.top+1||b.bottom<=a.top+1;
-      const controls=[title,part,...actions];
-      return part.width>=52 && controls.every((e,i)=>e.left>=bounds.left&&e.right<=bounds.right&&e.top>=bounds.top&&e.bottom<=bounds.bottom&&controls.slice(i+1).every(other=>separate(e,other))) && buttons.every(e=>e.getAttribute('aria-label')&&e.scrollWidth<=e.clientWidth&&e.getBoundingClientRect().width<=28) && getComputedStyle(group).overflowX==='auto';
-    })()`)) === true,
-      'bounded multi-item rail controls without label or built-in overlap',
-    )
-    await win.webContents.executeJavaScript(
-      "document.querySelector('.terminal-rail-header .extension-terminal-items button:last-child').focus()",
-    )
-    await wait(
-      async () =>
-        (await win.webContents.executeJavaScript(`(() => {
-      const button=document.querySelector('.terminal-rail-header .extension-terminal-items button:last-child'), group=button.parentElement;
-      const box=button.getBoundingClientRect(), bounds=group.getBoundingClientRect();
-      return document.activeElement===button && box.left>=bounds.left-1 && box.right<=bounds.right+1;
-    })()`)) === true,
-      'last contributed control remains focusable and scrolls into view',
-    )
-    await wait(
-      async () =>
-        (await win.webContents.executeJavaScript(`(() => {
-      const rows=[...document.querySelectorAll('.terminal-list-row')];
-      return rows.length===2 && rows.every(row=>{
-        const bounds=row.getBoundingClientRect(), title=row.querySelector('.terminal-list-title');
-        return title&&getComputedStyle(title).textOverflow==='ellipsis' && [...row.querySelectorAll('button')].filter(e=>!e.classList.contains('terminal-list-main')).every(e=>{const box=e.getBoundingClientRect();return box.left>=bounds.left-1&&box.right<=bounds.right+1});
-      });
-    })()`)) === true,
+          const rows=[...document.querySelectorAll('.terminal-list-row')];
+          return rows.length===2 && rows.every(row=>{
+            const bounds=row.getBoundingClientRect(), title=row.querySelector('.terminal-list-title');
+            return title&&getComputedStyle(title).textOverflow==='ellipsis' && [...row.querySelectorAll('button')].filter(e=>!e.classList.contains('terminal-list-main')).every(e=>{const box=e.getBoundingClientRect();return box.left>=bounds.left-1&&box.right<=bounds.right+1});
+          });
+        })()`)) === true,
       'session titles truncate while contributed and built-in controls remain contained',
     )
+    if (output)
+      await host.writeFile(
+        joinHostPath(output, 'terminal-header-geometry.json'),
+        JSON.stringify(facts, null, 2),
+      )
   } finally {
-    win.setContentSize(original[0]!, original[1]!)
+    await win.webContents.executeJavaScript(
+      `document.documentElement.dataset.theme=${JSON.stringify(original.theme)};document.documentElement.style.setProperty('--hvir-interface-scale',${JSON.stringify(original.scale)})`,
+    )
+    win.setContentSize(size[0]!, size[1]!)
   }
 }

@@ -153,6 +153,7 @@ export async function verifyExtensionContributions(
     win,
     (predicate, label) => controls.wait(predicate, label),
     7,
+    host,
   )
 
   await host.writeFile(manifestPath, fullManifest)

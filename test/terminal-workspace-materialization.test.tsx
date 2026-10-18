@@ -147,7 +147,6 @@ describe('terminal workspace materialization bridge', () => {
         idleThresholdMs: 10_000,
         terminalRecoveryMode: 'prompt' as const,
       },
-      onOpenSettings: vi.fn(),
       onOpenTerminalSettings: vi.fn(),
       onOpenHarnessSettings: vi.fn(),
       onAddHarness: vi.fn(),

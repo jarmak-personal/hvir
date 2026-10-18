@@ -58,7 +58,6 @@ describe('terminal workspace collection', () => {
             idleThresholdMs: 10_000,
             terminalRecoveryMode: 'prompt',
           }}
-          onOpenSettings={vi.fn()}
           onOpenTerminalSettings={vi.fn()}
           onOpenHarnessSettings={vi.fn()}
           onAddHarness={vi.fn()}
@@ -221,7 +220,6 @@ function collection({
         idleThresholdMs: 10_000,
         terminalRecoveryMode: 'prompt',
       }}
-      onOpenSettings={vi.fn()}
       onOpenTerminalSettings={vi.fn()}
       onOpenHarnessSettings={vi.fn()}
       onAddHarness={vi.fn()}
