@@ -467,6 +467,15 @@ export async function verifySkillagerExtension(
   )
     throw new Error('Selected reader escaped ordinary guest isolation')
   await inspect(detail, "document.getElementById('rendered-mode').click()")
+  await ready(
+    detail,
+    () =>
+      inspect(
+        detail,
+        "document.getElementById('instructions').dataset.mode==='rendered' && !!document.getElementById('instructions').firstElementChild",
+      ) as Promise<boolean>,
+    'rendered instructions before appearance capture obscures the reader',
+  )
   await captureExtensionVisuals(win, detail, host, 'instructions', {
     ...controls,
     select: async () => {
