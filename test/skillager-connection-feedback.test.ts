@@ -1,0 +1,147 @@
+// @vitest-environment happy-dom
+import { afterEach, expect, it, vi } from 'vitest'
+import { createSkillagerPackageView } from './fixtures/skillager-package-view'
+
+let close: (() => void) | undefined
+afterEach(() => {
+  close?.()
+  close = undefined
+  document.body.replaceChildren()
+  vi.useRealTimers()
+})
+function packageView(view = 'library') {
+  const fixture = createSkillagerPackageView(view)
+  close = fixture.dispose
+  return fixture
+}
+const localProject = {
+  id: 'project-a',
+  host: 'local',
+  root: { hostId: 'local', path: '/project-a' },
+}
+const projectConnection = () => ({
+  connections: [{ connector: 'project-cli', outcome: 'connected' }],
+})
+it.each(['project', 'library'])(
+  'shows immediate adjacent Connect feedback through the first useful %s observation and prevents duplicate submits',
+  async (view) => {
+    const f = packageView(view)
+    if (view === 'project') f.projectApproval(false)
+    else f.libraryApproval(false)
+    f.context(true, view === 'project' ? localProject : undefined)
+    await f.flush()
+    const button = f.button('connect-program'),
+      status = document.getElementById('connection-status')!
+    button.click()
+    expect(status.textContent).toBe('Connecting…')
+    expect(status.getAttribute('role')).toBe('status')
+    expect(button.getAttribute('aria-describedby')).toBe(status.id)
+    expect(button.disabled).toBe(true)
+    expect(button.getAttribute('aria-busy')).toBe('true')
+    button.click()
+    await f.flush()
+    expect(
+      f.requests.filter(({ capability }) => capability === 'connector.connect'),
+    ).toHaveLength(1)
+    f.hold()
+    f.libraryApproval(true)
+    f.connected({
+      connections: [
+        {
+          connector: view === 'project' ? 'project-cli' : 'library-cli',
+          outcome: 'connected',
+        },
+      ],
+    })
+    await f.flush()
+    expect(status.textContent).toBe('Loading skills…')
+    expect(button.disabled).toBe(true)
+    expect(button.hidden).toBe(false)
+    button.click()
+    expect(
+      f.requests.filter(({ capability }) => capability === 'connector.connect'),
+    ).toHaveLength(1)
+    f.resume()
+    await f.flush()
+    expect(status.textContent).toBe('Connected')
+    expect(button.getAttribute('aria-busy')).toBe('false')
+    expect(button.hidden).toBe(true)
+    expect(document.getElementById('state')?.dataset.state).toBe(
+      view === 'project' ? 'empty' : 'ready',
+    )
+    f.fail()
+    f.button('refresh').click()
+    await f.flush()
+    expect(status.hidden).toBe(true)
+    expect(status.textContent).toBe('')
+  },
+)
+it.each(['connection', 'observation'])(
+  'settles the adjacent %s failure and retains actual diagnostic feedback',
+  async (phase) => {
+    const f = packageView('project')
+    f.projectApproval(false)
+    f.context(true, localProject)
+    await f.flush()
+    f.button('connect-program').click()
+    await f.flush()
+    if (phase === 'connection') f.connectionFailed()
+    else {
+      f.fail()
+      f.connected(projectConnection())
+    }
+    await f.flush()
+    expect(f.button('connect-program').getAttribute('aria-busy')).toBe('false')
+    expect(document.getElementById('connection-status')?.textContent).toBe(
+      phase === 'connection' ? 'Connection failed' : 'Could not load skills',
+    )
+    expect(document.getElementById('state')?.textContent).not.toContain('Connecting')
+    if (phase === 'connection')
+      expect(document.getElementById('state')?.textContent).toBe('Old connection failed')
+  },
+)
+it('resumes a hidden library observation without stuck progress or duplicate Connect admission', async () => {
+  const f = packageView()
+  f.libraryApproval(false)
+  f.context()
+  await f.flush()
+  const button = f.button('connect-program'),
+    status = document.getElementById('connection-status')!
+  button.click()
+  await f.flush()
+  f.hold()
+  f.libraryApproval(true)
+  f.connected({ connections: [{ connector: 'library-cli', outcome: 'connected' }] })
+  await f.flush()
+  expect(status.textContent).toBe('Loading skills…')
+  f.context(false)
+  expect(status.hidden).toBe(true)
+  expect(button.getAttribute('aria-busy')).toBe('false')
+  f.context()
+  expect(status.textContent).toBe('Loading skills…')
+  expect(button.disabled).toBe(true)
+  button.click()
+  f.resume()
+  await f.flush()
+  expect(status.textContent).toBe('Connected')
+  expect(button.getAttribute('aria-busy')).toBe('false')
+  expect(
+    f.requests.filter(({ capability }) => capability === 'connector.connect'),
+  ).toHaveLength(1)
+  expect(document.getElementById('state')?.dataset.state).toBe('ready')
+})
+
+it('does not retain progress or revive it from late replies after disposal', async () => {
+  const f = packageView('project')
+  f.projectApproval(false)
+  f.context(true, localProject)
+  await f.flush()
+  f.button('connect-program').click()
+  await f.flush()
+  f.dispose()
+  expect(document.getElementById('connection-status')?.textContent).toBe('')
+  f.connected(projectConnection())
+  await f.flush()
+  expect(f.button('connect-program').getAttribute('aria-busy')).toBe('false')
+  expect(document.getElementById('connection-status')?.textContent).toBe('')
+})

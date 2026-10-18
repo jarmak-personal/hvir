@@ -332,21 +332,53 @@
 .extension-workspace-target {
   display: flex;
   align-items: center;
-  flex: 0 1 460px;
+  flex: 0 1 520px;
+  flex-wrap: wrap;
   gap: 8px;
   min-width: 0;
   margin-left: auto;
 }
-.extension-workspace-target select {
+.extension-project-picker {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  min-width: 0;
+}
+.extension-project-picker > label {
+  display: flex;
+  flex: 1 1 150px;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.extension-project-picker select {
   min-width: 0;
   max-width: 100%;
   flex: 1;
+}
+.extension-workspace-location {
+  flex-basis: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: 0.9em;
+}
+.extension-action-destination {
+  flex-basis: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: start;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 .extension-workspace-target > [role='status'] {
   color: var(--warning-text);
 }
 
-@container (max-width: 650px) {
+@container (max-width: 850px) {
   .extension-view-heading {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;

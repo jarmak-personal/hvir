@@ -258,7 +258,7 @@ export function App(): ReactElement {
       obscured={overlays.settingsOpen}
       onTop={() => setDestination('extension')}
       onWorkspace={() => setDestination('workspace')}
-      workspaceId={activeWorkspace?.id}
+      projectContext={session}
       placement={extensions}
       onError={session.reportError}
     >

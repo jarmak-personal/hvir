@@ -80,6 +80,7 @@ export async function verifySkillagerProjectConnection(
       'unapproved project query remains actionable',
     )
     await connect()
+    await captureWorking()
     await decide(false)
     await controls.wait(
       async () =>
@@ -90,13 +91,24 @@ export async function verifySkillagerProjectConnection(
     )
     await connect()
     await decide(true)
+    if (process.env.HVIR_EXTENSION_VISUAL_DIRECTORY) {
+      await controls.wait(
+        async () =>
+          (await inspect(
+            "document.getElementById('connection-status')?.textContent==='Loading skills…' && !document.getElementById('connect-program').hidden",
+          )) === true,
+        'first useful observation remains visibly pending',
+      )
+      await captureWorking('Loading skills…', 'loading')
+    }
     await controls.ready(
       async () =>
         (await inspect(`(() => {
           const state=document.getElementById('state'), query=document.getElementById('query');
           return state?.dataset.state==='ready' && document.querySelectorAll('#skills [role=option]').length===50 &&
             query.value==='catalogneedle' && document.getElementById('separate-copies').checked &&
-            document.getElementById('preferred-agent').selectedIndex===1 && document.getElementById('connect-program').hidden;
+            document.getElementById('preferred-agent').selectedIndex===1 && document.getElementById('connect-program').hidden && document.getElementById('connection-status').textContent==='Connected' &&
+            globalThis.__hvirProjectConnectionProof.connecting && globalThis.__hvirProjectConnectionProof.observing;
         })()`)) === true,
       'current project connection automatically observes genuine search metadata and preserves options',
     )
@@ -152,11 +164,19 @@ export async function verifySkillagerProjectConnection(
         debuggerPort.sendCommand('Runtime.callFunctionOn', {
           objectId,
           functionDeclaration: `function(expectedHost, expectedRoot) {
-          const facts={contexts:0,visible:null,workspaceRootMatches:null,connections:0,connection:null,executeReplies:0,execution:null,reason:null,completed:0,outputPages:0,errorReplies:0,saturated:false};
+          const facts={contexts:0,visible:null,workspaceRootMatches:null,connections:0,connection:null,executeReplies:0,execution:null,reason:null,completed:0,outputPages:0,errorReplies:0,saturated:false,connecting:false,observing:false};
           globalThis.__hvirProjectConnectionProof=facts;
           const count=key=>{if(facts[key]<64)facts[key]++;else facts.saturated=true};
           const closed=(value,values)=>values.includes(value)?value:'unknown';
-          globalThis.__hvirProjectConnectionProofStop=window.hvirExtension.onMessage(message=>{
+          const progress=new MutationObserver(()=>{
+            const button=document.getElementById('connect-program'), status=document.getElementById('connection-status');
+            if(button.disabled&&button.getAttribute('aria-busy')==='true'&&status.checkVisibility()){
+              if(status.textContent==='Connecting…')facts.connecting=true;
+              if(status.textContent==='Loading skills…')facts.observing=true;
+            }
+          });
+          progress.observe(document.getElementById('connection-status'),{childList:true,subtree:true,characterData:true});
+          const stop=window.hvirExtension.onMessage(message=>{
             if(message.kind==='context'){
               count('contexts');facts.visible=message.context.visible===true;
               const workspace=message.context.workspace;
@@ -172,7 +192,8 @@ export async function verifySkillagerProjectConnection(
               if(value.outcome==='completed'&&value.code===0&&!value.truncated)count('completed');
             }
             if(typeof value?.data==='string')count('outputPages');
-          });return true;
+          });
+          globalThis.__hvirProjectConnectionProofStop=()=>{stop();progress.disconnect()};return true;
         }`,
           arguments: [{ value: root.hostId }, { value: root.path }],
           returnByValue: true,
@@ -194,9 +215,48 @@ export async function verifySkillagerProjectConnection(
         (await inspect(`(() => {
           const button=document.getElementById('connect-program');
           if(!button?.checkVisibility()||button.disabled)return false;
-          button.click();return true;
+          button.click();
+          const status=document.getElementById('connection-status');
+          if(!button.disabled||button.getAttribute('aria-busy')!=='true'||!status.checkVisibility()||status.textContent!=='Connecting…')throw new Error('Connect lacks immediate adjacent busy feedback');
+          return true;
         })()`)) === true,
       'actual enabled maintained project Connect control',
+    )
+  }
+  async function captureWorking(
+    message = 'Connecting…',
+    name = 'connecting',
+  ): Promise<void> {
+    const directory = process.env.HVIR_EXTENSION_VISUAL_DIRECTORY
+    if (!directory) return
+    if (!directory.startsWith('/') || directory === '/')
+      throw new Error('Select an owned connection visual directory')
+    const output = localPath(directory)
+    await host
+      .createDirectoryExclusive(output, { mode: 0o755 })
+      .catch(async (error: unknown) => {
+        if (
+          (error as NodeJS.ErrnoException).code !== 'EEXIST' ||
+          (await host.stat(output)).type !== 'dir'
+        )
+          throw error
+      })
+    await inspect(
+      'new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))',
+    )
+    const facts = await inspect(`(() => {
+      const button=document.getElementById('connect-program'),status=document.getElementById('connection-status');
+      const a=button.getBoundingClientRect(),b=status.getBoundingClientRect(),fits=r=>r.width>0&&r.height>0&&r.left>=0&&r.right<=innerWidth+1&&r.top>=0&&r.bottom<=innerHeight+1;
+      if(!button.checkVisibility()||!status.checkVisibility()||!fits(a)||!fits(b)||!button.disabled||status.textContent!==${JSON.stringify(message)})throw new Error('Connect progress is not visible beside its initiating control');
+      return {working:status.textContent,busy:button.getAttribute('aria-busy'),adjacent:button.parentElement===status.parentElement,contained:true};
+    })()`)
+    await host.writeFile(
+      joinHostPath(localPath(directory), `project-${name}.png`),
+      (await win.webContents.capturePage()).toPNG(),
+    )
+    await host.writeFile(
+      joinHostPath(localPath(directory), `project-${name}.json`),
+      JSON.stringify(facts, null, 2),
     )
   }
   async function decide(accepted: boolean): Promise<void> {

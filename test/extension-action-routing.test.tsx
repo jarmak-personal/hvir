@@ -90,6 +90,14 @@ function fixture(nullAction = false) {
     state: [{ installationId: 'one', extensionName: 'Reference', manifest, values: [] }],
     sessions: [session],
     workspaces: [workspace],
+    projects: [
+      {
+        id: 'registered',
+        displayName: 'Repository',
+        registeredRoot: workspace.root,
+        workspaces: [{ ...workspace, main: true }],
+      },
+    ],
     workspaceId: workspace.id,
     open,
   } as unknown as Contributions
@@ -108,12 +116,20 @@ function fixture(nullAction = false) {
   )
   const button = (label: string) =>
     [...host.querySelectorAll('button')].find((element) => element.textContent === label)!
-  const select = host.querySelector('select')!
-  return { open, invoke, button, select }
+  const select = host.querySelector<HTMLSelectElement>(
+    '[aria-label="Extension action context"]',
+  )!
+  const project = host.querySelector<HTMLSelectElement>(
+    '[aria-label="Extension project destination"]',
+  )!
+  return { open, invoke, button, select, project, host }
 }
 it('routes parameterized tasks to declared views with a visible exact workspace or session destination', async () => {
   const f = fixture()
-  expect(f.select.selectedOptions[0]?.textContent).toContain('local: /repo/feature')
+  expect(f.project.selectedOptions[0]?.textContent).toBe('Repository')
+  expect(f.host.querySelector('.extension-workspace-location')?.textContent).toBe(
+    'local: /repo/feature',
+  )
   expect(f.button('Run Project change')).toBeUndefined()
   await act(async () => {
     f.button('Open Project tasks').click()
@@ -144,8 +160,8 @@ it('routes parameterized tasks to declared views with a visible exact workspace 
     surface: 'viewer',
   })
   act(() => {
-    f.select.value = ''
-    f.select.dispatchEvent(new Event('change', { bubbles: true }))
+    f.project.value = ''
+    f.project.dispatchEvent(new Event('change', { bubbles: true }))
   })
   expect(f.button('Open Project tasks').disabled).toBe(true)
   expect(f.invoke).not.toHaveBeenCalled()
@@ -164,40 +180,47 @@ it('keeps null-valid actions directly runnable in the chosen context', async () 
   })
 })
 
-it('returns to the existing ordinary application destination without reopening its context', () => {
-  const selected = {
-    id: 'kept',
-    installationId: 'one',
-    contributionId: 'library',
-    canChooseWorkspace: true,
-    context: { surface: 'top', workspace: { id: 'chosen' } },
-  }
-  const open = vi.fn(),
-    selectTop = vi.fn()
-  const model = {
-    state: [
-      {
-        installationId: 'one',
-        manifest: { views: [{ id: 'library', title: 'Library', navigation: 'top' }] },
+it.each(['chosen', undefined])(
+  'returns to the existing ordinary application destination (%s) without reopening its context after background navigation',
+  (workspaceId) => {
+    const selected = {
+      id: 'kept',
+      installationId: 'one',
+      contributionId: 'library',
+      canChooseWorkspace: true,
+      context: {
+        surface: 'top',
+        ...(workspaceId ? { workspace: { id: workspaceId } } : {}),
       },
-    ],
-    views: [{ ...selected, id: 'agent', canChooseWorkspace: false }, selected],
-    open,
-    selectTop,
-  } as unknown as Contributions
-  const host = document.createElement('div')
-  document.body.append(host)
-  root = createRoot(host)
-  act(() =>
-    root!.render(
-      createElement(
-        ExtensionContributionContext.Provider,
-        { value: model },
-        createElement(ExtensionTopRail),
+    }
+    const open = vi.fn(),
+      selectTop = vi.fn()
+    const model = {
+      state: [
+        {
+          installationId: 'one',
+          manifest: { views: [{ id: 'library', title: 'Library', navigation: 'top' }] },
+        },
+      ],
+      views: [{ ...selected, id: 'agent', canChooseWorkspace: false }, selected],
+      workspaceId: 'unrelated-current-workspace',
+      open,
+      selectTop,
+    } as unknown as Contributions
+    const host = document.createElement('div')
+    document.body.append(host)
+    root = createRoot(host)
+    act(() =>
+      root!.render(
+        createElement(
+          ExtensionContributionContext.Provider,
+          { value: model },
+          createElement(ExtensionTopRail),
+        ),
       ),
-    ),
-  )
-  act(() => host.querySelector('button')!.click())
-  expect(selectTop).toHaveBeenCalledWith(selected)
-  expect(open).not.toHaveBeenCalled()
-})
+    )
+    act(() => host.querySelector('button')!.click())
+    expect(selectTop).toHaveBeenCalledWith(selected)
+    expect(open).not.toHaveBeenCalled()
+  },
+)

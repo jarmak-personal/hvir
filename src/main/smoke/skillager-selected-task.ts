@@ -2,6 +2,10 @@ import type { BrowserWindow, WebContents } from 'electron'
 import type { ExtensionView } from '../../shared/extensions/workbench'
 import type { HostPath } from '../../shared/host-path'
 import type { ProjectHost } from '../project-host/project-host'
+import {
+  chooseExtensionWorkspace,
+  inspectExtensionProjectPicker,
+} from './extension-project-picker'
 import { captureExtensionVisuals } from './extension-visuals'
 import { focusSmokeWindow } from './window-focus'
 import {
@@ -47,13 +51,11 @@ export async function verifySelectedSkillTasks(
     throw error
   }
   await ownedImage()
-  await withinExtensionInspection(
-    win.webContents.executeJavaScript(`(() => {
-    const pane=document.querySelector('.extension-top-destination .extension-view:not([hidden])');
-    const select=pane?.querySelector('[aria-label="Extension project destination"]');
-    if(!select)throw new Error('Trusted destination selector unavailable');
-    select.value=${JSON.stringify(workspace.id)};select.dispatchEvent(new Event('change',{bubbles:true}));
-  })()`),
+  await chooseExtensionWorkspace(
+    win,
+    workspace.id,
+    '[data-extension-view="' + selectedView.id + '"]',
+    (predicate, label) => controls.wait(predicate, label),
   )
   await ui.ready(
     `document.getElementById('task-destination').textContent.includes(${JSON.stringify(workspace.root.path)}) && !document.getElementById('task-primary').disabled`,
@@ -182,7 +184,10 @@ export async function verifySelectedSkillTasks(
         if(!article.checkVisibility()||a.height<120||a.width<180||!fits(a)||!fits(b)||!destination.checkVisibility()||result.overflow!=='auto')throw new Error('Selected-skill reading space or primary action is unreachable');
         return result;
       })()`)
-      return facts
+      return {
+        reader: facts,
+        destination: await inspectExtensionProjectPicker(win, selectedView.id),
+      }
     },
   })
   await ui.set('task-mode', 'stub')

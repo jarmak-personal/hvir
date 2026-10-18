@@ -20,7 +20,17 @@
         </details>
       </header>
       <button id="open-library" class="hvir-button">Your library</button>
-      <button id="connect-program" class="hvir-button" hidden>Connect Skillager</button>
+      <div id="connection-controls" class="toolbar">
+        <button
+          id="connect-program"
+          class="hvir-button"
+          aria-describedby="connection-status"
+          hidden
+        >
+          Connect Skillager
+        </button>
+        <span id="connection-status" class="hvir-meta" role="status" hidden></span>
+      </div>
       <form id="search-form">
         <input
           id="query"

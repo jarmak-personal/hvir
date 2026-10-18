@@ -1,3 +1,4 @@
+import { chooseExtensionWorkspace } from './extension-project-picker'
 import { extensionSettingsControls } from './extension-settings-controls'
 import { app, type BrowserWindow, type WebContents } from 'electron'
 import { joinHostPath, type HostPath } from '../../shared/host-path'
@@ -496,6 +497,12 @@ export async function verifyExtensionContributions(
   // Settings is an ordinary activation route even when the terminal rail is compact.
   await controls.click('Collapse terminal rail')
   await settings()
+  await chooseExtensionWorkspace(
+    win,
+    sessions[0]!.workspace.id,
+    '.extension-actions',
+    (predicate, label) => controls.wait(predicate, label),
+  )
   await controls.wait(
     () =>
       dom('document.querySelector(\'[aria-label="Extension action context"]\') !== null'),

@@ -33,6 +33,8 @@ let context = { visible: false },
   pendingRefresh = false,
   connectAvailable = false,
   connectionPending = false,
+  connectionPhase = '',
+  connectionStatus = '',
   setupNeeded = false
 let lastPage,
   library,
@@ -83,9 +85,27 @@ function refreshConnectionAvailability() {
   if (!button) return
   button.hidden =
     !connectAvailable ||
-    !setupNeeded ||
+    (!setupNeeded && !connectionPending) ||
     (view === 'project' && !localWorkspace(context.workspace))
   button.disabled = !available() || connectionPending
+  button.setAttribute('aria-busy', String(available() && connectionPending))
+  const status = element('connection-status')
+  if (status) {
+    status.textContent = !available()
+      ? ''
+      : connectionPending
+        ? connectionPhase === 'observing'
+          ? 'Loading skills…'
+          : 'Connecting…'
+        : connectionStatus
+    status.hidden = !status.textContent
+  }
+}
+function finishConnection(message = '') {
+  connectionPending = false
+  connectionPhase = ''
+  connectionStatus = message
+  refreshConnectionAvailability()
 }
 
 function scope() {
@@ -236,10 +256,16 @@ function requestRefresh(
   void refresh()
 }
 async function refresh() {
-  if (!available() || busy || view === 'detail') return
+  if (!available() || busy || view === 'detail' || connectionPhase === 'connecting')
+    return
+  if (!connectionPending) {
+    connectionStatus = ''
+    refreshConnectionAvailability()
+  }
   pendingRefresh = false
   busy = true
   const revision = generation,
+    connecting = connectionPhase === 'observing' ? connectionIntent : undefined,
     target = pageRequest ?? {
       query,
       options: searchOptions,
@@ -254,6 +280,7 @@ async function refresh() {
     workspace = view === 'project' ? localWorkspace(project?.workspace) : undefined,
     failureDestination =
       view === 'project' && target.query && !workspace ? 'library' : view
+  let observedSuccessfully = false
   try {
     let page
     if (view === 'library') {
@@ -264,6 +291,7 @@ async function refresh() {
       setupNeeded = false
       refreshConnectionAvailability()
       if (!observed.initialized) {
+        observedSuccessfully = true
         lastPage = undefined
         list?.replaceChildren()
         pageRequest = undefined
@@ -346,6 +374,7 @@ async function refresh() {
       if (element('program-setup')) element('program-setup').hidden = true
       refreshConnectionAvailability()
       rows(page)
+      observedSuccessfully = true
     }
   } catch (error) {
     if (available() && generation === revision) {
@@ -363,6 +392,8 @@ async function refresh() {
       say(failure.message, failure.state)
     }
   } finally {
+    if (available() && generation === revision && connecting === connectionIntent)
+      finishConnection(observedSuccessfully ? 'Connected' : 'Could not load skills')
     busy = false
     pagingControls()
     if (pendingRefresh && available()) void refresh()
@@ -379,7 +410,7 @@ on(
   'click',
   () =>
     void client
-      .request('viewer.open-own', { contributionId: 'library', context: 'application' })
+      .request('viewer.open-own', { contributionId: 'library' })
       .catch((error) => say(error.message, 'error')),
 )
 on(
@@ -444,6 +475,9 @@ on('connect-program', 'click', async () => {
     admitted === connectionIntent &&
     (view !== 'project' || identity === JSON.stringify(localWorkspace(context.workspace)))
   connectionPending = true
+  connectionPhase = 'connecting'
+  connectionStatus = ''
+  generation++
   refreshConnectionAvailability()
   say(
     view === 'project'
@@ -456,8 +490,11 @@ on('connect-program', 'click', async () => {
     const result = await client.request('connector.connect', { connector })
     if (!current()) return
     const connection = result.connections?.find((entry) => entry.connector === connector)
-    if (connection?.outcome === 'connected') requestRefresh()
-    else {
+    if (connection?.outcome === 'connected') {
+      connectionPhase = 'observing'
+      refreshConnectionAvailability()
+      requestRefresh()
+    } else {
       setupNeeded = true
       if (element('program-setup')) element('program-setup').hidden = false
       if (element('observation-details'))
@@ -473,16 +510,19 @@ on('connect-program', 'click', async () => {
               'Not connected. Choose Connect Skillager when ready.'),
         connection?.outcome === 'interrupted-uncertain' ? 'error' : 'unapproved',
       )
+      connectionStatus =
+        connection?.outcome === 'declined' ? 'Not connected' : 'Connection not confirmed'
     }
   } catch (error) {
     if (current()) {
       setupNeeded = true
       if (element('program-setup')) element('program-setup').hidden = false
       say(error.message, 'error')
+      connectionStatus = 'Connection failed'
     }
   } finally {
-    connectionPending = false
-    refreshConnectionAvailability()
+    if (admitted === connectionIntent && connectionPhase !== 'observing')
+      finishConnection(connectionStatus)
   }
 })
 on('search-form', 'submit', (event) => {
@@ -524,7 +564,10 @@ client.listen((message) => {
     const changed =
       JSON.stringify(message.context.workspace) !== JSON.stringify(context.workspace)
     context = message.context
-    if (view === 'project' && (changed || !context.visible)) connectionIntent++
+    if (view === 'project' && (changed || !context.visible)) {
+      connectionIntent++
+      finishConnection()
+    }
     refreshManagementAvailability()
     reader?.context(context)
     if (!context.visible) {
@@ -556,6 +599,8 @@ client.listen((message) => {
 })
 window.addEventListener('pagehide', dispose, { once: true })
 function dispose() {
+  connectionIntent++
+  finishConnection()
   reader?.dispose()
   generation++
   window.clearTimeout(timer)

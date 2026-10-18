@@ -271,7 +271,7 @@ describe('extension contribution placement and focus', () => {
       root.render(
         createElement(ExtensionContributionsProvider, {
           placement: { guests: views, activate: vi.fn() },
-          workspaceId: 'workspace',
+          projectContext: { activeWorkspace: { id: 'workspace' } },
           topActive: false,
           obscured: false,
           onTop: vi.fn(),
@@ -378,7 +378,7 @@ describe('extension contribution placement and focus', () => {
         await act(async () => {
           root.render(
             createElement(ExtensionContributionsProvider, {
-              workspaceId: 'workspace',
+              projectContext: { activeWorkspace: { id: 'workspace' } },
               placement: { guests: [], activate: vi.fn() },
               topActive: false,
               obscured: false,
@@ -460,7 +460,7 @@ describe('extension contribution placement and focus', () => {
       const render = (workspaceId: string, retained = guest): void => {
         root.render(
           createElement(ExtensionContributionsProvider, {
-            workspaceId,
+            projectContext: { activeWorkspace: { id: workspaceId } },
             placement: { guests: [retained], activate: vi.fn() },
             topActive: top,
             obscured: false,
@@ -658,7 +658,7 @@ describe('extension contribution placement and focus', () => {
       const render = (views: readonly ExtensionView[]): void => {
         root.render(
           createElement(ExtensionContributionsProvider, {
-            workspaceId: 'workspace',
+            projectContext: { activeWorkspace: { id: 'workspace' } },
             placement: { guests: views, activate: vi.fn() },
             topActive: false,
             obscured: false,
