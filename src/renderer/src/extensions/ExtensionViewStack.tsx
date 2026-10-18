@@ -108,18 +108,29 @@ export function ExtensionViewPane({
       hidden={!visible}
       data-extension-view={view.id}
     >
-      <div className="extension-view-heading">
-        <span>
-          {view.extensionName} · {view.title}
+      <div
+        className="extension-view-heading"
+        role="group"
+        aria-label={`${view.extensionName} · ${view.title}`}
+      >
+        <span
+          className="extension-view-identity"
+          title={`${view.extensionName} · ${view.title}`}
+        >
+          {view.extensionName}
+          {view.context?.surface === 'popup' && view.title !== view.extensionName
+            ? ` · ${view.title}`
+            : ''}
         </span>
         <ExtensionWorkspaceTarget view={view} />
         <button
           type="button"
           onClick={onClose}
           aria-label={`Close ${view.title}`}
-          className="hvir-button"
+          className="extension-view-close hvir-button"
+          title={`Close ${view.title}`}
         >
-          Close
+          <span aria-hidden="true">×</span>
         </button>
       </div>
       {view.failure ? (

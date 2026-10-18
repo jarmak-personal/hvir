@@ -212,6 +212,7 @@ describe('extension presentation observation', () => {
       extensionName: 'Example',
       title: 'Viewer',
     } as ExtensionView
+    const onClose = vi.fn()
     const render = (active: boolean): void => {
       act(() =>
         root.render(
@@ -219,7 +220,7 @@ describe('extension presentation observation', () => {
             views: [view],
             activeId: view.id,
             active,
-            onClose: () => undefined,
+            onClose,
             Surface: () => createElement('div'),
           }),
         ),
@@ -227,6 +228,16 @@ describe('extension presentation observation', () => {
     }
     try {
       render(true)
+      const heading = element.querySelector('.extension-view-heading')!
+      expect(heading.getAttribute('aria-label')).toBe('Example · Viewer')
+      expect(heading.querySelector('.extension-view-identity')?.textContent).toBe(
+        'Example',
+      )
+      const close = heading.querySelector<HTMLButtonElement>('button')!
+      expect(close.getAttribute('aria-label')).toBe('Close Viewer')
+      expect(close.title).toBe('Close Viewer')
+      act(() => close.click())
+      expect(onClose).toHaveBeenCalledWith('view')
       send.mockClear()
       appearance.theme = 'light'
       appearance.scale = 1.1

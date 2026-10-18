@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react'
+import { useId, type ReactElement } from 'react'
 import type { RegisteredProjectState } from '../../../shared/workspace-types'
 import type { ExtensionWorkspaceContext } from '../../../shared/extensions/contract'
 
@@ -8,14 +8,17 @@ export function ExtensionProjectPicker({
   workspaces,
   workspace,
   disabled,
+  compact = false,
   onChange,
 }: {
   readonly projects?: readonly RegisteredProjectState[]
   readonly workspaces: readonly ExtensionWorkspaceContext[]
   readonly workspace?: ExtensionWorkspaceContext
   readonly disabled?: boolean
+  readonly compact?: boolean
   readonly onChange: (workspaceId?: string) => void
 }): ReactElement {
+  const locationId = useId()
   const admittedById = new Map(workspaces.map((entry) => [entry.id, entry]))
   const choices = projects.map((project) => ({
     project,
@@ -33,12 +36,14 @@ export function ExtensionProjectPicker({
       ? `${workspace.host}: Path unavailable`
       : 'No project selected'
   return (
-    <div className="extension-project-picker">
+    <div className="extension-project-picker" data-compact={compact || undefined}>
       <label>
         <span>Project</span>
         <select
           className="hvir-input"
           aria-label="Extension project destination"
+          aria-describedby={locationId}
+          title={location}
           value={selected?.project.id ?? (workspace ? 'unavailable' : '')}
           disabled={disabled}
           onChange={(event) => {
@@ -89,6 +94,8 @@ export function ExtensionProjectPicker({
           <select
             className="hvir-input"
             aria-label="Extension worktree destination"
+            aria-describedby={locationId}
+            title={location}
             value={workspace?.id ?? ''}
             disabled={disabled}
             onChange={(event) => onChange(event.target.value)}
@@ -113,7 +120,7 @@ export function ExtensionProjectPicker({
           </select>
         </label>
       ) : null}
-      <span className="extension-workspace-location" title={location}>
+      <span id={locationId} className="extension-workspace-location" title={location}>
         {location}
       </span>
     </div>

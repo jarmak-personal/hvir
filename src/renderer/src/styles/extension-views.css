@@ -10,21 +10,37 @@
   display: none;
 }
 .extension-view-heading {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 5px 10px;
+  gap: 8px;
+  padding: 3px 8px;
   font-size: calc(12px * var(--hvir-interface-scale));
   color: var(--text-muted);
   border-bottom: 1px solid var(--border-subtle);
 }
-.extension-view-heading button {
-  color: var(--text);
-  background-color: var(--surface-1);
-  border: 1px solid var(--border-strong);
-  border-radius: 4px;
-  padding: 4px 8px;
+.extension-view-identity {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.extension-view-heading .extension-view-close {
+  grid-column: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(24px * var(--hvir-interface-scale));
+  height: calc(24px * var(--hvir-interface-scale));
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: calc(16px * var(--hvir-interface-scale));
+}
+.extension-view-heading .extension-view-close:hover {
+  background: var(--surface-hover);
+  color: var(--text-strong);
 }
 .extension-guest {
   flex: 1;
@@ -326,17 +342,13 @@
   flex-basis: 100%;
 }
 
-.extension-view-heading {
-  flex-wrap: wrap;
-}
 .extension-workspace-target {
   display: flex;
   align-items: center;
-  flex: 0 1 520px;
+  width: clamp(240px, 50cqw, 520px);
   flex-wrap: wrap;
   gap: 8px;
   min-width: 0;
-  margin-left: auto;
 }
 .extension-project-picker {
   display: flex;
@@ -366,6 +378,39 @@
   color: var(--text-muted);
   font-size: 0.9em;
 }
+.extension-project-picker[data-compact] {
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+.extension-project-picker[data-compact] > label {
+  flex-basis: 0;
+}
+.extension-project-picker[data-compact] select {
+  width: 100%;
+  padding: 3px 6px;
+  font-size: inherit;
+}
+.extension-project-picker[data-compact] > label > span,
+.extension-project-picker[data-compact] > .extension-workspace-location {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.extension-project-picker[data-compact]:focus-within {
+  flex-wrap: wrap;
+}
+.extension-project-picker[data-compact]:focus-within > .extension-workspace-location {
+  position: static;
+  width: 100%;
+  height: auto;
+  clip-path: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .extension-action-destination {
   flex-basis: 100%;
   min-width: 0;
@@ -378,26 +423,19 @@
   color: var(--warning-text);
 }
 
-@container (max-width: 850px) {
+@container (max-width: 560px) {
   .extension-view-heading {
-    display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
-    gap: 6px 10px;
+    gap: 4px 8px;
   }
-  .extension-view-heading > span {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .extension-view-heading > button {
+  .extension-view-heading .extension-view-close {
     grid-column: 2;
     grid-row: 1;
   }
   .extension-workspace-target {
     grid-column: 1 / -1;
     grid-row: 2;
-    margin: 0;
+    width: auto;
   }
 }
 .extension-confirmation-dialog {

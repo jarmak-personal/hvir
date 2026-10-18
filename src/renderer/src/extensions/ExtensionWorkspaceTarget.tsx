@@ -19,6 +19,7 @@ export function ExtensionWorkspaceTarget({
   return (
     <div className="extension-workspace-target" aria-busy={busy}>
       <ExtensionProjectPicker
+        compact
         projects={model?.projects}
         workspaces={model?.workspaces ?? []}
         workspace={view.context?.workspace}

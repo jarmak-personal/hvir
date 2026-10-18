@@ -54,8 +54,8 @@ export async function chooseExtensionWorkspace(
     const point = (await inspect(
       win,
       `(() => {
-      const location=document.querySelector(${JSON.stringify(container)})?.querySelector('.extension-workspace-location'),r=location?.getBoundingClientRect();
-      if(!location?.checkVisibility()||!r||r.width<=0||r.height<=0||r.left<0||r.right>innerWidth+1||r.top<0||r.bottom>innerHeight+1)throw new Error('Trusted destination row is not reachable');
+      const heading=document.querySelector(${JSON.stringify(container)})?.querySelector('.extension-view-identity'),r=heading?.getBoundingClientRect();
+      if(!heading?.checkVisibility()||!r||r.width<=0||r.height<=0||r.left<0||r.right>innerWidth+1||r.top<0||r.bottom>innerHeight+1)throw new Error('Trusted extension identity is not reachable');
       return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)};
     })()`,
     )) as { x: number; y: number }
@@ -107,7 +107,7 @@ export async function inspectExtensionProjectPicker(
     const project=pane?.querySelector('[aria-label="Extension project destination"]'), tree=pane?.querySelector('[aria-label="Extension worktree destination"]'), location=pane?.querySelector('.extension-workspace-location');
     const heading=pane?.querySelector('.extension-view-heading'),title=heading?.querySelector(':scope > span'),close=heading?.querySelector(':scope > button');
     const fits=e=>{const r=e?.getBoundingClientRect();return e?.checkVisibility()&&r.width>0&&r.height>0&&r.left>=0&&r.right<=innerWidth+1&&r.top>=0&&r.bottom<=innerHeight+1};
-    if(!fits(project)||!fits(tree)||!fits(location)||project.options.length<3||tree.options.length<2)throw new Error('Project/worktree hierarchy or destination containment failed');
+    if(!fits(project)||!fits(tree)||!location?.textContent||project.getAttribute('aria-describedby')!==location.id||tree.getAttribute('aria-describedby')!==location.id||project.title!==location.textContent||tree.title!==location.textContent||project.options.length<3||tree.options.length<2)throw new Error('Project/worktree hierarchy or exact accessible destination failed');
     const t=title?.getBoundingClientRect(),c=close?.getBoundingClientRect();
     if(!fits(title)||!fits(close)||Math.abs((t.top+t.bottom)/2-(c.top+c.bottom)/2)>2)throw new Error('Extension title and Close became separate rows');
     return {headingPaired:true,projects:project.options.length-1,worktrees:tree.options.length,projectLabel:project.selectedOptions[0].textContent,worktreeLabel:tree.selectedOptions[0].textContent,exactLocation:location.textContent,contained:true};
