@@ -180,6 +180,43 @@ it('keeps null-valid actions directly runnable in the chosen context', async () 
   })
 })
 
+it('preserves Settings context focus and the submitted action context while another destination is chosen', async () => {
+  const f = fixture(true)
+  let settle!: () => void
+  f.invoke.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        settle = resolve
+      }),
+  )
+  act(() => {
+    f.select.value = 'session:live-spawn'
+    f.select.dispatchEvent(new Event('change', { bubbles: true }))
+    f.select.focus()
+    f.button('Run Observe').click()
+  })
+  expect(f.select.disabled).toBe(false)
+  expect(f.project.disabled).toBe(false)
+  expect(document.activeElement).toBe(f.select)
+  expect(f.button('Run Observe').disabled).toBe(true)
+  act(() => {
+    f.project.value = ''
+    f.project.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  expect(f.invoke).toHaveBeenCalledExactlyOnceWith('extensions:action', {
+    installationId: 'one',
+    action: 'observe',
+    input: null,
+    context: { surface: 'viewer', workspaceId: 'worktree', sessionId: 'live-spawn' },
+  })
+  await act(async () => {
+    settle()
+    await Promise.resolve()
+  })
+  expect(f.project.value).toBe('')
+  expect(f.button('Run Observe').disabled).toBe(false)
+})
+
 it.each(['chosen', undefined])(
   'returns to the existing ordinary application destination (%s) without reopening its context after background navigation',
   (workspaceId) => {

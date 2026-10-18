@@ -35,6 +35,7 @@ let context = { visible: false },
   connectionPending = false,
   connectionPhase = '',
   connectionStatus = '',
+  connectionDetail = '',
   setupNeeded = false
 let lastPage,
   library,
@@ -99,12 +100,15 @@ function refreshConnectionAvailability() {
           : 'Connecting…'
         : connectionStatus
     status.hidden = !status.textContent
+    status.title = connectionDetail
+    status.setAttribute('aria-description', connectionDetail)
   }
 }
-function finishConnection(message = '') {
+function finishConnection(message = '', detail = '') {
   connectionPending = false
   connectionPhase = ''
   connectionStatus = message
+  connectionDetail = detail
   refreshConnectionAvailability()
 }
 
@@ -249,6 +253,11 @@ function requestRefresh(
     previous: [...previous],
   },
 ) {
+  if (!connectionPending) {
+    connectionStatus = ''
+    connectionDetail = ''
+    refreshConnectionAvailability()
+  }
   pageRequest = { query, options: searchOptions, ...pageRequest, ...target }
   pagingControls()
   generation++
@@ -258,10 +267,6 @@ function requestRefresh(
 async function refresh() {
   if (!available() || busy || view === 'detail' || connectionPhase === 'connecting')
     return
-  if (!connectionPending) {
-    connectionStatus = ''
-    refreshConnectionAvailability()
-  }
   pendingRefresh = false
   busy = true
   const revision = generation,
@@ -477,6 +482,8 @@ on('connect-program', 'click', async () => {
   connectionPending = true
   connectionPhase = 'connecting'
   connectionStatus = ''
+  connectionDetail = ''
+  pendingRefresh ||= busy
   generation++
   refreshConnectionAvailability()
   say(
@@ -521,8 +528,11 @@ on('connect-program', 'click', async () => {
       connectionStatus = 'Connection failed'
     }
   } finally {
-    if (admitted === connectionIntent && connectionPhase !== 'observing')
-      finishConnection(connectionStatus)
+    if (admitted === connectionIntent && connectionPhase !== 'observing') {
+      finishConnection(connectionStatus, element('state')?.textContent ?? '')
+      if (pendingRefresh && available()) void refresh()
+      else schedule()
+    }
   }
 })
 on('search-form', 'submit', (event) => {

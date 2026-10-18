@@ -145,3 +145,58 @@ it('does not retain progress or revive it from late replies after disposal', asy
   expect(f.button('connect-program').getAttribute('aria-busy')).toBe('false')
   expect(document.getElementById('connection-status')?.textContent).toBe('')
 })
+
+it.each(['timer', 'search', 'in-flight search'])(
+  'resumes %s after a declined connection or rejected reply, retaining feedback and periodic refresh',
+  async (edge) => {
+    for (const outcome of ['declined', 'failed']) {
+      const f = packageView('project')
+      f.unapproved()
+      f.context(true, localProject)
+      await f.flush()
+      const search = () => {
+        ;(document.getElementById('query') as HTMLInputElement).value = 'kept search'
+        document
+          .getElementById('search-form')!
+          .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+      }
+      if (edge === 'in-flight search') {
+        f.hold()
+        search()
+        await f.flush()
+      }
+      f.button('connect-program').click()
+      await f.flush()
+      if (edge === 'search') search()
+      if (edge === 'timer') await vi.advanceTimersByTimeAsync(31_000)
+      await f.flush()
+      const before = f.calls.length
+      if (outcome === 'declined')
+        f.connected({ connections: [{ connector: 'project-cli', outcome }] })
+      else f.connectionFailed()
+      if (edge === 'in-flight search') f.resume()
+      await f.flush()
+      expect(f.calls.length).toBeGreaterThan(before)
+      if (edge !== 'timer')
+        expect(
+          f.calls.some((args) => args[0] === 'search' && args[1] === 'kept search'),
+        ).toBe(true)
+      expect(document.getElementById('connection-status')?.textContent).toBe(
+        outcome === 'declined' ? 'Not connected' : 'Connection failed',
+      )
+      expect(
+        document.getElementById('connection-status')?.getAttribute('aria-description'),
+      ).toContain(
+        outcome === 'declined'
+          ? 'not connected for this project'
+          : 'Old connection failed',
+      )
+      expect(f.button('connect-program').getAttribute('aria-busy')).toBe('false')
+      const observed = f.calls.length
+      await vi.advanceTimersByTimeAsync(31_000)
+      expect(f.calls.length).toBeGreaterThan(observed)
+      f.dispose()
+      vi.useRealTimers()
+    }
+  },
+)

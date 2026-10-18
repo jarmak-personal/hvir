@@ -194,9 +194,11 @@ it('delivers the current Connect result after picker context focus loss without 
     ],
   })
   await f.flush()
-  expect(document.getElementById('state')!.textContent).toBe(
-    'Program access was declined',
-  )
+  expect(
+    document.getElementById('connection-status')!.getAttribute('aria-description'),
+  ).toBe('Program access was declined')
+  expect(document.getElementById('connection-status')!.textContent).toBe('Not connected')
+  expect(document.getElementById('state')!.dataset.state).toBe('ready')
 })
 
 const localProject = {

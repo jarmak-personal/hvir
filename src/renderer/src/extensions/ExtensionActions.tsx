@@ -42,7 +42,6 @@ export function ExtensionActions({
             projects={model?.projects}
             workspaces={workspaces}
             workspace={workspace}
-            disabled={busy}
             onChange={(id) => setContextId(id ? `workspace:${id}` : '')}
           />
           {sessions.length ? (
@@ -51,7 +50,6 @@ export function ExtensionActions({
               <select
                 aria-label="Extension action context"
                 value={selected ? `session:${selected.id}` : ''}
-                disabled={busy}
                 onChange={(event) =>
                   setContextId(
                     event.target.value || (workspace ? `workspace:${workspace.id}` : ''),
