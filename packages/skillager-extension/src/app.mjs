@@ -7,7 +7,6 @@ import {
   searchPage,
   searchArgs,
   projectInventory,
-  projectExposures,
   detailInputFor,
   localWorkspace,
 } from './catalog.mjs'
@@ -215,27 +214,30 @@ function rows(page) {
   )
   navigation?.refresh()
   pagingControls()
-  if (!page.rows.length)
+  const observed = new Date().toLocaleTimeString()
+  if (element('observation-details'))
+    element('observation-details').textContent =
+      `${page.rows.length} rows · Page ${previous.length + 1} · observed ${observed}${view === 'project' && !query ? ` · ${page.coverage} project observation\n${page.detail}` : query ? ` · ${page.presence ?? 'unknown'} installed presence` : ''}`
+  if (page.coverage === 'partial')
+    say(
+      `${page.rows.length ? `${page.rows.length} skills · ` : ''}Some project skills could not be loaded.`,
+      'partial',
+    )
+  else if (!page.rows.length)
     say(
       query
         ? `No matches for “${query}”. Change your search.`
         : view === 'project'
-          ? 'No local project skills observed. Discovery coverage is not asserted; your library is independent.'
+          ? 'No skills in this project.'
           : 'Your personal library is empty.',
       view === 'project' ? 'empty' : 'empty-library',
     )
-  else {
-    const observation = query
-      ? `${page.rows.length} matches · ${page.presence ?? 'unknown'} installed presence · Page ${previous.length + 1}`
-      : `${page.rows.length}${library?.count !== null && library?.count !== undefined && view === 'library' ? ` of ${library.count}` : ''} skills${view === 'project' ? ' · Local observations; discovery coverage is not asserted' : ''} · Page ${previous.length + 1} · observed ${new Date().toLocaleTimeString()}`
-    if (element('observation-details'))
-      element('observation-details').textContent = observation
+  else
     say(
       query
         ? `${page.rows.length} matches · Page ${previous.length + 1}`
         : `${page.rows.length}${library?.count !== null && library?.count !== undefined && view === 'library' ? ` of ${library.count}` : ''} skills · Page ${previous.length + 1}`,
     )
-  }
 }
 function pagingControls() {
   const changingSearch =
@@ -282,7 +284,13 @@ async function refresh() {
       previous: [...previous],
     }
   say(
-    lastPage ? 'Refreshing… last-known rows retained.' : 'Connecting to Skillager…',
+    lastPage
+      ? view === 'project'
+        ? 'Refreshing…'
+        : 'Refreshing… last-known rows retained.'
+      : view === 'project'
+        ? 'Loading project skills…'
+        : 'Connecting to Skillager…',
     lastPage ? 'stale' : 'connecting',
   )
   const project = scope(),
@@ -343,37 +351,21 @@ async function refresh() {
         throw new Error(
           'Project presence is unknown without an available exact local root. Open Your library for independent local browsing; no remote CLI is run.',
         )
-      const inventory = projectInventory(
+      page = projectInventory(
         await cli(
           [
-            'review',
-            '--source',
+            'list',
+            '--scope',
             'project',
-            '--include-blocked',
-            '--include-lint-blocked',
             '--json',
+            '--limit',
+            '100',
+            ...(target.cursor ? ['--cursor', target.cursor] : []),
           ],
           project,
         ),
         workspace,
       )
-      const exposures = projectExposures(
-        await cli(
-          ['expose', '--list', '--all-agents', '--scope', 'project', '--json'],
-          project,
-        ),
-        workspace,
-      )
-      const paths = new Set(exposures.map((item) => item.path))
-      const observed = [
-        ...inventory.rows.filter((item) => !paths.has(item.path)),
-        ...exposures,
-      ]
-      const offset = Number(target.cursor ?? 0)
-      page = {
-        rows: observed.slice(offset, offset + 100),
-        next: offset + 100 < observed.length ? String(offset + 100) : null,
-      }
     } else {
       page = libraryPage(
         await cli([

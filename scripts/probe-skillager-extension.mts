@@ -10,7 +10,11 @@ for (const name of [
   if (!process.env[name]) throw new Error(`Set ${name} to the supported existing setup`)
 }
 const { values } = parseArgs({
-  options: { 'reader-diagnostic': { type: 'boolean' }, package: { type: 'string' } },
+  options: {
+    'reader-diagnostic': { type: 'boolean' },
+    'project-inventory': { type: 'boolean' },
+    package: { type: 'string' },
+  },
   strict: true,
 })
 const diagnostic = values['reader-diagnostic'] === true
@@ -22,6 +26,7 @@ const result = await invokeSmokeScenario('extensions', 1, 1, {
     ...process.env,
     ...(values.package ? { HVIR_SKILLAGER_EVIDENCE_PACKAGE: values.package } : {}),
     HVIR_SKILLAGER_EVIDENCE_READER_DIAGNOSTIC: diagnostic ? '1' : '0',
+    HVIR_SKILLAGER_PROJECT_PROOF: values['project-inventory'] ? '1' : '0',
   },
 })
 console.log('[probe:extension:skillager]', JSON.stringify(result))

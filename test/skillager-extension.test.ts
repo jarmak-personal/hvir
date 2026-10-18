@@ -285,18 +285,152 @@ describe('ordinary maintained Skillager package contract', () => {
     expect(input.row.path).toBe(exact)
     expect(() => validateExtensionViewInput(input)).not.toThrow()
   })
-  it('distinguishes observed empty project metadata from exhaustive coverage and rejects mutation output', () => {
-    expect(
-      cli.projectInventory({ selected: [], action: { changed: [] } }, workspace),
-    ).toEqual({
+  it('requires the current public project inventory envelope and its exact selected root', () => {
+    const empty = {
+      schema: 'skillager.list.v1',
+      scope: 'project',
+      project_root: '/selected',
+      observation: { status: 'complete', errors: [], error_count: 0 },
+      skills: [],
+      next_cursor: null,
+    }
+    expect(cli.projectInventory(empty, workspace)).toMatchObject({
       rows: [],
-      coverage: 'observed',
+      coverage: 'complete',
+      next: null,
     })
-    expect(() =>
+    for (const data of [
+      { selected: [], action: { changed: [] } },
+      { ...empty, scope: 'library' },
+      { ...empty, project_root: '/other' },
+      { ...empty, next_cursor: undefined },
+      { ...empty, observation: { status: 'complete', errors: [], error_count: 1 } },
+      { ...empty, observation: { status: 'partial', errors: [], error_count: 0 } },
+      { ...empty, observation: { status: 'unavailable', errors: [], error_count: 1 } },
+    ])
+      expect(() => cli.projectInventory(data, workspace)).toThrow()
+    expect(() => cli.projectInventory(empty, { ...workspace, host: 'ssh' })).toThrow()
+  })
+  it.each(['full', 'stub', 'router'])(
+    'keeps the authoritative current %s copy separate from its canonical source',
+    (kind) => {
+      const row = {
+        id: kind === 'router' ? 'router/example' : 'lib/example',
+        occurrence_id: `managed-${kind}`,
+        name: 'Managed copy',
+        description: '',
+        status: 'present',
+        trust: null,
+        kind,
+        skill_file: `/selected/.agents/skills/${kind}/SKILL.md`,
+        native: { scope: 'project', managed: true, agent: 'codex' },
+        exposure: {
+          scope: 'project',
+          agent: 'codex',
+          mode: kind === 'full' ? 'native' : kind,
+          target: `/selected/.agents/skills/${kind}`,
+          ...(kind === 'router'
+            ? {}
+            : {
+                source_library_id: '720e24b1-53e0-45f6-a84e-3df65177b38c',
+                skill_id: 'lib/example',
+              }),
+        },
+      }
+      const data = {
+        schema: 'skillager.list.v1',
+        scope: 'project',
+        project_root: '/selected',
+        observation: { status: 'complete', errors: [], error_count: 0 },
+        skills: [row],
+        next_cursor: null,
+      }
+      const [current] = cli.projectInventory(data, workspace).rows
+      expect(current).toMatchObject({
+        id: row.occurrence_id,
+        path: row.skill_file,
+        status: 'present',
+      })
+      expect(current?.canonical).toEqual(
+        kind === 'router'
+          ? null
+          : {
+              library_id: row.exposure.source_library_id,
+              skill_id: 'lib/example',
+            },
+      )
+      expect(() =>
+        cli.projectInventory(
+          {
+            ...data,
+            skills: [{ ...row, exposure: { ...row.exposure, agent: 'claude' } }],
+          },
+          workspace,
+        ),
+      ).toThrow()
+    },
+  )
+  it('preserves distinct occurrence identity, current paths, and pending or blocked metadata', () => {
+    const original = {
+      id: 'project/example',
+      name: 'Same name',
+      description: 'Observed metadata',
+      kind: 'native',
+      native: { scope: 'project', managed: false, agent: null },
+      exposure: null,
+    }
+    const skills = ['pending', 'blocked', 'lint_blocked', 'accepted'].map(
+      (status, i) => ({
+        ...original,
+        id: `project/example-${i}`,
+        occurrence_id: `occurrence-${i}`,
+        status,
+        skill_file: `/selected/.agents/skills/example-${i}/SKILL.md`,
+      }),
+    )
+    const page = {
+      schema: 'skillager.list.v1',
+      scope: 'project',
+      project_root: '/selected',
+      observation: { status: 'complete', errors: [], error_count: 0 },
+      skills,
+      next_cursor: null,
+    }
+    const rows = cli.projectInventory(page, workspace).rows
+    expect(rows.map((item) => item.id)).toEqual(skills.map((item) => item.occurrence_id))
+    expect(rows.map((item) => item.path)).toEqual(skills.map((item) => item.skill_file))
+    expect(rows.map((item) => item.status)).toEqual([
+      'pending',
+      'blocked',
+      'lint_blocked',
+      'accepted',
+    ])
+    const aliasTarget = '/selected/.agents/skills/example-0/instructions.md'
+    expect(
       cli.projectInventory(
-        { selected: [], action: { changed: ['mutation'] } },
+        {
+          ...page,
+          skills: [{ ...skills[0], status: 'lint_blocked', skill_file: aliasTarget }],
+        },
         workspace,
-      ),
+      ).rows[0]?.path,
+    ).toBe(aliasTarget)
+    for (const change of [
+      { skill_file: '/selected-other/SKILL.md' },
+      { skill_file: '/selected/../other/SKILL.md' },
+      { native: { scope: 'global', managed: false } },
+      { native: { scope: 'project', managed: true } },
+      { kind: 'library' },
+      { status: 'trusted' },
+    ])
+      expect(() =>
+        cli.projectInventory(
+          { ...page, skills: [{ ...skills[0], ...change }] },
+          workspace,
+        ),
+      ).toThrow()
+    expect(() =>
+      cli.projectInventory({ ...page, skills: [skills[0], skills[0]] }, workspace),
     ).toThrow()
   })
 })

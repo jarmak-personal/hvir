@@ -251,6 +251,17 @@ export async function runCli(client, args, context, retryFrequency = true) {
       text = await outputText(client, result.receipt)
       error = await outputText(client, result.receipt, 'stderr')
     }
+    if (
+      result.outcome === 'completed' &&
+      result.code === 2 &&
+      args[0] === 'list' &&
+      args[args.indexOf('--scope') + 1] === 'project' &&
+      /argument --scope: invalid choice: ['"]project['"]/u.test(error)
+    )
+      throw new SkillagerSetupError(
+        'update-required',
+        'Project skills need Skillager 0.9.7 or a supported source build with project inventory. Your library remains available.',
+      )
     if (result.outcome !== 'completed' || result.code !== 0 || result.truncated)
       throw new SkillagerSetupError(
         result.outcome === 'not-started' && result.reason === 'unapproved'

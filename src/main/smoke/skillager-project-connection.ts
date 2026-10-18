@@ -5,6 +5,7 @@ import {
   type OpenDialogOptions,
 } from 'electron'
 import { joinHostPath, localPath, type HostPath } from '../../shared/host-path'
+import { pathToFileURL } from 'node:url'
 import type { ProjectHost } from '../project-host/project-host'
 import { trustedRendererControl } from './trusted-renderer-control'
 
@@ -19,6 +20,7 @@ export async function verifySkillagerProjectConnection(
     wait(predicate: () => boolean | Promise<boolean>, label: string): Promise<void>
     ready(predicate: () => Promise<boolean>, label: string): Promise<void>
     within<T>(work: Promise<T>): Promise<T>
+    reopen(): Promise<WebContents>
   },
 ): Promise<void> {
   const skill = joinHostPath(root, '.agents', 'skills', 'project-connection-proof')
@@ -35,6 +37,38 @@ export async function verifySkillagerProjectConnection(
   await host.writeFile(
     joinHostPath(skill, 'SKILL.md'),
     '---\nname: project-connection-proof\ndescription: Use the recorded project examples to verify ordinary project discovery.\n---\n\n# Project connection proof\n\nRead only after an explicit current selection.\n',
+  )
+  // Real editable discovery reproduces the provenance collision without installing
+  // anything or changing the user's environment. The package copy is unrelated.
+  const packages = joinHostPath(root, '.venv', 'lib', 'python3.13', 'site-packages')
+  for (const relative of [
+    '.venv',
+    '.venv/lib',
+    '.venv/lib/python3.13',
+    '.venv/lib/python3.13/site-packages',
+    '.venv/lib/python3.13/site-packages/example-1.0.dist-info',
+    '.venv/lib/python3.13/site-packages/example',
+    '.venv/lib/python3.13/site-packages/example/skills',
+    '.venv/lib/python3.13/site-packages/example/skills/package-only',
+  ])
+    await host.createDirectoryExclusive(joinHostPath(root, ...relative.split('/')), {
+      mode: 0o755,
+    })
+  await host.writeFile(
+    joinHostPath(packages, 'example-1.0.dist-info', 'METADATA'),
+    'Metadata-Version: 2.1\nName: example\nVersion: 1.0\n',
+  )
+  await host.writeFile(
+    joinHostPath(packages, 'example-1.0.dist-info', 'direct_url.json'),
+    JSON.stringify({ url: pathToFileURL(root.path).href, dir_info: { editable: true } }),
+  )
+  await host.writeFile(
+    joinHostPath(packages, 'example-1.0.dist-info', 'RECORD'),
+    'example/skills/package-only/SKILL.md,,\n',
+  )
+  await host.writeFile(
+    joinHostPath(packages, 'example', 'skills', 'package-only', 'SKILL.md'),
+    '---\nname: project-connection-proof\ndescription: Unrelated package copy.\n---\n\n# Package copy\n',
   )
   const canonical = (await host.realpath(localPath(executable))).path
   const descriptor = Object.getOwnPropertyDescriptor(dialog, 'showOpenDialog')
@@ -116,9 +150,9 @@ export async function verifySkillagerProjectConnection(
     await controls.ready(
       async () =>
         (await inspect(
-          "document.getElementById('state')?.dataset.state==='ready' && [...document.querySelectorAll('#skills [role=option]')].some(row=>row.dataset.id==='project/project-connection-proof')",
+          `document.getElementById('state')?.dataset.state==='ready' && document.querySelectorAll('#skills [role=option]').length===1 && document.querySelector('#skills [role=option]')?.dataset.sourcePath===${JSON.stringify(joinHostPath(skill, 'SKILL.md').path)}`,
         )) === true,
-      'public project review discovers actual owned project skill without initialization',
+      'public project inventory includes the pending editable-classified native file once and excludes its package copy',
     )
     if (programSelections > 2)
       throw new Error('Project connection repeatedly requested native program selection')
@@ -128,6 +162,17 @@ export async function verifySkillagerProjectConnection(
     console.log(
       '[smoke] bounded project public replies',
       JSON.stringify(await inspect('globalThis.__hvirProjectConnectionProof')),
+    )
+    guest = await controls.reopen()
+    await controls.ready(
+      async () =>
+        (await inspect(
+          `document.getElementById('state')?.dataset.state==='ready' && document.getElementById('connect-program').hidden && document.getElementById('query').value==='' && document.querySelectorAll('#skills [role=option]').length===1 && document.querySelector('#skills [role=option]')?.dataset.sourcePath===${JSON.stringify(joinHostPath(skill, 'SKILL.md').path)}`,
+        )) === true,
+      'a fresh already-connected project document automatically lists its current native skill with no interaction',
+    )
+    console.log(
+      '[smoke] project inventory: editable overlap, unrelated package exclusion and automatic connected document reuse OK',
     )
   } catch (error) {
     console.log(
