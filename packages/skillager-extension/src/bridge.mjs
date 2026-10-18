@@ -251,30 +251,24 @@ export async function runCli(client, args, context, retryFrequency = true) {
       text = await outputText(client, result.receipt)
       error = await outputText(client, result.receipt, 'stderr')
     }
-    if (
-      result.outcome === 'completed' &&
-      result.code === 2 &&
-      args[0] === 'list' &&
-      args[args.indexOf('--scope') + 1] === 'project' &&
-      /argument --scope: invalid choice: ['"]project['"]/u.test(error)
-    )
-      throw new SkillagerSetupError(
-        'update-required',
-        'Project skills need Skillager 0.9.7 or a supported source build with project inventory. Your library remains available.',
-      )
     if (result.outcome !== 'completed' || result.code !== 0 || result.truncated)
-      throw new SkillagerSetupError(
-        result.outcome === 'not-started' && result.reason === 'unapproved'
-          ? 'missing-program'
-          : 'failed-observation',
-        result.outcome === 'not-started' && result.reason === 'unapproved'
-          ? 'Connect the installed Skillager CLI to browse skills. Program approval is separate from file reading.'
-          : result.outcome === 'not-started' &&
-              ['frequency', 'capacity'].includes(result.reason)
-            ? result.reason === 'frequency'
-              ? 'Refresh deferred by the completed-execution frequency limit; freshness unavailable.'
-              : 'Refresh deferred by execution capacity; freshness unavailable.'
-            : `Skillager ${result.outcome}: ${result.reason ?? `exit ${result.code ?? 'unknown'}`}${error ? ` · ${error.slice(0, 300)}` : ''}`,
+      throw Object.assign(
+        new SkillagerSetupError(
+          result.outcome === 'not-started' && result.reason === 'unapproved'
+            ? 'missing-program'
+            : 'failed-observation',
+          result.outcome === 'not-started' && result.reason === 'unapproved'
+            ? 'Connect the installed Skillager CLI to browse skills. Program approval is separate from file reading.'
+            : result.outcome === 'not-started' &&
+                ['frequency', 'capacity'].includes(result.reason)
+              ? result.reason === 'frequency'
+                ? 'Refresh deferred by the completed-execution frequency limit; freshness unavailable.'
+                : 'Refresh deferred by execution capacity; freshness unavailable.'
+              : `Skillager ${result.outcome}: ${result.reason ?? `exit ${result.code ?? 'unknown'}`}${error ? ` · ${error.slice(0, 300)}` : ''}`,
+        ),
+        {
+          cli: { outcome: result.outcome, code: result.code, stderr: error.slice(-4096) },
+        },
       )
     return text
   } finally {

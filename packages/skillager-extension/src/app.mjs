@@ -7,6 +7,7 @@ import {
   searchPage,
   searchArgs,
   projectInventory,
+  projectInventoryFailure,
   detailInputFor,
   localWorkspace,
 } from './catalog.mjs'
@@ -394,7 +395,7 @@ async function refresh() {
   } catch (error) {
     if (available() && generation === revision) {
       const failure = firstUseFailure(
-        error,
+        view === 'project' && !target.query ? projectInventoryFailure(error) : error,
         !!lastPage,
         failureDestination,
         connectAvailable && (view !== 'project' || !!localWorkspace(context.workspace)),

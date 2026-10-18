@@ -238,3 +238,34 @@ it('names the required update when the installed CLI does not support project in
   ).toBe(true)
   expect(f.initializationRequests).toEqual([])
 })
+
+it.each([false, true])(
+  'distinguishes unavailable project observation from unsupported scope with retained rows %s',
+  async (retained) => {
+    const f = view()
+    if (!retained) f.unavailableProject()
+    f.context(true, workspace)
+    await f.flush()
+    if (retained) {
+      expect(rows()).toHaveLength(1)
+      f.unavailableProject()
+      f.button('refresh').click()
+      await f.flush()
+    }
+    expect(rows()).toHaveLength(retained ? 1 : 0)
+    expect(state().dataset.state).toBe(retained ? 'stale' : 'failed-observation')
+    expect(state().textContent).toBe(
+      retained
+        ? 'Could not refresh project skills. Showing the last result.'
+        : 'Could not load skills in this project.',
+    )
+    expect(document.getElementById('program-setup')?.hidden).toBe(true)
+    expect(document.getElementById('observation-details')?.textContent).toContain(
+      'exit 2',
+    )
+    expect(document.getElementById('observation-details')?.textContent).toContain(
+      'The selected project could not be observed.',
+    )
+    expect(f.initializationRequests).toEqual([])
+  },
+)

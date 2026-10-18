@@ -37,6 +37,7 @@ export function createSkillagerPackageView(view = 'library') {
     version = '0.9.3',
     projectInventory: unknown,
     projectScopeSupported = true,
+    unavailableProject = false,
     currentWorkspace: { root?: { path?: string } } | undefined,
     resume: (() => void) | undefined,
     finishConnection: ((value: unknown, error?: string) => void) | undefined
@@ -111,6 +112,31 @@ export function createSkillagerPackageView(view = 'library') {
           receipt,
           `usage: skillager list ${'options '.repeat(60)}\nskillager list: error: argument --scope: invalid choice: 'project' (choose from 'workspace', 'library')`,
         )
+        value = { outcome: 'completed', code: 2, receipt }
+      } else if (
+        unavailableProject &&
+        args[0] === 'list' &&
+        args[args.indexOf('--scope') + 1] === 'project'
+      ) {
+        const receipt = String(++serial)
+        outputs.set(
+          receipt,
+          JSON.stringify({
+            schema: 'skillager.list.v1',
+            scope: 'project',
+            project_root: currentWorkspace?.root?.path,
+            observation: {
+              status: 'unavailable',
+              errors: [
+                { code: 'project-unavailable', path: currentWorkspace?.root?.path },
+              ],
+              error_count: 1,
+            },
+            skills: [],
+            next_cursor: null,
+          }),
+        )
+        errors.set(receipt, 'The selected project could not be observed.')
         value = { outcome: 'completed', code: 2, receipt }
       } else if (fail && (!failOn || args[0] === failOn)) {
         fail = false
@@ -286,6 +312,9 @@ export function createSkillagerPackageView(view = 'library') {
     },
     projectInventory: (value: unknown) => {
       projectInventory = value
+    },
+    unavailableProject: () => {
+      unavailableProject = true
     },
     unsupportedProjectScope: () => {
       projectScopeSupported = false

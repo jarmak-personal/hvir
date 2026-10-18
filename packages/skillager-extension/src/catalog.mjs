@@ -4,7 +4,7 @@ import {
   metadataText as text,
   metadataSourcePath as sourcePath,
 } from './public-metadata.mjs'
-import { SkillagerSetupError } from './library-first-use.mjs'
+import { SkillagerSetupError, projectInventoryRequirement } from './library-first-use.mjs'
 export const MINIMUM_SKILLAGER = '0.9.3'
 export function requireVersion(text) {
   const match = /skillager\s+(\d+)\.(\d+)\.(\d+)/u.exec(text)
@@ -38,11 +38,11 @@ export function libraryStatus(value) {
     count: data.counts?.skills ?? null,
   }
 }
-export function libraryPage(value) {
+function listEnvelope(value, scope) {
   const data = object(value)
   if (
     data.schema !== 'skillager.list.v1' ||
-    data.scope !== 'library' ||
+    data.scope !== scope ||
     !Array.isArray(data.skills) ||
     data.skills.length > 100 ||
     !(
@@ -52,8 +52,14 @@ export function libraryPage(value) {
   )
     throw new SkillagerSetupError(
       'update-required',
-      'Required public contract skillager.list.v1 is missing or invalid. Skillager ≥0.9.3 with the current public library contract is required; no legacy fallback is used.',
+      scope === 'project'
+        ? projectInventoryRequirement
+        : 'Required public contract skillager.list.v1 is missing or invalid. Skillager ≥0.9.3 with the current public library contract is required; no legacy fallback is used.',
     )
+  return data
+}
+export function libraryPage(value) {
+  const data = listEnvelope(value, 'library')
   return {
     rows: data.skills.map((item) => {
       const row = object(item)
@@ -131,25 +137,21 @@ export function searchPage(value, workspace) {
     presence: data.context?.installed_observation ?? 'unknown',
   }
 }
+/** Only this command owns the meaning of argparse's unsupported project scope. */
+export function projectInventoryFailure(error) {
+  if (
+    error.cli?.outcome === 'completed' &&
+    error.cli.code === 2 &&
+    /argument --scope: invalid choice: ['"]project['"]/u.test(error.cli.stderr)
+  )
+    return new SkillagerSetupError('update-required', projectInventoryRequirement)
+  return error
+}
 /** Project membership and copy identity are observed by Skillager, never inferred here. */
 export function projectInventory(value, workspace) {
   if (!localWorkspace(workspace))
     throw new Error('Project presence is unknown without an exact local workspace')
-  const data = object(value)
-  if (
-    data.schema !== 'skillager.list.v1' ||
-    data.scope !== 'project' ||
-    !Array.isArray(data.skills) ||
-    data.skills.length > 100 ||
-    !(
-      data.next_cursor === null ||
-      (typeof data.next_cursor === 'string' && data.next_cursor.length <= 4096)
-    )
-  )
-    throw new SkillagerSetupError(
-      'update-required',
-      'This Skillager build lacks the public project inventory contract. Update to Skillager 0.9.7 or a supported source build.',
-    )
+  const data = listEnvelope(value, 'project')
   if (data.project_root !== workspace.root.path)
     throw new Error('Project inventory does not match the selected local workspace')
   const observation = object(data.observation)
