@@ -27,8 +27,8 @@
 }
 
 .sessions-destination.active {
-  border-bottom-color: var(--border-subtle);
-  background-color: var(--surface-active);
+  border-bottom-color: var(--chrome-surface);
+  background-color: var(--chrome-surface);
   color: var(--text-strong);
 }
 

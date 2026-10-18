@@ -24,6 +24,9 @@
   background: var(--toolbar-surface);
   color: var(--text);
   font-size: calc(11px * var(--hvir-interface-scale));
+  font-weight: 400;
+  letter-spacing: normal;
+  white-space: normal;
 }
 
 .git-graph-toolbar > div {
@@ -113,10 +116,12 @@
   padding: 0 8px 0 0;
   overflow: hidden;
   border-width: 0;
+  border-radius: 0;
   border-bottom: 1px solid var(--border-subtle);
   background-color: transparent;
   color: var(--text);
   font-size: calc(11px * var(--hvir-interface-scale));
+  line-height: normal;
   text-align: left;
 }
 
@@ -125,7 +130,7 @@
 }
 
 .git-graph-row.active {
-  background-color: var(--surface-active);
+  background-color: var(--surface-selected-neutral);
   box-shadow: inset 2px 0 var(--accent);
   color: var(--text-strong);
 }
@@ -219,9 +224,9 @@
   flex: 0 1 auto;
   overflow: hidden;
   padding: 1px 5px;
-  border: 1px solid var(--accent);
+  border: 1px solid var(--selection-muted-border);
   border-radius: 8px;
-  background: var(--surface-hover);
+  background: var(--selection-muted-surface);
   color: var(--accent-text);
   font-size: calc(9px * var(--hvir-interface-scale));
   line-height: 14px;
@@ -231,13 +236,13 @@
 
 .git-ref.tag {
   border-color: var(--warning-border);
-  background: var(--surface-raised);
+  background: var(--warning-surface);
   color: var(--warning-text);
 }
 
 .git-ref.head {
   border-color: var(--success-border);
-  background: var(--surface-raised);
+  background: var(--success-surface);
   color: var(--success-text);
 }
 

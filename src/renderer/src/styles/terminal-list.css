@@ -11,11 +11,11 @@
   align-items: stretch;
   border-bottom: 1px solid var(--border-subtle);
   box-shadow: inset 1px 0 var(--border-subtle);
-  background-color: var(--surface-0);
+  background-color: var(--surface-1);
 }
 
 .terminal-list-row:hover {
-  background-color: var(--surface-hover);
+  background-color: var(--surface-raised);
 }
 
 .terminal-list-row.dormant {
@@ -168,4 +168,16 @@
   background-color: var(--surface-raised);
   color: var(--text);
   font-size: calc(10px * var(--hvir-interface-scale));
+}
+
+:root[data-theme='light'] .terminal-list-title {
+  color: var(--text-strong);
+}
+
+:root[data-theme='light'] .terminal-list-row:not(.active):not(.dormant) {
+  background-color: var(--surface-0);
+}
+
+:root[data-theme='light'] .terminal-list-row:not(.active):not(.dormant):hover {
+  background-color: var(--surface-active);
 }

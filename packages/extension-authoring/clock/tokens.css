@@ -11,6 +11,7 @@
   --surface-raised: #181b21;
   --surface-hover: #20242c;
   --surface-active: #243142;
+  --surface-selected-neutral: #29303b;
   --border-subtle: #282d36;
   --border-strong: #343a45;
   --text-strong: #edf0f5;
@@ -83,6 +84,7 @@
   --surface-raised: #e9eef4;
   --surface-hover: #e5ebf2;
   --surface-active: #dbe9f8;
+  --surface-selected-neutral: #dbe9f8;
   --border-subtle: #d4dbe3;
   --border-strong: #bcc6d1;
   --text-strong: #17202b;

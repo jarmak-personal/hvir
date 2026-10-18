@@ -146,11 +146,11 @@
 }
 
 .document-review-guidance {
-  border-left: 3px solid var(--warning-border);
+  border-left: 3px solid var(--warning-text);
 }
 
 .document-review-error {
-  border-left: 3px solid var(--danger-border);
+  border-left: 3px solid var(--danger-text);
 }
 
 .document-review-guidance button {
@@ -289,7 +289,7 @@
 
 .review-block-active {
   border-radius: 4px;
-  outline: 1px dashed var(--accent);
+  outline: 1px dashed var(--selection-muted-border);
   outline-offset: 6px;
 }
 
@@ -340,12 +340,12 @@
 
 .review-block-badge.review-anchor-moved {
   border-style: dashed;
-  border-color: var(--warning-border);
+  border-color: var(--warning-text);
 }
 
 .review-block-badge.review-anchor-stale {
   border-style: double;
-  border-color: var(--danger-border);
+  border-color: var(--danger-text);
 }
 
 .cm-review-gutter {
@@ -378,12 +378,12 @@
 
 .cm-review-marker.review-anchor-moved {
   border-style: dashed;
-  border-color: var(--warning-border);
+  border-color: var(--warning-text);
 }
 
 .cm-review-marker.review-anchor-stale {
   border-style: double;
-  border-color: var(--danger-border);
+  border-color: var(--danger-text);
 }
 
 .cm-review-anchor {
@@ -393,7 +393,7 @@
 
 .cm-review-anchor.review-anchor-moved {
   background: color-mix(in srgb, var(--warning-text) 14%, transparent);
-  text-decoration: underline dashed var(--warning-border);
+  text-decoration: underline dashed var(--warning-text);
 }
 
 .cm-review-anchor.review-anchor-stale {
@@ -404,7 +404,7 @@
     transparent 4px,
     transparent 8px
   );
-  text-decoration: underline wavy var(--danger-border);
+  text-decoration: underline wavy var(--danger-text);
 }
 
 .document-review-delivery {

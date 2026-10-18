@@ -61,7 +61,7 @@
   border: 1px solid var(--danger-border);
   border-radius: 5px;
   box-shadow: 0 8px 24px var(--shadow);
-  background: var(--surface-raised);
+  background: var(--danger-surface);
   color: var(--danger-text);
   font-size: calc(11px * var(--hvir-interface-scale));
 }
