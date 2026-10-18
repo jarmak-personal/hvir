@@ -117,7 +117,10 @@
   min-width: 0;
   color: var(--text);
 }
-.hvir-field :is(input, select, textarea) {
+.hvir-field
+  :is(input, select, textarea):not([type='checkbox']):not([type='radio']):not(
+    [type='range']
+  ) {
   width: 100%;
   min-width: 0;
   padding: 6px 8px;
@@ -126,6 +129,30 @@
   background: var(--surface-2);
   border: 1px solid var(--border-strong);
   border-radius: 4px;
+}
+.hvir-field:has(> input:is([type='checkbox'], [type='radio'])) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.hvir-field input:is([type='checkbox'], [type='radio']) {
+  font: inherit;
+  flex: 0 0 auto;
+  width: 1em;
+  height: 1em;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
+}
+.hvir-field > input:is([type='checkbox'], [type='radio']) {
+  order: -1;
+}
+.hvir-field input[type='range'] {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
 }
 .hvir-row[data-variant='selectable'] {
   display: block;

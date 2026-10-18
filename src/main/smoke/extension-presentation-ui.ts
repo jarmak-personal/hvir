@@ -56,6 +56,42 @@ export async function verifyExtensionPresentationUi(
     return search.labels.length === 1 && search.labels[0].textContent.includes('Search examples') && document.getElementById('catalog-list').getAttribute('aria-label') === 'Examples';
   })()`)
   if (labels !== true) throw new Error('Guest kit controls lack ordinary labels')
+  const fieldGeometry = await query(`(() => {
+    const fixture=document.createElement('section'); fixture.style.width='260px';
+    fixture.innerHTML='<label class="hvir-field"><input type="checkbox"><span>Show details</span></label><label class="hvir-field"><span>Selected view</span><input type="radio"></label><label class="hvir-field">Scale<input type="range"></label><label class="hvir-field">Name<input type="text"></label>';
+    document.body.append(fixture);
+    try {
+      const booleans=[...fixture.querySelectorAll('input[type=checkbox],input[type=radio]')];
+      const aligned=booleans.every(input=>{
+        const control=input.getBoundingClientRect(), label=input.parentElement.querySelector('span').getBoundingClientRect(), style=getComputedStyle(input);
+        return control.width>0&&control.width<=parseFloat(style.fontSize)+1&&control.height<=parseFloat(style.fontSize)+1&&style.padding==='0px'&&control.right<=label.left&&Math.abs((control.top+control.bottom-label.top-label.bottom)/2)<1;
+      });
+      const range=fixture.querySelector('input[type=range]'), text=fixture.querySelector('input[type=text]');
+      return aligned&&range.getBoundingClientRect().width===260&&getComputedStyle(range).padding==='0px'&&getComputedStyle(text).borderTopStyle==='solid'&&text.getBoundingClientRect().width===260;
+    } finally { fixture.remove(); }
+  })()`)
+  if (fieldGeometry !== true)
+    throw new Error(
+      'Shared field styling stretches boolean controls or adds text-input sizing to sliders',
+    )
+  const headerGeometry: unknown = await win.webContents.executeJavaScript(`(() => {
+    const frame=[...document.querySelectorAll('webview')].find(item=>item.getWebContentsId()===${guest.id});
+    const pane=frame?.closest('[data-extension-view]'), heading=pane?.querySelector('.extension-view-heading');
+    const identity=heading?.querySelector('.extension-view-identity'), close=heading?.querySelector('.extension-view-close');
+    const picker=heading?.querySelector('.extension-project-picker'), project=picker?.querySelector('select'), location=picker?.querySelector('.extension-workspace-location');
+    if(!frame||!heading||!identity||!close||!project||!location)return false;
+    const before=heading.getBoundingClientRect(), fits=e=>{const r=e.getBoundingClientRect();return r.width>0&&r.height>0&&r.left>=before.left&&r.right<=before.right};
+    if(![identity,close,project].every(fits)||!close.getAttribute('aria-label')||!close.title||identity.textContent!=='hvir Reference'||location.id!==project.getAttribute('aria-describedby'))return false;
+    project.focus();
+    try {
+      const path=location.getBoundingClientRect(), bounds=heading.getBoundingClientRect(), content=frame.getBoundingClientRect();
+      return path.height>1&&path.width>1&&path.top>=bounds.top&&path.bottom<=bounds.bottom&&bounds.bottom<=content.top+1&&path.bottom<=content.top+1;
+    } finally { project.blur(); }
+  })()`)
+  if (headerGeometry !== true)
+    throw new Error(
+      'Compact trusted header lost identity, close, or visible destination above the real guest',
+    )
   await focusSmokeWindow(win)
   guest.focus()
   const point = (await query(

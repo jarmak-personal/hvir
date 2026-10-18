@@ -62,7 +62,7 @@ function mount() {
   return { host, select, choose }
 }
 
-it('shows registered projects before scoped worktrees and keeps exact host paths secondary', () => {
+it('keeps compact project/worktree choices explicit and describes the exact selected host path', () => {
   const a = project('one', 60),
     b = project('two', 40),
     remote = project('remote', 2, 'build-host')
@@ -77,6 +77,7 @@ it('shows registered projects before scoped worktrees and keeps exact host paths
           projects,
           workspaces,
           workspace,
+          compact: true,
           onChange,
         }),
       ),
@@ -88,6 +89,12 @@ it('shows registered projects before scoped worktrees and keeps exact host paths
   expect(projectOptions[2]!.textContent).toContain('local: /registered/two')
   expect(projectOptions[3]!.textContent).toBe('remote · build-host')
   const tree = f.select('Extension worktree destination')
+  for (const control of [f.select('Extension project destination'), tree]) {
+    expect(control.title).toBe('local: /registered/one/checkout-12')
+    expect(
+      document.getElementById(control.getAttribute('aria-describedby')!)?.textContent,
+    ).toBe('local: /registered/one/checkout-12')
+  }
   expect(tree.options).toHaveLength(59)
   expect(tree.selectedOptions[0]?.textContent).toBe('feature-12')
   expect(f.host.querySelector('.extension-workspace-location')?.textContent).toBe(
