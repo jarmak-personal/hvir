@@ -185,6 +185,7 @@
   border: 0;
   border-radius: 0;
   font-size: calc(11px * var(--hvir-interface-scale));
+  line-height: normal;
   text-align: left;
 }
 

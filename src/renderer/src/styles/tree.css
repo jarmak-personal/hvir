@@ -205,9 +205,11 @@
   padding-right: 8px;
   padding-bottom: 0;
   border-width: 0;
+  border-radius: 0;
   color: var(--text-secondary);
   background-color: transparent;
   font-size: calc(12px * var(--hvir-interface-scale));
+  line-height: normal;
   text-align: left;
   cursor: default;
 }

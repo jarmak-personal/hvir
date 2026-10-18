@@ -227,9 +227,11 @@
   padding-right: 10px;
   overflow: hidden;
   border-width: 0;
+  border-radius: 0;
   background-color: transparent;
   color: var(--text-secondary);
   font-size: calc(10px * var(--hvir-interface-scale));
+  line-height: normal;
   text-align: left;
 }
 

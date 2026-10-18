@@ -460,7 +460,3 @@
 :root[data-theme='light'] .settings-fields :is(input, select, textarea) {
   background-color: var(--surface-0);
 }
-
-.settings-fields :is(input, select, textarea):disabled {
-  opacity: 1;
-}

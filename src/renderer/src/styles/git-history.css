@@ -25,6 +25,7 @@
   outline: none;
   background-color: transparent;
   color: var(--text-secondary);
+  line-height: normal;
   text-align: left;
 }
 
@@ -169,6 +170,7 @@
   background-color: transparent;
   color: var(--text-secondary);
   font-size: calc(9px * var(--hvir-interface-scale));
+  line-height: normal;
   text-align: left;
 }
 
