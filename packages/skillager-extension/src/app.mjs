@@ -31,6 +31,7 @@ let context = { visible: false },
   timer,
   busy = false,
   pendingRefresh = false,
+  libraryStatusNeeded = true,
   connectAvailable = false,
   connectionPending = false,
   connectionPhase = '',
@@ -252,6 +253,7 @@ function requestRefresh(
     cursor,
     previous: [...previous],
   },
+  observeLibrary = true,
 ) {
   if (!connectionPending) {
     connectionStatus = ''
@@ -259,6 +261,8 @@ function requestRefresh(
     refreshConnectionAvailability()
   }
   pageRequest = { query, options: searchOptions, ...pageRequest, ...target }
+  // A newer page intent cannot discard a refresh whose status has not settled.
+  libraryStatusNeeded ||= observeLibrary
   pagingControls()
   generation++
   pendingRefresh = true
@@ -289,13 +293,24 @@ async function refresh() {
   try {
     let page
     if (view === 'library') {
-      const observed = libraryStatus(await cli(['library', 'status', '--json']))
-      if (!available() || generation !== revision) return
-      library = observed
+      if (libraryStatusNeeded || !library) {
+        const observed = libraryStatus(await cli(['library', 'status', '--json']))
+        if (!available() || generation !== revision) return
+        if (library && (library.id !== observed.id || library.root !== observed.root)) {
+          selectedRow = undefined
+          lastPage = undefined
+          list?.replaceChildren()
+          cursor = target.cursor = undefined
+          previous = target.previous = []
+          pagingControls()
+        }
+        library = observed
+        libraryStatusNeeded = false
+      }
       if (element('program-setup')) element('program-setup').hidden = true
       setupNeeded = false
       refreshConnectionAvailability()
-      if (!observed.initialized) {
+      if (!library.initialized) {
         observedSuccessfully = true
         lastPage = undefined
         list?.replaceChildren()
@@ -542,27 +557,31 @@ on('search-form', 'submit', (event) => {
     separateCopies: element('separate-copies').checked,
     preferredAgent: element('preferred-agent').value || undefined,
   }
-  requestRefresh({
-    query: element('query').value.trim(),
-    options,
-    cursor: undefined,
-    previous: [],
-  })
+  requestRefresh(
+    {
+      query: element('query').value.trim(),
+      options,
+      cursor: undefined,
+      previous: [],
+    },
+    false,
+  )
 })
 on('browse', 'click', () => {
   element('query').value = ''
-  requestRefresh({ query: '', options: {}, cursor: undefined, previous: [] })
+  requestRefresh({ query: '', options: {}, cursor: undefined, previous: [] }, false)
 })
 on('refresh', 'click', () => {
-  requestRefresh()
+  // Opaque cursors may expire as skills change; an explicit refresh starts a new page set.
+  requestRefresh({ cursor: undefined, previous: [] })
 })
 on('next', 'click', () => {
   if (!lastPage?.next || element('next').disabled) return
-  requestRefresh({ cursor: lastPage.next, previous: [...previous, cursor] })
+  requestRefresh({ cursor: lastPage.next, previous: [...previous, cursor] }, false)
 })
 on('previous', 'click', () => {
   if (!previous.length || element('previous').disabled) return
-  requestRefresh({ cursor: previous.at(-1), previous: previous.slice(0, -1) })
+  requestRefresh({ cursor: previous.at(-1), previous: previous.slice(0, -1) }, false)
 })
 client.listen((message) => {
   if (message.kind === 'hello') {

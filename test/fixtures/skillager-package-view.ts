@@ -14,18 +14,22 @@ export function createSkillagerPackageView(view = 'library') {
   let receive!: (message: unknown) => void
   const requests: Array<{ capability: string; input: Record<string, unknown> }> = [],
     calls: string[][] = [],
-    outputs = new Map<string, string>()
+    outputs = new Map<string, string>(),
+    errors = new Map<string, string>()
   let serial = 0,
     fail = false,
     failOn: string | undefined,
     initialized = true,
     identifier = 'library',
+    root = '/library',
     canonicalIdentifier: string | undefined,
     occurrencePath = '/library/search/SKILL.md',
     supported = true,
     count = 3,
     initialization: unknown,
     hold = false,
+    holdOn: string | undefined,
+    expiredCursors = false,
     frequency = false,
     unapproved = false,
     projectApproved = true,
@@ -96,6 +100,15 @@ export function createSkillagerPackageView(view = 'library') {
       } else if (fail && (!failOn || args[0] === failOn)) {
         fail = false
         value = { outcome: 'failed', code: 1 }
+      } else if (
+        expiredCursors &&
+        args.includes('--cursor') &&
+        args[args.indexOf('--cursor') + 1]
+      ) {
+        const receipt = String(++serial)
+        outputs.set(receipt, '')
+        errors.set(receipt, 'Pagination cursor no longer matches the current library')
+        value = { outcome: 'completed', code: 2, receipt }
       } else {
         const receipt = String(++serial),
           cursor = args[args.indexOf('--cursor') + 1]
@@ -111,7 +124,7 @@ export function createSkillagerPackageView(view = 'library') {
                       library: {
                         registration: 'valid',
                         library_id: identifier,
-                        root: '/library',
+                        root,
                       },
                       counts: { skills: count },
                     }
@@ -155,7 +168,7 @@ export function createSkillagerPackageView(view = 'library') {
                                     name: `Page ${index}`,
                                     description: '',
                                     status: 'pending',
-                                    skill_file: `/library/${index}/SKILL.md`,
+                                    skill_file: `${root}/${index}/SKILL.md`,
                                   },
                                 ]
                               : [],
@@ -171,7 +184,7 @@ export function createSkillagerPackageView(view = 'library') {
         : {
             data:
               message.input.stream === 'stderr'
-                ? ''
+                ? (errors.get(String(message.input.receipt)) ?? '')
                 : outputs.get(String(message.input.receipt)),
             nextOffset: null,
           }
@@ -179,7 +192,11 @@ export function createSkillagerPackageView(view = 'library') {
       value = null
     }
     const reply = () => receive({ kind: 'result', id: message.id, ok: true, value })
-    if (hold && message.capability === 'connector.execute') {
+    if (
+      hold &&
+      message.capability === 'connector.execute' &&
+      (!holdOn || (message.input.args as string[])[0] === holdOn)
+    ) {
       hold = false
       resume = reply
     } else reply()
@@ -264,6 +281,12 @@ export function createSkillagerPackageView(view = 'library') {
       identifier = current
       canonicalIdentifier = observed
     },
+    libraryRoot: (value: string) => {
+      root = value
+    },
+    staleCursors: () => {
+      expiredCursors = true
+    },
     uninitialized: () => {
       initialized = false
     },
@@ -273,8 +296,9 @@ export function createSkillagerPackageView(view = 'library') {
     empty: () => {
       count = 0
     },
-    hold: () => {
+    hold: (command?: string) => {
       hold = true
+      holdOn = command
     },
     frequency: () => {
       frequency = true
