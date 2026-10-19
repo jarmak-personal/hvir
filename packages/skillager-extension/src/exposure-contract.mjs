@@ -1,4 +1,5 @@
 /* global TextEncoder */
+import { isCanonicalSkillId } from './public-metadata.mjs'
 import {
   absoluteLocalPath,
   digest,
@@ -81,8 +82,7 @@ export function planIdentity(plan, input, workspace) {
   const sourceIds = new Set()
   for (const source of plan.sources) {
     if (
-      typeof source.id !== 'string' ||
-      !/^lib\/[\w.-]+$/u.test(source.id) ||
+      !isCanonicalSkillId(source.id) ||
       sourceIds.has(source.id) ||
       source.source?.library_id !== input.library.id ||
       source.source?.library_root !== input.library.root.path ||

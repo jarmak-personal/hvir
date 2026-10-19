@@ -38,10 +38,124 @@
                 <button id="canonical" class="hvir-button" hidden>
                   Read library source
                 </button>
+                <details id="exposure-preservation-details" hidden>
+                  <summary id="exposure-availability">Replacement unavailable</summary>
+                  <p id="exposure-preservation-reason" class="hvir-meta"></p>
+                  <button id="exposure-refresh" class="hvir-button">
+                    Refresh replacement
+                  </button>
+                </details>
               </div>
             </details>
           </div>
         </header>
+        <section id="exposure-context" hidden aria-label="Selected exposure actions">
+          <div class="toolbar">
+            <button id="exposure-edit" class="hvir-button" hidden>Edit members…</button>
+            <button id="exposure-ungroup" class="hvir-button" hidden>Ungroup…</button>
+            <details id="exposure-replacement" class="skill-more" hidden>
+              <summary class="hvir-focus">Replace original…</summary>
+              <div class="skill-menu">
+                <label id="exposure-choice-row" hidden
+                  >Library version
+                  <select id="exposure-choice" class="hvir-input"></select>
+                </label>
+                <button id="exposure-full" class="hvir-button" hidden disabled>
+                  Replace with Full…
+                </button>
+                <button id="exposure-stub" class="hvir-button" hidden disabled>
+                  Replace with Stub…
+                </button>
+              </div>
+            </details>
+          </div>
+        </section>
+        <section id="exposure-task" hidden aria-label="Change selected skill files">
+          <h2 id="exposure-title"></h2>
+          <p id="exposure-destination" class="hvir-meta"></p>
+          <div class="exposure-scroll">
+            <div id="exposure-fields">
+              <label id="exposure-name-row" hidden
+                >Router name <input id="exposure-name" class="hvir-input"
+              /></label>
+              <label id="exposure-mode-row" hidden
+                >Individual copies
+                <select id="exposure-mode" class="hvir-input">
+                  <option value="native">Full</option>
+                  <option value="stub">Stub</option>
+                </select>
+              </label>
+              <section id="exposure-picker" hidden aria-label="Choose Router members">
+                <form id="exposure-member-search">
+                  <input
+                    id="exposure-member-query"
+                    class="hvir-input"
+                    type="search"
+                    placeholder="Find library skills"
+                    aria-label="Find library skills"
+                  />
+                  <button id="exposure-member-search-button" class="hvir-button">
+                    Search
+                  </button>
+                </form>
+                <div
+                  id="exposure-member-results"
+                  aria-label="Library member choices"
+                ></div>
+                <div class="toolbar">
+                  <button id="exposure-member-previous" class="hvir-button" type="button">
+                    Previous
+                  </button>
+                  <span id="exposure-member-page" class="hvir-meta"></span>
+                  <button id="exposure-member-next" class="hvir-button" type="button">
+                    Next
+                  </button>
+                  <details>
+                    <summary id="exposure-selected-count">0 selected</summary>
+                    <ul id="exposure-selected-members"></ul>
+                  </details>
+                </div>
+              </section>
+              <section
+                id="exposure-departures"
+                hidden
+                aria-label="Departing members"
+              ></section>
+              <section
+                id="exposure-replacements"
+                hidden
+                aria-label="Standalone copies to replace"
+              ></section>
+            </div>
+            <section id="exposure-review" hidden aria-label="Complete affected files">
+              <p id="exposure-summary"></p>
+              <ul id="exposure-effects"></ul>
+              <details>
+                <summary>Complete plan and identities</summary>
+                <pre id="exposure-plan"></pre>
+              </details>
+            </section>
+            <p id="exposure-state" class="hvir-state" role="status"></p>
+            <details id="exposure-operation-details" hidden>
+              <summary>Operation details</summary>
+              <pre id="exposure-result"></pre>
+            </details>
+            <button id="exposure-reconcile" class="hvir-button" hidden>
+              Inspect uncertain operation
+            </button>
+          </div>
+          <div class="toolbar review-actions">
+            <button id="exposure-preview" class="hvir-button">Review changes</button>
+            <button id="exposure-confirm" class="hvir-button" hidden>
+              Confirm changes
+            </button>
+            <button id="exposure-cancel" class="hvir-button">Cancel</button>
+          </div>
+        </section>
+        <section id="router-content" hidden aria-label="Router members">
+          <p id="router-state" class="hvir-state" role="status"></p>
+          <ul id="router-members"></ul>
+        </section>
         <section
           id="selected-import"
           hidden
@@ -118,6 +232,9 @@
                 …
               </summary>
               <div class="skill-menu">
+                <button id="exposure-group" class="hvir-button" hidden>
+                  Group with other skills…
+                </button>
                 <button id="task-save-original" class="hvir-button" hidden>
                   Save original as…
                 </button>

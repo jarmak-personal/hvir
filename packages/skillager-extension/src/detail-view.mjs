@@ -4,6 +4,7 @@ import { catalogCli } from './catalog-cli.mjs'
 import { sameCurrentLibrary } from './library-first-use.mjs'
 import { sourcePages, loadInstructionImages } from './reader.mjs'
 import { bindSelectedSkill } from './selected-skill-view.mjs'
+import { bindExposureView } from './exposure-view.mjs'
 
 /** One selected occurrence owns its body, position and contextual task lifecycle. */
 export function bindSkillReader(document, client, ports) {
@@ -24,7 +25,20 @@ export function bindSkillReader(document, client, ports) {
   const on = (id, event, callback) =>
     element(id)?.addEventListener(event, callback, { signal: client.signal })
   element('reader-manage').disabled = true
-  const task = bindSelectedSkill(document, client, { context: () => context })
+  let exposure
+  const task = bindSelectedSkill(document, client, {
+    context: () => context,
+    changed: () => exposure?.refresh(),
+  })
+  exposure = bindExposureView(document, client, {
+    context: () => context,
+    choose: ports.choose,
+    preservation: (value) => task.preserved(value),
+    expanded: (active) =>
+      task.select(
+        active || detailInput?.row.kind === 'Installed Router' ? undefined : detailInput,
+      ),
+  })
   let detailInput,
     selectedRead,
     sourceReceipt,
@@ -153,7 +167,13 @@ export function bindSkillReader(document, client, ports) {
   }
 
   async function readSelected() {
-    if (!available() || !detailInput?.row || reading) return
+    if (
+      !available() ||
+      !detailInput?.row ||
+      reading ||
+      detailInput.row.kind === 'Installed Router'
+    )
+      return
     const selecting = pendingSelection
     pendingSelection = false
     reading = true
@@ -265,6 +285,10 @@ export function bindSkillReader(document, client, ports) {
     }
   }
   on('read-current', 'click', () => {
+    if (detailInput?.row.kind === 'Installed Router') {
+      void exposure.refresh()
+      return
+    }
     selectedScroll = body.scrollTop
     selectedRead?.abort()
     renderedRead?.controller.abort()
@@ -357,6 +381,7 @@ export function bindSkillReader(document, client, ports) {
     pendingSelection = false
     detailInput = undefined
     task.select(undefined)
+    exposure.select(undefined)
     element('reader-content').hidden = true
     element('reader-empty')?.removeAttribute('hidden')
   })
@@ -398,7 +423,18 @@ export function bindSkillReader(document, client, ports) {
     )
     setMode(position?.mode ?? 'rendered')
     selectedScroll = position?.scroll ?? 0
-    task.select(input)
+    const router = input.row.kind === 'Installed Router'
+    for (const id of ['instructions', 'rendered-mode', 'source-mode', 'canonical'])
+      element(id).hidden = router
+    element('source-label').textContent =
+      `${input.row.kind} · ${input.row.host}: ${input.row.path}`
+    element('details').textContent = ''
+    task.select(router ? undefined : input)
+    exposure.select(input)
+    if (router) {
+      pendingSelection = false
+      say('')
+    }
     if (available()) void readSelected()
   }
   return {
@@ -415,7 +451,10 @@ export function bindSkillReader(document, client, ports) {
         renderedRead?.controller.abort()
         generation++
       }
-      if (changed || hidden || renewed) task.contextChanged()
+      if (changed || hidden || renewed) {
+        task.contextChanged()
+        exposure.contextChanged()
+      }
       if (next.input && next.input.selection !== detailInput?.selection)
         select(next.input)
       else if (pendingSelection && available()) void readSelected()
@@ -427,6 +466,7 @@ export function bindSkillReader(document, client, ports) {
       instructionText = ''
       body.replaceChildren()
       generation++
+      exposure.dispose()
       task.dispose()
       element('reader-manage').disabled = true
     },

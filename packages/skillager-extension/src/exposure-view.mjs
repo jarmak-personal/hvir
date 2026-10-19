@@ -1,273 +1,701 @@
+/* global AbortController */
+import { managementCli } from './management-cli.mjs'
+import { registeredLibrary, sameLibrary } from './management-contract.mjs'
+import { localWorkspace } from './catalog.mjs'
 import { prepareExposureChange } from './exposure-operation.mjs'
-import { syncArgs } from './management-argv.mjs'
-import { publicSyncObservation } from './management-sync-observation.mjs'
+import {
+  observeExposures,
+  selectedRouter,
+  observeNative,
+} from './exposure-observation.mjs'
+import { bindExposureMembers } from './exposure-members.mjs'
 
-const labels = {
-  group: 'Group skills behind one Router',
-  'set-members': 'Change Router members',
-  ungroup: 'Ungroup into individual skills',
-  'adopt-native': 'Adopt an existing native skill',
+const titles = {
+  group: 'Group skills',
+  'set-members': 'Edit Router members',
+  ungroup: 'Ungroup Router',
+  'adopt-native': 'Replace original',
 }
+const names = { native: 'Full', stub: 'Stub', remove: 'Remove' }
+const memberCount = (count) => `${count} ${count === 1 ? 'member' : 'members'}`
+
+/** Selected exposure tasks; CLI plans and D4 retain mutation and uncertainty authority. */
 export function bindExposureView(document, client, ports) {
-  const el = (id) => document.getElementById(id)
-  let routers = [],
-    origins = []
-  function options(id, values, label) {
-    el(id).replaceChildren()
-    for (const item of values) {
-      const option = document.createElement('option')
-      option.value = String(values.indexOf(item))
-      option.textContent = label(item)
-      el(id).append(option)
+  const el = (id) => document.getElementById(`exposure-${id}`),
+    context = ports.context
+  let selection,
+    library,
+    router,
+    exposures = [],
+    preservation,
+    action,
+    prepared,
+    departures = new Map(),
+    replacements = new Set(),
+    generation = 0,
+    working,
+    submitted = false,
+    completed = false,
+    taskReady = false,
+    disposed = false,
+    adoptionMode = 'native',
+    routerEvents,
+    choiceEvents
+  const row = () => selection?.row
+  const agent = () =>
+    row()?.exposure?.agent ?? row()?.agent ?? document.getElementById('task-agent').value
+  const workspace = () => localWorkspace(context().workspace)
+  const available = (revision = generation) =>
+    !disposed &&
+    client.alive &&
+    context().visible &&
+    revision === generation &&
+    !!row() &&
+    !!workspace() &&
+    row().host === 'local' &&
+    (row().source !== 'project' || row().workspaceId === workspace().id)
+  const say = (message) => {
+    el('state').textContent = message
+  }
+  const scoped = (revision) => ({
+    get alive() {
+      return available(revision)
+    },
+    get visible() {
+      return context().visible
+    },
+    delay: (ms) => client.delay(ms),
+    request(capability, input) {
+      if (!(capability === 'connector.output' && input.release) && !available(revision))
+        throw new Error('The selected skill or project changed.')
+      return client.request(capability, input)
+    },
+  })
+  const io = (revision = generation, project = true) =>
+    managementCli(scoped(revision), project ? context() : undefined)
+  const on = (id, event, work) =>
+    el(id).addEventListener(event, work, { signal: client.signal })
+  const selectedChoice = () =>
+    preservation?.candidates.find(
+      (item) =>
+        item.source.skill_id === el('choice').value && item.status === 'available',
+    )
+  function controls() {
+    const busy = !!working || submitted,
+      original = row()?.kind === 'Project original',
+      isRouter = row()?.kind === 'Installed Router',
+      canReplace = preservation?.candidates.some((item) => item.status === 'available')
+    document.getElementById('router-content').hidden = !isRouter || !!action
+    el('task').dataset.content = isRouter ? 'router' : 'skill'
+    el('task').setAttribute('aria-busy', String(!!working?.phase))
+    el('preview').textContent =
+      working?.phase === 'prepare'
+        ? 'Preparing…'
+        : working?.phase === 'review'
+          ? 'Reviewing…'
+          : 'Review changes'
+    el('confirm').textContent =
+      working?.phase === 'apply'
+        ? 'Applying…'
+        : action === 'group'
+          ? 'Group'
+          : action === 'set-members'
+            ? 'Save members'
+            : action === 'ungroup'
+              ? 'Ungroup'
+              : `Replace with ${names[adoptionMode]}`
+    el('context').hidden =
+      !available() || !!action || (!isRouter && !(original && canReplace))
+    el('preservation-details').hidden = !original
+    el('group').hidden =
+      !available() || isRouter || !(row()?.source === 'library' || row()?.canonical)
+    el('group').disabled = busy
+    for (const id of ['edit', 'ungroup']) {
+      el(id).hidden = !isRouter
+      el(id).disabled =
+        busy ||
+        !router ||
+        !library ||
+        router.member_sources.some((member) => member.source_library_id !== library.id)
+    }
+    for (const id of ['full', 'stub']) {
+      el(id).hidden = !original || !canReplace
+      el(id).disabled = busy || !selectedChoice()
+    }
+    el('replacement').hidden = !original || !canReplace
+    el('choice').disabled = busy
+    el('refresh').disabled = busy
+    for (const id of ['preview', 'confirm'])
+      el(id).disabled = busy || !available() || !taskReady
+    el('cancel').disabled = submitted
+    el('preview').hidden = !!prepared || completed
+    el('confirm').hidden = !prepared
+    el('fields').hidden = !!prepared || completed
+    el('review').hidden = !prepared
+  }
+  function invalidatePlan() {
+    prepared = undefined
+    controls()
+  }
+  const picker = bindExposureMembers(document, client, {
+    library: () => library,
+    available: () => available() && !!action && !submitted && !working,
+    io: () => io(generation, false),
+    changed() {
+      invalidatePlan()
+      renderChoices()
+    },
+    say,
+  })
+  async function guard(work, phase) {
+    if (!available() || working || submitted) return
+    const owner = { revision: generation, phase }
+    working = owner
+    controls()
+    try {
+      await work(owner.revision)
+    } catch (error) {
+      if (available(owner.revision)) say(error.message)
+    } finally {
+      if (working === owner) {
+        working = undefined
+        controls()
+      }
     }
   }
-  ports.on('observe-advanced', 'click', async (_event, current) => {
-    ports.local()
-    ports.clear()
-    routers = []
-    origins = []
-    for (const id of [
-      'advanced-router',
-      'advanced-origin',
-      'advanced-replacements',
-      'advanced-departures',
-    ])
-      el(id).replaceChildren()
-    ports.say('Observing current Routers and preserved native originals…')
-    const io = ports.io(),
-      library = ports.library(),
-      agent = el('copy-agent').value,
-      listed = await io.run([
-        'expose',
-        '--list',
-        '--agent',
-        agent,
-        '--scope',
-        'project',
-        '--json',
-      ])
-    let preserved, nativeObservationError
-    try {
-      preserved = publicSyncObservation(await io.run(syncArgs(library)), library)
-      if (!preserved.coverage.complete)
-        throw new Error('Complete native preservation observations are unavailable')
-    } catch (error) {
-      nativeObservationError = error.message
-      preserved = undefined
+  async function currentLibrary(revision) {
+    const observed = registeredLibrary(
+        await io(revision).run(['library', 'status', '--json']),
+      ),
+      expected =
+        selection.library ?? (row().canonical ? { id: row().canonical.library_id } : null)
+    if (
+      expected &&
+      (expected.id !== observed.id ||
+        (expected.root && expected.root !== observed.root.path))
+    )
+      throw new Error(
+        'This source belongs to a different library. Select its current library entry.',
+      )
+    if (library) sameLibrary(library, observed)
+    return observed
+  }
+  function renderPreservation(message) {
+    const choices = preservation?.candidates ?? [],
+      availableChoices = choices.filter((item) => item.status === 'available')
+    ports.preservation?.(
+      availableChoices.length
+        ? {
+            file: { hostId: row().host, path: row().path },
+            sources: availableChoices.map((item) => item.source),
+          }
+        : undefined,
+    )
+    el('choice').replaceChildren()
+    if (availableChoices.length !== 1) {
+      const option = document.createElement('option')
+      option.value = ''
+      option.textContent = 'Choose a preserved library version'
+      el('choice').append(option)
     }
-    if (listed.schema !== 'skillager.exposures.v1' || !Array.isArray(listed.exposures))
-      throw new Error('Current Router and standalone copy observations are unavailable')
-    if (!current()) return
-    ports.clear()
-    routers = listed.exposures.filter(
-      (item) =>
-        item.mode === 'router' && item.agent === agent && item.scope === 'project',
-    )
-    origins = (preserved?.lineages ?? []).flatMap((lineage) =>
-      (lineage.origins ?? [])
-        .filter(
-          (origin) =>
-            origin.native?.agent === agent && origin.native?.scope === 'project',
-        )
-        .map((origin) => ({
-          origin,
-          canonical: lineage.canonical,
-          preservation: lineage.preservation,
-        })),
-    )
-    options(
-      'advanced-router',
-      routers,
-      (item) => `${item.tag ?? item.exposure_id} · ${item.target}`,
-    )
-    options(
-      'advanced-origin',
-      origins,
-      (item) => `${item.canonical.skill_id} · ${item.origin.path} · ${item.preservation}`,
-    )
-    options(
-      'advanced-replacements',
-      listed.exposures.filter((item) => item.mode !== 'router'),
-      (item) => `${item.exposure_id} · ${item.target}`,
-    )
-    el('advanced-replacements')
-      .querySelectorAll('option')
-      .forEach((option) => {
-        const item = listed.exposures.filter((item) => item.mode !== 'router')[
-          Number(option.value)
-        ]
-        option.value = item.exposure_id
-      })
-    el('advanced-observation').textContent = JSON.stringify(
-      { agent, routers, preserved, nativeObservationError },
-      null,
-      2,
-    )
-    ports.say(
-      nativeObservationError
-        ? `Current Routers observed. Native adoption needs complete preservation metadata: ${nativeObservationError}. Resolve through the public CLI, then observe again.`
-        : 'Current Router and preserved native choices observed. Select the exact operation and files to change.',
-    )
-    updateMembers()
-  })
-  function updateMembers() {
-    ports.clear()
-    const router = routers[Number(el('advanced-router').value)]
-    el('advanced-members').value = (router?.skill_ids ?? []).join('\n')
-    el('advanced-departures').replaceChildren()
-    for (const member of router?.skill_ids ?? []) {
+    for (const item of choices) {
+      const option = document.createElement('option')
+      option.value = item.source.skill_id
+      option.textContent = `${item.source.skill_id}${item.status === 'available' ? '' : ' · unavailable'}`
+      option.disabled = item.status !== 'available'
+      el('choice').append(option)
+    }
+    if (availableChoices.length === 1)
+      el('choice').value = availableChoices[0].source.skill_id
+    el('choice-row').hidden = availableChoices.length < 2
+    el('availability').textContent = availableChoices.length
+      ? 'Preservation details'
+      : 'Replacement unavailable'
+    el('preservation-reason').textContent =
+      message ??
+      (availableChoices.length
+        ? `Skillager verified the original against ${availableChoices.map((item) => item.source.skill_id).join(', ')}. Replacement requires its own file review.`
+        : [preservation?.reason, ...choices.map((item) => item.reason)]
+            .filter(Boolean)
+            .join('\n') ||
+          'Save and accept this original first. If it is already saved, use Skillager to inspect missing preservation; the original stays unchanged.')
+    controls()
+  }
+  function renderRouter() {
+    routerEvents?.abort()
+    routerEvents = new AbortController()
+    const list = document.getElementById('router-members')
+    list.replaceChildren()
+    for (const member of router?.member_sources ?? []) {
+      const item = document.createElement('li'),
+        button = document.createElement('button'),
+        details = document.createElement('details'),
+        summary = document.createElement('summary'),
+        identity = document.createElement('p')
+      button.className = 'hvir-button'
+      button.textContent = member.skill_id.startsWith('lib/')
+        ? member.skill_id.slice(4)
+        : member.skill_id
+      button.disabled = !member.source_library_id
+      button.addEventListener(
+        'click',
+        () =>
+          void guard(async (revision) => {
+            const value = await io(revision, false).run([
+                'library',
+                'status',
+                member.skill_id,
+                '--json',
+              ]),
+              observed = registeredLibrary(value)
+            if (
+              observed.id !== member.source_library_id ||
+              value.skill?.id !== member.skill_id ||
+              value.skill?.status === 'missing' ||
+              !value.skill?.entrypoint
+            )
+              throw new Error('This member is not available in the connected library.')
+            if (!available(revision)) return
+            await ports.choose(
+              {
+                id: member.skill_id,
+                name: value.skill.name ?? member.skill_id,
+                path: value.skill.entrypoint,
+                source: 'library',
+                host: 'local',
+                kind: 'Your library',
+                status: value.skill.acceptance ?? 'observed',
+              },
+              { initialized: true, id: observed.id, root: observed.root.path },
+            )
+          }),
+        { signal: routerEvents.signal },
+      )
+      summary.textContent = 'Source identity'
+      identity.textContent = `${member.source_library_id ?? 'Library identity unavailable'} · ${member.skill_id}`
+      details.append(summary, identity)
+      item.append(button, details)
+      list.append(item)
+    }
+    document.getElementById('router-state').textContent = router
+      ? memberCount(router.skill_ids.length)
+      : 'Loading members…'
+  }
+  async function refresh() {
+    if (!available() || action || submitted) return
+    generation++
+    working = undefined
+    router = undefined
+    library = undefined
+    preservation = undefined
+    const isRouter = row().kind === 'Installed Router',
+      original = row().kind === 'Project original'
+    if (!isRouter && !original) {
+      controls()
+      return
+    }
+    if (isRouter) renderRouter()
+    if (original) renderPreservation('Checking this original’s preservation…')
+    await guard(async (revision) => {
+      try {
+        if (!['codex', 'claude'].includes(row().exposure?.agent ?? row().agent))
+          throw new Error(
+            'This original has no supported Codex or Claude native location. Save and accept remains available.',
+          )
+        if (isRouter) {
+          const observed = await observeExposures(io(revision), workspace(), agent())
+          if (!available(revision)) return
+          exposures = observed
+          router = selectedRouter(exposures, row())
+          renderRouter()
+        }
+        const observed = await currentLibrary(revision)
+        if (!available(revision)) return
+        library = observed
+        if (original) {
+          const value = await observeNative(
+            io(revision),
+            row(),
+            workspace(),
+            agent(),
+            library,
+          )
+          if (!available(revision)) return
+          preservation = value
+          renderPreservation()
+        }
+      } catch (error) {
+        if (!available(revision)) return
+        if (original)
+          renderPreservation(
+            `${error.message} Reading and Save and accept remain available.`,
+          )
+        else
+          document.getElementById('router-state').textContent =
+            `${router ? `${memberCount(router.skill_ids.length)} · ` : ''}${error.message}`
+      }
+    })
+  }
+  function renderChoices() {
+    choiceEvents?.abort()
+    choiceEvents = new AbortController()
+    const desired = picker.ids(),
+      leaving = (router?.skill_ids ?? []).filter((id) => !desired.includes(id)),
+      departureList = el('departures'),
+      replacementList = el('replacements')
+    departureList.replaceChildren()
+    departureList.hidden = action !== 'set-members' || !leaving.length
+    for (const id of leaving) {
       const label = document.createElement('label'),
         select = document.createElement('select')
-      label.textContent = `If ${member} leaves the Router: `
+      label.textContent = `${id} leaves the Router: `
       select.className = 'hvir-input'
-      select.dataset.member = member
-      for (const [value, text] of [
-        ['', 'Choose explicitly'],
-        ['native', 'Full skill'],
+      select.dataset.skillId = id
+      for (const [value, title] of [
+        ['', 'Choose a result'],
+        ['native', 'Full'],
         ['stub', 'Stub'],
-        ['remove', 'Remove from this Router; do not create a copy'],
+        ['remove', 'Remove'],
       ]) {
         const option = document.createElement('option')
         option.value = value
-        option.textContent = text
+        option.textContent = title
         select.append(option)
       }
-      label.append(select)
-      el('advanced-departures').append(label)
-    }
-  }
-  ports.onSelection('advanced-router', 'change', () => updateMembers())
-  ports.onSelection('advanced-operation', 'change', () => {
-    ports.clear()
-    const action = el('advanced-operation').value
-    for (const [id, visible] of [
-      ['advanced-name-row', action === 'group'],
-      ['advanced-members-row', ['group', 'set-members'].includes(action)],
-      ['advanced-router-row', ['set-members', 'ungroup'].includes(action)],
-      ['advanced-origin-row', action === 'adopt-native'],
-      ['advanced-replace-row', ['group', 'set-members'].includes(action)],
-      ['advanced-departures', action === 'set-members'],
-    ])
-      el(id).hidden = !visible
-    if (action === 'group') el('advanced-members').value = ''
-    else if (action === 'set-members') updateMembers()
-  })
-  function selection() {
-    return JSON.stringify({
-      values: [
-        'copy-agent',
-        'copy-mode',
-        'advanced-operation',
-        'advanced-name',
-        'advanced-members',
-        'advanced-router',
-        'advanced-origin',
-      ].map((id) => el(id).value),
-      replacements: [...el('advanced-replacements').selectedOptions].map(
-        (option) => option.value,
-      ),
-      departures: [...el('advanced-departures').querySelectorAll('select')].map(
-        (select) => [select.dataset.member, select.value],
-      ),
-    })
-  }
-  ports.on('preview-advanced', 'click', async (_event, current) => {
-    ports.clear()
-    const selected = selection()
-    function validateSelection() {
-      if (selection() !== selected) {
-        ports.clear()
-        throw new Error(
-          'The advanced selection changed. Observe and review a fresh complete plan before confirming.',
-        )
-      }
-    }
-    const action = el('advanced-operation').value,
-      library = ports.library(),
-      agent = el('copy-agent').value,
-      mode = el('copy-mode').value,
-      router = routers[Number(el('advanced-router').value)],
-      origin = origins[Number(el('advanced-origin').value)]
-    const request = { schema: 'skillager.exposure-request.v1', action }
-    if (['group', 'set-members'].includes(action)) {
-      request.library_id = library.id
-      request.members = el('advanced-members')
-        .value.split(/[\s,]+/u)
-        .filter(Boolean)
-      request.replace = [...el('advanced-replacements').selectedOptions].map(
-        (option) => ({ exposure_id: option.value }),
+      select.value = departures.get(id) ?? ''
+      select.addEventListener(
+        'change',
+        () => {
+          departures.set(id, select.value)
+          invalidatePlan()
+        },
+        { signal: choiceEvents.signal },
       )
-      if (action === 'group') request.name = el('advanced-name').value
-      else {
-        if (!router) throw new Error('Observe and select the existing Router first')
-        request.router_id = router.exposure_id
-        request.departures = [...el('advanced-departures').querySelectorAll('select')]
-          .filter((select) => !request.members.includes(select.dataset.member))
-          .map((select) => ({ skill_id: select.dataset.member, mode: select.value }))
-      }
-    } else if (action === 'ungroup') {
-      if (!router) throw new Error('Observe and select the existing Router first')
-      request.router_id = router.exposure_id
-      request.mode = mode
-    } else {
-      if (!origin)
-        throw new Error(
-          'Sync the approved original through the public CLI, then observe its preserved native occurrence',
-        )
-      request.origin_id = origin.origin.origin_id
-      request.source = {
-        library_id: origin.canonical.library_id,
-        skill_id: origin.canonical.skill_id,
-      }
-      request.mode = mode
+      label.append(select)
+      departureList.append(label)
     }
-    const input = { library, agent, request: JSON.stringify(request) },
-      prepared = await prepareExposureChange(ports.io(), input, ports.local())
-    if (!current()) return
-    validateSelection()
-    const files = prepared.plan.targets.flatMap((target) =>
-      target.file_effects.map(
-        (effect) =>
-          `${effect.action}: ${target.path}${effect.path === '.' ? '' : '/' + effect.path}`,
-      ),
+    replacementList.replaceChildren()
+    const copies = exposures.filter(
+      (item) =>
+        ['native', 'stub'].includes(item.mode) &&
+        item.source_library_id === library?.id &&
+        desired.includes(item.skill_id),
     )
-    ports.review(
-      labels[action],
-      `${agent} · local: ${ports.local().root.path}. ${
-        action === 'adopt-native'
-          ? 'Replace this original with the selected Full/Stub form only after Skillager proves its bytes and modes are preserved in your library.'
-          : action === 'ungroup'
-            ? 'Create individual copies in the selected mode and remove this Router. Its curated tag remains.'
-            : 'Use exactly the complete desired membership. Only selected standalone copies are replaced. Each departing member follows its explicit choice.'
-      }\n${files.join('\n')}`,
-      prepared.plan,
-      {
-        action: 'change-exposure',
-        input: { ...input, token: prepared.plan.confirmation_token },
-        validateSelection,
-      },
-      true,
-    )
-  })
-  for (const id of [
-    'advanced-name',
-    'advanced-members',
-    'advanced-origin',
-    'advanced-replacements',
-    'advanced-departures',
-  ])
-    for (const event of ['input', 'change']) ports.onSelection(id, event)
+    for (const id of replacements)
+      if (!copies.some((item) => item.exposure_id === id)) replacements.delete(id)
+    replacementList.hidden = !['group', 'set-members'].includes(action) || !copies.length
+    if (!replacementList.hidden) {
+      const title = document.createElement('p')
+      title.textContent = 'Also replace these standalone copies:'
+      replacementList.append(title)
+      for (const item of copies) {
+        const label = document.createElement('label'),
+          input = document.createElement('input'),
+          details = document.createElement('details'),
+          summary = document.createElement('summary'),
+          identity = document.createElement('p')
+        input.type = 'checkbox'
+        input.dataset.exposureId = item.exposure_id
+        input.checked = replacements.has(item.exposure_id)
+        input.addEventListener(
+          'change',
+          () => {
+            if (input.checked) replacements.add(item.exposure_id)
+            else replacements.delete(item.exposure_id)
+            invalidatePlan()
+          },
+          { signal: choiceEvents.signal },
+        )
+        label.append(
+          input,
+          `${item.skill_id.slice(4)} · ${names[item.mode]} · ${item.target}`,
+        )
+        summary.textContent = 'Copy identity'
+        identity.textContent = `${item.source_library_id} · ${item.skill_id} · ${item.exposure_id}`
+        details.append(summary, identity)
+        replacementList.append(label, details)
+      }
+    }
+  }
+  async function start(next, mode) {
+    if (!available() || working || submitted) return
+    adoptionMode = mode ?? 'native'
+    action = next
+    completed = false
+    taskReady = false
+    prepared = undefined
+    departures.clear()
+    replacements.clear()
+    el('task').hidden = false
+    el('title').textContent = titles[action]
+    el('destination').textContent =
+      `${agent() === 'claude' ? 'Claude' : 'Codex'} · ${workspace().name ?? 'Project'}`
+    el('destination').title = `local: ${workspace().root.path}`
+    el('name-row').hidden = action !== 'group'
+    el('name').value = ''
+    el('mode-row').hidden = action !== 'ungroup'
+    el('mode').value = 'native'
+    el('picker').hidden = !['group', 'set-members'].includes(action)
+    el('operation-details').hidden = true
+    el('reconcile').hidden = true
+    say('')
+    // Bind the agent before the ordinary task is retired.
+    el('task').dataset.agent = agent()
+    ports.expanded(true)
+    const taskRevision = generation
+    await guard(async (revision) => {
+      const observedLibrary = await currentLibrary(revision)
+      if (!available(revision)) return
+      const observedExposures = await observeExposures(
+        io(revision),
+        workspace(),
+        taskAgent(),
+      )
+      if (!available(revision)) return
+      library = observedLibrary
+      exposures = observedExposures
+      if (['set-members', 'ungroup'].includes(action)) {
+        router = selectedRouter(exposures, row())
+        if (router.member_sources.some((item) => item.source_library_id !== library.id))
+          throw new Error(
+            'This Router has members from a different or unknown library. Inspect its source identities.',
+          )
+        renderRouter()
+      }
+      if (action === 'adopt-native' && !selectedChoice())
+        throw new Error('Choose an available preserved library version first.')
+      taskReady = true
+    }, 'prepare')
+    if (!available(taskRevision) || !taskReady) return
+    if (['group', 'set-members'].includes(action)) {
+      picker.start(
+        action === 'set-members'
+          ? (router?.skill_ids.map((id) => ({ id, name: id })) ?? [])
+          : [{ id: row().canonical?.skill_id ?? row().id, name: row().name }],
+      )
+    }
+    renderChoices()
+    controls()
+  }
+  const taskAgent = () => el('task').dataset.agent ?? agent()
+  function request() {
+    if (!library)
+      throw new Error('Connect the current library before reviewing this change.')
+    if (action === 'adopt-native') {
+      const chosen = selectedChoice()
+      if (!chosen) throw new Error('Choose an available preserved library version.')
+      return chosen.requests[adoptionMode]
+    }
+    const base = { schema: 'skillager.exposure-request.v1', action }
+    if (action === 'ungroup') {
+      if (!router) throw new Error('Select the current Router first.')
+      return { ...base, router_id: router.exposure_id, mode: el('mode').value }
+    }
+    const members = picker.ids(),
+      replace = [...replacements].map((exposure_id) => ({ exposure_id }))
+    if (action === 'group')
+      return {
+        ...base,
+        name: el('name').value.trim(),
+        library_id: library.id,
+        members,
+        replace,
+      }
+    if (!router) throw new Error('Select the current Router first.')
+    const leaving = router.skill_ids.filter((id) => !members.includes(id))
+    if (leaving.some((id) => !departures.get(id)))
+      throw new Error('Choose Full, Stub or Remove for each departing member.')
+    return {
+      ...base,
+      router_id: router.exposure_id,
+      library_id: library.id,
+      members,
+      replace,
+      departures: leaving.map((skill_id) => ({
+        skill_id,
+        mode: departures.get(skill_id),
+      })),
+    }
+  }
+  on(
+    'preview',
+    'click',
+    () =>
+      void guard(async (revision) => {
+        invalidatePlan()
+        const selected = JSON.stringify(request()),
+          input = { library, agent: taskAgent(), request: selected },
+          result = await prepareExposureChange(io(revision), input, workspace())
+        if (!available(revision)) return
+        if (selected !== JSON.stringify(request()))
+          throw new Error(
+            'Selection changed. Review the complete current selection again.',
+          )
+        prepared = {
+          input: { ...input, token: result.plan.confirmation_token },
+          plan: result.plan,
+          revision,
+          selected,
+        }
+        const plan = result.plan,
+          wanted = plan.request
+        el('summary').textContent = [
+          `${taskAgent()} · local: ${workspace().root.path}`,
+          action === 'adopt-native'
+            ? `Replace ${row().path.slice(0, -9)} with ${names[adoptionMode]}. Preserved library version: ${wanted.source.skill_id}.`
+            : action === 'ungroup'
+              ? `Create ${names[wanted.mode]} copies for ${(plan.group?.before_members ?? []).join(', ')}. Remove this Router; keep its curated tag.`
+              : `Router members: ${wanted.members.join(', ') || '(none)'}.`,
+          ...(wanted.departures ?? []).map(
+            (item) => `${item.skill_id}: ${names[item.mode]}`,
+          ),
+          ...(wanted.replace ?? []).map(
+            (item) =>
+              `Replace standalone: ${exposures.find((copy) => copy.exposure_id === item.exposure_id)?.target ?? item.exposure_id}`,
+          ),
+        ].join('\n')
+        el('effects').replaceChildren(
+          ...plan.targets.flatMap((target) =>
+            target.file_effects.map((effect) => {
+              const item = document.createElement('li')
+              item.textContent = `${effect.action}: ${target.path}${effect.path === '.' ? '' : '/' + effect.path}`
+              return item
+            }),
+          ),
+        )
+        el('plan').textContent = JSON.stringify(plan, null, 2)
+        say('')
+        controls()
+        el('confirm').focus()
+      }, 'review'),
+  )
+  on(
+    'confirm',
+    'click',
+    () =>
+      void guard(async (revision) => {
+        const task = prepared
+        if (
+          !task ||
+          task.revision !== revision ||
+          task.selected !== JSON.stringify(request())
+        ) {
+          invalidatePlan()
+          throw new Error(
+            'Selection changed. Review the complete current selection again.',
+          )
+        }
+        submitted = true
+        controls()
+        try {
+          const result = await client.request('actions.invoke', {
+            action: 'change-exposure',
+            input: task.input,
+          })
+          if (!available(revision)) return
+          prepared = undefined
+          el('result').textContent = JSON.stringify(result, null, 2)
+          el('operation-details').hidden = false
+          el('reconcile').hidden = result?.outcome !== 'uncertain'
+          if (result?.outcome === 'verified') {
+            completed = true
+            say('Changes saved. Restart the agent to use them.')
+            el('fields').hidden = true
+            el('review').hidden = true
+            el('preview').hidden = true
+            el('confirm').hidden = true
+            el('cancel').textContent = 'Done'
+          } else
+            say(
+              result?.message ??
+                result?.reason ??
+                'Completion is unknown. Inspect the operation before another change.',
+            )
+        } catch (error) {
+          if (available(revision)) prepared = undefined
+          throw error
+        } finally {
+          submitted = false
+          if (!available(revision)) {
+            controls()
+            if (available()) void refresh()
+          }
+        }
+      }, 'apply'),
+  )
+  function close() {
+    if (submitted) return
+    generation++
+    working = undefined
+    action = prepared = undefined
+    completed = false
+    picker.stop()
+    choiceEvents?.abort()
+    el('task').hidden = true
+    el('cancel').textContent = 'Cancel'
+    ports.expanded(false)
+    void refresh()
+  }
+  on('cancel', 'click', close)
+  on('group', 'click', () => void start('group'))
+  on('edit', 'click', () => void start('set-members'))
+  on('ungroup', 'click', () => void start('ungroup'))
+  on('full', 'click', () => void start('adopt-native', 'native'))
+  on('stub', 'click', () => void start('adopt-native', 'stub'))
+  on('choice', 'change', invalidatePlan)
+  on('name', 'input', invalidatePlan)
+  on('mode', 'change', invalidatePlan)
+  on('refresh', 'click', () => void refresh())
+  on(
+    'reconcile',
+    'click',
+    () =>
+      void client
+        .request('viewer.open-own', { contributionId: 'management' })
+        .catch((error) => say(error.message)),
+  )
   return {
-    clear() {
-      routers = []
-      origins = []
-      for (const id of [
-        'advanced-router',
-        'advanced-origin',
-        'advanced-replacements',
-        'advanced-departures',
-      ])
-        el(id).replaceChildren()
+    select(input) {
+      routerEvents?.abort()
+      choiceEvents?.abort()
+      generation++
+      working = undefined
+      action = prepared = undefined
+      completed = false
+      selection = input
+      ports.preservation?.(undefined)
+      library = router = preservation = undefined
+      exposures = []
+      picker.stop()
+      el('task').hidden = true
+      el('cancel').textContent = 'Cancel'
+      document.getElementById('router-content').hidden =
+        row()?.kind !== 'Installed Router'
+      controls()
+      if (input) void refresh()
+    },
+    refresh,
+    contextChanged() {
+      routerEvents?.abort()
+      choiceEvents?.abort()
+      generation++
+      working = undefined
+      if (action) ports.expanded(false)
+      action = prepared = undefined
+      completed = false
+      picker.stop()
+      el('task').hidden = true
+      controls()
+      if (available()) void refresh()
+    },
+    dispose() {
+      routerEvents?.abort()
+      choiceEvents?.abort()
+      disposed = true
+      generation++
+      working = undefined
+      picker.stop()
+      controls()
     },
   }
 }

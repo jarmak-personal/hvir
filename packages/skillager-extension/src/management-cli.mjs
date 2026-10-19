@@ -50,7 +50,7 @@ export function managementCli(
         })
         if (await deferReadFrequency(client, result, !operation && retryReadFrequency)) {
           current()
-          return this.run(args, undefined, false)
+          return this.run(args, undefined, false, validateCompletion, captureOutput)
         }
         if (result.outcome === 'not-started') {
           if (operation) {

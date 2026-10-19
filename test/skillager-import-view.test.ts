@@ -25,7 +25,8 @@ function fixture() {
     visible = true,
     hold = false,
     release: (() => void) | undefined,
-    failure = false
+    failure = false,
+    uncertain = false
   const controller = new AbortController()
   const client = {
     alive: true,
@@ -54,7 +55,16 @@ function fixture() {
         return Promise.resolve(
           input['action'] === 'operation-state'
             ? { ids: [] }
-            : { outcome: 'verified', message: 'Saved and accepted. Original preserved.' },
+            : uncertain
+              ? {
+                  outcome: 'uncertain',
+                  operationId: 'retained',
+                  message: 'Inspect uncertain save.',
+                }
+              : {
+                  outcome: 'verified',
+                  message: 'Saved and accepted. Original preserved.',
+                },
         )
       if (capability === 'source.request') return Promise.resolve({ granted: true })
       if (capability === 'source.select') {
@@ -90,7 +100,12 @@ function fixture() {
       document: unknown,
       client: unknown,
       ports: unknown,
-    ): { select(value: unknown): void; contextChanged(): void; dispose(): void }
+    ): {
+      select(value: unknown): void
+      preserved(value: unknown): void
+      contextChanged(): void
+      dispose(): void
+    }
   }
   const view = module.bindSelectedImport(document, client, {
     context: () => ({ visible, workspace: f.workspace }),
@@ -123,6 +138,18 @@ function fixture() {
     release: () => release?.(),
     fail: () => {
       failure = true
+    },
+    uncertain: () => {
+      uncertain = true
+    },
+    preservation: {
+      file: f.input.file,
+      sources: [
+        {
+          library_id: f.preview.review_manifest.library.library_id,
+          skill_id: f.preview.review_manifest.destination_id,
+        },
+      ],
     },
   }
 }
@@ -248,4 +275,65 @@ it('names the separate destination decision for a structured exit-zero collision
   )
   expect(button('import-save').disabled).toBe(true)
   expect(f.calls.some((call) => call.input['action'] === 'save-and-accept')).toBe(false)
+})
+
+it('presents validated exact preservation without a resolved save collision or rename controls', async () => {
+  const f = fixture()
+  await ready()
+  f.fail()
+  button('import-refresh').click()
+  await vi.waitFor(() =>
+    expect(document.getElementById('import-state')!.textContent).toContain(
+      'destination collision',
+    ),
+  )
+  f.view.preserved(f.preservation)
+  expect(document.getElementById('import-destination')!.textContent).toBe(
+    'Saved in library',
+  )
+  expect(document.getElementById('import-effect')!.textContent).toBe(
+    'Original unchanged.',
+  )
+  expect(document.getElementById('import-state')!.textContent).toBe('')
+  expect(button('import-save').hidden).toBe(true)
+  expect(document.getElementById('import-options')!.hidden).toBe(true)
+  expect(f.calls.some((call) => call.input['action'] === 'save-and-accept')).toBe(false)
+  f.view.preserved(undefined)
+  expect(button('import-save').hidden).toBe(false)
+  expect(document.getElementById('import-state')!.textContent).toContain(
+    'destination collision',
+  )
+})
+
+it('never borrows another original or stale context preservation to claim saved', async () => {
+  const f = fixture()
+  await ready()
+  f.view.preserved({
+    ...f.preservation,
+    file: { ...f.input.file, path: '/other/SKILL.md' },
+  })
+  expect(button('import-save').hidden).toBe(false)
+  f.view.preserved({ ...f.preservation, file: { ...f.input.file, hostId: 'other-host' } })
+  expect(button('import-save').hidden).toBe(false)
+  f.view.preserved(f.preservation)
+  expect(button('import-save').hidden).toBe(true)
+  f.hide()
+  expect(button('import-save').hidden).toBe(false)
+  expect(document.getElementById('import-destination')!.textContent).not.toBe(
+    'Saved in library',
+  )
+})
+
+it('keeps an uncertain import visible even when current public preservation exists', async () => {
+  const f = fixture()
+  await ready()
+  f.uncertain()
+  button('import-save').click()
+  await vi.waitFor(() => expect(button('import-reconcile').hidden).toBe(false))
+  f.view.preserved(f.preservation)
+  expect(button('import-save').hidden).toBe(false)
+  expect(document.getElementById('import-state')!.textContent).toBe(
+    'Inspect uncertain save.',
+  )
+  expect(button('import-reconcile').hidden).toBe(false)
 })

@@ -155,7 +155,7 @@ export async function verifySkillagerManagement(
   const guest = await withinExtensionInspection(controls.guest(view('management')!)),
     ui = skillagerManagementControls(guest, controls)
   await ui.ready(
-    `document.getElementById('destination')?.textContent.includes(${JSON.stringify(workspace.id)})`,
+    `document.getElementById('destination-identity')?.textContent.includes(${JSON.stringify(workspace.id)})`,
     'displayed bound management destination',
   )
   await ui.ready(
@@ -435,7 +435,31 @@ ${'Follow the existing product boundaries and inspect neighboring consumers befo
       cli,
       catalog,
     )
-    const advanced = await verifyOwnedAdvancedExposure(ui, host, workspace.root, cli)
+    const advanced = await verifyOwnedAdvancedExposure(
+      win,
+      projectGuest,
+      async () => {
+        await controls.wait(() => !!view('detail'), 'selected exposure detail placement')
+        return withinExtensionInspection(controls.guest(view('detail')!))
+      },
+      async () => {
+        const libraryView = () =>
+          extensions
+            .guests!.snapshot(owner)
+            .find(
+              (item) =>
+                item.installationId === installation()!.installationId &&
+                item.contributionId === 'library' &&
+                item.role === 'view',
+            )
+        await controls.wait(() => !!libraryView(), 'selected exposure library placement')
+        return withinExtensionInspection(controls.guest(libraryView()!))
+      },
+      host,
+      workspace.root,
+      cli,
+      controls,
+    )
     const reveal = await verifyOwnedOriginalReveal(
       win,
       projectGuest,

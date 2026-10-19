@@ -5,6 +5,16 @@ export function metadataObject(value) {
     throw new Error('Skillager metadata is unavailable')
   return value
 }
+/** Public canonical library names: lowercase Unicode alphanumeric runs, max 64 characters. */
+export function isCanonicalSkillId(value) {
+  if (typeof value !== 'string' || !value.startsWith('lib/')) return false
+  const name = value.slice(4)
+  return (
+    [...name].length <= 64 &&
+    name === name.toLowerCase() &&
+    /^[\p{L}\p{N}]+(?:-[\p{L}\p{N}]+)*$/u.test(name)
+  )
+}
 export function metadataText(value, maximum = 4096) {
   if (
     typeof value !== 'string' ||

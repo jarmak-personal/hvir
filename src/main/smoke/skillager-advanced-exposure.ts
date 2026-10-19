@@ -1,233 +1,636 @@
+import type { BrowserWindow, WebContents } from 'electron'
 import { joinHostPath, localPath, type HostPath } from '../../shared/host-path'
 import type { ProjectHost } from '../project-host/project-host'
-import type { skillagerManagementControls } from './skillager-management-controls'
+import { captureExtensionVisuals } from './extension-visuals'
+import {
+  skillagerManagementControls,
+  withinExtensionInspection,
+  type SkillagerManagementControls,
+} from './skillager-management-controls'
+import { focusSmokeWindow } from './window-focus'
 
-interface Lineage {
-  canonical: { library_id: string; skill_id: string; path: string }
-  preservation: string
-  origins: Array<{ origin_id: string; path: string }>
+type Ui = ReturnType<typeof skillagerManagementControls>
+interface Preservation {
+  status: string
+  candidates: Array<{
+    source: { library_id: string; skill_id: string }
+    basis: string
+    status: string
+  }>
+}
+interface Original {
+  original: HostPath
+  skillId: string
+  canonical: HostPath
+  bytes: string
 }
 
-/** Real installed public CLI preparation followed by ordinary human guest controls. */
+/** Installed CLI, selected public occurrences and ordinary human controls own this journey. */
 export async function verifyOwnedAdvancedExposure(
-  ui: ReturnType<typeof skillagerManagementControls>,
+  win: BrowserWindow,
+  projectGuest: WebContents,
+  detail: () => Promise<WebContents>,
+  libraryGuest: () => Promise<WebContents>,
   host: ProjectHost,
   workspace: HostPath,
   cli: (args: readonly string[]) => Promise<Record<string, unknown>>,
+  controls: SkillagerManagementControls,
 ): Promise<readonly Record<string, unknown>[]> {
-  const proof: Record<string, unknown>[] = []
-  const choices = (await ui.inspect(
-    "[...document.getElementById('copy-agent').options].map(option=>({id:option.value,label:option.textContent}))",
+  const proof: Record<string, unknown>[] = [],
+    project = skillagerManagementControls(projectGuest, controls)
+  const libraryControls = skillagerManagementControls(await libraryGuest(), controls)
+  const choices = (await libraryControls.inspect(
+    "[...document.getElementById('task-agent').options].map(option=>({id:option.value,label:option.textContent}))",
   )) as Array<{ id: string; label: string }>
   if (
     JSON.stringify(choices.map((item) => item.label)) !==
     JSON.stringify(['Codex', 'Claude'])
   )
     throw new Error(
-      'Advanced walkthrough requires both displayed supported CLI agent choices',
+      'Selected exposure walkthrough requires both displayed provider choices',
     )
   for (const { id: agent, label } of choices) {
     const base = joinHostPath(
         workspace,
         label === 'Codex' ? '.agents/skills' : '.claude/skills',
       ),
-      sources: Array<{ original: HostPath; lineage: Lineage; bytes: string }> = []
-    for (const suffix of ['one', 'two']) {
-      const original = joinHostPath(base, `advanced-${agent}-${suffix}`),
-        bytes = `---\nname: Advanced ${suffix}\ndescription: Use only for an owned advanced exposure fixture.\n---\n\nRead the complete supporting guide.\n`
+      sources: Original[] = []
+    for (const suffix of ['one', 'two', 'three', 'four']) {
+      const name = `advanced-${agent}-${suffix}`,
+        original = joinHostPath(base, name),
+        bytes = `---\nname: ${name}\ndescription: Use only for an owned selected exposure fixture.\n---\n\nRead the supporting guide before making a change.\n`,
+        entry = joinHostPath(original, 'SKILL.md')
       await host.createDirectoryExclusive(original, { mode: 0o755 })
-      await host.writeFile(joinHostPath(original, 'SKILL.md'), bytes)
+      await host.writeFile(entry, bytes)
       await host.createFileExclusive(joinHostPath(original, 'helper.sh'), { mode: 0o755 })
       await host.writeFile(joinHostPath(original, 'helper.sh'), '#!/bin/sh\ntrue\n')
-      if (
-        (await host.readFile(joinHostPath(original, 'SKILL.md'))).toString() !== bytes ||
-        (await host.readFile(joinHostPath(original, 'helper.sh'))).toString() !==
-          '#!/bin/sh\ntrue\n'
-      )
-        throw new Error('Owned native original was not completely inspected')
-      await cli(['review', 'approve', `project/advanced-${agent}-${suffix}`, '--json'])
-      const status = await cli(['library', 'sync', '--status', '--json']),
-        lineage = (status['lineages'] as Lineage[]).find((item) =>
-          item.origins.some((origin) => origin.path === original.path),
+      if (suffix === 'one') {
+        // Existing public Unicode imports must remain usable by the selected consumer.
+        const args = [
+            'import',
+            `project/${name}`,
+            '--as',
+            `保存-𐐨-${agent}`,
+            '--source-file',
+            entry.path,
+            '--review-manifest',
+            '--json',
+          ],
+          preview = await cli(args),
+          manifest = preview['review_manifest'] as { confirmation_token: string }
+        if (!/^[a-f0-9]{64}$/u.test(manifest?.confirmation_token))
+          throw new Error('Public Unicode import did not supply its exact review token')
+        await cli([...args, '--yes', '--confirmation-token', manifest.confirmation_token])
+      } else if (suffix === 'two') {
+        const ui = await selectProject(entry, name)
+        await ui.ready(
+          "!document.getElementById('import-save').disabled",
+          `${agent} selected original Save and accept`,
         )
-      if (!lineage || lineage.preservation !== 'verified')
-        throw new Error('Public native preservation lineage is unavailable')
-      sources.push({ original, lineage, bytes })
-    }
-    await ui.set('copy-agent', agent)
-    await ui.set('copy-mode', 'stub')
-    await ui.click('observe-advanced')
-    try {
-      await ui.ready(
-        `document.querySelectorAll('#advanced-origin option').length >= 2`,
-        `${agent} preserved native choices`,
+        await ui.ready(
+          "document.getElementById('exposure-preservation-reason').textContent.length>0 && !document.getElementById('exposure-preservation-reason').textContent.includes('Checking')",
+          'automatic unavailable preservation',
+        )
+        if (
+          await ui.inspect(
+            "!document.getElementById('exposure-full').hidden || !document.getElementById('exposure-stub').hidden",
+          )
+        )
+          throw new Error(
+            'Unpreserved original offers replacement before Save and accept',
+          )
+        await ui.click('import-save')
+        await ui.ready(
+          "(() => {try{return JSON.parse(document.getElementById('import-result').textContent).outcome==='verified'}catch{return false}})()",
+          'actual accepted-import completion',
+        )
+        await ui.ready(
+          "!document.getElementById('exposure-stub').disabled",
+          'automatic accepted-import preservation after Save and accept',
+        )
+      } else {
+        // Separate approved-sync fixtures preserve both public proof families.
+        await cli(['review', 'approve', `project/${name}`, '--json'])
+      }
+      const observed = (await cli([
+          'expose',
+          '--observe-native',
+          entry.path,
+          '--agent',
+          agent,
+          '--scope',
+          'project',
+          '--json',
+        ])) as unknown as Preservation,
+        candidate = observed.candidates.find((item) => item.status === 'available')
+      if (
+        observed.status !== 'available' ||
+        !candidate ||
+        candidate.basis !==
+          (['one', 'two'].includes(suffix) ? 'accepted-import' : 'approved-sync')
       )
-    } catch (error) {
-      const diagnostic = await ui.inspect(`(() => {
-        const state=document.getElementById('state').textContent;
-        let observed;try{observed=JSON.parse(document.getElementById('advanced-observation').textContent)}catch{}
-        return {originOptions:document.querySelectorAll('#advanced-origin option').length,
-          observationPresent:!!observed, lineageCount:observed?.preserved?.lineages?.length,
-          stateClasses:['Observing','unavailable','frequency','capacity','bound','coverage','library','confined','returned','changed','uninitialized','registered','not initialized','identity','not-started','No mutation'].filter(value=>state.includes(value))};
-      })()`)
-      console.log('[smoke] advanced native-choice boundary', JSON.stringify(diagnostic))
-      throw error
+        throw new Error(
+          'Exact public preservation basis does not match the explicit preparation',
+        )
+      if (suffix === 'one' && candidate.source.skill_id !== `lib/保存-𐐨-${agent}`)
+        throw new Error('Public Unicode canonical identity was changed or inferred')
+      const status = await cli([
+          'library',
+          'status',
+          candidate.source.skill_id,
+          '--json',
+        ]),
+        skill = status['skill'] as { path: string }
+      sources.push({
+        original,
+        bytes,
+        skillId: candidate.source.skill_id,
+        canonical: localPath(skill.path),
+      })
+      await preserved(sources.at(-1)!)
     }
-    await ui.set('advanced-operation', 'adopt-native')
-    const one = sources[0]!,
-      two = sources[1]!
-    await selectOrigin(one.original)
+    const [one, two, three, four] = sources as [Original, Original, Original, Original]
+    let ui = await selectProject(
+      joinHostPath(one.original, 'SKILL.md'),
+      `advanced-${agent}-one`,
+    )
+    if (label === 'Codex')
+      await capture(
+        'preserved-original',
+        await detail(),
+        async () => {
+          ui = await selectProject(
+            joinHostPath(one.original, 'SKILL.md'),
+            'advanced-codex-one',
+          )
+          await ui.ready(
+            "!document.getElementById('exposure-stub').disabled",
+            'selected preserved original',
+          )
+        },
+        ui,
+      )
+    await ui.click('exposure-stub')
+    await review(ui, 'adopt-native')
+    await ui.click('exposure-cancel')
+    await preserved(one)
+    await ui.ready(
+      "!document.getElementById('exposure-stub').disabled",
+      'fresh replacement after cancellation',
+    )
+    await ui.click('exposure-stub')
+    await review(ui, 'adopt-native')
     const uncovered = joinHostPath(one.original, 'uncovered.txt')
     await host.writeFile(uncovered, 'Owned uncovered bytes must remain.\n')
-    await ui.click('preview-advanced')
+    await ui.click('exposure-confirm')
     await ui.ready(
-      "document.getElementById('review').hidden && document.getElementById('state').textContent.includes('Preserve the files')",
-      `${agent} uncovered native refusal`,
+      "document.getElementById('exposure-review').hidden && document.getElementById('exposure-state').textContent.includes('Preserve the files')",
+      `${agent} changed preservation refusal`,
     )
     if (
       (await host.readFile(uncovered)).toString() !==
       'Owned uncovered bytes must remain.\n'
     )
-      throw new Error('Refused adoption discarded uncovered original bytes')
+      throw new Error('Refused replacement discarded uncovered original bytes')
     await host.removeFile(uncovered)
-    const adopted = await change('adopt-native')
+    const adopted = await change(ui, 'adopt-native')
     if ((await host.readdir(one.original)).some((item) => item.name === 'helper.sh'))
-      throw new Error('Adopted Stub unexpectedly retained Full support in the project')
-    if (
-      (
-        await host.readFile(localPath(`${one.lineage.canonical.path}/SKILL.md`))
-      ).toString() !== one.bytes ||
-      (
-        await host.readFile(localPath(`${one.lineage.canonical.path}/helper.sh`))
-      ).toString() !== '#!/bin/sh\ntrue\n' ||
-      ((await host.stat(localPath(`${one.lineage.canonical.path}/helper.sh`))).mode &
-        0o111) ===
-        0
-    )
-      throw new Error('Native adoption lost original canonical bytes or executable mode')
-    await ui.click('observe-advanced')
+      throw new Error('Stub replacement retained Full supporting files')
+    await preserved(one, false)
+
+    ui = await selectLibrary(one)
+    await ui.set('task-agent', agent)
+    if (label === 'Codex')
+      await capture(
+        'library-selected',
+        await libraryGuest(),
+        async () => {
+          ui = await selectLibrary(one)
+        },
+        ui,
+      )
+    await ui.click('exposure-group')
+    await membersReady(ui)
+    await ui.set('exposure-name', `Advanced ${agent}`)
     await ui.ready(
-      `document.querySelectorAll('#advanced-replacements option').length >= 1`,
-      `${agent} adopted standalone choice`,
+      `!!document.querySelector('[data-exposure-id="advanced-${agent}-one"]')`,
+      'actual standalone replacement choice',
     )
-    await ui.set('advanced-operation', 'group')
-    const name = `Advanced ${agent}`
-    await ui.set('advanced-name', name)
-    await ui.set('advanced-members', one.lineage.canonical.skill_id)
+    const defaultReplacement = await ui.inspect(
+      `document.querySelector('[data-exposure-id="advanced-${agent}-one"]').checked`,
+    )
+    if (defaultReplacement)
+      throw new Error('Standalone replacement was implicitly selected')
     await ui.inspect(
-      `(() => { const option=[...document.querySelectorAll('#advanced-replacements option')].find(item => item.value===${JSON.stringify(`advanced-${agent}-one`)}); if(!option)throw new Error('Exact replacement unavailable'); option.selected=true; })()`,
+      `document.querySelector('[data-exposure-id="advanced-${agent}-one"]').click()`,
     )
-    const grouped = await change('group')
-    const router = joinHostPath(base, `skillager-advanced-${agent}`)
+    const grouped = await change(ui, 'group')
     if ((await host.readdir(base)).some((item) => item.name === `advanced-${agent}-one`))
-      throw new Error('Selected standalone replacement was retained unexpectedly')
-    const twoBytes = (
-      await host.readFile(joinHostPath(two.original, 'SKILL.md'))
-    ).toString()
-    await ui.click('observe-advanced')
+      throw new Error('Explicit standalone replacement left its old copy')
+    const inventory = await cli([
+        'expose',
+        '--list',
+        '--agent',
+        agent,
+        '--scope',
+        'project',
+        '--json',
+      ]),
+      router = (
+        inventory['exposures'] as Array<{
+          mode: string
+          skill_id: string
+          skill_ids: string[]
+          target: string
+        }>
+      ).find((item) => item.mode === 'router' && item.skill_ids.includes(one.skillId))
+    if (!router) throw new Error('Public inventory did not expose the created Router')
+    const routerEntry = localPath(`${router.target}/SKILL.md`)
+    const observed = await cli([
+      'list',
+      '--scope',
+      'project',
+      '--query',
+      router.skill_id,
+      '--limit',
+      '50',
+      '--json',
+    ])
+    console.log(
+      '[smoke] selected Router public occurrence',
+      JSON.stringify({
+        skillId: router.skill_id,
+        target: router.target,
+        projectRoot: observed['project_root'],
+        observation: observed['observation'],
+        rows: (
+          observed['skills'] as Array<{
+            id: string
+            occurrence_id: string
+            name: string
+            skill_file: string
+          }>
+        ).map((row) => ({
+          id: row.id,
+          occurrenceId: row.occurrence_id,
+          name: row.name,
+          path: row.skill_file,
+        })),
+      }),
+    )
+    ui = await selectProject(routerEntry, router.skill_id)
     await ui.ready(
-      `document.querySelectorAll('#advanced-router option').length >= 1`,
-      `${agent} current Router`,
+      "!document.getElementById('exposure-edit').disabled && document.querySelectorAll('#router-members > li').length===1",
+      'actual selected Router membership',
     )
-    await ui.set('advanced-operation', 'set-members')
-    await ui.set(
-      'advanced-members',
-      `${one.lineage.canonical.skill_id}\n${two.lineage.canonical.skill_id}`,
-    )
-    const addedMember = await change('set-members')
-    await ui.click('observe-advanced')
-    await ui.ready(
-      `document.querySelectorAll('#advanced-departures select').length===2`,
-      `${agent} complete departing choices`,
-    )
-    await ui.set('advanced-members', two.lineage.canonical.skill_id)
-    await ui.inspect(
-      `(() => { const choice=[...document.querySelectorAll('#advanced-departures select')].find(item=>item.dataset.member===${JSON.stringify(one.lineage.canonical.skill_id)});choice.value='remove';choice.dispatchEvent(new Event('input',{bubbles:true})); })()`,
-    )
-    const removedMember = await change('set-members')
-    await ui.click('observe-advanced')
-    await ui.ready(
-      `document.querySelectorAll('#advanced-departures select').length===1`,
-      `${agent} updated Router membership`,
-    )
-    await ui.set('advanced-operation', 'ungroup')
-    await ui.set('copy-mode', 'native')
-    // Changing the mode invalidates observations, so explicitly reobserve exact Router identity.
-    await ui.click('observe-advanced')
-    await ui.ready(
-      `document.querySelectorAll('#advanced-router option').length>=1`,
-      `${agent} refreshed Ungroup target`,
-    )
-    const ungrouped = await change('ungroup')
     if (
-      (await host.readdir(base)).some(
-        (item) => item.name === `skillager-advanced-${agent}`,
+      await ui.inspect(
+        "document.getElementById('instructions').checkVisibility() || !document.getElementById('selected-task').hidden",
       )
     )
-      throw new Error('Ungroup left the selected Router')
-    if (
-      (await host.readFile(joinHostPath(two.original, 'SKILL.md'))).toString() !==
-      twoBytes
-    )
-      throw new Error('Unselected native original changed during membership or Ungroup')
-    const tag = await cli(['tag', 'show', `advanced-${agent}`, '--json'])
-    if (!JSON.stringify(tag).includes(two.lineage.canonical.skill_id))
-      throw new Error('Ungroup discarded curated tag membership')
-    await ui.click('observe-advanced')
+      throw new Error('Selected Router is being treated as an instruction skill')
+    if (label === 'Codex')
+      await capture(
+        'router',
+        await detail(),
+        async () => {
+          ui = await selectProject(routerEntry, router.skill_id)
+          await ui.ready(
+            "!document.getElementById('exposure-edit').disabled",
+            'selected Router content',
+          )
+        },
+        ui,
+      )
+    await pointer(await detail(), '#exposure-edit')
+    await membersReady(ui)
+    for (const source of [two, three, four]) await member(ui, source, true)
+    const addedMembers = await change(ui, 'set-members')
     await ui.ready(
-      `document.querySelectorAll('#advanced-origin option').length>=1`,
-      `${agent} preserved Full native choice`,
+      "!document.getElementById('exposure-edit').disabled && document.querySelectorAll('#router-members > li').length===4",
+      'current Router membership after Done',
     )
-    await ui.set('advanced-operation', 'adopt-native')
-    await selectOrigin(two.original)
-    const fullAdoption = await change('adopt-native')
+    await ui.click('exposure-edit')
+    await membersReady(ui)
+    await member(ui, one, false)
     if (
-      (await host.readFile(joinHostPath(two.original, 'SKILL.md'))).toString() !==
-        twoBytes ||
-      ((await host.stat(joinHostPath(two.original, 'helper.sh'))).mode & 0o111) === 0
+      (await ui.inspect(
+        "document.querySelectorAll('#exposure-departures select').length",
+      )) !== 1
     )
-      throw new Error('Full adoption lost original bytes or modes')
+      throw new Error('Departure choices are not confined to the one removed member')
+    if (label === 'Codex')
+      await capture(
+        'router-members',
+        await detail(),
+        async () => {
+          ui = await selectProject(routerEntry, router.skill_id)
+          await ui.click('exposure-edit')
+          await membersReady(ui)
+          await member(ui, one, false)
+        },
+        ui,
+      )
+    for (const source of [two, three]) await member(ui, source, false)
+    for (const [source, mode] of [
+      [one, 'native'],
+      [two, 'stub'],
+      [three, 'remove'],
+    ] as const)
+      await ui.inspect(
+        `(() => {const select=document.querySelector('#exposure-departures select[data-skill-id=${JSON.stringify(source.skillId)}]');select.value=${JSON.stringify(mode)};select.dispatchEvent(new Event('change',{bubbles:true}));})()`,
+      )
+    const removedMembers = await change(ui, 'set-members')
+    const after = await cli([
+        'expose',
+        '--list',
+        '--agent',
+        agent,
+        '--scope',
+        'project',
+        '--json',
+      ]),
+      copies = after['exposures'] as Array<{ mode: string; skill_id?: string }>
+    if (
+      !copies.some((item) => item.skill_id === one.skillId && item.mode === 'native') ||
+      !copies.some((item) => item.skill_id === two.skillId && item.mode === 'stub') ||
+      copies.some((item) => item.skill_id === three.skillId)
+    )
+      throw new Error(
+        'Full, Stub and Remove departures disagree with public project inventory',
+      )
+    for (const source of [two, three, four]) await preserved(source)
+    await ui.ready(
+      "!document.getElementById('exposure-ungroup').disabled && document.querySelectorAll('#router-members > li').length===1",
+      'current remaining Router member before Ungroup',
+    )
+    await ui.click('exposure-ungroup')
+    const ungrouped = await change(ui, 'ungroup')
+    if (
+      (await host.readdir(base)).some(
+        (item) => `${base.path}/${item.name}` === router.target,
+      )
+    )
+      throw new Error('Ungroup retained the selected Router')
+    const tag = await cli(['tag', 'show', `advanced-${agent}`, '--json'])
+    if (!JSON.stringify(tag).includes(four.skillId))
+      throw new Error('Ungroup discarded curated tag membership')
+    ui = await selectProject(
+      joinHostPath(two.original, 'SKILL.md'),
+      `advanced-${agent}-two`,
+    )
+    await ui.click('exposure-full')
+    const fullAdoption = await change(ui, 'adopt-native')
+    await preserved(two)
     proof.push({
       agent,
       adopted,
       grouped,
-      addedMember,
-      removedMember,
+      addedMembers,
+      removedMembers,
       ungrouped,
       fullAdoption,
-      canonicalPreserved: true,
-      unselectedOriginalPreserved: true,
+      exactAcceptedImport: true,
+      exactUnicodeCanonicalIdentity: one.skillId,
+      approvedSync: true,
+      canonicalBytesAndModesPreserved: true,
+      unselectedOriginalsPreserved: true,
+      cancelledWithoutWrites: true,
+      changedPreservationRefused: true,
+      departingChoices: ['Full', 'Stub', 'Remove'],
       curatedTagRetained: true,
-      router,
       qualification:
-        'Normally installed exact merged-wheel CLI through ordinary D4 human controls/D5 execution; no signed-package claim.',
+        'Ordinary selected Project/Library controls and installed public CLI; exact unreleased supporting wheel, no signed-package claim.',
     })
   }
   console.log(
-    '[smoke] advanced Skillager exposure: both-agent native Full/Stub adoption, Group, add/remove membership, Ungroup and preserved original bytes/modes',
+    '[smoke] selected exposure: both agents, accepted-import and sync proof, Full/Stub replacement, Group, retained searchable membership, Full/Stub/Remove departures, Ungroup',
   )
   return proof
 
-  async function selectOrigin(path: HostPath) {
+  async function selectProject(entry: HostPath, query: string): Promise<Ui> {
+    await controls.wait(
+      async () =>
+        Boolean(
+          await withinExtensionInspection(
+            win.webContents.executeJavaScript(
+              "(() => {const button=document.querySelector('.project-tab-main');if(!button?.checkVisibility()||button.disabled)return false;button.click();return true})()",
+            ),
+          ),
+        ),
+      'ordinary project destination for selected exposure',
+    )
+    await controls.click('Skills in this project')
+    await foreground(projectGuest)
+    await project.set('query', query)
+    await project.inspect("document.getElementById('search-form').requestSubmit()")
+    try {
+      await project.ready(
+        `document.getElementById('state').dataset.state==='ready' && !![...document.querySelectorAll('#skills [role=option]')].find(e=>e.dataset.sourcePath===${JSON.stringify(entry.path)})`,
+        'selected exact public project occurrence',
+      )
+    } catch (error) {
+      console.log(
+        '[smoke] selected Project readiness',
+        JSON.stringify({
+          expected: entry,
+          observed: await project.inspect(`(() => ({
+          query: document.getElementById('query').value.slice(0,1000),
+          projectScope: document.getElementById('scope-project').getAttribute('aria-pressed'),
+          libraryScope: document.getElementById('scope-library').getAttribute('aria-pressed'),
+          state: document.getElementById('state').dataset.state,
+          rowCount: document.querySelectorAll('#skills [role=option]').length,
+          rows: [...document.querySelectorAll('#skills [role=option]')].slice(0,50).map(row=>({id:row.dataset.id,path:row.dataset.sourcePath})),
+        }))()`),
+        }),
+      )
+      throw error
+    }
+    await project.inspect(
+      `[...document.querySelectorAll('#skills [role=option]')].find(e=>e.dataset.sourcePath===${JSON.stringify(entry.path)}).click()`,
+    )
+    const guest = await detail()
+    await foreground(guest)
+    const ui = skillagerManagementControls(guest, controls)
+    await ui.ready(
+      `document.getElementById('source-label').textContent.endsWith(${JSON.stringify(` · local: ${entry.path}`)})`,
+      'selected exact Project detail identity',
+    )
+    return ui
+  }
+  async function selectLibrary(source: Original): Promise<Ui> {
+    await controls.click('Skillager library')
+    const guest = await libraryGuest()
+    await foreground(guest)
+    const ui = skillagerManagementControls(guest, controls)
+    await ui.set('query', source.skillId.slice(4))
+    await ui.inspect("document.getElementById('search-form').requestSubmit()")
+    const entry = joinHostPath(source.canonical, 'SKILL.md')
+    await ui.ready(
+      `document.getElementById('state').dataset.state==='ready' && !!document.querySelector('[data-source-path=${JSON.stringify(entry.path)}]')`,
+      'selected exact canonical member',
+    )
     await ui.inspect(
-      `(() => { const select=document.getElementById('advanced-origin'); const option=[...select.options].find(item=>item.textContent.includes(${JSON.stringify(path.path)}));if(!option)throw new Error('Exact origin unavailable'); select.value=option.value;select.dispatchEvent(new Event('input',{bubbles:true})); })()`,
+      `document.querySelector('[data-source-path=${JSON.stringify(entry.path)}]').click()`,
+    )
+    try {
+      await ui.ready(
+        `document.getElementById('source-label').textContent.endsWith(${JSON.stringify(` · local: ${entry.path}`)}) && !document.getElementById('task-mode').disabled && !document.getElementById('exposure-group').hidden && !document.getElementById('exposure-group').disabled && document.getElementById('instructions').textContent.length>0`,
+        'selected library reading and Group action',
+      )
+    } catch (error) {
+      console.log(
+        '[smoke] selected library readiness',
+        JSON.stringify(
+          await ui.inspect(`(() => {
+        const primary=document.getElementById('task-primary'), group=document.getElementById('exposure-group');
+        return {instructionsPresent:document.getElementById('instructions').textContent.length>0,copyControlDisabled:document.getElementById('task-mode').disabled,primaryHidden:primary.hidden,primaryDisabled:primary.disabled,groupHidden:group.hidden,groupDisabled:group.disabled};
+      })()`),
+        ),
+      )
+      throw error
+    }
+    return ui
+  }
+  async function foreground(guest: WebContents) {
+    await controls.wait(
+      async () =>
+        Boolean(
+          await withinExtensionInspection(
+            win.webContents.executeJavaScript(
+              `(() => {const frame=[...document.querySelectorAll('webview')].find(item=>item.getWebContentsId()===${guest.id});return frame?.checkVisibility()&&frame.getBoundingClientRect().width>0&&frame.getBoundingClientRect().height>0})()`,
+            ),
+          ),
+        ),
+      'actual foreground selected exposure guest',
     )
   }
-  async function change(operation: string) {
-    await ui.inspect("document.getElementById('result').textContent=''")
-    await ui.click('preview-advanced')
+  async function membersReady(ui: Ui) {
     await ui.ready(
-      `!document.getElementById('review').hidden && JSON.parse(document.getElementById('review-plan').textContent).request?.action===${JSON.stringify(operation)}`,
-      `complete ${operation} review`,
+      "!document.getElementById('exposure-member-search-button').disabled && document.querySelectorAll('#exposure-member-results input').length>0",
+      'bounded membership page',
     )
-    await ui.click('confirm-plan')
-    const result = await ui.result('change-exposure')
+  }
+  async function member(ui: Ui, source: Original, checked: boolean) {
+    await ui.set('exposure-member-query', source.skillId.slice(4))
+    await ui.inspect("document.getElementById('exposure-member-search').requestSubmit()")
+    await ui.ready(
+      `!document.getElementById('exposure-member-search-button').disabled && !!document.querySelector('#exposure-member-results [data-skill-id=${JSON.stringify(source.skillId)}]')`,
+      'exact searched member',
+    )
+    await ui.inspect(
+      `(() => {const input=document.querySelector('#exposure-member-results [data-skill-id=${JSON.stringify(source.skillId)}]');if(input.checked!==${checked})input.click();})()`,
+    )
+  }
+  async function review(ui: Ui, operation: string) {
+    await ui.click('exposure-preview')
+    await ui.ready(
+      `!document.getElementById('exposure-review').hidden && JSON.parse(document.getElementById('exposure-plan').textContent).request.action===${JSON.stringify(operation)}`,
+      `complete ${operation} file review`,
+    )
     if (
-      result['outcome'] !== 'verified' ||
-      result['operation'] !== operation ||
-      !Array.isArray(result['results'])
+      !(await ui.inspect(
+        "(() => {const p=JSON.parse(document.getElementById('exposure-plan').textContent);return !!p.confirmation_token && document.querySelectorAll('#exposure-effects li').length===p.targets.flatMap(t=>t.file_effects).length})()",
+      ))
     )
-      throw new Error(`Advanced ${operation} returned no complete verified result`)
+      throw new Error(
+        'Human review omitted complete affected file effects or fresh whole-plan token',
+      )
+  }
+  async function change(ui: Ui, operation: string) {
+    await review(ui, operation)
+    await ui.click('exposure-confirm')
+    await ui.ready(
+      `(() => {try{const r=JSON.parse(document.getElementById('exposure-result').textContent);return document.getElementById('exposure-review').hidden && !document.getElementById('exposure-operation-details').hidden && !document.getElementById('exposure-cancel').disabled && r.action==='change-exposure'&&r.operation===${JSON.stringify(operation)}}catch{return false}})()`,
+      'complete selected exposure result',
+    )
+    const result = (await ui.inspect(
+      "JSON.parse(document.getElementById('exposure-result').textContent)",
+    )) as Record<string, unknown>
+    if (result['outcome'] !== 'verified' || !Array.isArray(result['results']))
+      throw new Error(`Selected ${operation} did not verify`)
+    await ui.click('exposure-cancel')
     return result
+  }
+  async function preserved(source: Original, original = true) {
+    for (const path of original
+      ? [source.original, source.canonical]
+      : [source.canonical])
+      if (
+        (await host.readFile(joinHostPath(path, 'SKILL.md'))).toString() !==
+          source.bytes ||
+        (await host.readFile(joinHostPath(path, 'helper.sh'))).toString() !==
+          '#!/bin/sh\ntrue\n' ||
+        ((await host.stat(joinHostPath(path, 'helper.sh'))).mode & 0o111) === 0
+      )
+        throw new Error('Selected exposure lost preserved bytes or executable modes')
+  }
+  async function pointer(guest: WebContents, selector: string) {
+    try {
+      await focusSmokeWindow(win, 'window')
+      await foreground(guest)
+      const box = (await guest.executeJavaScript(
+        `(() => {const e=document.querySelector(${JSON.stringify(selector)});e.scrollIntoView({block:'nearest'});const r=e.getBoundingClientRect();if(!e.checkVisibility()||e.disabled||r.top<0||r.bottom>innerHeight)throw new Error('Selected task control is clipped');return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}})()`,
+      )) as { x: number; y: number }
+      guest.focus()
+      guest.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1, ...box })
+      try {
+        await controls.wait(
+          async () =>
+            (await guest.executeJavaScript(
+              `document.hasFocus() && document.activeElement===document.querySelector(${JSON.stringify(selector)})`,
+            )) === true,
+          'actual selected exposure guest native input focus',
+        )
+      } finally {
+        guest.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: 1, ...box })
+      }
+    } catch (error) {
+      console.log(
+        '[smoke] selected exposure pointer focus',
+        JSON.stringify({
+          windowFocused: win.isFocused(),
+          windowVisible: win.isVisible(),
+          minimized: win.isMinimized(),
+          parentFocused: (await withinExtensionInspection(
+            win.webContents.executeJavaScript('document.hasFocus()'),
+          )) as unknown,
+          guest: (await withinExtensionInspection(
+            guest.executeJavaScript(
+              `({focused:document.hasFocus(),targetFocused:document.activeElement===document.querySelector(${JSON.stringify(selector)})})`,
+            ),
+          )) as unknown,
+        }),
+      )
+      throw error
+    }
+  }
+  async function capture(
+    state: 'router' | 'router-members' | 'preserved-original' | 'library-selected',
+    guest: WebContents,
+    select: () => Promise<void>,
+    ui: Ui,
+  ) {
+    await captureExtensionVisuals(win, guest, host, state, {
+      ...controls,
+      select,
+      painted: async () => {
+        const facts = (await ui.inspect(`(() => {
+        const box=e=>{const r=e.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height,visible:e.checkVisibility()}};
+        const contained=r=>r.visible&&r.width>0&&r.height>0&&r.left>=0&&r.right<=innerWidth+1&&r.top>=0&&r.bottom<=innerHeight+1;
+        const editing=${state === 'router-members'}, router=${state === 'router'}, original=${state === 'preserved-original'};
+        const content=document.getElementById(editing?'exposure-task':router?'router-content':'instructions');
+        const bounds=box(content), preview=editing?box(document.getElementById('exposure-preview')):null, cancel=editing?box(document.getElementById('exposure-cancel')):null, replacement=original?box(document.querySelector('#exposure-replacement>summary')):null;
+        const failures=[];
+        if(!contained(bounds)||bounds.height<80||document.documentElement.scrollWidth>innerWidth+1)failures.push('content');
+        if(editing&&(!document.getElementById('router-content').hidden||!contained(preview)||!contained(cancel)))failures.push('editing-footer');
+        if(original&&!contained(replacement))failures.push('replacement');
+        return {width:innerWidth,height:innerHeight,bounds,preview,cancel,replacement,failures,editing,router,original};
+      })()`)) as { failures: string[] }
+        if (facts.failures.length)
+          throw new Error(`Selected exposure geometry: ${JSON.stringify(facts)}`)
+        return facts
+      },
+    })
   }
 }

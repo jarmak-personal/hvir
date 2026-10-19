@@ -432,67 +432,6 @@ it.each([0, 1])(
   },
 )
 
-async function advancedSelection(f: ReturnType<typeof fixture>) {
-  await f.connect()
-  f.advanced()
-  f.click('observe-advanced')
-  await vi.waitFor(() =>
-    expect(document.querySelectorAll('#advanced-origin option')).toHaveLength(1),
-  )
-  const operation = document.getElementById('advanced-operation') as HTMLSelectElement
-  operation.value = 'adopt-native'
-  operation.dispatchEvent(new Event('change'))
-  const mode = document.getElementById('copy-mode') as HTMLSelectElement
-  mode.value = 'stub'
-  // Mode changes intentionally discard observed choices; explicitly reobserve.
-  mode.dispatchEvent(new Event('change'))
-  f.click('observe-advanced')
-  await vi.waitFor(() =>
-    expect(document.querySelectorAll('#advanced-origin option')).toHaveLength(1),
-  )
-}
-it.each(['event', 'programmatic'])(
-  'rejects obsolete advanced preview after a %s mode change while its public request is pending',
-  async (change) => {
-    const f = fixture()
-    await advancedSelection(f)
-    f.holdAdvanced()
-    f.click('preview-advanced')
-    await vi.waitFor(() => expect(f.previewWaiting).toBe(true))
-    const mode = document.getElementById('copy-mode') as HTMLSelectElement
-    mode.value = 'native'
-    if (change === 'event') mode.dispatchEvent(new Event('change'))
-    f.releaseAdvanced()
-    const reads = f.readCount
-    await vi.waitFor(() => {
-      f.click('observe-library')
-      expect(f.readCount).toBeGreaterThan(reads)
-    })
-    await f.connect()
-    expect(document.getElementById('review')!.hidden).toBe(true)
-    f.click('confirm-plan')
-    await f.ready(/Review one complete current plan/)
-    expect(f.actions).toEqual([])
-  },
-)
-it('rejects programmatic advanced retargeting before Confirm while keeping files visible outside collapsed technical details', async () => {
-  const f = fixture()
-  await advancedSelection(f)
-  f.click('preview-advanced')
-  await vi.waitFor(() => expect(document.getElementById('review')!.hidden).toBe(false))
-  expect((document.getElementById('review-details') as HTMLDetailsElement).open).toBe(
-    false,
-  )
-  expect(document.getElementById('review-summary')!.textContent).toContain(
-    '/.agents/skills/native/SKILL.md',
-  )
-  ;(document.getElementById('copy-mode') as HTMLSelectElement).value = 'native'
-  f.click('confirm-plan')
-  await f.ready(/advanced selection changed/)
-  expect(document.getElementById('review')!.hidden).toBe(true)
-  expect(f.actions).toEqual([])
-})
-
 it('creates with one default action without requiring custom location or Git inputs', async () => {
   const observed = {
     id: 'owned-id',

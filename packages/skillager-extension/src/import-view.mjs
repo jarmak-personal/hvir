@@ -11,6 +11,8 @@ export function bindSelectedImport(document, client, ports) {
     prepared,
     pending,
     observation,
+    preservation,
+    message = '',
     serial = 0,
     busy = false,
     submitted = false,
@@ -25,8 +27,10 @@ export function bindSelectedImport(document, client, ports) {
     row?.host === 'local' &&
     row.workspaceId === context().workspace?.id &&
     context().workspace?.host === 'local'
+  const saved = () => preservation && !el('name').value.trim() && !pending && !submitted
   const say = (text) => {
-    el('state').textContent = text
+    message = text
+    el('state').textContent = saved() ? '' : text
   }
   const files = bindReviewFiles(document, client, {
     prefix: 'import',
@@ -47,6 +51,28 @@ export function bindSelectedImport(document, client, ports) {
       }),
   })
   function controls() {
+    const manifest = prepared?.manifest
+    el('save').hidden = !!saved()
+    el('options').hidden = !!saved()
+    el('inspect').hidden = !!saved() && !prepared
+    el('destination').textContent = saved()
+      ? 'Saved in library'
+      : (manifest?.destination_id ?? '')
+    el('destination').title = saved()
+      ? preservation.sources
+          .map((source) => `${source.library_id} · ${source.skill_id}`)
+          .join('\n')
+      : manifest
+        ? `local: ${manifest.destination_path}`
+        : ''
+    el('effect').textContent = saved()
+      ? 'Original unchanged.'
+      : manifest
+        ? manifest.library.status === 'will-initialize'
+          ? `Creates personal library ${manifest.library.git_mode === 'system' ? 'with Git history' : 'without Git history'}. Original unchanged.`
+          : 'Original stays unchanged.'
+        : ''
+    el('state').textContent = saved() ? '' : message
     el('save').disabled =
       busy || submitted || !available() || !prepared?.eligible || !!pending
     el('refresh').disabled = busy || submitted
@@ -155,13 +181,7 @@ export function bindSelectedImport(document, client, ports) {
       prepared = { ...result, input: { ...input, name: result.name } }
       inspect(false)
       const manifest = result.manifest
-      el('destination').textContent = manifest.destination_id
-      el('destination').title = `local: ${manifest.destination_path}`
       el('target').textContent = `Destination · local: ${manifest.destination_path}`
-      el('effect').textContent =
-        manifest.library.status === 'will-initialize'
-          ? `Creates personal library ${manifest.library.git_mode === 'system' ? 'with Git history' : 'without Git history'}. Original unchanged.`
-          : 'Original stays unchanged.'
       el('version').textContent =
         `${manifest.file_count} files · ${manifest.total_bytes} bytes`
       el('manifest').textContent = JSON.stringify(result.manifest, null, 2)
@@ -204,6 +224,10 @@ export function bindSelectedImport(document, client, ports) {
           })
           if (!available(revision)) return
           el('result').textContent = JSON.stringify(result, null, 2)
+          if (result.outcome === 'verified') {
+            el('name').value = ''
+            ports.saved?.()
+          }
           pending = result.operationId
           prepared = undefined
           say(result.message ?? 'Inspect the exact operation result before continuing.')
@@ -225,7 +249,10 @@ export function bindSelectedImport(document, client, ports) {
     el('files').querySelector('button')?.focus({ preventScroll: true })
   })
   on('refresh', 'click', () => void refresh())
-  on('name', 'input', invalidate)
+  on('name', 'input', () => {
+    message = ''
+    invalidate()
+  })
   on('cancel', 'click', () => {
     invalidate()
     say('Save and accept cancelled. No import was requested.')
@@ -253,8 +280,18 @@ export function bindSelectedImport(document, client, ports) {
       }),
   )
   return {
+    // Presentation only: exact validated public preservation never approves an import.
+    preserved(value) {
+      preservation =
+        row && value?.file.hostId === row.host && value.file.path === row.path
+          ? value
+          : undefined
+      controls()
+    },
     select(input) {
       invalidate()
+      preservation = undefined
+      message = ''
       row =
         input?.row.source === 'project' && input.row.kind === 'Project original'
           ? input.row
@@ -271,8 +308,10 @@ export function bindSelectedImport(document, client, ports) {
         el('version').textContent =
           ''
       if (row && available()) void refresh()
+      else controls()
     },
     contextChanged() {
+      preservation = undefined
       invalidate()
       if (row && available()) void refresh()
     },
