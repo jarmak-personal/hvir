@@ -19,9 +19,9 @@ export interface ImportPreview {
     file: string
     content_hash: string
     type: string
-    collection: null
-    package: null
-    version: null
+    collection: string | null
+    package: string | null
+    version: string | null
     editable: boolean
   }
   destination: { id: string; name: string; path: string; exists: boolean }
@@ -43,12 +43,23 @@ export interface ImportPreview {
     total_bytes: number
   }
 }
-export function importContractFixture() {
+/** Unedited public CLI previews captured from the bound import implementation. */
+export function publicImportCases(): Array<{ case: string; preview: ImportPreview }> {
+  return (
+    JSON.parse(
+      readFileSync(
+        'test/fixtures/skillager-management/import-public-identities.json',
+        'utf8',
+      ),
+    ) as { cases: Array<{ case: string; preview: ImportPreview }> }
+  ).cases
+}
+export function importContractFixture(publicPreview?: ImportPreview) {
   const read = (name: string) =>
     JSON.parse(
       readFileSync(`test/fixtures/skillager-management/import-${name}.json`, 'utf8'),
     ) as unknown
-  const preview = read('preview') as ImportPreview
+  const preview = publicPreview ?? (read('preview') as ImportPreview)
   const result = read('imported') as {
     schema: string
     status: string

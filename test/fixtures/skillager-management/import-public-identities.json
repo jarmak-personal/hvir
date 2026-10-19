@@ -1,0 +1,344 @@
+{
+  "source_commit": "603ae4c8016e7cb876355390931b8ce338581204",
+  "cli_version": "0.9.6 unreleased source build",
+  "captured_at": "2026-10-19T21:32:46.593596+00:00",
+  "scope": "Task-owned project, explicit library and catalog; actual public CLI previews, no import apply or default-library creation.",
+  "cases": [
+    {
+      "case": "nested-unicode",
+      "preview": {
+        "blocked": false,
+        "destination": {
+          "display_name": "guide",
+          "exists": false,
+          "id": "lib/保存-𐐨-copy",
+          "name": "保存-𐐨-copy",
+          "path": "/private/tmp/hvir-856-unicode-import-correction/public-cli/library/skills/保存-𐐨-copy",
+          "slug": "保存-𐐨-copy"
+        },
+        "library": {
+          "git_mode": "disabled",
+          "root": "/private/tmp/hvir-856-unicode-import-correction/public-cli/library",
+          "status": "ready"
+        },
+        "lint": {
+          "blocking_count": 0,
+          "findings": [],
+          "status": "ok"
+        },
+        "next_command_argv": [
+          "skillager",
+          "import",
+          "révisions--保存/保存/𐐨-guide",
+          "--as",
+          "保存-𐐨-copy",
+          "--source-file",
+          "/private/tmp/hvir-856-unicode-import-correction/public-cli/project/collection-fixture/保存/𐐨-guide/SKILL.md",
+          "--review-manifest",
+          "--json",
+          "--yes",
+          "--confirmation-token",
+          "8b20baf0ce8f9cb4456948a43fbe39a3ae87b9e27adbc34dcdd5ff94338ec4eb"
+        ],
+        "owner_review_required": true,
+        "project": "/private/tmp/hvir-856-unicode-import-correction/public-cli/project",
+        "provenance": {
+          "imported_from": {
+            "content_hash": "05b89a3583a6fdce4adeaae14f2757fcbe89dcb7f213bdcaa30b7e5958e8b7f7",
+            "skill_id": "révisions--保存/保存/𐐨-guide",
+            "source_type": "collection"
+          }
+        },
+        "requires_override": false,
+        "review_manifest": {
+          "confirmation_token": "8b20baf0ce8f9cb4456948a43fbe39a3ae87b9e27adbc34dcdd5ff94338ec4eb",
+          "destination_id": "lib/保存-𐐨-copy",
+          "destination_path": "/private/tmp/hvir-856-unicode-import-correction/public-cli/library/skills/保存-𐐨-copy",
+          "file_count": 1,
+          "files": [
+            {
+              "executable": false,
+              "path": "SKILL.md",
+              "sha256": "f685d46e1cc68d7c73a529063bfd5bc8bcfc651d5f0ec7c13bbdee4dbb0eb3fe",
+              "size": 132
+            }
+          ],
+          "library": {
+            "git_mode": "disabled",
+            "library_id": "157388ea-3470-40d8-8bc2-6a3bc5987d99",
+            "root": "/private/tmp/hvir-856-unicode-import-correction/public-cli/library",
+            "status": "ready"
+          },
+          "limits": {
+            "file_bytes": 2097152,
+            "files": 512,
+            "response_bytes": 262144,
+            "tree_bytes": 33554432
+          },
+          "schema": "skillager.import-review-manifest.v1",
+          "source_file": "/private/tmp/hvir-856-unicode-import-correction/public-cli/project/collection-fixture/保存/𐐨-guide/SKILL.md",
+          "source_hash": "05b89a3583a6fdce4adeaae14f2757fcbe89dcb7f213bdcaa30b7e5958e8b7f7",
+          "source_id": "révisions--保存/保存/𐐨-guide",
+          "source_provenance": {
+            "collection": "révisions--保存",
+            "editable": false,
+            "package": null,
+            "type": "collection",
+            "version": null
+          },
+          "source_root": "/private/tmp/hvir-856-unicode-import-correction/public-cli/project/collection-fixture/保存/𐐨-guide",
+          "total_bytes": 132,
+          "working_hash": "05b89a3583a6fdce4adeaae14f2757fcbe89dcb7f213bdcaa30b7e5958e8b7f7"
+        },
+        "scan": {
+          "finding_count": 0,
+          "findings": [],
+          "risk": "low",
+          "scanned_files": 1,
+          "skipped_files": 0
+        },
+        "schema": "skillager.import.v1",
+        "source": {
+          "collection": "révisions--保存",
+          "content_hash": "05b89a3583a6fdce4adeaae14f2757fcbe89dcb7f213bdcaa30b7e5958e8b7f7",
+          "editable": false,
+          "file": "/private/tmp/hvir-856-unicode-import-correction/public-cli/project/collection-fixture/保存/𐐨-guide/SKILL.md",
+          "id": "révisions--保存/保存/𐐨-guide",
+          "name": "guide",
+          "package": null,
+          "path": "/private/tmp/hvir-856-unicode-import-correction/public-cli/project/collection-fixture/保存/𐐨-guide",
+          "summary": "Use only for an owned public import identity fixture.",
+          "trust": "discovered",
+          "type": "collection",
+          "version": null
+        },
+        "source_hash": "05b89a3583a6fdce4adeaae14f2757fcbe89dcb7f213bdcaa30b7e5958e8b7f7",
+        "status": "preview"
+      }
+    },
+    {
+      "case": "duplicate-suffix",
+      "preview": {
+        "blocked": false,
+        "destination": {
+          "display_name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "exists": false,
+          "id": "lib/copie-𐐨",
+          "name": "copie-𐐨",
+          "path": "/private/tmp/hvir-856-unicode-import-correction/public-cli/library/skills/copie-𐐨",
+          "slug": "copie-𐐨"
+        },
+        "library": {
+          "git_mode": "disabled",
+          "root": "/private/tmp/hvir-856-unicode-import-correction/public-cli/library",
+          "status": "ready"
+        },
+        "lint": {
+          "blocking_count": 0,
+          "findings": [],
+          "status": "ok"
+        },
+        "next_command_argv": [
+          "skillager",
+          "import",
+          "project/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-claude",
+          "--as",
+          "copie-𐐨",
+          "--source-file",
+          "/private/tmp/hvir-856-unicode-import-correction/public-cli/project/.claude/skills/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/SKILL.md",
+          "--review-manifest",
+          "--json",
+          "--yes",
+          "--confirmation-token",
+          "3afc2b91ca8e285ddd72803249543e5075a97ced999162ba14ef1b232c4a9bcf"
+        ],
+        "owner_review_required": true,
+        "project": "/private/tmp/hvir-856-unicode-import-correction/public-cli/project",
+        "provenance": {
+          "imported_from": {
+            "content_hash": "bfb3ff5e1b9e51368419b1ce3467dea39c0cea79afec968796b919636ef19448",
+            "skill_id": "project/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-claude",
+            "source_type": "project"
+          }
+        },
+        "requires_override": false,
+        "review_manifest": {
+          "confirmation_token": "3afc2b91ca8e285ddd72803249543e5075a97ced999162ba14ef1b232c4a9bcf",
+          "destination_id": "lib/copie-𐐨",
+          "destination_path": "/private/tmp/hvir-856-unicode-import-correction/public-cli/library/skills/copie-𐐨",
+          "file_count": 1,
+          "files": [
+            {
+              "executable": false,
+              "path": "SKILL.md",
+              "sha256": "4cb6ab028fbaea3abf16bae3be80c8b6b8baed82bbf287a313474ebec07b9be6",
+              "size": 191
+            }
+          ],
+          "library": {
+            "git_mode": "disabled",
+            "library_id": "157388ea-3470-40d8-8bc2-6a3bc5987d99",
+            "root": "/private/tmp/hvir-856-unicode-import-correction/public-cli/library",
+            "status": "ready"
+          },
+          "limits": {
+            "file_bytes": 2097152,
+            "files": 512,
+            "response_bytes": 262144,
+            "tree_bytes": 33554432
+          },
+          "schema": "skillager.import-review-manifest.v1",
+          "source_file": "/private/tmp/hvir-856-unicode-import-correction/public-cli/project/.claude/skills/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/SKILL.md",
+          "source_hash": "bfb3ff5e1b9e51368419b1ce3467dea39c0cea79afec968796b919636ef19448",
+          "source_id": "project/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-claude",
+          "source_provenance": {
+            "collection": null,
+            "editable": false,
+            "package": null,
+            "type": "project",
+            "version": null
+          },
+          "source_root": "/private/tmp/hvir-856-unicode-import-correction/public-cli/project/.claude/skills/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "total_bytes": 191,
+          "working_hash": "bfb3ff5e1b9e51368419b1ce3467dea39c0cea79afec968796b919636ef19448"
+        },
+        "scan": {
+          "finding_count": 0,
+          "findings": [],
+          "risk": "low",
+          "scanned_files": 1,
+          "skipped_files": 0
+        },
+        "schema": "skillager.import.v1",
+        "source": {
+          "collection": null,
+          "content_hash": "bfb3ff5e1b9e51368419b1ce3467dea39c0cea79afec968796b919636ef19448",
+          "editable": false,
+          "file": "/private/tmp/hvir-856-unicode-import-correction/public-cli/project/.claude/skills/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/SKILL.md",
+          "id": "project/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-claude",
+          "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "package": null,
+          "path": "/private/tmp/hvir-856-unicode-import-correction/public-cli/project/.claude/skills/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "summary": "Use only for an owned public import identity fixture.",
+          "trust": "discovered",
+          "type": "project",
+          "version": null
+        },
+        "source_hash": "bfb3ff5e1b9e51368419b1ce3467dea39c0cea79afec968796b919636ef19448",
+        "status": "preview"
+      }
+    },
+    {
+      "case": "canonical-64-codepoints",
+      "preview": {
+        "blocked": false,
+        "destination": {
+          "display_name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "exists": false,
+          "id": "lib/𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "path": "/private/tmp/hvir-856-unicode-import-correction/public-cli/library/skills/𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "slug": "𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "library": {
+          "git_mode": "disabled",
+          "root": "/private/tmp/hvir-856-unicode-import-correction/public-cli/library",
+          "status": "ready"
+        },
+        "lint": {
+          "blocking_count": 0,
+          "findings": [],
+          "status": "ok"
+        },
+        "next_command_argv": [
+          "skillager",
+          "import",
+          "project/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "--as",
+          "𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "--source-file",
+          "/private/tmp/hvir-856-unicode-import-correction/public-cli/project/.agents/skills/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/SKILL.md",
+          "--review-manifest",
+          "--json",
+          "--yes",
+          "--confirmation-token",
+          "195ac2735a5f98463daa8f9dea93370ae3b05859bfb3a331228fd95441453ca2"
+        ],
+        "owner_review_required": true,
+        "project": "/private/tmp/hvir-856-unicode-import-correction/public-cli/project",
+        "provenance": {
+          "imported_from": {
+            "content_hash": "bfb3ff5e1b9e51368419b1ce3467dea39c0cea79afec968796b919636ef19448",
+            "skill_id": "project/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "source_type": "project"
+          }
+        },
+        "requires_override": false,
+        "review_manifest": {
+          "confirmation_token": "195ac2735a5f98463daa8f9dea93370ae3b05859bfb3a331228fd95441453ca2",
+          "destination_id": "lib/𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "destination_path": "/private/tmp/hvir-856-unicode-import-correction/public-cli/library/skills/𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨𐐨aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "file_count": 1,
+          "files": [
+            {
+              "executable": false,
+              "path": "SKILL.md",
+              "sha256": "4cb6ab028fbaea3abf16bae3be80c8b6b8baed82bbf287a313474ebec07b9be6",
+              "size": 191
+            }
+          ],
+          "library": {
+            "git_mode": "disabled",
+            "library_id": "157388ea-3470-40d8-8bc2-6a3bc5987d99",
+            "root": "/private/tmp/hvir-856-unicode-import-correction/public-cli/library",
+            "status": "ready"
+          },
+          "limits": {
+            "file_bytes": 2097152,
+            "files": 512,
+            "response_bytes": 262144,
+            "tree_bytes": 33554432
+          },
+          "schema": "skillager.import-review-manifest.v1",
+          "source_file": "/private/tmp/hvir-856-unicode-import-correction/public-cli/project/.agents/skills/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/SKILL.md",
+          "source_hash": "bfb3ff5e1b9e51368419b1ce3467dea39c0cea79afec968796b919636ef19448",
+          "source_id": "project/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "source_provenance": {
+            "collection": null,
+            "editable": false,
+            "package": null,
+            "type": "project",
+            "version": null
+          },
+          "source_root": "/private/tmp/hvir-856-unicode-import-correction/public-cli/project/.agents/skills/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "total_bytes": 191,
+          "working_hash": "bfb3ff5e1b9e51368419b1ce3467dea39c0cea79afec968796b919636ef19448"
+        },
+        "scan": {
+          "finding_count": 0,
+          "findings": [],
+          "risk": "low",
+          "scanned_files": 1,
+          "skipped_files": 0
+        },
+        "schema": "skillager.import.v1",
+        "source": {
+          "collection": null,
+          "content_hash": "bfb3ff5e1b9e51368419b1ce3467dea39c0cea79afec968796b919636ef19448",
+          "editable": false,
+          "file": "/private/tmp/hvir-856-unicode-import-correction/public-cli/project/.agents/skills/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/SKILL.md",
+          "id": "project/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "package": null,
+          "path": "/private/tmp/hvir-856-unicode-import-correction/public-cli/project/.agents/skills/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "summary": "Use only for an owned public import identity fixture.",
+          "trust": "discovered",
+          "type": "project",
+          "version": null
+        },
+        "source_hash": "bfb3ff5e1b9e51368419b1ce3467dea39c0cea79afec968796b919636ef19448",
+        "status": "preview"
+      }
+    }
+  ]
+}
