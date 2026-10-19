@@ -28,8 +28,13 @@ export async function inspectPackagedExtensionAssets(
     if (!installed.length || !Buffer.from(installed).equals(Buffer.from(maintained)))
       throw new Error(`Packaged guide differs from maintained input: ${topic}`)
   }
-  for (const asset of ['extension-authoring/SKILL.md', 'hvir-agent-command'])
-    await requireBytes(asset)
+  const skill = await readFile(join(resources, 'extension-authoring/SKILL.md'))
+  const maintainedSkill = await readFile(
+    fileURLToPath(new URL('../packages/extension-authoring/SKILL.md', import.meta.url)),
+  )
+  if (!skill.length || !Buffer.from(skill).equals(Buffer.from(maintainedSkill)))
+    throw new Error('Packaged skill differs from maintained input')
+  await requireBytes('hvir-agent-command')
   for (const [directory, source] of [
     ['extension-reference', '../packages/extension-reference'],
     ['extension-authoring/clock', '../packages/extension-authoring/clock'],

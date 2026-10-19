@@ -1,5 +1,13 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, realpath, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import {
+  mkdtemp,
+  realpath,
+  readdir,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify, parseArgs } from 'node:util'
@@ -45,7 +53,7 @@ async function invoke(
   if (
     response['contract'] !== AGENT_CONTRACT ||
     response['ok'] !== (status === 0) ||
-    (status === 0 && result.stderr)
+    result.stderr
   )
     throw new Error(`Installed agent reference failed: ${argv.join(' ')}`)
   return response
@@ -81,31 +89,69 @@ try {
       'Installed guides omit, duplicate or retain stale capability contracts',
     )
   const skill = (await invoke(['skill']))['skill']
+  for (const name of ['scaffold', 'validate', 'skill']) {
+    const focused = await invoke(['help', name])
+    for (const flag of ['--help', '-h'])
+      if (JSON.stringify(await invoke([name, flag])) !== JSON.stringify(focused))
+        throw new Error('Conventional authoring help differs from focused reference')
+  }
   const output = join(directory, 'clock'),
     exported = join(directory, 'SKILL.md')
   await invoke(['scaffold', '--output', output])
-  await invoke(['validate', '--path', output])
+  const index = join(output, 'index.html')
+  const original = await readFile(index, 'utf8')
+  const customized = original.replace('<h1>Clock</h1>', '<h1>My clock</h1>')
+  if (customized === original) throw new Error('Current starter customization is stale')
+  await writeFile(index, customized)
+  const validated = await invoke(['validate', '--path', output])
   const archive = join(directory, 'clock.zip')
   const files = new Map<string, Uint8Array>()
   for (const name of await readdir(output))
     files.set(name, await readFile(join(output, name)))
   await writeFile(archive, await extensionPackageArchive(files))
-  await invoke(['validate', '--path', archive])
+  const zipped = await invoke(['validate', '--path', archive])
+  if (
+    (validated['validation'] as { revision: string }).revision !==
+    (zipped['validation'] as { revision: string }).revision
+  )
+    throw new Error('Customized directory and ZIP differ')
   await invoke(['skill', '--output', exported])
   if ((await readFile(exported, 'utf8')) !== skill)
     throw new Error('Exported skill differs from inspected bytes')
   await invoke(['scaffold', '--output', output], 64)
   await invoke(['skill', '--output', exported], 64)
-  await invoke(['scaffold'], 64)
-  await invoke(['scaffold', '--output', 'relative'], 64)
+  if (
+    (await readFile(index, 'utf8')) !== customized ||
+    (await readFile(exported, 'utf8')) !== skill
+  )
+    throw new Error('Occupied-output refusal changed user bytes')
   await invoke(
     ['scaffold', '--output', join(directory, 'other'), '--instance', '/not-an-instance'],
     64,
   )
+  const linked = join(directory, 'linked-parent')
+  await symlink(directory, linked)
+  await invoke(['scaffold', '--output', join(linked, 'escape')], 64)
+  const invalid = join(directory, 'invalid.zip')
+  await writeFile(invalid, 'not an extension archive')
+  await invoke(['validate', '--path', invalid], 64)
+  for (const argv of [
+    ['scaffold'],
+    ['scaffold', '--output', 'relative'],
+    ['scaffold', '--output'],
+    ['scaffold', '--output', output, '--output', output],
+    ['validate', '--help', '--path', output],
+    ['skill', '--' + 'x'.repeat(5000)],
+  ]) {
+    const failed = await invoke(argv, 64)
+    const error = failed['error'] as { message: string }
+    if (!error.message.includes(`help ${argv[0]}`) || error.message.length > 240)
+      throw new Error('Argument refusal omitted bounded focused help')
+  }
   if ((await readdir(directory)).some((name) => name.startsWith('.hvir-authoring-')))
     throw new Error('Known occupied-output refusal left a stage')
   console.log(
-    `HVIR_AGENT_INSTALLED_REFERENCE_OK topics=${Object.keys(AGENT_GUIDE_TOPICS).length} capabilities=${documented.length} scaffold=1 directory-validate=1 zip-validate=1 exact-skill=1 expected-refusals=5`,
+    `HVIR_AGENT_INSTALLED_REFERENCE_OK topics=${Object.keys(AGENT_GUIDE_TOPICS).length} capabilities=${documented.length} authoring-help=6 customized-scaffold=1 directory-validate=1 zip-validate=1 exact-skill=1 preserved-output=1 expected-refusals=11`,
   )
 } finally {
   await rm(temporary, { recursive: true, force: true })

@@ -1,6 +1,6 @@
 /** One installed topic index consumed by offline local and live forwarded reference adapters. */
 export const AGENT_GUIDE_TOPICS = {
-  authoring: 'Scaffold and validate a local clock without an app or checkout',
+  authoring: 'Scaffold, customize, validate and Add a local clock',
   manifest: 'Package contracts, capabilities and validation',
   bridge: 'Guest requests, results, action binding and deadlines',
   surfaces: 'Viewer, workspace, application and terminal contributions',
@@ -16,6 +16,6 @@ export const AGENT_GUIDE_TOPICS = {
   targeting: 'Explicit instance, workspace and live session targeting',
   access: 'Standing access and optional destructive confirmation',
   reports: 'Inert workspace reports and explicit human links',
-  walkthrough: 'Installed command and connector-free action walkthrough',
+  walkthrough: 'Start with a clock, then discover optional live commands',
   ssh: 'SSH client setup, supported hosts and additional grants',
 } as const

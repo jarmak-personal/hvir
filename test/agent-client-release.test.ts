@@ -179,6 +179,13 @@ it('inspects complete installed guides, starter, reference and four final client
   try {
     await inspectPackagedExtensionAssets(resources, readFile, validate)
     expect(await readFile(join(f.root, 'manifest.json'))).toEqual(before)
+    const skill = join(resources, 'extension-authoring/SKILL.md'),
+      skillBytes = await readFile(skill)
+    await appendFile(skill, '\nStale choreography\n')
+    await expect(
+      inspectPackagedExtensionAssets(resources, readFile, validate),
+    ).rejects.toThrow('Packaged skill differs')
+    await writeFile(skill, skillBytes)
     const guide = join(resources, 'agent-guides/sources.md'),
       guideBytes = await readFile(guide)
     await writeFile(guide, '# Stale installed source guidance\n')

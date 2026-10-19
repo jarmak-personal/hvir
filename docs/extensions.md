@@ -280,7 +280,9 @@ or **Reload** to restart it. Updaters cannot open views or invoke actions.
 session IDs/titles when the owning surface has that context. Independent application
 content receives no automatic workspace/session context. The shared updater receives
 only the aggregate of current admitted visible demand. Context holds at most 128 sessions
-within 7 KiB; it contains no paths, PTY handles, terminal content or controls. hvir sends
+within 7 KiB. Optional `workspace.root` is bounded host-qualified metadata and may be
+omitted to fit that bound; it grants no file access. Context contains no PTY handles,
+terminal content or controls. hvir sends
 `{ kind: 'context', context }` on relevant changes. Surface and visibility descriptors
 are ordinary presentation; undeclared context capabilities receive no privileged metadata.
 

@@ -1,6 +1,8 @@
 # Development links, revisions and removal
 
-Installed extension contract: 1.0. Settings > Extensions > Open extensions folder selects the current instance's extensions directory; do not infer it from an unrelated checkout. Create an explicit top-level link to your author directory using your own tools, Discover, inspect the current requested access and Enable. Discovery and validation execute no code and never approve or auto-enable packages.
+Installed extension contract: 1.0. For ordinary installation, use Add extension as described in `guide authoring`; it copies and enables the selected package. Choose a development link when you want Reload to accept edits from your author directory.
+
+Settings > Extensions > Open extensions folder selects the current instance's extensions directory; do not infer it from an unrelated checkout. Create an explicit top-level link to your author directory using your own tools, Discover, inspect the current requested access and Enable. Discovery and validation execute no code and never approve or auto-enable packages.
 
 Editing source changes the candidate revision. Reload prepares and validates before revoking the old activation, then explicitly accepts edited bytes; preparation failure preserves the valid current activation. Replace accepts another source revision. Unchanged access needs no repeated permission decision. Changed trust declarations/configuration require their ordinary new decision. An absent/reappearing source is never automatically accepted. Installation identity is retained per manifest ID across path/source-kind changes; source package id and installation ID are different values.
 

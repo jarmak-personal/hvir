@@ -1,5 +1,11 @@
 import { extensionSettingsControls } from './extension-settings-controls'
-import { app, type BrowserWindow, type WebContents } from 'electron'
+import {
+  app,
+  dialog,
+  type BrowserWindow,
+  type WebContents,
+  type OpenDialogOptions,
+} from 'electron'
 import { join } from 'node:path'
 import { localPath, joinHostPath } from '../../shared/host-path'
 import type { ExtensionView } from '../../shared/extensions/workbench'
@@ -9,7 +15,7 @@ import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import { ExtensionAuthoring } from '../extensions/extension-authoring'
 import { parseAgentCommand } from '../../shared/agent/commands'
 
-/** Real shipped starter through ordinary development-link Settings and native guest lifetimes. */
+/** Shipped starter through Add, development-link Settings and native guest lifetimes. */
 export async function verifyExtensionAuthoring(
   win: BrowserWindow,
   extensions: ExtensionApplicationRuntime,
@@ -162,6 +168,79 @@ export async function verifyExtensionAuthoring(
   console.log(
     '[smoke] shipped clock scaffold/validate, explicit development Enable, visible/hidden/resume, edited Reload and link-only Remove OK',
   )
+  // Only the OS picker response is substituted; Add, capture, activation and the guest are real.
+  const originalOpen = dialog.showOpenDialog.bind(dialog)
+  const descriptor = Object.getOwnPropertyDescriptor(dialog, 'showOpenDialog')
+  if (!descriptor) throw new Error('Clock Add picker property is unavailable')
+  let pickerCalls = 0
+  dialog.showOpenDialog = (
+    parent: BrowserWindow | OpenDialogOptions,
+    options?: OpenDialogOptions,
+  ) => {
+    if (parent !== win)
+      return options
+        ? originalOpen(parent as BrowserWindow, options)
+        : originalOpen(parent as OpenDialogOptions)
+    if (options?.buttonLabel !== 'Add extension')
+      throw new Error('Clock Add missed its native picker boundary')
+    pickerCalls++
+    return Promise.resolve({
+      canceled: false,
+      filePaths: [
+        process.platform === 'darwin'
+          ? author.path
+          : joinHostPath(author, 'hvir-extension.json').path,
+      ],
+    })
+  }
+  try {
+    await controls.click('Add extension…')
+    await controls.wait(
+      () =>
+        owner
+          .snapshot()
+          .installations.some(
+            (entry) => entry.manifest?.id === 'hvir.clock' && entry.enabled,
+          ),
+      'clock Add accepts/enables without Discover or Enable',
+    )
+    if (pickerCalls !== 1) throw new Error('Clock Add did not use one explicit selection')
+    await controls.click('Open Clock')
+    await controls.wait(() => !!clockView(), 'added clock placement')
+    const added = await controls.guest(clockView()!)
+    await controls.wait(
+      async () =>
+        (await added.executeJavaScript("document.querySelector('h1')?.textContent")) ===
+        'Edited clock',
+      'Add serves customized clock bytes',
+    )
+    await controls.click('Open settings')
+    await controls.click('Extensions')
+    await extensionSettingsControls(win, 'Clock', {
+      wait: (predicate, label) => controls.wait(predicate, label),
+      within: (work) => work,
+    }).click('Remove')
+    await controls.wait(
+      async () =>
+        !!(await win.webContents.executeJavaScript(
+          'document.querySelector(".modal-backdrop.nested")',
+        )),
+      'added clock removal decision',
+    )
+    await controls.click('Confirm remove')
+    await controls.wait(() => added.isDestroyed(), 'added clock removal cleanup')
+    if (
+      !(await host.readFile(joinHostPath(author, 'index.html')))
+        .toString('utf8')
+        .includes('Edited clock')
+    )
+      throw new Error('Add or removal changed author-owned source')
+    console.log(
+      '[smoke] customized clock Settings Add accepts/enables and opens; Remove preserves author source (fixture OS picker) OK',
+    )
+  } finally {
+    Object.defineProperty(dialog, 'showOpenDialog', descriptor)
+  }
   function candidate() {
     return owner
       .snapshot()

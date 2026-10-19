@@ -85,21 +85,29 @@ Python is required. Local offline help and authoring remain available with acces
 
 ## Make a package without a checkout
 
-Read `hvir-agent guide authoring`, then scaffold a new absolute local directory and validate it:
+Read `hvir-agent guide authoring`, then scaffold a new absolute local directory:
 
 ```sh
+hvir-agent scaffold --help
 hvir-agent scaffold --output /absolute/new-clock
-hvir-agent validate --path /absolute/new-clock
 ```
 
-Edit the ordinary HTML/JS/CSS with your own tools. To produce a ZIP, run
+Customize the ordinary HTML/JS/CSS with your own tools, then run
+`hvir-agent validate --path /absolute/new-clock`. To produce a ZIP, run
 `zip -r /absolute/new-clock.zip .` **inside that directory**, then
 `hvir-agent validate --path /absolute/new-clock.zip`. The manifest must be at archive root.
-Install the validated directory, ZIP or explicit development link through the ordinary controls
-above. Scaffold never enables a package and validation runs no scripts. See `guide manifest`,
+Choose the validated directory or ZIP through **Add extension…** as described above.
+Use `guide development` for the secondary development-link/Reload loop. Scaffold never enables a package and validation runs no scripts. See `guide manifest`,
 `guide ui`, `guide lifetimes`, `guide actions` and `guide connectors` for public authoring contracts.
 
 `hvir-agent skill` inspects the tiny optional shipped skill. `guide skill` explains explicit export
 to a new absolute `SKILL.md` and supported harness setup/removal. No skill, terminal banner, startup
 message, repository instructions or session hook is injected automatically. A fresh harness with
 the explicitly installed skill can use the guides; the skill grants no hvir authority.
+
+For an extension needing several permissions, select **Setup… → Get setup template**. Fill
+its declared IDs and literal host/path/configuration values, omit unwanted rows, then use
+**Review setup… → Apply selected setup**. Hosts and workspaces must already be configured.
+Each selected permission saves independently; inspect completed or uncertain outcomes before a
+fresh review. **Save app settings** saves preferences, not unfinished permission drafts.
+[Setup file details](extensions.md#review-an-agent-authored-setup-file) retain the exact schema.

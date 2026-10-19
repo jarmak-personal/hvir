@@ -5,9 +5,11 @@ import { resolve, join } from 'node:path'
 import { spawn } from 'node:child_process'
 import {
   AGENT_CONTRACT,
+  agentFailure,
   validateAgentRequest,
   type AgentRequest,
 } from '../src/shared/agent/contract.ts'
+import { parseAgentCommand, staticAgentReference } from '../src/shared/agent/commands.ts'
 
 const binary = resolve(process.argv[2] ?? ''),
   directory = await mkdtemp(join(tmpdir(), 'hvir-client-')),
@@ -142,6 +144,40 @@ try {
   )
   if (!observed || failed || selected.code !== 0)
     throw new Error('Explicit endpoint retained another terminal context')
+  // The real binary forwards to the current Node command owner, not a Rust help table.
+  const referenceCases = ['scaffold', 'validate', 'skill'].flatMap((name) => [
+    ['help', name],
+    [name, '--help'],
+    [name, '-h'],
+    [name, '--unknown'],
+  ])
+  for (const argv of referenceCases) {
+    let expected
+    try {
+      expected = staticAgentReference(parseAgentCommand(argv), () => undefined)
+    } catch (reason) {
+      expected = agentFailure('invalid-command', (reason as Error).message, 64)
+    }
+    if (!expected) throw new Error('Expected focused reference or argument refusal')
+    check = (request) => {
+      if (
+        JSON.stringify(request.argv) !== JSON.stringify(argv) ||
+        request.stdin !== '' ||
+        request.defaults.workspace !== 'workspace:ssh:/project'
+      )
+        throw new Error('Authoring help transport changed argv or defaults')
+    }
+    response = expected
+    const forwarded = await invoke(argv)
+    if (
+      !observed ||
+      failed ||
+      forwarded.stdout !== expected.stdout ||
+      forwarded.stderr !== expected.stderr ||
+      forwarded.code !== expected.exitStatus
+    )
+      throw new Error('Native authoring help differs from the current Node owner')
+  }
   check = () => undefined
   response = undefined
   const interrupted = await invoke(['future-command'])
@@ -161,9 +197,17 @@ try {
     !failure.error.message.includes('uncertain')
   )
     throw new Error('Interrupted request was reported as complete')
-  if (requests !== 8) throw new Error('Client replayed a request')
+  if (requests !== 8 + referenceCases.length) throw new Error('Client replayed a request')
+  const offline = await invoke(['scaffold', '--help'], '', '')
+  if (
+    observed ||
+    offline.code !== 69 ||
+    offline.stderr ||
+    (JSON.parse(offline.stdout) as { ok: boolean }).ok !== false
+  )
+    throw new Error('Remote transport claimed offline reference availability')
   console.log(
-    'HVIR_NATIVE_AGENT_CLIENT_PROTOCOL_OK relay/stdin/explicit-instance/uncertain-no-replay',
+    'HVIR_NATIVE_AGENT_CLIENT_PROTOCOL_OK relay/stdin/explicit-instance/authoring-help/uncertain-no-replay',
   )
 } finally {
   for (const stream of streams) stream.destroy()
