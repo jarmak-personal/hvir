@@ -15,7 +15,13 @@
             <button id="rendered-mode" class="hvir-button">Rendered</button
             ><button id="source-mode" class="hvir-button">Source</button>
             <details class="skill-more">
-              <summary class="hvir-focus">More</summary>
+              <summary
+                class="hvir-focus"
+                aria-label="Reading options"
+                title="Reading options"
+              >
+                …
+              </summary>
               <div class="skill-menu">
                 <button id="close-instructions" class="hvir-button">
                   Close instructions
@@ -39,7 +45,8 @@
         <section id="selected-task" hidden aria-label="Use this skill">
           <p id="task-destination" class="hvir-meta"></p>
           <div class="toolbar task-controls">
-            <label
+            <span id="task-agent-name" class="hvir-meta" hidden></span>
+            <label id="task-agent-field"
               >Agent
               <select id="task-agent" class="hvir-input">
                 <option value="codex">Codex</option>
@@ -58,11 +65,15 @@
               Connect for this project
             </button>
             <details id="task-options" class="skill-more" hidden>
-              <summary class="hvir-focus">Skill actions</summary>
+              <summary
+                class="hvir-focus"
+                aria-label="Skill actions"
+                title="Skill actions"
+              >
+                …
+              </summary>
               <div class="skill-menu">
-                <button id="task-update" class="hvir-button" hidden>
-                  Review Full update…
-                </button>
+                <button id="task-update" class="hvir-button" hidden>Update…</button>
                 <button id="task-refresh" class="hvir-button">Refresh status</button
                 ><button id="task-remove" class="hvir-button" hidden>
                   Remove from project…
@@ -114,7 +125,7 @@
               tabindex="0"
               aria-label="Selected review file"
             ></pre>
-            <div class="toolbar">
+            <div id="review-pages" class="toolbar" hidden>
               <button id="review-previous" class="hvir-button" disabled>
                 Previous page</button
               ><span id="review-page-label"></span

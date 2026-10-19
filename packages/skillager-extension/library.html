@@ -12,8 +12,25 @@
         <header class="library-heading">
           <h1>Your library</h1>
           <details class="skill-more library-options">
-            <summary class="hvir-focus">Library options</summary>
+            <summary
+              class="hvir-focus"
+              aria-label="Library options"
+              title="Library options"
+            >
+              …
+            </summary>
             <div class="skill-menu">
+              <details id="program-setup" hidden>
+                <summary>Set up with your agent</summary>
+                <p>Copy this request into your preferred agent.</p>
+                <textarea
+                  id="setup-request"
+                  class="hvir-input"
+                  rows="7"
+                  readonly
+                  aria-label="Copyable Skillager setup request"
+                ></textarea>
+              </details>
               <button id="browse" class="hvir-button">Browse all skills</button>
               <button id="refresh" class="hvir-button">Refresh library</button>
               <button id="manage" class="hvir-button" disabled>
@@ -44,7 +61,7 @@
           <details class="search-options">
             <summary>Search options</summary>
             <div>
-              <label
+              <label hidden
                 ><input id="include-installed" type="checkbox" /><span
                   id="installed-label"
                   >Include installed</span
@@ -60,7 +77,7 @@
                 </select></label
               >
             </div>
-            <p id="installed-note" class="hvir-meta"></p>
+            <p id="installed-note" class="hvir-meta" hidden></p>
           </details>
         </form>
         <section id="library-setup" hidden>
@@ -70,20 +87,7 @@
             library. Use Advanced management for advanced locations.
           </p>
         </section>
-        <details id="program-setup" hidden>
-          <summary>Set up Skillager with your agent</summary>
-          <p>
-            Copy this request into your preferred agent. hvir does not install programs or
-            send it to a terminal.
-          </p>
-          <textarea
-            id="setup-request"
-            class="hvir-input"
-            rows="7"
-            readonly
-            aria-label="Copyable Skillager setup request"
-          ></textarea>
-        </details>
+
         <p id="state" class="hvir-state" aria-live="polite">Connecting…</p>
         <div
           id="skills"
@@ -91,14 +95,11 @@
           role="listbox"
           aria-label="Skill observations"
         ></div>
-        <nav class="toolbar" aria-label="Skill pages">
+        <nav id="skill-pages" class="toolbar" aria-label="Skill pages" hidden>
           <button id="previous" class="hvir-button" disabled>Previous</button
           ><button id="next" class="hvir-button" disabled>Next</button>
         </nav>
-        <details class="observation-details">
-          <summary>Observation details</summary>
-          <p id="observation-details" class="hvir-meta"></p>
-        </details>
+        <p id="observation-details" class="hvir-meta observation-details"></p>
       </aside>
       <div class="library-reader">
         <p id="reader-empty" class="hvir-meta">
@@ -111,7 +112,13 @@
               <button id="rendered-mode" class="hvir-button">Rendered</button
               ><button id="source-mode" class="hvir-button">Source</button>
               <details class="skill-more">
-                <summary class="hvir-focus">More</summary>
+                <summary
+                  class="hvir-focus"
+                  aria-label="Reading options"
+                  title="Reading options"
+                >
+                  …
+                </summary>
                 <div class="skill-menu">
                   <button id="close-instructions" class="hvir-button">
                     Close instructions
@@ -135,7 +142,8 @@
           <section id="selected-task" hidden aria-label="Use this skill">
             <p id="task-destination" class="hvir-meta"></p>
             <div class="toolbar task-controls">
-              <label
+              <span id="task-agent-name" class="hvir-meta" hidden></span>
+              <label id="task-agent-field"
                 >Agent
                 <select id="task-agent" class="hvir-input">
                   <option value="codex">Codex</option>
@@ -156,11 +164,15 @@
                 Connect for this project
               </button>
               <details id="task-options" class="skill-more" hidden>
-                <summary class="hvir-focus">Skill actions</summary>
+                <summary
+                  class="hvir-focus"
+                  aria-label="Skill actions"
+                  title="Skill actions"
+                >
+                  …
+                </summary>
                 <div class="skill-menu">
-                  <button id="task-update" class="hvir-button" hidden>
-                    Review Full update…
-                  </button>
+                  <button id="task-update" class="hvir-button" hidden>Update…</button>
                   <button id="task-refresh" class="hvir-button">Refresh status</button
                   ><button id="task-remove" class="hvir-button" hidden>
                     Remove from project…
@@ -212,7 +224,7 @@
                 tabindex="0"
                 aria-label="Selected review file"
               ></pre>
-              <div class="toolbar">
+              <div id="review-pages" class="toolbar" hidden>
                 <button id="review-previous" class="hvir-button" disabled>
                   Previous page</button
                 ><span id="review-page-label"></span

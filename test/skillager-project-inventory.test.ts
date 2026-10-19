@@ -50,7 +50,7 @@ it('automatically lists and selects the exact pending project occurrence through
   f.context(true, workspace)
   await f.flush()
   expect(rows().map((row) => row.textContent)).toEqual([
-    'Example skillA pending project skill',
+    'Example skillA pending project skillProject original',
   ])
   expect(f.calls).toEqual([
     ['--version'],

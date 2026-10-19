@@ -88,6 +88,8 @@ function fixture() {
     actionError: string | undefined,
     records: Value[] = [],
     hold = false,
+    holdAction = false,
+    releaseAction: (() => void) | undefined,
     projectReadable = true,
     releaseConnection: ((value: unknown) => void) | undefined,
     release: (() => void) | undefined
@@ -146,6 +148,12 @@ function fixture() {
             }
         }
         actions.push(input)
+        if (holdAction) {
+          holdAction = false
+          await new Promise<void>((resolve) => {
+            releaseAction = resolve
+          })
+        }
         if (actionResult['outcome'] === 'uncertain')
           records.push({
             id: actionResult['operationId'],
@@ -252,6 +260,26 @@ function fixture() {
       select.dispatchEvent(new Event('change'))
     },
     mode: () => (document.getElementById('task-mode') as HTMLSelectElement).value,
+    projectSelection: (agent = 'codex', target = preview[0].target) => ({
+      row: {
+        id: 'exact-project-occurrence',
+        skillId: selected.id,
+        source: 'project',
+        host: 'local',
+        workspaceId: workspace.id,
+        path: `${target}/SKILL.md`,
+        canonical: { library_id: selected.source.library_id, skill_id: selected.id },
+        exposure: {
+          exposure_id: preview[0].exposure_id,
+          skill_id: selected.id,
+          source_library_id: selected.source.library_id,
+          agent,
+          target,
+          scope: 'project',
+          mode: 'native',
+        },
+      },
+    }),
     changeAgent: (agent: string) => {
       const select = document.getElementById('task-agent') as HTMLSelectElement
       select.value = agent
@@ -305,6 +333,10 @@ function fixture() {
       hold = true
     },
     release: () => release?.(),
+    holdAction: () => {
+      holdAction = true
+    },
+    releaseAction: () => releaseAction?.(),
     target: (id: string | undefined) => {
       context = { ...context, workspace: id ? { ...workspace, id } : undefined }
       view.contextChanged()
@@ -318,7 +350,7 @@ it('resolves selection internally and adds the accepted version with one action 
   const f = fixture()
   f.view.select(f.selection)
   await f.ready()
-  expect(document.getElementById('task-destination')?.textContent).toContain(
+  expect(document.getElementById('task-destination')?.title).toContain(
     'local: /owned-fixture/',
   )
   f.button('task-primary').click()
@@ -339,9 +371,7 @@ it('describes an accepted version without claiming Add readiness before a destin
   const f = fixture()
   f.target(undefined)
   f.view.select(f.selection)
-  await vi.waitFor(() =>
-    expect(document.getElementById('task-state')?.textContent).toBe('Version accepted'),
-  )
+  await vi.waitFor(() => expect(f.button('task-refresh').disabled).toBe(false))
   expect(document.getElementById('task-destination')?.textContent).toContain(
     'Choose a project',
   )
@@ -349,7 +379,7 @@ it('describes an accepted version without claiming Add readiness before a destin
   expect(f.actions).toEqual([])
   f.target('workspace')
   await f.ready()
-  expect(document.getElementById('task-state')?.textContent).toBe('Ready to add')
+  expect(document.getElementById('task-state')?.textContent).toBe('')
 })
 it('keeps a current project-bound copy quiet after refresh and presents affected files with one confirmation for mode changes', async () => {
   const f = fixture()
@@ -358,15 +388,9 @@ it('keeps a current project-bound copy quiet after refresh and presents affected
   await vi.waitFor(() => expect(f.button('task-primary').textContent).toBe('Added'))
   expect(f.button('task-primary').disabled).toBe(true)
   f.button('task-refresh').click()
-  await vi.waitFor(() =>
-    expect(document.getElementById('task-state')?.textContent).toContain(
-      'In this project',
-    ),
-  )
+  await vi.waitFor(() => expect(f.button('task-refresh').disabled).toBe(false))
   expect(f.button('task-primary').textContent).toBe('Added')
   f.changeMode('stub')
-  await f.ready()
-  f.button('task-primary').click()
   await vi.waitFor(() =>
     expect((document.getElementById('task-confirmation') as HTMLElement).hidden).toBe(
       false,
@@ -374,9 +398,11 @@ it('keeps a current project-bound copy quiet after refresh and presents affected
   )
   expect(document.getElementById('task-effects')?.textContent).toContain('SKILL.md')
   expect(f.actions).toEqual([])
+  expect(f.mode()).toBe('native')
   f.button('task-cancel').click()
   expect(f.actions).toEqual([])
-  f.button('task-primary').click()
+  expect(f.mode()).toBe('native')
+  f.changeMode('stub')
   await vi.waitFor(() =>
     expect((document.getElementById('task-confirmation') as HTMLElement).hidden).toBe(
       false,
@@ -394,10 +420,8 @@ it('invalidates an old preparation immediately on destination changes and ignore
   f.installed()
   f.view.select(f.selection)
   await vi.waitFor(() => expect(f.button('task-primary').textContent).toBe('Added'))
-  f.changeMode('stub')
-  await f.ready()
   f.hold()
-  f.button('task-primary').click()
+  f.changeMode('stub')
   await vi.waitFor(() => expect(f.button('task-primary').disabled).toBe(true))
   f.target('other')
   f.release()
@@ -511,6 +535,65 @@ it('retains uncertainty for the exact source and target across selection and des
   expect(f.button('task-reconcile').hidden).toBe(true)
 })
 
+it('publishes a delayed verified Add result while the exact task stays current', async () => {
+  const f = fixture()
+  f.view.select(f.selection)
+  await f.ready()
+  f.holdAction()
+  f.button('task-primary').click()
+  await vi.waitFor(() => expect(f.actions).toHaveLength(1))
+  expect(f.button('task-primary').disabled).toBe(true)
+  expect(document.getElementById('task-result')?.textContent).toBe('')
+  f.releaseAction()
+  await vi.waitFor(() =>
+    expect(JSON.parse(document.getElementById('task-result')!.textContent)).toMatchObject(
+      {
+        action: 'add-copy',
+        outcome: 'verified',
+        exposureId: f.preview[0].exposure_id,
+        target: { hostId: 'local', path: f.preview[0].target },
+      },
+    ),
+  )
+  expect(f.button('task-primary').textContent).toBe('Added')
+  expect(f.button('task-primary').hidden).toBe(true)
+  expect(f.button('task-mode').disabled).toBe(false)
+  expect(f.actions).toHaveLength(1)
+})
+
+it.each(['hidden', 'selection'] as const)(
+  'rejects a delayed Add display after %s withdrawal and freshly observes the original task on return',
+  async (withdrawal) => {
+    const f = fixture()
+    f.view.select(f.selection)
+    await f.ready()
+    f.holdAction()
+    f.button('task-primary').click()
+    await vi.waitFor(() => expect(f.actions).toHaveLength(1))
+    if (withdrawal === 'hidden') f.visibility(false)
+    else
+      f.view.select({
+        row: {
+          id: 'original',
+          source: 'project',
+          kind: 'Project original',
+          skillId: 'original',
+          path: '/original/SKILL.md',
+        },
+      })
+    f.installed()
+    f.releaseAction()
+    await vi.waitFor(() => expect(f.button('task-agent').disabled).toBe(false))
+    expect(document.getElementById('task-result')?.textContent).toBe('')
+    if (withdrawal === 'hidden') f.visibility(true)
+    else f.view.select(f.selection)
+    await vi.waitFor(() => expect(f.button('task-primary').textContent).toBe('Added'))
+    expect(f.button('task-primary').hidden).toBe(true)
+    expect(document.getElementById('task-result')?.textContent).toBe('')
+    expect(f.actions).toHaveLength(1)
+  },
+)
+
 it('uses the canonical skill identity while retaining a searched occurrence selection', async () => {
   const f = fixture()
   f.view.select({
@@ -563,29 +646,33 @@ it.each(['foreign-library', 'stale-entrypoint'])(
   },
 )
 
-it('observes an existing Stub and preserves deliberate mode intent only for the selected task', async () => {
+it('keeps the actual Full mode through review, cancellation, failure and context changes', async () => {
   const f = fixture()
-  f.installed('stub')
+  f.installed('native')
   f.view.select(f.selection)
   await vi.waitFor(() => expect(f.button('task-primary').textContent).toBe('Added'))
-  expect(f.mode()).toBe('stub')
-  f.changeMode('native')
-  await f.ready()
-  expect(f.button('task-primary').textContent).toBe('Update')
-  f.button('task-refresh').click()
-  await f.ready()
+  expect(f.mode()).toBe('native')
+  f.changeMode('stub')
+  await vi.waitFor(() => expect(f.button('task-confirmation').hidden).toBe(false))
+  expect(f.mode()).toBe('native')
+  f.button('task-cancel').click()
+  expect(f.mode()).toBe('native')
+  f.changeMode('stub')
+  await vi.waitFor(() => expect(f.button('task-confirmation').hidden).toBe(false))
+  f.result({ outcome: 'failed', message: 'Local edits preserved' })
+  f.button('task-confirm').click()
+  await vi.waitFor(() => expect(f.button('task-refresh').disabled).toBe(false))
   expect(f.mode()).toBe('native')
   f.visibility(false)
   f.visibility(true)
-  await f.ready()
+  await vi.waitFor(() => expect(f.button('task-refresh').disabled).toBe(false))
   expect(f.mode()).toBe('native')
   f.target('another')
   await vi.waitFor(() => expect(f.button('task-primary').textContent).toBe('Added'))
-  expect(f.mode()).toBe('stub')
+  expect(f.mode()).toBe('native')
   f.installed('native', 'claude')
   f.changeAgent('claude')
   await vi.waitFor(() => expect(f.mode()).toBe('native'))
-  expect(f.button('task-primary').textContent).toBe('Added')
 })
 it('keeps admission failures actionable and does not invent an uncertain submitted operation', async () => {
   const f = fixture()
@@ -646,7 +733,7 @@ it.each(['library', 'source', 'workspace', 'target', 'agent'])(
     await vi.waitFor(() => expect(f.button('task-primary').textContent).toBe('Added'))
     expect(f.button('task-reconcile').hidden).toBe(true)
     f.changeMode('stub')
-    await f.ready()
+    await vi.waitFor(() => expect(f.button('task-confirmation').hidden).toBe(false))
   },
 )
 
@@ -696,11 +783,9 @@ it('keeps independent source review and one acceptance available before project 
   f.status.skill.acceptance = 'pending'
   f.fail()
   f.view.select(f.selection)
-  await f.ready()
-  expect(f.button('task-primary').textContent).toBe('Review version')
-  expect(f.button('task-connect').hidden).toBe(false)
-  f.button('task-primary').click()
   await vi.waitFor(() => expect(f.button('accept-version').disabled).toBe(false))
+  expect(f.button('task-primary').hidden).toBe(true)
+  expect(f.button('task-connect').hidden).toBe(false)
   f.button('accept-version').click()
   await vi.waitFor(() => expect(f.actions).toHaveLength(1))
   expect(f.actions[0]).toMatchObject({ action: 'accept-version' })
@@ -709,8 +794,8 @@ it('keeps independent source review and one acceptance available before project 
   )
   expect(f.button('task-primary').disabled).toBe(true)
   expect(f.button('task-connect').hidden).toBe(false)
-  expect(document.getElementById('task-state')?.textContent).toContain(
-    'Version accepted.',
+  expect(document.getElementById('task-state')?.textContent).not.toContain(
+    'Version accepted',
   )
   expect(document.getElementById('task-state')?.textContent).toContain(
     'Connect Skillager for this project',
@@ -743,4 +828,70 @@ it('settles unknown combined readiness in Library without claiming revocation or
     f.requests.filter((entry) => entry.capability === 'connector.connect'),
   ).toHaveLength(1)
   expect(f.requests.some((entry) => entry.capability === 'source.request')).toBe(false)
+})
+
+it('binds the selected managed occurrence to its actual agent and target independently of Library Add choices', async () => {
+  const f = fixture()
+  ;(document.getElementById('task-agent') as HTMLSelectElement).value = 'claude'
+  f.installed('native', 'codex')
+  f.view.select(f.projectSelection())
+  await vi.waitFor(() => expect(f.button('task-mode').disabled).toBe(false))
+  expect(f.button('task-agent').disabled).toBe(true)
+  expect(document.getElementById('task-agent-name')?.textContent).toBe('codex')
+  expect(f.button('task-primary').hidden).toBe(true)
+  const observation = f.executions.find((entry) =>
+    (entry['args'] as string[]).includes('--list'),
+  )!
+  expect(observation['args']).toEqual([
+    'expose',
+    '--list',
+    '--agent',
+    'codex',
+    '--scope',
+    'project',
+    '--json',
+  ])
+  f.changeMode('stub')
+  await vi.waitFor(() => expect(f.button('task-confirmation').hidden).toBe(false))
+  expect(f.mode()).toBe('native')
+  expect(f.actions).toHaveLength(0)
+  f.button('task-confirm').click()
+  await vi.waitFor(() => expect(f.actions).toHaveLength(1))
+  const input = f.actions[0]!['input'] as Value
+  expect(input['agent']).toBe('codex')
+  expect(JSON.parse(input['request'] as string)).toMatchObject({
+    exposureId: f.preview[0].exposure_id,
+    target: { hostId: 'local', path: f.preview[0].target },
+    mode: 'stub',
+  })
+  await vi.waitFor(() => expect(f.mode()).toBe('stub'))
+})
+it('refuses a same-skill copy at another target and never converts it into Add', async () => {
+  const f = fixture()
+  f.installed()
+  f.view.select(f.projectSelection('codex', '/owned-fixture/different-copy'))
+  await vi.waitFor(() =>
+    expect(document.getElementById('task-state')?.textContent).toContain(
+      'no longer available',
+    ),
+  )
+  expect(f.button('task-primary').hidden).toBe(true)
+  expect(f.button('task-remove').hidden).toBe(true)
+  expect(f.actions).toEqual([])
+})
+it('retains an original external identity without inventing a canonical task', () => {
+  const f = fixture()
+  f.view.select({
+    row: {
+      id: 'external-occurrence',
+      skillId: 'codex/project/original',
+      source: 'project',
+      path: '/project/.agents/skills/original/OTHER.md',
+      host: 'local',
+      workspaceId: 'workspace',
+    },
+  })
+  expect(document.getElementById('selected-task')?.hidden).toBe(true)
+  expect(f.executions).toEqual([])
+  expect(f.actions).toEqual([])
 })

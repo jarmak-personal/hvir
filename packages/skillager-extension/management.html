@@ -12,20 +12,16 @@
       <p id="destination" class="hvir-meta">
         Personal library · select a local project for copies and terminal setup.
       </p>
-      <p id="state" class="hvir-state" aria-live="polite">
-        Observe and explicitly connect your personal library.
-      </p>
+      <p id="state" class="hvir-state" aria-live="polite">Loading library…</p>
       <section aria-label="Personal library">
         <h2>Personal library</h2>
         <div class="toolbar">
-          <button id="observe-library" class="hvir-button">Observe library</button
-          ><button id="connect-library" class="hvir-button" disabled>
-            Connect observed library
+          <button id="observe-library" class="hvir-button">Refresh library</button
+          ><button id="connect-library" class="hvir-button" disabled hidden>
+            Use this library
           </button>
         </div>
-        <p id="library-identity" class="hvir-meta">
-          No management connection selected. Browsing remains independent.
-        </p>
+        <p id="library-identity" class="hvir-meta"></p>
         <details class="library-creation">
           <summary>Create a library</summary>
           <button id="create-library" class="hvir-button">Create personal library</button>
@@ -67,13 +63,8 @@
         <label
           >Library skill
           <input id="skill-id" class="hvir-input" placeholder="lib/name" /></label
-        ><button id="observe-source" class="hvir-button">
-          Select current accepted version
-        </button>
-        <p id="source-identity" class="hvir-meta">
-          Select an accepted source. Pending and blocked instructions remain independently
-          readable.
-        </p>
+        ><button id="observe-source" class="hvir-button">Refresh selected skill</button>
+        <p id="source-identity" class="hvir-meta"></p>
         <label
           >Agent
           <select id="copy-agent" class="hvir-input">
@@ -89,7 +80,7 @@
           </select></label
         >
         <div class="toolbar">
-          <button id="add-copy" class="hvir-button">Add selected version</button
+          <button id="add-copy" class="hvir-button" disabled>Add selected version</button
           ><button id="observe-copies" class="hvir-button">Observe managed copies</button>
         </div>
         <div id="managed-copies" class="hvir-list" aria-label="Managed copies"></div>

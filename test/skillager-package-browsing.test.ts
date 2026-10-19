@@ -303,7 +303,9 @@ it('connects the current project and automatically preserves project query witho
   f.context(true, localProject)
   await f.flush()
   expect(f.button('connect-program').hidden).toBe(false)
-  expect(document.getElementById('state')?.textContent).toContain('for this project')
+  expect(document.getElementById('state')?.textContent).toBe(
+    'Connect Skillager to browse skills.',
+  )
   submitQuery('exact query')
   await f.flush()
   f.button('connect-program').click()
@@ -340,13 +342,15 @@ it('connects the current project and automatically preserves project query witho
   expect(document.getElementById('state')?.dataset.state).toBe('empty')
   expect(f.initializationRequests).toEqual([])
 })
-it('opens the library from an explicit project surface through existing context inheritance', async () => {
+it('switches the project list to Library without opening a second browser', async () => {
   const f = packageView('project')
   f.context(true, localProject)
   await f.flush()
-  f.button('open-library').click()
+  f.button('scope-library').click()
   await f.flush()
-  expect(f.opened).toEqual([{ contributionId: 'library' }])
+  expect(f.opened).toEqual([])
+  expect(f.button('scope-library').getAttribute('aria-pressed')).toBe('true')
+  expect(document.getElementById('skills')?.textContent).toContain('Page 0')
 })
 it.each(['timer', 'query'] as const)(
   'automatically discovers after a current pending connection survives %s observations',
@@ -586,9 +590,11 @@ it.each(['ssh', 'missing-root'] as const)(
     expect(f.calls).toEqual([])
     expect(document.getElementById('state')?.textContent).toContain('this project')
     expect(f.button('connect-program').hidden).toBe(true)
-    f.button('open-library').click()
+    f.button('scope-library').click()
     await f.flush()
-    expect(f.opened).toEqual([{ contributionId: 'library' }])
+    expect(f.opened).toEqual([])
+    expect(f.button('scope-library').getAttribute('aria-pressed')).toBe('true')
+    expect(document.getElementById('skills')?.textContent).toContain('Page 0')
   },
 )
 
@@ -822,4 +828,91 @@ it('keeps Library query, cursor, options and selected occurrence when renewing d
       ['connector.connect', 'source.request'].includes(entry.capability),
     ),
   ).toBe(false)
+})
+
+it('retains each project browser scope query and exact selection while reusing the detail reader', async () => {
+  const f = packageView('project')
+  const original = {
+    id: 'codex/project/original',
+    occurrence_id: 'original-occurrence',
+    name: 'Original',
+    description: 'An original skill',
+    status: 'pending',
+    kind: 'native',
+    skill_file: '/project-a/.agents/skills/original/CUSTOM.md',
+    native: { agent: 'codex', scope: 'project', managed: false },
+    exposure: null,
+  }
+  f.projectInventory({
+    schema: 'skillager.list.v1',
+    scope: 'project',
+    project_root: '/project-a',
+    observation: { status: 'complete', errors: [], error_count: 0 },
+    skills: [original],
+    next_cursor: null,
+  })
+  f.context(true, localProject)
+  await f.flush()
+  submitQuery('project-only')
+  await f.flush()
+  ;(document.querySelector('#skills [role=option]') as HTMLButtonElement).click()
+  await f.flush()
+  expect(f.button('skill-pages').hidden).toBe(true)
+  expect(document.getElementById('state')?.textContent).not.toContain('Page 1')
+  f.button('scope-library').click()
+  await f.flush()
+  submitQuery('library-only')
+  await f.flush()
+  ;(document.querySelector('#skills [role=option]') as HTMLButtonElement).click()
+  await f.flush()
+  f.button('scope-project').click()
+  await f.flush()
+  expect((document.getElementById('query') as HTMLInputElement).value).toBe(
+    'project-only',
+  )
+  expect(
+    document.querySelector<HTMLElement>('#skills [aria-selected=true]')?.dataset.id,
+  ).toBe('original-occurrence')
+  expect(f.opened.at(-1)).toMatchObject({
+    contributionId: 'detail',
+    input: {
+      row: {
+        id: 'original-occurrence',
+        skillId: 'codex/project/original',
+        path: original.skill_file,
+        source: 'project',
+        host: 'local',
+        workspaceId: localProject.id,
+      },
+    },
+  })
+  f.button('scope-library').click()
+  await f.flush()
+  expect((document.getElementById('query') as HTMLInputElement).value).toBe(
+    'library-only',
+  )
+  expect(
+    document.querySelector<HTMLElement>('#skills [aria-selected=true]')?.dataset.id,
+  ).toBe('search-0')
+  expect(f.opened.every((entry) => entry['contributionId'] === 'detail')).toBe(true)
+})
+it('rejects a late Project result after switching to Library and keeps the new scope usable', async () => {
+  const f = packageView('project')
+  f.context(true, localProject)
+  await f.flush()
+  f.hold('list')
+  submitQuery('delayed-project')
+  await vi.advanceTimersByTimeAsync(100)
+  f.button('scope-library').click()
+  f.resume()
+  await f.flush()
+  expect(document.getElementById('skills')?.textContent).toContain('Page 0')
+  expect(f.button('scope-library').getAttribute('aria-pressed')).toBe('true')
+  expect(f.opened).toEqual([])
+  f.button('scope-project').click()
+  await f.flush()
+  expect((document.getElementById('query') as HTMLInputElement).value).toBe(
+    'delayed-project',
+  )
+  expect(f.calls.at(-1)).toContain('delayed-project')
 })

@@ -55,7 +55,7 @@ export async function inspectSkillagerCaret(
     await ports.wait(
       async () =>
         (await ports.inspect(
-          `globalThis.__hvirCaret.clicks===1&&globalThis.__hvirCaret.trusted&&document.querySelector('.search-options').open&&document.getElementById('state').dataset.state===${JSON.stringify(state === 'unapproved' ? 'error' : 'empty')}`,
+          `globalThis.__hvirCaret.clicks===1&&globalThis.__hvirCaret.trusted&&document.querySelector('.search-options').open&&document.getElementById('state').dataset.state===${JSON.stringify(state === 'unapproved' ? 'missing-program' : 'no-personal-library')}`,
         )) === true,
       `actual first caret retains ${state} library`,
     )
@@ -69,7 +69,7 @@ export async function inspectSkillagerCaret(
     )
     if (
       (await ports.inspect(
-        "document.querySelector('.search-options').open&&document.getElementById('include-installed').checkVisibility()",
+        "document.querySelector('.search-options').open&&document.getElementById('separate-copies').checkVisibility()",
       )) !== true
     )
       throw new Error('Caret expansion did not remain visible after actual paint')
@@ -78,23 +78,17 @@ export async function inspectSkillagerCaret(
       paneHidden: boolean
     }
     const explanation = (await ports.inspect(
-      `({settings:document.getElementById('state').textContent.includes('Settings'),emptyLibrary:document.getElementById('state').textContent.includes('library is empty'),manageVisible:document.getElementById('manage').checkVisibility(),manageEnabled:!document.getElementById('manage').disabled,summaryOpen:document.querySelector('.search-options').open,...globalThis.__hvirCaret})`,
+      `({connect:document.getElementById('connect-program').checkVisibility()&&!document.getElementById('connect-program').disabled,create:document.getElementById('create-library').checkVisibility()&&!document.getElementById('create-library').disabled,summaryOpen:document.querySelector('.search-options').open,...globalThis.__hvirCaret})`,
     )) as {
-      settings: boolean
-      emptyLibrary: boolean
-      manageVisible: boolean
-      manageEnabled: boolean
+      connect: boolean
+      create: boolean
     }
     if (
       !after.visible ||
       after.paneHidden ||
       guest.getURL() !== original ||
       !ports.current() ||
-      (state === 'unapproved'
-        ? !explanation.settings
-        : !explanation.emptyLibrary ||
-          !explanation.manageVisible ||
-          !explanation.manageEnabled)
+      (state === 'unapproved' ? !explanation.connect : !explanation.create)
     )
       throw new Error('Caret lost the live library or existing access/setup controls')
     facts = { state, before, after, explanation, sameUrl: true, current: true }
@@ -414,7 +408,7 @@ export async function inspectSkillagerSearch(
     await ports.wait(
       async () =>
         (await ports.inspect(
-          "document.getElementById('state').dataset.state==='stale' && document.getElementById('state').textContent.includes('Settings') && document.getElementById('state').textContent.includes('freshness unavailable') && document.querySelectorAll('#skills [role=option]').length===100",
+          "document.getElementById('state').dataset.state==='stale' && document.getElementById('connect-program').checkVisibility() && !document.getElementById('connect-program').disabled && document.getElementById('state').textContent.includes('freshness unavailable') && document.querySelectorAll('#skills [role=option]').length===100",
         )) === true,
       'unapproved Search explains access and retains the current rows',
     )
@@ -422,7 +416,7 @@ export async function inspectSkillagerSearch(
       mode: 'unapproved',
       state: 'stale',
       rows: 100,
-      actionableSettings: true,
+      actionableConnect: true,
       sameUrl: guest.getURL() === original,
       current: ports.current(),
     })

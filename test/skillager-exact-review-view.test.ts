@@ -207,7 +207,7 @@ function fixture(support = 'owned support\n') {
 }
 async function completeReview(f: ReturnType<typeof fixture>) {
   f.button('start-review').click()
-  await f.ready(/Inspect any file/)
+  await vi.waitFor(() => expect(f.button('accept-version').disabled).toBe(false))
 }
 it.each(['input', 'programmatic', 'context'])(
   'does not accept the former version after %s retargeting',

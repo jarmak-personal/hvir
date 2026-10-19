@@ -36,7 +36,8 @@ export async function verifySkillagerManagement(
 ): Promise<boolean> {
   const selected = process.env.HVIR_SKILLAGER_MANAGEMENT_FIXTURE,
     executable = process.env.HVIR_SKILLAGER_MANAGEMENT_CLI,
-    mode = process.env.HVIR_SKILLAGER_MANAGEMENT_HISTORY
+    mode = process.env.HVIR_SKILLAGER_MANAGEMENT_HISTORY,
+    browserOnly = process.env.HVIR_SKILLAGER_MANAGEMENT_BROWSER_ONLY === '1'
   if (!selected && !executable && !mode) return false
   if (
     !selected ||
@@ -106,7 +107,7 @@ export async function verifySkillagerManagement(
     await controls.wait(
       () =>
         extensions
-          .connectors!.approvals.status(active())
+          .connectors!.approvals.status(active(), workspace.root.hostId)
           .some(
             (item) => item.connector === connector && item.availability === 'supported',
           ),
@@ -131,8 +132,15 @@ export async function verifySkillagerManagement(
   await controls.wait(
     () =>
       extensions
-        .sources!.approvals.status(active())
-        .some((item) => item.source === 'project' && item.granted),
+        .sources!.approvals.settings(active())
+        .some(
+          (item) =>
+            item.source === 'project' &&
+            item.granted &&
+            item.workspaceId === workspace.id &&
+            item.root?.hostId === workspace.root.hostId &&
+            item.root.path === workspace.root.path,
+        ),
     'exact project source grant',
   )
   await controls.click('Close settings')
@@ -149,9 +157,8 @@ export async function verifySkillagerManagement(
     `document.getElementById('destination')?.textContent.includes(${JSON.stringify(workspace.id)})`,
     'displayed bound management destination',
   )
-  await ui.click('observe-library')
   await ui.ready(
-    "document.getElementById('library-identity').textContent.includes('No registered personal library')",
+    "document.getElementById('state').textContent.includes('No personal library yet')",
     'observation does not initialize',
   )
   try {
@@ -372,6 +379,8 @@ ${'Follow the existing product boundaries and inspect neighboring consumers befo
       throw new Error('Canonical edit did not remain pending')
     const editedAccepted = await verifySelectedSkillTasks(win, host, workspace, skillId, {
       ...controls,
+      project: () => view('project'),
+      reader: () => view('detail'),
       library: () =>
         extensions
           .guests!.snapshot(owner)
@@ -410,7 +419,13 @@ ${'Follow the existing product boundaries and inspect neighboring consumers befo
       )
       throw error
     })
-    const synchronization = await verifyOwnedApprovedSync(ui, host, owned, library, cli)
+    const synchronization = browserOnly
+      ? {
+          status: 'not-exercised',
+          reason:
+            'Explicit browser-only partition excludes approved-source sync; the full management workflow remains required for sync acceptance.',
+        }
+      : await verifyOwnedApprovedSync(ui, host, owned, library, cli)
     const refusals = await verifyOwnedReviewRefusals(
       ui,
       host,
@@ -439,13 +454,15 @@ ${'Follow the existing product boundaries and inspect neighboring consumers befo
             'Owned development production-composed ordinary Settings/D4 human controls/D5 installed exact CLI/D7 complete text+image review; no benchmark mutation, signed-package or OS sandbox claim.',
           mainPid: process.pid,
           mode,
+          scope: browserOnly ? 'browser-only' : 'full-management',
           workspace,
           initialized,
           firstAccepted,
           editedAccepted,
           acceptedCanonicalSource: true,
-          pinQualification:
-            'Direct canonical library review.pin is unsupported; pinned protection is exercised through public upstream pin and sync derivation.',
+          pinQualification: browserOnly
+            ? 'Upstream pin and sync-derived protection are not exercised in browser-only mode.'
+            : 'Direct canonical library review.pin is unsupported; pinned protection is exercised through public upstream pin and sync derivation.',
           copies,
           advanced,
           synchronization,
@@ -458,7 +475,7 @@ ${'Follow the existing product boundaries and inspect neighboring consumers befo
       ),
     )
     console.log(
-      `[smoke] owned Skillager management ${mode}: explicit init, first/edit complete human acceptance, both-agent Full Add/Stub Update/Remove with pending canonical source, actual approved sync create/update, Files reveal`,
+      `[smoke] owned Skillager ${browserOnly ? 'browser-only' : 'full management'} ${mode}: explicit init, first/edit complete human acceptance, both-agent Full Add/Stub Update/Remove with pending canonical source, ${browserOnly ? 'approved sync not exercised; ' : 'actual approved sync create/update, '}unsupported/blocked review, advanced exposure, Files reveal`,
     )
     console.log('HVIR_SMOKE_OK')
     return true

@@ -24,6 +24,8 @@ export function bindManagementView(document, client) {
     source,
     prepared,
     busy = false,
+    disposed = false,
+    refreshQueued = false,
     revision = 0
   const listeners = []
   const say = (message) => {
@@ -37,12 +39,12 @@ export function bindManagementView(document, client) {
     prepared = undefined
     element('review').hidden = true
   }
-  function clearSource() {
+  function clearSource(revoke = true) {
     source = undefined
+    element('add-copy').disabled = true
     clearPlan()
-    revision++
-    element('source-identity').textContent =
-      'Select the current accepted source version explicitly for this skill.'
+    if (revoke) revision++
+    element('source-identity').textContent = ''
   }
   function local() {
     if (context.workspace?.host !== 'local' || context.workspace.root?.hostId !== 'local')
@@ -53,22 +55,33 @@ export function bindManagementView(document, client) {
   }
   function connected() {
     if (!connection)
-      throw new Error('Observe and explicitly connect the current personal library first')
+      throw new Error(
+        'The current library is unavailable. Refresh the library to try again.',
+      )
     return connection
   }
   function io(project = false) {
     return managementCli(client, project ? context : undefined)
   }
   async function guarded(work) {
-    if (busy || !context.visible || !client.alive) return
+    if (disposed || busy || !context.visible || !client.alive) return
     busy = true
+    document.querySelector('main').setAttribute('aria-busy', 'true')
     const current = ++revision
     try {
-      await work(() => client.alive && context.visible && revision === current)
+      await work(
+        () => !disposed && client.alive && context.visible && revision === current,
+      )
     } catch (error) {
-      say(error.message)
+      if (!disposed && client.alive && context.visible && revision === current)
+        say(error.message)
     } finally {
       busy = false
+      document.querySelector('main')?.setAttribute('aria-busy', 'false')
+      if (!disposed && refreshQueued && context.visible && client.alive) {
+        refreshQueued = false
+        void guarded((current) => observeLibrary(current))
+      }
     }
   }
   function on(id, event, work) {
@@ -131,35 +144,44 @@ export function bindManagementView(document, client) {
         'The reviewed destination changed. Review again in the original workspace.',
       )
   }
-  on('observe-library', 'click', async (_event, current) => {
+  async function observeLibrary(current) {
+    clearSource(false)
     const value = await io().run(['library', 'status', '--json'])
     if (!current()) return
-    show(value)
     if (value.schema !== 'skillager.library-status.v1')
       throw new Error('Supported public library status is unavailable')
     observed = value.initialized ? registeredLibrary(value) : undefined
+    const changed =
+      observed && connection && JSON.stringify(observed) !== JSON.stringify(connection)
+    element('connect-library').hidden = !changed
     element('connect-library').disabled = !observed
+    if (changed) {
+      clearSource()
+      say('The registered library changed. Choose Use this library to continue.')
+    } else {
+      connection = observed
+      say(observed ? '' : 'No personal library yet. Create one when ready.')
+    }
     element('library-identity').textContent = observed
-      ? `${observed.root.hostId}: ${observed.root.path} · ${observed.id} · history ${observed.gitMode} · observed; choose Connect`
-      : 'No registered personal library. Choose Create personal library to use Skillager’s defaults.'
-    say('Public library status observed; browsing and reading remain independent')
-  })
+      ? `${observed.root.hostId}: ${observed.root.path}`
+      : ''
+    if (connection === observed && element('skill-id').value.trim())
+      await observeSource(current)
+  }
+  on('observe-library', 'click', (_event, current) => observeLibrary(current))
   on('connect-library', 'click', async (_event, current) => {
-    if (!observed) throw new Error('Observe a registered library first')
+    if (!observed) throw new Error('Refresh the current library first')
     const chosen = observed,
       fresh = registeredLibrary(await io().run(['library', 'status', '--json']))
     sameLibrary(chosen, fresh)
     if (chosen.gitMode !== fresh.gitMode)
-      throw new Error('Observed history mode changed. Observe and choose Connect again.')
+      throw new Error('Library history mode changed. Refresh the library to review it.')
     if (!current()) return
     connection = fresh
-    source = undefined
-    clearPlan()
-    element('library-identity').textContent =
-      `Connected ${fresh.root.hostId}: ${fresh.root.path} · ${fresh.id} · history ${fresh.gitMode}`
-    say(
-      'Management connected to the observed library. Select a source or preview approved-source sync.',
-    )
+    clearSource(false)
+    element('connect-library').hidden = true
+    say('')
+    if (element('skill-id').value.trim()) await observeSource(current)
   })
   async function initialize(selection, current) {
     const result = await action('initialize-library', selection, current)
@@ -167,6 +189,7 @@ export function bindManagementView(document, client) {
     observed = result.observed
     connection = result.connect ? result.observed : undefined
     element('connect-library').disabled = false
+    element('connect-library').hidden = !!result.connect
     element('library-identity').textContent =
       `${result.connect ? 'Connected' : 'Observed; explicitly choose Connect'} ${observed.root.hostId}: ${observed.root.path} · ${observed.id} · history ${observed.gitMode}`
     say(`${result.message}. ${result.guidance}`)
@@ -202,24 +225,28 @@ export function bindManagementView(document, client) {
       },
     )
   })
-  on('observe-source', 'click', async (_event, current) => {
+  async function observeSource(current) {
+    clearSource(false)
     const library = connected(),
-      id = element('skill-id').value.trim(),
-      value = await io().run(['library', 'status', id, '--json'])
+      id = element('skill-id').value.trim()
+    if (!id) return
+    const value = await io().run(['library', 'status', id, '--json'])
     const selected = acceptedSource(value, library, id)
     if (!current()) return
     source = selected
+    element('add-copy').disabled = false
     clearPlan()
-    show(value)
-    element('source-identity').textContent =
-      `Selected ${selected.id} · accepted hash ${selected.hash}. Add uses this exact version in the displayed destination.`
-    say(
-      'Accepted source version selected. The public exposure plan still determines eligibility.',
-    )
+    element('source-identity').textContent = ''
+    say('')
+  }
+  on('observe-source', 'click', (_event, current) => observeSource(current))
+  onSelection('skill-id', 'change', () => {
+    if (busy) refreshQueued = true
+    else void guarded((current) => observeSource(current))
   })
   function copyInput() {
     if (!source || source.id !== element('skill-id').value.trim())
-      throw new Error('Select the current accepted source version explicitly')
+      throw new Error('Choose a current accepted library skill first')
     local()
     return {
       library: connected(),
@@ -404,8 +431,10 @@ export function bindManagementView(document, client) {
       revision++
     }
     if (!message.context.visible) revision++
+    const renewed = message.context.visible && !context.visible
     context = message.context
     const row = context.input?.row
+    let selectionChanged = false
     if (
       row?.source === 'library' &&
       typeof row.id === 'string' &&
@@ -413,10 +442,15 @@ export function bindManagementView(document, client) {
     ) {
       clearSource()
       element('skill-id').value = row.id
+      selectionChanged = true
     }
     element('destination').textContent = context.workspace?.root
       ? `${context.workspace.host}: ${context.workspace.root.path} · exact selected workspace ${context.workspace.id}`
-      : 'Personal library · select a local workspace for copies/setup or an SSH workspace for Full delivery.'
+      : 'Choose a project for project actions.'
+    if (renewed || (selectionChanged && context.visible)) {
+      if (busy) refreshQueued = true
+      else void guarded((current) => observeLibrary(current))
+    }
   })
   const exactReview = bindExactReview(document, client, {
     context: () => context,
@@ -426,6 +460,8 @@ export function bindManagementView(document, client) {
   })
   return {
     dispose() {
+      if (disposed) return
+      disposed = true
       clearPlan()
       exactReview.dispose()
       unlisten()

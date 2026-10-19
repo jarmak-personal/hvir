@@ -17,31 +17,36 @@ export function bindSelectedSkill(document, client, ports) {
     installed,
     prepared,
     pending = [],
-    modeKey,
-    chosenMode = false,
     busy = false,
     activeAction = false,
     connecting,
     ready = false,
     projectReady = false,
     refreshQueued = false,
-    serial = 0
+    serial = 0,
+    disposed = false
   const context = ports.context
   const skillId = () =>
     selection?.row.canonical?.skill_id ??
     (selection?.row.source === 'library' ? selection.row.id : undefined)
+  const exposure = () =>
+    selection?.row.source === 'project' ? selection.row.exposure : undefined
+  const agent = () => exposure()?.agent ?? el('task-agent').value
   const say = (message) => {
     el('task-state').textContent = message
   }
-  const current = (revision) => client.alive && context().visible && serial === revision
+  const current = (revision) =>
+    !disposed && client.alive && context().visible && serial === revision
   const review = bindExactReview(document, client, {
     context,
     library: () => library,
     skillId,
-    say,
+    say: (message) => {
+      if (message) say(message)
+    },
     action: (id, input) => invoke(id, input),
     accepted: () => {
-      void refresh('Version accepted.')
+      void refresh()
     },
   })
   const taskKey = () =>
@@ -50,20 +55,25 @@ export function bindSelectedSkill(document, client, ports) {
       skillId(),
       context().workspace?.id,
       context().workspace?.root,
-      el('task-agent').value,
+      agent(),
+      exposure()?.exposure_id,
+      exposure()?.target,
     ])
   const remote = () => !!context().workspace && context().workspace.host !== 'local'
   const unchanged = () =>
     ['current', 'recorded'].includes(installed?.status) &&
-    installed.sourceHash === source?.hash &&
-    installed.mode === el('task-mode').value
+    installed.sourceHash === source?.hash
   function controls() {
+    if (disposed) return
     const local = localWorkspace(context().workspace),
       workspace = context().workspace,
       working = busy || activeAction
     el('task-destination').textContent = workspace
-      ? `${workspace.name} · ${workspace.host}: ${workspace.root?.path ?? 'Path unavailable'}`
+      ? `${workspace.name} · ${workspace.host}`
       : 'Choose a project above to add this skill.'
+    el('task-destination').title = workspace
+      ? `${workspace.host}: ${workspace.root?.path ?? 'Path unavailable'}`
+      : ''
     el('task-primary').textContent = source
       ? installed
         ? unchanged()
@@ -73,15 +83,21 @@ export function bindSelectedSkill(document, client, ports) {
           : 'Update'
         : 'Add to project'
       : 'Review version'
+    el('task-primary').hidden =
+      !source ||
+      (!!installed && unchanged()) ||
+      (!!exposure() && !installed) ||
+      !!prepared
     el('task-primary').disabled =
       working ||
+      !source ||
       !ready ||
       !context().visible ||
       !!prepared ||
       pending.length > 0 ||
       !library ||
       (!!source && (!workspace || !projectReady || unchanged()))
-    el('task-update').hidden = !remote() || !installed
+    el('task-update').hidden = !installed
     el('task-update').disabled =
       working || !ready || !projectReady || !!prepared || pending.length > 0 || !source
     el('task-remove').hidden = !installed
@@ -92,8 +108,18 @@ export function bindSelectedSkill(document, client, ports) {
       !context().visible ||
       !!prepared ||
       pending.length > 0
-    el('task-agent').disabled = working
-    el('task-mode').disabled = working || pending.length > 0 || remote()
+    el('task-agent-field').hidden = !!exposure()
+    el('task-agent-name').hidden = !exposure()
+    el('task-agent-name').textContent = exposure()?.agent ?? ''
+    el('task-agent').disabled = working || !!exposure()
+    el('task-mode').disabled =
+      working ||
+      !ready ||
+      !!prepared ||
+      pending.length > 0 ||
+      remote() ||
+      (!!installed && !source)
+    if (installed) el('task-mode').value = installed.mode
     el('task-export-field').hidden = !remote()
     el('task-export').disabled = working
     if (remote()) el('task-mode').value = 'native'
@@ -192,7 +218,7 @@ export function bindSelectedSkill(document, client, ports) {
         'expose',
         '--list',
         '--agent',
-        el('task-agent').value,
+        agent(),
         '--scope',
         'project',
         '--json',
@@ -203,9 +229,12 @@ export function bindSelectedSkill(document, client, ports) {
         (item) =>
           item.skill_id === skillId() &&
           item.source_library_id === library.id &&
-          item.agent === el('task-agent').value &&
+          item.agent === agent() &&
           item.scope === 'project' &&
-          ['native', 'stub'].includes(item.mode),
+          ['native', 'stub'].includes(item.mode) &&
+          (!exposure() ||
+            (item.exposure_id === exposure().exposure_id &&
+              item.target === exposure().target)),
       )
       if (matches.length > 1)
         throw new Error(
@@ -213,6 +242,10 @@ export function bindSelectedSkill(document, client, ports) {
         )
       if (!current(revision)) return
       installed = matches[0]
+      if (exposure() && !installed)
+        throw new Error(
+          'The selected project copy is no longer available. Refresh Project skills.',
+        )
       if (installed) {
         // Public library status reports exposures for its project directory.
         // Read that binding in the same exact project scope as expose --list.
@@ -272,13 +305,18 @@ export function bindSelectedSkill(document, client, ports) {
       library,
       skillId: skillId(),
       workspace: context().workspace,
-      agent: el('task-agent').value,
-      ...(installed
-        ? { target: { hostId: context().workspace.host, path: installed.target } }
+      agent: agent(),
+      ...(installed || exposure()
+        ? {
+            target: {
+              hostId: context().workspace.host,
+              path: installed?.target ?? exposure().target,
+            },
+          }
         : {}),
     }
   }
-  async function refresh(message) {
+  async function refresh() {
     if (busy || activeAction) {
       refreshQueued = true
       return
@@ -286,12 +324,16 @@ export function bindSelectedSkill(document, client, ports) {
     ready = false
     projectReady = false
     pending = []
-    if (modeKey !== taskKey()) {
-      modeKey = taskKey()
-      chosenMode = false
-    }
     return guarded(async (revision) => {
       if (!skillId()) return
+      if (
+        selection.row.source === 'project' &&
+        (selection.row.workspaceId !== context().workspace?.id ||
+          selection.row.host !== context().workspace?.host)
+      )
+        throw new Error(
+          'This skill belongs to a different project. Select it in its original project.',
+        )
       say('Checking this skill…')
       const status = await io(false, revision).run([
         'library',
@@ -340,7 +382,7 @@ export function bindSelectedSkill(document, client, ports) {
             library,
             skillId: skillId(),
             workspace: context().workspace,
-            agent: el('task-agent').value,
+            agent: agent(),
           })
           if (!current(revision)) return
           installed = observation.installed
@@ -358,40 +400,33 @@ export function bindSelectedSkill(document, client, ports) {
       if (!current(revision)) return
       pending.push(...observedPending)
       if (current(revision)) {
-        if (installed && !chosenMode) el('task-mode').value = installed.mode
+        if (installed) el('task-mode').value = installed.mode
         ready = true
         say(
           pending.length
             ? remote() && !pending[0]?.id
               ? 'Delivery recovery needs attention for this exact target. Inspect its recorded operations before trying again.'
               : 'This operation has an uncertain outcome. Inspect it before trying again.'
-            : message
-              ? `${message} ${projectIssue ?? (!context().workspace ? 'Choose a project above to add this skill.' : !installed && source ? 'Ready to add.' : '')}`.trim()
-              : (projectIssue ??
-                (installed
-                  ? remote()
+            : (projectIssue ??
+                (remote()
+                  ? installed
                     ? 'Full copy recorded · remote state has not been verified.'
-                    : `In this project · ${installed.mode === 'stub' ? 'Stub' : 'Full copy'} · ${installed.status}`
-                  : source
-                    ? !context().workspace
-                      ? 'Version accepted'
-                      : remote()
-                        ? 'Full delivery · choose an empty or new local export folder, then review every file before adding.'
-                        : 'Ready to add'
-                    : 'This version needs your acceptance before adding.')),
+                    : source
+                      ? 'Choose a local export folder to review Full delivery.'
+                      : ''
+                  : '')),
         )
+        if (!source && !pending.length) await review.start()
       }
     })
   }
-  function copyInput(remove = false) {
+  function copyInput(remove = false, mode = el('task-mode').value) {
     if (!library || (!remove && !source))
       throw new Error('Review and accept the current version first')
     return {
       library,
-      agent: el('task-agent').value,
-      ...(remove
-        ? {}
-        : { skillId: source.id, hash: source.hash, mode: el('task-mode').value }),
+      agent: agent(),
+      ...(remove ? {} : { skillId: source.id, hash: source.hash, mode }),
       ...(installed
         ? {
             exposureId: installed.exposure_id,
@@ -443,7 +478,9 @@ export function bindSelectedSkill(document, client, ports) {
     }
     say(
       result?.outcome === 'verified'
-        ? `${action === 'accept-version' ? 'Version accepted' : action === 'remove-copy' ? 'Removed from this project' : action === 'add-copy' ? 'Added to this project' : 'Project copy updated'}${result.restartRequired ? ' · Restart your agent to use the change.' : ''}`
+        ? result.restartRequired
+          ? 'Restart your agent to use the change.'
+          : ''
         : (result?.message ??
             result?.reason ??
             'The operation could not be verified. Inspect it before trying again.'),
@@ -452,13 +489,13 @@ export function bindSelectedSkill(document, client, ports) {
     controls()
     return result
   }
-  async function prepare(remove, revision) {
+  async function prepare(remove, revision, requestedMode = el('task-mode').value) {
     if (remote()) {
       const input = {
         library,
         skillId: skillId(),
         hash: source?.hash ?? installed?.sourceHash,
-        agent: el('task-agent').value,
+        agent: agent(),
         mode: 'native',
         exportDirectory: el('task-export').value.trim(),
         ...(installed
@@ -510,7 +547,7 @@ export function bindSelectedSkill(document, client, ports) {
       el('task-confirmation').hidden = false
       return
     }
-    const input = copyInput(remove)
+    const input = copyInput(remove, requestedMode)
     const value = await prepareCopy(
       io(true, revision),
       input,
@@ -524,10 +561,13 @@ export function bindSelectedSkill(document, client, ports) {
         ? { ...input, token: value.plan.token }
         : copyChangeInput({ ...input, token: value.plan.token }),
       revision,
+      requestedMode,
     }
     el('task-confirm-title').textContent = remove
       ? 'Remove from this project?'
-      : 'Update this project copy?'
+      : installed.mode !== requestedMode
+        ? `Change to ${requestedMode === 'stub' ? 'Stub' : 'Full copy'}?`
+        : 'Update this project copy?'
     el('task-confirm-target').textContent = `${input.agent} · local: ${value.plan.target}`
     el('task-effects').replaceChildren(
       ...value.plan.preview.file_effects.map((effect) => {
@@ -543,10 +583,7 @@ export function bindSelectedSkill(document, client, ports) {
   const on = (id, event, work) =>
     el(id)?.addEventListener(event, work, { signal: client.signal })
   on('task-primary', 'click', () => {
-    if (!source) {
-      void review.start()
-      return
-    }
+    if (!source) return
     void guarded(async (revision) => {
       if (installed || remote()) await prepare(false, revision)
       else {
@@ -602,7 +639,7 @@ export function bindSelectedSkill(document, client, ports) {
         else if (current(revision) && result?.outcome === 'verified')
           installed = {
             ...installed,
-            mode: el('task-mode').value,
+            mode: task.requestedMode,
             sourceHash: source.hash,
             status: 'current',
           }
@@ -610,12 +647,22 @@ export function bindSelectedSkill(document, client, ports) {
   )
   on('task-cancel', 'click', clearPrepared)
   on('task-export', 'input', clearPrepared)
-  for (const id of ['task-agent', 'task-mode'])
-    on(id, 'change', () => {
-      if (id === 'task-mode') chosenMode = true
-      invalidate()
-      void refresh()
-    })
+  on('task-agent', 'change', () => {
+    if (exposure()) return
+    invalidate()
+    void refresh()
+  })
+  on('task-mode', 'change', () => {
+    const requestedMode = el('task-mode').value
+    if (!installed) {
+      clearPrepared()
+      return
+    }
+    el('task-mode').value = installed.mode
+    if (requestedMode === installed.mode) return
+    clearPrepared()
+    void guarded((revision) => prepare(false, revision, requestedMode))
+  })
   on('task-refresh', 'click', () => {
     invalidate()
     void refresh()
@@ -714,7 +761,7 @@ export function bindSelectedSkill(document, client, ports) {
       el('task-result').textContent = ''
       el('task-operation-details').open = false
       selection = input
-      chosenMode = false
+      if (!exposure()) el('task-mode').value = 'native'
       library = source = installed = undefined
       pending = []
       el('selected-task').hidden = !skillId()
@@ -733,6 +780,8 @@ export function bindSelectedSkill(document, client, ports) {
       controls()
     },
     dispose() {
+      if (disposed) return
+      disposed = true
       invalidate()
       review.dispose()
     },

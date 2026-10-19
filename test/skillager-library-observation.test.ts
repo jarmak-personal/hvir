@@ -152,7 +152,9 @@ it('obtains fresh status after a successful reconnect before resuming the desire
   f.resume()
   await f.flush()
   expect(state().textContent).toContain('Page 2')
-  expect(document.getElementById('connection-status')?.textContent).toBe('Connected')
+  expect(document.getElementById('connection-status')?.textContent).toBe('')
+  expect(document.getElementById('connection-status')?.hidden).toBe(true)
+  expect(f.button('connect-program').getAttribute('aria-busy')).toBe('false')
 })
 
 it.each(['root', 'UUID'] as const)(

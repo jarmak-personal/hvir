@@ -71,7 +71,7 @@ it.each(['project', 'library'])(
     ).toHaveLength(1)
     f.resume()
     await f.flush()
-    expect(status.textContent).toBe('Connected')
+    expect(status.textContent).toBe('')
     expect(button.getAttribute('aria-busy')).toBe('false')
     expect(button.hidden).toBe(true)
     expect(document.getElementById('state')?.dataset.state).toBe(
@@ -131,7 +131,7 @@ it('resumes a hidden library observation without stuck progress or duplicate Con
   button.click()
   f.resume()
   await f.flush()
-  expect(status.textContent).toBe('Connected')
+  expect(status.textContent).toBe('')
   expect(button.getAttribute('aria-busy')).toBe('false')
   expect(
     f.requests.filter(({ capability }) => capability === 'connector.connect'),
@@ -258,7 +258,7 @@ it('retains only the submitted project connection intent through passive picker 
   f.context(true, localProject)
   f.connected(projectConnection())
   await f.flush()
-  expect(document.getElementById('connection-status')?.textContent).toBe('Connected')
+  expect(document.getElementById('connection-status')?.textContent).toBe('')
   expect(
     f.requests.filter((entry) => entry.capability === 'connector.connect'),
   ).toHaveLength(1)
