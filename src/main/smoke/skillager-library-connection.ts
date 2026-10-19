@@ -88,6 +88,14 @@ export async function verifySkillagerLibraryConnection(
           entry.contributionId === 'library' &&
           entry.installationId === activation.installationId,
       )!
+    await inspect(`(() => {
+      globalThis.__hvirLibraryStage={contexts:0,visible:null,target:false,errors:0,contextEnded:0};
+      globalThis.__hvirLibraryStageStop=window.hvirExtension.onMessage(message=>{
+        const facts=globalThis.__hvirLibraryStage;
+        if(message.kind==='context'){facts.contexts=Math.min(64,facts.contexts+1);facts.visible=message.context.visible;facts.target=message.context.workspace?.id===${JSON.stringify(workspace.id)}}
+        if(message.kind==='result'&&!message.ok){facts.errors=Math.min(64,facts.errors+1);if(message.error==='Project context changed; the previous request ended')facts.contextEnded=Math.min(64,facts.contextEnded+1)}
+      });
+    })()`)
     await chooseExtensionWorkspace(
       win,
       workspace.id,
@@ -97,9 +105,17 @@ export async function verifySkillagerLibraryConnection(
     await controls.wait(
       async () =>
         (await inspect(
-          "document.getElementById('state')?.dataset.state==='ready' && !!document.querySelector('#skills [role=option]')",
+          "globalThis.__hvirLibraryStage.target && document.getElementById('state')?.dataset.state==='ready' && !!document.querySelector('#skills [role=option]')",
         )) === true,
       'Library metadata ready for selected Connect',
+    )
+    console.log(
+      '[smoke] Library metadata after trusted target',
+      JSON.stringify(
+        await inspect(
+          "({stage:globalThis.__hvirLibraryStage,state:document.getElementById('state')?.dataset.state,rows:Math.min(100,document.querySelectorAll('#skills [role=option]').length)})",
+        ),
+      ),
     )
     await assertAmbient()
     await inspect(`(() => {
@@ -186,7 +202,7 @@ export async function verifySkillagerLibraryConnection(
         programSelections,
         nativeFocus: win.isFocused(),
         guest: await inspect(
-          `(() => {const button=document.getElementById('task-connect'), state=document.getElementById('task-state');return {replies:globalThis.__hvirLibraryConnect,focused:document.hasFocus(),connectFocused:document.activeElement===button,connectVisible:!!button?.checkVisibility(),connectDisabled:button?.disabled,connecting:state?.textContent.includes('Connecting'),notCompleted:state?.textContent.includes('not completed'),readNotConfirmed:state?.textContent.includes('read access was not confirmed')}})()`,
+          `(() => {const button=document.getElementById('task-connect'), state=document.getElementById('task-state');return {stage:globalThis.__hvirLibraryStage,listState:document.getElementById('state')?.dataset.state,rows:Math.min(100,document.querySelectorAll('#skills [role=option]').length),replies:globalThis.__hvirLibraryConnect,focused:document.hasFocus(),connectFocused:document.activeElement===button,connectVisible:!!button?.checkVisibility(),connectDisabled:button?.disabled,connecting:state?.textContent.includes('Connecting'),notCompleted:state?.textContent.includes('not completed'),readNotConfirmed:state?.textContent.includes('read access was not confirmed')}})()`,
         ).catch(() => ({ unavailable: true })),
         modal: await trusted(
           `(() => {const modal=document.querySelector('[aria-labelledby="connection-confirmation-title"]');return {present:!!modal,visible:!!modal?.checkVisibility(),focused:!!modal?.contains(document.activeElement),safe:document.activeElement?.textContent==='Not now'}})()`,
@@ -197,7 +213,7 @@ export async function verifySkillagerLibraryConnection(
   } finally {
     Object.defineProperty(dialog, 'showOpenDialog', descriptor)
     await inspect(
-      'globalThis.__hvirLibraryConnectStop?.(); delete globalThis.__hvirLibraryConnectStop; delete globalThis.__hvirLibraryConnect',
+      'globalThis.__hvirLibraryConnectStop?.(); delete globalThis.__hvirLibraryConnectStop; delete globalThis.__hvirLibraryConnect; globalThis.__hvirLibraryStageStop?.(); delete globalThis.__hvirLibraryStageStop; delete globalThis.__hvirLibraryStage',
     ).catch(() => {})
     await trusted(
       `window.hvir.invoke('project:switch',${JSON.stringify({ projectId: project.id, workspaceId: workspace.id })})`,

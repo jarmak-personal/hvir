@@ -287,3 +287,23 @@ it.each(['program', 'source'])(
       )
   },
 )
+
+it('keeps unconfirmed program readiness distinct from a revoked grant after cancellation', async () => {
+  const f = packageView('project')
+  f.projectRead(false)
+  f.context(true, localProject)
+  await f.flush()
+  f.button('connect-program').click()
+  await f.flush()
+  f.connected({ ...projectConnection(), readiness: { program: null, source: null } })
+  await f.flush()
+  expect(document.getElementById('state')?.textContent).toContain(
+    'Connection ended before access could be confirmed',
+  )
+  expect(document.getElementById('state')?.textContent).not.toContain('no longer ready')
+  expect(f.button('connect-program').disabled).toBe(false)
+  expect(
+    f.requests.filter((entry) => entry.capability === 'connector.connect'),
+  ).toHaveLength(1)
+  expect(f.requests.some((entry) => entry.capability === 'source.request')).toBe(false)
+})

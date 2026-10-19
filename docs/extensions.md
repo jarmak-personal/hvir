@@ -408,8 +408,11 @@ project active elsewhere; project-bound views retain active project/worktree pin
 
 Combined results add `source: { source, outcome }` (`granted`, `declined`, `unavailable`, or
 `interrupted-uncertain`) and `readiness: { program, source }`. Independent outcomes describe saves
-or reuse, while readiness rechecks current exact bindings before reply. A successful save may
-already have been revoked; require both readiness values before claiming connected reading.
+or admitted reuse, while readiness rechecks current exact bindings before reply. Each readiness
+value is `true`, `false`, or `null` (unconfirmed because the bounded check could not complete under
+live authority). Cancellation preserves completed outcomes and starts no late metadata checks.
+A successful save may already have been revoked; require both readiness values to be exactly
+`true` before claiming connected reading. Do not describe `null` as revoked or unavailable.
 Do not retry a declined/cancelled combined attempt through `source.request`. A later explicit
 read of an application-library root unknown at Connect still uses its separate source decision.
 These grants remain independently stored and revocable; partial writes are never atomic rollback.

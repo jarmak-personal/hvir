@@ -490,7 +490,15 @@ it('connects an explicit non-active Library destination across unrelated project
     await data.stop()
   }
 })
-it.each(['explicit-target', 'registration', 'root', 'transfer'] as const)(
+it.each([
+  'explicit-target',
+  'replacement',
+  'registration',
+  'root',
+  'transfer',
+  'host',
+  'unavailable',
+] as const)(
   'permanently retires Library destination consent on %s withdrawal',
   async (ending) => {
     const data = await fixture(false, 'application')
@@ -509,7 +517,24 @@ it.each(['explicit-target', 'registration', 'root', 'transfer'] as const)(
       const proposal = data.connection.snapshot(data.renderer)[0]!
       if (ending === 'explicit-target')
         data.owner.targetWorkspace(data.renderer, data.view.id, undefined)
-      else {
+      else if (ending === 'replacement') {
+        current = {
+          ...current,
+          projects: current.projects.map((project) => ({
+            ...project,
+            workspaces: [
+              ...project.workspaces,
+              {
+                ...project.workspaces[0]!,
+                id: 'replacement',
+                root: localPath('/replacement'),
+              },
+            ],
+          })),
+        }
+        data.owner.targetWorkspace(data.renderer, data.view.id, 'replacement')
+        data.owner.targetWorkspace(data.renderer, data.view.id, 'workspace')
+      } else {
         current = {
           ...current,
           projects:
@@ -519,7 +544,16 @@ it.each(['explicit-target', 'registration', 'root', 'transfer'] as const)(
                   ...project,
                   ...(ending === 'root'
                     ? { registeredRoot: localPath('/changed') }
-                    : { id: 'transferred-project' }),
+                    : ending === 'host'
+                      ? {
+                          workspaces: project.workspaces.map((workspace) => ({
+                            ...workspace,
+                            root: hostPath(asHostId('ssh-server'), workspace.root.path),
+                          })),
+                        }
+                      : ending === 'unavailable'
+                        ? { connectionState: 'disconnected' as const }
+                        : { id: 'transferred-project' }),
                 })),
         }
         for (const changed of [...data.context.listeners[0]!]) changed()

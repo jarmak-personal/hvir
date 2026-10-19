@@ -747,3 +747,79 @@ it('does not substitute a selected library occurrence outside the public reporte
     'Selected occurrence no longer belongs',
   )
 })
+
+it.each(['library', 'list'])(
+  'renews Library %s metadata cancelled by a trusted destination change without replaying setup',
+  async (command) => {
+    const f = packageView('library')
+    f.hold(command)
+    f.context(true)
+    await f.flush()
+    const priorLists = command === 'list' ? 1 : 0
+    expect(f.calls.filter((args) => args[0] === 'list')).toHaveLength(priorLists)
+    // Main rejects in-flight requests before publishing the new trusted destination.
+    f.resume('Project context changed; the previous request ended')
+    f.context(true, {
+      id: 'project',
+      host: 'local',
+      root: { hostId: 'local', path: '/project' },
+    })
+    await f.flush()
+    expect(document.getElementById('state')?.dataset.state).toBe('ready')
+    expect(f.calls.filter((args) => args[0] === 'list')).toHaveLength(priorLists + 1)
+    const current = f.calls.length
+    f.resume() // The withdrawn physical request's eventual success is inert.
+    await f.flush()
+    expect(f.calls).toHaveLength(current)
+    expect(document.getElementById('state')?.dataset.state).toBe('ready')
+    expect(
+      f.requests.some((entry) =>
+        ['connector.connect', 'source.request'].includes(entry.capability),
+      ),
+    ).toBe(false)
+  },
+)
+
+it('keeps Library query, cursor, options and selected occurrence when renewing destination metadata', async () => {
+  const f = packageView('library')
+  f.context()
+  await f.flush()
+  ;(document.getElementById('separate-copies') as HTMLInputElement).checked = true
+  submitQuery('retained query')
+  await f.flush()
+  f.button('next').click()
+  await f.flush()
+  const row = document.querySelector<HTMLElement>('#skills [role=option]')!
+  row.setAttribute('aria-selected', 'true')
+  const selected = row.dataset.id
+  f.hold('search')
+  await vi.advanceTimersByTimeAsync(30_000)
+  f.resume('Project context changed; the previous request ended')
+  f.context(true, {
+    id: 'project',
+    host: 'local',
+    root: { hostId: 'local', path: '/project' },
+  })
+  await f.flush()
+  const search = f.calls.filter((args) => args[0] === 'search').at(-1)!
+  expect(search[1]).toBe('retained query')
+  expect(search[search.indexOf('--cursor') + 1]).toBe('1')
+  expect(search[search.indexOf('--view') + 1]).toBe('copies')
+  expect((document.getElementById('query') as HTMLInputElement).value).toBe(
+    'retained query',
+  )
+  expect(
+    document.querySelector<HTMLElement>('#skills [aria-selected=true]')?.dataset.id,
+  ).toBe(selected)
+  expect(document.getElementById('state')?.dataset.state).toBe('ready')
+  const current = f.calls.length
+  f.resume('Late old failure')
+  await f.flush()
+  expect(f.calls).toHaveLength(current)
+  expect(document.getElementById('state')?.dataset.state).toBe('ready')
+  expect(
+    f.requests.some((entry) =>
+      ['connector.connect', 'source.request'].includes(entry.capability),
+    ),
+  ).toBe(false)
+})

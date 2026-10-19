@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 
 /** Native window foreground survives child focus; guest documents supply no authority. */
-export function useExtensionForeground(onWithdraw?: () => void): boolean {
-  const [foreground, setForeground] = useState(false)
+export function useExtensionForeground(onWithdraw?: () => void): {
+  readonly foreground: boolean
+  readonly revision: number
+} {
+  const [state, setState] = useState({ foreground: false, revision: 0 })
   const withdrawal = useRef(onWithdraw)
   withdrawal.current = onWithdraw
   useEffect(() => {
@@ -12,13 +15,14 @@ export function useExtensionForeground(onWithdraw?: () => void): boolean {
       if (!current) return
       published = true
       if (!value) withdrawal.current?.()
-      setForeground(value)
+      // Main already withdrew visibility; preserve a return even when React batches both events.
+      setState((prior) => ({ foreground: value, revision: prior.revision + 1 }))
     })
     void window.hvir.invoke('extensions:foreground', undefined).then(
       (value) => {
         if (current && !published) {
           if (!value) withdrawal.current?.()
-          setForeground(value)
+          setState((prior) => ({ foreground: value, revision: prior.revision + 1 }))
         }
       },
       () => undefined,
@@ -28,5 +32,5 @@ export function useExtensionForeground(onWithdraw?: () => void): boolean {
       void dispose()
     }
   }, [])
-  return foreground
+  return state
 }

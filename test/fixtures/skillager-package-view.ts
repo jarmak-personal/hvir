@@ -42,7 +42,7 @@ export function createSkillagerPackageView(view = 'library') {
     projectQuerySupported = true,
     unavailableProject = false,
     currentWorkspace: { root?: { path?: string } } | undefined,
-    resume: (() => void) | undefined,
+    resume: ((error?: string) => void) | undefined,
     finishConnection: ((value: unknown, error?: string) => void) | undefined
   const native = connectorOutputFixture()
   const opened: Record<string, unknown>[] = []
@@ -266,7 +266,8 @@ export function createSkillagerPackageView(view = 'library') {
       (!holdOn || (message.input.args as string[])[0] === holdOn)
     ) {
       hold = false
-      resume = reply
+      resume = (error) =>
+        error ? receive({ kind: 'result', id: message.id, ok: false, error }) : reply()
     } else reply()
   }
   const bridge = {
@@ -388,7 +389,7 @@ export function createSkillagerPackageView(view = 'library') {
     frequency: () => {
       frequency = true
     },
-    resume: () => resume?.(),
+    resume: (error?: string) => resume?.(error),
     connected: (value: unknown) => finishConnection?.(value),
     connectionFailed: () => finishConnection?.(undefined, 'Old connection failed'),
   }

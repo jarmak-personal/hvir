@@ -106,7 +106,9 @@ export function ExtensionContributionsProvider({
   const [sessions, setSessions] = useState<readonly ExtensionSessionContext[]>([])
   const [workspaces, setWorkspaces] = useState<readonly ExtensionWorkspaceContext[]>([])
   const [terminalIds, setTerminalIds] = useState<Readonly<Record<string, string>>>({})
-  const foreground = useExtensionForeground(() => setLandingFocus(undefined))
+  const { foreground, revision: foregroundRevision } = useExtensionForeground(() =>
+    setLandingFocus(undefined),
+  )
   useLayoutEffect(() => {
     if (
       landingFocus &&
@@ -276,6 +278,7 @@ export function ExtensionContributionsProvider({
         terminalIds,
         workspaceId,
         foreground,
+        foregroundRevision,
         open,
         demand,
       }}

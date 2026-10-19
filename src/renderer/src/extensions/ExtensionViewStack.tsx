@@ -61,6 +61,7 @@ export function ExtensionViewPane({
 }): ReactElement {
   const model = useExtensionContributions()
   const foreground = model?.foreground ?? true
+  const foregroundRevision = model?.foregroundRevision ?? 0
   const armed = model?.landingFocusId === view.id
   const retireFocus = model?.retireLandingFocus
   useLayoutEffect(() => {
@@ -96,6 +97,7 @@ export function ExtensionViewPane({
     visible,
     selected,
     foreground,
+    foregroundRevision,
     theme,
     settings.interfaceScale,
     settings.interfaceFont,

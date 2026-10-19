@@ -719,3 +719,28 @@ it('keeps independent source review and one acceptance available before project 
     f.executions.every((execution) => execution['connector'] === 'library-cli'),
   ).toBe(true)
 })
+
+it('settles unknown combined readiness in Library without claiming revocation or replaying consent', async () => {
+  const f = fixture()
+  f.projectRead(false)
+  f.view.select(f.selection)
+  await f.ready()
+  f.button('task-connect').click()
+  f.connected({
+    connections: [{ connector: 'project-cli', outcome: 'connected' }],
+    source: { source: 'project', outcome: 'unavailable' },
+    readiness: { program: null, source: null },
+  })
+  await vi.waitFor(() => expect(f.button('task-connect').disabled).toBe(false))
+  expect(document.getElementById('task-state')?.textContent).toContain(
+    'Connection ended before access could be confirmed',
+  )
+  expect(document.getElementById('task-state')?.textContent).not.toContain(
+    'no longer ready',
+  )
+  expect(f.button('task-connect').hidden).toBe(false)
+  expect(
+    f.requests.filter((entry) => entry.capability === 'connector.connect'),
+  ).toHaveLength(1)
+  expect(f.requests.some((entry) => entry.capability === 'source.request')).toBe(false)
+})

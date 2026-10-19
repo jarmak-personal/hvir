@@ -104,6 +104,7 @@ export async function verifyExtensionConnection(
       if(message.kind==='context'){
         if(!message.context.visible)hiddenContexts++;
         document.body.dataset.hiddenContexts=String(hiddenContexts);
+        document.body.dataset.visible=String(message.context.visible);
         for(const id of ['connect','locate','read'])document.getElementById(id).disabled=!message.context.visible;
       }
     });
@@ -121,6 +122,8 @@ export async function verifyExtensionConnection(
   if (!originalDescriptor) throw new Error('Native picker property is unavailable')
   let decisions = 0,
     selections = 0
+  let manualGuest: WebContents | undefined
+  let pickerReturnFacts: unknown
   let focusWindow: BrowserWindow | undefined
   let allowManual = false
   dialog.showOpenDialog = async (
@@ -160,6 +163,12 @@ export async function verifyExtensionConnection(
       focusWindow.destroy()
       focusWindow = undefined
       await focusSmokeWindow(win, 'window')
+      const guestFacts = (await manualGuest!.executeJavaScript(
+        `({pending:document.getElementById('state')?.textContent==='pending',visible:document.body.dataset.visible==='true'})`,
+      )) as { pending: boolean; visible: boolean }
+      if (!guestFacts.pending)
+        throw new Error('Submitted connection ended before native picker return')
+      pickerReturnFacts = { nativeFocused: win.isFocused(), ...guestFacts }
       return { canceled: false, filePaths: ['/bin/sh'] }
     }
     if (!options || options.buttonLabel !== 'Add extension')
@@ -261,6 +270,7 @@ export async function verifyExtensionConnection(
     const hiddenBefore = (await guest.executeJavaScript(
       'Number(document.body.dataset.hiddenContexts)',
     )) as number
+    manualGuest = guest
     allowManual = true
     await guestClick('locate')
     await decide(true)
@@ -279,6 +289,20 @@ export async function verifyExtensionConnection(
       throw new Error(
         'SDK intent did not survive actual top-view withdrawal on the same guest',
       )
+    if (
+      !(await guest.executeJavaScript(
+        "document.body.dataset.visible==='true' && document.getElementById('state')?.textContent==='connected'",
+      ))
+    )
+      throw new Error('Native picker continuation did not regain admitted visibility')
+    console.log(
+      '[smoke:connection-picker-order]',
+      JSON.stringify({
+        atReturn: pickerReturnFacts,
+        finalVisible: true,
+        finalOutcome: 'connected',
+      }),
+    )
     await controls.wait(
       () =>
         guest.executeJavaScript(

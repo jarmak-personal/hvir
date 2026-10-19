@@ -520,7 +520,9 @@ on('connect-program', 'click', async () => {
           ? connection?.outcome === 'connected'
             ? result.readiness?.program === true
               ? 'The program is connected. Project read access was not confirmed. Choose Connect Skillager when ready.'
-              : 'Program access was saved but is no longer ready. Choose Connect Skillager to check the remaining access.'
+              : result.readiness?.program === false
+                ? 'Program access was saved but is no longer ready. Choose Connect Skillager to check the remaining access.'
+                : 'Connection ended before access could be confirmed. Choose Connect Skillager to check again.'
             : connection?.outcome === 'interrupted-uncertain'
               ? 'Skillager’s connection for this project could not be confirmed. Access may have been saved; normal refresh will check it. Choose Connect Skillager to try again if needed, or set it up with your agent.'
               : connection?.outcome === 'declined'
@@ -630,7 +632,8 @@ client.listen((message) => {
             : 'Installed copies are unknown here. Search covers your personal library.'
         if (changed || !local) installed.checked = local
       }
-      if (renewed || (changed && view === 'project'))
+      // Trusted destination changes retire in-flight requests in main, including Library metadata.
+      if (renewed || changed)
         requestRefresh(
           changed && view === 'project' ? { cursor: undefined, previous: [] } : undefined,
         )

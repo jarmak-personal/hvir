@@ -111,6 +111,28 @@ async function fixture() {
 }
 
 describe('native extension window foreground', () => {
+  it('republishes selected presentation after a coalesced native blur and foreground return', async () => {
+    const data = await fixture()
+    try {
+      await act(async () => {
+        data.resolve(true)
+        await Promise.resolve()
+      })
+      data.send.mockClear()
+      await act(async () => {
+        // Main withdrew visibility immediately on blur, even if React batches both events.
+        data.listeners.get('extensions:foreground-changed')!(false)
+        data.listeners.get('extensions:foreground-changed')!(true)
+        await Promise.resolve()
+      })
+      expect(data.send).toHaveBeenLastCalledWith(
+        'extensions:presentation',
+        expect.objectContaining({ visible: true, selected: true, refreshDemand: true }),
+      )
+    } finally {
+      await data.unmount()
+    }
+  })
   it('keeps the selected view visible from its cold-start native query without requiring a later focus event', async () => {
     const data = await fixture()
     try {

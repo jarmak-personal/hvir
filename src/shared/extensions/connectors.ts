@@ -207,10 +207,13 @@ export function connectorConfiguration(
   return configuration
 }
 
-/** Outcomes describe individual consent writes, never an atomic group transaction. */
+/** Outcomes describe individual completed saves or admitted reuse, never an atomic transaction. */
 export interface ExtensionConnectionResult {
-  /** Combined setup observes both scopes again; a completed write may no longer be ready. */
-  readonly readiness?: { readonly program: boolean; readonly source: boolean }
+  /** Current combined scope checks; null means unconfirmed under the bounded authority. */
+  readonly readiness?: {
+    readonly program: boolean | null
+    readonly source: boolean | null
+  }
   readonly source?: {
     readonly source: string
     readonly outcome: 'granted' | 'declined' | 'unavailable' | 'interrupted-uncertain'

@@ -651,7 +651,9 @@ export function bindSelectedSkill(document, client, ports) {
                 )
                   ? result.readiness?.program === true
                     ? 'The program is connected. Project read access was not confirmed. Choose Connect Skillager when ready.'
-                    : 'Program access was saved but is no longer ready. Choose Connect Skillager to check the remaining access.'
+                    : result.readiness?.program === false
+                      ? 'Program access was saved but is no longer ready. Choose Connect Skillager to check the remaining access.'
+                      : 'Connection ended before access could be confirmed. Choose Connect Skillager to check again.'
                   : (result.connections?.[0]?.explanation ??
                       'Connection was not completed.'),
               )

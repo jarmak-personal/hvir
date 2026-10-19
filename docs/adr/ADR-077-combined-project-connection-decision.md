@@ -25,8 +25,10 @@ The connection owner composes the existing prepared source port and native appro
 each retains its own grant store, writer and revocation. Keep the source handle current through
 both independent writes, cancel it in finally, and revalidate reused program bindings and resolved
 targets after awaited consent. Publish truthful separate outcomes when only one write succeeds and separate current-readiness
-facts when a completed write has since been revoked;
-cancellation does not imply rollback. Declining or cancelling settles the current attempt and
+facts when a completed write has since been revoked. Completed saves and admitted reuse remain
+historical facts after cancellation. Combined readiness is true or false only when checked under
+live, bounded authority; null means unconfirmed, including withdrawal before that check. No new
+metadata work starts after authority ends, and cancellation does not imply rollback or revocation. Declining or cancelling settles the current attempt and
 must not immediately replay setup as a second source prompt. Explicit later retry remains available.
 
 For an ordinary human application view whose existing declaration permits trusted workspace

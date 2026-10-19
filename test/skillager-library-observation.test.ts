@@ -68,23 +68,37 @@ it('refreshes status periodically without losing the page, and starts page one o
   expect(f.button('previous').disabled).toBe(true)
 })
 
-it('keeps the application library independent of workspace changes and refreshes after visibility renewal', async () => {
+it('renews destination metadata while keeping Library scope and page across context and visibility changes', async () => {
   const f = await libraryView()
+  f.button('next').click()
+  await f.flush()
+  const page = f.calls.filter((args) => args[0] === 'list').at(-1)!
+  expect(page[page.indexOf('--scope') + 1]).toBe('library')
   f.context(true, {
     id: 'remote',
     host: 'ssh',
     root: { hostId: 'ssh', path: '/remote' },
   })
   await f.flush()
-  expect(statuses(f)).toHaveLength(1)
+  expect(statuses(f)).toHaveLength(2)
+  expect(f.calls.filter((args) => args[0] === 'list').at(-1)).toEqual(page)
+  expect(state().textContent).toContain('Page 2')
   f.context(false)
   const before = f.calls.length
   await vi.advanceTimersByTimeAsync(31_000)
   expect(f.calls).toHaveLength(before)
   f.context()
   await f.flush()
-  expect(statuses(f)).toHaveLength(2)
+  expect(statuses(f)).toHaveLength(3)
   expect(state().dataset.state).toBe('ready')
+  expect(state().textContent).toContain('Page 2')
+  expect(f.calls.filter((args) => args[0] === 'list').at(-1)).toEqual(page)
+  expect(
+    f.requests.some(
+      ({ capability }) =>
+        capability === 'connector.connect' || capability.startsWith('source.'),
+    ),
+  ).toBe(false)
 })
 
 it.each(['delayed', 'failed'] as const)(
