@@ -447,6 +447,8 @@ it.each(['switch', 'roundtrip', 'root'] as const)(
     }
     withdraw()
     await f.flush()
+    expect(f.button('scope-project').disabled).toBe(false)
+    expect(f.button('scope-library').disabled).toBe(false)
     const before = document.getElementById('state')?.textContent,
       calls = f.calls.length
     f.connectionFailed()

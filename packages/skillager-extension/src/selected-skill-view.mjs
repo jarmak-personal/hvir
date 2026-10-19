@@ -97,7 +97,7 @@ export function bindSelectedSkill(document, client, ports) {
       pending.length > 0 ||
       !library ||
       (!!source && (!workspace || !projectReady || unchanged()))
-    el('task-update').hidden = !installed
+    el('task-update').hidden = !remote() || !installed
     el('task-update').disabled =
       working || !ready || !projectReady || !!prepared || pending.length > 0 || !source
     el('task-remove').hidden = !installed

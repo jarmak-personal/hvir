@@ -85,6 +85,8 @@ function refreshManagementAvailability() {
   refreshConnectionAvailability()
 }
 function refreshConnectionAvailability() {
+  for (const id of ['scope-project', 'scope-library'])
+    if (element(id)) element(id).disabled = !available() || connectionPending
   const button = element('connect-program')
   if (!button) return
   button.hidden =
@@ -437,7 +439,8 @@ function schedule() {
     timer = window.setTimeout(() => requestRefresh(), 30_000 - (Date.now() % 30_000))
 }
 function changeScope(next) {
-  if (view !== 'project' || next === browserScope || !available()) return
+  if (view !== 'project' || next === browserScope || connectionPending || !available())
+    return
   scopes.set(browserScope, {
     query,
     cursor,

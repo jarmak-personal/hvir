@@ -366,6 +366,8 @@ it('resolves selection internally and adds the accepted version with one action 
   })
   await vi.waitFor(() => expect(f.button('task-primary').textContent).toBe('Added'))
   expect(f.button('task-primary').disabled).toBe(true)
+  expect(f.button('task-primary').hidden).toBe(true)
+  expect(f.button('task-update').hidden).toBe(true)
 })
 it('describes an accepted version without claiming Add readiness before a destination is selected', async () => {
   const f = fixture()
@@ -380,6 +382,23 @@ it('describes an accepted version without claiming Add readiness before a destin
   f.target('workspace')
   await f.ready()
   expect(document.getElementById('task-state')?.textContent).toBe('')
+})
+it('offers one primary Update for an outdated local Stub copy and reviews its exact target', async () => {
+  const f = fixture()
+  f.installed('stub')
+  f.status.skill.exposures[0]!['source_hash'] = '0'.repeat(64)
+  f.view.select(f.selection)
+  await f.ready()
+  expect(f.button('task-primary').textContent).toBe('Update')
+  expect(f.button('task-primary').hidden).toBe(false)
+  expect(f.button('task-update').hidden).toBe(true)
+  f.button('task-primary').click()
+  await vi.waitFor(() => expect(f.button('task-confirmation').hidden).toBe(false))
+  expect(document.getElementById('task-confirm-target')?.textContent).toContain(
+    f.preview[0].target,
+  )
+  expect(document.getElementById('task-effects')?.textContent).toContain('SKILL.md')
+  expect(f.actions).toEqual([])
 })
 it('keeps a current project-bound copy quiet after refresh and presents affected files with one confirmation for mode changes', async () => {
   const f = fixture()
