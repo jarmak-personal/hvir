@@ -1,7 +1,10 @@
 import { EventEmitter } from 'node:events'
 import { runInNewContext } from 'node:vm'
 import type { BrowserWindow } from 'electron'
+import { Window } from 'happy-dom'
 import { describe, expect, it, vi } from 'vitest'
+import { localPath } from '../src/shared'
+import { openMovedSourceReviewMarker } from '../src/main/smoke/document-review'
 import { DocumentReviewDriver } from '../src/main/smoke/document-review-driver'
 
 function fixture(timeoutMs = 80) {
@@ -32,6 +35,55 @@ function fixture(timeoutMs = 80) {
 }
 
 describe('document review smoke observations', () => {
+  it.each(['source-line', 'moved-marker', 'active-fixture'])(
+    'opens the moved review once only after %s is ready',
+    async (pending) => {
+      const f = fixture()
+      const browser = new Window()
+      let opening: Promise<void> | undefined
+      try {
+        browser.document.body.innerHTML = `
+          <div class="viewer-tab active"><button class="tab-main"></button></div>
+          <div class="cm-content"><div class="cm-line"># Shifted before review</div></div>
+          <span class="cm-review-marker review-anchor-moved"></span>
+        `
+        const path = localPath('/fixture/review.md')
+        const tab = browser.document.querySelector('.tab-main')!
+        const line = browser.document.querySelector('.cm-line')!
+        const marker = browser.document.querySelector('.cm-review-marker')!
+        tab.setAttribute('title', path.path)
+        if (pending === 'source-line') line.textContent = '# Original heading'
+        if (pending === 'moved-marker') marker.classList.remove('review-anchor-moved')
+        if (pending === 'active-fixture') tab.setAttribute('title', '/other/review.md')
+        const opened = vi.fn()
+        marker.addEventListener('mousedown', opened)
+        let observeSample: (result: unknown) => void = () => undefined
+        const sampled = new Promise<unknown>((resolve) => {
+          observeSample = resolve
+        })
+        f.executeJavaScript.mockImplementation((script) => {
+          const result: unknown = browser.eval(script)
+          observeSample(result)
+          return Promise.resolve(result)
+        })
+
+        opening = openMovedSourceReviewMarker(f.driver, path)
+        await expect(sampled).resolves.toEqual({ pending: true })
+        expect(opened).not.toHaveBeenCalled()
+        line.textContent = '# Shifted before review'
+        marker.classList.add('review-anchor-moved')
+        tab.setAttribute('title', path.path)
+        await opening
+
+        expect(opened).toHaveBeenCalledOnce()
+        f.expectReleased()
+      } finally {
+        await opening?.catch(() => undefined)
+        await browser.happyDOM.close()
+      }
+    },
+  )
+
   it('samples pending state until the named outcome and releases its lifetime', async () => {
     const f = fixture()
     f.executeJavaScript

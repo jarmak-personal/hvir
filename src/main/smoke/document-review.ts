@@ -136,12 +136,7 @@ export async function verifyDocumentReviewWorkflow(options: {
     await activateControl(win, '.document-review-compose button[type="button"]')
 
     await host.writeFile(document, `# Shifted before review\n\n${documentContents}`)
-    await waitForRenderer(
-      win,
-      `document.querySelector('.cm-review-marker.review-anchor-moved')`,
-      'unique file edit did not move the source review marker',
-    )
-    await openSourceReviewMarker(win)
+    await openMovedSourceReviewMarker(win, document)
     await waitForRenderer(
       win,
       `document.querySelector('.document-review-comment.review-anchor-moved') && ` +
@@ -660,7 +655,19 @@ async function proveDeliveryClearsViewerControls(
   )
 }
 
-async function openSourceReviewMarker(win: DocumentReviewDriver): Promise<void> {
+export async function openMovedSourceReviewMarker(
+  win: DocumentReviewDriver,
+  document: HostPath,
+): Promise<void> {
+  // Anchor revalidation and the viewer read settle independently. A later source
+  // content update closes an inline review, so observe both before opening it.
+  await waitForRenderer(
+    win,
+    `document.querySelector('.viewer-tab.active .tab-main')?.getAttribute('title') === ${JSON.stringify(document.path)} && ` +
+      `document.querySelector('.cm-content .cm-line')?.textContent === '# Shifted before review' && ` +
+      `document.querySelector('.cm-review-marker.review-anchor-moved')`,
+    'unique file edit did not move the source review marker',
+  )
   await evaluateRenderer<void>(
     win,
     'source review marker activation',
