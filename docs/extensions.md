@@ -405,10 +405,11 @@ closure, hide, cancellation or revocation retires the request. An SSH project ca
 flow to discover, authenticate or approve a replacement program. Existing explicit SSH Settings
 setup is unchanged. Valid unchanged approval of that exact connector and local host needs no new
 decision; another connector's approval never supplies permission, even for the same executable.
-A connector retains one saved host binding. Connecting locally when it has a saved SSH binding
-names that exact replaced host in the same trusted decision; accepting replaces that binding,
-and its SSH projects need new approval. Declining preserves it. Saving refuses a changed prior
-binding rather than applying stale replacement consent.
+Workspace connectors retain independent saved bindings for each explicitly approved host.
+Connecting locally adds or replaces only local access; saved SSH bindings remain available.
+Declining preserves every binding. Saving refuses a changed prior binding on that same host.
+Settings lists saved hosts and edits/revokes only the selected host. The existing approval store
+allows at most 256 records and 256 KiB; an oversized complete next state is refused before saving.
 Native workspace approval remains host-scoped rather than folder-confined; each command still
 requires its own admitted project context. No install-time workspace connection or project
 mutation is introduced. File reading, agent access and delivery require their independent grants.
@@ -417,8 +418,12 @@ mutation is introduced. File reading, agent access and delivery require their in
 regardless of the selected workspace's host. `workspace` connectors require an explicit live
 workspace ID and separate native approval on that workspace's host. Their working directory is
 the pinned host-qualified workspace root. A grant on local conveys no SSH grant, and disconnect
-never retargets or automatically replays a command. `connector.status` returns per-connector
+never retargets or automatically replays a command. `connector.status` accepts optional
+`{ workspace: context.workspace.id }` and returns one row per declaration (at most eight), with
 `supported`, `unavailable` or `disconnected` availability and an achievable setup explanation.
+Application rows always describe local access. Workspace rows describe only that caller's admitted
+workspace host; without an admitted workspace they are unavailable. Status accepts no host override
+and never enumerates other saved host bindings. Updaters require current trusted workspace demand.
 
 Send `connector.execute` with `{ connector: 'installed-tool', host: 'local', args: ['--version'] }` for an
 application connector. The requested host must exactly match its approval; forged or different hosts are refused before execution. For a workspace connector, include `workspace: context.workspace.id` from

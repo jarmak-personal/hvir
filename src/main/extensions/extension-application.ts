@@ -218,7 +218,7 @@ export class ExtensionApplicationRuntime {
     const approvals = new ExtensionConnectorApprovalOwner(
       hosts,
       activations,
-      (id, connector) => this.connectors?.revoke(id, connector),
+      (id, connector, host) => this.connectors?.revoke(id, connector, host),
     )
     this.connectors = new ExtensionConnectorExecutionOwner(approvals, scratch, () =>
       activations.assertWritable(),

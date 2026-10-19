@@ -177,11 +177,10 @@ export class ExtensionConnectorConnectionOwner {
       const prepared: {
         token: string
         approval: ExtensionConnectorApproval
-        replacesHost?: string
       }[] = []
       for (const declaration of declarations) {
         assertCurrent()
-        const existing = this.approvals.get(activation, declaration.id)
+        const existing = this.approvals.get(activation, declaration.id, host.hostId)
         let complete = true
         if (
           existing?.host === host.hostId &&
@@ -277,7 +276,7 @@ export class ExtensionConnectorConnectionOwner {
             configuration: { args: [], env: {} },
           },
           assertCurrent,
-          { approval: existing },
+          existing ? { approval: existing } : undefined,
         )
         // Late completion has no authority to retain a prepared decision after cancellation.
         void preparation.then(
@@ -294,22 +293,14 @@ export class ExtensionConnectorConnectionOwner {
             once: true,
             signal: lifetime,
           })
-        prepared.push({
-          ...decision,
-          ...(existing && existing.host !== host.hostId
-            ? { replacesHost: existing.host }
-            : {}),
-        })
+        prepared.push(decision)
       }
       assertCurrent()
       if (
         prepared.length &&
         !(await this.confirm(
           pending,
-          prepared.map((entry) => ({
-            ...entry.approval,
-            ...(entry.replacesHost ? { replacesHost: entry.replacesHost } : {}),
-          })),
+          prepared.map((entry) => entry.approval),
         ))
       ) {
         assertCurrent()
@@ -374,9 +365,7 @@ export class ExtensionConnectorConnectionOwner {
 
   private confirm(
     pending: PendingConnection,
-    approvals: readonly (ExtensionConnectorApproval & {
-      readonly replacesHost?: string
-    })[],
+    approvals: readonly ExtensionConnectorApproval[],
   ): Promise<boolean> {
     pending.current()
     return new Promise((resolve, reject) => {
@@ -407,7 +396,6 @@ export class ExtensionConnectorConnectionOwner {
           connector: entry.connector,
           description: entry.declaration.description,
           context: entry.declaration.context,
-          ...(entry.replacesHost ? { replacesHost: entry.replacesHost } : {}),
           host: entry.host,
           canonicalExecutable: entry.canonicalExecutable,
           configuration: entry.configuration,

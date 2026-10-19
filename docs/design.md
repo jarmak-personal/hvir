@@ -718,7 +718,8 @@ unrelated contributor verification.
 
 ### [ADR-070 — Explicit local workspace program connection](adr/ADR-070-explicit-local-workspace-program-connection.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-074](adr/ADR-074-independent-host-connector-approvals.md) | partial | Single saved host binding per connector and disclosure of replacing another host during local connection only.
 > Supersedes: [ADR-065](adr/ADR-065-passive-extension-program-connection.md) | partial | Application-only restriction on setup hints and ordinary-human connection requests.
 > Supersedes: [ADR-051](adr/ADR-051-approved-finite-connector-execution.md) | partial | Mandatory manually supplied absolute executable input and separate Inspect step for explicit ordinary-human local-workspace connections only.
 
@@ -752,6 +753,14 @@ invocation capacity, payloads, deadlines, caller provenance and grants remain in
 
 Read-only workspace source grants remain independently reusable and revocable; contextual requests use
 only the caller's main-admitted exact workspace. Application scope and body confinement remain unchanged.
+
+### [ADR-074 — Independent host connector approvals](adr/ADR-074-independent-host-connector-approvals.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-070](adr/ADR-070-explicit-local-workspace-program-connection.md) | partial | Single saved host binding per connector and disclosure of replacing another host during local connection only.
+
+Native approvals coexist and revoke by exact host; bounded public status follows the caller's
+admitted workspace while trusted Settings presents independent saved host bindings.
 
 ## 5. Architecture
 

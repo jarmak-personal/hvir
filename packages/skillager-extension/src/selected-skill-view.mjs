@@ -170,8 +170,13 @@ export function bindSelectedSkill(document, client, ports) {
   }
   async function observeProject(revision) {
     try {
-      const connections = await scopedClient(revision).request('connector.status'),
-        connection = connections.find((entry) => entry.connector === 'project-cli')
+      const connections = await scopedClient(revision).request('connector.status', {
+          workspace: context().workspace?.id,
+        }),
+        connection = connections.find(
+          (entry) =>
+            entry.connector === 'project-cli' && entry.host === context().workspace?.host,
+        )
       if (connection?.availability !== 'supported') {
         if (connection?.availability === 'unavailable')
           el('task-connect').dataset.needed = 'true'

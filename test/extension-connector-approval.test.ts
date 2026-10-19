@@ -18,7 +18,7 @@ describe('native connector approval', () => {
     async (before) => {
       const f = fixture()
       if (before === 'saved') await f.approve('/installed/old', { args: [], env: {} })
-      const expected = f.approvals.get(f.activation, 'tool')
+      const expected = f.approvals.get(f.activation, 'tool', 'local')
       const prepared = await f.approvals.prepare(
         {
           installationId: 'installation',
@@ -35,7 +35,7 @@ describe('native connector approval', () => {
       await expect(f.approvals.approve(prepared.token)).rejects.toThrow(
         'Saved connector access changed',
       )
-      expect(f.approvals.get(f.activation, 'tool')).toBe(newer)
+      expect(f.approvals.get(f.activation, 'tool', 'local')).toBe(newer)
       expect(f.write).toHaveBeenCalledTimes(writes)
       expect(f.state()).toEqual([newer])
       expect(f.host.exec).not.toHaveBeenCalled()
@@ -72,7 +72,7 @@ describe('native connector approval', () => {
     const newer = await f.approve('/installed/newer', { args: [], env: {} })
     resume()
     await rejected
-    expect(f.approvals.get(f.activation, 'tool')).toBe(newer)
+    expect(f.approvals.get(f.activation, 'tool', 'local')).toBe(newer)
     expect(f.state()).toEqual([newer])
   })
   it('keeps a prior-bound replacement revoked during its submitted save from restoring authority', async () => {
@@ -106,12 +106,12 @@ describe('native connector approval', () => {
     const rejected = expect(saving).rejects.toThrow()
     await reached
     const revoking = f.approvals.revoke('installation', 'tool')
-    expect(f.approvals.get(f.activation, 'tool')).toBeUndefined()
+    expect(f.approvals.get(f.activation, 'tool', 'local')).toBeUndefined()
     resume()
     await rejected
     await revoking
     expect(f.state()).toEqual([])
-    expect(f.approvals.get(f.activation, 'tool')).toBeUndefined()
+    expect(f.approvals.get(f.activation, 'tool', 'local')).toBeUndefined()
   })
   it.each(['writable', 'canonical'] as const)(
     'cannot publish a prepared decision revoked during %s inspection',
@@ -153,7 +153,7 @@ describe('native connector approval', () => {
       resume()
       await rejected
       await revoking
-      expect(f.approvals.get(f.activation, 'tool')).toBeUndefined()
+      expect(f.approvals.get(f.activation, 'tool', 'local')).toBeUndefined()
       expect(f.state()).toEqual([])
       expect(f.host.exec).not.toHaveBeenCalled()
     },
@@ -202,11 +202,11 @@ describe('native connector approval', () => {
       const rejected = expect(approving).rejects.toThrow()
       await reached
       const revoking = f.approvals.revoke('installation', 'tool')
-      expect(f.approvals.get(f.activation, 'tool')).toBeUndefined()
+      expect(f.approvals.get(f.activation, 'tool', 'local')).toBeUndefined()
       resume()
       await rejected
       await revoking
-      expect(f.approvals.get(f.activation, 'tool')).toBeUndefined()
+      expect(f.approvals.get(f.activation, 'tool', 'local')).toBeUndefined()
       expect(f.state()).toEqual([])
       expect(f.host.exec).not.toHaveBeenCalled()
     },
@@ -249,7 +249,7 @@ describe('native connector approval', () => {
     const revoking = f.approvals.revoke('installation', 'tool')
     resume()
     await approving
-    expect(f.approvals.get(f.activation, 'tool')).toBeUndefined()
+    expect(f.approvals.get(f.activation, 'tool', 'local')).toBeUndefined()
     expect(await f.execution.execute(f.caller, f.input)).toMatchObject({
       outcome: 'not-started',
       reason: 'unapproved',
@@ -276,7 +276,7 @@ describe('native connector approval', () => {
     )
     current = false
     await expect(f.approvals.approve(prepared.token)).rejects.toThrow('Renderer ended')
-    expect(f.approvals.get(f.activation, 'tool')).toBeUndefined()
+    expect(f.approvals.get(f.activation, 'tool', 'local')).toBeUndefined()
     expect(f.host.exec).not.toHaveBeenCalled()
   })
   it('executes nothing during discovery, inspection or explicit approval and persists the complete binding', async () => {
@@ -335,7 +335,7 @@ describe('native connector approval', () => {
     expect(prepared.approval.canonicalExecutable).toBe('/versions/a')
     f.host.realpath.mockResolvedValueOnce(localPath('/versions/b'))
     await expect(f.approvals.approve(prepared.token)).rejects.toThrow('target changed')
-    expect(f.approvals.get(f.activation, 'tool')).toBeUndefined()
+    expect(f.approvals.get(f.activation, 'tool', 'local')).toBeUndefined()
   })
   it('reuses unchanged persisted approval on a new activation, but changed declarations cannot consume it', async () => {
     const f = fixture()
@@ -348,7 +348,7 @@ describe('native connector approval', () => {
     await restored.start()
     const next = { ...f.activation, generation: 'next' }
     f.active.set('installation', next)
-    expect(restored.get(next, 'tool')).toBeDefined()
+    expect(restored.get(next, 'tool', 'local')).toBeDefined()
     const changed = {
       ...next,
       revision: {
@@ -360,7 +360,7 @@ describe('native connector approval', () => {
       },
     }
     f.active.set('installation', changed)
-    expect(restored.get(changed, 'tool')).toBeUndefined()
+    expect(restored.get(changed, 'tool', 'local')).toBeUndefined()
     restored.dispose()
   })
   it('revokes before saving and keeps access revoked when persistence fails', async () => {
@@ -370,7 +370,7 @@ describe('native connector approval', () => {
     await expect(f.approvals.revoke('installation', 'tool')).rejects.toThrow(
       'write failed',
     )
-    expect(f.approvals.get(f.activation, 'tool')).toBeUndefined()
+    expect(f.approvals.get(f.activation, 'tool', 'local')).toBeUndefined()
     expect(f.approvals.status(f.activation)[0]!.availability).toBe('unavailable')
   })
   it('fails closed on malformed saved authority without disabling the activation', async () => {

@@ -161,6 +161,7 @@ export async function verifyExtensionConnection(
             (entry) => entry.revision.manifest.id === 'hvir.connection-smoke',
           )!,
           'missing-tool',
+          host.hostId,
         )
       )
         throw new Error('Passive selection prepared a decision or grant')
@@ -189,10 +190,10 @@ export async function verifyExtensionConnection(
       (entry) => entry.revision.manifest.id === 'hvir.connection-smoke',
     )!
     await controls.wait(
-      () => !!approvals.get(installed, 'tool'),
+      () => !!approvals.get(installed, 'tool', host.hostId),
       'exact default native connection saved',
     )
-    const approval = approvals.get(installed, 'tool')!
+    const approval = approvals.get(installed, 'tool', host.hostId)!
     if (
       installed.revision.hash !== expected.hash ||
       approval.declaration.setup?.executable !== 'sh' ||
@@ -254,7 +255,7 @@ export async function verifyExtensionConnection(
         ),
       'ordinary guest decline is delivered without a grant',
     )
-    if (approvals.get(installed, 'tool') || (await exists()))
+    if (approvals.get(installed, 'tool', host.hostId) || (await exists()))
       throw new Error('Declining granted access or executed a program')
     await guestClick('connect')
     await decide(true)

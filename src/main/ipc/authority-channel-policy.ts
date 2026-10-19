@@ -25,6 +25,7 @@ export const OWNER_SCOPED_INVOKE_CHANNELS = [
   'extensions:connection-cancel',
   'extensions:connector-prepare',
   'extensions:connector-approve',
+  'extensions:connector-cancel-prepared',
   'extensions:connector-revoke',
   'extensions:state',
   'extensions:discover',

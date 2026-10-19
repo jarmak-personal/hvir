@@ -140,6 +140,51 @@
   display: grid;
   gap: 10px;
 }
+.connector-saved-hosts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.connector-saved-host {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  width: 100%;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.connector-saved-host:hover {
+  background: var(--surface-hover);
+}
+.connector-saved-host[aria-pressed='true'] {
+  background: var(--accent-soft);
+  border-color: var(--border-subtle);
+  color: var(--text-strong);
+}
+.connector-saved-host > span:first-child {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+.connector-host-status {
+  color: var(--text-muted);
+  font-size: calc(11px * var(--hvir-interface-scale));
+}
+.connector-saved-host:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
 .extension-source-binding {
   display: flex;
   align-items: center;

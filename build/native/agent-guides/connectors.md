@@ -6,7 +6,7 @@ Installed extension contract: 1.0. Guests have no direct network, filesystem or 
 {"id":"tool","description":"Inspect an explicitly approved installed tool","context":"application","timeoutMs":120000,"outputBytes":4194304,"environment":["TOOL_HOME"]}
 ```
 
-context is application or workspace; timeoutMs is 1–180000 milliseconds, outputBytes is 1–4194304 bytes, and environment lists permitted override names. Settings selects the executable host/canonical path, fixed arguments and explicitly declared environment overrides. Approval binds the exact declaration/configuration, host and canonical executable. Declaring it does not approve it. Application context runs on the application-local scratch directory and does not accept workspace targeting. Workspace context requires an admitted workspace ID on the approved host.
+context is application or workspace; timeoutMs is 1–180000 milliseconds, outputBytes is 1–4194304 bytes, and environment lists permitted override names. Settings selects the executable host/canonical path, fixed arguments and explicitly declared environment overrides. Approval binds the exact declaration/configuration, host and canonical executable. Declaring it does not approve it. Application context runs on the application-local scratch directory and does not accept workspace targeting. Workspace context requires an admitted workspace ID on the approved host. Each workspace connector can retain independent local and SSH approvals; saving or revoking one host leaves the others intact. Settings selects one saved host to edit or revoke.
 
 ### connector.connect
 
@@ -16,7 +16,7 @@ Returns `{connections:[{connector,outcome,explanation?}]}`, with outcome `connec
 
 ### connector.status
 
-No input. Returns an array of `{connector,availability,host?,explanation?}`; availability is `supported`, `unavailable` or `disconnected` for configured/approved connectors. It omits executable paths and is not an execution-receipt query. No executable probes or SSH authentication prompts run from status.
+Optional input `{workspace:context.workspace.id}`. Returns one row per declaration (at most eight) as `{connector,availability,host?,explanation?}`; availability is `supported`, `unavailable` or `disconnected`. Application rows always describe local access. Workspace rows describe only the exact caller-admitted workspace host; omitted or foreign workspace context makes them unavailable. Updaters require current trusted visible demand for that workspace. No host override or enumeration of saved bindings is accepted. It omits executable paths and is not an execution-receipt query. No executable probes or SSH authentication prompts run from status.
 
 ### connector.execute
 

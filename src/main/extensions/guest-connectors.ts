@@ -1,4 +1,9 @@
-import { extensionId, extensionObject } from '../../shared/extensions/validation'
+import {
+  extensionId,
+  extensionObject,
+  extensionText,
+} from '../../shared/extensions/validation'
+import { WORKSPACE_IDENTITY_CHARS } from '../../shared/host-path'
 import type { ExtensionGuestPorts } from './guest-capability-ports'
 import { requestGuestDelivery } from './guest-delivery'
 import type { ConnectorCaller } from './connector-execution'
@@ -138,13 +143,34 @@ export async function requestGuestConnector(
       invocation,
     )
   }
-  if (capability === 'connector.status')
-    return connectors.approvals.status(record.activation).map((entry) => ({
+  if (capability === 'connector.status') {
+    const selection = extensionObject(input ?? {})
+    if (Object.keys(selection).some((key) => key !== 'workspace'))
+      throw new Error('Connector status accepts only an admitted workspace identity')
+    const workspace =
+      selection['workspace'] === undefined
+        ? undefined
+        : extensionText(
+            selection['workspace'],
+            'workspace identity',
+            WORKSPACE_IDENTITY_CHARS,
+          )
+    caller.current()
+    caller.signal.throwIfAborted()
+    let host: string | undefined
+    try {
+      const context = caller.context(workspace)
+      if (context?.current()) host = context.root?.hostId
+    } catch {
+      // An absent or withdrawn workspace has no native status authority.
+    }
+    return connectors.approvals.status(record.activation, host).map((entry) => ({
       connector: entry.connector,
       availability: entry.availability,
       ...(entry.host ? { host: entry.host } : {}),
       ...(entry.explanation ? { explanation: entry.explanation } : {}),
     }))
+  }
   if (capability === 'connector.output') return connectors.output(caller, input)
   return connectors.execute(caller, input)
 }

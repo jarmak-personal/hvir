@@ -96,9 +96,11 @@ export class ExtensionTerminalHandoff {
       connector = extensionText(input['connector'], 'connector', 80),
       workspace = extensionText(input['workspace'], 'workspace', 160)
     const args = connectorArguments(input['args'])
-    const approval = this.approvals.get(caller.activation, connector)
     const context = caller.context,
       root = context?.root
+    const approval = root
+      ? this.approvals.get(caller.activation, connector, root.hostId)
+      : undefined
     if (
       !approval ||
       approval.declaration.context !== 'workspace' ||

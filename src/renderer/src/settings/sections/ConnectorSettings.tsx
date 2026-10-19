@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import type { ProjectHostOption } from '../../../../shared'
 import type { ExtensionInstallation } from '../../../../shared/extensions/workbench'
 import type {
   ExtensionConnectorApproval,
   ExtensionConnectorDeclaration,
-  ExtensionConnectorStatus,
+  ExtensionConnectorSetting,
 } from '../../../../shared/extensions/connectors'
 
 /** Trusted native approval controls. No executable probe runs before approval. */
@@ -46,6 +46,8 @@ function ConnectorSetup({
   readonly connector: ExtensionConnectorDeclaration
 }): ReactElement {
   const canConnect = connector.context === 'application' && !!connector.setup
+  // Republished equal declarations retain setup; authority uses this same exact identity.
+  const declarationKey = JSON.stringify(connector)
   const connectionRequest = useRef<string | undefined>(undefined)
   useEffect(() => {
     if (!canConnect) return
@@ -58,7 +60,7 @@ function ConnectorSetup({
           .catch(() => {})
     }
     return () => cancel()
-  }, [canConnect])
+  }, [canConnect, installation, declarationKey])
   const [hosts, setHosts] = useState<readonly ProjectHostOption[]>([])
   const [host, setHost] = useState('local')
   const [path, setPath] = useState('')
@@ -67,29 +69,101 @@ function ConnectorSetup({
     token: string
     approval: ExtensionConnectorApproval
   }>()
-  const [status, setStatus] = useState<ExtensionConnectorStatus>()
+  const preparation = useRef<{
+    active: boolean
+    owner: number
+    generation: number
+    token?: string
+  }>({
+    active: true,
+    owner: 0,
+    generation: 0,
+  })
+  const abandonDecision = useCallback((): Promise<void> => {
+    const lifetime = preparation.current
+    lifetime.generation++
+    const token = lifetime.token
+    delete lifetime.token
+    setDecision(undefined)
+    return token ? cancelPrepared(token) : Promise.resolve()
+  }, [])
+  useEffect(() => {
+    const lifetime = preparation.current
+    lifetime.active = true
+    lifetime.owner++
+    setBusy(false)
+    setError(undefined)
+    setBindings([])
+    setHosts([])
+    setHost('local')
+    setPath('')
+    setConfiguration('{"args":[],"env":{}}')
+    return () => {
+      lifetime.active = false
+      void abandonDecision()
+    }
+  }, [installation, declarationKey, abandonDecision])
+  const [bindings, setBindings] = useState<readonly ExtensionConnectorSetting[]>([])
+  const status = bindings.find((entry) => entry.host === host)
+  const hostLabel = hosts.find((entry) => entry.hostId === host)?.label ?? host
+  const selectHost = (selected: string, saved = bindings): void => {
+    const binding = saved.find((entry) => entry.host === selected)
+    setHost(selected)
+    setPath(binding?.selectedExecutable ?? '')
+    setConfiguration(JSON.stringify(binding?.configuration ?? { args: [], env: {} }))
+    void abandonDecision()
+  }
+  const isCurrentOwner = (owner: number): boolean =>
+    preparation.current.active && preparation.current.owner === owner
+  const refresh = async (owner: number): Promise<void> => {
+    if (!isCurrentOwner(owner)) return
+    const value = await window.hvir.invoke('extensions:connector-settings', {
+      installationId: installation,
+    })
+    if (!isCurrentOwner(owner)) return
+    const saved = value.connectors.filter((entry) => entry.connector === connector.id)
+    setHosts(value.hosts)
+    if (value.explanation) setError(value.explanation)
+    setBindings(saved)
+    selectHost(host, saved)
+  }
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
-  const run = async (operation: () => Promise<void>): Promise<void> => {
+  const run = async (operation: (owner: number) => Promise<void>): Promise<void> => {
+    const owner = preparation.current.owner
     setBusy(true)
     setError(undefined)
     try {
-      await operation()
+      await operation(owner)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Native setup failed')
+      if (isCurrentOwner(owner))
+        setError(reason instanceof Error ? reason.message : 'Native setup failed')
     } finally {
-      setBusy(false)
+      if (isCurrentOwner(owner)) setBusy(false)
     }
   }
   useEffect(() => {
     let current = true
+    const generation = preparation.current.generation
     void window.hvir
       .invoke('extensions:connector-settings', { installationId: installation })
       .then(
         (value) => {
           if (current) {
             setHosts(value.hosts)
-            setStatus(value.connectors.find((entry) => entry.connector === connector.id))
+            setError(value.explanation)
+            const saved = value.connectors.filter(
+              (entry) => entry.connector === connector.id,
+            )
+            setBindings(saved)
+            if (preparation.current.generation === generation) {
+              const local = saved.find((entry) => entry.host === 'local')
+              setHost('local')
+              setPath(local?.selectedExecutable ?? '')
+              setConfiguration(
+                JSON.stringify(local?.configuration ?? { args: [], env: {} }),
+              )
+            }
           }
         },
         () => {
@@ -99,26 +173,57 @@ function ConnectorSetup({
     return () => {
       current = false
     }
-  }, [installation, connector])
+  }, [installation, connector.id, declarationKey])
   return (
     <fieldset disabled={busy}>
       <legend>Program access: {connector.id}</legend>
       <p>{connector.description}</p>
       <p role="status">
-        {status?.availability === 'supported'
-          ? 'Approved'
-          : status?.availability === 'disconnected'
-            ? 'Host disconnected'
-            : 'Unavailable'}
+        {busy
+          ? 'Updating program access…'
+          : status?.availability === 'supported'
+            ? 'Approved'
+            : status?.availability === 'disconnected'
+              ? 'Host disconnected'
+              : `Not approved for ${hostLabel}`}
         {status?.executable ? ` · ${status.host}: ${status.executable}` : ''}
         {status?.explanation ? ` · ${status.explanation}` : ''}
       </p>
+      {bindings.length ? (
+        <ul
+          className="connector-saved-hosts"
+          aria-label={`Saved hosts for ${connector.id}`}
+        >
+          {bindings.map((binding) => (
+            <li key={binding.host}>
+              <button
+                type="button"
+                className="connector-saved-host hvir-focus"
+                aria-pressed={host === binding.host}
+                onClick={() => selectHost(binding.host)}
+              >
+                <span>
+                  {hosts.find((entry) => entry.hostId === binding.host)?.label ??
+                    binding.host}
+                </span>
+                <span className="connector-host-status">
+                  {binding.availability === 'supported'
+                    ? 'Approved'
+                    : binding.availability === 'disconnected'
+                      ? 'Disconnected'
+                      : 'Needs approval'}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {canConnect && connector.setup ? (
         <button
           type="button"
           className="hvir-button"
           onClick={() =>
-            void run(async () => {
+            void run(async (owner) => {
               const request = crypto.randomUUID()
               connectionRequest.current = request
               const result = await window.hvir.invoke('extensions:connector-connect', {
@@ -126,7 +231,7 @@ function ConnectorSetup({
                 installationId: installation,
                 connector: connector.id,
               })
-              if (connectionRequest.current !== request) return
+              if (!isCurrentOwner(owner) || connectionRequest.current !== request) return
               connectionRequest.current = undefined
               const outcome = result.connections.find(
                 (entry) => entry.connector === connector.id,
@@ -137,13 +242,7 @@ function ConnectorSetup({
                 setError(
                   outcome?.explanation ?? 'Not connected. Choose Connect when ready.',
                 )
-              setStatus(
-                (
-                  await window.hvir.invoke('extensions:connector-settings', {
-                    installationId: installation,
-                  })
-                ).connectors.find((entry) => entry.connector === connector.id),
-              )
+              await refresh(owner)
             })
           }
         >
@@ -164,11 +263,13 @@ function ConnectorSetup({
             aria-label={`Host for ${connector.id}`}
             value={host}
             onChange={(event) => {
-              setHost(event.target.value)
-              setDecision(undefined)
+              selectHost(event.target.value)
             }}
             className="hvir-input"
           >
+            {!hosts.some((entry) => entry.hostId === host) ? (
+              <option value={host}>{hostLabel}</option>
+            ) : null}
             {hosts
               .filter(
                 (entry) => connector.context !== 'application' || entry.kind === 'local',
@@ -187,7 +288,7 @@ function ConnectorSetup({
             value={path}
             onChange={(event) => {
               setPath(event.target.value)
-              setDecision(undefined)
+              void abandonDecision()
             }}
             className="hvir-input"
           />
@@ -224,7 +325,7 @@ function ConnectorSetup({
               value={configuration}
               onChange={(event) => {
                 setConfiguration(event.target.value)
-                setDecision(undefined)
+                void abandonDecision()
               }}
               className="hvir-input"
             />
@@ -234,17 +335,32 @@ function ConnectorSetup({
           type="button"
           onClick={() =>
             void run(async () => {
-              setDecision(
-                await window.hvir.invoke('extensions:connector-prepare', {
-                  installationId: installation,
-                  connector: connector.id,
-                  host,
-                  executable: path,
-                  configuration: JSON.parse(
-                    configuration,
-                  ) as ExtensionConnectorApproval['configuration'],
-                }),
+              const abandoned = abandonDecision()
+              const generation = preparation.current.generation
+              await abandoned
+              if (
+                !preparation.current.active ||
+                preparation.current.generation !== generation
               )
+                return
+              const prepared = await window.hvir.invoke('extensions:connector-prepare', {
+                installationId: installation,
+                connector: connector.id,
+                host,
+                executable: path,
+                configuration: JSON.parse(
+                  configuration,
+                ) as ExtensionConnectorApproval['configuration'],
+              })
+              if (
+                !preparation.current.active ||
+                preparation.current.generation !== generation
+              ) {
+                await cancelPrepared(prepared.token)
+                return
+              }
+              preparation.current.token = prepared.token
+              setDecision(prepared)
             })
           }
           className="hvir-button"
@@ -261,18 +377,14 @@ function ConnectorSetup({
             <button
               type="button"
               onClick={() =>
-                void run(async () => {
+                void run(async (owner) => {
                   await window.hvir.invoke('extensions:connector-approve', {
                     token: decision.token,
                   })
+                  if (!isCurrentOwner(owner)) return
+                  delete preparation.current.token
                   setDecision(undefined)
-                  setStatus(
-                    (
-                      await window.hvir.invoke('extensions:connector-settings', {
-                        installationId: installation,
-                      })
-                    ).connectors.find((entry) => entry.connector === connector.id),
-                  )
+                  await refresh(owner)
                 })
               }
               className="hvir-button"
@@ -282,23 +394,32 @@ function ConnectorSetup({
           </>
         ) : null}
       </details>
-      <button
-        type="button"
-        onClick={() =>
-          void run(async () => {
-            await window.hvir.invoke('extensions:connector-revoke', {
-              installationId: installation,
-              connector: connector.id,
+      {status ? (
+        <button
+          type="button"
+          onClick={() =>
+            void run(async (owner) => {
+              await window.hvir.invoke('extensions:connector-revoke', {
+                installationId: installation,
+                connector: connector.id,
+                host,
+              })
+              await refresh(owner)
             })
-            setDecision(undefined)
-            setStatus(undefined)
-          })
-        }
-        className="hvir-button"
-      >
-        Revoke native access
-      </button>
+          }
+          className="hvir-button"
+        >
+          Revoke access on {hostLabel}
+        </button>
+      ) : null}
       {error ? <p role="alert">{error}</p> : null}
     </fieldset>
   )
+}
+
+/** Prepared decisions hold a bounded main slot; abandoning UI intent releases only that token. */
+function cancelPrepared(token: string): Promise<void> {
+  return window.hvir
+    .invoke('extensions:connector-cancel-prepared', { token })
+    .catch(() => {})
 }

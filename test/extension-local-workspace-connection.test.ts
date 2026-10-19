@@ -149,7 +149,7 @@ describe('main-admitted local project connection', () => {
     }
   })
   it.each([false, true])(
-    'discloses replacing a saved SSH approval with identical paths and preserves it when consent=%s',
+    'preserves saved SSH approval while local connection consent=%s',
     async (accepted) => {
       const data = await fixture()
       try {
@@ -194,10 +194,8 @@ describe('main-admitted local project connection', () => {
         const proposal = data.connection.snapshot(data.renderer)[0]!
         expect(proposal.programs[0]).toMatchObject({
           host: 'local',
-          replacesHost: remoteId,
           canonicalExecutable: '/installed/tool',
         })
-        expect(proposal.programs[0]?.replacesHost).toBe(remoteId)
         expect(data.result()).toBeUndefined()
         data.connection.decide(data.renderer, proposal.id, accepted)
         await vi.waitFor(() =>
@@ -206,9 +204,13 @@ describe('main-admitted local project connection', () => {
             value: { connections: [{ outcome: accepted ? 'connected' : 'declined' }] },
           }),
         )
-        expect(data.native.approvals.get(activation, 'tool')?.host).toBe(
-          accepted ? 'local' : remoteId,
+        expect(data.native.approvals.get(activation, 'tool', remoteId)).toBe(
+          prepared.approval,
         )
+        expect(data.native.approvals.get(activation, 'tool', 'local')?.host).toBe(
+          accepted ? 'local' : undefined,
+        )
+        expect(data.native.state()).toHaveLength(accepted ? 2 : 1)
         expect(data.native.write).toHaveBeenCalledTimes(accepted ? 2 : 1)
         expect(data.native.host.exec).not.toHaveBeenCalled()
       } finally {
@@ -430,7 +432,7 @@ describe('main-admitted local project connection', () => {
       await vi.waitFor(() => expect(data.context.listeners[0]).toHaveLength(0))
       expect(data.native.write).not.toHaveBeenCalled()
       expect(
-        data.native.approvals.get([...data.native.active.values()][0]!, 'tool'),
+        data.native.approvals.get([...data.native.active.values()][0]!, 'tool', 'local'),
       ).toBeUndefined()
     } finally {
       await data.stop()

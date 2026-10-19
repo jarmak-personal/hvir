@@ -12,6 +12,7 @@ import {
   type ExtensionConnectorApproval,
   type ExtensionConnectorSelection,
   type ExtensionConnectorStatus,
+  type ExtensionConnectorSetting,
 } from '../../shared/extensions/connectors'
 import type { ProjectHost } from '../project-host/project-host'
 import type { ProjectHostOption } from '../../shared'
@@ -35,11 +36,12 @@ interface PreparedApproval {
   readonly expires: number
   readonly current: () => void
   readonly decision: ApprovalDecision
-  readonly prior?: { readonly approval: ExtensionConnectorApproval | undefined }
+  readonly prior: { readonly approval: ExtensionConnectorApproval | undefined }
 }
 interface ApprovalDecision {
   readonly installationId: string
   readonly connector: string
+  readonly host: string
   readonly controller: AbortController
 }
 
@@ -57,13 +59,17 @@ export class ExtensionConnectorApprovalOwner {
       ExtensionActivationOwner,
       'active' | 'assertWritable' | 'readConnectorApprovals' | 'saveConnectorApprovals'
     >,
-    private readonly revoked: (installation: string, connector?: string) => void,
+    private readonly revoked: (
+      installation: string,
+      connector?: string,
+      host?: string,
+    ) => void,
   ) {}
 
   async start(): Promise<void> {
     try {
       const value = await this.activations.readConnectorApprovals()
-      if (!Array.isArray(value) || value.length > 32 * CONNECTOR_LIMITS.declarations)
+      if (!Array.isArray(value) || value.length > CONNECTOR_LIMITS.approvals)
         throw new Error('Invalid connector approval state')
       const approvals = value.map((entry: unknown): ExtensionConnectorApproval => {
         const object = extensionObject(entry)
@@ -87,7 +93,12 @@ export class ExtensionConnectorApprovalOwner {
       })
       if (
         new Set(approvals.map((entry) => key(entry))).size !== approvals.length ||
-        approvals.some((entry) => entry.connector !== entry.declaration.id)
+        approvals.some(
+          (entry) =>
+            entry.connector !== entry.declaration.id ||
+            (entry.declaration.context === 'application' &&
+              entry.host !== this.hosts.local.hostId),
+        )
       )
         throw new Error('Invalid connector approval identity')
       if (!this.disposed) this.approvals = approvals
@@ -103,11 +114,14 @@ export class ExtensionConnectorApprovalOwner {
     prior?: { readonly approval: ExtensionConnectorApproval | undefined },
   ): Promise<{ token: string; approval: ExtensionConnectorApproval }> {
     this.prune()
+    const expected = prior ?? {
+      approval: this.approvals.find((entry) => key(entry) === key(selection)),
+    }
     const assertCurrent = (): void => {
       current()
       if (
-        prior &&
-        this.approvals.find((entry) => key(entry) === key(selection)) !== prior.approval
+        this.approvals.find((entry) => key(entry) === key(selection)) !==
+        expected.approval
       )
         throw new Error(
           'Saved connector access changed; connect again to review its replacement',
@@ -118,6 +132,7 @@ export class ExtensionConnectorApprovalOwner {
     const decision: ApprovalDecision = {
       installationId: selection.installationId,
       connector: selection.connector,
+      host: selection.host,
       controller: new AbortController(),
     }
     this.decisions.add(decision)
@@ -165,7 +180,7 @@ export class ExtensionConnectorApprovalOwner {
         expires: Date.now() + 60_000,
         current,
         decision,
-        ...(prior ? { prior } : {}),
+        prior: expected,
       })
       retained = true
       return { token, approval }
@@ -201,18 +216,25 @@ export class ExtensionConnectorApprovalOwner {
         }
         current()
         if (
-          prepared.prior &&
-          this.get(activation, approval.connector) !== prepared.prior.approval
+          this.approvals.find((entry) => key(entry) === key(approval)) !==
+          prepared.prior.approval
         )
           throw new Error(
             'Saved connector access changed; connect again to review its replacement',
           )
-        this.revoked(approval.installationId, approval.connector)
-        this.approvals = this.approvals.filter((entry) => key(entry) !== key(approval))
         const next = [
           ...this.approvals.filter((entry) => key(entry) !== key(approval)),
           approval,
         ]
+        if (
+          next.length > CONNECTOR_LIMITS.approvals ||
+          Buffer.byteLength(JSON.stringify(next)) > CONNECTOR_LIMITS.stateBytes
+        )
+          throw new Error(
+            'Connector approval state exceeds its bound; revoke unused host bindings first',
+          )
+        this.revoked(approval.installationId, approval.connector, approval.host)
+        this.approvals = this.approvals.filter((entry) => key(entry) !== key(approval))
         await this.activations.saveConnectorApprovals(next, current)
         current()
         // Apply only this decision's delta; other synchronous revocations win over a saved snapshot.
@@ -227,13 +249,14 @@ export class ExtensionConnectorApprovalOwner {
     })
   }
 
-  revoke(installation: string, connector?: string): Promise<void> {
-    this.revoked(installation, connector)
-    this.discardPrepared(installation, connector)
+  revoke(installation: string, connector?: string, host?: string): Promise<void> {
+    this.revoked(installation, connector, host)
+    this.discardPrepared(installation, connector, host)
     this.approvals = this.approvals.filter(
       (entry) =>
         entry.installationId !== installation ||
-        (!!connector && entry.connector !== connector),
+        (!!connector && entry.connector !== connector) ||
+        (!!host && entry.host !== host),
     )
     if (this.failure) return Promise.resolve()
     return this.serialize(async () => {
@@ -241,7 +264,8 @@ export class ExtensionConnectorApprovalOwner {
       const next = this.approvals.filter(
         (entry) =>
           entry.installationId !== installation ||
-          (!!connector && entry.connector !== connector),
+          (!!connector && entry.connector !== connector) ||
+          (!!host && entry.host !== host),
       )
       this.approvals = next
       await this.activations.saveConnectorApprovals(next, () => {
@@ -264,17 +288,19 @@ export class ExtensionConnectorApprovalOwner {
     this.decisions.delete(prepared.decision)
   }
 
-  discardPrepared(installation: string, connector?: string): void {
+  discardPrepared(installation: string, connector?: string, host?: string): void {
     for (const decision of this.decisions)
       if (
         decision.installationId === installation &&
-        (!connector || decision.connector === connector)
+        (!connector || decision.connector === connector) &&
+        (!host || decision.host === host)
       )
         decision.controller.abort()
     for (const [token, entry] of this.prepared)
       if (
         entry.approval.installationId === installation &&
-        (!connector || entry.approval.connector === connector)
+        (!connector || entry.approval.connector === connector) &&
+        (!host || entry.approval.host === host)
       ) {
         this.prepared.delete(token)
         this.decisions.delete(entry.decision)
@@ -294,6 +320,7 @@ export class ExtensionConnectorApprovalOwner {
   get(
     activation: ExtensionActivation,
     connector: string,
+    host: string,
   ): ExtensionConnectorApproval | undefined {
     if (
       this.disposed ||
@@ -308,6 +335,7 @@ export class ExtensionConnectorApprovalOwner {
       (entry) =>
         entry.installationId === activation.installationId &&
         entry.connector === connector &&
+        entry.host === host &&
         JSON.stringify(entry.declaration) === JSON.stringify(declaration),
     )
   }
@@ -316,28 +344,62 @@ export class ExtensionConnectorApprovalOwner {
     approval: ExtensionConnectorApproval,
   ): boolean {
     return (
-      this.get(activation, approval.connector) === approval &&
+      this.get(activation, approval.connector, approval.host) === approval &&
       this.hosts.hostById(approval.host)?.connectionState === 'connected'
     )
   }
-  status(activation: ExtensionActivation): readonly ExtensionConnectorStatus[] {
+  status(
+    activation: ExtensionActivation,
+    workspaceHost?: string,
+  ): readonly ExtensionConnectorStatus[] {
     return (activation.revision.manifest.connectors ?? []).map((declaration) => {
-      const approval = this.get(activation, declaration.id)
+      const host =
+        declaration.context === 'application' ? this.hosts.local.hostId : workspaceHost
+      const approval = host ? this.get(activation, declaration.id, host) : undefined
       return {
         connector: declaration.id,
-        availability: !approval
-          ? 'unavailable'
-          : this.hosts.hostById(approval.host)?.connectionState === 'connected'
-            ? 'supported'
-            : 'disconnected',
+        ...this.availability(approval),
+        ...(host ? { host } : {}),
         ...(approval
-          ? { host: approval.host, executable: approval.canonicalExecutable }
+          ? { executable: approval.canonicalExecutable }
           : {
               explanation:
-                this.failure ?? 'Approve this installed tool in Settings → Extensions',
+                this.failure ??
+                (host
+                  ? `Approve this installed tool for ${host} in Settings → Extensions`
+                  : 'Select an admitted workspace to check this project connector'),
             }),
       }
     })
+  }
+  settings(activation: ExtensionActivation): {
+    readonly connectors: readonly ExtensionConnectorSetting[]
+    readonly explanation?: string
+  } {
+    return {
+      ...(this.failure ? { explanation: this.failure } : {}),
+      connectors: this.approvals
+        .filter((entry) => entry.installationId === activation.installationId)
+        .map((entry) => ({
+          connector: entry.connector,
+          host: entry.host,
+          executable: entry.canonicalExecutable,
+          selectedExecutable: entry.executable,
+          configuration: entry.configuration,
+          ...this.availability(this.get(activation, entry.connector, entry.host)),
+        })),
+    }
+  }
+  private availability(
+    approval: ExtensionConnectorApproval | undefined,
+  ): Pick<ExtensionConnectorStatus, 'availability'> {
+    return {
+      availability: !approval
+        ? 'unavailable'
+        : this.hosts.hostById(approval.host)?.connectionState === 'connected'
+          ? 'supported'
+          : 'disconnected',
+    }
   }
   dispose(): void {
     this.disposed = true
@@ -387,7 +449,7 @@ export async function canonicalExecutablePath(
   return executablePath(canonical.path)
 }
 function key(
-  approval: Pick<ExtensionConnectorSelection, 'installationId' | 'connector'>,
+  approval: Pick<ExtensionConnectorSelection, 'installationId' | 'connector' | 'host'>,
 ): string {
-  return JSON.stringify([approval.installationId, approval.connector])
+  return JSON.stringify([approval.installationId, approval.connector, approval.host])
 }
