@@ -192,7 +192,7 @@ describe('finite connector execution', () => {
     })
     expect(
       await f.execution.execute(f.caller, { ...f.input, args: ['changed'] }),
-    ).toMatchObject({ outcome: 'not-started', reason: 'unapproved' })
+    ).toMatchObject({ outcome: 'not-started', reason: 'executable-changed' })
     expect(f.host.exec).toHaveBeenCalledOnce()
   })
   it('clips an adapter chunk overshoot, preserves UTF-8, and never presents truncation as a completed response', async () => {

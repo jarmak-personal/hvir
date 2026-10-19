@@ -33,7 +33,8 @@ it.each(['ordinary', 'updater'] as const)(
       {
         connectors: {
           approvals: {
-            status: (activation, host) => native.approvals.status(activation, host),
+            inspectStatus: (activation, host) =>
+              native.approvals.inspectStatus(activation, host),
           },
           execute: vi.fn(),
           output: vi.fn(),
@@ -147,6 +148,27 @@ it.each(['ordinary', 'updater'] as const)(
           ],
         })
       }
+      native.host.realpath.mockImplementation((path) =>
+        Promise.resolve({
+          ...path,
+          path: '/updated/private/tool',
+        }),
+      )
+      const changed: unknown = await request('changed-target', { workspace: 'workspace' })
+      expect(changed).toMatchObject({
+        ok: true,
+        value: expect.arrayContaining([
+          expect.objectContaining({
+            availability: 'unavailable',
+            reason: 'executable-changed',
+          }),
+        ]) as unknown,
+      })
+      expect(Buffer.byteLength(JSON.stringify(changed))).toBeLessThanOrEqual(
+        EXTENSION_LIMITS.messageBytes,
+      )
+      expect(JSON.stringify(changed)).not.toContain('/updated/private/tool')
+      expect(JSON.stringify(changed)).not.toContain('configuration')
       expect(native.host.exec).not.toHaveBeenCalled()
     } finally {
       native.dispose()

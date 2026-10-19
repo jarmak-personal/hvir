@@ -1,7 +1,7 @@
 /* global TextEncoder */
 import { MANAGEMENT_LIMITS, boundedManagementJson } from './management-contract.mjs'
 import { deferReadFrequency } from './bridge.mjs'
-import { SkillagerSetupError } from './library-first-use.mjs'
+import { connectorSetupError } from './library-first-use.mjs'
 
 async function completeOutput(client, receipt, stream) {
   let value = '',
@@ -76,8 +76,8 @@ export function managementCli(
             pending = undefined
             observePending(undefined)
           }
-          throw new SkillagerSetupError(
-            result.reason === 'unapproved' ? 'missing-program' : 'failed-observation',
+          throw connectorSetupError(
+            result.reason,
             `Operation did not start: ${result.reason ?? 'admission refused'}. Retry only by explicit choice.`,
           )
         }

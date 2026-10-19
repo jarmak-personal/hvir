@@ -73,14 +73,20 @@ export function registerExtensionsIpc(
       ) ?? unavailable()
     )
   })
-  ipc.handle('extensions:connector-settings', (req, context) => {
+  ipc.handle('extensions:connector-settings', async (req, context) => {
     context.owner()
     const activation = extensions?.activations?.active.get(req.installationId)
     const approvals = extensions?.connectors?.approvals
     if (!activation || !approvals) return unavailable()
     return {
       hosts: approvals.hosts.listHosts(),
-      ...approvals.settings(activation),
+      ...(req.connector && req.host
+        ? await approvals.inspectSettings(
+            activation,
+            extensionId(req.connector),
+            extensionText(req.host, 'connector host', 128),
+          )
+        : approvals.settings(activation)),
     }
   })
   ipc.handle(
@@ -110,8 +116,11 @@ export function registerExtensionsIpc(
   ipc.handle('extensions:connector-prepare', (req, context) => {
     const owner = context.owner()
     return (
-      extensions?.connectors?.approvals.prepare(req, () =>
-        extensions.guests?.assertOwner(owner),
+      extensions?.connectors?.approvals.prepare(
+        req,
+        () => extensions.guests?.assertOwner(owner),
+        undefined,
+        req.trustUpdates,
       ) ?? unavailable()
     )
   })
@@ -124,6 +133,16 @@ export function registerExtensionsIpc(
     extensions?.connectors?.approvals.cancelPrepared(
       extensionText(req.token, 'prepared connector token', 80),
     )
+  })
+  ipc.handle('extensions:connector-session-end', (req, context) => {
+    context.owner()
+    const approvals = extensions?.connectors?.approvals
+    if (!approvals) return unavailable()
+    approvals.endSession({
+      installationId: extensionText(req.installationId, 'installation identity', 80),
+      connector: extensionId(req.connector),
+      host: extensionText(req.host, 'connector host', 128),
+    })
   })
   ipc.handle('extensions:connector-revoke', (req, context) => {
     context.owner()

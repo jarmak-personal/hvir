@@ -451,7 +451,7 @@ describe('extension activation and state owner', () => {
       expect(restored.revision.hash).toBe(original.revision.hash)
       await successor.disable(restored.installationId)
       expect(successor.active.size).toBe(0)
-      expect(data.revoke).toHaveBeenCalledWith(restored.installationId)
+      expect(data.revoke).toHaveBeenCalledWith(restored.installationId, undefined)
     } finally {
       await first.dispose()
       await conflict.dispose()

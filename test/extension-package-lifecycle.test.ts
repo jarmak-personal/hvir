@@ -34,7 +34,7 @@ describe('explicit package revision and removal lifetime', () => {
       const current = [...owner.active.values()][0]!
       expect(current.installationId).toBe(previous.installationId)
       expect(current.generation).not.toBe(previous.generation)
-      expect(data.revoke).toHaveBeenCalledWith(previous.installationId)
+      expect(data.revoke).toHaveBeenCalledWith(previous.installationId, expect.any(Array))
       expect(Buffer.from(current.revision.files.get('index.html')!).toString()).toBe(
         'edited',
       )
@@ -378,6 +378,8 @@ describe('interrupted preparation and global capacity', () => {
       await data.dispose()
     }
   })
+  // This real 128 MiB storage-capacity proof includes capture, retention and cleanup.
+  // Bound filesystem completion separately from the default small seam-test deadline.
   it('refuses protected global byte capacity without revoking the valid active installation', async () => {
     const data = await fixture(),
       owner = data.make()
@@ -408,7 +410,7 @@ describe('interrupted preparation and global capacity', () => {
       await owner.dispose()
       await data.dispose()
     }
-  })
+  }, 15_000)
 })
 
 describe('retention cleanup failure recovery', () => {

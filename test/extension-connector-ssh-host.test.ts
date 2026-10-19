@@ -63,6 +63,7 @@ function fixture(maxConcurrentExecs = 4) {
   )
   return {
     owner,
+    sftp,
     host,
     channels,
     commands,
@@ -118,6 +119,38 @@ function channel(
 }
 
 describe('approved connectors through the actual SSH adapter', () => {
+  it('inspects an upgraded target only through SFTP and ends session trust with the actual SSH lifetime', async () => {
+    const f = fixture()
+    try {
+      const port = f.owner.hosts.hostById(f.owner.host.hostId)!
+      Object.defineProperty(port, 'streamLocal', { get: () => f.host.streamLocal })
+      const approval = await f.owner.approve()
+      f.commands.length = 0
+      f.sftp.realpath.mockImplementation((_path, done) =>
+        done(undefined, '/versions/B/tool'),
+      )
+      expect(
+        await f.owner.approvals.inspectStatus(f.owner.activation, f.owner.host.hostId),
+      ).toMatchObject([{ reason: 'executable-changed' }])
+      expect(f.commands).toEqual([])
+      const prepared = await f.owner.approvals.prepare(
+        approval,
+        () => undefined,
+        undefined,
+        true,
+      )
+      await f.owner.approvals.approve(prepared.token)
+      expect(await f.owner.approvals.resolve(f.owner.activation, approval)).toMatchObject(
+        { executable: '/versions/B/tool' },
+      )
+      await f.host.dispose()
+      expect(
+        f.owner.approvals.settings(f.owner.activation).connectors[0]?.trustUpdates,
+      ).toBe(false)
+    } finally {
+      await f.dispose()
+    }
+  })
   it('retains late-channel admission across transport replacement and errors until actual close', async () => {
     const client = new EventEmitter() as Client
     const pool = new SshTransportPool({

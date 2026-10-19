@@ -549,6 +549,7 @@ context through ordinary non-focusing viewer placement, hiding, and explicit clo
 ### [ADR-051 — Approved finite connector execution](adr/ADR-051-approved-finite-connector-execution.md)
 
 > Lifecycle: Partially superseded
+> Superseded by: [ADR-075](adr/ADR-075-session-launcher-update-trust.md) | partial | Mandatory canonical-target reapproval only for an explicit session-bound decision to trust updates at one exact launcher.
 > Superseded by: [ADR-070](adr/ADR-070-explicit-local-workspace-program-connection.md) | partial | Mandatory manually supplied absolute executable input and separate Inspect step for explicit ordinary-human local-workspace connections only.
 > Superseded by: [ADR-065](adr/ADR-065-passive-extension-program-connection.md) | partial | Mandatory manually supplied absolute executable input and separate Inspect step for application-local first-use connections only.
 > Supersedes: [ADR-010](adr/ADR-010-project-host-remote-boundary.md) | partial | Registered-root requirement for explicit approved connector execution and its application-local working context only.
@@ -761,6 +762,14 @@ only the caller's main-admitted exact workspace. Application scope and body conf
 
 Native approvals coexist and revoke by exact host; bounded public status follows the caller's
 admitted workspace while trusted Settings presents independent saved host bindings.
+
+### [ADR-075 — Session launcher update trust](adr/ADR-075-session-launcher-update-trust.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-051](adr/ADR-051-approved-finite-connector-execution.md) | partial | Mandatory canonical-target reapproval only for an explicit session-bound decision to trust updates at one exact launcher.
+
+Explicit session trust covers future targets of one exact launcher; contextual metadata makes
+normal canonical-target changes actionable without rewriting the saved approval.
 
 ## 5. Architecture
 

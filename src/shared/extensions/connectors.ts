@@ -53,6 +53,7 @@ export interface ExtensionConnectorResult {
   readonly reason?:
     | 'unavailable'
     | 'unapproved'
+    | 'executable-changed'
     | 'disconnected'
     | 'capacity'
     | 'frequency'
@@ -76,11 +77,14 @@ export interface ExtensionConnectorStatus {
   readonly host?: string
   readonly executable?: string
   readonly explanation?: string
+  readonly reason?: 'unapproved' | 'executable-changed' | 'unavailable' | 'disconnected'
 }
 
 /** Saved native bindings are visible only to trusted Settings. */
 export interface ExtensionConnectorSetting extends ExtensionConnectorStatus {
   readonly host: string
+  readonly currentExecutable?: string
+  readonly trustUpdates?: boolean
   readonly selectedExecutable: string
   readonly configuration: ExtensionConnectorConfiguration
 }

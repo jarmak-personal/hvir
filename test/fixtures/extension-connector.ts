@@ -97,9 +97,22 @@ export function connectorFixture(
       ) => host.exec(command, args, opts),
     ),
   }
+  let connectionGeneration = 1
+  let connectionLifetime = new AbortController()
   const connectorHost = {
     ...host,
     finiteExec,
+    get streamLocal() {
+      if (context === 'application') return undefined
+      const lifetime = connectionLifetime
+      return {
+        generation: String(connectionGeneration),
+        signal: lifetime.signal,
+        assertCurrent() {
+          lifetime.signal.throwIfAborted()
+        },
+      }
+    },
     get connectionState() {
       return host.connectionState
     },
@@ -228,6 +241,14 @@ export function connectorFixture(
     },
     disconnect: () => {
       host.connectionState = 'disconnected'
+      connectionLifetime.abort()
+      for (const listener of listeners) listener()
+    },
+    reconnect: () => {
+      connectionLifetime.abort()
+      connectionLifetime = new AbortController()
+      connectionGeneration++
+      host.connectionState = 'connected'
       for (const listener of listeners) listener()
     },
     dispose: () => {

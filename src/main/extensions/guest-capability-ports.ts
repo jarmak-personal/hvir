@@ -28,7 +28,10 @@ export interface ExtensionGuestPorts {
     ExtensionConnectorExecutionOwner,
     'execute' | 'output' | 'revalidate'
   > & {
-    readonly approvals: Pick<ExtensionConnectorExecutionOwner['approvals'], 'status'>
+    readonly approvals: Pick<
+      ExtensionConnectorExecutionOwner['approvals'],
+      'inspectStatus'
+    >
   }
   readonly actions: Pick<
     ExtensionActionOwner,

@@ -4,6 +4,7 @@ import {
   ExtensionTerminalHandoff,
   type ConfirmTerminalLaunch,
 } from '../src/main/extensions/terminal-handoff'
+import type { ExtensionActionOwner } from '../src/main/extensions/action-owner'
 import { ExtensionGuestAuthority } from '../src/main/extensions/guest-authority'
 import {
   TerminalCommandHandoffOwner,
@@ -43,7 +44,7 @@ async function fixture(
   }
   const actions = {
     provenance: vi.fn<() => ExtensionInvocation | undefined>(() => invocation),
-    authority: vi.fn(() => undefined),
+    authority: vi.fn<ExtensionActionOwner['authority']>(() => undefined),
   }
   const confirm = vi.fn<ConfirmTerminalLaunch>(() => Promise.resolve(true)),
     published = vi.fn()
@@ -64,6 +65,8 @@ async function fixture(
       workspace: 'workspace',
       args: ['init', '--no-git'],
     },
+    action = invocation,
+    signal = f.controller.signal,
   ) =>
     adapter.start(
       {
@@ -74,9 +77,9 @@ async function fixture(
         context,
       },
       input,
-      invocation,
+      action,
       f.caller.current,
-      f.controller.signal,
+      signal,
     )
   const consume = () =>
     handoffs.consume(request.ticket, {
@@ -89,6 +92,96 @@ async function fixture(
 }
 
 describe('extension terminal handoff authority', () => {
+  it.each(['authority', 'context'] as const)(
+    'does no metadata work when terminal %s is refused',
+    async (fence) => {
+      const f = await fixture()
+      f.f.host.realpath.mockClear()
+      f.f.host.stat.mockClear()
+      if (fence === 'authority')
+        f.actions.authority.mockReturnValue({
+          assertCapability: () => {
+            throw new Error('Denied terminal capability')
+          },
+        })
+      else f.context.current = () => false
+      await expect(f.start()).rejects.toThrow()
+      expect(f.f.host.realpath).not.toHaveBeenCalled()
+      expect(f.f.host.stat).not.toHaveBeenCalled()
+      expect(f.confirm).not.toHaveBeenCalled()
+      expect(f.published).not.toHaveBeenCalled()
+    },
+  )
+  it('retains active metadata admission for cancelled terminal resolutions until settlement', async () => {
+    const f = await fixture()
+    const finishes: (() => void)[] = []
+    f.f.host.realpath.mockImplementation(
+      () =>
+        new Promise((resolve) =>
+          finishes.push(() => resolve(localPath('/installed/tool'))),
+        ),
+    )
+    const controllers = Array.from({ length: 4 }, () => new AbortController())
+    const pending = controllers.map((controller, index) =>
+      f.start(undefined, { ...f.invocation, id: 'action-' + index }, controller.signal),
+    )
+    const settled = Promise.allSettled(pending)
+    expect(finishes).toHaveLength(4)
+    controllers.forEach((controller) => controller.abort())
+    await expect(f.start(undefined, { ...f.invocation, id: 'overflow' })).rejects.toThrow(
+      'capacity',
+    )
+    expect(finishes).toHaveLength(4)
+    finishes.forEach((finish) => finish())
+    expect((await settled).every((result) => result.status === 'rejected')).toBe(true)
+    expect(f.confirm).not.toHaveBeenCalled()
+    expect(f.published).not.toHaveBeenCalled()
+    f.f.host.realpath.mockResolvedValue(localPath('/installed/tool'))
+    expect(
+      await f.f.approvals.resolve(
+        f.f.activation,
+        f.f.approvals.get(f.f.activation, 'tool', 'local')!,
+      ),
+    ).toHaveProperty('executable', '/installed/tool')
+  })
+
+  it.each(['unchanged', 'retarget', 'off'] as const)(
+    'pins a session-trusted terminal command through %s consent',
+    async (fence) => {
+      const f = await fixture()
+      const approval = f.f.approvals.get(f.f.activation, 'tool', 'local')!
+      f.f.host.realpath.mockResolvedValue(localPath('/versions/B/tool'))
+      const prepared = await f.f.approvals.prepare(
+        approval,
+        () => undefined,
+        undefined,
+        true,
+      )
+      await f.f.approvals.approve(prepared.token)
+      f.confirm.mockImplementationOnce(() => {
+        if (fence === 'retarget')
+          f.f.host.realpath.mockResolvedValue(localPath('/versions/C/tool'))
+        if (fence === 'off') f.f.approvals.endSession(approval)
+        return Promise.resolve(true)
+      })
+      const result = f.start()
+      if (fence !== 'unchanged') {
+        expect(await result).toMatchObject({ outcome: 'not-started' })
+        expect(f.published).not.toHaveBeenCalled()
+        return
+      }
+      await vi.waitFor(() => expect(f.published).toHaveBeenCalledOnce())
+      const lease = f.consume()
+      expect(lease.command.executable).toBe('/versions/B/tool')
+      expect(f.confirm.mock.calls[0]?.[0].details).toContain('/versions/B/tool')
+      await lease.prepareDispatch()
+      lease.dispatched()
+      lease.finish(true)
+      expect(await result).toMatchObject({ outcome: 'handed-off' })
+      f.f.approvals.endSession(approval)
+      expect(lease.command.executable).toBe('/versions/B/tool')
+    },
+  )
   it('selects local terminal approval after the same connector gains an independent SSH binding', async () => {
     const f = await fixture()
     const hosts = f.f.hosts,
