@@ -208,7 +208,9 @@ using the public presentation contract without this optional kit.
 Packages have at most 256 entries, 12 nested directories, 2 MiB per file, 16 MiB total,
 and a 32 KiB manifest. Interior links and nonregular assets are refused; the explicit top-level development link is resolved once per capture. Discovery admits at most
 32 installations. Each extension has at most eight views; the application has thirty-two (including updaters).
-Messages are bounded to 16 KiB and thirty per second; pending requests are bounded to
+Requests and other replies are bounded to 16 KiB; only admitted connector output pages may use
+a complete 512 KiB reply. Both independent guards retain thirty guest messages per second;
+pending requests are bounded to
 eight per view, sixteen per extension, and sixty-four application-wide, with a ten
 second ordinary deadline. Source decisions, finite actions, connectors and managed delivery
 use their separately bounded lifetimes; `guide bridge` lists their transport deadlines.
@@ -463,11 +465,30 @@ rollback. Treat `truncated: true` as an incomplete response even when an exit co
 
 Retrieve output with `connector.output` using `{ receipt, stream: 'stdout', offset: 0 }` (or
 `stderr`). It returns `data`, a UTF-8 byte `nextOffset` or `null`, and the same explicit execution
-result. Continue from exactly the returned offset. Pages fit the full 16 KiB JSON bridge envelope,
-including encoding and metadata. Receipts belong to the initiating view/action and exact grant,
+result. Continue from exactly the returned offset. Pages target at most 128 KiB raw UTF-8 and
+shrink to fit the complete 512 KiB connector-only JSON reply, including encoding and metadata. Receipts belong to the initiating view/action and exact grant,
 activation, host and context; they are not transferable to another guest. Send `{ receipt,
 release: true }` when finished. They expire after 30 seconds and earlier when caller authority,
-action lifetime, visible refresh demand or context ends. No page read extends an action.
+action lifetime, visible refresh demand or context ends. No page read extends an action or expiry.
+Every successful nonempty public page charges its raw bytes against one delivered-byte allowance
+equal to retained stdout plus stderr. Repeated and overlapping reads consume that same allowance;
+an over-budget page refuses in full. Empty EOF replies still count toward flood guards. Main-owned
+capture custody remains available until ordinary release/revocation/expiry.
+
+The scaffold ships `guest-client.mjs` and `connector-output.mjs` separately from the presentation
+kit. One `guestClient` per guest correlates requests and owns a finite 24-message rolling window,
+with a 50 ms replenishment margin. Queued/outstanding requests plus unsent cancellation obligations
+share eight slots; four admitted actions each retain at most one reply. Five output reads to one
+ordinary/control turn when both wait keep concurrent drains and controls progressing. Visibility,
+physical submission, exact admitted actions and disposal retain their existing semantics. Raw
+`hvirExtension.send` remains supported under both guards.
+
+Use `readConnectorOutput(client, result, {stream, maxBytes, signal})` to obtain one complete stream
+with matching receipt/result metadata, exact UTF-8 offsets and complete EOF. The default byte bound
+is 4 MiB; callers can impose smaller limits. The reader never interprets tool success or retries
+execution. Keep release in the caller's finally boundary after any verified receipt capture.
+Skillager's management workflow retains its 256 KiB response limit and capture ordering. See the
+installed `guide connectors` for the complete ordinary example.
 
 Declarations choose a deadline of 1–180 seconds and up to 4 MiB combined output. Canonical
 admission has a ten-second bound. At most four native executions run per extension and sixteen

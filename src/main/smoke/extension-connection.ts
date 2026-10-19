@@ -86,19 +86,11 @@ export async function verifyExtensionConnection(
     '<!doctype html><button id="connect" disabled>Connect installed program</button><button id="locate" disabled>Locate another program</button><button id="read" disabled>Read metadata</button><p id="state"></p><pre id="output"></pre><script type="module" src="page.js"></script>',
   )
   // The authored package consumes the real maintained client in its own sandbox.
-  // This checkout smoke proves SDK/lifecycle, not Skillager domain compatibility.
+  // This checkout smoke proves public transport and lifecycle behavior.
   await host.writeFile(
     joinHostPath(source, 'client.mjs'),
     await host.readFile(
-      localPath(join(app.getAppPath(), 'packages/skillager-extension/src/bridge.mjs')),
-    ),
-  )
-  await host.writeFile(
-    joinHostPath(source, 'library-first-use.mjs'),
-    await host.readFile(
-      localPath(
-        join(app.getAppPath(), 'packages/skillager-extension/src/library-first-use.mjs'),
-      ),
+      localPath(join(app.getAppPath(), 'src/shared/extensions/guest-client.mjs')),
     ),
   )
   const command = `printf x >> '${marker.path.replaceAll("'", "'\\''")}' ; printf 'owned connection output\\n'`

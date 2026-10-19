@@ -1,3 +1,4 @@
+import { connectorOutputFixture } from './fixtures/connector-output'
 // @vitest-environment happy-dom
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
@@ -47,6 +48,7 @@ function fixture(
     assetSerial = 0,
     receiptsRetired = false,
     holdAssetRead = options.holdAssetRead
+  const native = connectorOutputFixture()
   const statusStarts: number[] = []
   const sent: {
       id: string
@@ -118,24 +120,19 @@ function fixture(
                 }),
         )
         const completed = () =>
-          reply(message.id, { outcome: 'completed', code: 0, receipt })
+          reply(
+            message.id,
+            native.complete(
+              { outcome: 'completed', code: 0, receipt },
+              outputs.get(receipt)!,
+            ),
+          )
         if (holdStatus && command === 'library') {
           holdStatus = false
           heldStatus = completed
         } else completed()
       } else if (message.capability === 'connector.output')
-        reply(
-          message.id,
-          input['release']
-            ? null
-            : {
-                data:
-                  input['stream'] === 'stderr'
-                    ? ''
-                    : outputs.get(String(input['receipt'])),
-                nextOffset: null,
-              },
-        )
+        reply(message.id, native.read(input))
       else if (message.capability === 'source.request') {
         decision = message.id
         afterBody = false

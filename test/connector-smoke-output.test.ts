@@ -80,6 +80,7 @@ function guestFixture() {
     },
     document: { getElementById: (id: string) => elements.get(id) },
     Date,
+    TextEncoder,
   })
   runInContext(readFileSync('packages/extension-reference/reference.js', 'utf8'), context)
   return {

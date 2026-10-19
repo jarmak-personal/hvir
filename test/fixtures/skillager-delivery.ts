@@ -1,3 +1,4 @@
+import { connectorOutputFixture } from './connector-output'
 import { buildSync } from 'esbuild'
 import { runInNewContext } from 'node:vm'
 import { createHash } from 'node:crypto'
@@ -79,6 +80,7 @@ export function fixture() {
     pending: Value = {},
     previews = 0,
     journalRevision = 0
+  const native = connectorOutputFixture()
   const client = {
     alive: true,
     async request(capability: string, request: Value) {
@@ -134,18 +136,12 @@ export function fixture() {
             ...exportChange,
           })
         else throw new Error('Unexpected native operation')
-        return { outcome: 'completed', receipt, code: 0, truncated: false }
+        return native.complete(
+          { outcome: 'completed', receipt, code: 0, truncated: false },
+          JSON.stringify(outputs.get(receipt)),
+        )
       }
-      if (capability === 'connector.output')
-        return request['release']
-          ? null
-          : {
-              data:
-                request['stream'] === 'stderr'
-                  ? ''
-                  : JSON.stringify(outputs.get(String(request['receipt']))),
-              nextOffset: null,
-            }
+      if (capability === 'connector.output') return native.read(request)
       if (capability === 'delivery.capture') {
         expect(
           calls.some(

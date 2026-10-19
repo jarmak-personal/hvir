@@ -1,3 +1,4 @@
+import { connectorOutputFixture } from './fixtures/connector-output'
 // @vitest-environment happy-dom
 import { readFileSync } from 'node:fs'
 import { createHash, webcrypto } from 'node:crypto'
@@ -72,6 +73,7 @@ function fixture(support = 'owned support\n') {
   const calls: string[] = [],
     actions: Array<{ id: string; input: unknown }> = [],
     messages: string[] = []
+  const native = connectorOutputFixture()
   const client = {
     alive: true,
     signal: controller.signal,
@@ -85,25 +87,19 @@ function fixture(support = 'owned support\n') {
         const args = input['args'] as string[],
           receipt = `output-${++serial}`
         outputs.set(receipt, args.includes('accept') ? value : status)
-        return Promise.resolve({
-          outcome: 'completed',
-          code: 0,
-          receipt,
-          truncated: false,
-        })
-      }
-      if (capability === 'connector.output')
         return Promise.resolve(
-          input['release']
-            ? null
-            : {
-                data:
-                  input['stream'] === 'stderr'
-                    ? ''
-                    : JSON.stringify(outputs.get(String(input['receipt']))),
-                nextOffset: null,
-              },
+          native.complete(
+            {
+              outcome: 'completed',
+              code: 0,
+              receipt,
+              truncated: false,
+            },
+            JSON.stringify(outputs.get(receipt)),
+          ),
         )
+      }
+      if (capability === 'connector.output') return Promise.resolve(native.read(input))
       if (capability === 'source.request') return Promise.resolve({ granted: true })
       if (capability === 'source.select') {
         const path = input['path'] as { path: string },

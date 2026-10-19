@@ -1,3 +1,4 @@
+import { connectorOutputFixture } from './fixtures/connector-output'
 import { readFileSync } from 'node:fs'
 import { webcrypto } from 'node:crypto'
 import { runInNewContext } from 'node:vm'
@@ -83,21 +84,11 @@ function fixture(
     apply: Value | undefined
   const outputs = new Map<string, Value>(),
     calls: string[][] = []
+  const native = connectorOutputFixture()
   const client = {
     alive: true,
     request(this: void, capability: string, args: Value): Promise<unknown> {
-      if (capability === 'connector.output')
-        return Promise.resolve(
-          args.release
-            ? null
-            : {
-                data:
-                  args.stream === 'stderr'
-                    ? ''
-                    : JSON.stringify(outputs.get(String(args.receipt))),
-                nextOffset: null,
-              },
-        )
+      if (capability === 'connector.output') return Promise.resolve(native.read(args))
       const argv = args.args as string[]
       calls.push(argv)
       const receipt = String(++serial),
@@ -134,12 +125,17 @@ function fixture(
                   : plan.confirmation_token,
               },
       )
-      return Promise.resolve({
-        outcome: 'completed',
-        receipt,
-        code: mutate ? code : 0,
-        truncated: false,
-      })
+      return Promise.resolve(
+        native.complete(
+          {
+            outcome: 'completed',
+            receipt,
+            code: mutate ? code : 0,
+            truncated: false,
+          },
+          JSON.stringify(outputs.get(receipt)),
+        ),
+      )
     },
   }
   const invoke = (

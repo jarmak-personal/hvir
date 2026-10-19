@@ -1,3 +1,4 @@
+import { connectorOutputFixture } from './fixtures/connector-output'
 // @vitest-environment happy-dom
 import { readFileSync } from 'node:fs'
 import { webcrypto } from 'node:crypto'
@@ -118,6 +119,7 @@ function fixture(cryptoPort: unknown = webcrypto, initialize?: () => Promise<Val
   let serial = 0
   let readCount = 0
   let protectedTarget = false
+  const native = connectorOutputFixture()
   const client = {
     alive: true,
     signal: controller.signal,
@@ -131,18 +133,7 @@ function fixture(cryptoPort: unknown = webcrypto, initialize?: () => Promise<Val
         if (input['action'] === 'initialize-library' && initialize) return initialize()
         return Promise.resolve({ outcome: 'verified' })
       }
-      if (capability === 'connector.output')
-        return Promise.resolve(
-          input['release']
-            ? null
-            : {
-                data:
-                  input['stream'] === 'stderr'
-                    ? ''
-                    : JSON.stringify(outputs.get(String(input['receipt']))),
-                nextOffset: null,
-              },
-        )
+      if (capability === 'connector.output') return Promise.resolve(native.read(input))
       readCount++
       const args = input['args'] as string[],
         receipt = String(++serial)
@@ -171,9 +162,19 @@ function fixture(cryptoPort: unknown = webcrypto, initialize?: () => Promise<Val
       if (args.includes('--request-json') && holdAdvanced)
         return new Promise((resolve) => {
           settleAdvanced = () =>
-            resolve({ outcome: 'completed', code: 0, receipt, truncated: false })
+            resolve(
+              native.complete(
+                { outcome: 'completed', code: 0, receipt, truncated: false },
+                JSON.stringify(outputs.get(receipt)),
+              ),
+            )
         })
-      return Promise.resolve({ outcome: 'completed', code: 0, receipt, truncated: false })
+      return Promise.resolve(
+        native.complete(
+          { outcome: 'completed', code: 0, receipt, truncated: false },
+          JSON.stringify(outputs.get(receipt)),
+        ),
+      )
     },
   }
   const bundle = buildSync({

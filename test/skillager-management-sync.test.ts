@@ -1,3 +1,4 @@
+import { connectorOutputFixture } from './fixtures/connector-output'
 import { readFileSync } from 'node:fs'
 import { createHash, webcrypto } from 'node:crypto'
 import { runInNewContext } from 'node:vm'
@@ -80,21 +81,11 @@ function fixture(
   let overrideCode: number | undefined
   const outputs = new Map<string, unknown>(),
     calls: string[][] = [],
+    native = connectorOutputFixture(),
     client = {
       alive: true,
       request(capability: string, input: Value) {
-        if (capability === 'connector.output')
-          return Promise.resolve(
-            input['release']
-              ? null
-              : {
-                  data:
-                    input['stream'] === 'stderr'
-                      ? ''
-                      : JSON.stringify(outputs.get(String(input['receipt']))),
-                  nextOffset: null,
-                },
-          )
+        if (capability === 'connector.output') return Promise.resolve(native.read(input))
         const args = input['args'] as string[],
           receipt = String(++serial)
         calls.push(args)
@@ -102,14 +93,19 @@ function fixture(
           receipt,
           args.includes('sync') ? (args.includes('--approved') ? result : plan) : status,
         )
-        return Promise.resolve({
-          outcome: 'completed',
-          code: args.includes('--approved')
-            ? (overrideCode ?? (result.status === 'completed' ? 0 : 2))
-            : 0,
-          truncated: false,
-          receipt,
-        })
+        return Promise.resolve(
+          native.complete(
+            {
+              outcome: 'completed',
+              code: args.includes('--approved')
+                ? (overrideCode ?? (result.status === 'completed' ? 0 : 2))
+                : 0,
+              truncated: false,
+              receipt,
+            },
+            JSON.stringify(outputs.get(receipt)),
+          ),
+        )
       },
     }
   const invoke = (action: string, input: unknown = {}, caller = 'agent') =>

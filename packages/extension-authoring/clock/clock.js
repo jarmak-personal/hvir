@@ -1,10 +1,11 @@
 /* global window, document */
+import { guestClient } from './guest-client.mjs'
 /** Uses only the public bridge and the package's captured guest UI. */
 const bridge = window.hvirExtension
+const client = guestClient(bridge)
 const clock = document.getElementById('clock')
 const status = document.getElementById('status')
 const unbind = window.hvirUI.bindPresentation(bridge)
-let contextReceived = false
 let disposed = false,
   timer,
   unsubscribe = () => {}
@@ -29,25 +30,17 @@ function dispose() {
   disposed = true
   stop()
   unsubscribe()
+  client.dispose()
   unbind()
   window.removeEventListener('pagehide', dispose)
 }
-unsubscribe = bridge.onMessage((message) => {
+unsubscribe = client.listen((message) => {
   if (disposed) return
   if (message.kind === 'hello') {
     status.textContent = `Connected · contract ${message.contract}`
-    bridge.send({ kind: 'request', id: 'clock-context', capability: 'context.read' })
   } else if (message.kind === 'context') {
-    contextReceived = true
     visibility(message.context.visible)
-  } else if (
-    message.kind === 'result' &&
-    message.id === 'clock-context' &&
-    message.ok &&
-    !contextReceived
-  )
-    visibility(message.value.visible)
-  else if (message.kind === 'revoked') dispose()
+  } else if (message.kind === 'revoked') dispose()
 })
 window.addEventListener('pagehide', dispose)
-bridge.send({ kind: 'hello', contract: '1.0' })
+client.hello()

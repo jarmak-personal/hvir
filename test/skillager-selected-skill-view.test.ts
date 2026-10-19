@@ -1,3 +1,4 @@
+import { connectorOutputFixture } from './fixtures/connector-output'
 // @vitest-environment happy-dom
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
@@ -100,6 +101,7 @@ function fixture() {
     outputs = new Map<string, unknown>(),
     controller = new AbortController()
   let count = 0
+  const native = connectorOutputFixture()
   const client = {
     alive: true,
     signal: controller.signal,
@@ -154,16 +156,7 @@ function fixture() {
         if (input['action'] === 'accept-version') status.skill.acceptance = 'accepted'
         return actionResult
       }
-      if (capability === 'connector.output')
-        return input['release']
-          ? null
-          : {
-              data:
-                input['stream'] === 'stderr'
-                  ? ''
-                  : JSON.stringify(outputs.get(String(input['receipt']))),
-              nextOffset: null,
-            }
+      if (capability === 'connector.output') return native.read(input)
       if (capability === 'connector.connect') {
         failure = false
         return { connections: [{ outcome: 'connected' }] }
@@ -193,7 +186,10 @@ function fixture() {
           release = resolve
         })
       }
-      return { outcome: 'completed', code: 0, receipt, truncated: false }
+      return native.complete(
+        { outcome: 'completed', code: 0, receipt, truncated: false },
+        JSON.stringify(outputs.get(receipt)),
+      )
     },
   }
   const bundle = buildSync({

@@ -1,7 +1,9 @@
-import type { ExtensionConnectorOutput } from '../src/shared/extensions/connectors'
+import {
+  CONNECTOR_LIMITS,
+  type ExtensionConnectorOutput,
+} from '../src/shared/extensions/connectors'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { connectorFixture } from './fixtures/extension-connector'
-import { EXTENSION_LIMITS } from '../src/shared/extensions/contract'
 import type { ExecResult } from '../src/shared/fs-types'
 
 const fixtures: ReturnType<typeof connectorFixture>[] = []
@@ -250,7 +252,7 @@ describe('finite connector execution', () => {
             warnings: Array(16).fill('Ignored unknown field: ' + 'x'.repeat(80)),
           }),
         ),
-      ).toBeLessThanOrEqual(EXTENSION_LIMITS.messageBytes)
+      ).toBeLessThanOrEqual(CONNECTOR_LIMITS.outputReplyBytes)
       output += page.data
       offset = page.nextOffset
     }

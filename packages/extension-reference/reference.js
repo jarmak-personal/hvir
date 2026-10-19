@@ -1,4 +1,4 @@
-/* global window, document */
+/* global window, document, TextEncoder */
 const bridge = window.hvirExtension
 const status = document.getElementById('status')
 const button = document.getElementById('open-detail')
@@ -200,6 +200,14 @@ async function nativePage() {
     offset: nativeOffset,
   })
   if (!alive) return
+  const bytes = new TextEncoder().encode(page.data).byteLength
+  if (
+    page.nextOffset !== null &&
+    (!Number.isSafeInteger(page.nextOffset) ||
+      page.nextOffset !== nativeOffset + bytes ||
+      bytes === 0)
+  )
+    throw new Error('Connector output did not advance by UTF-8 bytes')
   nativeOutput.textContent = page.data
   nativeOffset = page.nextOffset
   nativeNext.disabled = nativeOffset === null

@@ -1,3 +1,4 @@
+import { connectorOutputFixture } from './fixtures/connector-output'
 import { readFileSync } from 'node:fs'
 import { createHash, webcrypto } from 'node:crypto'
 import { runInNewContext } from 'node:vm'
@@ -223,7 +224,11 @@ it('verifies recognized image bytes through the selected entrypoint parent and g
           sha256: entry.sha256,
         })
       if (capability === 'source.asset')
-        return Promise.resolve({ receipt: 'image', mime: 'image/png', bytes: file.size })
+        return Promise.resolve({
+          receipt: 'image',
+          mime: 'image/png',
+          bytes: file.size,
+        })
       if (input['release']) {
         released.push(String(input['receipt']))
         return Promise.resolve(null)
@@ -259,21 +264,11 @@ it.each([0, 2])(
     let serial = 0
     const outputs = new Map<string, unknown>(),
       calls: string[][] = []
+    const native = connectorOutputFixture()
     const client = {
       alive: true,
       request(capability: string, input: Record<string, unknown>) {
-        if (capability === 'connector.output')
-          return Promise.resolve(
-            input['release']
-              ? null
-              : {
-                  data:
-                    input['stream'] === 'stderr'
-                      ? ''
-                      : JSON.stringify(outputs.get(String(input['receipt']))),
-                  nextOffset: null,
-                },
-          )
+        if (capability === 'connector.output') return Promise.resolve(native.read(input))
         const args = input['args'] as string[],
           receipt = String(++serial)
         calls.push(args)
@@ -294,12 +289,17 @@ it.each([0, 2])(
               ? f.value
               : status,
         )
-        return Promise.resolve({
-          outcome: 'completed',
-          code: submitted ? code : 0,
-          receipt,
-          truncated: false,
-        })
+        return Promise.resolve(
+          native.complete(
+            {
+              outcome: 'completed',
+              code: submitted ? code : 0,
+              receipt,
+              truncated: false,
+            },
+            JSON.stringify(outputs.get(receipt)),
+          ),
+        )
       },
     }
     const invocation = {

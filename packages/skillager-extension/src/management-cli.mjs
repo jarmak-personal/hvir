@@ -1,27 +1,8 @@
-/* global TextEncoder */
+import { readConnectorOutput } from '../../../src/shared/extensions/connector-output.mjs'
 import { MANAGEMENT_LIMITS, boundedManagementJson } from './management-contract.mjs'
 import { deferReadFrequency } from './bridge.mjs'
 import { connectorSetupError } from './library-first-use.mjs'
 
-async function completeOutput(client, receipt, stream) {
-  let value = '',
-    offset = 0,
-    bytes = 0
-  for (;;) {
-    const page = await client.request('connector.output', { receipt, stream, offset })
-    if (typeof page.data !== 'string') throw new Error('CLI output page is unavailable')
-    bytes += new TextEncoder().encode(page.data).length
-    if (bytes > MANAGEMENT_LIMITS.responseBytes)
-      throw new Error(
-        'Complete operation output exceeds the supported bound; use the public Skillager CLI and reconcile explicitly',
-      )
-    value += page.data
-    if (page.nextOffset === null) return value
-    if (!Number.isSafeInteger(page.nextOffset) || page.nextOffset <= offset)
-      throw new Error('CLI output page did not advance')
-    offset = page.nextOffset
-  }
-}
 /** One admitted operation owns its descriptor until a verified result or explicit reconciliation. */
 export function managementCli(
   client,
@@ -85,8 +66,22 @@ export function managementCli(
           throw new Error(
             `Operation ${result.outcome}; complete native effects are unknown. Reconcile this operation explicitly.`,
           )
-        const output = await completeOutput(client, result.receipt, 'stdout'),
-          error = await completeOutput(client, result.receipt, 'stderr')
+        let output, error
+        try {
+          output = await readConnectorOutput(client, result, {
+            maxBytes: MANAGEMENT_LIMITS.responseBytes,
+          })
+          error = await readConnectorOutput(client, result, {
+            stream: 'stderr',
+            maxBytes: MANAGEMENT_LIMITS.responseBytes,
+          })
+        } catch (reason) {
+          if (!operation) throw reason
+          throw new Error(
+            'Complete operation output could not be read; use the public Skillager CLI and reconcile explicitly.',
+            { cause: reason },
+          )
+        }
         if (operation) retainOutput({ code: result.code, stdout: output, stderr: error })
         current()
         if (!validateCompletion && result.code !== 0)

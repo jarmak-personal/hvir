@@ -1,3 +1,4 @@
+import { buildSync } from 'esbuild'
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -15,25 +16,39 @@ it.each(['packages/extension-authoring/clock', 'test/fixtures/extensions/0.3.0/c
     const emit = (message: unknown) => {
       for (const listener of listeners) listener(message)
     }
-    runInNewContext(readFileSync(`${directory}/clock.js`, 'utf8'), {
-      window: {
-        hvirExtension: {
-          send: vi.fn(),
-          onMessage: (listener: (message: unknown) => void) => {
-            listeners.add(listener)
-            return () => listeners.delete(listener)
+    runInNewContext(
+      directory.startsWith('packages/')
+        ? buildSync({
+            entryPoints: [`${directory}/clock.js`],
+            bundle: true,
+            format: 'iife',
+            write: false,
+          }).outputFiles[0]!.text
+        : readFileSync(`${directory}/clock.js`, 'utf8'),
+      {
+        AbortController,
+        performance,
+        setTimeout,
+        clearTimeout,
+        window: {
+          hvirExtension: {
+            send: vi.fn(),
+            onMessage: (listener: (message: unknown) => void) => {
+              listeners.add(listener)
+              return () => listeners.delete(listener)
+            },
           },
+          hvirUI: { bindPresentation: () => unbind },
+          setInterval,
+          clearInterval,
+          addEventListener: (name: string, callback: () => void) =>
+            events.set(name, callback),
+          removeEventListener: (name: string) => events.delete(name),
         },
-        hvirUI: { bindPresentation: () => unbind },
-        setInterval,
-        clearInterval,
-        addEventListener: (name: string, callback: () => void) =>
-          events.set(name, callback),
-        removeEventListener: (name: string) => events.delete(name),
+        document: { getElementById: (id: string) => (id === 'clock' ? clock : status) },
+        Date,
       },
-      document: { getElementById: (id: string) => (id === 'clock' ? clock : status) },
-      Date,
-    })
+    )
     emit({ kind: 'hello', contract: '1.0' })
     emit({ kind: 'context', context: { visible: false } })
     emit({ kind: 'result', id: 'clock-context', ok: true, value: { visible: true } })

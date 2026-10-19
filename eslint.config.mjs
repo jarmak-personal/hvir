@@ -203,6 +203,15 @@ export default tseslint.config(
     },
   },
 
+  // Public guest transport imports browser-safe shared leaves, including erased edges.
+  {
+    files: ['src/shared/extensions/**/*.{js,mjs}'],
+    rules: dependencyDirectionRules(
+      '^node:|^react(?:/|$)|^electron$|(^|/)(main|workers|renderer|preload)(/|$)|(^|/)packages(/|$)',
+      'Public guest transport depends only on shared contracts and browser code, never private workbench, native or package implementations.',
+    ),
+  },
+
   // Public presentation imports browser-safe leaves only, including erased edges.
   {
     files: ['src/shared/presentation/**/*.{ts,tsx,mts,cts,js,mjs}'],
@@ -668,6 +677,7 @@ export default tseslint.config(
       'scripts/validate-release-pr.mts',
       'scripts/generate-terminal-theme-catalog.mts',
       'scripts/prepare-extension-ui.mts',
+      'scripts/prepare-extension-transport.mts',
       'scripts/prepare-skillager-extension.mts',
       'scripts/check-terminal-runtime.mts',
       'scripts/agent-work-checkpoint-store.mts',

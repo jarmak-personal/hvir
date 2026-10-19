@@ -1,3 +1,4 @@
+import { connectorOutputFixture } from './connector-output'
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
 import { buildSync } from 'esbuild'
@@ -42,6 +43,7 @@ export function createSkillagerPackageView(view = 'library') {
     currentWorkspace: { root?: { path?: string } } | undefined,
     resume: (() => void) | undefined,
     finishConnection: ((value: unknown, error?: string) => void) | undefined
+  const native = connectorOutputFixture()
   const opened: Record<string, unknown>[] = []
   const initializationRequests: Record<string, unknown>[] = []
   const send = (message: {
@@ -116,7 +118,11 @@ export function createSkillagerPackageView(view = 'library') {
             ? 'skillager: error: unrecognized arguments: --query example'
             : `usage: skillager list ${'options '.repeat(60)}\nskillager list: error: argument --scope: invalid choice: 'project' (choose from 'workspace', 'library')`,
         )
-        value = { outcome: 'completed', code: 2, receipt }
+        value = native.complete(
+          { outcome: 'completed', code: 2, receipt },
+          outputs.get(receipt)!,
+          errors.get(receipt),
+        )
       } else if (
         unavailableProject &&
         args[0] === 'list' &&
@@ -141,7 +147,11 @@ export function createSkillagerPackageView(view = 'library') {
           }),
         )
         errors.set(receipt, 'The selected project could not be observed.')
-        value = { outcome: 'completed', code: 2, receipt }
+        value = native.complete(
+          { outcome: 'completed', code: 2, receipt },
+          outputs.get(receipt)!,
+          errors.get(receipt),
+        )
       } else if (fail && (!failOn || args[0] === failOn)) {
         fail = false
         value = { outcome: 'failed', code: 1 }
@@ -153,7 +163,11 @@ export function createSkillagerPackageView(view = 'library') {
         const receipt = String(++serial)
         outputs.set(receipt, '')
         errors.set(receipt, 'Pagination cursor no longer matches the current library')
-        value = { outcome: 'completed', code: 2, receipt }
+        value = native.complete(
+          { outcome: 'completed', code: 2, receipt },
+          outputs.get(receipt)!,
+          errors.get(receipt),
+        )
       } else {
         const receipt = String(++serial),
           cursor = args[args.indexOf('--cursor') + 1]
@@ -231,18 +245,14 @@ export function createSkillagerPackageView(view = 'library') {
                             },
               )
         outputs.set(receipt, text)
-        value = { outcome: 'completed', code: 0, receipt }
+        value = native.complete(
+          { outcome: 'completed', code: 0, receipt },
+          outputs.get(receipt)!,
+          errors.get(receipt),
+        )
       }
     } else if (message.capability === 'connector.output') {
-      value = message.input.release
-        ? null
-        : {
-            data:
-              message.input.stream === 'stderr'
-                ? (errors.get(String(message.input.receipt)) ?? '')
-                : outputs.get(String(message.input.receipt)),
-            nextOffset: null,
-          }
+      value = native.read(message.input)
     } else {
       value = null
     }
