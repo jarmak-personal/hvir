@@ -13,17 +13,20 @@ body[data-view='management'] :is(section, .management-section) {
   border-top: 1px solid var(--border-subtle);
 }
 body[data-view='management'] pre,
-#review-file-body {
+#review-file-body,
+#import-file-body {
   max-height: 42vh;
   overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-#review-file-body img {
+#review-file-body img,
+#import-file-body img {
   max-width: 100%;
   height: auto;
 }
-#review-files {
+#review-files,
+#import-files {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
@@ -256,18 +259,22 @@ body[data-view='management'] h2 {
   white-space: normal;
   overflow-wrap: anywhere;
 }
-#task-options {
+#task-options,
+#import-options {
   margin-left: auto;
 }
-#task-options .skill-menu {
+#task-options .skill-menu,
+#import-options .skill-menu {
   position: static;
   width: min(240px, 100%);
   margin-top: 4px;
 }
-#task-options[open] {
+#task-options[open],
+#import-options[open] {
   flex-basis: 100%;
 }
-#selected-task {
+#selected-task,
+#selected-import {
   border-bottom: 1px solid var(--border-subtle);
   padding-bottom: 10px;
   max-height: 60%;
@@ -289,7 +296,8 @@ body[data-view='management'] h2 {
 }
 #task-primary,
 #accept-version,
-#task-confirm {
+#task-confirm,
+#import-save {
   background: var(--surface-2);
 }
 .task-review {
@@ -311,13 +319,15 @@ body[data-view='management'] h2 {
 #task-effects {
   padding-left: 20px;
 }
-#task-operation-details:has(#task-result:empty) {
+#task-operation-details:has(#task-result:empty),
+#import-operation-details:has(#import-result:empty) {
   display: none;
 }
 #task-operation-details {
   margin-top: 8px;
 }
-#review-files {
+#review-files,
+#import-files {
   display: grid;
   gap: 2px;
 }
@@ -336,7 +346,9 @@ body[data-view='management'] h2 {
   flex-shrink: 0;
 }
 #review-file-body:empty,
-#review-file-label:empty {
+#review-file-label:empty,
+#import-file-body:empty,
+#import-file-label:empty {
   display: none;
 }
 #reader-state {
@@ -535,4 +547,96 @@ body[data-view='project'] #open-library {
 }
 [hidden] {
   display: none !important;
+}
+
+/* One reader: ordinary instructions or optional inspection of the selected original. */
+#reader-content:has(#selected-import:not([hidden])) {
+  gap: 4px;
+  overflow: auto;
+}
+#selected-import:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-shrink: 0;
+  max-height: none;
+  overflow: visible;
+  margin-top: 0;
+  padding: 0 0 4px;
+  border-top: 0;
+}
+#selected-import > p {
+  margin: 0;
+}
+#import-state:empty,
+#import-file-state:empty {
+  display: none;
+}
+#import-target {
+  overflow-wrap: anywhere;
+}
+#selected-import > .task-controls {
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+#selected-import > .task-controls:has(#import-options[open]) {
+  flex-wrap: wrap;
+}
+#import-destination {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#import-save,
+#import-inspect,
+#import-options {
+  flex-shrink: 0;
+}
+#import-inspect {
+  padding: 3px 5px;
+  border-color: transparent;
+  background: transparent;
+  font-size: calc(11px * var(--hvir-interface-scale));
+}
+#reader-content:has(#selected-import:not([hidden])) #instructions,
+#import-inspection {
+  min-height: 120px;
+}
+#import-inspection {
+  flex: 1;
+  overflow: auto;
+}
+#import-inspection:not([hidden]) ~ #instructions {
+  display: none;
+}
+#import-file-body {
+  margin: 0;
+  min-height: 120px;
+  box-sizing: border-box;
+}
+
+#import-file-navigation {
+  position: sticky;
+  top: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface-0);
+}
+#import-file-navigation:has(#import-file-label:empty) {
+  display: none;
+}
+#import-all-files {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: calc(11px * var(--hvir-interface-scale));
+  line-height: 1.5;
+}
+
+#reader-content:has(#import-inspection:not([hidden])) .instruction-modes {
+  display: none;
 }

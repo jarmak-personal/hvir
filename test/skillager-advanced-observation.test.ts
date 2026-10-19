@@ -123,7 +123,13 @@ it('observes every preserved native choice and reconciles full metadata independ
   ) as { preserved: Sync }
   expect(observed.preserved).toEqual(sync)
   expect(observed.preserved.candidates).toHaveLength(29)
-  expect(() => module.syncObservation(sync, library)).toThrow(/action-result bound/)
+  expect(module.syncObservation(sync, library)).toEqual(sync)
+  const consequential = structuredClone(sync)
+  for (const item of consequential.candidates)
+    Object.assign(item, { state: 'eligible-create', reason_code: null })
+  expect(() => module.syncObservation(consequential, library)).toThrow(
+    /action-result bound/,
+  )
   sync.coverage['complete'] = false
   await callbacks.get('observe-advanced')!(undefined, () => true)
   expect(document.querySelectorAll('#advanced-origin option')).toHaveLength(0)

@@ -4,6 +4,7 @@ export function pendingManagement() {
   function sameRoot(a, b) {
     return a?.hostId === b?.hostId && a?.path === b?.path
   }
+  const initializes = (operation) => operation.action === 'initialize-library' || operation.initializes === true
   return {
     ids() {
       return [...records.keys()]
@@ -27,6 +28,7 @@ export function pendingManagement() {
                 .filter(Boolean)
                 .some((existing) => sameRoot(target, existing)),
             ) ||
+          (initializes(descriptor) && initializes(previous) && (descriptor.action === 'save-and-accept' || previous.action === 'save-and-accept')) ||
           (descriptor.action === 'initialize-library' &&
             previous.action === descriptor.action &&
             (descriptor.selection.location === 'default' ||

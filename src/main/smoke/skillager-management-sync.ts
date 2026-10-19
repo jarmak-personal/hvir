@@ -21,6 +21,15 @@ export async function verifyOwnedApprovedSync(
     await host.createDirectoryExclusive(source, { mode: 0o755 })
     await host.writeFile(joinHostPath(source, 'support.txt'), support)
   }
+  const inert = []
+  for (let index = 0; index < 40; index++) {
+    const directory = joinHostPath(collection, `unapproved-${index}`)
+    await host.createDirectoryExclusive(directory, { mode: 0o755 })
+    const path = joinHostPath(directory, 'SKILL.md'),
+      body = `---\nname: unapproved-${index}\ndescription: Use only for bounded sync inventory evidence.\n---\n\nOwned untouched original ${index}.\n`
+    await host.writeFile(path, body)
+    inert.push({ path, body })
+  }
   await cli(['collection', 'add', collection.path, '--name', 'owned', '--json'])
   let pinnedBody = ''
   for (const [name, phase, decision] of [
@@ -116,6 +125,25 @@ export async function verifyOwnedApprovedSync(
       (result['counts'] as Record<string, unknown>)[phase] !== 1
     )
       throw new Error(`Explicit sync ${phase} was not completely reported`)
+    const summary = result['summary'] as {
+      total: number
+      detailed: number
+      notApproved: { label: string; count: number }
+      unchanged: { count: number }
+    }
+    if (
+      summary.notApproved.label !== 'not approved for sync' ||
+      summary.notApproved.count < inert.length ||
+      summary.total !==
+        summary.detailed + summary.notApproved.count + summary.unchanged.count ||
+      summary.total !==
+        (result['coverage'] as Record<string, unknown>)['selected_sources'] ||
+      summary.detailed !== (result['items'] as unknown[]).length
+    )
+      throw new Error('Complete sync detail/summary totals did not reconcile')
+    for (const original of inert)
+      if ((await host.readFile(original.path)).toString('utf8') !== original.body)
+        throw new Error('Sync changed an unapproved original')
     const item = (result['items'] as Array<Array<string | null>>).find(
         (item) => item[2] === phase,
       ),

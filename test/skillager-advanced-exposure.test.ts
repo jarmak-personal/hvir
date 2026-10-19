@@ -172,11 +172,14 @@ function fixture(
     },
   }
 }
-it('keeps exactly eight semantic exports with separate create-only Add and delete-only Remove', () => {
+it('keeps the nine semantic exports with separate human acceptance and copy effects', () => {
   const manifest = validateExtensionManifest(
     JSON.parse(readFileSync('packages/skillager-extension/hvir-extension.json', 'utf8')),
   ).manifest
-  expect(manifest.actions).toHaveLength(8)
+  expect(manifest.actions).toHaveLength(9)
+  expect(
+    manifest.actions?.find((action) => action.id === 'save-and-accept'),
+  ).toMatchObject({ agents: false, effects: { delete: false, replace: false } })
   expect(manifest.actions?.find((a) => a.id === 'change-exposure')).toMatchObject({
     agents: true,
     effects: { delete: true, replace: true },

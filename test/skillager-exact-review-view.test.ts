@@ -173,7 +173,12 @@ function fixture(support = 'owned support\n') {
     vi.waitFor(() => expect(messages.at(-1)).toMatch(message))
   const read = async (path: string) => {
     ;(document.querySelector(`[data-review-path="${path}"]`) as HTMLButtonElement).click()
-    await ready(/complete supported bytes verified/)
+    await vi.waitFor(() =>
+      expect(document.getElementById('review-file-body')!.textContent).toBe(
+        texts.get(path)!.slice(0, 32 * 1024),
+      ),
+    )
+    expect(messages.at(-1)).toBe('')
   }
   return {
     button,

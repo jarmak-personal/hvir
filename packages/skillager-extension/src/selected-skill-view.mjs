@@ -1,3 +1,4 @@
+import { bindSelectedImport } from './import-view.mjs'
 import { managementCli } from './management-cli.mjs'
 import { registeredLibrary, acceptedSource, sameLibrary } from './management-contract.mjs'
 import { localWorkspace } from './catalog.mjs'
@@ -26,9 +27,12 @@ export function bindSelectedSkill(document, client, ports) {
     serial = 0,
     disposed = false
   const context = ports.context
+  const importing = bindSelectedImport(document, client, { context })
   const skillId = () =>
-    selection?.row.canonical?.skill_id ??
-    (selection?.row.source === 'library' ? selection.row.id : undefined)
+    selection?.row.kind === 'Project original'
+      ? undefined
+      : (selection?.row.canonical?.skill_id ??
+        (selection?.row.source === 'library' ? selection.row.id : undefined))
   const exposure = () =>
     selection?.row.source === 'project' ? selection.row.exposure : undefined
   const agent = () => exposure()?.agent ?? el('task-agent').value
@@ -757,6 +761,7 @@ export function bindSelectedSkill(document, client, ports) {
   )
   return {
     select(input) {
+      importing.select(input)
       invalidate()
       el('task-result').textContent = ''
       el('task-operation-details').open = false
@@ -768,6 +773,7 @@ export function bindSelectedSkill(document, client, ports) {
       if (skillId()) void refresh()
     },
     contextChanged() {
+      importing.contextChanged()
       if (connecting?.revision === serial && connecting.key === taskKey()) {
         controls()
         return
@@ -784,6 +790,7 @@ export function bindSelectedSkill(document, client, ports) {
       disposed = true
       invalidate()
       review.dispose()
+      importing.dispose()
     },
   }
 }

@@ -139,7 +139,7 @@
         "delete": true,
         "replace": true
       },
-      "description": "Synchronize approved sources for the exact registered UUID/root through public Skillager preservation policy, with complete bounded per-item outcomes.",
+      "description": "Sync approved sources with complete effect/recovery details and no-effect counts. A local workspace uses independently approved project-cli and project discovery; no target uses library-cli. SSH is refused. Connect the selected context first.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -521,6 +521,55 @@
           }
         },
         "required": ["library", "skillId", "hash", "token"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "save-and-accept",
+      "title": "Save and accept selected original",
+      "view": "management",
+      "agents": false,
+      "effects": {
+        "delete": false,
+        "replace": false
+      },
+      "description": "Human-only: save one exact external source occurrence into the personal library and accept its complete manifest/token version. Preserves the project original; shows any default-library initialization effect.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "skillId": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "file": {
+            "type": "object",
+            "properties": {
+              "hostId": {
+                "type": "string",
+                "enum": ["local"]
+              },
+              "path": {
+                "type": "string",
+                "maxLength": 2048
+              }
+            },
+            "required": ["hostId", "path"],
+            "additionalProperties": false
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "hash": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "token": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "required": ["skillId", "file", "name", "hash", "token"],
         "additionalProperties": false
       }
     }

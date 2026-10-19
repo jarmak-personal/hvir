@@ -139,6 +139,50 @@
               </details>
             </div>
           </header>
+          <section
+            id="selected-import"
+            hidden
+            aria-label="Save original to library"
+            class="task-review"
+          >
+            <div class="toolbar task-controls">
+              <button id="import-save" class="hvir-button" disabled>
+                Save and accept
+              </button>
+              <span id="import-destination" class="hvir-meta"></span>
+              <button
+                id="import-inspect"
+                class="hvir-button"
+                aria-expanded="false"
+                aria-controls="import-inspection"
+              >
+                Inspect files
+              </button>
+              <details id="import-options" class="skill-more">
+                <summary class="hvir-focus" aria-label="Save options">…</summary>
+                <div class="skill-menu">
+                  <label
+                    >Library name
+                    <input
+                      id="import-name"
+                      class="hvir-input"
+                      placeholder="Use original name"
+                  /></label>
+                  <button id="import-refresh" class="hvir-button">Refresh review</button>
+                  <button id="import-cancel" class="hvir-button">Cancel</button>
+                </div>
+              </details>
+            </div>
+            <p id="import-effect" class="hvir-meta"></p>
+            <p id="import-state" class="hvir-state" role="status"></p>
+            <button id="import-reconcile" class="hvir-button" hidden>
+              Inspect uncertain operation
+            </button>
+            <details id="import-operation-details">
+              <summary>Operation details</summary>
+              <pre id="import-result"></pre>
+            </details>
+          </section>
           <section id="selected-task" hidden aria-label="Use this skill">
             <p id="task-destination" class="hvir-meta"></p>
             <div class="toolbar task-controls">
@@ -246,6 +290,34 @@
             </details>
           </section>
           <p id="reader-state" class="hvir-state" aria-live="polite"></p>
+          <section
+            id="import-inspection"
+            hidden
+            aria-label="Original files and destination"
+          >
+            <p id="import-version" class="hvir-meta"></p>
+            <p id="import-target" class="hvir-meta"></p>
+            <div id="import-files" aria-label="All files in this original"></div>
+            <p id="import-file-state" class="hvir-state" role="status"></p>
+            <div id="import-file-navigation">
+              <span id="import-file-label" class="hvir-meta"></span>
+              <button id="import-all-files" class="hvir-button">All files</button>
+            </div>
+            <pre
+              id="import-file-body"
+              tabindex="0"
+              aria-label="Selected original file"
+            ></pre>
+            <div id="import-pages" class="toolbar" hidden>
+              <button id="import-previous" class="hvir-button">Previous page</button
+              ><span id="import-page-label"></span
+              ><button id="import-next" class="hvir-button">Next page</button>
+            </div>
+            <details>
+              <summary>Complete version details</summary>
+              <pre id="import-manifest"></pre>
+            </details>
+          </section>
           <article
             id="instructions"
             tabindex="0"

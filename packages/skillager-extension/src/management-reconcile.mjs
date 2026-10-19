@@ -6,7 +6,10 @@ import {
   digest,
 } from './management-contract.mjs'
 import { syncArgs, removalArgs } from './management-argv.mjs'
+import { syncReport } from './management-sync-report.mjs'
+import { syncReviewHash } from './management-sync-review.mjs'
 import { syncObservation } from './management-library.mjs'
+import { importReconciliation } from './import-operation.mjs'
 import { exposureFacts } from './exposure-reconcile.mjs'
 import { prepareCopy } from './management-copy.mjs'
 
@@ -35,6 +38,8 @@ export async function reconciliationFacts(io, record, workspace) {
           }
         : {}),
     }
+  } else if (operation.action === 'save-and-accept') {
+    current = await importReconciliation(io, operation, library)
   } else {
     sameLibrary(operation.library, library)
     if (operation.action === 'change-exposure') {
@@ -85,12 +90,9 @@ export async function reconciliationFacts(io, record, workspace) {
         action: operation.action,
         registered: library,
         coverage: observed.coverage,
-        candidates: observed.candidates.map((item) => [
-          item.source_identity,
-          item.canonical_skill_id,
-          item.state,
-          item.reason_code,
-        ]),
+        ...syncReport(observed),
+        observationHash: await syncReviewHash(observed),
+        originalCompletion: 'unknown',
       }
     } else {
       if (

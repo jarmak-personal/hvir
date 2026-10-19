@@ -51,11 +51,31 @@ export async function verifyOwnedCopyProtections(
     await host.createDirectoryExclusive(target, { mode: 0o755 })
     await host.writeFile(joinHostPath(target, 'SKILL.md'), foreign)
     await ui.set('copy-mode', 'native')
-    await ui.inspect("document.getElementById('result').textContent=''")
-    await ui.click('add-copy')
-    const result = await ui.result('add-copy')
+    await ui.inspect(`(() => {
+      document.getElementById('result').textContent='';document.getElementById('state').textContent='';
+      const errors=[],release=window.hvirExtension.onMessage(message=>{
+        if(message.kind==='result'&&message.ok===false)errors.push(message.error);
+      });window.__hvirForeignAddRefusal={errors,release};
+    })()`)
+    let result: unknown
+    try {
+      await ui.click('add-copy')
+      await ui.ready(
+        `(() => {
+        const errors=window.__hvirForeignAddRefusal.errors,state=document.getElementById('state').textContent;
+        return errors.length===1&&typeof errors[0]==='string'&&errors[0].length<=240&&errors[0]===state&&state.includes('preserve the existing target')&&document.getElementById('result').textContent==='';
+      })()`,
+        'foreign Add bounded public action error',
+      )
+      result = await ui.inspect(
+        "({channel:'action-error',message:window.__hvirForeignAddRefusal.errors[0]})",
+      )
+    } finally {
+      await ui.inspect(
+        'window.__hvirForeignAddRefusal.release();delete window.__hvirForeignAddRefusal',
+      )
+    }
     if (
-      result['outcome'] !== 'refused' ||
       (await host.readFile(joinHostPath(target, 'SKILL.md'))).toString('utf8') !==
         foreign ||
       (await host.readdir(target)).map((entry) => entry.name).join(',') !== 'SKILL.md'

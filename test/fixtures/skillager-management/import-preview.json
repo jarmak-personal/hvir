@@ -1,0 +1,115 @@
+{
+  "blocked": false,
+  "destination": {
+    "display_name": "owned-original",
+    "exists": false,
+    "id": "lib/owned-original",
+    "name": "owned-original",
+    "path": "/owned-import-fixture/library/skills/owned-original",
+    "slug": "owned-original"
+  },
+  "library": {
+    "git_mode": "disabled",
+    "root": "/owned-import-fixture/library",
+    "status": "ready"
+  },
+  "lint": {
+    "blocking_count": 0,
+    "findings": [],
+    "status": "ok"
+  },
+  "next_command_argv": [
+    "skillager",
+    "import",
+    "project/owned-original",
+    "--as",
+    "owned-original",
+    "--source-file",
+    "/owned-import-fixture/.claude/skills/owned-original/SKILL.md",
+    "--review-manifest",
+    "--json",
+    "--yes",
+    "--confirmation-token",
+    "bea60145a366d69ad0d4f9a2946ea6cc7cb5885d8f4e72a9c25019d1c822b8ca"
+  ],
+  "owner_review_required": true,
+  "project": "/owned-import-fixture",
+  "provenance": {
+    "imported_from": {
+      "content_hash": "45d5ec8e375567b5b9f4af244863376fe44e72ed23eccd6fe7e0f44b52a92e61",
+      "skill_id": "project/owned-original",
+      "source_type": "project"
+    }
+  },
+  "requires_override": false,
+  "review_manifest": {
+    "confirmation_token": "bea60145a366d69ad0d4f9a2946ea6cc7cb5885d8f4e72a9c25019d1c822b8ca",
+    "destination_id": "lib/owned-original",
+    "destination_path": "/owned-import-fixture/library/skills/owned-original",
+    "file_count": 2,
+    "files": [
+      {
+        "executable": false,
+        "path": "SKILL.md",
+        "sha256": "c1ef53bd834a6cd5505b1558c37f2f9385ece3bd3067b20eaf51c0698ba8a286",
+        "size": 106
+      },
+      {
+        "executable": false,
+        "path": "support.txt",
+        "sha256": "6312c55ad2aa3790f937a8d8fb29300b0b63ecd996d73eb8bac8883c0e4f0011",
+        "size": 30
+      }
+    ],
+    "library": {
+      "git_mode": "disabled",
+      "library_id": "1d139f0e-e8c1-41e5-acf2-9e88b7fb6b83",
+      "root": "/owned-import-fixture/library",
+      "status": "ready"
+    },
+    "limits": {
+      "file_bytes": 2097152,
+      "files": 512,
+      "response_bytes": 262144,
+      "tree_bytes": 33554432
+    },
+    "schema": "skillager.import-review-manifest.v1",
+    "source_file": "/owned-import-fixture/.claude/skills/owned-original/SKILL.md",
+    "source_hash": "45d5ec8e375567b5b9f4af244863376fe44e72ed23eccd6fe7e0f44b52a92e61",
+    "source_id": "project/owned-original",
+    "source_provenance": {
+      "collection": null,
+      "editable": false,
+      "package": null,
+      "type": "project",
+      "version": null
+    },
+    "source_root": "/owned-import-fixture/.claude/skills/owned-original",
+    "total_bytes": 136,
+    "working_hash": "45d5ec8e375567b5b9f4af244863376fe44e72ed23eccd6fe7e0f44b52a92e61"
+  },
+  "scan": {
+    "finding_count": 0,
+    "findings": [],
+    "risk": "low",
+    "scanned_files": 2,
+    "skipped_files": 0
+  },
+  "schema": "skillager.import.v1",
+  "source": {
+    "collection": null,
+    "content_hash": "45d5ec8e375567b5b9f4af244863376fe44e72ed23eccd6fe7e0f44b52a92e61",
+    "editable": false,
+    "file": "/owned-import-fixture/.claude/skills/owned-original/SKILL.md",
+    "id": "project/owned-original",
+    "name": "owned-original",
+    "package": null,
+    "path": "/owned-import-fixture/.claude/skills/owned-original",
+    "summary": "Use only for owned import validation.",
+    "trust": "discovered",
+    "type": "project",
+    "version": null
+  },
+  "source_hash": "45d5ec8e375567b5b9f4af244863376fe44e72ed23eccd6fe7e0f44b52a92e61",
+  "status": "preview"
+}

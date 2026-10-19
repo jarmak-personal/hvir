@@ -123,7 +123,11 @@ it('rejects incomplete totals, duplicate/escaping paths and changes to executabl
 const reader = load<{
   readReviewFile(
     client: unknown,
-    manifest: Manifest,
+    manifest: {
+      source: string
+      root: { hostId: string; path: string }
+      files: FileEntry[]
+    },
     file: FileEntry,
     current: () => boolean,
   ): Promise<{ kind: string; text?: string; data?: string }>
@@ -172,7 +176,16 @@ function readingFixture(text: string) {
 it('verifies complete received UTF-8 bytes, current confined receipt and executable metadata, releasing the receipt', async () => {
   const f = readingFixture('#!/bin/sh\nprintf "日本"\n')
   await expect(
-    reader.readReviewFile(f.client, f.manifest, f.file, () => true),
+    reader.readReviewFile(
+      f.client,
+      {
+        source: 'library',
+        root: { hostId: 'local', path: f.manifest.skill_root },
+        files: f.manifest.files,
+      },
+      f.file,
+      () => true,
+    ),
   ).resolves.toMatchObject({
     kind: 'text',
     text: '#!/bin/sh\nprintf "日本"\n',
@@ -184,21 +197,57 @@ it('verifies complete received UTF-8 bytes, current confined receipt and executa
   })
   f.text('different transferred bytes')
   await expect(
-    reader.readReviewFile(f.client, f.manifest, f.file, () => true),
+    reader.readReviewFile(
+      f.client,
+      {
+        source: 'library',
+        root: { hostId: 'local', path: f.manifest.skill_root },
+        files: f.manifest.files,
+      },
+      f.file,
+      () => true,
+    ),
   ).rejects.toThrow(/received UTF-8 bytes differ/)
   f.hash('b'.repeat(64))
   await expect(
-    reader.readReviewFile(f.client, f.manifest, f.file, () => true),
+    reader.readReviewFile(
+      f.client,
+      {
+        source: 'library',
+        root: { hostId: 'local', path: f.manifest.skill_root },
+        files: f.manifest.files,
+      },
+      f.file,
+      () => true,
+    ),
   ).rejects.toThrow(/current confined file/)
 })
 it('refuses nonimage binary and hidden/late reads with exact path and achievable CLI route, never omitting the file', async () => {
   const f = readingFixture('binary\0content')
   await expect(
-    reader.readReviewFile(f.client, f.manifest, f.file, () => true),
+    reader.readReviewFile(
+      f.client,
+      {
+        source: 'library',
+        root: { hostId: 'local', path: f.manifest.skill_root },
+        files: f.manifest.files,
+      },
+      f.file,
+      () => true,
+    ),
   ).rejects.toThrow(/support.sh:.*nonimage binary.*suitable file tools/)
   const hidden = readingFixture('complete instructions')
   await expect(
-    reader.readReviewFile(hidden.client, hidden.manifest, hidden.file, () => false),
+    reader.readReviewFile(
+      hidden.client,
+      {
+        source: 'library',
+        root: { hostId: 'local', path: hidden.manifest.skill_root },
+        files: hidden.manifest.files,
+      },
+      hidden.file,
+      () => false,
+    ),
   ).rejects.toThrow(/partial or hidden/)
   expect(hidden.calls.at(-1)?.input['release']).toBe(true)
 })
@@ -237,13 +286,31 @@ it('verifies recognized image bytes through the selected entrypoint parent and g
     },
   }
   await expect(
-    reader.readReviewFile(client, manifest, file, () => true),
+    reader.readReviewFile(
+      client,
+      {
+        source: 'library',
+        root: { hostId: 'local', path: manifest.skill_root },
+        files: manifest.files,
+      },
+      file,
+      () => true,
+    ),
   ).resolves.toMatchObject({ kind: 'image' })
   expect(released).toEqual(['image', 'parent'])
   file.sha256 = 'c'.repeat(64)
-  await expect(reader.readReviewFile(client, manifest, file, () => true)).rejects.toThrow(
-    /image bytes/,
-  )
+  await expect(
+    reader.readReviewFile(
+      client,
+      {
+        source: 'library',
+        root: { hostId: 'local', path: manifest.skill_root },
+        files: manifest.files,
+      },
+      file,
+      () => true,
+    ),
+  ).rejects.toThrow(/image bytes/)
 })
 
 it.each([0, 2])(

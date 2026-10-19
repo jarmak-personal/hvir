@@ -67,7 +67,7 @@ export async function verifyOwnedReviewRefusals(
   )
   await ui.inspect('document.querySelector(\'[data-review-path="SKILL.md"]\').click()')
   await ui.ready(
-    "document.getElementById('state').textContent.includes('complete supported bytes verified')",
+    "document.getElementById('state').textContent==='' && document.getElementById('review-file-label').textContent.startsWith('SKILL.md · ') && document.getElementById('review-file-body').textContent.includes('owned-consumer') && !document.getElementById('review-file-body').textContent.startsWith('Preview unavailable')",
     'blocked human current text remains readable',
   )
   // The CLI can offer an explicit acceptance command for a blocked version.

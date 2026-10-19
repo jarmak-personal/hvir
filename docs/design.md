@@ -625,6 +625,8 @@ transient launch data never enters recovery, and handed-off terminals retain ord
 ### [ADR-059 — Public local Skillager management](adr/ADR-059-public-local-skillager-management.md)
 
 > Lifecycle: Partially superseded
+> Superseded by: [ADR-079](adr/ADR-079-selected-original-save-and-accept.md) | partial | Local management excludes selected external import; complete exact external inspection and one human Save and accept decision are permitted.
+> Superseded by: [ADR-080](adr/ADR-080-bounded-sync-no-effect-summaries.md) | partial | Individual identity rows for every synchronization outcome; only the exact proven no-effect categories may be summarized.
 > Superseded by: [ADR-071](adr/ADR-071-selected-skill-tasks-and-version-acceptance.md) | partial | Mandatory complete-file presentation and acknowledgment before accepting an exact version, and refusal of acceptance solely because a file format cannot be previewed.
 > Superseded by: [ADR-060](adr/ADR-060-public-skillager-advanced-exposure.md) | partial | Exclusion of native adoption from local management; complete public preservation-backed adoption is permitted by this decision.
 > Superseded by: [ADR-067](adr/ADR-067-cli-owned-personal-library-creation-defaults.md) | partial | Mandatory explicit initialization path and separate Git choice only.
@@ -797,6 +799,22 @@ explicit application-view destinations remain independent of ambient navigation.
 
 Declaration-derived templates and immutable trusted reviews configure selected extension access
 through the existing independent native, source and agent setting owners.
+
+### [ADR-079 — Selected-original Save and accept](adr/ADR-079-selected-original-save-and-accept.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-059](adr/ADR-059-public-local-skillager-management.md) | partial | Local management excludes selected external import; complete exact external inspection and one human Save and accept decision are permitted.
+
+One human decision saves and accepts the exact external manifest/token version while preserving the project original and disclosing initialization and uncertainty.
+
+### [ADR-080 — Bounded sync no-effect summaries](adr/ADR-080-bounded-sync-no-effect-summaries.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-059](adr/ADR-059-public-local-skillager-management.md) | partial | Individual identity rows for every synchronization outcome; only the exact proven no-effect categories may be summarized.
+
+Complete public sync observations bind review and reconciliation; only exact no-effect categories are summarized, while consequential outcomes and recovery paths stay explicit.
+
+---
 
 ## 5. Architecture
 
