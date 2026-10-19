@@ -280,7 +280,7 @@ export async function verifyExtensionConnectors(
     throw new Error('Connector observation required a popup or duplicate updater')
   await controls.click('Open settings')
   await controls.click('Extensions')
-  await clickInInstallation('Revoke native access')
+  await clickInInstallation('Revoke access on Local')
   await controls.wait(
     () =>
       extensions.connectors!.approvals.status(current)[0]?.availability === 'unavailable',

@@ -202,7 +202,7 @@ export async function verifySkillagerExtension(
       await controls.click('Open settings')
       await controls.click('Extensions')
       await settings.select('Program access')
-      await click('Revoke native access', 'library-cli')
+      await click('Revoke access on Local', 'library-cli')
       await controls.click('Close settings')
       await controls.click('Skillager library')
     },
