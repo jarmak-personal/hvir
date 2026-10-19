@@ -109,6 +109,7 @@ function fixture() {
         return [
           {
             connector: 'project-cli',
+            host: workspace.host,
             availability: failure ? 'unavailable' : 'supported',
           },
         ]

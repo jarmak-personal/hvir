@@ -143,7 +143,7 @@ export function connectorFixture(
   const approvals = new ExtensionConnectorApprovalOwner(
     hosts,
     authority,
-    (id, connector) => execution?.revoke(id, connector),
+    (id, connector, host) => execution?.revoke(id, connector, host),
   )
   const execution = new ExtensionConnectorExecutionOwner(
     approvals,

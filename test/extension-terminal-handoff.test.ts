@@ -10,7 +10,7 @@ import {
   type TerminalCommandRequest,
 } from '../src/main/terminal/command-handoff-owner'
 import type { ExtensionInvocation } from '../src/shared/extensions/contract'
-import { localPath } from '../src/shared/host-path'
+import { asHostId, localPath } from '../src/shared/host-path'
 import { connectorFixture } from './fixtures/extension-connector'
 
 const disposers: Array<() => void> = []
@@ -89,6 +89,46 @@ async function fixture(
 }
 
 describe('extension terminal handoff authority', () => {
+  it('selects local terminal approval after the same connector gains an independent SSH binding', async () => {
+    const f = await fixture()
+    const hosts = f.f.hosts,
+      local = hosts.hostById('local')!
+    const remote = { ...local, hostId: asHostId('remote') }
+    vi.spyOn(hosts, 'listHosts').mockReturnValue([
+      ...hosts.listHosts(),
+      {
+        hostId: remote.hostId,
+        label: 'Remote',
+        kind: 'ssh',
+        connectionState: 'connected',
+        watchTier: 'polling',
+      },
+    ])
+    vi.spyOn(hosts, 'hostById').mockImplementation((id) =>
+      id === 'local' ? local : remote,
+    )
+    vi.spyOn(hosts, 'materializeHost').mockResolvedValue(remote)
+    const prepared = await f.f.approvals.prepare(
+      {
+        installationId: 'installation',
+        connector: 'tool',
+        host: 'remote',
+        executable: '/remote/tool',
+        configuration: { args: [], env: {} },
+      },
+      () => undefined,
+    )
+    await f.f.approvals.approve(prepared.token)
+    const result = f.start()
+    await vi.waitFor(() => expect(f.published).toHaveBeenCalledOnce())
+    const lease = f.consume()
+    expect(lease.command.executable).toBe('/installed/tool')
+    await lease.prepareDispatch()
+    lease.dispatched()
+    lease.finish(true)
+    expect(await result).toMatchObject({ outcome: 'handed-off' })
+    expect(f.f.approvals.get(f.f.activation, 'tool', 'remote')).toBe(prepared.approval)
+  })
   it('asks once for the exact command and destination, then freezes the approved prefix/config', async () => {
     const f = await fixture(),
       result = f.start()

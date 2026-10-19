@@ -476,6 +476,7 @@ describe('IpcAuthorityRouter', () => {
         'extensions:connection-cancel',
         'extensions:connector-prepare',
         'extensions:connector-approve',
+        'extensions:connector-cancel-prepared',
         'extensions:connector-revoke',
         'extensions:state',
         'extensions:discover',

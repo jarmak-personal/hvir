@@ -2,6 +2,7 @@ import { extensionId, extensionObject, extensionText } from './validation'
 
 export const CONNECTOR_LIMITS = {
   declarations: 8,
+  approvals: 256,
   timeoutMs: 180_000,
   outputBytes: 4 * 1024 * 1024,
   concurrent: 16,
@@ -75,6 +76,13 @@ export interface ExtensionConnectorStatus {
   readonly host?: string
   readonly executable?: string
   readonly explanation?: string
+}
+
+/** Saved native bindings are visible only to trusted Settings. */
+export interface ExtensionConnectorSetting extends ExtensionConnectorStatus {
+  readonly host: string
+  readonly selectedExecutable: string
+  readonly configuration: ExtensionConnectorConfiguration
 }
 
 /** One grammar for declaration hints and passive metadata discovery. */
@@ -211,7 +219,6 @@ export interface ExtensionConnectionProposal {
     readonly connector: string
     readonly description: string
     readonly context: ExtensionConnectorDeclaration['context']
-    readonly replacesHost?: string
     readonly host: string
     readonly canonicalExecutable: string
     readonly configuration: ExtensionConnectorConfiguration

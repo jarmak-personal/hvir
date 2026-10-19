@@ -259,7 +259,7 @@ describe('ordinary human connection proposals', () => {
           }),
         )
         expect(
-          native.approvals.get([...data.active.values()][0]!, 'tool')
+          native.approvals.get([...data.active.values()][0]!, 'tool', 'local')
             ?.canonicalExecutable,
         ).toBe('/chosen/tool')
         // A new explicit retry held in the same picker retires immediately on physical hide.
@@ -317,7 +317,7 @@ describe('ordinary human connection proposals', () => {
             )
             expect((await latest).connections[0]?.outcome).toBe('connected')
             expect(
-              native.approvals.get([...data.active.values()][0]!, 'tool')
+              native.approvals.get([...data.active.values()][0]!, 'tool', 'local')
                 ?.canonicalExecutable,
             ).toBe('/returned-before-publication/tool')
             return
@@ -342,7 +342,7 @@ describe('ordinary human connection proposals', () => {
         expect((await latest).connections[0]?.outcome).toBe('unavailable')
         select('/late/tool')
         expect(
-          native.approvals.get([...data.active.values()][0]!, 'tool'),
+          native.approvals.get([...data.active.values()][0]!, 'tool', 'local'),
         ).toBeUndefined()
       } finally {
         connection.dispose()

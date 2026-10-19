@@ -168,7 +168,7 @@ describe('explicit local workspace connection', () => {
         data.activation.revision.manifest.name,
         [expect.objectContaining({ context: 'workspace', host: 'local' })],
       )
-      expect(data.approvals.get(data.activation, 'tool')).toMatchObject({
+      expect(data.approvals.get(data.activation, 'tool', 'local')).toMatchObject({
         host: 'local',
         declaration: { context: 'workspace' },
         configuration: { args: [], env: {} },
@@ -229,7 +229,7 @@ describe('explicit local workspace connection', () => {
         () => undefined,
       )
       await data.approvals.approve(library.token)
-      expect(data.approvals.get(data.activation, 'tool')).toBeUndefined()
+      expect(data.approvals.get(data.activation, 'tool', 'local')).toBeUndefined()
       expect((await data.request()).connections[0]?.outcome).toBe('connected')
       expect(data.dialog.confirm).toHaveBeenCalledTimes(1)
       expect(data.state()).toEqual(
@@ -283,7 +283,7 @@ describe('explicit local workspace connection', () => {
         expect((await operation).connections[0]?.outcome).toBe(
           boundary === 'persistence' ? 'interrupted-uncertain' : 'unavailable',
         )
-        expect(data.approvals.get(data.activation, 'tool')).toBeUndefined()
+        expect(data.approvals.get(data.activation, 'tool', 'local')).toBeUndefined()
         expect(data.state()).toEqual([])
         expect(data.workspaceListeners.size).toBe(0)
         if (boundary !== 'persistence') expect(data.write).not.toHaveBeenCalled()
@@ -376,9 +376,9 @@ describe('passive program connection', () => {
           'tool',
           ['/installed/tool'],
         )
-        expect(data.approvals.get(data.activation, 'tool')?.canonicalExecutable).toBe(
-          '/selected/tool',
-        )
+        expect(
+          data.approvals.get(data.activation, 'tool', 'local')?.canonicalExecutable,
+        ).toBe('/selected/tool')
       } finally {
         data.stop()
       }
@@ -410,9 +410,9 @@ describe('passive program connection', () => {
           )
         expect((await data.request()).connections[0]?.outcome).toBe('connected')
         expect(data.dialog.confirm).toHaveBeenCalledTimes(2)
-        expect(data.approvals.get(data.activation, 'tool')?.canonicalExecutable).toBe(
-          '/replacement/tool',
-        )
+        expect(
+          data.approvals.get(data.activation, 'tool', 'local')?.canonicalExecutable,
+        ).toBe('/replacement/tool')
       } finally {
         data.stop()
       }
@@ -442,9 +442,9 @@ describe('passive program connection', () => {
       expect(result.connections[0]?.outcome).toBe('unavailable')
       expect(data.dialog.confirm).toHaveBeenCalledOnce()
       expect(data.dialog.choose).not.toHaveBeenCalled()
-      expect(data.approvals.get(data.activation, 'tool')?.canonicalExecutable).toBe(
-        '/installed/tool',
-      )
+      expect(
+        data.approvals.get(data.activation, 'tool', 'local')?.canonicalExecutable,
+      ).toBe('/installed/tool')
     } finally {
       data.stop()
     }
@@ -553,7 +553,7 @@ describe('passive program connection', () => {
         connections: [{ connector: 'tool', outcome: 'connected' }],
       })
       expect(data.write).toHaveBeenCalledTimes(1)
-      expect(data.approvals.get(data.activation, 'tool')).toBeDefined()
+      expect(data.approvals.get(data.activation, 'tool', 'local')).toBeDefined()
       expect(data.dialog.choose).not.toHaveBeenCalled()
       expect(data.finiteExec.tryExec).not.toHaveBeenCalled()
     } finally {
@@ -608,9 +608,9 @@ describe('passive program connection', () => {
       expect(data.write).not.toHaveBeenCalled()
       expect(data.approvals.preparedSignal(other.token).aborted).toBe(false)
       await data.approvals.approve(other.token)
-      expect(data.approvals.get(data.activation, 'tool')?.canonicalExecutable).toBe(
-        '/other/tool',
-      )
+      expect(
+        data.approvals.get(data.activation, 'tool', 'local')?.canonicalExecutable,
+      ).toBe('/other/tool')
     } finally {
       data.stop()
     }
@@ -739,9 +739,9 @@ describe('passive program connection', () => {
       foreground = true
       selected.resolve('/chosen/tool')
       expect((await operation).connections[0]?.outcome).toBe('connected')
-      expect(data.approvals.get(data.activation, 'tool')?.canonicalExecutable).toBe(
-        '/chosen/tool',
-      )
+      expect(
+        data.approvals.get(data.activation, 'tool', 'local')?.canonicalExecutable,
+      ).toBe('/chosen/tool')
     } finally {
       selected.resolve(undefined)
       data.stop()
@@ -907,8 +907,8 @@ describe('passive program connection', () => {
           ['second', 'interrupted-uncertain'],
         ],
       )
-      expect(data.approvals.get(activation, 'tool')).toBeDefined()
-      expect(data.approvals.get(activation, 'second')).toBeUndefined()
+      expect(data.approvals.get(activation, 'tool', 'local')).toBeDefined()
+      expect(data.approvals.get(activation, 'second', 'local')).toBeUndefined()
     } finally {
       data.stop()
     }
@@ -977,7 +977,7 @@ describe('passive program connection', () => {
       expect(
         JSON.parse(await fs.readFile(join(data.root, 'connectors.json'), 'utf8')),
       ).toMatchObject([{ connector: 'tool', configuration: { args: [], env: {} } }])
-      expect(approvals.get(activation, 'tool')).toBeUndefined()
+      expect(approvals.get(activation, 'tool', 'local')).toBeUndefined()
     } finally {
       connection?.dispose()
       approvals?.dispose()

@@ -130,7 +130,11 @@ export async function installSkillagerFirstUse(
     const activation = extensions.activations!.active.get(
       installation()!.installationId!,
     )!
-    const approval = extensions.connectors!.approvals.get(activation, 'library-cli')
+    const approval = extensions.connectors!.approvals.get(
+      activation,
+      'library-cli',
+      host.hostId,
+    )
     if (
       !approval ||
       approval.canonicalExecutable !== canonicalExecutable ||

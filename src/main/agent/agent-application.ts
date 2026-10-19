@@ -285,15 +285,19 @@ export class AgentApplicationRuntime {
           if (workspace.host !== forward.host) continue
           for (const action of activation.revision.manifest.actions ?? []) {
             if (!action.agents) continue
+            const executionHosts = new Set<string>()
             for (const status of this.extensions.connectors?.approvals.status(
               activation,
+              workspace.host,
             ) ?? []) {
               if (
                 status.availability !== 'supported' ||
                 !status.host ||
-                status.host === forward.host
+                status.host === forward.host ||
+                executionHosts.has(status.host)
               )
                 continue
+              executionHosts.add(status.host)
               if (choices.length >= 128) return choices
               choices.push({
                 host: forward.host,

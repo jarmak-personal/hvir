@@ -99,7 +99,7 @@ export async function verifyLocalWorkspaceConnection(
   const installed = [...activations.active.values()].find(
     (entry) => entry.revision.manifest.id === 'hvir.local-project-connection',
   )!
-  if (approvals.get(installed, 'project-tool'))
+  if (approvals.get(installed, 'project-tool', host.hostId))
     throw new Error('Settled installation implicitly approved the workspace program')
   if (await exists())
     throw new Error('Settled installation executed the workspace program')
@@ -119,7 +119,11 @@ export async function verifyLocalWorkspaceConnection(
   const lateDenied = (await win.webContents.executeJavaScript(
     `window.hvir.invoke('extensions:connection-decide',{id:${JSON.stringify(withdrawn.id)},accepted:true}).then(()=>false,()=>true)`,
   )) as boolean
-  if (!lateDenied || approvals.get(installed, 'project-tool') || (await exists()))
+  if (
+    !lateDenied ||
+    approvals.get(installed, 'project-tool', host.hostId) ||
+    (await exists())
+  )
     throw new Error('Late closed-view response created native authority')
   await controls.click('Open settings')
   await controls.click('Extensions')
@@ -130,7 +134,7 @@ export async function verifyLocalWorkspaceConnection(
     decision.programs.length !== 1 ||
     decision.programs[0]?.context !== 'workspace' ||
     decision.programs[0]?.host !== host.hostId ||
-    approvals.get(installed, 'project-tool') ||
+    approvals.get(installed, 'project-tool', host.hostId) ||
     (await exists())
   )
     throw new Error('Local project proposal changed host scope or ran before consent')

@@ -96,14 +96,11 @@ export class ExtensionConnectorExecutionOwner {
             'workspace identity',
             WORKSPACE_IDENTITY_CHARS,
           )
-    const approval = this.approvals.get(caller.activation, connector)
-    if (approval) caller.authorizeHost?.(approval.host, workspace)
-    const unavailable = (
-      reason: ExtensionConnectorResult['reason'],
-      host = approval?.host ?? '',
-    ) => emptyResult(host, 'not-started', reason)
+    caller.authorizeHost?.(hostId, workspace)
+    const approval = this.approvals.get(caller.activation, connector, hostId)
+    const unavailable = (reason: ExtensionConnectorResult['reason'], host = hostId) =>
+      emptyResult(host, 'not-started', reason)
     if (!approval) return unavailable('unapproved')
-    if (hostId !== approval.host) return unavailable('unavailable')
     const host = this.approvals.hosts.hostById(approval.host)
     if (!host || host.connectionState !== 'connected') return unavailable('disconnected')
     if (!host.finiteExec) return unavailable('unavailable')
@@ -364,23 +361,26 @@ export class ExtensionConnectorExecutionOwner {
     for (const [id, receipt] of this.receipts)
       if (!this.valid(receipt.consumer)) this.release(id)
   }
-  revoke(installation: string, connector?: string): void {
+  revoke(installation: string, connector?: string, host?: string): void {
     for (const admission of this.admissions)
       if (
         admission.caller.activation.installationId === installation &&
-        (!connector || admission.approval.connector === connector)
+        (!connector || admission.approval.connector === connector) &&
+        (!host || admission.approval.host === host)
       )
         admission.controller.abort()
     for (const execution of this.executions)
       if (
         execution.activation.installationId === installation &&
-        (!connector || execution.approval.connector === connector)
+        (!connector || execution.approval.connector === connector) &&
+        (!host || execution.approval.host === host)
       )
         this.interrupt(execution, 'context-ended')
     for (const [id, receipt] of this.receipts)
       if (
         receipt.consumer.caller.activation.installationId === installation &&
-        (!connector || receipt.consumer.approval.connector === connector)
+        (!connector || receipt.consumer.approval.connector === connector) &&
+        (!host || receipt.consumer.approval.host === host)
       )
         this.release(id)
   }

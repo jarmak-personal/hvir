@@ -1,3 +1,4 @@
+import { extensionId, extensionText } from '../../../shared/extensions/validation'
 import type { ExtensionApplicationRuntime } from '../../extensions/extension-application'
 import type { IpcRegistrar } from '../authority-router'
 
@@ -79,7 +80,7 @@ export function registerExtensionsIpc(
     if (!activation || !approvals) return unavailable()
     return {
       hosts: approvals.hosts.listHosts(),
-      connectors: approvals.status(activation),
+      ...approvals.settings(activation),
     }
   })
   ipc.handle(
@@ -118,11 +119,20 @@ export function registerExtensionsIpc(
     context.owner()
     return extensions?.connectors?.approvals.approve(req.token) ?? unavailable()
   })
+  ipc.handle('extensions:connector-cancel-prepared', (req, context) => {
+    context.owner()
+    extensions?.connectors?.approvals.cancelPrepared(
+      extensionText(req.token, 'prepared connector token', 80),
+    )
+  })
   ipc.handle('extensions:connector-revoke', (req, context) => {
     context.owner()
     return (
-      extensions?.connectors?.approvals.revoke(req.installationId, req.connector) ??
-      unavailable()
+      extensions?.connectors?.approvals.revoke(
+        req.installationId,
+        extensionId(req.connector),
+        extensionText(req.host, 'connector host', 128),
+      ) ?? unavailable()
     )
   })
   ipc.handle('extensions:state', (_req, context) => {

@@ -9,7 +9,7 @@ import type {
 import type {
   ExtensionConnectorSelection,
   ExtensionConnectorApproval,
-  ExtensionConnectorStatus,
+  ExtensionConnectorSetting,
 } from '../extensions/connectors'
 import { invoke, payload, type IpcFeatureContract } from '../ipc-contract'
 import type { KeybindingAction } from '../keybindings'
@@ -70,7 +70,8 @@ export const extensionsIpc = {
       { readonly installationId: string },
       {
         readonly hosts: readonly ProjectHostOption[]
-        readonly connectors: readonly ExtensionConnectorStatus[]
+        readonly connectors: readonly ExtensionConnectorSetting[]
+        readonly explanation?: string
       }
     >(),
     'extensions:connection-proposals': invoke<
@@ -94,8 +95,13 @@ export const extensionsIpc = {
       { readonly token: string; readonly approval: ExtensionConnectorApproval }
     >(),
     'extensions:connector-approve': invoke<{ readonly token: string }, void>(),
+    'extensions:connector-cancel-prepared': invoke<{ readonly token: string }, void>(),
     'extensions:connector-revoke': invoke<
-      { readonly installationId: string; readonly connector: string },
+      {
+        readonly installationId: string
+        readonly connector: string
+        readonly host: string
+      },
       void
     >(),
     'extensions:state': invoke<void, ExtensionPlatformState>(),
