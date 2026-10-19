@@ -140,6 +140,22 @@
   display: grid;
   gap: 10px;
 }
+.extension-source-binding {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+.extension-source-binding > p {
+  flex: 1 1 220px;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.extension-source-binding > .hvir-button {
+  flex: 0 0 auto;
+}
 .extension-settings-content fieldset label {
   display: grid;
   gap: 6px;

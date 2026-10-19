@@ -169,6 +169,11 @@ export async function verifySkillagerExtension(
       wait: (predicate, label) => controls.wait(predicate, label),
       ready: (predicate, label) => ready(projectGuest, predicate, label),
       within: bounded,
+      hasReadDecision: () => extensions.sourceRequests!.snapshot(owner).length > 0,
+      reader: async () => {
+        await controls.wait(() => !!view('detail'), 'project instruction reader opens')
+        return bounded(controls.guest(view('detail')!))
+      },
       reopen: async () => {
         await controls.click('Close Skills in this project')
         await controls.wait(

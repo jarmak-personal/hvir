@@ -4,8 +4,12 @@ import { ExtensionSourceRequestOwner } from '../src/main/extensions/source-reque
 import { sourceFixture } from './fixtures/extension-source'
 import { fixture, attached } from './fixtures/extension-guest'
 describe('main-owned source origin and current visibility', () => {
-  async function sourceGuest(origin: 'human' | 'agent' | 'action', granted = true) {
-    const source = sourceFixture()
+  async function sourceGuest(
+    origin: 'human' | 'agent' | 'action',
+    granted = true,
+    context: 'application' | 'workspace' = 'application',
+  ) {
+    const source = sourceFixture(context)
     const data = fixture(
       {},
       {
@@ -73,10 +77,15 @@ describe('main-owned source origin and current visibility', () => {
       (entry) => entry.message.kind === 'result' && entry.message.id === id,
     )!.message
   }
-  it.each(['agent', 'action'] as const)(
-    'denies omitted invocation IDs after %s origin and own-detail reuse',
-    async (origin) => {
-      const f = await sourceGuest(origin)
+  it.each([
+    ['agent', 'application'],
+    ['action', 'application'],
+    ['agent', 'workspace'],
+    ['action', 'workspace'],
+  ] as const)(
+    'denies omitted invocation IDs after %s origin and own-detail reuse for %s sources',
+    async (origin, context) => {
+      const f = await sourceGuest(origin, true, context)
       try {
         const human = await f.data.owner.open(
           f.data.renderer,

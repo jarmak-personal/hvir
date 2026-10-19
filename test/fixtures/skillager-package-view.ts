@@ -37,6 +37,7 @@ export function createSkillagerPackageView(view = 'library') {
     version = '0.9.3',
     projectInventory: unknown,
     projectScopeSupported = true,
+    projectQuerySupported = true,
     unavailableProject = false,
     currentWorkspace: { root?: { path?: string } } | undefined,
     resume: (() => void) | undefined,
@@ -102,7 +103,8 @@ export function createSkillagerPackageView(view = 'library') {
         frequency = false
         value = { outcome: 'not-started', reason: 'frequency' }
       } else if (
-        !projectScopeSupported &&
+        (!projectScopeSupported ||
+          (!projectQuerySupported && args.includes('--query'))) &&
         args[0] === 'list' &&
         args[args.indexOf('--scope') + 1] === 'project'
       ) {
@@ -110,7 +112,9 @@ export function createSkillagerPackageView(view = 'library') {
         outputs.set(receipt, '')
         errors.set(
           receipt,
-          `usage: skillager list ${'options '.repeat(60)}\nskillager list: error: argument --scope: invalid choice: 'project' (choose from 'workspace', 'library')`,
+          projectScopeSupported
+            ? 'skillager: error: unrecognized arguments: --query example'
+            : `usage: skillager list ${'options '.repeat(60)}\nskillager list: error: argument --scope: invalid choice: 'project' (choose from 'workspace', 'library')`,
         )
         value = { outcome: 'completed', code: 2, receipt }
       } else if (
@@ -315,6 +319,9 @@ export function createSkillagerPackageView(view = 'library') {
     },
     unavailableProject: () => {
       unavailableProject = true
+    },
+    unsupportedProjectQuery: () => {
+      projectQuerySupported = false
     },
     unsupportedProjectScope: () => {
       projectScopeSupported = false

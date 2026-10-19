@@ -1,6 +1,7 @@
 # ADR-057: Selected extension source reading
 
 > Lifecycle: Partially superseded
+> Superseded by: [ADR-073](ADR-073-exact-workspace-source-grants.md) | partial | Workspace grant retention and contextual workspace read consent only.
 > Superseded by: [ADR-068](ADR-068-in-context-human-source-read-decisions.md) | partial | Settings-only application-local read-only root decision surface only.
 
 ## Context

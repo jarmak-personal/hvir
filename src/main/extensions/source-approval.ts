@@ -8,12 +8,14 @@ import {
 } from '../../shared/host-path'
 import {
   SOURCE_LIMITS,
+  sameSourceBinding,
+  type ExtensionSourceBinding,
   validateSourceDeclarations,
   type ExtensionSourceGrant,
   type ExtensionSourceSelection,
   type ExtensionSourceStatus,
 } from '../../shared/extensions/source-access'
-import type { ExtensionContextOwner } from './context-owner'
+import type { AdmittedExtensionContext, ExtensionContextOwner } from './context-owner'
 import { extensionObject, extensionText } from '../../shared/extensions/validation'
 import { assertNormalizedAbsoluteProjectPath } from '../project-file-operations/project-file-confinement'
 import type { ProjectHost } from '../project-host/project-host'
@@ -30,7 +32,13 @@ export interface SourceHostCatalog {
   hostById(id: string): SourceHostPort | undefined
   onHostStateChange?(listener: () => void): () => void
 }
+interface SourceIntent {
+  readonly selection: ExtensionSourceSelection
+  readonly binding?: ExtensionSourceBinding
+  revoked: boolean
+}
 interface PreparedSource {
+  readonly lifetime: SourceIntent
   readonly grant: ExtensionSourceGrant
   readonly activation: ExtensionActivation
   readonly current: () => void
@@ -45,20 +53,25 @@ export class ExtensionSourceApprovalOwner {
   private failure?: string
   private disposed = false
   private intent = 0
-  private preparing = 0
+  private readonly decisions = new Set<SourceIntent>()
   constructor(
     readonly hosts: SourceHostCatalog,
     private readonly activations: Pick<
       ExtensionActivationOwner,
       'active' | 'assertWritable' | 'readSourceGrants' | 'saveSourceGrants'
     >,
-    private readonly revoked: (installation: string, source?: string) => void,
+    private readonly revoked: (
+      installation: string,
+      source?: string,
+      binding?: ExtensionSourceBinding,
+      cancelRequests?: boolean,
+    ) => void,
     private readonly contexts?: Pick<ExtensionContextOwner, 'workspaces'>,
   ) {}
   async start(): Promise<void> {
     try {
       const value = await this.activations.readSourceGrants()
-      if (!Array.isArray(value) || value.length > 32 * SOURCE_LIMITS.declarations)
+      if (!Array.isArray(value) || value.length > SOURCE_LIMITS.grants)
         throw new Error('Invalid source grants')
       const grants = value.map((entry: unknown): ExtensionSourceGrant => {
         const item = extensionObject(entry)
@@ -94,10 +107,25 @@ export class ExtensionSourceApprovalOwner {
   ): Promise<{ token: string; grant: ExtensionSourceGrant }> {
     this.prune()
     const intent = this.intent
-    const assertIntent = this.decisionCurrent(current)
-    if (this.prepared.size + this.preparing >= SOURCE_LIMITS.decisions)
+    const registered = this.contexts
+      ?.workspaces()
+      .find((entry) => entry.id === selection.workspaceId)
+    const lifetime: SourceIntent = {
+      selection,
+      revoked: false,
+      ...(registered?.root
+        ? { binding: { workspaceId: registered.id, root: registered.root } }
+        : {}),
+    }
+    const assertDecision = this.decisionCurrent(current)
+    const assertIntent = () => {
+      assertDecision()
+      if (lifetime.revoked) throw new Error('Source decision was revoked')
+    }
+    if (this.decisions.size >= SOURCE_LIMITS.decisions)
       throw new Error('Too many pending source decisions')
-    this.preparing++
+    this.decisions.add(lifetime)
+    let retained = false
     try {
       await this.assertWritable()
       assertIntent()
@@ -113,9 +141,7 @@ export class ExtensionSourceApprovalOwner {
         if (selection.root !== undefined)
           throw new Error('Workspace roots come only from registered project context')
         workspaceId = extensionText(selection.workspaceId, 'registered workspace', 256)
-        const workspace = this.contexts
-          ?.workspaces()
-          .find((entry) => entry.id === workspaceId)
+        const workspace = registered
         if (!workspace?.root) throw new Error('Choose an available registered workspace')
         root = readSourcePath(workspace.root)
         if (
@@ -161,15 +187,17 @@ export class ExtensionSourceApprovalOwner {
       if (!this.scopeCurrent(grant)) throw new Error('Registered workspace changed')
       const token = randomUUID()
       this.prepared.set(token, {
+        lifetime,
         grant,
         activation,
         current: assertIntent,
         intent,
         expires: Date.now() + SOURCE_LIMITS.decisionMs,
       })
+      retained = true
       return { token, grant }
     } finally {
-      this.preparing--
+      if (!retained) this.decisions.delete(lifetime)
     }
   }
   /** Share the canonical decision lifetime even before a prepared token exists. */
@@ -187,11 +215,110 @@ export class ExtensionSourceApprovalOwner {
     source: string,
     root: HostPath,
     current: () => void,
+    context?: AdmittedExtensionContext,
   ): Promise<boolean> {
     await this.assertWritable()
     current()
-    const existing = this.get(activation, source)
-    return !!existing?.root && containsHostPath(existing.root, root)
+    const existing = this.get(activation, source, context)
+    return (
+      !!existing?.root &&
+      (existing.declaration.context === 'workspace'
+        ? hostPathEquals(existing.root, root)
+        : containsHostPath(existing.root, root))
+    )
+  }
+  /** Trusted coordinators prepare source consent; only this owner persists it. */
+  async prepareWorkspaceRead(
+    activation: ExtensionActivation,
+    source: string,
+    context: AdmittedExtensionContext,
+    current: () => void,
+    signal: AbortSignal,
+  ): Promise<{
+    grant: ExtensionSourceGrant
+    reused: boolean
+    current: () => void
+    approve: () => Promise<void>
+    cancel: () => void
+  }> {
+    const declaration = activation.revision.manifest.access.find(
+      (entry) => entry.id === source,
+    )
+    if (
+      declaration?.context !== 'workspace' ||
+      declaration.mode !== 'read-only' ||
+      !context.root ||
+      !context.value.workspace
+    )
+      throw new Error('Choose an exact workspace read-only source')
+    const root = context.root,
+      workspaceId = context.value.workspace.id
+    let ended = false
+    const expires = Date.now() + SOURCE_LIMITS.decisionMs
+    const live = () => {
+      signal.throwIfAborted()
+      current()
+      if (
+        ended ||
+        Date.now() >= expires ||
+        !context.current() ||
+        this.activations.active.get(activation.installationId) !== activation
+      )
+        throw new Error('Workspace read decision ended')
+    }
+    live()
+    await this.assertWritable()
+    live()
+    let grant = this.get(activation, source, context)
+    const reused = !!grant
+    const prepared = grant
+      ? undefined
+      : await this.prepare(
+          { installationId: activation.installationId, source, workspaceId },
+          live,
+        )
+    grant ??= prepared!.grant
+    if (!sameSourceBinding(grant, { workspaceId, root })) {
+      if (prepared) this.cancelPrepared(prepared.token)
+      throw new Error('Workspace read scope changed')
+    }
+    let approved = reused
+    const cancel = () => {
+      ended = true
+      if (prepared) this.cancelPrepared(prepared.token)
+      signal.removeEventListener('abort', cancel)
+    }
+    signal.addEventListener('abort', cancel, { once: true })
+    const check = () => {
+      live()
+      if (!this.scopeCurrent(grant)) throw new Error('Workspace read scope changed')
+      if (
+        approved
+          ? this.get(activation, source, context) !== grant
+          : !this.hasPrepared(prepared!.token)
+      )
+        throw new Error('Workspace read decision changed')
+    }
+    try {
+      check()
+    } catch (reason) {
+      cancel()
+      throw reason
+    }
+    return {
+      grant,
+      reused,
+      current: check,
+      cancel,
+      approve: async () => {
+        check()
+        if (!approved) {
+          await this.approve(prepared!.token)
+          approved = true
+        }
+        check()
+      },
+    }
   }
   approve(token: string): Promise<void> {
     return this.serialize(async () => {
@@ -200,51 +327,80 @@ export class ExtensionSourceApprovalOwner {
       this.prepared.delete(token)
       if (!decision) throw new Error('Inspect source access again before granting it')
       const { grant, activation } = decision
-      const current = () => {
-        decision.current()
-        if (this.intent !== decision.intent)
-          throw new Error('Source decision was revoked')
+      try {
+        const current = () => {
+          decision.current()
+          if (this.intent !== decision.intent)
+            throw new Error('Source decision was revoked')
+          if (
+            this.disposed ||
+            this.activations.active.get(grant.installationId) !== activation ||
+            !this.scopeCurrent(grant)
+          )
+            throw new Error('Source decision ended')
+        }
+        await this.assertWritable()
+        current()
+        if (grant.root) {
+          const host = this.hosts.hostById(grant.root.hostId)
+          if (
+            !host ||
+            host.connectionState !== 'connected' ||
+            !hostPathEquals(await host.realpath(grant.root), grant.root) ||
+            (await host.stat(grant.root)).type !== 'dir'
+          )
+            throw new Error('Source root changed; inspect it again')
+        }
+        current()
+        const remaining = this.grants.filter((entry) => !replacedBy(entry, grant))
+        const next = [...remaining, grant]
         if (
-          this.disposed ||
-          this.activations.active.get(grant.installationId) !== activation ||
-          !this.scopeCurrent(grant)
+          next.length > SOURCE_LIMITS.grants ||
+          Buffer.byteLength(JSON.stringify(next)) > SOURCE_LIMITS.stateBytes
         )
-          throw new Error('Source decision ended')
+          throw new Error(
+            'Source grant capacity reached; revoke an unused binding in Settings',
+          )
+        this.revoked(grant.installationId, grant.declaration.id, bindingOf(grant))
+        this.grants = remaining
+        await this.activations.saveSourceGrants(next, current)
+        current()
+        this.grants = [...this.grants.filter((entry) => !replacedBy(entry, grant)), grant]
+      } finally {
+        this.decisions.delete(decision.lifetime)
       }
-      await this.assertWritable()
-      current()
-      if (grant.root) {
-        const host = this.hosts.hostById(grant.root.hostId)
-        if (
-          !host ||
-          host.connectionState !== 'connected' ||
-          !hostPathEquals(await host.realpath(grant.root), grant.root) ||
-          (await host.stat(grant.root)).type !== 'dir'
-        )
-          throw new Error('Source root changed; inspect it again')
-      }
-      current()
-      this.revoked(grant.installationId, grant.declaration.id)
-      this.grants = this.grants.filter((entry) => key(entry) !== key(grant))
-      await this.activations.saveSourceGrants([...this.grants, grant], current)
-      current()
-      this.grants = [...this.grants.filter((entry) => key(entry) !== key(grant)), grant]
     })
   }
   cancelPrepared(token: string): void {
+    const decision = this.prepared.get(token)
+    if (decision) {
+      decision.lifetime.revoked = true
+      this.decisions.delete(decision.lifetime)
+    }
     this.prepared.delete(token)
   }
   hasPrepared(token: string): boolean {
     this.prune()
     return this.prepared.get(token)?.intent === this.intent
   }
-  revoke(installation: string, source?: string): Promise<void> {
-    this.discardPrepared(installation, source)
-    this.revoked(installation, source)
+  revoke(
+    installation: string,
+    source?: string,
+    value?: ExtensionSourceBinding,
+  ): Promise<void> {
+    const binding = value
+      ? {
+          workspaceId: extensionText(value.workspaceId, 'registered workspace', 256),
+          root: readSourcePath(value.root),
+        }
+      : undefined
+    this.discardPrepared(installation, source, binding)
+    this.revoked(installation, source, binding, true)
     this.grants = this.grants.filter(
       (entry) =>
         entry.installationId !== installation ||
-        (!!source && entry.declaration.id !== source),
+        (!!source && entry.declaration.id !== source) ||
+        (!!binding && !sameSourceBinding(entry, binding)),
     )
     if (this.failure) return Promise.resolve()
     return this.serialize(async () => {
@@ -254,23 +410,34 @@ export class ExtensionSourceApprovalOwner {
       })
     })
   }
-  discardPrepared(installation: string, source?: string): void {
-    this.intent++
-    for (const [token, entry] of this.prepared)
+  discardPrepared(
+    installation: string,
+    source?: string,
+    binding?: ExtensionSourceBinding,
+  ): void {
+    if (!binding) this.intent++
+    for (const decision of this.decisions)
       if (
-        entry.grant.installationId === installation &&
-        (!source || entry.grant.declaration.id === source)
+        decision.selection.installationId === installation &&
+        (!source || decision.selection.source === source) &&
+        (!binding || (decision.binding && sameSourceBinding(decision.binding, binding)))
       )
-        this.prepared.delete(token)
+        decision.revoked = true
+    for (const [token, entry] of this.prepared)
+      if (entry.lifetime.revoked) this.cancelPrepared(token)
   }
   forget(installation: string): readonly ExtensionSourceGrant[] | undefined {
-    this.revoked(installation)
     this.discardPrepared(installation)
+    this.revoked(installation, undefined, undefined, true)
     if (this.failure) return undefined
     this.grants = this.grants.filter((entry) => entry.installationId !== installation)
     return [...this.grants]
   }
-  get(activation: ExtensionActivation, source: string): ExtensionSourceGrant | undefined {
+  get(
+    activation: ExtensionActivation,
+    source: string,
+    context?: AdmittedExtensionContext,
+  ): ExtensionSourceGrant | undefined {
     if (
       this.disposed ||
       this.failure ||
@@ -285,12 +452,22 @@ export class ExtensionSourceApprovalOwner {
         entry.installationId === activation.installationId &&
         entry.declaration.id === source &&
         JSON.stringify(entry.declaration) === JSON.stringify(declaration) &&
-        this.scopeCurrent(entry),
+        this.scopeCurrent(entry) &&
+        (entry.declaration.context === 'application' ||
+          (!!context?.root &&
+            context.current() &&
+            sameSourceBinding(entry, {
+              workspaceId: context.value.workspace?.id ?? '',
+              root: context.root,
+            }))),
     )
   }
-  status(activation: ExtensionActivation): readonly ExtensionSourceStatus[] {
+  status(
+    activation: ExtensionActivation,
+    context?: AdmittedExtensionContext,
+  ): readonly ExtensionSourceStatus[] {
     return activation.revision.manifest.access.map((entry) => {
-      const grant = this.get(activation, entry.id)
+      const grant = this.get(activation, entry.id, context)
       return {
         source: entry.id,
         granted: !!grant,
@@ -299,11 +476,45 @@ export class ExtensionSourceApprovalOwner {
         ...(!grant
           ? {
               explanation:
-                this.failure ?? 'Grant read-only source access in Settings → Extensions',
+                this.failure ??
+                (entry.mode === 'read-only'
+                  ? 'Allow read access when opening a file.'
+                  : 'Grant delivery scope in Settings → Extensions.'),
             }
           : {}),
       }
     })
+  }
+  /** Trusted Settings can inspect retained bindings; guest status remains context-local. */
+  settings(activation: ExtensionActivation): readonly ExtensionSourceStatus[] {
+    return activation.revision.manifest.access.flatMap<ExtensionSourceStatus>(
+      (declaration) => {
+        const retained = this.grants.filter(
+          (entry) =>
+            entry.installationId === activation.installationId &&
+            entry.declaration.id === declaration.id,
+        )
+        return retained.length
+          ? retained.map((grant) => ({
+              source: declaration.id,
+              root: grant.root,
+              workspaceId: grant.workspaceId,
+              granted:
+                !this.disposed &&
+                !this.failure &&
+                this.activations.active.get(activation.installationId) === activation &&
+                JSON.stringify(grant.declaration) === JSON.stringify(declaration) &&
+                this.scopeCurrent(grant),
+            }))
+          : [
+              {
+                source: declaration.id,
+                granted: false,
+                ...(this.failure ? { explanation: this.failure } : {}),
+              },
+            ]
+      },
+    )
   }
   private scopeCurrent(grant: ExtensionSourceGrant): boolean {
     if (!grant.root) return false
@@ -320,6 +531,7 @@ export class ExtensionSourceApprovalOwner {
     this.disposed = true
     this.intent++
     this.prepared.clear()
+    this.decisions.clear()
     this.grants = []
   }
   private async assertWritable(): Promise<void> {
@@ -329,7 +541,7 @@ export class ExtensionSourceApprovalOwner {
   }
   private prune(): void {
     for (const [token, entry] of this.prepared)
-      if (entry.expires <= Date.now()) this.prepared.delete(token)
+      if (entry.expires <= Date.now()) this.cancelPrepared(token)
   }
   private serialize<T>(operation: () => Promise<T>): Promise<T> {
     const task = this.pending.then(operation)
@@ -349,5 +561,28 @@ export function readSourcePath(value: unknown): HostPath {
   return result
 }
 function key(grant: ExtensionSourceGrant): string {
-  return JSON.stringify([grant.installationId, grant.declaration.id])
+  return JSON.stringify([
+    grant.installationId,
+    grant.declaration.id,
+    ...(grant.declaration.context === 'workspace'
+      ? [grant.workspaceId, grant.root?.hostId, grant.root?.path]
+      : []),
+  ])
+}
+
+function bindingOf(grant: ExtensionSourceGrant): ExtensionSourceBinding | undefined {
+  return grant.workspaceId && grant.root
+    ? { workspaceId: grant.workspaceId, root: grant.root }
+    : undefined
+}
+
+/** Application declarations keep their single binding even across context revisions. */
+function replacedBy(previous: ExtensionSourceGrant, next: ExtensionSourceGrant): boolean {
+  return (
+    previous.installationId === next.installationId &&
+    previous.declaration.id === next.declaration.id &&
+    (next.declaration.context === 'application' ||
+      previous.declaration.context === 'application' ||
+      key(previous) === key(next))
+  )
 }

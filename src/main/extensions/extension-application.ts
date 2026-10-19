@@ -268,8 +268,9 @@ export class ExtensionApplicationRuntime {
     const sourceApprovals = new ExtensionSourceApprovalOwner(
       hosts,
       activations,
-      (id, source) => {
-        this.sources?.revoke(id, source)
+      (id, source, binding, cancelRequests) => {
+        this.sources?.revoke(id, source, binding)
+        if (cancelRequests) this.sourceRequests?.revoke(id, source, binding)
         this.sourceRequests?.revalidate()
       },
       contexts,

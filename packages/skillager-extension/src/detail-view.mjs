@@ -205,6 +205,18 @@ export function bindSkillReader(document, client, ports) {
         )
         if (!available() || revision !== generation) return
       }
+      if (row.source === 'project') {
+        const decision = await client.request(
+          'source.request',
+          { source: 'project' },
+          controller.signal,
+        )
+        if (!available() || revision !== generation) return
+        if (!decision.granted) {
+          say('Read access was not granted.', 'unapproved')
+          return
+        }
+      }
       const selected = await client.request('source.select', {
         source: row.source,
         path: { hostId: row.host, path: row.path },

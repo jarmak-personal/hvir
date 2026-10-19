@@ -8,7 +8,7 @@ import type {
   ExtensionSourceStatus,
 } from '../../../../shared/extensions/source-access'
 
-/** Read decisions belong to trusted workbench Settings, never to guest claims. */
+/** Trusted Settings inspect and manage retained source grants. */
 export function SourceSettings({
   installation,
 }: {
@@ -57,7 +57,7 @@ function SourceSetup({
   const [path, setPath] = useState('')
   const [workspaces, setWorkspaces] = useState<readonly ExtensionWorkspaceContext[]>([])
   const [workspaceId, setWorkspaceId] = useState('')
-  const [status, setStatus] = useState<ExtensionSourceStatus>()
+  const [statuses, setStatuses] = useState<readonly ExtensionSourceStatus[]>([])
   const [decision, setDecision] = useState<{
     token: string
     grant: ExtensionSourceGrant
@@ -68,7 +68,7 @@ function SourceSetup({
     const statuses = await window.hvir.invoke('extensions:source-settings', {
       installationId: installation,
     })
-    setStatus(statuses.sources.find((entry) => entry.source === source.id))
+    setStatuses(statuses.sources.filter((entry) => entry.source === source.id))
     setWorkspaces(statuses.workspaces)
   }
   const run = async (operation: () => Promise<void>): Promise<void> => {
@@ -89,7 +89,7 @@ function SourceSetup({
       .then(
         (statuses) => {
           if (current) {
-            setStatus(statuses.sources.find((entry) => entry.source === source.id))
+            setStatuses(statuses.sources.filter((entry) => entry.source === source.id))
             setWorkspaces(statuses.workspaces)
           }
         },
@@ -107,11 +107,47 @@ function SourceSetup({
         {source.mode === 'read-only' ? 'Read-only source' : 'Delivery scope'}: {source.id}
       </legend>
       <p>{source.description}</p>
-      <p role="status">
-        {status?.granted ? 'Granted' : 'Not granted'}
-        {status?.root ? ` · ${status.root.hostId}: ${status.root.path}` : ''}
-        {status?.explanation ? ` · ${status.explanation}` : ''}
-      </p>
+      {statuses.map((status, index) => (
+        <div
+          key={JSON.stringify([status.workspaceId, status.root, index])}
+          className="extension-source-binding"
+        >
+          <p role="status">
+            {status.granted
+              ? 'Granted'
+              : status.root
+                ? 'Saved · unavailable'
+                : 'Not granted'}
+            {status.root ? ` · ${status.root.hostId}: ${status.root.path}` : ''}
+            {status.explanation ? ` · ${status.explanation}` : ''}
+          </p>
+          {status.root ? (
+            <button
+              className="hvir-button"
+              type="button"
+              onClick={() =>
+                void run(async () => {
+                  await window.hvir.invoke('extensions:source-revoke', {
+                    installationId: installation,
+                    source: source.id,
+                    ...(status.workspaceId && status.root
+                      ? {
+                          binding: { workspaceId: status.workspaceId, root: status.root },
+                        }
+                      : {}),
+                  })
+                  setDecision(undefined)
+                  await refresh()
+                })
+              }
+            >
+              {source.mode === 'read-only'
+                ? 'Revoke read access'
+                : 'Revoke delivery scope'}
+            </button>
+          ) : null}
+        </div>
+      ))}
       {source.context === 'application' ? (
         <label>
           Local folder (absolute path)
@@ -210,22 +246,6 @@ function SourceSetup({
           </button>
         </>
       ) : null}
-      <button
-        className="hvir-button"
-        type="button"
-        onClick={() =>
-          void run(async () => {
-            await window.hvir.invoke('extensions:source-revoke', {
-              installationId: installation,
-              source: source.id,
-            })
-            setDecision(undefined)
-            await refresh()
-          })
-        }
-      >
-        {source.mode === 'read-only' ? 'Revoke read access' : 'Revoke delivery scope'}
-      </button>
       {error ? <p role="alert">{error}</p> : null}
     </fieldset>
   )

@@ -9,6 +9,8 @@ import {
 import { repositoryImageMimeType } from '../../shared/rendered-link'
 import {
   SOURCE_LIMITS,
+  sameSourceBinding,
+  type ExtensionSourceBinding,
   type ExtensionSourceGrant,
 } from '../../shared/extensions/source-access'
 import { extensionObject, extensionText } from '../../shared/extensions/validation'
@@ -63,9 +65,9 @@ export class ExtensionSourceReadingOwner {
     this.assertCaller(caller)
     const input = extensionObject(value)
     const source = extensionText(input['source'], 'source identity', 80)
-    const grant = this.approvals.get(caller.activation, source)
+    const grant = this.approvals.get(caller.activation, source, caller.context())
     if (!grant || grant.declaration.mode !== 'read-only')
-      throw new Error('Grant this source in Settings → Extensions before reading')
+      throw new Error('Grant this source before reading')
     const path = readSourcePath(input['path'])
     const context =
       grant.declaration.context === 'workspace' ? caller.context() : undefined
@@ -288,11 +290,12 @@ export class ExtensionSourceReadingOwner {
   revalidate(): void {
     this.prune()
   }
-  revoke(installation: string, source?: string): void {
+  revoke(installation: string, source?: string, binding?: ExtensionSourceBinding): void {
     for (const [token, selected] of this.selected)
       if (
         selected.caller.activation.installationId === installation &&
-        (!source || selected.grant.declaration.id === source)
+        (!source || selected.grant.declaration.id === source) &&
+        (!binding || sameSourceBinding(selected.grant, binding))
       )
         this.remove(token)
   }
@@ -360,8 +363,11 @@ export class ExtensionSourceReadingOwner {
     selected.controller.signal.throwIfAborted()
     if (
       selected.expires <= Date.now() ||
-      this.approvals.get(selected.caller.activation, selected.grant.declaration.id) !==
-        selected.grant ||
+      this.approvals.get(
+        selected.caller.activation,
+        selected.grant.declaration.id,
+        selected.caller.context(),
+      ) !== selected.grant ||
       this.approvals.hosts.hostById(selected.root.hostId) !== selected.host ||
       selected.host.connectionState !== 'connected' ||
       selected.context?.current() === false ||

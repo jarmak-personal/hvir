@@ -28,7 +28,7 @@ export class ExtensionSourceReveal {
     const input = extensionObject(value),
       source = extensionText(input['source'], 'source identity', 80),
       path = readSourcePath(input['path']),
-      grant = this.approvals.get(caller.activation, source),
+      grant = this.approvals.get(caller.activation, source, caller.context()),
       context = caller.context()
     if (
       !grant?.root ||
@@ -51,7 +51,7 @@ export class ExtensionSourceReveal {
       if (
         !context.current() ||
         host.connectionState !== 'connected' ||
-        this.approvals.get(caller.activation, source) !== grant ||
+        this.approvals.get(caller.activation, source, caller.context()) !== grant ||
         this.approvals.hosts.hostById(root.hostId) !== host ||
         caller.context()?.value.workspace?.id !== grant.workspaceId ||
         !caller.context()?.root ||

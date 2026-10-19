@@ -1,6 +1,7 @@
 import type { ExtensionWorkspaceContext } from '../extensions/contract'
 import type { ProjectHostOption } from './project'
 import type {
+  ExtensionSourceBinding,
   ExtensionSourceSelection,
   ExtensionSourceGrant,
   ExtensionSourceStatus,
@@ -58,7 +59,11 @@ export const extensionsIpc = {
     >(),
     'extensions:source-approve': invoke<{ readonly token: string }, void>(),
     'extensions:source-revoke': invoke<
-      { readonly installationId: string; readonly source: string },
+      {
+        readonly installationId: string
+        readonly source: string
+        readonly binding?: ExtensionSourceBinding
+      },
       void
     >(),
     'extensions:connector-settings': invoke<

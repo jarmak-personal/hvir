@@ -131,22 +131,7 @@ async function choose(row, sourceLibrary) {
     throw new Error(
       'Selected installed presence is unknown for this workspace; no host was substituted',
     )
-  let selectedLibrary = sourceLibrary ?? library
-  if (row.source === 'library' && view === 'project') {
-    if (!row.canonical)
-      throw new Error(
-        'Selected library result lacks its public library identity; no source was substituted.',
-      )
-    try {
-      selectedLibrary = sameCurrentLibrary(
-        { id: row.canonical.library_id },
-        libraryStatus(await cli(['library', 'status', '--json'])),
-      )
-    } catch (error) {
-      if (!current()) return
-      throw error
-    }
-  }
+  const selectedLibrary = sourceLibrary ?? library
   if (!current()) return
   if (row.source === 'library') {
     sameCurrentLibrary(
@@ -218,7 +203,7 @@ function rows(page) {
   const observed = new Date().toLocaleTimeString()
   if (element('observation-details'))
     element('observation-details').textContent =
-      `${page.rows.length} rows · Page ${previous.length + 1} · observed ${observed}${view === 'project' && !query ? ` · ${page.coverage} project observation\n${page.detail}` : query ? ` · ${page.presence ?? 'unknown'} installed presence` : ''}`
+      `${page.rows.length} rows · Page ${previous.length + 1} · observed ${observed}${view === 'project' ? ` · ${page.coverage} project observation\n${page.detail}` : query ? ` · ${page.presence ?? 'unknown'} installed presence` : ''}`
   if (page.coverage === 'partial')
     say(
       `${page.rows.length ? `${page.rows.length} skills · ` : ''}Some project skills could not be loaded.`,
@@ -296,8 +281,7 @@ async function refresh() {
   )
   const project = scope(),
     workspace = view === 'project' ? localWorkspace(project?.workspace) : undefined,
-    failureDestination =
-      view === 'project' && target.query && !workspace ? 'library' : view
+    failureDestination = view
   let observedSuccessfully = false
   try {
     let page
@@ -334,20 +318,7 @@ async function refresh() {
         return
       }
     }
-    if (target.query) {
-      const root = workspace?.root.path
-      page = searchPage(
-        await cli(
-          searchArgs(target.query, {
-            ...target.options,
-            cursor: target.cursor ?? '',
-            ...(root ? { installedProject: root } : {}),
-          }),
-          workspace ? project : undefined,
-        ),
-        workspace,
-      )
-    } else if (view === 'project') {
+    if (view === 'project') {
       if (!workspace)
         throw new Error(
           'Project presence is unknown without an available exact local root. Open Your library for independent local browsing; no remote CLI is run.',
@@ -361,11 +332,18 @@ async function refresh() {
             '--json',
             '--limit',
             '100',
+            ...(target.query ? ['--query', target.query] : []),
             ...(target.cursor ? ['--cursor', target.cursor] : []),
           ],
           project,
         ),
         workspace,
+      )
+    } else if (target.query) {
+      page = searchPage(
+        await cli(
+          searchArgs(target.query, { ...target.options, cursor: target.cursor ?? '' }),
+        ),
       )
     } else {
       page = libraryPage(
@@ -395,7 +373,7 @@ async function refresh() {
   } catch (error) {
     if (available() && generation === revision) {
       const failure = firstUseFailure(
-        view === 'project' && !target.query ? projectInventoryFailure(error) : error,
+        view === 'project' ? projectInventoryFailure(error) : error,
         !!lastPage,
         failureDestination,
         connectAvailable && (view !== 'project' || !!localWorkspace(context.workspace)),

@@ -177,10 +177,17 @@ it.each(['timer', 'search', 'in-flight search'])(
       if (edge === 'in-flight search') f.resume()
       await f.flush()
       expect(f.calls.length).toBeGreaterThan(before)
-      if (edge !== 'timer')
-        expect(
-          f.calls.some((args) => args[0] === 'search' && args[1] === 'kept search'),
-        ).toBe(true)
+      const expectedArgs = [
+        'list',
+        '--scope',
+        'project',
+        '--json',
+        '--limit',
+        '100',
+        ...(edge === 'timer' ? [] : ['--query', 'kept search']),
+      ]
+      expect(f.calls.slice(before)).toContainEqual(expectedArgs)
+      expect(f.calls.some((args) => args[0] === 'search')).toBe(false)
       expect(document.getElementById('connection-status')?.textContent).toBe(
         outcome === 'declined' ? 'Not connected' : 'Connection failed',
       )
@@ -195,6 +202,7 @@ it.each(['timer', 'search', 'in-flight search'])(
       const observed = f.calls.length
       await vi.advanceTimersByTimeAsync(31_000)
       expect(f.calls.length).toBeGreaterThan(observed)
+      expect(f.calls.slice(observed)).toContainEqual(expectedArgs)
       f.dispose()
       vi.useRealTimers()
     }

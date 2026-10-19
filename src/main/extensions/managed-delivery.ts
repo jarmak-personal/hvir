@@ -671,6 +671,7 @@ export class ExtensionManagedDeliveryOwner {
     const grant = this.approvals.get(
       caller.activation,
       extensionText(id, 'delivery grant', 80),
+      caller.admitted,
     )
     if (!grant?.root || grant.declaration.mode !== mode)
       throw new Error(
@@ -679,7 +680,10 @@ export class ExtensionManagedDeliveryOwner {
     return grant
   }
   private sameGrant(caller: DeliveryCaller, grant: ExtensionSourceGrant): void {
-    if (this.approvals.get(caller.activation, grant.declaration.id) !== grant)
+    if (
+      this.approvals.get(caller.activation, grant.declaration.id, caller.admitted) !==
+      grant
+    )
       throw new Error('Delivery grant was revoked')
   }
   private destination(caller: DeliveryCaller, grant: ExtensionSourceGrant): void {

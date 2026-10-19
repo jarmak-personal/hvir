@@ -56,7 +56,7 @@ describe('selected source lifetime and confinement', () => {
         },
       }),
     }
-    await expect(select(f, other)).rejects.toThrow(/exact registered/)
+    await expect(select(f, other)).rejects.toThrow(/Grant this source/)
     await expect(
       f.reading.select(f.caller, {
         source: 'source',
