@@ -403,13 +403,13 @@ export class ExtensionSourceApprovalOwner {
         }
       : undefined
     this.discardPrepared(installation, source, binding)
-    this.revoked(installation, source, binding, true)
     this.grants = this.grants.filter(
       (entry) =>
         entry.installationId !== installation ||
         (!!source && entry.declaration.id !== source) ||
         (!!binding && !sameSourceBinding(entry, binding)),
     )
+    this.revoked(installation, source, binding, true)
     if (this.failure) return Promise.resolve()
     return this.serialize(async () => {
       await this.assertWritable()
@@ -436,9 +436,10 @@ export class ExtensionSourceApprovalOwner {
   }
   forget(installation: string): readonly ExtensionSourceGrant[] | undefined {
     this.discardPrepared(installation)
+    if (!this.failure)
+      this.grants = this.grants.filter((entry) => entry.installationId !== installation)
     this.revoked(installation, undefined, undefined, true)
     if (this.failure) return undefined
-    this.grants = this.grants.filter((entry) => entry.installationId !== installation)
     return [...this.grants]
   }
   get(

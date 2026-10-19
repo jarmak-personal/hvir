@@ -142,7 +142,7 @@ export async function verifyLocalWorkspaceConnection(
     () =>
       win.webContents.executeJavaScript(`(() => {
     const modal=document.querySelector('[aria-labelledby="connection-confirmation-title"]');
-    return !!modal?.checkVisibility() && modal.contains(document.activeElement) && modal.textContent.includes('projects on this computer') && modal.textContent.includes('folder does not limit access to your account');
+    return !!modal?.checkVisibility() && modal.contains(document.activeElement) && modal.textContent.includes('The program runs with your account’s access.') && !!modal.querySelector('details') && !modal.querySelector('details').open;
   })()`),
     'trusted project native scope and safe focus',
   )

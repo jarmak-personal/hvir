@@ -104,6 +104,7 @@ export async function verifyExtensionConnection(
       if(message.kind==='context'){
         if(!message.context.visible)hiddenContexts++;
         document.body.dataset.hiddenContexts=String(hiddenContexts);
+        document.body.dataset.visible=String(message.context.visible);
         for(const id of ['connect','locate','read'])document.getElementById(id).disabled=!message.context.visible;
       }
     });
@@ -121,6 +122,8 @@ export async function verifyExtensionConnection(
   if (!originalDescriptor) throw new Error('Native picker property is unavailable')
   let decisions = 0,
     selections = 0
+  let manualGuest: WebContents | undefined
+  let pickerReturnFacts: unknown
   let focusWindow: BrowserWindow | undefined
   let allowManual = false
   dialog.showOpenDialog = async (
@@ -160,6 +163,12 @@ export async function verifyExtensionConnection(
       focusWindow.destroy()
       focusWindow = undefined
       await focusSmokeWindow(win, 'window')
+      const guestFacts = (await manualGuest!.executeJavaScript(
+        `({pending:document.getElementById('state')?.textContent==='pending',visible:document.body.dataset.visible==='true'})`,
+      )) as { pending: boolean; visible: boolean }
+      if (!guestFacts.pending)
+        throw new Error('Submitted connection ended before native picker return')
+      pickerReturnFacts = { nativeFocused: win.isFocused(), ...guestFacts }
       return { canceled: false, filePaths: ['/bin/sh'] }
     }
     if (!options || options.buttonLabel !== 'Add extension')
@@ -261,6 +270,7 @@ export async function verifyExtensionConnection(
     const hiddenBefore = (await guest.executeJavaScript(
       'Number(document.body.dataset.hiddenContexts)',
     )) as number
+    manualGuest = guest
     allowManual = true
     await guestClick('locate')
     await decide(true)
@@ -279,6 +289,20 @@ export async function verifyExtensionConnection(
       throw new Error(
         'SDK intent did not survive actual top-view withdrawal on the same guest',
       )
+    if (
+      !(await guest.executeJavaScript(
+        "document.body.dataset.visible==='true' && document.getElementById('state')?.textContent==='connected'",
+      ))
+    )
+      throw new Error('Native picker continuation did not regain admitted visibility')
+    console.log(
+      '[smoke:connection-picker-order]',
+      JSON.stringify({
+        atReturn: pickerReturnFacts,
+        finalVisible: true,
+        finalOutcome: 'connected',
+      }),
+    )
     await controls.wait(
       () =>
         guest.executeJavaScript(
@@ -358,8 +382,8 @@ export async function verifyExtensionConnection(
             modalPresent: !!modal,
             modalVisible: !!modal?.checkVisibility(),
             modalContainsFocus: !!modal?.contains(document.activeElement),
-            accountAccessVisible: !!modal?.textContent.includes('Programs run with your account’s access'),
-            defaultsVisible: !!modal?.textContent.includes('No extra arguments or environment overrides'),
+            accountAccessVisible: !!modal?.textContent.includes('The program runs with your account’s access.'),
+            detailsCollapsed: !!modal?.querySelector('details') && !modal.querySelector('details').open,
             localProgramVisible: !!modal?.querySelector('pre')?.textContent.includes('local: /'),
             safeActionFocused: [...(modal?.querySelectorAll('button') ?? [])].some(button=>button.textContent==='Not now' && document.activeElement===button),
             guestFocused: document.activeElement?.tagName === 'WEBVIEW',
@@ -370,7 +394,7 @@ export async function verifyExtensionConnection(
           modalVisible: boolean
           modalContainsFocus: boolean
           accountAccessVisible: boolean
-          defaultsVisible: boolean
+          detailsCollapsed: boolean
           localProgramVisible: boolean
           safeActionFocused: boolean
           guestFocused: boolean
@@ -392,12 +416,32 @@ export async function verifyExtensionConnection(
           presentation.modalVisible &&
           presentation.modalContainsFocus &&
           presentation.accountAccessVisible &&
-          presentation.defaultsVisible &&
+          presentation.detailsCollapsed &&
           presentation.localProgramVisible &&
           presentation.safeActionFocused
         )
       }, 'live trusted confirmation and safe focus with exact default program')
     } catch (reason) {
+      const pendingView = (await views()).find(
+        (entry) =>
+          entry.installationId ===
+          [...activations.active.values()].find(
+            (entry) => entry.revision.manifest.id === 'hvir.connection-smoke',
+          )?.installationId,
+      )
+      const guestResult: unknown = pendingView
+        ? await (
+            await controls.guest(pendingView)
+          )
+            .executeJavaScript(
+              `(() => {
+        const value=document.getElementById('state')?.textContent;
+        return {state:['pending','connected','declined','unavailable','interrupted-uncertain','refused'].includes(value)?value:'unknown',hiddenContexts:Math.min(64,Number(document.body.dataset.hiddenContexts)||0)};
+      })()`,
+            )
+            .catch(() => ({ unavailable: true }))
+        : { viewEnded: true }
+      console.log('[smoke:connection-guest-result]', JSON.stringify(guestResult))
       console.log(
         '[smoke:connection-consent-wait-facts]',
         JSON.stringify(consentFacts ?? { observationUnavailable: true }),

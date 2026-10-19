@@ -218,10 +218,24 @@ export class ExtensionApplicationRuntime {
     const approvals = new ExtensionConnectorApprovalOwner(
       hosts,
       activations,
-      (id, connector, host) => this.connectors?.revoke(id, connector, host),
+      (id, connector, host) => {
+        this.connectors?.revoke(id, connector, host)
+        this.connections?.revalidate()
+      },
     )
     this.connectors = new ExtensionConnectorExecutionOwner(approvals, scratch, () =>
       activations.assertWritable(),
+    )
+    const sourceApprovals = new ExtensionSourceApprovalOwner(
+      hosts,
+      activations,
+      (id, source, binding, cancelRequests) => {
+        this.sources?.revoke(id, source, binding)
+        if (cancelRequests) this.sourceRequests?.revoke(id, source, binding)
+        this.sourceRequests?.revalidate()
+        this.connections?.revalidate()
+      },
+      contexts,
     )
     this.connections = new ExtensionConnectorConnectionOwner(
       this.scopes,
@@ -235,6 +249,7 @@ export class ExtensionApplicationRuntime {
           'extensions:connection-proposals-changed',
           proposals,
         ),
+      sourceApprovals,
     )
     this.additions = new ExtensionPackageAdditionOwner(
       this.scopes,
@@ -264,16 +279,6 @@ export class ExtensionApplicationRuntime {
         ),
       (owner) => this.surface.foreground(owner),
       (owner, id) => this.guests!.close(owner, id),
-    )
-    const sourceApprovals = new ExtensionSourceApprovalOwner(
-      hosts,
-      activations,
-      (id, source, binding, cancelRequests) => {
-        this.sources?.revoke(id, source, binding)
-        if (cancelRequests) this.sourceRequests?.revoke(id, source, binding)
-        this.sourceRequests?.revalidate()
-      },
-      contexts,
     )
     this.sources = new ExtensionSourceReadingOwner(
       sourceApprovals,

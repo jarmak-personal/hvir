@@ -224,16 +224,17 @@ export class ExtensionContextOwner {
     }
   }
 
-  /** Finite setup pins main selection; ordinary admitted view contexts remain independent. */
+  /** Finite setup pins the admitted destination and its actual selection authority. */
   pinWorkspaceConnection(
     context: AdmittedExtensionContext,
+    selection: 'project' | 'explicit' = 'project',
   ): PinnedWorkspaceConnectionContext {
     const workspace = context.value.workspace,
       root = context.root
     const state = this.sources.projectState()
     const project = state.projects.find(
       (entry) =>
-        entry.id === state.activeProjectId &&
+        (selection === 'explicit' || entry.id === state.activeProjectId) &&
         entry.workspaces.some((entry) => entry.id === workspace?.id),
     )
     if (
@@ -256,11 +257,12 @@ export class ExtensionContextOwner {
         root.hostId === LOCAL_HOST_ID &&
         workspace.host === LOCAL_HOST_ID &&
         context.current() &&
-        state.activeProjectId === projectId &&
-        state.activeWorkspaceId === workspace.id &&
+        (selection === 'explicit' ||
+          (state.activeProjectId === projectId &&
+            state.activeWorkspaceId === workspace.id &&
+            registered?.activeWorkspaceId === workspace.id)) &&
         !!registered &&
         hostPathEquals(registered.registeredRoot, registration) &&
-        registered.activeWorkspaceId === workspace.id &&
         registered.connectionState === 'connected' &&
         !!member &&
         !member.closed &&

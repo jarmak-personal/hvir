@@ -10,7 +10,7 @@ import { validateExtensionManifest } from '../src/shared/extensions/manifest'
 import { exampleManifest } from './fixtures/extension-package'
 
 vi.mock('../src/renderer/src/extensions/use-extension-foreground', () => ({
-  useExtensionForeground: () => true,
+  useExtensionForeground: () => ({ foreground: true, revision: 0 }),
 }))
 vi.mock('../src/renderer/src/theme', () => ({ useAppTheme: () => 'dark' }))
 vi.mock('../src/renderer/src/settings/settings', () => ({

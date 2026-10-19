@@ -293,6 +293,8 @@ const projectConnection = (outcome = 'connected') => ({
   connections: [
     { connector: 'project-cli', outcome, explanation: 'Opaque core connection fact' },
   ],
+  source: { source: 'project', outcome: outcome === 'connected' ? 'granted' : outcome },
+  readiness: { program: outcome === 'connected', source: outcome === 'connected' },
 })
 it('connects the current project and automatically preserves project query without library program approval or search options', async () => {
   const f = packageView('project')
@@ -307,7 +309,10 @@ it('connects the current project and automatically preserves project query witho
   f.button('connect-program').click()
   await f.flush()
   expect(f.requests.filter((r) => r.capability === 'connector.connect')).toEqual([
-    { capability: 'connector.connect', input: { connector: 'project-cli' } },
+    {
+      capability: 'connector.connect',
+      input: { connector: 'project-cli', source: 'project' },
+    },
   ])
   f.connected(projectConnection())
   await f.flush()
@@ -411,7 +416,7 @@ it.each(['declined', 'unavailable', 'interrupted-uncertain'] as const)(
     )
   },
 )
-it.each(['switch', 'roundtrip', 'root', 'hide'] as const)(
+it.each(['switch', 'roundtrip', 'root'] as const)(
   'ignores both late connection branches after %s and observes only renewed current demand',
   async (edge) => {
     const f = packageView('project')
@@ -422,24 +427,21 @@ it.each(['switch', 'roundtrip', 'root', 'hide'] as const)(
     await f.flush()
     f.button('connect-program').click()
     await f.flush()
-    if (edge === 'switch' || edge === 'roundtrip')
-      f.context(true, {
-        ...localProject,
-        id: 'project-b',
-        root: { hostId: 'local', path: '/project-b' },
-      })
-    if (edge === 'roundtrip') f.context(true, localProject)
-    if (edge === 'root')
-      f.context(true, {
-        ...localProject,
-        root: { hostId: 'local', path: '/replacement' },
-      })
-    if (edge === 'hide') {
-      f.context(false, localProject)
-      expect(f.button('connect-program').getAttribute('aria-busy')).toBe('false')
-      expect(document.getElementById('connection-status')?.textContent).toBe('')
-      f.context(true, localProject)
+    function withdraw() {
+      if (edge === 'switch' || edge === 'roundtrip')
+        f.context(true, {
+          ...localProject,
+          id: 'project-b',
+          root: { hostId: 'local', path: '/project-b' },
+        })
+      if (edge === 'roundtrip') f.context(true, localProject)
+      if (edge === 'root')
+        f.context(true, {
+          ...localProject,
+          root: { hostId: 'local', path: '/replacement' },
+        })
     }
+    withdraw()
     await f.flush()
     const before = document.getElementById('state')?.textContent,
       calls = f.calls.length
@@ -447,10 +449,11 @@ it.each(['switch', 'roundtrip', 'root', 'hide'] as const)(
     await f.flush()
     expect(document.getElementById('state')?.textContent).toBe(before)
     expect(f.calls).toHaveLength(calls)
+    f.context(true, localProject)
+    await f.flush()
     f.button('connect-program').click()
     await f.flush()
-    f.context(false, localProject)
-    f.context(true, localProject)
+    withdraw()
     await f.flush()
     const resumed = f.calls.length
     f.connected(projectConnection())
@@ -462,6 +465,29 @@ it.each(['switch', 'roundtrip', 'root', 'hide'] as const)(
     expect((document.getElementById('query') as HTMLInputElement).value).toBe(
       'kept query',
     )
+  },
+)
+it.each(['unavailable', 'error'] as const)(
+  'settles main-reported %s after a same-context visibility return without replaying setup',
+  async (outcome) => {
+    const f = packageView('project')
+    f.projectApproval(false)
+    f.context(true, localProject)
+    await f.flush()
+    f.button('connect-program').click()
+    await f.flush()
+    f.context(false, localProject)
+    f.context(true, localProject)
+    if (outcome === 'error') f.connectionFailed()
+    else f.connected(projectConnection('unavailable'))
+    await f.flush()
+    expect(f.button('connect-program').disabled).toBe(false)
+    expect(f.button('connect-program').getAttribute('aria-busy')).toBe('false')
+    expect(f.button('connect-program').hidden).toBe(false)
+    expect(document.getElementById('state')?.textContent).not.toContain('Connecting')
+    await vi.advanceTimersByTimeAsync(31_000)
+    expect(f.requests.filter((r) => r.capability === 'connector.connect')).toHaveLength(1)
+    expect(f.requests.some((r) => r.capability === 'source.request')).toBe(false)
   },
 )
 it.each(['root', 'roundtrip', 'hide'] as const)(
@@ -720,4 +746,80 @@ it('does not substitute a selected library occurrence outside the public reporte
   expect(document.getElementById('state')?.textContent).toContain(
     'Selected occurrence no longer belongs',
   )
+})
+
+it.each(['library', 'list'])(
+  'renews Library %s metadata cancelled by a trusted destination change without replaying setup',
+  async (command) => {
+    const f = packageView('library')
+    f.hold(command)
+    f.context(true)
+    await f.flush()
+    const priorLists = command === 'list' ? 1 : 0
+    expect(f.calls.filter((args) => args[0] === 'list')).toHaveLength(priorLists)
+    // Main rejects in-flight requests before publishing the new trusted destination.
+    f.resume('Project context changed; the previous request ended')
+    f.context(true, {
+      id: 'project',
+      host: 'local',
+      root: { hostId: 'local', path: '/project' },
+    })
+    await f.flush()
+    expect(document.getElementById('state')?.dataset.state).toBe('ready')
+    expect(f.calls.filter((args) => args[0] === 'list')).toHaveLength(priorLists + 1)
+    const current = f.calls.length
+    f.resume() // The withdrawn physical request's eventual success is inert.
+    await f.flush()
+    expect(f.calls).toHaveLength(current)
+    expect(document.getElementById('state')?.dataset.state).toBe('ready')
+    expect(
+      f.requests.some((entry) =>
+        ['connector.connect', 'source.request'].includes(entry.capability),
+      ),
+    ).toBe(false)
+  },
+)
+
+it('keeps Library query, cursor, options and selected occurrence when renewing destination metadata', async () => {
+  const f = packageView('library')
+  f.context()
+  await f.flush()
+  ;(document.getElementById('separate-copies') as HTMLInputElement).checked = true
+  submitQuery('retained query')
+  await f.flush()
+  f.button('next').click()
+  await f.flush()
+  const row = document.querySelector<HTMLElement>('#skills [role=option]')!
+  row.setAttribute('aria-selected', 'true')
+  const selected = row.dataset.id
+  f.hold('search')
+  await vi.advanceTimersByTimeAsync(30_000)
+  f.resume('Project context changed; the previous request ended')
+  f.context(true, {
+    id: 'project',
+    host: 'local',
+    root: { hostId: 'local', path: '/project' },
+  })
+  await f.flush()
+  const search = f.calls.filter((args) => args[0] === 'search').at(-1)!
+  expect(search[1]).toBe('retained query')
+  expect(search[search.indexOf('--cursor') + 1]).toBe('1')
+  expect(search[search.indexOf('--view') + 1]).toBe('copies')
+  expect((document.getElementById('query') as HTMLInputElement).value).toBe(
+    'retained query',
+  )
+  expect(
+    document.querySelector<HTMLElement>('#skills [aria-selected=true]')?.dataset.id,
+  ).toBe(selected)
+  expect(document.getElementById('state')?.dataset.state).toBe('ready')
+  const current = f.calls.length
+  f.resume('Late old failure')
+  await f.flush()
+  expect(f.calls).toHaveLength(current)
+  expect(document.getElementById('state')?.dataset.state).toBe('ready')
+  expect(
+    f.requests.some((entry) =>
+      ['connector.connect', 'source.request'].includes(entry.capability),
+    ),
+  ).toBe(false)
 })

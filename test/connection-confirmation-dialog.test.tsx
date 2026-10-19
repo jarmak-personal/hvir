@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { localPath } from '../src/shared/host-path'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -78,7 +79,9 @@ it('keeps a fresh published decision over an older snapshot and submits only its
   expect(host.textContent).toContain('Connect Library')
   expect(host.textContent).not.toContain('Old library')
   expect(host.textContent).toContain('local: /usr/bin/tool')
-  expect(host.textContent).toContain('No extra arguments or environment overrides')
+  expect(host.textContent).toContain('The program runs with your account’s access.')
+  expect(host.querySelector('details')?.open).toBe(false)
+  expect(host.querySelector('summary')?.textContent).toBe('Details')
   expect(host.textContent).toContain('local scratch folder')
   act(() => button('Connect').click())
   expect(invoke).toHaveBeenLastCalledWith('extensions:connection-decide', {
@@ -145,3 +148,29 @@ function button(label: string): HTMLButtonElement {
   if (!result) throw new Error('Missing trusted action')
   return result
 }
+
+it.each([true, false])(
+  'shows exact project reads and only the missing program decision (%s)',
+  async (programMissing) => {
+    await act(async () => {
+      publish([
+        {
+          ...proposal,
+          programs: programMissing ? proposal.programs : [],
+          source: {
+            source: 'project',
+            workspace: 'Chosen worktree',
+            root: localPath('/chosen/worktree'),
+          },
+        },
+      ])
+      await Promise.resolve()
+    })
+    expect(host.textContent).toContain('Read selected files in this project')
+    expect(host.textContent).toContain('Chosen worktree')
+    expect(host.textContent).toContain('local: /chosen/worktree')
+    expect(host.textContent?.includes('Run Library')).toBe(programMissing)
+    expect(host.textContent?.includes('/usr/bin/tool')).toBe(programMissing)
+    expect(host.querySelector('details')?.open).toBe(false)
+  },
+)

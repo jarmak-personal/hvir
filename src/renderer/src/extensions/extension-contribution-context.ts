@@ -30,6 +30,7 @@ export interface Contributions {
   readonly projects?: readonly RegisteredProjectState[]
   readonly workspaceId?: string
   readonly foreground: boolean
+  readonly foregroundRevision?: number
   readonly open: (
     id: string,
     view: string,

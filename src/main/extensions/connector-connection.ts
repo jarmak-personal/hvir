@@ -10,6 +10,11 @@ import type {
 } from '../../shared/extensions/connectors'
 import { discoverConnectorExecutables } from './connector-discovery'
 import type { PinnedWorkspaceConnectionContext } from './context-owner'
+import type { ExtensionSourceApprovalOwner } from './source-approval'
+
+type PreparedRead = Awaited<
+  ReturnType<ExtensionSourceApprovalOwner['prepareWorkspaceRead']>
+>
 
 export interface ExtensionConnectionDialog {
   readonly folders: readonly string[]
@@ -53,6 +58,7 @@ export class ExtensionConnectorConnectionOwner {
       owner: RendererOwner,
       proposals: readonly ExtensionConnectionProposal[],
     ) => void,
+    private readonly sources?: Pick<ExtensionSourceApprovalOwner, 'prepareWorkspaceRead'>,
   ) {}
 
   async fromRenderer(
@@ -108,6 +114,7 @@ export class ExtensionConnectorConnectionOwner {
     connector?: string,
     automatic = false,
     workspace?: PinnedWorkspaceConnectionContext,
+    source?: string,
   ): Promise<ExtensionConnectionResult> {
     if (this.disposed || this.pending.size >= 4)
       throw new Error('Program connection is unavailable or already busy')
@@ -121,14 +128,35 @@ export class ExtensionConnectorConnectionOwner {
       throw new Error(
         'This program has no setup hint for this request; configure it in Settings',
       )
-    const needsWorkspace = declarations.some((entry) => entry.context === 'workspace')
+    if (source) {
+      const declaration = activation.revision.manifest.access.find(
+        (entry) => entry.id === source,
+      )
+      if (declaration?.context !== 'workspace' || declaration.mode !== 'read-only')
+        throw new Error('Choose a declared workspace read-only source')
+      if (automatic || !connector || !this.sources)
+        throw new Error('Project reading requires an explicit current connection')
+    }
+    const needsWorkspace =
+      !!source || declarations.some((entry) => entry.context === 'workspace')
     const controller = new AbortController()
     const lifetime = AbortSignal.any([signal, controller.signal])
     const tokens: string[] = []
     const connections: ExtensionConnectionResult['connections'][number][] = []
+    const reused: {
+      approval: ExtensionConnectorApproval
+      executable: string
+      current: () => boolean
+    }[] = []
+    const saved: { approval: ExtensionConnectorApproval; executable: string }[] = []
+    let read: PreparedRead | undefined
+    let sourceResult: ExtensionConnectionResult['source'] = source
+      ? { source, outcome: 'unavailable' }
+      : undefined
+    let savingSource = false
     let selecting = false
     let awaitingPresentation = false
-    const assertCurrent = (): void => {
+    const assertOriginCurrent = (): void => {
       lifetime.throwIfAborted()
       if (needsWorkspace && !workspace?.current())
         throw new Error('Program connection requires a current registered local project')
@@ -143,6 +171,67 @@ export class ExtensionConnectorConnectionOwner {
       )
         throw new Error('Program connection context ended')
       if (awaitingPresentation && ready !== false) pending.presentationReady?.()
+    }
+    const assertCurrent = (): void => {
+      assertOriginCurrent()
+      if (!savingSource) read?.current()
+      if (reused.some((entry) => !entry.current()))
+        throw new Error('Saved program connection changed')
+    }
+    const resolvePinned = async (entry: {
+      approval: ExtensionConnectorApproval
+      executable: string
+      current?: () => boolean
+    }): Promise<(() => boolean) | undefined> => {
+      assertOriginCurrent()
+      const resolved = await connectionWait(
+        this.approvals.resolve(activation, entry.approval),
+        lifetime,
+      )
+      assertOriginCurrent()
+      return entry.current?.() !== false &&
+        'executable' in resolved &&
+        resolved.executable === entry.executable &&
+        resolved.current()
+        ? resolved.current
+        : undefined
+    }
+    const checkReused = async (): Promise<void> => {
+      for (const entry of reused)
+        if (!(await resolvePinned(entry)))
+          throw new Error('Saved program target changed during connection')
+    }
+    const result = async (): Promise<ExtensionConnectionResult> => {
+      if (!source) return { connections }
+      let programReady: boolean | null = null,
+        sourceReady: boolean | null = null
+      try {
+        assertOriginCurrent()
+        const ready: ((() => boolean) | undefined)[] = []
+        for (const entry of [...reused, ...saved]) ready.push(await resolvePinned(entry))
+        assertOriginCurrent()
+        programReady =
+          ready.length === declarations.length && ready.every((current) => current?.())
+      } catch {
+        // Never start new metadata after withdrawal or equate an ended check with revocation.
+      }
+      try {
+        assertOriginCurrent()
+        try {
+          read?.current()
+          sourceReady = !!read && sourceResult?.outcome === 'granted'
+        } catch {
+          assertOriginCurrent()
+          sourceReady = false
+        }
+      } catch {
+        // The write/reuse fact survives; readiness could not be confirmed under live authority.
+      }
+      return {
+        connections,
+        source: sourceResult!,
+        readiness: { program: programReady, source: sourceReady },
+      }
     }
     const pending: PendingConnection = {
       activation,
@@ -184,6 +273,7 @@ export class ExtensionConnectorConnectionOwner {
           )
           assertCurrent()
           if ('executable' in resolved) {
+            reused.push({ approval: existing, ...resolved })
             connections.push({ connector: declaration.id, outcome: 'connected' })
             continue
           }
@@ -296,32 +386,76 @@ export class ExtensionConnectorConnectionOwner {
         prepared.push(decision)
       }
       assertCurrent()
+      if (source && !prepared.length && !reused.length) return await result()
+      if (source) {
+        read = await connectionWait(
+          this.sources!.prepareWorkspaceRead(
+            activation,
+            source,
+            workspace!,
+            assertOriginCurrent,
+            lifetime,
+          ),
+          lifetime,
+        )
+        assertCurrent()
+        if (read.reused) sourceResult = { source, outcome: 'granted' }
+      }
       if (
-        prepared.length &&
+        (prepared.length || (read && !read.reused)) &&
         !(await this.confirm(
           pending,
           prepared.map((entry) => entry.approval),
+          read && !read.reused
+            ? {
+                source: source!,
+                workspace: workspace!.value.workspace!.name,
+                root: read.grant.root!,
+              }
+            : undefined,
         ))
       ) {
         assertCurrent()
         for (const entry of prepared)
           connections.push({ connector: entry.approval.connector, outcome: 'declined' })
-        return { connections }
+        if (read && !read.reused) sourceResult = { source: source!, outcome: 'declined' }
+        return await result()
+      }
+      await checkReused()
+      assertCurrent()
+      if (read && !read.reused) {
+        savingSource = true
+        sourceResult = { source: source!, outcome: 'interrupted-uncertain' }
+        try {
+          await read.approve()
+        } finally {
+          savingSource = false
+        }
+        sourceResult = { source: source!, outcome: 'granted' }
       }
       for (const decision of prepared) {
+        await checkReused()
         assertCurrent()
         await connectionWait(this.activations.assertWritable(), lifetime)
         assertCurrent()
         submitted = decision.approval.connector
         // Await the actual consent write: interruption after submission may have committed.
         await this.approvals.approve(decision.token)
+        saved.push({
+          approval: decision.approval,
+          executable: decision.approval.canonicalExecutable,
+        })
         connections.push({ connector: submitted, outcome: 'connected' })
         submitted = undefined
       }
-      return { connections }
+      assertCurrent()
+      return await result()
     } catch {
       for (const declaration of declarations)
-        if (!connections.some((entry) => entry.connector === declaration.id))
+        if (
+          !connections.some((entry) => entry.connector === declaration.id) &&
+          !reused.some((entry) => entry.approval.connector === declaration.id)
+        )
           connections.push({
             connector: declaration.id,
             outcome:
@@ -331,8 +465,9 @@ export class ExtensionConnectorConnectionOwner {
                 ? 'Connection was interrupted after saving began. Check the current program access before trying again.'
                 : 'Connection ended before approval. The extension remains installed.',
           })
-      return { connections }
+      return await result()
     } finally {
+      read?.cancel()
       disposeWorkspace?.()
       clearTimeout(deadline)
       for (const token of tokens) this.approvals.cancelPrepared(token)
@@ -366,6 +501,7 @@ export class ExtensionConnectorConnectionOwner {
   private confirm(
     pending: PendingConnection,
     approvals: readonly ExtensionConnectorApproval[],
+    source?: ExtensionConnectionProposal['source'],
   ): Promise<boolean> {
     pending.current()
     return new Promise((resolve, reject) => {
@@ -392,6 +528,7 @@ export class ExtensionConnectorConnectionOwner {
         id: randomUUID(),
         installationId: pending.activation.installationId,
         name: pending.activation.revision.manifest.name,
+        ...(source ? { source } : {}),
         programs: approvals.map((entry) => ({
           connector: entry.connector,
           description: entry.declaration.description,

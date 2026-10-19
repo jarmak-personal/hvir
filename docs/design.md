@@ -685,6 +685,7 @@ while retiring hidden resources, with ordinary Close and Save semantics unchange
 ### [ADR-065 — Passive extension program discovery and trusted connection](adr/ADR-065-passive-extension-program-connection.md)
 
 > Lifecycle: Partially superseded
+> Superseded by: [ADR-077](adr/ADR-077-combined-project-connection-decision.md) | partial | Exclusion of an explicitly named workspace read scope from a trusted connection decision only.
 > Superseded by: [ADR-070](adr/ADR-070-explicit-local-workspace-program-connection.md) | partial | Application-only restriction on setup hints and ordinary-human connection requests.
 > Supersedes: [ADR-051](adr/ADR-051-approved-finite-connector-execution.md) | partial | Mandatory manually supplied absolute executable input and separate Inspect step for application-local first-use connections only.
 
@@ -721,6 +722,7 @@ unrelated contributor verification.
 ### [ADR-070 — Explicit local workspace program connection](adr/ADR-070-explicit-local-workspace-program-connection.md)
 
 > Lifecycle: Partially superseded
+> Superseded by: [ADR-077](adr/ADR-077-combined-project-connection-decision.md) | partial | Active-selection-only setup pin for explicitly targeted application views and exclusion of an explicitly named workspace read scope from the connection decision only.
 > Superseded by: [ADR-074](adr/ADR-074-independent-host-connector-approvals.md) | partial | Single saved host binding per connector and disclosure of replacing another host during local connection only.
 > Supersedes: [ADR-065](adr/ADR-065-passive-extension-program-connection.md) | partial | Application-only restriction on setup hints and ordinary-human connection requests.
 > Supersedes: [ADR-051](adr/ADR-051-approved-finite-connector-execution.md) | partial | Mandatory manually supplied absolute executable input and separate Inspect step for explicit ordinary-human local-workspace connections only.
@@ -779,6 +781,15 @@ normal canonical-target changes actionable without rewriting the saved approval.
 
 Connector-only larger replies, finite delivered-byte accounting and one shared browser reader
 make bounded output usable while preserving independent flood guards and receipt authority.
+
+### [ADR-077 — Combined project connection decision](adr/ADR-077-combined-project-connection-decision.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-065](adr/ADR-065-passive-extension-program-connection.md) | partial | Exclusion of an explicitly named workspace read scope from a trusted connection decision only.
+> Supersedes: [ADR-070](adr/ADR-070-explicit-local-workspace-program-connection.md) | partial | Active-selection-only setup pin for explicitly targeted application views and exclusion of an explicitly named workspace read scope from the connection decision only.
+
+One human Connect decision composes independently owned native and exact workspace read grants;
+explicit application-view destinations remain independent of ambient navigation.
 
 ## 5. Architecture
 

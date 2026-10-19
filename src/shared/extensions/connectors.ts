@@ -1,4 +1,5 @@
 import { extensionId, extensionObject, extensionText } from './validation'
+import type { HostPath } from '../host-path'
 
 export const CONNECTOR_LIMITS = {
   declarations: 8,
@@ -206,8 +207,17 @@ export function connectorConfiguration(
   return configuration
 }
 
-/** Outcomes describe individual consent writes, never an atomic group transaction. */
+/** Outcomes describe individual completed saves or admitted reuse, never an atomic transaction. */
 export interface ExtensionConnectionResult {
+  /** Current combined scope checks; null means unconfirmed under the bounded authority. */
+  readonly readiness?: {
+    readonly program: boolean | null
+    readonly source: boolean | null
+  }
+  readonly source?: {
+    readonly source: string
+    readonly outcome: 'granted' | 'declined' | 'unavailable' | 'interrupted-uncertain'
+  }
   readonly connections: readonly {
     readonly connector: string
     readonly outcome: 'connected' | 'declined' | 'unavailable' | 'interrupted-uncertain'
@@ -220,6 +230,11 @@ export interface ExtensionConnectionProposal {
   readonly id: string
   readonly installationId: string
   readonly name: string
+  readonly source?: {
+    readonly source: string
+    readonly workspace: string
+    readonly root: HostPath
+  }
   readonly programs: readonly {
     readonly connector: string
     readonly description: string

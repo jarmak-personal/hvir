@@ -9,7 +9,6 @@ export function createSmokeProjectState(
   smokeRemoteRoot: HostPath,
   smokeWebSwitchRoot: HostPath,
   mode: ElectronSmokeMode,
-  management: boolean,
 ) {
   const repository = mode !== 'platform-contracts' && mode !== 'renderer-recovery'
   const projectReturn =
@@ -17,7 +16,9 @@ export function createSmokeProjectState(
     mode === 'document-review' ||
     mode === 'agent-workbench'
   const extensionDestinations =
-    mode === 'extensions' && management
+    mode === 'extensions' &&
+    (process.env.HVIR_SKILLAGER_MANAGEMENT_FIXTURE ||
+      process.env.HVIR_SKILLAGER_EVIDENCE_CLI)
       ? { worktree: smokeWebSwitchRoot, project: joinHostPath(smokeRoot, 'packages') }
       : undefined
   let smokeProjectRevision = 0

@@ -88,6 +88,8 @@ function fixture() {
     actionError: string | undefined,
     records: Value[] = [],
     hold = false,
+    projectReadable = true,
+    releaseConnection: ((value: unknown) => void) | undefined,
     release: (() => void) | undefined
   let actionResult: Value = {
     outcome: 'verified',
@@ -96,6 +98,7 @@ function fixture() {
     target: { hostId: 'local', path: preview[0].target },
   }
   const actions: Value[] = [],
+    requests: { capability: string; input: Value }[] = [],
     recovery: Value[] = [],
     executions: Value[] = [],
     outputs = new Map<string, unknown>(),
@@ -107,6 +110,9 @@ function fixture() {
     signal: controller.signal,
     listen: () => () => undefined,
     request: async (capability: string, input: Value): Promise<unknown> => {
+      requests.push({ capability, input })
+      if (capability === 'source.status')
+        return [{ source: 'project', granted: projectReadable }]
       if (capability === 'connector.status')
         return [
           {
@@ -158,8 +164,16 @@ function fixture() {
       }
       if (capability === 'connector.output') return native.read(input)
       if (capability === 'connector.connect') {
+        if (!projectReadable)
+          return new Promise((resolve) => {
+            releaseConnection = resolve
+          })
         failure = false
-        return { connections: [{ outcome: 'connected' }] }
+        return {
+          connections: [{ connector: 'project-cli', outcome: 'connected' }],
+          source: { source: 'project', outcome: 'granted' },
+          readiness: { program: true, source: true },
+        }
       }
       if (failureMessage && input['connector'] === 'project-cli')
         throw new Error(failureMessage)
@@ -228,6 +242,7 @@ function fixture() {
     actions,
     recovery,
     executions,
+    requests,
     preview,
     button,
     ready,
@@ -282,6 +297,10 @@ function fixture() {
     fail: () => {
       failure = true
     },
+    projectRead: (value: boolean) => {
+      projectReadable = value
+    },
+    connected: (value: unknown) => releaseConnection?.(value),
     hold: () => {
       hold = true
     },
@@ -397,6 +416,72 @@ it('never leaves a stale Add enabled after failed observation and refreshes auto
   f.button('task-connect').click()
   await f.ready()
   expect(f.button('task-connect').hidden).toBe(true)
+})
+it('settles a Library read-only decline through passive picker hide and return without replay', async () => {
+  const f = fixture()
+  f.projectRead(false)
+  f.view.select(f.selection)
+  await f.ready()
+  expect(f.button('task-connect').hidden).toBe(false)
+  f.button('task-connect').click()
+  expect(f.requests.at(-1)).toEqual({
+    capability: 'connector.connect',
+    input: { connector: 'project-cli', source: 'project' },
+  })
+  f.visibility(false)
+  f.visibility(true)
+  f.connected({
+    connections: [{ connector: 'project-cli', outcome: 'connected' }],
+    source: { source: 'project', outcome: 'declined' },
+    readiness: { program: true, source: false },
+  })
+  await vi.waitFor(() => expect(f.button('task-connect').disabled).toBe(false))
+  expect(document.getElementById('task-state')?.textContent).toContain(
+    'Project read access was not confirmed',
+  )
+  expect(f.requests.some((entry) => entry.capability === 'source.request')).toBe(false)
+  expect(
+    f.requests.filter((entry) => entry.capability === 'connector.connect'),
+  ).toHaveLength(1)
+  f.projectRead(true)
+  f.button('task-connect').click()
+  await vi.waitFor(() => expect(f.button('task-connect').hidden).toBe(true))
+})
+it('does not publish a Library connection result after the destination changes away and back', async () => {
+  const f = fixture()
+  f.projectRead(false)
+  f.view.select(f.selection)
+  await f.ready()
+  f.button('task-connect').click()
+  f.target('other')
+  f.target('workspace')
+  f.connected({
+    connections: [{ connector: 'project-cli', outcome: 'connected' }],
+    source: { source: 'project', outcome: 'granted' },
+    readiness: { program: true, source: true },
+  })
+  await f.ready()
+  expect(f.button('task-connect').hidden).toBe(false)
+  expect(document.getElementById('task-state')?.textContent).toContain(
+    'Project read access is not connected',
+  )
+})
+it('describes a saved but withdrawn program as not ready in the Library task', async () => {
+  const f = fixture()
+  f.projectRead(false)
+  f.view.select(f.selection)
+  await f.ready()
+  f.button('task-connect').click()
+  f.connected({
+    connections: [{ connector: 'project-cli', outcome: 'connected' }],
+    source: { source: 'project', outcome: 'granted' },
+    readiness: { program: false, source: true },
+  })
+  await vi.waitFor(() => expect(f.button('task-connect').disabled).toBe(false))
+  expect(document.getElementById('task-state')?.textContent).toContain(
+    'Program access was saved but is no longer ready',
+  )
+  expect(f.button('task-connect').hidden).toBe(false)
 })
 it('retains uncertainty for the exact source and target across selection and destination changes', async () => {
   const f = fixture()
@@ -633,4 +718,29 @@ it('keeps independent source review and one acceptance available before project 
   expect(
     f.executions.every((execution) => execution['connector'] === 'library-cli'),
   ).toBe(true)
+})
+
+it('settles unknown combined readiness in Library without claiming revocation or replaying consent', async () => {
+  const f = fixture()
+  f.projectRead(false)
+  f.view.select(f.selection)
+  await f.ready()
+  f.button('task-connect').click()
+  f.connected({
+    connections: [{ connector: 'project-cli', outcome: 'connected' }],
+    source: { source: 'project', outcome: 'unavailable' },
+    readiness: { program: null, source: null },
+  })
+  await vi.waitFor(() => expect(f.button('task-connect').disabled).toBe(false))
+  expect(document.getElementById('task-state')?.textContent).toContain(
+    'Connection ended before access could be confirmed',
+  )
+  expect(document.getElementById('task-state')?.textContent).not.toContain(
+    'no longer ready',
+  )
+  expect(f.button('task-connect').hidden).toBe(false)
+  expect(
+    f.requests.filter((entry) => entry.capability === 'connector.connect'),
+  ).toHaveLength(1)
+  expect(f.requests.some((entry) => entry.capability === 'source.request')).toBe(false)
 })

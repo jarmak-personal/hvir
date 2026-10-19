@@ -7,7 +7,10 @@ import { DEFAULT_EXTENSION_PRESENTATION } from '../src/main/extensions/guest-own
 import { asHostId, hostPath, localPath } from '../src/shared/host-path'
 import type { ExtensionGuestPorts } from '../src/main/extensions/guest-capability-ports'
 
-async function fixture(remote = false) {
+async function fixture(
+  remote = false,
+  placement: 'application' | 'workspace' = 'workspace',
+) {
   const request = vi.fn<ExtensionGuestPorts['connections']['request']>((...args) =>
     connection.request(...args),
   )
@@ -16,7 +19,11 @@ async function fixture(remote = false) {
     {
       optionalCapabilities: ['connector.connect'],
       views: [
-        { ...exampleManifest().views[0]!, placement: 'workspace', navigation: 'left' },
+        {
+          ...exampleManifest().views[0]!,
+          placement,
+          navigation: placement === 'workspace' ? 'left' : 'top',
+        },
       ],
       connectors: [
         {
@@ -68,7 +75,10 @@ async function fixture(remote = false) {
     'reference',
     undefined,
     {
-      context: { surface: 'left', workspaceId: 'workspace' },
+      context: {
+        surface: placement === 'workspace' ? 'left' : 'top',
+        workspaceId: 'workspace',
+      },
     },
   )
   data.owner.claim(data.renderer, view.partition, view.url, view.id)
@@ -439,3 +449,129 @@ describe('main-admitted local project connection', () => {
     }
   })
 })
+
+it('connects an explicit non-active Library destination across unrelated project navigation', async () => {
+  const data = await fixture(false, 'application')
+  const state = data.context.sources.projectState()
+  let current = {
+    ...state,
+    activeProjectId: 'elsewhere',
+    activeWorkspaceId: 'elsewhere-worktree',
+  }
+  vi.spyOn(data.context.sources, 'projectState').mockImplementation(() => current)
+  try {
+    data.connect()
+    await vi.waitFor(() =>
+      expect(data.connection.snapshot(data.renderer)).toHaveLength(1),
+    )
+    const proposal = data.connection.snapshot(data.renderer)[0]!
+    current = {
+      ...current,
+      activeProjectId: 'another-project',
+      activeWorkspaceId: 'another-worktree',
+      projects: current.projects.map((project) => ({
+        ...project,
+        activeWorkspaceId: 'another-worktree',
+      })),
+    }
+    for (const changed of [...data.context.listeners[0]!]) changed()
+    data.owner.updateContext()
+    expect(data.connection.snapshot(data.renderer)[0]?.id).toBe(proposal.id)
+    data.connection.decide(data.renderer, proposal.id, true)
+    await vi.waitFor(() =>
+      expect(data.result()).toMatchObject({
+        ok: true,
+        value: { connections: [{ outcome: 'connected' }] },
+      }),
+    )
+    expect(data.native.write).toHaveBeenCalledOnce()
+    expect(data.request.mock.calls[0]?.[7]?.root).toEqual(localPath('/project'))
+  } finally {
+    await data.stop()
+  }
+})
+it.each([
+  'explicit-target',
+  'replacement',
+  'registration',
+  'root',
+  'transfer',
+  'host',
+  'unavailable',
+] as const)(
+  'permanently retires Library destination consent on %s withdrawal',
+  async (ending) => {
+    const data = await fixture(false, 'application')
+    const state = data.context.sources.projectState()
+    let current = {
+      ...state,
+      activeProjectId: 'elsewhere',
+      activeWorkspaceId: 'elsewhere-worktree',
+    }
+    vi.spyOn(data.context.sources, 'projectState').mockImplementation(() => current)
+    try {
+      data.connect()
+      await vi.waitFor(() =>
+        expect(data.connection.snapshot(data.renderer)).toHaveLength(1),
+      )
+      const proposal = data.connection.snapshot(data.renderer)[0]!
+      if (ending === 'explicit-target')
+        data.owner.targetWorkspace(data.renderer, data.view.id, undefined)
+      else if (ending === 'replacement') {
+        current = {
+          ...current,
+          projects: current.projects.map((project) => ({
+            ...project,
+            workspaces: [
+              ...project.workspaces,
+              {
+                ...project.workspaces[0]!,
+                id: 'replacement',
+                root: localPath('/replacement'),
+              },
+            ],
+          })),
+        }
+        data.owner.targetWorkspace(data.renderer, data.view.id, 'replacement')
+        data.owner.targetWorkspace(data.renderer, data.view.id, 'workspace')
+      } else {
+        current = {
+          ...current,
+          projects:
+            ending === 'registration'
+              ? []
+              : current.projects.map((project) => ({
+                  ...project,
+                  ...(ending === 'root'
+                    ? { registeredRoot: localPath('/changed') }
+                    : ending === 'host'
+                      ? {
+                          workspaces: project.workspaces.map((workspace) => ({
+                            ...workspace,
+                            root: hostPath(asHostId('ssh-server'), workspace.root.path),
+                          })),
+                        }
+                      : ending === 'unavailable'
+                        ? { connectionState: 'disconnected' as const }
+                        : { id: 'transferred-project' }),
+                })),
+        }
+        for (const changed of [...data.context.listeners[0]!]) changed()
+        current = {
+          ...state,
+          activeProjectId: 'elsewhere',
+          activeWorkspaceId: 'elsewhere-worktree',
+        }
+        for (const changed of [...data.context.listeners[0]!]) changed()
+      }
+      await vi.waitFor(() => expect(data.connection.snapshot(data.renderer)).toEqual([]))
+      expect(() => data.connection.decide(data.renderer, proposal.id, true)).toThrow(
+        'ended',
+      )
+      expect(data.native.write).not.toHaveBeenCalled()
+      await vi.waitFor(() => expect(data.context.listeners[0]).toHaveLength(0))
+    } finally {
+      await data.stop()
+    }
+  },
+)

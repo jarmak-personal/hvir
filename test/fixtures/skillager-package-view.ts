@@ -34,6 +34,7 @@ export function createSkillagerPackageView(view = 'library') {
     frequency = false,
     unapproved = undefined as 'unapproved' | 'executable-changed' | undefined,
     projectApproved = true,
+    projectReadable = true,
     libraryApproved = true,
     version = '0.9.3',
     projectInventory: unknown,
@@ -41,7 +42,7 @@ export function createSkillagerPackageView(view = 'library') {
     projectQuerySupported = true,
     unavailableProject = false,
     currentWorkspace: { root?: { path?: string } } | undefined,
-    resume: (() => void) | undefined,
+    resume: ((error?: string) => void) | undefined,
     finishConnection: ((value: unknown, error?: string) => void) | undefined
   const native = connectorOutputFixture()
   const opened: Record<string, unknown>[] = []
@@ -253,6 +254,8 @@ export function createSkillagerPackageView(view = 'library') {
       }
     } else if (message.capability === 'connector.output') {
       value = native.read(message.input)
+    } else if (message.capability === 'source.status') {
+      value = [{ source: 'project', granted: projectReadable }]
     } else {
       value = null
     }
@@ -263,7 +266,8 @@ export function createSkillagerPackageView(view = 'library') {
       (!holdOn || (message.input.args as string[])[0] === holdOn)
     ) {
       hold = false
-      resume = reply
+      resume = (error) =>
+        error ? receive({ kind: 'result', id: message.id, ok: false, error }) : reply()
     } else reply()
   }
   const bridge = {
@@ -313,6 +317,9 @@ export function createSkillagerPackageView(view = 'library') {
   const button = (id: string) => document.getElementById(id) as HTMLButtonElement
   const flush = () => vi.advanceTimersByTimeAsync(1500)
   return {
+    projectRead: (value: boolean) => {
+      projectReadable = value
+    },
     dispose,
     context,
     projectApproval: (approved: boolean) => {
@@ -382,7 +389,7 @@ export function createSkillagerPackageView(view = 'library') {
     frequency: () => {
       frequency = true
     },
-    resume: () => resume?.(),
+    resume: (error?: string) => resume?.(error),
     connected: (value: unknown) => finishConnection?.(value),
     connectionFailed: () => finishConnection?.(undefined, 'Old connection failed'),
   }

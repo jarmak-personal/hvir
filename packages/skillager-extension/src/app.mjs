@@ -290,7 +290,8 @@ async function refresh() {
     failureDestination = view
   let observedSuccessfully = false
   try {
-    let page
+    let page,
+      projectRead = true
     if (view === 'library') {
       if (libraryStatusNeeded || !library) {
         const observed = libraryStatus(await cli(['library', 'status', '--json']))
@@ -364,14 +365,18 @@ async function refresh() {
         ]),
       )
     }
+    if (workspace) {
+      const scopes = await client.request('source.status', {})
+      projectRead = scopes.some((entry) => entry.source === 'project' && entry.granted)
+    }
     if (available() && generation === revision) {
       query = target.query
       searchOptions = target.options
       cursor = target.cursor
       previous = target.previous
       pageRequest = undefined
-      setupNeeded = false
-      if (element('program-setup')) element('program-setup').hidden = true
+      setupNeeded = !projectRead
+      if (element('program-setup')) element('program-setup').hidden = !setupNeeded
       refreshConnectionAvailability()
       rows(page)
       observedSuccessfully = true
@@ -489,10 +494,19 @@ on('connect-program', 'click', async () => {
   )
   try {
     // Main owns any submitted picker/write even if this result's UI lifetime ends.
-    const result = await client.request('connector.connect', { connector })
+    const result = await client.request('connector.connect', {
+      connector,
+      ...(workspace ? { source: 'project' } : {}),
+    })
     if (!current()) return
     const connection = result.connections?.find((entry) => entry.connector === connector)
-    if (connection?.outcome === 'connected') {
+    if (
+      connection?.outcome === 'connected' &&
+      (!workspace ||
+        (result.source?.outcome === 'granted' &&
+          result.readiness?.program === true &&
+          result.readiness?.source === true))
+    ) {
       connectionPhase = 'observing'
       refreshConnectionAvailability()
       requestRefresh()
@@ -503,17 +517,25 @@ on('connect-program', 'click', async () => {
         element('observation-details').textContent = connection?.explanation ?? ''
       say(
         view === 'project'
-          ? connection?.outcome === 'interrupted-uncertain'
-            ? 'Skillager’s connection for this project could not be confirmed. Access may have been saved; normal refresh will check it. Choose Connect Skillager to try again if needed, or set it up with your agent.'
-            : connection?.outcome === 'declined'
-              ? 'Skillager was not connected for this project. Choose Connect Skillager when ready, or set it up with your agent.'
-              : 'Skillager could not connect for this project. Set it up with your agent, then choose Connect Skillager.'
+          ? connection?.outcome === 'connected'
+            ? result.readiness?.program === true
+              ? 'The program is connected. Project read access was not confirmed. Choose Connect Skillager when ready.'
+              : result.readiness?.program === false
+                ? 'Program access was saved but is no longer ready. Choose Connect Skillager to check the remaining access.'
+                : 'Connection ended before access could be confirmed. Choose Connect Skillager to check again.'
+            : connection?.outcome === 'interrupted-uncertain'
+              ? 'Skillager’s connection for this project could not be confirmed. Access may have been saved; normal refresh will check it. Choose Connect Skillager to try again if needed, or set it up with your agent.'
+              : connection?.outcome === 'declined'
+                ? 'Skillager was not connected for this project. Choose Connect Skillager when ready, or set it up with your agent.'
+                : 'Skillager could not connect for this project. Set it up with your agent, then choose Connect Skillager.'
           : (connection?.explanation ??
               'Not connected. Choose Connect Skillager when ready.'),
         connection?.outcome === 'interrupted-uncertain' ? 'error' : 'unapproved',
       )
       connectionStatus =
-        connection?.outcome === 'declined' ? 'Not connected' : 'Connection not confirmed'
+        connection?.outcome === 'declined' || result.source?.outcome === 'declined'
+          ? 'Not connected'
+          : 'Connection not confirmed'
     }
   } catch (error) {
     if (current()) {
@@ -584,7 +606,7 @@ client.listen((message) => {
     const changed =
       JSON.stringify(message.context.workspace) !== JSON.stringify(context.workspace)
     context = message.context
-    if (view === 'project' && (changed || !context.visible)) {
+    if (view === 'project' && changed) {
       connectionIntent++
       finishConnection()
     }
@@ -610,7 +632,8 @@ client.listen((message) => {
             : 'Installed copies are unknown here. Search covers your personal library.'
         if (changed || !local) installed.checked = local
       }
-      if (renewed || (changed && view === 'project'))
+      // Trusted destination changes retire in-flight requests in main, including Library metadata.
+      if (renewed || changed)
         requestRefresh(
           changed && view === 'project' ? { cursor: undefined, previous: [] } : undefined,
         )

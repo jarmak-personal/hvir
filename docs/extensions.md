@@ -393,11 +393,29 @@ ordinary human view to propose the same decision. Agent, updater, action-origin 
 requests cannot prompt or grant this access. Hiding/closing the view, leaving its trusted Settings
 flow, native backgrounding, activation change or writer loss retires pending setup. The connection
 decision uses the existing 60-second prepared-approval lifetime; late native replies do nothing.
-No new file, project, delivery or agent authority is granted. A symlink binds its canonical target: changing the target
+Native approval alone grants no file, delivery or agent authority. A symlink binds its canonical target: changing the target
 requires another decision. Updating the tool in place at the same canonical path requires no
 new approval. hvir never hashes interpreted-tool contents. Explicit Reload or Replace reuses an
 unchanged declaration/path/configuration binding and pins every execution to the new activation.
 Forget saved setup removes native grants and platform identity while preserving tool/domain data.
+
+An explicit request may additionally name one declared read-only workspace source:
+`{ connector: 'tool-id', source: 'project-files' }`. One trusted decision displays the actual
+program and exact selected-file project/worktree read scope. Valid independent grants are reused;
+only missing access is requested. No guest host, workspace ID or root is accepted. Application
+views with trusted destination selection use that explicit destination independently of the
+project active elsewhere; project-bound views retain active project/worktree pins.
+
+Combined results add `source: { source, outcome }` (`granted`, `declined`, `unavailable`, or
+`interrupted-uncertain`) and `readiness: { program, source }`. Independent outcomes describe saves
+or admitted reuse, while readiness rechecks current exact bindings before reply. Each readiness
+value is `true`, `false`, or `null` (unconfirmed because the bounded check could not complete under
+live authority). Cancellation preserves completed outcomes and starts no late metadata checks.
+A successful save may already have been revoked; require both readiness values to be exactly
+`true` before claiming connected reading. Do not describe `null` as revoked or unavailable.
+Do not retry a declined/cancelled combined attempt through `source.request`. A later explicit
+read of an application-library root unknown at Connect still uses its separate source decision.
+These grants remain independently stored and revocable; partial writes are never atomic rollback.
 
 A changed resolved target reports `reason: 'executable-changed'` in contextual status and
 `not-started` execution. Settings shows approved/current targets and **Review update** prefills
@@ -421,8 +439,9 @@ terminals are not rolled back.
 For a declared workspace connector with a setup hint, that same explicit `{ connector: 'tool-id' }`
 request uses only the current ordinary human view's main-admitted registered local project.
 The guest cannot supply a host, workspace ID or replacement root. Main pins the registration and
-host-qualified root through discovery, selection, consent and saving; a project/worktree switch,
-closure, hide, cancellation or revocation retires the request. An SSH project cannot use this
+host-qualified root through discovery, selection, consent and saving. A project-bound view
+retires on active-project/worktree switches; an explicitly targeted application view retires on
+destination or owning-registration changes. Closure, hide, cancellation and revocation retire both. An SSH project cannot use this
 flow to discover, authenticate or approve a replacement program. Existing explicit SSH Settings
 setup is unchanged. Valid unchanged approval of that exact connector and local host needs no new
 decision; another connector's approval never supplies permission, even for the same executable.

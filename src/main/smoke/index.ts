@@ -216,7 +216,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       smokeRemoteRoot,
       smokeWebSwitchRoot,
       mode,
-      Boolean(process.env.HVIR_SKILLAGER_MANAGEMENT_FIXTURE),
     )
     const {
       base: smokeProjectState,

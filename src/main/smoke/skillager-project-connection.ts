@@ -183,21 +183,6 @@ export async function verifySkillagerProjectConnection(
       `([...document.querySelectorAll('#skills [role=option]')].find(row=>row.dataset.sourcePath===${JSON.stringify(joinHostPath(skill, 'SKILL.md').path)})).click()`,
     )
     const reader = await controls.reader()
-    await controls.wait(
-      () =>
-        trustedRendererControl(
-          win,
-          `function(expectedRoot) {
-      const modal=document.querySelector('[aria-labelledby="source-confirmation-title"]');
-      const button=modal&&[...modal.querySelectorAll('button')].find(item=>item.textContent.trim()==='Allow read-only access');
-      if(!modal?.checkVisibility()||!modal.textContent.includes(expectedRoot)||!button||button.disabled)return false;
-      button.click();return true;
-    }`,
-          [root.path],
-          (work) => controls.within(work),
-        ),
-      'trusted current project source-only read consent',
-    )
     const readerReady = () =>
       controls.within(
         reader.executeJavaScript(
@@ -206,7 +191,7 @@ export async function verifySkillagerProjectConnection(
       ) as Promise<boolean>
     await controls.wait(
       readerReady,
-      'exact selected project file reads after contextual consent',
+      'exact selected project file reads after combined consent',
     )
     await controls.within(
       reader.executeJavaScript(
@@ -217,7 +202,7 @@ export async function verifySkillagerProjectConnection(
     if (controls.hasReadDecision())
       throw new Error('Unchanged project read repeated its consent')
     console.log(
-      '[smoke] project source-only contextual consent and exact selected read/reuse OK',
+      '[smoke] combined project consent and exact selected read/reuse without another decision OK',
     )
   } catch (error) {
     console.log(
@@ -354,15 +339,15 @@ export async function verifySkillagerProjectConnection(
       () =>
         trustedRendererControl(
           win,
-          `function(expected, accepted) {
+          `function(expected, expectedRoot, accepted) {
             const modal=document.querySelector('[aria-labelledby="connection-confirmation-title"]');
             if(!modal?.checkVisibility()||!modal.contains(document.activeElement)||!modal.textContent.includes(expected)||
-              !modal.textContent.includes('projects on this computer'))return false;
+              !modal.textContent.includes('The program runs with your account’s access.')||!modal.textContent.includes('Read selected files in this project')||!modal.textContent.includes(expectedRoot))return false;
             const button=[...modal.querySelectorAll('button')].find(item=>item.textContent.trim()===(accepted?'Connect':'Not now'));
             if(!button?.checkVisibility()||button.disabled)return false;
             button.click();return true;
           }`,
-          [canonical, accepted],
+          [canonical, root.path, accepted],
           (work) => controls.within(work),
         ),
       accepted ? 'trusted project native consent' : 'trusted project native decline',
