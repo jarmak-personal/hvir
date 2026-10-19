@@ -33,7 +33,7 @@ export interface ExtensionSetupReview {
   readonly name: string
   readonly file: string
   readonly expires: number
-  readonly phase: 'preparing' | 'ready' | 'saving' | 'finished' | 'ended'
+  readonly phase: 'preparing' | 'ready' | 'saving' | 'stopping' | 'finished' | 'ended'
   readonly rows: readonly ExtensionSetupRow[]
   readonly capacityError?: string
   readonly explanation?: string

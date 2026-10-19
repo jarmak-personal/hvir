@@ -23,7 +23,8 @@ export function ExtensionSetupSettings({
   const request = useRef<string | undefined>(undefined)
   const lifetime = useRef({ generation: 0 })
   const templateRequest = useRef(0)
-  const cancel = () => {
+  const saving = useRef<string | undefined>(undefined)
+  const close = () => {
     templateRequest.current++
     const id = request.current
     request.current = undefined
@@ -31,6 +32,18 @@ export function ExtensionSetupSettings({
       void window.hvir.invoke('extensions:setup-cancel', { request: id }).catch(() => {})
     setReview(undefined)
     setBusy(false)
+  }
+  const cancel = () => {
+    if (
+      review &&
+      (review.phase === 'saving' ||
+        (review.phase === 'ready' && saving.current === review.request))
+    ) {
+      void window.hvir
+        .invoke('extensions:setup-cancel', { request: review.request })
+        .catch(() => {})
+      setReview({ ...review, phase: 'stopping' })
+    } else close()
   }
   useEffect(() => {
     const life = lifetime.current
@@ -53,13 +66,13 @@ export function ExtensionSetupSettings({
     return () => {
       life.generation++
       current = false
-      cancel()
+      close()
       void stop()
       void stopAgent()
     }
   }, [installation])
   useEffect(() => {
-    if (disabled) cancel()
+    if (disabled) close()
   }, [disabled])
 
   const start = async () => {
@@ -75,7 +88,9 @@ export function ExtensionSetupSettings({
       })
       if (request.current === id)
         setReview((previous) =>
-          previous?.request === id && previous.phase === 'ended' ? previous : next,
+          next && previous?.request === id && previous.phase === 'ended'
+            ? previous
+            : next,
         )
     } catch (reason) {
       if (request.current === id) {
@@ -110,6 +125,7 @@ export function ExtensionSetupSettings({
     if (!review || busy) return
     const token = review.request
     const generation = lifetime.current.generation
+    saving.current = token
     setBusy(true)
     try {
       const next = await window.hvir.invoke('extensions:setup-apply', { request: token })
@@ -117,6 +133,7 @@ export function ExtensionSetupSettings({
     } catch (reason) {
       if (request.current === token) setNotice(message(reason))
     } finally {
+      if (saving.current === token) saving.current = undefined
       if (lifetime.current.generation === generation) onSettled()
       if (request.current === token) {
         setBusy(false)
@@ -216,7 +233,8 @@ function ExtensionSetupDialog({
   const existing = review.rows.filter((row) => row.state === 'unchanged')
   const changes = review.rows.filter((row) => row.state !== 'unchanged')
   const selected = changes.filter((row) => row.selected && row.state === 'ready').length
-  const finished = review.phase === 'finished' || review.phase === 'ended'
+  const finished =
+    review.phase === 'finished' || review.phase === 'ended' || review.phase === 'stopping'
   return (
     <div className="modal-backdrop nested">
       <section
@@ -263,6 +281,11 @@ function ExtensionSetupDialog({
           {review.capacityError ? <p role="alert">{review.capacityError}</p> : null}
           {review.explanation || notice ? (
             <p role="status">{review.explanation || notice}</p>
+          ) : null}
+          {review.phase === 'stopping' ? (
+            <p role="status" className="hvir-meta">
+              Stopping… Waiting for the current change to finish.
+            </p>
           ) : null}
           {review.phase === 'saving' ? (
             <p role="status" className="hvir-meta">

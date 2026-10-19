@@ -3,7 +3,7 @@ import { connectorFixture } from './extension-connector'
 import { sourceFixture } from './extension-source'
 import { RendererResourceScopes } from '../../src/main/renderer-resource-scopes'
 import { ExtensionSetupOwner } from '../../src/main/extensions/extension-setup'
-import { localPath } from '../../src/shared/host-path'
+import { localPath, type HostPath } from '../../src/shared/host-path'
 import type { ExtensionSetupReview } from '../../src/shared/extensions/setup-review'
 
 export async function setupFixture(remote = false) {
@@ -47,7 +47,9 @@ export async function setupFixture(remote = false) {
     ],
   }
   const picker = {
-    choose: vi.fn(() => Promise.resolve(localPath('/setup.json'))),
+    choose: vi.fn<() => Promise<HostPath | undefined>>(() =>
+      Promise.resolve(localPath('/setup.json')),
+    ),
     read: vi.fn(() =>
       Promise.resolve({ name: 'setup.json', text: JSON.stringify(data) }),
     ),
@@ -92,7 +94,7 @@ export async function setupFixture(remote = false) {
     reviews,
     configureAgentAccess,
     data: () => data,
-    setData: (next: typeof data) => {
+    setData: (next: typeof data & { requestAgentAccess?: boolean }) => {
       data = next
     },
     focus: (value: boolean) => {

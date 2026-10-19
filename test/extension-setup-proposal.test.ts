@@ -62,6 +62,22 @@ describe('declaration-derived extension setup files', () => {
     )
     expect(() => parseExtensionSetup(text, manifest)).toThrow(/absolute/)
   })
+  it('hints only configured SSH hosts for managed delivery', () => {
+    const text = extensionSetupTemplate({
+      ...manifest,
+      access: [
+        {
+          id: 'delivery',
+          description: 'Delivery',
+          context: 'workspace',
+          mode: 'managed-delivery',
+        },
+      ],
+    })
+    expect(text).toContain('<configured SSH host>')
+    const template = JSON.parse(text) as { sources: { workspace: { host: string } }[] }
+    expect(template.sources[0]!.workspace.host).not.toContain('local')
+  })
   it('keeps literal argv and env and treats omission as no requested changes', () => {
     expect(parse({})).toEqual({
       schema: 1,
@@ -93,8 +109,16 @@ describe('declaration-derived extension setup files', () => {
     { connectors: [{ ...program, connector: 'unknown' }] },
     { connectors: [{ ...program, executable: 'relative' }] },
     { connectors: [{ ...program, executable: '/bin/../tool' }] },
-    { sources: [{ source: 'library', root: { host: 'remote', path: '/library' } }] },
-    { sources: [{ source: 'project', root: { host: 'local', path: '/project' } }] },
+    { sources: [{ source: 'project' }] },
+    {
+      sources: [
+        {
+          source: 'project',
+          root: { host: 'local', path: '/project' },
+          workspace: { host: 'local', path: '/project' },
+        },
+      ],
+    },
     { sources: [{ source: 'unknown', workspace: { host: 'local', path: '/project' } }] },
   ])('rejects invalid or authority-bearing input %#', (value) =>
     expect(() => parse(value)).toThrow(),
@@ -110,7 +134,7 @@ describe('declaration-derived extension setup files', () => {
       parse({ connectors: [...connectors, { ...program, host: 'one-more' }] }),
     ).toThrow(/too many/)
     const source = { source: 'project', workspace: { host: 'local', path: '/project' } }
-    expect(() => parse({ sources: [source, source] })).toThrow(/duplicate/)
+    expect(parse({ sources: [source, source] }).sources).toHaveLength(2)
   })
   it('bounds bytes before parsing and uses existing configuration bounds', () => {
     expect(() =>

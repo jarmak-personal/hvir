@@ -31,7 +31,12 @@ export interface SetupBindingPorts {
   >
   readonly sources: Pick<
     ExtensionSourceApprovalOwner,
-    'prepare' | 'approve' | 'cancelPrepared' | 'capturePrior' | 'project'
+    | 'prepare'
+    | 'approve'
+    | 'cancelPrepared'
+    | 'capturePrior'
+    | 'project'
+    | 'assertDistinct'
   >
   readonly activations: Pick<
     ExtensionActivationOwner,

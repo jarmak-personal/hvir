@@ -99,7 +99,8 @@ export async function verifyExtensionSetup(
   })
   const originalOpen = dialog.showOpenDialog.bind(dialog),
     descriptor = Object.getOwnPropertyDescriptor(dialog, 'showOpenDialog')!
-  let calls = 0
+  let calls = 0,
+    dismissNext = false
   dialog.showOpenDialog = (
     parent: BrowserWindow | OpenDialogOptions,
     options?: OpenDialogOptions,
@@ -115,6 +116,10 @@ export async function verifyExtensionSetup(
     )
       throw new Error('Setup did not reach the current single-file native picker')
     calls++
+    if (dismissNext) {
+      dismissNext = false
+      return Promise.resolve({ canceled: true, filePaths: [] })
+    }
     if (calls === 1 && process.env.HVIR_EXTENSION_SETUP_PICKER === 'native') {
       console.log(
         '[smoke] select the owned setup JSON in the native picker:',
@@ -328,8 +333,113 @@ export async function verifyExtensionSetup(
         await theme(originalTheme)
       }
     }
+    dismissNext = true
+    const previousCalls = calls
+    await settings.click('Review setup…')
+    await controls.wait(
+      () => calls === previousCalls + 1,
+      'dismissed native chooser return',
+    )
+    await controls.wait(
+      () =>
+        rendered(
+          `function() {
+      return !document.querySelector('.extension-setup-dialog') && !document.querySelector('.extension-setup-controls').textContent.includes('Checking setup');
+    }`,
+          [],
+        ),
+      'chooser dismissal returns quietly to Settings',
+    )
+    await host.writeFile(
+      proposalFile,
+      JSON.stringify({
+        ...proposal,
+        connectors: proposal.connectors.map((entry) => ({
+          ...entry,
+          configuration: { ...entry.configuration, args: ['--cancel-proof'] },
+        })),
+        requestAgentAccess: false,
+      }),
+    )
+    await settings.click('Review setup…')
+    await controls.wait(
+      () =>
+        rendered(
+          `function() {
+      return [...document.querySelectorAll('.extension-setup-dialog button')].some(e=>e.textContent.trim()==='Apply 3 changes'&&!e.disabled);
+    }`,
+          [],
+        ),
+      'cancellation review with two changed programs and agent access',
+    )
+    const originalSave = activations.saveConnectorApprovals.bind(activations)
+    let writes = 0,
+      held = false,
+      release!: () => void
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    activations.saveConnectorApprovals = async (value, current) => {
+      if (++writes === 2) {
+        held = true
+        await barrier
+      }
+      await originalSave(value, current)
+    }
+    try {
+      await controls.click('Apply 3 changes')
+      await controls.wait(() => held, 'second submitted save held at existing writer')
+      await controls.click('Cancel')
+      await controls.wait(
+        () =>
+          rendered(
+            `function() {
+        const dialog=document.querySelector('.extension-setup-dialog');
+        return !!dialog && dialog.textContent.includes('Stopping…') && dialog.textContent.includes('Saved') && [...dialog.querySelectorAll('button')].some(e=>e.textContent.trim()==='Close');
+      }`,
+            [],
+          ),
+        'cancel keeps saved result and truthful pending state',
+      )
+      release()
+      await controls.wait(
+        () =>
+          rendered(
+            `function() {
+        const dialog=document.querySelector('.extension-setup-dialog');
+        return !!dialog && !dialog.textContent.includes('Stopping…') && dialog.textContent.includes('Saved') && dialog.textContent.includes('Check current access') && dialog.textContent.includes('Not applied');
+      }`,
+            [],
+          ),
+        'cancel retains saved, uncertain and unapplied outcomes',
+      )
+      const retained = extensions.connectors!.approvals.settings(active).connectors
+      if (
+        writes !== 2 ||
+        retained.find((e) => e.connector === 'library-cli')?.configuration.args[0] !==
+          '--cancel-proof' ||
+        retained.some((e) => e.connector === 'project-cli') ||
+        !activations.agentAccess().includes(active.installationId)
+      )
+        throw new Error(
+          'Cancellation lost an independent save or started remaining changes',
+        )
+      await visual('cancelled', [760])
+      await controls.click('Close')
+      await controls.wait(
+        () =>
+          rendered(
+            'function() { return !document.querySelector(".extension-setup-dialog") }',
+            [],
+          ),
+        'explicit Close retires settled cancellation review',
+      )
+    } finally {
+      release()
+      activations.saveConnectorApprovals = originalSave
+    }
     console.log(
-      '[smoke] multi-tool setup: actual Settings/IPC/ProjectHost symlink metadata, immutable snapshot, native/source/agent writers, unchanged reuse, masked replacement and cancellation OK; picker boundary substituted except explicit native first-selection mode',
+      '[smoke] multi-tool setup: actual Settings/IPC/ProjectHost symlink metadata, immutable snapshot, native/source/agent writers, unchanged reuse, masked replacement, quiet chooser dismissal and submitted-write cancellation outcomes OK; picker boundary substituted except explicit native first-selection mode',
     )
     console.log('HVIR_SMOKE_OK')
     return true

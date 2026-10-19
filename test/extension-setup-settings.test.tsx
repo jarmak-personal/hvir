@@ -199,15 +199,41 @@ it('cancels on unmount and ignores late publication from the retired request', a
     f.invoke.mock.calls.filter(([channel]) => channel === 'extensions:setup-cancel'),
   ).toHaveLength(2)
 })
-it('retains cancellation while saving', async () => {
+it('retains stopping and settled partial outcomes until explicit Close, then ignores late publication', async () => {
   const f = setup()
   await f.click('Review setup…')
-  act(() => f.publish({ ...f.review(), phase: 'saving' }))
+  const review = f.review()
+  act(() => f.publish({ ...review, phase: 'saving' }))
   await f.click('Cancel')
-  expect(element!.querySelector('[role=dialog]')).toBeNull()
+  expect(element!.textContent).toContain('Stopping…')
   expect(f.invoke).toHaveBeenCalledWith('extensions:setup-cancel', {
-    request: f.review().request,
+    request: review.request,
   })
+  const settled: ExtensionSetupReview = {
+    ...review,
+    phase: 'ended',
+    rows: [
+      { ...review.rows[0]!, state: 'saved' },
+      { ...review.rows[1]!, state: 'interrupted-uncertain', retainedSetting: false },
+      { ...review.rows[2]!, state: 'declined' },
+    ],
+  }
+  act(() => f.publish(settled))
+  expect(element!.textContent).toContain('Saved')
+  expect(element!.textContent).toContain('Check current access')
+  expect(element!.textContent).toContain('Not applied')
+  await f.click('Close')
+  act(() => f.publish(settled))
+  expect(element!.querySelector('[role=dialog]')).toBeNull()
+})
+it('returns quietly to Settings when the chooser is dismissed', async () => {
+  const f = setup()
+  f.invoke.mockResolvedValueOnce(undefined)
+  await f.click('Review setup…')
+  expect(element!.querySelector('[role=dialog]')).toBeNull()
+  expect(element!.textContent).not.toContain('Checking setup')
+  await f.click('Review setup…')
+  expect(element!.querySelector('[role=dialog]')).not.toBeNull()
 })
 it('shows old and new arguments and masked environment differences for configuration-only replacement', async () => {
   const f = setup()
@@ -281,6 +307,8 @@ it('ignores selection failures after cancellation and refreshes settled saves wi
   )
   await f.click('Apply 2 changes')
   await f.click('Cancel')
+  expect(element!.textContent).toContain('Stopping…')
+  await f.click('Close')
   await flushChange(() => resolve({ ...f.review(), phase: 'finished' }))
   expect(f.settled).toHaveBeenCalledOnce()
   expect(element!.querySelector('[role=dialog]')).toBeNull()

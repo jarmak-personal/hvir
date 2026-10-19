@@ -133,6 +133,115 @@ describe('trusted immutable extension setup review', () => {
     expect(f.program.approvals.project([]).records).toBe(256)
     expect(f.program.write).not.toHaveBeenCalled()
   })
+  it('rejects overlapping canonical source bindings across unchanged and unselected rows before any write', async () => {
+    const f = await fixture()
+    await f.import()
+    await f.apply()
+    f.program.write.mockClear()
+    f.source.authority.saveSourceGrants.mockClear()
+    const data = f.data()
+    f.setData({
+      ...data,
+      requestAgentAccess: true,
+      sources: [...data.sources, ...data.sources],
+    })
+    const review = await f.import()
+    expect(
+      review?.rows.filter((row) => row.kind === 'source').map((row) => row.state),
+    ).toEqual(['unchanged', 'unchanged'])
+    expect(review?.capacityError).toMatch(/Duplicate source/)
+    f.owner.select(f.renderer, 'request', ['agent'])
+    await expect(f.apply()).rejects.toThrow(/Duplicate source/)
+    expect(f.configureAgentAccess).not.toHaveBeenCalled()
+    expect(f.program.write).not.toHaveBeenCalled()
+    expect(f.source.authority.saveSourceGrants).not.toHaveBeenCalled()
+    f.cancel()
+    f.source.host.stat.mockResolvedValue({
+      type: 'dir',
+      size: 0,
+      mode: 0o755,
+      mtimeMs: 0,
+    })
+    f.setData({
+      ...data,
+      sources: [
+        data.sources[0]!,
+        { source: 'source', root: { host: f.program.host.hostId, path: '/other' } },
+      ],
+    })
+    const fresh = await f.import()
+    expect(fresh?.rows.at(-1)?.state).toBe('ready')
+    expect(f.owner.select(f.renderer, 'request', []).capacityError).toMatch(
+      /Duplicate source/,
+    )
+    await expect(f.apply()).rejects.toThrow(/Duplicate source/)
+    expect(f.source.authority.saveSourceGrants).not.toHaveBeenCalled()
+  })
+  it.each(['program', 'agent'] as const)(
+    'allows independent %s setup while an unrelated source store is unavailable',
+    async (kind) => {
+      const f = await fixture()
+      f.source.approvals.dispose()
+      if (kind === 'agent') f.program.approvals.dispose()
+      f.setData({
+        ...f.data(),
+        sources: [],
+        connectors: kind === 'program' ? f.data().connectors : [],
+        ...(kind === 'agent' ? { requestAgentAccess: true } : {}),
+      })
+      const review = await f.import()
+      expect(review?.capacityError).toBeUndefined()
+      expect((await f.apply()).rows.every((row) => row.state === 'saved')).toBe(true)
+      expect(f.source.authority.saveSourceGrants).not.toHaveBeenCalled()
+    },
+  )
+  it('delegates host and source-scope rejection to the real permission owners', async () => {
+    const f = await fixture(true)
+    Object.assign(f.program.activation.revision.manifest.connectors![0]!, {
+      context: 'application',
+    })
+    Object.assign(f.source.declaration, { context: 'application' })
+    const data = f.data()
+    f.setData({
+      ...data,
+      sources: [
+        { source: 'source', root: { host: f.program.host.hostId, path: '/library' } },
+      ],
+    })
+    let review = await f.import()
+    expect(review?.rows[0]?.explanation).toMatch(/local/)
+    expect(review?.rows[2]?.explanation).toMatch(/local/)
+    f.cancel()
+    Object.assign(f.source.declaration, { context: 'workspace' })
+    review = await f.import()
+    expect(review?.rows[2]?.explanation).toMatch(/registered project context/)
+    const local = await fixture()
+    Object.assign(local.source.declaration, {
+      context: 'workspace',
+      mode: 'managed-delivery',
+    })
+    local.setData({
+      ...local.data(),
+      sources: [
+        {
+          source: 'source',
+          workspace: { host: local.program.host.hostId, path: '/library' },
+        },
+      ],
+    })
+    expect((await local.import())?.rows[2]?.explanation).toMatch(
+      /explicitly selected SSH workspace/,
+    )
+  })
+  it('dismisses the chooser quietly and releases the slot without reading or publishing', async () => {
+    const f = await fixture()
+    f.picker.choose.mockResolvedValueOnce(undefined)
+    await expect(f.import()).resolves.toBeUndefined()
+    expect(f.reviews).toEqual([])
+    expect(f.picker.read).not.toHaveBeenCalled()
+    expect(f.program.write).not.toHaveBeenCalled()
+    await expect(f.import()).resolves.toBeDefined()
+  })
   it('keeps completed independent saves when the next submitted save fails and stops the rest', async () => {
     const f = await fixture()
     await f.import()
@@ -182,6 +291,8 @@ describe('trusted immutable extension setup review', () => {
       f.cancel()
     })
     const result = await f.apply()
+    expect(f.reviews.some((review) => review.phase === 'stopping')).toBe(true)
+    expect(result.phase).toBe('ended')
     expect(result.rows[0]?.state).toBe('interrupted-uncertain')
     expect(result.rows[0]?.retainedSetting).toBe(false)
     expect(result.rows.slice(1).every((row) => row.state === 'declined')).toBe(true)

@@ -236,10 +236,8 @@ export class ExtensionSourceApprovalOwner {
     )
       throw new Error('Saved file access changed; review setup again')
   }
-  /** Same full-store replacement/count/serialization policy used by approve. */
-  project(grants: readonly ExtensionSourceGrant[]): { records: number; bytes: number } {
-    if (this.disposed || this.failure)
-      throw new Error(this.failure ?? 'Source grants ended')
+  /** Reuse replacement identity across a complete proposal, including unselected bindings. */
+  assertDistinct(grants: readonly ExtensionSourceGrant[]): void {
     if (
       grants.some((grant, index) =>
         grants
@@ -248,6 +246,12 @@ export class ExtensionSourceApprovalOwner {
       )
     )
       throw new Error('Duplicate source setup binding')
+  }
+  /** Same full-store replacement/count/serialization policy used by approve. */
+  project(grants: readonly ExtensionSourceGrant[]): { records: number; bytes: number } {
+    if (this.disposed || this.failure)
+      throw new Error(this.failure ?? 'Source grants ended')
+    this.assertDistinct(grants)
     const next = grants.reduce<ExtensionSourceGrant[]>(
       (state, grant) => [...state.filter((entry) => !replacedBy(entry, grant)), grant],
       this.grants,

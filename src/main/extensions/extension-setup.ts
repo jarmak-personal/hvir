@@ -135,7 +135,8 @@ export class ExtensionSetupOwner {
       const selected = await this.picker.choose(owner, current)
       current()
       if (!selected) {
-        this.retire(session, 'No setup file selected')
+        controller.abort()
+        session.stop()
         return undefined
       }
       session.selecting = false
@@ -307,20 +308,20 @@ export class ExtensionSetupOwner {
         update(
           active,
           submitted ? 'interrupted-uncertain' : 'failed',
-          submitted
-            ? 'Saving was interrupted. Check current access before retrying.'
-            : message(reason),
+          submitted ? 'Saving was interrupted.' : message(reason),
         )
       session.review = {
         ...session.review,
         phase: 'ended',
-        explanation: message(reason),
+        explanation: session.controller.signal.aborted
+          ? (session.review.explanation ?? 'Setup ended')
+          : message(reason),
         rows: session.review.rows.map((row) =>
           row.state === 'ready'
             ? {
                 ...row,
                 state: 'declined',
-                explanation: 'Not applied; review setup again to continue',
+                explanation: 'Review setup again to continue',
               }
             : row,
         ),
@@ -347,7 +348,8 @@ export class ExtensionSetupOwner {
 
   cancel(owner: RendererOwner, request: string): void {
     const session = [...this.sessions].find((entry) => this.owns(entry, owner, request))
-    if (session) this.retire(session, 'Setup cancelled')
+    if (session)
+      this.retire(session, 'Setup cancelled; remaining changes were not applied.')
   }
   revoke(installation: string): void {
     for (const session of this.sessions)
@@ -393,12 +395,14 @@ export class ExtensionSetupOwner {
     const selected = session.review.rows.filter((row) => row.selected)
     let capacityError: string | undefined
     try {
-      this.bindings.programs.project(
-        selected.flatMap((row) => (row.program ? [row.program] : [])),
+      const sources = session.review.rows.flatMap((row) =>
+        row.source ? [row.source] : [],
       )
-      this.bindings.sources.project(
-        selected.flatMap((row) => (row.source ? [row.source] : [])),
-      )
+      if (sources.length) this.bindings.sources.assertDistinct(sources)
+      const programs = selected.flatMap((row) => (row.program ? [row.program] : []))
+      const selectedSources = selected.flatMap((row) => (row.source ? [row.source] : []))
+      if (programs.length) this.bindings.programs.project(programs)
+      if (selectedSources.length) this.bindings.sources.project(selectedSources)
     } catch (reason) {
       capacityError = message(reason)
     }
@@ -406,7 +410,14 @@ export class ExtensionSetupOwner {
   }
   private retire(session: SetupReviewSession, explanation: string): void {
     session.controller.abort()
-    session.review = { ...session.review, phase: 'ended', explanation }
+    const stopping =
+      session.working &&
+      (session.review.phase === 'saving' || session.review.phase === 'stopping')
+    session.review = {
+      ...session.review,
+      phase: stopping ? 'stopping' : 'ended',
+      explanation,
+    }
     this.emit(session)
     if (!session.working) session.stop()
   }

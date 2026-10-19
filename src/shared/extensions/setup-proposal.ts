@@ -1,4 +1,4 @@
-import { asHostId, hostPath, LOCAL_HOST_ID, type HostPath } from '../host-path'
+import { asHostId, hostPath, type HostPath } from '../host-path'
 import type { ExtensionManifest } from './contract'
 import {
   CONNECTOR_LIMITS,
@@ -91,8 +91,6 @@ export function parseExtensionSetup(
       const declaration = manifest.connectors?.find((entry) => entry.id === connector)
       if (!declaration) throw new Error('Setup names an undeclared program')
       const executable = location({ host: item['host'], path: item['executable'] })
-      if (declaration.context === 'application' && executable.hostId !== LOCAL_HOST_ID)
-        throw new Error('Application programs require the local host')
       const configuration =
         item['configuration'] === undefined
           ? { args: [], env: {} }
@@ -113,26 +111,15 @@ export function parseExtensionSetup(
     const source = extensionId(item['source'])
     const declaration = manifest.access.find((entry) => entry.id === source)
     if (!declaration) throw new Error('Setup names an undeclared file source')
-    const workspace = declaration.context === 'workspace'
-    if (item[workspace ? 'root' : 'workspace'] !== undefined)
-      throw new Error('Setup source selection differs from its declaration')
-    const selected = location(item[workspace ? 'workspace' : 'root'])
-    if (
-      (!workspace && selected.hostId !== LOCAL_HOST_ID) ||
-      (declaration.mode === 'managed-delivery' && selected.hostId === LOCAL_HOST_ID)
-    )
-      throw new Error('Setup source host differs from its declared scope')
-    return { source, location: selected, workspace }
+    const workspace = item['workspace'] !== undefined
+    if (workspace === (item['root'] !== undefined))
+      throw new Error('Choose exactly one source root or workspace')
+    return {
+      source,
+      location: location(item[workspace ? 'workspace' : 'root']),
+      workspace,
+    }
   })
-  distinct(
-    sources.map((entry) => {
-      const declaration = manifest.access.find((source) => source.id === entry.source)!
-      return JSON.stringify([
-        entry.source,
-        ...(entry.workspace && declaration.mode === 'read-only' ? [entry.location] : []),
-      ])
-    }),
-  )
   const agent = object['requestAgentAccess']
   if (agent !== undefined && typeof agent !== 'boolean')
     throw new Error('Choose per-extension agent access explicitly')
@@ -164,7 +151,11 @@ export function extensionSetupTemplate(manifest: ExtensionManifest): string {
           help: `${entry.description}. ${entry.context} / ${entry.mode}. Remove this row if not requested.`,
           [entry.context === 'workspace' ? 'workspace' : 'root']: {
             host:
-              entry.context === 'application' ? 'local' : '<configured host or local>',
+              entry.context === 'application'
+                ? 'local'
+                : entry.mode === 'managed-delivery'
+                  ? '<configured SSH host>'
+                  : '<configured host or local>',
             path:
               entry.context === 'workspace'
                 ? '<exact registered workspace path>'
