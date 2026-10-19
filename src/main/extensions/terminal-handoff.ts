@@ -122,6 +122,7 @@ export class ExtensionTerminalHandoff {
         .forAction(invocation.action)
         ?.assertCapability('terminal.start', approval.host, workspace)
     }
+    assert()
     const target = await this.approvals.resolve(caller.activation, approval)
     if ('reason' in target)
       throw new Error(`Terminal program is unavailable: ${target.reason}`)

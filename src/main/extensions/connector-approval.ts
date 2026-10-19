@@ -81,6 +81,7 @@ export class ExtensionConnectorApprovalOwner {
   private disposed = false
   private readonly sessions = new Map<string, SessionTrust>()
   private readonly inspections = new Set<{ readonly installation: string }>()
+  private readonly resolutions = new Set<{ readonly installation: string }>()
   private readonly stopHosts: () => void
   constructor(
     readonly hosts: ConnectorHostCatalog,
@@ -418,9 +419,16 @@ export class ExtensionConnectorApprovalOwner {
     )
   }
   /** Resolve only through an already connected host; the returned target is immutable. */
-  async resolve(
+  resolve(
     activation: ExtensionActivation,
     approval: ExtensionConnectorApproval,
+  ): Promise<ConnectorExecutableResolution> {
+    return this.resolveExecutable(activation, approval, this.resolutions)
+  }
+  private async resolveExecutable(
+    activation: ExtensionActivation,
+    approval: ExtensionConnectorApproval,
+    pending: Set<{ readonly installation: string }>,
   ): Promise<ConnectorExecutableResolution> {
     const host = this.hosts.hostById(approval.host)
     if (!host || host.connectionState !== 'connected') return { reason: 'disconnected' }
@@ -432,14 +440,13 @@ export class ExtensionConnectorApprovalOwner {
       this.session(approval) === session
     if (!current()) return { reason: 'context-ended' }
     if (
-      this.inspections.size >= CONNECTOR_LIMITS.concurrent ||
-      [...this.inspections].filter(
-        (entry) => entry.installation === approval.installationId,
-      ).length >= CONNECTOR_LIMITS.perExtension
+      pending.size >= CONNECTOR_LIMITS.concurrent ||
+      [...pending].filter((entry) => entry.installation === approval.installationId)
+        .length >= CONNECTOR_LIMITS.perExtension
     )
       return { reason: 'capacity' }
     const inspection = { installation: approval.installationId }
-    this.inspections.add(inspection)
+    pending.add(inspection)
     try {
       const executable = await canonicalExecutablePath(host, approval.executable)
       if (!current()) return { reason: 'context-ended' }
@@ -451,7 +458,7 @@ export class ExtensionConnectorApprovalOwner {
         ? { reason: 'unavailable', absent: absentExecutableMetadata(reason) }
         : { reason: 'context-ended' }
     } finally {
-      this.inspections.delete(inspection)
+      pending.delete(inspection)
     }
   }
 
@@ -459,37 +466,17 @@ export class ExtensionConnectorApprovalOwner {
     activation: ExtensionActivation,
     workspaceHost?: string,
   ): Promise<readonly ExtensionConnectorStatus[]> {
-    const statuses: { status: ExtensionConnectorStatus; current: () => boolean }[] = []
-    for (const entry of this.status(activation, workspaceHost)) {
-      const approval = entry.host && this.get(activation, entry.connector, entry.host)
-      const host = entry.host && this.hosts.hostById(entry.host)
-      const session = approval ? this.session(approval) : undefined
-      const hostCurrent =
-        host && host.connectionState === 'connected'
-          ? this.hostLifetime(host)
-          : () => true
-      statuses.push({
-        status: approval
-          ? { ...entry, ...(await this.inspect(activation, approval)) }
-          : entry,
-        current: () =>
-          !approval ||
-          (this.get(activation, approval.connector, approval.host) === approval &&
-            this.session(approval) === session &&
-            hostCurrent()),
-      })
+    const entries = this.status(activation, workspaceHost).map((entry) => ({
+      entry,
+      approval: entry.host && this.get(activation, entry.connector, entry.host),
+    }))
+    const statuses: (() => ExtensionConnectorStatus)[] = []
+    for (const { entry, approval } of entries) {
+      const publish = approval ? await this.inspect(activation, approval) : undefined
+      statuses.push(() => ({ ...entry, ...publish?.() }))
     }
-    return statuses.map(({ status, current }) =>
-      current()
-        ? status
-        : {
-            connector: status.connector,
-            host: status.host,
-            availability: 'unavailable',
-            reason: 'unavailable',
-            explanation: 'Program access changed; check again',
-          },
-    )
+    // Revalidate every captured row after the final metadata await in the batch.
+    return statuses.map((publish) => publish())
   }
 
   async inspectSettings(
@@ -498,28 +485,13 @@ export class ExtensionConnectorApprovalOwner {
     host: string,
   ) {
     const approval = this.get(activation, connector, host)
-    const session = approval ? this.session(approval) : undefined
-    const selectedHost = this.hosts.hostById(host)
-    const hostCurrent =
-      selectedHost?.connectionState === 'connected'
-        ? this.hostLifetime(selectedHost)
-        : () => true
-    const observed = approval ? await this.inspect(activation, approval) : undefined
+    const publish = approval ? await this.inspect(activation, approval) : undefined
     const snapshot = this.settings(activation)
     return {
       ...snapshot,
       connectors: snapshot.connectors.map((entry) =>
-        observed && entry.connector === connector && entry.host === host
-          ? this.get(activation, connector, host) === approval &&
-            this.session(approval!) === session &&
-            hostCurrent()
-            ? { ...entry, ...observed }
-            : {
-                ...entry,
-                availability: 'unavailable' as const,
-                reason: 'unavailable' as const,
-                explanation: 'Program access changed; check again',
-              }
+        publish && entry.connector === connector && entry.host === host
+          ? { ...entry, ...publish() }
           : entry,
       ),
     }
@@ -529,25 +501,46 @@ export class ExtensionConnectorApprovalOwner {
     activation: ExtensionActivation,
     approval: ExtensionConnectorApproval,
   ) {
-    const result = await this.resolve(activation, approval)
-    if ('executable' in result)
-      return { availability: 'supported' as const, currentExecutable: result.executable }
+    const session = this.session(approval)
+    const host = this.hosts.hostById(approval.host)
+    const hostCurrent =
+      host?.connectionState === 'connected' ? this.hostLifetime(host) : () => true
+    const current = (): boolean =>
+      this.get(activation, approval.connector, approval.host) === approval &&
+      this.session(approval) === session &&
+      hostCurrent()
+    const result = await this.resolveExecutable(activation, approval, this.inspections)
     const reason =
-      result.reason === 'context-ended' || result.reason === 'capacity'
-        ? 'unavailable'
-        : result.reason
-    return {
-      availability:
-        reason === 'disconnected' ? ('disconnected' as const) : ('unavailable' as const),
-      reason,
-      ...(result.observed ? { currentExecutable: result.observed } : {}),
-      explanation:
-        reason === 'executable-changed'
-          ? 'Program target changed. Review its update in Settings → Extensions.'
-          : reason === 'disconnected'
-            ? 'Host disconnected'
-            : 'Program metadata is unavailable',
-    }
+      'reason' in result
+        ? result.reason === 'context-ended' || result.reason === 'capacity'
+          ? 'unavailable'
+          : result.reason
+        : undefined
+    const observed =
+      'executable' in result
+        ? { availability: 'supported' as const, currentExecutable: result.executable }
+        : {
+            availability:
+              reason === 'disconnected'
+                ? ('disconnected' as const)
+                : ('unavailable' as const),
+            reason,
+            ...(result.observed ? { currentExecutable: result.observed } : {}),
+            explanation:
+              reason === 'executable-changed'
+                ? 'Program target changed. Review its update in Settings → Extensions.'
+                : reason === 'disconnected'
+                  ? 'Host disconnected'
+                  : 'Program metadata is unavailable',
+          }
+    return () =>
+      current()
+        ? observed
+        : {
+            availability: 'unavailable' as const,
+            reason: 'unavailable' as const,
+            explanation: 'Program access changed; check again',
+          }
   }
 
   /** Reload preserves only the exact unchanged declaration; all old work is still revoked. */
@@ -647,6 +640,13 @@ export class ExtensionConnectorApprovalOwner {
         ...(approval
           ? { executable: approval.canonicalExecutable }
           : {
+              reason:
+                host &&
+                !this.disposed &&
+                !this.failure &&
+                this.activations.active.get(activation.installationId) === activation
+                  ? ('unapproved' as const)
+                  : ('unavailable' as const),
               explanation:
                 this.failure ??
                 (host

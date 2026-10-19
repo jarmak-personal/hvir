@@ -283,8 +283,9 @@ it('checks only the requested saved binding in Settings', async () => {
   expect(f.host.realpath.mock.calls[0]?.[0]).toEqual(localPath('/bin/tool'))
 })
 
-it('retains physical metadata capacity through revocation until each host request settles', async () => {
+it('retains passive metadata capacity through session revocation until each host request settles', async () => {
   const f = await fixture()
+  await f.trust()
   const finishes: (() => void)[] = []
   f.host.realpath.mockImplementation(
     () =>
@@ -297,10 +298,10 @@ it('retains physical metadata capacity through revocation until each host reques
   expect(await f.approvals.inspectStatus(f.activation)).toMatchObject([
     { availability: 'unavailable' },
   ])
-  f.approvals.activationEnded('installation')
-  expect(await f.approvals.resolve(f.activation, f.approval)).toEqual({
-    reason: 'capacity',
-  })
+  f.approvals.endSession(f.approval)
+  expect(await f.approvals.inspectStatus(f.activation)).toMatchObject([
+    { reason: 'unavailable' },
+  ])
   expect(finishes).toHaveLength(4)
   finishes.forEach((finish) => finish())
   await Promise.all(pending)
@@ -469,20 +470,7 @@ it.each([
 ] as const)(
   'repairs %s saved metadata with preserved configuration and consent=%s',
   async (metadata, accepted) => {
-    const base = connectorFixture()
-    base.dispose()
-    const revision = base.activation.revision
-    const f = connectorFixture('application', undefined, undefined, {
-      ...revision,
-      manifest: {
-        ...revision.manifest,
-        connectors: revision.manifest.connectors!.map((entry) => ({
-          ...entry,
-          setup: { executable: 'tool' },
-        })),
-      },
-    })
-    fixtures.push(f)
+    const f = connectionFixture()
     const prior = await f.approve('/saved/launcher')
     f.host.realpath.mockImplementation((path) => {
       if (path.path !== prior.executable) return Promise.resolve(path)
@@ -560,3 +548,176 @@ it.each([
     }
   },
 )
+
+function connectionFixture() {
+  const base = connectorFixture()
+  base.dispose()
+  const revision = base.activation.revision
+  const f = connectorFixture('application', undefined, undefined, {
+    ...revision,
+    manifest: {
+      ...revision.manifest,
+      connectors: revision.manifest.connectors!.map((entry) => ({
+        ...entry,
+        setup: { executable: 'tool' },
+      })),
+    },
+  })
+  fixtures.push(f)
+  return f
+}
+
+it('admits execution while passive metadata is saturated', async () => {
+  const f = await fixture()
+  const finishes: (() => void)[] = []
+  f.host.realpath.mockImplementation(() =>
+    finishes.length < 4
+      ? new Promise((resolve) =>
+          finishes.push(() => resolve(localPath('/versions/A/tool'))),
+        )
+      : Promise.resolve(localPath('/versions/A/tool')),
+  )
+  const pending = Array.from({ length: 4 }, () => f.approvals.inspectStatus(f.activation))
+  try {
+    expect(finishes).toHaveLength(4)
+    expect(await f.approvals.inspectStatus(f.activation)).toMatchObject([
+      { reason: 'unavailable' },
+    ])
+    expect(await f.execution.execute(f.caller, f.input)).toMatchObject({
+      outcome: 'completed',
+    })
+    expect(f.finiteExec.tryExec).toHaveBeenCalledWith(
+      '/versions/A/tool',
+      expect.anything(),
+      expect.anything(),
+    )
+  } finally {
+    finishes.forEach((finish) => finish())
+    await Promise.all(pending)
+  }
+})
+
+it('retains active resolution slots after Connect cancellation until metadata settles', async () => {
+  const f = connectionFixture()
+  const approval = await f.approve()
+  const finishes: (() => void)[] = []
+  f.host.realpath.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finishes.push(() => resolve(localPath(approval.canonicalExecutable)))
+      }),
+  )
+  const choose = vi.fn(() => Promise.resolve(undefined)),
+    publish = vi.fn()
+  const connection = new ExtensionConnectorConnectionOwner(
+    new RendererResourceScopes(),
+    () => true,
+    f.authority,
+    f.approvals,
+    { folders: ['/installed'], choose },
+    publish,
+  )
+  const request = (signal: AbortSignal) =>
+    connection.request(
+      f.activation,
+      { id: 1, generation: 1 },
+      () => undefined,
+      signal,
+      () => true,
+    )
+  try {
+    for (let index = 0; index < 4; index++) {
+      const controller = new AbortController()
+      const pending = request(controller.signal)
+      await vi.waitFor(() => expect(finishes).toHaveLength(index + 1))
+      controller.abort()
+      expect((await pending).connections[0]?.outcome).toBe('unavailable')
+    }
+    expect((await request(f.controller.signal)).connections[0]?.outcome).toBe(
+      'unavailable',
+    )
+    expect(finishes).toHaveLength(4)
+    expect(choose).not.toHaveBeenCalled()
+    expect(publish).not.toHaveBeenCalled()
+    f.host.realpath.mockResolvedValue(localPath(approval.canonicalExecutable))
+    expect(await f.approvals.inspectStatus(f.activation)).toMatchObject([
+      { availability: 'supported' },
+    ])
+    finishes.forEach((finish) => finish())
+    await vi.waitFor(async () =>
+      expect((await request(f.controller.signal)).connections[0]?.outcome).toBe(
+        'connected',
+      ),
+    )
+    expect(f.write).toHaveBeenCalledTimes(1)
+  } finally {
+    finishes.forEach((finish) => finish())
+    connection.dispose()
+  }
+})
+
+it('distinguishes missing permission from unknown context, state and metadata', async () => {
+  const f = connectorFixture('workspace')
+  fixtures.push(f)
+  expect(await f.approvals.inspectStatus(f.activation, 'remote')).toMatchObject([
+    { reason: 'unapproved' },
+  ])
+  expect(await f.approvals.inspectStatus(f.activation)).toMatchObject([
+    { reason: 'unavailable' },
+  ])
+  const approval = await f.approve()
+  f.host.realpath.mockRejectedValue(new Error('Metadata inaccessible'))
+  expect(await f.approvals.inspectStatus(f.activation, 'remote')).toMatchObject([
+    { reason: 'unavailable' },
+  ])
+  f.disconnect()
+  expect(await f.approvals.inspectStatus(f.activation, 'remote')).toMatchObject([
+    { reason: 'disconnected' },
+  ])
+  f.active.clear()
+  expect(await f.approvals.inspectStatus(f.activation, 'remote')).toMatchObject([
+    { reason: 'unavailable' },
+  ])
+  expect(f.approvals.get(f.activation, approval.connector, approval.host)).toBeUndefined()
+  const broken = connectorFixture()
+  fixtures.push(broken)
+  broken.setState('unreadable')
+  await broken.approvals.start()
+  expect(await broken.approvals.inspectStatus(broken.activation)).toMatchObject([
+    { reason: 'unavailable' },
+  ])
+})
+
+it('does not publish a later row revoked before its metadata turn', async () => {
+  const f = await fixture()
+  Object.assign(f.activation.revision.manifest, {
+    connectors: [
+      ...f.activation.revision.manifest.connectors!,
+      { ...f.approval.declaration, id: 'other' },
+    ],
+  })
+  const other = await f.approvals.prepare(
+    { ...f.approval, connector: 'other' },
+    () => undefined,
+  )
+  await f.approvals.approve(other.token)
+  f.host.realpath.mockClear()
+  let finish!: () => void
+  f.host.realpath.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = () => resolve(localPath('/versions/A/tool'))
+      }),
+  )
+  const pending = f.approvals.inspectStatus(f.activation)
+  await f.approvals.revoke(f.activation.installationId, 'other', 'local')
+  finish()
+  expect((await pending)[1]).toMatchObject({
+    connector: 'other',
+    availability: 'unavailable',
+  })
+  expect(f.host.realpath).toHaveBeenCalledOnce()
+  expect((await f.approvals.inspectStatus(f.activation))[1]).toMatchObject({
+    reason: 'unapproved',
+  })
+})

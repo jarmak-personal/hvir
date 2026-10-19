@@ -18,7 +18,9 @@ reports `executable-changed`; unknown metadata remains unavailable. Trusted Sett
 saved and current targets and repairs the exact selected host, launcher and configuration through
 fresh consent. Guests receive bounded reason and host information, without private configuration.
 Inspection has finite physical admission; revoked or expired requests retain their slots until
-underlying metadata work settles. There is no polling, executable probe or implicit connection.
+underlying metadata work settles. Passive inspection and active target selection have separate
+admission so status cannot exhaust active selection capacity. There is no polling, executable
+probe or implicit connection.
 
 An ordinary human may explicitly choose “Trust updates at this launcher until hvir quits.” The
 native approval owner holds this choice only in memory. It binds installation, connector, complete
