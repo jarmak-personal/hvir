@@ -1,7 +1,10 @@
 # Agent access
 
-In Settings > Extensions turn on Agent access. The default is Allow actions within approved
-access. Enable agent access separately for each extension and enable that extension normally.
+In Settings > Extensions, app-wide Agent access appears above package configuration and
+starts off. Turn it on to start the local endpoint. The default authorization policy is
+Allow actions within approved access. Enable agent access separately for each extension and enable that extension normally.
+An enabled per-extension checkbox does not start the endpoint: its nearby status reports
+when app-wide access is off. Neither control enables the other.
 Per-installation consent defaults to off, including installations without a saved consent
 field, and is written by the same authoritative extension-state writer. A second
 instance without that writer cannot change consent or invoke extension actions, but can still

@@ -15,3 +15,15 @@ Declare at most 16 named actions within the complete 32 KiB manifest. Discovery 
 Input: `{action:'hello',input?}` targets only this installation's declared action. Returns that action's bounded value, or a bridge refusal/error if admission or execution fails. The action's inputSchema is its own contract; omit input when the action permits it rather than inventing an empty object. In an action handler, send `{kind:'request',id:'child-1',capability:'actions.invoke',actionId:invocation.id,input:{action:'child',input:{}}}` and correlate the request result separately from the parent's action-result.
 
 Each child checks its own agents flag, input and declared effects against the exact inherited workspace/session and current access lifetime. A non-destructive parent does not authorize a destructive child; configured destructive confirmation applies to the child's exact input/effects. Invalid input or agents:false refuses before a confirmation prompt. A local agent-opened view retains its restricted provenance and global/per-extension access lifetime after its opening command completes and the CLI exits normally; turning that access off revokes the view. Active commands/actions still cancel with their originating request. Local human and agent views/handlers may coexist as separate records without sharing authority. SSH-forwarded callers retain their host/connection restrictions and cannot reuse another origin's view. See `guide bridge` for request deadlines and uncertain effects.
+
+Malformed action JSON, input beyond 8 KiB, and a declared input-schema mismatch return
+`ok:false` with exit 64 before destructive confirmation or dispatch. Authority/availability
+refusals and explicit action errors return 69; recognized request interruption returns 75.
+Error text never determines the classification. An action-result `error` is the existing
+channel for a definite refusal. Partial or uncertain domain reports may instead be structured
+values that preserve their operation identity and effect information.
+
+Exit 0 with `ok:true` means the invocation returned a value. Core leaves that value opaque:
+fields such as `outcome:"refused"` do not change command success or prove domain success.
+Consumers interpret the declared domain result; they must not automatically retry an uncertain
+operation. Interruption and failure do not promise rollback.

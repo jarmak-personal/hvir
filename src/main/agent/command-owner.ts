@@ -12,6 +12,8 @@ import {
   type ParsedAgentCommand,
 } from '../../shared/agent/commands'
 import { hostPath, joinHostPath, type HostPath } from '../../shared/host-path'
+import { validateActionInput } from '../../shared/extensions/action-input'
+import { EXTENSION_LIMITS } from '../../shared/extensions/contract'
 import type { ExtensionContextOwner } from '../extensions/context-owner'
 import type { ExtensionActivation } from '../extensions/activation'
 import type {
@@ -235,14 +237,15 @@ export class AgentWorkbenchCommandOwner {
         return agentOutput({ report })
       }
       if (command.name === 'open') {
-        if (!target.root || !target.value.workspace || !command.flags['path'])
-          throw new Error('Document opening requires an explicit workspace and --path')
+        if (!target.root || !target.value.workspace)
+          throw new Error('Document opening requires an explicit workspace')
         const host = this.ports.host(target.root.hostId)
         if (!host || host.connectionState !== 'connected')
           throw new Error('Document host is disconnected')
-        const requested = command.flags['path'].startsWith('/')
-          ? hostPath(target.root.hostId, command.flags['path'])
-          : joinHostPath(target.root, command.flags['path'])
+        const requestedPath = command.flags['path']!
+        const requested = requestedPath.startsWith('/')
+          ? hostPath(target.root.hostId, requestedPath)
+          : joinHostPath(target.root, requestedPath)
         const path = await authorizeAgentDocument(host, target.root, requested, current)
         current()
         this.ports.openDocument(owner, {
@@ -254,8 +257,7 @@ export class AgentWorkbenchCommandOwner {
           document: { workspace: target.value.workspace.id, path, opened: true },
         })
       }
-      const installation = command.flags['extension']
-      if (!installation) throw new Error('Select --extension INSTALLATION')
+      const installation = command.flags['extension']!
       this.ports.access.assertExtension(installation)
       const activation = this.ports.activeInstallation(installation)
       if (!activation) throw new Error('Extension is disabled or unavailable')
@@ -271,8 +273,7 @@ export class AgentWorkbenchCommandOwner {
           throw new Error('Extension activation was revoked')
       }
       if (command.name === 'view') {
-        const view = command.flags['view']
-        if (!view) throw new Error('Select --view VIEW')
+        const view = command.flags['view']!
         const opened = await this.ports.openView(
           owner,
           installation,
@@ -307,9 +308,19 @@ export class AgentWorkbenchCommandOwner {
         return agentOutput({ untrusted: true, declaration: action, installation })
       if (command.name !== 'run') throw new Error('Command is unavailable')
       const serialized = command.flags['input'] ?? 'null'
-      if (Buffer.byteLength(serialized) > 8192)
-        throw new Error('Action input exceeds its bound')
-      const input: unknown = JSON.parse(serialized)
+      if (Buffer.byteLength(serialized) > EXTENSION_LIMITS.actionBytes)
+        return agentFailure('invalid-input', 'Action input exceeds its bound', 64)
+      let input: unknown
+      try {
+        input = JSON.parse(serialized)
+      } catch {
+        return agentFailure('invalid-input', 'Action --input must be valid JSON', 64)
+      }
+      try {
+        if (action.inputSchema) validateActionInput(input, action.inputSchema)
+      } catch (reason) {
+        return agentFailure('invalid-input', message(reason), 64)
+      }
       // Input/context are captured once, before confirmation; the decision is never a caller claim.
       const authorization = await this.ports.access.authorizeAction(
         {
@@ -444,8 +455,6 @@ export class AgentWorkbenchCommandOwner {
       .digest('hex')
       .slice(0, 24)
     const limit = Number(command.flags['limit'] ?? AGENT_LIMITS.pageSize)
-    if (!Number.isInteger(limit) || limit < 1 || limit > AGENT_LIMITS.pageSize)
-      throw new Error('Page limit must be 1–32')
     let offset = 0
     if (command.flags['cursor']) {
       const [signature, index] = command.flags['cursor'].split(':')

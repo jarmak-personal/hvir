@@ -168,17 +168,23 @@ export class ExtensionGuestOwner {
     this.scopes.assertCurrent(owner)
     await this.activations.assertWritable()
     admit()
+    if (this.disposed) throw new Error('Extension views are unavailable')
     const activation = this.activations.active.get(installationId)
-    const contribution =
-      options.updater && activation?.revision.manifest.updater
-        ? {
-            id: 'updater',
-            title: `${activation.revision.manifest.name} updates`,
-            entry: activation.revision.manifest.updater,
-          }
-        : activation?.revision.manifest.views.find((entry) => entry.id === contributionId)
-    if (!activation || !contribution || this.disposed)
+    if (!activation)
       throw new Error('Enable this extension before opening its declared view')
+    const contribution = options.updater
+      ? activation.revision.manifest.updater && {
+          id: 'updater',
+          title: `${activation.revision.manifest.name} updates`,
+          entry: activation.revision.manifest.updater,
+        }
+      : activation.revision.manifest.views.find((entry) => entry.id === contributionId)
+    if (!contribution)
+      throw new Error(
+        options.updater
+          ? 'This extension declares no updater'
+          : `This extension declares no view named ${contributionId}`,
+      )
     const context = options.updater
       ? undefined
       : this.contexts.admit(owner, options.context ?? { surface: 'viewer' })

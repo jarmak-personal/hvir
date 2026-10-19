@@ -187,6 +187,7 @@ export function ExtensionsSettings({
             package.
           </p>
         ) : null}
+        <AgentAccessSettings />
         <DeliveryRecoverySettings />
         {selected ? (
           <div className="extension-configuration-layout">
@@ -288,7 +289,6 @@ export function ExtensionsSettings({
             </button>
           </div>
         </details>
-        <AgentAccessSettings />
       </div>
       {removing ? (
         <ConfirmationDialog
