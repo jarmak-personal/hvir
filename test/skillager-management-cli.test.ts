@@ -135,7 +135,7 @@ function fixture() {
     alive: true,
     visible: true,
     delay: undefined as undefined | ((milliseconds: number) => Promise<void>),
-    request(capability: string, input: Record<string, unknown>) {
+    request(capability: string, input: Record<string, unknown>): Promise<unknown> {
       calls.push({ capability, input })
       if (capability === 'connector.execute')
         return Promise.resolve(native.complete(execution as object, stdout))
@@ -271,16 +271,51 @@ it.each([
     expect(f.calls.filter((call) => call.input['release'])).toHaveLength(3)
   },
 )
-it('retains descriptor when completed native output is malformed, oversized, or admission is revoked', async () => {
-  for (const output of ['{', 'é'.repeat(140000)]) {
+it.each(['oversized', 'stdout failure', 'stderr failure'])(
+  'guides submitted operation reconciliation on %s, retaining its descriptor and releasing once',
+  async (failure) => {
     const f = fixture()
-    f.stdout(output)
+    if (failure === 'oversized') f.stdout('é'.repeat(140000))
+    else {
+      const request = f.client.request.bind(f.client)
+      f.client.request = (capability, input) => {
+        if (input['stream'] === failure.split(' ')[0]) {
+          f.calls.push({ capability, input })
+          return Promise.reject(new Error('Receipt no longer available'))
+        }
+        return request(capability, input)
+      }
+    }
     await expect(
       f.io.run(['library', 'init'], { action: 'initialize-library' }),
-    ).rejects.toThrow()
-    expect(f.io.pending).toMatchObject({ action: 'initialize-library' })
+    ).rejects.toThrow('use the public Skillager CLI and reconcile explicitly')
+    expect(f.io.pending).toMatchObject({
+      action: 'initialize-library',
+      state: 'uncertain',
+    })
+    expect(
+      f.calls.filter((call) => call.capability === 'connector.execute'),
+    ).toHaveLength(1)
     expect(f.calls.filter((call) => call.input['release'])).toHaveLength(1)
-  }
+  },
+)
+it('keeps a read-only bound refusal truthful without creating a submitted operation', async () => {
+  const f = fixture()
+  f.stdout('é'.repeat(140000))
+  await expect(f.io.run(['library', 'status', '--json'])).rejects.toThrow(
+    'Complete connector output exceeds the supported bound',
+  )
+  expect(f.io.pending).toBeUndefined()
+  expect(f.calls.filter((call) => call.input['release'])).toHaveLength(1)
+})
+it('retains descriptor when completed native output is malformed or admission is revoked', async () => {
+  const malformed = fixture()
+  malformed.stdout('{')
+  await expect(
+    malformed.io.run(['library', 'init'], { action: 'initialize-library' }),
+  ).rejects.toThrow()
+  expect(malformed.io.pending).toMatchObject({ action: 'initialize-library' })
+  expect(malformed.calls.filter((call) => call.input['release'])).toHaveLength(1)
   const f = fixture()
   const request = f.client.request.bind(f.client)
   f.client.request = (capability, input) => {

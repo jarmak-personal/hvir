@@ -5,6 +5,7 @@ export interface PackageClient {
   request(capability: string, input?: unknown, signal?: AbortSignal): Promise<unknown>
   dispose(): void
   readonly signal: AbortSignal
+  readonly alive: boolean
 }
 interface ActionClient extends PackageClient {
   reply(value?: unknown, error?: string): Promise<boolean>

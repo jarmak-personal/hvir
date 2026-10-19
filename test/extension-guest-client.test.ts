@@ -88,7 +88,8 @@ it('bounds all outbound messages through repeated hide/resume and sequential sho
       await vi.advanceTimersByTimeAsync(0)
       if (!settled) await vi.advanceTimersByTimeAsync(1050)
       await expect(reply).resolves.toBe(true)
-      action.dispose()
+      expect(action.alive).toBe(false)
+      expect(action.signal.aborted).toBe(true)
     }
     const submitted = new Set(
       f.sent.filter((message) => message.kind === 'request').map((message) => message.id),
@@ -406,3 +407,121 @@ it('disposal rejects queued action completion while flushing only submitted canc
   expect(f.client.signal.aborted).toBe(true)
   expect(vi.getTimerCount()).toBe(0)
 })
+
+it('retires a physically replied action before later queued work while preserving its deduplicated reply and unrelated reads', async () => {
+  vi.useFakeTimers()
+  const f = fixture()
+  try {
+    f.receive({ kind: 'context', context: { visible: true } })
+    await consumeMessages(f, f.client, 24)
+    for (const id of ['finished', 'sibling'])
+      f.receive({ kind: 'action', invocation: { id } })
+    const action = f.client.forAction({ id: 'finished' }),
+      sibling = f.client.forAction({ id: 'sibling' })
+    const reply = action.reply({ complete: true })
+    const abandoned = action.request('source.read')
+    const rejected = expect(abandoned).rejects.toThrow('action ended')
+    const ordinary = f.client.request('presentation.read'),
+      other = sibling.request('source.read')
+    await vi.advanceTimersByTimeAsync(1049)
+    expect(action.alive).toBe(true)
+    expect(action.signal.aborted).toBe(false)
+    expect(f.sent).toEqual([])
+    await vi.advanceTimersByTimeAsync(1)
+    await expect(reply).resolves.toBe(true)
+    await rejected
+    expect(action.reply({ complete: false })).toBe(reply)
+    expect(action.alive).toBe(false)
+    expect(action.signal.aborted).toBe(true)
+    expect(() => f.client.forAction({ id: 'finished' })).toThrow('admitted')
+    action.dispose()
+    action.dispose()
+    expect(f.sent.map((message) => message.kind)).toEqual([
+      'action-result',
+      'request',
+      'request',
+    ])
+    expect(f.sent.some((message) => message.actionId === 'finished')).toBe(false)
+    for (const request of f.sent.filter((message) => message.kind === 'request'))
+      f.receive({ kind: 'result', id: request.id, ok: true, value: 'current' })
+    await expect(ordinary).resolves.toBe('current')
+    await expect(other).resolves.toBe('current')
+    expect(sibling.alive).toBe(true)
+    expect(f.client.alive).toBe(true)
+    expect(vi.getTimerCount()).toBe(0)
+  } finally {
+    f.client.dispose()
+  }
+})
+
+it('ignores only an excess invocation while existing actions and ordinary work remain usable', async () => {
+  const f = fixture()
+  try {
+    f.receive({ kind: 'context', context: { visible: true } })
+    for (let index = 0; index < 4; index++)
+      f.receive({ kind: 'action', invocation: { id: `action-${index}` } })
+    const first = f.client.forAction({ id: 'action-0' }),
+      sibling = f.client.forAction({ id: 'action-1' })
+    const ordinary = f.client.request('presentation.read'),
+      other = sibling.request('source.read')
+    const settled = Promise.allSettled([ordinary, other])
+    f.receive({ kind: 'action', invocation: { id: 'excess' } })
+    expect(() => f.client.forAction({ id: 'excess' })).toThrow('admitted')
+    expect(f.client.alive).toBe(true)
+    expect(f.client.signal.aborted).toBe(false)
+    expect(first.alive && sibling.alive).toBe(true)
+    await Promise.resolve()
+    for (const request of f.sent.filter((message) => message.kind === 'request'))
+      f.receive({ kind: 'result', id: request.id, ok: true, value: 'current' })
+    expect(await settled).toEqual([
+      { status: 'fulfilled', value: 'current' },
+      { status: 'fulfilled', value: 'current' },
+    ])
+    await expect(first.reply({ complete: true })).resolves.toBe(true)
+    f.receive({ kind: 'action', invocation: { id: 'next' } })
+    expect(f.client.forAction({ id: 'next' }).alive).toBe(true)
+    expect(sibling.signal.aborted).toBe(false)
+    expect(f.sent.some((message) => message.kind === 'cancel')).toBe(false)
+  } finally {
+    f.client.dispose()
+  }
+})
+
+it.each(['cancelled', 'throw'])(
+  'preserves reply identity and scope isolation when its physical send synchronously %s',
+  async (event) => {
+    let duringSend: (() => void) | undefined
+    const f = fixture(false, (message) => {
+      if (message.kind === 'action-result') duringSend?.()
+    })
+    try {
+      for (const id of ['first', 'sibling'])
+        f.receive({ kind: 'action', invocation: { id } })
+      const action = f.client.forAction({ id: 'first' }),
+        sibling = f.client.forAction({ id: 'sibling' })
+      let duplicate: Promise<boolean> | undefined
+      duringSend = () => {
+        duplicate = action.reply({ duplicate: true })
+        if (event === 'throw') throw new Error('transport unavailable')
+        f.receive({ kind: 'action-cancelled', id: 'first' })
+      }
+      const reply = action.reply({ complete: true })
+      if (event === 'throw') {
+        await expect(reply).rejects.toThrow('transport unavailable')
+        expect(action.alive).toBe(true)
+        expect(action.signal.aborted).toBe(false)
+        f.receive({ kind: 'action-cancelled', id: 'first' })
+      } else await expect(reply).resolves.toBe(true)
+      expect(duplicate).toBe(reply)
+      expect(action.reply()).toBe(reply)
+      expect(action.alive).toBe(false)
+      expect(action.signal.aborted).toBe(true)
+      action.dispose()
+      expect(sibling.alive).toBe(true)
+      expect(f.client.alive).toBe(true)
+      expect(f.sent.filter((message) => message.kind === 'action-result')).toHaveLength(1)
+    } finally {
+      f.client.dispose()
+    }
+  },
+)

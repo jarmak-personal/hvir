@@ -36,10 +36,8 @@ export function guestClient(bridge, clock = globalThis) {
         )
     }
     if (message.kind === 'action' && !actions.has(message.invocation.id)) {
-      if (actions.size >= 4) {
-        dispose()
-        return
-      }
+      // Bound local obligations; main owns admission and eventual cancellation.
+      if (actions.size >= 4) return
       actions.set(message.invocation.id, { controller: new AbortController() })
     }
     if (message.kind === 'action-cancelled') finishAction(message.id, false)
@@ -97,6 +95,8 @@ export function guestClient(bridge, clock = globalThis) {
           if (entry.message.kind === 'request')
             pending.get(entry.message.id).submitted = true
           bridge.send(entry.message)
+          if (entry.message.kind === 'action-result')
+            finishAction(entry.message.id, false)
           entry.resolve(true)
         } catch (error) {
           entry.reject(error)

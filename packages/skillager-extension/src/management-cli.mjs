@@ -66,13 +66,22 @@ export function managementCli(
           throw new Error(
             `Operation ${result.outcome}; complete native effects are unknown. Reconcile this operation explicitly.`,
           )
-        const output = await readConnectorOutput(client, result, {
+        let output, error
+        try {
+          output = await readConnectorOutput(client, result, {
             maxBytes: MANAGEMENT_LIMITS.responseBytes,
-          }),
+          })
           error = await readConnectorOutput(client, result, {
             stream: 'stderr',
             maxBytes: MANAGEMENT_LIMITS.responseBytes,
           })
+        } catch (reason) {
+          if (!operation) throw reason
+          throw new Error(
+            'Complete operation output could not be read; use the public Skillager CLI and reconcile explicitly.',
+            { cause: reason },
+          )
+        }
         if (operation) retainOutput({ code: result.code, stdout: output, stderr: error })
         current()
         if (!validateCompletion && result.code !== 0)
